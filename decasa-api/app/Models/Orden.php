@@ -1,0 +1,78 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class Orden extends Model
+{
+    protected $table = 'ordenes';
+
+    protected $fillable = [
+        'cliente_id',
+        'vendedor_id',
+        'tienda_id',
+        'canal',
+        'estado',
+        'valor_total',
+        'anticipo_pct',
+        'notas',
+        'factura_foto_url',
+        'firma_url',
+        'direccion_envio',
+        'ciudad_envio',
+    ];
+
+    protected function casts(): array
+    {
+        return [
+            'valor_total'  => 'decimal:2',
+            'anticipo_pct' => 'decimal:2',
+        ];
+    }
+
+    public function cliente()
+    {
+        return $this->belongsTo(Cliente::class, 'cliente_id');
+    }
+
+    public function vendedor()
+    {
+        return $this->belongsTo(Usuario::class, 'vendedor_id');
+    }
+
+    public function tienda()
+    {
+        return $this->belongsTo(Tienda::class, 'tienda_id');
+    }
+
+    public function items()
+    {
+        return $this->hasMany(OrdenItem::class, 'orden_id');
+    }
+
+    public function pagos()
+    {
+        return $this->hasMany(Pago::class, 'orden_id');
+    }
+
+    public function totalPagado(): float
+    {
+        return (float) $this->pagos()->sum('monto');
+    }
+
+    public function saldoPendiente(): float
+    {
+        return (float) $this->valor_total - $this->totalPagado();
+    }
+
+    public function despachoItem()
+    {
+        return $this->hasOne(DespachoItem::class, 'orden_id');
+    }
+
+    public function ediciones()
+    {
+        return $this->hasMany(OrdenEdicion::class, 'orden_id')->orderByDesc('created_at');
+    }
+}

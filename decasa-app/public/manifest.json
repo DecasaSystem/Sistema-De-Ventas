@@ -1,0 +1,26 @@
+{
+  "name": "Decasa — Gestión de Ventas",
+  "short_name": "Decasa",
+  "description": "Sistema de gestión de ventas e inventario para Decasa",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#2563eb",
+  "background_color": "#1B4BFF",
+  "lang": "es",
+  "icons": [
+    {
+      "src": "/logo_192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/logo_512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["business", "productivity"]
+}

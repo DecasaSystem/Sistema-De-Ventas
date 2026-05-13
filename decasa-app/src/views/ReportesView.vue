@@ -1,0 +1,608 @@
+﻿<script setup>
+import { ref, onMounted, onBeforeUnmount, nextTick, computed } from 'vue'
+import { useRouter } from 'vue-router'
+import { Chart } from 'chart.js/auto'
+
+import {
+  getPanel, getTendencia, getStatsVendedores,
+  getStatsTiendas, getProductos, getCartera,
+} from '@/api/stats'
+import api from '@/api'
+import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
+import BadgeEstado from '@/components/common/BadgeEstado.vue'
+import { useAuthStore } from '@/stores/auth'
+import { StarIcon } from '@heroicons/vue/24/solid'
+
+const router = useRouter()
+const auth = useAuthStore()
+
+// ── Filtros globales ──────────────────────────────────────────────────────────
+const presets = [
+  { label: 'Hoy',      value: 'hoy' },
+  { label: 'Semana',   value: 'semana' },
+  { label: 'Mes',      value: 'mes' },
+  { label: 'Mes ant.', value: 'mes_anterior' },
+  { label: 'Año',      value: 'anio' },
+]
+const periodoActivo = ref('mes')
+const modoCustom    = ref(false)
+const desdeCustom   = ref('')
+const hastaCustom   = ref('')
+const tiendaFiltro  = ref('')
+const tiendas       = ref([])
+
+function paramsFiltro() {
+  const p = modoCustom.value && desdeCustom.value && hastaCustom.value
+    ? { desde: desdeCustom.value, hasta: hastaCustom.value }
+    : { periodo: periodoActivo.value }
+  if (tiendaFiltro.value) p.tienda_id = tiendaFiltro.value
+  return p
+}
+function selPreset(v) { periodoActivo.value = v; modoCustom.value = false; cargarTodo() }
+function aplicarCustom() { if (desdeCustom.value && hastaCustom.value) { modoCustom.value = true; cargarTodo() } }
+
+// ── Tabs ──────────────────────────────────────────────────────────────────────
+const todosTabs = [
+  { id: 'resumen',     label: 'Resumen' },
+  { id: 'vendedores',  label: 'Vendedores' },
+  { id: 'tiendas',     label: 'Tiendas' },
+  { id: 'productos',   label: 'Productos' },
+  { id: 'cartera',     label: 'Cartera' },
+  { id: 'produccion',  label: 'Producción' },
+]
+
+const tabsVisibles = computed(() => {
+  if (auth.isSupervisor) return todosTabs
+  return todosTabs.filter(t => ['resumen', 'productos', 'cartera', 'produccion'].includes(t.id))
+})
+const tabActivo = ref('resumen')
+
+async function switchTab(id) {
+  tabActivo.value = id
+  await nextTick()
+  rebuildCharts(id)
+}
+
+// ── Datos ─────────────────────────────────────────────────────────────────────
+const loading    = ref(false)
+const panel      = ref(null)
+const tendencia  = ref(null)
+const vendedores = ref([])
+const tiendasData = ref([])
+const productos  = ref([])
+const cartera    = ref([])
+const retrasos   = ref([])
+
+// ── Canvas refs + instancias ──────────────────────────────────────────────────
+const lineCanvas  = ref(null)
+const vendCanvas  = ref(null)
+const tiendCanvas = ref(null)
+const donaCanvas  = ref(null)
+let lineChart = null
+let vendChart = null
+let tiendChart = null
+let donaChart  = null
+
+// ── Formateo ──────────────────────────────────────────────────────────────────
+function cop(n) {
+  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n ?? 0)
+}
+function copCompact(v) {
+  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`
+  if (v >= 1_000)     return `$${(v / 1_000).toFixed(0)}K`
+  return `$${v}`
+}
+function varColor(pct) {
+  if (pct === null || pct === undefined) return 'text-gray-400'
+  return pct >= 0 ? 'text-green-600' : 'text-red-500'
+}
+function varLabel(pct) {
+  if (pct === null || pct === undefined) return 'Sin datos anteriores'
+  return (pct >= 0 ? '↑ ' : '↓ ') + Math.abs(pct) + '% vs período anterior'
+}
+function diasColor(d) {
+  if (d > 15) return 'bg-red-100 text-red-700'
+  if (d > 7)  return 'bg-orange-100 text-orange-700'
+  return 'bg-yellow-100 text-yellow-700'
+}
+function retrasoColor(d) {
+  if (d > 7)  return 'bg-red-100 text-red-700'
+  if (d >= 3) return 'bg-orange-100 text-orange-700'
+  return 'bg-yellow-100 text-yellow-700'
+}
+
+// ── Carga de datos ────────────────────────────────────────────────────────────
+async function cargarTodo() {
+  loading.value = true
+  try {
+    const p = paramsFiltro()
+    const promises = [
+      getPanel(p),
+      getTendencia(p),
+      auth.isSupervisor ? getStatsVendedores(p) : Promise.resolve({ data: [] }),
+      auth.isSupervisor ? getStatsTiendas(p) : Promise.resolve({ data: [] }),
+      getProductos({ ...p, limit: 10 }),
+      getCartera(p),
+      api.get('/reportes/retrasos'),
+    ]
+    const [panelRes, tendRes, vendRes, tiendRes, prodRes, cartRes, retRes] = await Promise.all(promises)
+    panel.value       = panelRes.data
+    tendencia.value   = tendRes.data
+    vendedores.value  = vendRes.data
+    tiendasData.value = tiendRes.data
+    productos.value   = prodRes.data
+    cartera.value     = cartRes.data
+    retrasos.value    = retRes.data
+  } finally {
+    loading.value = false
+  }
+  await nextTick()
+  rebuildCharts(tabActivo.value)
+}
+
+function rebuildCharts(tab) {
+  if (tab === 'resumen')    buildLine()
+  if (tab === 'vendedores') buildVend()
+  if (tab === 'tiendas')    buildTiend()
+  if (tab === 'productos')  buildDona()
+}
+
+// ── Chart: línea tendencia (Resumen) ─────────────────────────────────────────
+function buildLine() {
+  if (lineChart) { lineChart.destroy(); lineChart = null }
+  if (!lineCanvas.value || !tendencia.value) return
+  const { labels, cobrado, ordenes_valor } = tendencia.value
+  lineChart = new Chart(lineCanvas.value, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Cobrado', data: cobrado, borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,0.08)', fill: true, tension: 0.4, pointRadius: labels.length > 20 ? 0 : 3 },
+        { label: 'Valor órdenes', data: ordenes_valor, borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.07)', fill: true, tension: 0.4, pointRadius: labels.length > 20 ? 0 : 3 },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } }, tooltip: { callbacks: { label: (c) => ` ${cop(c.raw)}` } } },
+      scales: {
+        x: { ticks: { font: { size: 10 }, maxTicksLimit: 8 }, grid: { display: false } },
+        y: { ticks: { callback: copCompact, font: { size: 10 } }, grid: { color: '#f3f4f6' } },
+      },
+    },
+  })
+}
+
+// ── Chart: barras horizontales vendedores ─────────────────────────────────────
+function buildVend() {
+  if (vendChart) { vendChart.destroy(); vendChart = null }
+  if (!vendCanvas.value || !vendedores.value.length) return
+  const top = vendedores.value.slice(0, 8)
+  vendChart = new Chart(vendCanvas.value, {
+    type: 'bar',
+    data: {
+      labels: top.map(v => v.nombre.length > 18 ? v.nombre.slice(0, 16) + '…' : v.nombre),
+      datasets: [{ label: 'Ingresos', data: top.map(v => v.ingresos), backgroundColor: '#2563eb', borderRadius: 4 }],
+    },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => ` ${cop(c.raw)}` } } },
+      scales: { x: { ticks: { callback: copCompact, font: { size: 10 } }, grid: { color: '#f3f4f6' } }, y: { ticks: { font: { size: 11 } }, grid: { display: false } } },
+    },
+  })
+}
+
+// ── Chart: barras por tienda ──────────────────────────────────────────────────
+const TIENDA_COLORS = ['#2563eb', '#16a34a', '#d97706', '#dc2626', '#7c3aed', '#0891b2']
+function buildTiend() {
+  if (tiendChart) { tiendChart.destroy(); tiendChart = null }
+  if (!tiendCanvas.value || !tiendasData.value.length) return
+  tiendChart = new Chart(tiendCanvas.value, {
+    type: 'bar',
+    data: {
+      labels: tiendasData.value.map(t => t.nombre),
+      datasets: [{ label: 'Ingresos', data: tiendasData.value.map(t => t.ingresos), backgroundColor: tiendasData.value.map((_, i) => TIENDA_COLORS[i % TIENDA_COLORS.length]), borderRadius: 6 }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => ` ${cop(c.raw)}` } } },
+      scales: { x: { ticks: { font: { size: 11 } }, grid: { display: false } }, y: { ticks: { callback: copCompact, font: { size: 10 } }, grid: { color: '#f3f4f6' } } },
+    },
+  })
+}
+
+// ── Chart: dona por categoría (Productos) ─────────────────────────────────────
+function buildDona() {
+  if (donaChart) { donaChart.destroy(); donaChart = null }
+  if (!donaCanvas.value || !productos.value.length) return
+  // Agrupar por categoría
+  const catMap = {}
+  for (const p of productos.value) {
+    const cat = p.categoria || 'Sin categoría'
+    catMap[cat] = (catMap[cat] || 0) + Number(p.valor_total)
+  }
+  const labels = Object.keys(catMap)
+  const data   = Object.values(catMap)
+  donaChart = new Chart(donaCanvas.value, {
+    type: 'doughnut',
+    data: {
+      labels,
+      datasets: [{ data, backgroundColor: TIENDA_COLORS.slice(0, labels.length), borderWidth: 2 }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } }, tooltip: { callbacks: { label: (c) => ` ${cop(c.raw)}` } } },
+    },
+  })
+}
+
+// ── Exportar ──────────────────────────────────────────────────────────────────
+function resuelveFechas() {
+  if (modoCustom.value && desdeCustom.value && hastaCustom.value) {
+    return { desde: desdeCustom.value, hasta: hastaCustom.value }
+  }
+  const hoy = new Date()
+  let desde
+  switch (periodoActivo.value) {
+    case 'hoy':
+      desde = new Date(hoy)
+      break
+    case 'semana':
+      desde = new Date(hoy)
+      desde.setDate(hoy.getDate() - hoy.getDay())
+      break
+    case 'mes':
+      desde = new Date(hoy.getFullYear(), hoy.getMonth(), 1)
+      break
+    case 'mes_anterior': {
+      const primerDiaMesAnt = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1)
+      const ultimoDiaMesAnt = new Date(hoy.getFullYear(), hoy.getMonth(), 0)
+      return {
+        desde: primerDiaMesAnt.toISOString().split('T')[0],
+        hasta: ultimoDiaMesAnt.toISOString().split('T')[0],
+      }
+    }
+    case 'anio':
+      desde = new Date(hoy.getFullYear(), 0, 1)
+      break
+    default:
+      desde = new Date(hoy)
+      desde.setDate(hoy.getDate() - 30)
+  }
+  return { desde: desde.toISOString().split('T')[0], hasta: hoy.toISOString().split('T')[0] }
+}
+
+async function exportar(tipo) {
+  const f = resuelveFechas()
+  const params = new URLSearchParams({
+    tipo,
+    desde: f.desde,
+    hasta: f.hasta,
+    ...(tiendaFiltro.value ? { tienda_id: tiendaFiltro.value } : {}),
+  })
+  try {
+    const res = await api.get(`/reportes/exportar?${params}`, {
+      responseType: 'blob',
+    })
+    const url = window.URL.createObjectURL(new Blob([res.data]))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `decasa_reporte_${tipo}_${f.desde}_${f.hasta}.xlsx`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    window.URL.revokeObjectURL(url)
+  } catch (e) {
+    console.error('Error al exportar:', e)
+  }
+}
+
+onMounted(async () => {
+  const { data } = await api.get('/tiendas')
+  tiendas.value = data
+  cargarTodo()
+})
+onBeforeUnmount(() => {
+  lineChart?.destroy(); vendChart?.destroy(); tiendChart?.destroy(); donaChart?.destroy()
+})
+</script>
+
+<template>
+  <div class="p-4 max-w-3xl mx-auto space-y-4 pb-8">
+
+    <!-- Header -->
+    <h2 class="text-lg font-bold text-gray-800">Reportes</h2>
+
+    <!-- Filtros globales -->
+    <div class="bg-white rounded-xl shadow-sm p-4 space-y-3">
+      <!-- Período -->
+      <div class="flex gap-1.5 flex-wrap">
+        <button v-for="p in presets" :key="p.value"
+          @click="selPreset(p.value)"
+          :class="['px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors',
+            !modoCustom && periodoActivo === p.value
+              ? 'bg-blue-600 text-white border-blue-600'
+              : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400']"
+        >{{ p.label }}</button>
+        <button @click="modoCustom = !modoCustom"
+          :class="['px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors',
+            modoCustom ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300']"
+        >Personalizado</button>
+      </div>
+      <div v-if="modoCustom" class="flex gap-2 items-center">
+        <input v-model="desdeCustom" type="date" class="flex-1 rounded-lg border border-gray-300 px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        <span class="text-gray-400 text-xs">→</span>
+        <input v-model="hastaCustom" type="date" class="flex-1 rounded-lg border border-gray-300 px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        <button @click="aplicarCustom" class="bg-blue-600 text-white text-xs px-3 py-1.5 rounded-lg font-semibold">Aplicar</button>
+      </div>
+      <!-- Tienda (solo supervisor) -->
+      <select v-if="auth.isSupervisor" v-model="tiendaFiltro" @change="cargarTodo"
+        class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+        <option value="">Todas las tiendas</option>
+        <option v-for="t in tiendas" :key="t.id" :value="t.id">{{ t.nombre }}</option>
+      </select>
+    </div>
+
+    <!-- Tabs -->
+    <div class="flex gap-1 overflow-x-auto pb-1">
+      <button v-for="tab in tabsVisibles" :key="tab.id"
+        @click="switchTab(tab.id)"
+        :class="['px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors flex-shrink-0',
+          tabActivo === tab.id ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 shadow-sm hover:bg-gray-50']"
+      >{{ tab.label }}</button>
+    </div>
+
+    <!-- Loading -->
+    <AppSpinner v-if="loading" />
+
+    <template v-else>
+
+      <!-- ══════ TAB: RESUMEN ══════ -->
+      <div v-show="tabActivo === 'resumen'" class="space-y-4">
+
+        <!-- KPI cards -->
+        <div v-if="panel" class="grid grid-cols-2 gap-3">
+          <div class="bg-white rounded-xl shadow-sm p-4 col-span-2">
+            <p class="text-xs text-gray-400 mb-1">Ingresos totales</p>
+            <p class="text-2xl font-bold text-blue-600">{{ cop(panel.ingresos_totales) }}</p>
+            <p :class="['text-xs mt-1', varColor(panel.comparativa?.variacion_pct)]">
+              {{ varLabel(panel.comparativa?.variacion_pct) }}
+            </p>
+          </div>
+          <div class="bg-white rounded-xl shadow-sm p-4">
+            <p class="text-xs text-gray-400 mb-1">Órdenes totales</p>
+            <p class="text-xl font-bold text-gray-800">{{ panel.ordenes_totales }}</p>
+          </div>
+          <div class="bg-white rounded-xl shadow-sm p-4">
+            <p class="text-xs text-gray-400 mb-1">Entregadas</p>
+            <p class="text-xl font-bold text-green-600">{{ panel.ordenes_entregadas }}</p>
+          </div>
+          <div class="bg-white rounded-xl shadow-sm p-4">
+            <p class="text-xs text-gray-400 mb-1">Ticket promedio</p>
+            <p class="text-lg font-bold text-gray-800 leading-tight">{{ cop(panel.ticket_promedio) }}</p>
+          </div>
+          <div class="bg-white rounded-xl shadow-sm p-4">
+            <p class="text-xs text-gray-400 mb-1">Cartera pendiente</p>
+            <p class="text-lg font-bold text-red-500 leading-tight">{{ cop(panel.cartera_pendiente) }}</p>
+          </div>
+          <div class="bg-white rounded-xl shadow-sm p-4">
+            <p class="text-xs text-gray-400 mb-1">Pendientes</p>
+            <p class="text-xl font-bold text-amber-500">{{ panel.ordenes_pendientes }}</p>
+          </div>
+          <div class="bg-white rounded-xl shadow-sm p-4">
+            <p class="text-xs text-gray-400 mb-1">Canceladas</p>
+            <p class="text-xl font-bold text-gray-400">{{ panel.ordenes_canceladas }}</p>
+          </div>
+        </div>
+
+        <!-- Gráfica línea -->
+        <div class="bg-white rounded-xl shadow-sm p-4">
+          <div class="flex items-center justify-between mb-3">
+            <p class="text-sm font-semibold text-gray-700">Tendencia del período</p>
+            <button @click="exportar('ventas')" class="text-xs text-blue-600 font-medium hover:underline">Exportar</button>
+          </div>
+          <div class="h-52">
+            <canvas ref="lineCanvas"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════ TAB: VENDEDORES ══════ -->
+      <div v-show="tabActivo === 'vendedores' && auth.isSupervisor" class="space-y-4">
+
+        <!-- Gráfica horizontal -->
+        <div v-if="vendedores.length" class="bg-white rounded-xl shadow-sm p-4">
+          <p class="text-sm font-semibold text-gray-700 mb-3">Ingresos por vendedor</p>
+          <div :style="{ height: `${Math.min(vendedores.length, 8) * 44 + 20}px` }">
+            <canvas ref="vendCanvas"></canvas>
+          </div>
+        </div>
+
+        <!-- Tabla ranking -->
+        <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+          <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+            <p class="text-sm font-semibold text-gray-700">Ranking vendedores</p>
+            <button @click="exportar('vendedores')" class="text-xs text-blue-600 font-medium hover:underline">Exportar</button>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead class="bg-gray-50 text-xs text-gray-500">
+                <tr>
+                  <th class="px-3 py-2 text-left">#</th>
+                  <th class="px-3 py-2 text-left">Vendedor</th>
+                  <th class="px-3 py-2 text-left">Tienda</th>
+                  <th class="px-3 py-2 text-right">Ingresos</th>
+                  <th class="px-3 py-2 text-right">Órdenes</th>
+                  <th class="px-3 py-2 text-right">Cartera</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-100">
+                <tr v-for="(v, i) in vendedores" :key="v.id"
+                  class="hover:bg-gray-50 cursor-pointer"
+                  @click="router.push({ name: 'usuario-detalle', params: { id: v.id } })">
+                  <td class="px-3 py-2.5">
+                    <span :class="['w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold',
+                      i === 0 ? 'bg-yellow-100 text-yellow-700' :
+                      i === 1 ? 'bg-gray-100 text-gray-600' :
+                      i === 2 ? 'bg-orange-100 text-orange-700' : 'text-gray-400']">
+                      {{ i + 1 }}
+                    </span>
+                  </td>
+                  <td class="px-3 py-2.5 font-medium text-gray-800">{{ v.nombre }}</td>
+                  <td class="px-3 py-2.5 text-gray-500 text-xs">{{ v.tienda }}</td>
+                  <td class="px-3 py-2.5 text-right font-semibold text-blue-600">{{ cop(v.ingresos) }}</td>
+                  <td class="px-3 py-2.5 text-right text-gray-600">{{ v.ordenes_totales }}</td>
+                  <td class="px-3 py-2.5 text-right text-red-500 text-xs">{{ cop(v.cartera_pendiente) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════ TAB: TIENDAS ══════ -->
+      <div v-show="tabActivo === 'tiendas' && auth.isSupervisor" class="space-y-4">
+
+        <!-- Gráfica barras -->
+        <div v-if="tiendasData.length" class="bg-white rounded-xl shadow-sm p-4">
+          <p class="text-sm font-semibold text-gray-700 mb-3">Ingresos por tienda</p>
+          <div class="h-48">
+            <canvas ref="tiendCanvas"></canvas>
+          </div>
+        </div>
+
+        <!-- Cards por tienda -->
+        <div class="grid grid-cols-1 gap-3">
+          <div v-for="(t, i) in tiendasData" :key="t.tienda_id"
+            class="bg-white rounded-xl shadow-sm p-4 border-l-4"
+            :style="{ borderColor: TIENDA_COLORS[i % TIENDA_COLORS.length] }">
+            <div class="flex justify-between items-start mb-3">
+              <div>
+                <p class="font-semibold text-gray-800">{{ t.nombre }}</p>
+                <p v-if="t.ciudad" class="text-xs text-gray-400">{{ t.ciudad }}</p>
+              </div>
+              <p class="text-lg font-bold text-blue-600">{{ cop(t.ingresos) }}</p>
+            </div>
+            <div class="grid grid-cols-3 gap-2 text-center text-xs">
+              <div class="bg-gray-50 rounded-lg py-1.5">
+                <p class="font-semibold text-gray-800">{{ t.ordenes_totales }}</p>
+                <p class="text-gray-400">Órdenes</p>
+              </div>
+              <div class="bg-gray-50 rounded-lg py-1.5">
+                <p class="font-semibold text-green-600">{{ t.ordenes_entregadas }}</p>
+                <p class="text-gray-400">Entregadas</p>
+              </div>
+              <div class="bg-gray-50 rounded-lg py-1.5">
+                <p class="font-semibold text-gray-800">{{ cop(t.ticket_promedio) }}</p>
+                <p class="text-gray-400">Ticket</p>
+              </div>
+            </div>
+            <div v-if="t.vendedor_destacado" class="mt-3 text-xs text-gray-500 flex items-center gap-1">
+              <StarIcon class="w-4 h-4 text-yellow-500 inline-block" />
+              <span>{{ t.vendedor_destacado.nombre }}</span>
+              <span class="text-gray-400">— {{ cop(t.vendedor_destacado.ingresos) }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════ TAB: PRODUCTOS ══════ -->
+      <div v-show="tabActivo === 'productos'" class="space-y-4">
+
+        <!-- Dona por categoría -->
+        <div v-if="productos.length" class="bg-white rounded-xl shadow-sm p-4">
+          <p class="text-sm font-semibold text-gray-700 mb-3">Por categoría</p>
+          <div class="h-52">
+            <canvas ref="donaCanvas"></canvas>
+          </div>
+        </div>
+
+        <!-- Tabla top productos -->
+        <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+          <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+            <p class="text-sm font-semibold text-gray-700">Top 10 productos</p>
+            <button @click="exportar('productos-top')" class="text-xs text-blue-600 font-medium hover:underline">Exportar</button>
+          </div>
+          <ul class="divide-y divide-gray-100">
+            <li v-for="(p, i) in productos" :key="p.producto_id"
+              class="flex items-center gap-3 px-4 py-3">
+              <span class="w-6 h-6 rounded-full bg-blue-50 text-blue-600 text-xs font-bold flex items-center justify-center flex-shrink-0">{{ i + 1 }}</span>
+              <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium text-gray-800 truncate">{{ p.nombre }}</p>
+                <p class="text-xs text-gray-400">{{ p.categoria }} · x{{ p.cantidad }} uds.</p>
+              </div>
+              <MoneyDisplay :amount="p.valor_total" class="text-sm font-semibold flex-shrink-0" />
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- ══════ TAB: CARTERA ══════ -->
+      <div v-show="tabActivo === 'cartera'" class="space-y-3">
+        <div class="flex items-center justify-between">
+          <p class="text-sm text-gray-500">{{ cartera.length }} orden{{ cartera.length !== 1 ? 'es' : '' }} con saldo pendiente</p>
+          <button @click="exportar('pendientes')" class="text-xs text-blue-600 font-medium hover:underline">Exportar</button>
+        </div>
+        <ul class="space-y-2">
+          <li v-for="o in cartera" :key="o.orden_id"
+            @click="router.push({ name: 'orden-detalle', params: { id: o.orden_id } })"
+            class="bg-white rounded-xl shadow-sm p-4 cursor-pointer hover:shadow-md transition-shadow">
+            <div class="flex justify-between items-start mb-2">
+              <div>
+                <p class="font-medium text-sm text-gray-800">{{ o.cliente }}</p>
+                <p class="text-xs text-gray-400">{{ o.vendedor }} · {{ o.tienda }}</p>
+              </div>
+              <div class="flex flex-col items-end gap-1">
+                <BadgeEstado :estado="o.estado" />
+                <span :class="['text-xs font-semibold px-2 py-0.5 rounded-full', diasColor(o.dias_sin_pagar)]">
+                  {{ o.dias_sin_pagar }}d
+                </span>
+              </div>
+            </div>
+            <div class="grid grid-cols-3 gap-2 text-xs text-center">
+              <div>
+                <p class="text-gray-400">Total</p>
+                <p class="font-semibold text-gray-700">{{ cop(o.valor_total) }}</p>
+              </div>
+              <div>
+                <p class="text-gray-400">Pagado</p>
+                <p class="font-semibold text-green-600">{{ cop(o.total_pagado) }}</p>
+              </div>
+              <div>
+                <p class="text-gray-400">Saldo</p>
+                <p class="font-bold text-red-500">{{ cop(o.saldo_pendiente) }}</p>
+              </div>
+            </div>
+          </li>
+        </ul>
+        <p v-if="!cartera.length" class="text-center py-8 text-gray-400 text-sm">No hay cartera pendiente.</p>
+      </div>
+
+      <!-- ══════ TAB: PRODUCCIÓN ══════ -->
+      <div v-show="tabActivo === 'produccion'" class="space-y-3">
+        <div class="flex items-center justify-between">
+          <p class="text-sm text-gray-500">{{ retrasos.length }} item{{ retrasos.length !== 1 ? 's' : '' }} en retraso o por vencer</p>
+          <button @click="exportar('retrasos')" class="text-xs text-blue-600 font-medium hover:underline">Exportar</button>
+        </div>
+        <ul class="space-y-2">
+          <li v-for="r in retrasos" :key="r.produccion_id"
+            @click="router.push({ name: 'orden-detalle', params: { id: r.orden_id } })"
+            class="bg-white rounded-xl shadow-sm p-4 cursor-pointer hover:shadow-md transition-shadow">
+            <div class="flex justify-between items-start mb-1">
+              <div class="min-w-0 flex-1">
+                <p class="font-medium text-sm text-gray-800 truncate">{{ r.producto }}</p>
+                <p class="text-xs text-gray-500">{{ r.cliente }} · {{ r.vendedor }}</p>
+                <p class="text-xs text-gray-400">{{ r.tienda }} · Compromiso: {{ r.fecha_compromiso }}</p>
+              </div>
+              <span :class="['ml-2 flex-shrink-0 text-xs font-bold px-2.5 py-1 rounded-full', retrasoColor(r.dias_retraso)]">
+                {{ r.dias_retraso > 0 ? `+${r.dias_retraso}d` : `${r.dias_retraso}d` }}
+              </span>
+            </div>
+            <p v-if="r.motivo_retraso" class="text-xs text-gray-400 mt-1 italic">{{ r.motivo_retraso }}</p>
+          </li>
+        </ul>
+        <p v-if="!retrasos.length" class="text-center py-8 text-gray-400 text-sm">Sin retrasos registrados.</p>
+      </div>
+
+    </template>
+  </div>
+</template>
