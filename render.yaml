@@ -23,3 +23,7 @@ services:
         value: stack
       - key: LOG_LEVEL
         value: warning
+      - key: APP_URL
+        value: https://decasa-api-b91v.onrender.com
+      - key: SANCTUM_STATEFUL_DOMAINS
+        value: sistema-de-ventas-olive.vercel.app

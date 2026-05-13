@@ -1,7 +1,7 @@
 {
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "https://decasa-api.onrender.com/api/$1" },
-    { "source": "/storage/(.*)", "destination": "https://decasa-api.onrender.com/storage/$1" },
+    { "source": "/api/(.*)", "destination": "https://decasa-api-b91v.onrender.com/api/$1" },
+    { "source": "/storage/(.*)", "destination": "https://decasa-api-b91v.onrender.com/storage/$1" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
