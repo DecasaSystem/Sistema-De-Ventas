@@ -1,16 +1,23 @@
 <script setup>
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { CheckCircleIcon, WrenchScrewdriverIcon, ClockIcon } from '@heroicons/vue/24/outline'
+import { CheckCircleIcon, WrenchScrewdriverIcon, ClockIcon, ArrowTopRightOnSquareIcon } from '@heroicons/vue/24/outline'
 import { getMisPasos, completarPaso, getHistorialPasos } from '@/api/produccion'
 import { useToast } from '@/composables/useToast'
 import { useRealtime } from '@/composables/useRealtime'
 import { usePasosStore } from '@/stores/pasos'
 import EmptyState from '@/components/common/EmptyState.vue'
 
+const router = useRouter()
 const auth   = useAuthStore()
 const toast  = useToast()
 const pasosStore = usePasosStore()
+
+function verOrden(paso) {
+  const id = paso.produccion?.orden_item?.orden?.id
+  if (id) router.push({ name: 'orden-detalle', params: { id } })
+}
 
 const tab = ref('activos')
 
@@ -232,15 +239,24 @@ onMounted(async () => {
             </p>
           </div>
 
-          <!-- Botón Listo -->
-          <button
-            @click="abrirConfirmar(paso)"
-            :disabled="completandoId === paso.id"
-            class="w-full bg-green-600 text-white rounded-xl py-3 text-sm font-bold hover:bg-green-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
-          >
-            <CheckCircleIcon class="w-5 h-5" />
-            {{ completandoId === paso.id ? 'Procesando...' : 'Listo — paso terminado' }}
-          </button>
+          <!-- Botones -->
+          <div class="flex gap-2">
+            <button
+              @click="verOrden(paso)"
+              class="flex-1 bg-gray-100 text-gray-700 rounded-xl py-2.5 text-sm font-semibold hover:bg-gray-200 transition-colors flex items-center justify-center gap-1.5"
+            >
+              <ArrowTopRightOnSquareIcon class="w-4 h-4" />
+              Ver orden
+            </button>
+            <button
+              @click="abrirConfirmar(paso)"
+              :disabled="completandoId === paso.id"
+              class="flex-[2] bg-green-600 text-white rounded-xl py-2.5 text-sm font-bold hover:bg-green-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+            >
+              <CheckCircleIcon class="w-5 h-5" />
+              {{ completandoId === paso.id ? 'Procesando...' : 'Listo — paso terminado' }}
+            </button>
+          </div>
         </li>
       </ul>
     </template>
@@ -313,6 +329,15 @@ onMounted(async () => {
               </p>
             </div>
           </div>
+
+          <!-- Ver orden -->
+          <button
+            @click="verOrden(paso)"
+            class="w-full bg-gray-100 text-gray-700 rounded-xl py-2.5 text-sm font-semibold hover:bg-gray-200 transition-colors flex items-center justify-center gap-1.5"
+          >
+            <ArrowTopRightOnSquareIcon class="w-4 h-4" />
+            Ver orden
+          </button>
         </li>
       </ul>
     </template><!-- /tab historial -->

@@ -26,7 +26,7 @@ export function useDespachoSocket() {
       window.Echo.channel(`conductor.${auth.usuario.id}`)
         .stopListening('.despacho.asignado')
         .listen('.despacho.asignado', (data) => {
-          despacho.pendientes += data.cantidad_ordenes
+          despacho.cargarCola()
           toast.info(`Tienes ${data.cantidad_ordenes} nueva(s) entrega(s) asignada(s)`)
         })
       subs.push(`conductor.${auth.usuario.id}`)

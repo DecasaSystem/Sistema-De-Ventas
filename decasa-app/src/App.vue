@@ -97,7 +97,7 @@ watch(() => route.name, () => { abrirMas.value = false })
 
 const navItems = computed(() => {
   if (auth.isSupervisor) {
-    return [
+    const items = [
       { name: 'dashboard',  label: 'Inicio',      icon: HomeIcon },
       { name: 'ordenes',    label: 'Órdenes',     icon: ClipboardDocumentListIcon },
       { name: 'produccion', label: 'Producción',  icon: WrenchScrewdriverIcon },
@@ -108,6 +108,10 @@ const navItems = computed(() => {
       { name: 'usuarios',   label: 'Trabajadores', icon: UsersIcon },
       { name: 'reportes',   label: 'Reportes',    icon: ChartBarIcon },
     ]
+    if (auth.isTapicero) {
+      items.unshift({ name: 'mis-pasos', label: 'Mis pasos', icon: WrenchIcon, badge: pasos.pendientesCount })
+    }
+    return items
   }
   if (auth.usuario?.rol === 'conductor') {
     return [
@@ -165,6 +169,8 @@ async function abrirNotificacion(n) {
     if (n.tipo === 'venta_otra_tienda') {
       const ids = datos.productos
       router.push({ name: 'inventario', query: ids?.length ? { abrir: ids.join(',') } : {} })
+    } else if (n.tipo === 'paso_produccion' && auth.tieneAccesoPasos) {
+      router.push({ name: 'mis-pasos' })
     } else {
       router.push({ name: 'orden-detalle', params: { id: datos.orden_id } })
     }

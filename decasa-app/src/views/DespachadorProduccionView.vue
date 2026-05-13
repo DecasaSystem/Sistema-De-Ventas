@@ -1,14 +1,20 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { CheckCircleIcon, ArchiveBoxArrowDownIcon, ClockIcon } from '@heroicons/vue/24/outline'
+import { useRouter } from 'vue-router'
+import { CheckCircleIcon, ArchiveBoxArrowDownIcon, ClockIcon, ArrowTopRightOnSquareIcon } from '@heroicons/vue/24/outline'
 import { getPendientesDespacho, completarDespacho, getHistorialDespacho } from '@/api/produccion'
 import { useToast } from '@/composables/useToast'
 import { useRealtime } from '@/composables/useRealtime'
 import { useDespachoProduccionStore } from '@/stores/despachoProduccion'
 import EmptyState from '@/components/common/EmptyState.vue'
 
+const router       = useRouter()
 const toast        = useToast()
 const despachoProd = useDespachoProduccionStore()
+
+function verOrden(ordenId) {
+  if (ordenId) router.push({ name: 'orden-detalle', params: { id: ordenId } })
+}
 
 const tab = ref('pendientes')
 
@@ -188,15 +194,24 @@ onMounted(async () => {
             </p>
           </div>
 
-          <!-- Botón Listo -->
-          <button
-            @click="abrirConfirmar(item)"
-            :disabled="completandoId === item.id"
-            class="w-full bg-purple-600 text-white rounded-xl py-3 text-sm font-bold hover:bg-purple-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
-          >
-            <CheckCircleIcon class="w-5 h-5" />
-            {{ completandoId === item.id ? 'Procesando...' : 'Listo — enviar a entrega' }}
-          </button>
+          <!-- Botones -->
+          <div class="flex gap-2">
+            <button
+              @click="verOrden(item.orden_item?.orden?.id)"
+              class="flex-1 bg-gray-100 text-gray-700 rounded-xl py-2.5 text-sm font-semibold hover:bg-gray-200 transition-colors flex items-center justify-center gap-1.5"
+            >
+              <ArrowTopRightOnSquareIcon class="w-4 h-4" />
+              Ver orden
+            </button>
+            <button
+              @click="abrirConfirmar(item)"
+              :disabled="completandoId === item.id"
+              class="flex-[2] bg-purple-600 text-white rounded-xl py-2.5 text-sm font-bold hover:bg-purple-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+            >
+              <CheckCircleIcon class="w-5 h-5" />
+              {{ completandoId === item.id ? 'Procesando...' : 'Listo — enviar a entrega' }}
+            </button>
+          </div>
         </li>
       </ul>
     </template>
@@ -274,6 +289,15 @@ onMounted(async () => {
               <p class="font-medium text-gray-700">{{ prod.orden_item?.orden?.tienda?.nombre }}</p>
             </div>
           </div>
+
+          <!-- Ver orden -->
+          <button
+            @click="verOrden(prod.orden_item?.orden?.id)"
+            class="w-full bg-gray-100 text-gray-700 rounded-xl py-2.5 text-sm font-semibold hover:bg-gray-200 transition-colors flex items-center justify-center gap-1.5"
+          >
+            <ArrowTopRightOnSquareIcon class="w-4 h-4" />
+            Ver orden
+          </button>
         </li>
       </ul>
     </template><!-- /tab historial -->
