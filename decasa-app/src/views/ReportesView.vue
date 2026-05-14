@@ -5,7 +5,7 @@ import { Chart } from 'chart.js/auto'
 
 import {
   getPanel, getTendencia, getStatsVendedores,
-  getStatsTiendas, getProductos, getCartera,
+  getStatsTiendas, getProductos, getCartera, getStatsCategorias,
 } from '@/api/stats'
 import api from '@/api'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
@@ -15,6 +15,8 @@ import { StarIcon } from '@heroicons/vue/24/solid'
 
 const router = useRouter()
 const auth = useAuthStore()
+
+const esPrimeroDelMes = new Date().getDate() === 1
 
 // ── Filtros globales ──────────────────────────────────────────────────────────
 const presets = [
@@ -43,12 +45,13 @@ function aplicarCustom() { if (desdeCustom.value && hastaCustom.value) { modoCus
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 const todosTabs = [
-  { id: 'resumen',     label: 'Resumen' },
-  { id: 'vendedores',  label: 'Vendedores' },
-  { id: 'tiendas',     label: 'Tiendas' },
-  { id: 'productos',   label: 'Productos' },
-  { id: 'cartera',     label: 'Cartera' },
-  { id: 'produccion',  label: 'Producción' },
+  { id: 'resumen',          label: 'Resumen' },
+  { id: 'vendedores',       label: 'Vendedores' },
+  { id: 'tiendas',          label: 'Tiendas' },
+  { id: 'productos',        label: 'Productos' },
+  { id: 'cartera',          label: 'Cartera' },
+  { id: 'produccion',       label: 'Producción' },
+  ...(esPrimeroDelMes ? [{ id: 'resumen-mensual', label: 'Resumen mensual' }] : []),
 ]
 
 const tabsVisibles = computed(() => {
@@ -59,6 +62,7 @@ const tabActivo = ref('resumen')
 
 async function switchTab(id) {
   tabActivo.value = id
+  if (id === 'resumen-mensual') cargarResumenMensual()
   await nextTick()
   rebuildCharts(id)
 }
@@ -70,8 +74,54 @@ const tendencia  = ref(null)
 const vendedores = ref([])
 const tiendasData = ref([])
 const productos  = ref([])
+const categorias  = ref([])
+const categoriaFiltro = ref('')
+const busquedaProducto = ref('')
 const cartera    = ref([])
 const retrasos   = ref([])
+
+let _busquedaTimer = null
+function onBusquedaInput() {
+  clearTimeout(_busquedaTimer)
+  _busquedaTimer = setTimeout(() => buscarProducto(), 350)
+}
+
+async function buscarProducto() {
+  const p = { ...paramsFiltro() }
+  if (categoriaFiltro.value) p.categoria = categoriaFiltro.value
+  if (busquedaProducto.value.trim()) p.q = busquedaProducto.value.trim()
+  const { data } = await getProductos({ ...p, limit: busquedaProducto.value.trim() ? 50 : 20 })
+  productos.value = data
+}
+
+// ── Resumen mensual (solo 1° de mes, supervisor) ──────────────────────────────
+const resumenMensual    = ref(null)
+const cargandoResumen   = ref(false)
+
+async function cargarResumenMensual() {
+  if (resumenMensual.value) return
+  cargandoResumen.value = true
+  try {
+    const { data } = await api.get('/reportes/resumen-mensual')
+    resumenMensual.value = data
+  } catch {} finally {
+    cargandoResumen.value = false
+  }
+}
+
+async function exportarResumenMensual() {
+  try {
+    const res = await api.get('/reportes/resumen-mensual/exportar', { responseType: 'blob' })
+    const url = window.URL.createObjectURL(new Blob([res.data]))
+    const a   = document.createElement('a')
+    a.href    = url
+    a.download = `decasa_resumen_mensual_${resumenMensual.value?.desde ?? 'mes_anterior'}.xlsx`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    window.URL.revokeObjectURL(url)
+  } catch (e) { console.error('Error al exportar resumen mensual:', e) }
+}
 
 // ── Canvas refs + instancias ──────────────────────────────────────────────────
 const lineCanvas  = ref(null)
@@ -114,6 +164,8 @@ function retrasoColor(d) {
 // ── Carga de datos ────────────────────────────────────────────────────────────
 async function cargarTodo() {
   loading.value = true
+  categoriaFiltro.value = ''
+  busquedaProducto.value = ''
   try {
     const p = paramsFiltro()
     const promises = [
@@ -124,8 +176,9 @@ async function cargarTodo() {
       getProductos({ ...p, limit: 10 }),
       getCartera(p),
       api.get('/reportes/retrasos'),
+      getStatsCategorias(p),
     ]
-    const [panelRes, tendRes, vendRes, tiendRes, prodRes, cartRes, retRes] = await Promise.all(promises)
+    const [panelRes, tendRes, vendRes, tiendRes, prodRes, cartRes, retRes, catRes] = await Promise.all(promises)
     panel.value       = panelRes.data
     tendencia.value   = tendRes.data
     vendedores.value  = vendRes.data
@@ -133,11 +186,22 @@ async function cargarTodo() {
     productos.value   = prodRes.data
     cartera.value     = cartRes.data
     retrasos.value    = retRes.data
+    categorias.value  = catRes.data
   } finally {
     loading.value = false
   }
   await nextTick()
   rebuildCharts(tabActivo.value)
+}
+
+async function filtrarPorCategoria(cat) {
+  categoriaFiltro.value = cat
+  busquedaProducto.value = ''
+  const p = { ...paramsFiltro(), ...(cat ? { categoria: cat } : {}) }
+  const { data } = await getProductos({ ...p, limit: 20 })
+  productos.value = data
+  await nextTick()
+  buildDona()
 }
 
 function rebuildCharts(tab) {
@@ -213,15 +277,10 @@ function buildTiend() {
 // ── Chart: dona por categoría (Productos) ─────────────────────────────────────
 function buildDona() {
   if (donaChart) { donaChart.destroy(); donaChart = null }
-  if (!donaCanvas.value || !productos.value.length) return
-  // Agrupar por categoría
-  const catMap = {}
-  for (const p of productos.value) {
-    const cat = p.categoria || 'Sin categoría'
-    catMap[cat] = (catMap[cat] || 0) + Number(p.valor_total)
-  }
-  const labels = Object.keys(catMap)
-  const data   = Object.values(catMap)
+  const src = categorias.value.length ? categorias.value : productos.value
+  if (!donaCanvas.value || !src.length) return
+  const labels = src.map(c => c.categoria || 'Sin categoría')
+  const data   = src.map(c => Number(c.valor_total))
   donaChart = new Chart(donaCanvas.value, {
     type: 'doughnut',
     data: {
@@ -441,7 +500,7 @@ onBeforeUnmount(() => {
               <tbody class="divide-y divide-gray-100">
                 <tr v-for="(v, i) in vendedores" :key="v.id"
                   class="hover:bg-gray-50 cursor-pointer"
-                  @click="router.push({ name: 'usuario-detalle', params: { id: v.id } })">
+                  @click="router.push({ name: 'stats-vendedor', params: { id: v.id } })">
                   <td class="px-3 py-2.5">
                     <span :class="['w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold',
                       i === 0 ? 'bg-yellow-100 text-yellow-700' :
@@ -511,18 +570,59 @@ onBeforeUnmount(() => {
       <!-- ══════ TAB: PRODUCTOS ══════ -->
       <div v-show="tabActivo === 'productos'" class="space-y-4">
 
-        <!-- Dona por categoría -->
-        <div v-if="productos.length" class="bg-white rounded-xl shadow-sm p-4">
-          <p class="text-sm font-semibold text-gray-700 mb-3">Por categoría</p>
-          <div class="h-52">
+        <!-- Stats por categoría -->
+        <div v-if="categorias.length" class="bg-white rounded-xl shadow-sm p-4">
+          <p class="text-sm font-semibold text-gray-700 mb-3">Ventas por categoría</p>
+
+          <!-- Dona chart -->
+          <div class="h-52 mb-4">
             <canvas ref="donaCanvas"></canvas>
           </div>
+
+          <!-- Category cards -->
+          <div class="space-y-2">
+            <div
+              v-for="cat in categorias" :key="cat.categoria"
+              @click="filtrarPorCategoria(categoriaFiltro === cat.categoria ? '' : cat.categoria)"
+              :class="['flex items-center gap-3 rounded-xl px-3 py-2.5 cursor-pointer border transition-colors',
+                categoriaFiltro === cat.categoria
+                  ? 'bg-blue-50 border-blue-300'
+                  : 'bg-gray-50 border-transparent hover:bg-blue-50 hover:border-blue-200']"
+            >
+              <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium text-gray-800 truncate">{{ cat.categoria }}</p>
+                <p class="text-xs text-gray-400">{{ cat.num_productos }} producto{{ cat.num_productos !== 1 ? 's' : '' }} · {{ cat.cantidad }} uds. vendidas</p>
+              </div>
+              <MoneyDisplay :amount="cat.valor_total" class="text-sm font-bold flex-shrink-0 text-blue-600" />
+            </div>
+          </div>
+
+          <p v-if="categoriaFiltro" class="text-xs text-center text-blue-600 mt-2 font-medium">
+            Filtro activo: {{ categoriaFiltro }} —
+            <button @click="filtrarPorCategoria('')" class="underline">Quitar filtro</button>
+          </p>
+        </div>
+
+        <!-- Buscar producto -->
+        <div class="relative">
+          <input
+            v-model="busquedaProducto"
+            @input="onBusquedaInput"
+            type="search"
+            placeholder="Buscar producto por nombre..."
+            class="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm pr-9 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <svg v-if="!busquedaProducto" class="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
         </div>
 
         <!-- Tabla top productos -->
         <div class="bg-white rounded-xl shadow-sm overflow-hidden">
           <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-            <p class="text-sm font-semibold text-gray-700">Top 10 productos</p>
+            <p class="text-sm font-semibold text-gray-700">
+              <template v-if="busquedaProducto">Resultados: "{{ busquedaProducto }}"</template>
+              <template v-else-if="categoriaFiltro">Top productos — {{ categoriaFiltro }}</template>
+              <template v-else>Top 10 productos</template>
+            </p>
             <button @click="exportar('productos-top')" class="text-xs text-blue-600 font-medium hover:underline">Exportar</button>
           </div>
           <ul class="divide-y divide-gray-100">
@@ -536,6 +636,7 @@ onBeforeUnmount(() => {
               <MoneyDisplay :amount="p.valor_total" class="text-sm font-semibold flex-shrink-0" />
             </li>
           </ul>
+          <p v-if="!productos.length" class="text-center py-6 text-sm text-gray-400">Sin ventas en este período.</p>
         </div>
       </div>
 
@@ -604,6 +705,98 @@ onBeforeUnmount(() => {
           </li>
         </ul>
         <p v-if="!retrasos.length" class="text-center py-8 text-gray-400 text-sm">Sin retrasos registrados.</p>
+      </div>
+
+      <!-- ══════ TAB: RESUMEN MENSUAL ══════ -->
+      <div v-show="tabActivo === 'resumen-mensual'" class="space-y-4">
+
+        <!-- Loading -->
+        <div v-if="cargandoResumen" class="flex justify-center py-10">
+          <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+        </div>
+
+        <template v-else-if="resumenMensual">
+
+          <!-- Header + export -->
+          <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-center justify-between gap-3">
+            <div>
+              <p class="text-sm font-bold text-blue-800">Resumen mensual — {{ resumenMensual.mes }}</p>
+              <p class="text-xs text-blue-600 mt-0.5">Del {{ resumenMensual.desde }} al {{ resumenMensual.hasta }}</p>
+            </div>
+            <button
+              @click="exportarResumenMensual"
+              class="flex items-center gap-1.5 bg-blue-600 text-white text-xs font-semibold px-3 py-2 rounded-lg hover:bg-blue-700 transition-colors flex-shrink-0"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Exportar Excel
+            </button>
+          </div>
+
+          <!-- Top 20 general -->
+          <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+            <div class="px-4 py-3 border-b border-gray-100">
+              <p class="text-sm font-semibold text-gray-700">Top 20 productos — General</p>
+            </div>
+            <ul class="divide-y divide-gray-100">
+              <li
+                v-for="(p, i) in resumenMensual.general"
+                :key="p.producto_id"
+                class="flex items-center gap-3 px-4 py-3"
+              >
+                <span :class="['w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0',
+                  i === 0 ? 'bg-yellow-100 text-yellow-700' :
+                  i === 1 ? 'bg-gray-200 text-gray-600' :
+                  i === 2 ? 'bg-orange-100 text-orange-700' : 'bg-blue-50 text-blue-500']">
+                  {{ i + 1 }}
+                </span>
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm font-medium text-gray-800 truncate">{{ p.nombre }}</p>
+                  <p class="text-xs text-gray-400">{{ p.categoria }} · {{ p.total_unidades }} uds. vendidas</p>
+                </div>
+                <MoneyDisplay :amount="p.total_valor" class="text-sm font-semibold flex-shrink-0" />
+              </li>
+            </ul>
+            <p v-if="!resumenMensual.general.length" class="text-center py-6 text-sm text-gray-400">
+              Sin ventas registradas el mes anterior.
+            </p>
+          </div>
+
+          <!-- Top 10 por tienda -->
+          <div v-if="resumenMensual.por_tienda.length" class="space-y-3">
+            <p class="text-sm font-semibold text-gray-700">Top 10 por tienda</p>
+            <div
+              v-for="t in resumenMensual.por_tienda"
+              :key="t.tienda_id"
+              class="bg-white rounded-xl shadow-sm overflow-hidden"
+            >
+              <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-100">
+                <p class="text-sm font-semibold text-gray-700">{{ t.tienda_nombre }}</p>
+              </div>
+              <ul class="divide-y divide-gray-100">
+                <li
+                  v-for="(p, i) in t.top"
+                  :key="p.producto_id"
+                  class="flex items-center gap-3 px-4 py-2.5"
+                >
+                  <span :class="['w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0',
+                    i === 0 ? 'bg-yellow-100 text-yellow-700' :
+                    i === 1 ? 'bg-gray-200 text-gray-600' :
+                    i === 2 ? 'bg-orange-100 text-orange-700' : 'bg-blue-50 text-blue-500']">
+                    {{ i + 1 }}
+                  </span>
+                  <div class="flex-1 min-w-0">
+                    <p class="text-xs font-medium text-gray-800 truncate">{{ p.nombre }}</p>
+                    <p class="text-[10px] text-gray-400">{{ p.categoria }} · {{ p.total_unidades }} uds.</p>
+                  </div>
+                  <MoneyDisplay :amount="p.total_valor" class="text-xs font-semibold flex-shrink-0" />
+                </li>
+              </ul>
+            </div>
+          </div>
+
+        </template>
       </div>
 
     </template>

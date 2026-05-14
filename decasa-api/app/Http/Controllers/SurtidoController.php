@@ -358,6 +358,162 @@ class SurtidoController extends Controller
         return response()->json($vendedores);
     }
 
+    /**
+     * GET /api/inventario/recomendaciones
+     *
+     * Tres fuentes de alerta:
+     *  1. Sin stock   : cantidad_disponible <= 0
+     *  2. Bajo stock  : cantidad_disponible <= GREATEST(stock_minimo, 2)   (1-2 uds o bajo mínimo)
+     *  3. Top ventas  : top-sellers de la tienda con < 14 días de cobertura
+     */
+    public function recomendaciones(Request $request)
+    {
+        // ── 1 & 2. Stock físico bajo (0, 1, 2 o ≤ stock_minimo) ─────────────
+        $bajoStock = DB::table('inventario as inv')
+            ->join('productos as p', 'p.id', '=', 'inv.producto_id')
+            ->join('tiendas as t',   't.id', '=', 'inv.tienda_id')
+            ->where('p.activo', true)
+            ->whereRaw('inv.cantidad_disponible <= GREATEST(COALESCE(inv.stock_minimo, 0), 2)')
+            ->selectRaw("
+                t.id            AS tienda_id,
+                t.nombre        AS tienda_nombre,
+                p.id            AS producto_id,
+                p.nombre        AS producto_nombre,
+                p.categoria,
+                p.foto_url,
+                inv.cantidad_disponible                           AS stock_actual,
+                inv.cantidad_disponible - inv.cantidad_reservada AS stock_libre,
+                inv.stock_minimo
+            ")
+            ->get()
+            ->keyBy(fn($r) => "{$r->tienda_id}_{$r->producto_id}");
+
+        // ── 3. Top ventas últimos 30 días con cobertura < 14 días ────────────
+        $topVentas = DB::table('orden_items as oi')
+            ->join('ordenes as o', 'o.id', '=', 'oi.orden_id')
+            ->join('productos as p', 'p.id', '=', 'oi.producto_id')
+            ->join('tiendas as t', 't.id', '=', 'o.tienda_id')
+            ->where('p.activo', true)
+            ->whereNotIn('o.estado', ['cancelado'])
+            ->where('o.created_at', '>=', now()->subDays(30))
+            ->selectRaw("
+                o.tienda_id,
+                t.nombre   AS tienda_nombre,
+                oi.producto_id,
+                p.nombre   AS producto_nombre,
+                p.categoria,
+                p.foto_url,
+                SUM(oi.cantidad) AS ventas_mes
+            ")
+            ->groupBy('o.tienda_id', 't.nombre', 'oi.producto_id', 'p.nombre', 'p.categoria', 'p.foto_url')
+            ->having(DB::raw('SUM(oi.cantidad)'), '>=', 3)   // al menos 3 ventas en el mes
+            ->orderByDesc(DB::raw('SUM(oi.cantidad)'))
+            ->get();
+
+        // Inventario actual para los top-ventas
+        $tvTiendas   = $topVentas->pluck('tienda_id')->unique()->values();
+        $tvProductos = $topVentas->pluck('producto_id')->unique()->values();
+
+        $invTopVentas = collect();
+        if ($tvTiendas->isNotEmpty()) {
+            $invTopVentas = DB::table('inventario')
+                ->whereIn('tienda_id',   $tvTiendas)
+                ->whereIn('producto_id', $tvProductos)
+                ->get()
+                ->keyBy(fn($r) => "{$r->tienda_id}_{$r->producto_id}");
+        }
+
+        // Agregar top-ventas que no ya estén en bajo stock y tienen < 14 días de cobertura
+        $topVentasRiesgo = collect();
+        foreach ($topVentas as $v) {
+            $key        = "{$v->tienda_id}_{$v->producto_id}";
+            if ($bajoStock->has($key)) continue;   // ya cubierto
+
+            $inv        = $invTopVentas->get($key);
+            $stock      = $inv ? (int) $inv->cantidad_disponible : 0;
+            $cobertura  = $v->ventas_mes > 0 ? round($stock / ($v->ventas_mes / 30)) : 999;
+
+            if ($cobertura < 14) {
+                $topVentasRiesgo->push((object) [
+                    'tienda_id'       => $v->tienda_id,
+                    'tienda_nombre'   => $v->tienda_nombre,
+                    'producto_id'     => $v->producto_id,
+                    'producto_nombre' => $v->producto_nombre,
+                    'categoria'       => $v->categoria,
+                    'foto_url'        => $v->foto_url,
+                    'stock_actual'    => $stock,
+                    'stock_libre'     => $inv ? $inv->cantidad_disponible - $inv->cantidad_reservada : 0,
+                    'stock_minimo'    => $inv?->stock_minimo ?? 0,
+                    'ventas_mes'      => (int) $v->ventas_mes,
+                    'cobertura_dias'  => $cobertura,
+                    'motivo'          => 'top_ventas',
+                ]);
+            }
+        }
+
+        // ── Enriquecer bajo stock con ventas ─────────────────────────────────
+        $ventasBajo = collect();
+        if ($bajoStock->isNotEmpty()) {
+            $ventasBajo = DB::table('orden_items as oi')
+                ->join('ordenes as o', 'o.id', '=', 'oi.orden_id')
+                ->whereIn('oi.producto_id', $bajoStock->pluck('producto_id')->unique())
+                ->whereIn('o.tienda_id',    $bajoStock->pluck('tienda_id')->unique())
+                ->whereNotIn('o.estado', ['cancelado'])
+                ->where('o.created_at', '>=', now()->subDays(30))
+                ->selectRaw('o.tienda_id, oi.producto_id, SUM(oi.cantidad) AS ventas_mes')
+                ->groupBy('o.tienda_id', 'oi.producto_id')
+                ->get()
+                ->keyBy(fn($r) => "{$r->tienda_id}_{$r->producto_id}");
+        }
+
+        $bajoStockEnriquecido = $bajoStock->values()->map(function ($row) use ($ventasBajo) {
+            $row->ventas_mes    = (int) ($ventasBajo->get("{$row->tienda_id}_{$row->producto_id}")?->ventas_mes ?? 0);
+            $row->cobertura_dias = null;
+            $row->motivo        = $row->stock_actual <= 0 ? 'sin_stock' : 'bajo_stock';
+            return $row;
+        });
+
+        // ── Unir todo y agrupar por tienda ───────────────────────────────────
+        $todos = $bajoStockEnriquecido->concat($topVentasRiesgo);
+
+        if ($todos->isEmpty()) {
+            return response()->json([]);
+        }
+
+        $perPage = min((int) $request->query('per_page', 12), 50);
+        $page    = max((int) $request->query('page', 1), 1);
+
+        $grouped = $todos
+            ->groupBy('tienda_id')
+            ->map(function ($items) use ($perPage, $page) {
+                $first  = $items->first();
+                // Score: sin_stock=3, bajo_stock=2, top_ventas=1 — luego por ventas_mes
+                $sorted = $items->sortByDesc(fn($i) =>
+                    (match ($i->motivo) { 'sin_stock' => 30000, 'bajo_stock' => 20000, default => 10000 })
+                    + min((int) $i->ventas_mes, 9999)
+                )->values();
+
+                $total  = $sorted->count();
+                $pagina = $sorted->forPage($page, $perPage)->values();
+
+                return [
+                    'tienda_id'     => $first->tienda_id,
+                    'tienda_nombre' => $first->tienda_nombre,
+                    'sin_stock'     => $items->where('motivo', 'sin_stock')->count(),
+                    'bajo_stock'    => $items->where('motivo', 'bajo_stock')->count(),
+                    'top_ventas'    => $items->where('motivo', 'top_ventas')->count(),
+                    'total'         => $total,
+                    'page'          => $page,
+                    'last_page'     => (int) ceil($total / $perPage),
+                    'per_page'      => $perPage,
+                    'productos'     => $pagina,
+                ];
+            })
+            ->values();
+
+        return response()->json($grouped);
+    }
+
     private function recalcularEstadoSurtido(int $surtidoId): void
     {
         $tiendas    = SurtidoTienda::where('surtido_id', $surtidoId)->get();

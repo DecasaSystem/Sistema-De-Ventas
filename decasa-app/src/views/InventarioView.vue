@@ -48,6 +48,48 @@ const stockLoading = ref(false)
 const fotoModal = ref(false)
 const fotoProducto = ref(null)
 
+// ── Cambiar foto desde gestionar ──────────────────────────────────────────────
+const gestionFotoFile       = ref(null)
+const gestionFotoPreviewUrl = ref('')
+const gestionFotoInput      = ref(null)
+const gestionFotoLoading    = ref(false)
+const gestionFotoError      = ref('')
+
+function onGestionFotoChange(e) {
+  const file = e.target.files[0]
+  if (!file) return
+  if (gestionFotoPreviewUrl.value) URL.revokeObjectURL(gestionFotoPreviewUrl.value)
+  gestionFotoFile.value = file
+  gestionFotoPreviewUrl.value = URL.createObjectURL(file)
+}
+
+function quitarGestionFoto() {
+  if (gestionFotoPreviewUrl.value) URL.revokeObjectURL(gestionFotoPreviewUrl.value)
+  gestionFotoFile.value = null
+  gestionFotoPreviewUrl.value = ''
+  if (gestionFotoInput.value) gestionFotoInput.value.value = ''
+}
+
+async function guardarFotoProducto() {
+  gestionFotoError.value = ''
+  gestionFotoLoading.value = true
+  try {
+    const fd = new FormData()
+    fd.append('foto', gestionFotoFile.value)
+    const { data: upload } = await api.post('/upload/foto', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    await api.patch(`/productos/${itemGestionar.value.producto_id}`, { foto_url: upload.url })
+    if (itemGestionar.value.producto) itemGestionar.value.producto.foto_url = upload.url
+    quitarGestionFoto()
+    await cargarInventario(true)
+  } catch (e) {
+    gestionFotoError.value = e.response?.data?.message ?? 'Error al subir la foto.'
+  } finally {
+    gestionFotoLoading.value = false
+  }
+}
+
 const mostrarHistorial = ref(false)
 const itemHistorial = ref(null)
 const movimientos = ref([])
@@ -244,6 +286,8 @@ function openGestionar(item) {
   stockMotivo.value = ''
   gestionError.value = ''
   stockError.value = ''
+  quitarGestionFoto()
+  gestionFotoError.value = ''
   mostrarGestionar.value = true
 }
 
@@ -909,6 +953,51 @@ onMounted(async () => {
               class="mt-2 w-full bg-blue-600 text-white rounded-lg py-2 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
             >
               {{ gestionLoading ? 'Guardando...' : 'Actualizar precio' }}
+            </button>
+          </div>
+
+          <div class="border-t border-gray-100 my-2" />
+
+          <!-- Cambiar foto -->
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-2">Foto del producto</label>
+            <input ref="gestionFotoInput" type="file" accept="image/*" class="hidden" @change="onGestionFotoChange" />
+
+            <!-- Preview de la foto nueva seleccionada -->
+            <div v-if="gestionFotoPreviewUrl" class="space-y-2">
+              <div class="relative rounded-xl overflow-hidden border-2 border-blue-300 bg-gray-50">
+                <img :src="gestionFotoPreviewUrl" alt="Nueva foto" class="w-full object-contain" style="max-height: 180px;" />
+                <button type="button" @click="quitarGestionFoto" class="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1.5 shadow-lg">
+                  <XMarkIcon class="w-4 h-4" />
+                </button>
+              </div>
+              <p v-if="gestionFotoError" class="text-xs text-red-600">{{ gestionFotoError }}</p>
+              <button
+                @click="guardarFotoProducto"
+                :disabled="gestionFotoLoading"
+                class="w-full bg-blue-600 text-white rounded-lg py-2 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors"
+              >
+                {{ gestionFotoLoading ? 'Subiendo a Cloudinary...' : 'Guardar nueva foto' }}
+              </button>
+            </div>
+
+            <!-- Botón seleccionar (muestra foto actual de fondo si existe) -->
+            <button
+              v-else
+              type="button"
+              @click="gestionFotoInput.click()"
+              class="w-full flex items-center gap-3 border-2 border-dashed border-gray-300 rounded-xl px-4 py-3 hover:border-blue-400 hover:bg-blue-50 transition-colors cursor-pointer"
+            >
+              <div class="w-10 h-10 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0 flex items-center justify-center">
+                <img v-if="itemGestionar?.producto?.foto_url" :src="itemGestionar.producto.foto_url" class="w-full h-full object-cover" />
+                <PhotoIcon v-else class="w-6 h-6 text-gray-300" />
+              </div>
+              <div class="text-left">
+                <p class="text-sm font-medium text-gray-700">
+                  {{ itemGestionar?.producto?.foto_url ? 'Cambiar foto' : 'Agregar foto' }}
+                </p>
+                <p class="text-xs text-gray-400">JPG, PNG, WEBP · se guarda en Cloudinary</p>
+              </div>
             </button>
           </div>
 

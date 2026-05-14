@@ -327,12 +327,13 @@ class OrdenController extends Controller
             // usuario_id null → va al supervisor
         );
 
-        // Notificar cambio de inventario y detectar ventas cruzadas
+        // Notificar cambio de inventario, detectar ventas cruzadas y alertar si sin stock
         $origenesExternos = [];
         foreach ($data['items'] as $itemData) {
             if (! ($itemData['es_personalizado'] ?? false)) {
                 $origenTiendaId = $itemData['tienda_origen_id'] ?? $tiendaId;
                 event(new InventarioActualizado((int) $origenTiendaId, (int) $itemData['producto_id'], 'reserva'));
+                $this->notificarSiSinStock((int) $itemData['producto_id'], (int) $origenTiendaId);
 
                 if ($origenTiendaId && (int) $origenTiendaId !== (int) $tiendaId) {
                     $origenesExternos[] = (int) $origenTiendaId;
@@ -819,6 +820,16 @@ class OrdenController extends Controller
             }
         }
 
+        // Verificar stock agotado al entregar
+        if ($estadoNuevo === 'entregado') {
+            foreach ($orden->items->where('es_personalizado', false) as $item) {
+                $this->notificarSiSinStock(
+                    (int) $item->producto_id,
+                    (int) ($item->tienda_origen_id ?? $orden->tienda_id),
+                );
+            }
+        }
+
         return response()->json($ordenFresh);
     }
 
@@ -922,6 +933,36 @@ class OrdenController extends Controller
             return $bytes ? 'data:image/png;base64,' . base64_encode($bytes) : null;
         } catch (\Throwable) {
             return null;
+        }
+    }
+
+    private function notificarSiSinStock(int $productoId, int $tiendaId): void
+    {
+        $inv = Inventario::with('producto:id,nombre', 'tienda:id,nombre')
+            ->where('producto_id', $productoId)
+            ->where('tienda_id', $tiendaId)
+            ->first();
+
+        if (! $inv) return;
+
+        $libre    = $inv->cantidad_disponible - $inv->cantidad_reservada;
+        $nombre   = $inv->producto?->nombre ?? "Producto #{$productoId}";
+        $tiendaNm = $inv->tienda?->nombre   ?? "Tienda #{$tiendaId}";
+
+        if ($inv->cantidad_disponible <= 0) {
+            NotificacionService::crear(
+                'stock_agotado',
+                'Stock agotado',
+                "\"$nombre\" se quedó sin stock en $tiendaNm.",
+                ['producto_id' => $productoId, 'tienda_id' => $tiendaId],
+            );
+        } elseif ($libre <= 0) {
+            NotificacionService::crear(
+                'sin_stock_libre',
+                'Sin unidades disponibles para venta',
+                "\"$nombre\" no tiene unidades libres en $tiendaNm — todo el stock está reservado.",
+                ['producto_id' => $productoId, 'tienda_id' => $tiendaId],
+            );
         }
     }
 

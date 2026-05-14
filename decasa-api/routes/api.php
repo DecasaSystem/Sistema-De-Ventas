@@ -15,6 +15,7 @@ use App\Http\Controllers\UploadController;
 use App\Http\Controllers\UsuarioController;
 use App\Http\Controllers\DespachoController;
 use App\Http\Controllers\SurtidoController;
+use App\Http\Controllers\TrasladoController;
 use App\Http\Controllers\VarianteController;
 use Illuminate\Support\Facades\Route;
 
@@ -74,10 +75,16 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('/inventario/surtido-tiendas/{id}/rechazar', [SurtidoController::class, 'rechazar']);
 
     Route::middleware('role:supervisor')->group(function () {
+        // Traslados entre tiendas
+        Route::get('/inventario/traslados/stock-tienda/{tiendaId}', [TrasladoController::class, 'stockTienda'])->whereNumber('tiendaId');
+        Route::post('/inventario/traslados',                         [TrasladoController::class, 'crear']);
+        Route::get('/inventario/traslados',                          [TrasladoController::class, 'index']);
+
         Route::post('/inventario/surtir',                          [SurtidoController::class, 'crear']);
         Route::get('/inventario/surtidos',                         [SurtidoController::class, 'index']);
         Route::get('/inventario/surtidos/{id}',                    [SurtidoController::class, 'show'])->whereNumber('id');
         Route::get('/inventario/vendedores-tienda/{tiendaId}',     [SurtidoController::class, 'vendedoresTienda'])->whereNumber('tiendaId');
+        Route::get('/inventario/recomendaciones',                  [SurtidoController::class, 'recomendaciones']);
     });
 
     // Variantes de producto (tela/color)
@@ -122,6 +129,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/panel',            [StatsController::class, 'panel']);
         Route::get('/tendencia',        [StatsController::class, 'tendencia']);
         Route::get('/productos',        [StatsController::class, 'productos']);
+        Route::get('/categorias',       [StatsController::class, 'categorias']);
         Route::get('/cartera',          [StatsController::class, 'cartera']);
         Route::get('/vendedores/me',    [StatsController::class, 'statsMe']);
         Route::get('/conductor',        [StatsController::class, 'statsConductor']);
@@ -140,10 +148,12 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/exportar', [ReporteController::class, 'exportar']);
 
         Route::middleware('role:supervisor')->group(function () {
-            Route::get('/ventas',         [ReporteController::class, 'ventas']);
-            Route::get('/vendedores',     [ReporteController::class, 'vendedores']);
-            Route::get('/productos-top',  [ReporteController::class, 'productosTop']);
-            Route::get('/pendientes',     [ReporteController::class, 'pendientes']);
+            Route::get('/ventas',                    [ReporteController::class, 'ventas']);
+            Route::get('/vendedores',                [ReporteController::class, 'vendedores']);
+            Route::get('/productos-top',             [ReporteController::class, 'productosTop']);
+            Route::get('/pendientes',                [ReporteController::class, 'pendientes']);
+            Route::get('/resumen-mensual',           [ReporteController::class, 'resumenMensual']);
+            Route::get('/resumen-mensual/exportar',  [ReporteController::class, 'exportarResumenMensual']);
         });
     });
 

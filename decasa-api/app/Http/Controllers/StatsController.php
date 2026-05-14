@@ -171,6 +171,35 @@ class StatsController extends Controller
         ]);
     }
 
+    // ─── GET /api/stats/categorias ───────────────────────────────────────────
+
+    public function categorias(Request $request)
+    {
+        $user       = $request->user();
+        $f          = $this->parseFechas($request);
+        $tiendaId   = $request->query('tienda_id');
+        $vendedorId = $user->rol === 'vendedor' ? $user->id : null;
+
+        $q = DB::table('orden_items as oi')
+            ->join('ordenes as o', 'o.id', '=', 'oi.orden_id')
+            ->join('productos as p', 'p.id', '=', 'oi.producto_id')
+            ->whereBetween('o.created_at', [$f['desde'] . ' 00:00:00', $f['hasta'] . ' 23:59:59'])
+            ->whereNotIn('o.estado', ['cancelado'])
+            ->selectRaw("
+                COALESCE(p.categoria, 'Sin categoría')     AS categoria,
+                SUM(oi.cantidad)                           AS cantidad,
+                SUM(oi.cantidad * oi.precio_unitario)      AS valor_total,
+                COUNT(DISTINCT p.id)                       AS num_productos
+            ")
+            ->groupBy('categoria')
+            ->orderByDesc('valor_total');
+
+        if ($tiendaId)   $q->where('o.tienda_id',   $tiendaId);
+        if ($vendedorId) $q->where('o.vendedor_id', $vendedorId);
+
+        return response()->json($q->get());
+    }
+
     // ─── GET /api/stats/productos ─────────────────────────────────────────────
 
     public function productos(Request $request)
@@ -179,7 +208,8 @@ class StatsController extends Controller
         $f          = $this->parseFechas($request);
         $tiendaId   = $request->query('tienda_id');
         $tipo       = $request->query('tipo', 'valor');
-        $limit      = min((int) $request->query('limit', 10), 50);
+        $busqueda   = trim($request->query('q', ''));
+        $limit      = $busqueda ? 50 : min((int) $request->query('limit', 10), 50);
         $categoria  = $request->query('categoria');
         $vendedorId = $user->rol === 'vendedor' ? $user->id : null;
 
@@ -203,6 +233,7 @@ class StatsController extends Controller
         if ($tiendaId)   $q->where('o.tienda_id',   $tiendaId);
         if ($vendedorId) $q->where('o.vendedor_id', $vendedorId);
         if ($categoria)  $q->where('p.categoria',   $categoria);
+        if ($busqueda)   $q->where('p.nombre', 'like', "%{$busqueda}%");
 
         return response()->json($q->get());
     }

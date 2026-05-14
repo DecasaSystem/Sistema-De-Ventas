@@ -68,6 +68,137 @@ class ReporteController extends Controller
         );
     }
 
+    /** GET /api/reportes/resumen-mensual */
+    public function resumenMensual()
+    {
+        $hoy   = now();
+        $desde = $hoy->copy()->subMonthNoOverflow()->startOfMonth()->toDateString();
+        $hasta = $hoy->copy()->subMonthNoOverflow()->endOfMonth()->toDateString();
+
+        $general = DB::table('orden_items as oi')
+            ->join('productos as p', 'p.id', '=', 'oi.producto_id')
+            ->join('ordenes as o',   'o.id', '=', 'oi.orden_id')
+            ->where('o.estado', '!=', 'cancelado')
+            ->whereBetween('o.created_at', [$desde . ' 00:00:00', $hasta . ' 23:59:59'])
+            ->selectRaw('
+                p.id               AS producto_id,
+                p.nombre           AS nombre,
+                p.categoria,
+                SUM(oi.cantidad)                       AS total_unidades,
+                SUM(oi.cantidad * oi.precio_unitario)  AS total_valor
+            ')
+            ->groupBy('p.id', 'p.nombre', 'p.categoria')
+            ->orderByDesc('total_unidades')
+            ->limit(20)
+            ->get();
+
+        $rawPorTienda = DB::table('orden_items as oi')
+            ->join('productos as p', 'p.id', '=', 'oi.producto_id')
+            ->join('ordenes as o',   'o.id', '=', 'oi.orden_id')
+            ->join('tiendas as t',   't.id', '=', 'o.tienda_id')
+            ->where('o.estado', '!=', 'cancelado')
+            ->whereBetween('o.created_at', [$desde . ' 00:00:00', $hasta . ' 23:59:59'])
+            ->selectRaw('
+                o.tienda_id,
+                t.nombre           AS tienda_nombre,
+                p.id               AS producto_id,
+                p.nombre           AS nombre,
+                p.categoria,
+                SUM(oi.cantidad)                       AS total_unidades,
+                SUM(oi.cantidad * oi.precio_unitario)  AS total_valor
+            ')
+            ->groupBy('o.tienda_id', 't.nombre', 'p.id', 'p.nombre', 'p.categoria')
+            ->orderByDesc('total_unidades')
+            ->get();
+
+        $porTienda = $rawPorTienda
+            ->groupBy('tienda_id')
+            ->map(function ($items) {
+                $first = $items->first();
+                return [
+                    'tienda_id'     => $first->tienda_id,
+                    'tienda_nombre' => $first->tienda_nombre,
+                    'top'           => $items->values()->take(10),
+                ];
+            })
+            ->values();
+
+        $meses   = ['Enero','Febrero','Marzo','Abril','Mayo','Junio',
+                    'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+        $mesAnterior = $hoy->copy()->subMonthNoOverflow();
+        $mesLabel    = $meses[(int) $mesAnterior->format('n') - 1] . ' ' . $mesAnterior->format('Y');
+
+        return response()->json([
+            'mes'        => $mesLabel,
+            'desde'      => $desde,
+            'hasta'      => $hasta,
+            'general'    => $general,
+            'por_tienda' => $porTienda,
+        ]);
+    }
+
+    /** GET /api/reportes/resumen-mensual/exportar */
+    public function exportarResumenMensual()
+    {
+        $hoy   = now();
+        $desde = $hoy->copy()->subMonthNoOverflow()->startOfMonth()->toDateString();
+        $hasta = $hoy->copy()->subMonthNoOverflow()->endOfMonth()->toDateString();
+
+        $general = DB::table('orden_items as oi')
+            ->join('productos as p', 'p.id', '=', 'oi.producto_id')
+            ->join('ordenes as o',   'o.id', '=', 'oi.orden_id')
+            ->where('o.estado', '!=', 'cancelado')
+            ->whereBetween('o.created_at', [$desde . ' 00:00:00', $hasta . ' 23:59:59'])
+            ->selectRaw('"TOP GENERAL" AS seccion, p.nombre, p.categoria,
+                SUM(oi.cantidad) AS total_unidades,
+                SUM(oi.cantidad * oi.precio_unitario) AS total_valor')
+            ->groupBy('p.id', 'p.nombre', 'p.categoria')
+            ->orderByDesc('total_unidades')
+            ->limit(20)
+            ->get();
+
+        $porTiendaRaw = DB::table('orden_items as oi')
+            ->join('productos as p', 'p.id', '=', 'oi.producto_id')
+            ->join('ordenes as o',   'o.id', '=', 'oi.orden_id')
+            ->join('tiendas as t',   't.id', '=', 'o.tienda_id')
+            ->where('o.estado', '!=', 'cancelado')
+            ->whereBetween('o.created_at', [$desde . ' 00:00:00', $hasta . ' 23:59:59'])
+            ->selectRaw('t.nombre AS seccion, t.id AS tienda_id, p.nombre, p.categoria,
+                SUM(oi.cantidad) AS total_unidades,
+                SUM(oi.cantidad * oi.precio_unitario) AS total_valor')
+            ->groupBy('o.tienda_id', 't.id', 't.nombre', 'p.id', 'p.nombre', 'p.categoria')
+            ->orderBy('t.nombre')
+            ->orderByDesc('total_unidades')
+            ->get();
+
+        $porTiendaTop10 = $porTiendaRaw->groupBy('tienda_id')
+            ->flatMap(fn($items) => $items->take(10));
+
+        $rows = $general->concat($porTiendaTop10)->map(fn($r) => [
+            $r->seccion,
+            $r->nombre,
+            $r->categoria ?? '',
+            $r->total_unidades,
+            number_format($r->total_valor, 2, '.', ''),
+        ]);
+
+        $meses    = ['Enero','Febrero','Marzo','Abril','Mayo','Junio',
+                     'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+        $mesAnterior = $hoy->copy()->subMonthNoOverflow();
+        $mesLabel    = $meses[(int) $mesAnterior->format('n') - 1] . ' ' . $mesAnterior->format('Y');
+
+        return Excel::download(
+            new ReporteExport(
+                $rows,
+                ['Sección / Tienda', 'Producto', 'Categoría', 'Unidades Vendidas', 'Valor Total (COP)'],
+                "Resumen Mensual {$mesLabel}",
+                [],
+                $this->metaStr($desde, $hasta),
+            ),
+            "resumen_mensual_{$desde}.xlsx"
+        );
+    }
+
     // ─── Data builders (JSON) ─────────────────────────────────────────────────
 
     private function buildVentas(Request $r): array

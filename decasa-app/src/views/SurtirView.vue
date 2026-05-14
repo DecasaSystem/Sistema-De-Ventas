@@ -17,7 +17,9 @@ import {
   getSurtidos,
   getSurtido,
   getVendedoresTienda,
+  getRecomendaciones,
 } from '@/api/surtidos'
+import { getStockTienda, crearTraslado, getTraslados } from '@/api/traslados'
 import { getTiendas } from '@/api/ordenes'
 import api from '@/api'
 import { useToast } from '@/composables/useToast'
@@ -25,6 +27,59 @@ import ComboInput from '@/components/common/ComboInput.vue'
 import { TELAS_CATALOGO, marcasOrdenadas, tiposTelaDeM, coloresDeTela } from '@/data/telasCatalogo'
 
 const toast = useToast()
+
+// ── Recomendaciones ───────────────────────────────────────────────────────────
+const recomendaciones    = ref([])
+const cargandoRecom      = ref(false)
+const recomAbiertas      = ref({})    // { tienda_id: bool }
+const recomPaginas       = ref({})    // { tienda_id: pageNumber }
+const recomCargandoPag   = ref({})    // { tienda_id: bool }
+const recomVisible       = ref(false)
+const PER_PAGE           = 10
+
+async function cargarRecomendaciones() {
+  cargandoRecom.value = true
+  try {
+    const { data } = await getRecomendaciones({ per_page: PER_PAGE, page: 1 })
+    recomendaciones.value = data
+    data.forEach(t => {
+      recomPaginas.value[t.tienda_id] = 1
+    })
+  } catch {} finally {
+    cargandoRecom.value = false
+  }
+}
+
+async function cambiarPaginaRecom(tiendaId, nuevaPag) {
+  recomCargandoPag.value[tiendaId] = true
+  try {
+    const { data } = await getRecomendaciones({ per_page: PER_PAGE, page: nuevaPag })
+    const tienda = data.find(t => t.tienda_id === tiendaId)
+    if (tienda) {
+      const idx = recomendaciones.value.findIndex(t => t.tienda_id === tiendaId)
+      if (idx !== -1) recomendaciones.value[idx] = tienda
+      recomPaginas.value[tiendaId] = nuevaPag
+    }
+  } catch {} finally {
+    recomCargandoPag.value[tiendaId] = false
+  }
+}
+
+function agregarDesdeRecom(prod) {
+  const yaEsta = productosAgr.value.some(p => p.producto.id === prod.producto_id)
+  if (!yaEsta) {
+    productosAgr.value.push({
+      producto: {
+        id:        prod.producto_id,
+        nombre:    prod.producto_nombre,
+        categoria: prod.categoria,
+        foto_url:  prod.foto_url,
+      },
+      cantidad: 1,
+      especificaciones: { marca: '', tela: '', color: '', medidas: '', acabado: '' },
+    })
+  }
+}
 
 // ── Telas — solo para productos tapizados ────────────────────────────────────
 const KEYWORDS_TELA = ['sofa', 'sofá', 'silla', 'sillón', 'sillon', 'mueble', 'tapiceria', 'tapicería', 'tapizado']
@@ -328,10 +383,107 @@ function fmtFecha(iso) {
   return iso ? new Date(iso).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''
 }
 
+// ── Traslados entre tiendas ───────────────────────────────────────────────────
+const tPaso          = ref(1)           // 1=productos, 2=destino, 3=revisión
+const tOrigenId      = ref('')
+const tDestinoId     = ref('')
+const tStockOrigen   = ref([])          // [{producto_id, nombre, categoria, foto_url, stock_libre}]
+const tCargandoStock = ref(false)
+const tBusqueda      = ref('')
+const tItems         = ref([])          // [{producto, cantidad}]
+const tNotas         = ref('')
+const tEnviando      = ref(false)
+const tError         = ref('')
+
+// historial traslados
+const tHistorial     = ref([])
+const tCargandoHist  = ref(false)
+const tDetalleAbierto = ref({})
+
+const tStockFiltrado = computed(() => {
+  const term = tBusqueda.value.trim().toLowerCase()
+  const yaAgregados = new Set(tItems.value.map(i => i.producto.producto_id))
+  return tStockOrigen.value
+    .filter(p => !yaAgregados.has(p.producto_id) &&
+      (!term || p.nombre.toLowerCase().includes(term) || (p.categoria ?? '').toLowerCase().includes(term)))
+    .slice(0, 30)
+})
+
+async function tSeleccionarOrigen(tiendaId) {
+  tOrigenId.value  = tiendaId
+  tDestinoId.value = ''
+  tItems.value     = []
+  tBusqueda.value  = ''
+  if (!tiendaId) { tStockOrigen.value = []; return }
+  tCargandoStock.value = true
+  try {
+    const { data } = await getStockTienda(tiendaId)
+    tStockOrigen.value = data
+  } catch {} finally {
+    tCargandoStock.value = false
+  }
+}
+
+function tAgregarProducto(prod) {
+  if (tItems.value.some(i => i.producto.producto_id === prod.producto_id)) return
+  tItems.value.push({ producto: prod, cantidad: 1 })
+  tBusqueda.value = ''
+}
+
+function tQuitarProducto(idx) {
+  tItems.value.splice(idx, 1)
+}
+
+const tPaso1Valido = computed(() => tOrigenId.value && tItems.value.length > 0 && tItems.value.every(i => i.cantidad >= 1))
+const tPaso2Valido = computed(() => tDestinoId.value && tDestinoId.value !== tOrigenId.value)
+
+async function tEnviar() {
+  tEnviando.value = true
+  tError.value    = ''
+  try {
+    await crearTraslado({
+      tienda_origen_id:  tOrigenId.value,
+      tienda_destino_id: tDestinoId.value,
+      notas: tNotas.value || null,
+      items: tItems.value.map(i => ({ producto_id: i.producto.producto_id, cantidad: i.cantidad })),
+    })
+    toast.success('Traslado realizado correctamente. El inventario fue actualizado.')
+    tResetear()
+    tabActivo.value = 'historial-traslados'
+    await cargarHistorialTraslados()
+  } catch (e) {
+    tError.value = e.response?.data?.message ?? 'Error al realizar el traslado.'
+  } finally {
+    tEnviando.value = false
+  }
+}
+
+function tResetear() {
+  tPaso.value     = 1
+  tOrigenId.value = ''
+  tDestinoId.value = ''
+  tStockOrigen.value = []
+  tItems.value    = []
+  tNotas.value    = ''
+  tError.value    = ''
+  tBusqueda.value = ''
+}
+
+async function cargarHistorialTraslados() {
+  tCargandoHist.value = true
+  try {
+    const { data } = await getTraslados()
+    tHistorial.value = data.data ?? data
+  } catch {} finally {
+    tCargandoHist.value = false
+  }
+}
+
 onMounted(async () => {
   const { data } = await getTiendas()
   tiendas.value = data
-  precargarCatalogo()   // carga en segundo plano, no bloquea la UI
+  precargarCatalogo()
+  cargarRecomendaciones()
 })
 </script>
 
@@ -347,16 +499,151 @@ onMounted(async () => {
     <!-- Tabs -->
     <div class="flex bg-gray-100 rounded-xl p-1 gap-1">
       <button
-        v-for="tab in [{ k: 'nuevo', label: 'Nuevo surtido' }, { k: 'historial', label: 'Historial' }]"
+        v-for="tab in [
+          { k: 'nuevo',               label: 'Nuevo surtido' },
+          { k: 'traslado',            label: 'Traslado' },
+          { k: 'historial',           label: 'Surtidos' },
+          { k: 'historial-traslados', label: 'Traslados' },
+        ]"
         :key="tab.k"
-        @click="tabActivo = tab.k; tab.k === 'historial' && cargarHistorial()"
+        @click="tabActivo = tab.k;
+          tab.k === 'historial' && cargarHistorial();
+          tab.k === 'historial-traslados' && cargarHistorialTraslados()"
         :class="[
-          'flex-1 py-2 rounded-lg text-sm font-semibold transition-colors',
+          'flex-1 py-2 rounded-lg text-xs font-semibold transition-colors',
           tabActivo === tab.k ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500',
         ]"
       >
         {{ tab.label }}
       </button>
+    </div>
+
+    <!-- ═══════════════ PANEL: RECOMENDACIONES ═══════════════ -->
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      <!-- Header toggle -->
+      <button
+        @click="recomVisible = !recomVisible"
+        class="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors"
+      >
+        <div class="flex items-center gap-2">
+          <span class="text-sm font-semibold text-gray-800">Recomendaciones de reabastecimiento</span>
+          <span
+            v-if="!cargandoRecom && recomendaciones.length"
+            class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold"
+          >
+            {{ recomendaciones.length }} tienda(s)
+          </span>
+          <span v-if="cargandoRecom" class="w-3.5 h-3.5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin inline-block" />
+        </div>
+        <component :is="recomVisible ? ChevronUpIcon : ChevronDownIcon" class="w-4 h-4 text-gray-400 flex-shrink-0" />
+      </button>
+
+      <Transition name="slide">
+        <div v-if="recomVisible" class="border-t border-gray-100">
+
+          <!-- Cargando -->
+          <div v-if="cargandoRecom" class="flex justify-center py-8">
+            <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          </div>
+
+          <!-- Sin alertas -->
+          <div v-else-if="recomendaciones.length === 0" class="text-center py-8 text-sm text-gray-400">
+            Todas las tiendas tienen stock suficiente
+          </div>
+
+          <!-- Lista de tiendas -->
+          <div v-else class="divide-y divide-gray-100">
+            <div v-for="tienda in recomendaciones" :key="tienda.tienda_id">
+
+              <!-- Cabecera de tienda -->
+              <button
+                @click="recomAbiertas[tienda.tienda_id] = !recomAbiertas[tienda.tienda_id]"
+                class="w-full flex items-center justify-between px-4 py-2.5 hover:bg-gray-50 transition-colors"
+              >
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="text-sm font-semibold text-gray-700">{{ tienda.tienda_nombre }}</span>
+                  <span v-if="tienda.sin_stock"   class="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-semibold">{{ tienda.sin_stock }} sin stock</span>
+                  <span v-if="tienda.bajo_stock"  class="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-semibold">{{ tienda.bajo_stock }} bajo stock</span>
+                  <span v-if="tienda.top_ventas"  class="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full font-semibold">{{ tienda.top_ventas }} alta rotación</span>
+                </div>
+                <component :is="recomAbiertas[tienda.tienda_id] ? ChevronUpIcon : ChevronDownIcon" class="w-4 h-4 text-gray-400 flex-shrink-0 ml-2" />
+              </button>
+
+              <!-- Productos de la tienda -->
+              <div v-if="recomAbiertas[tienda.tienda_id]" class="px-3 pb-3 bg-gray-50">
+
+                <!-- Cargando página -->
+                <div v-if="recomCargandoPag[tienda.tienda_id]" class="flex justify-center py-5">
+                  <div class="w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                </div>
+
+                <div v-else>
+                  <!-- Grid de productos -->
+                  <div class="grid grid-cols-2 gap-2 pt-2">
+                    <div
+                      v-for="prod in tienda.productos"
+                      :key="prod.producto_id"
+                      class="bg-white rounded-lg p-2.5 border border-gray-200 flex flex-col gap-1.5"
+                    >
+                      <div class="flex items-start gap-1.5">
+                        <img v-if="prod.foto_url" :src="prod.foto_url" class="w-8 h-8 rounded object-cover flex-shrink-0" />
+                        <div class="flex-1 min-w-0">
+                          <p class="text-xs font-medium text-gray-800 leading-snug line-clamp-2">{{ prod.producto_nombre }}</p>
+                          <p class="text-[10px] text-gray-400 mt-0.5 truncate">{{ prod.categoria }}</p>
+                        </div>
+                      </div>
+
+                      <div class="flex items-center justify-between gap-1">
+                        <!-- Badge motivo -->
+                        <span :class="[
+                          'text-[10px] font-semibold px-1.5 py-0.5 rounded-full truncate',
+                          prod.motivo === 'sin_stock'   ? 'bg-red-100 text-red-600' :
+                          prod.motivo === 'bajo_stock'  ? 'bg-amber-100 text-amber-700' :
+                                                          'bg-blue-100 text-blue-600'
+                        ]">
+                          {{ prod.motivo === 'sin_stock' ? 'Sin stock' : prod.motivo === 'bajo_stock' ? `${prod.stock_actual} en stock` : `${prod.ventas_mes} vtas/mes` }}
+                        </span>
+
+                        <!-- Botón agregar -->
+                        <button
+                          @click="agregarDesdeRecom(prod); tabActivo = 'nuevo'"
+                          :disabled="productosAgr.some(p => p.producto.id === prod.producto_id)"
+                          class="w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center hover:bg-blue-200 disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
+                          title="Agregar al surtido"
+                        >
+                          <PlusIcon class="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Paginación -->
+                  <div v-if="tienda.last_page > 1" class="flex items-center justify-between mt-3 px-1">
+                    <button
+                      @click="cambiarPaginaRecom(tienda.tienda_id, recomPaginas[tienda.tienda_id] - 1)"
+                      :disabled="recomPaginas[tienda.tienda_id] <= 1"
+                      class="p-1.5 rounded-lg hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <ChevronLeftIcon class="w-4 h-4 text-gray-600" />
+                    </button>
+                    <span class="text-xs text-gray-500 font-medium">
+                      Pág. {{ recomPaginas[tienda.tienda_id] }} / {{ tienda.last_page }}
+                    </span>
+                    <button
+                      @click="cambiarPaginaRecom(tienda.tienda_id, recomPaginas[tienda.tienda_id] + 1)"
+                      :disabled="recomPaginas[tienda.tienda_id] >= tienda.last_page"
+                      class="p-1.5 rounded-lg hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <ChevronRightIcon class="w-4 h-4 text-gray-600" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      </Transition>
     </div>
 
     <!-- ═══════════════ TAB: NUEVO SURTIDO (WIZARD) ═══════════════ -->
@@ -762,7 +1049,244 @@ onMounted(async () => {
       </div>
     </template>
 
-    <!-- ═══════════════ TAB: HISTORIAL ═══════════════ -->
+    <!-- ═══════════════ TAB: TRASLADO ═══════════════ -->
+    <template v-if="tabActivo === 'traslado'">
+
+      <!-- Paso 1: Seleccionar origen + productos -->
+      <div v-if="tPaso === 1" class="space-y-3">
+        <h3 class="text-sm font-semibold text-gray-700">¿De qué tienda se van a sacar los productos?</h3>
+
+        <select
+          :value="tOrigenId"
+          @change="tSeleccionarOrigen($event.target.value)"
+          class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="">Seleccionar tienda origen...</option>
+          <option v-for="t in tiendas" :key="t.id" :value="t.id">{{ t.nombre }}</option>
+        </select>
+
+        <!-- Stock disponible -->
+        <template v-if="tOrigenId">
+          <div v-if="tCargandoStock" class="flex justify-center py-6">
+            <div class="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          </div>
+
+          <template v-else>
+            <div v-if="tStockOrigen.length === 0" class="text-center py-6 text-sm text-gray-400">
+              Esta tienda no tiene stock disponible para trasladar.
+            </div>
+
+            <template v-else>
+              <!-- Buscador -->
+              <div class="relative">
+                <MagnifyingGlassIcon class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  v-model="tBusqueda"
+                  placeholder="Buscar producto..."
+                  class="w-full rounded-lg border border-gray-300 pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <!-- Lista de stock disponible -->
+              <div class="bg-white rounded-xl border border-gray-200 shadow-sm divide-y divide-gray-100 max-h-64 overflow-y-auto">
+                <button
+                  v-for="prod in tStockFiltrado"
+                  :key="prod.producto_id"
+                  @click="tAgregarProducto(prod)"
+                  class="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-blue-50 transition-colors"
+                >
+                  <img v-if="prod.foto_url" :src="prod.foto_url" class="w-9 h-9 rounded-lg object-cover flex-shrink-0" />
+                  <div class="w-9 h-9 rounded-lg bg-gray-100 flex-shrink-0" v-else />
+                  <div class="flex-1 min-w-0">
+                    <p class="text-sm font-medium text-gray-800 truncate">{{ prod.nombre }}</p>
+                    <p class="text-xs text-gray-400">{{ prod.categoria }}</p>
+                  </div>
+                  <span class="text-xs font-semibold text-green-700 bg-green-50 px-2 py-0.5 rounded-full flex-shrink-0">
+                    {{ prod.stock_libre }} libres
+                  </span>
+                  <PlusIcon class="w-4 h-4 text-blue-500 flex-shrink-0" />
+                </button>
+                <p v-if="tBusqueda && !tStockFiltrado.length" class="px-4 py-3 text-xs text-gray-400 text-center">
+                  Sin resultados para "{{ tBusqueda }}"
+                </p>
+              </div>
+            </template>
+          </template>
+        </template>
+
+        <!-- Productos seleccionados -->
+        <div v-if="tItems.length" class="space-y-2">
+          <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Productos a trasladar</p>
+          <div v-for="(item, idx) in tItems" :key="item.producto.producto_id"
+            class="bg-white rounded-xl border border-gray-200 shadow-sm flex items-center gap-3 px-3 py-3">
+            <img v-if="item.producto.foto_url" :src="item.producto.foto_url" class="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
+            <div class="w-10 h-10 rounded-lg bg-gray-100 flex-shrink-0" v-else />
+            <div class="flex-1 min-w-0">
+              <p class="text-sm font-medium text-gray-800 truncate">{{ item.producto.nombre }}</p>
+              <p class="text-xs text-gray-400">Máx. {{ item.producto.stock_libre }} unidades</p>
+            </div>
+            <div class="flex items-center gap-1 flex-shrink-0">
+              <button @click="item.cantidad > 1 && item.cantidad--" class="w-7 h-7 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center hover:bg-gray-200">−</button>
+              <input
+                v-model.number="item.cantidad"
+                type="number"
+                :min="1"
+                :max="item.producto.stock_libre"
+                class="w-12 text-center rounded border border-gray-300 py-1 text-sm font-bold focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+              <button
+                @click="item.cantidad < item.producto.stock_libre && item.cantidad++"
+                class="w-7 h-7 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center hover:bg-gray-200">+</button>
+            </div>
+            <button @click="tQuitarProducto(idx)" class="text-red-400 hover:text-red-600 flex-shrink-0 ml-1">
+              <XMarkIcon class="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        <button
+          @click="tPaso = 2"
+          :disabled="!tPaso1Valido"
+          class="w-full flex items-center justify-center gap-2 bg-blue-600 text-white rounded-xl py-3 text-sm font-bold hover:bg-blue-700 disabled:opacity-50 transition-colors"
+        >
+          Siguiente: elegir destino
+          <ChevronRightIcon class="w-4 h-4" />
+        </button>
+      </div>
+
+      <!-- Paso 2: Seleccionar destino -->
+      <div v-else-if="tPaso === 2" class="space-y-3">
+        <h3 class="text-sm font-semibold text-gray-700">¿A qué tienda se envían los productos?</h3>
+
+        <div class="bg-white rounded-xl border border-gray-200 shadow-sm divide-y divide-gray-100">
+          <label
+            v-for="t in tiendas.filter(t => String(t.id) !== String(tOrigenId))"
+            :key="t.id"
+            class="flex items-center gap-3 px-4 py-3 cursor-pointer"
+          >
+            <input type="radio" :value="String(t.id)" v-model="tDestinoId" class="w-4 h-4 text-blue-600" />
+            <span class="text-sm font-medium text-gray-800">{{ t.nombre }}</span>
+            <span v-if="t.ciudad" class="text-xs text-gray-400">{{ t.ciudad }}</span>
+          </label>
+        </div>
+
+        <div class="flex gap-2">
+          <button @click="tPaso = 1" class="flex items-center gap-1 border border-gray-300 text-gray-600 rounded-xl px-4 py-3 text-sm font-semibold hover:bg-gray-50">
+            <ChevronLeftIcon class="w-4 h-4" />Atrás
+          </button>
+          <button
+            @click="tPaso = 3"
+            :disabled="!tPaso2Valido"
+            class="flex-1 flex items-center justify-center gap-2 bg-blue-600 text-white rounded-xl py-3 text-sm font-bold hover:bg-blue-700 disabled:opacity-50 transition-colors"
+          >
+            Revisar traslado
+            <ChevronRightIcon class="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      <!-- Paso 3: Revisión y confirmación -->
+      <div v-else-if="tPaso === 3" class="space-y-3">
+        <h3 class="text-sm font-semibold text-gray-700">Revisa el traslado antes de confirmar</h3>
+
+        <!-- Resumen origen → destino -->
+        <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-4 space-y-3">
+          <div class="flex items-center justify-between text-sm">
+            <div class="text-center flex-1">
+              <p class="text-xs text-gray-400 mb-0.5">Origen</p>
+              <p class="font-bold text-gray-800">{{ tiendas.find(t => String(t.id) === String(tOrigenId))?.nombre }}</p>
+            </div>
+            <div class="flex flex-col items-center px-3">
+              <ChevronRightIcon class="w-5 h-5 text-blue-500" />
+            </div>
+            <div class="text-center flex-1">
+              <p class="text-xs text-gray-400 mb-0.5">Destino</p>
+              <p class="font-bold text-blue-700">{{ tiendas.find(t => String(t.id) === String(tDestinoId))?.nombre }}</p>
+            </div>
+          </div>
+
+          <div class="space-y-1 border-t border-gray-100 pt-3">
+            <div v-for="item in tItems" :key="item.producto.producto_id"
+              class="flex items-center gap-2 bg-gray-50 rounded-lg px-2.5 py-1.5 text-xs">
+              <span class="flex-1 text-gray-700 font-medium truncate">{{ item.producto.nombre }}</span>
+              <span class="text-gray-400">{{ item.producto.categoria }}</span>
+              <span class="font-bold text-green-700 flex-shrink-0">× {{ item.cantidad }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Notas (opcional)</label>
+          <textarea
+            v-model="tNotas"
+            rows="2"
+            placeholder="Motivo del traslado, instrucciones especiales..."
+            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+          />
+        </div>
+
+        <p v-if="tError" class="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">{{ tError }}</p>
+
+        <div class="flex gap-2">
+          <button @click="tPaso = 2" class="flex items-center gap-1 border border-gray-300 text-gray-600 rounded-xl px-4 py-3 text-sm font-semibold hover:bg-gray-50">
+            <ChevronLeftIcon class="w-4 h-4" />Atrás
+          </button>
+          <button
+            @click="tEnviar"
+            :disabled="tEnviando"
+            class="flex-1 flex items-center justify-center gap-2 bg-green-600 text-white rounded-xl py-3 text-sm font-bold hover:bg-green-700 disabled:opacity-50 transition-colors"
+          >
+            <ArchiveBoxArrowDownIcon class="w-4 h-4" />
+            {{ tEnviando ? 'Procesando...' : 'Confirmar traslado' }}
+          </button>
+        </div>
+      </div>
+    </template>
+
+    <!-- ═══════════════ TAB: HISTORIAL TRASLADOS ═══════════════ -->
+    <template v-else-if="tabActivo === 'historial-traslados'">
+      <div v-if="tCargandoHist" class="flex justify-center py-10">
+        <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+      <div v-else-if="tHistorial.length === 0" class="text-center py-10 text-sm text-gray-400">
+        No hay traslados registrados.
+      </div>
+      <div v-else class="space-y-3">
+        <div v-for="tr in tHistorial" :key="tr.id" class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+          <button
+            @click="tDetalleAbierto[tr.id] = !tDetalleAbierto[tr.id]"
+            class="w-full flex items-center justify-between px-4 py-3 text-left"
+          >
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 flex-wrap">
+                <p class="text-sm font-semibold text-gray-800">Traslado #{{ tr.id }}</p>
+                <span class="text-xs text-gray-500">
+                  {{ tr.tienda_origen?.nombre }} → {{ tr.tienda_destino?.nombre }}
+                </span>
+              </div>
+              <p class="text-xs text-gray-400 mt-0.5">
+                {{ fmtFecha(tr.created_at) }} · {{ tr.items?.length ?? 0 }} producto(s) · {{ tr.supervisor?.nombre }}
+              </p>
+            </div>
+            <component :is="tDetalleAbierto[tr.id] ? ChevronUpIcon : ChevronDownIcon" class="w-4 h-4 text-gray-400 flex-shrink-0 ml-2" />
+          </button>
+
+          <Transition name="slide">
+            <div v-if="tDetalleAbierto[tr.id]" class="border-t border-gray-100 px-4 pb-4 pt-3 space-y-2">
+              <div v-for="item in tr.items" :key="item.id"
+                class="flex items-center gap-2 bg-gray-50 rounded-lg px-2.5 py-1.5 text-xs">
+                <span class="flex-1 text-gray-700 font-medium truncate">{{ item.producto?.nombre }}</span>
+                <span class="text-gray-400 text-[10px]">{{ item.producto?.categoria }}</span>
+                <span class="font-bold text-green-700 flex-shrink-0">× {{ item.cantidad }}</span>
+              </div>
+              <p v-if="tr.notas" class="text-xs text-gray-500 italic pt-1">Notas: "{{ tr.notas }}"</p>
+            </div>
+          </Transition>
+        </div>
+      </div>
+    </template>
+
+    <!-- ═══════════════ TAB: HISTORIAL SURTIDOS ═══════════════ -->
     <template v-else-if="tabActivo === 'historial'">
       <div v-if="cargandoHist" class="flex justify-center py-10">
         <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
