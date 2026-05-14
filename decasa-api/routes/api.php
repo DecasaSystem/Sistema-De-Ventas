@@ -67,6 +67,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/inventario',                              [InventarioController::class, 'index']);
     Route::get('/inventario/{productoId}/movimientos',     [InventarioController::class, 'movimientos'])->whereNumber('productoId');
     Route::post('/inventario/entrada',                     [InventarioController::class, 'entrada']);
+    Route::post('/inventario/salida',                      [InventarioController::class, 'salida']);
     Route::post('/inventario/variantes/entrada',           [VarianteController::class, 'entrada']);
 
     // Surtir — accesible para vendedor (pendientes, aceptar, rechazar) y supervisor (todo)

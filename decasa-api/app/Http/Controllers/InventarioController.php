@@ -251,6 +251,59 @@ class InventarioController extends Controller
         ], 201);
     }
 
+    /**
+     * POST /api/inventario/salida
+     * Quita stock disponible de una tienda (corrección manual).
+     */
+    public function salida(Request $request)
+    {
+        $data = $request->validate([
+            'producto_id' => 'required|exists:productos,id',
+            'tienda_id'   => 'required|exists:tiendas,id',
+            'cantidad'    => 'required|integer|min:1',
+            'motivo'      => 'nullable|string|max:200',
+        ]);
+
+        $inv = DB::transaction(function () use ($data, $request) {
+            $inv = Inventario::where('producto_id', $data['producto_id'])
+                ->where('tienda_id', $data['tienda_id'])
+                ->lockForUpdate()
+                ->first();
+
+            if (!$inv) {
+                throw new \RuntimeException('Este producto no tiene inventario en la tienda seleccionada.');
+            }
+
+            $libre = $inv->cantidad_disponible - $inv->cantidad_reservada;
+            if ($data['cantidad'] > $libre) {
+                throw new \RuntimeException(
+                    "No se puede quitar {$data['cantidad']} unidades. Stock libre: {$libre}."
+                );
+            }
+
+            $inv->decrement('cantidad_disponible', $data['cantidad']);
+
+            InventarioMovimiento::create([
+                'producto_id' => $data['producto_id'],
+                'tienda_id'   => $data['tienda_id'],
+                'tipo'        => 'salida',
+                'cantidad'    => $data['cantidad'],
+                'motivo'      => $data['motivo'] ?? 'Ajuste manual',
+                'usuario_id'  => $request->user()->id,
+            ]);
+
+            return $inv->fresh();
+        });
+
+        event(new InventarioActualizado((int) $data['tienda_id'], (int) $data['producto_id'], 'salida'));
+
+        $inv->load('producto:id,nombre,categoria');
+        $inv->stock_libre = $inv->cantidad_disponible - $inv->cantidad_reservada;
+        $inv->bajo_stock  = $inv->cantidad_disponible <= $inv->stock_minimo;
+
+        return response()->json($inv, 201);
+    }
+
     public function movimientos(Request $request, int $productoId)
     {
         $tiendaId = $request->user()->tienda_default_id;

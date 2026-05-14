@@ -11,7 +11,7 @@ import {
   PhotoIcon,
   XMarkIcon,
 } from '@heroicons/vue/24/outline'
-import { getInventario, addStock, getVariantes, crearVariante, addStockVariante, getMovimientos } from '@/api/inventario'
+import { getInventario, addStock, removeStock, getVariantes, crearVariante, addStockVariante, getMovimientos } from '@/api/inventario'
 import SurtidosPendientesPanel from '@/components/inventario/SurtidosPendientesPanel.vue'
 import { useRealtime } from '@/composables/useRealtime'
 import { TELAS_CATALOGO, marcasOrdenadas, tiposTelaDeM, coloresDeTela } from '@/data/telasCatalogo'
@@ -44,6 +44,11 @@ const gestionError = ref('')
 const gestionLoading = ref(false)
 const stockError = ref('')
 const stockLoading = ref(false)
+
+const quitarStockCant   = ref(0)
+const quitarStockMotivo = ref('')
+const quitarStockError  = ref('')
+const quitarStockLoad   = ref(false)
 
 const fotoModal = ref(false)
 const fotoProducto = ref(null)
@@ -286,6 +291,9 @@ function openGestionar(item) {
   stockMotivo.value = ''
   gestionError.value = ''
   stockError.value = ''
+  quitarStockCant.value   = 0
+  quitarStockMotivo.value = ''
+  quitarStockError.value  = ''
   quitarGestionFoto()
   gestionFotoError.value = ''
   mostrarGestionar.value = true
@@ -327,6 +335,29 @@ async function guardarStock() {
     stockError.value = e.response?.data?.message ?? 'Error al agregar stock.'
   } finally {
     stockLoading.value = false
+  }
+}
+
+async function quitarStock() {
+  quitarStockError.value = ''
+  if (!quitarStockCant.value || quitarStockCant.value < 1) {
+    quitarStockError.value = 'Ingresa una cantidad válida.'
+    return
+  }
+  quitarStockLoad.value = true
+  try {
+    await removeStock({
+      producto_id: itemGestionar.value.producto_id,
+      tienda_id:   tiendaId.value,
+      cantidad:    quitarStockCant.value,
+      motivo:      quitarStockMotivo.value || undefined,
+    })
+    mostrarGestionar.value = false
+    await cargarInventario(true)
+  } catch (e) {
+    quitarStockError.value = e.response?.data?.message ?? 'Error al quitar stock.'
+  } finally {
+    quitarStockLoad.value = false
   }
 }
 
@@ -915,121 +946,153 @@ onMounted(async () => {
     <Transition name="fade">
       <div v-if="mostrarGestionar" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="mostrarGestionar = false">
         <div class="absolute inset-0 bg-black/40" />
-        <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md p-5 space-y-4">
-          <div class="flex items-center justify-between">
-            <h3 class="text-lg font-bold text-gray-800">Gestionar producto</h3>
-            <button @click="mostrarGestionar = false" class="text-gray-400 text-2xl leading-none">&times;</button>
-          </div>
+        <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md flex flex-col max-h-[90vh]">
 
-          <!-- Foto en modal gestionar -->
-          <div class="flex items-center gap-3">
+          <!-- Cabecera fija -->
+          <div class="flex items-center gap-3 px-5 pt-5 pb-3 border-b border-gray-100 flex-shrink-0">
             <div
               v-if="itemGestionar?.producto?.foto_url"
-              class="w-14 h-14 rounded-xl overflow-hidden bg-gray-100 flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
+              class="w-10 h-10 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
               @click="verFoto(itemGestionar.producto)"
               title="Ver foto completa"
             >
               <img :src="itemGestionar.producto.foto_url" :alt="itemGestionar.producto.nombre" class="w-full h-full object-cover" />
             </div>
-            <div class="w-14 h-14 rounded-xl bg-gray-100 flex items-center justify-center flex-shrink-0" v-else>
-              <PhotoIcon class="w-7 h-7 text-gray-300" />
+            <div class="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0" v-else>
+              <PhotoIcon class="w-5 h-5 text-gray-300" />
             </div>
-            <p class="text-sm font-medium text-gray-800">{{ itemGestionar?.producto?.nombre }}</p>
+            <div class="flex-1 min-w-0">
+              <h3 class="text-base font-bold text-gray-800 leading-tight">Gestionar producto</h3>
+              <p class="text-xs text-gray-500 truncate mt-0.5">{{ itemGestionar?.producto?.nombre }}</p>
+            </div>
+            <button @click="mostrarGestionar = false" class="text-gray-400 text-2xl leading-none flex-shrink-0 ml-1">&times;</button>
           </div>
 
-          <!-- Cambiar precio -->
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Precio base</label>
-            <input
-              v-model.number="nuevoPrecio"
-              type="number"
-              min="0"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <p v-if="gestionError" class="text-xs text-red-600 mt-1">{{ gestionError }}</p>
-            <button
-              @click="guardarPrecio"
-              :disabled="gestionLoading"
-              class="mt-2 w-full bg-blue-600 text-white rounded-lg py-2 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
-            >
-              {{ gestionLoading ? 'Guardando...' : 'Actualizar precio' }}
-            </button>
-          </div>
+          <!-- Cuerpo scrollable -->
+          <div class="overflow-y-auto flex-1 px-5 py-4 space-y-4">
 
-          <div class="border-t border-gray-100 my-2" />
+            <!-- Cambiar precio -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Precio base</label>
+              <input
+                v-model.number="nuevoPrecio"
+                type="number"
+                min="0"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <p v-if="gestionError" class="text-xs text-red-600 mt-1">{{ gestionError }}</p>
+              <button
+                @click="guardarPrecio"
+                :disabled="gestionLoading"
+                class="mt-2 w-full bg-blue-600 text-white rounded-lg py-2 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
+              >
+                {{ gestionLoading ? 'Guardando...' : 'Actualizar precio' }}
+              </button>
+            </div>
 
-          <!-- Cambiar foto -->
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-2">Foto del producto</label>
-            <input ref="gestionFotoInput" type="file" accept="image/*" class="hidden" @change="onGestionFotoChange" />
+            <div class="border-t border-gray-100" />
 
-            <!-- Preview de la foto nueva seleccionada -->
-            <div v-if="gestionFotoPreviewUrl" class="space-y-2">
-              <div class="relative rounded-xl overflow-hidden border-2 border-blue-300 bg-gray-50">
-                <img :src="gestionFotoPreviewUrl" alt="Nueva foto" class="w-full object-contain" style="max-height: 180px;" />
-                <button type="button" @click="quitarGestionFoto" class="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1.5 shadow-lg">
-                  <XMarkIcon class="w-4 h-4" />
+            <!-- Cambiar foto -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">Foto del producto</label>
+              <input ref="gestionFotoInput" type="file" accept="image/*" class="hidden" @change="onGestionFotoChange" />
+
+              <div v-if="gestionFotoPreviewUrl" class="space-y-2">
+                <div class="relative rounded-xl overflow-hidden border-2 border-blue-300 bg-gray-50">
+                  <img :src="gestionFotoPreviewUrl" alt="Nueva foto" class="w-full object-contain max-h-40" />
+                  <button type="button" @click="quitarGestionFoto" class="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1.5 shadow-lg">
+                    <XMarkIcon class="w-4 h-4" />
+                  </button>
+                </div>
+                <p v-if="gestionFotoError" class="text-xs text-red-600">{{ gestionFotoError }}</p>
+                <button
+                  @click="guardarFotoProducto"
+                  :disabled="gestionFotoLoading"
+                  class="w-full bg-blue-600 text-white rounded-lg py-2 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                >
+                  {{ gestionFotoLoading ? 'Subiendo a Cloudinary...' : 'Guardar nueva foto' }}
                 </button>
               </div>
-              <p v-if="gestionFotoError" class="text-xs text-red-600">{{ gestionFotoError }}</p>
+
               <button
-                @click="guardarFotoProducto"
-                :disabled="gestionFotoLoading"
-                class="w-full bg-blue-600 text-white rounded-lg py-2 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                v-else
+                type="button"
+                @click="gestionFotoInput.click()"
+                class="w-full flex items-center gap-3 border-2 border-dashed border-gray-300 rounded-xl px-4 py-3 hover:border-blue-400 hover:bg-blue-50 transition-colors cursor-pointer"
               >
-                {{ gestionFotoLoading ? 'Subiendo a Cloudinary...' : 'Guardar nueva foto' }}
+                <div class="w-9 h-9 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0 flex items-center justify-center">
+                  <img v-if="itemGestionar?.producto?.foto_url" :src="itemGestionar.producto.foto_url" class="w-full h-full object-cover" />
+                  <PhotoIcon v-else class="w-5 h-5 text-gray-300" />
+                </div>
+                <div class="text-left">
+                  <p class="text-sm font-medium text-gray-700">{{ itemGestionar?.producto?.foto_url ? 'Cambiar foto' : 'Agregar foto' }}</p>
+                  <p class="text-xs text-gray-400">JPG, PNG, WEBP · se guarda en Cloudinary</p>
+                </div>
               </button>
             </div>
 
-            <!-- Botón seleccionar (muestra foto actual de fondo si existe) -->
-            <button
-              v-else
-              type="button"
-              @click="gestionFotoInput.click()"
-              class="w-full flex items-center gap-3 border-2 border-dashed border-gray-300 rounded-xl px-4 py-3 hover:border-blue-400 hover:bg-blue-50 transition-colors cursor-pointer"
-            >
-              <div class="w-10 h-10 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0 flex items-center justify-center">
-                <img v-if="itemGestionar?.producto?.foto_url" :src="itemGestionar.producto.foto_url" class="w-full h-full object-cover" />
-                <PhotoIcon v-else class="w-6 h-6 text-gray-300" />
-              </div>
-              <div class="text-left">
-                <p class="text-sm font-medium text-gray-700">
-                  {{ itemGestionar?.producto?.foto_url ? 'Cambiar foto' : 'Agregar foto' }}
-                </p>
-                <p class="text-xs text-gray-400">JPG, PNG, WEBP · se guarda en Cloudinary</p>
-              </div>
-            </button>
-          </div>
+            <div class="border-t border-gray-100" />
 
-          <div class="border-t border-gray-100 my-2" />
-
-          <!-- Agregar stock -->
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Agregar stock</label>
-            <div class="flex gap-2">
+            <!-- Agregar stock -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Agregar stock</label>
+              <div class="flex gap-2">
+                <input
+                  v-model.number="nuevoStock"
+                  type="number"
+                  min="1"
+                  class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Cantidad"
+                />
+                <button
+                  @click="guardarStock"
+                  :disabled="stockLoading"
+                  class="bg-green-600 text-white rounded-lg px-4 py-2 text-sm font-semibold hover:bg-green-700 disabled:opacity-50 flex items-center gap-1"
+                >
+                  <PlusIcon class="w-4 h-4" />
+                  Agregar
+                </button>
+              </div>
+              <p v-if="esVistaGlobal" class="text-xs text-blue-600 mt-1">Se agregará a todas las tiendas donde existe este producto</p>
               <input
-                v-model.number="nuevoStock"
-                type="number"
-                min="1"
-                class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Cantidad"
+                v-model="stockMotivo"
+                class="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Motivo (opcional)"
               />
-              <button
-                @click="guardarStock"
-                :disabled="stockLoading"
-                class="bg-green-600 text-white rounded-lg px-4 py-2 text-sm font-semibold hover:bg-green-700 disabled:opacity-50 flex items-center gap-1"
-              >
-                <PlusIcon class="w-4 h-4" />
-                Agregar
-              </button>
+              <p v-if="stockError" class="text-xs text-red-600 mt-1">{{ stockError }}</p>
             </div>
-            <p v-if="esVistaGlobal" class="text-xs text-blue-600 mt-1">Se agregará a todas las tiendas donde existe este producto</p>
-            <input
-              v-model="stockMotivo"
-              class="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Motivo (opcional)"
-            />
-            <p v-if="stockError" class="text-xs text-red-600 mt-1">{{ stockError }}</p>
+
+            <!-- Quitar stock — solo tienda individual -->
+            <template v-if="!esVistaGlobal">
+              <div class="border-t border-gray-100" />
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Quitar stock</label>
+                <div class="flex gap-2">
+                  <input
+                    v-model.number="quitarStockCant"
+                    type="number"
+                    min="1"
+                    class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+                    placeholder="Cantidad a quitar"
+                  />
+                  <button
+                    @click="quitarStock"
+                    :disabled="quitarStockLoad"
+                    class="bg-red-500 text-white rounded-lg px-4 py-2 text-sm font-semibold hover:bg-red-600 disabled:opacity-50 flex items-center gap-1"
+                  >
+                    <XMarkIcon class="w-4 h-4" />
+                    Quitar
+                  </button>
+                </div>
+                <input
+                  v-model="quitarStockMotivo"
+                  class="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+                  placeholder="Motivo (ej: Error de conteo, daño...)"
+                />
+                <p v-if="quitarStockError" class="text-xs text-red-600 mt-1">{{ quitarStockError }}</p>
+              </div>
+            </template>
+
           </div>
         </div>
       </div>

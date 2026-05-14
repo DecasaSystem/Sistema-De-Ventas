@@ -3,7 +3,8 @@ import api from './index'
 export const getInventario  = (tiendaId, search = '', page = 1) =>
   api.get('/inventario', { params: { tienda_id: tiendaId, search, page } })
 
-export const addStock = (data) => api.post('/inventario/entrada', data)
+export const addStock    = (data) => api.post('/inventario/entrada', data)
+export const removeStock = (data) => api.post('/inventario/salida',  data)
 
 export const getVariantes = (productoId, tiendaId) =>
   api.get(`/productos/${productoId}/variantes`, { params: { tienda_id: tiendaId } })

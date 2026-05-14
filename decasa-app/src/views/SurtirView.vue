@@ -1,6 +1,5 @@
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
-// watch sigue importado para los watchers de paso 2 (mismasCantidades, tiendasSelec)
+import { ref, computed, watch, onMounted, markRaw } from 'vue'
 import {
   MagnifyingGlassIcon,
   PlusIcon,
@@ -41,7 +40,7 @@ async function cargarRecomendaciones() {
   cargandoRecom.value = true
   try {
     const { data } = await getRecomendaciones({ per_page: PER_PAGE, page: 1 })
-    recomendaciones.value = data
+    recomendaciones.value = data.map(t => markRaw(t))
     data.forEach(t => {
       recomPaginas.value[t.tienda_id] = 1
     })
@@ -57,7 +56,7 @@ async function cambiarPaginaRecom(tiendaId, nuevaPag) {
     const tienda = data.find(t => t.tienda_id === tiendaId)
     if (tienda) {
       const idx = recomendaciones.value.findIndex(t => t.tienda_id === tiendaId)
-      if (idx !== -1) recomendaciones.value[idx] = tienda
+      if (idx !== -1) recomendaciones.value[idx] = markRaw(tienda)
       recomPaginas.value[tiendaId] = nuevaPag
     }
   } catch {} finally {
@@ -128,50 +127,32 @@ const tabActivo = ref('nuevo')  // 'nuevo' | 'historial'
 const paso = ref(1)
 
 // ── Paso 1 — Productos ────────────────────────────────────────────────────────
-const busquedaProd    = ref('')
-const catalogoProd    = ref([])      // todos los productos precargados (id, nombre, categoria, foto_url)
-const cargandoCat     = ref(false)
-const productosAgr    = ref([])      // [{producto, cantidad, especificaciones}]
-const especAbiertos   = ref({})      // { index: bool }
+const busquedaProd  = ref('')
+const resultados    = ref([])   // máx 10 resultados del servidor
+const buscandoProd  = ref(false)
+const productosAgr  = ref([])   // [{producto, cantidad, especificaciones}]
+const especAbiertos = ref({})   // { index: bool }
+let _busqTimer      = null
 
-// Filtro client-side — sin llamadas a la API al escribir
-const resultados = computed(() => {
-  const term = busquedaProd.value.trim().toLowerCase()
-  if (!term || term.length < 1) return []
-  const yaAgregados = new Set(productosAgr.value.map(p => p.producto.id))
-  return catalogoProd.value
-    .filter(p =>
-      !yaAgregados.has(p.id) &&
-      (p.nombre.toLowerCase().includes(term) || (p.categoria ?? '').toLowerCase().includes(term))
-    )
-    .slice(0, 10)
+watch(busquedaProd, (val) => {
+  clearTimeout(_busqTimer)
+  const term = val.trim()
+  if (term.length < 2) { resultados.value = []; return }
+  _busqTimer = setTimeout(() => buscarProductos(term), 220)
 })
 
-async function precargarCatalogo() {
-  if (catalogoProd.value.length > 0) return   // ya cargado
-  cargandoCat.value = true
+async function buscarProductos(term) {
+  buscandoProd.value = true
   try {
-    // Carga en páginas de 100 en paralelo para no bloquear
-    const first = await api.get('/productos', { params: { per_page: 100, page: 1 } })
-    const resp  = first.data
-    const items = resp.data ?? resp
-    const total = resp.last_page ?? 1
-
-    if (total <= 1) {
-      catalogoProd.value = items
-      return
-    }
-
-    // Páginas adicionales en paralelo
-    const extras = await Promise.all(
-      Array.from({ length: total - 1 }, (_, i) =>
-        api.get('/productos', { params: { per_page: 100, page: i + 2 } })
-          .then(r => r.data.data ?? r.data)
-      )
-    )
-    catalogoProd.value = items.concat(...extras)
-  } catch {} finally {
-    cargandoCat.value = false
+    const { data } = await api.get('/productos', { params: { search: term, limit: 10 } })
+    const yaAgregados = new Set(productosAgr.value.map(p => p.producto.id))
+    resultados.value = (Array.isArray(data) ? data : (data.data ?? []))
+      .filter(p => !yaAgregados.has(p.id))
+      .map(p => markRaw(p))
+  } catch {
+    resultados.value = []
+  } finally {
+    buscandoProd.value = false
   }
 }
 
@@ -189,7 +170,8 @@ function toggleEspec(idx) {
   especAbiertos.value[idx] = !especAbiertos.value[idx]
 }
 
-const paso1Valido = computed(() => productosAgr.value.length > 0 && productosAgr.value.every(p => p.cantidad >= 1))
+const paso1Valido    = computed(() => productosAgr.value.length > 0 && productosAgr.value.every(p => p.cantidad >= 1))
+const productosAgrIds = computed(() => new Set(productosAgr.value.map(p => p.producto.id)))
 
 // ── Paso 2 — Tiendas ──────────────────────────────────────────────────────────
 const tiendas              = ref([])
@@ -345,7 +327,7 @@ async function cargarHistorial() {
   cargandoHist.value = true
   try {
     const { data } = await getSurtidos()
-    historial.value = data.data ?? data
+    historial.value = (data.data ?? data).map(s => markRaw(s))
   } catch {} finally {
     cargandoHist.value = false
   }
@@ -418,7 +400,7 @@ async function tSeleccionarOrigen(tiendaId) {
   tCargandoStock.value = true
   try {
     const { data } = await getStockTienda(tiendaId)
-    tStockOrigen.value = data
+    tStockOrigen.value = data.map(p => markRaw(p))
   } catch {} finally {
     tCargandoStock.value = false
   }
@@ -473,7 +455,7 @@ async function cargarHistorialTraslados() {
   tCargandoHist.value = true
   try {
     const { data } = await getTraslados()
-    tHistorial.value = data.data ?? data
+    tHistorial.value = (data.data ?? data).map(t => markRaw(t))
   } catch {} finally {
     tCargandoHist.value = false
   }
@@ -482,7 +464,6 @@ async function cargarHistorialTraslados() {
 onMounted(async () => {
   const { data } = await getTiendas()
   tiendas.value = data
-  precargarCatalogo()
   cargarRecomendaciones()
 })
 </script>
@@ -607,7 +588,7 @@ onMounted(async () => {
                         <!-- Botón agregar -->
                         <button
                           @click="agregarDesdeRecom(prod); tabActivo = 'nuevo'"
-                          :disabled="productosAgr.some(p => p.producto.id === prod.producto_id)"
+                          :disabled="productosAgrIds.has(prod.producto_id)"
                           class="w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center hover:bg-blue-200 disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
                           title="Agregar al surtido"
                         >
@@ -681,24 +662,23 @@ onMounted(async () => {
           <MagnifyingGlassIcon class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
             v-model="busquedaProd"
-            :placeholder="cargandoCat ? 'Cargando catálogo...' : 'Buscar producto por nombre o categoría...'"
-            :disabled="cargandoCat"
-            class="w-full rounded-lg border border-gray-300 pl-9 pr-10 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400"
+            placeholder="Buscar producto por nombre o categoría..."
+            class="w-full rounded-lg border border-gray-300 pl-9 pr-10 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
-          <!-- Spinner de carga inicial del catálogo -->
-          <div v-if="cargandoCat" class="absolute right-3 top-1/2 -translate-y-1/2">
+          <!-- Spinner búsqueda -->
+          <div v-if="buscandoProd" class="absolute right-3 top-1/2 -translate-y-1/2">
             <div class="w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
           </div>
           <!-- X para limpiar -->
           <button
             v-else-if="busquedaProd"
-            @click="busquedaProd = ''"
+            @click="busquedaProd = ''; resultados = []"
             class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
           >
             <XMarkIcon class="w-4 h-4" />
           </button>
 
-          <!-- Resultados — filtrado client-side, instantáneo -->
+          <!-- Resultados del servidor -->
           <div v-if="resultados.length" class="absolute inset-x-0 top-full mt-1 bg-white rounded-xl shadow-lg border border-gray-200 z-20 max-h-52 overflow-y-auto">
             <button
               v-for="p in resultados"
@@ -715,8 +695,13 @@ onMounted(async () => {
               <PlusIcon class="w-4 h-4 text-blue-500 flex-shrink-0" />
             </button>
           </div>
+          <!-- Pista mínimo 2 letras -->
+          <div v-else-if="busquedaProd.length === 1"
+            class="absolute inset-x-0 top-full mt-1 bg-white rounded-xl shadow-lg border border-gray-200 z-20 px-4 py-3 text-xs text-gray-400 text-center">
+            Escribe al menos 2 letras...
+          </div>
           <!-- Sin resultados -->
-          <div v-else-if="busquedaProd.length >= 1 && !cargandoCat && resultados.length === 0"
+          <div v-else-if="busquedaProd.length >= 2 && !buscandoProd && resultados.length === 0"
             class="absolute inset-x-0 top-full mt-1 bg-white rounded-xl shadow-lg border border-gray-200 z-20 px-4 py-3 text-xs text-gray-400 text-center">
             Sin resultados para "{{ busquedaProd }}"
           </div>
@@ -727,7 +712,12 @@ onMounted(async () => {
           Busca y agrega productos para surtir
         </div>
 
-        <div v-for="(item, idx) in productosAgr" :key="item.producto.id" class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div
+          v-for="(item, idx) in productosAgr"
+          :key="item.producto.id"
+          v-memo="[item.cantidad, !!especAbiertos[idx], item.especificaciones.marca, item.especificaciones.tela, item.especificaciones.color, item.especificaciones.medidas, item.especificaciones.acabado]"
+          class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden"
+        >
           <!-- Fila principal -->
           <div class="flex items-center gap-3 px-3 py-3">
             <img v-if="item.producto.foto_url" :src="item.producto.foto_url" class="w-10 h-10 rounded-lg object-cover flex-shrink-0" />

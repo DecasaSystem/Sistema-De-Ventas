@@ -28,7 +28,10 @@ class ProductoController extends Controller
             });
         }
 
-        $productos = $query->orderBy('categoria')->orderBy('nombre')->get();
+        $limit    = (int) $request->query('limit', 0);
+        $productos = $limit > 0
+            ? $query->orderBy('categoria')->orderBy('nombre')->limit($limit)->get()
+            : $query->orderBy('categoria')->orderBy('nombre')->get();
 
         if ($tiendaId = $request->query('tienda_id')) {
             $productoIds = $productos->pluck('id');
@@ -154,7 +157,7 @@ class ProductoController extends Controller
     /**
      * PATCH /api/productos/{id}
      *
-     * Permite cambiar solo el precio_base del producto.
+     * Permite cambiar precio_base y/o foto_url del producto.
      * Accesible por vendedores y supervisores.
      */
     public function update(Request $request, int $id)
@@ -162,10 +165,15 @@ class ProductoController extends Controller
         $producto = Producto::findOrFail($id);
 
         $data = $request->validate([
-            'precio_base' => 'required|numeric|min:0',
+            'precio_base' => 'sometimes|numeric|min:0',
+            'foto_url'    => 'sometimes|nullable|string|max:500',
         ]);
 
-        $producto->update(['precio_base' => $data['precio_base']]);
+        if (empty($data)) {
+            return response()->json(['message' => 'Nada que actualizar.'], 422);
+        }
+
+        $producto->update($data);
 
         return response()->json($producto);
     }
