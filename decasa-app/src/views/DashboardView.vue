@@ -23,7 +23,7 @@ const accesos = computed(() => {
   if (auth.usuario?.rol === 'conductor') {
     return [
       { label: 'Mis entregas', icon: TruckIcon, to: { name: 'mis-entregas' } },
-      { label: 'Estadísticas', icon: PresentationChartLineIcon, to: { name: 'mis-stats' } },
+      { label: 'Estadísticas', icon: PresentationChartLineIcon, to: { name: 'mis-stats-conductor' } },
     ]
   }
   if (auth.usuario?.rol === 'ebanista') {

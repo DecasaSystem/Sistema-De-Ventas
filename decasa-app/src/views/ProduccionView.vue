@@ -401,9 +401,22 @@ onUnmounted(() => {
                   paso.estado === 'en_proceso'  ? 'bg-blue-400' :
                   'bg-gray-200'
                 ]"
-                :title="labelProceso(paso.tipo_proceso)"
+                :title="labelProceso(paso.tipo_proceso) + (paso.trabajadores?.length ? ': ' + paso.trabajadores.join(', ') : '')"
               />
             </div>
+          </div>
+
+          <!-- Responsables de pasos completados -->
+          <div
+            v-if="p.pasos?.some(paso => paso.estado === 'completado' && paso.trabajadores?.length)"
+            class="space-y-0.5"
+          >
+            <template v-for="paso in p.pasos.filter(x => x.estado === 'completado' && x.trabajadores?.length)" :key="paso.id">
+              <div class="flex items-center gap-1.5 text-xs">
+                <span class="text-gray-400">{{ labelProceso(paso.tipo_proceso) }}:</span>
+                <span class="text-gray-600 font-medium">{{ paso.trabajadores.join(', ') }}</span>
+              </div>
+            </template>
           </div>
 
           <!-- Info -->

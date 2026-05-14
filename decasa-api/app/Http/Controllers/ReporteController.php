@@ -54,7 +54,7 @@ class ReporteController extends Controller
         // Vendedores solo exportan sus propios datos
         $vendedorId = $user->rol === 'vendedor' ? $user->id : null;
 
-        [$rows, $headings, $filename, $title, $totals] = match ($data['tipo']) {
+        [$rows, $headings, $filename, $title, $totals, $meta] = match ($data['tipo']) {
             'ventas'        => $this->rowsVentas($request, $vendedorId),
             'vendedores'    => $this->rowsVendedores($request),
             'productos-top' => $this->rowsProductosTop($request, $vendedorId),
@@ -63,7 +63,7 @@ class ReporteController extends Controller
         };
 
         return Excel::download(
-            new ReporteExport(collect($rows), $headings, $title ?? '', $totals ?? []),
+            new ReporteExport(collect($rows), $headings, $title ?? '', $totals ?? [], $meta ?? ''),
             $filename
         );
     }
@@ -131,6 +131,7 @@ class ReporteController extends Controller
 
     private function buildProductosTop(Request $r): array
     {
+        [$desde, $hasta] = $this->rango($r);
         $tiendaId = $r->query('tienda_id');
         $limit    = min((int) ($r->query('limit', 10)), 50);
 
@@ -138,6 +139,7 @@ class ReporteController extends Controller
             ->join('productos as p', 'p.id', '=', 'oi.producto_id')
             ->join('ordenes as o', 'o.id', '=', 'oi.orden_id')
             ->where('o.estado', '!=', 'cancelado')
+            ->whereBetween('o.created_at', [$desde . ' 00:00:00', $hasta . ' 23:59:59'])
             ->when($tiendaId, fn($q) => $q->where('o.tienda_id', $tiendaId))
             ->selectRaw('
                 p.id               AS producto_id,
@@ -280,6 +282,7 @@ class ReporteController extends Controller
             "ventas_{$desde}_{$hasta}.xlsx",
             "Ventas {$desde} al {$hasta}",
             $totals,
+            $this->metaStr($desde, $hasta, $r->query('tienda_id')),
         ];
     }
 
@@ -297,6 +300,8 @@ class ReporteController extends Controller
 
     private function rowsVendedores(Request $r): array
     {
+        [$desde, $hasta] = $this->rango($r);
+
         $rows = collect($this->buildVendedores($r))->map(fn($v) => [
             $v->vendedor, $v->total_ordenes,
             number_format($v->total_cobrado, 2, '.', ''),
@@ -306,45 +311,49 @@ class ReporteController extends Controller
         return [
             $rows,
             ['Vendedor', 'Total Órdenes', 'Total Cobrado (COP)', 'Ticket Promedio (COP)'],
-            'vendedores.xlsx',
-            'Ranking Vendedores',
+            "vendedores_{$desde}_{$hasta}.xlsx",
+            "Vendedores {$desde} al {$hasta}",
             [],
+            $this->metaStr($desde, $hasta),
         ];
     }
 
     private function rowsProductosTop(Request $r, ?int $vendedorId = null): array
     {
+        [$desde, $hasta] = $this->rango($r);
         $tiendaId = $r->query('tienda_id');
-        $limit    = min((int) ($r->query('limit', 10)), 50);
 
         $rows = DB::table('orden_items as oi')
             ->join('productos as p', 'p.id', '=', 'oi.producto_id')
-            ->join('ordenes as o', 'o.id', '=', 'oi.orden_id')
+            ->join('ordenes as o',   'o.id', '=', 'oi.orden_id')
+            ->join('tiendas as t',   't.id', '=', 'o.tienda_id')
             ->where('o.estado', '!=', 'cancelado')
+            ->whereBetween('o.created_at', [$desde . ' 00:00:00', $hasta . ' 23:59:59'])
             ->when($tiendaId, fn($q) => $q->where('o.tienda_id', $tiendaId))
             ->when($vendedorId, fn($q) => $q->where('o.vendedor_id', $vendedorId))
             ->selectRaw('
-                p.id               AS producto_id,
                 p.nombre,
+                t.nombre            AS tienda,
                 p.categoria,
-                SUM(oi.cantidad)                         AS total_unidades,
-                SUM(oi.cantidad * oi.precio_unitario)    AS total_valor
+                SUM(oi.cantidad)                        AS total_unidades,
+                SUM(oi.cantidad * oi.precio_unitario)   AS total_valor
             ')
-            ->groupBy('p.id', 'p.nombre', 'p.categoria')
+            ->groupBy('p.id', 'p.nombre', 'p.categoria', 't.id', 't.nombre')
             ->orderByDesc('total_unidades')
-            ->limit($limit)
+            ->limit(200)
             ->get()
             ->map(fn($p) => [
-                $p->nombre, $p->categoria, $p->total_unidades,
+                $p->nombre, $p->tienda, $p->categoria, $p->total_unidades,
                 number_format($p->total_valor, 2, '.', ''),
             ]);
 
         return [
             $rows,
-            ['Producto', 'Categoría', 'Unidades Vendidas', 'Valor Total (COP)'],
-            'productos_top.xlsx',
-            'Top Productos',
+            ['Producto', 'Tienda', 'Categoría', 'Unidades Vendidas', 'Valor Total (COP)'],
+            "productos_top_{$desde}_{$hasta}.xlsx",
+            "Top Productos {$desde} al {$hasta}",
             [],
+            $this->metaStr($desde, $hasta, $tiendaId),
         ];
     }
 
@@ -385,9 +394,10 @@ class ReporteController extends Controller
             $rows,
             ['Orden ID', 'Cliente', 'Teléfono', 'Vendedor', 'Tienda', 'Estado',
              'Valor Total', 'Total Pagado', 'Saldo Pendiente', 'Fecha'],
-            'ordenes_pendientes.xlsx',
+            'ordenes_pendientes_' . now()->toDateString() . '.xlsx',
             'Cartera Pendiente',
             [],
+            $this->metaStr(null, null, $tiendaId),
         ];
     }
 
@@ -403,13 +413,14 @@ class ReporteController extends Controller
             $rows,
             ['ID Prod.', 'Orden ID', 'Cliente', 'Teléfono', 'Producto',
              'Fecha Compromiso', 'Días Retraso', 'Estado', 'Motivo', 'Vendedor', 'Tienda'],
-            'retrasos_produccion.xlsx',
+            'retrasos_produccion_' . now()->toDateString() . '.xlsx',
             'Retrasos Producción',
             [],
+            $this->metaStr(null, null),
         ];
     }
 
-    // ─── Helper ───────────────────────────────────────────────────────────────
+    // ─── Helpers ──────────────────────────────────────────────────────────────
 
     private function rango(Request $r): array
     {
@@ -417,5 +428,27 @@ class ReporteController extends Controller
             $r->query('desde', now()->subDays(30)->toDateString()),
             $r->query('hasta', now()->toDateString()),
         ];
+    }
+
+    private function metaStr(?string $desde, ?string $hasta, mixed $tiendaId = null): string
+    {
+        $parts = [];
+
+        if ($desde && $hasta) {
+            $parts[] = 'Período: ' . date('d/m/Y', strtotime($desde)) . ' – ' . date('d/m/Y', strtotime($hasta));
+        } else {
+            $parts[] = 'Estado actual';
+        }
+
+        if ($tiendaId) {
+            $nombre  = DB::table('tiendas')->where('id', $tiendaId)->value('nombre') ?? "Tienda #{$tiendaId}";
+            $parts[] = "Tienda: {$nombre}";
+        } else {
+            $parts[] = 'Tienda: Todas';
+        }
+
+        $parts[] = 'Exportado: ' . now()->format('d/m/Y H:i');
+
+        return implode('    •    ', $parts);
     }
 }

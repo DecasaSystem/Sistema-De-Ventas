@@ -14,9 +14,11 @@ const props = defineProps({
 const emit = defineEmits(['close', 'guardado'])
 const toast = useToast()
 
-const notas = ref('')
-const canal = ref('')
-const items = ref([])
+const notas          = ref('')
+const canal          = ref('')
+const direccionEnvio = ref('')
+const ciudadEnvio    = ref('')
+const items          = ref([])
 const guardando = ref(false)
 
 const auth       = useAuthStore()
@@ -28,8 +30,10 @@ const query = ref({})
 
 watch(() => props.show, (v) => {
   if (!v) return
-  notas.value = props.orden.notas ?? ''
-  canal.value = props.orden.canal ?? ''
+  notas.value          = props.orden.notas ?? ''
+  canal.value          = props.orden.canal ?? ''
+  direccionEnvio.value = props.orden.direccion_envio ?? ''
+  ciudadEnvio.value    = props.orden.ciudad_envio ?? ''
   items.value = (props.orden.items ?? []).map(item => ({
     id: item.id,
     es_personalizado: item.es_personalizado,
@@ -104,8 +108,10 @@ async function guardar() {
   guardando.value = true
   try {
     const payload = {
-      notas: notas.value,
-      canal: canal.value,
+      notas:           notas.value,
+      canal:           canal.value,
+      direccion_envio: direccionEnvio.value || null,
+      ciudad_envio:    ciudadEnvio.value    || null,
       items: items.value.map(item => {
         const out = {
           id:               item.id,
@@ -181,6 +187,24 @@ async function guardar() {
                   rows="2"
                   placeholder="Notas internas de la orden..."
                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-600 mb-1">Dirección de envío</label>
+                <input
+                  v-model="direccionEnvio"
+                  type="text"
+                  placeholder="Calle, número, barrio..."
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-600 mb-1">Ciudad de envío</label>
+                <input
+                  v-model="ciudadEnvio"
+                  type="text"
+                  placeholder="Ciudad..."
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
             </div>

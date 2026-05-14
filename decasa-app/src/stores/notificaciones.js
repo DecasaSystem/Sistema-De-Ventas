@@ -27,5 +27,15 @@ export const useNotificacionesStore = defineStore('notificaciones', () => {
     items.value.forEach(n => (n.leida = true))
   }
 
-  return { items, noLeidas, cargar, agregarNueva, leer, leerTodas }
+  async function eliminar(id) {
+    await notificacionesApi.eliminar(id)
+    items.value = items.value.filter(n => n.id !== id)
+  }
+
+  async function eliminarTodas() {
+    await notificacionesApi.eliminarTodas()
+    items.value = []
+  }
+
+  return { items, noLeidas, cargar, agregarNueva, leer, leerTodas, eliminar, eliminarTodas }
 })

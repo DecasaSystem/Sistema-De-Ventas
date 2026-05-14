@@ -17,12 +17,14 @@ class ProduccionPaso extends Model
         'estado',
         'completado_por',
         'completado_at',
+        'trabajadores',
     ];
 
     protected function casts(): array
     {
         return [
             'completado_at' => 'datetime',
+            'trabajadores'  => 'array',
         ];
     }
 

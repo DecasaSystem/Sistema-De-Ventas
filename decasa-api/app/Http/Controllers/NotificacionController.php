@@ -38,4 +38,24 @@ class NotificacionController extends Controller
         $q->update(['leida' => true]);
         return response()->json(['ok' => true]);
     }
+
+    public function eliminar(Request $request, int $id)
+    {
+        $n = Notificacion::findOrFail($id);
+        $u = $request->user();
+
+        if ($n->usuario_id !== $u->id) {
+            abort(403);
+        }
+
+        $n->delete();
+        return response()->json(['ok' => true]);
+    }
+
+    public function eliminarTodas(Request $request)
+    {
+        $u = $request->user();
+        Notificacion::where('usuario_id', $u->id)->delete();
+        return response()->json(['ok' => true]);
+    }
 }

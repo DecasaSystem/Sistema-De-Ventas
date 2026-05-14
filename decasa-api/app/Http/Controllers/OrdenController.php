@@ -115,7 +115,7 @@ class OrdenController extends Controller
             'anticipo_pct'                  => 'nullable|numeric|min:1|max:100',
             'notas'                              => 'nullable|string|max:1000',
             'factura_foto_url'                   => 'nullable|string|max:500',
-            'firma_url'                          => 'nullable|string|max:500',
+            'firma_url'                          => 'required|string|max:500',
             'direccion_envio'                    => 'nullable|string|max:300',
             'ciudad_envio'                       => 'nullable|string|max:100',
             'anticipo_monto'                     => 'required|numeric|min:1',
@@ -133,8 +133,8 @@ class OrdenController extends Controller
             'items.*.fecha_entrega_prometida'    => 'nullable|date',
         ]);
 
-        // Vendedor debe tener firma registrada antes de crear órdenes
-        if ($request->user()->rol === 'vendedor' && ! $request->user()->firma_url) {
+        // Todo usuario debe tener su firma registrada antes de crear órdenes
+        if (! $request->user()->firma_url) {
             return response()->json([
                 'message' => 'Debes registrar tu firma en Mi Perfil antes de crear órdenes.',
             ], 422);
@@ -452,6 +452,8 @@ class OrdenController extends Controller
         $data = $request->validate([
             'notas'                         => 'sometimes|nullable|string|max:1000',
             'canal'                         => 'sometimes|nullable|in:fisica,whatsapp,red_social,otro',
+            'direccion_envio'               => 'sometimes|nullable|string|max:300',
+            'ciudad_envio'                  => 'sometimes|nullable|string|max:100',
             'items'                         => 'sometimes|nullable|array',
             'items.*.id'                    => 'required_with:items|integer|exists:orden_items,id',
             'items.*.specs_personalizacion' => 'sometimes|nullable|array',
@@ -486,6 +488,14 @@ class OrdenController extends Controller
             if (array_key_exists('canal', $data) && $data['canal'] !== $orden->canal) {
                 $cambios[] = ['campo' => 'canal', 'label' => 'Canal', 'antes' => $orden->canal, 'despues' => $data['canal']];
                 $updateOrden['canal'] = $data['canal'];
+            }
+            if (array_key_exists('direccion_envio', $data) && $data['direccion_envio'] !== $orden->direccion_envio) {
+                $cambios[] = ['campo' => 'direccion_envio', 'label' => 'Dirección de envío', 'antes' => $orden->direccion_envio, 'despues' => $data['direccion_envio']];
+                $updateOrden['direccion_envio'] = $data['direccion_envio'];
+            }
+            if (array_key_exists('ciudad_envio', $data) && $data['ciudad_envio'] !== $orden->ciudad_envio) {
+                $cambios[] = ['campo' => 'ciudad_envio', 'label' => 'Ciudad de envío', 'antes' => $orden->ciudad_envio, 'despues' => $data['ciudad_envio']];
+                $updateOrden['ciudad_envio'] = $data['ciudad_envio'];
             }
 
             // ── Cambios a nivel de ítems ──────────────────────────────────────
@@ -620,6 +630,15 @@ class OrdenController extends Controller
 
         $ordenFresh->total_pagado    = $ordenFresh->totalPagado();
         $ordenFresh->saldo_pendiente = $ordenFresh->saldoPendiente();
+
+        if (! empty($cambios)) {
+            NotificacionService::crear(
+                'orden_editada',
+                'Orden editada',
+                "Orden #{$orden->id} ({$ordenFresh->cliente->nombre}) fue editada por {$usuario->nombre}",
+                ['orden_id' => $orden->id],
+            );
+        }
 
         return response()->json($ordenFresh);
     }

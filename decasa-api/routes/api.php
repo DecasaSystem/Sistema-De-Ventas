@@ -90,6 +90,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/notificaciones',              [NotificacionController::class, 'index']);
     Route::patch('/notificaciones/leer-todas', [NotificacionController::class, 'marcarTodas']);
     Route::patch('/notificaciones/{id}/leida', [NotificacionController::class, 'marcarLeida']);
+    Route::delete('/notificaciones/todas',     [NotificacionController::class, 'eliminarTodas']);
+    Route::delete('/notificaciones/{id}',      [NotificacionController::class, 'eliminar']);
 
     // Usuarios (solo supervisor)
     Route::middleware('role:supervisor')->group(function () {
@@ -162,6 +164,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // Conductor (autenticado)
         Route::get('/mis-entregas',                          [DespachoController::class, 'misEntregas']);
+        Route::get('/mis-entregas/historial',                [DespachoController::class, 'misHistorial']);
         Route::get('/mis-entregas/{despachoItemId}',         [DespachoController::class, 'showEntrega']);
         Route::post('/mis-entregas/{despachoItemId}/pago',   [DespachoController::class, 'registrarPago']);
         Route::patch('/mis-entregas/{despachoItemId}/entregar', [DespachoController::class, 'entregar']);

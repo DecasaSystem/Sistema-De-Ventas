@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { CheckCircleIcon, WrenchScrewdriverIcon, ClockIcon, ArrowTopRightOnSquareIcon } from '@heroicons/vue/24/outline'
+import { CheckCircleIcon, WrenchScrewdriverIcon, ClockIcon, ArrowTopRightOnSquareIcon, UserPlusIcon, XMarkIcon } from '@heroicons/vue/24/outline'
 import { getMisPasos, completarPaso, getHistorialPasos } from '@/api/produccion'
 import { useToast } from '@/composables/useToast'
 import { useRealtime } from '@/composables/useRealtime'
@@ -24,8 +24,10 @@ const tab = ref('activos')
 const pasos   = ref([])
 const loading = ref(true)
 const completandoId = ref(null)
-const mostrarModal  = ref(false)
-const pasoConfirmar = ref(null)
+const mostrarModal   = ref(false)
+const pasoConfirmar  = ref(null)
+const trabajadores   = ref([])
+const inputTrabajador = ref('')
 
 const historial        = ref([])
 const loadingHistorial = ref(false)
@@ -63,17 +65,34 @@ async function cargarHistorial() {
 }
 
 function abrirConfirmar(paso) {
-  pasoConfirmar.value = paso
-  mostrarModal.value  = true
+  pasoConfirmar.value   = paso
+  trabajadores.value    = []
+  inputTrabajador.value = ''
+  mostrarModal.value    = true
+}
+
+function agregarTrabajador() {
+  const nombre = inputTrabajador.value.trim()
+  if (!nombre || trabajadores.value.includes(nombre)) return
+  trabajadores.value.push(nombre)
+  inputTrabajador.value = ''
+}
+
+function quitarTrabajador(nombre) {
+  trabajadores.value = trabajadores.value.filter(t => t !== nombre)
+}
+
+function onInputKeydown(e) {
+  if (e.key === 'Enter') { e.preventDefault(); agregarTrabajador() }
 }
 
 async function confirmarListo() {
   const paso = pasoConfirmar.value
-  if (!paso) return
+  if (!paso || trabajadores.value.length === 0) return
   completandoId.value = paso.id
   mostrarModal.value  = false
   try {
-    await completarPaso(paso.id)
+    await completarPaso(paso.id, { trabajadores: trabajadores.value })
     toast.success('¡Paso completado!')
     await cargar()
     await cargarHistorial()
@@ -328,6 +347,16 @@ onMounted(async () => {
                 {{ formatFecha(paso.completado_at) }}
               </p>
             </div>
+            <div v-if="paso.trabajadores?.length" class="col-span-2">
+              <p class="text-gray-400">Responsables</p>
+              <div class="flex flex-wrap gap-1 mt-1">
+                <span
+                  v-for="t in paso.trabajadores"
+                  :key="t"
+                  class="inline-flex items-center bg-blue-50 text-blue-700 text-xs font-medium px-2.5 py-0.5 rounded-full"
+                >{{ t }}</span>
+              </div>
+            </div>
           </div>
 
           <!-- Ver orden -->
@@ -342,22 +371,71 @@ onMounted(async () => {
       </ul>
     </template><!-- /tab historial -->
 
-    <!-- Modal de confirmación -->
+    <!-- Modal de confirmación con asignación de trabajadores -->
     <Transition name="fade">
       <div v-if="mostrarModal" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="mostrarModal = false">
         <div class="absolute inset-0 bg-black/40" />
         <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-4">
-          <h3 class="text-lg font-bold text-gray-800">¿Confirmar paso listo?</h3>
+          <h3 class="text-lg font-bold text-gray-800">Registrar responsables</h3>
           <p class="text-sm text-gray-600">
-            Vas a marcar como terminado el paso de
-            <strong>{{ PROCESO_LABEL[pasoConfirmar?.tipo_proceso] }}</strong>
-            para <strong>{{ pasoConfirmar?.produccion?.orden_item?.producto?.nombre }}</strong>.
+            Paso de <strong>{{ PROCESO_LABEL[pasoConfirmar?.tipo_proceso] }}</strong>
+            — <strong>{{ pasoConfirmar?.produccion?.orden_item?.producto?.nombre }}</strong>
           </p>
-          <p class="text-xs text-gray-400">Esta acción notificará al siguiente encargado.</p>
+
+          <!-- Input de trabajadores -->
+          <div class="space-y-2">
+            <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wide">
+              Trabajadores que realizaron este paso
+            </label>
+
+            <!-- Chips de trabajadores ya agregados -->
+            <div v-if="trabajadores.length" class="flex flex-wrap gap-1.5 mb-2">
+              <span
+                v-for="t in trabajadores"
+                :key="t"
+                class="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-xs font-medium px-2.5 py-1 rounded-full"
+              >
+                {{ t }}
+                <button @click="quitarTrabajador(t)" class="hover:text-red-500 transition-colors">
+                  <XMarkIcon class="w-3 h-3" />
+                </button>
+              </span>
+            </div>
+
+            <!-- Input + botón agregar -->
+            <div class="flex gap-2">
+              <input
+                v-model="inputTrabajador"
+                @keydown="onInputKeydown"
+                type="text"
+                placeholder="Nombre del trabajador..."
+                class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button
+                @click="agregarTrabajador"
+                :disabled="!inputTrabajador.trim()"
+                class="bg-blue-600 text-white rounded-lg px-3 py-2 hover:bg-blue-700 disabled:opacity-40 transition-colors"
+              >
+                <UserPlusIcon class="w-4 h-4" />
+              </button>
+            </div>
+            <p class="text-xs text-gray-400">Presiona Enter o el botón para agregar. Puedes agregar varios.</p>
+          </div>
+
+          <p v-if="trabajadores.length === 0" class="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
+            Debes agregar al menos un trabajador para poder marcar el paso como listo.
+          </p>
+
           <div class="flex gap-3">
-            <button @click="mostrarModal = false" class="flex-1 bg-gray-100 text-gray-700 rounded-lg py-2.5 text-sm font-semibold">Cancelar</button>
-            <button @click="confirmarListo" class="flex-1 bg-green-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-green-700">
-              Sí, listo
+            <button @click="mostrarModal = false" class="flex-1 bg-gray-100 text-gray-700 rounded-lg py-2.5 text-sm font-semibold">
+              Cancelar
+            </button>
+            <button
+              @click="confirmarListo"
+              :disabled="trabajadores.length === 0"
+              class="flex-1 bg-green-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              Confirmar listo
             </button>
           </div>
         </div>

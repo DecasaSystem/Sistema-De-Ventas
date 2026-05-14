@@ -407,7 +407,7 @@ function removeFacturaFoto() {
 
     <!-- Firma del vendedor requerida -->
     <div
-      v-if="!auth.isSupervisor && !auth.usuario?.firma_url"
+      v-if="!auth.usuario?.firma_url"
       class="bg-amber-50 border border-amber-300 rounded-xl p-4 flex flex-col gap-3"
     >
       <div class="flex items-start gap-3">
@@ -613,7 +613,7 @@ function removeFacturaFoto() {
 
       <button
         @click="step = 2"
-        :disabled="!paso1Valido() || (!auth.isSupervisor && !auth.usuario?.firma_url)"
+        :disabled="!paso1Valido() || !auth.usuario?.firma_url"
         class="btn-primary w-full mt-2"
       >Continuar → Productos</button>
     </template>

@@ -138,11 +138,17 @@ class ProduccionController extends Controller
             return response()->json(['message' => 'Solo se puede completar un paso activo.'], 422);
         }
 
+        $data = $request->validate([
+            'trabajadores'   => 'required|array|min:1',
+            'trabajadores.*' => 'required|string|max:100',
+        ]);
+
         // Completar el paso actual
         $paso->update([
-            'estado'        => 'completado',
+            'estado'         => 'completado',
             'completado_por' => $usuario->id,
-            'completado_at' => now(),
+            'completado_at'  => now(),
+            'trabajadores'   => $data['trabajadores'],
         ]);
 
         $produccion = $paso->produccion;

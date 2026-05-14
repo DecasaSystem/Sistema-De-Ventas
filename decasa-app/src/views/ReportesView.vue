@@ -246,10 +246,13 @@ function resuelveFechas() {
     case 'hoy':
       desde = new Date(hoy)
       break
-    case 'semana':
+    case 'semana': {
+      // Lunes como inicio de semana (igual que Carbon::startOfWeek en el backend)
+      const diaSemana = hoy.getDay() === 0 ? 7 : hoy.getDay() // 1=Lun ... 7=Dom
       desde = new Date(hoy)
-      desde.setDate(hoy.getDate() - hoy.getDay())
+      desde.setDate(hoy.getDate() - (diaSemana - 1))
       break
+    }
     case 'mes':
       desde = new Date(hoy.getFullYear(), hoy.getMonth(), 1)
       break

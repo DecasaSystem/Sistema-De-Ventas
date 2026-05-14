@@ -36,6 +36,8 @@ import {
   CalendarDaysIcon,
   TruckIcon,
   ArchiveBoxArrowDownIcon,
+  TrashIcon,
+  PencilSquareIcon,
 } from '@heroicons/vue/24/outline'
 
 const route  = useRoute()
@@ -196,6 +198,7 @@ function tipoIcono(tipo) {
     surtido_rechazado:  XCircleIcon,
     facturar:           ClipboardDocumentListIcon,
     paso_produccion:    WrenchScrewdriverIcon,
+    orden_editada:      PencilSquareIcon,
   }
   return icons[tipo] ?? BellIcon
 }
@@ -245,38 +248,60 @@ function formatFecha(iso) {
           >
             <div class="flex items-center justify-between px-4 py-2 border-b border-gray-100 sticky top-0 bg-white">
               <span class="font-semibold text-sm text-gray-700">Notificaciones</span>
-              <button
-                v-if="notif.noLeidas > 0"
-                @click="notif.leerTodas()"
-                class="text-xs text-blue-600 hover:underline"
-              >
-                Marcar todas como leídas
-              </button>
+              <div class="flex items-center gap-3">
+                <button
+                  v-if="notif.noLeidas > 0"
+                  @click="notif.leerTodas()"
+                  class="text-xs text-blue-600 hover:underline"
+                >
+                  Marcar todas como leídas
+                </button>
+                <button
+                  v-if="notif.items.length > 0"
+                  @click="notif.eliminarTodas()"
+                  class="text-xs text-red-500 hover:text-red-700 flex items-center gap-0.5"
+                  title="Eliminar todas"
+                >
+                  <TrashIcon class="w-3.5 h-3.5" />
+                  Limpiar
+                </button>
+              </div>
             </div>
 
             <div v-if="notif.items.length === 0" class="py-10 text-center text-gray-400 text-sm">
               Sin notificaciones
             </div>
 
-            <button
+            <div
               v-for="n in notif.items"
               :key="n.id"
-              @click="abrirNotificacion(n)"
               :class="[
-                'w-full text-left px-4 py-3 border-b border-gray-50 hover:bg-gray-50 transition-colors',
-                !n.leida && 'bg-blue-50',
+                'flex items-start border-b border-gray-50 transition-colors',
+                !n.leida ? 'bg-blue-50' : 'hover:bg-gray-50',
               ]"
             >
-              <div class="flex gap-2 items-start">
-                <component :is="tipoIcono(n.tipo)" class="w-4 h-4 mt-0.5 text-gray-600 flex-shrink-0" />
-                <div class="flex-1 min-w-0">
-                  <p class="text-sm font-medium text-gray-800 leading-tight">{{ n.titulo }}</p>
-                  <p class="text-xs text-gray-500 leading-snug mt-0.5">{{ n.mensaje }}</p>
-                  <p class="text-[11px] text-gray-400 mt-1">{{ formatFecha(n.created_at) }}</p>
+              <button
+                @click="abrirNotificacion(n)"
+                class="flex-1 text-left px-4 py-3"
+              >
+                <div class="flex gap-2 items-start">
+                  <component :is="tipoIcono(n.tipo)" class="w-4 h-4 mt-0.5 text-gray-600 flex-shrink-0" />
+                  <div class="flex-1 min-w-0">
+                    <p class="text-sm font-medium text-gray-800 leading-tight">{{ n.titulo }}</p>
+                    <p class="text-xs text-gray-500 leading-snug mt-0.5">{{ n.mensaje }}</p>
+                    <p class="text-[11px] text-gray-400 mt-1">{{ formatFecha(n.created_at) }}</p>
+                  </div>
+                  <span v-if="!n.leida" class="w-2 h-2 bg-blue-500 rounded-full mt-1 flex-shrink-0" />
                 </div>
-                <span v-if="!n.leida" class="w-2 h-2 bg-blue-500 rounded-full mt-1 flex-shrink-0" />
-              </div>
-            </button>
+              </button>
+              <button
+                @click.stop="notif.eliminar(n.id)"
+                class="p-3 text-gray-300 hover:text-red-500 transition-colors flex-shrink-0"
+                title="Eliminar notificación"
+              >
+                <TrashIcon class="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
 
           <!-- Backdrop notificaciones -->

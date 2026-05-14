@@ -227,10 +227,11 @@ class DespachoController extends Controller
         $usuario = $request->user();
 
         $items = DespachoItem::with([
-            'despacho:id,conductor_id',
-            'orden:id,cliente_id,tienda_id,valor_total,estado',
+            'despacho:id,conductor_id,notas',
             'orden.cliente:id,nombre,telefono,direccion',
             'orden.tienda:id,nombre',
+            'orden.items.producto:id,nombre,foto_url',
+            'orden.pagos:id,orden_id,monto',
         ])->whereHas('despacho', function ($q) use ($usuario) {
             $q->where('conductor_id', $usuario->id)
                 ->whereIn('estado', ['asignado', 'en_ruta']);
@@ -238,13 +239,33 @@ class DespachoController extends Controller
             ->orderBy('posicion')
             ->get();
 
-        $items->load('orden.pagos');
         $items->each(function ($item) {
             $totalPagado = (float) $item->orden->pagos->sum('monto');
-            $item->orden->total_pagado = $totalPagado;
+            $item->orden->total_pagado    = $totalPagado;
             $item->orden->saldo_pendiente = (float) $item->orden->valor_total - $totalPagado;
             unset($item->orden->pagos);
         });
+
+        return response()->json($items);
+    }
+
+    /**
+     * GET /api/despacho/mis-entregas/historial
+     * Conductor autenticado: entregas ya completadas, paginadas.
+     */
+    public function misHistorial(Request $request)
+    {
+        $usuario = $request->user();
+
+        $items = DespachoItem::with([
+            'orden.cliente:id,nombre,telefono,direccion',
+            'orden.tienda:id,nombre',
+            'orden.items.producto:id,nombre,foto_url',
+        ])->whereHas('despacho', function ($q) use ($usuario) {
+            $q->where('conductor_id', $usuario->id);
+        })->where('estado', 'entregado')
+            ->orderByDesc('entregado_at')
+            ->paginate(20);
 
         return response()->json($items);
     }
@@ -257,11 +278,12 @@ class DespachoController extends Controller
         $usuario = $request->user();
 
         $item = DespachoItem::with([
-            'despacho:id,conductor_id',
+            'despacho:id,conductor_id,notas',
             'orden.cliente:id,nombre,telefono,direccion',
             'orden.tienda:id,nombre',
-            'orden.items.producto:id,nombre',
-        ])->findOrFail($id = $despachoItemId);
+            'orden.items.producto:id,nombre,foto_url',
+            'orden.pagos:id,orden_id,monto,metodo,referencia,created_at',
+        ])->findOrFail($despachoItemId);
 
         if ($item->despacho->conductor_id !== $usuario->id) {
             return response()->json(['message' => 'No autorizado.'], 403);
@@ -269,7 +291,6 @@ class DespachoController extends Controller
 
         $item->orden->total_pagado    = $item->orden->totalPagado();
         $item->orden->saldo_pendiente = $item->orden->saldoPendiente();
-        $item->orden->load('items.producto:id,nombre');
 
         return response()->json($item);
     }
