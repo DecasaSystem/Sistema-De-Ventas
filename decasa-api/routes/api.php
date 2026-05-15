@@ -17,6 +17,7 @@ use App\Http\Controllers\DespachoController;
 use App\Http\Controllers\SurtidoController;
 use App\Http\Controllers\TrasladoController;
 use App\Http\Controllers\VarianteController;
+use App\Http\Controllers\FichaTecnicaController;
 use Illuminate\Support\Facades\Route;
 
 // ── Auth (público) ────────────────────────────────────────────────────────────
@@ -180,4 +181,12 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/mis-entregas/{despachoItemId}/pago',   [DespachoController::class, 'registrarPago']);
         Route::patch('/mis-entregas/{despachoItemId}/entregar', [DespachoController::class, 'entregar']);
     });
+
+    // Fichas Técnicas (costos de producción)
+    Route::get('/fichas-tecnicas',                          [FichaTecnicaController::class, 'index']);
+    Route::post('/fichas-tecnicas',                         [FichaTecnicaController::class, 'store']);
+    Route::get('/fichas-tecnicas/materiales-sugeridos',     [FichaTecnicaController::class, 'materialesSugeridos']);
+    Route::get('/fichas-tecnicas/{fichaTecnica}',           [FichaTecnicaController::class, 'show']);
+    Route::patch('/fichas-tecnicas/{fichaTecnica}/items',   [FichaTecnicaController::class, 'updateItems']);
+    Route::post('/fichas-tecnicas/reimportar',              [FichaTecnicaController::class, 'reimportar']);
 });

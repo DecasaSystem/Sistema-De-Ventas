@@ -38,6 +38,7 @@ import {
   ArchiveBoxArrowDownIcon,
   TrashIcon,
   PencilSquareIcon,
+  CalculatorIcon,
 } from '@heroicons/vue/24/outline'
 
 const route  = useRoute()
@@ -109,6 +110,7 @@ const navItems = computed(() => {
       { name: 'surtir',     label: 'Surtir',      icon: ArchiveBoxArrowDownIcon },
       { name: 'usuarios',   label: 'Trabajadores', icon: UsersIcon },
       { name: 'reportes',   label: 'Reportes',    icon: ChartBarIcon },
+      { name: 'costos',     label: 'Costos',      icon: CalculatorIcon },
     ]
     if (auth.isTapicero) {
       items.unshift({ name: 'mis-pasos', label: 'Mis pasos', icon: WrenchIcon, badge: pasos.pendientesCount })

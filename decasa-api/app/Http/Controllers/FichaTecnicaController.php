@@ -1,0 +1,152 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\FichaTecnica;
+use App\Models\FichaTecnicaItem;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
+
+class FichaTecnicaController extends Controller
+{
+    public function index(Request $request)
+    {
+        $query = FichaTecnica::query();
+
+        if ($search = $request->query('search')) {
+            $query->where(function ($q) use ($search) {
+                $q->where('nombre', 'like', "%$search%")
+                  ->orWhere('categoria', 'like', "%$search%");
+            });
+        }
+
+        if ($categoria = $request->query('categoria')) {
+            $query->where('categoria', $categoria);
+        }
+
+        $fichas = $query
+            ->orderBy('categoria')
+            ->orderBy('nombre')
+            ->get(['id', 'nombre', 'categoria', 'costo_materiales', 'costo_mano_obra', 'costo_total']);
+
+        $categorias = FichaTecnica::distinct()->orderBy('categoria')->pluck('categoria');
+
+        return response()->json([
+            'fichas'     => $fichas,
+            'categorias' => $categorias,
+            'total'      => $fichas->count(),
+        ]);
+    }
+
+    public function show(FichaTecnica $fichaTecnica)
+    {
+        $fichaTecnica->load('items');
+        return response()->json($fichaTecnica);
+    }
+
+    public function store(Request $request)
+    {
+        $data = $request->validate([
+            'nombre'                  => 'required|string|max:255',
+            'categoria'               => 'required|string|max:255',
+            'items'                   => 'required|array|min:1',
+            'items.*.seccion'         => 'nullable|string',
+            'items.*.descripcion'     => 'required|string',
+            'items.*.cantidad'        => 'required|numeric|min:0',
+            'items.*.unidad'          => 'nullable|string',
+            'items.*.precio_unitario' => 'required|numeric|min:0',
+            'items.*.subtotal'        => 'required|numeric|min:0',
+            'items.*.es_mano_obra'    => 'boolean',
+        ]);
+
+        $itemsCol        = collect($data['items']);
+        $costoMateriales = $itemsCol->where('es_mano_obra', false)->sum('subtotal');
+        $costoManoObra   = $itemsCol->where('es_mano_obra', true)->sum('subtotal');
+
+        $ficha = FichaTecnica::create([
+            'nombre'           => $data['nombre'],
+            'categoria'        => $data['categoria'],
+            'costo_materiales' => $costoMateriales,
+            'costo_mano_obra'  => $costoManoObra,
+            'costo_total'      => $costoMateriales + $costoManoObra,
+            'ruta_excel'       => null,
+        ]);
+
+        foreach ($data['items'] as $orden => $item) {
+            FichaTecnicaItem::create([
+                'ficha_tecnica_id' => $ficha->id,
+                'seccion'          => $item['seccion'] ?? null,
+                'descripcion'      => $item['descripcion'],
+                'cantidad'         => $item['cantidad'],
+                'unidad'           => $item['unidad'] ?? null,
+                'precio_unitario'  => $item['precio_unitario'],
+                'subtotal'         => $item['subtotal'],
+                'es_mano_obra'     => $item['es_mano_obra'] ?? false,
+                'orden'            => $orden,
+            ]);
+        }
+
+        return response()->json($ficha->load('items'), 201);
+    }
+
+    public function materialesSugeridos(Request $request)
+    {
+        $search = $request->query('search', '');
+
+        $materiales = FichaTecnicaItem::where('es_mano_obra', false)
+            ->when($search, fn($q) => $q->where('descripcion', 'like', "%$search%"))
+            ->select(
+                'descripcion',
+                'unidad',
+                DB::raw('ROUND(AVG(precio_unitario), 0) as precio_promedio'),
+                DB::raw('COUNT(*) as usos')
+            )
+            ->groupBy('descripcion', 'unidad')
+            ->orderByDesc('usos')
+            ->limit(8)
+            ->get();
+
+        return response()->json($materiales);
+    }
+
+    public function updateItems(Request $request, FichaTecnica $fichaTecnica)
+    {
+        $data = $request->validate([
+            'items'                   => 'required|array',
+            'items.*.id'              => 'required|integer',
+            'items.*.cantidad'        => 'required|numeric|min:0',
+            'items.*.precio_unitario' => 'required|numeric|min:0',
+            'items.*.subtotal'        => 'required|numeric|min:0',
+        ]);
+
+        foreach ($data['items'] as $itemData) {
+            FichaTecnicaItem::where('id', $itemData['id'])
+                ->where('ficha_tecnica_id', $fichaTecnica->id)
+                ->update([
+                    'cantidad'        => $itemData['cantidad'],
+                    'precio_unitario' => $itemData['precio_unitario'],
+                    'subtotal'        => $itemData['subtotal'],
+                ]);
+        }
+
+        $todos           = FichaTecnicaItem::where('ficha_tecnica_id', $fichaTecnica->id)->get();
+        $costoMateriales = $todos->where('es_mano_obra', false)->sum('subtotal');
+        $costoManoObra   = $todos->where('es_mano_obra', true)->sum('subtotal');
+
+        $fichaTecnica->update([
+            'costo_materiales' => $costoMateriales,
+            'costo_mano_obra'  => $costoManoObra,
+            'costo_total'      => $costoMateriales + $costoManoObra,
+        ]);
+
+        return response()->json(['mensaje' => 'Guardado correctamente']);
+    }
+
+    public function reimportar()
+    {
+        Artisan::call('fichas:importar');
+        $output = Artisan::output();
+        return response()->json(['mensaje' => trim($output)]);
+    }
+}
