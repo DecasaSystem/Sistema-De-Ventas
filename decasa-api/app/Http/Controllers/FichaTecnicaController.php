@@ -94,18 +94,17 @@ class FichaTecnicaController extends Controller
     {
         $search = $request->query('search', '');
 
-        $materiales = FichaTecnicaItem::where('es_mano_obra', false)
-            ->when($search, fn($q) => $q->where('descripcion', 'like', "%$search%"))
-            ->select(
-                'descripcion',
-                'unidad',
-                DB::raw('ROUND(AVG(precio_unitario), 0) as precio_promedio'),
-                DB::raw('COUNT(*) as usos')
-            )
-            ->groupBy('descripcion', 'unidad')
-            ->orderByDesc('usos')
+        // Consultar desde el catálogo maestro de materiales
+        $materiales = \App\Models\Material::when($search, fn($q) => $q->where('nombre', 'like', "%$search%"))
+            ->orderBy('nombre')
             ->limit(8)
-            ->get();
+            ->get()
+            ->map(fn($m) => [
+                'descripcion'    => $m->nombre,
+                'unidad'         => $m->unidad,
+                'precio_promedio'=> $m->precio_unitario,
+                'usos'           => 1,
+            ]);
 
         return response()->json($materiales);
     }

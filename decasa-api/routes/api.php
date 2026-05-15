@@ -18,6 +18,7 @@ use App\Http\Controllers\SurtidoController;
 use App\Http\Controllers\TrasladoController;
 use App\Http\Controllers\VarianteController;
 use App\Http\Controllers\FichaTecnicaController;
+use App\Http\Controllers\MaterialController;
 use Illuminate\Support\Facades\Route;
 
 // ── Auth (público) ────────────────────────────────────────────────────────────
@@ -181,6 +182,12 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/mis-entregas/{despachoItemId}/pago',   [DespachoController::class, 'registrarPago']);
         Route::patch('/mis-entregas/{despachoItemId}/entregar', [DespachoController::class, 'entregar']);
     });
+
+    // Materiales (catálogo maestro)
+    Route::get('/materiales',                [MaterialController::class, 'index']);
+    Route::post('/materiales',               [MaterialController::class, 'store']);
+    Route::patch('/materiales/{material}',   [MaterialController::class, 'update']);
+    Route::post('/materiales/importar',      [MaterialController::class, 'importar']);
 
     // Fichas Técnicas (costos de producción)
     Route::get('/fichas-tecnicas',                          [FichaTecnicaController::class, 'index']);
