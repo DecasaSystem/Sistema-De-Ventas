@@ -43,7 +43,7 @@ class DespachoController extends Controller
 
     /**
      * GET /api/despacho/asignados
-     * Órdenes en en_despacho con su despacho y conductor.
+     * Órdenes en estado en_camino con su despacho y conductor.
      */
     public function asignados(Request $request)
     {
@@ -116,7 +116,7 @@ class DespachoController extends Controller
                 ]);
 
                 $orden->update([
-                    'estado' => 'en_despacho',
+                    'estado' => 'en_camino',
                 ]);
             }
 

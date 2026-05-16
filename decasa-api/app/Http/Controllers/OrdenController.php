@@ -656,7 +656,7 @@ class OrdenController extends Controller
         $usuario = $request->user();
 
         $data = $request->validate([
-            'estado' => 'required|in:pendiente_anticipo,en_produccion,listo_entrega,en_despacho,entregado,cancelado',
+            'estado' => 'required|in:pendiente_anticipo,en_produccion,listo_entrega,en_camino,entregado,cancelado',
         ]);
 
         if ($usuario->rol === 'vendedor') {
@@ -665,8 +665,8 @@ class OrdenController extends Controller
 
         $orden = Orden::with('items')->findOrFail($id);
 
-        // Regla 8: Bloquear cambios si está en listo_entrega o en_despacho
-        if (in_array($orden->estado, ['listo_entrega', 'en_despacho'])) {
+        // Regla 8: Bloquear cambios si está en listo_entrega o en_camino
+        if (in_array($orden->estado, ['listo_entrega', 'en_camino'])) {
             return response()->json([
                 'message' => 'Esta orden está en el módulo de Despacho. Solo puedes cambiar su estado desde allí.',
             ], 403);

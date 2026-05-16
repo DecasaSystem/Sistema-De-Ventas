@@ -19,6 +19,7 @@ use App\Http\Controllers\TrasladoController;
 use App\Http\Controllers\VarianteController;
 use App\Http\Controllers\FichaTecnicaController;
 use App\Http\Controllers\MaterialController;
+use App\Http\Controllers\AgentController;
 use Illuminate\Support\Facades\Route;
 
 // ── Auth (público) ────────────────────────────────────────────────────────────
@@ -188,6 +189,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/materiales',               [MaterialController::class, 'store']);
     Route::patch('/materiales/{material}',   [MaterialController::class, 'update']);
     Route::post('/materiales/importar',      [MaterialController::class, 'importar']);
+
+    // Agente de IA
+    Route::post('/agent/chat', [AgentController::class, 'chat']);
 
     // Fichas Técnicas (costos de producción)
     Route::get('/fichas-tecnicas',                          [FichaTecnicaController::class, 'index']);

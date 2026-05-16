@@ -42,7 +42,7 @@ const pruebaEntregaVisible = computed(() =>
 
 const puedeEditar = computed(() => {
   if (!orden.value) return false
-  if (['entregado', 'cancelado', 'listo_entrega', 'en_despacho'].includes(orden.value.estado)) return false
+  if (['entregado', 'cancelado', 'listo_entrega', 'en_camino'].includes(orden.value.estado)) return false
   if (auth.usuario?.rol === 'vendedor' && Number(orden.value.vendedor_id) !== Number(auth.usuario.id)) return false
   return true
 })
@@ -55,7 +55,7 @@ const transicionesValidas = {
   pendiente_anticipo: ['en_produccion', 'listo_entrega', 'cancelado'],
   en_produccion: ['listo_entrega', 'cancelado'],
   listo_entrega: [],
-  en_despacho: [],
+  en_camino: [],
   entregado: [],
   cancelado: [],
 }
@@ -78,7 +78,7 @@ const porcentajePagado = computed(() => {
 const puedeCambiarEstado = computed(() => {
   if (!orden.value) return false
   if (!auth.isSupervisor) return false
-  if (['entregado', 'cancelado', 'listo_entrega', 'en_despacho'].includes(orden.value.estado)) return false
+  if (['entregado', 'cancelado', 'listo_entrega', 'en_camino'].includes(orden.value.estado)) return false
   if (tienePersonalizados.value) return false
   return true
 })
@@ -670,7 +670,7 @@ onMounted(cargarOrden)
       </div>
 
       <div
-        v-if="orden.estado === 'en_despacho'"
+        v-if="orden.estado === 'en_camino'"
         class="bg-purple-50 border border-purple-200 rounded-xl px-4 py-3 flex items-start gap-3"
       >
         <TruckIcon class="w-5 h-5 mt-0.5 text-purple-600 flex-shrink-0" />

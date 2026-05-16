@@ -11,6 +11,7 @@ import { useSurtidosSocket } from '@/composables/useSurtidosSocket'
 import ScrollToTop from '@/components/common/ScrollToTop.vue'
 import ToastContainer from '@/components/common/ToastContainer.vue'
 import AppInstallPrompt from '@/components/common/AppInstallPrompt.vue'
+import AgentChat from '@/components/AgentChat.vue'
 import {
   HomeIcon,
   ClipboardDocumentListIcon,
@@ -417,6 +418,9 @@ function formatFecha(iso) {
 
     <!-- Toasts globales -->
     <ToastContainer />
+
+    <!-- Agente de IA — solo supervisor y vendedor -->
+    <AgentChat v-if="auth.isAuthenticated && (auth.isSupervisor || auth.usuario?.rol === 'vendedor')" />
   </div>
 </template>
 
