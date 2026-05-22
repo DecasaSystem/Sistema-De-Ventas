@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\Orden;
+use App\Models\Usuario;
+use App\Services\NotificacionService;
 use Illuminate\Http\Request;
 
 class PagoController extends Controller
@@ -81,6 +83,30 @@ class PagoController extends Controller
         $nuevoSaldo = $orden->saldoPendiente();
         if ($nuevoSaldo <= 0 && $orden->estado === 'listo_entrega') {
             $orden->update(['estado' => 'entregado']);
+        }
+
+        // Notificar a los usuarios de facturación de la misma tienda
+        $facturadores = Usuario::where('facturacion', true)
+            ->where('tienda_default_id', $orden->tienda_id)
+            ->where('activo', true)
+            ->where('id', '!=', $usuario->id)
+            ->get();
+
+        if ($facturadores->isNotEmpty()) {
+            $orden->loadMissing('cliente');
+            $montoFormateado  = '$ ' . number_format($pago->monto, 0, ',', '.');
+            $clienteNombre    = $orden->cliente?->nombre ?? 'cliente';
+            $tipoPagoLabel    = $tipoPago === 'saldo_final' ? 'saldo final' : 'abono';
+
+            foreach ($facturadores as $facturador) {
+                NotificacionService::crear(
+                    tipo:      'abono_registrado',
+                    titulo:    "Pago registrado – Orden #{$orden->id}",
+                    mensaje:   "{$usuario->nombre} registró un {$tipoPagoLabel} de {$montoFormateado} en la orden de {$clienteNombre}.",
+                    datos:     ['orden_id' => $orden->id],
+                    usuarioId: $facturador->id,
+                );
+            }
         }
 
         return response()->json([

@@ -40,6 +40,7 @@ import {
   TrashIcon,
   PencilSquareIcon,
   CalculatorIcon,
+  BanknotesIcon,
 } from '@heroicons/vue/24/outline'
 
 const route  = useRoute()
@@ -201,6 +202,7 @@ function tipoIcono(tipo) {
     facturar:           ClipboardDocumentListIcon,
     paso_produccion:    WrenchScrewdriverIcon,
     orden_editada:      PencilSquareIcon,
+    abono_registrado:   BanknotesIcon,
   }
   return icons[tipo] ?? BellIcon
 }
