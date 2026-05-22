@@ -112,12 +112,17 @@ class FichaTecnicaController extends Controller
     public function updateItems(Request $request, FichaTecnica $fichaTecnica)
     {
         $data = $request->validate([
+            'nombre'                  => 'sometimes|string|max:255',
             'items'                   => 'required|array',
             'items.*.id'              => 'required|integer',
             'items.*.cantidad'        => 'required|numeric|min:0',
             'items.*.precio_unitario' => 'required|numeric|min:0',
             'items.*.subtotal'        => 'required|numeric|min:0',
         ]);
+
+        if (!empty($data['nombre'])) {
+            $fichaTecnica->update(['nombre' => strtoupper(trim($data['nombre']))]);
+        }
 
         foreach ($data['items'] as $itemData) {
             FichaTecnicaItem::where('id', $itemData['id'])

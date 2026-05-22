@@ -20,6 +20,7 @@ use App\Http\Controllers\VarianteController;
 use App\Http\Controllers\FichaTecnicaController;
 use App\Http\Controllers\MaterialController;
 use App\Http\Controllers\AgentController;
+use App\Http\Controllers\ConfiguracionCostosController;
 use Illuminate\Support\Facades\Route;
 
 // ── Auth (público) ────────────────────────────────────────────────────────────
@@ -192,6 +193,12 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Agente de IA
     Route::post('/agent/chat', [AgentController::class, 'chat']);
+
+    // Configuración de costos — solo supervisor
+    Route::middleware('role:supervisor')->group(function () {
+        Route::get('/configuracion/costos',  [ConfiguracionCostosController::class, 'index']);
+        Route::put('/configuracion/costos',  [ConfiguracionCostosController::class, 'guardar']);
+    });
 
     // Fichas Técnicas (costos de producción)
     Route::get('/fichas-tecnicas',                          [FichaTecnicaController::class, 'index']);

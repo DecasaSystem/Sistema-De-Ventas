@@ -62,13 +62,17 @@ class AgentService
                 'type' => 'function',
                 'function' => [
                     'name' => 'calcular_costo_personalizado',
-                    'description' => 'Estima el costo de fabricación de un producto a medida usando precios del catálogo de materiales y fichas técnicas similares como referencia.',
+                    'description' => 'Estima el costo de fabricación de un producto personalizado. Usa fichas técnicas similares como referencia mostrando sus materiales y cantidades reales. Úsala cuando el producto no existe en el catálogo. Llámala de inmediato con lo que el usuario haya descrito — no esperes a tener medidas.',
                     'parameters' => [
                         'type' => 'object',
                         'properties' => [
                             'descripcion_producto' => ['type' => 'string', 'description' => 'Descripción del mueble a fabricar'],
                             'categoria'            => ['type' => 'string', 'description' => 'Categoría: comedor, sala, alcoba, etc.'],
-                            'num_puestos'          => ['type' => 'integer', 'description' => 'Número de puestos o módulos'],
+                            'num_puestos'          => ['type' => 'integer', 'description' => 'Número de puestos o módulos (opcional)'],
+                            'largo_cm'             => ['type' => 'number', 'description' => 'Largo en centímetros (opcional)'],
+                            'ancho_cm'             => ['type' => 'number', 'description' => 'Ancho en centímetros (opcional)'],
+                            'alto_cm'              => ['type' => 'number', 'description' => 'Alto en centímetros (opcional)'],
+                            'materiales_cliente'   => ['type' => 'string', 'description' => 'Materiales específicos que el cliente quiere usar (opcional)'],
                         ],
                         'required' => ['descripcion_producto', 'categoria'],
                     ],
@@ -339,6 +343,42 @@ class AgentService
                     ],
                 ],
             ],
+            [
+                'type' => 'function',
+                'function' => [
+                    'name' => 'analizar_rotacion_inventario',
+                    'description' => 'Análisis predictivo que cruza velocidad de ventas con stock actual para recomendar qué productos fabricar, para qué tiendas, y cuáles descontinuar. Úsala ante preguntas como: ¿qué deberíamos fabricar?, ¿qué productos están sin salida?, ¿dónde hay falta de stock?, ¿qué deberíamos dejar de producir?',
+                    'parameters' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'dias'          => ['type' => 'integer', 'description' => 'Período de análisis en días (default 90). Usa 30 para tendencia reciente, 180 para largo plazo.'],
+                            'tienda_id'     => ['type' => 'integer', 'description' => 'Filtrar por tienda (opcional)'],
+                            'nombre_tienda' => ['type' => 'string',  'description' => 'Nombre parcial de la tienda (opcional)'],
+                            'categoria'     => ['type' => 'string',  'description' => 'Filtrar por categoría de producto (opcional)'],
+                        ],
+                    ],
+                ],
+            ],
+            [
+                'type' => 'function',
+                'function' => [
+                    'name' => 'calcular_costo_medidas',
+                    'description' => 'Estima el costo de fabricación de un mueble usando sus medidas reales y las tarifas de mano de obra por proceso (tapizado, esqueletería, laca, etc.). Úsalo cuando el usuario dé dimensiones en cm, describa un producto personalizado, o suba una foto/boceto de un mueble nuevo.',
+                    'parameters' => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'tipo_producto' => ['type' => 'string',  'description' => 'Tipo de mueble: silla, sofa, comedor, cama, mesa, cajonero, etc.'],
+                            'descripcion'   => ['type' => 'string',  'description' => 'Descripción del mueble: materiales visibles, estilo, características especiales'],
+                            'categoria'     => ['type' => 'string',  'description' => 'Categoría BD: comedores, sofas, camas, sillas_comedor, etc. (opcional)'],
+                            'largo_cm'      => ['type' => 'number',  'description' => 'Largo en centímetros (opcional)'],
+                            'ancho_cm'      => ['type' => 'number',  'description' => 'Ancho en centímetros (opcional)'],
+                            'alto_cm'       => ['type' => 'number',  'description' => 'Alto en centímetros (opcional)'],
+                            'num_puestos'   => ['type' => 'integer', 'description' => 'Número de puestos o módulos (sofás, comedores, etc.)'],
+                        ],
+                        'required' => ['tipo_producto', 'descripcion'],
+                    ],
+                ],
+            ],
         ];
     }
 
@@ -378,21 +418,52 @@ class AgentService
             ->first();
 
         if (!$ficha) {
-            // Buscar la más similar
-            $fichas = DB::table('fichas_tecnicas')
-                ->where('nombre', 'like', "%{$nombre}%")
-                ->orWhere('categoria', 'like', "%{$nombre}%")
-                ->limit(5)
-                ->get(['id', 'nombre', 'categoria', 'costo_total']);
+            // Búsqueda por palabras individuales con score por rareza:
+            // palabras que coinciden en MENOS fichas son más distintivas (nombre de modelo)
+            // y aportan mayor peso al ranking, desplazando palabras genéricas como "modular", "sofa"
+            $palabras = collect(preg_split('/\s+/', $nombre))
+                ->map(fn($p) => trim($p))
+                ->filter(fn($p) => mb_strlen($p) >= 4)
+                ->values();
+
+            $acumulado = collect();
+            foreach ($palabras as $palabra) {
+                $count = DB::table('fichas_tecnicas')
+                    ->where('nombre', 'like', "%{$palabra}%")
+                    ->count();
+                if ($count === 0) continue;
+                // peso = 100/count × (longitud/4): palabras raras y largas valen más
+                $peso       = round((100 / $count) * (mb_strlen($palabra) / 4), 4);
+                $resultados = DB::table('fichas_tecnicas')
+                    ->where('nombre', 'like', "%{$palabra}%")
+                    ->get(['id', 'nombre', 'categoria', 'costo_total'])
+                    ->each(fn($r) => $r->_peso = $peso);
+                $acumulado  = $acumulado->concat($resultados);
+            }
+
+            // Deduplicar y rankear por suma de pesos (modelos únicos como "Telavid" superan genéricos)
+            $fichas = $acumulado
+                ->groupBy('id')
+                ->map(fn($grupo) => (object) array_merge(
+                    (array) $grupo->first(),
+                    ['_score' => $grupo->sum('_peso')]
+                ))
+                ->sortByDesc('_score')
+                ->take(5)
+                ->values();
 
             if ($fichas->isEmpty()) {
-                return ['encontrado' => false, 'mensaje' => "No se encontró ninguna ficha técnica para '{$nombre}'."];
+                return [
+                    'encontrado'  => false,
+                    'sugerencias' => [],
+                    'mensaje'     => "No se encontró ninguna ficha técnica para '{$nombre}'.",
+                ];
             }
 
             return [
-                'encontrado'    => false,
-                'sugerencias'   => $fichas,
-                'mensaje'       => "No se encontró exactamente '{$nombre}'. Productos similares encontrados:",
+                'encontrado'  => false,
+                'sugerencias' => $fichas,
+                'mensaje'     => "No se encontró exactamente '{$nombre}'. Productos similares en catálogo:",
             ];
         }
 
@@ -401,13 +472,41 @@ class AgentService
             ->orderBy('orden')
             ->get();
 
+        // Calcular costos por sección (cada sección puede ser una variante del producto)
+        $secciones = $items->groupBy('seccion');
+        $variantes = $secciones->map(function ($secItems, $secNombre) {
+            $mat = $secItems->where('es_mano_obra', false)->sum('subtotal');
+            $mo  = $secItems->where('es_mano_obra', true)->sum('subtotal');
+            return [
+                'nombre'           => $secNombre ?: 'General',
+                'costo_materiales' => round($mat, 0),
+                'costo_mano_obra'  => round($mo, 0),
+                'costo_total'      => round($mat + $mo, 0),
+            ];
+        })->values();
+
+        $multiVariante = $variantes->count() > 1;
+
+        // Si hay múltiples variantes, intentar identificar cuál coincide con la búsqueda
+        $variantePrincipal = null;
+        if ($multiVariante) {
+            $variantePrincipal = $variantes->first(
+                fn($v) => stripos($v['nombre'], $nombre) !== false || stripos($nombre, $v['nombre']) !== false
+            );
+        }
+
         $resultado = [
-            'encontrado'       => true,
-            'ficha'            => $ficha,
-            'items'            => $items,
-            'costo_materiales' => $ficha->costo_materiales,
-            'costo_mano_obra'  => $ficha->costo_mano_obra,
-            'costo_total'      => $ficha->costo_total,
+            'encontrado'        => true,
+            'ficha'             => $ficha,
+            'items'             => $items,
+            'multi_variante'    => $multiVariante,
+            'variantes'         => $multiVariante ? $variantes : null,
+            'costo_materiales'  => $variantePrincipal ? $variantePrincipal['costo_materiales'] : $ficha->costo_materiales,
+            'costo_mano_obra'   => $variantePrincipal ? $variantePrincipal['costo_mano_obra']  : $ficha->costo_mano_obra,
+            'costo_total'       => $variantePrincipal ? $variantePrincipal['costo_total']       : $ficha->costo_total,
+            'nota'              => $multiVariante
+                ? 'Esta ficha contiene ' . $variantes->count() . ' variantes. Los costos mostrados corresponden a: ' . ($variantePrincipal ? $variantePrincipal['nombre'] : 'todas las variantes combinadas') . '.'
+                : null,
         ];
 
         // Escalado por número de puestos
@@ -486,33 +585,57 @@ class AgentService
 
     private function handleCalcularCostoPersonalizado(array $args): array
     {
-        $categoria = $args['categoria'];
-        $numPuestos = $args['num_puestos'] ?? null;
+        $descripcion = $args['descripcion_producto'];
+        $categoria   = $args['categoria'];
+        $numPuestos  = $args['num_puestos'] ?? null;
+        $largoCm     = $args['largo_cm'] ?? null;
+        $anchoCm     = $args['ancho_cm'] ?? null;
+        $altoCm      = $args['alto_cm']  ?? null;
+        $matCliente  = $args['materiales_cliente'] ?? null;
 
-        // Buscar fichas similares como referencia
+        // Fichas de referencia más similares (hasta 3)
         $fichasRef = DB::table('fichas_tecnicas')
-            ->where('categoria', 'like', "%{$categoria}%")
+            ->where(function ($q) use ($categoria, $descripcion) {
+                $q->where('categoria', 'like', "%{$categoria}%")
+                  ->orWhere('nombre',    'like', "%{$descripcion}%");
+            })
             ->orderBy('costo_total')
             ->limit(3)
-            ->get(['id', 'nombre', 'costo_materiales', 'costo_mano_obra', 'costo_total']);
+            ->get(['id', 'nombre', 'categoria', 'costo_materiales', 'costo_mano_obra', 'costo_total']);
 
-        // Precios de materiales del catálogo
+        // Tarifas de mano de obra con tarifa_hora del incentivo
+        $tarifas = DB::table('tarifas_proceso as tp')
+            ->leftJoin('salarios_cargo as sc', 'sc.cargo', '=', 'tp.cargo')
+            ->orderBy('tp.proceso')
+            ->get(['tp.id', 'tp.proceso', 'tp.descripcion', 'tp.unidad', 'tp.cargo',
+                   'tp.dias_por_unidad', 'tp.tarifa', 'sc.tarifa_hora']);
+
+        // Catálogo de materiales
         $materiales = DB::table('materiales')
             ->orderBy('nombre')
+            ->limit(50)
             ->get(['nombre', 'unidad', 'precio_unitario']);
 
         if ($fichasRef->isEmpty()) {
             return [
-                'mensaje'    => "No hay fichas técnicas de referencia para la categoría '{$categoria}'.",
-                'materiales' => $materiales,
+                'encontrado'         => false,
+                'descripcion'        => $descripcion,
+                'categoria'          => $categoria,
+                'mensaje'            => "No hay fichas de referencia para '{$categoria}'. Usa tarifas_proceso y materiales_catalogo para construir el estimado.",
+                'tarifas_proceso'    => $tarifas,
+                'materiales_catalogo'=> $materiales,
             ];
         }
 
-        $promedioBase = $fichasRef->avg('costo_total');
-        $minBase      = $fichasRef->min('costo_total');
-        $maxBase      = $fichasRef->max('costo_total');
+        // Items completos de las fichas de referencia
+        $itemsRef = DB::table('ficha_tecnica_items')
+            ->whereIn('ficha_tecnica_id', $fichasRef->pluck('id'))
+            ->orderBy('ficha_tecnica_id')
+            ->orderBy('orden')
+            ->get(['ficha_tecnica_id', 'seccion', 'descripcion', 'cantidad', 'unidad',
+                   'precio_unitario', 'subtotal', 'es_mano_obra']);
 
-        // Si se piden N puestos, escalar el promedio
+        // Factor de escala por número de puestos
         $factor = 1;
         if ($numPuestos) {
             preg_match('/(\d+)\s*[Pp]/', $fichasRef->first()->nombre ?? '', $m);
@@ -521,15 +644,80 @@ class AgentService
         }
 
         return [
-            'descripcion'        => $args['descripcion_producto'],
-            'categoria'          => $categoria,
-            'puestos_solicitados'=> $numPuestos,
-            'fichas_referencia'  => $fichasRef,
-            'estimado_min'       => round($minBase * $factor * 0.90, 0),
-            'estimado_promedio'  => round($promedioBase * $factor, 0),
-            'estimado_max'       => round($maxBase * $factor * 1.15, 0),
-            'materiales_catalogo'=> $materiales->take(20),
-            'nota'               => 'Estimado basado en ' . $fichasRef->count() . ' ficha(s) de referencia de la misma categoría.',
+            'encontrado'          => true,
+            'descripcion'         => $descripcion,
+            'categoria'           => $categoria,
+            'puestos_solicitados' => $numPuestos,
+            'medidas_cm'          => ['largo' => $largoCm, 'ancho' => $anchoCm, 'alto' => $altoCm],
+            'materiales_cliente'  => $matCliente,
+            'fichas_referencia'   => $fichasRef,
+            'items_referencia'    => $itemsRef,
+            'tarifas_proceso'     => $tarifas,
+            'materiales_catalogo' => $materiales,
+            'factor_escala'       => $factor,
+            'nota'                => 'Usa items_referencia como base para listar materiales y mano de obra del producto similar. Ajusta cantidades según medidas si se dieron. Presenta el desglose completo.',
+        ];
+    }
+
+    private function handleCalcularCostoPorMedidas(array $args): array
+    {
+        $tipo      = $args['tipo_producto'];
+        $categoria = $args['categoria'] ?? $tipo;
+
+        // Salarios por cargo para mostrar la fórmula al usuario
+        $salarios = DB::table('salarios_cargo')
+            ->get(['cargo', 'descripcion', 'salario_mensual', 'dias_laborales_mes'])
+            ->map(fn($s) => array_merge((array) $s, [
+                'tarifa_diaria' => round($s->salario_mensual / $s->dias_laborales_mes, 0),
+            ]));
+
+        // Tarifas de mano de obra: tarifa = salario_diario × dias_por_unidad
+        $tarifas = DB::table('tarifas_proceso')
+            ->orderBy('aplica_a')
+            ->orderBy('proceso')
+            ->get(['proceso', 'descripcion', 'unidad', 'tarifa', 'aplica_a', 'cargo', 'dias_por_unidad']);
+
+        // Catálogo de materiales con precios
+        $materiales = DB::table('materiales')
+            ->orderBy('nombre')
+            ->limit(50)
+            ->get(['nombre', 'unidad', 'precio_unitario']);
+
+        // Fichas técnicas similares como referencia (máx. 3)
+        $fichasRef = DB::table('fichas_tecnicas')
+            ->where(function ($q) use ($tipo, $categoria) {
+                $q->where('categoria', 'like', "%{$categoria}%")
+                  ->orWhere('nombre',    'like', "%{$tipo}%");
+            })
+            ->orderBy('costo_total')
+            ->limit(3)
+            ->get(['id', 'nombre', 'categoria', 'costo_materiales', 'costo_mano_obra', 'costo_total']);
+
+        // Items detallados de las fichas de referencia (para que la IA vea qué materiales usa un producto similar)
+        $itemsRef = collect();
+        if ($fichasRef->isNotEmpty()) {
+            $itemsRef = DB::table('ficha_tecnica_items')
+                ->whereIn('ficha_tecnica_id', $fichasRef->pluck('id'))
+                ->orderBy('ficha_tecnica_id')
+                ->orderBy('orden')
+                ->get(['ficha_tecnica_id', 'seccion', 'descripcion', 'cantidad', 'unidad', 'precio_unitario', 'subtotal', 'es_mano_obra']);
+        }
+
+        return [
+            'tipo_producto'       => $tipo,
+            'descripcion_usuario' => $args['descripcion'] ?? '',
+            'medidas_cm'          => [
+                'largo' => $args['largo_cm'] ?? null,
+                'ancho' => $args['ancho_cm'] ?? null,
+                'alto'  => $args['alto_cm']  ?? null,
+            ],
+            'num_puestos'         => $args['num_puestos'] ?? null,
+            'salarios_cargo'      => $salarios,   // tarifa_diaria = salario_mensual / dias_laborales_mes
+            'tarifas_proceso'     => $tarifas,    // tarifa = tarifa_diaria × dias_por_unidad
+            'materiales_catalogo' => $materiales,
+            'fichas_referencia'   => $fichasRef,
+            'items_referencia'    => $itemsRef,
+            'nota_calculo'        => 'Mano de obra = dias_por_unidad × (salario_mensual / dias_laborales_mes). Muestra esta fórmula en tu respuesta para que el cálculo sea transparente.',
         ];
     }
 
@@ -1339,7 +1527,7 @@ class AgentService
         }
 
         $trabajadores = $base
-            ->selectRaw('u.id, u.nombre, u.email, u.rol, u.activo, t.nombre AS tienda')
+            ->selectRaw('u.id, u.nombre, u.rol, u.activo, t.nombre AS tienda')
             ->orderBy('u.rol')
             ->orderBy('u.nombre')
             ->get();
@@ -1386,9 +1574,18 @@ class AgentService
 
         // Detalle de un cliente específico
         if (!empty($args['cliente_id'])) {
-            $cliente = DB::table('clientes')->find($args['cliente_id']);
+            $cliente = DB::table('clientes')
+                ->where('id', $args['cliente_id'])
+                ->select('id', 'nombre', 'telefono', 'canal_pref', 'tipo', 'created_at')
+                ->first();
+
             if (!$cliente) {
                 return ['error' => 'Cliente no encontrado.'];
+            }
+
+            // Enmascarar teléfono: solo últimos 4 dígitos
+            if ($cliente->telefono) {
+                $cliente->telefono = '***' . substr(preg_replace('/\D/', '', $cliente->telefono), -4);
             }
 
             $ordenes = DB::table('ordenes as o')
@@ -1416,10 +1613,11 @@ class AgentService
 
         $query = DB::table('clientes as c')
             ->selectRaw('
-                c.id, c.nombre, c.telefono, c.email, c.direccion,
-                COUNT(DISTINCT o.id)          AS total_ordenes,
+                c.id, c.nombre,
+                CONCAT("***", RIGHT(REGEXP_REPLACE(IFNULL(c.telefono,""), "[^0-9]", ""), 4)) AS telefono,
+                COUNT(DISTINCT o.id)            AS total_ordenes,
                 COALESCE(SUM(o.valor_total), 0) AS total_comprado,
-                MAX(o.created_at)             AS ultima_compra
+                MAX(o.created_at)               AS ultima_compra
             ')
             ->leftJoin('ordenes as o', function ($join) use ($tiendaId) {
                 $join->on('o.cliente_id', '=', 'c.id')
@@ -1428,7 +1626,7 @@ class AgentService
                     $join->where('o.tienda_id', $tiendaId);
                 }
             })
-            ->groupBy('c.id', 'c.nombre', 'c.telefono', 'c.email', 'c.direccion')
+            ->groupBy('c.id', 'c.nombre', 'c.telefono')
             ->orderByDesc('total_comprado');
 
         if (!empty($args['busqueda'])) {
@@ -1456,6 +1654,132 @@ class AgentService
         ];
     }
 
+    private function handleAnalizarRotacionInventario(array $args, Usuario $usuario): array
+    {
+        $dias  = max(7, (int) ($args['dias'] ?? 90));
+        $desde = now()->subDays($dias)->format('Y-m-d');
+
+        $tiendaId = $args['tienda_id'] ?? null;
+        if (!$tiendaId && !empty($args['nombre_tienda'])) {
+            $tiendaId = DB::table('tiendas')
+                ->where('nombre', 'like', "%{$args['nombre_tienda']}%")
+                ->value('id');
+        }
+        if ($usuario->rol === 'vendedor') {
+            $tiendaId = $usuario->tienda_default_id;
+        }
+
+        $catFiltro = !empty($args['categoria'])
+            ? ($this->detectarCategoria($args['categoria']) ?? $args['categoria'])
+            : null;
+
+        // 1. Velocidad de ventas por producto en el período
+        $ventasQ = DB::table('orden_items as oi')
+            ->join('ordenes as o',   'o.id',  '=', 'oi.orden_id')
+            ->join('productos as p', 'p.id',  '=', 'oi.producto_id')
+            ->where('o.created_at', '>=', $desde . ' 00:00:00')
+            ->whereNotIn('o.estado', ['cancelado'])
+            ->where('p.activo', true)
+            ->selectRaw("p.id, p.nombre, p.categoria,
+                SUM(oi.cantidad) AS unidades_vendidas,
+                SUM(oi.cantidad * oi.precio_unitario) AS valor_total,
+                ROUND(SUM(oi.cantidad) / ({$dias} / 7.0), 2) AS unidades_semana")
+            ->groupBy('p.id', 'p.nombre', 'p.categoria');
+
+        if ($tiendaId) $ventasQ->where('o.tienda_id', $tiendaId);
+        if ($catFiltro) $ventasQ->where('p.categoria', 'like', "%{$catFiltro}%");
+
+        $ventas = $ventasQ->get()->keyBy('id');
+
+        // 2. Stock total por producto (suma de tiendas activas)
+        $stockQ = DB::table('productos as p')
+            ->join('tiendas as t', 't.activa', '=', DB::raw('1'))
+            ->leftJoin('inventario as i', function ($j) {
+                $j->on('i.producto_id', '=', 'p.id')->on('i.tienda_id', '=', 't.id');
+            })
+            ->where('p.activo', true)
+            ->selectRaw('p.id, p.nombre, p.categoria,
+                SUM(COALESCE(i.cantidad_disponible,0)) AS stock_total')
+            ->groupBy('p.id', 'p.nombre', 'p.categoria');
+
+        if ($tiendaId) $stockQ->where('t.id', $tiendaId);
+        if ($catFiltro) $stockQ->where('p.categoria', 'like', "%{$catFiltro}%");
+
+        $stocks = $stockQ->get()->keyBy('id');
+
+        // 3. Stock desglosado por tienda (solo donde hay stock > 0)
+        $stockTiendaQ = DB::table('inventario as i')
+            ->join('productos as p', 'p.id', '=', 'i.producto_id')
+            ->join('tiendas as t',   't.id', '=', 'i.tienda_id')
+            ->where('p.activo', true)
+            ->where('t.activa', true)
+            ->where('i.cantidad_disponible', '>', 0)
+            ->selectRaw('p.id AS producto_id, p.nombre AS producto, p.categoria,
+                t.id AS tienda_id, t.nombre AS tienda,
+                i.cantidad_disponible AS stock, i.stock_minimo');
+
+        if ($tiendaId) $stockTiendaQ->where('t.id', $tiendaId);
+        if ($catFiltro) $stockTiendaQ->where('p.categoria', 'like', "%{$catFiltro}%");
+
+        $stockPorTienda = $stockTiendaQ->orderBy('p.nombre')->orderBy('t.nombre')->get();
+
+        // 4. Métricas combinadas
+        $analisis = $stocks->map(function ($s) use ($ventas) {
+            $v              = $ventas->get($s->id);
+            $vendSemana     = $v ? (float) $v->unidades_semana    : 0.0;
+            $totalVendido   = $v ? (int)   $v->unidades_vendidas  : 0;
+            $valorVendido   = $v ? round($v->valor_total, 0)       : 0;
+            $stockTotal     = (int) $s->stock_total;
+            $semanasCubierto = $vendSemana > 0 ? round($stockTotal / $vendSemana, 1) : null;
+
+            return [
+                'id'              => $s->id,
+                'nombre'          => $s->nombre,
+                'categoria'       => $s->categoria,
+                'stock_total'     => $stockTotal,
+                'unidades_vendidas'=> $totalVendido,
+                'valor_vendido'   => $valorVendido,
+                'unidades_semana' => $vendSemana,
+                'semanas_stock'   => $semanasCubierto,
+            ];
+        })->values();
+
+        // 5. Clasificaciones
+        $urgente = $analisis
+            ->filter(fn($p) => $p['unidades_semana'] > 0 && ($p['semanas_stock'] === null || $p['semanas_stock'] < 2))
+            ->sortByDesc('unidades_semana')->values();
+
+        $proximo = $analisis
+            ->filter(fn($p) => $p['unidades_semana'] > 0 && $p['semanas_stock'] !== null && $p['semanas_stock'] >= 2 && $p['semanas_stock'] < 4)
+            ->sortByDesc('unidades_semana')->values();
+
+        $sinVentas = $analisis
+            ->filter(fn($p) => $p['unidades_vendidas'] === 0)
+            ->sortBy('stock_total')->values();
+
+        $exceso = $analisis
+            ->filter(fn($p) => $p['semanas_stock'] !== null && $p['semanas_stock'] > 12 && $p['unidades_semana'] > 0)
+            ->sortByDesc('semanas_stock')->values();
+
+        return [
+            'periodo_dias'     => $dias,
+            'desde'            => $desde,
+            'resumen' => [
+                'total_productos'   => $analisis->count(),
+                'con_ventas'        => $analisis->filter(fn($p) => $p['unidades_vendidas'] > 0)->count(),
+                'sin_ventas'        => $sinVentas->count(),
+                'urgente_producir'  => $urgente->count(),
+                'stock_exceso'      => $exceso->count(),
+            ],
+            'producir_urgente' => $urgente,
+            'producir_proximo' => $proximo,
+            'sin_ventas'       => $sinVentas,
+            'stock_exceso'     => $exceso,
+            'stock_por_tienda' => $stockPorTienda,
+            'nota' => 'producir_urgente = stock < 2 semanas de ventas. producir_proximo = 2-4 semanas. sin_ventas = 0 unidades vendidas en el período. stock_exceso = >12 semanas de stock. Usa stock_por_tienda para recomendar a qué tiendas enviar el stock producido.',
+        ];
+    }
+
     private function handleListarTiendas(): array
     {
         $tiendas = DB::table('tiendas')
@@ -1474,6 +1798,7 @@ class AgentService
             'obtener_ficha_tecnica'        => $this->handleObtenerFichaTecnica($args),
             'buscar_fichas_por_categoria'  => $this->handleBuscarFichasPorCategoria($args),
             'calcular_costo_personalizado' => $this->handleCalcularCostoPersonalizado($args),
+            'calcular_costo_medidas'       => $this->handleCalcularCostoPorMedidas($args),
             'consultar_inventario'         => $this->handleConsultarInventario($args, $usuario),
             'productos_mas_vendidos'       => $this->handleProductosMasVendidos($args, $usuario),
             'ventas_por_categoria'         => $this->handleVentasPorCategoria($args, $usuario),
@@ -1489,6 +1814,7 @@ class AgentService
             'reporte_pendientes'           => $this->handleReportePendientes($args, $usuario),
             'reporte_retrasos'             => $this->handleReporteRetrasos(),
             'listar_tiendas'               => $this->handleListarTiendas(),
+            'analizar_rotacion_inventario' => $this->handleAnalizarRotacionInventario($args, $usuario),
             default                        => ['error' => "Tool '{$toolName}' no reconocida."],
         };
     }
@@ -1502,84 +1828,74 @@ class AgentService
             : 'todas las tiendas';
 
         $systemPrompt = <<<EOT
-Eres el asistente de negocios de Decasa, una empresa colombiana de muebles. Respondes siempre en español, de forma clara y concisa.
+Eres el asistente de negocios de Decasa (muebles, Colombia). Responde siempre en español, claro y conciso.
+Usuario: {$usuario->nombre} | Rol: {$usuario->rol} | Tienda: {$tiendaInfo} | Hoy: {$this->hoy()}
 
-Usuario actual: {$usuario->nombre} (rol: {$usuario->rol}, tienda: {$tiendaInfo})
-Fecha de hoy: {$this->hoy()}
+ESTADOS DE ÓRDENES: pendiente_anticipo | en_produccion | listo_entrega | en_camino | entregado | cancelado
+- "listas para entregar/despachar" → listo_entrega | "en camino/en ruta/con conductor" → en_camino | "en producción/en taller" → en_produccion | "esperando pago/sin anticipo" → pendiente_anticipo
 
-## Estados de órdenes — mapeo de frases a valores exactos de BD:
-| Frase del usuario                                          | Estado a usar         |
-|------------------------------------------------------------|-----------------------|
-| "listas para entregar", "lista entrega", "listo para despacho", "listos para despachar" | listo_entrega |
-| "en camino", "con el conductor", "en ruta", "salió a entregar" | en_camino      |
-| "en producción", "fabricando", "en fábrica", "en taller"  | en_produccion         |
-| "pendiente de anticipo", "esperando pago", "sin anticipo"  | pendiente_anticipo    |
-| "entregado", "completado", "finalizado"                    | entregado             |
-| "cancelado", "anulado"                                     | cancelado             |
+TIENDAS: Filtra por tienda SOLO si el usuario lo pide. Usa nombre_tienda (parcial) nunca inventes tienda_id. Para IDs exactos llama listar_tiendas primero.
 
-## Reglas de tiendas:
-- La tienda del perfil del usuario es solo información de contexto. NO la uses como filtro automático.
-- Solo filtra por tienda cuando el usuario lo pida explícitamente (ej: "en Bolívar", "de la tienda Jardines").
-- Cuando el usuario mencione una tienda, usa nombre_tienda con el nombre parcial. NUNCA inventes un tienda_id.
-- Si no mencionó tienda, consulta todas las tiendas sin filtro.
-- Si necesitas saber los nombres exactos de tiendas, llama primero a listar_tiendas.
+FECHAS: entrega → fecha_entrega_prometida. creación orden → fecha_creacion_orden. inicio fabricación → fecha_inicio. NUNCA uses fecha_creacion_orden ni fecha_inicio para responder sobre entregas. NUNCA inventes fechas.
 
-## Fechas — significado exacto de cada campo:
-| Campo                   | Fuente                  | Significado                                              |
-|-------------------------|-------------------------|----------------------------------------------------------|
-| `fecha_creacion_orden`  | consultar_ordenes       | Cuándo SE HIZO la orden (`ordenes.created_at`). NO es entrega. |
-| `fecha_inicio`          | estado_produccion       | Cuándo EMPEZÓ a fabricarse el item. NO es entrega.       |
-| `fecha_entrega_prometida` | ambas herramientas    | Fecha comprometida para ENTREGAR al cliente. ESTA es la fecha de entrega. |
-| `dias_restantes_entrega`| ambas herramientas      | Días que faltan (negativo = vencido, positivo = faltan N días). |
-| `fecha_quedo_lista`     | consultar_ordenes       | Cuando la orden quedó lista para despachar. NO es entrega al cliente. |
+CATEGORÍAS: Cuando el usuario diga el tipo de mueble usa siempre el valor BD del enum del tool (sillas_aux, sofas, comedores, camas, etc.). Si es modelo específico (ej: "Silla Alicia", "Base 2K") usa nombre_producto no categoria.
 
-REGLAS CRÍTICAS de fechas:
-- "¿cuándo se entrega?" / "¿cuántos días le quedan?" → usa `fecha_entrega_prometida` y `dias_restantes_entrega`.
-- "¿cuándo se hizo la orden?" / "¿cuándo fue creada?" → para ÓRDENES usa `fecha_creacion_orden`; para items de PRODUCCIÓN usa `fecha_inicio`.
-- NUNCA uses `fecha_creacion_orden` ni `fecha_inicio` para responder sobre fechas de entrega.
-- NUNCA inventes una fecha. Si no tienes el dato, llama la herramienta correspondiente.
+PRODUCCIÓN vs ÓRDENES: estado_produccion → qué se fabrica en el taller (tabla produccion). consultar_ordenes → órdenes de clientes. Son tablas distintas — una orden listo_entrega puede tener producción en estado listo simultáneamente.
 
-## REGLA CRÍTICA sobre categorías:
-Cuando el usuario diga el nombre de una categoría (ej: "sillas auxiliares", "sofás", "comedores"), usa SIEMPRE el parámetro `categoria` con el valor exacto de la tabla de abajo. NUNCA lo pongas en `nombre_producto`.
-Ejemplo: "cuántas sillas auxiliares se han vendido" → `categoria: "sillas_aux"` (NO `nombre_producto: "sillas auxiliares"`).
-Usa `nombre_producto` solo cuando el usuario nombre un modelo específico (ej: "SILLA AUX ALICIA", "BASE 2K").
+COSTOS DE FABRICACIÓN — sigue este orden de prioridad sin saltarte pasos:
+1. El usuario menciona un nombre de producto (ej: "Cama Estocolmo", "Silla Alicia", "Sofá Roma", "Sofá Modular Telavid") → llama SIEMPRE obtener_ficha_tecnica primero, aunque el nombre parezca descriptivo. Si la ficha existe (encontrado: true), presenta los costos reales exactos así (sin LaTeX):
+"**[Nombre del producto]**
+Mano de obra:
+· [cargo] – [descripcion]: [cantidad] h × $[precio_unitario]/h = $[subtotal]
+· ...
+Materiales:
+· [descripcion]: [cantidad] [unidad] × $[precio_unitario] = $[subtotal]
+· ...
+**Costo materiales: [valor]** | **Mano de obra: [valor]** | **Total: [valor]**"
+Si obtener_ficha_tecnica devuelve encontrado: false con sugerencias NO VACÍAS → muestra las sugerencias y PREGUNTA: "¿Te refieres a alguno de estos productos? [lista]. Si no es ninguno, puedo calcular el costo de uno nuevo." NO estimes hasta que el usuario confirme que no es ninguna sugerencia.
+Solo si sugerencias está vacía pasa al paso 2.
+2. El usuario da medidas, sube foto/boceto o describe un mueble personalizado sin nombre de catálogo → calcular_costo_medidas. Llámala de inmediato sin pedir medidas. Si faltan medidas usa estimados típicos (cama: 200×160cm, escritorio: 120×60cm) y aclara que son estimados.
+3. Sin nombre, sin medidas, sin imagen → calcular_costo_personalizado. Usa items_referencia de fichas similares para mostrar el desglose real de materiales y mano de obra. Al terminar SIEMPRE agrega: "Para mayor precisión puedes indicarme las medidas (largo, ancho, alto en cm) y/o los materiales que prefiere usar."
 
-## Categorías de productos — valores EXACTOS en BD (usar siempre estos al llamar herramientas):
-| Lo que dice el usuario                                              | Valor en BD       |
-|---------------------------------------------------------------------|-------------------|
-| sillas auxiliares, sillas aux, silla aux, sillas auxiliar           | sillas_aux        |
-| sillas de barra, silla barra, sillas bar, taburetes                 | sillas_barra      |
-| sillas de comedor, sillas comedor, silla comedor                    | sillas_comedor    |
-| sofás, sofas, sofa, sillón, sillon                                  | sofas             |
-| sofacamas, sofa cama, sofa-cama, sofá cama, cama sofá               | sofa_camas        |
-| sofás modulares, sofa modular, sofas modulares, modular             | sofas_modulares   |
-| camas, cama, cabecero                                               | camas             |
-| colchones, colchon, colchoncillo                                    | colchones         |
-| comedores, comedor, juego de comedor, sala de comedor               | comedores         |
-| escritorios, escritorio, escritorio de oficina, mesa de oficina     | escritorios       |
-| mesas de noche, mesa noche, mesita de noche, nochero, velador       | mesas_noche       |
-| mesas auxiliares, mesa aux, mesa auxiliar, mesita auxiliar          | mesas_aux         |
-| mesas de centro, mesa centro, mesa de sala, mesa central            | mesas_centro      |
-| mesas de tv, mesa tv, mesa de tv, mesa de television, mesa de televisor, mueble tv, rack tv, mesa para televisión | mesas_tv |
-| mesas de noche, mesa de noche, mesa noche, mesita de noche, nochero, velador | mesas_noche |
-| sillas de barra, silla de barra, silla barra, sillas bar, taburetes | sillas_barra      |
-| cajoneros, cajonero, gavetas, cómoda, comoda                        | cajoneros         |
+Flujo con imagen: 1) Identifica el tipo de mueble y materiales visibles. 2) Llama calcular_costo_medidas con lo que ves. 3) Calcula MATERIALES = cantidades × precios catálogo. MANO DE OBRA = horas_por_pieza × incentivo_hora. 4) Presenta el resultado así (sin LaTeX, sin fracciones, texto plano):
+"**Mano de obra**
+· Carpintero – estructura: 3.1 h × $14.423/h = $44.711
+· Lacador – pintura: 2.0 h × $14.423/h = $28.846
+**Materiales estimados: $143.800**
+**Total aprox: $288.000** (puede variar ±20%)"
+5) Si el resultado viene de estimación (no de ficha real), termina con: "Para un estimado más exacto dime las medidas (largo, ancho, alto en cm)." Nunca pidas medidas ANTES de calcular. NUNCA uses LaTeX (\frac, \times, \text, paréntesis \( \)).
 
-## Cuándo usar cada herramienta de producción:
-- `estado_produccion` → cuando el usuario pregunte sobre el taller/fábrica: "hay productos en producción", "qué se está fabricando", "items retrasados", "qué está listo en producción". Consulta la tabla `produccion` con estados: pendiente, en_proceso, listo, retrasado, entregado.
-- `consultar_ordenes` → cuando el usuario pregunte sobre ÓRDENES de clientes: "hay órdenes pendientes", "órdenes en camino", "órdenes listas para entregar". NO uses consultar_ordenes para saber qué se fabrica en el taller.
-- IMPORTANTE: una orden puede estar en `listo_entrega` (estado de la orden = lista para despachar) mientras su registro de producción sigue activo con `estado='listo'`. Son tablas distintas.
+ANÁLISIS PREDICTIVO — usa analizar_rotacion_inventario ante preguntas como: ¿qué fabricar?, ¿qué dejar de producir?, ¿dónde hay falta de stock?, ¿qué productos tienen poca salida? Parámetro dias: 30 = tendencia reciente, 90 = estándar, 180 = largo plazo. Presenta el resultado así:
+"**Fabricar urgente** (stock < 2 semanas):
+· [Producto] — [X] u/semana, stock para [N] semanas — enviar a [Tienda A] ([stock]) y [Tienda B] ([stock])
+**Fabricar pronto** (2-4 semanas de stock):
+· ...
+**Sin ventas en [N] días** (evaluar descontinuar):
+· [Producto] — [stock] unidades sin movimiento
+**Exceso de stock** (>12 semanas):
+· ..."
+Si pregunta por una tienda específica, filtra por ella y recomienda qué debe pedir a producción.
 
-## Reglas generales:
-- Para costos, siempre muestra el desglose (materiales + mano de obra).
-- Para cantidades de dinero, usa formato colombiano ($ 1.200.000).
-- No inventes datos. Si no encuentras algo, dilo claramente y sugiere cómo reformular.
-- Cuando una orden tiene productos, inclúyelos en tu respuesta.
+REGLAS: Dinero en formato COP ($ 1.200.000). No inventes datos. Muestra productos cuando una orden los tiene.
 EOT;
+
+        // Convertir mensajes: si alguno trae imagen, usar formato vision de OpenAI
+        $mensajesFormateados = array_map(function (array $msg) {
+            if (!empty($msg['image'])) {
+                return [
+                    'role'    => $msg['role'],
+                    'content' => [
+                        ['type' => 'text',      'text'      => $msg['content']],
+                        ['type' => 'image_url', 'image_url' => ['url' => $msg['image'], 'detail' => 'low']],
+                    ],
+                ];
+            }
+            return ['role' => $msg['role'], 'content' => $msg['content']];
+        }, $messages);
 
         $apiMessages = array_merge(
             [['role' => 'system', 'content' => $systemPrompt]],
-            $messages
+            $mensajesFormateados
         );
 
         // Loop de tool calling (máx. 5 iteraciones para evitar loops infinitos)

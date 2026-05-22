@@ -1,48 +1,110 @@
 <script setup>
-import { ref, nextTick, computed } from 'vue'
+import { ref, nextTick, onMounted, onUnmounted } from 'vue'
 import { chatWithAgent } from '@/api/agent.js'
 import {
   SparklesIcon,
   XMarkIcon,
   PaperAirplaneIcon,
   ArrowPathIcon,
+  PhotoIcon,
 } from '@heroicons/vue/24/outline'
 import { SparklesIcon as SparklesSolid } from '@heroicons/vue/24/solid'
 
 const abierto   = ref(false)
 const cargando  = ref(false)
 const inputText = ref('')
+const imagenAmpliada = ref(null)   // src de la imagen en lightbox
 const mensajes  = ref([
   {
     role: 'assistant',
-    content: '¡Hola! Soy el asistente de Decasa. Puedo ayudarte con costos de fabricación, inventario, ventas, producción y órdenes.\n\n¿Qué necesitas consultar?',
+    content: '¡Hola! Soy el asistente de Decasa. Puedo ayudarte con costos de fabricación, inventario, ventas, producción y órdenes.\n\nTambién puedes **adjuntar una foto o boceto** de un mueble y te estimo el costo de fabricación. ¿Qué necesitas consultar?',
   },
 ])
-const inputRef  = ref(null)
-const listRef   = ref(null)
+const inputRef    = ref(null)
+const listRef     = ref(null)
+const fileInputRef = ref(null)
+
+// imagen adjunta pendiente de enviar
+const imagenPendiente = ref(null)   // { base64: string, nombre: string }
+
+function abrirSelectorImagen() {
+  fileInputRef.value?.click()
+}
+
+async function onImagenSeleccionada(e) {
+  const archivo = e.target.files?.[0]
+  if (!archivo) return
+  e.target.value = ''   // reset para poder seleccionar la misma imagen de nuevo
+
+  const base64 = await redimensionarImagen(archivo, 900, 0.82)
+  imagenPendiente.value = { base64, nombre: archivo.name }
+}
+
+function quitarImagen() {
+  imagenPendiente.value = null
+}
+
+// Redimensiona la imagen en canvas y devuelve un data URL JPEG reducido
+function redimensionarImagen(archivo, maxPx, calidad) {
+  return new Promise((resolve) => {
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const img = new Image()
+      img.onload = () => {
+        const ratio = Math.min(maxPx / img.width, maxPx / img.height, 1)
+        const w = Math.round(img.width  * ratio)
+        const h = Math.round(img.height * ratio)
+        const canvas = document.createElement('canvas')
+        canvas.width  = w
+        canvas.height = h
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h)
+        resolve(canvas.toDataURL('image/jpeg', calidad))
+      }
+      img.src = ev.target.result
+    }
+    reader.readAsDataURL(archivo)
+  })
+}
 
 function toggle() {
   abierto.value = !abierto.value
   if (abierto.value) {
     nextTick(() => inputRef.value?.focus())
+    setTimeout(scrollAbajo, 240) // esperar que termine la transición de apertura
   }
 }
 
 async function enviar() {
-  const texto = inputText.value.trim()
-  if (!texto || cargando.value) return
+  const texto  = inputText.value.trim()
+  const imagen = imagenPendiente.value
 
-  mensajes.value.push({ role: 'user', content: texto })
-  inputText.value = ''
-  cargando.value  = true
+  if ((!texto && !imagen) || cargando.value) return
+
+  const textoFinal = texto || '¿Cuánto cuesta fabricar este mueble?'
+
+  // Guardar en historial local (con preview de imagen si hay)
+  mensajes.value.push({
+    role    : 'user',
+    content : textoFinal,
+    image   : imagen?.base64 ?? null,
+    imgNombre: imagen?.nombre ?? null,
+  })
+
+  inputText.value       = ''
+  imagenPendiente.value = null
+  cargando.value        = true
   await scrollAbajo()
 
   try {
     // Enviar solo los últimos 10 turnos (sin el mensaje inicial del asistente)
     const historial = mensajes.value
-      .slice(1)             // quitar saludo inicial
-      .slice(-10)           // máx. 10 mensajes
-      .map(m => ({ role: m.role, content: m.content }))
+      .slice(1)
+      .slice(-10)
+      .map(m => {
+        const entry = { role: m.role, content: m.content }
+        if (m.image) entry.image = m.image
+        return entry
+      })
 
     const { data } = await chatWithAgent(historial)
     mensajes.value.push({ role: 'assistant', content: data.respuesta })
@@ -62,7 +124,17 @@ function onKeydown(e) {
     e.preventDefault()
     enviar()
   }
+  if (e.key === 'Escape') {
+    imagenAmpliada.value = null
+  }
 }
+
+function onEscGlobal(e) {
+  if (e.key === 'Escape') imagenAmpliada.value = null
+}
+onMounted(() => window.addEventListener('keydown', onEscGlobal))
+onUnmounted(() => window.removeEventListener('keydown', onEscGlobal))
+
 
 function limpiar() {
   mensajes.value = [mensajes.value[0]] // conservar saludo inicial
@@ -77,8 +149,8 @@ async function scrollAbajo() {
 
 // Ejemplos de preguntas rápidas
 const ejemplos = [
-  '¿Cuál es el producto más vendido este mes?',
   '¿Cuánto cuesta fabricar un comedor de 6 puestos?',
+  '¿Cuál es el producto más vendido este mes?',
   '¿Qué hay en inventario bajo de stock?',
   '¿Cuántos items hay en producción?',
 ]
@@ -164,13 +236,21 @@ function formatearTexto(texto) {
             <!-- Burbuja -->
             <div
               :class="[
-                'max-w-[80%] px-3 py-2 rounded-2xl text-sm leading-relaxed',
+                'max-w-[80%] rounded-2xl text-sm leading-relaxed overflow-hidden',
                 msg.role === 'user'
                   ? 'bg-blue-600 text-white rounded-tr-sm'
                   : 'bg-gray-100 text-gray-800 rounded-tl-sm',
               ]"
-              v-html="formatearTexto(msg.content)"
-            />
+            >
+              <!-- Thumbnail de imagen adjunta -->
+              <img
+                v-if="msg.image"
+                :src="msg.image"
+                class="w-full max-h-40 object-cover cursor-zoom-in"
+                @click="imagenAmpliada = msg.image"
+              />
+              <div class="px-3 py-2" v-html="formatearTexto(msg.content)" />
+            </div>
           </div>
 
           <!-- Indicador de escritura -->
@@ -205,23 +285,43 @@ function formatearTexto(texto) {
 
         <!-- Input -->
         <div class="px-3 py-3 border-t border-gray-100 flex-shrink-0">
+
+          <!-- Preview imagen adjunta -->
+          <div v-if="imagenPendiente" class="flex items-center gap-2 mb-2 bg-blue-50 border border-blue-100 rounded-xl px-3 py-2">
+            <img :src="imagenPendiente.base64" class="w-10 h-10 rounded-lg object-cover flex-shrink-0 cursor-zoom-in" @click="imagenAmpliada = imagenPendiente.base64" />
+            <span class="flex-1 text-xs text-gray-600 truncate">{{ imagenPendiente.nombre }}</span>
+            <button @click="quitarImagen" class="text-gray-400 hover:text-red-500 transition-colors flex-shrink-0">
+              <XMarkIcon class="w-4 h-4" />
+            </button>
+          </div>
+
           <div class="flex items-end gap-2 bg-gray-50 rounded-xl border border-gray-200 px-3 py-2">
+            <!-- Botón adjuntar imagen -->
+            <button
+              @click="abrirSelectorImagen"
+              :disabled="cargando"
+              class="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-all mb-0.5"
+              title="Adjuntar foto o boceto"
+            >
+              <PhotoIcon class="w-4 h-4" />
+            </button>
+
             <textarea
               ref="inputRef"
               v-model="inputText"
               @keydown="onKeydown"
               :disabled="cargando"
-              placeholder="Escribe tu pregunta..."
+              :placeholder="imagenPendiente ? 'Añade una descripción o medidas (opcional)...' : 'Escribe tu pregunta...'"
               rows="1"
               class="flex-1 bg-transparent text-sm text-gray-800 placeholder-gray-400 resize-none outline-none leading-relaxed max-h-28 min-h-[1.5rem]"
               style="field-sizing: content;"
             />
             <button
               @click="enviar"
-              :disabled="!inputText.trim() || cargando"
+              :disabled="(!inputText.trim() && !imagenPendiente) || cargando"
               :class="[
                 'flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center transition-all',
-                inputText.trim() && !cargando
+                (inputText.trim() || imagenPendiente) && !cargando
                   ? 'bg-blue-600 hover:bg-blue-700 text-white'
                   : 'bg-gray-200 text-gray-400 cursor-not-allowed',
               ]"
@@ -230,6 +330,15 @@ function formatearTexto(texto) {
             </button>
           </div>
           <p class="text-[10px] text-gray-400 text-center mt-1.5">Enter para enviar · Shift+Enter nueva línea</p>
+
+          <!-- Input de archivo oculto -->
+          <input
+            ref="fileInputRef"
+            type="file"
+            accept="image/*"
+            class="hidden"
+            @change="onImagenSeleccionada"
+          />
         </div>
       </div>
     </Transition>
@@ -241,6 +350,27 @@ function formatearTexto(texto) {
         class="fixed inset-0 z-40 bg-black/30 sm:hidden"
         @click="toggle"
       />
+    </Transition>
+
+    <!-- Lightbox -->
+    <Transition name="fade">
+      <div
+        v-if="imagenAmpliada"
+        class="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4"
+        @click="imagenAmpliada = null"
+      >
+        <img
+          :src="imagenAmpliada"
+          class="max-w-full max-h-full rounded-xl shadow-2xl object-contain"
+          @click.stop
+        />
+        <button
+          class="absolute top-4 right-4 w-9 h-9 rounded-full bg-white/20 hover:bg-white/40 text-white flex items-center justify-center transition-colors"
+          @click="imagenAmpliada = null"
+        >
+          <XMarkIcon class="w-5 h-5" />
+        </button>
+      </div>
     </Transition>
   </Teleport>
 </template>

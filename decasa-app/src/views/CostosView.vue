@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { getFichas, getFicha, crearFicha, getMaterialesSugeridos, actualizarItems, reimportarFichas } from '@/api/fichas'
 import { getMateriales, crearMaterial, actualizarMaterial, importarMateriales } from '@/api/materiales'
+import { getCostos, guardarCostos } from '@/api/configuracion'
 import {
   MagnifyingGlassIcon,
   XMarkIcon,
@@ -16,7 +17,7 @@ import {
 } from '@heroicons/vue/24/outline'
 
 // ── TAB activo ────────────────────────────────────────────────────────────────
-const tab = ref('productos') // 'productos' | 'materiales'
+const tab = ref('productos') // 'productos' | 'materiales' | 'tarifas'
 
 // ════════════════════════════════════════════════════════════════════════════════
 // TAB: PRODUCTOS
@@ -74,7 +75,16 @@ async function verDetalle(id) {
   hayCambios.value     = false
   try {
     const res = await getFicha(id)
-    fichaDetalle.value = res.data
+    const data = res.data
+    if (data.items) {
+      data.items = data.items.map(i => ({
+        ...i,
+        cantidad:        parseFloat(i.cantidad),
+        precio_unitario: parseFloat(i.precio_unitario),
+        subtotal:        parseFloat(i.subtotal),
+      }))
+    }
+    fichaDetalle.value = data
   } finally {
     loadingDetalle.value = false
   }
@@ -105,16 +115,21 @@ function recalcularTotalesDetalle() {
 async function guardarCambios() {
   guardando.value = true
   try {
-    await actualizarItems(fichaDetalle.value.id, fichaDetalle.value.items.map(i => ({
-      id:              i.id,
-      cantidad:        parseFloat(i.cantidad),
-      precio_unitario: parseFloat(i.precio_unitario),
-      subtotal:        parseFloat(i.subtotal),
-    })))
+    await actualizarItems(
+      fichaDetalle.value.id,
+      fichaDetalle.value.items.map(i => ({
+        id:              i.id,
+        cantidad:        parseFloat(i.cantidad),
+        precio_unitario: parseFloat(i.precio_unitario),
+        subtotal:        parseFloat(i.subtotal),
+      })),
+      fichaDetalle.value.nombre,
+    )
     hayCambios.value  = false
     modoEdicion.value = false
     const idx = fichas.value.findIndex(f => f.id === fichaDetalle.value.id)
     if (idx !== -1) {
+      fichas.value[idx].nombre           = fichaDetalle.value.nombre
       fichas.value[idx].costo_materiales = fichaDetalle.value.costo_materiales
       fichas.value[idx].costo_mano_obra  = fichaDetalle.value.costo_mano_obra
       fichas.value[idx].costo_total      = fichaDetalle.value.costo_total
@@ -135,6 +150,17 @@ const secciones = computed(() => {
   return Object.entries(mapa).map(([nombre, items]) => ({ nombre, items }))
 })
 
+const seccionesConCosto = computed(() => {
+  return secciones.value.map(s => ({
+    ...s,
+    costo_materiales: s.items.filter(i => !i.es_mano_obra).reduce((a, i) => a + parseFloat(i.subtotal), 0),
+    costo_mano_obra:  s.items.filter(i =>  i.es_mano_obra).reduce((a, i) => a + parseFloat(i.subtotal), 0),
+    costo_total:      s.items.reduce((a, i) => a + parseFloat(i.subtotal), 0),
+  }))
+})
+
+const esMultiVariante = computed(() => secciones.value.length > 1)
+
 // ── Nuevo producto ────────────────────────────────────────────────────────────
 const mostrarFormNuevo = ref(false)
 const creando          = ref(false)
@@ -143,7 +169,7 @@ let _tempId = 0
 const formNuevo = ref({ nombre: '', categoria: '', materiales: [], manoObra: [] })
 
 function abrirFormNuevo() {
-  formNuevo.value = { nombre: '', categoria: '', materiales: [nuevoItemMaterial()], manoObra: [nuevoItemManoObra()] }
+  formNuevo.value = { nombre: '', categoria: '', materiales: [nuevoItemMaterial()], manoObra: [] }
   mostrarFormNuevo.value = true
 }
 
@@ -191,6 +217,17 @@ async function guardarNuevo() {
   } finally {
     creando.value = false
   }
+}
+
+// ── Agregar proceso desde tarifa ──────────────────────────────────────────────
+function agregarDesdeTarifa(p) {
+  const item           = nuevoItemManoObra()
+  item.descripcion     = p.descripcion || p.proceso.replace(/_/g, ' ')
+  item.unidad          = 'horas'
+  item.precio_unitario = Math.round(tarifaDiariaFor(p.cargo))  // incentivo por hora
+  item.cantidad        = parseFloat(p._horas) || 0                  // horas típicas del proceso
+  recalcularItemForm(item)
+  formNuevo.value.manoObra.push(item)
 }
 
 // ── Autocomplete materiales ───────────────────────────────────────────────────
@@ -328,6 +365,89 @@ async function sincronizarMateriales() {
   }
 }
 
+// ════════════════════════════════════════════════════════════════════════════════
+// TAB: TARIFAS
+// ════════════════════════════════════════════════════════════════════════════════
+
+const salarios       = ref([])
+const procesos       = ref([])
+const loadingTarifas = ref(false)
+const guardandoTar   = ref(false)
+const tarifasDirty   = ref(false)
+
+async function cargarTarifas() {
+  loadingTarifas.value = true
+  try {
+    const res = await getCostos()
+    salarios.value = res.data.salarios.map(s => ({
+      ...s,
+      _salario:    String(s.salario_mensual),
+      _dias:       String(s.dias_laborales_mes || 26),
+      _tarifaHora: String(s.tarifa_hora || 0),
+    }))
+    procesos.value = res.data.procesos.map(p => ({ ...p, _horas: String(Math.round((p.dias_por_unidad ?? 0) * 8 * 100) / 100) }))
+  } finally {
+    loadingTarifas.value = false
+  }
+}
+
+// Sueldo diario = salario fijo / días (informativo, no cambia con el incentivo)
+function sueldoDiarioFor(cargo) {
+  const s = salarios.value.find(s => s.cargo === cargo)
+  if (!s) return 0
+  return Math.round((parseFloat(s._salario) || 0) / (parseInt(s._dias) || 1))
+}
+
+// Sueldo por hora = salario fijo / días / 8 (informativo, no editable)
+function sueldoHoraFor(cargo) {
+  return Math.round(sueldoDiarioFor(cargo) / 8)
+}
+
+// calcTarifa usa tarifa_hora del incentivo (campo independiente)
+function calcTarifa(p) {
+  const s = salarios.value.find(s => s.cargo === p.cargo)
+  const tarifaHora = s ? (parseFloat(s._tarifaHora) || 0) : 0
+  return Math.round(tarifaHora * (parseFloat(p._horas) || 0))
+}
+
+// tarifaDiariaFor se mantiene para compatibilidad con agregarDesdeTarifa
+function tarifaDiariaFor(cargo) {
+  const s = salarios.value.find(s => s.cargo === cargo)
+  return s ? (parseFloat(s._tarifaHora) || 0) : 0  // devuelve tarifa/hora del incentivo
+}
+
+const procesosAgrupados = computed(() => {
+  const grupos = {}
+  for (const p of procesos.value) {
+    const key = p.cargo || 'Sin cargo'
+    if (!grupos[key]) grupos[key] = []
+    grupos[key].push(p)
+  }
+  return Object.entries(grupos)
+})
+
+async function guardarTarifas() {
+  guardandoTar.value = true
+  try {
+    await guardarCostos({
+      salarios: salarios.value.map(s => ({
+        cargo:              s.cargo,
+        salario_mensual:    parseFloat(s._salario)    || 0,
+        dias_laborales_mes: parseInt(s._dias)          || 26,
+        tarifa_hora:        parseFloat(s._tarifaHora)  || 0,
+      })),
+      procesos: procesos.value.map(p => ({
+        id:              p.id,
+        dias_por_unidad: (parseFloat(p._horas) || 0) / 8,
+      })),
+    })
+    tarifasDirty.value = false
+    await cargarTarifas()
+  } finally {
+    guardandoTar.value = false
+  }
+}
+
 // ── Formateo ──────────────────────────────────────────────────────────────────
 function formatPeso(valor) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(valor)
@@ -345,6 +465,7 @@ function seccionSubtotal(items) {
 onMounted(() => {
   cargar()
   cargarMateriales()
+  cargarTarifas()
 })
 </script>
 
@@ -367,6 +488,12 @@ onMounted(() => {
             class="flex items-center gap-1 text-xs bg-blue-600 text-white rounded-lg px-3 py-1.5 font-medium hover:bg-blue-700">
             <PlusIcon class="w-3.5 h-3.5" />Nuevo
           </button>
+          <button v-if="tab === 'tarifas'" @click="guardarTarifas" :disabled="guardandoTar || !tarifasDirty"
+            class="flex items-center gap-1 text-xs bg-blue-600 text-white rounded-lg px-3 py-1.5 font-medium hover:bg-blue-700 disabled:opacity-40">
+            <ArrowPathIcon v-if="guardandoTar" class="w-3.5 h-3.5 animate-spin" />
+            <CheckIcon v-else class="w-3.5 h-3.5" />
+            {{ guardandoTar ? 'Guardando...' : 'Guardar' }}
+          </button>
         </div>
       </div>
 
@@ -380,6 +507,10 @@ onMounted(() => {
           @click="tab = 'materiales'"
           :class="['flex-1 py-2 text-sm font-medium transition-colors border-b-2', tab === 'materiales' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500']"
         >Materiales</button>
+        <button
+          @click="tab = 'tarifas'"
+          :class="['flex-1 py-2 text-sm font-medium transition-colors border-b-2', tab === 'tarifas' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500']"
+        >Tarifas</button>
       </div>
     </div>
 
@@ -477,6 +608,89 @@ onMounted(() => {
     </template>
 
     <!-- ════════════════════════════════════════════════════════════════════════ -->
+    <!-- TAB TARIFAS                                                               -->
+    <!-- ════════════════════════════════════════════════════════════════════════ -->
+    <template v-if="tab === 'tarifas'">
+      <div v-if="loadingTarifas" class="flex justify-center py-16"><div class="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>
+      <div v-else class="px-4 pt-4 space-y-6 pb-8">
+
+        <!-- Salarios por cargo -->
+        <div>
+          <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Salarios por cargo</h2>
+          <div class="bg-white rounded-xl shadow-sm divide-y divide-gray-100 overflow-hidden">
+            <div v-for="s in salarios" :key="s.cargo" class="px-4 py-3">
+              <div class="flex items-center justify-between mb-2">
+                <div>
+                  <p class="text-sm font-semibold text-gray-800 capitalize">{{ s.cargo }}</p>
+                  <p v-if="s.descripcion" class="text-xs text-gray-400">{{ s.descripcion }}</p>
+                </div>
+                <div class="text-right">
+                  <p class="text-xs text-gray-400">Sueldo / día</p>
+                  <p class="text-sm font-bold text-blue-700">{{ formatPeso(sueldoDiarioFor(s.cargo)) }}</p>
+                </div>
+              </div>
+              <div class="grid grid-cols-2 gap-3 mb-3">
+                <div>
+                  <label class="text-[10px] text-gray-400 uppercase font-medium">Salario mensual</label>
+                  <input v-model="s._salario" @input="tarifasDirty = true" type="number" step="1000" min="0"
+                    class="w-full mt-0.5 text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+                <div>
+                  <label class="text-[10px] text-gray-400 uppercase font-medium">Días / mes</label>
+                  <input v-model="s._dias" @input="tarifasDirty = true" type="number" step="1" min="1" max="31"
+                    class="w-full mt-0.5 text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+              </div>
+              <div class="grid grid-cols-2 gap-3 pt-2 border-t border-gray-100">
+                <div>
+                  <label class="text-[10px] text-gray-400 uppercase font-medium">Sueldo / hora</label>
+                  <div class="mt-0.5 text-sm font-medium text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                    {{ formatPeso(sueldoHoraFor(s.cargo)) }}
+                  </div>
+                </div>
+                <div>
+                  <label class="text-[10px] text-blue-500 uppercase font-medium">Incentivo / hora</label>
+                  <input v-model="s._tarifaHora" @input="tarifasDirty = true" type="number" step="1000" min="0"
+                    class="w-full mt-0.5 text-sm border border-blue-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-blue-50" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tiempos de proceso por cargo -->
+        <div v-for="[cargo, items] in procesosAgrupados" :key="cargo">
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider capitalize">{{ cargo }}</h2>
+            <span class="text-xs text-gray-400">Incentivo {{ formatPeso(tarifaDiariaFor(cargo)) }}/h</span>
+          </div>
+          <div class="bg-white rounded-xl shadow-sm divide-y divide-gray-100 overflow-hidden">
+            <div v-for="p in items" :key="p.id" class="px-4 py-3">
+              <div class="flex items-start justify-between gap-3">
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm font-medium text-gray-800">{{ p.proceso.replace(/_/g, ' ') }}</p>
+                  <p v-if="p.descripcion" class="text-xs text-gray-400 mt-0.5">{{ p.descripcion }}</p>
+                </div>
+                <div class="text-right flex-shrink-0">
+                  <p class="text-xs text-gray-400">Tarifa</p>
+                  <p class="text-sm font-bold text-orange-600">{{ formatPeso(calcTarifa(p)) }}</p>
+                  <p v-if="p.unidad" class="text-[10px] text-gray-400">por {{ p.unidad }}</p>
+                </div>
+              </div>
+              <div class="mt-2 flex items-center gap-2">
+                <label class="text-[10px] text-gray-400 uppercase font-medium whitespace-nowrap">Horas por {{ p.unidad || 'unidad' }}</label>
+                <input v-model="p._horas" @input="tarifasDirty = true" type="number" step="0.5" min="0"
+                  class="w-24 text-sm border border-gray-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <span class="text-xs text-gray-400">h</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </template>
+
+    <!-- ════════════════════════════════════════════════════════════════════════ -->
     <!-- MODALES                                                                   -->
     <!-- ════════════════════════════════════════════════════════════════════════ -->
     <Teleport to="body">
@@ -486,7 +700,12 @@ onMounted(() => {
         <div class="sticky top-0 bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3">
           <button @click="cerrarDetalle" class="p-1 -ml-1"><XMarkIcon class="w-5 h-5 text-gray-600" /></button>
           <div class="flex-1 min-w-0">
-            <p class="text-sm font-semibold text-gray-800 truncate">{{ fichaDetalle?.nombre }}</p>
+            <input v-if="modoEdicion && fichaDetalle"
+              v-model="fichaDetalle.nombre"
+              @input="hayCambios = true"
+              type="text"
+              class="w-full text-sm font-semibold text-gray-800 border border-blue-300 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-blue-50" />
+            <p v-else class="text-sm font-semibold text-gray-800 truncate">{{ fichaDetalle?.nombre }}</p>
             <p class="text-xs text-gray-400">{{ fichaDetalle?.categoria }}</p>
           </div>
           <template v-if="fichaDetalle">
@@ -507,7 +726,8 @@ onMounted(() => {
 
         <div v-if="loadingDetalle" class="flex justify-center py-16"><div class="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>
         <div v-else-if="fichaDetalle" class="flex-1 overflow-y-auto pb-8">
-          <div class="grid grid-cols-3 border-b border-gray-100">
+          <!-- Ficha con una sola sección: mostrar totales combinados -->
+          <div v-if="!esMultiVariante" class="grid grid-cols-3 border-b border-gray-100">
             <div class="text-center py-4 border-r border-gray-100">
               <p class="text-xs text-gray-400 mb-1">Materiales</p>
               <p class="text-sm font-bold text-gray-700">{{ formatPeso(fichaDetalle.costo_materiales) }}</p>
@@ -519,6 +739,18 @@ onMounted(() => {
             <div class="text-center py-4 bg-blue-50">
               <p class="text-xs text-blue-500 mb-1">Total</p>
               <p class="text-sm font-bold text-blue-700">{{ formatPeso(fichaDetalle.costo_total) }}</p>
+            </div>
+          </div>
+          <!-- Ficha multi-variante: mostrar costo por cada sección -->
+          <div v-else class="border-b border-gray-100 px-4 py-3 space-y-2">
+            <p class="text-[10px] text-amber-600 font-semibold uppercase tracking-wider">Contiene {{ seccionesConCosto.length }} variantes — costo individual por variante:</p>
+            <div v-for="s in seccionesConCosto" :key="s.nombre" class="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
+              <p class="text-xs font-medium text-gray-700 truncate flex-1 mr-2">{{ s.nombre }}</p>
+              <div class="flex gap-3 text-right flex-shrink-0">
+                <span class="text-[10px] text-gray-400">Mat: <span class="text-gray-600 font-medium">{{ formatPeso(s.costo_materiales) }}</span></span>
+                <span class="text-[10px] text-gray-400">M.O: <span class="text-gray-600 font-medium">{{ formatPeso(s.costo_mano_obra) }}</span></span>
+                <span class="text-xs font-bold text-blue-700">{{ formatPeso(s.costo_total) }}</span>
+              </div>
             </div>
           </div>
           <div v-if="modoEdicion" class="mx-4 mt-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">
@@ -666,40 +898,46 @@ onMounted(() => {
           </div>
 
           <!-- Mano de obra -->
-          <div class="px-4 mt-6">
-            <div class="flex items-center justify-between mb-3">
-              <h2 class="text-sm font-semibold text-orange-600 flex items-center gap-1.5"><WrenchScrewdriverIcon class="w-4 h-4" />Mano de obra</h2>
-              <button @click="formNuevo.manoObra.push(nuevoItemManoObra())" class="flex items-center gap-1 text-xs text-orange-500 font-medium"><PlusIcon class="w-4 h-4" />Agregar</button>
-            </div>
-            <div class="space-y-2">
-              <div v-for="item in formNuevo.manoObra" :key="item._id" class="bg-orange-50 border border-orange-200 rounded-xl p-3">
-                <div class="grid grid-cols-3 gap-2">
-                  <div class="col-span-3">
-                    <label class="text-[10px] text-gray-400 uppercase font-medium">Descripción</label>
-                    <input v-model="item.descripcion" type="text" placeholder="Ej: Carpintería, Tapicería, Pintura..."
-                      class="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 mt-0.5 focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white" />
-                  </div>
-                  <div>
-                    <label class="text-[10px] text-gray-400 uppercase font-medium">Cant.</label>
-                    <input v-model="item.cantidad" @input="recalcularItemForm(item)" type="number" step="any" min="0"
-                      class="w-full text-sm border border-orange-200 rounded-lg px-2 py-1.5 mt-0.5 focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white" />
-                  </div>
-                  <div>
-                    <label class="text-[10px] text-gray-400 uppercase font-medium">Costo</label>
-                    <input v-model="item.precio_unitario" @input="recalcularItemForm(item)" type="number" step="any" min="0"
-                      class="w-full text-sm border border-orange-200 rounded-lg px-2 py-1.5 mt-0.5 focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white" />
-                  </div>
-                  <div>
-                    <label class="text-[10px] text-gray-400 uppercase font-medium">Subtotal</label>
-                    <p class="text-sm font-bold text-orange-600 py-1.5 mt-0.5">{{ formatPeso(item.subtotal) }}</p>
-                  </div>
-                </div>
-                <div class="flex justify-end mt-2">
-                  <button v-if="formNuevo.manoObra.length > 1" @click="eliminarItem(formNuevo.manoObra, item._id)"
-                    class="text-xs text-red-400 hover:text-red-600 flex items-center gap-0.5"><TrashIcon class="w-3.5 h-3.5" />Eliminar</button>
+          <div class="px-4 mt-6 pb-4">
+            <h2 class="text-sm font-semibold text-orange-600 flex items-center gap-1.5 mb-3">
+              <WrenchScrewdriverIcon class="w-4 h-4" />Mano de obra
+            </h2>
+
+            <!-- Chips de procesos disponibles -->
+            <div class="space-y-3 mb-4">
+              <div v-for="[cargo, items] in procesosAgrupados" :key="cargo">
+                <p class="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5 capitalize">{{ cargo }}</p>
+                <div class="flex flex-wrap gap-1.5">
+                  <button v-for="p in items" :key="p.id" @click="agregarDesdeTarifa(p)"
+                    class="flex items-center gap-1 pl-2 pr-2.5 py-1 rounded-full text-xs border border-orange-200 bg-white text-orange-700 hover:bg-orange-50 active:scale-95 transition-transform">
+                    <PlusIcon class="w-3 h-3 flex-shrink-0" />
+                    <span>{{ (p.descripcion || p.proceso).split('(')[0].trim().split(' por ')[0] }}</span>
+                    <span class="text-[10px] text-orange-400 ml-0.5">{{ formatPeso(tarifaDiariaFor(p.cargo)) }}/h · {{ p._horas }}h</span>
+                  </button>
                 </div>
               </div>
             </div>
+
+            <!-- Items agregados -->
+            <div v-if="formNuevo.manoObra.length" class="space-y-2">
+              <div v-for="item in formNuevo.manoObra" :key="item._id"
+                class="bg-orange-50 border border-orange-200 rounded-xl px-3 py-2.5 flex items-center gap-3">
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm font-medium text-gray-800 truncate">{{ item.descripcion }}</p>
+                  <p class="text-[10px] text-gray-400">{{ formatPeso(item.precio_unitario) }} / {{ item.unidad || 'unidad' }}</p>
+                </div>
+                <div class="flex items-center gap-1.5">
+                  <label class="text-[10px] text-gray-400">Cant.</label>
+                  <input v-model="item.cantidad" @input="recalcularItemForm(item)" type="number" step="any" min="0"
+                    class="w-14 text-center text-sm border border-orange-200 rounded-lg px-1 py-1.5 focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white" />
+                </div>
+                <p class="text-sm font-bold text-orange-600 w-20 text-right shrink-0">{{ formatPeso(item.subtotal) }}</p>
+                <button @click="eliminarItem(formNuevo.manoObra, item._id)">
+                  <TrashIcon class="w-4 h-4 text-red-400 hover:text-red-600" />
+                </button>
+              </div>
+            </div>
+            <p v-else class="text-xs text-gray-400 text-center py-2">Toca un proceso para agregarlo</p>
           </div>
         </div>
       </div>

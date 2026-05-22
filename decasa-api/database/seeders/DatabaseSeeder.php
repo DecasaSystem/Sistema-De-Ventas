@@ -14,6 +14,8 @@ class DatabaseSeeder extends Seeder
             UsuariosSeeder::class,
             ProductosSeeder::class,
             InventarioSeeder::class,
+            TarifaProcesoSeeder::class,
+            SalarioCargoSeeder::class,
         ]);
     }
 }

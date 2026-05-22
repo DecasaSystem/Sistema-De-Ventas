@@ -108,7 +108,6 @@ const navItems = computed(() => {
       { name: 'despacho',   label: 'Despacho',    icon: TruckIcon, badge: despacho.ordenesPendientes },
       { name: 'clientes',   label: 'Clientes',    icon: UserGroupIcon },
       { name: 'inventario', label: 'Inventario',  icon: ArchiveBoxIcon },
-      { name: 'surtir',     label: 'Surtir',      icon: ArchiveBoxArrowDownIcon },
       { name: 'usuarios',   label: 'Trabajadores', icon: UsersIcon },
       { name: 'reportes',   label: 'Reportes',    icon: ChartBarIcon },
       { name: 'costos',     label: 'Costos',      icon: CalculatorIcon },
