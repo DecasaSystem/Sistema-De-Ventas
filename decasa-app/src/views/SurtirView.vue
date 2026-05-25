@@ -27,6 +27,11 @@ import { TELAS_CATALOGO, marcasOrdenadas, tiposTelaDeM, coloresDeTela } from '@/
 
 const toast = useToast()
 
+function thumbUrl(url, size = 80) {
+  if (!url || !url.includes('cloudinary.com')) return url
+  return url.replace('/upload/', `/upload/w_${size},h_${size},c_fill,q_auto,f_auto/`)
+}
+
 // ── Recomendaciones ───────────────────────────────────────────────────────────
 const recomendaciones    = ref([])
 const cargandoRecom      = ref(false)
@@ -611,7 +616,7 @@ onMounted(async () => {
                       class="bg-white rounded-lg p-2.5 border border-gray-200 flex flex-col gap-1.5"
                     >
                       <div class="flex items-start gap-1.5">
-                        <img v-if="prod.foto_url" :src="prod.foto_url" class="w-8 h-8 rounded object-cover flex-shrink-0" />
+                        <img v-if="prod.foto_url" :src="thumbUrl(prod.foto_url, 80)" loading="lazy" class="w-8 h-8 rounded object-cover flex-shrink-0" />
                         <div class="flex-1 min-w-0">
                           <p class="text-xs font-medium text-gray-800 leading-snug line-clamp-2">{{ prod.producto_nombre }}</p>
                           <p class="text-[10px] text-gray-400 mt-0.5 truncate">{{ prod.categoria }}</p>
@@ -730,7 +735,7 @@ onMounted(async () => {
               @click="agregarProducto(p)"
               class="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-blue-50 transition-colors"
             >
-              <img v-if="p.foto_url" :src="p.foto_url" class="w-8 h-8 rounded object-cover flex-shrink-0" />
+              <img v-if="p.foto_url" :src="thumbUrl(p.foto_url, 80)" loading="lazy" class="w-8 h-8 rounded object-cover flex-shrink-0" />
               <div class="w-8 h-8 rounded bg-gray-100 flex-shrink-0" v-else />
               <div class="flex-1 min-w-0">
                 <p class="text-sm font-medium text-gray-800 truncate">{{ p.nombre }}</p>
@@ -764,7 +769,7 @@ onMounted(async () => {
         >
           <!-- Fila principal -->
           <div class="flex items-center gap-3 px-3 py-3">
-            <img v-if="item.producto.foto_url" :src="item.producto.foto_url" class="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
+            <img v-if="item.producto.foto_url" :src="thumbUrl(item.producto.foto_url, 80)" loading="lazy" class="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
             <div class="w-10 h-10 rounded-lg bg-gray-100 flex-shrink-0" v-else />
             <div class="flex-1 min-w-0">
               <p class="text-sm font-medium text-gray-800 truncate">{{ item.producto.nombre }}</p>
@@ -1159,7 +1164,7 @@ onMounted(async () => {
                   @click="tAgregarProducto(prod)"
                   class="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-blue-50 transition-colors"
                 >
-                  <img v-if="prod.foto_url" :src="prod.foto_url" class="w-9 h-9 rounded-lg object-cover flex-shrink-0" />
+                  <img v-if="prod.foto_url" :src="thumbUrl(prod.foto_url, 80)" loading="lazy" class="w-9 h-9 rounded-lg object-cover flex-shrink-0" />
                   <div class="w-9 h-9 rounded-lg bg-gray-100 flex-shrink-0" v-else />
                   <div class="flex-1 min-w-0">
                     <p class="text-sm font-medium text-gray-800 truncate">{{ prod.nombre }}</p>
@@ -1183,7 +1188,7 @@ onMounted(async () => {
           <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Productos a trasladar</p>
           <div v-for="(item, idx) in tItems" :key="item.producto.producto_id"
             class="bg-white rounded-xl border border-gray-200 shadow-sm flex items-center gap-3 px-3 py-3">
-            <img v-if="item.producto.foto_url" :src="item.producto.foto_url" class="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
+            <img v-if="item.producto.foto_url" :src="thumbUrl(item.producto.foto_url, 80)" loading="lazy" class="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
             <div class="w-10 h-10 rounded-lg bg-gray-100 flex-shrink-0" v-else />
             <div class="flex-1 min-w-0">
               <p class="text-sm font-medium text-gray-800 truncate">{{ item.producto.nombre }}</p>
