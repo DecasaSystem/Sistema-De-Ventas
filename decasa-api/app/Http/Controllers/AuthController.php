@@ -66,7 +66,7 @@ class AuthController extends Controller
 
     public function guardarFirma(Request $request)
     {
-        $data = $request->validate(['firma_url' => 'required|string|max:500']);
+        $data = $request->validate(['firma_url' => ['required', 'string', 'max:500', 'url', 'regex:/^https:\/\//i']]);
         $request->user()->update(['firma_url' => $data['firma_url']]);
         return response()->json(['firma_url' => $data['firma_url']]);
     }

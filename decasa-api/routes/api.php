@@ -25,7 +25,7 @@ use App\Http\Controllers\FacturacionController;
 use Illuminate\Support\Facades\Route;
 
 // ── Auth (público) ────────────────────────────────────────────────────────────
-Route::post('/auth/login', [AuthController::class, 'login']);
+Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:10,1');
 
 // ── Rutas protegidas ─────────────────────────────────────────────────────────
 Route::middleware('auth:sanctum')->group(function () {
@@ -198,7 +198,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/facturacion/ordenes', [FacturacionController::class, 'ordenes']);
 
     // Agente de IA
-    Route::post('/agent/chat', [AgentController::class, 'chat']);
+    Route::post('/agent/chat', [AgentController::class, 'chat'])->middleware('throttle:30,1');
 
     // Configuración de costos — solo supervisor
     Route::middleware('role:supervisor')->group(function () {

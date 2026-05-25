@@ -162,7 +162,8 @@ class PagoController extends Controller
             return response()->json(['message' => 'Solo quien tomó la facturación puede marcarla como hecha.'], 403);
         }
 
-        $pago->update(['facturacion_hecha_at' => now()]);
+        $pago->facturacion_hecha_at = now();
+        $pago->save();
 
         return response()->json([
             'pago' => $pago->fresh()->load('facturacionTomadaPor:id,nombre'),

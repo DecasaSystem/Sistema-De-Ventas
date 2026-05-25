@@ -2024,9 +2024,14 @@ class AgentService
             ? DB::table('tiendas')->where('id', $usuario->tienda_default_id)->value('nombre')
             : 'todas las tiendas';
 
+        // Sanitizar valores interpolados en el system prompt para evitar inyección de instrucciones
+        $nombreSeguro = preg_replace('/[\r\n\t\x00-\x1F\x7F]+/', ' ', strip_tags((string) $usuario->nombre));
+        $rolSeguro    = preg_replace('/[^a-zA-Z_áéíóú]/', '', (string) $usuario->rol);
+        $tiendaSegura = preg_replace('/[\r\n\t\x00-\x1F\x7F]+/', ' ', strip_tags((string) $tiendaInfo));
+
         $systemPrompt = <<<EOT
 Eres el asistente de negocios de Decasa (muebles, Colombia). Responde siempre en español, claro y conciso.
-Usuario: {$usuario->nombre} | Rol: {$usuario->rol} | Tienda: {$tiendaInfo} | Hoy: {$this->hoy()}
+Usuario: {$nombreSeguro} | Rol: {$rolSeguro} | Tienda: {$tiendaSegura} | Hoy: {$this->hoy()}
 
 ESTADOS DE ÓRDENES: pendiente_anticipo | en_produccion | listo_entrega | en_camino | entregado | cancelado
 - "listas para entregar/despachar" → listo_entrega | "en camino/en ruta/con conductor" → en_camino | "en producción/en taller" → en_produccion | "esperando pago/sin anticipo" → pendiente_anticipo

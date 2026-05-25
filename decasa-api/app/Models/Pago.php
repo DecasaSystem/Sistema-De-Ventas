@@ -16,8 +16,6 @@ class Pago extends Model
         'metodo',
         'referencia',
         'notas',
-        'facturacion_tomada_por',
-        'facturacion_hecha_at',
     ];
 
     protected function casts(): array
