@@ -9,7 +9,9 @@ class SalarioCargoSeeder extends Seeder
 {
     public function run(): void
     {
+        DB::statement('SET FOREIGN_KEY_CHECKS=0');
         DB::table('salarios_cargo')->truncate();
+        DB::statement('SET FOREIGN_KEY_CHECKS=1');
 
         // Salarios mensuales reales del taller — ajustar según nómina actual
         DB::table('salarios_cargo')->insert([

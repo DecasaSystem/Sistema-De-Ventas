@@ -9,7 +9,9 @@ class TarifaProcesoSeeder extends Seeder
 {
     public function run(): void
     {
+        DB::statement('SET FOREIGN_KEY_CHECKS=0');
         DB::table('tarifas_proceso')->truncate();
+        DB::statement('SET FOREIGN_KEY_CHECKS=1');
 
         // Tarifas basadas en jornales típicos de talleres colombianos de muebles.
         // Ebanista: ~$100.000/día | Tapicero: ~$90.000/día | Costurera: ~$70.000/día | Lacador: ~$95.000/día
