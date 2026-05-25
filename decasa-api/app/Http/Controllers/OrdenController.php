@@ -116,8 +116,9 @@ class OrdenController extends Controller
             'notas'                              => 'nullable|string|max:1000',
             'factura_foto_url'                   => 'nullable|string|max:500',
             'firma_url'                          => 'required|string|max:500',
-            'direccion_envio'                    => 'nullable|string|max:300',
+            'departamento_envio'                 => 'nullable|string|max:100',
             'ciudad_envio'                       => 'nullable|string|max:100',
+            'direccion_envio'                    => 'nullable|string|max:300',
             'anticipo_monto'                     => 'required|numeric|min:1',
             'anticipo_metodo'                    => 'required|in:efectivo,transferencia,tarjeta,otro',
             'anticipo_referencia'                => 'nullable|string|max:100',
@@ -214,9 +215,10 @@ class OrdenController extends Controller
                 'anticipo_pct'      => $anticupoPct,
                 'notas'             => $data['notas'] ?? null,
                 'factura_foto_url'  => $data['factura_foto_url'] ?? null,
-                'firma_url'         => $data['firma_url'] ?? null,
-                'direccion_envio'   => $data['direccion_envio'] ?? null,
-                'ciudad_envio'      => $data['ciudad_envio'] ?? null,
+                'firma_url'           => $data['firma_url'] ?? null,
+                'departamento_envio' => $data['departamento_envio'] ?? null,
+                'ciudad_envio'       => $data['ciudad_envio'] ?? null,
+                'direccion_envio'    => $data['direccion_envio'] ?? null,
             ]);
 
             // --- 3. Crear items, reservar stock y crear producción ---
@@ -458,8 +460,9 @@ class OrdenController extends Controller
         $data = $request->validate([
             'notas'                         => 'sometimes|nullable|string|max:1000',
             'canal'                         => 'sometimes|nullable|in:fisica,whatsapp,red_social,otro',
-            'direccion_envio'               => 'sometimes|nullable|string|max:300',
+            'departamento_envio'            => 'sometimes|nullable|string|max:100',
             'ciudad_envio'                  => 'sometimes|nullable|string|max:100',
+            'direccion_envio'               => 'sometimes|nullable|string|max:300',
             'items'                         => 'sometimes|nullable|array',
             'items.*.id'                    => 'required_with:items|integer|exists:orden_items,id',
             'items.*.specs_personalizacion' => 'sometimes|nullable|array',
@@ -495,13 +498,17 @@ class OrdenController extends Controller
                 $cambios[] = ['campo' => 'canal', 'label' => 'Canal', 'antes' => $orden->canal, 'despues' => $data['canal']];
                 $updateOrden['canal'] = $data['canal'];
             }
-            if (array_key_exists('direccion_envio', $data) && $data['direccion_envio'] !== $orden->direccion_envio) {
-                $cambios[] = ['campo' => 'direccion_envio', 'label' => 'Dirección de envío', 'antes' => $orden->direccion_envio, 'despues' => $data['direccion_envio']];
-                $updateOrden['direccion_envio'] = $data['direccion_envio'];
+            if (array_key_exists('departamento_envio', $data) && $data['departamento_envio'] !== $orden->departamento_envio) {
+                $cambios[] = ['campo' => 'departamento_envio', 'label' => 'Departamento de envío', 'antes' => $orden->departamento_envio, 'despues' => $data['departamento_envio']];
+                $updateOrden['departamento_envio'] = $data['departamento_envio'];
             }
             if (array_key_exists('ciudad_envio', $data) && $data['ciudad_envio'] !== $orden->ciudad_envio) {
                 $cambios[] = ['campo' => 'ciudad_envio', 'label' => 'Ciudad de envío', 'antes' => $orden->ciudad_envio, 'despues' => $data['ciudad_envio']];
                 $updateOrden['ciudad_envio'] = $data['ciudad_envio'];
+            }
+            if (array_key_exists('direccion_envio', $data) && $data['direccion_envio'] !== $orden->direccion_envio) {
+                $cambios[] = ['campo' => 'direccion_envio', 'label' => 'Dirección de envío', 'antes' => $orden->direccion_envio, 'despues' => $data['direccion_envio']];
+                $updateOrden['direccion_envio'] = $data['direccion_envio'];
             }
 
             // ── Cambios a nivel de ítems ──────────────────────────────────────

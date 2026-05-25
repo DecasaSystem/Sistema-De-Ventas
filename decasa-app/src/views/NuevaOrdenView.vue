@@ -10,6 +10,7 @@ import { ArrowPathIcon, SparklesIcon, XMarkIcon } from '@heroicons/vue/24/solid'
 import { ArrowPathIcon as ArrowPathOutlineIcon, PhotoIcon, UserGroupIcon, ArrowPathIcon as ConvertIcon, ExclamationTriangleIcon, PencilIcon, MapPinIcon, SwatchIcon } from '@heroicons/vue/24/outline'
 import FirmaCanvas from '@/components/FirmaCanvas.vue'
 import BocetoCanvas from '@/components/BocetoCanvas.vue'
+import DireccionColombia from '@/components/DireccionColombia.vue'
 
 const router = useRouter()
 const auth   = useAuthStore()
@@ -269,8 +270,9 @@ watch(facturaFotoFile, (file, oldFile) => {
   facturaFotoPreview.value = file ? URL.createObjectURL(file) : ''
 })
 
-const direccionEnvio       = ref('')
+const departamentoEnvio    = ref('')
 const ciudadEnvio          = ref('')
+const direccionEnvio       = ref('')
 
 // Fecha mínima = hoy (para el date-picker de los ítems)
 const hoy = new Date().toISOString().split('T')[0]
@@ -355,8 +357,9 @@ async function submit() {
       notas:                notas.value || undefined,
       factura_foto_url:     facturaFotoUrl.value || undefined,
       firma_url:            firmaUrl.value || undefined,
-      direccion_envio:      direccionEnvio.value || undefined,
+      departamento_envio:   departamentoEnvio.value || undefined,
       ciudad_envio:         ciudadEnvio.value || undefined,
+      direccion_envio:      direccionEnvio.value || undefined,
       items: items.value.map((i) => ({
         producto_id:             i.producto_id || undefined,
         nombre_custom:           i.nombre_custom || undefined,
@@ -988,21 +991,11 @@ function removeFacturaFoto() {
       </div>
 
       <!-- Dirección de envío -->
-      <div>
-        <label class="label">Dirección de envío <span class="text-gray-400 font-normal">(si aplica)</span></label>
-        <div class="flex gap-2">
-          <input
-            v-model="ciudadEnvio"
-            class="input w-32 flex-shrink-0"
-            placeholder="Ciudad"
-          />
-          <input
-            v-model="direccionEnvio"
-            class="input flex-1"
-            placeholder="Dirección completa de entrega"
-          />
-        </div>
-      </div>
+      <DireccionColombia
+        v-model:departamento="departamentoEnvio"
+        v-model:ciudad="ciudadEnvio"
+        v-model:direccion="direccionEnvio"
+      />
 
       <!-- Foto de factura -->
       <div>

@@ -404,6 +404,21 @@ onMounted(cargarOrden)
           <span class="text-gray-500">Notas</span>
           <span class="font-medium text-gray-800 text-right max-w-[60%]">{{ orden.notas }}</span>
         </div>
+        <div v-if="orden.ciudad_envio || orden.departamento_envio" class="pt-1">
+          <p class="text-xs font-semibold text-gray-500 uppercase mb-1.5">Dirección de envío</p>
+          <div class="flex items-start gap-2 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+            <svg class="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" />
+            </svg>
+            <div class="text-xs text-blue-700 space-y-0.5">
+              <p class="font-medium">
+                {{ orden.ciudad_envio }}{{ orden.departamento_envio ? ', ' + orden.departamento_envio : '' }}
+              </p>
+              <p v-if="orden.direccion_envio" class="text-blue-600">{{ orden.direccion_envio }}</p>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Foto de factura -->

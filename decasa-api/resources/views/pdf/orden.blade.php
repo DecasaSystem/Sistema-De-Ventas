@@ -55,10 +55,12 @@
                     <p style="margin: 4px 0; font-size: 11px;"><strong>Vendedor:</strong> {{ $orden->vendedor->nombre ?? 'N/A' }}</p>
                     <p style="margin: 4px 0; font-size: 11px;"><strong>Canal:</strong> {{ ucfirst($orden->canal) }}</p>
                     <p style="margin: 4px 0; font-size: 11px;"><strong>Fecha compra:</strong> {{ \Carbon\Carbon::parse($orden->created_at)->format('d/m/Y H:i') }}</p>
-                    @if($orden->ciudad_envio || $orden->direccion_envio)
+                    @if($orden->departamento_envio || $orden->ciudad_envio || $orden->direccion_envio)
                         <p style="margin: 8px 0 4px 0; font-size: 10px; font-weight: bold; color: #6b7280; text-transform: uppercase;">Envío</p>
-                        @if($orden->ciudad_envio)
-                            <p style="margin: 4px 0; font-size: 11px;"><strong>Ciudad:</strong> {{ $orden->ciudad_envio }}</p>
+                        @if($orden->ciudad_envio || $orden->departamento_envio)
+                            <p style="margin: 4px 0; font-size: 11px;"><strong>Ciudad:</strong>
+                                {{ $orden->ciudad_envio }}{{ $orden->departamento_envio ? ', ' . $orden->departamento_envio : '' }}
+                            </p>
                         @endif
                         @if($orden->direccion_envio)
                             <p style="margin: 4px 0; font-size: 11px;"><strong>Dirección:</strong> {{ $orden->direccion_envio }}</p>
