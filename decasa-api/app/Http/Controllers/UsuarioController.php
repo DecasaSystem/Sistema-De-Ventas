@@ -18,10 +18,10 @@ class UsuarioController extends Controller
         }
 
         if ($search = $request->query('search')) {
-            $term = "%{$search}%";
+            $term = '%' . mb_strtolower($search) . '%';
             $query->where(function ($q) use ($term) {
-                $q->where('nombre', 'like', $term)
-                  ->orWhere('email', 'like', $term);
+                $q->whereRaw('LOWER(nombre) LIKE ?', [$term])
+                  ->orWhereRaw('LOWER(email) LIKE ?', [$term]);
             });
         }
 

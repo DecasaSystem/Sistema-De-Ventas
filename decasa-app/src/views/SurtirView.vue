@@ -240,9 +240,16 @@ function nombreTienda(id) {
 }
 
 // ── Paso 4 — Revisión ────────────────────────────────────────────────────────
-const notasSurtido = ref('')
-const enviando     = ref(false)
-const errEnvio     = ref('')
+const notasSurtido   = ref('')
+const enviando       = ref(false)
+const errEnvio       = ref('')
+const programarActivo = ref(false)
+const programadoPara  = ref('')
+
+const minDatetime = computed(() => {
+  const d = new Date(Date.now() + 5 * 60 * 1000)
+  return d.toISOString().slice(0, 16)
+})
 
 function itemsPorTienda(tid) {
   if (mismasCantidades.value) {
@@ -272,6 +279,7 @@ async function enviarSurtido() {
   try {
     const payload = {
       notas: notasSurtido.value || null,
+      programado_para: (programarActivo.value && programadoPara.value) ? programadoPara.value : null,
       tiendas: tiendasSelec.value.map(tid => ({
         tienda_id:               tid,
         vendedor_validador_id:   validadoresPorTienda.value[tid],
@@ -283,7 +291,12 @@ async function enviarSurtido() {
       })),
     }
     await crearSurtido(payload)
-    toast.success('Surtido enviado correctamente. Los vendedores han sido notificados.')
+    if (programarActivo.value && programadoPara.value) {
+      const fecha = new Date(programadoPara.value).toLocaleString('es-CO', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+      toast.success(`Surtido programado para el ${fecha}. Los vendedores serán notificados en ese momento.`)
+    } else {
+      toast.success('Surtido enviado correctamente. Los vendedores han sido notificados.')
+    }
     resetWizard()
     tabActivo.value = 'historial'
     await cargarHistorial()
@@ -297,14 +310,16 @@ async function enviarSurtido() {
 function resetWizard() {
   paso.value               = 1
   productosAgr.value       = []
-  tiendasSelec.value       = []
-  mismasCantidades.value   = true
+  tiendasSelec.value        = []
+  mismasCantidades.value    = true
   cantidadesPorTienda.value = {}
   vendedoresPorTienda.value = {}
   validadoresPorTienda.value = {}
-  notasSurtido.value       = ''
-  errEnvio.value           = ''
-  busquedaProd.value       = ''
+  notasSurtido.value        = ''
+  errEnvio.value            = ''
+  busquedaProd.value        = ''
+  programarActivo.value     = false
+  programadoPara.value      = ''
 }
 
 async function avanzar() {
@@ -345,15 +360,34 @@ async function toggleDetalle(id) {
 
 function badgeEstado(estado) {
   const map = {
-    enviado:          'bg-amber-100 text-amber-700',
-    completado:       'bg-green-100 text-green-700',
+    programado:        'bg-purple-100 text-purple-700',
+    enviado:           'bg-amber-100 text-amber-700',
+    completado:        'bg-green-100 text-green-700',
     rechazado_parcial: 'bg-red-100 text-red-700',
   }
   return map[estado] ?? 'bg-gray-100 text-gray-600'
 }
 
 function labelEstado(estado) {
-  return { enviado: 'Enviado', completado: 'Completado', rechazado_parcial: 'Rechazado parcial' }[estado] ?? estado
+  return {
+    programado:        'Programado',
+    enviado:           'Enviado',
+    completado:        'Completado',
+    rechazado_parcial: 'Rechazado parcial',
+  }[estado] ?? estado
+}
+
+function badgeEstadoTraslado(estado) {
+  const map = {
+    programado: 'bg-purple-100 text-purple-700',
+    completado: 'bg-green-100 text-green-700',
+    fallido:    'bg-red-100 text-red-700',
+  }
+  return map[estado] ?? 'bg-gray-100 text-gray-600'
+}
+
+function labelEstadoTraslado(estado) {
+  return { programado: 'Programado', completado: 'Completado', fallido: 'Fallido' }[estado] ?? estado
 }
 
 function badgeEstadoTienda(estado) {
@@ -374,8 +408,10 @@ const tCargandoStock = ref(false)
 const tBusqueda      = ref('')
 const tItems         = ref([])          // [{producto, cantidad}]
 const tNotas         = ref('')
-const tEnviando      = ref(false)
-const tError         = ref('')
+const tEnviando          = ref(false)
+const tError             = ref('')
+const tProgramarActivo   = ref(false)
+const tProgramadoPara    = ref('')
 
 // historial traslados
 const tHistorial     = ref([])
@@ -427,9 +463,15 @@ async function tEnviar() {
       tienda_origen_id:  tOrigenId.value,
       tienda_destino_id: tDestinoId.value,
       notas: tNotas.value || null,
+      programado_para: (tProgramarActivo.value && tProgramadoPara.value) ? tProgramadoPara.value : null,
       items: tItems.value.map(i => ({ producto_id: i.producto.producto_id, cantidad: i.cantidad })),
     })
-    toast.success('Traslado realizado correctamente. El inventario fue actualizado.')
+    if (tProgramarActivo.value && tProgramadoPara.value) {
+      const fecha = new Date(tProgramadoPara.value).toLocaleString('es-CO', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+      toast.success(`Traslado programado para el ${fecha}. El inventario se actualizará en ese momento.`)
+    } else {
+      toast.success('Traslado realizado correctamente. El inventario fue actualizado.')
+    }
     tResetear()
     tabActivo.value = 'historial-traslados'
     await cargarHistorialTraslados()
@@ -441,14 +483,16 @@ async function tEnviar() {
 }
 
 function tResetear() {
-  tPaso.value     = 1
-  tOrigenId.value = ''
-  tDestinoId.value = ''
-  tStockOrigen.value = []
-  tItems.value    = []
-  tNotas.value    = ''
-  tError.value    = ''
-  tBusqueda.value = ''
+  tPaso.value          = 1
+  tOrigenId.value      = ''
+  tDestinoId.value     = ''
+  tStockOrigen.value   = []
+  tItems.value         = []
+  tNotas.value         = ''
+  tError.value         = ''
+  tBusqueda.value      = ''
+  tProgramarActivo.value = false
+  tProgramadoPara.value  = ''
 }
 
 async function cargarHistorialTraslados() {
@@ -1020,6 +1064,33 @@ onMounted(async () => {
           />
         </div>
 
+        <!-- Toggle programar -->
+        <div class="bg-purple-50 rounded-xl border border-purple-100 overflow-hidden">
+          <label class="flex items-center gap-3 px-4 py-3 cursor-pointer">
+            <div
+              @click="programarActivo = !programarActivo"
+              :class="['relative w-10 h-6 rounded-full transition-colors flex-shrink-0', programarActivo ? 'bg-purple-600' : 'bg-gray-300']"
+            >
+              <span :class="['absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform', programarActivo ? 'translate-x-4' : '']" />
+            </div>
+            <div>
+              <p class="text-sm font-semibold text-gray-700">Programar para más tarde</p>
+              <p class="text-xs text-gray-500">El mensaje llega al vendedor en el momento que elijas</p>
+            </div>
+          </label>
+          <Transition name="slide">
+            <div v-if="programarActivo" class="px-4 pb-3 border-t border-purple-100">
+              <label class="block text-xs font-medium text-gray-600 mb-1.5 mt-2">Fecha y hora de envío</label>
+              <input
+                v-model="programadoPara"
+                type="datetime-local"
+                :min="minDatetime"
+                class="w-full rounded-lg border border-purple-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+              />
+            </div>
+          </Transition>
+        </div>
+
         <p v-if="errEnvio" class="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">{{ errEnvio }}</p>
 
         <div class="flex gap-2">
@@ -1029,11 +1100,14 @@ onMounted(async () => {
           </button>
           <button
             @click="enviarSurtido"
-            :disabled="enviando"
-            class="flex-1 flex items-center justify-center gap-2 bg-green-600 text-white rounded-xl py-3 text-sm font-bold hover:bg-green-700 disabled:opacity-50 transition-colors"
+            :disabled="enviando || (programarActivo && !programadoPara)"
+            :class="[
+              'flex-1 flex items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold disabled:opacity-50 transition-colors',
+              programarActivo ? 'bg-purple-600 hover:bg-purple-700 text-white' : 'bg-green-600 hover:bg-green-700 text-white'
+            ]"
           >
             <ArchiveBoxArrowDownIcon class="w-4 h-4" />
-            {{ enviando ? 'Enviando...' : 'Enviar surtido' }}
+            {{ enviando ? (programarActivo ? 'Programando...' : 'Enviando...') : (programarActivo ? 'Programar surtido' : 'Enviar surtido') }}
           </button>
         </div>
       </div>
@@ -1215,6 +1289,33 @@ onMounted(async () => {
           />
         </div>
 
+        <!-- Toggle programar traslado -->
+        <div class="bg-purple-50 rounded-xl border border-purple-100 overflow-hidden">
+          <label class="flex items-center gap-3 px-4 py-3 cursor-pointer">
+            <div
+              @click="tProgramarActivo = !tProgramarActivo"
+              :class="['relative w-10 h-6 rounded-full transition-colors flex-shrink-0', tProgramarActivo ? 'bg-purple-600' : 'bg-gray-300']"
+            >
+              <span :class="['absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform', tProgramarActivo ? 'translate-x-4' : '']" />
+            </div>
+            <div>
+              <p class="text-sm font-semibold text-gray-700">Programar para más tarde</p>
+              <p class="text-xs text-gray-500">El inventario se moverá en el momento que elijas</p>
+            </div>
+          </label>
+          <Transition name="slide">
+            <div v-if="tProgramarActivo" class="px-4 pb-3 border-t border-purple-100">
+              <label class="block text-xs font-medium text-gray-600 mb-1.5 mt-2">Fecha y hora del traslado</label>
+              <input
+                v-model="tProgramadoPara"
+                type="datetime-local"
+                :min="minDatetime"
+                class="w-full rounded-lg border border-purple-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+              />
+            </div>
+          </Transition>
+        </div>
+
         <p v-if="tError" class="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">{{ tError }}</p>
 
         <div class="flex gap-2">
@@ -1223,11 +1324,14 @@ onMounted(async () => {
           </button>
           <button
             @click="tEnviar"
-            :disabled="tEnviando"
-            class="flex-1 flex items-center justify-center gap-2 bg-green-600 text-white rounded-xl py-3 text-sm font-bold hover:bg-green-700 disabled:opacity-50 transition-colors"
+            :disabled="tEnviando || (tProgramarActivo && !tProgramadoPara)"
+            :class="[
+              'flex-1 flex items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold disabled:opacity-50 transition-colors',
+              tProgramarActivo ? 'bg-purple-600 hover:bg-purple-700 text-white' : 'bg-green-600 hover:bg-green-700 text-white'
+            ]"
           >
             <ArchiveBoxArrowDownIcon class="w-4 h-4" />
-            {{ tEnviando ? 'Procesando...' : 'Confirmar traslado' }}
+            {{ tEnviando ? (tProgramarActivo ? 'Programando...' : 'Procesando...') : (tProgramarActivo ? 'Programar traslado' : 'Confirmar traslado') }}
           </button>
         </div>
       </div>
@@ -1253,9 +1357,18 @@ onMounted(async () => {
                 <span class="text-xs text-gray-500">
                   {{ tr.tienda_origen?.nombre }} → {{ tr.tienda_destino?.nombre }}
                 </span>
+                <span v-if="tr.estado" :class="['px-2 py-0.5 rounded-full text-xs font-semibold', badgeEstadoTraslado(tr.estado)]">
+                  {{ labelEstadoTraslado(tr.estado) }}
+                </span>
               </div>
               <p class="text-xs text-gray-400 mt-0.5">
-                {{ fmtFecha(tr.created_at) }} · {{ tr.items?.length ?? 0 }} producto(s) · {{ tr.supervisor?.nombre }}
+                <template v-if="tr.estado === 'programado' && tr.programado_para">
+                  Programado para {{ fmtFecha(tr.programado_para) }} ·
+                </template>
+                <template v-else>
+                  {{ fmtFecha(tr.created_at) }} ·
+                </template>
+                {{ tr.items?.length ?? 0 }} producto(s) · {{ tr.supervisor?.nombre }}
               </p>
             </div>
             <component :is="tDetalleAbierto[tr.id] ? ChevronUpIcon : ChevronDownIcon" class="w-4 h-4 text-gray-400 flex-shrink-0 ml-2" />
@@ -1305,7 +1418,13 @@ onMounted(async () => {
                 </span>
               </div>
               <p class="text-xs text-gray-400 mt-0.5">
-                {{ fmtFecha(s.created_at) }} · {{ s.tiendas?.length ?? 0 }} tienda(s)
+                <template v-if="s.estado === 'programado' && s.programado_para">
+                  Programado para {{ fmtFecha(s.programado_para) }} ·
+                </template>
+                <template v-else>
+                  {{ fmtFecha(s.created_at) }} ·
+                </template>
+                {{ s.tiendas?.length ?? 0 }} tienda(s)
               </p>
             </div>
             <component :is="detalleAbierto[s.id] ? ChevronUpIcon : ChevronDownIcon" class="w-4 h-4 text-gray-400 flex-shrink-0 ml-2" />

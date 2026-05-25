@@ -110,6 +110,38 @@ const buscandoProducto = ref(false)
 const items = ref([])
 const tiendaBusqueda = ref(auth.usuario?.tienda_default_id ?? '')
 
+// Producto no catalogado
+const modoProductoCustom = ref(false)
+const productoCustomForm = ref({ nombre: '', categoria: '', precio_unitario: 0, cantidad: 1 })
+
+function agregarProductoCustom() {
+  const f = productoCustomForm.value
+  if (!f.nombre.trim() || !f.precio_unitario || f.cantidad < 1) return
+  items.value.push({
+    producto_id: null,
+    variante_id: null,
+    tienda_origen_id: null,
+    nombre: f.nombre.trim(),
+    nombre_custom: f.nombre.trim(),
+    categoria: f.categoria.trim() || null,
+    categoria_custom: f.categoria.trim() || null,
+    variante_label: null,
+    stock_libre: null,
+    personalizable: false,
+    cantidad: f.cantidad,
+    precio_unitario: f.precio_unitario,
+    es_personalizado: true,
+    specs_descripcion: '',
+    tienda_origen: null,
+    fecha_entrega_prometida: null,
+    boceto_blob: null,
+    boceto_url: '',
+    boceto_preview: null,
+  })
+  productoCustomForm.value = { nombre: '', categoria: '', precio_unitario: 0, cantidad: 1 }
+  modoProductoCustom.value = false
+}
+
 async function buscarProducto() {
   if (!productoQuery.value.trim()) return
   buscandoProducto.value = true
@@ -326,7 +358,9 @@ async function submit() {
       direccion_envio:      direccionEnvio.value || undefined,
       ciudad_envio:         ciudadEnvio.value || undefined,
       items: items.value.map((i) => ({
-        producto_id:             i.producto_id,
+        producto_id:             i.producto_id || undefined,
+        nombre_custom:           i.nombre_custom || undefined,
+        categoria_custom:        i.categoria_custom || undefined,
         variante_id:             i.variante_id || undefined,
         tienda_origen_id:        i.tienda_origen_id || undefined,
         cantidad:                i.cantidad,
@@ -696,6 +730,54 @@ function removeFacturaFoto() {
         </li>
       </ul>
 
+      <!-- Producto no catalogado -->
+      <div>
+        <button
+          v-if="!modoProductoCustom"
+          @click="modoProductoCustom = true"
+          class="w-full text-sm text-purple-600 border border-dashed border-purple-300 rounded-xl py-2.5 hover:bg-purple-50 transition-colors font-medium"
+        >
+          + Producto no está en el catálogo
+        </button>
+
+        <div v-else class="bg-purple-50 border border-purple-200 rounded-xl p-4 space-y-3">
+          <div class="flex items-center justify-between">
+            <p class="text-sm font-semibold text-purple-800">Producto personalizado</p>
+            <button @click="modoProductoCustom = false" class="text-purple-400 hover:text-purple-600">
+              <XMarkIcon class="w-4 h-4" />
+            </button>
+          </div>
+          <input
+            v-model="productoCustomForm.nombre"
+            class="input text-sm"
+            placeholder="Nombre del producto *"
+          />
+          <input
+            v-model="productoCustomForm.categoria"
+            class="input text-sm"
+            placeholder="Categoría (ej: comedor, silla, sofá...)"
+          />
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="text-xs text-gray-500">Precio unitario *</label>
+              <input v-model.number="productoCustomForm.precio_unitario" type="number" min="0" class="input text-sm" />
+            </div>
+            <div>
+              <label class="text-xs text-gray-500">Cantidad *</label>
+              <input v-model.number="productoCustomForm.cantidad" type="number" min="1" class="input text-sm" />
+            </div>
+          </div>
+          <div class="flex gap-2">
+            <button @click="modoProductoCustom = false" class="btn-secondary flex-1 text-sm">Cancelar</button>
+            <button
+              @click="agregarProductoCustom"
+              :disabled="!productoCustomForm.nombre.trim() || !productoCustomForm.precio_unitario || productoCustomForm.cantidad < 1"
+              class="btn-primary flex-1 text-sm disabled:opacity-40"
+            >Agregar al carrito</button>
+          </div>
+        </div>
+      </div>
+
       <!-- Carrito -->
       <div v-if="items.length" class="space-y-3">
         <p class="text-sm font-semibold text-gray-600">Carrito ({{ items.length }} ítem{{ items.length > 1 ? 's' : '' }})</p>
@@ -747,10 +829,10 @@ function removeFacturaFoto() {
             </div>
           </div>
 
-          <!-- Fecha de entrega manual -->
-          <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
-            <input type="checkbox" v-model="item.es_personalizado" class="rounded" />
-            Ítem personalizado
+          <!-- Personalizado flag -->
+          <label :class="['flex items-center gap-2 text-sm text-gray-600', item.producto_id === null ? 'opacity-60 cursor-default' : 'cursor-pointer']">
+            <input type="checkbox" v-model="item.es_personalizado" :disabled="item.producto_id === null" class="rounded" />
+            {{ item.producto_id === null ? 'Producto personalizado (sin catálogo)' : 'Ítem personalizado' }}
           </label>
 
           <textarea

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\EjecutarTrasladoProgramado;
 use App\Models\Inventario;
 use App\Models\InventarioMovimiento;
 use App\Models\Traslado;
@@ -48,12 +49,14 @@ class TrasladoController extends Controller
             'tienda_origen_id'    => 'required|exists:tiendas,id',
             'tienda_destino_id'   => 'required|exists:tiendas,id|different:tienda_origen_id',
             'notas'               => 'nullable|string|max:500',
+            'programado_para'     => 'nullable|date|after:now',
             'items'               => 'required|array|min:1',
             'items.*.producto_id' => 'required|exists:productos,id',
             'items.*.cantidad'    => 'required|integer|min:1',
         ]);
 
-        $supervisor = $request->user();
+        $supervisor    = $request->user();
+        $programadoPara = isset($data['programado_para']) ? \Carbon\Carbon::parse($data['programado_para']) : null;
 
         // Pre-cargar nombres de tienda para los movimientos
         $tiendas = DB::table('tiendas')
@@ -64,26 +67,28 @@ class TrasladoController extends Controller
         $nombreDestino = $tiendas[$data['tienda_destino_id']] ?? "Tienda #{$data['tienda_destino_id']}";
 
         try {
-            $traslado = DB::transaction(function () use ($data, $supervisor, $nombreOrigen, $nombreDestino) {
+            $traslado = DB::transaction(function () use ($data, $supervisor, $nombreOrigen, $nombreDestino, $programadoPara) {
 
-                // Validar stock libre antes de tocar nada
-                foreach ($data['items'] as $item) {
-                    $inv = Inventario::where('producto_id', $item['producto_id'])
-                        ->where('tienda_id', $data['tienda_origen_id'])
-                        ->first();
+                if (! $programadoPara) {
+                    // Validar stock libre antes de tocar nada (solo para traslados inmediatos)
+                    foreach ($data['items'] as $item) {
+                        $inv = Inventario::where('producto_id', $item['producto_id'])
+                            ->where('tienda_id', $data['tienda_origen_id'])
+                            ->first();
 
-                    if (! $inv) {
-                        $nombre = DB::table('productos')->where('id', $item['producto_id'])->value('nombre');
-                        throw new \RuntimeException("\"$nombre\" no tiene inventario en $nombreOrigen.");
-                    }
+                        if (! $inv) {
+                            $nombre = DB::table('productos')->where('id', $item['producto_id'])->value('nombre');
+                            throw new \RuntimeException("\"$nombre\" no tiene inventario en $nombreOrigen.");
+                        }
 
-                    $libre = $inv->cantidad_disponible - $inv->cantidad_reservada;
-                    if ($libre < $item['cantidad']) {
-                        $nombre = DB::table('productos')->where('id', $item['producto_id'])->value('nombre');
-                        throw new \RuntimeException(
-                            "Stock insuficiente para \"$nombre\" en $nombreOrigen: "
-                            . "libre={$libre}, solicitado={$item['cantidad']}."
-                        );
+                        $libre = $inv->cantidad_disponible - $inv->cantidad_reservada;
+                        if ($libre < $item['cantidad']) {
+                            $nombre = DB::table('productos')->where('id', $item['producto_id'])->value('nombre');
+                            throw new \RuntimeException(
+                                "Stock insuficiente para \"$nombre\" en $nombreOrigen: "
+                                . "libre={$libre}, solicitado={$item['cantidad']}."
+                            );
+                        }
                     }
                 }
 
@@ -92,6 +97,8 @@ class TrasladoController extends Controller
                     'tienda_origen_id'  => $data['tienda_origen_id'],
                     'tienda_destino_id' => $data['tienda_destino_id'],
                     'notas'             => $data['notas'] ?? null,
+                    'programado_para'   => $programadoPara,
+                    'estado'            => $programadoPara ? 'programado' : 'completado',
                 ]);
 
                 foreach ($data['items'] as $item) {
@@ -101,41 +108,47 @@ class TrasladoController extends Controller
                         'cantidad'    => $item['cantidad'],
                     ]);
 
-                    // Descontar de la tienda origen
-                    Inventario::where('producto_id', $item['producto_id'])
-                        ->where('tienda_id', $data['tienda_origen_id'])
-                        ->decrement('cantidad_disponible', $item['cantidad']);
+                    if (! $programadoPara) {
+                        // Descontar de la tienda origen
+                        Inventario::where('producto_id', $item['producto_id'])
+                            ->where('tienda_id', $data['tienda_origen_id'])
+                            ->decrement('cantidad_disponible', $item['cantidad']);
 
-                    // Sumar en la tienda destino (crear si no existe)
-                    $invDest = Inventario::firstOrCreate(
-                        ['producto_id' => $item['producto_id'], 'tienda_id' => $data['tienda_destino_id']],
-                        ['cantidad_disponible' => 0, 'cantidad_reservada' => 0, 'stock_minimo' => 1]
-                    );
-                    $invDest->increment('cantidad_disponible', $item['cantidad']);
+                        // Sumar en la tienda destino (crear si no existe)
+                        $invDest = Inventario::firstOrCreate(
+                            ['producto_id' => $item['producto_id'], 'tienda_id' => $data['tienda_destino_id']],
+                            ['cantidad_disponible' => 0, 'cantidad_reservada' => 0, 'stock_minimo' => 1]
+                        );
+                        $invDest->increment('cantidad_disponible', $item['cantidad']);
 
-                    // Movimientos de inventario
-                    InventarioMovimiento::create([
-                        'producto_id' => $item['producto_id'],
-                        'tienda_id'   => $data['tienda_origen_id'],
-                        'tipo'        => 'traslado_salida',
-                        'cantidad'    => $item['cantidad'],
-                        'motivo'      => "Traslado #{$traslado->id} → $nombreDestino",
-                        'usuario_id'  => $supervisor->id,
-                    ]);
-                    InventarioMovimiento::create([
-                        'producto_id' => $item['producto_id'],
-                        'tienda_id'   => $data['tienda_destino_id'],
-                        'tipo'        => 'traslado_entrada',
-                        'cantidad'    => $item['cantidad'],
-                        'motivo'      => "Traslado #{$traslado->id} ← $nombreOrigen",
-                        'usuario_id'  => $supervisor->id,
-                    ]);
+                        // Movimientos de inventario
+                        InventarioMovimiento::create([
+                            'producto_id' => $item['producto_id'],
+                            'tienda_id'   => $data['tienda_origen_id'],
+                            'tipo'        => 'traslado_salida',
+                            'cantidad'    => $item['cantidad'],
+                            'motivo'      => "Traslado #{$traslado->id} → $nombreDestino",
+                            'usuario_id'  => $supervisor->id,
+                        ]);
+                        InventarioMovimiento::create([
+                            'producto_id' => $item['producto_id'],
+                            'tienda_id'   => $data['tienda_destino_id'],
+                            'tipo'        => 'traslado_entrada',
+                            'cantidad'    => $item['cantidad'],
+                            'motivo'      => "Traslado #{$traslado->id} ← $nombreOrigen",
+                            'usuario_id'  => $supervisor->id,
+                        ]);
+                    }
                 }
 
                 return $traslado;
             });
         } catch (\RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        if ($programadoPara) {
+            EjecutarTrasladoProgramado::dispatch($traslado->id)->delay($programadoPara);
         }
 
         $traslado->load([

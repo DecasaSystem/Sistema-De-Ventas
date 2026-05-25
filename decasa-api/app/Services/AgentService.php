@@ -870,11 +870,11 @@ class AgentService
 
         $query = DB::table('orden_items as oi')
             ->join('ordenes as o', 'o.id', '=', 'oi.orden_id')
-            ->join('productos as p', 'p.id', '=', 'oi.producto_id')
+            ->leftJoin('productos as p', 'p.id', '=', 'oi.producto_id')
             ->whereBetween('o.created_at', $rango)
             ->whereNotIn('o.estado', ['cancelado'])
-            ->selectRaw('p.id, p.nombre, p.categoria, SUM(oi.cantidad) AS cantidad, SUM(oi.cantidad * oi.precio_unitario) AS valor_total')
-            ->groupBy('p.id', 'p.nombre', 'p.categoria')
+            ->selectRaw('p.id, COALESCE(p.nombre, oi.nombre_custom, "Producto personalizado") AS nombre, COALESCE(p.categoria, oi.categoria_custom, "personalizado") AS categoria, SUM(oi.cantidad) AS cantidad, SUM(oi.cantidad * oi.precio_unitario) AS valor_total')
+            ->groupBy('p.id', DB::raw('COALESCE(p.nombre, oi.nombre_custom, "Producto personalizado")'), DB::raw('COALESCE(p.categoria, oi.categoria_custom, "personalizado")'))
             ->orderByDesc($criterio === 'cantidad' ? 'cantidad' : 'valor_total')
             ->limit($topN);
 
@@ -903,11 +903,11 @@ class AgentService
 
         $query = DB::table('orden_items as oi')
             ->join('ordenes as o', 'o.id', '=', 'oi.orden_id')
-            ->join('productos as p', 'p.id', '=', 'oi.producto_id')
+            ->leftJoin('productos as p', 'p.id', '=', 'oi.producto_id')
             ->whereBetween('o.created_at', $rango)
             ->whereNotIn('o.estado', ['cancelado'])
-            ->selectRaw('COALESCE(p.categoria, "Sin categoría") AS categoria, SUM(oi.cantidad) AS cantidad, SUM(oi.cantidad * oi.precio_unitario) AS valor_total, COUNT(DISTINCT p.id) AS num_productos')
-            ->groupBy('categoria')
+            ->selectRaw('COALESCE(p.categoria, oi.categoria_custom, "personalizado") AS categoria, SUM(oi.cantidad) AS cantidad, SUM(oi.cantidad * oi.precio_unitario) AS valor_total, COUNT(DISTINCT p.id) AS num_productos')
+            ->groupBy(DB::raw('COALESCE(p.categoria, oi.categoria_custom, "personalizado")'))
             ->orderByDesc('valor_total');
 
         if ($usuario->rol === 'vendedor') {
@@ -1016,7 +1016,7 @@ class AgentService
 
         $baseQuery = DB::table('orden_items as oi')
             ->join('ordenes as o', 'o.id', '=', 'oi.orden_id')
-            ->join('productos as p', 'p.id', '=', 'oi.producto_id')
+            ->leftJoin('productos as p', 'p.id', '=', 'oi.producto_id')
             ->join('tiendas as t', 't.id', '=', 'o.tienda_id')
             ->whereNotIn('o.estado', ['cancelado']);
 
@@ -1240,7 +1240,7 @@ class AgentService
             ->join('orden_items as oi', 'oi.id', '=', 'pr.orden_item_id')
             ->join('ordenes as o',      'o.id',  '=', 'oi.orden_id')
             ->join('clientes as c',     'c.id',  '=', 'o.cliente_id')
-            ->join('productos as pd',   'pd.id', '=', 'oi.producto_id')
+            ->leftJoin('productos as pd', 'pd.id', '=', 'oi.producto_id')
             ->join('usuarios as u',     'u.id',  '=', 'o.vendedor_id')
             ->join('tiendas as t',      't.id',  '=', 'o.tienda_id')
             ->where(function ($q) {
@@ -1253,7 +1253,7 @@ class AgentService
             ->selectRaw('
                 pr.id AS produccion_id, o.id AS orden_id,
                 c.nombre AS cliente, c.telefono,
-                pd.nombre AS producto, oi.cantidad,
+                COALESCE(pd.nombre, oi.nombre_custom, "Producto personalizado") AS producto, oi.cantidad,
                 pr.fecha_compromiso,
                 DATEDIFF(CURDATE(), pr.fecha_compromiso) AS dias_retraso,
                 pr.estado, pr.motivo_retraso,
@@ -1304,7 +1304,7 @@ class AgentService
     {
         $query = DB::table('produccion as pr')
             ->join('orden_items as oi', 'oi.id', '=', 'pr.orden_item_id')
-            ->join('productos as p', 'p.id', '=', 'oi.producto_id')
+            ->leftJoin('productos as p', 'p.id', '=', 'oi.producto_id')
             ->join('ordenes as o', 'o.id', '=', 'oi.orden_id')
             ->join('clientes as c', 'c.id', '=', 'o.cliente_id')
             ->join('tiendas as t', 't.id', '=', 'o.tienda_id')
@@ -1312,7 +1312,7 @@ class AgentService
             ->selectRaw('
                 pr.id, pr.estado, pr.fecha_inicio,
                 pr.fecha_compromiso                            AS fecha_entrega_prometida,
-                p.nombre AS producto, oi.cantidad,
+                COALESCE(p.nombre, oi.nombre_custom, "Producto personalizado") AS producto, oi.cantidad,
                 c.nombre AS cliente, t.nombre AS tienda,
                 DATEDIFF(pr.fecha_compromiso, CURDATE())       AS dias_restantes_entrega,
                 CASE WHEN pr.fecha_compromiso < CURDATE()
@@ -1478,9 +1478,12 @@ class AgentService
             $query->whereExists(function ($sub) use ($termProd) {
                 $sub->select(DB::raw(1))
                     ->from('orden_items as oi2')
-                    ->join('productos as p2', 'p2.id', '=', 'oi2.producto_id')
+                    ->leftJoin('productos as p2', 'p2.id', '=', 'oi2.producto_id')
                     ->whereColumn('oi2.orden_id', 'o.id')
-                    ->whereRaw('LOWER(p2.nombre) LIKE ?', [$termProd]);
+                    ->where(function ($q2) use ($termProd) {
+                        $q2->whereRaw('LOWER(p2.nombre) LIKE ?', [$termProd])
+                           ->orWhereRaw('LOWER(oi2.nombre_custom) LIKE ?', [$termProd]);
+                    });
             });
         }
 
@@ -1500,13 +1503,13 @@ class AgentService
         if ($ordenes->isNotEmpty()) {
             $ordenIds = $ordenes->pluck('id')->toArray();
             $items = DB::table('orden_items as oi')
-                ->join('productos as p', 'p.id', '=', 'oi.producto_id')
+                ->leftJoin('productos as p', 'p.id', '=', 'oi.producto_id')
                 ->leftJoin('producto_variantes as pv', 'pv.id', '=', 'oi.variante_id')
                 ->whereIn('oi.orden_id', $ordenIds)
                 ->selectRaw('
                     oi.orden_id,
-                    p.nombre AS producto,
-                    p.categoria,
+                    COALESCE(p.nombre, oi.nombre_custom, "Producto personalizado") AS producto,
+                    COALESCE(p.categoria, oi.categoria_custom, "personalizado")    AS categoria,
                     CONCAT_WS(" - ", pv.marca_tela, pv.nombre_color) AS variante,
                     oi.cantidad,
                     oi.precio_unitario,

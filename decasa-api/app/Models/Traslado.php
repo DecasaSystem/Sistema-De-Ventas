@@ -8,7 +8,9 @@ class Traslado extends Model
 {
     protected $table = 'traslados';
 
-    protected $fillable = ['supervisor_id', 'tienda_origen_id', 'tienda_destino_id', 'notas'];
+    protected $fillable = ['supervisor_id', 'tienda_origen_id', 'tienda_destino_id', 'notas', 'programado_para', 'estado'];
+
+    protected $casts = ['programado_para' => 'datetime'];
 
     public function supervisor()
     {

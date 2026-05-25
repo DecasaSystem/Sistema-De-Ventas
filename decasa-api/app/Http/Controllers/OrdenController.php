@@ -122,7 +122,9 @@ class OrdenController extends Controller
             'anticipo_metodo'                    => 'required|in:efectivo,transferencia,tarjeta,otro',
             'anticipo_referencia'                => 'nullable|string|max:100',
             'items'                              => 'required|array|min:1',
-            'items.*.producto_id'                => 'required|exists:productos,id',
+            'items.*.producto_id'                => 'nullable|exists:productos,id',
+            'items.*.nombre_custom'              => 'required_without:items.*.producto_id|nullable|string|max:200',
+            'items.*.categoria_custom'           => 'nullable|string|max:100',
             'items.*.variante_id'                => 'nullable|exists:producto_variantes,id',
             'items.*.tienda_origen_id'           => 'nullable|exists:tiendas,id',
             'items.*.cantidad'                   => 'required|integer|min:1',
@@ -176,7 +178,7 @@ class OrdenController extends Controller
 
             // --- 1. Verificar stock para items no personalizados (con bloqueo) ---
             foreach ($data['items'] as $item) {
-                if (! ($item['es_personalizado'] ?? false)) {
+                if (! ($item['es_personalizado'] ?? false) && ! empty($item['producto_id'])) {
                     $varianteId    = $item['variante_id']      ?? null;
                     $origenTiendaId = $item['tienda_origen_id'] ?? $tiendaId;
 
@@ -219,14 +221,15 @@ class OrdenController extends Controller
 
             // --- 3. Crear items, reservar stock y crear producción ---
             foreach ($data['items'] as $itemData) {
-                $esPersonalizado = (bool) ($itemData['es_personalizado'] ?? false);
+                $esPersonalizado  = (bool) ($itemData['es_personalizado'] ?? false);
+                $esProductoCustom = empty($itemData['producto_id']); // no existe en catálogo
 
                 $varianteId     = $itemData['variante_id']      ?? null;
                 $origenTiendaId = $itemData['tienda_origen_id'] ?? $tiendaId;
 
                 // Snapshot del nombre de variante para legibilidad
                 $specsExtra = $itemData['specs_personalizacion'] ?? null;
-                if ($varianteId && ! $esPersonalizado) {
+                if ($varianteId && ! $esPersonalizado && ! $esProductoCustom) {
                     $v = ProductoVariante::find($varianteId);
                     $specsExtra = array_merge($specsExtra ?? [], [
                         'variante_marca' => $v?->marca_tela,
@@ -236,18 +239,20 @@ class OrdenController extends Controller
 
                 $item = OrdenItem::create([
                     'orden_id'              => $orden->id,
-                    'producto_id'           => $itemData['producto_id'],
+                    'producto_id'           => $itemData['producto_id'] ?? null,
+                    'nombre_custom'         => $esProductoCustom ? ($itemData['nombre_custom'] ?? null) : null,
+                    'categoria_custom'      => $esProductoCustom ? ($itemData['categoria_custom'] ?? null) : null,
                     'variante_id'           => $varianteId,
                     'tienda_origen_id'      => $origenTiendaId !== $tiendaId ? $origenTiendaId : null,
                     'cantidad'              => $itemData['cantidad'],
                     'precio_unitario'       => $itemData['precio_unitario'],
-                    'es_personalizado'      => $esPersonalizado,
+                    'es_personalizado'      => $esPersonalizado || $esProductoCustom,
                     'specs_personalizacion' => $specsExtra,
                     'boceto_url'            => $itemData['boceto_url'] ?? null,
                     'fecha_entrega_prom'    => $itemData['fecha_entrega_prometida'] ?? null,
                 ]);
 
-                if ($esPersonalizado) {
+                if ($esPersonalizado || $esProductoCustom) {
                     Produccion::create([
                         'orden_item_id'    => $item->id,
                         'fecha_inicio'     => now()->toDateString(),
@@ -330,7 +335,7 @@ class OrdenController extends Controller
         // Notificar cambio de inventario, detectar ventas cruzadas y alertar si sin stock
         $origenesExternos = [];
         foreach ($data['items'] as $itemData) {
-            if (! ($itemData['es_personalizado'] ?? false)) {
+            if (! ($itemData['es_personalizado'] ?? false) && ! empty($itemData['producto_id'])) {
                 $origenTiendaId = $itemData['tienda_origen_id'] ?? $tiendaId;
                 event(new InventarioActualizado((int) $origenTiendaId, (int) $itemData['producto_id'], 'reserva'));
                 $this->notificarSiSinStock((int) $itemData['producto_id'], (int) $origenTiendaId);

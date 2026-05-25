@@ -226,7 +226,7 @@ function whatsappLink() {
   const saldo     = new Intl.NumberFormat('es-CO').format(o.saldo_pendiente)
 
   const productos = (o.items ?? [])
-    .map(i => `  • ${i.producto?.nombre ?? '—'} x${i.cantidad}`)
+    .map(i => `  • ${i.producto?.nombre ?? i.nombre_custom ?? 'Producto personalizado'} x${i.cantidad}`)
     .join('\n')
 
   const mensaje = [
@@ -453,8 +453,8 @@ onMounted(cargarOrden)
         >
           <div class="flex justify-between items-start">
             <div class="flex-1 min-w-0">
-              <p class="font-medium text-sm text-gray-800">{{ item.producto?.nombre }}</p>
-              <p class="text-xs text-gray-400">{{ item.producto?.categoria }}</p>
+              <p class="font-medium text-sm text-gray-800">{{ item.producto?.nombre ?? item.nombre_custom ?? 'Producto personalizado' }}</p>
+              <p class="text-xs text-gray-400">{{ item.producto?.categoria ?? item.categoria_custom ?? 'personalizado' }}</p>
               <p class="text-xs text-gray-500 mt-0.5">Cantidad: {{ item.cantidad }}</p>
               <p v-if="item.es_personalizado" class="text-xs text-purple-600 mt-1 flex items-center gap-1">
                 <SparklesIcon class="w-3.5 h-3.5" /> Personalizado
@@ -606,7 +606,7 @@ onMounted(cargarOrden)
           :key="item.id"
           class="space-y-1"
         >
-          <label class="text-xs font-medium text-gray-600">{{ item.producto?.nombre }}</label>
+          <label class="text-xs font-medium text-gray-600">{{ item.producto?.nombre ?? item.nombre_custom ?? 'Producto personalizado' }}</label>
           <input
             v-model="fechasEdicion[item.id]"
             type="date"

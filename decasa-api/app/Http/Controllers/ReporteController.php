@@ -76,24 +76,24 @@ class ReporteController extends Controller
         $hasta = $hoy->copy()->subMonthNoOverflow()->endOfMonth()->toDateString();
 
         $general = DB::table('orden_items as oi')
-            ->join('productos as p', 'p.id', '=', 'oi.producto_id')
+            ->leftJoin('productos as p', 'p.id', '=', 'oi.producto_id')
             ->join('ordenes as o',   'o.id', '=', 'oi.orden_id')
             ->where('o.estado', '!=', 'cancelado')
             ->whereBetween('o.created_at', [$desde . ' 00:00:00', $hasta . ' 23:59:59'])
             ->selectRaw('
                 p.id               AS producto_id,
-                p.nombre           AS nombre,
-                p.categoria,
+                COALESCE(p.nombre, oi.nombre_custom, "Producto personalizado") AS nombre,
+                COALESCE(p.categoria, oi.categoria_custom, "personalizado")    AS categoria,
                 SUM(oi.cantidad)                       AS total_unidades,
                 SUM(oi.cantidad * oi.precio_unitario)  AS total_valor
             ')
-            ->groupBy('p.id', 'p.nombre', 'p.categoria')
+            ->groupBy('p.id', DB::raw('COALESCE(p.nombre, oi.nombre_custom, "Producto personalizado")'), DB::raw('COALESCE(p.categoria, oi.categoria_custom, "personalizado")'))
             ->orderByDesc('total_unidades')
             ->limit(20)
             ->get();
 
         $rawPorTienda = DB::table('orden_items as oi')
-            ->join('productos as p', 'p.id', '=', 'oi.producto_id')
+            ->leftJoin('productos as p', 'p.id', '=', 'oi.producto_id')
             ->join('ordenes as o',   'o.id', '=', 'oi.orden_id')
             ->join('tiendas as t',   't.id', '=', 'o.tienda_id')
             ->where('o.estado', '!=', 'cancelado')
@@ -102,12 +102,12 @@ class ReporteController extends Controller
                 o.tienda_id,
                 t.nombre           AS tienda_nombre,
                 p.id               AS producto_id,
-                p.nombre           AS nombre,
-                p.categoria,
+                COALESCE(p.nombre, oi.nombre_custom, "Producto personalizado") AS nombre,
+                COALESCE(p.categoria, oi.categoria_custom, "personalizado")    AS categoria,
                 SUM(oi.cantidad)                       AS total_unidades,
                 SUM(oi.cantidad * oi.precio_unitario)  AS total_valor
             ')
-            ->groupBy('o.tienda_id', 't.nombre', 'p.id', 'p.nombre', 'p.categoria')
+            ->groupBy('o.tienda_id', 't.nombre', 'p.id', DB::raw('COALESCE(p.nombre, oi.nombre_custom, "Producto personalizado")'), DB::raw('COALESCE(p.categoria, oi.categoria_custom, "personalizado")'))
             ->orderByDesc('total_unidades')
             ->get();
 
@@ -145,28 +145,32 @@ class ReporteController extends Controller
         $hasta = $hoy->copy()->subMonthNoOverflow()->endOfMonth()->toDateString();
 
         $general = DB::table('orden_items as oi')
-            ->join('productos as p', 'p.id', '=', 'oi.producto_id')
+            ->leftJoin('productos as p', 'p.id', '=', 'oi.producto_id')
             ->join('ordenes as o',   'o.id', '=', 'oi.orden_id')
             ->where('o.estado', '!=', 'cancelado')
             ->whereBetween('o.created_at', [$desde . ' 00:00:00', $hasta . ' 23:59:59'])
-            ->selectRaw('"TOP GENERAL" AS seccion, p.nombre, p.categoria,
+            ->selectRaw('"TOP GENERAL" AS seccion,
+                COALESCE(p.nombre, oi.nombre_custom, "Producto personalizado") AS nombre,
+                COALESCE(p.categoria, oi.categoria_custom, "personalizado")    AS categoria,
                 SUM(oi.cantidad) AS total_unidades,
                 SUM(oi.cantidad * oi.precio_unitario) AS total_valor')
-            ->groupBy('p.id', 'p.nombre', 'p.categoria')
+            ->groupBy('p.id', DB::raw('COALESCE(p.nombre, oi.nombre_custom, "Producto personalizado")'), DB::raw('COALESCE(p.categoria, oi.categoria_custom, "personalizado")'))
             ->orderByDesc('total_unidades')
             ->limit(20)
             ->get();
 
         $porTiendaRaw = DB::table('orden_items as oi')
-            ->join('productos as p', 'p.id', '=', 'oi.producto_id')
+            ->leftJoin('productos as p', 'p.id', '=', 'oi.producto_id')
             ->join('ordenes as o',   'o.id', '=', 'oi.orden_id')
             ->join('tiendas as t',   't.id', '=', 'o.tienda_id')
             ->where('o.estado', '!=', 'cancelado')
             ->whereBetween('o.created_at', [$desde . ' 00:00:00', $hasta . ' 23:59:59'])
-            ->selectRaw('t.nombre AS seccion, t.id AS tienda_id, p.nombre, p.categoria,
+            ->selectRaw('t.nombre AS seccion, t.id AS tienda_id,
+                COALESCE(p.nombre, oi.nombre_custom, "Producto personalizado") AS nombre,
+                COALESCE(p.categoria, oi.categoria_custom, "personalizado")    AS categoria,
                 SUM(oi.cantidad) AS total_unidades,
                 SUM(oi.cantidad * oi.precio_unitario) AS total_valor')
-            ->groupBy('o.tienda_id', 't.id', 't.nombre', 'p.id', 'p.nombre', 'p.categoria')
+            ->groupBy('o.tienda_id', 't.id', 't.nombre', 'p.id', DB::raw('COALESCE(p.nombre, oi.nombre_custom, "Producto personalizado")'), DB::raw('COALESCE(p.categoria, oi.categoria_custom, "personalizado")'))
             ->orderBy('t.nombre')
             ->orderByDesc('total_unidades')
             ->get();
@@ -267,19 +271,19 @@ class ReporteController extends Controller
         $limit    = min((int) ($r->query('limit', 10)), 50);
 
         return DB::table('orden_items as oi')
-            ->join('productos as p', 'p.id', '=', 'oi.producto_id')
+            ->leftJoin('productos as p', 'p.id', '=', 'oi.producto_id')
             ->join('ordenes as o', 'o.id', '=', 'oi.orden_id')
             ->where('o.estado', '!=', 'cancelado')
             ->whereBetween('o.created_at', [$desde . ' 00:00:00', $hasta . ' 23:59:59'])
             ->when($tiendaId, fn($q) => $q->where('o.tienda_id', $tiendaId))
             ->selectRaw('
                 p.id               AS producto_id,
-                p.nombre,
-                p.categoria,
+                COALESCE(p.nombre, oi.nombre_custom, "Producto personalizado") AS nombre,
+                COALESCE(p.categoria, oi.categoria_custom, "personalizado")    AS categoria,
                 SUM(oi.cantidad)                         AS total_unidades,
                 SUM(oi.cantidad * oi.precio_unitario)    AS total_valor
             ')
-            ->groupBy('p.id', 'p.nombre', 'p.categoria')
+            ->groupBy('p.id', DB::raw('COALESCE(p.nombre, oi.nombre_custom, "Producto personalizado")'), DB::raw('COALESCE(p.categoria, oi.categoria_custom, "personalizado")'))
             ->orderByDesc('total_unidades')
             ->limit($limit)
             ->get()
@@ -325,7 +329,7 @@ class ReporteController extends Controller
             ->join('orden_items as oi', 'oi.id', '=', 'pr.orden_item_id')
             ->join('ordenes as o',      'o.id',  '=', 'oi.orden_id')
             ->join('clientes as c',     'c.id',  '=', 'o.cliente_id')
-            ->join('productos as pd',   'pd.id', '=', 'oi.producto_id')
+            ->leftJoin('productos as pd', 'pd.id', '=', 'oi.producto_id')
             ->join('usuarios as u',     'u.id',  '=', 'o.vendedor_id')
             ->join('tiendas as t',      't.id',  '=', 'o.tienda_id')
             ->where(function ($q) {
@@ -341,7 +345,7 @@ class ReporteController extends Controller
                 o.id                 AS orden_id,
                 c.nombre             AS cliente,
                 c.telefono,
-                pd.nombre            AS producto,
+                COALESCE(pd.nombre, oi.nombre_custom, "Producto personalizado") AS producto,
                 pr.fecha_compromiso,
                 DATEDIFF(CURDATE(), pr.fecha_compromiso) AS dias_retraso,
                 pr.estado,
@@ -455,7 +459,7 @@ class ReporteController extends Controller
         $tiendaId = $r->query('tienda_id');
 
         $rows = DB::table('orden_items as oi')
-            ->join('productos as p', 'p.id', '=', 'oi.producto_id')
+            ->leftJoin('productos as p', 'p.id', '=', 'oi.producto_id')
             ->join('ordenes as o',   'o.id', '=', 'oi.orden_id')
             ->join('tiendas as t',   't.id', '=', 'o.tienda_id')
             ->where('o.estado', '!=', 'cancelado')
@@ -463,13 +467,13 @@ class ReporteController extends Controller
             ->when($tiendaId, fn($q) => $q->where('o.tienda_id', $tiendaId))
             ->when($vendedorId, fn($q) => $q->where('o.vendedor_id', $vendedorId))
             ->selectRaw('
-                p.nombre,
+                COALESCE(p.nombre, oi.nombre_custom, "Producto personalizado") AS nombre,
                 t.nombre            AS tienda,
-                p.categoria,
+                COALESCE(p.categoria, oi.categoria_custom, "personalizado")    AS categoria,
                 SUM(oi.cantidad)                        AS total_unidades,
                 SUM(oi.cantidad * oi.precio_unitario)   AS total_valor
             ')
-            ->groupBy('p.id', 'p.nombre', 'p.categoria', 't.id', 't.nombre')
+            ->groupBy('p.id', DB::raw('COALESCE(p.nombre, oi.nombre_custom, "Producto personalizado")'), DB::raw('COALESCE(p.categoria, oi.categoria_custom, "personalizado")'), 't.id', 't.nombre')
             ->orderByDesc('total_unidades')
             ->limit(200)
             ->get()

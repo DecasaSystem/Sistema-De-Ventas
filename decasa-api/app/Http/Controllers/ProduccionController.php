@@ -41,10 +41,10 @@ class ProduccionController extends Controller
         }
 
         if ($search = $request->query('search')) {
-            $term = "%{$search}%";
+            $term = '%' . mb_strtolower($search) . '%';
             $query->where(function ($q) use ($term) {
-                $q->whereHas('ordenItem.producto', fn($p) => $p->where('nombre', 'like', $term))
-                  ->orWhereHas('ordenItem.orden.cliente', fn($c) => $c->where('nombre', 'like', $term));
+                $q->whereHas('ordenItem.producto', fn($p) => $p->whereRaw('LOWER(nombre) LIKE ?', [$term]))
+                  ->orWhereHas('ordenItem.orden.cliente', fn($c) => $c->whereRaw('LOWER(nombre) LIKE ?', [$term]));
             });
         }
 

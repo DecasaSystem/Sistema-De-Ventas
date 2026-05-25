@@ -116,7 +116,7 @@
                     <tr style="border-bottom: 1px solid #e5e7eb; {{ $loop->even ? 'background-color:#f9fafb;' : '' }}">
                         <td style="padding: 8px; text-align: center; color: #6b7280; font-size: 10px;">{{ $idx + 1 }}</td>
                         <td style="padding: 8px;">
-                            {{ $item->producto->nombre ?? 'N/A' }}
+                            {{ $item->producto->nombre ?? $item->nombre_custom ?? 'Producto personalizado' }}
                             @if($item->es_personalizado)
                                 <span style="display: inline-block; padding: 1px 6px; background-color: #ede9fe; color: #7c3aed; font-size: 9px; border-radius: 8px; margin-left: 4px;">Personalizado</span>
                             @endif
@@ -163,7 +163,7 @@
             @php $specs = $item->specs_personalizacion ?? []; @endphp
             <div style="margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #ede9fe;">
                 <p style="font-size: 11px; font-weight: bold; color: #374151; margin: 0 0 6px 0;">
-                    {{ $item->producto->nombre ?? 'Producto' }}
+                    {{ $item->producto->nombre ?? $item->nombre_custom ?? 'Producto personalizado' }}
                     <span style="color: #7c3aed; font-weight: normal; font-size: 10px;">(ítem personalizado)</span>
                 </p>
                 @if(!empty($specs['descripcion']))

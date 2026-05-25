@@ -15,10 +15,11 @@ class MaterialController extends Controller
         $query = Material::query();
 
         if ($search = $request->query('search')) {
-            $query->where(function ($q) use ($search) {
-                $q->where('nombre', 'like', "%$search%")
-                  ->orWhere('descripcion', 'like', "%$search%")
-                  ->orWhere('unidad', 'like', "%$search%");
+            $term = '%' . mb_strtolower($search) . '%';
+            $query->where(function ($q) use ($term) {
+                $q->whereRaw('LOWER(nombre) LIKE ?',      [$term])
+                  ->orWhereRaw('LOWER(descripcion) LIKE ?', [$term])
+                  ->orWhereRaw('LOWER(unidad) LIKE ?',      [$term]);
             });
         }
 

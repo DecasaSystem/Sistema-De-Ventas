@@ -21,10 +21,10 @@ class ProductoController extends Controller
         $query = Producto::where('activo', true);
 
         if ($search = $request->query('search')) {
-            $term = "%{$search}%";
+            $term = '%' . mb_strtolower($search) . '%';
             $query->where(function ($q) use ($term) {
-                $q->where('nombre',    'like', $term)
-                  ->orWhere('categoria', 'like', $term);
+                $q->whereRaw('LOWER(nombre) LIKE ?',    [$term])
+                  ->orWhereRaw('LOWER(categoria) LIKE ?', [$term]);
             });
         }
 

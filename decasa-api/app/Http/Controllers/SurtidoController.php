@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Events\SurtidoAceptado;
 use App\Events\SurtidoEnviado;
 use App\Events\SurtidoRechazado;
+use App\Jobs\EnviarSurtidoProgramado;
 use App\Models\Inventario;
 use App\Models\InventarioMovimiento;
 use App\Models\InventarioVariante;
@@ -28,6 +29,7 @@ class SurtidoController extends Controller
     {
         $data = $request->validate([
             'notas'                                     => 'nullable|string|max:1000',
+            'programado_para'                           => 'nullable|date|after:now',
             'tiendas'                                   => 'required|array|min:1',
             'tiendas.*.tienda_id'                       => 'required|exists:tiendas,id',
             'tiendas.*.vendedor_validador_id'            => 'required|exists:usuarios,id',
@@ -37,13 +39,15 @@ class SurtidoController extends Controller
             'tiendas.*.items.*.especificaciones'        => 'nullable|array',
         ]);
 
-        $supervisor = $request->user();
+        $supervisor    = $request->user();
+        $programadoPara = isset($data['programado_para']) ? \Carbon\Carbon::parse($data['programado_para']) : null;
 
-        $surtido = DB::transaction(function () use ($data, $supervisor) {
+        $surtido = DB::transaction(function () use ($data, $supervisor, $programadoPara) {
             $surtido = Surtido::create([
-                'supervisor_id' => $supervisor->id,
-                'notas'         => $data['notas'] ?? null,
-                'estado'        => 'enviado',
+                'supervisor_id'  => $supervisor->id,
+                'notas'          => $data['notas'] ?? null,
+                'estado'         => $programadoPara ? 'programado' : 'enviado',
+                'programado_para' => $programadoPara,
             ]);
 
             foreach ($data['tiendas'] as $tiendaData) {
@@ -69,26 +73,31 @@ class SurtidoController extends Controller
 
         $surtido->load('tiendas.vendedorValidador:id,nombre', 'tiendas.tienda:id,nombre', 'tiendas.items.producto:id,nombre');
 
-        // Notificar a cada vendedor validador
-        foreach ($surtido->tiendas as $st) {
-            $cantidadProductos = $st->items->count();
+        if ($programadoPara) {
+            // Despachar el job con delay para que se ejecute en el momento programado
+            EnviarSurtidoProgramado::dispatch($surtido->id)->delay($programadoPara);
+        } else {
+            // Notificar de inmediato a cada vendedor validador
+            foreach ($surtido->tiendas as $st) {
+                $cantidadProductos = $st->items->count();
 
-            try {
-                event(new SurtidoEnviado(
-                    $surtido->id,
+                try {
+                    event(new SurtidoEnviado(
+                        $surtido->id,
+                        $st->vendedor_validador_id,
+                        $supervisor->nombre,
+                        $cantidadProductos,
+                    ));
+                } catch (\Throwable) {}
+
+                NotificacionService::crear(
+                    'surtido_enviado',
+                    'Surtido pendiente de validación',
+                    "{$supervisor->nombre} envió {$cantidadProductos} producto(s) a tu tienda. Valida la recepción.",
+                    ['surtido_id' => $surtido->id],
                     $st->vendedor_validador_id,
-                    $supervisor->nombre,
-                    $cantidadProductos,
-                ));
-            } catch (\Throwable) {}
-
-            NotificacionService::crear(
-                'surtido_enviado',
-                'Surtido pendiente de validación',
-                "{$supervisor->nombre} envió {$cantidadProductos} producto(s) a tu tienda. Valida la recepción.",
-                ['surtido_id' => $surtido->id],
-                $st->vendedor_validador_id,
-            );
+                );
+            }
         }
 
         return response()->json($surtido, 201);

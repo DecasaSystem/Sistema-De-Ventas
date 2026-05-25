@@ -21,11 +21,11 @@ class ClienteController extends Controller
         $query = Cliente::query();
 
         if ($search = $request->query('search')) {
-            $term = "%{$search}%";
+            $term = '%' . mb_strtolower($search) . '%';
             $query->where(function ($q) use ($term) {
-                $q->where('nombre', 'like', $term)
-                  ->orWhere('cedula', 'like', $term)
-                  ->orWhere('telefono', 'like', $term);
+                $q->whereRaw('LOWER(nombre) LIKE ?',   [$term])
+                  ->orWhereRaw('LOWER(cedula) LIKE ?',   [$term])
+                  ->orWhereRaw('LOWER(telefono) LIKE ?', [$term]);
             });
         }
 
@@ -133,11 +133,11 @@ class ClienteController extends Controller
 
         $clientes = DB::table('clientes')
             ->when($search, function ($q) use ($search) {
-                $term = "%{$search}%";
+                $term = '%' . mb_strtolower($search) . '%';
                 $q->where(function ($q2) use ($term) {
-                    $q2->where('nombre', 'like', $term)
-                       ->orWhere('cedula', 'like', $term)
-                       ->orWhere('telefono', 'like', $term);
+                    $q2->whereRaw('LOWER(nombre) LIKE ?',   [$term])
+                       ->orWhereRaw('LOWER(cedula) LIKE ?',   [$term])
+                       ->orWhereRaw('LOWER(telefono) LIKE ?', [$term]);
                 });
             })
             ->when($tipo, fn($q) => $q->where('tipo', $tipo))

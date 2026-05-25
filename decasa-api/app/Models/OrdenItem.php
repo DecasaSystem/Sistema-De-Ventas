@@ -13,6 +13,8 @@ class OrdenItem extends Model
     protected $fillable = [
         'orden_id',
         'producto_id',
+        'nombre_custom',
+        'categoria_custom',
         'variante_id',
         'tienda_origen_id',
         'cantidad',
