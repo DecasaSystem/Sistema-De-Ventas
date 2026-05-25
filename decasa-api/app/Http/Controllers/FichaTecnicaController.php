@@ -15,9 +15,10 @@ class FichaTecnicaController extends Controller
         $query = FichaTecnica::query();
 
         if ($search = $request->query('search')) {
-            $query->where(function ($q) use ($search) {
-                $q->where('nombre', 'like', "%$search%")
-                  ->orWhere('categoria', 'like', "%$search%");
+            $term = '%' . mb_strtolower($search) . '%';
+            $query->where(function ($q) use ($term) {
+                $q->whereRaw('LOWER(nombre) LIKE ?',    [$term])
+                  ->orWhereRaw('LOWER(categoria) LIKE ?', [$term]);
             });
         }
 
@@ -95,7 +96,7 @@ class FichaTecnicaController extends Controller
         $search = $request->query('search', '');
 
         // Consultar desde el catálogo maestro de materiales
-        $materiales = \App\Models\Material::when($search, fn($q) => $q->where('nombre', 'like', "%$search%"))
+        $materiales = \App\Models\Material::when($search, fn($q) => $q->whereRaw('LOWER(nombre) LIKE ?', ['%' . mb_strtolower($search) . '%']))
             ->orderBy('nombre')
             ->limit(8)
             ->get()

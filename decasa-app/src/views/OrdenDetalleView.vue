@@ -5,12 +5,13 @@ import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
 import { getOrden, updateEstado, descargarPdfOrden, reenviarCotizacion, asignarFechasEntrega } from '@/api/ordenes'
 import { despachoPorOrden } from '@/api/despacho'
+import { tomarFacturacion, marcarFacturada } from '@/api/pagos'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import RegistroPagoModal from '@/components/ordenes/RegistroPagoModal.vue'
 import EditarOrdenModal from '@/components/ordenes/EditarOrdenModal.vue'
 import { SparklesIcon, XMarkIcon } from '@heroicons/vue/24/solid'
-import { DocumentIcon, EnvelopeIcon, ChatBubbleLeftEllipsisIcon, ArrowDownTrayIcon, CalendarIcon, BuildingOffice2Icon, TruckIcon, PencilSquareIcon, ClockIcon } from '@heroicons/vue/24/outline'
+import { DocumentIcon, EnvelopeIcon, ChatBubbleLeftEllipsisIcon, ArrowDownTrayIcon, CalendarIcon, BuildingOffice2Icon, TruckIcon, PencilSquareIcon, ClockIcon, CheckBadgeIcon, LockClosedIcon } from '@heroicons/vue/24/outline'
 
 const route = useRoute()
 const router = useRouter()
@@ -304,6 +305,37 @@ async function guardarFechas() {
   }
 }
 
+// ── Facturación por pago ──────────────────────────────────────────────────────
+const facturacionLoading = ref({}) // { [pagoId]: true/false }
+
+async function doTomarFacturacion(pagoId) {
+  facturacionLoading.value[pagoId] = true
+  try {
+    const { data } = await tomarFacturacion(pagoId)
+    if (!data.tomado) {
+      toast.error('Ya fue tomado por ' + (data.pago?.facturacion_tomada_por?.nombre ?? 'otro facturador'))
+    }
+    await cargarOrden()
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'Error al tomar la facturación')
+  } finally {
+    facturacionLoading.value[pagoId] = false
+  }
+}
+
+async function doMarcarFacturada(pagoId) {
+  facturacionLoading.value[pagoId] = true
+  try {
+    await marcarFacturada(pagoId)
+    toast.success('Factura marcada como hecha')
+    await cargarOrden()
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'Error al marcar la factura')
+  } finally {
+    facturacionLoading.value[pagoId] = false
+  }
+}
+
 onMounted(cargarOrden)
 </script>
 
@@ -513,20 +545,55 @@ onMounted(cargarOrden)
         <div
           v-for="pago in orden.pagos"
           :key="pago.id"
-          class="flex justify-between items-center border-b border-gray-100 last:border-0 pb-2 last:pb-0"
+          class="border-b border-gray-100 last:border-0 pb-3 last:pb-0"
         >
-          <div>
-            <p class="text-sm font-medium text-gray-800">
-              {{ tipoPagoLabel[pago.tipo] ?? pago.tipo }}
-            </p>
-            <p class="text-xs text-gray-400 capitalize">{{ pago.metodo }}
-              <span v-if="pago.referencia">· {{ pago.referencia }}</span>
-            </p>
-            <p v-if="pago.notas" class="text-xs text-gray-400">{{ pago.notas }}</p>
+          <div class="flex justify-between items-start">
+            <div>
+              <p class="text-sm font-medium text-gray-800">
+                {{ tipoPagoLabel[pago.tipo] ?? pago.tipo }}
+              </p>
+              <p class="text-xs text-gray-400 capitalize">{{ pago.metodo }}
+                <span v-if="pago.referencia">· {{ pago.referencia }}</span>
+              </p>
+              <p v-if="pago.notas" class="text-xs text-gray-400">{{ pago.notas }}</p>
+            </div>
+            <div class="text-right">
+              <p class="text-sm font-semibold text-green-600"><MoneyDisplay :amount="pago.monto" /></p>
+              <p class="text-xs text-gray-400">{{ formatDateTime(pago.created_at) }}</p>
+            </div>
           </div>
-          <div class="text-right">
-            <p class="text-sm font-semibold text-green-600"><MoneyDisplay :amount="pago.monto" /></p>
-            <p class="text-xs text-gray-400">{{ formatDateTime(pago.created_at) }}</p>
+
+          <!-- Facturación (solo facturadores) -->
+          <div v-if="auth.isFacturador" class="mt-2">
+            <!-- Ya facturado -->
+            <div v-if="pago.facturacion_hecha_at" class="flex items-center gap-1.5 text-xs text-green-700 bg-green-50 rounded-lg px-2.5 py-1.5 w-fit">
+              <CheckBadgeIcon class="w-3.5 h-3.5" />
+              Factura hecha · {{ formatDateTime(pago.facturacion_hecha_at) }}
+            </div>
+            <!-- Tomado por mí → marcar hecha -->
+            <button
+              v-else-if="pago.facturacion_tomada_por?.id === auth.usuario?.id"
+              @click="doMarcarFacturada(pago.id)"
+              :disabled="facturacionLoading[pago.id]"
+              class="flex items-center gap-1.5 text-xs font-semibold text-white bg-green-600 hover:bg-green-700 disabled:opacity-50 rounded-lg px-3 py-1.5 transition-colors"
+            >
+              <CheckBadgeIcon class="w-3.5 h-3.5" />
+              {{ facturacionLoading[pago.id] ? 'Guardando...' : 'Marcar factura hecha' }}
+            </button>
+            <!-- Tomado por otro -->
+            <div v-else-if="pago.facturacion_tomada_por" class="flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 rounded-lg px-2.5 py-1.5 w-fit">
+              <LockClosedIcon class="w-3.5 h-3.5" />
+              Tomado por {{ pago.facturacion_tomada_por.nombre }}
+            </div>
+            <!-- Sin tomar → tomar -->
+            <button
+              v-else
+              @click="doTomarFacturacion(pago.id)"
+              :disabled="facturacionLoading[pago.id]"
+              class="flex items-center gap-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-50 rounded-lg px-3 py-1.5 transition-colors"
+            >
+              {{ facturacionLoading[pago.id] ? 'Procesando...' : 'Tomar facturación' }}
+            </button>
           </div>
         </div>
       </div>

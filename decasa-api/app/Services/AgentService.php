@@ -346,6 +346,26 @@ class AgentService
             [
                 'type' => 'function',
                 'function' => [
+                    'name' => 'consultar_variantes_producto',
+                    'description' => 'Consulta las especificaciones (marca de tela, tipo de tela, color) disponibles de un producto y su stock actual por tienda. Úsala cuando el usuario pregunte por colores, telas, marcas o combinaciones disponibles de un producto específico (ej: "¿qué colores hay del sofá Alicia en Jardines?", "¿qué telas tiene el Sofá Roma disponibles?"). Si el producto no tiene variantes (comedores, mesas, camas sin tela), el tool lo indica claramente.',
+                    'parameters' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'nombre_producto' => ['type' => 'string', 'description' => 'Nombre o parte del nombre del producto'],
+                            'tienda_id'       => ['type' => 'integer', 'description' => 'ID de tienda específica (opcional)'],
+                            'nombre_tienda'   => ['type' => 'string',  'description' => 'Nombre parcial de la tienda (opcional, alternativa a tienda_id)'],
+                            'solo_con_stock'  => ['type' => 'boolean', 'description' => 'Solo mostrar variantes con stock disponible > 0 (default: true)'],
+                            'marca'           => ['type' => 'string',  'description' => 'Filtrar por marca de tela (opcional)'],
+                            'tela'            => ['type' => 'string',  'description' => 'Filtrar por tipo de tela (opcional)'],
+                            'color'           => ['type' => 'string',  'description' => 'Filtrar por color (opcional)'],
+                        ],
+                        'required' => ['nombre_producto'],
+                    ],
+                ],
+            ],
+            [
+                'type' => 'function',
+                'function' => [
                     'name' => 'analizar_rotacion_inventario',
                     'description' => 'Análisis predictivo que cruza velocidad de ventas con stock actual para recomendar qué productos fabricar, para qué tiendas, y cuáles descontinuar. Úsala ante preguntas como: ¿qué deberíamos fabricar?, ¿qué productos están sin salida?, ¿dónde hay falta de stock?, ¿qué deberíamos dejar de producir?',
                     'parameters' => [
@@ -406,14 +426,21 @@ class AgentService
         };
     }
 
+    // ─── Helper: patrón LIKE insensible a mayúsculas ─────────────────────────
+
+    private function likeI(string $value): string
+    {
+        return '%' . mb_strtolower(trim($value)) . '%';
+    }
+
     // ─── Handlers de cada tool ────────────────────────────────────────────────
 
     private function handleObtenerFichaTecnica(array $args): array
     {
-        $nombre = $args['nombre_producto'];
+        $nombre = mb_strtolower(trim($args['nombre_producto']));
 
         $ficha = DB::table('fichas_tecnicas')
-            ->where('nombre', 'like', "%{$nombre}%")
+            ->whereRaw('LOWER(nombre) LIKE ?', [$this->likeI($nombre)])
             ->orderByRaw('CHAR_LENGTH(nombre) ASC')
             ->first();
 
@@ -429,13 +456,13 @@ class AgentService
             $acumulado = collect();
             foreach ($palabras as $palabra) {
                 $count = DB::table('fichas_tecnicas')
-                    ->where('nombre', 'like', "%{$palabra}%")
+                    ->whereRaw('LOWER(nombre) LIKE ?', [$this->likeI($palabra)])
                     ->count();
                 if ($count === 0) continue;
                 // peso = 100/count × (longitud/4): palabras raras y largas valen más
                 $peso       = round((100 / $count) * (mb_strlen($palabra) / 4), 4);
                 $resultados = DB::table('fichas_tecnicas')
-                    ->where('nombre', 'like', "%{$palabra}%")
+                    ->whereRaw('LOWER(nombre) LIKE ?', [$this->likeI($palabra)])
                     ->get(['id', 'nombre', 'categoria', 'costo_total'])
                     ->each(fn($r) => $r->_peso = $peso);
                 $acumulado  = $acumulado->concat($resultados);
@@ -562,12 +589,12 @@ class AgentService
         $query = DB::table('fichas_tecnicas');
 
         if (!empty($args['categoria'])) {
-            $query->where('categoria', 'like', "%{$args['categoria']}%");
+            $query->whereRaw('LOWER(categoria) LIKE ?', [$this->likeI($args['categoria'])]);
         }
         if (!empty($args['busqueda'])) {
             $query->where(function ($q) use ($args) {
-                $q->where('nombre', 'like', "%{$args['busqueda']}%")
-                  ->orWhere('categoria', 'like', "%{$args['busqueda']}%");
+                $q->whereRaw('LOWER(nombre) LIKE ?',    [$this->likeI($args['busqueda'])])
+                  ->orWhereRaw('LOWER(categoria) LIKE ?', [$this->likeI($args['busqueda'])]);
             });
         }
 
@@ -596,8 +623,8 @@ class AgentService
         // Fichas de referencia más similares (hasta 3)
         $fichasRef = DB::table('fichas_tecnicas')
             ->where(function ($q) use ($categoria, $descripcion) {
-                $q->where('categoria', 'like', "%{$categoria}%")
-                  ->orWhere('nombre',    'like', "%{$descripcion}%");
+                $q->whereRaw('LOWER(categoria) LIKE ?', [$this->likeI($categoria)])
+                  ->orWhereRaw('LOWER(nombre) LIKE ?',  [$this->likeI($descripcion)]);
             })
             ->orderBy('costo_total')
             ->limit(3)
@@ -686,8 +713,8 @@ class AgentService
         // Fichas técnicas similares como referencia (máx. 3)
         $fichasRef = DB::table('fichas_tecnicas')
             ->where(function ($q) use ($tipo, $categoria) {
-                $q->where('categoria', 'like', "%{$categoria}%")
-                  ->orWhere('nombre',    'like', "%{$tipo}%");
+                $q->whereRaw('LOWER(categoria) LIKE ?', [$this->likeI($categoria)])
+                  ->orWhereRaw('LOWER(nombre) LIKE ?',  [$this->likeI($tipo)]);
             })
             ->orderBy('costo_total')
             ->limit(3)
@@ -727,7 +754,7 @@ class AgentService
         $tiendaId = $args['tienda_id'] ?? null;
         if (!$tiendaId && !empty($args['nombre_tienda'])) {
             $tiendaId = DB::table('tiendas')
-                ->where('nombre', 'like', "%{$args['nombre_tienda']}%")
+                ->whereRaw('LOWER(nombre) LIKE ?', [$this->likeI($args['nombre_tienda'])])
                 ->value('id');
         }
 
@@ -751,14 +778,12 @@ class AgentService
                 COALESCE(i.stock_minimo, 0) AS stock_minimo
             ");
 
-        if ($usuario->rol === 'vendedor') {
-            $query->where('t.id', $usuario->tienda_default_id);
-        } elseif ($tiendaId) {
+        if ($tiendaId) {
             $query->where('t.id', $tiendaId);
         }
 
         if (!empty($args['producto'])) {
-            $query->where('p.nombre', 'like', "%{$args['producto']}%");
+            $query->whereRaw('LOWER(p.nombre) LIKE ?', [$this->likeI($args['producto'])]);
         }
 
         if (!empty($args['solo_bajo_stock'])) {
@@ -861,7 +886,7 @@ class AgentService
 
         if (!empty($args['categoria'])) {
             $cat = $this->detectarCategoria($args['categoria']) ?? $args['categoria'];
-            $query->where('p.categoria', 'like', "%{$cat}%");
+            $query->whereRaw('LOWER(p.categoria) LIKE ?', [$this->likeI($cat)]);
         }
 
         return [
@@ -906,13 +931,13 @@ class AgentService
 
         if (!empty($args['categoria'])) {
             $cat = $this->detectarCategoria($args['categoria']) ?? $args['categoria'];
-            $query->where('categoria', 'like', "%{$cat}%");
+            $query->whereRaw('LOWER(categoria) LIKE ?', [$this->likeI($cat)]);
         }
 
         if (!empty($args['busqueda'])) {
             $palabras = array_filter(explode(' ', trim($args['busqueda'])));
             foreach ($palabras as $p) {
-                if (strlen($p) >= 3) $query->where('nombre', 'like', "%{$p}%");
+                if (strlen($p) >= 3) $query->whereRaw('LOWER(nombre) LIKE ?', [$this->likeI($p)]);
             }
         }
 
@@ -982,7 +1007,7 @@ class AgentService
         $tiendaId = $args['tienda_id'] ?? null;
         if (!$tiendaId && !empty($args['nombre_tienda'])) {
             $tiendaId = DB::table('tiendas')
-                ->where('nombre', 'like', "%{$args['nombre_tienda']}%")
+                ->whereRaw('LOWER(nombre) LIKE ?', [$this->likeI($args['nombre_tienda'])])
                 ->value('id');
         }
         if ($usuario->rol === 'vendedor') {
@@ -997,7 +1022,7 @@ class AgentService
 
         // Filtro por categoría
         if (!empty($args['categoria'])) {
-            $baseQuery->where('p.categoria', 'like', "%{$args['categoria']}%");
+            $baseQuery->whereRaw('LOWER(p.categoria) LIKE ?', [$this->likeI($args['categoria'])]);
         }
 
         // Búsqueda flexible por nombre: cada palabra >= 3 letras debe estar presente
@@ -1005,7 +1030,7 @@ class AgentService
             $palabras = array_filter(explode(' ', trim($nombre)));
             foreach ($palabras as $palabra) {
                 if (strlen($palabra) >= 3) {
-                    $baseQuery->where('p.nombre', 'like', "%{$palabra}%");
+                    $baseQuery->whereRaw('LOWER(p.nombre) LIKE ?', [$this->likeI($palabra)]);
                 }
             }
         }
@@ -1033,7 +1058,7 @@ class AgentService
             if ($nombre) {
                 $primPalabra = collect(array_filter(explode(' ', trim($nombre))))->first(fn($p) => strlen($p) >= 4) ?? $nombre;
                 $sugerencias = DB::table('productos')
-                    ->where('nombre', 'like', "%{$primPalabra}%")
+                    ->whereRaw('LOWER(nombre) LIKE ?', [$this->likeI($primPalabra)])
                     ->where('activo', true)->limit(5)->pluck('nombre');
             }
             return [
@@ -1093,7 +1118,7 @@ class AgentService
         $tiendaId = $args['tienda_id'] ?? null;
         if (!$tiendaId && !empty($args['nombre_tienda'])) {
             $tiendaId = DB::table('tiendas')
-                ->where('nombre', 'like', "%{$args['nombre_tienda']}%")
+                ->whereRaw('LOWER(nombre) LIKE ?', [$this->likeI($args['nombre_tienda'])])
                 ->value('id');
         }
         if ($usuario->rol === 'vendedor') {
@@ -1134,8 +1159,12 @@ class AgentService
         ];
     }
 
-    private function handleReporteVendedores(array $args): array
+    private function handleReporteVendedores(array $args, Usuario $usuario): array
     {
+        if ($usuario->rol === 'vendedor') {
+            return ['error' => 'No tienes acceso al rendimiento comparativo de vendedores.'];
+        }
+
         [$desde, $hasta] = $this->parsePeriodo($args['periodo']);
 
         $vendedores = DB::table('usuarios as u')
@@ -1170,7 +1199,7 @@ class AgentService
         $tiendaId = $args['tienda_id'] ?? null;
         if (!$tiendaId && !empty($args['nombre_tienda'])) {
             $tiendaId = DB::table('tiendas')
-                ->where('nombre', 'like', "%{$args['nombre_tienda']}%")
+                ->whereRaw('LOWER(nombre) LIKE ?', [$this->likeI($args['nombre_tienda'])])
                 ->value('id');
         }
         if ($usuario->rol === 'vendedor') {
@@ -1205,7 +1234,7 @@ class AgentService
         ];
     }
 
-    private function handleReporteRetrasos(): array
+    private function handleReporteRetrasos(Usuario $usuario): array
     {
         $items = DB::table('produccion as pr')
             ->join('orden_items as oi', 'oi.id', '=', 'pr.orden_item_id')
@@ -1230,6 +1259,8 @@ class AgentService
                 pr.estado, pr.motivo_retraso,
                 u.nombre AS vendedor, t.nombre AS tienda
             ')
+            ->when($usuario->rol === 'vendedor' && $usuario->tienda_default_id,
+                   fn($q) => $q->where('o.tienda_id', $usuario->tienda_default_id))
             ->orderBy('pr.fecha_compromiso')
             ->get();
 
@@ -1269,7 +1300,7 @@ class AgentService
         ];
     }
 
-    private function handleEstadoProduccion(array $args): array
+    private function handleEstadoProduccion(array $args, Usuario $usuario): array
     {
         $query = DB::table('produccion as pr')
             ->join('orden_items as oi', 'oi.id', '=', 'pr.orden_item_id')
@@ -1299,6 +1330,10 @@ class AgentService
                   ->orWhereRaw('pr.fecha_compromiso < CURDATE() AND pr.estado NOT IN (\'listo\', \'completado\', \'entregado\')');
         }
 
+        if ($usuario->rol === 'vendedor' && $usuario->tienda_default_id) {
+            $query->where('o.tienda_id', $usuario->tienda_default_id);
+        }
+
         $items = $query->limit(50)->get();
 
         // Pasos activos por item
@@ -1311,7 +1346,7 @@ class AgentService
                 ->orderBy('orden');
 
             if (!empty($args['paso'])) {
-                $pasoQuery->where('paso', 'like', "%{$args['paso']}%");
+                $pasoQuery->whereRaw('LOWER(paso) LIKE ?', [$this->likeI($args['paso'])]);
                 // Filtrar items a solo los que tienen ese paso
                 $produccionIds = $pasoQuery->pluck('produccion_id')->unique();
                 $items = $items->whereIn('id', $produccionIds->toArray())->values();
@@ -1326,11 +1361,22 @@ class AgentService
         }
 
         // Resumen de conteos (excluye solo los ya entregados)
-        $resumen = DB::table('produccion')
-            ->selectRaw('estado, COUNT(*) AS cantidad')
-            ->whereNotIn('estado', ['entregado'])
-            ->groupBy('estado')
-            ->get();
+        if ($usuario->rol === 'vendedor' && $usuario->tienda_default_id) {
+            $resumen = DB::table('produccion as pr')
+                ->join('orden_items as oi2', 'oi2.id', '=', 'pr.orden_item_id')
+                ->join('ordenes as o2',      'o2.id',  '=', 'oi2.orden_id')
+                ->where('o2.tienda_id', $usuario->tienda_default_id)
+                ->selectRaw('pr.estado AS estado, COUNT(*) AS cantidad')
+                ->whereNotIn('pr.estado', ['entregado'])
+                ->groupBy('pr.estado')
+                ->get();
+        } else {
+            $resumen = DB::table('produccion')
+                ->selectRaw('estado, COUNT(*) AS cantidad')
+                ->whereNotIn('estado', ['entregado'])
+                ->groupBy('estado')
+                ->get();
+        }
 
         return [
             'items'   => $items,
@@ -1349,7 +1395,7 @@ class AgentService
         $tiendaIdResuelto = $args['tienda_id'] ?? null;
         if (!$tiendaIdResuelto && !empty($args['nombre_tienda'])) {
             $tiendaIdResuelto = DB::table('tiendas')
-                ->where('nombre', 'like', "%{$args['nombre_tienda']}%")
+                ->whereRaw('LOWER(nombre) LIKE ?', [$this->likeI($args['nombre_tienda'])])
                 ->value('id');
         }
 
@@ -1424,16 +1470,17 @@ class AgentService
         }
 
         if (!empty($args['cliente_nombre'])) {
-            $query->where('c.nombre', 'like', "%{$args['cliente_nombre']}%");
+            $query->whereRaw('LOWER(c.nombre) LIKE ?', [$this->likeI($args['cliente_nombre'])]);
         }
 
         if (!empty($args['nombre_producto'])) {
-            $query->whereExists(function ($sub) use ($args) {
+            $termProd = $this->likeI($args['nombre_producto']);
+            $query->whereExists(function ($sub) use ($termProd) {
                 $sub->select(DB::raw(1))
                     ->from('orden_items as oi2')
                     ->join('productos as p2', 'p2.id', '=', 'oi2.producto_id')
                     ->whereColumn('oi2.orden_id', 'o.id')
-                    ->where('p2.nombre', 'like', "%{$args['nombre_producto']}%");
+                    ->whereRaw('LOWER(p2.nombre) LIKE ?', [$termProd]);
             });
         }
 
@@ -1491,7 +1538,7 @@ class AgentService
         $tiendaId = $args['tienda_id'] ?? null;
         if (!$tiendaId && !empty($args['nombre_tienda'])) {
             $tiendaId = DB::table('tiendas')
-                ->where('nombre', 'like', "%{$args['nombre_tienda']}%")
+                ->whereRaw('LOWER(nombre) LIKE ?', [$this->likeI($args['nombre_tienda'])])
                 ->value('id');
         }
         if ($usuario->rol === 'vendedor') {
@@ -1548,7 +1595,7 @@ class AgentService
         $tiendaId = $args['tienda_id'] ?? null;
         if (!$tiendaId && !empty($args['nombre_tienda'])) {
             $tiendaId = DB::table('tiendas')
-                ->where('nombre', 'like', "%{$args['nombre_tienda']}%")
+                ->whereRaw('LOWER(nombre) LIKE ?', [$this->likeI($args['nombre_tienda'])])
                 ->value('id');
         }
         if ($usuario->rol === 'vendedor') {
@@ -1630,11 +1677,11 @@ class AgentService
             ->orderByDesc('total_comprado');
 
         if (!empty($args['busqueda'])) {
-            $b = $args['busqueda'];
-            $query->where(function ($q) use ($b) {
-                $q->where('c.nombre', 'like', "%{$b}%")
-                  ->orWhere('c.telefono', 'like', "%{$b}%")
-                  ->orWhere('c.email', 'like', "%{$b}%");
+            $termB = $this->likeI($args['busqueda']);
+            $query->where(function ($q) use ($termB) {
+                $q->whereRaw('LOWER(c.nombre) LIKE ?',   [$termB])
+                  ->orWhereRaw('LOWER(c.telefono) LIKE ?', [$termB])
+                  ->orWhereRaw('LOWER(c.email) LIKE ?',    [$termB]);
             });
         }
 
@@ -1662,7 +1709,7 @@ class AgentService
         $tiendaId = $args['tienda_id'] ?? null;
         if (!$tiendaId && !empty($args['nombre_tienda'])) {
             $tiendaId = DB::table('tiendas')
-                ->where('nombre', 'like', "%{$args['nombre_tienda']}%")
+                ->whereRaw('LOWER(nombre) LIKE ?', [$this->likeI($args['nombre_tienda'])])
                 ->value('id');
         }
         if ($usuario->rol === 'vendedor') {
@@ -1687,7 +1734,7 @@ class AgentService
             ->groupBy('p.id', 'p.nombre', 'p.categoria');
 
         if ($tiendaId) $ventasQ->where('o.tienda_id', $tiendaId);
-        if ($catFiltro) $ventasQ->where('p.categoria', 'like', "%{$catFiltro}%");
+        if ($catFiltro) $ventasQ->whereRaw('LOWER(p.categoria) LIKE ?', [$this->likeI($catFiltro)]);
 
         $ventas = $ventasQ->get()->keyBy('id');
 
@@ -1703,7 +1750,7 @@ class AgentService
             ->groupBy('p.id', 'p.nombre', 'p.categoria');
 
         if ($tiendaId) $stockQ->where('t.id', $tiendaId);
-        if ($catFiltro) $stockQ->where('p.categoria', 'like', "%{$catFiltro}%");
+        if ($catFiltro) $stockQ->whereRaw('LOWER(p.categoria) LIKE ?', [$this->likeI($catFiltro)]);
 
         $stocks = $stockQ->get()->keyBy('id');
 
@@ -1719,7 +1766,7 @@ class AgentService
                 i.cantidad_disponible AS stock, i.stock_minimo');
 
         if ($tiendaId) $stockTiendaQ->where('t.id', $tiendaId);
-        if ($catFiltro) $stockTiendaQ->where('p.categoria', 'like', "%{$catFiltro}%");
+        if ($catFiltro) $stockTiendaQ->whereRaw('LOWER(p.categoria) LIKE ?', [$this->likeI($catFiltro)]);
 
         $stockPorTienda = $stockTiendaQ->orderBy('p.nombre')->orderBy('t.nombre')->get();
 
@@ -1790,6 +1837,155 @@ class AgentService
         return ['tiendas' => $tiendas];
     }
 
+    private function handleConsultarVariantesProducto(array $args, Usuario $usuario): array
+    {
+        // ── 1. Resolver tienda ────────────────────────────────────────────────
+        $tiendaId = $args['tienda_id'] ?? null;
+        if (! $tiendaId && ! empty($args['nombre_tienda'])) {
+            $tiendaId = DB::table('tiendas')
+                ->whereRaw('LOWER(nombre) LIKE ?', [$this->likeI($args['nombre_tienda'])])
+                ->value('id');
+        }
+        $soloConStock = $args['solo_con_stock'] ?? true;
+
+        // ── 2. Buscar el producto ─────────────────────────────────────────────
+        $nombreBusqueda = trim($args['nombre_producto']);
+        $nombreLower    = mb_strtolower($nombreBusqueda);
+
+        $producto = DB::table('productos')
+            ->where('activo', true)
+            ->whereRaw('LOWER(nombre) LIKE ?', ["%{$nombreLower}%"])
+            ->orderByRaw('CHAR_LENGTH(nombre)')   // preferir el match más corto (más exacto)
+            ->first(['id', 'nombre', 'categoria']);
+
+        if (! $producto) {
+            // Intentar sugerencias por cada palabra con longitud >= 3
+            $palabras = collect(preg_split('/\s+/', $nombreLower))
+                ->filter(fn($p) => mb_strlen($p) >= 3)
+                ->values();
+
+            $sugerencias = collect();
+            foreach ($palabras as $palabra) {
+                $matches = DB::table('productos')
+                    ->where('activo', true)
+                    ->whereRaw('LOWER(nombre) LIKE ?', ["%{$palabra}%"])
+                    ->pluck('nombre');
+                $sugerencias = $sugerencias->concat($matches);
+            }
+            $sugerencias = $sugerencias->unique()->take(6)->values();
+
+            return [
+                'encontrado'   => false,
+                'mensaje'      => "No se encontró ningún producto con nombre \"{$nombreBusqueda}\".",
+                'sugerencias'  => $sugerencias,
+            ];
+        }
+
+        // ── 3. Verificar si el producto tiene variantes definidas ─────────────
+        $totalVariantes = DB::table('producto_variantes')
+            ->where('producto_id', $producto->id)
+            ->where('activo', true)
+            ->count();
+
+        if ($totalVariantes === 0) {
+            return [
+                'encontrado'    => true,
+                'producto'      => $producto->nombre,
+                'categoria'     => $producto->categoria,
+                'tiene_variantes' => false,
+                'mensaje'       => "El producto \"{$producto->nombre}\" ({$producto->categoria}) no tiene especificaciones de tela, marca ni color registradas. Es un producto que se vende sin variantes (por ejemplo, comedores de madera, mesas, etc.).",
+            ];
+        }
+
+        // ── 4. Consultar variantes con stock ──────────────────────────────────
+        $query = DB::table('producto_variantes as pv')
+            ->where('pv.producto_id', $producto->id)
+            ->where('pv.activo', true)
+            ->leftJoin('inventario_variantes as iv', 'iv.variante_id', '=', 'pv.id')
+            ->leftJoin('tiendas as t', 't.id', '=', 'iv.tienda_id')
+            ->selectRaw("
+                pv.id            AS variante_id,
+                pv.marca,
+                pv.marca_tela    AS tela,
+                pv.nombre_color  AS color,
+                t.id             AS tienda_id,
+                t.nombre         AS tienda,
+                COALESCE(iv.cantidad_disponible, 0) AS disponible,
+                COALESCE(iv.cantidad_reservada,  0) AS reservado,
+                COALESCE(iv.cantidad_disponible, 0) - COALESCE(iv.cantidad_reservada, 0) AS libre
+            ");
+
+        if ($tiendaId) {
+            $query->where('iv.tienda_id', $tiendaId);
+        } else {
+            $query->where(function ($q) {
+                $q->where('t.activa', true)->orWhereNull('t.id');
+            });
+        }
+
+        if (! empty($args['marca'])) {
+            $v = mb_strtolower($args['marca']);
+            $query->whereRaw('LOWER(pv.marca) LIKE ?', ["%{$v}%"]);
+        }
+        if (! empty($args['tela'])) {
+            $v = mb_strtolower($args['tela']);
+            $query->whereRaw('LOWER(pv.marca_tela) LIKE ?', ["%{$v}%"]);
+        }
+        if (! empty($args['color'])) {
+            $v = mb_strtolower($args['color']);
+            $query->whereRaw('LOWER(pv.nombre_color) LIKE ?', ["%{$v}%"]);
+        }
+
+        if ($soloConStock) {
+            $query->whereRaw('COALESCE(iv.cantidad_disponible, 0) - COALESCE(iv.cantidad_reservada, 0) > 0');
+        }
+
+        $rows = $query->orderBy('pv.marca')->orderBy('pv.marca_tela')->orderBy('pv.nombre_color')->orderBy('t.nombre')->get();
+
+        // ── 5. Agrupar por combinación de especificaciones ────────────────────
+        $porVariante = $rows->groupBy(fn($r) => "{$r->marca}|{$r->tela}|{$r->color}")
+            ->map(function ($grupo) {
+                $primera = $grupo->first();
+                $tiendas = $grupo
+                    ->filter(fn($r) => $r->tienda !== null)
+                    ->map(fn($r) => [
+                        'tienda'     => $r->tienda,
+                        'disponible' => $r->disponible,
+                        'reservado'  => $r->reservado,
+                        'libre'      => $r->libre,
+                    ])->values();
+
+                return [
+                    'marca'        => $primera->marca,
+                    'tela'         => $primera->tela,
+                    'color'        => $primera->color,
+                    'total_libre'  => $tiendas->sum('libre'),
+                    'por_tienda'   => $tiendas,
+                ];
+            })->values();
+
+        // ── 6. Resumen de colores y telas únicos ──────────────────────────────
+        $coloresUnicos = $rows->pluck('color')->filter()->unique()->sort()->values();
+        $telasUnicas   = $rows->pluck('tela')->filter()->unique()->sort()->values();
+        $marcasUnicas  = $rows->pluck('marca')->filter()->unique()->sort()->values();
+
+        $tiendaNombre = $tiendaId ? DB::table('tiendas')->where('id', $tiendaId)->value('nombre') : null;
+
+        return [
+            'encontrado'      => true,
+            'tiene_variantes' => true,
+            'producto'        => $producto->nombre,
+            'categoria'       => $producto->categoria,
+            'tienda_filtrada' => $tiendaNombre,
+            'total_variantes_con_stock' => $porVariante->count(),
+            'colores_disponibles' => $coloresUnicos,
+            'telas_disponibles'   => $telasUnicas,
+            'marcas_disponibles'  => $marcasUnicas,
+            'variantes'           => $porVariante,
+            'nota'                => 'libre = disponible - reservado (unidades que se pueden vender ahora)',
+        ];
+    }
+
     // ─── Dispatcher de tool calls ─────────────────────────────────────────────
 
     private function ejecutarTool(string $toolName, array $args, Usuario $usuario): array
@@ -1804,17 +2000,18 @@ class AgentService
             'ventas_por_categoria'         => $this->handleVentasPorCategoria($args, $usuario),
             'ventas_producto_especifico'   => $this->handleVentasProductoEspecifico($args, $usuario),
             'clientes_top'                 => $this->handleClientesTop($args, $usuario),
-            'estado_produccion'            => $this->handleEstadoProduccion($args),
+            'estado_produccion'            => $this->handleEstadoProduccion($args, $usuario),
             'consultar_ordenes'            => $this->handleConsultarOrdenes($args, $usuario),
             'consultar_trabajadores'       => $this->handleConsultarTrabajadores($args, $usuario),
             'consultar_clientes'           => $this->handleConsultarClientes($args, $usuario),
             'buscar_productos_catalogo'    => $this->handleBuscarProductosCatalogo($args),
             'reporte_ventas'               => $this->handleReporteVentas($args, $usuario),
-            'reporte_vendedores'           => $this->handleReporteVendedores($args),
+            'reporte_vendedores'           => $this->handleReporteVendedores($args, $usuario),
             'reporte_pendientes'           => $this->handleReportePendientes($args, $usuario),
-            'reporte_retrasos'             => $this->handleReporteRetrasos(),
+            'reporte_retrasos'             => $this->handleReporteRetrasos($usuario),
             'listar_tiendas'               => $this->handleListarTiendas(),
             'analizar_rotacion_inventario' => $this->handleAnalizarRotacionInventario($args, $usuario),
+            'consultar_variantes_producto' => $this->handleConsultarVariantesProducto($args, $usuario),
             default                        => ['error' => "Tool '{$toolName}' no reconocida."],
         };
     }
@@ -1842,7 +2039,7 @@ CATEGORÍAS: Cuando el usuario diga el tipo de mueble usa siempre el valor BD de
 
 PRODUCCIÓN vs ÓRDENES: estado_produccion → qué se fabrica en el taller (tabla produccion). consultar_ordenes → órdenes de clientes. Son tablas distintas — una orden listo_entrega puede tener producción en estado listo simultáneamente.
 
-COSTOS DE FABRICACIÓN — sigue este orden de prioridad sin saltarte pasos:
+COSTOS DE FABRICACIÓN — sigue este orden SOLO cuando el usuario pida precio, costo, valor o cotización de fabricación. Si la pregunta es sobre colores/telas/marcas/variantes disponibles, usa en su lugar consultar_variantes_producto (ver sección VARIANTES).
 1. El usuario menciona un nombre de producto (ej: "Cama Estocolmo", "Silla Alicia", "Sofá Roma", "Sofá Modular Telavid") → llama SIEMPRE obtener_ficha_tecnica primero, aunque el nombre parezca descriptivo. Si la ficha existe (encontrado: true), presenta los costos reales exactos así (sin LaTeX):
 "**[Nombre del producto]**
 Mano de obra:
@@ -1875,6 +2072,19 @@ ANÁLISIS PREDICTIVO — usa analizar_rotacion_inventario ante preguntas como: �
 **Exceso de stock** (>12 semanas):
 · ..."
 Si pregunta por una tienda específica, filtra por ella y recomienda qué debe pedir a producción.
+
+VARIANTES (tela/color/marca) — PRIORIDAD ALTA: cuando el usuario pregunte por colores, telas, marcas, especificaciones o combinaciones disponibles de un producto, usa consultar_variantes_producto DIRECTAMENTE, sin pasar por obtener_ficha_tecnica. Señales clave: "¿qué colores hay?", "¿qué telas tiene?", "¿de qué marca?", "¿qué opciones hay?", "¿qué referencias/especificaciones hay disponibles?", "¿hay en [color/tela]?". Pasa el nombre COMPLETO del producto tal como lo dice el usuario (ej: "silla aux alicia", no solo "alicia"). Presenta el resultado así:
+Si tiene_variantes = false → "El [producto] no maneja especificaciones de tela o color (es un producto sin variantes, como comedores de madera o mesas)."
+Si tiene_variantes = true y hay variantes con stock → lista así:
+"**[Producto]** — variantes disponibles[en (Tienda) si hay filtro de tienda]:
+· Marca: [marca] | Tela: [tela] | Color: [color] — [N] libre(s)[por tienda si hay varias]
+· ..."
+Si no hay ninguna variante con stock → "Actualmente no hay stock disponible en ninguna variante de ese producto[en esa tienda]."
+NUNCA inventes variantes ni colores. NUNCA respondas que no tiene variantes si no has llamado el tool primero.
+
+RESTRICCIONES POR ROL — aplican automáticamente en el backend:
+- Vendedor: puede consultar inventario y variantes de CUALQUIER tienda (para verificar si otra tienda tiene el producto que busca el cliente). Solo ve sus propias órdenes, producción de su tienda y retrasos de su tienda. NO tiene acceso a reporte de vendedores ni ventas globales de toda la empresa.
+- Si un vendedor pregunta por rankings de vendedores o ventas totales de la empresa, responde: "Esa información no está disponible para tu perfil. Puedo mostrarte tus estadísticas o las de tu tienda."
 
 REGLAS: Dinero en formato COP ($ 1.200.000). No inventes datos. Muestra productos cuando una orden los tiene.
 EOT;

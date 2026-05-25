@@ -65,8 +65,8 @@ class OrdenController extends Controller
             $query->whereDate('created_at', '<=', $v);
         }
         if ($search = $request->query('search')) {
-            $term = "%{$search}%";
-            $query->whereHas('cliente', fn($q) => $q->where('nombre', 'like', $term));
+            $term = '%' . mb_strtolower($search) . '%';
+            $query->whereHas('cliente', fn($q) => $q->whereRaw('LOWER(nombre) LIKE ?', [$term]));
         }
 
         $ordenes = $query->orderByDesc('created_at')->paginate(20);
@@ -424,12 +424,12 @@ class OrdenController extends Controller
             'tienda:id,nombre',
             'items.producto:id,nombre,categoria,precio_base,personalizable,foto_url,medidas,material',
             'items.produccion',
-            'pagos',
+            'pagos.facturacionTomadaPor:id,nombre',
             'ediciones.usuario:id,nombre',
         ])->findOrFail($id);
 
         if ($usuario->rol === 'vendedor' && $orden->vendedor_id !== $usuario->id) {
-            if (!$usuario->facturacion || $orden->tienda_id !== $usuario->tienda_default_id || $orden->estado !== 'entregado') {
+            if (! $usuario->facturacion) {
                 return response()->json(['message' => 'No autorizado.'], 403);
             }
         }
@@ -890,7 +890,7 @@ class OrdenController extends Controller
         ])->findOrFail($id);
 
         if ($usuario->rol === 'vendedor' && $orden->vendedor_id !== $usuario->id) {
-            if (!$usuario->facturacion || $orden->tienda_id !== $usuario->tienda_default_id || $orden->estado !== 'entregado') {
+            if (! $usuario->facturacion) {
                 return response()->json(['message' => 'No autorizado.'], 403);
             }
         }

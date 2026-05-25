@@ -233,7 +233,7 @@ class StatsController extends Controller
         if ($tiendaId)   $q->where('o.tienda_id',   $tiendaId);
         if ($vendedorId) $q->where('o.vendedor_id', $vendedorId);
         if ($categoria)  $q->where('p.categoria',   $categoria);
-        if ($busqueda)   $q->where('p.nombre', 'like', "%{$busqueda}%");
+        if ($busqueda)   $q->whereRaw('LOWER(p.nombre) LIKE ?', ['%' . mb_strtolower($busqueda) . '%']);
 
         return response()->json($q->get());
     }

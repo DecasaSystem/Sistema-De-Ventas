@@ -41,6 +41,7 @@ import {
   PencilSquareIcon,
   CalculatorIcon,
   BanknotesIcon,
+  DocumentCurrencyDollarIcon,
 } from '@heroicons/vue/24/outline'
 
 const route  = useRoute()
@@ -100,6 +101,10 @@ watch(() => auth.usuario?.id, (id) => {
 // Cerrar menú "Más" al cambiar de ruta
 watch(() => route.name, () => { abrirMas.value = false })
 
+const abonosNoLeidos = computed(() =>
+  notif.items.filter(n => !n.leida && n.tipo === 'abono_registrado').length
+)
+
 const navItems = computed(() => {
   if (auth.isSupervisor) {
     const items = [
@@ -136,6 +141,16 @@ const navItems = computed(() => {
       { name: 'perfil',              label: 'Perfil',          icon: UserCircleIcon },
     ]
   }
+  if (auth.isFacturador) {
+    return [
+      { name: 'dashboard',    label: 'Inicio',       icon: HomeIcon },
+      { name: 'facturacion',  label: 'Facturación',  icon: DocumentCurrencyDollarIcon, badge: abonosNoLeidos.value },
+      { name: 'ordenes',      label: 'Órdenes',      icon: ClipboardDocumentListIcon },
+      { name: 'inventario',   label: 'Inventario',   icon: ArchiveBoxIcon, badge: surtidos.pendientesCount },
+      { name: 'clientes',     label: 'Clientes',     icon: UserGroupIcon },
+      { name: 'mis-stats',    label: 'Estadíst.',    icon: PresentationChartLineIcon },
+    ]
+  }
   return [
     { name: 'dashboard',  label: 'Inicio',     icon: HomeIcon },
     { name: 'ordenes',    label: 'Órdenes',    icon: ClipboardDocumentListIcon },
@@ -145,14 +160,17 @@ const navItems = computed(() => {
   ]
 })
 
-// Para supervisor: primeros 4 siempre visibles, el resto en "Más"
+// Para supervisor y facturador: primeros 4 siempre visibles, el resto en "Más"
 const navPrimarios   = computed(() => {
   const items = navItems.value
-  return auth.usuario?.rol === 'conductor' ? items : (auth.isSupervisor ? items.slice(0, 4) : items)
+  if (auth.usuario?.rol === 'conductor') return items
+  if (auth.isSupervisor || auth.isFacturador) return items.slice(0, 4)
+  return items
 })
 const navSecundarios = computed(() => {
   if (auth.usuario?.rol === 'conductor') return []
-  return auth.isSupervisor ? navItems.value.slice(4) : []
+  if (auth.isSupervisor || auth.isFacturador) return navItems.value.slice(4)
+  return []
 })
 const masActivo      = computed(() => navSecundarios.value.some(i => i.name === route.name))
 

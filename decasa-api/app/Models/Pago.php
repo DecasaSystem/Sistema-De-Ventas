@@ -16,11 +16,16 @@ class Pago extends Model
         'metodo',
         'referencia',
         'notas',
+        'facturacion_tomada_por',
+        'facturacion_hecha_at',
     ];
 
     protected function casts(): array
     {
-        return ['monto' => 'decimal:2'];
+        return [
+            'monto'               => 'decimal:2',
+            'facturacion_hecha_at' => 'datetime',
+        ];
     }
 
     public function orden()
@@ -31,5 +36,10 @@ class Pago extends Model
     public function vendedor()
     {
         return $this->belongsTo(Usuario::class, 'vendedor_id');
+    }
+
+    public function facturacionTomadaPor()
+    {
+        return $this->belongsTo(Usuario::class, 'facturacion_tomada_por');
     }
 }

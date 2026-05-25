@@ -9,6 +9,7 @@ import {
   XCircleIcon,
   KeyIcon,
   PencilIcon,
+  BanknotesIcon,
 } from '@heroicons/vue/24/outline'
 import { getUsuario, toggleActivo, resetPassword, updateUsuario } from '@/api/usuarios'
 import { getTiendas } from '@/api/ordenes'
@@ -205,6 +206,13 @@ onMounted(async () => {
           <div>
             <p class="text-xs text-gray-400">Email</p>
             <p class="font-medium text-gray-800">{{ usuario.email }}</p>
+          </div>
+        </div>
+        <div v-if="usuario.facturacion && usuario.rol === 'vendedor'" class="flex items-center gap-3">
+          <BanknotesIcon class="w-5 h-5 text-green-500 flex-shrink-0" />
+          <div>
+            <p class="text-xs text-gray-400">Función especial</p>
+            <p class="font-medium text-green-700">Facturación habilitada</p>
           </div>
         </div>
         <div v-if="usuario.es_tapicero && usuario.rol === 'supervisor'" class="flex items-center gap-3">

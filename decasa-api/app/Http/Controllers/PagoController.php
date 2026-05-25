@@ -3,9 +3,11 @@
 namespace App\Http\Controllers;
 
 use App\Models\Orden;
+use App\Models\Pago;
 use App\Models\Usuario;
 use App\Services\NotificacionService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class PagoController extends Controller
 {
@@ -85,9 +87,8 @@ class PagoController extends Controller
             $orden->update(['estado' => 'entregado']);
         }
 
-        // Notificar a los usuarios de facturación de la misma tienda
+        // Notificar a todos los facturadores activos (cubren todas las tiendas)
         $facturadores = Usuario::where('facturacion', true)
-            ->where('tienda_default_id', $orden->tienda_id)
             ->where('activo', true)
             ->where('id', '!=', $usuario->id)
             ->get();
@@ -115,5 +116,56 @@ class PagoController extends Controller
             'saldo_pendiente'=> $orden->saldoPendiente(),
             'estado_orden'   => $orden->fresh()->estado,
         ], 201);
+    }
+
+    /**
+     * POST /api/pagos/{id}/tomar-facturacion
+     * Reclama atómicamente la facturación de un pago (el primero en clickear gana).
+     */
+    public function tomarFacturacion(Request $request, int $id)
+    {
+        $usuario = $request->user();
+
+        if (! $usuario->facturacion) {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+
+        // Actualización atómica: solo si nadie lo tomó todavía
+        $updated = DB::table('pagos')
+            ->where('id', $id)
+            ->whereNull('facturacion_tomada_por')
+            ->update(['facturacion_tomada_por' => $usuario->id]);
+
+        $pago = Pago::with('facturacionTomadaPor:id,nombre')->findOrFail($id);
+
+        return response()->json([
+            'tomado' => (bool) $updated,
+            'pago'   => $pago,
+        ]);
+    }
+
+    /**
+     * POST /api/pagos/{id}/marcar-facturada
+     * Marca el pago como facturado (solo quien lo tomó puede hacerlo).
+     */
+    public function marcarFacturada(Request $request, int $id)
+    {
+        $usuario = $request->user();
+
+        if (! $usuario->facturacion) {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+
+        $pago = Pago::findOrFail($id);
+
+        if ((int) $pago->facturacion_tomada_por !== (int) $usuario->id) {
+            return response()->json(['message' => 'Solo quien tomó la facturación puede marcarla como hecha.'], 403);
+        }
+
+        $pago->update(['facturacion_hecha_at' => now()]);
+
+        return response()->json([
+            'pago' => $pago->fresh()->load('facturacionTomadaPor:id,nombre'),
+        ]);
     }
 }

@@ -34,6 +34,7 @@ class AuthController extends Controller
             'nombre'            => $usuario->nombre,
             'rol'               => $usuario->rol,
             'es_tapicero'       => (bool) $usuario->es_tapicero,
+            'facturacion'       => (bool) $usuario->facturacion,
             'tienda_default_id' => $usuario->tienda_default_id,
             'firma_url'         => $usuario->firma_url,
         ]);
@@ -56,6 +57,7 @@ class AuthController extends Controller
             'email'             => $usuario->email,
             'rol'               => $usuario->rol,
             'es_tapicero'       => (bool) $usuario->es_tapicero,
+            'facturacion'       => (bool) $usuario->facturacion,
             'tienda_default_id' => $usuario->tienda_default_id,
             'tienda_default'    => $usuario->tiendaDefault,
             'firma_url'         => $usuario->firma_url,

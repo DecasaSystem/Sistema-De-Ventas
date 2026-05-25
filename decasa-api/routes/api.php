@@ -21,6 +21,7 @@ use App\Http\Controllers\FichaTecnicaController;
 use App\Http\Controllers\MaterialController;
 use App\Http\Controllers\AgentController;
 use App\Http\Controllers\ConfiguracionCostosController;
+use App\Http\Controllers\FacturacionController;
 use Illuminate\Support\Facades\Route;
 
 // ── Auth (público) ────────────────────────────────────────────────────────────
@@ -63,6 +64,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // Pagos
     Route::get('/ordenes/{id}/pagos',  [PagoController::class, 'index']);
     Route::post('/ordenes/{id}/pagos', [PagoController::class, 'store']);
+    Route::post('/pagos/{id}/tomar-facturacion', [PagoController::class, 'tomarFacturacion']);
+    Route::post('/pagos/{id}/marcar-facturada',  [PagoController::class, 'marcarFacturada']);
 
     // Subida de archivos
     Route::post('/upload/foto', [UploadController::class, 'foto']);
@@ -190,6 +193,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/materiales',               [MaterialController::class, 'store']);
     Route::patch('/materiales/{material}',   [MaterialController::class, 'update']);
     Route::post('/materiales/importar',      [MaterialController::class, 'importar']);
+
+    // Facturación (vendedores con facturacion=true)
+    Route::get('/facturacion/ordenes', [FacturacionController::class, 'ordenes']);
 
     // Agente de IA
     Route::post('/agent/chat', [AgentController::class, 'chat']);

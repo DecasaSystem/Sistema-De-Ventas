@@ -14,6 +14,7 @@ import {
   ChartBarIcon,
   PresentationChartLineIcon,
   TruckIcon,
+  DocumentCurrencyDollarIcon,
 } from '@heroicons/vue/24/outline'
 
 const auth   = useAuthStore()
@@ -53,6 +54,10 @@ const accesos = computed(() => {
   }
 
   items.push({ label: auth.isSupervisor ? 'Mis estadísticas' : 'Estadísticas', icon: PresentationChartLineIcon, to: { name: 'mis-stats' } })
+
+  if (auth.isFacturador) {
+    items.unshift({ label: 'Facturación', icon: DocumentCurrencyDollarIcon, to: { name: 'facturacion' } })
+  }
 
   return items
 })
