@@ -21,6 +21,7 @@ class Orden extends Model
         'firma_url',
         'direccion_envio',
         'ciudad_envio',
+        'departamento_envio',
     ];
 
     protected function casts(): array

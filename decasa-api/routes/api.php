@@ -73,9 +73,11 @@ Route::middleware('auth:sanctum')->group(function () {
     // Inventario
     Route::get('/inventario',                              [InventarioController::class, 'index']);
     Route::get('/inventario/{productoId}/movimientos',     [InventarioController::class, 'movimientos'])->whereNumber('productoId');
-    Route::post('/inventario/entrada',                     [InventarioController::class, 'entrada']);
-    Route::post('/inventario/salida',                      [InventarioController::class, 'salida']);
-    Route::post('/inventario/variantes/entrada',           [VarianteController::class, 'entrada']);
+    Route::middleware('role:supervisor')->group(function () {
+        Route::post('/inventario/entrada',               [InventarioController::class, 'entrada']);
+        Route::post('/inventario/salida',                [InventarioController::class, 'salida']);
+        Route::post('/inventario/variantes/entrada',     [VarianteController::class, 'entrada']);
+    });
 
     // Surtir — accesible para vendedor (pendientes, aceptar, rechazar) y supervisor (todo)
     Route::get('/inventario/surtidos/pendientes',          [SurtidoController::class, 'pendientes']);
@@ -130,7 +132,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // Producción — despacho de producción (despachador)
     Route::get('/produccion/pendientes-despacho',              [ProduccionController::class, 'pendientesDespacho']);
     Route::get('/produccion/historial-despacho',               [ProduccionController::class, 'historialDespacho']);
-    Route::patch('/produccion/{id}/completar-despacho',        [ProduccionController::class, 'completarDespacho'])->whereNumber('id');
+    Route::patch('/produccion/{id}/completar-despacho',        [ProduccionController::class, 'completarDespacho'])->whereNumber('id')->middleware('role:despachador,supervisor');
 
     // Stats — ambos roles (vendedor ve solo lo suyo, supervisor ve todo)
     Route::prefix('stats')->group(function () {
@@ -189,10 +191,12 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     // Materiales (catálogo maestro)
-    Route::get('/materiales',                [MaterialController::class, 'index']);
-    Route::post('/materiales',               [MaterialController::class, 'store']);
-    Route::patch('/materiales/{material}',   [MaterialController::class, 'update']);
-    Route::post('/materiales/importar',      [MaterialController::class, 'importar']);
+    Route::get('/materiales', [MaterialController::class, 'index']);
+    Route::middleware('role:supervisor')->group(function () {
+        Route::post('/materiales',             [MaterialController::class, 'store']);
+        Route::patch('/materiales/{material}', [MaterialController::class, 'update']);
+        Route::post('/materiales/importar',    [MaterialController::class, 'importar']);
+    });
 
     // Facturación (vendedores con facturacion=true)
     Route::get('/facturacion/ordenes', [FacturacionController::class, 'ordenes']);
@@ -207,10 +211,12 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     // Fichas Técnicas (costos de producción)
-    Route::get('/fichas-tecnicas',                          [FichaTecnicaController::class, 'index']);
-    Route::post('/fichas-tecnicas',                         [FichaTecnicaController::class, 'store']);
-    Route::get('/fichas-tecnicas/materiales-sugeridos',     [FichaTecnicaController::class, 'materialesSugeridos']);
-    Route::get('/fichas-tecnicas/{fichaTecnica}',           [FichaTecnicaController::class, 'show']);
-    Route::patch('/fichas-tecnicas/{fichaTecnica}/items',   [FichaTecnicaController::class, 'updateItems']);
-    Route::post('/fichas-tecnicas/reimportar',              [FichaTecnicaController::class, 'reimportar']);
+    Route::get('/fichas-tecnicas',                        [FichaTecnicaController::class, 'index']);
+    Route::get('/fichas-tecnicas/materiales-sugeridos',   [FichaTecnicaController::class, 'materialesSugeridos']);
+    Route::get('/fichas-tecnicas/{fichaTecnica}',         [FichaTecnicaController::class, 'show']);
+    Route::middleware('role:supervisor')->group(function () {
+        Route::post('/fichas-tecnicas',                          [FichaTecnicaController::class, 'store']);
+        Route::patch('/fichas-tecnicas/{fichaTecnica}/items',    [FichaTecnicaController::class, 'updateItems']);
+        Route::post('/fichas-tecnicas/reimportar',               [FichaTecnicaController::class, 'reimportar']);
+    });
 });
