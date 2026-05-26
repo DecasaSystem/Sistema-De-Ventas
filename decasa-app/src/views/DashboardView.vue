@@ -15,7 +15,7 @@ import {
   PresentationChartLineIcon,
   TruckIcon,
   DocumentCurrencyDollarIcon,
-  Cog6ToothIcon,
+  CalculatorIcon,
 } from '@heroicons/vue/24/outline'
 
 const auth   = useAuthStore()
@@ -70,7 +70,7 @@ const accesosAdmin = computed(() => {
     { label: 'Trabajadores',    icon: UsersIcon,    to: { name: 'usuarios'      } },
     { label: 'Nuevo trabajador',icon: UserPlusIcon, to: { name: 'usuario-crear' } },
     { label: 'Reportes',        icon: ChartBarIcon, to: { name: 'reportes'      } },
-    { label: 'Costos',          icon: Cog6ToothIcon,to: { name: 'costos'        } },
+    { label: 'Costos',          icon: CalculatorIcon, to: { name: 'costos' } },
   ]
 })
 </script>
