@@ -620,15 +620,8 @@ class AgentService
         $altoCm      = $args['alto_cm']  ?? null;
         $matCliente  = $args['materiales_cliente'] ?? null;
 
-        // Fichas de referencia más similares (hasta 3)
-        $fichasRef = DB::table('fichas_tecnicas')
-            ->where(function ($q) use ($categoria, $descripcion) {
-                $q->whereRaw('LOWER(categoria) LIKE ?', [$this->likeI($categoria)])
-                  ->orWhereRaw('LOWER(nombre) LIKE ?',  [$this->likeI($descripcion)]);
-            })
-            ->orderBy('costo_total')
-            ->limit(3)
-            ->get(['id', 'nombre', 'categoria', 'costo_materiales', 'costo_mano_obra', 'costo_total']);
+        // Fichas de referencia: 1 por componente del mueble (captura híbridos)
+        $fichasRef = $this->fichasReferenciaPorContexto($descripcion, $categoria);
 
         // Tarifas de mano de obra con tarifa_hora del incentivo
         $tarifas = DB::table('tarifas_proceso as tp')
@@ -637,13 +630,8 @@ class AgentService
             ->get(['tp.id', 'tp.proceso', 'tp.descripcion', 'tp.unidad', 'tp.cargo',
                    'tp.dias_por_unidad', 'tp.tarifa', 'sc.tarifa_hora']);
 
-        // Catálogo de materiales
-        $materiales = DB::table('materiales')
-            ->orderBy('nombre')
-            ->limit(50)
-            ->get(['nombre', 'unidad', 'precio_unitario']);
-
         if ($fichasRef->isEmpty()) {
+            $materiales = $this->materialesRelevantes($descripcion . ' ' . $categoria, collect());
             return [
                 'encontrado'         => false,
                 'descripcion'        => $descripcion,
@@ -669,6 +657,8 @@ class AgentService
             $puestosRef = isset($m[1]) ? (int) $m[1] : 4;
             $factor     = max(0.5, $numPuestos / $puestosRef);
         }
+
+        $materiales = $this->materialesRelevantes($descripcion . ' ' . $categoria, $itemsRef);
 
         return [
             'encontrado'          => true,
@@ -704,23 +694,10 @@ class AgentService
             ->orderBy('proceso')
             ->get(['proceso', 'descripcion', 'unidad', 'tarifa', 'aplica_a', 'cargo', 'dias_por_unidad']);
 
-        // Catálogo de materiales con precios
-        $materiales = DB::table('materiales')
-            ->orderBy('nombre')
-            ->limit(50)
-            ->get(['nombre', 'unidad', 'precio_unitario']);
+        // Fichas técnicas: 1 por componente del mueble (captura híbridos)
+        $fichasRef = $this->fichasReferenciaPorContexto($tipo, $categoria);
 
-        // Fichas técnicas similares como referencia (máx. 3)
-        $fichasRef = DB::table('fichas_tecnicas')
-            ->where(function ($q) use ($tipo, $categoria) {
-                $q->whereRaw('LOWER(categoria) LIKE ?', [$this->likeI($categoria)])
-                  ->orWhereRaw('LOWER(nombre) LIKE ?',  [$this->likeI($tipo)]);
-            })
-            ->orderBy('costo_total')
-            ->limit(3)
-            ->get(['id', 'nombre', 'categoria', 'costo_materiales', 'costo_mano_obra', 'costo_total']);
-
-        // Items detallados de las fichas de referencia (para que la IA vea qué materiales usa un producto similar)
+        // Items detallados de las fichas de referencia
         $itemsRef = collect();
         if ($fichasRef->isNotEmpty()) {
             $itemsRef = DB::table('ficha_tecnica_items')
@@ -729,6 +706,10 @@ class AgentService
                 ->orderBy('orden')
                 ->get(['ficha_tecnica_id', 'seccion', 'descripcion', 'cantidad', 'unidad', 'precio_unitario', 'subtotal', 'es_mano_obra']);
         }
+
+        // Materiales relevantes: primero los que aparecen en las fichas similares (precios exactos),
+        // luego los que coincidan por keyword del tipo/categoría, completando hasta ~80 entradas
+        $materiales = $this->materialesRelevantes($tipo . ' ' . $categoria, $itemsRef);
 
         return [
             'tipo_producto'       => $tipo,
@@ -746,6 +727,110 @@ class AgentService
             'items_referencia'    => $itemsRef,
             'nota_calculo'        => 'Mano de obra = dias_por_unidad × (salario_mensual / dias_laborales_mes). Muestra esta fórmula en tu respuesta para que el cálculo sea transparente.',
         ];
+    }
+
+    /**
+     * Devuelve los materiales más relevantes del catálogo para un producto dado.
+     * Prioriza materiales que aparecen en fichas similares (precios reales),
+     * luego los que coincidan por keyword, y completa con una muestra general.
+     */
+    private function materialesRelevantes(string $contexto, $itemsRef): \Illuminate\Support\Collection
+    {
+        // 1. Nombres de materiales que ya usan las fichas de referencia (sin mano de obra)
+        $nombresEnFichas = $itemsRef
+            ->where('es_mano_obra', false)
+            ->map(fn($i) => mb_strtolower(trim($i->descripcion)))
+            ->unique()
+            ->values();
+
+        // 2. Keywords del tipo/categoría del mueble (palabras ≥4 chars)
+        $keywords = collect(preg_split('/\s+/', mb_strtolower($contexto)))
+            ->filter(fn($k) => mb_strlen($k) >= 4)
+            ->unique()
+            ->values();
+
+        // Consulta combinada: coincide con nombres de fichas O keywords del producto
+        $query = DB::table('materiales');
+        if ($nombresEnFichas->isNotEmpty() || $keywords->isNotEmpty()) {
+            $query->where(function ($q) use ($nombresEnFichas, $keywords) {
+                foreach ($nombresEnFichas as $n) {
+                    // Match por las primeras palabras del nombre del material en la ficha
+                    $primeraPalabra = explode(' ', $n)[0];
+                    if (mb_strlen($primeraPalabra) >= 4) {
+                        $q->orWhereRaw('LOWER(nombre) LIKE ?', ['%' . $primeraPalabra . '%']);
+                    }
+                }
+                foreach ($keywords as $kw) {
+                    $q->orWhereRaw('LOWER(nombre) LIKE ?', ['%' . $kw . '%']);
+                }
+            });
+        }
+
+        $relevantes = $query->orderBy('nombre')->limit(60)->get(['nombre', 'unidad', 'precio_unitario']);
+
+        // 3. Si hay poca variedad (< 20), completar con materiales generales de relleno
+        if ($relevantes->count() < 20) {
+            $yaIncluidos = $relevantes->pluck('nombre');
+            $generales   = DB::table('materiales')
+                ->whereNotIn('nombre', $yaIncluidos)
+                ->orderBy('nombre')
+                ->limit(40)
+                ->get(['nombre', 'unidad', 'precio_unitario']);
+            return $relevantes->concat($generales);
+        }
+
+        return $relevantes;
+    }
+
+    /**
+     * Busca fichas técnicas de referencia extrayendo 1 ficha por keyword del texto.
+     * Para muebles híbridos ("cama escritorio cajones") devuelve una ficha de cada
+     * componente en lugar de buscar la frase completa (que no existiría en el catálogo).
+     */
+    private function fichasReferenciaPorContexto(string $texto, string $categoria, int $max = 5): \Illuminate\Support\Collection
+    {
+        $stopwords = ['para', 'como', 'pero', 'todo', 'este', 'esta', 'estos', 'estas',
+                      'tiene', 'todos', 'null', 'nulo', 'con', 'los', 'las', 'del'];
+
+        $palabras = collect(preg_split('/\s+/', mb_strtolower("$texto $categoria")))
+            ->map(fn($p) => trim($p, '.,;:()'))
+            ->filter(fn($p) => mb_strlen($p) >= 4 && !in_array($p, $stopwords))
+            ->unique()
+            ->values();
+
+        $fichasEncontradas = collect();
+        $idsUsados         = [0]; // evitar whereNotIn vacío
+
+        // 1 ficha representativa por keyword — captura cada componente del híbrido
+        foreach ($palabras as $palabra) {
+            $ficha = DB::table('fichas_tecnicas')
+                ->where(function ($q) use ($palabra) {
+                    $q->whereRaw('LOWER(nombre) LIKE ?',    [$this->likeI($palabra)])
+                      ->orWhereRaw('LOWER(categoria) LIKE ?', [$this->likeI($palabra)]);
+                })
+                ->whereNotIn('id', $idsUsados)
+                ->orderBy('costo_total')
+                ->first(['id', 'nombre', 'categoria', 'costo_materiales', 'costo_mano_obra', 'costo_total']);
+
+            if ($ficha) {
+                $fichasEncontradas->push($ficha);
+                $idsUsados[] = $ficha->id;
+                if ($fichasEncontradas->count() >= $max) break;
+            }
+        }
+
+        // Completar con búsqueda por categoría si hay poca variedad
+        if ($fichasEncontradas->count() < 2 && $categoria) {
+            $extras = DB::table('fichas_tecnicas')
+                ->whereRaw('LOWER(categoria) LIKE ?', [$this->likeI($categoria)])
+                ->whereNotIn('id', $idsUsados)
+                ->orderBy('costo_total')
+                ->limit($max - $fichasEncontradas->count())
+                ->get(['id', 'nombre', 'categoria', 'costo_materiales', 'costo_mano_obra', 'costo_total']);
+            $fichasEncontradas = $fichasEncontradas->concat($extras);
+        }
+
+        return $fichasEncontradas;
     }
 
     private function handleConsultarInventario(array $args, Usuario $usuario): array
@@ -2017,6 +2102,176 @@ class AgentService
             'consultar_variantes_producto' => $this->handleConsultarVariantesProducto($args, $usuario),
             default                        => ['error' => "Tool '{$toolName}' no reconocida."],
         };
+    }
+
+    // ─── Cálculo de precio para ítem personalizado (cotizador en nueva orden) ──
+
+    public function calcularPrecioItem(array $params, Usuario $usuario): array
+    {
+        $productoId  = $params['producto_id'] ?? null;
+        $nombre      = trim($params['nombre'] ?? '');
+        $categoria   = trim($params['categoria'] ?? '');
+        $descripcion = trim($params['descripcion'] ?? '');
+        $precioBase  = isset($params['precio_base']) ? (int) $params['precio_base'] : null;
+        $largoCm     = isset($params['largo_cm'])    ? (float) $params['largo_cm']  : null;
+        $anchoCm     = isset($params['ancho_cm'])    ? (float) $params['ancho_cm']  : null;
+        $altoCm      = isset($params['alto_cm'])     ? (float) $params['alto_cm']   : null;
+        $numPuestos  = isset($params['num_puestos']) ? (int)   $params['num_puestos'] : null;
+        $bocetoUrl   = $params['boceto_url'] ?? null;
+
+        $tieneMedidas = $largoCm || $anchoCm || $altoCm;
+
+        // ── Obtener datos de referencia ──────────────────────────────────────
+        $toolDataMedidas = null;
+
+        if ($productoId) {
+            // Producto del catálogo: siempre traer su ficha técnica base
+            $toolData = $this->handleObtenerFichaTecnica(array_filter([
+                'nombre_producto' => $nombre,
+                'puestos_nuevo'   => $numPuestos,
+            ]));
+            $toolUsado = 'ficha_tecnica';
+
+            // Si además cambiaron las medidas, traer estimado por medidas para que
+            // la IA pueda escalar la ficha con mayor precisión
+            if ($tieneMedidas) {
+                $toolDataMedidas = $this->handleCalcularCostoPorMedidas(array_filter([
+                    'tipo_producto' => $nombre ?: $categoria,
+                    'descripcion'   => $descripcion ?: $nombre,
+                    'categoria'     => $categoria,
+                    'largo_cm'      => $largoCm,
+                    'ancho_cm'      => $anchoCm,
+                    'alto_cm'       => $altoCm,
+                ]));
+            }
+        } elseif ($tieneMedidas) {
+            $toolData = $this->handleCalcularCostoPorMedidas(array_filter([
+                'tipo_producto' => $nombre ?: $categoria,
+                'descripcion'   => $descripcion ?: $nombre,
+                'categoria'     => $categoria,
+                'largo_cm'      => $largoCm,
+                'ancho_cm'      => $anchoCm,
+                'alto_cm'       => $altoCm,
+                'num_puestos'   => $numPuestos,
+            ]));
+            $toolUsado = 'costo_medidas';
+        } else {
+            $toolData = $this->handleCalcularCostoPersonalizado(array_filter([
+                'descripcion_producto' => $descripcion ?: $nombre,
+                'categoria'            => $categoria ?: $nombre,
+                'num_puestos'          => $numPuestos,
+            ]));
+            $toolUsado = 'costo_personalizado';
+        }
+
+        // ── Detectar qué cambió (solo para productos del catálogo) ───────────
+        $cambioTela    = false;
+        $cambioMedidas = false;
+
+        if ($productoId) {
+            $descLower = strtolower($descripcion);
+            $cambioTela = $descripcion && (
+                str_contains($descLower, 'tela')   || str_contains($descLower, 'material') ||
+                str_contains($descLower, 'tapiz')  || str_contains($descLower, 'cuero')    ||
+                str_contains($descLower, 'cabecero') || str_contains($descLower, ' · ')
+            );
+            $cambioMedidas = $tieneMedidas;
+        }
+
+        // ── Construir el contexto para la IA ─────────────────────────────────
+        if ($productoId) {
+            $cambiosTexto = [];
+            if ($cambioTela)    $cambiosTexto[] = 'cambio de tela/material';
+            if ($cambioMedidas) $cambiosTexto[] = 'nuevas medidas ' . implode('×', array_filter([$largoCm, $anchoCm, $altoCm])) . ' cm';
+            if ($descripcion && !$cambioTela && !$cambioMedidas) $cambiosTexto[] = 'modificaciones adicionales';
+
+            $precioBaseTexto = $precioBase
+                ? ' Precio de venta actual en catálogo: $' . number_format($precioBase, 0, ',', '.') . ' COP.'
+                : '';
+
+            $contexto = "Producto del catálogo: \"{$nombre}\"."
+                . ($categoria ? " Categoría: {$categoria}." : '')
+                . $precioBaseTexto
+                . ($cambiosTexto
+                    ? ' Personalización solicitada: ' . implode(' y ', $cambiosTexto) . '.'
+                    : ' Sin cambios — usar costo base de la ficha.')
+                . ($descripcion ? " Detalles: {$descripcion}." : '');
+        } else {
+            $contexto = "Producto: \"{$nombre}\"."
+                . ($categoria   ? " Categoría: {$categoria}."              : '')
+                . ($descripcion ? " Especificaciones: {$descripcion}."      : '')
+                . ($largoCm     ? " Medidas: {$largoCm}×{$anchoCm}×{$altoCm} cm." : '')
+                . ($numPuestos  ? " Puestos: {$numPuestos}."                : '');
+        }
+
+        // Mejora 3: multiplicador según complejidad del cálculo
+        $multiplicador = match ($toolUsado) {
+            'ficha_tecnica'       => 2.2,
+            'costo_medidas'       => 2.4,
+            'costo_personalizado' => 2.6,
+            default               => 2.2,
+        };
+
+        $systemPrompt = <<<EOT
+Eres un cotizador de muebles de Decasa (Colombia). Con los datos de referencia, devuelve ÚNICAMENTE un JSON válido (sin texto extra, sin markdown) con esta estructura exacta:
+{
+  "precio_fabricacion": <entero COP>,
+  "precio_sugerido_venta": <entero COP, mínimo precio_fabricacion × {$multiplicador}>,
+  "desglose_materiales": [{"descripcion": "string", "subtotal": <entero>}],
+  "desglose_mano_obra":  [{"descripcion": "string", "subtotal": <entero>}],
+  "notas": "string breve de advertencias o aclaraciones (puede quedar vacío)"
+}
+REGLAS GENERALES: precio_sugerido_venta >= precio_fabricacion × {$multiplicador}. Máx 8 ítems por sección. En materiales incluye mínimo 4 ítems diferenciados (madera/estructura, tapizado/tela, herrajes/tornillos, acabados/laca). Para muebles híbridos (varios componentes) agrupa la mano de obra por componente. Devuelve SOLO el JSON.
+
+REGLAS DE NEGOCIO DECASA: En Decasa los comedores (mesas) y las sillas se venden y fabrican SIEMPRE por separado. Nunca incluyas el costo de sillas en el precio de un comedor, ni viceversa. Si el cliente pide un "comedor 6 puestos", estás cotizando SOLO la mesa. Las sillas son un ítem aparte en la orden.
+
+CONTEXTO DE FABRICACIÓN DECASA (MUY IMPORTANTE): Los productos del catálogo se fabrican a pedido — no hay stock de piezas terminadas esperando. Esto significa:
+- Cambiar la TELA/TAPIZADO: el carpintero fabrica la estructura EXACTAMENTE igual que siempre (mismo tiempo, mismo costo). Solo cambia: el material de tela y las horas del tapicero con esa tela. NO se agrega trabajo extra de carpintería ni esqueletería. El cliente en efecto está pidiendo "el mismo mueble pero con otra tela".
+- Cambiar las MEDIDAS ligeramente (±20%): se fabrica con esas medidas desde cero. No es "cortar un mueble ya hecho" — el carpintero trabaja con las nuevas dimensiones. El costo varía solo por la diferencia de material (más/menos madera, más/menos tela según el área). La mano de obra varía poco.
+- Cambiar las MEDIDAS drásticamente (>30%): requiere rediseño real. Escalar costos proporcionalmente al volumen/área.
+- Notas del cliente (ej: "sin brazos", "patas más cortas", "sin cabecero"): reflejan simplificaciones que REDUCEN trabajo y material, no lo aumentan. Ajustar el desglose a la baja en consecuencia.
+
+CUANDO ES PRODUCTO DEL CATÁLOGO PERSONALIZADO (datos incluyen ficha_tecnica):
+- El contexto puede incluir "Precio de venta actual en catálogo: \$X". Si está presente, precio_sugerido_venta DEBE ser >= ese valor. El precio del catálogo ya incluye el margen; la personalización solo puede subir el precio, nunca bajarlo (salvo simplificaciones explícitas que reducen trabajo).
+- Solo cambia la TELA/MATERIAL → estructura y carpintería idénticas a la ficha. Solo ajusta el ítem de tela/tapiz en materiales y las horas de tapicería en mano de obra. precio_sugerido_venta = precio_catalogo + delta_tela × {$multiplicador}.
+- Solo cambian las MEDIDAS (≤20%) → mismos procesos, leve ajuste de material. precio_sugerido_venta = max(precio_catalogo, precio_fabricacion_ajustado × {$multiplicador}).
+- Cambian TELA y MEDIDAS → aplica ambos ajustes de forma independiente. precio_sugerido_venta >= precio_catalogo siempre.
+- Sin cambios → precio_fabricacion = costo_total de ficha. precio_sugerido_venta = precio_catalogo si se proporcionó, sino precio_fabricacion × {$multiplicador}.
+- Simplificaciones ("sin brazos", "sin cabecero", etc.) → pueden reducir precio_sugerido_venta por debajo del catálogo si el ahorro de material/labor es significativo. Indica el ahorro en notas.
+
+CUANDO ES PRODUCTO NUEVO SIN CATÁLOGO (datos incluyen costo_medidas o costo_personalizado):
+- Usa los datos de referencia como base para construir el desglose.
+- Si viene imagen/boceto: identifica el tipo de mueble, materiales visibles y nivel de complejidad estructural. Ajusta el estimado según lo que ves (más cajones, más estructuras, tapizado complejo, etc.).
+- Prioriza las especificaciones del texto (material, tela, cajones, medidas) sobre lo que se vea en la imagen cuando haya discrepancia.
+- Las notas adicionales del vendedor son requisitos del cliente — tenlas en cuenta en el cálculo (ej: "sin brazos", "con espejo", "bisagras suaves").
+- Si el producto es híbrido (combina funciones: cama+escritorio, cajonero+librero, etc.), suma los costos de cada función por separado en el desglose.
+EOT;
+
+        $contenidoUsuario = $contexto . "\n\nDatos de referencia (ficha técnica base):\n" . json_encode($toolData, JSON_UNESCAPED_UNICODE);
+
+        if ($toolDataMedidas) {
+            $contenidoUsuario .= "\n\nEstimado por medidas nuevas (referencia para escalar):\n" . json_encode($toolDataMedidas, JSON_UNESCAPED_UNICODE);
+        }
+
+        $mensajeUsuario = $bocetoUrl
+            ? [
+                'role'    => 'user',
+                'content' => [
+                    ['type' => 'text',      'text'      => $contenidoUsuario],
+                    ['type' => 'image_url', 'image_url' => ['url' => $bocetoUrl, 'detail' => 'low']],
+                ],
+            ]
+            : ['role' => 'user', 'content' => $contenidoUsuario];
+
+        $response = OpenAI::chat()->create([
+            'model'           => config('openai.model', 'gpt-4o-mini'),
+            'messages'        => [['role' => 'system', 'content' => $systemPrompt], $mensajeUsuario],
+            'response_format' => ['type' => 'json_object'],
+        ]);
+
+        $resultado = json_decode($response->choices[0]->message->content ?? '{}', true) ?? [];
+
+        return array_merge(['ok' => true, 'tool_usado' => $toolUsado], $resultado);
     }
 
     // ─── Loop principal del agente ────────────────────────────────────────────

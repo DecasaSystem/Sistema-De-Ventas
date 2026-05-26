@@ -20,6 +20,7 @@ use App\Http\Controllers\VarianteController;
 use App\Http\Controllers\FichaTecnicaController;
 use App\Http\Controllers\MaterialController;
 use App\Http\Controllers\AgentController;
+use App\Http\Controllers\PrecioItemController;
 use App\Http\Controllers\ConfiguracionCostosController;
 use App\Http\Controllers\FacturacionController;
 use Illuminate\Support\Facades\Route;
@@ -98,6 +99,7 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     // Variantes de producto (tela/color)
+    Route::get('/variantes/telas',           [VarianteController::class, 'telas']);
     Route::get('/productos/{id}/variantes',  [VarianteController::class, 'index']);
     Route::middleware('role:supervisor')->group(function () {
         Route::post('/productos/{id}/variantes', [VarianteController::class, 'store']);
@@ -202,7 +204,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/facturacion/ordenes', [FacturacionController::class, 'ordenes']);
 
     // Agente de IA
-    Route::post('/agent/chat', [AgentController::class, 'chat'])->middleware('throttle:30,1');
+    Route::post('/agent/chat',           [AgentController::class,   'chat'])->middleware('throttle:30,1');
+    Route::post('/calcular-precio-item', [PrecioItemController::class, 'calcular'])->middleware('throttle:20,1');
 
     // Configuración de costos — solo supervisor
     Route::middleware('role:supervisor')->group(function () {

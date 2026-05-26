@@ -6,6 +6,8 @@ import { useToast } from '@/composables/useToast'
 import api from '@/api'
 import { getVariantes } from '@/api/inventario'
 import { updateCliente, CATEGORIAS_DISPONIBLES } from '@/api/clientes'
+import { SPECS_TEMPLATES, resolverCategoria, camposParaModo, specsToDescripcion, extraerDimensiones } from '@/constants/specsConfig'
+import { marcasOrdenadas, tiposTelaDeM, coloresDeTela } from '@/data/telasCatalogo'
 import { ArrowPathIcon, SparklesIcon, XMarkIcon } from '@heroicons/vue/24/solid'
 import { ArrowPathIcon as ArrowPathOutlineIcon, PhotoIcon, UserGroupIcon, ArrowPathIcon as ConvertIcon, ExclamationTriangleIcon, PencilIcon, MapPinIcon, SwatchIcon } from '@heroicons/vue/24/outline'
 import FirmaCanvas from '@/components/FirmaCanvas.vue'
@@ -117,7 +119,7 @@ const productoCustomForm = ref({ nombre: '', categoria: '', precio_unitario: 0, 
 
 function agregarProductoCustom() {
   const f = productoCustomForm.value
-  if (!f.nombre.trim() || !f.precio_unitario || f.cantidad < 1) return
+  if (!f.nombre.trim() || f.cantidad < 1) return
   items.value.push({
     producto_id: null,
     variante_id: null,
@@ -132,12 +134,18 @@ function agregarProductoCustom() {
     cantidad: f.cantidad,
     precio_unitario: f.precio_unitario,
     es_personalizado: true,
-    specs_descripcion: '',
+    specs: {},
+    specs_notas: '',
     tienda_origen: null,
     fecha_entrega_prometida: null,
     boceto_blob: null,
     boceto_url: '',
     boceto_preview: null,
+    // cotizador IA
+    _mostrarCalculadora: false,
+    _calculandoPrecio: false,
+    _precioCalc: null,
+    _telaSelections: {},
   })
   productoCustomForm.value = { nombre: '', categoria: '', precio_unitario: 0, cantidad: 1 }
   modoProductoCustom.value = false
@@ -222,12 +230,18 @@ function _pushItem(producto, variante) {
     cantidad: 1,
     precio_unitario: producto.precio_base ?? 0,
     es_personalizado: false,
-    specs_descripcion:       '',
+    specs: {},
+    specs_notas: '',
     tienda_origen: esOtraTienda ? nombreTiendaBusqueda() : null,
     fecha_entrega_prometida: null,
     boceto_blob: null,
     boceto_url: '',
     boceto_preview: null,
+    // cotizador IA
+    _mostrarCalculadora: false,
+    _calculandoPrecio: false,
+    _precioCalc: null,
+    _telaSelections: {},
   })
   productoResultados.value = []
   productoQuery.value = ''
@@ -244,6 +258,78 @@ function onBocetoUpdate(item, blob) {
   item.boceto_blob    = blob
   item.boceto_url     = ''
   item.boceto_preview = blob ? URL.createObjectURL(blob) : null
+}
+
+// ── Picker de tela cascada: Marca → Tipo → Color (igual que en Inventario) ────
+function getTelaSelection(item, key) {
+  if (!item._telaSelections[key]) {
+    item._telaSelections[key] = { marca: '', marcaManual: '', tipo: '', telaManual: '', color: '', colorManual: '' }
+  }
+  return item._telaSelections[key]
+}
+
+function telaResumidaCampo(item, key) {
+  const s = item._telaSelections?.[key]
+  if (!s?.marca) return ''
+  const marca = s.marca === 'Otro' ? (s.marcaManual?.trim() || '') : s.marca
+  const tipo  = s.marca === 'Otro' ? (s.telaManual?.trim() || '')
+    : s.tipo === 'Otro' ? (s.telaManual?.trim() || '') : s.tipo
+  const color = (s.marca === 'Otro' || s.tipo === 'Otro')
+    ? (s.colorManual?.trim() || '')
+    : s.color === 'Otro' ? (s.colorManual?.trim() || '') : s.color
+  return [marca, tipo, color].filter(Boolean).join(' · ')
+}
+
+
+// ── Cotizador de precio con IA ────────────────────────────────────────────────
+function getTemplate(cat) {
+  const key = resolverCategoria(cat)
+  return SPECS_TEMPLATES[key] ?? SPECS_TEMPLATES['generico']
+}
+
+async function calcularPrecioIA(item) {
+  item._calculandoPrecio = true
+  item._precioCalc = null
+  try {
+    // Subir boceto ahora si aún no tiene URL (para que la IA lo vea)
+    if (item.boceto_blob && !item.boceto_url) {
+      const fd = new FormData()
+      fd.append('foto', item.boceto_blob, 'boceto.png')
+      fd.append('folder', 'bocetos')
+      const { data: up } = await api.post('/upload/foto', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      item.boceto_url = up.url
+    }
+
+    const template = getTemplate(item.categoria)
+    const specsResueltos = { ...item.specs }
+    // Resolver telas del picker cascada
+    for (const key of Object.keys(item._telaSelections ?? {})) {
+      const tela = telaResumidaCampo(item, key)
+      if (tela) specsResueltos[key] = tela
+    }
+    const specDesc = specsToDescripcion(specsResueltos, template)
+    const desc = [specDesc, item.specs_notas].filter(Boolean).join('. ')
+    const dims = extraerDimensiones(specsResueltos)
+    const { data } = await api.post('/calcular-precio-item', {
+      producto_id: item.producto_id ?? null,
+      nombre:      item.nombre,
+      categoria:   resolverCategoria(item.categoria) || item.categoria || '',
+      descripcion: desc,
+      precio_base: item.producto_id && item.precio_unitario ? item.precio_unitario : null,
+      ...dims,
+      boceto_url:  item.boceto_url || null,
+    })
+    item._precioCalc = data
+  } catch {
+    toast.error('No se pudo calcular el precio. Intenta de nuevo.')
+  } finally {
+    item._calculandoPrecio = false
+  }
+}
+
+function aplicarPrecio(item, precio) {
+  item.precio_unitario = precio
+  item._mostrarCalculadora = false
 }
 
 // ── Paso 3: Pago ──────────────────────────────────────────────────────────────
@@ -307,6 +393,13 @@ function irAPaso3() {
 
 async function submit() {
   if (submitting.value || subiendoFactura.value || cooldown.value > 0) return
+
+  const sinPrecio = items.value.filter(i => i.es_personalizado && !i.precio_unitario)
+  if (sinPrecio.length) {
+    toast.error(`${sinPrecio.length} producto(s) sin precio. Usa el cotizador IA o ingresa el precio manualmente.`)
+    return
+  }
+
   submitting.value = true
   try {
     // Subir foto de factura si se seleccionó
@@ -370,8 +463,16 @@ async function submit() {
         precio_unitario:         i.precio_unitario,
         es_personalizado:        i.es_personalizado,
         fecha_entrega_prometida: i.fecha_entrega_prometida || undefined,
-        specs_personalizacion:   i.es_personalizado && i.specs_descripcion
-          ? { descripcion: i.specs_descripcion }
+        specs_personalizacion:   i.es_personalizado
+          ? (() => {
+              const s = { ...i.specs }
+              for (const key of Object.keys(i._telaSelections ?? {})) {
+                const tela = telaResumidaCampo(i, key)
+                if (tela) s[key] = tela
+              }
+              if (i.specs_notas) s.notas = i.specs_notas
+              return Object.keys(s).length ? s : undefined
+            })()
           : undefined,
         boceto_url:              i.es_personalizado && i.boceto_url ? i.boceto_url : undefined,
       })),
@@ -762,19 +863,16 @@ function removeFacturaFoto() {
           />
           <div class="grid grid-cols-2 gap-2">
             <div>
-              <label class="text-xs text-gray-500">Precio unitario *</label>
-              <input v-model.number="productoCustomForm.precio_unitario" type="number" min="0" class="input text-sm" />
-            </div>
-            <div>
               <label class="text-xs text-gray-500">Cantidad *</label>
               <input v-model.number="productoCustomForm.cantidad" type="number" min="1" class="input text-sm" />
             </div>
           </div>
+          <p class="text-xs text-amber-600">El precio se define después con el cotizador IA o manualmente.</p>
           <div class="flex gap-2">
             <button @click="modoProductoCustom = false" class="btn-secondary flex-1 text-sm">Cancelar</button>
             <button
               @click="agregarProductoCustom"
-              :disabled="!productoCustomForm.nombre.trim() || !productoCustomForm.precio_unitario || productoCustomForm.cantidad < 1"
+              :disabled="!productoCustomForm.nombre.trim() || productoCustomForm.cantidad < 1"
               class="btn-primary flex-1 text-sm disabled:opacity-40"
             >Agregar al carrito</button>
           </div>
@@ -827,24 +925,208 @@ function removeFacturaFoto() {
               <input
                 v-model.number="item.precio_unitario"
                 type="number" min="0"
-                class="input text-sm"
+                :class="['input text-sm', item.es_personalizado && !item.precio_unitario ? 'border-amber-400 bg-amber-50' : '']"
               />
+              <p v-if="item.es_personalizado && !item.precio_unitario" class="text-xs text-amber-600 mt-0.5">
+                Sin precio — usa el cotizador IA o ingrésalo manualmente
+              </p>
             </div>
           </div>
 
           <!-- Personalizado flag -->
           <label :class="['flex items-center gap-2 text-sm text-gray-600', item.producto_id === null ? 'opacity-60 cursor-default' : 'cursor-pointer']">
-            <input type="checkbox" v-model="item.es_personalizado" :disabled="item.producto_id === null" class="rounded" />
+            <input
+              type="checkbox"
+              v-model="item.es_personalizado"
+              :disabled="item.producto_id === null"
+              class="rounded"
+            />
             {{ item.producto_id === null ? 'Producto personalizado (sin catálogo)' : 'Ítem personalizado' }}
           </label>
 
-          <textarea
-            v-if="item.es_personalizado"
-            v-model="item.specs_descripcion"
-            placeholder="Especificaciones y medidas (tela, dimensiones, color...)"
-            rows="3"
-            class="input text-sm resize-none"
-          />
+          <!-- ── Personalización de producto del CATÁLOGO: solo tela + tamaño ── -->
+          <template v-if="item.es_personalizado && item.producto_id">
+            <div class="bg-purple-50 border border-purple-200 rounded-xl p-3 space-y-3">
+              <div>
+                <p class="text-xs font-semibold text-purple-700">¿Qué deseas cambiar?</p>
+                <p v-if="item.variante_label" class="text-xs text-gray-400 mt-0.5">
+                  Variante actual: <span class="font-medium text-gray-600">{{ item.variante_label }}</span>
+                </p>
+              </div>
+
+              <!-- Tela — cascada Marca → Tipo → Color -->
+              <div class="space-y-1">
+                <label class="text-xs text-gray-500">Nueva tela <span class="text-gray-300">— opcional</span></label>
+
+                <!-- 1. Marca -->
+                <select
+                  v-model="getTelaSelection(item, 'tela').marca"
+                  @change="getTelaSelection(item, 'tela').tipo = ''; getTelaSelection(item, 'tela').color = ''"
+                  class="input text-sm"
+                >
+                  <option value="">— sin cambio de tela —</option>
+                  <option v-for="m in marcasOrdenadas" :key="m" :value="m">{{ m }}</option>
+                  <option value="Otro">Otra marca...</option>
+                </select>
+                <input
+                  v-if="getTelaSelection(item, 'tela').marca === 'Otro'"
+                  v-model="getTelaSelection(item, 'tela').marcaManual"
+                  type="text" placeholder="Nombre de la marca..."
+                  class="input text-sm"
+                />
+
+                <!-- 2. Tipo de tela (cuando hay marca) -->
+                <template v-if="getTelaSelection(item, 'tela').marca && getTelaSelection(item, 'tela').marca !== 'Otro'">
+                  <select
+                    v-model="getTelaSelection(item, 'tela').tipo"
+                    @change="getTelaSelection(item, 'tela').color = ''"
+                    class="input text-sm"
+                  >
+                    <option value="">— tipo de tela —</option>
+                    <option v-for="t in tiposTelaDeM(getTelaSelection(item, 'tela').marca)" :key="t" :value="t">{{ t }}</option>
+                    <option value="Otro">Otro tipo...</option>
+                  </select>
+                  <input
+                    v-if="getTelaSelection(item, 'tela').tipo === 'Otro'"
+                    v-model="getTelaSelection(item, 'tela').telaManual"
+                    type="text" placeholder="Nombre del tipo de tela..."
+                    class="input text-sm"
+                  />
+
+                  <!-- 3. Color (cuando hay tipo) -->
+                  <template v-if="getTelaSelection(item, 'tela').tipo && getTelaSelection(item, 'tela').tipo !== 'Otro'">
+                    <select v-model="getTelaSelection(item, 'tela').color" class="input text-sm">
+                      <option value="">— color —</option>
+                      <option v-for="c in coloresDeTela(getTelaSelection(item, 'tela').marca, getTelaSelection(item, 'tela').tipo)" :key="c" :value="c">{{ c }}</option>
+                      <option value="Otro">Otro color...</option>
+                    </select>
+                    <input
+                      v-if="getTelaSelection(item, 'tela').color === 'Otro'"
+                      v-model="getTelaSelection(item, 'tela').colorManual"
+                      type="text" placeholder="Nombre del color..."
+                      class="input text-sm"
+                    />
+                  </template>
+                  <input
+                    v-else-if="getTelaSelection(item, 'tela').tipo === 'Otro'"
+                    v-model="getTelaSelection(item, 'tela').colorManual"
+                    type="text" placeholder="Color..."
+                    class="input text-sm"
+                  />
+                </template>
+
+                <!-- Preview tela elegida -->
+                <p v-if="telaResumidaCampo(item, 'tela')" class="text-xs text-purple-700 font-semibold">
+                  Tela: {{ telaResumidaCampo(item, 'tela') }}
+                </p>
+              </div>
+
+              <!-- Tamaño -->
+              <div>
+                <label class="text-xs text-gray-500">Nuevo tamaño <span class="text-gray-300">— opcional</span></label>
+                <div class="grid grid-cols-3 gap-2 mt-0.5">
+                  <div>
+                    <label class="text-xs text-gray-400">Largo (cm)</label>
+                    <input v-model.number="item.specs.largo_cm" type="number" min="1" placeholder="ej: 220" class="input text-sm" />
+                  </div>
+                  <div>
+                    <label class="text-xs text-gray-400">Ancho (cm)</label>
+                    <input v-model.number="item.specs.ancho_cm" type="number" min="1" placeholder="ej: 95" class="input text-sm" />
+                  </div>
+                  <div>
+                    <label class="text-xs text-gray-400">Alto (cm)</label>
+                    <input v-model.number="item.specs.alto_cm" type="number" min="1" placeholder="ej: 88" class="input text-sm" />
+                  </div>
+                </div>
+              </div>
+
+              <!-- Notas -->
+              <textarea
+                v-model="item.specs_notas"
+                placeholder="Notas adicionales (opcional)"
+                rows="2"
+                class="input text-sm resize-none"
+              />
+            </div>
+          </template>
+
+          <!-- ── Personalización de producto NUEVO (sin catálogo): form completo ── -->
+          <template v-else-if="item.es_personalizado && !item.producto_id">
+            <div class="space-y-2">
+              <p class="text-xs font-semibold text-purple-700">
+                Especificaciones — {{ getTemplate(item.categoria).titulo }}
+              </p>
+              <div class="grid grid-cols-2 gap-2">
+                <template v-for="campo in getTemplate(item.categoria).campos" :key="campo.key">
+                  <div :class="campo.type === 'text' || campo.useVariantes ? 'col-span-2' : ''">
+                    <label class="text-xs text-gray-500">
+                      {{ campo.label }}{{ campo.unit ? ' (' + campo.unit + ')' : '' }}
+                    </label>
+                    <!-- Tela: cascada Marca → Tipo → Color -->
+                    <template v-if="campo.useVariantes">
+                      <select
+                        v-model="getTelaSelection(item, campo.key).marca"
+                        @change="getTelaSelection(item, campo.key).tipo = ''; getTelaSelection(item, campo.key).color = ''"
+                        class="input text-sm"
+                      >
+                        <option value="">— seleccionar marca —</option>
+                        <option v-for="m in marcasOrdenadas" :key="m" :value="m">{{ m }}</option>
+                        <option value="Otro">Otra marca...</option>
+                      </select>
+                      <input v-if="getTelaSelection(item, campo.key).marca === 'Otro'"
+                        v-model="getTelaSelection(item, campo.key).marcaManual"
+                        type="text" placeholder="Nombre de la marca..." class="input text-sm mt-1" />
+                      <template v-if="getTelaSelection(item, campo.key).marca && getTelaSelection(item, campo.key).marca !== 'Otro'">
+                        <select
+                          v-model="getTelaSelection(item, campo.key).tipo"
+                          @change="getTelaSelection(item, campo.key).color = ''"
+                          class="input text-sm mt-1"
+                        >
+                          <option value="">— tipo de tela —</option>
+                          <option v-for="t in tiposTelaDeM(getTelaSelection(item, campo.key).marca)" :key="t" :value="t">{{ t }}</option>
+                          <option value="Otro">Otro tipo...</option>
+                        </select>
+                        <input v-if="getTelaSelection(item, campo.key).tipo === 'Otro'"
+                          v-model="getTelaSelection(item, campo.key).telaManual"
+                          type="text" placeholder="Nombre del tipo de tela..." class="input text-sm mt-1" />
+                        <template v-if="getTelaSelection(item, campo.key).tipo && getTelaSelection(item, campo.key).tipo !== 'Otro'">
+                          <select v-model="getTelaSelection(item, campo.key).color" class="input text-sm mt-1">
+                            <option value="">— color —</option>
+                            <option v-for="c in coloresDeTela(getTelaSelection(item, campo.key).marca, getTelaSelection(item, campo.key).tipo)" :key="c" :value="c">{{ c }}</option>
+                            <option value="Otro">Otro color...</option>
+                          </select>
+                          <input v-if="getTelaSelection(item, campo.key).color === 'Otro'"
+                            v-model="getTelaSelection(item, campo.key).colorManual"
+                            type="text" placeholder="Nombre del color..." class="input text-sm mt-1" />
+                        </template>
+                        <input v-else-if="getTelaSelection(item, campo.key).tipo === 'Otro'"
+                          v-model="getTelaSelection(item, campo.key).colorManual"
+                          type="text" placeholder="Color..." class="input text-sm mt-1" />
+                      </template>
+                      <p v-if="telaResumidaCampo(item, campo.key)" class="text-xs text-purple-600 font-medium mt-1">
+                        {{ campo.label }}: {{ telaResumidaCampo(item, campo.key) }}
+                      </p>
+                    </template>
+                    <!-- Select normal -->
+                    <select v-else-if="campo.type === 'select'" v-model="item.specs[campo.key]" class="input text-sm">
+                      <option value="">— seleccionar —</option>
+                      <option v-for="opt in campo.options" :key="opt" :value="opt">{{ opt }}</option>
+                    </select>
+                    <!-- Text / Number -->
+                    <input
+                      v-else
+                      v-model="item.specs[campo.key]"
+                      :type="campo.type"
+                      :placeholder="campo.placeholder"
+                      :min="campo.type === 'number' ? 1 : undefined"
+                      class="input text-sm"
+                    />
+                  </div>
+                </template>
+              </div>
+              <textarea v-model="item.specs_notas" placeholder="Notas adicionales (opcional)" rows="2" class="input text-sm resize-none" />
+            </div>
+          </template>
 
           <!-- Boceto del producto personalizado -->
           <div v-if="item.es_personalizado" class="space-y-1.5">
@@ -860,8 +1142,6 @@ function removeFacturaFoto() {
                 class="text-xs text-red-500 hover:underline"
               >Quitar boceto</button>
             </div>
-
-            <!-- Preview del boceto ya guardado -->
             <div v-if="item.boceto_preview" class="relative">
               <img
                 :src="item.boceto_preview"
@@ -875,13 +1155,83 @@ function removeFacturaFoto() {
                 class="absolute bottom-2 right-2 text-xs text-gray-500 bg-white border border-gray-200 rounded-md px-2 py-1 hover:bg-gray-50 shadow-sm"
               >Re-dibujar</button>
             </div>
-
-            <!-- Canvas para dibujar (solo si no hay boceto aún) -->
             <BocetoCanvas
               v-else
               :modelValue="item.boceto_blob"
               @update:modelValue="onBocetoUpdate(item, $event)"
             />
+          </div>
+
+          <!-- Cotizador de precio con IA -->
+          <div v-if="item.es_personalizado">
+            <button
+              type="button"
+              @click="item._mostrarCalculadora = !item._mostrarCalculadora"
+              class="flex items-center gap-1.5 text-xs text-purple-600 font-medium hover:text-purple-800 transition-colors"
+            >
+              <SparklesIcon class="w-3.5 h-3.5" />
+              {{ item._mostrarCalculadora ? 'Ocultar cotizador' : 'Calcular precio con IA' }}
+            </button>
+
+            <div v-if="item._mostrarCalculadora" class="mt-2 bg-purple-50 border border-purple-200 rounded-xl p-3 space-y-3">
+              <p class="text-xs text-gray-500">
+                El cotizador usa las especificaciones y medidas que ingresaste arriba.
+              </p>
+
+              <button
+                type="button"
+                @click="calcularPrecioIA(item)"
+                :disabled="item._calculandoPrecio"
+                class="w-full btn-primary text-xs py-2 disabled:opacity-50 flex items-center justify-center gap-1.5"
+              >
+                <ArrowPathIcon v-if="item._calculandoPrecio" class="w-3.5 h-3.5 animate-spin" />
+                <SparklesIcon  v-else class="w-3.5 h-3.5" />
+                {{ item._calculandoPrecio ? 'Calculando...' : 'Calcular precio' }}
+              </button>
+
+              <!-- Resultado -->
+              <div v-if="item._precioCalc" class="bg-white rounded-lg border border-purple-100 p-3 space-y-2">
+                <div class="flex justify-between items-center text-sm">
+                  <span class="text-gray-500">Costo fabricación</span>
+                  <span class="font-semibold text-gray-800">${{ (item._precioCalc.precio_fabricacion ?? 0).toLocaleString('es-CO') }}</span>
+                </div>
+                <div class="flex justify-between items-center text-sm">
+                  <span class="text-gray-500">Precio venta sugerido</span>
+                  <span class="font-bold text-green-700">${{ (item._precioCalc.precio_sugerido_venta ?? 0).toLocaleString('es-CO') }}</span>
+                </div>
+
+                <details class="text-xs text-gray-500">
+                  <summary class="cursor-pointer hover:text-gray-700 select-none">Ver desglose</summary>
+                  <div class="mt-2 space-y-2">
+                    <div v-if="item._precioCalc.desglose_materiales?.length">
+                      <p class="font-medium text-gray-600 mb-1">Materiales</p>
+                      <div v-for="m in item._precioCalc.desglose_materiales" :key="m.descripcion" class="flex justify-between">
+                        <span>{{ m.descripcion }}</span>
+                        <span>${{ (m.subtotal ?? 0).toLocaleString('es-CO') }}</span>
+                      </div>
+                    </div>
+                    <div v-if="item._precioCalc.desglose_mano_obra?.length">
+                      <p class="font-medium text-gray-600 mb-1">Mano de obra</p>
+                      <div v-for="m in item._precioCalc.desglose_mano_obra" :key="m.descripcion" class="flex justify-between">
+                        <span>{{ m.descripcion }}</span>
+                        <span>${{ (m.subtotal ?? 0).toLocaleString('es-CO') }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </details>
+
+                <p v-if="item._precioCalc.notas" class="text-xs text-amber-600 italic">{{ item._precioCalc.notas }}</p>
+
+                <div class="grid grid-cols-2 gap-2 pt-1">
+                  <button type="button" @click="aplicarPrecio(item, item._precioCalc.precio_fabricacion)" class="btn-secondary text-xs py-1.5">
+                    Usar fabricación
+                  </button>
+                  <button type="button" @click="aplicarPrecio(item, item._precioCalc.precio_sugerido_venta)" class="btn-primary text-xs py-1.5">
+                    Usar sugerido
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
 
           <p class="text-xs text-right text-gray-500">
