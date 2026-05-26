@@ -1220,7 +1220,18 @@ function removeFacturaFoto() {
                   </div>
                 </details>
 
-                <p v-if="item._precioCalc.notas" class="text-xs text-amber-600 italic">{{ item._precioCalc.notas }}</p>
+                <!-- Notas normales -->
+                <p v-if="item._precioCalc.notas && !item._precioCalc.notas.includes('⚠️')" class="text-xs text-amber-600 italic">
+                  {{ item._precioCalc.notas }}
+                </p>
+                <!-- Notas con consultas pendientes: más prominente -->
+                <div v-if="item._precioCalc.notas && item._precioCalc.notas.includes('⚠️')" class="bg-amber-50 border border-amber-300 rounded-lg p-2.5 space-y-1">
+                  <p class="text-xs font-semibold text-amber-800">Consultar antes de confirmar precio:</p>
+                  <template v-for="linea in item._precioCalc.notas.split('\n').filter(l => l.trim())" :key="linea">
+                    <p v-if="linea.includes('⚠️')" class="text-xs text-amber-700">{{ linea }}</p>
+                    <p v-else class="text-xs text-amber-600 italic">{{ linea }}</p>
+                  </template>
+                </div>
 
                 <div class="grid grid-cols-2 gap-2 pt-1">
                   <button type="button" @click="aplicarPrecio(item, item._precioCalc.precio_fabricacion)" class="btn-secondary text-xs py-1.5">

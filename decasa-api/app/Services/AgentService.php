@@ -2239,9 +2239,14 @@ CUANDO ES PRODUCTO DEL CATÁLOGO PERSONALIZADO (datos incluyen ficha_tecnica):
 - Sin cambios → precio_fabricacion = costo_total de ficha. precio_sugerido_venta = precio_catalogo si se proporcionó, sino precio_fabricacion × {$multiplicador}.
 - Simplificaciones ("sin brazos", "sin cabecero", etc.) → pueden reducir precio_sugerido_venta por debajo del catálogo si el ahorro de material/labor es significativo. Indica el ahorro en notas.
 
+CUANDO HAY IMAGEN O BOCETO (aplica a cualquier tipo de producto):
+- Analiza cada componente visible por separado: estructura principal, tapizado, cajones, patas, espejos, vidrios, colchones, herrajes visibles, accesorios, etc.
+- Distingue entre lo que DECASA FABRICA (carpintería, tapizado, lacado) y lo que se COMPRA YA HECHO (colchón, vidrio, espejo, patas metálicas prefabricadas, herrajes de catálogo). Los elementos comprados van en materiales con su precio estimado de compra, NO en mano de obra.
+- Para elementos AMBIGUOS que podrían o no estar en scope, inclúyelos en el campo "notas" con exactamente este formato: "⚠️ CONSULTAR: [elemento visible] — este estimado NO lo incluye. ¿Se fabrica/incluye?" Ejemplos: colchón en foto de cama, vidrio en mesa, espejo en zapatera, patas metálicas en silla.
+- Usa la imagen para estimar cantidades REALISTAS de materiales según lo que ves: una cama doble ≈ 10-12 tablas de madera; un sofá 3 puestos ≈ 4-5 m² de tela; un cajonero alto ≈ 6-8 piezas de melanina. Sé específico en cantidades y unidades en el desglose.
+
 CUANDO ES PRODUCTO NUEVO SIN CATÁLOGO (datos incluyen costo_medidas o costo_personalizado):
 - Usa los datos de referencia como base para construir el desglose.
-- Si viene imagen/boceto: identifica el tipo de mueble, materiales visibles y nivel de complejidad estructural. Ajusta el estimado según lo que ves (más cajones, más estructuras, tapizado complejo, etc.).
 - Prioriza las especificaciones del texto (material, tela, cajones, medidas) sobre lo que se vea en la imagen cuando haya discrepancia.
 - Las notas adicionales del vendedor son requisitos del cliente — tenlas en cuenta en el cálculo (ej: "sin brazos", "con espejo", "bisagras suaves").
 - Si el producto es híbrido (combina funciones: cama+escritorio, cajonero+librero, etc.), suma los costos de cada función por separado en el desglose.
