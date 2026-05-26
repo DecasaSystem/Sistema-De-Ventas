@@ -7,7 +7,6 @@ import {
   ClipboardDocumentListIcon,
   UserGroupIcon,
   UsersIcon,
-  UserPlusIcon,
   ArchiveBoxIcon,
   ArchiveBoxArrowDownIcon,
   WrenchScrewdriverIcon,
@@ -66,11 +65,10 @@ const accesos = computed(() => {
 const accesosAdmin = computed(() => {
   if (!auth.isSupervisor) return []
   return [
-    { label: 'Despacho',        icon: TruckIcon,    to: { name: 'despacho'      } },
-    { label: 'Trabajadores',    icon: UsersIcon,    to: { name: 'usuarios'      } },
-    { label: 'Nuevo trabajador',icon: UserPlusIcon, to: { name: 'usuario-crear' } },
-    { label: 'Reportes',        icon: ChartBarIcon, to: { name: 'reportes'      } },
-    { label: 'Costos',          icon: CalculatorIcon, to: { name: 'costos' } },
+    { label: 'Despacho',     icon: TruckIcon,      to: { name: 'despacho'  } },
+    { label: 'Trabajadores', icon: UsersIcon,      to: { name: 'usuarios'  } },
+    { label: 'Reportes',     icon: ChartBarIcon,   to: { name: 'reportes'  } },
+    { label: 'Costos',       icon: CalculatorIcon, to: { name: 'costos'    } },
   ]
 })
 </script>
