@@ -31,6 +31,7 @@ const accesos = computed(() => {
   if (auth.usuario?.rol === 'ebanista') {
     return [
       { label: 'Mis pasos', icon: WrenchScrewdriverIcon, to: { name: 'mis-pasos' } },
+      { label: 'Costos',    icon: CalculatorIcon,        to: { name: 'costos'    } },
     ]
   }
   if (auth.usuario?.rol === 'despachador') {

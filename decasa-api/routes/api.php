@@ -25,6 +25,7 @@ use App\Http\Controllers\PrecioItemController;
 use App\Http\Controllers\ConfiguracionCostosController;
 use App\Http\Controllers\FacturacionController;
 use App\Http\Controllers\PushSubscriptionController;
+use App\Http\Controllers\RestauracionController;
 use Illuminate\Support\Facades\Route;
 
 // ── Auth (público) ────────────────────────────────────────────────────────────
@@ -73,6 +74,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/ordenes/{id}/pdf',                     [OrdenController::class, 'pdf']);
     Route::post('/ordenes/{id}/reenviar-cotizacion',    [OrdenController::class, 'reenviarCotizacion']);
     Route::patch('/ordenes/{id}/fechas-entrega',        [OrdenController::class, 'asignarFechas']);
+
+    // Restauraciones
+    Route::get('/restauraciones',  [RestauracionController::class, 'index']);
+    Route::post('/restauraciones', [RestauracionController::class, 'store']);
 
     // Pagos
     Route::get('/ordenes/{id}/pagos',  [PagoController::class, 'index']);

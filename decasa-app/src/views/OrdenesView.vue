@@ -267,6 +267,10 @@ onUnmounted(() => {
               <div class="flex items-center gap-2 mb-1">
                 <span class="font-semibold text-sm text-gray-800">#{{ o.id }}</span>
                 <BadgeEstado :estado="o.estado" />
+                <span
+                  v-if="o.tipo === 'restauracion'"
+                  class="text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700"
+                >Restauración</span>
               </div>
               <p class="text-sm text-gray-600 truncate">{{ o.cliente?.nombre }}</p>
               <p class="text-xs text-gray-400 mt-0.5">{{ o.tienda?.nombre }} · {{ formatFecha(o.created_at) }}</p>

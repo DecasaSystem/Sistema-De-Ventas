@@ -45,6 +45,7 @@ import {
   BanknotesIcon,
   DocumentCurrencyDollarIcon,
   ChatBubbleLeftRightIcon,
+  ArrowPathIcon,
 } from '@heroicons/vue/24/outline'
 
 const route  = useRoute()
@@ -147,7 +148,7 @@ const navItems = computed(() => {
       { name: 'inventario', label: 'Inventario',  icon: ArchiveBoxIcon },
       { name: 'usuarios',   label: 'Trabajadores', icon: UsersIcon },
       { name: 'reportes',   label: 'Reportes',    icon: ChartBarIcon },
-      { name: 'costos',     label: 'Costos',      icon: CalculatorIcon },
+      { name: 'costos',          label: 'Costos',          icon: CalculatorIcon },
     ]
     if (auth.isTapicero) {
       items.unshift({ name: 'mis-pasos', label: 'Mis pasos', icon: WrenchIcon, badge: pasos.pendientesCount })
@@ -163,6 +164,7 @@ const navItems = computed(() => {
   if (auth.usuario?.rol === 'ebanista' || (auth.usuario?.rol === 'supervisor' && auth.usuario?.es_tapicero)) {
     return [
       { name: 'mis-pasos', label: 'Mis pasos', icon: WrenchScrewdriverIcon, badge: pasos.pendientesCount },
+      { name: 'costos',    label: 'Costos',    icon: CalculatorIcon },
       { name: 'perfil',    label: 'Perfil',    icon: UserCircleIcon },
     ]
   }
@@ -473,8 +475,8 @@ function formatFecha(iso) {
     <!-- Toasts globales -->
     <ToastContainer />
 
-    <!-- Agente de IA — solo supervisor y vendedor -->
-    <AgentChat v-if="auth.isAuthenticated && (auth.isSupervisor || auth.usuario?.rol === 'vendedor')" />
+    <!-- Agente de IA — solo supervisor, vendedor y ebanista -->
+    <AgentChat v-if="auth.isAuthenticated && (auth.isSupervisor || auth.usuario?.rol === 'vendedor' || auth.usuario?.rol === 'ebanista')" />
   </div>
 </template>
 

@@ -13,6 +13,7 @@ class Orden extends Model
         'vendedor_id',
         'tienda_id',
         'canal',
+        'tipo',
         'estado',
         'valor_total',
         'anticipo_pct',

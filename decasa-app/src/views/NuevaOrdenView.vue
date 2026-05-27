@@ -106,12 +106,55 @@ function paso1Valido() {
   return clienteSeleccionado.value && tiendaId.value && canal.value
 }
 
+// ── Tipo de orden ─────────────────────────────────────────────────────────────
+const tipoOrden = ref('venta')
+
+function cambiarTipo(tipo) {
+  tipoOrden.value = tipo
+  items.value = []
+}
+
 // ── Paso 2: Productos / Carrito ───────────────────────────────────────────────
 const productoQuery = ref('')
 const productoResultados = ref([])
 const buscandoProducto = ref(false)
 const items = ref([])
 const tiendaBusqueda = ref(auth.usuario?.tienda_default_id ?? '')
+
+// Formulario para restauraciones
+const restauracionItem = ref({ nombre_mueble: '', descripcion_trabajo: '', cantidad: 1, precio_unitario: 0 })
+
+function agregarItemRestauracion() {
+  const f = restauracionItem.value
+  if (!f.nombre_mueble.trim()) return
+  items.value.push({
+    producto_id: null,
+    variante_id: null,
+    tienda_origen_id: null,
+    nombre: f.nombre_mueble.trim(),
+    nombre_custom: f.nombre_mueble.trim(),
+    categoria: 'Restauración',
+    categoria_custom: 'Restauración',
+    variante_label: null,
+    stock_libre: null,
+    personalizable: false,
+    cantidad: f.cantidad,
+    precio_unitario: f.precio_unitario,
+    es_personalizado: true,
+    specs: f.descripcion_trabajo.trim() ? { descripcion_trabajo: f.descripcion_trabajo.trim() } : {},
+    specs_notas: '',
+    tienda_origen: null,
+    fecha_entrega_prometida: null,
+    boceto_blob: null,
+    boceto_url: '',
+    boceto_preview: null,
+    _mostrarCalculadora: false,
+    _calculandoPrecio: false,
+    _precioCalc: null,
+    _telaSelections: {},
+  })
+  restauracionItem.value = { nombre_mueble: '', descripcion_trabajo: '', cantidad: 1, precio_unitario: 0 }
+}
 
 // Producto no catalogado
 const modoProductoCustom = ref(false)
@@ -258,6 +301,15 @@ function onBocetoUpdate(item, blob) {
   item.boceto_blob    = blob
   item.boceto_url     = ''
   item.boceto_preview = blob ? URL.createObjectURL(blob) : null
+}
+
+function onFotoRestauracionItem(item, event) {
+  const file = event.target.files[0]
+  if (!file) return
+  if (item.boceto_preview) URL.revokeObjectURL(item.boceto_preview)
+  item.boceto_blob    = file
+  item.boceto_preview = URL.createObjectURL(file)
+  item.boceto_url     = ''
 }
 
 // ── Picker de tela cascada: Marca → Tipo → Color (igual que en Inventario) ────
@@ -443,6 +495,7 @@ async function submit() {
       cliente_id:           clienteSeleccionado.value.id,
       tienda_id:            tiendaId.value,
       canal:                canal.value,
+      tipo:                 tipoOrden.value,
       anticipo_pct:         anticipo_pct.value,
       anticipo_monto:       anticipo_monto.value,
       anticipo_metodo:      anticipo_metodo.value,
@@ -565,6 +618,30 @@ function removeFacturaFoto() {
 
     <!-- ═══════════════════════════════════════════════════════ PASO 1 ══ -->
     <template v-if="step === 1">
+
+      <!-- Tipo de orden -->
+      <div>
+        <label class="label">Tipo de orden</label>
+        <div class="flex gap-2">
+          <button
+            @click="cambiarTipo('venta')"
+            :class="['flex-1 py-2 rounded-xl text-sm font-medium border transition-colors',
+              tipoOrden === 'venta'
+                ? 'bg-blue-600 text-white border-blue-600'
+                : 'bg-white text-gray-700 border-gray-300']"
+          >Venta</button>
+          <button
+            @click="cambiarTipo('restauracion')"
+            :class="['flex-1 py-2 rounded-xl text-sm font-medium border transition-colors',
+              tipoOrden === 'restauracion'
+                ? 'bg-indigo-600 text-white border-indigo-600'
+                : 'bg-white text-gray-700 border-gray-300']"
+          >Restauración</button>
+        </div>
+        <p v-if="tipoOrden === 'restauracion'" class="text-xs text-indigo-600 mt-1.5">
+          Para muebles que trae el cliente (tapizado, laca, lijado…). No descuenta inventario y va directo a producción.
+        </p>
+      </div>
 
       <!-- Tienda -->
       <div>
@@ -759,6 +836,9 @@ function removeFacturaFoto() {
     <!-- ═══════════════════════════════════════════════════════ PASO 2 ══ -->
     <template v-else-if="step === 2">
 
+      <!-- ── Modo venta: búsqueda de catálogo ── -->
+      <template v-if="tipoOrden === 'venta'">
+
       <!-- Selector tienda de búsqueda -->
       <div>
         <label class="label">Buscar en tienda</label>
@@ -879,6 +959,40 @@ function removeFacturaFoto() {
         </div>
       </div>
 
+      </template><!-- fin modo venta -->
+
+      <!-- ── Modo restauración: agregar mueble simple ── -->
+      <template v-else>
+        <div class="bg-indigo-50 border border-indigo-200 rounded-xl p-4 space-y-3">
+          <p class="text-sm font-semibold text-indigo-800">Agregar mueble</p>
+          <input
+            v-model="restauracionItem.nombre_mueble"
+            class="input text-sm"
+            placeholder="Mueble (ej: Sofá 3 puestos, Silla comedor...)"
+          />
+          <input
+            v-model="restauracionItem.descripcion_trabajo"
+            class="input text-sm"
+            placeholder="Trabajo a realizar (ej: Tapizado + laca)"
+          />
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="text-xs text-gray-500">Cantidad</label>
+              <input v-model.number="restauracionItem.cantidad" type="number" min="1" class="input text-sm" />
+            </div>
+            <div>
+              <label class="text-xs text-gray-500">Precio</label>
+              <input v-model.number="restauracionItem.precio_unitario" type="number" min="0" placeholder="0" class="input text-sm" />
+            </div>
+          </div>
+          <button
+            @click="agregarItemRestauracion"
+            :disabled="!restauracionItem.nombre_mueble.trim()"
+            class="btn-primary w-full text-sm disabled:opacity-40"
+          >+ Agregar al carrito</button>
+        </div>
+      </template>
+
       <!-- Carrito -->
       <div v-if="items.length" class="space-y-3">
         <p class="text-sm font-semibold text-gray-600">Carrito ({{ items.length }} ítem{{ items.length > 1 ? 's' : '' }})</p>
@@ -934,7 +1048,7 @@ function removeFacturaFoto() {
           </div>
 
           <!-- Personalizado flag -->
-          <label :class="['flex items-center gap-2 text-sm text-gray-600', item.producto_id === null ? 'opacity-60 cursor-default' : 'cursor-pointer']">
+          <label v-if="tipoOrden !== 'restauracion'" :class="['flex items-center gap-2 text-sm text-gray-600', item.producto_id === null ? 'opacity-60 cursor-default' : 'cursor-pointer']">
             <input
               type="checkbox"
               v-model="item.es_personalizado"
@@ -1051,7 +1165,7 @@ function removeFacturaFoto() {
           </template>
 
           <!-- ── Personalización de producto NUEVO (sin catálogo): form completo ── -->
-          <template v-else-if="item.es_personalizado && !item.producto_id">
+          <template v-else-if="item.es_personalizado && !item.producto_id && tipoOrden !== 'restauracion'">
             <div class="space-y-2">
               <p class="text-xs font-semibold text-purple-700">
                 Especificaciones — {{ getTemplate(item.categoria).titulo }}
@@ -1128,42 +1242,85 @@ function removeFacturaFoto() {
             </div>
           </template>
 
-          <!-- Boceto del producto personalizado -->
-          <div v-if="item.es_personalizado" class="space-y-1.5">
-            <div class="flex items-center justify-between">
-              <p class="text-xs font-medium text-purple-700">
-                Boceto del producto
-                <span class="text-gray-400 font-normal">(opcional)</span>
-              </p>
-              <button
-                v-if="item.boceto_preview"
-                type="button"
-                @click="onBocetoUpdate(item, null)"
-                class="text-xs text-red-500 hover:underline"
-              >Quitar boceto</button>
-            </div>
-            <div v-if="item.boceto_preview" class="relative">
-              <img
-                :src="item.boceto_preview"
-                alt="Boceto"
-                class="w-full rounded-lg border-2 border-purple-300 object-contain bg-white"
-                style="max-height: 200px;"
+          <!-- Boceto (venta) / Foto (restauración) -->
+          <template v-if="item.es_personalizado">
+
+            <!-- Modo venta: canvas de boceto -->
+            <div v-if="tipoOrden !== 'restauracion'" class="space-y-1.5">
+              <div class="flex items-center justify-between">
+                <p class="text-xs font-medium text-purple-700">
+                  Boceto del producto
+                  <span class="text-gray-400 font-normal">(opcional)</span>
+                </p>
+                <button
+                  v-if="item.boceto_preview"
+                  type="button"
+                  @click="onBocetoUpdate(item, null)"
+                  class="text-xs text-red-500 hover:underline"
+                >Quitar boceto</button>
+              </div>
+              <div v-if="item.boceto_preview" class="relative">
+                <img
+                  :src="item.boceto_preview"
+                  alt="Boceto"
+                  class="w-full rounded-lg border-2 border-purple-300 object-contain bg-white"
+                  style="max-height: 200px;"
+                />
+                <button
+                  type="button"
+                  @click="onBocetoUpdate(item, null)"
+                  class="absolute bottom-2 right-2 text-xs text-gray-500 bg-white border border-gray-200 rounded-md px-2 py-1 hover:bg-gray-50 shadow-sm"
+                >Re-dibujar</button>
+              </div>
+              <BocetoCanvas
+                v-else
+                :modelValue="item.boceto_blob"
+                @update:modelValue="onBocetoUpdate(item, $event)"
               />
-              <button
-                type="button"
-                @click="onBocetoUpdate(item, null)"
-                class="absolute bottom-2 right-2 text-xs text-gray-500 bg-white border border-gray-200 rounded-md px-2 py-1 hover:bg-gray-50 shadow-sm"
-              >Re-dibujar</button>
             </div>
-            <BocetoCanvas
-              v-else
-              :modelValue="item.boceto_blob"
-              @update:modelValue="onBocetoUpdate(item, $event)"
-            />
-          </div>
+
+            <!-- Modo restauración: descripción + foto simple -->
+            <div v-else class="space-y-2">
+              <div
+                v-if="item.specs?.descripcion_trabajo"
+                class="text-xs text-indigo-700 font-medium bg-indigo-50 rounded-lg px-3 py-2"
+              >
+                Trabajo: {{ item.specs.descripcion_trabajo }}
+              </div>
+              <div class="space-y-1">
+                <p class="text-xs font-medium text-gray-600">
+                  Foto del mueble <span class="font-normal text-gray-400">(opcional)</span>
+                </p>
+                <div v-if="item.boceto_preview" class="relative">
+                  <img
+                    :src="item.boceto_preview"
+                    alt="Foto mueble"
+                    class="w-full rounded-xl object-cover border border-gray-200"
+                    style="max-height: 180px;"
+                  />
+                  <button
+                    type="button"
+                    @click="onBocetoUpdate(item, null)"
+                    class="absolute top-2 right-2 bg-white rounded-full p-1 shadow text-red-400"
+                  >
+                    <XMarkIcon class="w-4 h-4" />
+                  </button>
+                </div>
+                <label
+                  v-else
+                  class="flex items-center justify-center gap-2 border-2 border-dashed border-gray-200 rounded-xl py-5 text-sm text-gray-400 cursor-pointer hover:border-indigo-300 hover:text-indigo-500 transition-colors"
+                >
+                  <PhotoIcon class="w-5 h-5" />
+                  Seleccionar foto
+                  <input type="file" accept="image/*" capture="environment" class="hidden" @change="onFotoRestauracionItem(item, $event)" />
+                </label>
+              </div>
+            </div>
+
+          </template>
 
           <!-- Cotizador de precio con IA -->
-          <div v-if="item.es_personalizado">
+          <div v-if="item.es_personalizado && tipoOrden !== 'restauracion'">
             <button
               type="button"
               @click="item._mostrarCalculadora = !item._mostrarCalculadora"
@@ -1260,7 +1417,7 @@ function removeFacturaFoto() {
       </div>
 
       <div v-else class="text-center py-6 text-gray-400 text-sm">
-        Busca y agrega productos al carrito.
+        {{ tipoOrden === 'restauracion' ? 'Agrega los muebles arriba.' : 'Busca y agrega productos al carrito.' }}
       </div>
 
       <button
