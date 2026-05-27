@@ -253,7 +253,7 @@ onUnmounted(() => {
 
             <!-- Botón Terminar — solo quien tomó o supervisor -->
             <button
-              v-if="conv.estado === 'tomada' && (conv.tomada_por === auth.usuario?.id || auth.isSupervisor)"
+              v-if="conv.estado === 'tomada' && conv.tomada_por === auth.usuario?.id"
               @click="terminar(conv.id)"
               class="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white text-xs font-semibold rounded-lg hover:bg-green-700 transition-colors"
             >

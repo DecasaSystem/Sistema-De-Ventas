@@ -89,8 +89,8 @@ class RedesController extends Controller
         $conv    = ConversacionWa::with('tomadaPor:id,nombre')->findOrFail($id);
 
         // Solo quien la tomó o un supervisor puede terminarla
-        if ($conv->tomada_por !== $usuario->id && $usuario->rol !== 'supervisor') {
-            return response()->json(['error' => 'No tienes permiso para terminar esta conversación.'], 403);
+        if ($conv->tomada_por !== $usuario->id) {
+            return response()->json(['error' => 'Solo quien tomó la conversación puede terminarla.'], 403);
         }
 
         if ($conv->estado === 'terminada') {
