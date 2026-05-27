@@ -84,22 +84,35 @@ function tipoBadgeColor(tipo) {
   return { pedido: 'bg-green-100 text-green-700', cita: 'bg-blue-100 text-blue-700', asesor: 'bg-red-100 text-red-700', personalizacion: 'bg-purple-100 text-purple-700', otro: 'bg-gray-100 text-gray-600' }[tipo] ?? 'bg-gray-100 text-gray-600'
 }
 
-function waUrl(conv) {
+function contactoUrl(conv) {
+  if (conv.fuente === 'instagram') {
+    return conv.contacto_url || 'https://www.instagram.com/direct/inbox/'
+  }
+  // WhatsApp — construir URL con mensaje pre-cargado
   const phone = (conv.telefono || '').replace(/\D/g, '')
   if (!phone) return conv.whatsapp_url || '#'
 
   const asesor = auth.usuario?.nombre || 'tu asesor'
-  const saludo = conv.nombre_cliente
-    ? `Hola ${conv.nombre_cliente}, `
-    : 'Hola, '
-
+  const saludo = conv.nombre_cliente ? `Hola ${conv.nombre_cliente}, ` : 'Hola, '
   let texto = `${saludo}soy ${asesor} tu asesor de DeCasa y me encantaría ayudarte 😊`
-
-  if (conv.tipo === 'pedido' && conv.resumen) {
-    texto += `\n\n${conv.resumen}`
-  }
-
+  if (conv.tipo === 'pedido' && conv.resumen) texto += `\n\n${conv.resumen}`
   return `https://wa.me/${phone}?text=${encodeURIComponent(texto)}`
+}
+
+function fuenteBadge(fuente) {
+  return fuente === 'instagram'
+    ? { label: 'IG', class: 'bg-purple-100 text-purple-700' }
+    : { label: 'WA', class: 'bg-green-100 text-green-700' }
+}
+
+function contactoLabel(fuente) {
+  return fuente === 'instagram' ? 'Abrir IG' : 'Abrir WA'
+}
+
+function contactoColor(fuente) {
+  return fuente === 'instagram'
+    ? 'text-purple-600 hover:text-purple-700'
+    : 'text-green-600 hover:text-green-700'
 }
 
 function formatFecha(iso) {
@@ -132,8 +145,8 @@ onUnmounted(() => {
 <template>
   <div class="max-w-lg mx-auto px-4 py-4">
     <h1 class="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-      <ChatBubbleLeftRightIcon class="w-6 h-6 text-green-600" />
-      Redes — WhatsApp
+      <ChatBubbleLeftRightIcon class="w-6 h-6 text-blue-600" />
+      Redes
     </h1>
 
     <!-- Tabs -->
@@ -189,12 +202,18 @@ onUnmounted(() => {
               <p class="font-semibold text-gray-800 text-sm truncate">
                 {{ conv.nombre_cliente || conv.telefono }}
               </p>
-              <p v-if="conv.nombre_cliente" class="text-xs text-gray-400 flex items-center gap-1">
+              <p v-if="conv.nombre_cliente && conv.fuente !== 'instagram'" class="text-xs text-gray-400 flex items-center gap-1">
                 <PhoneIcon class="w-3 h-3" />{{ conv.telefono }}
+              </p>
+              <p v-else-if="conv.fuente === 'instagram'" class="text-xs text-purple-400">
+                @muebles_decasa · Instagram
               </p>
             </div>
           </div>
           <div class="flex items-center gap-1.5 flex-shrink-0">
+            <span :class="['text-[11px] font-bold px-1.5 py-0.5 rounded-full', fuenteBadge(conv.fuente).class]">
+              {{ fuenteBadge(conv.fuente).label }}
+            </span>
             <span :class="['text-[11px] font-semibold px-2 py-0.5 rounded-full', tipoBadgeColor(conv.tipo)]">
               {{ tipoLabel(conv.tipo) }}
             </span>
@@ -231,15 +250,15 @@ onUnmounted(() => {
           </div>
 
           <div class="flex items-center gap-2">
-            <!-- WhatsApp link -->
+            <!-- Botón de contacto (WA o IG según fuente) -->
             <a
-              v-if="conv.telefono"
-              :href="waUrl(conv)"
+              v-if="conv.telefono || conv.contacto_url"
+              :href="contactoUrl(conv)"
               target="_blank"
-              class="flex items-center gap-1 text-xs text-green-600 hover:text-green-700 font-medium"
+              :class="['flex items-center gap-1 text-xs font-medium', contactoColor(conv.fuente)]"
             >
               <ArrowTopRightOnSquareIcon class="w-3.5 h-3.5" />
-              Abrir WA
+              {{ contactoLabel(conv.fuente) }}
             </a>
 
             <!-- Botón Tomar -->

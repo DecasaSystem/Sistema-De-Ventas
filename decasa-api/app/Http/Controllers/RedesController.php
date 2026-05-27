@@ -42,10 +42,13 @@ class RedesController extends Controller
             'resumen'        => 'required|string',
             'historial'      => 'nullable|array',
             'whatsapp_url'   => 'nullable|string',
+            'contacto_url'   => 'nullable|string',
+            'fuente'         => 'nullable|string|in:whatsapp,instagram',
         ]);
 
-        $tipos_validos = ['pedido', 'cita', 'asesor', 'personalizacion', 'otro'];
-        $data['tipo']  = in_array($data['tipo'], $tipos_validos) ? $data['tipo'] : 'otro';
+        $tipos_validos  = ['pedido', 'cita', 'asesor', 'personalizacion', 'otro'];
+        $data['tipo']   = in_array($data['tipo'], $tipos_validos) ? $data['tipo'] : 'otro';
+        $data['fuente'] = $data['fuente'] ?? 'whatsapp';
 
         $conv = ConversacionWa::create($data);
 

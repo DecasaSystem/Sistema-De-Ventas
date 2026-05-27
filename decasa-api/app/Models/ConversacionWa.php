@@ -10,7 +10,7 @@ class ConversacionWa extends Model
 
     protected $fillable = [
         'tipo', 'telefono', 'nombre_cliente', 'resumen',
-        'historial', 'whatsapp_url', 'estado',
+        'historial', 'whatsapp_url', 'contacto_url', 'fuente', 'estado',
         'tomada_por', 'tomada_at', 'terminada_at',
     ];
 
