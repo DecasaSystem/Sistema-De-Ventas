@@ -17,3 +17,6 @@ Broadcast::channel('supervisor', fn ($user) => $user->rol === 'supervisor');
 
 // Canal privado del conductor
 Broadcast::channel('conductor.{id}', fn ($user, $id) => (int) $user->id === (int) $id);
+
+// Canal redes (WhatsApp): vendedores y supervisores
+Broadcast::channel('redes', fn ($user) => in_array($user->rol, ['vendedor', 'supervisor']));

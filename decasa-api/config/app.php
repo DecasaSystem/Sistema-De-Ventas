@@ -13,7 +13,8 @@ return [
     |
     */
 
-    'name' => env('APP_NAME', 'Laravel'),
+    'name'        => env('APP_NAME', 'Laravel'),
+    'agent_token' => env('AGENT_TOKEN', null),
 
     /*
     |--------------------------------------------------------------------------

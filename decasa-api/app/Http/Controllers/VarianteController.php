@@ -45,6 +45,25 @@ class VarianteController extends Controller
     }
 
     /**
+     * GET /api/variantes/telas
+     *
+     * Lista todas las combinaciones de tela/material guardadas en el catálogo.
+     * Se usa en el formulario de producto personalizado para elegir una tela existente.
+     */
+    public function telas()
+    {
+        $telas = DB::table('producto_variantes')
+            ->where('activo', true)
+            ->select('marca', 'marca_tela', 'nombre_color')
+            ->distinct()
+            ->orderBy('marca_tela')
+            ->orderBy('nombre_color')
+            ->get();
+
+        return response()->json($telas);
+    }
+
+    /**
      * POST /api/productos/{id}/variantes
      *
      * Crea una variante y genera su registro de inventario en cada tienda

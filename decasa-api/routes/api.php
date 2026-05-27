@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\RedesController;
 use App\Http\Controllers\ClienteController;
 use App\Http\Controllers\InventarioController;
 use App\Http\Controllers\NotificacionController;
@@ -27,6 +28,9 @@ use Illuminate\Support\Facades\Route;
 
 // ── Auth (público) ────────────────────────────────────────────────────────────
 Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:10,1');
+
+// ── Webhook del agente WA (público con token secreto) ────────────────────────
+Route::post('/redes/webhook', [RedesController::class, 'webhook']);
 
 // ── Rutas protegidas ─────────────────────────────────────────────────────────
 Route::middleware('auth:sanctum')->group(function () {
@@ -212,6 +216,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/configuracion/costos',  [ConfiguracionCostosController::class, 'index']);
         Route::put('/configuracion/costos',  [ConfiguracionCostosController::class, 'guardar']);
     });
+
+    // Redes (módulo WhatsApp centralizado)
+    Route::get('/redes/conversaciones',                       [RedesController::class, 'index']);
+    Route::post('/redes/conversaciones/{id}/tomar',           [RedesController::class, 'tomar']);
+    Route::post('/redes/conversaciones/{id}/terminar',        [RedesController::class, 'terminar']);
 
     // Fichas Técnicas (costos de producción)
     Route::get('/fichas-tecnicas',                        [FichaTecnicaController::class, 'index']);
