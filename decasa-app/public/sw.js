@@ -1,6 +1,39 @@
-const CACHE_NAME = 'decasa-v1'
+const CACHE_NAME = 'decasa-v2'
 
-// Recursos del app shell a pre-cachear
+// ── Push notifications ────────────────────────────────────────────────────────
+self.addEventListener('push', (event) => {
+  if (!event.data) return
+  let payload
+  try { payload = event.data.json() } catch { payload = { title: 'Decasa', body: event.data.text() } }
+
+  const title   = payload.title ?? 'Decasa'
+  const options = {
+    body: payload.body ?? '',
+    icon: '/logo_192x192.png',
+    badge: '/logo_192x192.png',
+    data: payload.datos ?? {},
+    vibrate: [200, 100, 200],
+  }
+  event.waitUntil(self.registration.showNotification(title, options))
+})
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+  const url = '/'
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      const existing = list.find((c) => c.url.includes(self.location.origin))
+      if (existing) {
+        existing.focus()
+        existing.postMessage({ type: 'push-click', datos: event.notification.data })
+      } else {
+        clients.openWindow(url)
+      }
+    })
+  )
+})
+
+// ── Recursos del app shell a pre-cachear ─────────────────────────────────────
 const SHELL_URLS = ['/', '/index.html']
 
 // Instalar: pre-cachear el shell (cada URL por separado para evitar que una falla bloquee todo)

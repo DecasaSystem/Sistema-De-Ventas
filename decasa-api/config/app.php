@@ -16,6 +16,9 @@ return [
     'name'        => env('APP_NAME', 'Laravel'),
     'agent_token' => env('AGENT_TOKEN', null),
 
+    'vapid_public_key'  => env('VAPID_PUBLIC_KEY'),
+    'vapid_private_key' => env('VAPID_PRIVATE_KEY'),
+
     /*
     |--------------------------------------------------------------------------
     | Application Environment

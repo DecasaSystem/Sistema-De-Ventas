@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch, onMounted } from 'vue'
+import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import axios from 'axios'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
@@ -9,6 +9,7 @@ import { useSurtidosStore } from '@/stores/surtidos'
 import { usePasosStore } from '@/stores/pasos'
 import { useDespachoProduccionStore } from '@/stores/despachoProduccion'
 import { useSurtidosSocket } from '@/composables/useSurtidosSocket'
+import { registrarPush, cancelarPush } from '@/composables/usePushNotifications'
 import ScrollToTop from '@/components/common/ScrollToTop.vue'
 import ToastContainer from '@/components/common/ToastContainer.vue'
 import AppInstallPrompt from '@/components/common/AppInstallPrompt.vue'
@@ -60,11 +61,27 @@ const showNav    = computed(() => auth.isAuthenticated && route.name !== 'login'
 const abrirNotif = ref(false)
 const abrirMas   = ref(false)
 
-onMounted(() => { auth.fetchMe() })
+function onSwMessage(e) {
+  if (e.data?.type === 'push-click') {
+    const datos = e.data.datos ?? {}
+    if (datos.conversacion_id) router.push({ name: 'redes' })
+    else if (datos.orden_id)   router.push({ name: 'orden-detalle', params: { id: datos.orden_id } })
+    else                        router.push({ name: 'dashboard' })
+  }
+}
+
+onMounted(() => {
+  auth.fetchMe()
+  navigator.serviceWorker?.addEventListener('message', onSwMessage)
+})
+onUnmounted(() => {
+  navigator.serviceWorker?.removeEventListener('message', onSwMessage)
+})
 
 watch(() => auth.isAuthenticated, (isAuth) => {
   if (!isAuth) return
   notif.cargar()
+  registrarPush()
   if (['supervisor', 'conductor'].includes(auth.usuario?.rol)) {
     despacho.refrescar()
   }
@@ -194,6 +211,7 @@ function irA(name) {
 }
 
 async function doLogout() {
+  await cancelarPush()
   await auth.logout()
   router.push({ name: 'login' })
 }

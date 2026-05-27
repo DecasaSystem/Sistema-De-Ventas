@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Events\NuevaNotificacion;
 use App\Models\Notificacion;
 use App\Models\Usuario;
+use App\Services\PushService;
 
 class NotificacionService
 {
@@ -49,6 +50,14 @@ class NotificacionService
             event(new NuevaNotificacion($n));
         } catch (\Throwable) {
             // Reverb offline — notificación guardada en BD, broadcast ignorado
+        }
+
+        if ($usuarioId) {
+            try {
+                PushService::enviarAUsuario($usuarioId, $titulo, $mensaje, $datos);
+            } catch (\Throwable) {
+                // Push falla silenciosamente si no hay suscripciones o VAPID no configurado
+            }
         }
 
         return $n;

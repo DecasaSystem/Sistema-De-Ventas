@@ -24,6 +24,7 @@ use App\Http\Controllers\AgentController;
 use App\Http\Controllers\PrecioItemController;
 use App\Http\Controllers\ConfiguracionCostosController;
 use App\Http\Controllers\FacturacionController;
+use App\Http\Controllers\PushSubscriptionController;
 use Illuminate\Support\Facades\Route;
 
 // ── Auth (público) ────────────────────────────────────────────────────────────
@@ -32,10 +33,17 @@ Route::post('/auth/login', [AuthController::class, 'login'])->middleware('thrott
 // ── Webhook del agente WA (público con token secreto) ────────────────────────
 Route::post('/redes/webhook', [RedesController::class, 'webhook']);
 
+// ── VAPID public key (público — necesario antes de login para suscribir) ─────
+Route::get('/push/vapid-key', [PushSubscriptionController::class, 'vapidKey']);
+
 // ── Rutas protegidas ─────────────────────────────────────────────────────────
 Route::middleware('auth:sanctum')->group(function () {
 
     Route::post('/auth/logout',    [AuthController::class, 'logout']);
+
+    // Push subscriptions
+    Route::post('/push/subscribe',   [PushSubscriptionController::class, 'subscribe']);
+    Route::delete('/push/subscribe', [PushSubscriptionController::class, 'unsubscribe']);
     Route::get('/auth/me',         [AuthController::class, 'me']);
     Route::patch('/auth/mi-firma', [AuthController::class, 'guardarFirma']);
 
