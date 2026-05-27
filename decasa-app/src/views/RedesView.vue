@@ -84,6 +84,24 @@ function tipoBadgeColor(tipo) {
   return { pedido: 'bg-green-100 text-green-700', cita: 'bg-blue-100 text-blue-700', asesor: 'bg-red-100 text-red-700', personalizacion: 'bg-purple-100 text-purple-700', otro: 'bg-gray-100 text-gray-600' }[tipo] ?? 'bg-gray-100 text-gray-600'
 }
 
+function waUrl(conv) {
+  const phone = (conv.telefono || '').replace(/\D/g, '')
+  if (!phone) return conv.whatsapp_url || '#'
+
+  const asesor = auth.usuario?.nombre || 'tu asesor'
+  const saludo = conv.nombre_cliente
+    ? `Hola ${conv.nombre_cliente}, `
+    : 'Hola, '
+
+  let texto = `${saludo}soy ${asesor} tu asesor de DeCasa y me encantaría ayudarte 😊`
+
+  if (conv.tipo === 'pedido' && conv.resumen) {
+    texto += `\n\n${conv.resumen}`
+  }
+
+  return `https://wa.me/${phone}?text=${encodeURIComponent(texto)}`
+}
+
 function formatFecha(iso) {
   if (!iso) return ''
   const d = new Date(iso)
@@ -215,8 +233,8 @@ onUnmounted(() => {
           <div class="flex items-center gap-2">
             <!-- WhatsApp link -->
             <a
-              v-if="conv.whatsapp_url"
-              :href="conv.whatsapp_url"
+              v-if="conv.telefono"
+              :href="waUrl(conv)"
               target="_blank"
               class="flex items-center gap-1 text-xs text-green-600 hover:text-green-700 font-medium"
             >
