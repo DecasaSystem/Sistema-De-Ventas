@@ -213,6 +213,8 @@ async function abrirNotificacion(n) {
     }
   } else if (datos.surtido_id) {
     router.push({ name: auth.isSupervisor ? 'surtir' : 'inventario' })
+  } else if (datos.conversacion_id || n.tipo === 'redes') {
+    router.push({ name: 'redes' })
   }
 }
 
@@ -235,6 +237,7 @@ function tipoIcono(tipo) {
     paso_produccion:    WrenchScrewdriverIcon,
     orden_editada:      PencilSquareIcon,
     abono_registrado:   BanknotesIcon,
+    redes:              ChatBubbleLeftRightIcon,
   }
   return icons[tipo] ?? BellIcon
 }

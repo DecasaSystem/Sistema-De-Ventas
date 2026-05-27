@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Events\NuevaConversacionWa;
 use App\Models\ConversacionWa;
+use App\Models\Usuario;
+use App\Services\NotificacionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -48,6 +50,21 @@ class RedesController extends Controller
         $conv = ConversacionWa::create($data);
 
         broadcast(new NuevaConversacionWa($conv));
+
+        $titulos = [
+            'pedido'          => 'Pedido por WhatsApp',
+            'cita'            => 'Cita agendada por WhatsApp',
+            'asesor'          => 'Cliente solicita asesor',
+            'personalizacion' => 'Solicitud de personalización',
+            'otro'            => 'Mensaje de WhatsApp',
+        ];
+        $titulo  = $titulos[$conv->tipo] ?? 'Mensaje de WhatsApp';
+        $mensaje = ($conv->nombre_cliente ? $conv->nombre_cliente . ': ' : '') . $conv->resumen;
+
+        $usuarios = Usuario::whereIn('rol', ['vendedor', 'supervisor'])->where('activo', true)->get();
+        foreach ($usuarios as $u) {
+            NotificacionService::crear('redes', $titulo, $mensaje, ['conversacion_id' => $conv->id], $u->id);
+        }
 
         return response()->json($conv, 201);
     }
