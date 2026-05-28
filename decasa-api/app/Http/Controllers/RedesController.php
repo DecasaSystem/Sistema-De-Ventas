@@ -117,23 +117,27 @@ class RedesController extends Controller
 
         // Si es una cita con datos estructurados, crear registro en módulo Citas
         if ($conv->tipo === 'cita' && !empty($conv->datos_cita)) {
-            $dc = $conv->datos_cita;
-            Cita::firstOrCreate(
-                ['conversacion_wa_id' => $conv->id],
-                [
-                    'asesor_id'      => $usuario->id,
-                    'tienda_id'      => $conv->tienda_id ?? null,
-                    'nombre_cliente' => $conv->nombre_cliente,
-                    'telefono'       => $conv->telefono,
-                    'contacto_url'   => $conv->contacto_url,
-                    'fuente'         => $conv->fuente ?? 'whatsapp',
-                    'dia'            => $dc['dia']    ?? '',
-                    'hora'           => $dc['hora']   ?? '',
-                    'motivo'         => $dc['motivo'] ?? null,
-                    'estado'         => 'pendiente',
-                    'fecha_cita'     => $this->parsearFechaCita($dc['dia'] ?? ''),
-                ]
-            );
+            try {
+                $dc = $conv->datos_cita;
+                Cita::firstOrCreate(
+                    ['conversacion_wa_id' => $conv->id],
+                    [
+                        'asesor_id'      => $usuario->id,
+                        'tienda_id'      => $conv->tienda_id ?? null,
+                        'nombre_cliente' => $conv->nombre_cliente,
+                        'telefono'       => $conv->telefono,
+                        'contacto_url'   => $conv->contacto_url,
+                        'fuente'         => $conv->fuente ?? 'whatsapp',
+                        'dia'            => $dc['dia']    ?? '',
+                        'hora'           => $dc['hora']   ?? '',
+                        'motivo'         => $dc['motivo'] ?? null,
+                        'estado'         => 'pendiente',
+                        'fecha_cita'     => $this->parsearFechaCita($dc['dia'] ?? ''),
+                    ]
+                );
+            } catch (\Throwable $e) {
+                \Log::warning('tomar: no se pudo crear Cita', ['conv_id' => $conv->id, 'error' => $e->getMessage()]);
+            }
         }
 
         try {
