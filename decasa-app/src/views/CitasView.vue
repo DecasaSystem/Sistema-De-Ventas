@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
+import { useToast } from '@/composables/useToast'
 import api from '@/api'
 import {
   CalendarDaysIcon,
@@ -18,6 +19,7 @@ import {
 } from '@heroicons/vue/24/outline'
 
 const auth     = useAuthStore()
+const toast    = useToast()
 const items    = ref([])
 const tab      = ref('activas') // activas | completadas | canceladas
 const cargando = ref(false)
@@ -157,6 +159,20 @@ function estadoBadge(estado) {
 
 function fuenteIcon(fuente) {
   return fuente === 'instagram' ? '📸' : '💬'
+}
+
+async function abrirContacto(cita) {
+  if (cita.fuente === 'instagram') {
+    const nombre = auth.usuario?.nombre || 'tu asesor'
+    const msg    = `Hola mi nombre es ${nombre} y es un gusto ayudarte hoy 😊`
+    try {
+      await navigator.clipboard.writeText(msg)
+      toast.success('Saludo copiado — pégalo al abrir el chat de Instagram')
+    } catch {
+      toast.info('Abriendo Instagram...')
+    }
+  }
+  window.open(cita.contacto_url, '_blank', 'noopener')
 }
 
 function formatFecha(iso) {
@@ -347,10 +363,9 @@ onMounted(cargar)
         <!-- Acciones -->
         <div class="flex items-center justify-between gap-2 flex-wrap">
           <div class="flex items-center gap-2">
-            <a
+            <button
               v-if="cita.contacto_url"
-              :href="cita.contacto_url"
-              target="_blank"
+              @click="abrirContacto(cita)"
               :class="[
                 'flex items-center gap-1 text-xs font-medium',
                 cita.fuente === 'instagram' ? 'text-purple-600 hover:text-purple-700' : 'text-green-600 hover:text-green-700'
@@ -358,7 +373,7 @@ onMounted(cargar)
             >
               <ArrowTopRightOnSquareIcon class="w-3.5 h-3.5" />
               {{ cita.fuente === 'instagram' ? 'Abrir IG' : 'Abrir WA' }}
-            </a>
+            </button>
             <button
               @click="editando = { id: cita.id, notas: cita.notas || '' }"
               class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600"

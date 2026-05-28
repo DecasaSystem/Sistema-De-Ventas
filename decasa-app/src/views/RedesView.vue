@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
+import { useToast } from '@/composables/useToast'
 import api from '@/api'
 import {
   ChatBubbleLeftRightIcon,
@@ -17,6 +18,7 @@ import {
 } from '@heroicons/vue/24/outline'
 
 const auth  = useAuthStore()
+const toast = useToast()
 const items = ref([])
 const tab   = ref('pendiente') // pendiente | tomada | terminada
 const cargando = ref(false)
@@ -114,6 +116,21 @@ function contactoColor(fuente) {
   return fuente === 'instagram'
     ? 'text-purple-600 hover:text-purple-700'
     : 'text-green-600 hover:text-green-700'
+}
+
+async function abrirContacto(conv) {
+  const url = contactoUrl(conv)
+  if (conv.fuente === 'instagram') {
+    const nombre = auth.usuario?.nombre || 'tu asesor'
+    const msg    = `Hola mi nombre es ${nombre} y es un gusto ayudarte hoy 😊`
+    try {
+      await navigator.clipboard.writeText(msg)
+      toast.success('Saludo copiado — pégalo al abrir el chat de Instagram')
+    } catch {
+      toast.info('Abriendo Instagram...')
+    }
+  }
+  window.open(url, '_blank', 'noopener')
 }
 
 function totalCarrito(carrito) {
@@ -297,15 +314,14 @@ onUnmounted(() => {
 
           <div class="flex items-center gap-2">
             <!-- Botón de contacto (WA o IG según fuente) -->
-            <a
+            <button
               v-if="conv.telefono || conv.contacto_url"
-              :href="contactoUrl(conv)"
-              target="_blank"
+              @click="abrirContacto(conv)"
               :class="['flex items-center gap-1 text-xs font-medium', contactoColor(conv.fuente)]"
             >
               <ArrowTopRightOnSquareIcon class="w-3.5 h-3.5" />
               {{ contactoLabel(conv.fuente) }}
-            </a>
+            </button>
 
             <!-- Botón Tomar -->
             <button
