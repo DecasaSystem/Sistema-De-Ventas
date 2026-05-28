@@ -97,7 +97,7 @@ function contactoUrl(conv) {
 
   const asesor = auth.usuario?.nombre || 'tu asesor'
   const saludo = conv.nombre_cliente ? `Hola ${conv.nombre_cliente}, ` : 'Hola, '
-  let texto = `${saludo}soy ${asesor} tu asesor de DeCasa y me encantaría ayudarte 😊`
+  let texto = `${saludo}soy ${asesor}, asesor de DeCasa Muebles y Decoración 🛋️ Me da mucho gusto atenderte, ¿en qué te puedo ayudar?`
   if (conv.tipo === 'pedido' && conv.resumen) texto += `\n\n${conv.resumen}`
   return `https://wa.me/${phone}?text=${encodeURIComponent(texto)}`
 }
@@ -121,8 +121,9 @@ function contactoColor(fuente) {
 async function abrirContacto(conv) {
   const url = contactoUrl(conv)
   if (conv.fuente === 'instagram') {
-    const nombre = auth.usuario?.nombre || 'tu asesor'
-    const msg    = `Hola mi nombre es ${nombre} y es un gusto ayudarte hoy 😊`
+    const asesor = auth.usuario?.nombre || 'tu asesor'
+    const saludo = conv.nombre_cliente ? `Hola ${conv.nombre_cliente}, ` : 'Hola, '
+    const msg    = `${saludo}soy ${asesor}, asesor de DeCasa Muebles y Decoración 🛋️ Me da mucho gusto atenderte, ¿en qué te puedo ayudar?`
     try {
       await navigator.clipboard.writeText(msg)
       toast.success('Saludo copiado — pégalo al abrir el chat de Instagram')

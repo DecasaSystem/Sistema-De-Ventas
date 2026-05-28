@@ -199,8 +199,9 @@ function fuenteIcon(fuente) {
 
 async function abrirContacto(cita) {
   if (cita.fuente === 'instagram') {
-    const nombre = auth.usuario?.nombre || 'tu asesor'
-    const msg    = `Hola mi nombre es ${nombre} y es un gusto ayudarte hoy 😊`
+    const asesor = auth.usuario?.nombre || 'tu asesor'
+    const saludo = cita.nombre_cliente ? `Hola ${cita.nombre_cliente}, ` : 'Hola, '
+    const msg    = `${saludo}soy ${asesor}, asesor de DeCasa Muebles y Decoración 🛋️ Me da mucho gusto atenderte, ¿en qué te puedo ayudar?`
     try {
       await navigator.clipboard.writeText(msg)
       toast.success('Saludo copiado — pégalo al abrir el chat de Instagram')
