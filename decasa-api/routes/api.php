@@ -238,6 +238,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Citas
     Route::get('/citas',          [CitaController::class, 'index']);
+    Route::post('/citas',         [CitaController::class, 'store']);
     Route::patch('/citas/{id}',   [CitaController::class, 'update']);
 
     // Fichas Técnicas (costos de producción)

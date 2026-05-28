@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Cita;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 
 class CitaController extends Controller
@@ -29,6 +30,40 @@ class CitaController extends Controller
         }
 
         return response()->json($q->limit(100)->get());
+    }
+
+    // POST /api/citas  — crear cita manual (presencial o por mensaje directo)
+    public function store(Request $request)
+    {
+        $usuario = $request->user();
+
+        $data = $request->validate([
+            'nombre_cliente' => 'required|string|max:200',
+            'telefono'       => 'nullable|string|max:30',
+            'fecha_cita'     => 'required|date|after_or_equal:today',
+            'hora'           => 'required|string|max:10',
+            'motivo'         => 'nullable|string|max:500',
+        ]);
+
+        $meses      = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+        $diasSemana = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
+        $fecha      = Carbon::parse($data['fecha_cita']);
+        $diaTexto   = "{$diasSemana[$fecha->dayOfWeek]} {$fecha->day} de {$meses[$fecha->month - 1]}";
+
+        $cita = Cita::create([
+            'asesor_id'      => $usuario->id,
+            'tienda_id'      => $usuario->tienda_default_id ?? null,
+            'nombre_cliente' => $data['nombre_cliente'],
+            'telefono'       => $data['telefono'] ?? null,
+            'fuente'         => 'manual',
+            'dia'            => $diaTexto,
+            'hora'           => $data['hora'],
+            'motivo'         => $data['motivo'] ?? null,
+            'estado'         => 'pendiente',
+            'fecha_cita'     => $data['fecha_cita'],
+        ]);
+
+        return response()->json($cita->load(['asesor:id,nombre', 'tienda:id,nombre']), 201);
     }
 
     // PATCH /api/citas/{id}  — actualizar estado y/o notas
