@@ -13,6 +13,7 @@ import {
   CalendarDaysIcon,
   WrenchScrewdriverIcon,
   ExclamationCircleIcon,
+  MapPinIcon,
 } from '@heroicons/vue/24/outline'
 
 const auth  = useAuthStore()
@@ -113,6 +114,18 @@ function contactoColor(fuente) {
   return fuente === 'instagram'
     ? 'text-purple-600 hover:text-purple-700'
     : 'text-green-600 hover:text-green-700'
+}
+
+function totalCarrito(carrito) {
+  if (!carrito?.length) return 0
+  return carrito.reduce((s, i) => {
+    const p = parseInt(String(i.precio ?? 0).replace(/[^0-9]/g, '')) || 0
+    return s + p * (i.cantidad || 1)
+  }, 0)
+}
+
+function formatPeso(n) {
+  return '$' + n.toLocaleString('es-CO')
 }
 
 function formatFecha(iso) {
@@ -222,6 +235,39 @@ onUnmounted(() => {
 
         <!-- Resumen -->
         <p class="text-sm text-gray-600 leading-snug mb-3 line-clamp-3">{{ conv.resumen }}</p>
+
+        <!-- Datos de cita -->
+        <div v-if="conv.tipo === 'cita' && conv.datos_cita" class="mb-3 bg-blue-50 rounded-lg p-3 text-xs space-y-1">
+          <p class="font-semibold text-blue-700 flex items-center gap-1">
+            <CalendarDaysIcon class="w-3.5 h-3.5" /> Cita agendada
+          </p>
+          <p class="text-blue-800">
+            <span class="font-medium">Fecha:</span> {{ conv.datos_cita.dia }} a las {{ conv.datos_cita.hora }}
+          </p>
+          <p class="text-blue-800 flex items-center gap-1">
+            <MapPinIcon class="w-3 h-3" />
+            {{ conv.datos_cita.sede_nombre || ('Sede ' + conv.datos_cita.ubicacion) }}
+          </p>
+          <p v-if="conv.datos_cita.motivo" class="text-blue-700 italic">"{{ conv.datos_cita.motivo }}"</p>
+          <p v-if="conv.datos_cita.nombre" class="text-blue-800"><span class="font-medium">Cliente:</span> {{ conv.datos_cita.nombre }}</p>
+        </div>
+
+        <!-- Carrito -->
+        <div v-if="conv.carrito?.length" class="mb-3 bg-green-50 rounded-lg p-3 text-xs">
+          <p class="font-semibold text-green-700 flex items-center gap-1 mb-2">
+            <ShoppingBagIcon class="w-3.5 h-3.5" /> Carrito ({{ conv.carrito.length }} producto{{ conv.carrito.length > 1 ? 's' : '' }})
+          </p>
+          <div class="space-y-1">
+            <div v-for="(item, i) in conv.carrito" :key="i" class="flex justify-between text-green-800">
+              <span>{{ item.producto }} <span v-if="(item.cantidad || 1) > 1" class="text-green-600">×{{ item.cantidad }}</span></span>
+              <span class="font-medium">{{ formatPeso(parseInt(String(item.precio ?? 0).replace(/[^0-9]/g, '')) * (item.cantidad || 1)) }}</span>
+            </div>
+          </div>
+          <div class="border-t border-green-200 mt-2 pt-2 flex justify-between font-bold text-green-800">
+            <span>Total</span>
+            <span>{{ formatPeso(totalCarrito(conv.carrito)) }}</span>
+          </div>
+        </div>
 
         <!-- Historial colapsable -->
         <details v-if="conv.historial?.length" class="mb-3">
