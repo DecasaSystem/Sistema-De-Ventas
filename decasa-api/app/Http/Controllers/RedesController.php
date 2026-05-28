@@ -41,6 +41,9 @@ class RedesController extends Controller
             'nombre_cliente' => 'nullable|string',
             'resumen'        => 'required|string',
             'historial'      => 'nullable|array',
+            'carrito'        => 'nullable|array',
+            'datos_cita'     => 'nullable|array',
+            'tienda_id'      => 'nullable|integer|exists:tiendas,id',
             'whatsapp_url'   => 'nullable|string',
             'contacto_url'   => 'nullable|string',
             'fuente'         => 'nullable|string|in:whatsapp,instagram',
@@ -71,7 +74,13 @@ class RedesController extends Controller
         $titulo  = $titulos[$conv->tipo] ?? "Mensaje de {$canal}";
         $mensaje = ($conv->nombre_cliente ? $conv->nombre_cliente . ': ' : '') . $conv->resumen;
 
-        $usuarios = Usuario::whereIn('rol', ['vendedor', 'supervisor'])->where('activo', true)->get();
+        // Para citas con tienda definida: notificar solo a vendedores/supervisores de esa tienda
+        $queryUsuarios = Usuario::whereIn('rol', ['vendedor', 'supervisor'])->where('activo', true);
+        if ($conv->tipo === 'cita' && $conv->tienda_id) {
+            $queryUsuarios->where('tienda_default_id', $conv->tienda_id);
+        }
+        $usuarios = $queryUsuarios->get();
+
         foreach ($usuarios as $u) {
             NotificacionService::crear('redes', $titulo, $mensaje, ['conversacion_id' => $conv->id], $u->id);
         }
