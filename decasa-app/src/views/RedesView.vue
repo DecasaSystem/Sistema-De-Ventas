@@ -54,8 +54,17 @@ async function tomar(id) {
   try {
     const { data } = await api.post(`/redes/conversaciones/${id}/tomar`)
     actualizarItem(data)
+    tab.value = 'tomada'
+    toast.success('Conversación tomada')
   } catch (e) {
-    alert(e.response?.data?.error || 'No se pudo tomar la conversación')
+    const status = e.response?.status
+    if (status === 409) {
+      toast.info('Ya fue tomada por otro vendedor — actualizando...')
+      await cargar()
+      tab.value = 'tomada'
+    } else {
+      toast.error(e.response?.data?.error || 'No se pudo tomar la conversación')
+    }
   }
 }
 
