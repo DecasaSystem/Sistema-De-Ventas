@@ -16,6 +16,7 @@ import {
   DocumentCurrencyDollarIcon,
   CalculatorIcon,
   ChatBubbleLeftRightIcon,
+  CalendarDaysIcon,
 } from '@heroicons/vue/24/outline'
 
 const auth   = useAuthStore()
@@ -46,6 +47,7 @@ const accesos = computed(() => {
     { label: 'Clientes',     icon: UserGroupIcon, to: { name: 'clientes' } },
     { label: 'Inventario',   icon: ArchiveBoxIcon, to: { name: 'inventario' } },
     { label: 'Redes',        icon: ChatBubbleLeftRightIcon, to: { name: 'redes' } },
+    { label: 'Citas',        icon: CalendarDaysIcon,        to: { name: 'citas' } },
   ]
 
   if (auth.isSupervisor) {
