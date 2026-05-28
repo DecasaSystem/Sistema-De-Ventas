@@ -7,6 +7,7 @@ use App\Models\Cita;
 use App\Models\ConversacionWa;
 use App\Models\Usuario;
 use App\Services\NotificacionService;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -130,6 +131,7 @@ class RedesController extends Controller
                     'hora'           => $dc['hora']   ?? '',
                     'motivo'         => $dc['motivo'] ?? null,
                     'estado'         => 'pendiente',
+                    'fecha_cita'     => $this->parsearFechaCita($dc['dia'] ?? ''),
                 ]
             );
         }
@@ -139,6 +141,36 @@ class RedesController extends Controller
         } catch (\Throwable $e) {}
 
         return response()->json($conv);
+    }
+
+    private function parsearFechaCita(string $dia): ?string
+    {
+        static $meses = [
+            'enero' => 1, 'febrero' => 2, 'marzo' => 3, 'abril' => 4,
+            'mayo' => 5, 'junio' => 6, 'julio' => 7, 'agosto' => 8,
+            'septiembre' => 9, 'octubre' => 10, 'noviembre' => 11, 'diciembre' => 12,
+        ];
+
+        // Matches: "martes 3 de junio", "3 de junio", "martes 03 de junio de 2026"
+        if (!preg_match('/(\d{1,2})\s+de\s+(\w+)(?:\s+de\s+(\d{4}))?/i', $dia, $m)) {
+            return null;
+        }
+
+        $mesNom = strtolower($m[2]);
+        if (!isset($meses[$mesNom])) return null;
+
+        $tz  = 'America/Bogota';
+        $hoy = Carbon::today($tz);
+        $anio = isset($m[3]) && $m[3] ? (int) $m[3] : $hoy->year;
+
+        $fecha = Carbon::createFromDate($anio, $meses[$mesNom], (int) $m[1], $tz);
+
+        // If the calculated date is in the past (and no explicit year was given), assume next year
+        if (!isset($m[3]) && $fecha->lt($hoy)) {
+            $fecha->addYear();
+        }
+
+        return $fecha->toDateString();
     }
 
     // POST /api/redes/conversaciones/{id}/terminar

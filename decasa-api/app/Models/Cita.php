@@ -11,7 +11,11 @@ class Cita extends Model
     protected $fillable = [
         'conversacion_wa_id', 'asesor_id', 'tienda_id',
         'nombre_cliente', 'telefono', 'contacto_url', 'fuente',
-        'dia', 'hora', 'motivo', 'estado', 'notas',
+        'dia', 'hora', 'motivo', 'estado', 'notas', 'fecha_cita',
+    ];
+
+    protected $casts = [
+        'fecha_cita' => 'date:Y-m-d',
     ];
 
     public function asesor()

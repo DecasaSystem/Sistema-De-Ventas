@@ -65,9 +65,10 @@ const abrirMas   = ref(false)
 function onSwMessage(e) {
   if (e.data?.type === 'push-click') {
     const datos = e.data.datos ?? {}
-    if (datos.conversacion_id) router.push({ name: 'redes' })
-    else if (datos.orden_id)   router.push({ name: 'orden-detalle', params: { id: datos.orden_id } })
-    else                        router.push({ name: 'dashboard' })
+    if (datos.cita_id)          router.push({ name: 'citas' })
+    else if (datos.conversacion_id) router.push({ name: 'redes' })
+    else if (datos.orden_id)    router.push({ name: 'orden-detalle', params: { id: datos.orden_id } })
+    else                         router.push({ name: 'dashboard' })
   }
 }
 
@@ -260,6 +261,7 @@ function tipoIcono(tipo) {
     orden_editada:      PencilSquareIcon,
     abono_registrado:   BanknotesIcon,
     redes:              ChatBubbleLeftRightIcon,
+    cita_recordatorio:  CalendarDaysIcon,
   }
   return icons[tipo] ?? BellIcon
 }

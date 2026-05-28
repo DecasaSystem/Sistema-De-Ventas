@@ -12,13 +12,27 @@ import {
   ChatBubbleLeftRightIcon,
   ArrowTopRightOnSquareIcon,
   PencilSquareIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  ListBulletIcon,
 } from '@heroicons/vue/24/outline'
 
-const auth    = useAuthStore()
-const items   = ref([])
-const tab     = ref('activas') // activas | completadas | canceladas
+const auth     = useAuthStore()
+const items    = ref([])
+const tab      = ref('activas') // activas | completadas | canceladas
 const cargando = ref(false)
 const editando = ref(null)   // { id, notas }
+
+// Vista
+const vista            = ref('lista') // 'lista' | 'calendario'
+const calMes           = ref(new Date().getMonth())    // 0-11
+const calAnio          = ref(new Date().getFullYear())
+const diaSeleccionado  = ref(null)   // "YYYY-MM-DD"
+
+const MESES      = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
+const DIAS_SEM   = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom']
+
+// ── Tabs ──────────────────────────────────────────────────────────────────────
 
 const filtrados = computed(() => {
   if (tab.value === 'activas')     return items.value.filter(c => ['pendiente', 'confirmada'].includes(c.estado))
@@ -27,11 +41,71 @@ const filtrados = computed(() => {
   return items.value
 })
 
+const citasMostradas = computed(() => {
+  if (vista.value === 'calendario' && diaSeleccionado.value) {
+    return filtrados.value.filter(c => c.fecha_cita?.substring(0, 10) === diaSeleccionado.value)
+  }
+  return filtrados.value
+})
+
 const badges = computed(() => ({
   activas:     items.value.filter(c => ['pendiente', 'confirmada'].includes(c.estado)).length,
   completadas: items.value.filter(c => c.estado === 'completada').length,
   canceladas:  items.value.filter(c => c.estado === 'cancelada').length,
 }))
+
+// ── Calendario ────────────────────────────────────────────────────────────────
+
+// Map: "YYYY-MM-DD" → citas[]
+const diasConCitas = computed(() => {
+  const map = {}
+  items.value.forEach(c => {
+    if (c.fecha_cita) {
+      const key = c.fecha_cita.substring(0, 10)
+      if (!map[key]) map[key] = []
+      map[key].push(c)
+    }
+  })
+  return map
+})
+
+const celdas = computed(() => {
+  const primer  = new Date(calAnio.value, calMes.value, 1)
+  const ultimo  = new Date(calAnio.value, calMes.value + 1, 0)
+  const result  = []
+  const offset  = (primer.getDay() + 6) % 7   // Monday = 0
+  for (let i = 0; i < offset; i++) result.push(null)
+  for (let d = 1; d <= ultimo.getDate(); d++) {
+    const fecha = `${calAnio.value}-${String(calMes.value + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+    result.push({ dia: d, fecha })
+  }
+  return result
+})
+
+const hoy = new Date()
+const fechaHoy = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`
+
+function prevMes() {
+  if (calMes.value === 0) { calMes.value = 11; calAnio.value-- }
+  else calMes.value--
+  diaSeleccionado.value = null
+}
+function nextMes() {
+  if (calMes.value === 11) { calMes.value = 0; calAnio.value++ }
+  else calMes.value++
+  diaSeleccionado.value = null
+}
+function seleccionarDia(fecha) {
+  diaSeleccionado.value = diaSeleccionado.value === fecha ? null : fecha
+}
+
+function labelDiaSeleccionado() {
+  if (!diaSeleccionado.value) return ''
+  const d = new Date(diaSeleccionado.value + 'T12:00:00')
+  return d.toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })
+}
+
+// ── API ───────────────────────────────────────────────────────────────────────
 
 async function cargar() {
   cargando.value = true
@@ -70,12 +144,14 @@ async function guardarNotas(id) {
   }
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 function estadoBadge(estado) {
   return {
-    pendiente:   { label: 'Pendiente',   cls: 'bg-yellow-100 text-yellow-700' },
-    confirmada:  { label: 'Confirmada',  cls: 'bg-blue-100 text-blue-700' },
-    completada:  { label: 'Completada',  cls: 'bg-green-100 text-green-700' },
-    cancelada:   { label: 'Cancelada',   cls: 'bg-red-100 text-red-700' },
+    pendiente:  { label: 'Pendiente',  cls: 'bg-yellow-100 text-yellow-700' },
+    confirmada: { label: 'Confirmada', cls: 'bg-blue-100 text-blue-700' },
+    completada: { label: 'Completada', cls: 'bg-green-100 text-green-700' },
+    cancelada:  { label: 'Cancelada',  cls: 'bg-red-100 text-red-700' },
   }[estado] ?? { label: estado, cls: 'bg-gray-100 text-gray-600' }
 }
 
@@ -99,7 +175,25 @@ onMounted(cargar)
       Mis citas
     </h1>
 
-    <!-- Tabs -->
+    <!-- Vista toggle -->
+    <div class="flex rounded-xl bg-gray-100 p-1 mb-4 gap-1">
+      <button
+        @click="vista = 'lista'; diaSeleccionado = null"
+        :class="['flex-1 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-1',
+          vista === 'lista' ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700']"
+      >
+        <ListBulletIcon class="w-4 h-4" /> Lista
+      </button>
+      <button
+        @click="vista = 'calendario'"
+        :class="['flex-1 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-1',
+          vista === 'calendario' ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700']"
+      >
+        <CalendarDaysIcon class="w-4 h-4" /> Calendario
+      </button>
+    </div>
+
+    <!-- Tabs (estado) -->
     <div class="flex rounded-xl bg-gray-100 p-1 mb-4 gap-1">
       <button
         v-for="t in [
@@ -108,7 +202,7 @@ onMounted(cargar)
           { key: 'canceladas',  label: 'Canceladas' },
         ]"
         :key="t.key"
-        @click="tab = t.key"
+        @click="tab = t.key; diaSeleccionado = null"
         :class="[
           'flex-1 py-1.5 rounded-lg text-xs font-semibold transition-colors relative',
           tab === t.key ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'
@@ -125,19 +219,84 @@ onMounted(cargar)
       </button>
     </div>
 
-    <!-- Estado -->
+    <!-- ── Calendario ───────────────────────────────────────────────────────── -->
+    <div v-if="vista === 'calendario'" class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-4">
+      <!-- Navegación de mes -->
+      <div class="flex items-center justify-between mb-3">
+        <button @click="prevMes" class="p-1.5 hover:bg-gray-100 rounded-lg transition-colors">
+          <ChevronLeftIcon class="w-5 h-5 text-gray-600" />
+        </button>
+        <span class="font-semibold text-sm text-gray-800">{{ MESES[calMes] }} {{ calAnio }}</span>
+        <button @click="nextMes" class="p-1.5 hover:bg-gray-100 rounded-lg transition-colors">
+          <ChevronRightIcon class="w-5 h-5 text-gray-600" />
+        </button>
+      </div>
+
+      <!-- Cabecera días -->
+      <div class="grid grid-cols-7 mb-1">
+        <div
+          v-for="d in DIAS_SEM"
+          :key="d"
+          class="text-center text-[10px] font-medium text-gray-400 py-1"
+        >{{ d }}</div>
+      </div>
+
+      <!-- Celdas -->
+      <div class="grid grid-cols-7 gap-0.5">
+        <div v-for="(celda, i) in celdas" :key="i" class="aspect-square">
+          <button
+            v-if="celda"
+            @click="seleccionarDia(celda.fecha)"
+            :class="[
+              'w-full h-full flex flex-col items-center justify-center rounded-lg text-xs font-medium transition-colors',
+              diaSeleccionado === celda.fecha
+                ? 'bg-blue-600 text-white'
+                : diasConCitas[celda.fecha]
+                  ? 'bg-blue-50 text-blue-700 hover:bg-blue-100'
+                  : 'text-gray-600 hover:bg-gray-100',
+              celda.fecha === fechaHoy && diaSeleccionado !== celda.fecha
+                ? 'ring-1 ring-blue-400' : ''
+            ]"
+          >
+            {{ celda.dia }}
+            <span
+              v-if="diasConCitas[celda.fecha]"
+              :class="['block w-1.5 h-1.5 rounded-full', diaSeleccionado === celda.fecha ? 'bg-white' : 'bg-blue-500']"
+            />
+          </button>
+          <div v-else />
+        </div>
+      </div>
+
+      <!-- Leyenda -->
+      <div class="flex items-center gap-3 mt-3 text-[10px] text-gray-400">
+        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-blue-500 inline-block" /> Con citas</span>
+        <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-sm ring-1 ring-blue-400 inline-block" /> Hoy</span>
+      </div>
+    </div>
+
+    <!-- Filtro por día seleccionado -->
+    <div v-if="diaSeleccionado" class="flex items-center gap-2 text-xs text-gray-500 mb-3">
+      <CalendarDaysIcon class="w-3.5 h-3.5 text-blue-500" />
+      <span class="capitalize">{{ labelDiaSeleccionado() }}</span>
+      <button @click="diaSeleccionado = null" class="ml-auto text-blue-500 hover:underline">Ver todas</button>
+    </div>
+
+    <!-- Estado carga -->
     <div v-if="cargando" class="flex justify-center py-12">
       <div class="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
     </div>
-    <div v-else-if="filtrados.length === 0" class="text-center py-14">
+    <div v-else-if="citasMostradas.length === 0" class="text-center py-14">
       <CalendarDaysIcon class="w-12 h-12 text-gray-300 mx-auto mb-2" />
-      <p class="text-gray-400 text-sm">No hay citas en esta sección</p>
+      <p class="text-gray-400 text-sm">
+        {{ diaSeleccionado ? 'No hay citas este día' : 'No hay citas en esta sección' }}
+      </p>
     </div>
 
     <!-- Lista -->
     <div v-else class="space-y-3">
       <div
-        v-for="cita in filtrados"
+        v-for="cita in citasMostradas"
         :key="cita.id"
         class="bg-white rounded-xl shadow-sm border border-gray-100 p-4"
       >
@@ -188,7 +347,6 @@ onMounted(cargar)
         <!-- Acciones -->
         <div class="flex items-center justify-between gap-2 flex-wrap">
           <div class="flex items-center gap-2">
-            <!-- Contactar -->
             <a
               v-if="cita.contacto_url"
               :href="cita.contacto_url"
@@ -201,7 +359,6 @@ onMounted(cargar)
               <ArrowTopRightOnSquareIcon class="w-3.5 h-3.5" />
               {{ cita.fuente === 'instagram' ? 'Abrir IG' : 'Abrir WA' }}
             </a>
-            <!-- Editar notas -->
             <button
               @click="editando = { id: cita.id, notas: cita.notas || '' }"
               class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600"
@@ -211,7 +368,6 @@ onMounted(cargar)
             </button>
           </div>
 
-          <!-- Botones de estado -->
           <div v-if="['pendiente', 'confirmada'].includes(cita.estado)" class="flex items-center gap-2">
             <button
               v-if="cita.estado === 'pendiente'"
