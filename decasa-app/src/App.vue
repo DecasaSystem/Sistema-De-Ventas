@@ -149,6 +149,7 @@ const navItems = computed(() => {
       { name: 'usuarios',   label: 'Trabajadores', icon: UsersIcon },
       { name: 'reportes',   label: 'Reportes',    icon: ChartBarIcon },
       { name: 'costos',          label: 'Costos',          icon: CalculatorIcon },
+      { name: 'citas',           label: 'Citas',           icon: CalendarDaysIcon },
     ]
     if (auth.isTapicero) {
       items.unshift({ name: 'mis-pasos', label: 'Mis pasos', icon: WrenchIcon, badge: pasos.pendientesCount })
@@ -190,6 +191,7 @@ const navItems = computed(() => {
     { name: 'clientes',   label: 'Clientes',   icon: UserGroupIcon },
     { name: 'inventario', label: 'Inventario', icon: ArchiveBoxIcon, badge: surtidos.pendientesCount },
     { name: 'mis-stats',  label: 'Estadíst.',  icon: PresentationChartLineIcon },
+    { name: 'citas',      label: 'Citas',      icon: CalendarDaysIcon },
   ]
 })
 
@@ -233,6 +235,8 @@ async function abrirNotificacion(n) {
     }
   } else if (datos.surtido_id) {
     router.push({ name: auth.isSupervisor ? 'surtir' : 'inventario' })
+  } else if (datos.cita_id) {
+    router.push({ name: 'citas' })
   } else if (datos.conversacion_id || n.tipo === 'redes') {
     router.push({ name: 'redes' })
   }
