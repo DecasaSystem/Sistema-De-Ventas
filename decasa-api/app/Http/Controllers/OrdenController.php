@@ -336,6 +336,25 @@ class OrdenController extends Controller
             // usuario_id null → va al supervisor
         );
 
+        // Notificar a facturadores sobre el anticipo inicial
+        $facturadores = Usuario::where('facturacion', true)
+            ->where('activo', true)
+            ->where('id', '!=', $request->user()->id)
+            ->get();
+
+        if ($facturadores->isNotEmpty()) {
+            $montoFormateado = '$ ' . number_format($data['anticipo_monto'], 0, ',', '.');
+            foreach ($facturadores as $facturador) {
+                NotificacionService::crear(
+                    tipo:      'abono_registrado',
+                    titulo:    "Pago registrado – Orden #{$orden->id}",
+                    mensaje:   "{$request->user()->nombre} registró un anticipo de {$montoFormateado} en la orden de {$ordenCargada->cliente->nombre}.",
+                    datos:     ['orden_id' => $orden->id],
+                    usuarioId: $facturador->id,
+                );
+            }
+        }
+
         // Notificar cambio de inventario, detectar ventas cruzadas y alertar si sin stock
         $origenesExternos = [];
         foreach ($data['items'] as $itemData) {

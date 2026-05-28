@@ -20,7 +20,7 @@ class Cliente extends Model
         'notas_interes',
     ];
 
-    protected $hidden = ['cedula', 'email', 'direccion'];
+    protected $hidden = [];
 
     protected function casts(): array
     {

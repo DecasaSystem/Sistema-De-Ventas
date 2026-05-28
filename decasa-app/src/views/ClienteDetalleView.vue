@@ -31,6 +31,9 @@ const error = ref('')
 const tieneMasOrdenes = ref(true)
 const paginaOrdenes = ref(1)
 const convirtiendo = ref(false)
+const mostrarFormConversion = ref(false)
+const formConversion = ref({ cedula: '', telefono: '', email: '', direccion: '' })
+const errorConversion = ref('')
 
 const canalIcon = computed(() => {
   const map = {
@@ -107,14 +110,39 @@ async function loadMoreOrdenes() {
   await cargarOrdenes(paginaOrdenes.value + 1, true)
 }
 
+function abrirFormConversion() {
+  formConversion.value = {
+    cedula:    cliente.value?.cedula    ?? '',
+    telefono:  cliente.value?.telefono  ?? '',
+    email:     cliente.value?.email     ?? '',
+    direccion: cliente.value?.direccion ?? '',
+  }
+  errorConversion.value = ''
+  mostrarFormConversion.value = true
+}
+
 async function convertirAOficial() {
-  if (!confirm('¿Convertir este cliente interesado a cliente oficial?')) return
+  errorConversion.value = ''
+  if (!formConversion.value.cedula.trim()) {
+    errorConversion.value = 'La cédula es obligatoria para clientes oficiales.'
+    return
+  }
+  if (!formConversion.value.telefono.trim()) {
+    errorConversion.value = 'El teléfono es obligatorio para clientes oficiales.'
+    return
+  }
   convirtiendo.value = true
   try {
-    await updateCliente(cliente.value.id, { tipo: 'oficial' })
+    const payload = { tipo: 'oficial' }
+    if (formConversion.value.cedula.trim())    payload.cedula    = formConversion.value.cedula.trim()
+    if (formConversion.value.telefono.trim())  payload.telefono  = formConversion.value.telefono.trim()
+    if (formConversion.value.email.trim())     payload.email     = formConversion.value.email.trim()
+    if (formConversion.value.direccion.trim()) payload.direccion = formConversion.value.direccion.trim()
+    await updateCliente(cliente.value.id, payload)
+    mostrarFormConversion.value = false
     await cargarCliente()
   } catch (e) {
-    error.value = e.response?.data?.message ?? 'Error al convertir cliente.'
+    errorConversion.value = e.response?.data?.message ?? 'Error al convertir cliente.'
   } finally {
     convirtiendo.value = false
   }
@@ -188,17 +216,78 @@ onMounted(async () => {
         <div class="flex items-center justify-between">
           <p class="text-sm font-semibold text-amber-800">Cliente Interesado</p>
           <button
+            v-if="!mostrarFormConversion"
+            @click="abrirFormConversion"
+            class="text-xs bg-amber-600 text-white px-3 py-1.5 rounded-lg hover:bg-amber-700 flex items-center gap-1"
+          >
+            Convertir a oficial
+          </button>
+          <button
+            v-else
+            @click="mostrarFormConversion = false"
+            class="text-xs text-amber-700 underline"
+          >
+            Cancelar
+          </button>
+        </div>
+
+        <!-- Formulario de conversión -->
+        <div v-if="mostrarFormConversion" class="space-y-2.5 pt-1">
+          <p class="text-xs text-amber-700">Completa los datos del cliente oficial antes de confirmar.</p>
+
+          <div class="space-y-2">
+            <div>
+              <label class="text-xs font-medium text-amber-800 mb-0.5 block">Cédula <span class="text-red-500">*</span></label>
+              <input
+                v-model="formConversion.cedula"
+                type="text"
+                placeholder="Número de cédula"
+                class="w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+              />
+            </div>
+            <div>
+              <label class="text-xs font-medium text-amber-800 mb-0.5 block">Teléfono <span class="text-red-500">*</span></label>
+              <input
+                v-model="formConversion.telefono"
+                type="tel"
+                placeholder="Número de teléfono"
+                class="w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+              />
+            </div>
+            <div>
+              <label class="text-xs font-medium text-amber-800 mb-0.5 block">Email</label>
+              <input
+                v-model="formConversion.email"
+                type="email"
+                placeholder="correo@ejemplo.com (opcional)"
+                class="w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+              />
+            </div>
+            <div>
+              <label class="text-xs font-medium text-amber-800 mb-0.5 block">Dirección</label>
+              <input
+                v-model="formConversion.direccion"
+                type="text"
+                placeholder="Dirección (opcional)"
+                class="w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+              />
+            </div>
+          </div>
+
+          <p v-if="errorConversion" class="text-xs text-red-600 font-medium">{{ errorConversion }}</p>
+
+          <button
             @click="convertirAOficial"
             :disabled="convirtiendo"
-            class="text-xs bg-amber-600 text-white px-3 py-1.5 rounded-lg hover:bg-amber-700 disabled:opacity-50 flex items-center gap-1"
+            class="w-full bg-amber-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-amber-700 disabled:opacity-50 flex items-center justify-center gap-2 transition-colors"
           >
-            <ArrowPathIcon v-if="convirtiendo" class="w-3.5 h-3.5 animate-spin" />
-            Convertir a oficial
+            <ArrowPathIcon v-if="convirtiendo" class="w-4 h-4 animate-spin" />
+            {{ convirtiendo ? 'Convirtiendo...' : 'Confirmar conversión a oficial' }}
           </button>
         </div>
 
         <!-- Categorías de interés -->
-        <div v-if="cliente.categorias_interes?.length > 0">
+        <div v-if="!mostrarFormConversion && cliente.categorias_interes?.length > 0">
           <p class="text-xs font-medium text-amber-700 mb-1.5">Categorías de interés</p>
           <div class="flex flex-wrap gap-1.5">
             <span
@@ -212,7 +301,7 @@ onMounted(async () => {
         </div>
 
         <!-- Notas de interés -->
-        <div v-if="cliente.notas_interes">
+        <div v-if="!mostrarFormConversion && cliente.notas_interes">
           <p class="text-xs font-medium text-amber-700 mb-1">Notas</p>
           <p class="text-sm text-amber-800 bg-white rounded-lg p-2.5 border border-amber-200">
             {{ cliente.notas_interes }}
