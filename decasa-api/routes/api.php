@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\CitaController;
 use App\Http\Controllers\RedesController;
 use App\Http\Controllers\ClienteController;
 use App\Http\Controllers\InventarioController;
@@ -234,6 +235,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/redes/conversaciones',                       [RedesController::class, 'index']);
     Route::post('/redes/conversaciones/{id}/tomar',           [RedesController::class, 'tomar']);
     Route::post('/redes/conversaciones/{id}/terminar',        [RedesController::class, 'terminar']);
+
+    // Citas
+    Route::get('/citas',          [CitaController::class, 'index']);
+    Route::patch('/citas/{id}',   [CitaController::class, 'update']);
 
     // Fichas Técnicas (costos de producción)
     Route::get('/fichas-tecnicas',                        [FichaTecnicaController::class, 'index']);

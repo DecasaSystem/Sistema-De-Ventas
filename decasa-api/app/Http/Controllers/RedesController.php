@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Events\NuevaConversacionWa;
+use App\Models\Cita;
 use App\Models\ConversacionWa;
 use App\Models\Usuario;
 use App\Services\NotificacionService;
@@ -113,7 +114,29 @@ class RedesController extends Controller
             return response()->json(['error' => 'Esta conversación ya fue tomada por otro vendedor.'], 409);
         }
 
-        broadcast(new NuevaConversacionWa($conv));
+        // Si es una cita con datos estructurados, crear registro en módulo Citas
+        if ($conv->tipo === 'cita' && !empty($conv->datos_cita)) {
+            $dc = $conv->datos_cita;
+            Cita::firstOrCreate(
+                ['conversacion_wa_id' => $conv->id],
+                [
+                    'asesor_id'      => $usuario->id,
+                    'tienda_id'      => $conv->tienda_id ?? null,
+                    'nombre_cliente' => $conv->nombre_cliente,
+                    'telefono'       => $conv->telefono,
+                    'contacto_url'   => $conv->contacto_url,
+                    'fuente'         => $conv->fuente ?? 'whatsapp',
+                    'dia'            => $dc['dia']    ?? '',
+                    'hora'           => $dc['hora']   ?? '',
+                    'motivo'         => $dc['motivo'] ?? null,
+                    'estado'         => 'pendiente',
+                ]
+            );
+        }
+
+        try {
+            broadcast(new NuevaConversacionWa($conv));
+        } catch (\Throwable $e) {}
 
         return response()->json($conv);
     }
@@ -138,7 +161,9 @@ class RedesController extends Controller
             'terminada_at' => now(),
         ]);
 
-        broadcast(new NuevaConversacionWa($conv->fresh('tomadaPor:id,nombre')));
+        try {
+            broadcast(new NuevaConversacionWa($conv->fresh('tomadaPor:id,nombre')));
+        } catch (\Throwable $e) {}
 
         return response()->json($conv->fresh('tomadaPor:id,nombre'));
     }
