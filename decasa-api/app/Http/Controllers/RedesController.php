@@ -52,16 +52,23 @@ class RedesController extends Controller
 
         $conv = ConversacionWa::create($data);
 
-        broadcast(new NuevaConversacionWa($conv));
+        try {
+            broadcast(new NuevaConversacionWa($conv));
+        } catch (\Throwable $e) {
+            // Reverb offline — conversación guardada en BD, broadcast ignorado
+        }
+
+        $esInstagram = ($conv->fuente === 'instagram');
+        $canal       = $esInstagram ? 'Instagram' : 'WhatsApp';
 
         $titulos = [
-            'pedido'          => 'Pedido por WhatsApp',
-            'cita'            => 'Cita agendada por WhatsApp',
-            'asesor'          => 'Cliente solicita asesor',
-            'personalizacion' => 'Solicitud de personalización',
-            'otro'            => 'Mensaje de WhatsApp',
+            'pedido'          => "Nuevo pedido ({$canal})",
+            'cita'            => "Cita agendada ({$canal})",
+            'asesor'          => "Cliente solicita asesor ({$canal})",
+            'personalizacion' => "Solicitud de personalización ({$canal})",
+            'otro'            => "Mensaje de {$canal}",
         ];
-        $titulo  = $titulos[$conv->tipo] ?? 'Mensaje de WhatsApp';
+        $titulo  = $titulos[$conv->tipo] ?? "Mensaje de {$canal}";
         $mensaje = ($conv->nombre_cliente ? $conv->nombre_cliente . ': ' : '') . $conv->resumen;
 
         $usuarios = Usuario::whereIn('rol', ['vendedor', 'supervisor'])->where('activo', true)->get();
