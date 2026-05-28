@@ -116,27 +116,36 @@ class RedesController extends Controller
         }
 
         // Si es una cita con datos estructurados, crear registro en módulo Citas
-        if ($conv->tipo === 'cita' && !empty($conv->datos_cita)) {
-            try {
-                $dc = $conv->datos_cita;
-                Cita::firstOrCreate(
-                    ['conversacion_wa_id' => $conv->id],
-                    [
-                        'asesor_id'      => $usuario->id,
-                        'tienda_id'      => $conv->tienda_id ?? null,
-                        'nombre_cliente' => $conv->nombre_cliente,
-                        'telefono'       => $conv->telefono,
-                        'contacto_url'   => $conv->contacto_url,
-                        'fuente'         => $conv->fuente ?? 'whatsapp',
-                        'dia'            => $dc['dia']    ?? '',
-                        'hora'           => $dc['hora']   ?? '',
-                        'motivo'         => $dc['motivo'] ?? null,
-                        'estado'         => 'pendiente',
-                        'fecha_cita'     => $this->parsearFechaCita($dc['dia'] ?? ''),
-                    ]
-                );
-            } catch (\Throwable $e) {
-                \Log::warning('tomar: no se pudo crear Cita', ['conv_id' => $conv->id, 'error' => $e->getMessage()]);
+        $citaCreada = false;
+        $citaId     = null;
+
+        if ($conv->tipo === 'cita') {
+            if (empty($conv->datos_cita)) {
+                \Log::info('tomar: conversación de cita sin datos_cita estructurados', ['conv_id' => $conv->id]);
+            } else {
+                try {
+                    $dc   = $conv->datos_cita;
+                    [$cita, $citaCreada] = Cita::firstOrCreate(
+                        ['conversacion_wa_id' => $conv->id],
+                        [
+                            'asesor_id'      => $usuario->id,
+                            'tienda_id'      => $conv->tienda_id ?? null,
+                            'nombre_cliente' => $conv->nombre_cliente,
+                            'telefono'       => $conv->telefono,
+                            'contacto_url'   => $conv->contacto_url,
+                            'fuente'         => $conv->fuente ?? 'whatsapp',
+                            'dia'            => $dc['dia']    ?? '',
+                            'hora'           => $dc['hora']   ?? '',
+                            'motivo'         => $dc['motivo'] ?? null,
+                            'estado'         => 'pendiente',
+                            'fecha_cita'     => $this->parsearFechaCita($dc['dia'] ?? ''),
+                        ]
+                    );
+                    $citaId = $cita->id;
+                    \Log::info('tomar: Cita ' . ($citaCreada ? 'creada' : 'ya existía'), ['conv_id' => $conv->id, 'cita_id' => $citaId]);
+                } catch (\Throwable $e) {
+                    \Log::error('tomar: error creando Cita', ['conv_id' => $conv->id, 'error' => $e->getMessage()]);
+                }
             }
         }
 
@@ -144,7 +153,10 @@ class RedesController extends Controller
             broadcast(new NuevaConversacionWa($conv));
         } catch (\Throwable $e) {}
 
-        return response()->json($conv);
+        return response()->json(array_merge($conv->toArray(), [
+            'cita_creada' => $citaCreada,
+            'cita_id'     => $citaId,
+        ]));
     }
 
     private function parsearFechaCita(string $dia): ?string
