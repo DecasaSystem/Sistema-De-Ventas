@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
+import { useRouter } from 'vue-router'
 import api from '@/api'
 import {
   ChatBubbleLeftRightIcon,
@@ -17,8 +18,9 @@ import {
   MapPinIcon,
 } from '@heroicons/vue/24/outline'
 
-const auth  = useAuthStore()
-const toast = useToast()
+const auth   = useAuthStore()
+const toast  = useToast()
+const router = useRouter()
 const items = ref([])
 const tab   = ref('pendiente') // pendiente | tomada | terminada
 const cargando = ref(false)
@@ -55,7 +57,12 @@ async function tomar(id) {
     const { data } = await api.post(`/redes/conversaciones/${id}/tomar`)
     actualizarItem(data)
     tab.value = 'tomada'
-    toast.success('Conversación tomada')
+    if (data.cita_creada) {
+      toast.success('Cita guardada en el módulo de Citas ✅')
+      setTimeout(() => router.push({ name: 'citas' }), 800)
+    } else {
+      toast.success('Conversación tomada')
+    }
   } catch (e) {
     const status = e.response?.status
     if (status === 409) {
