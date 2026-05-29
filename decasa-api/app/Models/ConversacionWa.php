@@ -10,6 +10,7 @@ class ConversacionWa extends Model
     protected $table = 'conversaciones_wa';
 
     protected $fillable = [
+        'hash_idempotencia',
         'tipo', 'telefono', 'nombre_cliente', 'resumen',
         'historial', 'carrito', 'datos_cita', 'tienda_id',
         'whatsapp_url', 'contacto_url', 'fuente', 'estado',

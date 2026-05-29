@@ -720,6 +720,18 @@ class OrdenController extends Controller
             return response()->json($orden, 200);
         }
 
+        // Transiciones válidas (despacho controla listo_entrega y en_camino)
+        $transiciones = [
+            'pendiente_anticipo' => ['en_produccion', 'listo_entrega', 'cancelado'],
+            'en_produccion'      => ['listo_entrega', 'cancelado'],
+        ];
+        $permitidos = $transiciones[$estadoAnterior] ?? [];
+        if (!empty($permitidos) && !in_array($estadoNuevo, $permitidos)) {
+            return response()->json([
+                'message' => "No se puede pasar de \"{$estadoAnterior}\" a \"{$estadoNuevo}\".",
+            ], 422);
+        }
+
         DB::transaction(function () use ($orden, $estadoNuevo, $estadoAnterior, $usuario) {
 
             $itemsStock = $orden->items->where('es_personalizado', false);
@@ -888,6 +900,14 @@ class OrdenController extends Controller
 
         $orden = Orden::with(['items', 'cliente:id,nombre', 'vendedor:id,nombre'])->findOrFail($id);
 
+        // Verificar que todos los items pertenecen a esta orden
+        $itemIdsOrden = $orden->items->pluck('id')->all();
+        foreach ($data['items'] as $itemData) {
+            if (!in_array($itemData['id'], $itemIdsOrden)) {
+                return response()->json(['message' => "El ítem #{$itemData['id']} no pertenece a esta orden."], 422);
+            }
+        }
+
         DB::transaction(function () use ($data, $orden) {
             foreach ($data['items'] as $itemData) {
                 $orden->items()
@@ -966,10 +986,21 @@ class OrdenController extends Controller
     private function urlToBase64(?string $url): ?string
     {
         if (! $url) return null;
+
+        // Solo permitir URLs de dominios de almacenamiento confiables
+        $dominiosPermitidos = ['res.cloudinary.com', 'cloudinary.com', 'amazonaws.com', 's3.'];
+        $host = parse_url($url, PHP_URL_HOST) ?? '';
+        $esPermitida = collect($dominiosPermitidos)->contains(fn($d) => str_contains($host, $d));
+
+        if (! $esPermitida) {
+            \Log::warning('urlToBase64: URL de dominio no permitido', ['url' => $url]);
+            return null;
+        }
+
         try {
             $bytes = file_get_contents($url, false, stream_context_create([
                 'http' => ['timeout' => 5],
-                'ssl'  => ['verify_peer' => false],
+                'ssl'  => ['verify_peer' => true],
             ]));
             return $bytes ? 'data:image/png;base64,' . base64_encode($bytes) : null;
         } catch (\Throwable) {

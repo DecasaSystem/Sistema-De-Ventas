@@ -64,6 +64,15 @@ class RedesController extends Controller
         $data['tipo']   = in_array($data['tipo'], $tipos_validos) ? $data['tipo'] : 'otro';
         $data['fuente'] = $data['fuente'] ?? 'whatsapp';
 
+        // Idempotencia: si llega el mismo webhook dos veces (retry de WhatsApp) no duplicar
+        $hash = hash('sha256', ($data['telefono'] ?? '') . '|' . ($data['resumen'] ?? '') . '|' . date('Y-m-d H:i'));
+        $data['hash_idempotencia'] = $hash;
+
+        $existente = ConversacionWa::where('hash_idempotencia', $hash)->first();
+        if ($existente) {
+            return response()->json($existente, 200);
+        }
+
         $conv = ConversacionWa::create($data);
 
         try {

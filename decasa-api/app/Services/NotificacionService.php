@@ -55,8 +55,11 @@ class NotificacionService
         if ($usuarioId) {
             try {
                 PushService::enviarAUsuario($usuarioId, $titulo, $mensaje, $datos);
-            } catch (\Throwable) {
-                // Push falla silenciosamente si no hay suscripciones o VAPID no configurado
+            } catch (\Throwable $e) {
+                \Log::warning("Push notification fallida para usuario {$usuarioId}", [
+                    'tipo'  => $tipo,
+                    'error' => $e->getMessage(),
+                ]);
             }
         }
 

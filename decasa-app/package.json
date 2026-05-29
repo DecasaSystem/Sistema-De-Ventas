@@ -13,6 +13,7 @@
     "@tailwindcss/vite": "^4.2.4",
     "axios": "^1.16.0",
     "chart.js": "^4.5.1",
+    "dompurify": "^3.4.7",
     "laravel-echo": "^2.3.4",
     "pinia": "^3.0.4",
     "pusher-js": "^8.5.0",

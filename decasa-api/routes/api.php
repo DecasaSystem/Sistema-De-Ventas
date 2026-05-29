@@ -33,7 +33,7 @@ use Illuminate\Support\Facades\Route;
 Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:10,1');
 
 // ── Webhook del agente WA (público con token secreto) ────────────────────────
-Route::post('/redes/webhook', [RedesController::class, 'webhook']);
+Route::post('/redes/webhook', [RedesController::class, 'webhook'])->middleware('throttle:60,1');
 
 // ── VAPID public key (público — necesario antes de login para suscribir) ─────
 Route::get('/push/vapid-key', [PushSubscriptionController::class, 'vapidKey']);
@@ -69,7 +69,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Órdenes
     Route::get('/ordenes',              [OrdenController::class, 'index']);
-    Route::post('/ordenes',             [OrdenController::class, 'store']);
+    Route::post('/ordenes',             [OrdenController::class, 'store'])->middleware('throttle:20,1');
     Route::get('/ordenes/{id}',                         [OrdenController::class, 'show']);
     Route::patch('/ordenes/{id}',                       [OrdenController::class, 'update']);
     Route::patch('/ordenes/{id}/estado',                [OrdenController::class, 'updateEstado']);

@@ -1,5 +1,6 @@
 <script setup>
 import { ref, nextTick, onMounted, onUnmounted } from 'vue'
+import DOMPurify from 'dompurify'
 import { chatWithAgent } from '@/api/agent.js'
 import {
   SparklesIcon,
@@ -160,9 +161,9 @@ function usarEjemplo(texto) {
   nextTick(() => inputRef.value?.focus())
 }
 
-// Renderizar texto con saltos de línea y negritas básicas
+// Renderizar texto con saltos de línea y negritas básicas (sanitizado con DOMPurify)
 function formatearTexto(texto) {
-  return texto
+  const html = texto
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -170,6 +171,7 @@ function formatearTexto(texto) {
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
     .replace(/`(.+?)`/g, '<code class="bg-gray-100 px-1 rounded text-xs">$1</code>')
     .replace(/\n/g, '<br>')
+  return DOMPurify.sanitize(html, { ALLOWED_TAGS: ['strong', 'em', 'code', 'br'], ALLOWED_ATTR: ['class'] })
 }
 </script>
 

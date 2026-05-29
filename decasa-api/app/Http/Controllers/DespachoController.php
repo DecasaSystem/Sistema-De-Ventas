@@ -320,6 +320,13 @@ class DespachoController extends Controller
             return response()->json(['message' => 'Esta entrega ya fue completada.'], 422);
         }
 
+        $saldoPendiente = $item->orden->saldoPendiente();
+        if ($data['monto'] > $saldoPendiente + 0.01) {
+            return response()->json([
+                'message' => "El monto ($data[monto]) supera el saldo pendiente (" . round($saldoPendiente, 2) . ").",
+            ], 422);
+        }
+
         $fotoProducto = $this->subirCloudinary($request->file('foto_producto'));
         $fotoPago     = $this->subirCloudinary($request->file('foto_pago'));
 

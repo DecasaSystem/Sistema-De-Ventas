@@ -1315,7 +1315,8 @@ class AgentService
             ->when($tiendaId, fn($q) => $q->where('o.tienda_id', $tiendaId))
             ->selectRaw('
                 o.id AS orden_id, o.estado, o.valor_total, o.created_at AS fecha,
-                c.nombre AS cliente, c.telefono,
+                c.nombre AS cliente,
+                CONCAT('***', RIGHT(REPLACE(REPLACE(REPLACE(c.telefono,' ',''),'-',''),'+',''), 4)) AS telefono,
                 u.nombre AS vendedor, t.nombre AS tienda,
                 COALESCE(SUM(pg.monto), 0) AS total_pagado,
                 o.valor_total - COALESCE(SUM(pg.monto), 0) AS saldo_pendiente
@@ -1382,7 +1383,7 @@ class AgentService
             ->join('pagos as p', 'p.orden_id', '=', 'o.id')
             ->whereBetween('p.created_at', $rango)
             ->whereNotIn('o.estado', ['cancelado'])
-            ->selectRaw('c.id, c.nombre, c.telefono, SUM(p.monto) AS total_pagado, COUNT(DISTINCT o.id) AS num_ordenes')
+            ->selectRaw("c.id, c.nombre, CONCAT('***', RIGHT(REPLACE(REPLACE(REPLACE(c.telefono,' ',''),'-',''),'+',''), 4)) AS telefono, SUM(p.monto) AS total_pagado, COUNT(DISTINCT o.id) AS num_ordenes")
             ->groupBy('c.id', 'c.nombre', 'c.telefono')
             ->orderByDesc($criterio === 'ordenes' ? 'num_ordenes' : 'total_pagado')
             ->limit($topN);
@@ -1536,7 +1537,7 @@ class AgentService
                 o.created_at                                                   AS fecha_creacion_orden,
                 o.listo_entrega_at                                             AS fecha_quedo_lista,
                 c.nombre  AS cliente,
-                c.telefono,
+                CONCAT('***', RIGHT(REPLACE(REPLACE(REPLACE(c.telefono,' ',''),'-',''),'+',''), 4)) AS telefono,
                 t.nombre  AS tienda,
                 u.nombre  AS vendedor,
                 COALESCE(pg.total_pagado, 0)                                   AS total_pagado,
