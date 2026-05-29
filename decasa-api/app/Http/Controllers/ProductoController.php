@@ -115,6 +115,7 @@ class ProductoController extends Controller
             'categoria'      => 'nullable|string|max:80',
             'precio_base'    => 'required|numeric|min:0',
             'personalizable' => 'nullable|boolean',
+            'es_tapizado'    => 'nullable|boolean',
             'descripcion'    => 'nullable|string',
             'foto_url'       => 'nullable|string|max:255',
             'medidas'        => 'nullable|string|max:200',
@@ -133,6 +134,7 @@ class ProductoController extends Controller
             'categoria'      => $data['categoria'] ?? null,
             'precio_base'    => $data['precio_base'],
             'personalizable' => $data['personalizable'] ?? false,
+            'es_tapizado'    => $data['es_tapizado'] ?? false,
             'descripcion'    => $data['descripcion'] ?? null,
             'foto_url'       => $data['foto_url'] ?? null,
             'medidas'        => $data['medidas'] ?? null,
@@ -152,6 +154,22 @@ class ProductoController extends Controller
         }
 
         return response()->json($producto, 201);
+    }
+
+    /**
+     * GET /api/productos/categorias
+     * Devuelve las categorías distintas de productos activos (para autocompletado).
+     */
+    public function categorias()
+    {
+        $cats = Producto::where('activo', true)
+            ->whereNotNull('categoria')
+            ->where('categoria', '!=', '')
+            ->distinct()
+            ->orderBy('categoria')
+            ->pluck('categoria');
+
+        return response()->json($cats);
     }
 
     /**

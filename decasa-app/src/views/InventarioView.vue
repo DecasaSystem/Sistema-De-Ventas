@@ -137,10 +137,13 @@ const formProducto = ref({
   categoria: '',
   precio_base: '',
   personalizable: false,
+  es_tapizado: false,
   descripcion: '',
   medidas: '',
   material: '',
 })
+
+const categoriasExistentes = ref([])
 
 const todasTiendasSeleccionadas = computed(
   () => tiendas.value.length > 0 && tiendasFormSeleccionadas.value.length === tiendas.value.length
@@ -169,12 +172,17 @@ function quitarFoto() {
   if (fotoInput.value) fotoInput.value.value = ''
 }
 
-function abrirAgregarProducto() {
-  formProducto.value = { nombre: '', categoria: '', precio_base: '', personalizable: false, descripcion: '', medidas: '', material: '' }
+async function abrirAgregarProducto() {
+  formProducto.value = { nombre: '', categoria: '', precio_base: '', personalizable: false, es_tapizado: false, descripcion: '', medidas: '', material: '' }
   tiendasFormSeleccionadas.value = auth.isSupervisor ? tiendas.value.map((t) => t.id) : []
   quitarFoto()
   errCrearProducto.value = ''
   mostrarAgregarProducto.value = true
+  // Cargar categorías existentes para el datalist
+  try {
+    const { data } = await api.get('/productos/categorias')
+    categoriasExistentes.value = data
+  } catch {}
 }
 
 async function crearProducto() {
@@ -361,13 +369,8 @@ async function quitarStock() {
   }
 }
 
-// ── Categorías que admiten variantes de tela/color ───────────────────────────
-// Incluye formas con y sin tilde para cubrir cualquier escritura en la BD
-const KEYWORDS_TAPIZADOS = ['sofa', 'sofá', 'silla', 'sillón', 'sillon', 'mueble', 'tapiceria', 'tapicería', 'tapizado']
-
 function esTapizado(item) {
-  const cat = (item.producto?.categoria ?? '').toLowerCase().trim()
-  return KEYWORDS_TAPIZADOS.some(k => cat.includes(k))
+  return !!item.producto?.es_tapizado
 }
 
 // ── Variantes ─────────────────────────────────────────────────────────────────
@@ -783,7 +786,16 @@ onMounted(async () => {
             <div class="grid grid-cols-2 gap-3">
               <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">Categoría</label>
-                <input v-model="formProducto.categoria" type="text" placeholder="Ej: Sofás" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <input
+                  v-model="formProducto.categoria"
+                  list="categorias-list"
+                  type="text"
+                  placeholder="Ej: Sofás"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <datalist id="categorias-list">
+                  <option v-for="cat in categoriasExistentes" :key="cat" :value="cat" />
+                </datalist>
               </div>
               <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">Precio base <span class="text-red-500">*</span></label>
@@ -840,11 +852,17 @@ onMounted(async () => {
               <textarea v-model="formProducto.descripcion" rows="2" placeholder="Descripción del producto..." class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
             </div>
 
-            <!-- Personalizable -->
-            <label class="flex items-center gap-2 cursor-pointer select-none">
-              <input type="checkbox" v-model="formProducto.personalizable" class="rounded w-4 h-4 text-blue-600" />
-              <span class="text-sm text-gray-700">Producto personalizable (permite specs al vender)</span>
-            </label>
+            <!-- Personalizable + Tapizado -->
+            <div class="space-y-2">
+              <label class="flex items-center gap-2 cursor-pointer select-none">
+                <input type="checkbox" v-model="formProducto.personalizable" class="rounded w-4 h-4 text-blue-600" />
+                <span class="text-sm text-gray-700">Producto personalizable (permite specs al vender)</span>
+              </label>
+              <label class="flex items-center gap-2 cursor-pointer select-none">
+                <input type="checkbox" v-model="formProducto.es_tapizado" class="rounded w-4 h-4 text-amber-600" />
+                <span class="text-sm text-gray-700">Lleva tapizado <span class="text-gray-400">(activa selección de tela/color en inventario y surtir)</span></span>
+              </label>
+            </div>
 
             <div class="border-t border-gray-100" />
 

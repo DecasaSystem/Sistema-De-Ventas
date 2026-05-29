@@ -53,10 +53,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/tiendas', [TiendaController::class, 'index']);
 
     // Productos
-    Route::get('/productos',        [ProductoController::class, 'index']);
-    Route::post('/productos',       [ProductoController::class, 'store']);
-    Route::get('/productos/{id}',   [ProductoController::class, 'show']);
-    Route::patch('/productos/{id}', [ProductoController::class, 'update']);
+    Route::get('/productos',             [ProductoController::class, 'index']);
+    Route::get('/productos/categorias',  [ProductoController::class, 'categorias']);
+    Route::post('/productos',            [ProductoController::class, 'store']);
+    Route::get('/productos/{id}',        [ProductoController::class, 'show']);
+    Route::patch('/productos/{id}',      [ProductoController::class, 'update']);
 
     // Clientes
     Route::get('/clientes',               [ClienteController::class, 'index']);

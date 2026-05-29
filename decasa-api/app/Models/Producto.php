@@ -13,6 +13,7 @@ class Producto extends Model
         'categoria',
         'precio_base',
         'personalizable',
+        'es_tapizado',
         'descripcion',
         'foto_url',
         'medidas',
@@ -25,6 +26,7 @@ class Producto extends Model
         return [
             'precio_base'    => 'decimal:2',
             'personalizable' => 'boolean',
+            'es_tapizado'    => 'boolean',
             'activo'         => 'boolean',
         ];
     }

@@ -86,10 +86,8 @@ function agregarDesdeRecom(prod) {
 }
 
 // ── Telas — solo para productos tapizados ────────────────────────────────────
-const KEYWORDS_TELA = ['sofa', 'sofá', 'silla', 'sillón', 'sillon', 'mueble', 'tapiceria', 'tapicería', 'tapizado']
 function necesitaTela(prod) {
-  const cat = (prod?.categoria ?? '').toLowerCase().trim()
-  return KEYWORDS_TELA.some(k => cat.includes(k))
+  return !!prod?.es_tapizado
 }
 
 // ── Telas — opciones en cascada ───────────────────────────────────────────────
