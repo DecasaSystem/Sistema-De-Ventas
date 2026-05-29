@@ -170,6 +170,7 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/tiendas',          [StatsController::class, 'tiendas']);
             Route::get('/vendedores',       [StatsController::class, 'vendedores']);
             Route::get('/vendedor/{id}',    [StatsController::class, 'statsVendedor']);
+            Route::get('/conductores',      [StatsController::class, 'conductores']);
         });
     });
 

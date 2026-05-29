@@ -33,6 +33,7 @@ const estadosOpts = [
   { value: 'pendiente_anticipo', label: 'Pendiente anticipo' },
   { value: 'en_produccion', label: 'En producción' },
   { value: 'listo_entrega', label: 'Listo entrega' },
+  { value: 'en_camino', label: 'En camino' },
   { value: 'entregado', label: 'Entregado' },
   { value: 'cancelado', label: 'Cancelado' },
 ]

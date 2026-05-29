@@ -419,6 +419,53 @@ class StatsController extends Controller
         return response()->json($perfil);
     }
 
+    // ─── GET /api/stats/conductores  (solo supervisor) ───────────────────────
+
+    public function conductores(Request $request)
+    {
+        $f     = $this->parseFechas($request);
+        $rango = [$f['desde'] . ' 00:00:00', $f['hasta'] . ' 23:59:59'];
+
+        $conductores = DB::table('usuarios')
+            ->where('rol', 'conductor')->where('activo', true)
+            ->select('id', 'nombre')
+            ->get();
+
+        $resultado = $conductores->map(function ($c) use ($rango) {
+            $entregas = (int) DB::table('despacho_items as di')
+                ->join('despachos as d', 'd.id', '=', 'di.despacho_id')
+                ->where('d.conductor_id', $c->id)
+                ->where('di.estado', 'entregado')
+                ->whereBetween('di.entregado_at', $rango)
+                ->count();
+
+            $cobrado = (float) DB::table('pagos as p')
+                ->join('ordenes as o',        'o.id',  '=', 'p.orden_id')
+                ->join('despacho_items as di', 'di.orden_id', '=', 'o.id')
+                ->join('despachos as d',       'd.id',  '=', 'di.despacho_id')
+                ->where('d.conductor_id', $c->id)
+                ->whereBetween('p.created_at', $rango)
+                ->sum('p.monto');
+
+            $pendientes = (int) DB::table('despacho_items as di')
+                ->join('despachos as d', 'd.id', '=', 'di.despacho_id')
+                ->where('d.conductor_id', $c->id)
+                ->whereIn('d.estado', ['asignado', 'en_ruta'])
+                ->where('di.estado', 'pendiente')
+                ->count();
+
+            return [
+                'id'         => $c->id,
+                'nombre'     => $c->nombre,
+                'entregas'   => $entregas,
+                'cobrado'    => $cobrado,
+                'pendientes' => $pendientes,
+            ];
+        })->sortByDesc('entregas')->values();
+
+        return response()->json($resultado);
+    }
+
     // ─── GET /api/stats/conductor ────────────────────────────────────────────
 
     public function statsConductor(Request $request)

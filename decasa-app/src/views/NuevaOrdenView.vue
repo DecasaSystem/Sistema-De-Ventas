@@ -37,7 +37,48 @@ const modoNuevoCliente  = ref(false)
 const nuevoCliente = ref({ nombre: '', cedula: '', telefono: '', email: '', direccion: '', tipo: 'oficial', categorias_interes: [], notas_interes: '' })
 const creandoCliente = ref(false)
 const errCliente = ref('')
-const convirtiendoCliente = ref(false)
+
+// Completar datos de interesado antes de continuar
+const formCompletarCliente     = ref({ telefono: '', cedula: '' })
+const guardandoCompletarCliente = ref(false)
+const errCompletarCliente      = ref('')
+
+const clienteRequiereCompletar = computed(() => {
+  const c = clienteSeleccionado.value
+  if (!c) return false
+  return c.tipo === 'interesado' || !c.telefono
+})
+
+watch(clienteSeleccionado, (c) => {
+  if (c) {
+    formCompletarCliente.value = { telefono: c.telefono || '', cedula: c.cedula || '' }
+    errCompletarCliente.value  = ''
+  }
+})
+
+async function completarYConvertirCliente() {
+  errCompletarCliente.value = ''
+  if (!formCompletarCliente.value.telefono.trim()) {
+    errCompletarCliente.value = 'El teléfono es obligatorio para continuar.'
+    return
+  }
+  guardandoCompletarCliente.value = true
+  try {
+    const payload = { tipo: 'oficial', telefono: formCompletarCliente.value.telefono.trim() }
+    if (formCompletarCliente.value.cedula.trim()) payload.cedula = formCompletarCliente.value.cedula.trim()
+    await updateCliente(clienteSeleccionado.value.id, payload)
+    clienteSeleccionado.value = {
+      ...clienteSeleccionado.value,
+      tipo: 'oficial',
+      telefono: payload.telefono,
+      cedula: payload.cedula ?? clienteSeleccionado.value.cedula,
+    }
+  } catch (e) {
+    errCompletarCliente.value = e.response?.data?.message ?? 'Error al actualizar el cliente'
+  } finally {
+    guardandoCompletarCliente.value = false
+  }
+}
 
 async function buscarCliente() {
   if (!clienteQuery.value.trim()) return
@@ -54,25 +95,6 @@ function seleccionarCliente(c) {
   clienteSeleccionado.value = c
   clienteResultados.value = []
   clienteQuery.value = c.nombre
-
-  // Si es cliente interesado, sugerir conversión
-  if (c.tipo === 'interesado') {
-    if (confirm(`El cliente "${c.nombre}" está marcado como "Interesado". ¿Convertir a cliente oficial ahora?`)) {
-      convertirAOficial(c)
-    }
-  }
-}
-
-async function convertirAOficial(cliente) {
-  convirtiendoCliente.value = true
-  try {
-    await updateCliente(cliente.id, { tipo: 'oficial' })
-    clienteSeleccionado.value.tipo = 'oficial'
-  } catch (e) {
-    alert('Error al convertir cliente: ' + (e.response?.data?.message ?? 'Error desconocido'))
-  } finally {
-    convirtiendoCliente.value = false
-  }
 }
 
 async function crearCliente() {
@@ -103,7 +125,7 @@ const canalesopts = [
 ]
 
 function paso1Valido() {
-  return clienteSeleccionado.value && tiendaId.value && canal.value
+  return clienteSeleccionado.value && tiendaId.value && canal.value && !clienteRequiereCompletar.value
 }
 
 // ── Tipo de orden ─────────────────────────────────────────────────────────────
@@ -727,10 +749,11 @@ function removeFacturaFoto() {
         </div>
 
         <!-- Cliente seleccionado -->
-        <div v-if="clienteSeleccionado" class="mt-2 bg-blue-50 rounded-lg px-3 py-2 text-sm space-y-1">
-          <div class="flex items-center gap-2">
-            <span class="font-semibold text-blue-700">{{ clienteSeleccionado.nombre }}</span>
-            <span class="text-blue-500">{{ clienteSeleccionado.telefono }}</span>
+        <div v-if="clienteSeleccionado" class="mt-2 space-y-2">
+          <!-- Chip resumen del cliente -->
+          <div :class="['rounded-lg px-3 py-2 text-sm flex items-center gap-2 flex-wrap', clienteRequiereCompletar ? 'bg-amber-50 border border-amber-200' : 'bg-blue-50']">
+            <span class="font-semibold" :class="clienteRequiereCompletar ? 'text-amber-800' : 'text-blue-700'">{{ clienteSeleccionado.nombre }}</span>
+            <span v-if="clienteSeleccionado.telefono" :class="clienteRequiereCompletar ? 'text-amber-600' : 'text-blue-500'">{{ clienteSeleccionado.telefono }}</span>
             <span
               v-if="clienteSeleccionado.tipo === 'interesado'"
               class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700"
@@ -739,15 +762,46 @@ function removeFacturaFoto() {
               Interesado
             </span>
           </div>
-          <button
-            v-if="clienteSeleccionado.tipo === 'interesado'"
-            @click="convertirAOficial(clienteSeleccionado)"
-            :disabled="convirtiendoCliente"
-            class="text-xs bg-amber-500 text-white px-2 py-1 rounded-lg hover:bg-amber-600 disabled:opacity-50 flex items-center gap-1"
-          >
-            <ConvertIcon v-if="convirtiendoCliente" class="w-3 h-3 animate-spin" />
-            Convertir a oficial
-          </button>
+
+          <!-- Formulario inline para completar datos del interesado -->
+          <div v-if="clienteRequiereCompletar" class="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-3">
+            <p class="text-xs font-semibold text-amber-800 flex items-center gap-1.5">
+              <ExclamationTriangleIcon class="w-4 h-4 flex-shrink-0" />
+              Completa los datos para poder crear la orden
+            </p>
+
+            <div class="space-y-2">
+              <div>
+                <label class="text-xs text-gray-500 mb-1 block">Teléfono <span class="text-red-500">*</span></label>
+                <input
+                  v-model="formCompletarCliente.telefono"
+                  type="tel"
+                  placeholder="Ej: 3001234567"
+                  class="input"
+                />
+              </div>
+              <div>
+                <label class="text-xs text-gray-500 mb-1 block">Cédula / NIT <span class="text-gray-400 font-normal">(opcional)</span></label>
+                <input
+                  v-model="formCompletarCliente.cedula"
+                  type="text"
+                  placeholder="Ej: 1012345678"
+                  class="input"
+                />
+              </div>
+            </div>
+
+            <p v-if="errCompletarCliente" class="text-xs text-red-600">{{ errCompletarCliente }}</p>
+
+            <button
+              @click="completarYConvertirCliente"
+              :disabled="guardandoCompletarCliente || !formCompletarCliente.telefono.trim()"
+              class="w-full py-2 bg-amber-500 text-white text-xs font-semibold rounded-lg hover:bg-amber-600 disabled:opacity-50 transition-colors flex items-center justify-center gap-1.5"
+            >
+              <ArrowPathIcon v-if="guardandoCompletarCliente" class="w-3.5 h-3.5 animate-spin" />
+              {{ guardandoCompletarCliente ? 'Guardando...' : 'Guardar datos y convertir a cliente oficial' }}
+            </button>
+          </div>
         </div>
       </div>
 

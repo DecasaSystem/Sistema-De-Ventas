@@ -6,6 +6,7 @@ import { Chart } from 'chart.js/auto'
 import {
   getPanel, getTendencia, getStatsVendedores,
   getStatsTiendas, getProductos, getCartera, getStatsCategorias, getInteresados,
+  getStatsConductores,
 } from '@/api/stats'
 import api from '@/api'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
@@ -51,6 +52,7 @@ const todosTabs = [
   { id: 'productos',        label: 'Productos' },
   { id: 'cartera',          label: 'Cartera' },
   { id: 'produccion',       label: 'Producción' },
+  { id: 'conductores',      label: 'Conductores' },
   { id: 'interesados',      label: 'Interesados' },
   ...(esPrimeroDelMes ? [{ id: 'resumen-mensual', label: 'Resumen mensual' }] : []),
 ]
@@ -65,6 +67,7 @@ async function switchTab(id) {
   tabActivo.value = id
   if (id === 'resumen-mensual') cargarResumenMensual()
   if (id === 'interesados' && !interesados.value) cargarInteresados()
+  if (id === 'conductores') cargarConductores()
   await nextTick()
   rebuildCharts(id)
 }
@@ -114,6 +117,20 @@ async function cargarResumenMensual() {
     resumenMensual.value = data
   } catch {} finally {
     cargandoResumen.value = false
+  }
+}
+
+const conductores         = ref(null)
+const cargandoConductores = ref(false)
+
+async function cargarConductores() {
+  cargandoConductores.value = true
+  try {
+    const p = paramsFiltro()
+    const { data } = await getStatsConductores(p)
+    conductores.value = data
+  } catch {} finally {
+    cargandoConductores.value = false
   }
 }
 
@@ -191,7 +208,9 @@ async function cargarTodo() {
   categoriaFiltro.value = ''
   busquedaProducto.value = ''
   interesados.value = null
+  conductores.value = null
   if (tabActivo.value === 'interesados') cargandoInteresados.value = true
+  if (tabActivo.value === 'conductores') cargarConductores()
   try {
     const p = paramsFiltro()
     const promises = [
@@ -732,6 +751,61 @@ onBeforeUnmount(() => {
           </li>
         </ul>
         <p v-if="!retrasos.length" class="text-center py-8 text-gray-400 text-sm">Sin retrasos registrados.</p>
+      </div>
+
+      <!-- ══════ TAB: CONDUCTORES ══════ -->
+      <div v-show="tabActivo === 'conductores' && auth.isSupervisor" class="space-y-3">
+
+        <div v-if="cargandoConductores" class="flex justify-center py-10">
+          <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+        </div>
+
+        <template v-else-if="conductores">
+          <p class="text-sm text-gray-500">{{ conductores.length }} conductor{{ conductores.length !== 1 ? 'es' : '' }} activo{{ conductores.length !== 1 ? 's' : '' }}</p>
+
+          <div v-if="!conductores.length" class="text-center py-10 text-gray-400 text-sm">
+            No hay conductores activos registrados.
+          </div>
+
+          <div v-else class="space-y-3">
+            <div
+              v-for="(c, i) in conductores"
+              :key="c.id"
+              class="bg-white rounded-xl shadow-sm p-4 border-l-4"
+              :style="{ borderColor: TIENDA_COLORS[i % TIENDA_COLORS.length] }"
+            >
+              <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center gap-2">
+                  <span :class="['w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold',
+                    i === 0 ? 'bg-yellow-100 text-yellow-700' :
+                    i === 1 ? 'bg-gray-100 text-gray-600' :
+                    i === 2 ? 'bg-orange-100 text-orange-700' : 'bg-blue-50 text-blue-600']">
+                    {{ i + 1 }}
+                  </span>
+                  <p class="font-semibold text-gray-800 text-sm">{{ c.nombre }}</p>
+                </div>
+                <span v-if="c.pendientes > 0" class="text-xs bg-amber-100 text-amber-700 font-semibold px-2 py-0.5 rounded-full">
+                  {{ c.pendientes }} pendiente{{ c.pendientes !== 1 ? 's' : '' }}
+                </span>
+              </div>
+
+              <div class="grid grid-cols-3 gap-2 text-center text-xs">
+                <div class="bg-gray-50 rounded-lg py-2">
+                  <p class="text-lg font-bold text-gray-800">{{ c.entregas }}</p>
+                  <p class="text-gray-400 mt-0.5">Entregas</p>
+                </div>
+                <div class="bg-green-50 rounded-lg py-2 col-span-2">
+                  <p class="text-lg font-bold text-green-600">{{ cop(c.cobrado) }}</p>
+                  <p class="text-gray-400 mt-0.5">Cobrado en ruta</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <div v-else class="text-center py-12 text-gray-400 text-sm">
+          Haz clic en el tab para cargar los datos de conductores.
+        </div>
       </div>
 
       <!-- ══════ TAB: INTERESADOS ══════ -->
