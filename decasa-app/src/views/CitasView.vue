@@ -222,6 +222,7 @@ onMounted(cargar)
 </script>
 
 <template>
+  <div>
   <div class="max-w-lg mx-auto px-4 py-4">
     <div class="flex items-center justify-between mb-4">
       <h1 class="text-xl font-bold text-gray-800 flex items-center gap-2">
@@ -538,5 +539,6 @@ onMounted(cargar)
         </button>
       </form>
     </div>
+  </div>
   </div>
 </template>
