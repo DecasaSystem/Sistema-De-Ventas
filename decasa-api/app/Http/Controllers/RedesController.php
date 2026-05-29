@@ -16,11 +16,20 @@ class RedesController extends Controller
     // GET /api/redes/conversaciones
     public function index(Request $request)
     {
-        $estado = $request->query('estado'); // pendiente | tomada | terminada | null (todas)
+        $usuario = $request->user();
+        $estado  = $request->query('estado'); // pendiente | tomada | terminada | null (todas)
 
         $q = ConversacionWa::with('tomadaPor:id,nombre')
             ->orderByRaw("FIELD(estado, 'pendiente', 'tomada', 'terminada')")
             ->orderBy('created_at', 'desc');
+
+        // Vendedores y supervisores solo ven las de su tienda (+ las sin tienda asignada)
+        if (in_array($usuario->rol, ['vendedor', 'supervisor']) && $usuario->tienda_default_id) {
+            $q->where(function ($query) use ($usuario) {
+                $query->where('tienda_id', $usuario->tienda_default_id)
+                      ->orWhereNull('tienda_id');
+            });
+        }
 
         if ($estado) {
             $q->where('estado', $estado);
@@ -115,37 +124,33 @@ class RedesController extends Controller
             return response()->json(['error' => 'Esta conversación ya fue tomada por otro vendedor.'], 409);
         }
 
-        // Si es una cita con datos estructurados, crear registro en módulo Citas
+        // Si es una cita, crear registro en módulo Citas (con o sin datos_cita)
         $citaCreada = false;
         $citaId     = null;
 
         if ($conv->tipo === 'cita') {
-            if (empty($conv->datos_cita)) {
-                \Log::info('tomar: conversación de cita sin datos_cita estructurados', ['conv_id' => $conv->id]);
-            } else {
-                try {
-                    $dc   = $conv->datos_cita;
-                    [$cita, $citaCreada] = Cita::firstOrCreate(
-                        ['conversacion_wa_id' => $conv->id],
-                        [
-                            'asesor_id'      => $usuario->id,
-                            'tienda_id'      => $conv->tienda_id ?? null,
-                            'nombre_cliente' => $conv->nombre_cliente,
-                            'telefono'       => $conv->telefono,
-                            'contacto_url'   => $conv->contacto_url,
-                            'fuente'         => $conv->fuente ?? 'whatsapp',
-                            'dia'            => $dc['dia']    ?? '',
-                            'hora'           => $dc['hora']   ?? '',
-                            'motivo'         => $dc['motivo'] ?? null,
-                            'estado'         => 'pendiente',
-                            'fecha_cita'     => $this->parsearFechaCita($dc['dia'] ?? ''),
-                        ]
-                    );
-                    $citaId = $cita->id;
-                    \Log::info('tomar: Cita ' . ($citaCreada ? 'creada' : 'ya existía'), ['conv_id' => $conv->id, 'cita_id' => $citaId]);
-                } catch (\Throwable $e) {
-                    \Log::error('tomar: error creando Cita', ['conv_id' => $conv->id, 'error' => $e->getMessage()]);
-                }
+            try {
+                $dc = $conv->datos_cita ?? [];
+                [$cita, $citaCreada] = Cita::firstOrCreate(
+                    ['conversacion_wa_id' => $conv->id],
+                    [
+                        'asesor_id'      => $usuario->id,
+                        'tienda_id'      => $conv->tienda_id ?? null,
+                        'nombre_cliente' => $conv->nombre_cliente,
+                        'telefono'       => $conv->telefono,
+                        'contacto_url'   => $conv->contacto_url,
+                        'fuente'         => $conv->fuente ?? 'whatsapp',
+                        'dia'            => $dc['dia']    ?? 'Por definir',
+                        'hora'           => $dc['hora']   ?? 'Por definir',
+                        'motivo'         => $dc['motivo'] ?? null,
+                        'estado'         => 'pendiente',
+                        'fecha_cita'     => !empty($dc['dia']) ? $this->parsearFechaCita($dc['dia']) : null,
+                    ]
+                );
+                $citaId = $cita->id;
+                \Log::info('tomar: Cita ' . ($citaCreada ? 'creada' : 'ya existía'), ['conv_id' => $conv->id, 'cita_id' => $citaId]);
+            } catch (\Throwable $e) {
+                \Log::error('tomar: error creando Cita', ['conv_id' => $conv->id, 'error' => $e->getMessage()]);
             }
         }
 
@@ -196,7 +201,7 @@ class RedesController extends Controller
         $conv    = ConversacionWa::with('tomadaPor:id,nombre')->findOrFail($id);
 
         // Solo quien la tomó o un supervisor puede terminarla
-        if ($conv->tomada_por !== $usuario->id) {
+        if ($conv->tomada_por !== $usuario->id && $usuario->rol !== 'supervisor') {
             return response()->json(['error' => 'Solo quien tomó la conversación puede terminarla.'], 403);
         }
 

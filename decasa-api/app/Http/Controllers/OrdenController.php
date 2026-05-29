@@ -451,7 +451,8 @@ class OrdenController extends Controller
             'vendedor:id,nombre',
             'tienda:id,nombre',
             'items.producto:id,nombre,categoria,precio_base,personalizable,foto_url,medidas,material',
-            'items.produccion',
+            'items.produccion.pasos.completadoPor:id,nombre',
+            'items.produccion.despachador:id,nombre',
             'pagos.facturacionTomadaPor:id,nombre',
             'ediciones.usuario:id,nombre',
         ])->findOrFail($id);

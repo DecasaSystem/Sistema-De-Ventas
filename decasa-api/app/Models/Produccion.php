@@ -46,6 +46,11 @@ class Produccion extends Model
             ->orderBy('orden');
     }
 
+    public function despachador()
+    {
+        return $this->belongsTo(Usuario::class, 'despachado_por');
+    }
+
     public function diasRestantes(): int
     {
         return now()->diffInDays($this->fecha_compromiso, false);

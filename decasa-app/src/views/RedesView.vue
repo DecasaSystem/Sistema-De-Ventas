@@ -173,6 +173,12 @@ function formatFecha(iso) {
   return d.toLocaleDateString('es-CO', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 }
 
+function perteneceAlUsuario(conv) {
+  const miTienda = auth.usuario?.tienda_default_id
+  if (!miTienda) return true  // sin tienda asignada: ve todo
+  return !conv.tienda_id || conv.tienda_id === miTienda
+}
+
 // Escuchar actualizaciones en tiempo real
 let echoChannel = null
 onMounted(() => {
@@ -180,7 +186,7 @@ onMounted(() => {
   if (window.Echo) {
     echoChannel = window.Echo.channel('redes')
       .listen('.conversacion.actualizada', (conv) => {
-        actualizarItem(conv)
+        if (perteneceAlUsuario(conv)) actualizarItem(conv)
       })
   }
 })
@@ -349,9 +355,9 @@ onUnmounted(() => {
               Tomar
             </button>
 
-            <!-- Botón Terminar — solo quien tomó o supervisor -->
+            <!-- Botón Terminar — quien tomó O supervisor -->
             <button
-              v-if="conv.estado === 'tomada' && conv.tomada_por === auth.usuario?.id"
+              v-if="conv.estado === 'tomada' && (conv.tomada_por === auth.usuario?.id || auth.isSupervisor)"
               @click="terminar(conv.id)"
               class="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white text-xs font-semibold rounded-lg hover:bg-green-700 transition-colors"
             >
@@ -359,9 +365,9 @@ onUnmounted(() => {
               Terminar
             </button>
 
-            <!-- Estado tomada por otro -->
+            <!-- Estado tomada por otro (solo vendedores que no la tomaron) -->
             <span
-              v-else-if="conv.estado === 'tomada' && conv.tomada_por !== auth.usuario?.id"
+              v-else-if="conv.estado === 'tomada' && conv.tomada_por !== auth.usuario?.id && !auth.isSupervisor"
               class="text-xs text-gray-400 italic"
             >Tomada</span>
 

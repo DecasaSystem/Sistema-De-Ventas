@@ -11,7 +11,7 @@ import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import RegistroPagoModal from '@/components/ordenes/RegistroPagoModal.vue'
 import EditarOrdenModal from '@/components/ordenes/EditarOrdenModal.vue'
 import { SparklesIcon, XMarkIcon } from '@heroicons/vue/24/solid'
-import { DocumentIcon, EnvelopeIcon, ChatBubbleLeftEllipsisIcon, ArrowDownTrayIcon, CalendarIcon, BuildingOffice2Icon, TruckIcon, PencilSquareIcon, ClockIcon, CheckBadgeIcon, LockClosedIcon } from '@heroicons/vue/24/outline'
+import { DocumentIcon, EnvelopeIcon, ChatBubbleLeftEllipsisIcon, ArrowDownTrayIcon, CalendarIcon, BuildingOffice2Icon, TruckIcon, PencilSquareIcon, ClockIcon, CheckBadgeIcon, LockClosedIcon, WrenchScrewdriverIcon, CheckCircleIcon, UserGroupIcon } from '@heroicons/vue/24/outline'
 
 const route = useRoute()
 const router = useRouter()
@@ -336,6 +336,22 @@ async function doMarcarFacturada(pagoId) {
   }
 }
 
+// ── Trazabilidad de producción ────────────────────────────────────────────────
+
+const itemsConProduccion = computed(() =>
+  (orden.value?.items ?? []).filter(i => i.es_personalizado && i.produccion?.pasos?.length)
+)
+
+function labelProceso(tipo) {
+  return { ebanisteria: 'Ebanistería', tapizado: 'Tapizado', laca: 'Laca' }[tipo] ?? tipo
+}
+
+function colorPaso(estado) {
+  if (estado === 'completado') return 'bg-green-100 text-green-700'
+  if (estado === 'en_proceso') return 'bg-blue-100 text-blue-700'
+  return 'bg-gray-100 text-gray-400'
+}
+
 onMounted(cargarOrden)
 </script>
 
@@ -514,6 +530,77 @@ onMounted(cargarOrden)
         </div>
       </div>
 
+      <!-- Trazabilidad de producción (solo supervisor) -->
+      <div v-if="auth.isSupervisor && itemsConProduccion.length > 0" class="bg-white rounded-xl shadow-sm p-4 space-y-4">
+        <p class="text-xs font-semibold text-gray-500 uppercase flex items-center gap-1.5">
+          <WrenchScrewdriverIcon class="w-3.5 h-3.5" />
+          Trazabilidad de producción
+        </p>
+
+        <div
+          v-for="item in itemsConProduccion"
+          :key="item.id"
+          class="space-y-2"
+          :class="itemsConProduccion.length > 1 ? 'border-b border-gray-100 last:border-0 pb-3 last:pb-0' : ''"
+        >
+          <p class="text-sm font-semibold text-gray-700">
+            {{ item.producto?.nombre ?? item.nombre_custom ?? 'Ítem personalizado' }}
+          </p>
+
+          <!-- Pasos -->
+          <div class="space-y-2 ml-1">
+            <div
+              v-for="paso in item.produccion.pasos"
+              :key="paso.id"
+              class="flex items-start gap-2.5"
+            >
+              <!-- Indicador de estado -->
+              <div :class="['w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center', colorPaso(paso.estado)]">
+                <CheckCircleIcon v-if="paso.estado === 'completado'" class="w-4 h-4" />
+                <span v-else class="text-[10px] font-bold">{{ paso.orden }}</span>
+              </div>
+
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2">
+                  <p class="text-sm font-medium text-gray-700">{{ labelProceso(paso.tipo_proceso) }}</p>
+                  <span v-if="paso.estado === 'en_proceso'" class="text-[10px] bg-blue-100 text-blue-700 font-semibold px-1.5 py-0.5 rounded-full">En proceso</span>
+                  <span v-else-if="paso.estado === 'pendiente'" class="text-[10px] bg-gray-100 text-gray-500 font-semibold px-1.5 py-0.5 rounded-full">Pendiente</span>
+                </div>
+
+                <template v-if="paso.estado === 'completado'">
+                  <p class="text-xs text-gray-400 mt-0.5">{{ formatDateTime(paso.completado_at) }}</p>
+                  <div v-if="paso.completado_por" class="flex items-center gap-1 mt-1 text-xs text-gray-600">
+                    <UserGroupIcon class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                    <span class="font-medium">{{ paso.completado_por.nombre }}</span>
+                    <span v-if="paso.trabajadores?.length" class="text-gray-400">
+                      · {{ paso.trabajadores.join(', ') }}
+                    </span>
+                  </div>
+                  <div v-else-if="paso.trabajadores?.length" class="flex items-center gap-1 mt-1 text-xs text-gray-600">
+                    <UserGroupIcon class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                    {{ paso.trabajadores.join(', ') }}
+                  </div>
+                </template>
+              </div>
+            </div>
+
+            <!-- Despacho de producción -->
+            <div v-if="item.produccion.despachador" class="flex items-start gap-2.5">
+              <div class="w-6 h-6 rounded-full flex-shrink-0 bg-purple-100 text-purple-700 flex items-center justify-center">
+                <TruckIcon class="w-3.5 h-3.5" />
+              </div>
+              <div>
+                <p class="text-sm font-medium text-gray-700">Despacho de producción</p>
+                <p class="text-xs text-gray-600 mt-0.5">
+                  {{ item.produccion.despachador.nombre }}
+                  <span v-if="item.produccion.fecha_real" class="text-gray-400 ml-1">· {{ formatFecha(item.produccion.fecha_real) }}</span>
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Pruebas de Entrega (despacho) -->
       <div v-if="pruebaEntregaVisible" class="bg-white rounded-xl shadow-sm p-4 space-y-3">
         <p class="text-xs font-semibold text-gray-500 uppercase">Pruebas de Entrega</p>
@@ -578,16 +665,17 @@ onMounted(cargarOrden)
             </div>
           </div>
 
-          <!-- Facturación (solo facturadores) -->
-          <div v-if="auth.isFacturador" class="mt-2">
-            <!-- Ya facturado -->
-            <div v-if="pago.facturacion_hecha_at" class="flex items-center gap-1.5 text-xs text-green-700 bg-green-50 rounded-lg px-2.5 py-1.5 w-fit">
-              <CheckBadgeIcon class="w-3.5 h-3.5" />
-              Factura hecha · {{ formatDateTime(pago.facturacion_hecha_at) }}
-            </div>
+          <!-- Indicador de facturación: visible para todos -->
+          <div v-if="pago.facturacion_hecha_at" class="mt-2 flex items-center gap-1.5 text-xs text-green-700 bg-green-50 rounded-lg px-2.5 py-1.5 w-fit">
+            <CheckBadgeIcon class="w-3.5 h-3.5" />
+            Facturado · {{ formatDateTime(pago.facturacion_hecha_at) }}
+          </div>
+
+          <!-- Acciones de facturación: solo para el facturador -->
+          <div v-else-if="auth.isFacturador" class="mt-2">
             <!-- Tomado por mí → marcar hecha -->
             <button
-              v-else-if="pago.facturacion_tomada_por?.id === auth.usuario?.id"
+              v-if="pago.facturacion_tomada_por?.id === auth.usuario?.id"
               @click="doMarcarFacturada(pago.id)"
               :disabled="facturacionLoading[pago.id]"
               class="flex items-center gap-1.5 text-xs font-semibold text-white bg-green-600 hover:bg-green-700 disabled:opacity-50 rounded-lg px-3 py-1.5 transition-colors"
