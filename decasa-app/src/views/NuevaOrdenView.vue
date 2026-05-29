@@ -145,10 +145,38 @@ const tiendaBusqueda = ref(auth.usuario?.tienda_default_id ?? '')
 
 // Formulario para restauraciones
 const restauracionItem = ref({ nombre_mueble: '', descripcion_trabajo: '', cantidad: 1, precio_unitario: 0 })
+const restauracionCalc = ref({ calculando: false, resultado: null, mostrar: false })
+
+async function calcularRestauracionForm() {
+  const f = restauracionItem.value
+  if (!f.nombre_mueble.trim()) return
+  restauracionCalc.value.calculando = true
+  restauracionCalc.value.resultado  = null
+  try {
+    const { data } = await api.post('/calcular-precio-item', {
+      es_restauracion: true,
+      nombre:   f.nombre_mueble.trim(),
+      trabajo:  f.descripcion_trabajo.trim() || undefined,
+      cantidad: f.cantidad,
+    })
+    restauracionCalc.value.resultado = data
+  } catch {
+    toast.error('No se pudo calcular el precio. Intenta de nuevo.')
+  } finally {
+    restauracionCalc.value.calculando = false
+  }
+}
+
+function aplicarPrecioRestauracion(precio) {
+  restauracionItem.value.precio_unitario = precio
+  restauracionCalc.value.mostrar = false
+  restauracionCalc.value.resultado = null
+}
 
 function agregarItemRestauracion() {
   const f = restauracionItem.value
   if (!f.nombre_mueble.trim()) return
+  restauracionCalc.value = { calculando: false, resultado: null, mostrar: false }
   items.value.push({
     producto_id: null,
     variante_id: null,
@@ -374,26 +402,38 @@ async function calcularPrecioIA(item) {
       item.boceto_url = up.url
     }
 
-    const template = getTemplate(item.categoria)
-    const specsResueltos = { ...item.specs }
-    // Resolver telas del picker cascada
-    for (const key of Object.keys(item._telaSelections ?? {})) {
-      const tela = telaResumidaCampo(item, key)
-      if (tela) specsResueltos[key] = tela
+    // Restauración: parámetros específicos del servicio
+    if (tipoOrden.value === 'restauracion') {
+      const { data } = await api.post('/calcular-precio-item', {
+        es_restauracion: true,
+        nombre:    item.nombre,
+        trabajo:   item.specs?.descripcion_trabajo || '',
+        cantidad:  item.cantidad,
+        boceto_url: item.boceto_url || null,
+      })
+      item._precioCalc = data
+    } else {
+      // Producto personalizado — lógica estándar
+      const template = getTemplate(item.categoria)
+      const specsResueltos = { ...item.specs }
+      for (const key of Object.keys(item._telaSelections ?? {})) {
+        const tela = telaResumidaCampo(item, key)
+        if (tela) specsResueltos[key] = tela
+      }
+      const specDesc = specsToDescripcion(specsResueltos, template)
+      const desc = [specDesc, item.specs_notas].filter(Boolean).join('. ')
+      const dims = extraerDimensiones(specsResueltos)
+      const { data } = await api.post('/calcular-precio-item', {
+        producto_id: item.producto_id ?? null,
+        nombre:      item.nombre,
+        categoria:   resolverCategoria(item.categoria) || item.categoria || '',
+        descripcion: desc,
+        precio_base: item.producto_id && item.precio_unitario ? item.precio_unitario : null,
+        ...dims,
+        boceto_url:  item.boceto_url || null,
+      })
+      item._precioCalc = data
     }
-    const specDesc = specsToDescripcion(specsResueltos, template)
-    const desc = [specDesc, item.specs_notas].filter(Boolean).join('. ')
-    const dims = extraerDimensiones(specsResueltos)
-    const { data } = await api.post('/calcular-precio-item', {
-      producto_id: item.producto_id ?? null,
-      nombre:      item.nombre,
-      categoria:   resolverCategoria(item.categoria) || item.categoria || '',
-      descripcion: desc,
-      precio_base: item.producto_id && item.precio_unitario ? item.precio_unitario : null,
-      ...dims,
-      boceto_url:  item.boceto_url || null,
-    })
-    item._precioCalc = data
   } catch {
     toast.error('No se pudo calcular el precio. Intenta de nuevo.')
   } finally {
@@ -1039,6 +1079,82 @@ function removeFacturaFoto() {
               <input v-model.number="restauracionItem.precio_unitario" type="number" min="0" placeholder="0" class="input text-sm" />
             </div>
           </div>
+          <!-- Cotizador IA (en el formulario, antes de agregar) -->
+          <div>
+            <button
+              type="button"
+              @click="restauracionCalc.mostrar = !restauracionCalc.mostrar"
+              :disabled="!restauracionItem.nombre_mueble.trim()"
+              class="flex items-center gap-1.5 text-xs text-indigo-600 font-medium hover:text-indigo-800 transition-colors disabled:opacity-40"
+            >
+              <SparklesIcon class="w-3.5 h-3.5" />
+              {{ restauracionCalc.mostrar ? 'Ocultar cotizador' : 'Calcular precio con IA' }}
+            </button>
+
+            <div v-if="restauracionCalc.mostrar" class="mt-2 bg-indigo-50 border border-indigo-200 rounded-xl p-3 space-y-3">
+              <p class="text-xs text-gray-500">La IA usará el mueble, el trabajo y las tarifas de costo configuradas.</p>
+              <button
+                type="button"
+                @click="calcularRestauracionForm"
+                :disabled="restauracionCalc.calculando || !restauracionItem.nombre_mueble.trim()"
+                class="w-full btn-primary text-xs py-2 disabled:opacity-50 flex items-center justify-center gap-1.5"
+              >
+                <ArrowPathIcon v-if="restauracionCalc.calculando" class="w-3.5 h-3.5 animate-spin" />
+                <SparklesIcon  v-else class="w-3.5 h-3.5" />
+                {{ restauracionCalc.calculando ? 'Calculando...' : 'Calcular precio' }}
+              </button>
+
+              <div v-if="restauracionCalc.resultado" class="bg-white rounded-lg border border-indigo-100 p-3 space-y-2">
+                <div class="flex justify-between items-center text-sm">
+                  <span class="text-gray-500">Costo del servicio</span>
+                  <span class="font-semibold text-gray-800">${{ (restauracionCalc.resultado.precio_fabricacion ?? 0).toLocaleString('es-CO') }}</span>
+                </div>
+                <div class="flex justify-between items-center text-sm">
+                  <span class="text-gray-500">Precio sugerido al cliente</span>
+                  <span class="font-bold text-green-700">${{ (restauracionCalc.resultado.precio_sugerido_venta ?? 0).toLocaleString('es-CO') }}</span>
+                </div>
+
+                <details class="text-xs text-gray-500">
+                  <summary class="cursor-pointer hover:text-gray-700 select-none">Ver desglose</summary>
+                  <div class="mt-2 space-y-2">
+                    <div v-if="restauracionCalc.resultado.desglose_materiales?.length">
+                      <p class="font-medium text-gray-600 mb-1">Materiales</p>
+                      <div v-for="m in restauracionCalc.resultado.desglose_materiales" :key="m.descripcion" class="flex justify-between">
+                        <span>{{ m.descripcion }}</span>
+                        <span>${{ (m.subtotal ?? 0).toLocaleString('es-CO') }}</span>
+                      </div>
+                    </div>
+                    <div v-if="restauracionCalc.resultado.desglose_mano_obra?.length">
+                      <p class="font-medium text-gray-600 mb-1">Mano de obra</p>
+                      <div v-for="m in restauracionCalc.resultado.desglose_mano_obra" :key="m.descripcion" class="flex justify-between">
+                        <span>{{ m.descripcion }}</span>
+                        <span>${{ (m.subtotal ?? 0).toLocaleString('es-CO') }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </details>
+
+                <p v-if="restauracionCalc.resultado.notas && !restauracionCalc.resultado.notas.includes('⚠️')" class="text-xs text-amber-600 italic">
+                  {{ restauracionCalc.resultado.notas }}
+                </p>
+                <div v-if="restauracionCalc.resultado.notas?.includes('⚠️')" class="bg-amber-50 border border-amber-300 rounded-lg p-2.5">
+                  <p class="text-xs font-semibold text-amber-800 mb-1">Consultar antes de confirmar:</p>
+                  <p v-for="l in restauracionCalc.resultado.notas.split('\n').filter(x => x.trim())" :key="l"
+                     :class="['text-xs', l.includes('⚠️') ? 'text-amber-700' : 'text-amber-600 italic']">{{ l }}</p>
+                </div>
+
+                <div class="grid grid-cols-2 gap-2 pt-1">
+                  <button type="button" @click="aplicarPrecioRestauracion(restauracionCalc.resultado.precio_fabricacion)" class="btn-secondary text-xs py-1.5">
+                    Usar costo
+                  </button>
+                  <button type="button" @click="aplicarPrecioRestauracion(restauracionCalc.resultado.precio_sugerido_venta)" class="btn-primary text-xs py-1.5">
+                    Usar sugerido
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <button
             @click="agregarItemRestauracion"
             :disabled="!restauracionItem.nombre_mueble.trim()"
@@ -1374,19 +1490,29 @@ function removeFacturaFoto() {
           </template>
 
           <!-- Cotizador de precio con IA -->
-          <div v-if="item.es_personalizado && tipoOrden !== 'restauracion'">
+          <div v-if="item.es_personalizado">
             <button
               type="button"
               @click="item._mostrarCalculadora = !item._mostrarCalculadora"
-              class="flex items-center gap-1.5 text-xs text-purple-600 font-medium hover:text-purple-800 transition-colors"
+              :class="['flex items-center gap-1.5 text-xs font-medium transition-colors',
+                tipoOrden === 'restauracion'
+                  ? 'text-indigo-600 hover:text-indigo-800'
+                  : 'text-purple-600 hover:text-purple-800']"
             >
               <SparklesIcon class="w-3.5 h-3.5" />
               {{ item._mostrarCalculadora ? 'Ocultar cotizador' : 'Calcular precio con IA' }}
             </button>
 
-            <div v-if="item._mostrarCalculadora" class="mt-2 bg-purple-50 border border-purple-200 rounded-xl p-3 space-y-3">
+            <div v-if="item._mostrarCalculadora"
+              :class="['mt-2 rounded-xl p-3 space-y-3 border',
+                tipoOrden === 'restauracion'
+                  ? 'bg-indigo-50 border-indigo-200'
+                  : 'bg-purple-50 border-purple-200']"
+            >
               <p class="text-xs text-gray-500">
-                El cotizador usa las especificaciones y medidas que ingresaste arriba.
+                {{ tipoOrden === 'restauracion'
+                  ? 'La IA estima el costo de restauración basada en el trabajo, la foto y las tarifas configuradas.'
+                  : 'El cotizador usa las especificaciones y medidas que ingresaste arriba.' }}
               </p>
 
               <button
@@ -1446,7 +1572,7 @@ function removeFacturaFoto() {
 
                 <div class="grid grid-cols-2 gap-2 pt-1">
                   <button type="button" @click="aplicarPrecio(item, item._precioCalc.precio_fabricacion)" class="btn-secondary text-xs py-1.5">
-                    Usar fabricación
+                    {{ tipoOrden === 'restauracion' ? 'Usar costo' : 'Usar fabricación' }}
                   </button>
                   <button type="button" @click="aplicarPrecio(item, item._precioCalc.precio_sugerido_venta)" class="btn-primary text-xs py-1.5">
                     Usar sugerido

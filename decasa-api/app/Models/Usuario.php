@@ -21,6 +21,7 @@ class Usuario extends Authenticatable
         'rol',
         'facturacion',
         'es_tapicero',
+        'notif_asignar_fecha',
         'tienda_default_id',
         'activo',
         'firma_url',
@@ -33,9 +34,10 @@ class Usuario extends Authenticatable
     {
         return [
             'password'    => 'hashed',
-            'activo'      => 'boolean',
-            'facturacion' => 'boolean',
-            'es_tapicero' => 'boolean',
+            'activo'             => 'boolean',
+            'facturacion'        => 'boolean',
+            'es_tapicero'        => 'boolean',
+            'notif_asignar_fecha' => 'boolean',
         ];
     }
 

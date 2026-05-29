@@ -18,6 +18,7 @@ const form = ref({
   rol: 'vendedor',
   facturacion: false,
   es_tapicero: false,
+  notif_asignar_fecha: true,
   tienda_default_id: '',
 })
 
@@ -67,6 +68,7 @@ async function submit() {
       rol: form.value.rol,
       facturacion: form.value.facturacion,
       es_tapicero: form.value.es_tapicero,
+      notif_asignar_fecha: form.value.notif_asignar_fecha,
       tienda_default_id: requiereTienda.value ? form.value.tienda_default_id : null,
     })
     router.push({ name: 'usuarios' })
@@ -215,19 +217,33 @@ async function submit() {
         </div>
       </div>
 
-      <!-- Tapicero (solo supervisores) -->
-      <div v-if="form.rol === 'supervisor'" class="flex items-start gap-3 py-2">
-        <input
-          id="es_tapicero"
-          type="checkbox"
-          v-model="form.es_tapicero"
-          class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-        />
-        <div>
-          <label for="es_tapicero" class="text-sm font-medium text-gray-700 cursor-pointer">Encargado de tapicería</label>
-          <p class="text-xs text-gray-500 mt-0.5">Podrá completar los pasos de <strong>tapizado</strong> y <strong>laca</strong> en producción personalizada.</p>
+      <!-- Opciones solo para supervisores -->
+      <template v-if="form.rol === 'supervisor'">
+        <div class="flex items-start gap-3 py-2">
+          <input
+            id="es_tapicero"
+            type="checkbox"
+            v-model="form.es_tapicero"
+            class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <div>
+            <label for="es_tapicero" class="text-sm font-medium text-gray-700 cursor-pointer">Encargado de tapicería</label>
+            <p class="text-xs text-gray-500 mt-0.5">Podrá completar los pasos de <strong>tapizado</strong> y <strong>laca</strong> en producción personalizada.</p>
+          </div>
         </div>
-      </div>
+        <div class="flex items-start gap-3 py-2">
+          <input
+            id="notif_asignar_fecha"
+            type="checkbox"
+            v-model="form.notif_asignar_fecha"
+            class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <div>
+            <label for="notif_asignar_fecha" class="text-sm font-medium text-gray-700 cursor-pointer">Recibe notificaciones de asignación de fecha</label>
+            <p class="text-xs text-gray-500 mt-0.5">Recibirá una alerta cada vez que se cree una orden nueva para asignarle la fecha de entrega.</p>
+          </div>
+        </div>
+      </template>
 
       <!-- Tienda -->
       <div v-if="requiereTienda">

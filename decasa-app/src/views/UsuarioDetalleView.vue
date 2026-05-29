@@ -34,7 +34,7 @@ const nuevaPassword = ref('')
 const confirmacionPassword = ref('')
 
 // Edit form
-const editForm = ref({ nombre: '', email: '', rol: '', facturacion: false, es_tapicero: false, tienda_default_id: '' })
+const editForm = ref({ nombre: '', email: '', rol: '', facturacion: false, es_tapicero: false, notif_asignar_fecha: true, tienda_default_id: '' })
 const rolesSinTienda = ['conductor', 'ebanista', 'despachador']
 
 const ROL_LABELS = {
@@ -110,6 +110,7 @@ function openEditModal() {
     rol: usuario.value.rol,
     facturacion: usuario.value.facturacion ?? false,
     es_tapicero: usuario.value.es_tapicero ?? false,
+    notif_asignar_fecha: usuario.value.notif_asignar_fecha ?? true,
     tienda_default_id: usuario.value.tienda_default_id,
   }
   actionError.value = ''
@@ -135,6 +136,7 @@ async function submitEdit() {
       rol: editForm.value.rol,
       facturacion: editForm.value.rol === 'vendedor' ? editForm.value.facturacion : false,
       es_tapicero: editForm.value.rol === 'supervisor' ? editForm.value.es_tapicero : false,
+      notif_asignar_fecha: editForm.value.rol === 'supervisor' ? editForm.value.notif_asignar_fecha : false,
       tienda_default_id: sinTienda ? null : editForm.value.tienda_default_id,
     })
     showEditModal.value = false
@@ -222,6 +224,17 @@ onMounted(async () => {
           <div>
             <p class="text-xs text-gray-400">Especialidad</p>
             <p class="font-medium text-gray-800">Encargado de tapicería y laca</p>
+          </div>
+        </div>
+        <div v-if="usuario.rol === 'supervisor'" class="flex items-center gap-3">
+          <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
+            <span class="text-sm">{{ usuario.notif_asignar_fecha ? '🔔' : '🔕' }}</span>
+          </div>
+          <div>
+            <p class="text-xs text-gray-400">Notif. asignación de fecha</p>
+            <p class="font-medium" :class="usuario.notif_asignar_fecha ? 'text-gray-800' : 'text-gray-400'">
+              {{ usuario.notif_asignar_fecha ? 'Habilitada' : 'Deshabilitada' }}
+            </p>
           </div>
         </div>
         <div v-if="usuario.tienda_default && !rolesSinTienda.includes(usuario.rol)" class="flex items-center gap-3">
@@ -399,18 +412,32 @@ onMounted(async () => {
               <p class="text-xs text-gray-500 mt-0.5">Podrá ver órdenes entregadas de toda la tienda para facturación externa.</p>
             </div>
           </div>
-          <div v-if="editForm.rol === 'supervisor'" class="flex items-start gap-3 py-2">
-            <input
-              id="edit-tapicero"
-              type="checkbox"
-              v-model="editForm.es_tapicero"
-              class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-            />
-            <div>
-              <label for="edit-tapicero" class="text-sm font-medium text-gray-700 cursor-pointer">Encargado de tapicería</label>
-              <p class="text-xs text-gray-500 mt-0.5">Puede completar pasos de <strong>tapizado</strong> y <strong>laca</strong>.</p>
+          <template v-if="editForm.rol === 'supervisor'">
+            <div class="flex items-start gap-3 py-2">
+              <input
+                id="edit-tapicero"
+                type="checkbox"
+                v-model="editForm.es_tapicero"
+                class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <div>
+                <label for="edit-tapicero" class="text-sm font-medium text-gray-700 cursor-pointer">Encargado de tapicería</label>
+                <p class="text-xs text-gray-500 mt-0.5">Puede completar pasos de <strong>tapizado</strong> y <strong>laca</strong>.</p>
+              </div>
             </div>
-          </div>
+            <div class="flex items-start gap-3 py-2">
+              <input
+                id="edit-notif-fecha"
+                type="checkbox"
+                v-model="editForm.notif_asignar_fecha"
+                class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <div>
+                <label for="edit-notif-fecha" class="text-sm font-medium text-gray-700 cursor-pointer">Recibe notificaciones de asignación de fecha</label>
+                <p class="text-xs text-gray-500 mt-0.5">Recibirá una alerta cada vez que se cree una orden nueva para asignar fecha de entrega.</p>
+              </div>
+            </div>
+          </template>
           <div v-if="!rolesSinTienda.includes(editForm.rol)">
             <label class="block text-sm font-medium text-gray-700 mb-1">Tienda</label>
             <select v-model="editForm.tienda_default_id" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">

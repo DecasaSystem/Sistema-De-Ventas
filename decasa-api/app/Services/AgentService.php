@@ -2212,6 +2212,10 @@ class AgentService
 
     public function calcularPrecioItem(array $params, Usuario $usuario): array
     {
+        if (!empty($params['es_restauracion'])) {
+            return $this->calcularPrecioRestauracion($params);
+        }
+
         $productoId  = $params['producto_id'] ?? null;
         $nombre      = trim($params['nombre'] ?? '');
         $categoria   = trim($params['categoria'] ?? '');
@@ -2536,5 +2540,95 @@ EOT;
     private function hoy(): string
     {
         return Carbon::now()->locale('es')->isoFormat('dddd D [de] MMMM [de] YYYY');
+    }
+
+    // ─── Cotizador de precio para restauración de muebles ───────────────────────
+
+    private function calcularPrecioRestauracion(array $params): array
+    {
+        $nombre   = trim($params['nombre']  ?? 'Mueble');
+        $trabajo  = trim($params['trabajo'] ?? ($params['descripcion'] ?? ''));
+        $cantidad = max(1, (int) ($params['cantidad'] ?? 1));
+        $boceto   = $params['boceto_url'] ?? null;
+
+        $tarifasTexto = DB::table('tarifas_proceso')
+            ->orderBy('proceso')
+            ->get(['proceso', 'descripcion', 'unidad', 'tarifa', 'cargo'])
+            ->map(fn($t) =>
+                "- {$t->proceso} ({$t->descripcion}): \${$t->tarifa} por {$t->unidad}" .
+                ($t->cargo ? " [operario: {$t->cargo}]" : '')
+            )->implode("\n");
+
+        $salariosTexto = DB::table('salarios_cargo')
+            ->orderBy('cargo')
+            ->get(['cargo', 'descripcion', 'tarifa_hora'])
+            ->map(fn($s) => "- {$s->cargo} ({$s->descripcion}): \${$s->tarifa_hora}/hora")
+            ->implode("\n");
+
+        $system = <<<SYSTEM
+Eres el cotizador de DECASA Muebles para servicios de RESTAURACIÓN de muebles del cliente.
+Calcula el costo del servicio y el precio de venta.
+DEVUELVE SOLO JSON VÁLIDO sin markdown ni texto adicional.
+
+Estructura del JSON (exactamente estos campos):
+{
+  "precio_fabricacion": number,
+  "precio_sugerido_venta": number,
+  "desglose_materiales": [{"descripcion": string, "subtotal": number}],
+  "desglose_mano_obra": [{"descripcion": string, "subtotal": number}],
+  "notas": string
+}
+
+TARIFAS DE PROCESO DISPONIBLES:
+{$tarifasTexto}
+
+TARIFAS DE PERSONAL POR HORA:
+{$salariosTexto}
+
+REGLAS:
+- precio_sugerido_venta = precio_fabricacion × 1.8 (margen estándar de servicio)
+- precio_fabricacion = total materiales + total mano de obra
+- Cantidad de piezas a restaurar: {$cantidad} (multiplica costos proporcionales si aplica)
+- Mano de obra: usa las tarifas disponibles. Si el trabajo combina varias operaciones (ej: tapizado + laca), suma cada proceso por separado
+- Materiales: solo los que el trabajo realmente requiere (tela, espuma, laca, barniz, puntillas, etc.). Si no se especifica el material, usa un estimado razonable para el mueble
+- Si hay imagen del mueble: analiza su estado, tamaño estimado y componentes para refinar el estimado
+- Si algo es incierto (material exacto, dimensiones, estado), indícalo en notas con ⚠️
+- desglose_materiales puede estar vacío [] si el trabajo es solo mano de obra (ej: solo laca)
+SYSTEM;
+
+        $userText = "Mueble: {$nombre}\n";
+        if ($trabajo) $userText .= "Trabajo solicitado: {$trabajo}\n";
+        $userText .= "Cantidad: {$cantidad} pieza(s)";
+
+        $messages = [['role' => 'system', 'content' => $system]];
+        $messages[] = $boceto
+            ? [
+                'role'    => 'user',
+                'content' => [
+                    ['type' => 'text',      'text'      => $userText],
+                    ['type' => 'image_url', 'image_url' => ['url' => $boceto, 'detail' => 'low']],
+                ],
+            ]
+            : ['role' => 'user', 'content' => $userText];
+
+        try {
+            $response = OpenAI::chat()->create([
+                'model'      => config('openai.model', 'gpt-4o-mini'),
+                'messages'   => $messages,
+                'max_tokens' => 1200,
+            ]);
+
+            $raw     = trim($response->choices[0]->message->content ?? '');
+            $decoded = json_decode($raw, true);
+
+            if (!$decoded || !isset($decoded['precio_fabricacion'])) {
+                return ['ok' => false, 'error' => 'No se pudo calcular. Agrega más detalles del trabajo a realizar.'];
+            }
+
+            return array_merge(['ok' => true, 'tool_usado' => 'restauracion'], $decoded);
+        } catch (\Throwable $e) {
+            \Log::error('calcularPrecioRestauracion', ['err' => $e->getMessage()]);
+            return ['ok' => false, 'error' => 'Error al consultar la IA. Intenta de nuevo.'];
+        }
     }
 }

@@ -320,21 +320,28 @@ class OrdenController extends Controller
             $ordenCargada->cliente->nombre,
         ));
 
-        NotificacionService::crear(
-            'venta_nueva',
-            'Nueva venta registrada',
-            "Orden #{$orden->id} — {$ordenCargada->cliente->nombre} · $" . number_format($valorTotal, 0, ',', '.') . " COP",
-            ['orden_id' => $orden->id, 'tienda_id' => (int) $tiendaId, 'valor_total' => $valorTotal],
-        );
+        $supervisores = Usuario::where('rol', 'supervisor')->where('activo', true)->get();
 
-        // Notificar al supervisor que debe asignar fecha de entrega
-        NotificacionService::crear(
-            'asignar_fecha',
-            'Asignar fecha de entrega',
-            "Orden #{$orden->id} de {$ordenCargada->cliente->nombre} necesita fecha de entrega",
-            ['orden_id' => $orden->id],
-            // usuario_id null → va al supervisor
-        );
+        foreach ($supervisores as $sup) {
+            NotificacionService::crear(
+                'venta_nueva',
+                'Nueva venta registrada',
+                "Orden #{$orden->id} — {$ordenCargada->cliente->nombre} · $" . number_format($valorTotal, 0, ',', '.') . " COP",
+                ['orden_id' => $orden->id, 'tienda_id' => (int) $tiendaId, 'valor_total' => $valorTotal],
+                $sup->id,
+            );
+
+            // Solo notificar de fecha si el supervisor tiene esa opción habilitada
+            if ($sup->notif_asignar_fecha) {
+                NotificacionService::crear(
+                    'asignar_fecha',
+                    'Asignar fecha de entrega',
+                    "Orden #{$orden->id} de {$ordenCargada->cliente->nombre} necesita fecha de entrega",
+                    ['orden_id' => $orden->id],
+                    $sup->id,
+                );
+            }
+        }
 
         // Notificar a facturadores sobre el anticipo inicial
         $facturadores = Usuario::where('facturacion', true)
