@@ -83,6 +83,11 @@ const cartera    = ref([])
 const retrasos   = ref([])
 const interesados = ref(null)
 
+const tiendaFiltroNombre = computed(() => {
+  if (!tiendaFiltro.value) return null
+  return tiendas.value.find(t => String(t.id) === String(tiendaFiltro.value))?.nombre ?? null
+})
+
 let _busquedaTimer = null
 function onBusquedaInput() {
   clearTimeout(_busquedaTimer)
@@ -186,6 +191,7 @@ async function cargarTodo() {
   categoriaFiltro.value = ''
   busquedaProducto.value = ''
   interesados.value = null
+  if (tabActivo.value === 'interesados') cargandoInteresados.value = true
   try {
     const p = paramsFiltro()
     const promises = [
@@ -739,14 +745,19 @@ onBeforeUnmount(() => {
 
           <!-- KPIs -->
           <div class="grid grid-cols-2 gap-3">
-            <div class="bg-white rounded-xl shadow-sm p-4 col-span-2 flex items-center gap-4">
-              <div class="flex-1">
-                <p class="text-xs text-gray-400 mb-1">Total interesados registrados</p>
-                <p class="text-2xl font-bold text-amber-600">{{ interesados.total }}</p>
-              </div>
-              <div class="flex-1 border-l border-gray-100 pl-4">
-                <p class="text-xs text-gray-400 mb-1">Nuevos en el período</p>
-                <p class="text-2xl font-bold text-gray-800">{{ interesados.nuevos_periodo }}</p>
+            <div class="bg-white rounded-xl shadow-sm p-4 col-span-2">
+              <p v-if="tiendaFiltroNombre" class="text-xs font-semibold text-amber-600 mb-2">
+                Tienda: {{ tiendaFiltroNombre }}
+              </p>
+              <div class="flex items-center gap-4">
+                <div class="flex-1">
+                  <p class="text-xs text-gray-400 mb-1">Leads activos</p>
+                  <p class="text-2xl font-bold text-amber-600">{{ interesados.total }}</p>
+                </div>
+                <div class="flex-1 border-l border-gray-100 pl-4">
+                  <p class="text-xs text-gray-400 mb-1">Nuevos en el período</p>
+                  <p class="text-2xl font-bold text-gray-800">{{ interesados.nuevos_periodo }}</p>
+                </div>
               </div>
             </div>
           </div>

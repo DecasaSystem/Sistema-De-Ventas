@@ -94,6 +94,7 @@ class ReporteController extends Controller
             ->join('tiendas as t', 't.id', '=', 'c.tienda_id')
             ->whereNotNull('c.categorias_interes')
             ->whereRaw("JSON_LENGTH(c.categorias_interes) > 0")
+            ->when($tiendaId, fn($q) => $q->where('c.tienda_id', $tiendaId))
             ->selectRaw('t.id as tienda_id, t.nombre as tienda, COUNT(*) as total')
             ->groupBy('t.id', 't.nombre')
             ->orderByDesc('total')
