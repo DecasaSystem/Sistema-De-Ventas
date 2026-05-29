@@ -399,6 +399,21 @@ class AgentService
                     ],
                 ],
             ],
+            [
+                'type' => 'function',
+                'function' => [
+                    'name' => 'consultar_interesados',
+                    'description' => 'Consulta estadísticas de clientes interesados (leads): cuántos hay, qué categorías preguntan más, distribución por tienda y por canal. Úsala ante preguntas como "¿qué es lo que más preguntan?", "¿cuántos interesados tenemos?", "¿qué se pregunta más en tienda X?", "¿qué deberíamos fabricar según la demanda?".',
+                    'parameters' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'periodo'       => ['type' => 'string', 'description' => 'Período para contar nuevos interesados: hoy, semana, mes, mes_anterior, anio (opcional)'],
+                            'tienda_id'     => ['type' => 'integer', 'description' => 'Filtrar por tienda específica (opcional)'],
+                            'nombre_tienda' => ['type' => 'string',  'description' => 'Nombre parcial de tienda (alternativa a tienda_id)'],
+                        ],
+                    ],
+                ],
+            ],
         ];
     }
 
@@ -2100,8 +2115,87 @@ class AgentService
             'listar_tiendas'               => $this->handleListarTiendas(),
             'analizar_rotacion_inventario' => $this->handleAnalizarRotacionInventario($args, $usuario),
             'consultar_variantes_producto' => $this->handleConsultarVariantesProducto($args, $usuario),
+            'consultar_interesados'        => $this->handleConsultarInteresados($args, $usuario),
             default                        => ['error' => "Tool '{$toolName}' no reconocida."],
         };
+    }
+
+    private function handleConsultarInteresados(array $args, Usuario $usuario): array
+    {
+        // Resolver tienda
+        $tiendaId = $args['tienda_id'] ?? null;
+        if (!$tiendaId && !empty($args['nombre_tienda'])) {
+            $tiendaId = DB::table('tiendas')
+                ->whereRaw('LOWER(nombre) LIKE ?', [$this->likeI($args['nombre_tienda'])])
+                ->value('id');
+        }
+
+        $base = DB::table('clientes')->where('tipo', 'interesado');
+        if ($tiendaId) $base->where('tienda_id', $tiendaId);
+
+        $total = (clone $base)->count();
+
+        // Nuevos en período
+        $nuevos = null;
+        $desdeP = null;
+        $hastaP = null;
+        if (!empty($args['periodo'])) {
+            [$desdeP, $hastaP] = $this->parsePeriodo($args['periodo']);
+            $nuevos = (clone $base)
+                ->whereBetween('created_at', [$desdeP . ' 00:00:00', $hastaP . ' 23:59:59'])
+                ->count();
+        }
+
+        // Top categorías de interés (expandir JSON)
+        $registros = (clone $base)->pluck('categorias_interes');
+        $conteo = [];
+        foreach ($registros as $json) {
+            foreach (json_decode($json ?? '[]', true) ?? [] as $cat) {
+                $cat = trim($cat);
+                if ($cat) $conteo[$cat] = ($conteo[$cat] ?? 0) + 1;
+            }
+        }
+        arsort($conteo);
+        $topCategorias = collect($conteo)
+            ->map(fn($v, $k) => ['categoria' => $k, 'consultas' => $v])
+            ->values();
+
+        // Por tienda con sus top categorías
+        $porTienda = DB::table('clientes as c')
+            ->join('tiendas as t', 't.id', '=', 'c.tienda_id')
+            ->where('c.tipo', 'interesado')
+            ->selectRaw('t.id as tienda_id, t.nombre as tienda, COUNT(*) as total')
+            ->groupBy('t.id', 't.nombre')
+            ->orderByDesc('total')
+            ->get()
+            ->map(function ($t) {
+                $cats = DB::table('clientes')
+                    ->where('tipo', 'interesado')
+                    ->where('tienda_id', $t->tienda_id)
+                    ->pluck('categorias_interes');
+                $c = [];
+                foreach ($cats as $j) {
+                    foreach (json_decode($j ?? '[]', true) ?? [] as $cat) {
+                        $cat = trim($cat);
+                        if ($cat) $c[$cat] = ($c[$cat] ?? 0) + 1;
+                    }
+                }
+                arsort($c);
+                $t->top_categorias = array_slice(
+                    array_map(fn($v, $k) => "{$k}: {$v}", $c, array_keys($c)),
+                    0, 5
+                );
+                return $t;
+            });
+
+        return [
+            'total_interesados'        => $total,
+            'nuevos_en_periodo'        => $nuevos,
+            'periodo'                  => $desdeP ? ['desde' => $desdeP, 'hasta' => $hastaP] : null,
+            'top_categorias_interes'   => $topCategorias,
+            'distribucion_por_tienda'  => $porTienda,
+            'nota'                     => 'categorias_interes son las categorías de muebles que los prospectos preguntaron al visitar la tienda. Úsalas para recomendar qué fabricar.',
+        ];
     }
 
     // ─── Cálculo de precio para ítem personalizado (cotizador en nueva orden) ──
@@ -2329,6 +2423,8 @@ Flujo con imagen: 1) Identifica el tipo de mueble y materiales visibles. 2) Llam
 **Materiales estimados: $143.800**
 **Total aprox: $288.000** (puede variar ±20%)"
 5) Si el resultado viene de estimación (no de ficha real), termina con: "Para un estimado más exacto dime las medidas (largo, ancho, alto en cm)." Nunca pidas medidas ANTES de calcular. NUNCA uses LaTeX (\frac, \times, \text, paréntesis \( \)).
+
+INTERESADOS / DEMANDA — usa consultar_interesados ante preguntas sobre: "¿qué es lo que más preguntan?", "¿qué categorías demanda la gente?", "¿cuántos interesados tenemos?", "¿qué se pregunta en tienda X?", "¿qué deberíamos fabricar según la gente que visita?". Presenta el resultado destacando las categorías más consultadas y la distribución por tienda para orientar producción.
 
 ANÁLISIS PREDICTIVO — usa analizar_rotacion_inventario ante preguntas como: ¿qué fabricar?, ¿qué dejar de producir?, ¿dónde hay falta de stock?, ¿qué productos tienen poca salida? Parámetro dias: 30 = tendencia reciente, 90 = estándar, 180 = largo plazo. Presenta el resultado así:
 "**Fabricar urgente** (stock < 2 semanas):

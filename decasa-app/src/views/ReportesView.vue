@@ -5,7 +5,7 @@ import { Chart } from 'chart.js/auto'
 
 import {
   getPanel, getTendencia, getStatsVendedores,
-  getStatsTiendas, getProductos, getCartera, getStatsCategorias,
+  getStatsTiendas, getProductos, getCartera, getStatsCategorias, getInteresados,
 } from '@/api/stats'
 import api from '@/api'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
@@ -51,6 +51,7 @@ const todosTabs = [
   { id: 'productos',        label: 'Productos' },
   { id: 'cartera',          label: 'Cartera' },
   { id: 'produccion',       label: 'Producción' },
+  { id: 'interesados',      label: 'Interesados' },
   ...(esPrimeroDelMes ? [{ id: 'resumen-mensual', label: 'Resumen mensual' }] : []),
 ]
 
@@ -63,6 +64,7 @@ const tabActivo = ref('resumen')
 async function switchTab(id) {
   tabActivo.value = id
   if (id === 'resumen-mensual') cargarResumenMensual()
+  if (id === 'interesados' && !interesados.value) cargarInteresados()
   await nextTick()
   rebuildCharts(id)
 }
@@ -79,6 +81,7 @@ const categoriaFiltro = ref('')
 const busquedaProducto = ref('')
 const cartera    = ref([])
 const retrasos   = ref([])
+const interesados = ref(null)
 
 let _busquedaTimer = null
 function onBusquedaInput() {
@@ -106,6 +109,22 @@ async function cargarResumenMensual() {
     resumenMensual.value = data
   } catch {} finally {
     cargandoResumen.value = false
+  }
+}
+
+const cargandoInteresados = ref(false)
+async function cargarInteresados() {
+  cargandoInteresados.value = true
+  try {
+    const f = resuelveFechas()
+    const { data } = await getInteresados({
+      tienda_id: tiendaFiltro.value || undefined,
+      desde: f.desde,
+      hasta: f.hasta,
+    })
+    interesados.value = data
+  } catch {} finally {
+    cargandoInteresados.value = false
   }
 }
 
@@ -166,6 +185,7 @@ async function cargarTodo() {
   loading.value = true
   categoriaFiltro.value = ''
   busquedaProducto.value = ''
+  interesados.value = null
   try {
     const p = paramsFiltro()
     const promises = [
@@ -192,6 +212,7 @@ async function cargarTodo() {
   }
   await nextTick()
   rebuildCharts(tabActivo.value)
+  if (tabActivo.value === 'interesados') cargarInteresados()
 }
 
 async function filtrarPorCategoria(cat) {
@@ -705,6 +726,106 @@ onBeforeUnmount(() => {
           </li>
         </ul>
         <p v-if="!retrasos.length" class="text-center py-8 text-gray-400 text-sm">Sin retrasos registrados.</p>
+      </div>
+
+      <!-- ══════ TAB: INTERESADOS ══════ -->
+      <div v-show="tabActivo === 'interesados'" class="space-y-4">
+
+        <div v-if="cargandoInteresados" class="flex justify-center py-10">
+          <div class="w-6 h-6 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+        </div>
+
+        <template v-else-if="interesados">
+
+          <!-- KPIs -->
+          <div class="grid grid-cols-2 gap-3">
+            <div class="bg-white rounded-xl shadow-sm p-4 col-span-2 flex items-center gap-4">
+              <div class="flex-1">
+                <p class="text-xs text-gray-400 mb-1">Total interesados registrados</p>
+                <p class="text-2xl font-bold text-amber-600">{{ interesados.total }}</p>
+              </div>
+              <div class="flex-1 border-l border-gray-100 pl-4">
+                <p class="text-xs text-gray-400 mb-1">Nuevos en el período</p>
+                <p class="text-2xl font-bold text-gray-800">{{ interesados.nuevos_periodo }}</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Top categorías de interés -->
+          <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+            <div class="px-4 py-3 border-b border-gray-100">
+              <p class="text-sm font-semibold text-gray-700">Lo que más preguntan</p>
+              <p class="text-xs text-gray-400 mt-0.5">Categorías de interés registradas al guardar el prospecto</p>
+            </div>
+            <div v-if="interesados.top_categorias.length" class="divide-y divide-gray-50">
+              <div
+                v-for="(cat, i) in interesados.top_categorias"
+                :key="cat.categoria"
+                class="flex items-center gap-3 px-4 py-3"
+              >
+                <span :class="['w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0',
+                  i === 0 ? 'bg-amber-100 text-amber-700' :
+                  i === 1 ? 'bg-gray-100 text-gray-600' :
+                  i === 2 ? 'bg-orange-100 text-orange-700' : 'bg-gray-50 text-gray-400']">
+                  {{ i + 1 }}
+                </span>
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm font-medium text-gray-800 capitalize">{{ cat.categoria.replace(/_/g, ' ') }}</p>
+                  <div class="mt-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      class="h-full bg-amber-400 rounded-full"
+                      :style="{ width: `${Math.round((cat.total / interesados.top_categorias[0].total) * 100)}%` }"
+                    />
+                  </div>
+                </div>
+                <span class="text-sm font-bold text-gray-700 flex-shrink-0">{{ cat.total }}</span>
+              </div>
+            </div>
+            <p v-else class="text-center py-8 text-sm text-gray-400">
+              Ningún interesado tiene categorías registradas aún.
+            </p>
+          </div>
+
+          <!-- Por tienda -->
+          <div v-if="interesados.por_tienda.length" class="space-y-3">
+            <p class="text-sm font-semibold text-gray-700">Por tienda</p>
+            <div
+              v-for="(t, i) in interesados.por_tienda"
+              :key="t.tienda_id"
+              class="bg-white rounded-xl shadow-sm p-4 border-l-4"
+              :style="{ borderColor: TIENDA_COLORS[i % TIENDA_COLORS.length] }"
+            >
+              <div class="flex items-center justify-between mb-2">
+                <p class="font-semibold text-gray-800 text-sm">{{ t.tienda }}</p>
+                <span class="text-sm font-bold text-amber-600">{{ t.total }} personas</span>
+              </div>
+              <div v-if="t.top_categorias.length" class="flex flex-wrap gap-1.5">
+                <span
+                  v-for="cat in t.top_categorias"
+                  :key="cat"
+                  class="text-xs bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full"
+                >
+                  {{ cat }}
+                </span>
+              </div>
+              <p v-else class="text-xs text-gray-400 italic">Sin categorías registradas</p>
+            </div>
+          </div>
+
+          <!-- Interesados sin tienda asignada -->
+          <p
+            v-if="interesados.total > 0 && !interesados.por_tienda.length"
+            class="text-xs text-center text-gray-400 py-2"
+          >
+            Los interesados existentes no tienen tienda asignada. Los nuevos se asignarán automáticamente.
+          </p>
+
+        </template>
+
+        <div v-else-if="!cargandoInteresados" class="text-center py-12 text-gray-400 text-sm">
+          Haz clic en el tab para cargar los datos de interesados.
+        </div>
+
       </div>
 
       <!-- ══════ TAB: RESUMEN MENSUAL ══════ -->

@@ -51,10 +51,16 @@ class ClienteController extends Controller
             'direccion'        => 'nullable|string|max:200',
             'canal_pref'       => 'nullable|in:fisica,whatsapp,red_social,otro',
             'tipo'             => 'nullable|in:oficial,interesado',
+            'tienda_id'        => 'nullable|exists:tiendas,id',
             'categorias_interes' => 'nullable|array',
             'categorias_interes.*' => 'string|max:50',
             'notas_interes'    => 'nullable|string|max:1000',
         ]);
+
+        // Auto-asignar tienda del vendedor si no se proporcionó
+        if (empty($data['tienda_id']) && $request->user()?->tienda_default_id) {
+            $data['tienda_id'] = $request->user()->tienda_default_id;
+        }
 
         $cliente = Cliente::create($data);
 

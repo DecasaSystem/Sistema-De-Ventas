@@ -41,6 +41,96 @@ class ReporteController extends Controller
         return response()->json($this->buildRetrasos($request));
     }
 
+    /** GET /api/reportes/interesados?tienda_id=&desde=&hasta= */
+    public function interesados(Request $request)
+    {
+        $tiendaId = $request->query('tienda_id');
+        $desde    = $request->query('desde');
+        $hasta    = $request->query('hasta');
+
+        // Base: todos los interesados
+        $base = DB::table('clientes')->where('tipo', 'interesado');
+        if ($tiendaId) $base->where('tienda_id', $tiendaId);
+
+        $total = (clone $base)->count();
+
+        // Nuevos en período
+        $nuevos = (clone $base)
+            ->when($desde, fn($q) => $q->whereDate('created_at', '>=', $desde))
+            ->when($hasta, fn($q) => $q->whereDate('created_at', '<=', $hasta))
+            ->count();
+
+        // Nuevos por día en período (para gráfica)
+        $porDia = (clone $base)
+            ->when($desde, fn($q) => $q->whereDate('created_at', '>=', $desde))
+            ->when($hasta, fn($q) => $q->whereDate('created_at', '<=', $hasta))
+            ->selectRaw('DATE(created_at) as fecha, COUNT(*) as total')
+            ->groupByRaw('DATE(created_at)')
+            ->orderBy('fecha')
+            ->get();
+
+        // Categorías de interés: expandir el array JSON y contar
+        $registros = (clone $base)->pluck('categorias_interes');
+        $categoriaConteo = [];
+        foreach ($registros as $json) {
+            $cats = json_decode($json ?? '[]', true) ?? [];
+            foreach ($cats as $cat) {
+                $cat = trim($cat);
+                if ($cat) $categoriaConteo[$cat] = ($categoriaConteo[$cat] ?? 0) + 1;
+            }
+        }
+        arsort($categoriaConteo);
+        $topCategorias = collect($categoriaConteo)
+            ->map(fn($v, $k) => ['categoria' => $k, 'total' => $v])
+            ->values();
+
+        // Por tienda (siempre general para ver distribución)
+        $porTienda = DB::table('clientes as c')
+            ->join('tiendas as t', 't.id', '=', 'c.tienda_id')
+            ->where('c.tipo', 'interesado')
+            ->selectRaw('t.id as tienda_id, t.nombre as tienda, COUNT(*) as total')
+            ->groupBy('t.id', 't.nombre')
+            ->orderByDesc('total')
+            ->get()
+            ->map(function ($tienda) {
+                // Top categorías por tienda
+                $cats = DB::table('clientes')
+                    ->where('tipo', 'interesado')
+                    ->where('tienda_id', $tienda->tienda_id)
+                    ->pluck('categorias_interes');
+                $conteo = [];
+                foreach ($cats as $json) {
+                    foreach (json_decode($json ?? '[]', true) ?? [] as $cat) {
+                        $cat = trim($cat);
+                        if ($cat) $conteo[$cat] = ($conteo[$cat] ?? 0) + 1;
+                    }
+                }
+                arsort($conteo);
+                $tienda->top_categorias = collect($conteo)
+                    ->map(fn($v, $k) => ['categoria' => $k, 'total' => $v])
+                    ->values()
+                    ->take(5);
+                return $tienda;
+            });
+
+        // Por canal de captación
+        $porCanal = (clone $base)
+            ->selectRaw("COALESCE(canal_pref, 'sin_definir') as canal, COUNT(*) as total")
+            ->groupBy('canal')
+            ->orderByDesc('total')
+            ->get();
+
+        return response()->json([
+            'total'           => $total,
+            'nuevos_periodo'  => $nuevos,
+            'periodo'         => ['desde' => $desde, 'hasta' => $hasta],
+            'top_categorias'  => $topCategorias,
+            'por_tienda'      => $porTienda,
+            'por_canal'       => $porCanal,
+            'por_dia'         => $porDia,
+        ]);
+    }
+
     // ─── Export Excel ─────────────────────────────────────────────────────────
 
     /** GET /api/reportes/exportar?tipo=ventas&desde=&hasta= */
