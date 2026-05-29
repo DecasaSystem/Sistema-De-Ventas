@@ -2130,24 +2130,31 @@ class AgentService
                 ->value('id');
         }
 
-        $base = DB::table('clientes')->where('tipo', 'interesado');
-        if ($tiendaId) $base->where('tienda_id', $tiendaId);
+        // ── Leads activos (tipo=interesado) ───────────────────────────────────
+        $baseLeads = DB::table('clientes')->where('tipo', 'interesado');
+        if ($tiendaId) $baseLeads->where('tienda_id', $tiendaId);
 
-        $total = (clone $base)->count();
+        $total = (clone $baseLeads)->count();
 
-        // Nuevos en período
         $nuevos = null;
         $desdeP = null;
         $hastaP = null;
         if (!empty($args['periodo'])) {
             [$desdeP, $hastaP] = $this->parsePeriodo($args['periodo']);
-            $nuevos = (clone $base)
+            $nuevos = (clone $baseLeads)
                 ->whereBetween('created_at', [$desdeP . ' 00:00:00', $hastaP . ' 23:59:59'])
                 ->count();
         }
 
-        // Top categorías de interés (expandir JSON)
-        $registros = (clone $base)->pluck('categorias_interes');
+        // ── Análisis de demanda: todos los que tienen categorias_interes ──────
+        // Incluye interesados actuales + los ya convertidos a oficial
+        // para no perder el historial de qué preguntan.
+        $baseDemanda = DB::table('clientes')
+            ->whereNotNull('categorias_interes')
+            ->whereRaw("JSON_LENGTH(categorias_interes) > 0");
+        if ($tiendaId) $baseDemanda->where('tienda_id', $tiendaId);
+
+        $registros = (clone $baseDemanda)->pluck('categorias_interes');
         $conteo = [];
         foreach ($registros as $json) {
             foreach (json_decode($json ?? '[]', true) ?? [] as $cat) {
@@ -2163,14 +2170,16 @@ class AgentService
         // Por tienda con sus top categorías
         $porTienda = DB::table('clientes as c')
             ->join('tiendas as t', 't.id', '=', 'c.tienda_id')
-            ->where('c.tipo', 'interesado')
+            ->whereNotNull('c.categorias_interes')
+            ->whereRaw("JSON_LENGTH(c.categorias_interes) > 0")
             ->selectRaw('t.id as tienda_id, t.nombre as tienda, COUNT(*) as total')
             ->groupBy('t.id', 't.nombre')
             ->orderByDesc('total')
             ->get()
             ->map(function ($t) {
                 $cats = DB::table('clientes')
-                    ->where('tipo', 'interesado')
+                    ->whereNotNull('categorias_interes')
+                    ->whereRaw("JSON_LENGTH(categorias_interes) > 0")
                     ->where('tienda_id', $t->tienda_id)
                     ->pluck('categorias_interes');
                 $c = [];
@@ -2189,12 +2198,12 @@ class AgentService
             });
 
         return [
-            'total_interesados'        => $total,
-            'nuevos_en_periodo'        => $nuevos,
-            'periodo'                  => $desdeP ? ['desde' => $desdeP, 'hasta' => $hastaP] : null,
-            'top_categorias_interes'   => $topCategorias,
-            'distribucion_por_tienda'  => $porTienda,
-            'nota'                     => 'categorias_interes son las categorías de muebles que los prospectos preguntaron al visitar la tienda. Úsalas para recomendar qué fabricar.',
+            'total_interesados_activos' => $total,
+            'nuevos_en_periodo'         => $nuevos,
+            'periodo'                   => $desdeP ? ['desde' => $desdeP, 'hasta' => $hastaP] : null,
+            'top_categorias_interes'    => $topCategorias,
+            'distribucion_por_tienda'   => $porTienda,
+            'nota'                      => 'top_categorias_interes incluye tanto interesados actuales como los que ya se convirtieron a clientes oficiales, para no perder el historial de demanda.',
         ];
     }
 

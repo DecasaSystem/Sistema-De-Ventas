@@ -48,20 +48,18 @@ class ReporteController extends Controller
         $desde    = $request->query('desde');
         $hasta    = $request->query('hasta');
 
-        // Base: todos los interesados
-        $base = DB::table('clientes')->where('tipo', 'interesado');
-        if ($tiendaId) $base->where('tienda_id', $tiendaId);
+        // ── Leads activos (solo tipo=interesado) ──────────────────────────────
+        $baseLeads = DB::table('clientes')->where('tipo', 'interesado');
+        if ($tiendaId) $baseLeads->where('tienda_id', $tiendaId);
 
-        $total = (clone $base)->count();
-
-        // Nuevos en período
-        $nuevos = (clone $base)
+        $total  = (clone $baseLeads)->count();
+        $nuevos = (clone $baseLeads)
             ->when($desde, fn($q) => $q->whereDate('created_at', '>=', $desde))
             ->when($hasta, fn($q) => $q->whereDate('created_at', '<=', $hasta))
             ->count();
 
         // Nuevos por día en período (para gráfica)
-        $porDia = (clone $base)
+        $porDia = (clone $baseLeads)
             ->when($desde, fn($q) => $q->whereDate('created_at', '>=', $desde))
             ->when($hasta, fn($q) => $q->whereDate('created_at', '<=', $hasta))
             ->selectRaw('DATE(created_at) as fecha, COUNT(*) as total')
@@ -69,12 +67,19 @@ class ReporteController extends Controller
             ->orderBy('fecha')
             ->get();
 
-        // Categorías de interés: expandir el array JSON y contar
-        $registros = (clone $base)->pluck('categorias_interes');
+        // ── Análisis de demanda: todos los que tienen categorias_interes ──────
+        // Incluye interesados actuales + los que ya se convirtieron a oficial
+        // para no perder el historial de qué preguntaban.
+        $baseDemanda = DB::table('clientes')
+            ->whereNotNull('categorias_interes')
+            ->whereRaw("JSON_LENGTH(categorias_interes) > 0");
+        if ($tiendaId) $baseDemanda->where('tienda_id', $tiendaId);
+
+        // Categorías de interés: expandir JSON y contar
+        $registros = (clone $baseDemanda)->pluck('categorias_interes');
         $categoriaConteo = [];
         foreach ($registros as $json) {
-            $cats = json_decode($json ?? '[]', true) ?? [];
-            foreach ($cats as $cat) {
+            foreach (json_decode($json ?? '[]', true) ?? [] as $cat) {
                 $cat = trim($cat);
                 if ($cat) $categoriaConteo[$cat] = ($categoriaConteo[$cat] ?? 0) + 1;
             }
@@ -84,18 +89,19 @@ class ReporteController extends Controller
             ->map(fn($v, $k) => ['categoria' => $k, 'total' => $v])
             ->values();
 
-        // Por tienda (siempre general para ver distribución)
+        // Por tienda: clientes con categorias_interes registradas
         $porTienda = DB::table('clientes as c')
             ->join('tiendas as t', 't.id', '=', 'c.tienda_id')
-            ->where('c.tipo', 'interesado')
+            ->whereNotNull('c.categorias_interes')
+            ->whereRaw("JSON_LENGTH(c.categorias_interes) > 0")
             ->selectRaw('t.id as tienda_id, t.nombre as tienda, COUNT(*) as total')
             ->groupBy('t.id', 't.nombre')
             ->orderByDesc('total')
             ->get()
             ->map(function ($tienda) {
-                // Top categorías por tienda
                 $cats = DB::table('clientes')
-                    ->where('tipo', 'interesado')
+                    ->whereNotNull('categorias_interes')
+                    ->whereRaw("JSON_LENGTH(categorias_interes) > 0")
                     ->where('tienda_id', $tienda->tienda_id)
                     ->pluck('categorias_interes');
                 $conteo = [];
@@ -113,8 +119,8 @@ class ReporteController extends Controller
                 return $tienda;
             });
 
-        // Por canal de captación
-        $porCanal = (clone $base)
+        // Por canal de captación (solo leads activos)
+        $porCanal = (clone $baseLeads)
             ->selectRaw("COALESCE(canal_pref, 'sin_definir') as canal, COUNT(*) as total")
             ->groupBy('canal')
             ->orderByDesc('total')
