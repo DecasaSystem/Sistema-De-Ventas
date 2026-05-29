@@ -16,6 +16,7 @@ class Cliente extends Model
         'direccion',
         'canal_pref',
         'tipo',
+        'tienda_id',
         'categorias_interes',
         'notas_interes',
     ];
