@@ -113,8 +113,15 @@ function contactoUrl(conv) {
 
   const asesor = auth.usuario?.nombre || 'tu asesor'
   const saludo = conv.nombre_cliente ? `Hola ${conv.nombre_cliente}, ` : 'Hola, '
-  let texto = `${saludo}soy ${asesor}, asesor de DeCasa Muebles y Decoración 🛋️ Me da mucho gusto atenderte, ¿en qué te puedo ayudar?`
-  if (conv.tipo === 'pedido' && conv.resumen) texto += `\n\n${conv.resumen}`
+  let texto = `${saludo}soy ${asesor} de DeCasa Muebles y Decoración 🛋️ Me da mucho gusto atenderte.`
+
+  if (conv.tipo === 'cita' && conv.datos_cita?.dia) {
+    texto += `\n\nYa vi tu cita agendada para el ${conv.datos_cita.dia} a las ${conv.datos_cita.hora}.`
+    if (conv.datos_cita.motivo) texto += ` (${conv.datos_cita.motivo})`
+  } else if (conv.resumen) {
+    texto += `\n\n${conv.resumen}`
+  }
+
   return `https://wa.me/${phone}?text=${encodeURIComponent(texto)}`
 }
 
@@ -139,7 +146,13 @@ async function abrirContacto(conv) {
   if (conv.fuente === 'instagram') {
     const asesor = auth.usuario?.nombre || 'tu asesor'
     const saludo = conv.nombre_cliente ? `Hola ${conv.nombre_cliente}, ` : 'Hola, '
-    const msg    = `${saludo}soy ${asesor}, asesor de DeCasa Muebles y Decoración 🛋️ Me da mucho gusto atenderte, ¿en qué te puedo ayudar?`
+    let msg = `${saludo}soy ${asesor} de DeCasa Muebles y Decoración 🛋️ Me da mucho gusto atenderte.`
+    if (conv.tipo === 'cita' && conv.datos_cita?.dia) {
+      msg += `\n\nYa vi tu cita agendada para el ${conv.datos_cita.dia} a las ${conv.datos_cita.hora}.`
+      if (conv.datos_cita.motivo) msg += ` (${conv.datos_cita.motivo})`
+    } else if (conv.resumen) {
+      msg += `\n\n${conv.resumen}`
+    }
     try {
       await navigator.clipboard.writeText(msg)
       toast.success('Saludo copiado — pégalo al abrir el chat de Instagram')
