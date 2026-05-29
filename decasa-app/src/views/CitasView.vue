@@ -150,6 +150,10 @@ async function cargar() {
   try {
     const { data } = await api.get('/citas')
     items.value = data
+  } catch (e) {
+    if (e.response?.status !== 401) {
+      toast.error('No se pudieron cargar las citas')
+    }
   } finally {
     cargando.value = false
   }

@@ -9,6 +9,7 @@ use App\Models\ProduccionPaso;
 use App\Models\Usuario;
 use App\Services\NotificacionService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class ProduccionController extends Controller
 {
@@ -251,33 +252,35 @@ class ProduccionController extends Controller
             return response()->json(['message' => 'Este pedido no está pendiente de despacho.'], 422);
         }
 
-        $produccion->update([
-            'estado'        => 'listo',
-            'fecha_real'    => now()->toDateString(),
-            'despachado_por' => $usuario->id,
-        ]);
+        DB::transaction(function () use ($produccion, $usuario) {
+            $produccion->update([
+                'estado'         => 'listo',
+                'fecha_real'     => now()->toDateString(),
+                'despachado_por' => $usuario->id,
+            ]);
 
-        // Sincronizar estado de la orden
-        $orden = $produccion->ordenItem->orden;
-        $orden->loadMissing('items.produccion');
+            // Sincronizar estado de la orden
+            $orden = $produccion->ordenItem->orden;
+            $orden->loadMissing('items.produccion');
 
-        $estadosProduccion = $orden->items
-            ->map(fn($item) => optional($item->produccion)->estado)
-            ->filter();
+            $estadosProduccion = $orden->items
+                ->map(fn($item) => optional($item->produccion)->estado)
+                ->filter();
 
-        if ($estadosProduccion->isNotEmpty()) {
-            if ($estadosProduccion->every(fn($e) => $e === 'entregado')) {
-                $orden->update(['estado' => 'entregado']);
-            } elseif ($estadosProduccion->every(fn($e) => in_array($e, ['listo', 'entregado']))) {
-                $orden->update([
-                    'estado'           => 'listo_entrega',
-                    'listo_entrega_at' => now(),
-                ]);
-                try { event(new OrdenListaParaEntrega($orden->id)); } catch (\Throwable) {}
-            } else {
-                $orden->update(['estado' => 'en_produccion']);
+            if ($estadosProduccion->isNotEmpty()) {
+                if ($estadosProduccion->every(fn($e) => $e === 'entregado')) {
+                    $orden->update(['estado' => 'entregado']);
+                } elseif ($estadosProduccion->every(fn($e) => in_array($e, ['listo', 'entregado']))) {
+                    $orden->update([
+                        'estado'           => 'listo_entrega',
+                        'listo_entrega_at' => now(),
+                    ]);
+                    try { event(new OrdenListaParaEntrega($orden->id)); } catch (\Throwable) {}
+                } else {
+                    $orden->update(['estado' => 'en_produccion']);
+                }
             }
-        }
+        });
 
         $produccion->load(['ordenItem.producto:id,nombre', 'ordenItem.orden.vendedor:id']);
         $productoNombre = $produccion->ordenItem->producto->nombre ?? 'Producto';

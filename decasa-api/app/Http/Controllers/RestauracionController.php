@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\Orden;
 use App\Models\OrdenItem;
 use App\Models\Produccion;
+use App\Models\Usuario;
+use App\Services\NotificacionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -101,6 +103,24 @@ class RestauracionController extends Controller
 
             return $orden;
         });
+
+        $orden->loadMissing('cliente:id,nombre');
+
+        // Notificar a supervisores de la tienda que hay una nueva restauración en producción
+        $supervisores = Usuario::where('rol', 'supervisor')
+            ->where('activo', true)
+            ->where('tienda_default_id', $orden->tienda_id)
+            ->get();
+
+        foreach ($supervisores as $sup) {
+            NotificacionService::crear(
+                'venta_nueva',
+                'Nueva restauración en producción',
+                "Restauración de {$orden->cliente->nombre} ingresó directo a producción",
+                ['orden_id' => $orden->id],
+                $sup->id,
+            );
+        }
 
         return response()->json(
             $orden->load(['cliente:id,nombre,telefono', 'items.produccion']),
