@@ -808,15 +808,16 @@ onBeforeUnmount(() => {
             >
               <div class="flex items-center justify-between mb-2">
                 <p class="font-semibold text-gray-800 text-sm">{{ t.tienda }}</p>
-                <span class="text-sm font-bold text-amber-600">{{ t.total }} personas</span>
+                <span class="text-sm font-bold text-amber-600">{{ t.total }} {{ t.total === 1 ? 'persona' : 'personas' }}</span>
               </div>
               <div v-if="t.top_categorias.length" class="flex flex-wrap gap-1.5">
                 <span
                   v-for="cat in t.top_categorias"
-                  :key="cat"
-                  class="text-xs bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full"
+                  :key="cat.categoria"
+                  class="inline-flex items-center gap-1 text-xs bg-amber-50 text-amber-800 border border-amber-200 px-2.5 py-1 rounded-full font-medium"
                 >
-                  {{ cat }}
+                  {{ cat.categoria }}
+                  <span class="bg-amber-200 text-amber-900 text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">{{ cat.total }}</span>
                 </span>
               </div>
               <p v-else class="text-xs text-gray-400 italic">Sin categorías registradas</p>
