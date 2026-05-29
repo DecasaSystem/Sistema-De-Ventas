@@ -144,8 +144,22 @@ const items = ref([])
 const tiendaBusqueda = ref(auth.usuario?.tienda_default_id ?? '')
 
 // Formulario para restauraciones
-const restauracionItem = ref({ nombre_mueble: '', descripcion_trabajo: '', cantidad: 1, precio_unitario: 0 })
+const restauracionItem = ref({ nombre_mueble: '', descripcion_trabajo: '', cantidad: 1, precio_unitario: 0, foto_blob: null, foto_preview: null })
 const restauracionCalc = ref({ calculando: false, resultado: null, mostrar: false })
+
+function onFotoRestauracionForm(event) {
+  const file = event.target.files[0]
+  if (!file) return
+  if (restauracionItem.value.foto_preview) URL.revokeObjectURL(restauracionItem.value.foto_preview)
+  restauracionItem.value.foto_blob    = file
+  restauracionItem.value.foto_preview = URL.createObjectURL(file)
+}
+
+function quitarFotoRestauracionForm() {
+  if (restauracionItem.value.foto_preview) URL.revokeObjectURL(restauracionItem.value.foto_preview)
+  restauracionItem.value.foto_blob    = null
+  restauracionItem.value.foto_preview = null
+}
 
 async function calcularRestauracionForm() {
   const f = restauracionItem.value
@@ -153,11 +167,21 @@ async function calcularRestauracionForm() {
   restauracionCalc.value.calculando = true
   restauracionCalc.value.resultado  = null
   try {
+    // Subir foto si hay una seleccionada
+    let boceto_url = null
+    if (f.foto_blob) {
+      const fd = new FormData()
+      fd.append('foto', f.foto_blob, 'restauracion.jpg')
+      fd.append('folder', 'bocetos')
+      const { data: up } = await api.post('/upload/foto', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      boceto_url = up.url
+    }
     const { data } = await api.post('/calcular-precio-item', {
       es_restauracion: true,
-      nombre:   f.nombre_mueble.trim(),
-      trabajo:  f.descripcion_trabajo.trim() || undefined,
-      cantidad: f.cantidad,
+      nombre:     f.nombre_mueble.trim(),
+      trabajo:    f.descripcion_trabajo.trim() || undefined,
+      cantidad:   f.cantidad,
+      boceto_url: boceto_url || undefined,
     })
     restauracionCalc.value.resultado = data
   } catch {
@@ -195,15 +219,15 @@ function agregarItemRestauracion() {
     specs_notas: '',
     tienda_origen: null,
     fecha_entrega_prometida: null,
-    boceto_blob: null,
-    boceto_url: '',
-    boceto_preview: null,
+    boceto_blob:    f.foto_blob    ?? null,
+    boceto_url:     '',
+    boceto_preview: f.foto_preview ?? null,
     _mostrarCalculadora: false,
     _calculandoPrecio: false,
     _precioCalc: null,
     _telaSelections: {},
   })
-  restauracionItem.value = { nombre_mueble: '', descripcion_trabajo: '', cantidad: 1, precio_unitario: 0 }
+  restauracionItem.value = { nombre_mueble: '', descripcion_trabajo: '', cantidad: 1, precio_unitario: 0, foto_blob: null, foto_preview: null }
 }
 
 // Producto no catalogado
@@ -1069,6 +1093,34 @@ function removeFacturaFoto() {
             class="input text-sm"
             placeholder="Trabajo a realizar (ej: Tapizado + laca)"
           />
+
+          <!-- Foto del mueble -->
+          <div>
+            <p class="text-xs text-gray-500 mb-1.5">Foto del mueble <span class="text-gray-400">(opcional — mejora el cálculo de la IA)</span></p>
+            <div v-if="restauracionItem.foto_preview" class="relative">
+              <img
+                :src="restauracionItem.foto_preview"
+                alt="Foto mueble"
+                class="w-full rounded-xl object-cover border border-indigo-200 max-h-40"
+              />
+              <button
+                type="button"
+                @click="quitarFotoRestauracionForm"
+                class="absolute top-2 right-2 bg-white rounded-full p-1 shadow text-red-400 hover:text-red-600"
+              >
+                <XMarkIcon class="w-4 h-4" />
+              </button>
+            </div>
+            <label
+              v-else
+              class="flex items-center justify-center gap-2 border-2 border-dashed border-indigo-200 rounded-xl py-4 text-sm text-gray-400 cursor-pointer hover:border-indigo-400 hover:text-indigo-500 transition-colors"
+            >
+              <PhotoIcon class="w-5 h-5" />
+              Subir foto
+              <input type="file" accept="image/*" capture="environment" class="hidden" @change="onFotoRestauracionForm" />
+            </label>
+          </div>
+
           <div class="grid grid-cols-2 gap-2">
             <div>
               <label class="text-xs text-gray-500">Cantidad</label>
