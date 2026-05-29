@@ -11,6 +11,8 @@ class ExportarCostos extends Command
     protected $description = 'Exporta las tablas de costos/catálogo a un archivo SQL listo para importar en producción';
 
     private array $tablas = [
+        'tiendas',
+        'usuarios',
         'salarios_cargo',
         'tarifas_proceso',
         'materiales',
@@ -28,6 +30,7 @@ class ExportarCostos extends Command
         $lines[] = '-- Generado: ' . now()->toDateTimeString();
         $lines[] = '-- Importar en Aiven: mysql -h HOST -P PORT -u USER -pPASS --ssl-ca=... DB < ' . $archivo;
         $lines[] = '';
+        $lines[] = 'SET NAMES utf8mb4;';
         $lines[] = 'SET FOREIGN_KEY_CHECKS = 0;';
         $lines[] = '';
 
