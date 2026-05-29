@@ -458,100 +458,85 @@ onMounted(cargar)
   </div>
 
   <!-- ── Panel nueva cita manual ─────────────────────────────────────────────── -->
-  <Teleport to="body">
-    <Transition name="sheet">
-      <div v-if="mostrarForm" class="fixed inset-0 z-50 flex flex-col justify-end">
-        <!-- Backdrop -->
-        <div class="absolute inset-0 bg-black/40" @click="mostrarForm = false" />
+  <div v-if="mostrarForm" class="fixed inset-0 z-50 flex flex-col justify-end">
+    <!-- Backdrop -->
+    <div class="absolute inset-0 bg-black/40" @click="mostrarForm = false" />
 
-        <!-- Sheet -->
-        <div class="relative bg-white rounded-t-2xl shadow-xl px-4 pt-4 pb-8 max-h-[90vh] overflow-y-auto">
-          <!-- Handle + header -->
-          <div class="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-4" />
-          <div class="flex items-center justify-between mb-5">
-            <h2 class="text-base font-bold text-gray-800">Nueva cita manual</h2>
-            <button @click="mostrarForm = false" class="p-1 text-gray-400 hover:text-gray-600">
-              <XMarkIcon class="w-5 h-5" />
-            </button>
-          </div>
-
-          <!-- Formulario -->
-          <form @submit.prevent="crearCita" class="space-y-4">
-
-            <div>
-              <label class="block text-xs font-semibold text-gray-600 mb-1">Nombre del cliente *</label>
-              <input
-                v-model="form.nombre"
-                type="text"
-                required
-                placeholder="Ej: María López"
-                class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-blue-400"
-              />
-            </div>
-
-            <div>
-              <label class="block text-xs font-semibold text-gray-600 mb-1">Teléfono <span class="font-normal text-gray-400">(opcional)</span></label>
-              <input
-                v-model="form.telefono"
-                type="tel"
-                placeholder="Ej: 3001234567"
-                class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-blue-400"
-              />
-            </div>
-
-            <div class="grid grid-cols-2 gap-3">
-              <div>
-                <label class="block text-xs font-semibold text-gray-600 mb-1">Fecha *</label>
-                <input
-                  v-model="form.fecha"
-                  type="date"
-                  required
-                  :min="fechaMinima"
-                  class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-blue-400"
-                />
-              </div>
-              <div>
-                <label class="block text-xs font-semibold text-gray-600 mb-1">Hora *</label>
-                <input
-                  v-model="form.hora"
-                  type="time"
-                  required
-                  class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-blue-400"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label class="block text-xs font-semibold text-gray-600 mb-1">Motivo <span class="font-normal text-gray-400">(opcional)</span></label>
-              <input
-                v-model="form.motivo"
-                type="text"
-                placeholder="Ej: Ver sala de estar, comedor..."
-                class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-blue-400"
-              />
-            </div>
-
-            <button
-              type="submit"
-              :disabled="guardando || !form.nombre || !form.fecha || !form.hora"
-              class="w-full py-3 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {{ guardando ? 'Agendando...' : 'Agendar cita' }}
-            </button>
-          </form>
-        </div>
+    <!-- Sheet -->
+    <div class="relative bg-white rounded-t-2xl shadow-xl px-4 pt-4 pb-8 max-h-[90vh] overflow-y-auto">
+      <!-- Handle + header -->
+      <div class="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-4" />
+      <div class="flex items-center justify-between mb-5">
+        <h2 class="text-base font-bold text-gray-800">Nueva cita manual</h2>
+        <button @click="mostrarForm = false" class="p-1 text-gray-400 hover:text-gray-600">
+          <XMarkIcon class="w-5 h-5" />
+        </button>
       </div>
-    </Transition>
-  </Teleport>
-</template>
 
-<style scoped>
-.sheet-enter-active,
-.sheet-leave-active {
-  transition: opacity 0.22s ease;
-}
-.sheet-enter-from,
-.sheet-leave-to {
-  opacity: 0;
-}
-</style>
+      <!-- Formulario -->
+      <form @submit.prevent="crearCita" class="space-y-4">
+
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Nombre del cliente *</label>
+          <input
+            v-model="form.nombre"
+            type="text"
+            required
+            placeholder="Ej: María López"
+            class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-blue-400"
+          />
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Teléfono <span class="font-normal text-gray-400">(opcional)</span></label>
+          <input
+            v-model="form.telefono"
+            type="tel"
+            placeholder="Ej: 3001234567"
+            class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-blue-400"
+          />
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">Fecha *</label>
+            <input
+              v-model="form.fecha"
+              type="date"
+              required
+              :min="fechaMinima"
+              class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-blue-400"
+            />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">Hora *</label>
+            <input
+              v-model="form.hora"
+              type="time"
+              required
+              class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-blue-400"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-gray-600 mb-1">Motivo <span class="font-normal text-gray-400">(opcional)</span></label>
+          <input
+            v-model="form.motivo"
+            type="text"
+            placeholder="Ej: Ver sala de estar, comedor..."
+            class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-blue-400"
+          />
+        </div>
+
+        <button
+          type="submit"
+          :disabled="guardando || !form.nombre || !form.fecha || !form.hora"
+          class="w-full py-3 bg-blue-600 text-white text-sm font-bold rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {{ guardando ? 'Agendando...' : 'Agendar cita' }}
+        </button>
+      </form>
+    </div>
+  </div>
+</template>
