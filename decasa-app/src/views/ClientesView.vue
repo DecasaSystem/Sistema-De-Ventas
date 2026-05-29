@@ -12,6 +12,11 @@ import {
 } from '@heroicons/vue/24/outline'
 import { getClientes, createCliente, updateCliente, exportarClientes, CATEGORIAS_DISPONIBLES } from '@/api/clientes'
 import EmptyState from '@/components/common/EmptyState.vue'
+import { useAuthStore } from '@/stores/auth'
+import api from '@/api'
+
+const auth = useAuthStore()
+const tiendas = ref([])
 
 const router = useRouter()
 
@@ -49,6 +54,7 @@ const nuevo = ref({
   direccion: '',
   canal_pref: '',
   tipo: 'oficial',
+  tienda_id: '',
   categorias_interes: [],
   notas_interes: '',
 })
@@ -146,6 +152,7 @@ function abrirCrear() {
     direccion: '',
     canal_pref: '',
     tipo: 'oficial',
+    tienda_id: auth.usuario?.tienda_default_id ?? '',
     categorias_interes: [],
     notas_interes: '',
   }
@@ -160,7 +167,9 @@ async function guardar() {
   }
   creando.value = true
   try {
-    await createCliente(nuevo.value)
+    const payload = { ...nuevo.value }
+    if (!payload.tienda_id) delete payload.tienda_id
+    await createCliente(payload)
     mostrarCrear.value = false
     await fetchClientes(1, false)
     setupObserver()
@@ -172,9 +181,13 @@ async function guardar() {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   fetchClientes(1, false)
   setupObserver()
+  if (auth.isSupervisor) {
+    const { data } = await api.get('/tiendas')
+    tiendas.value = data
+  }
 })
 
 onUnmounted(() => {
@@ -348,6 +361,19 @@ onUnmounted(() => {
 
           <!-- Campos para cliente interesado -->
           <template v-if="nuevo.tipo === 'interesado'">
+
+            <!-- Tienda (solo supervisor) -->
+            <div v-if="auth.isSupervisor">
+              <label class="block text-xs font-medium text-gray-500 mb-1">Tienda <span class="text-gray-400 font-normal">(¿en cuál tienda preguntó?)</span></label>
+              <select
+                v-model="nuevo.tienda_id"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+              >
+                <option value="">Sin tienda asignada</option>
+                <option v-for="t in tiendas" :key="t.id" :value="t.id">{{ t.nombre }}</option>
+              </select>
+            </div>
+
             <div>
               <label class="block text-xs font-medium text-gray-500 mb-1">
                 Categorías de interés
