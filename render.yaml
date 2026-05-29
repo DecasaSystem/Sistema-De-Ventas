@@ -18,7 +18,7 @@ services:
       - key: CACHE_STORE
         value: database
       - key: BROADCAST_CONNECTION
-        value: reverb
+        value: pusher
       - key: LOG_CHANNEL
         value: stack
       - key: LOG_LEVEL
