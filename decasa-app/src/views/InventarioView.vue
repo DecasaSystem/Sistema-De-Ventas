@@ -144,6 +144,7 @@ const formProducto = ref({
 })
 
 const categoriasExistentes = ref([])
+const categoriaSeleccion   = ref('')   // valor del <select>; '__nueva__' activa el input libre
 
 const todasTiendasSeleccionadas = computed(
   () => tiendas.value.length > 0 && tiendasFormSeleccionadas.value.length === tiendas.value.length
@@ -174,15 +175,24 @@ function quitarFoto() {
 
 async function abrirAgregarProducto() {
   formProducto.value = { nombre: '', categoria: '', precio_base: '', personalizable: false, es_tapizado: false, descripcion: '', medidas: '', material: '' }
+  categoriaSeleccion.value = ''
   tiendasFormSeleccionadas.value = auth.isSupervisor ? tiendas.value.map((t) => t.id) : []
   quitarFoto()
   errCrearProducto.value = ''
   mostrarAgregarProducto.value = true
-  // Cargar categorías existentes para el datalist
   try {
     const { data } = await api.get('/productos/categorias')
     categoriasExistentes.value = data
   } catch {}
+}
+
+function onCategoriaSelect(val) {
+  categoriaSeleccion.value = val
+  if (val !== '__nueva__') {
+    formProducto.value.categoria = val
+  } else {
+    formProducto.value.categoria = ''
+  }
 }
 
 async function crearProducto() {
@@ -786,16 +796,24 @@ onMounted(async () => {
             <div class="grid grid-cols-2 gap-3">
               <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">Categoría</label>
+                <select
+                  :value="categoriaSeleccion"
+                  @change="onCategoriaSelect($event.target.value)"
+                  class="w-full rounded-lg border border-gray-300 px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                >
+                  <option value="">Sin categoría</option>
+                  <option v-for="cat in categoriasExistentes" :key="cat" :value="cat">{{ cat }}</option>
+                  <option value="__nueva__">＋ Nueva categoría...</option>
+                </select>
+                <!-- Input libre cuando selecciona "Nueva categoría" -->
                 <input
+                  v-if="categoriaSeleccion === '__nueva__'"
                   v-model="formProducto.categoria"
-                  list="categorias-list"
                   type="text"
-                  placeholder="Ej: Sofás"
-                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Escribe la nueva categoría"
+                  class="mt-1.5 w-full rounded-lg border border-blue-400 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  autofocus
                 />
-                <datalist id="categorias-list">
-                  <option v-for="cat in categoriasExistentes" :key="cat" :value="cat" />
-                </datalist>
               </div>
               <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">Precio base <span class="text-red-500">*</span></label>
