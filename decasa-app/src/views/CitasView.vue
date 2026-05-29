@@ -170,7 +170,7 @@ async function cambiarEstado(id, estado) {
     if (idx !== -1) items.value[idx] = data
   } catch {
     cita.estado = prev
-    alert('No se pudo actualizar el estado')
+    toast.error('No se pudo actualizar el estado')
   }
 }
 
@@ -182,7 +182,7 @@ async function guardarNotas(id) {
     if (idx !== -1) items.value[idx] = data
     editando.value = null
   } catch {
-    alert('No se pudo guardar las notas')
+    toast.error('No se pudo guardar las notas')
   }
 }
 
