@@ -21,10 +21,11 @@ import {
 const auth   = useAuthStore()
 const toast  = useToast()
 const router = useRouter()
-const items = ref([])
-const tab   = ref('pendiente') // pendiente | tomada | terminada
+const items   = ref([])
+const tab     = ref('pendiente') // pendiente | tomada | terminada
 const cargando = ref(false)
 const error    = ref('')
+const tomando  = ref(null) // id de la conversación que se está tomando
 
 const filtrados = computed(() => {
   if (tab.value === 'mias') {
@@ -53,6 +54,8 @@ async function cargar() {
 }
 
 async function tomar(id) {
+  if (tomando.value === id) return
+  tomando.value = id
   try {
     const { data } = await api.post(`/redes/conversaciones/${id}/tomar`)
     actualizarItem(data)
@@ -72,6 +75,8 @@ async function tomar(id) {
     } else {
       toast.error(e.response?.data?.error || 'No se pudo tomar la conversación')
     }
+  } finally {
+    tomando.value = null
   }
 }
 
@@ -363,9 +368,19 @@ onUnmounted(() => {
             <button
               v-if="conv.estado === 'pendiente'"
               @click="tomar(conv.id)"
-              class="px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition-colors"
+              :disabled="tomando === conv.id"
+              :class="[
+                'flex items-center gap-1.5 px-3 py-1.5 text-white text-xs font-semibold rounded-lg transition-colors',
+                tomando === conv.id
+                  ? 'bg-blue-400 cursor-not-allowed'
+                  : 'bg-blue-600 hover:bg-blue-700'
+              ]"
             >
-              Tomar
+              <svg v-if="tomando === conv.id" class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+              </svg>
+              {{ tomando === conv.id ? 'Tomando...' : 'Tomar' }}
             </button>
 
             <!-- Botón Terminar — quien tomó O supervisor -->

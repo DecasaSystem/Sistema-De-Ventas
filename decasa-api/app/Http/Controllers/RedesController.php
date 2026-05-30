@@ -113,7 +113,8 @@ class RedesController extends Controller
     {
         $usuario = $request->user();
 
-        $conv = DB::transaction(function () use ($id, $usuario) {
+        // Transacción mínima: solo el UPDATE atómico
+        $convId = DB::transaction(function () use ($id, $usuario) {
             $c = ConversacionWa::lockForUpdate()->findOrFail($id);
 
             if ($c->estado !== 'pendiente') {
@@ -121,26 +122,29 @@ class RedesController extends Controller
             }
 
             $c->update([
-                'estado'    => 'tomada',
+                'estado'     => 'tomada',
                 'tomada_por' => $usuario->id,
-                'tomada_at' => now(),
+                'tomada_at'  => now(),
             ]);
 
-            return $c->fresh('tomadaPor:id,nombre');
+            return $c->id;
         });
 
-        if (!$conv) {
+        if (!$convId) {
             return response()->json(['error' => 'Esta conversación ya fue tomada por otro vendedor.'], 409);
         }
 
-        // Si es una cita, crear registro en módulo Citas (con o sin datos_cita)
+        // Cargar el modelo con la relación fuera de la transacción
+        $conv = ConversacionWa::with('tomadaPor:id,nombre')->findOrFail($convId);
+
+        // Si es una cita, crear registro en módulo Citas
         $citaCreada = false;
         $citaId     = null;
 
         if ($conv->tipo === 'cita') {
             try {
-                $dc = $conv->datos_cita ?? [];
-                [$cita, $citaCreada] = Cita::firstOrCreate(
+                $dc   = $conv->datos_cita ?? [];
+                $cita = Cita::firstOrCreate(
                     ['conversacion_wa_id' => $conv->id],
                     [
                         'asesor_id'      => $usuario->id,
@@ -156,7 +160,8 @@ class RedesController extends Controller
                         'fecha_cita'     => !empty($dc['dia']) ? $this->parsearFechaCita($dc['dia']) : null,
                     ]
                 );
-                $citaId = $cita->id;
+                $citaCreada = $cita->wasRecentlyCreated;
+                $citaId     = $cita->id;
                 \Log::info('tomar: Cita ' . ($citaCreada ? 'creada' : 'ya existía'), ['conv_id' => $conv->id, 'cita_id' => $citaId]);
             } catch (\Throwable $e) {
                 \Log::error('tomar: error creando Cita', ['conv_id' => $conv->id, 'error' => $e->getMessage()]);
