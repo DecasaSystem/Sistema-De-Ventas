@@ -18,7 +18,19 @@ services:
       - key: CACHE_STORE
         value: database
       - key: BROADCAST_CONNECTION
-        value: pusher
+        value: reverb
+      - key: REVERB_APP_ID
+        value: "245631"
+      - key: REVERB_APP_KEY
+        value: acf5kf3mhbshm9ddtic3
+      - key: REVERB_APP_SECRET
+        value: vwc6ynw0yebwlvkv6k7y
+      - key: REVERB_HOST
+        value: "0.0.0.0"
+      - key: REVERB_PORT
+        value: "8080"
+      - key: REVERB_SCHEME
+        value: https
       - key: LOG_CHANNEL
         value: stack
       - key: LOG_LEVEL

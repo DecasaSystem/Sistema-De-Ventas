@@ -15,4 +15,6 @@ php artisan queue:work --tries=3 --timeout=60 --sleep=3 2>/dev/null &
 
 (while true; do php artisan schedule:run --no-interaction 2>/dev/null; sleep 60; done) &
 
+php artisan reverb:start --host=0.0.0.0 --port=8080 --no-interaction 2>&1 &
+
 exec apache2-foreground
