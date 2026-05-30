@@ -94,10 +94,13 @@ class RedesController extends Controller
         $titulo  = $titulos[$conv->tipo] ?? "Mensaje de {$canal}";
         $mensaje = ($conv->nombre_cliente ? $conv->nombre_cliente . ': ' : '') . $conv->resumen;
 
-        // Para citas con tienda definida: notificar solo a vendedores/supervisores de esa tienda
+        // Supervisores reciben todas; vendedores solo las de su tienda
         $queryUsuarios = Usuario::whereIn('rol', ['vendedor', 'supervisor'])->where('activo', true);
         if ($conv->tipo === 'cita' && $conv->tienda_id) {
-            $queryUsuarios->where('tienda_default_id', $conv->tienda_id);
+            $queryUsuarios->where(function ($q) use ($conv) {
+                $q->where('rol', 'supervisor')
+                  ->orWhere('tienda_default_id', $conv->tienda_id);
+            });
         }
         $usuarios = $queryUsuarios->get();
 
