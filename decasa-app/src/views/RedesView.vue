@@ -197,19 +197,36 @@ function perteneceAlUsuario(conv) {
   return !conv.tienda_id || conv.tienda_id === miTienda
 }
 
-// Escuchar actualizaciones en tiempo real
-let echoChannel = null
+// Tiempo real: WebSocket (Pusher/Reverb) con polling como fallback automático
+let echoChannel  = null
+let pollInterval = null
+
+function iniciarPolling() {
+  // Refresca cada 12 segundos si no hay WebSocket activo
+  pollInterval = setInterval(() => {
+    if (!document.hidden) cargar()
+  }, 12000)
+}
+
 onMounted(() => {
   cargar()
+
   if (window.Echo) {
     echoChannel = window.Echo.channel('redes')
       .listen('.conversacion.actualizada', (conv) => {
         if (perteneceAlUsuario(conv)) actualizarItem(conv)
       })
+    // WebSocket conectado — polling solo como respaldo si cae
+    echoChannel.error(() => iniciarPolling())
+  } else {
+    // Sin WebSocket configurado — polling siempre activo
+    iniciarPolling()
   }
 })
+
 onUnmounted(() => {
-  if (echoChannel) window.Echo.leaveChannel('redes')
+  if (echoChannel)  window.Echo.leaveChannel('redes')
+  if (pollInterval) clearInterval(pollInterval)
 })
 </script>
 
