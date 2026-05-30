@@ -23,8 +23,8 @@ class RedesController extends Controller
             ->orderByRaw("FIELD(estado, 'pendiente', 'tomada', 'terminada')")
             ->orderBy('created_at', 'desc');
 
-        // Vendedores y supervisores solo ven las de su tienda (+ las sin tienda asignada)
-        if (in_array($usuario->rol, ['vendedor', 'supervisor']) && $usuario->tienda_default_id) {
+        // Solo vendedores ven limitado a su tienda; supervisores y admin ven todo
+        if ($usuario->rol === 'vendedor' && $usuario->tienda_default_id) {
             $q->where(function ($query) use ($usuario) {
                 $query->where('tienda_id', $usuario->tienda_default_id)
                       ->orWhereNull('tienda_id');

@@ -192,9 +192,8 @@ function formatFecha(iso) {
 }
 
 function perteneceAlUsuario(conv) {
-  const miTienda = auth.usuario?.tienda_default_id
-  if (!miTienda) return true  // sin tienda asignada: ve todo
-  return !conv.tienda_id || conv.tienda_id === miTienda
+  if (auth.isSupervisor || !auth.usuario?.tienda_default_id) return true
+  return !conv.tienda_id || conv.tienda_id === auth.usuario.tienda_default_id
 }
 
 // Tiempo real: WebSocket (Pusher/Reverb) con polling como fallback automático
