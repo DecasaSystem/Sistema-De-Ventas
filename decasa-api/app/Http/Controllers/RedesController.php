@@ -78,7 +78,7 @@ class RedesController extends Controller
         try {
             broadcast(new NuevaConversacionWa($conv));
         } catch (\Throwable $e) {
-            // Reverb offline — conversación guardada en BD, broadcast ignorado
+            \Log::warning('[broadcast] Fallo webhook NuevaConversacionWa: ' . $e->getMessage());
         }
 
         $esInstagram = ($conv->fuente === 'instagram');
@@ -170,7 +170,9 @@ class RedesController extends Controller
 
         try {
             broadcast(new NuevaConversacionWa($conv));
-        } catch (\Throwable $e) {}
+        } catch (\Throwable $e) {
+            \Log::warning('[broadcast] Fallo al emitir NuevaConversacionWa: ' . $e->getMessage());
+        }
 
         return response()->json(array_merge($conv->toArray(), [
             'cita_creada' => $citaCreada,

@@ -4,7 +4,7 @@ import Pusher from 'pusher-js'
 const key = import.meta.env.VITE_PUSHER_APP_KEY
 
 if (!key) {
-  console.warn('[Echo] VITE_PUSHER_APP_KEY no definida — tiempo real desactivado.')
+  console.warn('[Echo] VITE_PUSHER_APP_KEY no definida — tiempo real desactivado (polling activo).')
 } else {
   window.Pusher = Pusher
 
