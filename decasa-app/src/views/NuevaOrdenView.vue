@@ -1599,8 +1599,13 @@ function removeFacturaFoto() {
                 {{ item._calculandoPrecio ? 'Calculando...' : 'Calcular precio' }}
               </button>
 
+              <!-- Error del cotizador -->
+              <div v-if="item._precioCalc?.ok === false" class="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-xs text-red-700">
+                {{ item._precioCalc.error || 'No se pudo calcular. Agrega más detalles del trabajo.' }}
+              </div>
+
               <!-- Resultado -->
-              <div v-if="item._precioCalc" class="bg-white rounded-lg border border-purple-100 p-3 space-y-2">
+              <div v-else-if="item._precioCalc?.precio_fabricacion" class="bg-white rounded-lg border border-purple-100 p-3 space-y-2">
                 <div class="flex justify-between items-center text-sm">
                   <span class="text-gray-500">Costo fabricación</span>
                   <span class="font-semibold text-gray-800">${{ (item._precioCalc.precio_fabricacion ?? 0).toLocaleString('es-CO') }}</span>

@@ -2594,6 +2594,14 @@ EOT;
             ->map(fn($s) => "- {$s->cargo} ({$s->descripcion}): \${$s->tarifa_hora}/hora")
             ->implode("\n");
 
+        // Fallback si las tablas aún no tienen datos
+        if (empty($tarifasTexto)) {
+            $tarifasTexto = "- tapizado: $18.000 por hora [tapicero]\n- carpinteria: $15.000 por hora [carpintero]\n- lacado: $12.000 por hora [pintor]\n- lijado: $10.000 por hora [lijador]";
+        }
+        if (empty($salariosTexto)) {
+            $salariosTexto = "- tapicero: $18.000/hora\n- carpintero: $15.000/hora\n- pintor: $12.000/hora\n- lijador: $10.000/hora";
+        }
+
         $system = <<<SYSTEM
 Eres el cotizador de DECASA Muebles para servicios de RESTAURACIÓN de muebles del cliente.
 Calcula el costo del servicio y el precio de venta.
@@ -2642,9 +2650,10 @@ SYSTEM;
 
         try {
             $response = OpenAI::chat()->create([
-                'model'      => config('openai.model', 'gpt-4o-mini'),
-                'messages'   => $messages,
-                'max_tokens' => 1200,
+                'model'           => config('openai.model', 'gpt-4o-mini'),
+                'messages'        => $messages,
+                'max_tokens'      => 1200,
+                'response_format' => ['type' => 'json_object'],
             ]);
 
             $raw     = trim($response->choices[0]->message->content ?? '');
