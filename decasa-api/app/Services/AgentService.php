@@ -2354,16 +2354,16 @@ El mueble YA EXISTE, está construido y en bodega. NO se fabrica nada de madera 
 desglose_materiales: ÚNICAMENTE la tela/tapizado (metros estimados según el mueble × precio de la tela específica solicitada). Sin madera, sin herrajes, sin laca.
 desglose_mano_obra: ÚNICAMENTE el tapicero (horas para quitar tapizado viejo + instalar nuevo — aprox 3-6h según tamaño). Sin carpintero, sin otros oficios.
 precio_fabricacion = costo_tela_nueva + horas_tapicero.
-precio_sugerido_venta = precio_catalogo + precio_fabricacion × {$multiplicador}.
+precio_sugerido_venta = precio_catalogo + precio_fabricacion. (El cliente paga el precio del producto + el costo del servicio de retapizado. NO apliques el multiplicador de fabricación — ese es solo para muebles nuevos.)
 
 CASO 2 — SOLO AJUSTE DE ALTURA/MEDIDAS (contexto dice "ajuste de altura/medidas sobre mueble existente"):
 El mueble YA EXISTE. Solo se ajustan las patas o la estructura mínimamente.
 desglose_materiales: solo el material mínimo para el ajuste (ej: listón de madera si se aumenta, nada si se corta).
 desglose_mano_obra: carpintero (1-2h máximo para cortar o añadir altura a las patas).
-precio_sugerido_venta = precio_catalogo + precio_fabricacion × {$multiplicador}.
+precio_sugerido_venta = precio_catalogo + precio_fabricacion. (Mismo criterio: precio producto + costo del ajuste, sin multiplicador grande.)
 
 CASO 3 — CAMBIA TELA Y MEDIDAS (producto ya existente pero con ambos cambios):
-Aplica CASO 1 para la tela + CASO 2 para la altura, de forma independiente. precio_sugerido_venta >= precio_catalogo.
+Aplica CASO 1 para la tela + CASO 2 para la altura, sumados. precio_sugerido_venta = precio_catalogo + (costo_retapizado + costo_ajuste_altura).
 
 CASO 4 — MODIFICACIONES ADICIONALES O SIN CAMBIOS:
 Sin cambios → precio_fabricacion = costo_total de ficha. precio_sugerido_venta = precio_catalogo o precio_fabricacion × {$multiplicador}.
