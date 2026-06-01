@@ -265,9 +265,13 @@ onUnmounted(() => {
         >
           <div class="flex justify-between items-start gap-2">
             <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-2 mb-1">
+              <div class="flex items-center gap-2 mb-1 flex-wrap">
                 <span class="font-semibold text-sm text-gray-800">#{{ o.id }}</span>
                 <BadgeEstado :estado="o.estado" />
+                <span
+                  v-if="o.atrasado"
+                  class="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-700"
+                >⚠ Atrasado</span>
                 <span
                   v-if="o.tipo === 'restauracion'"
                   class="text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700"

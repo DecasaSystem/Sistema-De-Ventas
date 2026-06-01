@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Models\OrdenItem;
 use App\Models\Produccion;
 use App\Services\NotificacionService;
 use Illuminate\Bus\Queueable;
@@ -147,11 +148,67 @@ class AlertarRetrasoProduccion implements ShouldQueue, ShouldBeUnique
             ]);
         }
 
+        // ── 4. Atrasados por fecha_entrega_prom (stock o listos para despacho) ─────
+        // Cubre items sin producción (stock) y con producción en pendiente/listo/pendiente_despachador.
+        // Los items 'en_proceso' ya son detectados por la sección 1.
+        $itemsEntregaAtrasada = OrdenItem::whereDate('fecha_entrega_prom', '<', $hoy)
+            ->whereHas('orden', fn($q) => $q->whereNotIn('estado', ['entregado', 'cancelado']))
+            ->where(function ($q) {
+                $q->whereDoesntHave('produccion')
+                  ->orWhereHas('produccion', fn($q2) =>
+                      $q2->whereIn('estado', ['pendiente', 'listo', 'pendiente_despachador'])
+                  );
+            })
+            ->with([
+                'producto:id,nombre',
+                'orden.cliente:id,nombre,telefono',
+                'orden.vendedor:id,nombre',
+                'orden.tienda:id,nombre',
+            ])
+            ->get();
+
+        foreach ($itemsEntregaAtrasada as $item) {
+            $orden    = $item->orden;
+            $producto = $item->producto?->nombre ?? $item->nombre_custom ?? 'Producto';
+            $cliente  = $orden->cliente->nombre;
+            $dias     = (int) now()->startOfDay()->diffInDays(
+                \Carbon\Carbon::parse($item->fecha_entrega_prom)->startOfDay()
+            );
+
+            NotificacionService::crear(
+                'retrasado',
+                'Entrega retrasada',
+                "{$producto} — {$cliente} · {$dias} día(s) de retraso (sin entregar)",
+                ['orden_item_id' => $item->id, 'orden_id' => $orden->id],
+            );
+            NotificacionService::crear(
+                'retrasado',
+                'Tu pedido no ha sido entregado',
+                "{$producto} para {$cliente} · {$dias} día(s) de retraso",
+                ['orden_item_id' => $item->id, 'orden_id' => $orden->id],
+                $orden->vendedor_id,
+            );
+
+            Log::warning("[DECASA] Entrega ATRASADA (sin producción activa)", [
+                'orden_item_id'     => $item->id,
+                'producto'          => $producto,
+                'cliente'           => $cliente,
+                'telefono'          => $orden->cliente->telefono,
+                'vendedor'          => $orden->vendedor->nombre,
+                'tienda'            => $orden->tienda->nombre,
+                'fecha_entrega_prom'=> $item->fecha_entrega_prom,
+                'dias_retraso'      => $dias,
+                'orden_id'          => $orden->id,
+                'orden_estado'      => $orden->estado,
+            ]);
+        }
+
         Log::info('[DECASA] AlertarRetrasoProduccion completado', [
-            'fecha'               => $hoy,
-            'marcados_retrasados' => $vencidos->count(),
-            'por_vencer'          => $porVencer->count(),
-            'entregas_hoy'        => $entregasHoy->count(),
+            'fecha'                  => $hoy,
+            'marcados_retrasados'    => $vencidos->count(),
+            'por_vencer'             => $porVencer->count(),
+            'entregas_hoy'           => $entregasHoy->count(),
+            'entrega_atrasada_stock' => $itemsEntregaAtrasada->count(),
         ]);
     }
 

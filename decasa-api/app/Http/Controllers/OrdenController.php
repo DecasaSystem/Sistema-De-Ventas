@@ -71,7 +71,9 @@ class OrdenController extends Controller
 
         $ordenes = $query->orderByDesc('created_at')->paginate(20);
 
-        $ordenes->getCollection()->transform(function ($o) {
+        $hoy = now()->startOfDay();
+
+        $ordenes->getCollection()->transform(function ($o) use ($hoy) {
             $o->total_pagado    = (float) ($o->pagos_sum_monto ?? 0);
             $o->saldo_pendiente = (float) $o->valor_total - $o->total_pagado;
 
@@ -91,6 +93,13 @@ class OrdenController extends Controller
                     }
                 }
             }
+
+            // Detectar si algún item tiene fecha_entrega_prom vencida y la orden no está entregada/cancelada
+            $o->atrasado = !in_array($o->estado, ['entregado', 'cancelado']) &&
+                $o->items->some(fn($item) =>
+                    $item->fecha_entrega_prom &&
+                    \Carbon\Carbon::parse($item->fecha_entrega_prom)->lt($hoy)
+                );
 
             unset($o->items);
             return $o;
