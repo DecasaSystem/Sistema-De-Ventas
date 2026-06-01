@@ -368,7 +368,7 @@ onUnmounted(() => {
           v-for="p in producciones"
           :key="p.id"
           class="bg-white rounded-xl shadow-sm p-4 space-y-2 cursor-pointer active:scale-[0.99] transition-transform"
-          @click="router.push({ name: 'orden-detalle', params: { id: p.orden_item?.orden?.id } })"
+          @click="p.orden_item?.orden?.id && router.push({ name: 'orden-detalle', params: { id: p.orden_item.orden.id } })"
         >
           <!-- Producto + badge de estado -->
           <div class="flex justify-between items-start">

@@ -11,7 +11,7 @@ Broadcast::channel('ordenes',         fn () => true);
 Broadcast::channel('inventario',      fn () => true);
 Broadcast::channel('produccion',      fn () => true);
 Broadcast::channel('notificaciones',          fn () => true);
-Broadcast::channel('notificaciones.{userId}', fn () => true);
+Broadcast::channel('notificaciones.{userId}', fn ($user, $userId) => (int) $user->id === (int) $userId);
 Broadcast::channel('despacho',  fn () => true);
 Broadcast::channel('supervisor', fn ($user) => $user->rol === 'supervisor');
 

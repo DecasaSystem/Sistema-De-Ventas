@@ -6,6 +6,9 @@ use App\Events\DespachoAsignado;
 use App\Events\OrdenEntregada;
 use App\Models\Despacho;
 use App\Models\DespachoItem;
+use App\Models\Inventario;
+use App\Models\InventarioMovimiento;
+use App\Models\InventarioVariante;
 use App\Models\Orden;
 use App\Models\Pago;
 use App\Models\Produccion;
@@ -392,7 +395,9 @@ class DespachoController extends Controller
             ], 422);
         }
 
-        DB::transaction(function () use ($item) {
+        $orden = $item->orden()->with(['items' => fn($q) => $q->where('es_personalizado', false)])->first();
+
+        DB::transaction(function () use ($item, $orden, $now = null) {
             $now = now();
 
             $item->update([
@@ -400,7 +405,7 @@ class DespachoController extends Controller
                 'entregado_at' => $now,
             ]);
 
-            $item->orden()->update(['estado' => 'entregado']);
+            $orden->update(['estado' => 'entregado']);
 
             Produccion::whereIn('orden_item_id', function ($q) use ($item) {
                 $q->select('id')
@@ -412,6 +417,40 @@ class DespachoController extends Controller
                     'estado'     => 'entregado',
                     'fecha_real' => $now->toDateString(),
                 ]);
+
+            // Decrementar inventario de los ítems de stock (no personalizados)
+            foreach ($orden->items as $ordenItem) {
+                $origenId = $ordenItem->tienda_origen_id ?? $orden->tienda_id;
+                if ($ordenItem->variante_id) {
+                    InventarioVariante::where('variante_id', $ordenItem->variante_id)
+                        ->where('tienda_id', $origenId)
+                        ->update([
+                            'cantidad_disponible' => DB::raw("cantidad_disponible - {$ordenItem->cantidad}"),
+                            'cantidad_reservada'  => DB::raw("cantidad_reservada - {$ordenItem->cantidad}"),
+                        ]);
+                    Inventario::where('producto_id', $ordenItem->producto_id)
+                        ->where('tienda_id', $origenId)
+                        ->update([
+                            'cantidad_disponible' => DB::raw("cantidad_disponible - {$ordenItem->cantidad}"),
+                            'cantidad_reservada'  => DB::raw("cantidad_reservada - {$ordenItem->cantidad}"),
+                        ]);
+                } else {
+                    Inventario::where('producto_id', $ordenItem->producto_id)
+                        ->where('tienda_id', $origenId)
+                        ->update([
+                            'cantidad_disponible' => DB::raw("cantidad_disponible - {$ordenItem->cantidad}"),
+                            'cantidad_reservada'  => DB::raw("cantidad_reservada - {$ordenItem->cantidad}"),
+                        ]);
+                }
+                InventarioMovimiento::create([
+                    'producto_id' => $ordenItem->producto_id,
+                    'tienda_id'   => $origenId,
+                    'tipo'        => 'salida',
+                    'cantidad'    => $ordenItem->cantidad,
+                    'motivo'      => "Entrega orden #{$orden->id} — conductor",
+                    'usuario_id'  => $item->despacho->conductor_id,
+                ]);
+            }
 
             $completados = DespachoItem::where('despacho_id', $item->despacho_id)
                 ->where('estado', 'entregado')

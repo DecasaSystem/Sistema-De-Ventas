@@ -18,9 +18,12 @@ export function useRealtime() {
   }
 
   onBeforeUnmount(() => {
+    const canalesVistos = new Set()
     subs.forEach(({ channelName, eventName }) => {
       window.Echo?.channel(channelName).stopListening('.' + eventName)
+      canalesVistos.add(channelName)
     })
+    canalesVistos.forEach(ch => window.Echo?.leave(ch))
   })
 
   return { listen }

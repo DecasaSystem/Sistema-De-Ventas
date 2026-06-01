@@ -274,7 +274,7 @@ class OrdenController extends Controller
                     ]);
                 } else {
                     // Reservar stock en la tienda de origen (puede ser otra tienda)
-                    $motivo = "Orden #{$orden->id}" . ($varianteId ? " ({$specsExtra['variante_marca']} - {$specsExtra['variante_color']})" : '');
+                    $motivo = "Orden #{$orden->id}" . ($varianteId && $specsExtra ? " ({$specsExtra['variante_marca'] ?? ''} - {$specsExtra['variante_color'] ?? ''})" : '');
 
                     if ($varianteId) {
                         InventarioVariante::where('variante_id', $varianteId)
@@ -450,7 +450,12 @@ class OrdenController extends Controller
             return response()->json(['message' => 'El cliente no tiene email registrado.'], 422);
         }
 
-        Mail::to($email)->send(new CotizacionMail($orden->id));
+        try {
+            Mail::to($email)->send(new CotizacionMail($orden->id));
+        } catch (\Throwable $e) {
+            \Log::error('reenviarCotizacion: fallo al enviar email', ['orden_id' => $orden->id, 'email' => $email, 'error' => $e->getMessage()]);
+            return response()->json(['message' => 'No se pudo enviar el correo. Verifica la configuración de email.'], 502);
+        }
 
         return response()->json(['message' => "Cotización enviada a {$email}."]);
     }

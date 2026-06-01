@@ -127,17 +127,19 @@ const abonosNoLeidos = computed(() =>
   notif.items.filter(n => !n.leida && n.tipo === 'abono_registrado').length
 )
 
-// Badge de conversaciones WA pendientes (actualizado por WebSocket)
+// Badge de conversaciones WA pendientes (carga inicial + actualización por WebSocket)
 const redesPendientes = ref(0)
+function cargarRedesPendientes() {
+  axios.get('/api/redes/conversaciones?estado=pendiente').then(r => {
+    redesPendientes.value = r.data.length
+  }).catch(() => {})
+}
 watch(() => auth.usuario?.id, (id) => {
-  if (!id || !window.Echo) return
-  window.Echo.channel('redes').listen('.conversacion.actualizada', () => {
-    // Refrescar badge contando pendientes
-    axios.get('/api/redes/conversaciones?estado=pendiente').then(r => {
-      redesPendientes.value = r.data.length
-    }).catch(() => {})
-  })
-}, { immediate: false })
+  if (!id) return
+  cargarRedesPendientes()
+  if (!window.Echo) return
+  window.Echo.channel('redes').listen('.conversacion.actualizada', cargarRedesPendientes)
+}, { immediate: true })
 
 const navItems = computed(() => {
   if (auth.isSupervisor) {
