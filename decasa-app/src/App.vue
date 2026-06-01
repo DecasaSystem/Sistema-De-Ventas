@@ -102,6 +102,7 @@ watch(() => auth.isAuthenticated, (isAuth) => {
 // (solo necesita las notificaciones normales — ya las recibe por su canal)
 
 // WebSockets — espera a que usuario esté cargado (fetchMe) para tener id y rol
+// immediate: true para que conecte aunque el ID ya esté en localStorage al cargar la página
 watch(() => auth.usuario?.id, (id) => {
   if (!id || !window.Echo) return
   window.Echo.channel(`notificaciones.${id}`)
@@ -117,7 +118,7 @@ watch(() => auth.usuario?.id, (id) => {
       }
     })
   conectarSurtidos()
-})
+}, { immediate: true })
 
 // Cerrar menú "Más" al cambiar de ruta
 watch(() => route.name, () => { abrirMas.value = false })
