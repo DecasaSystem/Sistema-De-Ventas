@@ -252,7 +252,10 @@ class ProduccionController extends Controller
             return response()->json(['message' => 'Este pedido no está pendiente de despacho.'], 422);
         }
 
-        DB::transaction(function () use ($produccion, $usuario) {
+        // Extraer la orden antes del closure para que esté disponible afuera
+        $orden = $produccion->ordenItem->orden;
+
+        DB::transaction(function () use ($produccion, $usuario, $orden) {
             $produccion->update([
                 'estado'         => 'listo',
                 'fecha_real'     => now()->toDateString(),
@@ -260,7 +263,6 @@ class ProduccionController extends Controller
             ]);
 
             // Sincronizar estado de la orden
-            $orden = $produccion->ordenItem->orden;
             $orden->loadMissing('items.produccion');
 
             $estadosProduccion = $orden->items
