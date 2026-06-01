@@ -334,7 +334,7 @@ function _pushItem(producto, variante) {
     : null
 
   const existe = items.value.find((i) =>
-    i.producto_id === producto.id && i.variante_id === (variante?.id ?? null)
+    i.producto_id === producto.id && i.variante_id === (variante?.id ?? null) && !i._fabricar_pedido
   )
   if (existe) { existe.cantidad++; return }
 
@@ -357,11 +357,45 @@ function _pushItem(producto, variante) {
     boceto_blob: null,
     boceto_url: '',
     boceto_preview: null,
-    // cotizador IA
+    _fabricar_pedido: false,
     _mostrarCalculadora: false,
     _calculandoPrecio: false,
     _precioCalc: null,
     _precioReferencia: null,
+    _telaSelections: {},
+  })
+  productoResultados.value = []
+  productoQuery.value = ''
+}
+
+// Mandar a fabricar un producto del catálogo que no tiene stock
+function fabricarBajoPedido(producto) {
+  const existe = items.value.find(i => i.producto_id === producto.id && i._fabricar_pedido)
+  if (existe) { existe.cantidad++; return }
+
+  items.value.push({
+    producto_id: producto.id,
+    variante_id: null,
+    tienda_origen_id: null,
+    nombre: producto.nombre,
+    categoria: producto.categoria,
+    variante_label: null,
+    stock_libre: 0,
+    personalizable: false,
+    cantidad: 1,
+    precio_unitario: producto.precio_base ?? 0,
+    es_personalizado: true,   // backend crea Produccion y omite reserva de inventario
+    specs: {},
+    specs_notas: '',
+    tienda_origen: null,
+    fecha_entrega_prometida: null,
+    boceto_blob: null,
+    boceto_url: '',
+    boceto_preview: null,
+    _fabricar_pedido: true,
+    _mostrarCalculadora: false,
+    _calculandoPrecio: false,
+    _precioCalc: null,
     _precioReferencia: null,
     _telaSelections: {},
   })
@@ -1030,11 +1064,18 @@ function removeFacturaFoto() {
             <span class="text-sm font-semibold text-gray-700">
               ${{ Number(p.precio_base).toLocaleString('es-CO') }}
             </span>
+            <!-- Con stock o personalizable: botón normal -->
             <button
+              v-if="stockLibre(p) > 0 || p.personalizable"
               @click="agregarItem(p)"
-              :disabled="!p.personalizable && stockLibre(p) === 0"
-              class="btn-primary text-xs px-2 py-1 disabled:opacity-40"
+              class="btn-primary text-xs px-2 py-1"
             >+ Agregar</button>
+            <!-- Sin stock y no personalizable: fabricar bajo pedido -->
+            <button
+              v-else
+              @click="fabricarBajoPedido(p)"
+              class="text-xs px-2 py-1 rounded-lg bg-amber-500 text-white font-semibold hover:bg-amber-600 transition-colors"
+            >🔨 Fabricar</button>
           </div>
         </li>
       </ul>
@@ -1237,6 +1278,10 @@ function removeFacturaFoto() {
               <p class="text-[10px] font-bold text-blue-500 tracking-wide mb-0.5">ÍTEM #{{ idx + 1 }}</p>
               <p class="font-medium text-sm text-gray-800 truncate">{{ item.nombre }}</p>
               <div class="flex flex-wrap items-center gap-1 mt-0.5">
+                <span v-if="item._fabricar_pedido"
+                  class="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full text-xs font-semibold">
+                  🔨 Bajo pedido
+                </span>
                 <span v-if="item.variante_label"
                   class="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full text-xs font-medium">
                   <SwatchIcon class="w-3 h-3 inline-block mr-0.5 -mt-0.5" />{{ item.variante_label }}
@@ -1245,7 +1290,7 @@ function removeFacturaFoto() {
                   class="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-medium text-xs">
                   <MapPinIcon class="w-3.5 h-3.5 inline-block mr-0.5 -mt-0.5" />{{ item.tienda_origen }}
                 </span>
-                <span v-if="!item.variante_label && !item.tienda_origen" class="text-xs text-gray-400">
+                <span v-if="!item._fabricar_pedido && !item.variante_label && !item.tienda_origen" class="text-xs text-gray-400">
                   {{ item.categoria }}
                 </span>
               </div>
@@ -1270,14 +1315,16 @@ function removeFacturaFoto() {
                 type="number" min="0"
                 :class="['input text-sm', item.es_personalizado && !item.precio_unitario ? 'border-amber-400 bg-amber-50' : '']"
               />
-              <p v-if="item.es_personalizado && !item.precio_unitario" class="text-xs text-amber-600 mt-0.5">
-                Sin precio — usa el cotizador IA o ingrésalo manualmente
-              </p>
             </div>
           </div>
 
-          <!-- Personalizado flag -->
-          <label v-if="tipoOrden !== 'restauracion'" :class="['flex items-center gap-2 text-sm text-gray-600', item.producto_id === null ? 'opacity-60 cursor-default' : 'cursor-pointer']">
+          <!-- Advertencia precio vacío — no aplica para fabricar bajo pedido (precio ya viene del catálogo) -->
+          <p v-if="item.es_personalizado && !item._fabricar_pedido && !item.precio_unitario" class="text-xs text-amber-600 mt-0.5">
+            Sin precio — usa el cotizador IA o ingrésalo manualmente
+          </p>
+
+          <!-- Personalizado flag — oculto para fabricar bajo pedido -->
+          <label v-if="tipoOrden !== 'restauracion' && !item._fabricar_pedido" :class="['flex items-center gap-2 text-sm text-gray-600', item.producto_id === null ? 'opacity-60 cursor-default' : 'cursor-pointer']">
             <input
               type="checkbox"
               v-model="item.es_personalizado"
@@ -1288,7 +1335,7 @@ function removeFacturaFoto() {
           </label>
 
           <!-- ── Personalización de producto del CATÁLOGO: solo tela + tamaño ── -->
-          <template v-if="item.es_personalizado && item.producto_id">
+          <template v-if="item.es_personalizado && item.producto_id && !item._fabricar_pedido">
             <div class="bg-purple-50 border border-purple-200 rounded-xl p-3 space-y-3">
               <div>
                 <p class="text-xs font-semibold text-purple-700">¿Qué deseas cambiar?</p>
