@@ -382,6 +382,10 @@ onMounted(cargarOrden)
         PDF
       </button>
       <BadgeEstado v-if="orden" :estado="orden.estado" />
+      <span
+        v-if="orden?.atrasado"
+        class="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-700"
+      >⚠ Atrasado</span>
     </div>
 
     <!-- Loading -->

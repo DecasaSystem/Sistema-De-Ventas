@@ -481,6 +481,11 @@ class OrdenController extends Controller
 
         $orden->total_pagado    = $orden->totalPagado();
         $orden->saldo_pendiente = $orden->saldoPendiente();
+        $orden->atrasado        = !in_array($orden->estado, ['entregado', 'cancelado']) &&
+            $orden->items->some(fn($item) =>
+                $item->fecha_entrega_prom &&
+                $item->fecha_entrega_prom->lt(now()->startOfDay())
+            );
 
         return response()->json($orden);
     }
