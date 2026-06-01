@@ -29,7 +29,7 @@ import {
   EllipsisHorizontalIcon,
   ShoppingCartIcon,
   BuildingStorefrontIcon,
-  WrenchIcon,
+  ClipboardDocumentCheckIcon,
   CheckCircleIcon,
   ExclamationTriangleIcon,
   ClockIcon,
@@ -156,7 +156,7 @@ const navItems = computed(() => {
       { name: 'costos',          label: 'Costos',          icon: CalculatorIcon },
     ]
     if (auth.isTapicero) {
-      items.unshift({ name: 'mis-pasos', label: 'Mis pasos', icon: WrenchIcon, badge: pasos.pendientesCount })
+      items.unshift({ name: 'mis-pasos', label: 'Mis pasos', icon: ClipboardDocumentCheckIcon, badge: pasos.pendientesCount })
     }
     return items
   }
