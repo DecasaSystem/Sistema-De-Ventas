@@ -2222,6 +2222,7 @@ class AgentService
         $categoria        = trim($params['categoria'] ?? '');
         $descripcion      = trim($params['descripcion'] ?? '');
         $notasAdicionales = trim($params['notas_adicionales'] ?? '');
+        $precioReferencia = isset($params['precio_referencia']) ? (int) $params['precio_referencia'] : null;
         $precioBase       = isset($params['precio_base']) ? (int) $params['precio_base'] : null;
         $largoCm          = isset($params['largo_cm'])    ? (float) $params['largo_cm']  : null;
         $anchoCm          = isset($params['ancho_cm'])    ? (float) $params['ancho_cm']  : null;
@@ -2311,12 +2312,17 @@ class AgentService
                 . ($descripcion ? " Especificación: {$descripcion}." : '')
                 . ($notasAdicionales ? " Notas adicionales del cliente: {$notasAdicionales}." : '');
         } else {
-            $contexto = "Producto: \"{$nombre}\"."
+            $refTexto = $precioReferencia
+                ? ' REFERENCIA DE PRECIO: un producto similar o idéntico costó $' . number_format($precioReferencia, 0, ',', '.') . ' COP — usa este valor como ancla fuerte para tu estimado. precio_sugerido_venta debe estar cerca de este valor salvo que las especificaciones difieran significativamente.'
+                : '';
+
+            $contexto = "Producto nuevo a fabricar: \"{$nombre}\"."
                 . ($categoria         ? " Categoría: {$categoria}."              : '')
                 . ($descripcion       ? " Especificaciones: {$descripcion}."      : '')
                 . ($notasAdicionales  ? " Notas adicionales del cliente: {$notasAdicionales}." : '')
                 . ($largoCm           ? " Medidas: {$largoCm}×{$anchoCm}×{$altoCm} cm." : '')
-                . ($numPuestos        ? " Puestos: {$numPuestos}."                : '');
+                . ($numPuestos        ? " Puestos/módulos: {$numPuestos}."        : '')
+                . $refTexto;
         }
 
         // Mejora 3: multiplicador según complejidad del cálculo

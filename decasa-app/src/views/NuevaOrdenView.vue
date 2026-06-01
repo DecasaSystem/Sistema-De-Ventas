@@ -225,6 +225,7 @@ function agregarItemRestauracion() {
     _mostrarCalculadora: false,
     _calculandoPrecio: false,
     _precioCalc: null,
+    _precioReferencia: null,
     _telaSelections: {},
   })
   restauracionItem.value = { nombre_mueble: '', descripcion_trabajo: '', cantidad: 1, precio_unitario: 0, foto_blob: null, foto_preview: null }
@@ -262,6 +263,8 @@ function agregarProductoCustom() {
     _mostrarCalculadora: false,
     _calculandoPrecio: false,
     _precioCalc: null,
+    _precioReferencia: null,
+    _precioReferencia: null,
     _telaSelections: {},
   })
   productoCustomForm.value = { nombre: '', categoria: '', precio_unitario: 0, cantidad: 1 }
@@ -358,6 +361,8 @@ function _pushItem(producto, variante) {
     _mostrarCalculadora: false,
     _calculandoPrecio: false,
     _precioCalc: null,
+    _precioReferencia: null,
+    _precioReferencia: null,
     _telaSelections: {},
   })
   productoResultados.value = []
@@ -453,6 +458,7 @@ async function calcularPrecioIA(item) {
         categoria:         resolverCategoria(item.categoria) || item.categoria || '',
         descripcion:       specDesc,
         notas_adicionales: item.specs_notas || null,
+        precio_referencia: item._precioReferencia ? Number(item._precioReferencia) : null,
         precio_base:       item.producto_id && item.precio_unitario ? item.precio_unitario : null,
         ...dims,
         boceto_url:        item.boceto_url || null,
@@ -1567,6 +1573,20 @@ function removeFacturaFoto() {
                   ? 'La IA estima el costo de restauración basada en el trabajo, la foto y las tarifas configuradas.'
                   : 'El cotizador usa las especificaciones y medidas que ingresaste arriba.' }}
               </p>
+
+              <!-- Precio de referencia — para productos únicos o complejos -->
+              <div v-if="tipoOrden !== 'restauracion'">
+                <label class="block text-xs font-medium text-gray-500 mb-1">
+                  Precio de referencia <span class="font-normal text-gray-400">(opcional — si sabes cuánto costó uno similar)</span>
+                </label>
+                <input
+                  v-model.number="item._precioReferencia"
+                  type="number"
+                  min="0"
+                  placeholder="ej: 11000000"
+                  class="w-full rounded-lg border border-purple-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+                />
+              </div>
 
               <button
                 type="button"

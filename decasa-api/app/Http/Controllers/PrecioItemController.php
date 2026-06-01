@@ -17,6 +17,7 @@ class PrecioItemController extends Controller
             'categoria'         => 'nullable|string|max:100',
             'descripcion'       => 'nullable|string|max:2000',
             'notas_adicionales' => 'nullable|string|max:1000',
+            'precio_referencia' => 'nullable|numeric|min:0',
             'precio_base'       => 'nullable|numeric|min:0',
             'largo_cm'          => 'nullable|numeric|min:1|max:2000',
             'ancho_cm'          => 'nullable|numeric|min:1|max:2000',
