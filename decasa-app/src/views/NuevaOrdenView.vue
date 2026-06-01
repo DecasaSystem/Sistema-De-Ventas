@@ -8,6 +8,7 @@ import { getVariantes } from '@/api/inventario'
 import { updateCliente, CATEGORIAS_DISPONIBLES } from '@/api/clientes'
 import { SPECS_TEMPLATES, resolverCategoria, camposParaModo, specsToDescripcion, extraerDimensiones } from '@/constants/specsConfig'
 import { marcasOrdenadas, tiposTelaDeM, coloresDeTela } from '@/data/telasCatalogo'
+import { cloudinaryOpt } from '@/utils/cloudinary'
 import { ArrowPathIcon, SparklesIcon, XMarkIcon } from '@heroicons/vue/24/solid'
 import { ArrowPathIcon as ArrowPathOutlineIcon, PhotoIcon, UserGroupIcon, ArrowPathIcon as ConvertIcon, ExclamationTriangleIcon, PencilIcon, MapPinIcon, SwatchIcon } from '@heroicons/vue/24/outline'
 import FirmaCanvas from '@/components/FirmaCanvas.vue'
@@ -1029,59 +1030,71 @@ function removeFacturaFoto() {
         <li
           v-for="p in productoResultados"
           :key="p.id"
-          class="bg-white rounded-xl shadow-sm p-3 flex items-center gap-3"
+          class="bg-white rounded-xl shadow-sm p-3 space-y-2"
         >
-          <!-- Thumbnail -->
-          <button
-            @click="p.foto_url && verFoto(p)"
-            :class="[
-              'flex-shrink-0 w-12 h-12 rounded-lg overflow-hidden bg-gray-100 flex items-center justify-center',
-              p.foto_url ? 'cursor-pointer hover:opacity-75 transition-opacity' : 'cursor-default'
-            ]"
-            :title="p.foto_url ? 'Ver foto' : 'Sin foto'"
-          >
-            <img v-if="p.foto_url" :src="p.foto_url" :alt="p.nombre" class="w-full h-full object-cover" />
-            <PhotoIcon v-else class="w-6 h-6 text-gray-300" />
-          </button>
-
-          <div class="flex-1 min-w-0">
-            <p class="font-medium text-sm text-gray-800 truncate">{{ p.nombre }}</p>
-            <p class="text-xs text-gray-400">
-              {{ p.categoria }}
-              <span v-if="tiendaBusqueda && tiendaBusqueda != tiendaId"
-                class="ml-1.5 bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-medium">
-                <MapPinIcon class="w-3.5 h-3.5 inline-block mr-0.5 -mt-0.5" />{{ nombreTiendaBusqueda() }}
-              </span>
-            </p>
-            <p class="text-xs mt-0.5"
-              :class="stockLibre(p) > 0 ? 'text-green-600' : 'text-orange-500'"
+          <!-- Fila superior: thumbnail + info + precio -->
+          <div class="flex items-center gap-3">
+            <button
+              @click="p.foto_url && verFoto(p)"
+              :class="[
+                'flex-shrink-0 w-11 h-11 rounded-lg overflow-hidden bg-gray-100 flex items-center justify-center',
+                p.foto_url ? 'cursor-pointer hover:opacity-75 transition-opacity' : 'cursor-default'
+              ]"
             >
-              Stock libre: {{ stockLibre(p) }}
-              <span v-if="p.personalizable" class="ml-2 text-purple-500 flex items-center gap-0.5 inline-flex"><SparklesIcon class="w-3 h-3" /> personalizable</span>
-            </p>
-          </div>
-          <div class="flex flex-col items-end gap-1">
-            <span class="text-sm font-semibold text-gray-700">
+              <img v-if="p.foto_url" :src="cloudinaryOpt(p.foto_url, 88)" :alt="p.nombre" class="w-full h-full object-cover" />
+              <PhotoIcon v-else class="w-5 h-5 text-gray-300" />
+            </button>
+
+            <div class="flex-1 min-w-0">
+              <p class="font-semibold text-sm text-gray-800 truncate">{{ p.nombre }}</p>
+              <p class="text-xs text-gray-400 truncate">
+                {{ p.categoria }}
+                <span v-if="tiendaBusqueda && tiendaBusqueda != tiendaId"
+                  class="ml-1 bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-medium">
+                  {{ nombreTiendaBusqueda() }}
+                </span>
+              </p>
+            </div>
+
+            <span class="text-sm font-bold text-gray-800 flex-shrink-0">
               ${{ Number(p.precio_base).toLocaleString('es-CO') }}
             </span>
-            <!-- Con stock: botón Agregar normal -->
-            <button
-              v-if="stockLibre(p) > 0"
-              @click="agregarItem(p)"
-              class="btn-primary text-xs px-2 py-1"
-            >+ Agregar</button>
-            <!-- Sin stock: Fabricar (todos los productos) + opción personalizar si aplica -->
-            <template v-else>
+          </div>
+
+          <!-- Fila inferior: stock + botones -->
+          <div class="flex items-center justify-between gap-2 pt-0.5">
+            <!-- Badge stock -->
+            <span :class="[
+              'text-xs font-medium px-2 py-0.5 rounded-full',
+              stockLibre(p) > 0
+                ? 'bg-green-50 text-green-700'
+                : 'bg-red-50 text-red-600'
+            ]">
+              {{ stockLibre(p) > 0 ? `${stockLibre(p)} en stock` : 'Sin stock' }}
+            </span>
+
+            <!-- Botones de acción -->
+            <div class="flex items-center gap-1.5">
+              <!-- Con stock -->
               <button
-                @click="fabricarBajoPedido(p)"
-                class="text-xs px-2 py-1 rounded-lg bg-amber-500 text-white font-semibold hover:bg-amber-600 transition-colors"
-              >🔨 Fabricar</button>
-              <button
-                v-if="p.personalizable"
+                v-if="stockLibre(p) > 0"
                 @click="agregarItem(p)"
-                class="text-xs px-2 py-1 rounded-lg border border-purple-300 text-purple-600 font-semibold hover:bg-purple-50 transition-colors"
-              >✏️ Personalizar</button>
-            </template>
+                class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+              >+ Agregar</button>
+
+              <!-- Sin stock -->
+              <template v-else>
+                <button
+                  @click="fabricarBajoPedido(p)"
+                  class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-orange-500 text-white hover:bg-orange-600 transition-colors"
+                >Fabricar</button>
+                <button
+                  v-if="p.personalizable"
+                  @click="agregarItem(p)"
+                  class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-purple-100 text-purple-700 hover:bg-purple-200 transition-colors"
+                >Personalizar</button>
+              </template>
+            </div>
           </div>
         </li>
       </ul>
