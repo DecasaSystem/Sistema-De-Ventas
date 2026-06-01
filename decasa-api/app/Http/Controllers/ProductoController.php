@@ -185,6 +185,7 @@ class ProductoController extends Controller
         $data = $request->validate([
             'precio_base' => 'sometimes|numeric|min:0',
             'foto_url'    => 'sometimes|nullable|string|max:500',
+            'es_tapizado' => 'sometimes|boolean',
         ]);
 
         if (empty($data)) {

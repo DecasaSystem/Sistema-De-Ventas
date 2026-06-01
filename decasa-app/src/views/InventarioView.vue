@@ -383,6 +383,23 @@ function esTapizado(item) {
   return !!item.producto?.es_tapizado
 }
 
+async function toggleEsTapizado() {
+  const nuevoValor = !itemGestionar.value.producto.es_tapizado
+  try {
+    await api.patch(`/productos/${itemGestionar.value.producto_id}`, { es_tapizado: nuevoValor })
+    itemGestionar.value.producto.es_tapizado = nuevoValor
+    const idx = inventario.value.findIndex(i => i.producto_id === itemGestionar.value.producto_id)
+    if (idx !== -1) {
+      inventario.value[idx].producto.es_tapizado = nuevoValor
+      if (nuevoValor && !variantesData.value[itemGestionar.value.producto_id]) {
+        await cargarVariantes(inventario.value[idx])
+      }
+    }
+  } catch {
+    // silencioso — el toggle se revierte al no cambiar el ref
+  }
+}
+
 // ── Variantes ─────────────────────────────────────────────────────────────────
 const variantesAbiertas  = ref({})   // { producto_id: bool }
 const variantesData      = ref({})   // { producto_id: Variante[] }
@@ -1064,6 +1081,30 @@ onMounted(async () => {
                   <p class="text-sm font-medium text-gray-700">{{ itemGestionar?.producto?.foto_url ? 'Cambiar foto' : 'Agregar foto' }}</p>
                   <p class="text-xs text-gray-400">JPG, PNG, WEBP · se guarda en Cloudinary</p>
                 </div>
+              </button>
+            </div>
+
+            <div class="border-t border-gray-100" />
+
+            <!-- Toggle tapizado -->
+            <div class="flex items-center justify-between">
+              <div>
+                <p class="text-sm font-medium text-gray-700">Producto tapizado</p>
+                <p class="text-xs text-gray-400">Activa para sofás, sillas y sofacamas</p>
+              </div>
+              <button
+                @click="toggleEsTapizado"
+                :class="[
+                  'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
+                  itemGestionar?.producto?.es_tapizado ? 'bg-blue-600' : 'bg-gray-200'
+                ]"
+              >
+                <span
+                  :class="[
+                    'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                    itemGestionar?.producto?.es_tapizado ? 'translate-x-6' : 'translate-x-1'
+                  ]"
+                />
               </button>
             </div>
 
