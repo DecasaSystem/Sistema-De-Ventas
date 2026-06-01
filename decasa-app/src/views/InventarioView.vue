@@ -15,6 +15,7 @@ import { getInventario, addStock, removeStock, getVariantes, crearVariante, addS
 import SurtidosPendientesPanel from '@/components/inventario/SurtidosPendientesPanel.vue'
 import { useRealtime } from '@/composables/useRealtime'
 import { TELAS_CATALOGO, marcasOrdenadas, tiposTelaDeM, coloresDeTela } from '@/data/telasCatalogo'
+import { cloudinaryOpt } from '@/utils/cloudinary'
 import { getTiendas } from '@/api/ordenes'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
@@ -676,7 +677,7 @@ onMounted(async () => {
             >
               <img
                 v-if="item.producto?.foto_url"
-                :src="item.producto.foto_url"
+                :src="cloudinaryOpt(item.producto.foto_url, 160)"
                 :alt="item.producto.nombre"
                 class="w-full h-full object-cover"
                 @error="$event.target.style.display='none'; $event.target.nextElementSibling.style.display='flex'"
@@ -995,7 +996,7 @@ onMounted(async () => {
           </button>
           <div class="bg-white rounded-2xl overflow-hidden shadow-2xl">
             <img
-              :src="fotoProducto?.foto_url"
+              :src="cloudinaryOpt(fotoProducto?.foto_url, 800)"
               :alt="fotoProducto?.nombre"
               class="w-full object-contain max-h-72"
             />
@@ -1022,7 +1023,7 @@ onMounted(async () => {
               @click="verFoto(itemGestionar.producto)"
               title="Ver foto completa"
             >
-              <img :src="itemGestionar.producto.foto_url" :alt="itemGestionar.producto.nombre" class="w-full h-full object-cover" />
+              <img :src="cloudinaryOpt(itemGestionar.producto.foto_url, 80)" :alt="itemGestionar.producto.nombre" class="w-full h-full object-cover" />
             </div>
             <div class="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0" v-else>
               <PhotoIcon class="w-5 h-5 text-gray-300" />
