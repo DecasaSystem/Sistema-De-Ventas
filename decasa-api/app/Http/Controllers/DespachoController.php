@@ -397,7 +397,7 @@ class DespachoController extends Controller
 
         $orden = $item->orden()->with(['items' => fn($q) => $q->where('es_personalizado', false)])->first();
 
-        DB::transaction(function () use ($item, $orden, $now = null) {
+        DB::transaction(function () use ($item, $orden) {
             $now = now();
 
             $item->update([

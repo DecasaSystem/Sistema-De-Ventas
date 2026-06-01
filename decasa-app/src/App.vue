@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
-import axios from 'axios'
+import api from '@/api'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useNotificacionesStore } from '@/stores/notificaciones'
@@ -130,7 +130,8 @@ const abonosNoLeidos = computed(() =>
 // Badge de conversaciones WA pendientes (carga inicial + actualización por WebSocket)
 const redesPendientes = ref(0)
 function cargarRedesPendientes() {
-  axios.get('/api/redes/conversaciones?estado=pendiente').then(r => {
+  if (!auth.isAuthenticated) return
+  api.get('/redes/conversaciones?estado=pendiente').then(r => {
     redesPendientes.value = r.data.length
   }).catch(() => {})
 }
