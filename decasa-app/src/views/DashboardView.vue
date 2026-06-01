@@ -10,6 +10,7 @@ import {
   ArchiveBoxIcon,
   ArchiveBoxArrowDownIcon,
   WrenchScrewdriverIcon,
+  ClipboardDocumentCheckIcon,
   ChartBarIcon,
   PresentationChartLineIcon,
   TruckIcon,
@@ -31,7 +32,7 @@ const accesos = computed(() => {
   }
   if (auth.usuario?.rol === 'ebanista') {
     return [
-      { label: 'Mis pasos', icon: WrenchScrewdriverIcon, to: { name: 'mis-pasos' } },
+      { label: 'Mis pasos', icon: ClipboardDocumentCheckIcon, to: { name: 'mis-pasos' } },
       { label: 'Costos',    icon: CalculatorIcon,        to: { name: 'costos'    } },
     ]
   }
@@ -53,7 +54,7 @@ const accesos = computed(() => {
   if (auth.isSupervisor) {
     items.push({ label: 'Producción', icon: WrenchScrewdriverIcon, to: { name: 'produccion' } })
     if (auth.isTapicero) {
-      items.push({ label: 'Mis pasos', icon: WrenchScrewdriverIcon,     to: { name: 'mis-pasos' } })
+      items.push({ label: 'Mis pasos', icon: ClipboardDocumentCheckIcon,     to: { name: 'mis-pasos' } })
       items.push({ label: 'Surtir',    icon: ArchiveBoxArrowDownIcon,   to: { name: 'surtir'    } })
     }
   }
