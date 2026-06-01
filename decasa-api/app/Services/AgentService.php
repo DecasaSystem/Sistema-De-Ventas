@@ -2217,16 +2217,17 @@ class AgentService
             return $this->calcularPrecioRestauracion($params);
         }
 
-        $productoId  = $params['producto_id'] ?? null;
-        $nombre      = trim($params['nombre'] ?? '');
-        $categoria   = trim($params['categoria'] ?? '');
-        $descripcion = trim($params['descripcion'] ?? '');
-        $precioBase  = isset($params['precio_base']) ? (int) $params['precio_base'] : null;
-        $largoCm     = isset($params['largo_cm'])    ? (float) $params['largo_cm']  : null;
-        $anchoCm     = isset($params['ancho_cm'])    ? (float) $params['ancho_cm']  : null;
-        $altoCm      = isset($params['alto_cm'])     ? (float) $params['alto_cm']   : null;
-        $numPuestos  = isset($params['num_puestos']) ? (int)   $params['num_puestos'] : null;
-        $bocetoUrl   = $params['boceto_url'] ?? null;
+        $productoId       = $params['producto_id'] ?? null;
+        $nombre           = trim($params['nombre'] ?? '');
+        $categoria        = trim($params['categoria'] ?? '');
+        $descripcion      = trim($params['descripcion'] ?? '');
+        $notasAdicionales = trim($params['notas_adicionales'] ?? '');
+        $precioBase       = isset($params['precio_base']) ? (int) $params['precio_base'] : null;
+        $largoCm          = isset($params['largo_cm'])    ? (float) $params['largo_cm']  : null;
+        $anchoCm          = isset($params['ancho_cm'])    ? (float) $params['ancho_cm']  : null;
+        $altoCm           = isset($params['alto_cm'])     ? (float) $params['alto_cm']   : null;
+        $numPuestos       = isset($params['num_puestos']) ? (int)   $params['num_puestos'] : null;
+        $bocetoUrl        = $params['boceto_url'] ?? null;
 
         $tieneMedidas = $largoCm || $anchoCm || $altoCm;
 
@@ -2304,13 +2305,15 @@ class AgentService
                 . ($cambiosTexto
                     ? ' Personalización solicitada: ' . implode(' y ', $cambiosTexto) . '.'
                     : ' Sin cambios — usar costo base de la ficha.')
-                . ($descripcion ? " Detalles: {$descripcion}." : '');
+                . ($descripcion ? " Especificación del cambio: {$descripcion}." : '')
+                . ($notasAdicionales ? " Notas adicionales del cliente: {$notasAdicionales}." : '');
         } else {
             $contexto = "Producto: \"{$nombre}\"."
-                . ($categoria   ? " Categoría: {$categoria}."              : '')
-                . ($descripcion ? " Especificaciones: {$descripcion}."      : '')
-                . ($largoCm     ? " Medidas: {$largoCm}×{$anchoCm}×{$altoCm} cm." : '')
-                . ($numPuestos  ? " Puestos: {$numPuestos}."                : '');
+                . ($categoria         ? " Categoría: {$categoria}."              : '')
+                . ($descripcion       ? " Especificaciones: {$descripcion}."      : '')
+                . ($notasAdicionales  ? " Notas adicionales del cliente: {$notasAdicionales}." : '')
+                . ($largoCm           ? " Medidas: {$largoCm}×{$anchoCm}×{$altoCm} cm." : '')
+                . ($numPuestos        ? " Puestos: {$numPuestos}."                : '');
         }
 
         // Mejora 3: multiplicador según complejidad del cálculo
@@ -2342,11 +2345,12 @@ CONTEXTO DE FABRICACIÓN DECASA (MUY IMPORTANTE): Los productos del catálogo se
 
 CUANDO ES PRODUCTO DEL CATÁLOGO PERSONALIZADO (datos incluyen ficha_tecnica):
 - El contexto puede incluir "Precio de venta actual en catálogo: \$X". Si está presente, precio_sugerido_venta DEBE ser >= ese valor. El precio del catálogo ya incluye el margen; la personalización solo puede subir el precio, nunca bajarlo (salvo simplificaciones explícitas que reducen trabajo).
-- Solo cambia la TELA/MATERIAL → estructura y carpintería idénticas a la ficha. Solo ajusta el ítem de tela/tapiz en materiales y las horas de tapicería en mano de obra. precio_sugerido_venta = precio_catalogo + delta_tela × {$multiplicador}.
+- Solo cambia la TELA/MATERIAL → COPIA EXACTAMENTE de la ficha todos los ítems de madera/estructura, herrajes, patas, lacado y sus tiempos de carpintería. NO agregues ítems nuevos de estructura ni carpintería. Solo: (1) reemplaza el ítem de tela/tapizado con el material solicitado y su costo estimado, (2) ajusta las horas del tapicero según la tela nueva. precio_sugerido_venta = precio_catalogo + delta_tela × {$multiplicador}.
 - Solo cambian las MEDIDAS (≤20%) → mismos procesos, leve ajuste de material. precio_sugerido_venta = max(precio_catalogo, precio_fabricacion_ajustado × {$multiplicador}).
 - Cambian TELA y MEDIDAS → aplica ambos ajustes de forma independiente. precio_sugerido_venta >= precio_catalogo siempre.
 - Sin cambios → precio_fabricacion = costo_total de ficha. precio_sugerido_venta = precio_catalogo si se proporcionó, sino precio_fabricacion × {$multiplicador}.
 - Simplificaciones ("sin brazos", "sin cabecero", etc.) → pueden reducir precio_sugerido_venta por debajo del catálogo si el ahorro de material/labor es significativo. Indica el ahorro en notas.
+- "Notas adicionales del cliente" en el contexto son requisitos del cliente que DEBEN reflejarse en el desglose y el precio.
 
 CUANDO HAY IMAGEN O BOCETO (aplica a cualquier tipo de producto):
 - Analiza cada componente visible por separado: estructura principal, tapizado, cajones, patas, espejos, vidrios, colchones, herrajes visibles, accesorios, etc.

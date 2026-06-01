@@ -12,19 +12,20 @@ class PrecioItemController extends Controller
     public function calcular(Request $request)
     {
         $data = $request->validate([
-            'producto_id'    => 'nullable|integer|exists:productos,id',
-            'nombre'         => 'required|string|max:200',
-            'categoria'      => 'nullable|string|max:100',
-            'descripcion'    => 'nullable|string|max:2000',
-            'precio_base'    => 'nullable|numeric|min:0',
-            'largo_cm'       => 'nullable|numeric|min:1|max:2000',
-            'ancho_cm'       => 'nullable|numeric|min:1|max:2000',
-            'alto_cm'        => 'nullable|numeric|min:1|max:2000',
-            'num_puestos'    => 'nullable|integer|min:1|max:20',
-            'boceto_url'     => 'nullable|string|max:500',
-            'es_restauracion' => 'nullable|boolean',
-            'trabajo'        => 'nullable|string|max:1000',
-            'cantidad'       => 'nullable|integer|min:1',
+            'producto_id'       => 'nullable|integer|exists:productos,id',
+            'nombre'            => 'required|string|max:200',
+            'categoria'         => 'nullable|string|max:100',
+            'descripcion'       => 'nullable|string|max:2000',
+            'notas_adicionales' => 'nullable|string|max:1000',
+            'precio_base'       => 'nullable|numeric|min:0',
+            'largo_cm'          => 'nullable|numeric|min:1|max:2000',
+            'ancho_cm'          => 'nullable|numeric|min:1|max:2000',
+            'alto_cm'           => 'nullable|numeric|min:1|max:2000',
+            'num_puestos'       => 'nullable|integer|min:1|max:20',
+            'boceto_url'        => 'nullable|string|max:500',
+            'es_restauracion'   => 'nullable|boolean',
+            'trabajo'           => 'nullable|string|max:1000',
+            'cantidad'          => 'nullable|integer|min:1',
         ]);
 
         $resultado = $this->agent->calcularPrecioItem($data, $request->user());

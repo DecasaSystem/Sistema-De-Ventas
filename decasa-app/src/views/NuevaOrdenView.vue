@@ -448,13 +448,14 @@ async function calcularPrecioIA(item) {
       const desc = [specDesc, item.specs_notas].filter(Boolean).join('. ')
       const dims = extraerDimensiones(specsResueltos)
       const { data } = await api.post('/calcular-precio-item', {
-        producto_id: item.producto_id ?? null,
-        nombre:      item.nombre,
-        categoria:   resolverCategoria(item.categoria) || item.categoria || '',
-        descripcion: desc,
-        precio_base: item.producto_id && item.precio_unitario ? item.precio_unitario : null,
+        producto_id:       item.producto_id ?? null,
+        nombre:            item.nombre,
+        categoria:         resolverCategoria(item.categoria) || item.categoria || '',
+        descripcion:       specDesc,
+        notas_adicionales: item.specs_notas || null,
+        precio_base:       item.producto_id && item.precio_unitario ? item.precio_unitario : null,
         ...dims,
-        boceto_url:  item.boceto_url || null,
+        boceto_url:        item.boceto_url || null,
       })
       item._precioCalc = data
     }
