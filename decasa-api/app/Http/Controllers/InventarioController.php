@@ -53,6 +53,7 @@ class InventarioController extends Controller
                 'productos.precio_base as prod_precio_base',
                 'productos.foto_url as prod_foto_url',
                 'productos.personalizable as prod_personalizable',
+                'productos.es_tapizado as prod_es_tapizado',
             )
             ->orderBy('productos.nombre');
 
@@ -74,6 +75,7 @@ class InventarioController extends Controller
                 'precio_base'    => (float) $inv->prod_precio_base,
                 'foto_url'       => $inv->prod_foto_url,
                 'personalizable' => (bool) $inv->prod_personalizable,
+                'es_tapizado'    => (bool) $inv->prod_es_tapizado,
                 'activo'         => true,
             ];
             return $inv;
@@ -95,6 +97,7 @@ class InventarioController extends Controller
                 'productos.precio_base',
                 'productos.foto_url',
                 'productos.personalizable',
+                'productos.es_tapizado',
                 DB::raw('COALESCE(SUM(inventario.cantidad_disponible), 0) as cantidad_disponible'),
                 DB::raw('COALESCE(SUM(inventario.cantidad_reservada), 0) as cantidad_reservada'),
                 DB::raw('COUNT(DISTINCT inventario.tienda_id) as tiendas_count'),
@@ -106,6 +109,7 @@ class InventarioController extends Controller
                 'productos.precio_base',
                 'productos.foto_url',
                 'productos.personalizable',
+                'productos.es_tapizado',
             );
 
         if ($search) {
@@ -138,6 +142,7 @@ class InventarioController extends Controller
                         'precio_base'    => (float) $inv->precio_base,
                         'foto_url'       => $inv->foto_url,
                         'personalizable' => (bool) $inv->personalizable,
+                        'es_tapizado'    => (bool) $inv->es_tapizado,
                         'activo'         => true,
                     ],
                 ];
