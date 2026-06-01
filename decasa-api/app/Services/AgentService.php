@@ -2290,9 +2290,12 @@ class AgentService
 
         // ── Construir el contexto para la IA ─────────────────────────────────
         if ($productoId) {
+            $soloRetapizado = $cambioTela && !$cambioMedidas;
+            $soloAltura     = $cambioMedidas && !$cambioTela;
+
             $cambiosTexto = [];
-            if ($cambioTela)    $cambiosTexto[] = 'cambio de tela/material';
-            if ($cambioMedidas) $cambiosTexto[] = 'nuevas medidas ' . implode('×', array_filter([$largoCm, $anchoCm, $altoCm])) . ' cm';
+            if ($cambioTela)    $cambiosTexto[] = $soloRetapizado ? 'SOLO retapizado (mueble ya fabricado en stock)' : 'cambio de tela/material';
+            if ($cambioMedidas) $cambiosTexto[] = $soloAltura ? 'ajuste de altura/medidas sobre mueble existente' : 'nuevas medidas ' . implode('×', array_filter([$largoCm, $anchoCm, $altoCm])) . ' cm';
             if ($descripcion && !$cambioTela && !$cambioMedidas) $cambiosTexto[] = 'modificaciones adicionales';
 
             $precioBaseTexto = $precioBase
@@ -2303,9 +2306,9 @@ class AgentService
                 . ($categoria ? " Categoría: {$categoria}." : '')
                 . $precioBaseTexto
                 . ($cambiosTexto
-                    ? ' Personalización solicitada: ' . implode(' y ', $cambiosTexto) . '.'
+                    ? ' Trabajo a realizar: ' . implode(' y ', $cambiosTexto) . '.'
                     : ' Sin cambios — usar costo base de la ficha.')
-                . ($descripcion ? " Especificación del cambio: {$descripcion}." : '')
+                . ($descripcion ? " Especificación: {$descripcion}." : '')
                 . ($notasAdicionales ? " Notas adicionales del cliente: {$notasAdicionales}." : '');
         } else {
             $contexto = "Producto: \"{$nombre}\"."
@@ -2344,13 +2347,28 @@ CONTEXTO DE FABRICACIÓN DECASA (MUY IMPORTANTE): Los productos del catálogo se
 - Notas del cliente (ej: "sin brazos", "patas más cortas", "sin cabecero"): reflejan simplificaciones que REDUCEN trabajo y material, no lo aumentan. Ajustar el desglose a la baja en consecuencia.
 
 CUANDO ES PRODUCTO DEL CATÁLOGO PERSONALIZADO (datos incluyen ficha_tecnica):
-- El contexto puede incluir "Precio de venta actual en catálogo: \$X". Si está presente, precio_sugerido_venta DEBE ser >= ese valor. El precio del catálogo ya incluye el margen; la personalización solo puede subir el precio, nunca bajarlo (salvo simplificaciones explícitas que reducen trabajo).
-- Solo cambia la TELA/MATERIAL → COPIA EXACTAMENTE de la ficha todos los ítems de madera/estructura, herrajes, patas, lacado y sus tiempos de carpintería. NO agregues ítems nuevos de estructura ni carpintería. Solo: (1) reemplaza el ítem de tela/tapizado con el material solicitado y su costo estimado, (2) ajusta las horas del tapicero según la tela nueva. precio_sugerido_venta = precio_catalogo + delta_tela × {$multiplicador}.
-- Solo cambian las MEDIDAS (≤20%) → mismos procesos, leve ajuste de material. precio_sugerido_venta = max(precio_catalogo, precio_fabricacion_ajustado × {$multiplicador}).
-- Cambian TELA y MEDIDAS → aplica ambos ajustes de forma independiente. precio_sugerido_venta >= precio_catalogo siempre.
-- Sin cambios → precio_fabricacion = costo_total de ficha. precio_sugerido_venta = precio_catalogo si se proporcionó, sino precio_fabricacion × {$multiplicador}.
-- Simplificaciones ("sin brazos", "sin cabecero", etc.) → pueden reducir precio_sugerido_venta por debajo del catálogo si el ahorro de material/labor es significativo. Indica el ahorro en notas.
-- "Notas adicionales del cliente" en el contexto son requisitos del cliente que DEBEN reflejarse en el desglose y el precio.
+- El contexto puede incluir "Precio de venta actual en catálogo: \$X". precio_sugerido_venta DEBE ser >= ese valor salvo simplificaciones explícitas.
+
+CASO 1 — SOLO RETAPIZADO (contexto dice "SOLO retapizado, mueble ya fabricado en stock"):
+El mueble YA EXISTE, está construido y en bodega. NO se fabrica nada de madera ni estructura.
+desglose_materiales: ÚNICAMENTE la tela/tapizado (metros estimados según el mueble × precio de la tela específica solicitada). Sin madera, sin herrajes, sin laca.
+desglose_mano_obra: ÚNICAMENTE el tapicero (horas para quitar tapizado viejo + instalar nuevo — aprox 3-6h según tamaño). Sin carpintero, sin otros oficios.
+precio_fabricacion = costo_tela_nueva + horas_tapicero.
+precio_sugerido_venta = precio_catalogo + precio_fabricacion × {$multiplicador}.
+
+CASO 2 — SOLO AJUSTE DE ALTURA/MEDIDAS (contexto dice "ajuste de altura/medidas sobre mueble existente"):
+El mueble YA EXISTE. Solo se ajustan las patas o la estructura mínimamente.
+desglose_materiales: solo el material mínimo para el ajuste (ej: listón de madera si se aumenta, nada si se corta).
+desglose_mano_obra: carpintero (1-2h máximo para cortar o añadir altura a las patas).
+precio_sugerido_venta = precio_catalogo + precio_fabricacion × {$multiplicador}.
+
+CASO 3 — CAMBIA TELA Y MEDIDAS (producto ya existente pero con ambos cambios):
+Aplica CASO 1 para la tela + CASO 2 para la altura, de forma independiente. precio_sugerido_venta >= precio_catalogo.
+
+CASO 4 — MODIFICACIONES ADICIONALES O SIN CAMBIOS:
+Sin cambios → precio_fabricacion = costo_total de ficha. precio_sugerido_venta = precio_catalogo o precio_fabricacion × {$multiplicador}.
+Simplificaciones ("sin brazos", etc.) → pueden reducir precio. Indica ahorro en notas.
+"Notas adicionales del cliente" en el contexto son requisitos que DEBEN reflejarse en el desglose.
 
 CUANDO HAY IMAGEN O BOCETO (aplica a cualquier tipo de producto):
 - Analiza cada componente visible por separado: estructura principal, tapizado, cajones, patas, espejos, vidrios, colchones, herrajes visibles, accesorios, etc.
