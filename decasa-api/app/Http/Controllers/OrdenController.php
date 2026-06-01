@@ -274,7 +274,9 @@ class OrdenController extends Controller
                     ]);
                 } else {
                     // Reservar stock en la tienda de origen (puede ser otra tienda)
-                    $motivo = "Orden #{$orden->id}" . ($varianteId && $specsExtra ? " ({$specsExtra['variante_marca'] ?? ''} - {$specsExtra['variante_color'] ?? ''})" : '');
+                    $varianteMarca = $specsExtra['variante_marca'] ?? '';
+                    $varianteColor = $specsExtra['variante_color'] ?? '';
+                    $motivo = "Orden #{$orden->id}" . ($varianteId && $specsExtra ? " ({$varianteMarca} - {$varianteColor})" : '');
 
                     if ($varianteId) {
                         InventarioVariante::where('variante_id', $varianteId)
