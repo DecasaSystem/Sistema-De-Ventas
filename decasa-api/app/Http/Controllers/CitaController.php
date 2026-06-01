@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Cita;
+use App\Models\ConversacionWa;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 
@@ -83,6 +84,13 @@ class CitaController extends Controller
         ]);
 
         $cita->update($data);
+
+        // Si se completa desde Citas y tiene conversación de Redes vinculada, también terminarla
+        if (($data['estado'] ?? null) === 'completada' && $cita->conversacion_wa_id) {
+            ConversacionWa::where('id', $cita->conversacion_wa_id)
+                ->where('estado', '!=', 'terminada')
+                ->update(['estado' => 'terminada', 'terminada_at' => now()]);
+        }
 
         return response()->json($cita->load(['asesor:id,nombre', 'tienda:id,nombre']));
     }

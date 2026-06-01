@@ -436,19 +436,22 @@ onMounted(cargar)
           </div>
 
           <div v-if="['pendiente', 'confirmada'].includes(cita.estado)" class="flex items-center gap-2">
+            <!-- "Confirmar" solo para citas manuales (sin origen en Redes) -->
             <button
-              v-if="cita.estado === 'pendiente'"
+              v-if="cita.estado === 'pendiente' && !cita.conversacion_wa_id"
               @click="cambiarEstado(cita.id, 'confirmada')"
               class="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors"
             >
               Confirmar
             </button>
+            <!-- "Terminar" para citas de Redes, "Completada" para manuales -->
             <button
               v-if="cita.estado === 'confirmada'"
               @click="cambiarEstado(cita.id, 'completada')"
               class="flex items-center gap-1 text-xs px-3 py-1.5 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition-colors"
             >
-              <CheckCircleIcon class="w-3.5 h-3.5" /> Completada
+              <CheckCircleIcon class="w-3.5 h-3.5" />
+              {{ cita.conversacion_wa_id ? 'Terminar' : 'Completada' }}
             </button>
             <button
               @click="cambiarEstado(cita.id, 'cancelada')"

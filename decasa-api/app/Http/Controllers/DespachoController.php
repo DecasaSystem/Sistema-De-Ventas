@@ -102,10 +102,21 @@ class DespachoController extends Controller
             ]);
 
             foreach ($data['ordenes'] as $item) {
-                $orden = Orden::findOrFail($item['orden_id']);
+                // lockForUpdate previene race condition si dos requests asignan la misma orden simultáneamente
+                $orden = Orden::lockForUpdate()->findOrFail($item['orden_id']);
 
                 if ($orden->estado !== 'listo_entrega') {
                     abort(422, "La orden #{$orden->id} no está en estado listo_entrega.");
+                }
+
+                // Verificar que la orden no esté ya en otro despacho activo de cualquier conductor
+                $yaAsignada = DespachoItem::where('orden_id', $item['orden_id'])
+                    ->where('estado', 'pendiente')
+                    ->whereHas('despacho', fn($q) => $q->whereIn('estado', ['asignado', 'en_ruta']))
+                    ->exists();
+
+                if ($yaAsignada) {
+                    abort(422, "La orden #{$orden->id} ya está en un despacho activo.");
                 }
 
                 DespachoItem::create([
@@ -237,7 +248,9 @@ class DespachoController extends Controller
                 ->whereIn('estado', ['asignado', 'en_ruta']);
         })->where('estado', 'pendiente')
             ->orderBy('posicion')
-            ->get();
+            ->get()
+            ->unique('orden_id')  // evita duplicados si la misma orden está en dos despachos activos
+            ->values();
 
         $items->each(function ($item) {
             $totalPagado = (float) $item->orden->pagos->sum('monto');

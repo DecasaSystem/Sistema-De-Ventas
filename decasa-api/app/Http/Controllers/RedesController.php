@@ -159,7 +159,7 @@ class RedesController extends Controller
                         'dia'            => $dc['dia']    ?? 'Por definir',
                         'hora'           => $dc['hora']   ?? 'Por definir',
                         'motivo'         => $dc['motivo'] ?? null,
-                        'estado'         => 'pendiente',
+                        'estado'         => 'confirmada',
                         'fecha_cita'     => !empty($dc['dia']) ? $this->parsearFechaCita($dc['dia']) : null,
                     ]
                 );
@@ -232,6 +232,11 @@ class RedesController extends Controller
             'estado'       => 'terminada',
             'terminada_at' => now(),
         ]);
+
+        // Si la conversación tiene una cita vinculada, también completarla
+        Cita::where('conversacion_wa_id', $conv->id)
+            ->whereNotIn('estado', ['completada', 'cancelada'])
+            ->update(['estado' => 'completada', 'updated_at' => now()]);
 
         try {
             broadcast(new NuevaConversacionWa($conv->fresh('tomadaPor:id,nombre')));
