@@ -247,7 +247,8 @@ class DespachoController extends Controller
             $q->where('conductor_id', $usuario->id)
                 ->whereIn('estado', ['asignado', 'en_ruta']);
         })->where('estado', 'pendiente')
-            ->orderBy('posicion')
+            ->orderBy('despacho_id')  // despachos más antiguos primero (los que ya venía haciendo)
+            ->orderBy('posicion')     // dentro de cada despacho, el orden asignado
             ->get()
             ->unique('orden_id')  // evita duplicados si la misma orden está en dos despachos activos
             ->values();

@@ -129,15 +129,24 @@ function fmtFecha(iso) {
       <EmptyState v-else-if="entregas.length === 0" message="No tienes entregas asignadas en este momento." />
 
       <div v-else class="space-y-3">
-        <div
-          v-for="item in entregas"
-          :key="item.id"
-          @click="abrirDetalle(item)"
-          class="bg-white rounded-xl p-4 shadow-sm border border-gray-100 active:scale-[0.98] transition-transform cursor-pointer"
-        >
+        <template v-for="(item, idx) in entregas" :key="item.id">
+          <!-- Separador cuando cambia de despacho (segunda ruta asignada) -->
+          <div
+            v-if="idx > 0 && item.despacho_id !== entregas[idx - 1].despacho_id"
+            class="flex items-center gap-2 py-1"
+          >
+            <div class="flex-1 h-px bg-gray-200" />
+            <span class="text-xs text-gray-400 font-medium whitespace-nowrap">Ruta adicional</span>
+            <div class="flex-1 h-px bg-gray-200" />
+          </div>
+
+          <div
+            @click="abrirDetalle(item)"
+            class="bg-white rounded-xl p-4 shadow-sm border border-gray-100 active:scale-[0.98] transition-transform cursor-pointer"
+          >
           <div class="flex items-start gap-3">
             <div class="flex-shrink-0 w-9 h-9 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-sm font-bold">
-              {{ item.posicion }}
+              {{ idx + 1 }}
             </div>
             <div class="flex-1 min-w-0">
               <div class="flex items-center justify-between gap-2 min-w-0">
@@ -165,7 +174,8 @@ function fmtFecha(iso) {
               </div>
             </div>
           </div>
-        </div>
+          </div>
+        </template>
       </div>
     </template>
 
