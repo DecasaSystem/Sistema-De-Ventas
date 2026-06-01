@@ -1313,14 +1313,14 @@ class AgentService
             ->leftJoin('pagos as pg', 'pg.orden_id', '=', 'o.id')
             ->whereNotIn('o.estado', ['entregado', 'cancelado'])
             ->when($tiendaId, fn($q) => $q->where('o.tienda_id', $tiendaId))
-            ->selectRaw('
+            ->selectRaw(<<<'SQL'
                 o.id AS orden_id, o.estado, o.valor_total, o.created_at AS fecha,
                 c.nombre AS cliente,
                 CONCAT('***', RIGHT(REPLACE(REPLACE(REPLACE(c.telefono,' ',''),'-',''),'+',''), 4)) AS telefono,
                 u.nombre AS vendedor, t.nombre AS tienda,
                 COALESCE(SUM(pg.monto), 0) AS total_pagado,
                 o.valor_total - COALESCE(SUM(pg.monto), 0) AS saldo_pendiente
-            ')
+            SQL)
             ->groupBy('o.id', 'o.estado', 'o.valor_total', 'o.created_at',
                       'c.nombre', 'c.telefono', 'u.nombre', 't.nombre')
             ->orderByDesc('o.created_at')
