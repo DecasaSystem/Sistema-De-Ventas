@@ -186,10 +186,17 @@ async function abrirAgregarProducto() {
   } catch {}
 }
 
+const CATEGORIAS_TAPIZADAS = /sofa|sofá|silla|modular/i
+
+function esTapizadoPorNombre(texto) {
+  return CATEGORIAS_TAPIZADAS.test(texto ?? '')
+}
+
 function onCategoriaSelect(val) {
   categoriaSeleccion.value = val
   if (val !== '__nueva__') {
     formProducto.value.categoria = val
+    if (esTapizadoPorNombre(val)) formProducto.value.es_tapizado = true
   } else {
     formProducto.value.categoria = ''
   }
@@ -806,7 +813,7 @@ onMounted(async () => {
             <!-- Nombre -->
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Nombre <span class="text-red-500">*</span></label>
-              <input v-model="formProducto.nombre" type="text" placeholder="Ej: Sofá 3 puestos..." class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <input v-model="formProducto.nombre" @input="if (esTapizadoPorNombre(formProducto.nombre)) formProducto.es_tapizado = true" type="text" placeholder="Ej: Sofá 3 puestos..." class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
 
             <!-- Categoría + Precio -->
