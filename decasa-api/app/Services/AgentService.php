@@ -1529,7 +1529,7 @@ class AgentService
                 DB::raw('(SELECT orden_id, SUM(monto) AS total_pagado FROM pagos GROUP BY orden_id) AS pg'),
                 'pg.orden_id', '=', 'o.id'
             )
-            ->selectRaw('
+            ->selectRaw(<<<'SQL'
                 o.id,
                 o.estado,
                 o.valor_total,
@@ -1557,7 +1557,7 @@ class AgentService
                     LEFT JOIN produccion pr2 ON pr2.orden_item_id = oi2.id
                     WHERE oi2.orden_id = o.id
                 )                                                              AS dias_restantes_entrega
-            ')
+            SQL)
             ->orderByDesc('o.created_at');
 
         if ($usuario->rol === 'vendedor') {
