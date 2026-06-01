@@ -1,8 +1,8 @@
 <script setup>
 defineProps({
   amount: {
-    type: Number,
-    required: true,
+    type: [Number, String],
+    default: 0,
   },
   bold: {
     type: Boolean,
