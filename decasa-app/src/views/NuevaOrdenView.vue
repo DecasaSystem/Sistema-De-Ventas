@@ -1064,18 +1064,24 @@ function removeFacturaFoto() {
             <span class="text-sm font-semibold text-gray-700">
               ${{ Number(p.precio_base).toLocaleString('es-CO') }}
             </span>
-            <!-- Con stock o personalizable: botón normal -->
+            <!-- Con stock: botón Agregar normal -->
             <button
-              v-if="stockLibre(p) > 0 || p.personalizable"
+              v-if="stockLibre(p) > 0"
               @click="agregarItem(p)"
               class="btn-primary text-xs px-2 py-1"
             >+ Agregar</button>
-            <!-- Sin stock y no personalizable: fabricar bajo pedido -->
-            <button
-              v-else
-              @click="fabricarBajoPedido(p)"
-              class="text-xs px-2 py-1 rounded-lg bg-amber-500 text-white font-semibold hover:bg-amber-600 transition-colors"
-            >🔨 Fabricar</button>
+            <!-- Sin stock: Fabricar (todos los productos) + opción personalizar si aplica -->
+            <template v-else>
+              <button
+                @click="fabricarBajoPedido(p)"
+                class="text-xs px-2 py-1 rounded-lg bg-amber-500 text-white font-semibold hover:bg-amber-600 transition-colors"
+              >🔨 Fabricar</button>
+              <button
+                v-if="p.personalizable"
+                @click="agregarItem(p)"
+                class="text-xs px-2 py-1 rounded-lg border border-purple-300 text-purple-600 font-semibold hover:bg-purple-50 transition-colors"
+              >✏️ Personalizar</button>
+            </template>
           </div>
         </li>
       </ul>
