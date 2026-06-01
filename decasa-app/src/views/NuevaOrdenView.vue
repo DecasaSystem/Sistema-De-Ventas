@@ -394,6 +394,7 @@ function fabricarBajoPedido(producto) {
     boceto_url: '',
     boceto_preview: null,
     _fabricar_pedido: true,
+    _esTapizado: producto.es_tapizado ?? false,
     _mostrarCalculadora: false,
     _calculandoPrecio: false,
     _precioCalc: null,
@@ -1352,6 +1353,73 @@ function removeFacturaFoto() {
             />
             {{ item.producto_id === null ? 'Producto personalizado (sin catálogo)' : 'Ítem personalizado' }}
           </label>
+
+          <!-- ── Tapizado para fabricar bajo pedido ── -->
+          <template v-if="item._fabricar_pedido && item._esTapizado">
+            <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
+              <p class="text-xs font-semibold text-amber-800">Selecciona el tapizado <span class="text-red-500">*</span></p>
+
+              <!-- Cascada Marca → Tipo → Color -->
+              <select
+                v-model="getTelaSelection(item, 'tela').marca"
+                @change="getTelaSelection(item, 'tela').tipo = ''; getTelaSelection(item, 'tela').color = ''"
+                class="input text-sm"
+              >
+                <option value="">— elige la marca de tela —</option>
+                <option v-for="m in marcasOrdenadas" :key="m" :value="m">{{ m }}</option>
+                <option value="Otro">Otra marca...</option>
+              </select>
+              <input
+                v-if="getTelaSelection(item, 'tela').marca === 'Otro'"
+                v-model="getTelaSelection(item, 'tela').marcaManual"
+                type="text" placeholder="Nombre de la marca..."
+                class="input text-sm"
+              />
+
+              <template v-if="getTelaSelection(item, 'tela').marca && getTelaSelection(item, 'tela').marca !== 'Otro'">
+                <select
+                  v-model="getTelaSelection(item, 'tela').tipo"
+                  @change="getTelaSelection(item, 'tela').color = ''"
+                  class="input text-sm"
+                >
+                  <option value="">— tipo de tela —</option>
+                  <option v-for="t in tiposTelaDeM(getTelaSelection(item, 'tela').marca)" :key="t" :value="t">{{ t }}</option>
+                  <option value="Otro">Otro tipo...</option>
+                </select>
+                <input
+                  v-if="getTelaSelection(item, 'tela').tipo === 'Otro'"
+                  v-model="getTelaSelection(item, 'tela').telaManual"
+                  type="text" placeholder="Tipo de tela..."
+                  class="input text-sm"
+                />
+
+                <template v-if="getTelaSelection(item, 'tela').tipo && getTelaSelection(item, 'tela').tipo !== 'Otro'">
+                  <select v-model="getTelaSelection(item, 'tela').color" class="input text-sm">
+                    <option value="">— color —</option>
+                    <option v-for="c in coloresDeTela(getTelaSelection(item, 'tela').marca, getTelaSelection(item, 'tela').tipo)" :key="c" :value="c">{{ c }}</option>
+                    <option value="Otro">Otro color...</option>
+                  </select>
+                  <input
+                    v-if="getTelaSelection(item, 'tela').color === 'Otro'"
+                    v-model="getTelaSelection(item, 'tela').colorManual"
+                    type="text" placeholder="Color..."
+                    class="input text-sm"
+                  />
+                </template>
+                <input
+                  v-else-if="getTelaSelection(item, 'tela').tipo === 'Otro'"
+                  v-model="getTelaSelection(item, 'tela').colorManual"
+                  type="text" placeholder="Color..."
+                  class="input text-sm"
+                />
+              </template>
+
+              <p v-if="telaResumidaCampo(item, 'tela')" class="text-xs font-semibold text-amber-700">
+                ✓ Tela: {{ telaResumidaCampo(item, 'tela') }}
+              </p>
+              <p v-else class="text-xs text-amber-600 italic">Selecciona la tela para que producción sepa cuál usar</p>
+            </div>
+          </template>
 
           <!-- ── Personalización de producto del CATÁLOGO: solo tela + tamaño ── -->
           <template v-if="item.es_personalizado && item.producto_id && !item._fabricar_pedido">
