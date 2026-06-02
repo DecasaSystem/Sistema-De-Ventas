@@ -48,11 +48,16 @@ class ConsultaCostoController extends Controller
 
         if ($usuario->rol === 'vendedor') {
             $query->where('solicitado_por_id', $usuario->id);
-        } elseif (in_array($usuario->rol, ['supervisor', 'ebanista'])) {
-            $query->where(function ($q) use ($usuario) {
-                $q->where('asignado_a_id', $usuario->id)
-                  ->orWhere('solicitado_por_id', $usuario->id);
-            });
+        } elseif ($usuario->rol === 'supervisor') {
+            // Con ?monitoreo=1 el supervisor ve TODAS las consultas del sistema
+            if (! $request->boolean('monitoreo')) {
+                $query->where(function ($q) use ($usuario) {
+                    $q->where('asignado_a_id', $usuario->id)
+                      ->orWhere('solicitado_por_id', $usuario->id);
+                });
+            }
+        } elseif ($usuario->rol === 'ebanista') {
+            $query->where('asignado_a_id', $usuario->id);
         } else {
             return response()->json([]);
         }
@@ -154,8 +159,11 @@ class ConsultaCostoController extends Controller
             'items.desglose',
         ])->findOrFail($id);
 
-        // Solo puede verla el receptor o el solicitante
-        if ($consulta->asignado_a_id !== $usuario->id && $consulta->solicitado_por_id !== $usuario->id) {
+        // Supervisores pueden ver cualquier consulta (monitoreo)
+        // Para otros roles, solo si son participantes
+        if ($usuario->rol !== 'supervisor' &&
+            $consulta->asignado_a_id !== $usuario->id &&
+            $consulta->solicitado_por_id !== $usuario->id) {
             return response()->json(['message' => 'No autorizado.'], 403);
         }
 
@@ -306,7 +314,9 @@ class ConsultaCostoController extends Controller
         $usuario  = $request->user();
         $consulta = ConsultaCosto::findOrFail($id);
 
-        if ($consulta->asignado_a_id !== $usuario->id && $consulta->solicitado_por_id !== $usuario->id) {
+        if ($usuario->rol !== 'supervisor' &&
+            $consulta->asignado_a_id !== $usuario->id &&
+            $consulta->solicitado_por_id !== $usuario->id) {
             return response()->json(['message' => 'No autorizado.'], 403);
         }
 

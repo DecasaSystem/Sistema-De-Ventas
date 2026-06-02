@@ -6,6 +6,9 @@ export const getReceptores = () =>
 export const getConsultas = () =>
   api.get('/consultas-costo')
 
+export const getConsultasMonitoreo = () =>
+  api.get('/consultas-costo', { params: { monitoreo: 1 } })
+
 export const crearConsulta = (data) =>
   api.post('/consultas-costo', data)
 
