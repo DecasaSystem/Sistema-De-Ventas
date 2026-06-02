@@ -180,41 +180,57 @@ class ConsultaCostoController extends Controller
         }
 
         $data = $request->validate([
-            'margen_ganancia_pct' => 'required|integer|min:0|max:500',
-            'desglose'            => 'required|array|min:1',
-            'desglose.*.tipo'     => 'required|in:material,carpintero,tapicero,laquero',
-            'desglose.*.nombre'   => 'required|string|max:200',
-            'desglose.*.cantidad' => 'required|numeric|min:0.001',
-            'desglose.*.precio_unitario' => 'required|numeric|min:0',
+            'precio_manual'       => 'nullable|numeric|min:0',
+            'margen_ganancia_pct' => 'nullable|integer|min:0|max:500',
+            'desglose'            => 'nullable|array',
+            'desglose.*.tipo'     => 'required_with:desglose|in:material,carpintero,tapicero,laquero',
+            'desglose.*.nombre'   => 'required_with:desglose|string|max:200',
+            'desglose.*.cantidad' => 'required_with:desglose|numeric|min:0.001',
+            'desglose.*.precio_unitario' => 'required_with:desglose|numeric|min:0',
         ]);
 
-        DB::transaction(function () use ($data, $consultaItem) {
-            // Eliminar desglose anterior
+        $esModoManual = isset($data['precio_manual']) && $data['precio_manual'] !== null;
+
+        if (! $esModoManual && empty($data['desglose'])) {
+            return response()->json(['message' => 'Ingresa un precio manual o completa el desglose de costos.'], 422);
+        }
+
+        DB::transaction(function () use ($data, $consultaItem, $esModoManual) {
             $consultaItem->desglose()->delete();
 
-            $precioBase = 0;
-            foreach ($data['desglose'] as $fila) {
-                $subtotal = round($fila['cantidad'] * $fila['precio_unitario'], 2);
-                $precioBase += $subtotal;
-                ConsultaCostoDesglose::create([
-                    'consulta_item_id' => $consultaItem->id,
-                    'tipo'             => $fila['tipo'],
-                    'nombre'           => $fila['nombre'],
-                    'cantidad'         => $fila['cantidad'],
-                    'precio_unitario'  => $fila['precio_unitario'],
-                    'subtotal'         => $subtotal,
+            if ($esModoManual) {
+                $precioFinal = round($data['precio_manual'], 2);
+                $consultaItem->update([
+                    'precio_base'         => $precioFinal,
+                    'margen_ganancia_pct' => 0,
+                    'precio_final'        => $precioFinal,
+                    'estado'              => 'calculado',
+                ]);
+            } else {
+                $precioBase = 0;
+                foreach ($data['desglose'] as $fila) {
+                    $subtotal = round($fila['cantidad'] * $fila['precio_unitario'], 2);
+                    $precioBase += $subtotal;
+                    ConsultaCostoDesglose::create([
+                        'consulta_item_id' => $consultaItem->id,
+                        'tipo'             => $fila['tipo'],
+                        'nombre'           => $fila['nombre'],
+                        'cantidad'         => $fila['cantidad'],
+                        'precio_unitario'  => $fila['precio_unitario'],
+                        'subtotal'         => $subtotal,
+                    ]);
+                }
+
+                $margen      = $data['margen_ganancia_pct'] ?? 0;
+                $precioFinal = round($precioBase * (1 + $margen / 100), 2);
+
+                $consultaItem->update([
+                    'precio_base'         => $precioBase,
+                    'margen_ganancia_pct' => $margen,
+                    'precio_final'        => $precioFinal,
+                    'estado'              => 'calculado',
                 ]);
             }
-
-            $margen      = $data['margen_ganancia_pct'];
-            $precioFinal = round($precioBase * (1 + $margen / 100), 2);
-
-            $consultaItem->update([
-                'precio_base'         => $precioBase,
-                'margen_ganancia_pct' => $margen,
-                'precio_final'        => $precioFinal,
-                'estado'              => 'calculado',
-            ]);
         });
 
         $consultaItem->load('desglose');

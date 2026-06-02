@@ -98,7 +98,12 @@ function inicializarFormulario(item) {
     _abierto:        false,
   }))
 
+  // Si no tiene desglose pero tiene precio, se asume modo manual
+  const modoInicial = (!desglose.length && item.precio_final) ? 'manual' : 'calcular'
+
   formularios.value[item.id] = {
+    modo:                modoInicial,
+    precio_manual:       modoInicial === 'manual' ? parseFloat(item.precio_final ?? 0) : 0,
     desglose:            desglose.length ? desglose : [],
     margen_ganancia_pct: item.margen_ganancia_pct ?? 0,
   }
@@ -156,28 +161,36 @@ async function cargar() {
 
 async function guardar(item) {
   const form = formularios.value[item.id]
-  if (!form || form.desglose.length === 0) {
-    toast.error('Agrega al menos una fila al desglose.')
-    return
-  }
 
-  for (const fila of form.desglose) {
-    if (fila.tipo === 'material' && !fila.nombre) {
-      toast.error('Selecciona un material del catálogo en todas las filas de material.')
+  if (form.modo === 'manual') {
+    if (!form.precio_manual || form.precio_manual <= 0) {
+      toast.error('Ingresa un precio manual mayor a 0.')
       return
     }
-    if (fila.tipo !== 'material' && !fila.nombre.trim()) {
-      toast.error('Completa el nombre del trabajador en todas las filas.')
+  } else {
+    if (!form || form.desglose.length === 0) {
+      toast.error('Agrega al menos una fila al desglose.')
       return
+    }
+    for (const fila of form.desglose) {
+      if (fila.tipo === 'material' && !fila.nombre) {
+        toast.error('Selecciona un material del catálogo en todas las filas de material.')
+        return
+      }
+      if (fila.tipo !== 'material' && !fila.nombre.trim()) {
+        toast.error('Completa el nombre del trabajador en todas las filas.')
+        return
+      }
     }
   }
 
   guardando.value[item.id] = true
   try {
-    const { data } = await guardarItem(consulta.value.id, item.id, {
-      margen_ganancia_pct: form.margen_ganancia_pct,
-      desglose: form.desglose,
-    })
+    const payload = form.modo === 'manual'
+      ? { precio_manual: form.precio_manual }
+      : { margen_ganancia_pct: form.margen_ganancia_pct, desglose: form.desglose }
+
+    const { data } = await guardarItem(consulta.value.id, item.id, payload)
     // Actualizar el item en la consulta local
     const idx = consulta.value.items.findIndex(i => i.id === item.id)
     if (idx >= 0) {
@@ -334,6 +347,37 @@ onMounted(() => {
         <!-- Formulario de cálculo — solo para el receptor y mientras está pendiente -->
         <template v-if="esReceptor && consulta.estado === 'pendiente'">
           <div class="border-t border-gray-100 pt-3 space-y-3">
+
+            <!-- Toggle modo -->
+            <div class="flex gap-1 bg-gray-100 rounded-xl p-1">
+              <button
+                @click="formularios[item.id].modo = 'calcular'"
+                :class="['flex-1 py-1.5 text-xs font-semibold rounded-lg transition-colors',
+                  formularios[item.id]?.modo === 'calcular' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500']"
+              >Calcular desglose</button>
+              <button
+                @click="formularios[item.id].modo = 'manual'"
+                :class="['flex-1 py-1.5 text-xs font-semibold rounded-lg transition-colors',
+                  formularios[item.id]?.modo === 'manual' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500']"
+              >Precio manual</button>
+            </div>
+
+            <!-- Modo manual -->
+            <div v-if="formularios[item.id]?.modo === 'manual'" class="space-y-2">
+              <label class="block text-xs font-semibold text-gray-600 uppercase">Precio final</label>
+              <input
+                v-model.number="formularios[item.id].precio_manual"
+                type="number"
+                min="0"
+                step="1000"
+                placeholder="Ej: 850000"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400"
+              />
+              <p class="text-xs text-gray-400">El precio se envía tal cual, sin desglose de materiales.</p>
+            </div>
+
+            <!-- Modo desglose -->
+            <template v-else>
             <p class="text-xs font-semibold text-gray-600 uppercase">Desglose de costos</p>
 
             <!-- Tabla de filas -->
@@ -484,13 +528,15 @@ onMounted(() => {
               </div>
             </div>
 
+            </template><!-- /modo desglose -->
+
             <button
               @click="guardar(item)"
-              :disabled="guardando[item.id] || formularios[item.id]?.desglose.length === 0"
+              :disabled="guardando[item.id]"
               class="w-full bg-violet-600 text-white rounded-xl py-2.5 text-sm font-bold hover:bg-violet-700 disabled:opacity-40 transition-colors flex items-center justify-center gap-2"
             >
               <CheckCircleIcon class="w-4 h-4" />
-              {{ guardando[item.id] ? 'Guardando...' : 'Guardar cálculo' }}
+              {{ guardando[item.id] ? 'Guardando...' : 'Guardar precio' }}
             </button>
           </div>
         </template>
