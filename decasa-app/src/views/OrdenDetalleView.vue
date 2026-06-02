@@ -369,12 +369,24 @@ function colorPaso(estado) {
 const showModalConfirmar   = ref(false)
 const firmaConfirmarBlob   = ref(null)
 const firmaConfirmarUrl    = ref('')
+const anticipoPctConfirmar = ref(50)
 const anticipoConfirmar    = ref(0)
 const metodoPagoConfirmar  = ref('efectivo')
 const refPagoConfirmar     = ref('')
 const confirmando          = ref(false)
 
 watch(firmaConfirmarBlob, () => { firmaConfirmarUrl.value = '' })
+
+const totalAcordado = computed(() => Number(orden.value?.valor_total ?? 0))
+
+const minimoAnticipoc = computed(() =>
+  Math.ceil(totalAcordado.value * anticipoPctConfirmar.value / 100)
+)
+
+function seleccionarPctAnticipo(pct) {
+  anticipoPctConfirmar.value = pct
+  anticipoConfirmar.value    = minimoAnticipoc.value
+}
 
 const metodosOpts = [
   { value: 'efectivo',      label: 'Efectivo' },
@@ -588,7 +600,7 @@ onMounted(cargarOrden)
               </div>
               <button
                 v-if="orden.estado === 'pendiente_cotizacion'"
-                @click="showModalConfirmar = true"
+                @click="anticipoPctConfirmar = 50; anticipoConfirmar = Math.ceil(totalAcordado * 0.5); showModalConfirmar = true"
                 class="w-full bg-green-600 text-white rounded-xl py-2.5 text-sm font-bold hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
               >
                 <CheckCircleIcon class="w-4 h-4" />
@@ -1112,13 +1124,44 @@ onMounted(cargarOrden)
           <!-- Anticipo -->
           <div class="space-y-2">
             <label class="block text-xs font-semibold text-gray-600 uppercase">Anticipo</label>
-            <input
-              v-model.number="anticipoConfirmar"
-              type="number"
-              min="0"
-              placeholder="Monto anticipo (0 si no paga ahora)"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
-            />
+
+            <!-- Total acordado -->
+            <div class="flex justify-between text-sm bg-gray-50 rounded-lg px-3 py-2">
+              <span class="text-gray-500">Total acordado</span>
+              <span class="font-bold text-gray-800">
+                {{ new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(totalAcordado) }}
+              </span>
+            </div>
+
+            <!-- Porcentaje -->
+            <div>
+              <label class="block text-xs text-gray-500 mb-1">Porcentaje mínimo anticipo</label>
+              <div class="flex gap-2">
+                <button
+                  v-for="pct in [30, 50, 70, 100]"
+                  :key="pct"
+                  @click="seleccionarPctAnticipo(pct)"
+                  :class="['flex-1 py-1.5 rounded-lg text-xs font-medium border transition-colors',
+                    anticipoPctConfirmar === pct ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-700 border-gray-300']"
+                >{{ pct }}%</button>
+              </div>
+            </div>
+
+            <!-- Monto -->
+            <div>
+              <label class="block text-xs text-gray-500 mb-1">
+                Monto anticipo
+                <span class="text-gray-400">(mínimo {{ new Intl.NumberFormat('es-CO').format(minimoAnticipoc) }})</span>
+              </label>
+              <input
+                v-model.number="anticipoConfirmar"
+                type="number"
+                min="0"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
+              />
+            </div>
+
+            <!-- Método -->
             <div class="flex gap-2 flex-wrap">
               <button
                 v-for="m in metodosOpts"

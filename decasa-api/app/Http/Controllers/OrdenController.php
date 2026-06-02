@@ -356,8 +356,9 @@ class OrdenController extends Controller
                 $sup->id,
             );
 
-            // Solo notificar de fecha si el supervisor tiene esa opción habilitada
-            if ($sup->notif_asignar_fecha) {
+            // Notificación de fecha solo cuando NO hay cotización pendiente
+            // (si hay cotización, se envía después de que el cliente confirme el precio)
+            if ($sup->notif_asignar_fecha && ! $tieneItemsCotizacionPendiente) {
                 NotificacionService::crear(
                     'asignar_fecha',
                     'Asignar fecha de entrega',
@@ -556,7 +557,7 @@ class OrdenController extends Controller
         $clienteNombre = $orden->cliente->nombre ?? '';
         $tiendaId      = $orden->tienda_id;
 
-        // Notificar supervisores
+        // Notificar supervisores: orden confirmada + asignar fecha
         $supervisores = Usuario::where('rol', 'supervisor')->where('activo', true)->get();
         foreach ($supervisores as $sup) {
             NotificacionService::crear(
@@ -566,6 +567,16 @@ class OrdenController extends Controller
                 ['orden_id' => $orden->id, 'tienda_id' => (int) $tiendaId],
                 $sup->id,
             );
+
+            if ($sup->notif_asignar_fecha) {
+                NotificacionService::crear(
+                    'asignar_fecha',
+                    'Asignar fecha de entrega',
+                    "Orden #{$orden->id} de {$clienteNombre} necesita fecha de entrega",
+                    ['orden_id' => $orden->id],
+                    $sup->id,
+                );
+            }
         }
 
         event(new OrdenActualizada($orden->id, (int) $tiendaId, 'pendiente_anticipo', $clienteNombre));
