@@ -6,12 +6,13 @@ import { useToast } from '@/composables/useToast'
 import { getOrden, updateEstado, descargarPdfOrden, reenviarCotizacion, asignarFechasEntrega } from '@/api/ordenes'
 import { despachoPorOrden } from '@/api/despacho'
 import { tomarFacturacion, marcarFacturada } from '@/api/pagos'
+import { getReceptores, crearConsulta } from '@/api/consultas'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import RegistroPagoModal from '@/components/ordenes/RegistroPagoModal.vue'
 import EditarOrdenModal from '@/components/ordenes/EditarOrdenModal.vue'
 import { SparklesIcon, XMarkIcon } from '@heroicons/vue/24/solid'
-import { DocumentIcon, EnvelopeIcon, ChatBubbleLeftEllipsisIcon, ArrowDownTrayIcon, CalendarIcon, BuildingOffice2Icon, TruckIcon, PencilSquareIcon, ClockIcon, CheckBadgeIcon, LockClosedIcon, WrenchScrewdriverIcon, CheckCircleIcon, UserGroupIcon } from '@heroicons/vue/24/outline'
+import { DocumentIcon, EnvelopeIcon, ChatBubbleLeftEllipsisIcon, ArrowDownTrayIcon, CalendarIcon, BuildingOffice2Icon, TruckIcon, PencilSquareIcon, ClockIcon, CheckBadgeIcon, LockClosedIcon, WrenchScrewdriverIcon, CheckCircleIcon, UserGroupIcon, CurrencyDollarIcon } from '@heroicons/vue/24/outline'
 
 const route = useRoute()
 const router = useRouter()
@@ -125,6 +126,15 @@ async function cargarOrden() {
     // Cargar datos de despacho si está entregado
     if (data.estado === 'entregado') {
       cargarDespachoEntrega(data.id)
+    }
+
+    // Cargar consulta activa si hay ítems personalizados
+    if (data.items?.some(i => i.es_personalizado)) {
+      import('@/api/consultas').then(({ getConsultas }) =>
+        getConsultas().then(r => {
+          consultaActiva.value = (r.data ?? []).find(c => c.orden_id === data.id) ?? null
+        }).catch(() => {})
+      )
     }
   } catch (e) {
     error.value = e.response?.data?.message ?? 'No se pudo cargar la orden.'
@@ -352,6 +362,54 @@ function colorPaso(estado) {
   return 'bg-gray-100 text-gray-400'
 }
 
+// ── Consulta de costo ────────────────────────────────────────────────────────
+
+const consultaActiva     = ref(null)
+const showModalCotizar   = ref(false)
+const receptores         = ref([])
+const cotizarReceptorId  = ref(null)
+const cotizarNotas       = ref('')
+const enviandoCotizacion = ref(false)
+
+const puedesolicitarCotizacion = computed(() => {
+  if (!orden.value) return false
+  if (!tienePersonalizados.value) return false
+  if (consultaActiva.value?.estado === 'pendiente') return false
+  if (!['vendedor', 'supervisor'].includes(auth.usuario?.rol)) return false
+  return true
+})
+
+async function abrirModalCotizar() {
+  if (!receptores.value.length) {
+    try {
+      const { data } = await getReceptores()
+      receptores.value = data
+    } catch { receptores.value = [] }
+  }
+  cotizarReceptorId.value = null
+  cotizarNotas.value      = ''
+  showModalCotizar.value  = true
+}
+
+async function enviarSolicitudCotizacion() {
+  if (!cotizarReceptorId.value) return
+  enviandoCotizacion.value = true
+  try {
+    await crearConsulta({
+      orden_id:          orden.value.id,
+      asignado_a_id:     cotizarReceptorId.value,
+      notas_adicionales: cotizarNotas.value.trim() || null,
+    })
+    toast.success('Consulta enviada.')
+    showModalCotizar.value = false
+    await cargarOrden()
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'Error al enviar la consulta.')
+  } finally {
+    enviandoCotizacion.value = false
+  }
+}
+
 onMounted(cargarOrden)
 </script>
 
@@ -438,6 +496,64 @@ onMounted(cargarOrden)
               <p v-if="orden.direccion_envio" class="text-blue-600">{{ orden.direccion_envio }}</p>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- Consulta de costo -->
+      <div v-if="tienePersonalizados" class="bg-white rounded-xl shadow-sm p-4 space-y-3">
+        <p class="text-xs font-semibold text-gray-500 uppercase flex items-center gap-1.5">
+          <CurrencyDollarIcon class="w-3.5 h-3.5" />
+          Cotización de costo
+        </p>
+
+        <!-- Estado de la consulta activa -->
+        <div v-if="consultaActiva" class="flex items-start gap-3">
+          <div
+            :class="[
+              'flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center',
+              consultaActiva.estado === 'pendiente' ? 'bg-amber-100' : 'bg-green-100'
+            ]"
+          >
+            <ClockIcon v-if="consultaActiva.estado === 'pendiente'" class="w-4 h-4 text-amber-600" />
+            <CheckCircleIcon v-else class="w-4 h-4 text-green-600" />
+          </div>
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-semibold text-gray-800">
+              {{ consultaActiva.estado === 'pendiente' ? 'Cotización pendiente' : 'Precio recibido' }}
+            </p>
+            <p class="text-xs text-gray-400">
+              Asignada a {{ consultaActiva.asignado_a?.nombre ?? '—' }}
+            </p>
+            <div v-if="consultaActiva.estado === 'respondida'" class="flex flex-wrap gap-1.5 mt-1.5">
+              <span
+                v-for="item in consultaActiva.items"
+                :key="item.id"
+                class="text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded-full font-medium"
+              >
+                {{ item.orden_item?.nombre_custom ?? item.orden_item?.producto?.nombre ?? 'Ítem' }}:
+                {{ new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(item.precio_final) }}
+              </span>
+            </div>
+          </div>
+          <button
+            @click="router.push({ name: 'consulta-detalle', params: { id: consultaActiva.id } })"
+            class="text-xs text-blue-600 font-medium hover:underline flex-shrink-0"
+          >
+            Ver →
+          </button>
+        </div>
+
+        <!-- Sin consulta: botón solicitar -->
+        <div v-else>
+          <p class="text-xs text-gray-400 mb-2">Esta orden tiene ítems personalizados que requieren cotización de costo.</p>
+          <button
+            v-if="puedesolicitarCotizacion"
+            @click="abrirModalCotizar"
+            class="w-full bg-violet-600 text-white rounded-xl py-2.5 text-sm font-bold hover:bg-violet-700 transition-colors flex items-center justify-center gap-2"
+          >
+            <CurrencyDollarIcon class="w-4 h-4" />
+            Solicitar cotización de costo
+          </button>
         </div>
       </div>
 
@@ -920,6 +1036,68 @@ onMounted(cargarOrden)
       @close="showEditarModal = false"
       @guardado="onOrdenEditada"
     />
+
+    <!-- Modal solicitar cotización -->
+    <Transition name="fade">
+      <div v-if="showModalCotizar" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="showModalCotizar = false">
+        <div class="absolute inset-0 bg-black/40" />
+        <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-4">
+          <h3 class="text-lg font-bold text-gray-800 flex items-center gap-2">
+            <CurrencyDollarIcon class="w-5 h-5 text-violet-600" />
+            Solicitar cotización
+          </h3>
+          <p class="text-sm text-gray-600">
+            Selecciona a quién le envías la consulta de costo para los ítems personalizados de esta orden.
+          </p>
+
+          <div class="space-y-2">
+            <label class="block text-xs font-semibold text-gray-600 uppercase">Enviar a</label>
+            <div class="space-y-2">
+              <label
+                v-for="r in receptores"
+                :key="r.id"
+                :class="[
+                  'flex items-center gap-3 rounded-xl border p-3 cursor-pointer transition-colors',
+                  cotizarReceptorId === r.id ? 'border-violet-400 bg-violet-50' : 'border-gray-200 hover:border-gray-300'
+                ]"
+              >
+                <input type="radio" :value="r.id" v-model="cotizarReceptorId" class="accent-violet-600" />
+                <div>
+                  <p class="text-sm font-semibold text-gray-800">{{ r.nombre }}</p>
+                  <p class="text-xs text-gray-400 capitalize">{{ r.rol }}</p>
+                </div>
+              </label>
+              <p v-if="!receptores.length" class="text-xs text-gray-400 text-center py-2">
+                No hay supervisores ni ebanistas activos.
+              </p>
+            </div>
+          </div>
+
+          <div class="space-y-1">
+            <label class="block text-xs font-semibold text-gray-600 uppercase">Notas adicionales (opcional)</label>
+            <textarea
+              v-model="cotizarNotas"
+              rows="3"
+              placeholder="Instrucciones especiales, materiales sugeridos, urgencia..."
+              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 resize-none"
+            />
+          </div>
+
+          <div class="flex gap-3">
+            <button @click="showModalCotizar = false" class="flex-1 bg-gray-100 text-gray-700 rounded-lg py-2.5 text-sm font-semibold">
+              Cancelar
+            </button>
+            <button
+              @click="enviarSolicitudCotizacion"
+              :disabled="!cotizarReceptorId || enviandoCotizacion"
+              class="flex-1 bg-violet-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-violet-700 disabled:opacity-40 transition-colors"
+            >
+              {{ enviandoCotizacion ? 'Enviando...' : 'Enviar consulta' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
 
     <!-- Lightbox boceto -->
     <Transition name="fade">

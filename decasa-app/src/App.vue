@@ -8,6 +8,7 @@ import { useDespachoStore } from '@/stores/despacho'
 import { useSurtidosStore } from '@/stores/surtidos'
 import { usePasosStore } from '@/stores/pasos'
 import { useDespachoProduccionStore } from '@/stores/despachoProduccion'
+import { useConsultasStore } from '@/stores/consultas'
 import { useSurtidosSocket } from '@/composables/useSurtidosSocket'
 import { registrarPush, cancelarPush } from '@/composables/usePushNotifications'
 import ScrollToTop from '@/components/common/ScrollToTop.vue'
@@ -46,6 +47,7 @@ import {
   DocumentCurrencyDollarIcon,
   ChatBubbleLeftRightIcon,
   ArrowPathIcon,
+  CurrencyDollarIcon,
 } from '@heroicons/vue/24/outline'
 
 const route  = useRoute()
@@ -56,6 +58,7 @@ const despacho = useDespachoStore()
 const surtidos = useSurtidosStore()
 const pasos    = usePasosStore()
 const despachoProd = useDespachoProduccionStore()
+const consultasStore = useConsultasStore()
 const { conectar: conectarSurtidos } = useSurtidosSocket()
 
 const showNav    = computed(() => auth.isAuthenticated && route.name !== 'login')
@@ -93,6 +96,9 @@ watch(() => auth.isAuthenticated, (isAuth) => {
   if (auth.usuario?.rol === 'ebanista' || (auth.usuario?.rol === 'supervisor' && auth.usuario?.es_tapicero)) {
     pasos.cargar()
   }
+  if (auth.isSupervisor || auth.isEbanista) {
+    consultasStore.cargar()
+  }
   if (auth.usuario?.rol === 'despachador') {
     despachoProd.cargar()
   }
@@ -115,6 +121,10 @@ watch(() => auth.usuario?.id, (id) => {
       }
       if (n.tipo === 'paso_produccion' && auth.isDespachador) {
         despachoProd.cargar()
+      }
+      if ((n.tipo === 'consulta_costo_nueva' || n.tipo === 'consulta_costo_respondida') &&
+          (auth.isSupervisor || auth.isEbanista)) {
+        consultasStore.cargar()
       }
     })
   conectarSurtidos()
@@ -153,7 +163,8 @@ const navItems = computed(() => {
       { name: 'inventario', label: 'Inventario',  icon: ArchiveBoxIcon },
       { name: 'usuarios',   label: 'Trabajadores', icon: UsersIcon },
       { name: 'reportes',   label: 'Reportes',    icon: ChartBarIcon },
-      { name: 'costos',          label: 'Costos',          icon: CalculatorIcon },
+      { name: 'costos',      label: 'Costos',       icon: CalculatorIcon },
+      { name: 'consultas',   label: 'Cotizaciones',  icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
     ]
     if (auth.isTapicero) {
       items.unshift({ name: 'mis-pasos', label: 'Mis pasos', icon: ClipboardDocumentCheckIcon, badge: pasos.pendientesCount })
@@ -168,9 +179,10 @@ const navItems = computed(() => {
   }
   if (auth.usuario?.rol === 'ebanista' || (auth.usuario?.rol === 'supervisor' && auth.usuario?.es_tapicero)) {
     return [
-      { name: 'mis-pasos', label: 'Mis pasos', icon: WrenchScrewdriverIcon, badge: pasos.pendientesCount },
-      { name: 'costos',    label: 'Costos',    icon: CalculatorIcon },
-      { name: 'perfil',    label: 'Perfil',    icon: UserCircleIcon },
+      { name: 'mis-pasos',  label: 'Mis pasos',   icon: WrenchScrewdriverIcon, badge: pasos.pendientesCount },
+      { name: 'consultas',  label: 'Cotizaciones', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
+      { name: 'costos',     label: 'Costos',       icon: CalculatorIcon },
+      { name: 'perfil',     label: 'Perfil',       icon: UserCircleIcon },
     ]
   }
   if (auth.usuario?.rol === 'despachador') {
@@ -190,11 +202,12 @@ const navItems = computed(() => {
     ]
   }
   return [
-    { name: 'dashboard',  label: 'Inicio',     icon: HomeIcon },
-    { name: 'ordenes',    label: 'Órdenes',    icon: ClipboardDocumentListIcon },
-    { name: 'clientes',   label: 'Clientes',   icon: UserGroupIcon },
-    { name: 'inventario', label: 'Inventario', icon: ArchiveBoxIcon, badge: surtidos.pendientesCount },
-    { name: 'mis-stats',  label: 'Estadíst.',  icon: PresentationChartLineIcon },
+    { name: 'dashboard',  label: 'Inicio',      icon: HomeIcon },
+    { name: 'ordenes',    label: 'Órdenes',     icon: ClipboardDocumentListIcon },
+    { name: 'clientes',   label: 'Clientes',    icon: UserGroupIcon },
+    { name: 'inventario', label: 'Inventario',  icon: ArchiveBoxIcon, badge: surtidos.pendientesCount },
+    { name: 'mis-stats',  label: 'Estadíst.',   icon: PresentationChartLineIcon },
+    { name: 'consultas',  label: 'Cotizaciones', icon: CurrencyDollarIcon },
   ]
 })
 
@@ -240,6 +253,8 @@ async function abrirNotificacion(n) {
     router.push({ name: auth.isSupervisor ? 'surtir' : 'inventario' })
   } else if (datos.cita_id) {
     router.push({ name: 'citas' })
+  } else if (datos.consulta_id) {
+    router.push({ name: 'consulta-detalle', params: { id: datos.consulta_id } })
   } else if (datos.conversacion_id || n.tipo === 'redes') {
     router.push({ name: 'redes' })
   }
@@ -265,7 +280,9 @@ function tipoIcono(tipo) {
     orden_editada:      PencilSquareIcon,
     abono_registrado:   BanknotesIcon,
     redes:              ChatBubbleLeftRightIcon,
-    cita_recordatorio:  CalendarDaysIcon,
+    cita_recordatorio:          CalendarDaysIcon,
+    consulta_costo_nueva:       CurrencyDollarIcon,
+    consulta_costo_respondida:  CurrencyDollarIcon,
   }
   return icons[tipo] ?? BellIcon
 }

@@ -23,6 +23,7 @@ use App\Http\Controllers\VarianteController;
 use App\Http\Controllers\FichaTecnicaController;
 use App\Http\Controllers\MaterialController;
 use App\Http\Controllers\AgentController;
+use App\Http\Controllers\ConsultaCostoController;
 use App\Http\Controllers\PrecioItemController;
 use App\Http\Controllers\ConfiguracionCostosController;
 use App\Http\Controllers\FacturacionController;
@@ -229,6 +230,14 @@ Route::middleware('auth:sanctum')->group(function () {
     // Agente de IA
     Route::post('/agent/chat',           [AgentController::class,   'chat'])->middleware('throttle:30,1');
     Route::post('/calcular-precio-item', [PrecioItemController::class, 'calcular'])->middleware('throttle:20,1');
+
+    // Consultas de costo (cotizaciones para productos personalizados)
+    Route::get('/consultas-costo/receptores',                    [ConsultaCostoController::class, 'receptores']);
+    Route::get('/consultas-costo',                               [ConsultaCostoController::class, 'index']);
+    Route::post('/consultas-costo',                              [ConsultaCostoController::class, 'store']);
+    Route::get('/consultas-costo/{id}',                          [ConsultaCostoController::class, 'show'])->whereNumber('id');
+    Route::put('/consultas-costo/{id}/items/{itemId}',           [ConsultaCostoController::class, 'guardarItem'])->whereNumber('id')->whereNumber('itemId');
+    Route::post('/consultas-costo/{id}/enviar',                  [ConsultaCostoController::class, 'enviar'])->whereNumber('id');
 
     // Configuración de costos — solo supervisor
     Route::middleware('role:supervisor')->group(function () {
