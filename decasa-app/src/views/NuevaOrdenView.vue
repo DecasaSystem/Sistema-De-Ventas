@@ -718,7 +718,7 @@ async function submit() {
         variante_id:             i.variante_id || undefined,
         tienda_origen_id:        i.tienda_origen_id || undefined,
         cantidad:                i.cantidad,
-        precio_unitario:         i.precio_unitario,
+        precio_unitario:         i._cotizarPrecio ? 0 : i.precio_unitario,
         es_personalizado:        i.es_personalizado,
         fecha_entrega_prometida: i.fecha_entrega_prometida || undefined,
         specs_personalizacion:   i.es_personalizado
