@@ -54,10 +54,11 @@ class PagoController extends Controller
         }
 
         $data = $request->validate([
-            'monto'      => 'required|numeric|min:1',
-            'metodo'     => 'required|in:efectivo,transferencia,tarjeta,otro',
-            'referencia' => 'nullable|string|max:100',
-            'notas'      => 'nullable|string|max:500',
+            'monto'           => 'required|numeric|min:1',
+            'metodo'          => 'required|in:efectivo,transferencia,tarjeta,otro',
+            'referencia'      => 'nullable|string|max:100',
+            'notas'           => 'nullable|string|max:500',
+            'comprobante_url' => 'required|string|max:500',
         ]);
 
         $saldoPendiente = $orden->saldoPendiente();
@@ -73,12 +74,13 @@ class PagoController extends Controller
         $tipoPago = abs($data['monto'] - $saldoPendiente) < 0.01 ? 'saldo_final' : 'abono';
 
         $pago = $orden->pagos()->create([
-            'vendedor_id' => $usuario->id,
-            'tipo'        => $tipoPago,
-            'monto'       => $data['monto'],
-            'metodo'      => $data['metodo'],
-            'referencia'  => $data['referencia'] ?? null,
-            'notas'       => $data['notas'] ?? null,
+            'vendedor_id'    => $usuario->id,
+            'tipo'           => $tipoPago,
+            'monto'          => $data['monto'],
+            'metodo'         => $data['metodo'],
+            'referencia'     => $data['referencia'] ?? null,
+            'notas'          => $data['notas'] ?? null,
+            'comprobante_url' => $data['comprobante_url'],
         ]);
 
         // Si saldo queda en cero y la orden está lista para entregar → entregado

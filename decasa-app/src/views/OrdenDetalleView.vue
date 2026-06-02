@@ -889,6 +889,16 @@ onMounted(cargarOrden)
                 <span v-if="pago.referencia">· {{ pago.referencia }}</span>
               </p>
               <p v-if="pago.notas" class="text-xs text-gray-400">{{ pago.notas }}</p>
+              <a
+                v-if="pago.comprobante_url"
+                :href="pago.comprobante_url"
+                target="_blank"
+                rel="noopener"
+                class="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline mt-0.5"
+              >
+                <ArrowDownTrayIcon class="w-3 h-3" />
+                Ver comprobante
+              </a>
             </div>
             <div class="text-right">
               <p class="text-sm font-semibold text-green-600"><MoneyDisplay :amount="pago.monto" /></p>

@@ -16,6 +16,7 @@ class Pago extends Model
         'metodo',
         'referencia',
         'notas',
+        'comprobante_url',
     ];
 
     protected function casts(): array
