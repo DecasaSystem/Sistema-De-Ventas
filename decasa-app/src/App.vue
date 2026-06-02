@@ -155,16 +155,14 @@ watch(() => auth.usuario?.id, (id) => {
 const navItems = computed(() => {
   if (auth.isSupervisor) {
     const items = [
-      { name: 'dashboard',  label: 'Inicio',      icon: HomeIcon },
-      { name: 'ordenes',    label: 'Órdenes',     icon: ClipboardDocumentListIcon },
-      { name: 'produccion', label: 'Producción',  icon: WrenchScrewdriverIcon },
-      { name: 'despacho',   label: 'Despacho',    icon: TruckIcon, badge: despacho.ordenesPendientes },
-      { name: 'clientes',   label: 'Clientes',    icon: UserGroupIcon },
-      { name: 'inventario', label: 'Inventario',  icon: ArchiveBoxIcon },
-      { name: 'usuarios',   label: 'Trabajadores', icon: UsersIcon },
-      { name: 'reportes',   label: 'Reportes',    icon: ChartBarIcon },
-      { name: 'costos',      label: 'Costos',       icon: CalculatorIcon },
-      { name: 'consultas',   label: 'Cotizaciones',  icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
+      { name: 'dashboard',  label: 'Inicio',       icon: HomeIcon },
+      { name: 'ordenes',    label: 'Órdenes',      icon: ClipboardDocumentListIcon },
+      { name: 'produccion', label: 'Producción',   icon: WrenchScrewdriverIcon },
+      { name: 'despacho',   label: 'Despacho',     icon: TruckIcon, badge: despacho.ordenesPendientes },
+      { name: 'inventario', label: 'Inventario',   icon: ArchiveBoxIcon },
+      { name: 'reportes',   label: 'Reportes',     icon: ChartBarIcon },
+      { name: 'costos',     label: 'Costos',       icon: CalculatorIcon },
+      { name: 'consultas',  label: 'Cotizaciones', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
     ]
     if (auth.isTapicero) {
       items.unshift({ name: 'mis-pasos', label: 'Mis pasos', icon: ClipboardDocumentCheckIcon, badge: pasos.pendientesCount })

@@ -48,7 +48,10 @@ class ConsultaCostoController extends Controller
         if ($usuario->rol === 'vendedor') {
             $query->where('solicitado_por_id', $usuario->id);
         } elseif (in_array($usuario->rol, ['supervisor', 'ebanista'])) {
-            $query->where('asignado_a_id', $usuario->id);
+            $query->where(function ($q) use ($usuario) {
+                $q->where('asignado_a_id', $usuario->id)
+                  ->orWhere('solicitado_por_id', $usuario->id);
+            });
         } else {
             return response()->json([]);
         }

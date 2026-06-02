@@ -543,17 +543,9 @@ onMounted(cargarOrden)
           </button>
         </div>
 
-        <!-- Sin consulta: botón solicitar -->
+        <!-- Sin consulta -->
         <div v-else>
-          <p class="text-xs text-gray-400 mb-2">Esta orden tiene ítems personalizados que requieren cotización de costo.</p>
-          <button
-            v-if="puedesolicitarCotizacion"
-            @click="abrirModalCotizar"
-            class="w-full bg-violet-600 text-white rounded-xl py-2.5 text-sm font-bold hover:bg-violet-700 transition-colors flex items-center justify-center gap-2"
-          >
-            <CurrencyDollarIcon class="w-4 h-4" />
-            Solicitar cotización de costo
-          </button>
+          <p class="text-xs text-gray-400">No se solicitó cotización de costo para esta orden.</p>
         </div>
       </div>
 

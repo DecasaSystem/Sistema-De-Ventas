@@ -10,7 +10,8 @@ import { SPECS_TEMPLATES, resolverCategoria, camposParaModo, specsToDescripcion,
 import { marcasOrdenadas, tiposTelaDeM, coloresDeTela } from '@/data/telasCatalogo'
 import { cloudinaryOpt } from '@/utils/cloudinary'
 import { ArrowPathIcon, SparklesIcon, XMarkIcon } from '@heroicons/vue/24/solid'
-import { ArrowPathIcon as ArrowPathOutlineIcon, PhotoIcon, UserGroupIcon, ArrowPathIcon as ConvertIcon, ExclamationTriangleIcon, PencilIcon, MapPinIcon, SwatchIcon } from '@heroicons/vue/24/outline'
+import { ArrowPathIcon as ArrowPathOutlineIcon, PhotoIcon, UserGroupIcon, ArrowPathIcon as ConvertIcon, ExclamationTriangleIcon, PencilIcon, MapPinIcon, SwatchIcon, CurrencyDollarIcon } from '@heroicons/vue/24/outline'
+import { getReceptores, crearConsulta } from '@/api/consultas'
 import FirmaCanvas from '@/components/FirmaCanvas.vue'
 import BocetoCanvas from '@/components/BocetoCanvas.vue'
 import DireccionColombia from '@/components/DireccionColombia.vue'
@@ -231,11 +232,12 @@ function agregarItemRestauracion() {
     boceto_blob:    f.foto_blob    ?? null,
     boceto_url:     '',
     boceto_preview: f.foto_preview ?? null,
+    _cotizarPrecio:      true,
     _mostrarCalculadora: false,
-    _calculandoPrecio: false,
-    _precioCalc: null,
-    _precioReferencia: null,
-    _telaSelections: {},
+    _calculandoPrecio:   false,
+    _precioCalc:         null,
+    _precioReferencia:   null,
+    _telaSelections:     {},
   })
   restauracionItem.value = { nombre_mueble: '', descripcion_trabajo: '', cantidad: 1, precio_unitario: 0, foto_blob: null, foto_preview: null }
 }
@@ -268,13 +270,12 @@ function agregarProductoCustom() {
     boceto_blob: null,
     boceto_url: '',
     boceto_preview: null,
-    // cotizador IA
+    _cotizarPrecio:      true,
     _mostrarCalculadora: false,
-    _calculandoPrecio: false,
-    _precioCalc: null,
-    _precioReferencia: null,
-    _precioReferencia: null,
-    _telaSelections: {},
+    _calculandoPrecio:   false,
+    _precioCalc:         null,
+    _precioReferencia:   null,
+    _telaSelections:     {},
   })
   productoCustomForm.value = { nombre: '', categoria: '', precio_unitario: 0, cantidad: 1 }
   modoProductoCustom.value = false
@@ -366,12 +367,13 @@ function _pushItem(producto, variante) {
     boceto_blob: null,
     boceto_url: '',
     boceto_preview: null,
-    _fabricar_pedido: false,
+    _fabricar_pedido:    false,
+    _cotizarPrecio:      false,
     _mostrarCalculadora: false,
-    _calculandoPrecio: false,
-    _precioCalc: null,
-    _precioReferencia: null,
-    _telaSelections: {},
+    _calculandoPrecio:   false,
+    _precioCalc:         null,
+    _precioReferencia:   null,
+    _telaSelections:     {},
   })
   productoResultados.value = []
   productoQuery.value = ''
@@ -401,8 +403,9 @@ function fabricarBajoPedido(producto) {
     boceto_blob: null,
     boceto_url: '',
     boceto_preview: null,
-    _fabricar_pedido: true,
-    _esTapizado: producto.es_tapizado ?? false,
+    _fabricar_pedido:    true,
+    _esTapizado:         producto.es_tapizado ?? false,
+    _cotizarPrecio:      false,
     _mostrarCalculadora: false,
     _calculandoPrecio: false,
     _precioCalc: null,
@@ -575,17 +578,40 @@ const minimoAnticipo = computed(() =>
   Math.ceil(valorTotal.value * anticipo_pct.value / 100)
 )
 
-function irAPaso3() {
+// ── Cotización de costo durante la creación ───────────────────────────────────
+const cotizarReceptorId   = ref(null)
+const cotizarNotas        = ref('')
+const receptoresCotizar   = ref([])
+const cargandoReceptores  = ref(false)
+
+const hayItemsCotizar = computed(() =>
+  items.value.some(i => i._cotizarPrecio)
+)
+
+async function irAPaso3() {
   anticipo_monto.value = minimoAnticipo.value
   step.value = 3
+  if (hayItemsCotizar.value && !receptoresCotizar.value.length) {
+    cargandoReceptores.value = true
+    try {
+      const { data } = await getReceptores()
+      receptoresCotizar.value = data
+    } catch { receptoresCotizar.value = [] }
+    finally { cargandoReceptores.value = false }
+  }
 }
 
 async function submit() {
   if (submitting.value || subiendoFactura.value || cooldown.value > 0) return
 
-  const sinPrecio = items.value.filter(i => i.es_personalizado && !i.precio_unitario)
+  const sinPrecio = items.value.filter(i => i.es_personalizado && !i.precio_unitario && !i._cotizarPrecio)
   if (sinPrecio.length) {
-    toast.error(`${sinPrecio.length} producto(s) sin precio. Usa el cotizador IA o ingresa el precio manualmente.`)
+    toast.error(`${sinPrecio.length} producto(s) sin precio. Usa el cotizador IA, ingresa el precio manualmente, o activa "Consultar precio".`)
+    return
+  }
+
+  if (hayItemsCotizar.value && !cotizarReceptorId.value) {
+    toast.error('Selecciona a quién enviar la consulta de costo antes de continuar.')
     return
   }
 
@@ -669,6 +695,18 @@ async function submit() {
     }
 
     const { data } = await api.post('/ordenes', payload)
+
+    // Crear consulta de costo si hay ítems marcados para cotizar
+    if (hayItemsCotizar.value && cotizarReceptorId.value && data?.id) {
+      try {
+        await crearConsulta({
+          orden_id:          data.id,
+          asignado_a_id:     cotizarReceptorId.value,
+          notas_adicionales: cotizarNotas.value.trim() || null,
+        })
+      } catch { /* La orden se creó bien — la consulta puede reintentarse desde el detalle */ }
+    }
+
     // Si el backend detectó duplicado (409), redirigir a la orden existente
     if (data?.orden_id) {
       router.push({ name: 'orden-detalle', params: { id: data.orden_id } })
@@ -1347,7 +1385,12 @@ function removeFacturaFoto() {
             </div>
             <div>
               <label class="text-xs text-gray-500">Precio unitario</label>
+              <div v-if="item.es_personalizado && item._cotizarPrecio" class="flex items-center gap-2 h-9 px-3 bg-violet-50 border border-violet-300 rounded-lg">
+                <CurrencyDollarIcon class="w-4 h-4 text-violet-500 flex-shrink-0" />
+                <span class="text-xs text-violet-700 font-medium">Por definir</span>
+              </div>
               <input
+                v-else
                 v-model.number="item.precio_unitario"
                 type="number" min="0"
                 :class="['input text-sm', item.es_personalizado && !item.precio_unitario ? 'border-amber-400 bg-amber-50' : '']"
@@ -1355,8 +1398,24 @@ function removeFacturaFoto() {
             </div>
           </div>
 
-          <!-- Advertencia precio vacío — no aplica para fabricar bajo pedido (precio ya viene del catálogo) -->
-          <p v-if="item.es_personalizado && !item._fabricar_pedido && !item.precio_unitario" class="text-xs text-amber-600 mt-0.5">
+          <!-- Toggle consultar precio — solo para ítems personalizados que no son de catálogo -->
+          <label
+            v-if="item.es_personalizado && (item.producto_id === null || item.categoria === 'Restauración')"
+            class="flex items-center gap-2.5 cursor-pointer select-none mt-0.5"
+          >
+            <div
+              @click="item._cotizarPrecio = !item._cotizarPrecio"
+              :class="['w-10 h-5 rounded-full transition-colors relative flex-shrink-0', item._cotizarPrecio ? 'bg-violet-600' : 'bg-gray-300']"
+            >
+              <div :class="['absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform', item._cotizarPrecio ? 'translate-x-5' : 'translate-x-0.5']" />
+            </div>
+            <span class="text-xs text-gray-600">
+              {{ item._cotizarPrecio ? 'Consultar precio al enviar la orden' : 'Ingresar precio manualmente' }}
+            </span>
+          </label>
+
+          <!-- Advertencia precio vacío — solo si no está en modo cotizar -->
+          <p v-if="item.es_personalizado && !item._fabricar_pedido && !item.precio_unitario && !item._cotizarPrecio" class="text-xs text-amber-600 mt-0.5">
             Sin precio — usa el cotizador IA o ingrésalo manualmente
           </p>
 
@@ -1956,6 +2015,59 @@ function removeFacturaFoto() {
             class="hidden"
           />
         </label>
+      </div>
+
+      <!-- Cotización de costo — visible solo si hay ítems sin precio -->
+      <div v-if="hayItemsCotizar" class="bg-violet-50 border border-violet-200 rounded-xl p-4 space-y-3">
+        <div class="flex items-center gap-2">
+          <CurrencyDollarIcon class="w-4 h-4 text-violet-600" />
+          <p class="text-sm font-semibold text-violet-800">Consulta de costo pendiente</p>
+        </div>
+
+        <div class="space-y-1">
+          <p class="text-xs text-violet-600">Ítems sin precio que serán cotizados:</p>
+          <div class="flex flex-wrap gap-1.5">
+            <span
+              v-for="item in items.filter(i => i._cotizarPrecio)"
+              :key="item.nombre"
+              class="inline-flex items-center gap-1 text-xs bg-white text-violet-700 px-2 py-0.5 rounded-full border border-violet-200 font-medium"
+            >
+              {{ item.nombre }}
+            </span>
+          </div>
+        </div>
+
+        <div class="space-y-1.5">
+          <label class="block text-xs font-semibold text-gray-700">Enviar consulta a <span class="text-red-500">*</span></label>
+          <div v-if="cargandoReceptores" class="text-xs text-gray-400">Cargando...</div>
+          <div v-else class="space-y-2">
+            <label
+              v-for="r in receptoresCotizar"
+              :key="r.id"
+              :class="[
+                'flex items-center gap-3 rounded-xl border p-3 cursor-pointer transition-colors bg-white',
+                cotizarReceptorId === r.id ? 'border-violet-500 bg-violet-50' : 'border-gray-200 hover:border-violet-300'
+              ]"
+            >
+              <input type="radio" :value="r.id" v-model="cotizarReceptorId" class="accent-violet-600" />
+              <div>
+                <p class="text-sm font-semibold text-gray-800">{{ r.nombre }}</p>
+                <p class="text-xs text-gray-400 capitalize">{{ r.rol }}</p>
+              </div>
+            </label>
+            <p v-if="!receptoresCotizar.length" class="text-xs text-gray-400">No hay supervisores ni ebanistas activos.</p>
+          </div>
+        </div>
+
+        <div class="space-y-1">
+          <label class="block text-xs font-semibold text-gray-700">Notas para el cotizador (opcional)</label>
+          <textarea
+            v-model="cotizarNotas"
+            rows="2"
+            placeholder="Materiales específicos, urgencia, referencias..."
+            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-violet-400 resize-none"
+          />
+        </div>
       </div>
 
       <!-- Firma del cliente -->
