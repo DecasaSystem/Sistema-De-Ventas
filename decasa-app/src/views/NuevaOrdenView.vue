@@ -416,6 +416,42 @@ function fabricarBajoPedido(producto) {
   productoQuery.value = ''
 }
 
+// Agregar un producto del catálogo en modo personalizado (sin stock, opción "Personalizar")
+function agregarPersonalizado(producto) {
+  const existe = items.value.find(i => i.producto_id === producto.id && !i._fabricar_pedido)
+  if (existe) { existe.cantidad++; return }
+
+  items.value.push({
+    producto_id:         producto.id,
+    variante_id:         null,
+    tienda_origen_id:    null,
+    nombre:              producto.nombre,
+    categoria:           producto.categoria,
+    variante_label:      null,
+    stock_libre:         0,
+    personalizable:      true,
+    cantidad:            1,
+    precio_unitario:     producto.precio_base ?? 0,
+    es_personalizado:    true,
+    specs:               {},
+    specs_notas:         '',
+    tienda_origen:       null,
+    fecha_entrega_prometida: null,
+    boceto_blob:         null,
+    boceto_url:          '',
+    boceto_preview:      null,
+    _fabricar_pedido:    false,
+    _cotizarPrecio:      true,
+    _mostrarCalculadora: false,
+    _calculandoPrecio:   false,
+    _precioCalc:         null,
+    _precioReferencia:   null,
+    _telaSelections:     {},
+  })
+  productoResultados.value = []
+  productoQuery.value = ''
+}
+
 function quitarItem(idx) {
   const item = items.value[idx]
   if (item.boceto_preview) URL.revokeObjectURL(item.boceto_preview)
@@ -1146,7 +1182,7 @@ function removeFacturaFoto() {
                 >Fabricar</button>
                 <button
                   v-if="p.personalizable"
-                  @click="agregarItem(p)"
+                  @click="agregarPersonalizado(p)"
                   class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-purple-100 text-purple-700 hover:bg-purple-200 transition-colors"
                 >Personalizar</button>
               </template>
