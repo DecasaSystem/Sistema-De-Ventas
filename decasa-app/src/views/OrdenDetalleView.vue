@@ -921,8 +921,8 @@ onMounted(cargarOrden)
         </div>
       </div>
 
-      <!-- Asignar fechas de entrega (solo supervisor, mientras falten fechas) -->
-      <div v-if="auth.isSupervisor && !todasFechasAsignadas" class="bg-white rounded-xl shadow-sm p-4 space-y-3">
+      <!-- Asignar fechas de entrega (solo después de que el cliente acepte el precio) -->
+      <div v-if="auth.isSupervisor && !todasFechasAsignadas && orden.estado !== 'pendiente_cotizacion'" class="bg-white rounded-xl shadow-sm p-4 space-y-3">
         <p class="text-xs font-semibold text-gray-500 uppercase">Asignar fechas de entrega</p>
         <div
           v-for="item in orden.items"
@@ -977,7 +977,7 @@ onMounted(cargarOrden)
 
         <!-- Aviso: fechas pendientes -->
         <div
-          v-if="!todasFechasAsignadas"
+          v-if="!todasFechasAsignadas && orden.estado !== 'pendiente_cotizacion'"
           class="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5"
         >
           <CalendarIcon class="w-4 h-4 mt-0.5 text-amber-500 flex-shrink-0" />
