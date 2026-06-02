@@ -947,22 +947,38 @@ class OrdenController extends Controller
                 $ordenFresh->listo_entrega_at?->toIso8601String() ?? now()->toIso8601String(),
             ));
 
-            NotificacionService::crear(
-                'listo_entrega',
-                'Orden lista para entrega',
-                "Orden #{$orden->id} — {$ordenFresh->cliente->nombre} está lista para despachar",
-                ['orden_id' => $orden->id, 'tienda_id' => (int) $orden->tienda_id],
-            );
+            // Notificar a otros supervisores (excluir al que hizo el cambio para evitar auto-notificación)
+            $otrosSupervisores = Usuario::where('rol', 'supervisor')
+                ->where('activo', true)
+                ->where('id', '!=', $usuario->id)
+                ->get();
+
+            foreach ($otrosSupervisores as $sup) {
+                NotificacionService::crear(
+                    'listo_entrega',
+                    'Orden lista para entrega',
+                    "Orden #{$orden->id} — {$ordenFresh->cliente->nombre} está lista para despachar",
+                    ['orden_id' => $orden->id, 'tienda_id' => (int) $orden->tienda_id],
+                    $sup->id,
+                );
+            }
         }
 
         if ($estadoNuevo === 'entregado') {
-            // Supervisor
-            NotificacionService::crear(
-                'entregado',
-                'Orden entregada',
-                "Orden #{$orden->id} entregada a {$ordenFresh->cliente->nombre}",
-                ['orden_id' => $orden->id, 'tienda_id' => (int) $orden->tienda_id],
-            );
+            // Notificar a otros supervisores (no al que hizo el cambio)
+            $otrosSupervisores = Usuario::where('rol', 'supervisor')
+                ->where('activo', true)
+                ->where('id', '!=', $usuario->id)
+                ->get();
+            foreach ($otrosSupervisores as $sup) {
+                NotificacionService::crear(
+                    'entregado',
+                    'Orden entregada',
+                    "Orden #{$orden->id} entregada a {$ordenFresh->cliente->nombre}",
+                    ['orden_id' => $orden->id, 'tienda_id' => (int) $orden->tienda_id],
+                    $sup->id,
+                );
+            }
             // Vendedor
             NotificacionService::crear(
                 'entregado',
