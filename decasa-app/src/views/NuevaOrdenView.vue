@@ -2067,14 +2067,17 @@ function removeFacturaFoto() {
         v-model:direccion="direccionEnvio"
       />
 
-      <!-- Foto de factura -->
+      <!-- Foto del comprobante -->
       <div>
-        <label class="label">Foto de la factura (opcional)</label>
+        <label class="label">
+          Foto del comprobante
+          <span class="text-red-500 ml-0.5">*</span>
+        </label>
         <div v-if="facturaFotoFile" class="space-y-2">
           <div class="relative">
             <img
               :src="facturaFotoUrl || facturaFotoPreview"
-              alt="Vista previa factura"
+              alt="Vista previa comprobante"
               class="w-full rounded-xl border-2 border-gray-200 object-contain bg-gray-50"
               style="max-height: 240px;"
             />
@@ -2088,9 +2091,9 @@ function removeFacturaFoto() {
           <p class="text-xs text-gray-400 truncate">{{ facturaFotoFile.name }}</p>
           <p v-if="subiendoFactura" class="text-xs text-blue-600">Subiendo imagen...</p>
         </div>
-        <label v-else class="flex flex-col items-center gap-2 border-2 border-dashed border-gray-300 rounded-xl p-6 cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors">
-          <PhotoIcon class="w-8 h-8 text-gray-300" />
-          <span class="text-sm text-gray-500">Toca para adjuntar foto de factura</span>
+        <label v-else class="flex flex-col items-center gap-2 border-2 border-dashed border-amber-300 rounded-xl p-6 cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors">
+          <PhotoIcon class="w-8 h-8 text-amber-300" />
+          <span class="text-sm text-gray-500">Toca para adjuntar foto del comprobante</span>
           <span class="text-xs text-gray-400">JPG, PNG — máx 5 MB</span>
           <input
             type="file"
@@ -2099,6 +2102,10 @@ function removeFacturaFoto() {
             class="hidden"
           />
         </label>
+        <p v-if="!facturaFotoFile" class="text-xs text-amber-600 flex items-center gap-1 mt-1">
+          <ExclamationTriangleIcon class="w-4 h-4 text-amber-500 inline-block" />
+          Se requiere foto del comprobante para crear la orden
+        </p>
       </div>
 
       <!-- Cotización de costo — visible solo si hay ítems sin precio -->
@@ -2176,7 +2183,7 @@ function removeFacturaFoto() {
 
        <button
          @click="submit"
-         :disabled="submitting || subiendoFactura || cooldown > 0 || anticipo_monto < minimoAnticipofEfectivo || (!hayItemsCotizar && !firmaBlob)"
+         :disabled="submitting || subiendoFactura || cooldown > 0 || anticipo_monto < minimoAnticipofEfectivo || (!hayItemsCotizar && !firmaBlob) || !facturaFotoFile"
          class="btn-primary w-full text-base py-3 flex items-center justify-center gap-2"
        >
          <ArrowPathOutlineIcon v-if="submitting || subiendoFactura" class="w-5 h-5 animate-spin" />
