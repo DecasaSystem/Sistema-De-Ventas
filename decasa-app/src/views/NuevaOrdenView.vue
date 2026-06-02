@@ -807,6 +807,7 @@ function removeFacturaFoto() {
           <input
             v-model="clienteQuery"
             @keyup.enter="buscarCliente"
+            @input="clienteResultados = []"
             placeholder="Nombre, cédula o teléfono..."
             class="input flex-1"
             :disabled="!!clienteSeleccionado"
@@ -843,6 +844,14 @@ function removeFacturaFoto() {
               </span>
             </div>
             <span class="text-xs text-gray-400 flex-shrink-0">{{ c.telefono }}</span>
+          </li>
+          <!-- Siempre ofrecer crear nuevo al fondo, aunque haya resultados -->
+          <li
+            @click="modoNuevoCliente = true; nuevoCliente.nombre = clienteQuery; clienteResultados = []"
+            class="px-4 py-2.5 border-t border-gray-100 hover:bg-green-50 cursor-pointer flex items-center gap-2 text-green-700"
+          >
+            <PlusIcon class="w-4 h-4 flex-shrink-0" />
+            <span class="text-sm font-medium">Crear "{{ clienteQuery }}"</span>
           </li>
         </ul>
 
