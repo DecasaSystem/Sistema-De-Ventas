@@ -2123,8 +2123,8 @@ function removeFacturaFoto() {
         </div>
       </div>
 
-      <!-- Firma del cliente -->
-      <div>
+      <!-- Firma del cliente — solo cuando ya se conoce el precio -->
+      <div v-if="!hayItemsCotizar">
         <label class="label">
           Firma del cliente
           <span class="text-red-500 ml-0.5">*</span>
@@ -2135,9 +2135,17 @@ function removeFacturaFoto() {
         </p>
       </div>
 
+      <!-- Aviso firma cuando hay cotización pendiente -->
+      <div v-else class="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 flex items-start gap-3">
+        <ExclamationTriangleIcon class="w-5 h-5 text-gray-400 flex-shrink-0 mt-0.5" />
+        <p class="text-xs text-gray-500">
+          La firma se recogerá cuando el cliente confirme el precio definitivo.
+        </p>
+      </div>
+
        <button
          @click="submit"
-         :disabled="submitting || subiendoFactura || cooldown > 0 || anticipo_monto < minimoAnticipofEfectivo || !firmaBlob"
+         :disabled="submitting || subiendoFactura || cooldown > 0 || anticipo_monto < minimoAnticipofEfectivo || (!hayItemsCotizar && !firmaBlob)"
          class="btn-primary w-full text-base py-3 flex items-center justify-center gap-2"
        >
          <ArrowPathOutlineIcon v-if="submitting || subiendoFactura" class="w-5 h-5 animate-spin" />
