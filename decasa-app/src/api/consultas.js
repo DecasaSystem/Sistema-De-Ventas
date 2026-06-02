@@ -17,3 +17,9 @@ export const guardarItem = (id, itemId, data) =>
 
 export const enviarConsulta = (id) =>
   api.post(`/consultas-costo/${id}/enviar`)
+
+export const getMensajes = (id) =>
+  api.get(`/consultas-costo/${id}/mensajes`)
+
+export const enviarMensaje = (id, mensaje) =>
+  api.post(`/consultas-costo/${id}/mensajes`, { mensaje })

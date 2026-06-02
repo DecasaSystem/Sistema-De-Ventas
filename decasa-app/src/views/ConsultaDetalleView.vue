@@ -3,18 +3,49 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
-import { getConsulta, guardarItem, enviarConsulta } from '@/api/consultas'
+import { getConsulta, guardarItem, enviarConsulta, getMensajes, enviarMensaje } from '@/api/consultas'
 import { getMateriales } from '@/api/materiales'
 import {
   SparklesIcon, PlusIcon, TrashIcon, CheckCircleIcon,
   ClipboardDocumentCheckIcon, ArrowDownTrayIcon, PaperAirplaneIcon,
-  MagnifyingGlassIcon,
+  MagnifyingGlassIcon, ChatBubbleLeftEllipsisIcon,
 } from '@heroicons/vue/24/outline'
 
 const route     = useRoute()
 const router    = useRouter()
 const toast     = useToast()
 const authStore = useAuthStore()
+
+// ── Chat ─────────────────────────────────────────────────────────────────────
+const mensajes        = ref([])
+const nuevoMensaje    = ref('')
+const enviandoMensaje = ref(false)
+
+async function cargarMensajes() {
+  try {
+    const { data } = await getMensajes(route.params.id)
+    mensajes.value = Array.isArray(data) ? data : []
+  } catch { mensajes.value = [] }
+}
+
+async function doEnviarMensaje() {
+  const texto = nuevoMensaje.value.trim()
+  if (!texto || enviandoMensaje.value) return
+  enviandoMensaje.value = true
+  try {
+    const { data } = await enviarMensaje(route.params.id, texto)
+    mensajes.value.push(data)
+    nuevoMensaje.value = ''
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'Error al enviar el mensaje.')
+  } finally {
+    enviandoMensaje.value = false
+  }
+}
+
+function onMensajeKeydown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doEnviarMensaje() }
+}
 
 const consulta    = ref(null)
 const loading     = ref(true)
@@ -226,6 +257,7 @@ function descargarBoceto(url) {
 
 onMounted(() => {
   cargar()
+  cargarMensajes()
   getMateriales('').then(r => { materialesCatalogo.value = r.data ?? [] }).catch(() => {})
 })
 </script>
@@ -622,6 +654,61 @@ onMounted(() => {
             Los precios fueron actualizados en la orden.
             Puedes revisar y finalizar la orden cuando quieras.
           </p>
+        </div>
+      </div>
+
+      <!-- Chat -->
+      <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+        <div class="flex items-center gap-2 px-4 py-3 border-b border-gray-100">
+          <ChatBubbleLeftEllipsisIcon class="w-4 h-4 text-gray-400" />
+          <p class="text-xs font-semibold text-gray-600 uppercase">Mensajes</p>
+        </div>
+
+        <!-- Historial de mensajes -->
+        <div class="px-4 py-3 space-y-3 max-h-72 overflow-y-auto">
+          <p v-if="!mensajes.length" class="text-xs text-gray-400 text-center py-4">
+            Sin mensajes aún. Usa el chat para aclarar dudas.
+          </p>
+          <div
+            v-for="m in mensajes"
+            :key="m.id"
+            :class="['flex gap-2', m.usuario_id === authStore.usuario?.id ? 'flex-row-reverse' : '']"
+          >
+            <div
+              :class="[
+                'max-w-[75%] rounded-2xl px-3 py-2 text-sm',
+                m.usuario_id === authStore.usuario?.id
+                  ? 'bg-violet-600 text-white rounded-tr-sm'
+                  : 'bg-gray-100 text-gray-800 rounded-tl-sm'
+              ]"
+            >
+              <p v-if="m.usuario_id !== authStore.usuario?.id" class="text-xs font-semibold mb-0.5 text-violet-700">
+                {{ m.usuario?.nombre }}
+              </p>
+              <p class="whitespace-pre-wrap break-words">{{ m.mensaje }}</p>
+              <p :class="['text-[10px] mt-0.5', m.usuario_id === authStore.usuario?.id ? 'text-violet-200' : 'text-gray-400']">
+                {{ formatFecha(m.created_at) }}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Input -->
+        <div class="px-4 py-3 border-t border-gray-100 flex gap-2">
+          <textarea
+            v-model="nuevoMensaje"
+            @keydown="onMensajeKeydown"
+            rows="1"
+            placeholder="Escribe un mensaje… (Enter para enviar)"
+            class="flex-1 rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 resize-none"
+          />
+          <button
+            @click="doEnviarMensaje"
+            :disabled="!nuevoMensaje.trim() || enviandoMensaje"
+            class="bg-violet-600 text-white rounded-xl px-3 py-2 hover:bg-violet-700 disabled:opacity-40 transition-colors flex-shrink-0"
+          >
+            <PaperAirplaneIcon class="w-4 h-4" />
+          </button>
         </div>
       </div>
 

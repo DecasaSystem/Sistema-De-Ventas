@@ -122,9 +122,8 @@ watch(() => auth.usuario?.id, (id) => {
       if (n.tipo === 'paso_produccion' && auth.isDespachador) {
         despachoProd.cargar()
       }
-      if ((n.tipo === 'consulta_costo_nueva' || n.tipo === 'consulta_costo_respondida') &&
-          (auth.isSupervisor || auth.isEbanista)) {
-        consultasStore.cargar()
+      if (['consulta_costo_nueva', 'consulta_costo_respondida', 'consulta_costo_mensaje'].includes(n.tipo)) {
+        if (auth.isSupervisor || auth.isEbanista) consultasStore.cargar()
       }
     })
   conectarSurtidos()
@@ -281,6 +280,7 @@ function tipoIcono(tipo) {
     cita_recordatorio:          CalendarDaysIcon,
     consulta_costo_nueva:       CurrencyDollarIcon,
     consulta_costo_respondida:  CurrencyDollarIcon,
+    consulta_costo_mensaje:     ChatBubbleLeftRightIcon,
   }
   return icons[tipo] ?? BellIcon
 }

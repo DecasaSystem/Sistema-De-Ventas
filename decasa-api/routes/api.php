@@ -239,6 +239,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/consultas-costo/{id}',                          [ConsultaCostoController::class, 'show'])->whereNumber('id');
     Route::put('/consultas-costo/{id}/items/{itemId}',           [ConsultaCostoController::class, 'guardarItem'])->whereNumber('id')->whereNumber('itemId');
     Route::post('/consultas-costo/{id}/enviar',                  [ConsultaCostoController::class, 'enviar'])->whereNumber('id');
+    Route::get('/consultas-costo/{id}/mensajes',                 [ConsultaCostoController::class, 'mensajes'])->whereNumber('id');
+    Route::post('/consultas-costo/{id}/mensajes',                [ConsultaCostoController::class, 'enviarMensaje'])->whereNumber('id');
 
     // Configuración de costos — solo supervisor
     Route::middleware('role:supervisor')->group(function () {

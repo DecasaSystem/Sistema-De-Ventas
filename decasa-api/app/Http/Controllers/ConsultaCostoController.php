@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\ConsultaCosto;
 use App\Models\ConsultaCostoDesglose;
 use App\Models\ConsultaCostoItem;
+use App\Models\ConsultaCostoMensaje;
 use App\Models\OrdenItem;
 use App\Models\Usuario;
 use App\Services\NotificacionService;
@@ -295,5 +296,65 @@ class ConsultaCostoController extends Controller
         );
 
         return response()->json(['message' => 'Precios enviados al vendedor.']);
+    }
+
+    /**
+     * GET /api/consultas-costo/{id}/mensajes
+     */
+    public function mensajes(Request $request, int $id)
+    {
+        $usuario  = $request->user();
+        $consulta = ConsultaCosto::findOrFail($id);
+
+        if ($consulta->asignado_a_id !== $usuario->id && $consulta->solicitado_por_id !== $usuario->id) {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+
+        $mensajes = ConsultaCostoMensaje::with('usuario:id,nombre,rol')
+            ->where('consulta_id', $id)
+            ->orderBy('created_at')
+            ->get();
+
+        return response()->json($mensajes);
+    }
+
+    /**
+     * POST /api/consultas-costo/{id}/mensajes
+     */
+    public function enviarMensaje(Request $request, int $id)
+    {
+        $usuario  = $request->user();
+        $consulta = ConsultaCosto::findOrFail($id);
+
+        if ($consulta->asignado_a_id !== $usuario->id && $consulta->solicitado_por_id !== $usuario->id) {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+
+        $data = $request->validate([
+            'mensaje' => 'required|string|max:1000',
+        ]);
+
+        $msg = ConsultaCostoMensaje::create([
+            'consulta_id' => $id,
+            'usuario_id'  => $usuario->id,
+            'mensaje'     => $data['mensaje'],
+        ]);
+
+        $msg->load('usuario:id,nombre,rol');
+
+        // Notificar a la otra parte
+        $destinatarioId = $consulta->asignado_a_id === $usuario->id
+            ? $consulta->solicitado_por_id
+            : $consulta->asignado_a_id;
+
+        NotificacionService::crear(
+            'consulta_costo_mensaje',
+            'Nuevo mensaje en cotización',
+            "{$usuario->nombre}: " . mb_strimwidth($data['mensaje'], 0, 80, '…'),
+            ['consulta_id' => $id, 'orden_id' => $consulta->orden_id],
+            $destinatarioId,
+        );
+
+        return response()->json($msg, 201);
     }
 }
