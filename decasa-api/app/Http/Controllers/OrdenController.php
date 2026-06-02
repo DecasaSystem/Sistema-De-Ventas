@@ -129,7 +129,7 @@ class OrdenController extends Controller
             'departamento_envio'                 => 'nullable|string|max:100',
             'ciudad_envio'                       => 'nullable|string|max:100',
             'direccion_envio'                    => 'nullable|string|max:300',
-            'anticipo_monto'                     => 'required|numeric|min:1',
+            'anticipo_monto'                     => 'required|numeric|min:0',
             'anticipo_metodo'                    => 'required|in:efectivo,transferencia,tarjeta,otro',
             'anticipo_referencia'                => 'nullable|string|max:100',
             'items'                              => 'required|array|min:1',
@@ -162,8 +162,13 @@ class OrdenController extends Controller
         );
 
         // Validar que el anticipo cubra el porcentaje mínimo
+        // Excepción: si hay ítems personalizados sin precio (cotización pendiente), el anticipo puede ser 0
+        $tieneItemsCotizacionPendiente = collect($data['items'])->contains(
+            fn($i) => ($i['es_personalizado'] ?? false) && (($i['precio_unitario'] ?? 0) == 0)
+        );
+
         $minimoAnticipo = round($valorTotal * $anticupoPct / 100, 2);
-        if ($data['anticipo_monto'] < $minimoAnticipo) {
+        if (! $tieneItemsCotizacionPendiente && $data['anticipo_monto'] < $minimoAnticipo) {
             return response()->json([
                 'message' => "El anticipo mínimo es " . number_format($minimoAnticipo, 2) . " COP ({$anticupoPct}% de " . number_format($valorTotal, 2) . ").",
                 'errors'  => ['anticipo_monto' => ["Debe ser al menos {$minimoAnticipo}"]],
@@ -303,14 +308,16 @@ class OrdenController extends Controller
                 }
             }
 
-            // --- 4. Registrar anticipo ---
-            $orden->pagos()->create([
-                'vendedor_id' => $request->user()->id,
-                'tipo'        => 'anticipo',
-                'monto'       => $data['anticipo_monto'],
-                'metodo'      => $data['anticipo_metodo'],
-                'referencia'  => $data['anticipo_referencia'] ?? null,
-            ]);
+            // --- 4. Registrar anticipo (solo si el monto es mayor a 0) ---
+            if ($data['anticipo_monto'] > 0) {
+                $orden->pagos()->create([
+                    'vendedor_id' => $request->user()->id,
+                    'tipo'        => 'anticipo',
+                    'monto'       => $data['anticipo_monto'],
+                    'metodo'      => $data['anticipo_metodo'],
+                    'referencia'  => $data['anticipo_referencia'] ?? null,
+                ]);
+            }
 
             return $orden;
         });
@@ -354,11 +361,10 @@ class OrdenController extends Controller
             }
         }
 
-        // Notificar a facturadores sobre el anticipo inicial
-        $facturadores = Usuario::where('facturacion', true)
-            ->where('activo', true)
-            ->where('id', '!=', $request->user()->id)
-            ->get();
+        // Notificar a facturadores sobre el anticipo inicial (solo si se registró uno)
+        $facturadores = $data['anticipo_monto'] > 0
+            ? Usuario::where('facturacion', true)->where('activo', true)->where('id', '!=', $request->user()->id)->get()
+            : collect();
 
         if ($facturadores->isNotEmpty()) {
             $montoFormateado = '$ ' . number_format($data['anticipo_monto'], 0, ',', '.');

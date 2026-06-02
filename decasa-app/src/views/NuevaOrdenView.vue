@@ -614,6 +614,12 @@ const minimoAnticipo = computed(() =>
   Math.ceil(valorTotal.value * anticipo_pct.value / 100)
 )
 
+// Si hay ítems con cotización pendiente, el anticipo mínimo es 0
+// (no se puede cobrar anticipo de un precio desconocido)
+const minimoAnticipofEfectivo = computed(() =>
+  hayItemsCotizar.value ? 0 : minimoAnticipo.value
+)
+
 // ── Cotización de costo durante la creación ───────────────────────────────────
 const cotizarReceptorId   = ref(null)
 const cotizarNotas        = ref('')
@@ -696,7 +702,7 @@ async function submit() {
       canal:                canal.value,
       tipo:                 tipoOrden.value,
       anticipo_pct:         anticipo_pct.value,
-      anticipo_monto:       anticipo_monto.value,
+      anticipo_monto:       hayItemsCotizar.value ? 0 : anticipo_monto.value,
       anticipo_metodo:      anticipo_metodo.value,
       anticipo_referencia:  anticipo_referencia.value || undefined,
       notas:                notas.value || undefined,
@@ -1956,54 +1962,65 @@ function removeFacturaFoto() {
         </div>
       </div>
 
-      <!-- Anticipo % -->
-      <div>
-        <label class="label">Porcentaje mínimo anticipo</label>
-        <div class="flex gap-2">
-          <button v-for="pct in [30, 50, 70, 100]" :key="pct"
-            @click="anticipo_pct = pct; anticipo_monto = minimoAnticipo"
-            :class="['px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors',
-              anticipo_pct === pct
-                ? 'bg-blue-600 text-white border-blue-600'
-                : 'bg-white text-gray-700 border-gray-300']"
-          >{{ pct }}%</button>
+      <!-- Anticipo — oculto cuando hay ítems con cotización pendiente -->
+      <template v-if="!hayItemsCotizar">
+        <div>
+          <label class="label">Porcentaje mínimo anticipo</label>
+          <div class="flex gap-2">
+            <button v-for="pct in [30, 50, 70, 100]" :key="pct"
+              @click="anticipo_pct = pct; anticipo_monto = minimoAnticipo"
+              :class="['px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors',
+                anticipo_pct === pct
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-gray-700 border-gray-300']"
+            >{{ pct }}%</button>
+          </div>
         </div>
-      </div>
 
-      <!-- Anticipo monto -->
-      <div>
-        <label class="label">
-          Monto anticipo
-          <span class="text-gray-400 font-normal ml-1">(mínimo ${{ minimoAnticipo.toLocaleString('es-CO') }})</span>
-        </label>
-        <input
-          v-model.number="anticipo_monto"
-          type="number"
-          :min="minimoAnticipo"
-          class="input"
-        />
-      </div>
-
-      <!-- Método pago -->
-      <div>
-        <label class="label">Método de pago</label>
-        <div class="flex gap-2 flex-wrap">
-          <button
-            v-for="m in metodosOpts"
-            :key="m.value"
-            @click="anticipo_metodo = m.value"
-            :class="['px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors',
-              anticipo_metodo === m.value
-                ? 'bg-blue-600 text-white border-blue-600'
-                : 'bg-white text-gray-700 border-gray-300']"
-          >{{ m.label }}</button>
+        <div>
+          <label class="label">
+            Monto anticipo
+            <span class="text-gray-400 font-normal ml-1">(mínimo ${{ minimoAnticipo.toLocaleString('es-CO') }})</span>
+          </label>
+          <input
+            v-model.number="anticipo_monto"
+            type="number"
+            :min="minimoAnticipo"
+            class="input"
+          />
         </div>
-      </div>
 
-      <!-- Referencia (para transferencia/tarjeta) -->
-      <div v-if="anticipo_metodo !== 'efectivo'">
-        <label class="label">Referencia / número transacción</label>
-        <input v-model="anticipo_referencia" class="input" placeholder="Opcional" />
+        <div>
+          <label class="label">Método de pago</label>
+          <div class="flex gap-2 flex-wrap">
+            <button
+              v-for="m in metodosOpts"
+              :key="m.value"
+              @click="anticipo_metodo = m.value"
+              :class="['px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors',
+                anticipo_metodo === m.value
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-gray-700 border-gray-300']"
+            >{{ m.label }}</button>
+          </div>
+        </div>
+
+        <div v-if="anticipo_metodo !== 'efectivo'">
+          <label class="label">Referencia / número transacción</label>
+          <input v-model="anticipo_referencia" class="input" placeholder="Opcional" />
+        </div>
+      </template>
+
+      <!-- Aviso anticipo cuando hay cotización pendiente -->
+      <div v-else class="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3">
+        <ExclamationTriangleIcon class="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+        <div class="text-sm text-amber-800 space-y-1">
+          <p class="font-semibold">Anticipo pendiente</p>
+          <p class="text-xs text-amber-700">
+            La orden quedará guardada en <strong>pendiente</strong> hasta que se confirme el precio.
+            Podrás registrar el anticipo desde el detalle de la orden cuando el cliente acepte.
+          </p>
+        </div>
       </div>
 
       <!-- Notas -->
@@ -2120,7 +2137,7 @@ function removeFacturaFoto() {
 
        <button
          @click="submit"
-         :disabled="submitting || subiendoFactura || cooldown > 0 || anticipo_monto < minimoAnticipo || !firmaBlob"
+         :disabled="submitting || subiendoFactura || cooldown > 0 || anticipo_monto < minimoAnticipofEfectivo || !firmaBlob"
          class="btn-primary w-full text-base py-3 flex items-center justify-center gap-2"
        >
          <ArrowPathOutlineIcon v-if="submitting || subiendoFactura" class="w-5 h-5 animate-spin" />
