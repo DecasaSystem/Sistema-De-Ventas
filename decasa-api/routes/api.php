@@ -1,3 +1,4 @@
+
 <?php
 
 use App\Http\Controllers\AuthController;
@@ -149,6 +150,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/produccion/mis-pasos',                        [ProduccionController::class, 'misPasos']);
     Route::get('/produccion/historial-pasos',                  [ProduccionController::class, 'historialPasos']);
     Route::patch('/produccion/pasos/{id}/completar',           [ProduccionController::class, 'completarPaso'])->whereNumber('id');
+    Route::patch('/produccion/pasos/{id}/devolver',            [ProduccionController::class, 'devolverPaso'])->whereNumber('id');
 
     // Producción — despacho de producción (despachador)
     Route::get('/produccion/pendientes-despacho',              [ProduccionController::class, 'pendientesDespacho']);

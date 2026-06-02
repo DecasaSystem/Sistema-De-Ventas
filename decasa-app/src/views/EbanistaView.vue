@@ -2,8 +2,8 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { CheckCircleIcon, WrenchScrewdriverIcon, ClockIcon, ArrowTopRightOnSquareIcon, UserPlusIcon, XMarkIcon } from '@heroicons/vue/24/outline'
-import { getMisPasos, completarPaso, getHistorialPasos } from '@/api/produccion'
+import { CheckCircleIcon, WrenchScrewdriverIcon, ClockIcon, ArrowTopRightOnSquareIcon, UserPlusIcon, XMarkIcon, ArrowUturnLeftIcon, ExclamationTriangleIcon } from '@heroicons/vue/24/outline'
+import { getMisPasos, completarPaso, getHistorialPasos, devolverPaso } from '@/api/produccion'
 import { useToast } from '@/composables/useToast'
 import { useRealtime } from '@/composables/useRealtime'
 import { usePasosStore } from '@/stores/pasos'
@@ -33,6 +33,43 @@ const historial        = ref([])
 const loadingHistorial = ref(false)
 
 const PROCESO_LABEL = { ebanisteria: 'Ebanistería', tapizado: 'Tapizado', laca: 'Laca' }
+
+// ── Devolver paso ──────────────────────────────────────────────────────────────
+const mostrarModalDevolver = ref(false)
+const pasoDevolver         = ref(null)   // paso actual (el que detectó el problema)
+const destinoId            = ref(null)   // id del paso al que se devuelve
+const motivoDevolver       = ref('')
+const devolviendo          = ref(false)
+
+function pasosAnterioresCompletados(paso) {
+  return (paso.produccion?.pasos ?? [])
+    .filter(p => p.estado === 'completado' && p.orden < paso.orden)
+}
+
+function abrirDevolver(paso) {
+  pasoDevolver.value   = paso
+  destinoId.value      = null
+  motivoDevolver.value = ''
+  mostrarModalDevolver.value = true
+}
+
+async function confirmarDevolver() {
+  if (!destinoId.value || !motivoDevolver.value.trim()) return
+  devolviendo.value = true
+  try {
+    await devolverPaso(pasoDevolver.value.id, {
+      paso_destino_id: destinoId.value,
+      motivo:          motivoDevolver.value.trim(),
+    })
+    mostrarModalDevolver.value = false
+    toast.success('Paso devuelto para corrección.')
+    await cargar()
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'Error al devolver el paso.')
+  } finally {
+    devolviendo.value = false
+  }
+}
 const PROCESO_COLOR = {
   ebanisteria: 'bg-orange-100 text-orange-700',
   tapizado:    'bg-teal-100 text-teal-700',
@@ -276,6 +313,16 @@ onMounted(async () => {
               {{ completandoId === paso.id ? 'Procesando...' : 'Listo — paso terminado' }}
             </button>
           </div>
+
+          <!-- Devolver (solo si hay pasos anteriores completados) -->
+          <button
+            v-if="pasosAnterioresCompletados(paso).length > 0"
+            @click="abrirDevolver(paso)"
+            class="w-full bg-red-50 text-red-600 border border-red-200 rounded-xl py-2 text-sm font-semibold hover:bg-red-100 transition-colors flex items-center justify-center gap-1.5"
+          >
+            <ArrowUturnLeftIcon class="w-4 h-4" />
+            Hay un defecto — devolver paso anterior
+          </button>
         </li>
       </ul>
     </template>
@@ -370,6 +417,70 @@ onMounted(async () => {
         </li>
       </ul>
     </template><!-- /tab historial -->
+
+    <!-- Modal devolver paso -->
+    <Transition name="fade">
+      <div v-if="mostrarModalDevolver" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="mostrarModalDevolver = false">
+        <div class="absolute inset-0 bg-black/40" />
+        <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+          <div class="flex items-center gap-2">
+            <ExclamationTriangleIcon class="w-5 h-5 text-red-500" />
+            <h3 class="text-lg font-bold text-gray-800">Reportar defecto</h3>
+          </div>
+          <p class="text-sm text-gray-600">
+            Estás en <strong>{{ PROCESO_LABEL[pasoDevolver?.tipo_proceso] }}</strong>.
+            Selecciona el paso que tiene el defecto — ese paso y todos los siguientes se reiniciarán para corrección.
+          </p>
+
+          <!-- Pasos anteriores -->
+          <div class="space-y-1">
+            <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wide">Paso con el defecto</label>
+            <div class="space-y-2">
+              <label
+                v-for="p in pasosAnterioresCompletados(pasoDevolver)"
+                :key="p.id"
+                :class="[
+                  'flex items-center gap-3 rounded-xl border p-3 cursor-pointer transition-colors',
+                  destinoId === p.id ? 'border-red-400 bg-red-50' : 'border-gray-200 hover:border-gray-300'
+                ]"
+              >
+                <input type="radio" :value="p.id" v-model="destinoId" class="accent-red-500" />
+                <div>
+                  <span :class="['inline-block text-xs font-bold px-2 py-0.5 rounded-full', PROCESO_COLOR[p.tipo_proceso]]">
+                    {{ PROCESO_LABEL[p.tipo_proceso] }}
+                  </span>
+                  <span class="text-xs text-gray-400 ml-1">Paso {{ p.orden }}</span>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <!-- Motivo -->
+          <div class="space-y-1">
+            <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wide">Descripción del defecto</label>
+            <textarea
+              v-model="motivoDevolver"
+              rows="3"
+              placeholder="Ej: La madera quedó mal lijada, hay astillas en el lateral derecho..."
+              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400 resize-none"
+            />
+          </div>
+
+          <div class="flex gap-3">
+            <button @click="mostrarModalDevolver = false" class="flex-1 bg-gray-100 text-gray-700 rounded-lg py-2.5 text-sm font-semibold">
+              Cancelar
+            </button>
+            <button
+              @click="confirmarDevolver"
+              :disabled="!destinoId || !motivoDevolver.trim() || devolviendo"
+              class="flex-1 bg-red-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              {{ devolviendo ? 'Devolviendo...' : 'Devolver para corrección' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
 
     <!-- Modal de confirmación con asignación de trabajadores -->
     <Transition name="fade">

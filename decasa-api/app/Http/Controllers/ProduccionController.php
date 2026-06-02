@@ -219,6 +219,99 @@ class ProduccionController extends Controller
     }
 
     /**
+     * PATCH /api/produccion/pasos/{id}/devolver
+     * El trabajador del paso actual detecta un defecto en un paso anterior
+     * y lo devuelve para que sea corregido.
+     */
+    public function devolverPaso(Request $request, int $id)
+    {
+        $usuario = $request->user();
+
+        $data = $request->validate([
+            'paso_destino_id' => 'required|integer|exists:produccion_pasos,id',
+            'motivo'          => 'required|string|max:500',
+        ]);
+
+        $pasoOrigen  = ProduccionPaso::with('produccion.ordenItem.producto', 'produccion.ordenItem.orden')->findOrFail($id);
+        $pasoDestino = ProduccionPaso::findOrFail($data['paso_destino_id']);
+
+        // Validaciones
+        if ($pasoOrigen->produccion_id !== $pasoDestino->produccion_id) {
+            return response()->json(['message' => 'Los pasos no pertenecen a la misma producción.'], 422);
+        }
+        if ($pasoOrigen->estado !== 'en_proceso') {
+            return response()->json(['message' => 'Solo puedes devolver desde un paso activo.'], 422);
+        }
+        if ($pasoDestino->orden >= $pasoOrigen->orden) {
+            return response()->json(['message' => 'Solo puedes devolver a un paso anterior.'], 422);
+        }
+
+        $produccion     = $pasoOrigen->produccion;
+        $productoNombre = $produccion->ordenItem->producto->nombre ?? 'Producto';
+        $orden          = $produccion->ordenItem->orden;
+
+        DB::transaction(function () use ($pasoOrigen, $pasoDestino, $produccion, $usuario, $data) {
+            // Registrar el rechazo en el paso con el defecto (destino)
+            $pasoDestino->update([
+                'rechazos'         => $pasoDestino->rechazos + 1,
+                'ultimo_rechazo'   => $data['motivo'],
+                'rechazado_por_id' => $usuario->id,
+                'rechazado_at'     => now(),
+            ]);
+
+            // Resetear todos los pasos desde el destino en adelante (inclusive el origen)
+            ProduccionPaso::where('produccion_id', $pasoOrigen->produccion_id)
+                ->where('orden', '>=', $pasoDestino->orden)
+                ->update([
+                    'estado'         => 'pendiente',
+                    'completado_por' => null,
+                    'completado_at'  => now(),
+                    'trabajadores'   => null,
+                ]);
+
+            // Activar el paso con el defecto para que sea corregido
+            $pasoDestino->update(['estado' => 'en_proceso']);
+
+            // Si la producción estaba en pendiente_despachador, volver a en_proceso
+            if (in_array($produccion->estado, ['pendiente_despachador', 'listo'])) {
+                $produccion->update(['estado' => 'en_proceso']);
+            }
+        });
+
+        // Notificar a los trabajadores del paso devuelto
+        $this->notificarTrabajadores(
+            $pasoDestino->tipo_proceso,
+            $produccion->id,
+            $orden->id,
+            $productoNombre
+        );
+
+        $labelOrigen  = ProduccionPaso::labelProceso($pasoOrigen->tipo_proceso);
+        $labelDestino = ProduccionPaso::labelProceso($pasoDestino->tipo_proceso);
+
+        // Notificar al supervisor
+        NotificacionService::crear(
+            'paso_produccion',
+            'Paso devuelto en producción',
+            "\"{$productoNombre}\": {$labelOrigen} devolvió {$labelDestino} — {$data['motivo']}",
+            ['produccion_id' => $produccion->id, 'orden_id' => $orden->id],
+        );
+
+        // Notificar al vendedor
+        NotificacionService::crear(
+            'paso_produccion',
+            'Corrección en tu pedido',
+            "\"{$productoNombre}\" regresó a {$labelDestino} para corrección",
+            ['produccion_id' => $produccion->id, 'orden_id' => $orden->id],
+            $orden->vendedor_id,
+        );
+
+        event(new ProduccionActualizada($produccion->id, $orden->id, 'en_proceso'));
+
+        return response()->json(['message' => "Paso devuelto a {$labelDestino} correctamente."]);
+    }
+
+    /**
      * GET /api/produccion/pendientes-despacho
      * Solo despachadores: producciones que terminaron todos sus pasos.
      */

@@ -249,7 +249,7 @@ function tipoIcono(tipo) {
   const icons = {
     venta_nueva:        ShoppingCartIcon,
     venta_otra_tienda:  BuildingStorefrontIcon,
-    en_produccion:      WrenchIcon,
+    en_produccion:      WrenchScrewdriverIcon,
     entregado:          CheckCircleIcon,
     retrasado:          ExclamationTriangleIcon,
     por_vencer:         ClockIcon,

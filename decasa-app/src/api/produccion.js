@@ -16,6 +16,9 @@ export const getHistorialPasos = () =>
 export const completarPaso = (pasoId, data) =>
   api.patch(`/produccion/pasos/${pasoId}/completar`, data)
 
+export const devolverPaso = (pasoId, data) =>
+  api.patch(`/produccion/pasos/${pasoId}/devolver`, data)
+
 // Despacho de producción (despachador)
 export const getPendientesDespacho = () =>
   api.get('/produccion/pendientes-despacho')
