@@ -369,6 +369,7 @@ function _pushItem(producto, variante) {
     boceto_preview: null,
     _fabricar_pedido:    false,
     _cotizarPrecio:      false,
+    _descuento_pct:      0,
     _mostrarCalculadora: false,
     _calculandoPrecio:   false,
     _precioCalc:         null,
@@ -606,8 +607,15 @@ const metodosOpts = [
   { value: 'otro',          label: 'Otro' },
 ]
 
+function precioEfectivo(item) {
+  const base = item.precio_unitario ?? 0
+  const pct  = item._descuento_pct ?? 0
+  if (!pct) return base
+  return Math.round(base * (1 - pct / 100))
+}
+
 const valorTotal = computed(() =>
-  items.value.reduce((s, i) => s + i.cantidad * i.precio_unitario, 0)
+  items.value.reduce((s, i) => s + i.cantidad * precioEfectivo(i), 0)
 )
 
 const minimoAnticipo = computed(() =>
@@ -718,7 +726,7 @@ async function submit() {
         variante_id:             i.variante_id || undefined,
         tienda_origen_id:        i.tienda_origen_id || undefined,
         cantidad:                i.cantidad,
-        precio_unitario:         i._cotizarPrecio ? 0 : i.precio_unitario,
+        precio_unitario:         i._cotizarPrecio ? 0 : precioEfectivo(i),
         es_personalizado:        i.es_personalizado,
         fecha_entrega_prometida: i.fecha_entrega_prometida || undefined,
         specs_personalizacion:   i.es_personalizado
@@ -1440,6 +1448,26 @@ function removeFacturaFoto() {
                 type="number" min="0"
                 :class="['input text-sm', item.es_personalizado && !item.precio_unitario ? 'border-amber-400 bg-amber-50' : '']"
               />
+            </div>
+          </div>
+
+          <!-- Descuento — solo para ítems del catálogo en stock (no personalizados) -->
+          <div v-if="!item.es_personalizado && item.producto_id" class="flex items-center gap-2">
+            <label class="text-xs text-gray-500 flex-shrink-0">Descuento</label>
+            <div class="flex items-center gap-1 flex-1">
+              <input
+                v-model.number="item._descuento_pct"
+                type="number"
+                min="0"
+                max="99"
+                step="1"
+                placeholder="0"
+                class="w-20 input text-sm text-center"
+              />
+              <span class="text-xs text-gray-400">%</span>
+            </div>
+            <div v-if="item._descuento_pct > 0" class="text-xs text-green-700 bg-green-50 px-2 py-1 rounded-lg font-medium flex-shrink-0">
+              {{ new Intl.NumberFormat('es-CO').format(precioEfectivo(item)) }} c/u
             </div>
           </div>
 
