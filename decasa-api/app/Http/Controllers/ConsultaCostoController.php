@@ -149,7 +149,7 @@ class ConsultaCostoController extends Controller
             'orden.tienda:id,nombre',
             'asignadoA:id,nombre,rol',
             'solicitadoPor:id,nombre',
-            'items.ordenItem.producto:id,nombre,categoria,foto_url',
+            'items.ordenItem.producto:id,nombre,categoria,foto_url,precio_base',
             'items.desglose',
         ])->findOrFail($id);
 

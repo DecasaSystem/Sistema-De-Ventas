@@ -356,7 +356,12 @@ onMounted(() => {
                   formularios[item.id]?.modo === 'calcular' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500']"
               >Calcular desglose</button>
               <button
-                @click="formularios[item.id].modo = 'manual'"
+                @click="() => {
+                  formularios[item.id].modo = 'manual'
+                  if (!formularios[item.id].precio_manual && item.orden_item?.producto?.precio_base) {
+                    formularios[item.id].precio_manual = parseFloat(item.orden_item.producto.precio_base)
+                  }
+                }"
                 :class="['flex-1 py-1.5 text-xs font-semibold rounded-lg transition-colors',
                   formularios[item.id]?.modo === 'manual' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500']"
               >Precio manual</button>
@@ -364,6 +369,21 @@ onMounted(() => {
 
             <!-- Modo manual -->
             <div v-if="formularios[item.id]?.modo === 'manual'" class="space-y-2">
+              <!-- Precio base del catálogo como referencia -->
+              <div
+                v-if="item.orden_item?.producto?.precio_base"
+                class="flex items-center justify-between bg-blue-50 border border-blue-100 rounded-lg px-3 py-2"
+              >
+                <div>
+                  <p class="text-xs text-blue-600 font-medium">Precio base en catálogo</p>
+                  <p class="text-sm font-bold text-blue-800">{{ formatMoney(item.orden_item.producto.precio_base) }}</p>
+                </div>
+                <button
+                  @click="formularios[item.id].precio_manual = parseFloat(item.orden_item.producto.precio_base)"
+                  class="text-xs bg-blue-600 text-white px-2.5 py-1.5 rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                >Usar este</button>
+              </div>
+
               <label class="block text-xs font-semibold text-gray-600 uppercase">Precio final</label>
               <input
                 v-model.number="formularios[item.id].precio_manual"
