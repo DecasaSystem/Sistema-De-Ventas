@@ -1398,9 +1398,9 @@ function removeFacturaFoto() {
             </div>
           </div>
 
-          <!-- Toggle consultar precio — solo para ítems personalizados que no son de catálogo -->
+          <!-- Toggle consultar precio — para cualquier ítem personalizado -->
           <label
-            v-if="item.es_personalizado && (item.producto_id === null || item.categoria === 'Restauración')"
+            v-if="item.es_personalizado"
             class="flex items-center gap-2.5 cursor-pointer select-none mt-0.5"
           >
             <div
