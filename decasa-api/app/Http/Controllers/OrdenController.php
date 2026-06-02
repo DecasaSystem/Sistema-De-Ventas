@@ -581,6 +581,25 @@ class OrdenController extends Controller
             }
         }
 
+        // Notificar facturadores si se registró anticipo
+        if ($data['anticipo_monto'] > 0) {
+            $facturadores = Usuario::where('facturacion', true)
+                ->where('activo', true)
+                ->where('id', '!=', $usuario->id)
+                ->get();
+
+            $montoFormateado = '$ ' . number_format($data['anticipo_monto'], 0, ',', '.');
+            foreach ($facturadores as $facturador) {
+                NotificacionService::crear(
+                    'abono_registrado',
+                    "Pago registrado – Orden #{$orden->id}",
+                    "{$usuario->nombre} registró un anticipo de {$montoFormateado} en la orden de {$clienteNombre}.",
+                    ['orden_id' => $orden->id],
+                    $facturador->id,
+                );
+            }
+        }
+
         event(new OrdenActualizada($orden->id, (int) $tiendaId, 'pendiente_anticipo', $clienteNombre));
 
         return response()->json(['message' => 'Cotización confirmada. Orden en pendiente de anticipo.']);

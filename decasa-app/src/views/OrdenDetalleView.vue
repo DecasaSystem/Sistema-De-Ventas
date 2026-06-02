@@ -1122,8 +1122,8 @@ onMounted(cargarOrden)
       v-if="orden"
       :show="showPagoModal"
       :orden-id="orden.id"
-      :valor-total="orden.valor_total"
-      :saldo-pendiente="orden.saldo_pendiente"
+      :valor-total="Number(orden.valor_total)"
+      :saldo-pendiente="Number(orden.saldo_pendiente)"
       @close="showPagoModal = false"
       @pago-registrado="onPagoRegistrado"
     />
