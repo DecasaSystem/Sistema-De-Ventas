@@ -18,6 +18,7 @@ import {
   CalculatorIcon,
   ChatBubbleLeftRightIcon,
   CalendarDaysIcon,
+  CurrencyDollarIcon,
 } from '@heroicons/vue/24/outline'
 
 const auth   = useAuthStore()
@@ -32,8 +33,9 @@ const accesos = computed(() => {
   }
   if (auth.usuario?.rol === 'ebanista') {
     return [
-      { label: 'Mis pasos', icon: ClipboardDocumentCheckIcon, to: { name: 'mis-pasos' } },
-      { label: 'Costos',    icon: CalculatorIcon,        to: { name: 'costos'    } },
+      { label: 'Mis pasos',    icon: ClipboardDocumentCheckIcon, to: { name: 'mis-pasos'  } },
+      { label: 'Cotizaciones', icon: CurrencyDollarIcon,         to: { name: 'consultas'  } },
+      { label: 'Costos',       icon: CalculatorIcon,             to: { name: 'costos'     } },
     ]
   }
   if (auth.usuario?.rol === 'despachador') {
@@ -59,6 +61,7 @@ const accesos = computed(() => {
     }
   }
 
+  items.push({ label: 'Cotizaciones', icon: CurrencyDollarIcon, to: { name: 'consultas' } })
   items.push({ label: auth.isSupervisor ? 'Mis estadísticas' : 'Estadísticas', icon: PresentationChartLineIcon, to: { name: 'mis-stats' } })
 
   if (auth.isFacturador) {
