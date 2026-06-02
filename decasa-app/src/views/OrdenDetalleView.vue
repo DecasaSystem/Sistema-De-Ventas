@@ -659,10 +659,21 @@ onMounted(cargarOrden)
 
       <!-- Foto de factura -->
       <div v-if="orden.factura_foto_url" class="bg-white rounded-xl shadow-sm p-4 space-y-2">
-        <p class="text-xs font-semibold text-gray-500 uppercase mb-2">Factura</p>
+        <div class="flex items-center justify-between mb-2">
+          <p class="text-xs font-semibold text-gray-500 uppercase">Comprobante</p>
+          <a
+            :href="orden.factura_foto_url"
+            target="_blank"
+            rel="noopener"
+            class="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium"
+          >
+            <ArrowDownTrayIcon class="w-3.5 h-3.5" />
+            Abrir
+          </a>
+        </div>
         <img
           :src="orden.factura_foto_url"
-          alt="Factura"
+          alt="Comprobante"
           class="w-full rounded-lg border border-gray-200 object-contain max-h-72 cursor-pointer"
           @click="verFactura = orden.factura_foto_url"
         />
