@@ -366,16 +366,35 @@ function colorPaso(estado) {
 }
 
 // ── Confirmar cotización (firma + anticipo cuando cliente acepta) ─────────────
-const showModalConfirmar   = ref(false)
-const firmaConfirmarBlob   = ref(null)
-const firmaConfirmarUrl    = ref('')
-const anticipoPctConfirmar = ref(50)
-const anticipoConfirmar    = ref(0)
-const metodoPagoConfirmar  = ref('efectivo')
-const refPagoConfirmar     = ref('')
-const confirmando          = ref(false)
+const showModalConfirmar      = ref(false)
+const firmaConfirmarBlob      = ref(null)
+const firmaConfirmarUrl       = ref('')
+const facturaConfirmarFile    = ref(null)
+const facturaConfirmarUrl     = ref('')
+const facturaConfirmarPreview = ref('')
+const anticipoPctConfirmar    = ref(50)
+const anticipoConfirmar       = ref(0)
+const metodoPagoConfirmar     = ref('efectivo')
+const refPagoConfirmar        = ref('')
+const confirmando             = ref(false)
 
 watch(firmaConfirmarBlob, () => { firmaConfirmarUrl.value = '' })
+
+watch(facturaConfirmarFile, (file) => {
+  if (facturaConfirmarPreview.value) URL.revokeObjectURL(facturaConfirmarPreview.value)
+  facturaConfirmarPreview.value = file ? URL.createObjectURL(file) : ''
+})
+
+function onFacturaConfirmarChange(e) {
+  const file = e.target.files[0]
+  if (file) { facturaConfirmarFile.value = file; facturaConfirmarUrl.value = '' }
+}
+
+function quitarFacturaConfirmar() {
+  facturaConfirmarFile.value    = null
+  facturaConfirmarUrl.value     = ''
+  facturaConfirmarPreview.value = ''
+}
 
 const totalAcordado = computed(() => Number(orden.value?.valor_total ?? 0))
 
@@ -397,21 +416,37 @@ const metodosOpts = [
 
 async function doConfirmarCotizacion() {
   if (!firmaConfirmarBlob.value && !firmaConfirmarUrl.value) return
+  if (!facturaConfirmarFile.value && !facturaConfirmarUrl.value) {
+    toast.error('Adjunta la foto del comprobante antes de confirmar.')
+    return
+  }
   confirmando.value = true
   try {
-    // Subir firma si es blob
+    const api = (await import('@/api')).default
+
+    // Subir firma
     if (firmaConfirmarBlob.value && !firmaConfirmarUrl.value) {
       const fd = new FormData()
       fd.append('foto', firmaConfirmarBlob.value, 'firma.png')
       fd.append('folder', 'firmas')
-      const { data: up } = await import('@/api').then(m => m.default.post('/upload/foto', fd, { headers: { 'Content-Type': 'multipart/form-data' } }))
+      const { data: up } = await api.post('/upload/foto', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
       firmaConfirmarUrl.value = up.url
     }
 
+    // Subir foto comprobante
+    if (facturaConfirmarFile.value && !facturaConfirmarUrl.value) {
+      const fd = new FormData()
+      fd.append('foto', facturaConfirmarFile.value)
+      fd.append('folder', 'facturas')
+      const { data: up } = await api.post('/upload/foto', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      facturaConfirmarUrl.value = up.url
+    }
+
     await confirmarCotizacion(orden.value.id, {
-      firma_url:           firmaConfirmarUrl.value,
-      anticipo_monto:      anticipoConfirmar.value,
-      anticipo_metodo:     metodoPagoConfirmar.value,
+      firma_url:         firmaConfirmarUrl.value,
+      factura_foto_url:  facturaConfirmarUrl.value,
+      anticipo_monto:    anticipoConfirmar.value,
+      anticipo_metodo:   metodoPagoConfirmar.value,
       anticipo_referencia: refPagoConfirmar.value || undefined,
     })
 
@@ -1112,6 +1147,33 @@ onMounted(cargarOrden)
             Confirmar precio aceptado
           </h3>
 
+          <!-- Foto comprobante -->
+          <div class="space-y-1">
+            <label class="block text-xs font-semibold text-gray-600 uppercase">
+              Foto del comprobante <span class="text-red-500">*</span>
+            </label>
+            <div v-if="facturaConfirmarFile" class="space-y-1.5">
+              <div class="relative">
+                <img
+                  :src="facturaConfirmarPreview"
+                  class="w-full rounded-xl border-2 border-gray-200 object-contain bg-gray-50 max-h-40"
+                />
+                <button
+                  @click="quitarFacturaConfirmar"
+                  class="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1.5 shadow"
+                >
+                  <XMarkIcon class="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <p class="text-xs text-gray-400 truncate">{{ facturaConfirmarFile.name }}</p>
+            </div>
+            <label v-else class="flex flex-col items-center gap-2 border-2 border-dashed border-gray-300 rounded-xl p-4 cursor-pointer hover:border-green-400 hover:bg-green-50 transition-colors">
+              <DocumentIcon class="w-7 h-7 text-gray-300" />
+              <span class="text-sm text-gray-500">Toca para adjuntar comprobante</span>
+              <input type="file" accept="image/*" @change="onFacturaConfirmarChange" class="hidden" />
+            </label>
+          </div>
+
           <!-- Firma -->
           <div class="space-y-1">
             <label class="block text-xs font-semibold text-gray-600 uppercase">
@@ -1186,7 +1248,7 @@ onMounted(cargarOrden)
             </button>
             <button
               @click="doConfirmarCotizacion"
-              :disabled="!firmaConfirmarBlob || confirmando"
+              :disabled="!firmaConfirmarBlob || !facturaConfirmarFile || confirmando"
               class="flex-1 bg-green-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-green-700 disabled:opacity-40 transition-colors"
             >
               {{ confirmando ? 'Confirmando...' : 'Confirmar' }}

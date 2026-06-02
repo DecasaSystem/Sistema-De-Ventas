@@ -762,7 +762,10 @@ async function submit() {
       router.push({ name: 'orden-detalle', params: { id: e.response.data.orden_id } })
       return
     }
-    toast.error(e.response?.data?.message ?? 'Error al crear la orden')
+    const errores = e.response?.data?.errors
+    const detalle = errores ? ' · ' + Object.entries(errores).map(([k, v]) => `${k}: ${v[0]}`).join(', ') : ''
+    toast.error((e.response?.data?.message ?? 'Error al crear la orden') + detalle)
+    console.error('422 payload:', e.response?.data)
     // Cooldown de 4 segundos para evitar doble envío accidental
     cooldown.value = 4
     clearInterval(cooldownTimer)
