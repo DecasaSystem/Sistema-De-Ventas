@@ -81,8 +81,9 @@ async function completarYConvertirCliente() {
   }
 }
 
+let _clienteDebounce = null
 async function buscarCliente() {
-  if (!clienteQuery.value.trim()) return
+  if (!clienteQuery.value.trim()) { clienteResultados.value = []; return }
   buscandoCliente.value = true
   try {
     const { data } = await api.get('/clientes', { params: { search: clienteQuery.value } })
@@ -90,6 +91,13 @@ async function buscarCliente() {
   } finally {
     buscandoCliente.value = false
   }
+}
+
+function onClienteInput() {
+  clienteResultados.value = []
+  clearTimeout(_clienteDebounce)
+  if (clienteQuery.value.trim().length < 2) return
+  _clienteDebounce = setTimeout(buscarCliente, 300)
 }
 
 function seleccionarCliente(c) {
@@ -807,7 +815,7 @@ function removeFacturaFoto() {
           <input
             v-model="clienteQuery"
             @keyup.enter="buscarCliente"
-            @input="clienteResultados = []"
+            @input="onClienteInput"
             placeholder="Nombre, cédula o teléfono..."
             class="input flex-1"
             :disabled="!!clienteSeleccionado"
