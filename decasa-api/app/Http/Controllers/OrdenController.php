@@ -125,7 +125,7 @@ class OrdenController extends Controller
             'anticipo_pct'                  => 'nullable|numeric|min:1|max:100',
             'notas'                              => 'nullable|string|max:1000',
             'factura_foto_url'                   => 'nullable|string|max:500',
-            'firma_url'                          => 'required|string|max:500',
+            'firma_url'                          => 'nullable|string|max:500',
             'departamento_envio'                 => 'nullable|string|max:100',
             'ciudad_envio'                       => 'nullable|string|max:100',
             'direccion_envio'                    => 'nullable|string|max:300',
@@ -153,7 +153,7 @@ class OrdenController extends Controller
             ], 422);
         }
 
-        $tiendaId   = $data['tienda_id'];
+        $tiendaId    = $data['tienda_id'];
         $anticupoPct = $data['anticipo_pct'] ?? 50;
 
         // Calcular valor total server-side
@@ -161,11 +161,18 @@ class OrdenController extends Controller
             fn ($i) => $i['cantidad'] * $i['precio_unitario']
         );
 
-        // Validar que el anticipo cubra el porcentaje mínimo
-        // Excepción: si hay ítems personalizados sin precio (cotización pendiente), el anticipo puede ser 0
+        // Detectar si hay ítems personalizados sin precio (cotización pendiente)
         $tieneItemsCotizacionPendiente = collect($data['items'])->contains(
             fn($i) => ($i['es_personalizado'] ?? false) && (($i['precio_unitario'] ?? 0) == 0)
         );
+
+        // Firma requerida solo cuando no hay cotización pendiente
+        if (empty($data['firma_url']) && ! $tieneItemsCotizacionPendiente) {
+            return response()->json([
+                'message' => 'Se requiere la firma del cliente para confirmar la orden.',
+                'errors'  => ['firma_url' => ['La firma es obligatoria.']],
+            ], 422);
+        }
 
         $minimoAnticipo = round($valorTotal * $anticupoPct / 100, 2);
         if (! $tieneItemsCotizacionPendiente && $data['anticipo_monto'] < $minimoAnticipo) {

@@ -10,7 +10,7 @@ import { SPECS_TEMPLATES, resolverCategoria, camposParaModo, specsToDescripcion,
 import { marcasOrdenadas, tiposTelaDeM, coloresDeTela } from '@/data/telasCatalogo'
 import { cloudinaryOpt } from '@/utils/cloudinary'
 import { ArrowPathIcon, SparklesIcon, XMarkIcon } from '@heroicons/vue/24/solid'
-import { ArrowPathIcon as ArrowPathOutlineIcon, PhotoIcon, UserGroupIcon, ArrowPathIcon as ConvertIcon, ExclamationTriangleIcon, PencilIcon, MapPinIcon, SwatchIcon, CurrencyDollarIcon } from '@heroicons/vue/24/outline'
+import { ArrowPathIcon as ArrowPathOutlineIcon, PhotoIcon, UserGroupIcon, ArrowPathIcon as ConvertIcon, ExclamationTriangleIcon, PencilIcon, MapPinIcon, SwatchIcon, CurrencyDollarIcon, PlusIcon } from '@heroicons/vue/24/outline'
 import { getReceptores, crearConsulta } from '@/api/consultas'
 import FirmaCanvas from '@/components/FirmaCanvas.vue'
 import BocetoCanvas from '@/components/BocetoCanvas.vue'
