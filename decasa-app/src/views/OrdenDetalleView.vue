@@ -664,7 +664,7 @@ onMounted(cargarOrden)
           :src="orden.factura_foto_url"
           alt="Factura"
           class="w-full rounded-lg border border-gray-200 object-contain max-h-72 cursor-pointer"
-          @click="verFactura = true"
+          @click="verFactura = orden.factura_foto_url"
         />
       </div>
 
