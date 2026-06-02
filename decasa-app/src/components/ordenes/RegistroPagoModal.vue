@@ -1,13 +1,16 @@
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { registrarPago } from '@/api/ordenes'
 
 const props = defineProps({
   show: { type: Boolean, required: true },
-  ordenId: { type: Number, required: true },
-  valorTotal: { type: Number, required: true },
-  saldoPendiente: { type: Number, required: true },
+  ordenId: { type: [Number, String], required: true },
+  valorTotal: { type: [Number, String], required: true },
+  saldoPendiente: { type: [Number, String], required: true },
 })
+
+const valorTotalN    = computed(() => Number(props.valorTotal))
+const saldoPendienteN = computed(() => Number(props.saldoPendiente))
 
 const emit = defineEmits(['close', 'pago-registrado'])
 
@@ -27,7 +30,7 @@ const error = ref('')
 
 watch(() => props.show, (val) => {
   if (val) {
-    monto.value = props.saldoPendiente
+    monto.value = saldoPendienteN.value
     metodo.value = 'efectivo'
     referencia.value = ''
     notas.value = ''
@@ -47,8 +50,8 @@ async function submit() {
     error.value = 'Ingresa un monto válido.'
     return
   }
-  if (monto.value > props.saldoPendiente + 0.01) {
-    error.value = `El monto no puede superar el saldo pendiente ($${props.saldoPendiente.toLocaleString('es-CO')}).`
+  if (monto.value > saldoPendienteN.value + 0.01) {
+    error.value = `El monto no puede superar el saldo pendiente ($${saldoPendienteN.value.toLocaleString('es-CO')}).`
     return
   }
 
@@ -89,11 +92,11 @@ async function submit() {
         <div class="bg-gray-50 rounded-xl p-3 space-y-1 text-sm">
           <div class="flex justify-between">
             <span class="text-gray-500">Valor total</span>
-            <span class="font-medium text-gray-800">${{ valorTotal.toLocaleString('es-CO') }}</span>
+            <span class="font-medium text-gray-800">${{ valorTotalN.toLocaleString('es-CO') }}</span>
           </div>
           <div class="flex justify-between">
             <span class="text-gray-500">Saldo pendiente</span>
-            <span class="font-bold text-red-600">${{ saldoPendiente.toLocaleString('es-CO') }}</span>
+            <span class="font-bold text-red-600">${{ saldoPendienteN.toLocaleString('es-CO') }}</span>
           </div>
         </div>
 
@@ -104,7 +107,7 @@ async function submit() {
             v-model.number="monto"
             type="number"
             min="1"
-            :max="saldoPendiente"
+            :max="saldoPendienteN"
             class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             placeholder="0"
           />
