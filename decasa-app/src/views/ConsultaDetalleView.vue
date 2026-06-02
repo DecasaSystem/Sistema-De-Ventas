@@ -4,9 +4,11 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
 import { getConsulta, guardarItem, enviarConsulta } from '@/api/consultas'
+import { getMateriales } from '@/api/materiales'
 import {
   SparklesIcon, PlusIcon, TrashIcon, CheckCircleIcon,
   ClipboardDocumentCheckIcon, ArrowDownTrayIcon, PaperAirplaneIcon,
+  MagnifyingGlassIcon,
 } from '@heroicons/vue/24/outline'
 
 const route     = useRoute()
@@ -45,12 +47,55 @@ const TIPO_COLOR = {
   laquero:    'bg-indigo-50 text-indigo-700',
 }
 
+// ── Catálogo de materiales ────────────────────────────────────────────────────
+const materialesCatalogo = ref([])
+
+function materialesFiltrados(busqueda) {
+  if (!busqueda?.trim()) return materialesCatalogo.value.slice(0, 10)
+  const term = busqueda.toLowerCase()
+  return materialesCatalogo.value
+    .filter(m => m.nombre.toLowerCase().includes(term))
+    .slice(0, 10)
+}
+
+function seleccionarMaterial(fila, material) {
+  fila.nombre          = material.nombre
+  fila.precio_unitario = parseFloat(material.precio_unitario)
+  fila._busqueda       = material.nombre
+  fila._abierto        = false
+}
+
+function abrirCatalogo(fila) {
+  fila._abierto = true
+}
+
+function cerrarCatalogo(fila) {
+  // Pequeño delay para permitir que el click en una opción se registre primero
+  setTimeout(() => { fila._abierto = false }, 150)
+}
+
+// ── Formularios por ítem ─────────────────────────────────────────────────────
+
+function crearFila(tipo = 'material') {
+  return {
+    tipo,
+    nombre:          '',
+    cantidad:        1,
+    precio_unitario: 0,
+    // Solo para tipo material
+    _busqueda: '',
+    _abierto:  false,
+  }
+}
+
 function inicializarFormulario(item) {
   const desglose = (item.desglose ?? []).map(d => ({
     tipo:            d.tipo,
     nombre:          d.nombre,
     cantidad:        parseFloat(d.cantidad),
     precio_unitario: parseFloat(d.precio_unitario),
+    _busqueda:       d.tipo === 'material' ? d.nombre : '',
+    _abierto:        false,
   }))
 
   formularios.value[item.id] = {
@@ -60,12 +105,7 @@ function inicializarFormulario(item) {
 }
 
 function agregarFila(itemId, tipo = 'material') {
-  formularios.value[itemId].desglose.push({
-    tipo,
-    nombre:          '',
-    cantidad:        1,
-    precio_unitario: 0,
-  })
+  formularios.value[itemId].desglose.push(crearFila(tipo))
 }
 
 function quitarFila(itemId, idx) {
@@ -122,8 +162,12 @@ async function guardar(item) {
   }
 
   for (const fila of form.desglose) {
-    if (!fila.nombre.trim()) {
-      toast.error('Completa el nombre en todas las filas.')
+    if (fila.tipo === 'material' && !fila.nombre) {
+      toast.error('Selecciona un material del catálogo en todas las filas de material.')
+      return
+    }
+    if (fila.tipo !== 'material' && !fila.nombre.trim()) {
+      toast.error('Completa el nombre del trabajador en todas las filas.')
       return
     }
   }
@@ -167,7 +211,10 @@ function descargarBoceto(url) {
   a.click()
 }
 
-onMounted(cargar)
+onMounted(() => {
+  cargar()
+  getMateriales('').then(r => { materialesCatalogo.value = r.data ?? [] }).catch(() => {})
+})
 </script>
 
 <template>
@@ -314,11 +361,55 @@ onMounted(cargar)
                   </button>
                 </div>
                 <div class="grid grid-cols-3 gap-2">
-                  <div class="col-span-3">
+                  <!-- Material: búsqueda del catálogo -->
+                  <div v-if="fila.tipo === 'material'" class="col-span-3 relative">
+                    <div class="relative">
+                      <MagnifyingGlassIcon class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+                      <input
+                        v-model="fila._busqueda"
+                        @input="fila.nombre = ''; fila._abierto = true"
+                        @focus="abrirCatalogo(fila)"
+                        @blur="cerrarCatalogo(fila)"
+                        type="text"
+                        placeholder="Buscar material del catálogo..."
+                        class="w-full text-sm border border-gray-200 rounded-lg pl-8 pr-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-violet-400"
+                      />
+                    </div>
+                    <!-- Dropdown de resultados -->
+                    <div
+                      v-if="fila._abierto && materialesFiltrados(fila._busqueda).length"
+                      class="absolute z-30 top-full left-0 right-0 bg-white border border-gray-200 rounded-xl shadow-lg mt-0.5 max-h-44 overflow-y-auto"
+                    >
+                      <button
+                        v-for="m in materialesFiltrados(fila._busqueda)"
+                        :key="m.id"
+                        @mousedown.prevent="seleccionarMaterial(fila, m)"
+                        class="w-full text-left px-3 py-2 text-xs hover:bg-violet-50 transition-colors flex items-center justify-between border-b border-gray-50 last:border-0"
+                      >
+                        <div>
+                          <p class="font-medium text-gray-800">{{ m.nombre }}</p>
+                          <p v-if="m.unidad" class="text-gray-400">{{ m.unidad }}</p>
+                        </div>
+                        <span class="text-violet-700 font-semibold ml-2 flex-shrink-0">{{ formatMoney(m.precio_unitario) }}</span>
+                      </button>
+                    </div>
+                    <!-- Chip del material seleccionado -->
+                    <div v-if="fila.nombre" class="flex items-center gap-1 mt-1">
+                      <span class="text-xs text-violet-700 font-medium">✓ {{ fila.nombre }}</span>
+                      <button
+                        @click.prevent="fila.nombre = ''; fila._busqueda = ''"
+                        class="text-gray-400 hover:text-red-500 text-xs leading-none"
+                      >×</button>
+                    </div>
+                    <p v-else-if="fila._busqueda && !fila._abierto" class="text-xs text-amber-600 mt-0.5">Selecciona un material del catálogo</p>
+                  </div>
+
+                  <!-- Trabajador: texto libre -->
+                  <div v-else class="col-span-3">
                     <input
                       v-model="fila.nombre"
                       type="text"
-                      :placeholder="fila.tipo === 'material' ? 'Nombre del material' : 'Nombre del trabajador'"
+                      placeholder="Nombre del trabajador"
                       class="w-full text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-violet-400"
                     />
                   </div>
