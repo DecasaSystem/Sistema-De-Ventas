@@ -230,8 +230,12 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Configuración de costos — solo supervisor
     Route::middleware('role:supervisor')->group(function () {
-        Route::get('/configuracion/costos',  [ConfiguracionCostosController::class, 'index']);
-        Route::put('/configuracion/costos',  [ConfiguracionCostosController::class, 'guardar']);
+        Route::get('/configuracion/costos',                      [ConfiguracionCostosController::class, 'index']);
+        Route::put('/configuracion/costos',                      [ConfiguracionCostosController::class, 'guardar']);
+        Route::post('/configuracion/costos/cargos',              [ConfiguracionCostosController::class, 'crearCargo']);
+        Route::delete('/configuracion/costos/cargos/{cargo}',    [ConfiguracionCostosController::class, 'eliminarCargo']);
+        Route::post('/configuracion/costos/procesos',            [ConfiguracionCostosController::class, 'crearProceso']);
+        Route::delete('/configuracion/costos/procesos/{id}',     [ConfiguracionCostosController::class, 'eliminarProceso']);
     });
 
     // Redes (módulo WhatsApp centralizado)

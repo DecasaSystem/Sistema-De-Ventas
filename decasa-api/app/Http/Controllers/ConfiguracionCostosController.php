@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class ConfiguracionCostosController extends Controller
 {
@@ -119,6 +120,103 @@ class ConfiguracionCostosController extends Controller
             }
         });
 
+        return $this->index();
+    }
+
+    // POST /configuracion/costos/cargos — crear nuevo tipo de operario
+    public function crearCargo(Request $request)
+    {
+        $data = $request->validate([
+            'cargo'             => 'required|string|max:50',
+            'descripcion'       => 'required|string|max:200',
+            'salario_mensual'   => 'required|numeric|min:0',
+            'dias_laborales_mes'=> 'nullable|integer|min:1|max:31',
+            'tarifa_hora'       => 'nullable|numeric|min:0',
+        ]);
+
+        $slug = Str::slug($data['cargo'], '_');
+
+        if (DB::table('salarios_cargo')->where('cargo', $slug)->exists()) {
+            return response()->json(['message' => "Ya existe un cargo con ese nombre ({$slug})."], 422);
+        }
+
+        DB::table('salarios_cargo')->insert([
+            'cargo'             => $slug,
+            'descripcion'       => $data['descripcion'],
+            'salario_mensual'   => $data['salario_mensual'],
+            'dias_laborales_mes'=> $data['dias_laborales_mes'] ?? 26,
+            'tarifa_hora'       => $data['tarifa_hora'] ?? 0,
+            'created_at'        => now(),
+            'updated_at'        => now(),
+        ]);
+
+        return $this->index();
+    }
+
+    // DELETE /configuracion/costos/cargos/{cargo}
+    public function eliminarCargo(string $cargo)
+    {
+        $base = ['carpintero', 'tapicero', 'costurera', 'lacador'];
+        if (in_array($cargo, $base)) {
+            return response()->json(['message' => 'No se puede eliminar un cargo base del sistema.'], 422);
+        }
+
+        if (DB::table('tarifas_proceso')->where('cargo', $cargo)->exists()) {
+            return response()->json(['message' => 'Elimina primero los trabajos vinculados a este cargo.'], 422);
+        }
+
+        DB::table('salarios_cargo')->where('cargo', $cargo)->delete();
+        return $this->index();
+    }
+
+    // POST /configuracion/costos/procesos — crear nuevo trabajo dentro de un cargo
+    public function crearProceso(Request $request)
+    {
+        $data = $request->validate([
+            'nombre'      => 'required|string|max:100',
+            'descripcion' => 'nullable|string|max:300',
+            'unidad'      => 'required|in:pieza,m2,ml,hora,puesto',
+            'cargo'       => 'required|exists:salarios_cargo,cargo',
+            'horas'       => 'required|numeric|min:0',
+        ]);
+
+        // Generar clave única: cargo_nombre_timestamp si hay colisión
+        $base = Str::slug($data['cargo'] . '_' . $data['nombre'], '_');
+        $slug = $base;
+        $i    = 2;
+        while (DB::table('tarifas_proceso')->where('proceso', $slug)->exists()) {
+            $slug = $base . '_' . $i++;
+        }
+
+        $salario     = DB::table('salarios_cargo')->where('cargo', $data['cargo'])->first();
+        $diasPorUnidad = $data['horas'] / 8;
+        $tarifa      = ($salario && $salario->tarifa_hora > 0)
+            ? round($salario->tarifa_hora * $data['horas'], 0)
+            : 0;
+
+        DB::table('tarifas_proceso')->insert([
+            'proceso'        => $slug,
+            'descripcion'    => $data['descripcion'] ?: $data['nombre'],
+            'unidad'         => $data['unidad'],
+            'cargo'          => $data['cargo'],
+            'aplica_a'       => 'personalizado',
+            'dias_por_unidad'=> $diasPorUnidad,
+            'tarifa'         => $tarifa,
+            'created_at'     => now(),
+            'updated_at'     => now(),
+        ]);
+
+        return $this->index();
+    }
+
+    // DELETE /configuracion/costos/procesos/{id}
+    public function eliminarProceso(int $id)
+    {
+        if (DB::table('ficha_tecnica_items')->where('tarifa_proceso_id', $id)->exists()) {
+            return response()->json(['message' => 'Este trabajo está en uso en fichas técnicas. Desvinculado primero.'], 422);
+        }
+
+        DB::table('tarifas_proceso')->where('id', $id)->delete();
         return $this->index();
     }
 }

@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { getFichas, getFicha, crearFicha, getMaterialesSugeridos, actualizarItems, reimportarFichas } from '@/api/fichas'
 import { getMateriales, crearMaterial, actualizarMaterial, importarMateriales } from '@/api/materiales'
-import { getCostos, guardarCostos } from '@/api/configuracion'
+import { getCostos, guardarCostos, crearCargo, eliminarCargo, crearProceso, eliminarProceso } from '@/api/configuracion'
 import {
   MagnifyingGlassIcon,
   XMarkIcon,
@@ -375,6 +375,90 @@ const loadingTarifas = ref(false)
 const guardandoTar   = ref(false)
 const tarifasDirty   = ref(false)
 
+// ── Nuevo cargo ───────────────────────────────────────────────────────────────
+const CARGOS_BASE    = ['carpintero', 'tapicero', 'costurera', 'lacador']
+const mostrarFormCargo = ref(false)
+const guardandoCargo   = ref(false)
+const errCargo         = ref('')
+const formCargo = ref({ cargo: '', descripcion: '', salario_mensual: '', dias: '26', tarifa_hora: '' })
+
+async function guardarNuevoCargo() {
+  errCargo.value = ''
+  if (!formCargo.value.cargo.trim() || !formCargo.value.salario_mensual) {
+    errCargo.value = 'Nombre y salario son obligatorios.'; return
+  }
+  guardandoCargo.value = true
+  try {
+    await crearCargo({
+      cargo:              formCargo.value.cargo.trim(),
+      descripcion:        formCargo.value.descripcion.trim(),
+      salario_mensual:    parseFloat(formCargo.value.salario_mensual) || 0,
+      dias_laborales_mes: parseInt(formCargo.value.dias) || 26,
+      tarifa_hora:        parseFloat(formCargo.value.tarifa_hora) || 0,
+    })
+    mostrarFormCargo.value = false
+    formCargo.value = { cargo: '', descripcion: '', salario_mensual: '', dias: '26', tarifa_hora: '' }
+    await cargarTarifas()
+  } catch (e) {
+    errCargo.value = e.response?.data?.message ?? 'Error al crear el cargo.'
+  } finally {
+    guardandoCargo.value = false
+  }
+}
+
+async function borrarCargo(cargo) {
+  if (!confirm(`¿Eliminar el cargo "${cargo}"? Los trabajos vinculados deben borrarse primero.`)) return
+  try {
+    await eliminarCargo(cargo)
+    await cargarTarifas()
+  } catch (e) {
+    alert(e.response?.data?.message ?? 'No se pudo eliminar.')
+  }
+}
+
+// ── Nuevo proceso por cargo ────────────────────────────────────────────────────
+const formProceso     = ref({})   // { [cargo]: { nombre, descripcion, unidad, horas, visible, guardando, err } }
+const UNIDADES        = ['pieza', 'puesto', 'm2', 'ml', 'hora']
+
+function abrirFormProceso(cargo) {
+  formProceso.value = {
+    ...formProceso.value,
+    [cargo]: { nombre: '', descripcion: '', unidad: 'pieza', horas: '', visible: true, guardando: false, err: '' }
+  }
+}
+
+async function guardarNuevoProceso(cargo) {
+  const f = formProceso.value[cargo]
+  f.err = ''
+  if (!f.nombre.trim() || !f.horas) { f.err = 'Nombre y horas son obligatorios.'; return }
+  f.guardando = true
+  try {
+    await crearProceso({
+      nombre:      f.nombre.trim(),
+      descripcion: f.descripcion.trim() || undefined,
+      unidad:      f.unidad,
+      cargo,
+      horas:       parseFloat(f.horas) || 0,
+    })
+    formProceso.value[cargo].visible = false
+    await cargarTarifas()
+  } catch (e) {
+    f.err = e.response?.data?.message ?? 'Error al crear el trabajo.'
+  } finally {
+    f.guardando = false
+  }
+}
+
+async function borrarProceso(id, nombre) {
+  if (!confirm(`¿Eliminar el trabajo "${nombre}"?`)) return
+  try {
+    await eliminarProceso(id)
+    await cargarTarifas()
+  } catch (e) {
+    alert(e.response?.data?.message ?? 'No se pudo eliminar.')
+  }
+}
+
 async function cargarTarifas() {
   loadingTarifas.value = true
   try {
@@ -616,17 +700,67 @@ onMounted(() => {
 
         <!-- Salarios por cargo -->
         <div>
-          <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Salarios por cargo</h2>
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Salarios por cargo</h2>
+            <button @click="mostrarFormCargo = !mostrarFormCargo"
+              class="flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800 transition-colors">
+              <PlusIcon class="w-3.5 h-3.5" />
+              Nuevo cargo
+            </button>
+          </div>
+
+          <!-- Formulario nuevo cargo -->
+          <div v-if="mostrarFormCargo" class="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-3 space-y-3">
+            <p class="text-xs font-semibold text-blue-800">Nuevo tipo de operario</p>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="text-[10px] text-gray-500 uppercase font-medium">Nombre del cargo *</label>
+                <input v-model="formCargo.cargo" type="text" placeholder="ej: pintor"
+                  class="w-full mt-0.5 text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label class="text-[10px] text-gray-500 uppercase font-medium">Descripción</label>
+                <input v-model="formCargo.descripcion" type="text" placeholder="ej: Operario de pintura"
+                  class="w-full mt-0.5 text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label class="text-[10px] text-gray-500 uppercase font-medium">Salario mensual *</label>
+                <input v-model="formCargo.salario_mensual" type="number" step="50000" min="0" placeholder="ej: 2500000"
+                  class="w-full mt-0.5 text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label class="text-[10px] text-blue-500 uppercase font-medium">Incentivo / hora</label>
+                <input v-model="formCargo.tarifa_hora" type="number" step="500" min="0" placeholder="ej: 8000"
+                  class="w-full mt-0.5 text-sm border border-blue-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-blue-50" />
+              </div>
+            </div>
+            <p v-if="errCargo" class="text-xs text-red-600">{{ errCargo }}</p>
+            <div class="flex gap-2">
+              <button @click="mostrarFormCargo = false; errCargo = ''"
+                class="flex-1 text-xs py-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50">Cancelar</button>
+              <button @click="guardarNuevoCargo" :disabled="guardandoCargo"
+                class="flex-1 text-xs py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-50">
+                {{ guardandoCargo ? 'Guardando...' : 'Crear cargo' }}
+              </button>
+            </div>
+          </div>
+
           <div class="bg-white rounded-xl shadow-sm divide-y divide-gray-100 overflow-hidden">
             <div v-for="s in salarios" :key="s.cargo" class="px-4 py-3">
               <div class="flex items-center justify-between mb-2">
                 <div>
-                  <p class="text-sm font-semibold text-gray-800 capitalize">{{ s.cargo }}</p>
+                  <p class="text-sm font-semibold text-gray-800 capitalize">{{ s.cargo.replace(/_/g, ' ') }}</p>
                   <p v-if="s.descripcion" class="text-xs text-gray-400">{{ s.descripcion }}</p>
                 </div>
-                <div class="text-right">
-                  <p class="text-xs text-gray-400">Sueldo / día</p>
-                  <p class="text-sm font-bold text-blue-700">{{ formatPeso(sueldoDiarioFor(s.cargo)) }}</p>
+                <div class="flex items-center gap-2">
+                  <div class="text-right">
+                    <p class="text-xs text-gray-400">Sueldo / día</p>
+                    <p class="text-sm font-bold text-blue-700">{{ formatPeso(sueldoDiarioFor(s.cargo)) }}</p>
+                  </div>
+                  <button v-if="!CARGOS_BASE.includes(s.cargo)" @click="borrarCargo(s.cargo)"
+                    class="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Eliminar cargo">
+                    <TrashIcon class="w-4 h-4" />
+                  </button>
                 </div>
               </div>
               <div class="grid grid-cols-2 gap-3 mb-3">
@@ -661,20 +795,83 @@ onMounted(() => {
         <!-- Tiempos de proceso por cargo -->
         <div v-for="[cargo, items] in procesosAgrupados" :key="cargo">
           <div class="flex items-center justify-between mb-3">
-            <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider capitalize">{{ cargo }}</h2>
-            <span class="text-xs text-gray-400">Incentivo {{ formatPeso(tarifaDiariaFor(cargo)) }}/h</span>
+            <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider capitalize">{{ cargo.replace(/_/g, ' ') }}</h2>
+            <div class="flex items-center gap-3">
+              <span class="text-xs text-gray-400">Incentivo {{ formatPeso(tarifaDiariaFor(cargo)) }}/h</span>
+              <button @click="abrirFormProceso(cargo)"
+                class="flex items-center gap-1 text-xs font-semibold text-green-600 hover:text-green-800 transition-colors">
+                <PlusIcon class="w-3.5 h-3.5" />
+                Nuevo trabajo
+              </button>
+            </div>
           </div>
+
+          <!-- Formulario nuevo proceso -->
+          <div v-if="formProceso[cargo]?.visible" class="bg-green-50 border border-green-200 rounded-xl p-4 mb-2 space-y-3">
+            <p class="text-xs font-semibold text-green-800">Nuevo trabajo para <span class="capitalize">{{ cargo.replace(/_/g, ' ') }}</span></p>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="text-[10px] text-gray-500 uppercase font-medium">Nombre del trabajo *</label>
+                <input v-model="formProceso[cargo].nombre" type="text" placeholder="ej: lijada"
+                  class="w-full mt-0.5 text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" />
+              </div>
+              <div>
+                <label class="text-[10px] text-gray-500 uppercase font-medium">Unidad</label>
+                <select v-model="formProceso[cargo].unidad"
+                  class="w-full mt-0.5 text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
+                  <option v-for="u in UNIDADES" :key="u" :value="u">{{ u }}</option>
+                </select>
+              </div>
+              <div class="col-span-2">
+                <label class="text-[10px] text-gray-500 uppercase font-medium">Descripción <span class="font-normal">(opcional)</span></label>
+                <input v-model="formProceso[cargo].descripcion" type="text" placeholder="ej: Lijado previo antes de lacado"
+                  class="w-full mt-0.5 text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" />
+              </div>
+              <div>
+                <label class="text-[10px] text-gray-500 uppercase font-medium">Horas por {{ formProceso[cargo].unidad }} *</label>
+                <div class="flex items-center gap-1 mt-0.5">
+                  <input v-model="formProceso[cargo].horas" type="number" step="0.5" min="0" placeholder="ej: 2"
+                    class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" />
+                  <span class="text-xs text-gray-400 whitespace-nowrap">h</span>
+                </div>
+              </div>
+              <div class="flex items-end">
+                <div class="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                  <p class="text-[10px] text-gray-400 uppercase font-medium">Tarifa estimada</p>
+                  <p class="text-sm font-bold text-orange-600">
+                    {{ formatPeso(Math.round((parseFloat(tarifaDiariaFor(cargo)) || 0) * (parseFloat(formProceso[cargo].horas) || 0))) }}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <p v-if="formProceso[cargo].err" class="text-xs text-red-600">{{ formProceso[cargo].err }}</p>
+            <div class="flex gap-2">
+              <button @click="formProceso[cargo].visible = false"
+                class="flex-1 text-xs py-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50">Cancelar</button>
+              <button @click="guardarNuevoProceso(cargo)" :disabled="formProceso[cargo].guardando"
+                class="flex-1 text-xs py-2 rounded-lg bg-green-600 text-white font-semibold hover:bg-green-700 disabled:opacity-50">
+                {{ formProceso[cargo].guardando ? 'Guardando...' : 'Crear trabajo' }}
+              </button>
+            </div>
+          </div>
+
           <div class="bg-white rounded-xl shadow-sm divide-y divide-gray-100 overflow-hidden">
             <div v-for="p in items" :key="p.id" class="px-4 py-3">
               <div class="flex items-start justify-between gap-3">
                 <div class="flex-1 min-w-0">
-                  <p class="text-sm font-medium text-gray-800">{{ p.proceso.replace(/_/g, ' ') }}</p>
-                  <p v-if="p.descripcion" class="text-xs text-gray-400 mt-0.5">{{ p.descripcion }}</p>
+                  <p class="text-sm font-medium text-gray-800">{{ p.descripcion || p.proceso.replace(/_/g, ' ') }}</p>
+                  <p v-if="p.descripcion && p.descripcion !== p.proceso" class="text-xs text-gray-400 mt-0.5">{{ p.proceso.replace(/_/g, ' ') }}</p>
                 </div>
-                <div class="text-right flex-shrink-0">
-                  <p class="text-xs text-gray-400">Tarifa</p>
-                  <p class="text-sm font-bold text-orange-600">{{ formatPeso(calcTarifa(p)) }}</p>
-                  <p v-if="p.unidad" class="text-[10px] text-gray-400">por {{ p.unidad }}</p>
+                <div class="flex items-start gap-2">
+                  <div class="text-right flex-shrink-0">
+                    <p class="text-xs text-gray-400">Tarifa</p>
+                    <p class="text-sm font-bold text-orange-600">{{ formatPeso(calcTarifa(p)) }}</p>
+                    <p v-if="p.unidad" class="text-[10px] text-gray-400">por {{ p.unidad }}</p>
+                  </div>
+                  <button v-if="p.aplica_a === 'personalizado'" @click="borrarProceso(p.id, p.descripcion || p.proceso)"
+                    class="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors mt-0.5" title="Eliminar">
+                    <TrashIcon class="w-4 h-4" />
+                  </button>
                 </div>
               </div>
               <div class="mt-2 flex items-center gap-2">
