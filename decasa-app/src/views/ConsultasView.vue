@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { getConsultas, getConsultasMonitoreo } from '@/api/consultas'
@@ -73,10 +73,12 @@ function formatMoney(val) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(val ?? 0)
 }
 
-onMounted(() => {
-  cargar()
-  if (auth.isSupervisor) cargarMonitoreo()
+// Carga monitoreo solo la primera vez que el supervisor cambia a esa pestaña
+watch(tabPrincipal, (val) => {
+  if (val === 'monitoreo' && monitoreo.value.length === 0) cargarMonitoreo()
 })
+
+onMounted(cargar)
 </script>
 
 <template>
@@ -97,7 +99,7 @@ onMounted(() => {
         <span v-if="pendientesCount" class="ml-1 inline-flex items-center justify-center w-5 h-5 text-xs bg-violet-100 text-violet-700 rounded-full font-bold">{{ pendientesCount }}</span>
       </button>
       <button
-        @click="tabPrincipal = 'monitoreo'; cargarMonitoreo()"
+        @click="tabPrincipal = 'monitoreo'"
         :class="['flex-1 py-1.5 text-sm font-medium rounded-lg transition-colors flex items-center justify-center gap-1.5', tabPrincipal === 'monitoreo' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500']"
       >
         <EyeIcon class="w-3.5 h-3.5" />

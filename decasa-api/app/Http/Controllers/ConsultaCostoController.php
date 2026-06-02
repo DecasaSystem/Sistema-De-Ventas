@@ -83,10 +83,13 @@ class ConsultaCostoController extends Controller
             'notas_adicionales' => 'nullable|string|max:1000',
         ]);
 
-        // Verificar que el receptor es supervisor o ebanista
+        // Verificar que el receptor es supervisor o ebanista activo
         $receptor = Usuario::findOrFail($data['asignado_a_id']);
         if (! in_array($receptor->rol, ['supervisor', 'ebanista'])) {
             return response()->json(['message' => 'El receptor debe ser supervisor o ebanista.'], 422);
+        }
+        if (! $receptor->activo) {
+            return response()->json(['message' => 'El receptor seleccionado no está activo.'], 422);
         }
 
         // Verificar que la orden tiene ítems personalizados

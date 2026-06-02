@@ -130,7 +130,7 @@ class OrdenController extends Controller
             'ciudad_envio'                       => 'nullable|string|max:100',
             'direccion_envio'                    => 'nullable|string|max:300',
             'anticipo_monto'                     => 'required|numeric|min:0',
-            'anticipo_metodo'                    => 'required|in:efectivo,transferencia,tarjeta,otro',
+            'anticipo_metodo'                    => 'nullable|in:efectivo,transferencia,tarjeta,otro',
             'anticipo_referencia'                => 'nullable|string|max:100',
             'items'                              => 'required|array|min:1',
             'items.*.producto_id'                => 'nullable|exists:productos,id',
@@ -1007,6 +1007,21 @@ class OrdenController extends Controller
                 ['orden_id' => $orden->id],
                 $orden->vendedor_id,
             );
+
+            // Cerrar consultas de costo pendientes para evitar que queden huérfanas
+            \App\Models\ConsultaCosto::where('orden_id', $orden->id)
+                ->where('estado', 'pendiente')
+                ->each(function ($consulta) use ($orden, $ordenFresh) {
+                    $consulta->update(['estado' => 'respondida', 'respondido_at' => now()]);
+                    // Notificar al cotizador que la orden fue cancelada
+                    NotificacionService::crear(
+                        'cancelado',
+                        'Cotización cancelada',
+                        "La orden #{$orden->id} de {$ordenFresh->cliente->nombre} fue cancelada. La consulta de costo ya no aplica.",
+                        ['consulta_id' => $consulta->id, 'orden_id' => $orden->id],
+                        $consulta->asignado_a_id,
+                    );
+                });
         }
 
         // Notificar inventario cuando se entrega o cancela
