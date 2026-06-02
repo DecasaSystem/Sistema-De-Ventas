@@ -233,7 +233,7 @@ class OrdenController extends Controller
                 'tienda_id'         => $tiendaId,
                 'canal'             => $data['canal'],
                 'tipo'              => $data['tipo'] ?? 'venta',
-                'estado'            => 'pendiente_anticipo',
+                'estado'            => $tieneItemsCotizacionPendiente ? 'pendiente_cotizacion' : 'pendiente_anticipo',
                 'valor_total'       => $valorTotal,
                 'anticipo_pct'      => $anticupoPct,
                 'notas'             => $data['notas'] ?? null,
@@ -341,7 +341,7 @@ class OrdenController extends Controller
         event(new OrdenActualizada(
             $orden->id,
             (int) $tiendaId,
-            'pendiente_anticipo',
+            $tieneItemsCotizacionPendiente ? 'pendiente_cotizacion' : 'pendiente_anticipo',
             $ordenCargada->cliente->nombre,
         ));
 
@@ -508,6 +508,69 @@ class OrdenController extends Controller
             );
 
         return response()->json($orden);
+    }
+
+    /**
+     * POST /api/ordenes/{id}/confirmar-cotizacion
+     * El vendedor confirma que el cliente aceptó el precio:
+     * registra firma, anticipo y transiciona a pendiente_anticipo.
+     */
+    public function confirmarCotizacion(Request $request, int $id)
+    {
+        $usuario = $request->user();
+        $orden   = Orden::with('items')->findOrFail($id);
+
+        if ($orden->estado !== 'pendiente_cotizacion') {
+            return response()->json(['message' => 'La orden no está pendiente de cotización.'], 422);
+        }
+
+        if ($usuario->rol === 'vendedor' && $orden->vendedor_id !== $usuario->id) {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+
+        $data = $request->validate([
+            'firma_url'           => 'required|string|max:500',
+            'anticipo_monto'      => 'required|numeric|min:0',
+            'anticipo_metodo'     => 'required|in:efectivo,transferencia,tarjeta,otro',
+            'anticipo_referencia' => 'nullable|string|max:100',
+        ]);
+
+        DB::transaction(function () use ($orden, $data, $usuario) {
+            $orden->update([
+                'firma_url' => $data['firma_url'],
+                'estado'    => 'pendiente_anticipo',
+            ]);
+
+            if ($data['anticipo_monto'] > 0) {
+                $orden->pagos()->create([
+                    'vendedor_id' => $usuario->id,
+                    'tipo'        => 'anticipo',
+                    'monto'       => $data['anticipo_monto'],
+                    'metodo'      => $data['anticipo_metodo'],
+                    'referencia'  => $data['anticipo_referencia'] ?? null,
+                ]);
+            }
+        });
+
+        $orden->loadMissing(['cliente:id,nombre', 'tienda:id,nombre']);
+        $clienteNombre = $orden->cliente->nombre ?? '';
+        $tiendaId      = $orden->tienda_id;
+
+        // Notificar supervisores
+        $supervisores = Usuario::where('rol', 'supervisor')->where('activo', true)->get();
+        foreach ($supervisores as $sup) {
+            NotificacionService::crear(
+                'venta_nueva',
+                'Cotización aceptada — orden confirmada',
+                "Orden #{$orden->id} — {$clienteNombre} confirmó el precio",
+                ['orden_id' => $orden->id, 'tienda_id' => (int) $tiendaId],
+                $sup->id,
+            );
+        }
+
+        event(new OrdenActualizada($orden->id, (int) $tiendaId, 'pendiente_anticipo', $clienteNombre));
+
+        return response()->json(['message' => 'Cotización confirmada. Orden en pendiente de anticipo.']);
     }
 
     /**

@@ -3,7 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
-import { getOrden, updateEstado, descargarPdfOrden, reenviarCotizacion, asignarFechasEntrega } from '@/api/ordenes'
+import { getOrden, updateEstado, descargarPdfOrden, reenviarCotizacion, asignarFechasEntrega, confirmarCotizacion } from '@/api/ordenes'
 import { despachoPorOrden } from '@/api/despacho'
 import { tomarFacturacion, marcarFacturada } from '@/api/pagos'
 import { getReceptores, crearConsulta } from '@/api/consultas'
@@ -12,7 +12,8 @@ import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import RegistroPagoModal from '@/components/ordenes/RegistroPagoModal.vue'
 import EditarOrdenModal from '@/components/ordenes/EditarOrdenModal.vue'
 import { SparklesIcon, XMarkIcon } from '@heroicons/vue/24/solid'
-import { DocumentIcon, EnvelopeIcon, ChatBubbleLeftEllipsisIcon, ArrowDownTrayIcon, CalendarIcon, BuildingOffice2Icon, TruckIcon, PencilSquareIcon, ClockIcon, CheckBadgeIcon, LockClosedIcon, WrenchScrewdriverIcon, CheckCircleIcon, UserGroupIcon, CurrencyDollarIcon } from '@heroicons/vue/24/outline'
+import { DocumentIcon, EnvelopeIcon, ChatBubbleLeftEllipsisIcon, ArrowDownTrayIcon, CalendarIcon, BuildingOffice2Icon, TruckIcon, PencilSquareIcon, ClockIcon, CheckBadgeIcon, LockClosedIcon, WrenchScrewdriverIcon, CheckCircleIcon, UserGroupIcon, CurrencyDollarIcon, BanknotesIcon } from '@heroicons/vue/24/outline'
+import FirmaCanvas from '@/components/FirmaCanvas.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -54,6 +55,7 @@ const todasFechasAsignadas = computed(() =>
 )
 
 const transicionesValidas = {
+  pendiente_cotizacion: ['cancelado'],
   pendiente_anticipo: ['en_produccion', 'listo_entrega', 'cancelado'],
   en_produccion: ['listo_entrega', 'cancelado'],
   listo_entrega: [],
@@ -65,6 +67,7 @@ const transicionesValidas = {
 const nuevoEstado = ref('')
 
 const estadosLabel = {
+  pendiente_cotizacion: 'Pendiente cotización',
   pendiente_anticipo: 'Pendiente anticipo',
   en_produccion: 'En producción',
   listo_entrega: 'Listo entrega',
@@ -362,6 +365,54 @@ function colorPaso(estado) {
   return 'bg-gray-100 text-gray-400'
 }
 
+// ── Confirmar cotización (firma + anticipo cuando cliente acepta) ─────────────
+const showModalConfirmar   = ref(false)
+const firmaConfirmarBlob   = ref(null)
+const firmaConfirmarUrl    = ref('')
+const anticipoConfirmar    = ref(0)
+const metodoPagoConfirmar  = ref('efectivo')
+const refPagoConfirmar     = ref('')
+const confirmando          = ref(false)
+
+watch(firmaConfirmarBlob, () => { firmaConfirmarUrl.value = '' })
+
+const metodosOpts = [
+  { value: 'efectivo',      label: 'Efectivo' },
+  { value: 'transferencia', label: 'Transferencia' },
+  { value: 'tarjeta',       label: 'Tarjeta' },
+  { value: 'otro',          label: 'Otro' },
+]
+
+async function doConfirmarCotizacion() {
+  if (!firmaConfirmarBlob.value && !firmaConfirmarUrl.value) return
+  confirmando.value = true
+  try {
+    // Subir firma si es blob
+    if (firmaConfirmarBlob.value && !firmaConfirmarUrl.value) {
+      const fd = new FormData()
+      fd.append('foto', firmaConfirmarBlob.value, 'firma.png')
+      fd.append('folder', 'firmas')
+      const { data: up } = await import('@/api').then(m => m.default.post('/upload/foto', fd, { headers: { 'Content-Type': 'multipart/form-data' } }))
+      firmaConfirmarUrl.value = up.url
+    }
+
+    await confirmarCotizacion(orden.value.id, {
+      firma_url:           firmaConfirmarUrl.value,
+      anticipo_monto:      anticipoConfirmar.value,
+      anticipo_metodo:     metodoPagoConfirmar.value,
+      anticipo_referencia: refPagoConfirmar.value || undefined,
+    })
+
+    toast.success('Cotización confirmada. Orden en pendiente de anticipo.')
+    showModalConfirmar.value = false
+    await cargarOrden()
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'Error al confirmar.')
+  } finally {
+    confirmando.value = false
+  }
+}
+
 // ── Consulta de costo ────────────────────────────────────────────────────────
 
 const consultaActiva     = ref(null)
@@ -524,15 +575,25 @@ onMounted(cargarOrden)
             <p class="text-xs text-gray-400">
               Asignada a {{ consultaActiva.asignado_a?.nombre ?? '—' }}
             </p>
-            <div v-if="consultaActiva.estado === 'respondida'" class="flex flex-wrap gap-1.5 mt-1.5">
-              <span
-                v-for="item in consultaActiva.items"
-                :key="item.id"
-                class="text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded-full font-medium"
+            <div v-if="consultaActiva.estado === 'respondida'" class="space-y-2 mt-1.5">
+              <div class="flex flex-wrap gap-1.5">
+                <span
+                  v-for="item in consultaActiva.items"
+                  :key="item.id"
+                  class="text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded-full font-medium"
+                >
+                  {{ item.orden_item?.nombre_custom ?? item.orden_item?.producto?.nombre ?? 'Ítem' }}:
+                  {{ new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(item.precio_final) }}
+                </span>
+              </div>
+              <button
+                v-if="orden.estado === 'pendiente_cotizacion'"
+                @click="showModalConfirmar = true"
+                class="w-full bg-green-600 text-white rounded-xl py-2.5 text-sm font-bold hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
               >
-                {{ item.orden_item?.nombre_custom ?? item.orden_item?.producto?.nombre ?? 'Ítem' }}:
-                {{ new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(item.precio_final) }}
-              </span>
+                <CheckCircleIcon class="w-4 h-4" />
+                El cliente aceptó el precio — confirmar
+              </button>
             </div>
           </div>
           <button
@@ -1028,6 +1089,69 @@ onMounted(cargarOrden)
       @close="showEditarModal = false"
       @guardado="onOrdenEditada"
     />
+
+    <!-- Modal confirmar cotización (firma + anticipo) -->
+    <Transition name="fade">
+      <div v-if="showModalConfirmar" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="showModalConfirmar = false">
+        <div class="absolute inset-0 bg-black/40" />
+        <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+          <h3 class="text-lg font-bold text-gray-800 flex items-center gap-2">
+            <CheckCircleIcon class="w-5 h-5 text-green-600" />
+            Confirmar precio aceptado
+          </h3>
+
+          <!-- Firma -->
+          <div class="space-y-1">
+            <label class="block text-xs font-semibold text-gray-600 uppercase">
+              Firma del cliente <span class="text-red-500">*</span>
+            </label>
+            <FirmaCanvas v-model="firmaConfirmarBlob" />
+            <p v-if="!firmaConfirmarBlob" class="text-xs text-amber-600">Se requiere la firma para confirmar.</p>
+          </div>
+
+          <!-- Anticipo -->
+          <div class="space-y-2">
+            <label class="block text-xs font-semibold text-gray-600 uppercase">Anticipo</label>
+            <input
+              v-model.number="anticipoConfirmar"
+              type="number"
+              min="0"
+              placeholder="Monto anticipo (0 si no paga ahora)"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
+            />
+            <div class="flex gap-2 flex-wrap">
+              <button
+                v-for="m in metodosOpts"
+                :key="m.value"
+                @click="metodoPagoConfirmar = m.value"
+                :class="['px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors',
+                  metodoPagoConfirmar === m.value ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-700 border-gray-300']"
+              >{{ m.label }}</button>
+            </div>
+            <input
+              v-if="metodoPagoConfirmar !== 'efectivo'"
+              v-model="refPagoConfirmar"
+              type="text"
+              placeholder="Referencia / número transacción"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
+            />
+          </div>
+
+          <div class="flex gap-3">
+            <button @click="showModalConfirmar = false" class="flex-1 bg-gray-100 text-gray-700 rounded-lg py-2.5 text-sm font-semibold">
+              Cancelar
+            </button>
+            <button
+              @click="doConfirmarCotizacion"
+              :disabled="!firmaConfirmarBlob || confirmando"
+              class="flex-1 bg-green-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-green-700 disabled:opacity-40 transition-colors"
+            >
+              {{ confirmando ? 'Confirmando...' : 'Confirmar' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
 
     <!-- Modal solicitar cotización -->
     <Transition name="fade">
