@@ -23,13 +23,15 @@ class Orden extends Model
         'direccion_envio',
         'ciudad_envio',
         'departamento_envio',
+        'listo_entrega_at',
     ];
 
     protected function casts(): array
     {
         return [
-            'valor_total'  => 'decimal:2',
-            'anticipo_pct' => 'decimal:2',
+            'valor_total'      => 'decimal:2',
+            'anticipo_pct'     => 'decimal:2',
+            'listo_entrega_at' => 'datetime',
         ];
     }
 

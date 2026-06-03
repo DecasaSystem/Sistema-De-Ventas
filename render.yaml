@@ -24,7 +24,7 @@ services:
       - key: REVERB_APP_KEY
         value: acf5kf3mhbshm9ddtic3
       - key: REVERB_APP_SECRET
-        value: vwc6ynw0yebwlvkv6k7y
+        sync: false   # definido en el panel de Render, nunca en el YAML versionado
       - key: REVERB_HOST
         value: "127.0.0.1"
       - key: REVERB_PORT
