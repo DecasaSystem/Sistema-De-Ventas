@@ -99,7 +99,7 @@ watch(() => auth.isAuthenticated, (isAuth) => {
   if (auth.usuario?.rol === 'ebanista' || (auth.usuario?.rol === 'supervisor' && auth.usuario?.es_tapicero)) {
     pasos.cargar()
   }
-  if (auth.isSupervisor || auth.isEbanista) {
+  if (auth.isSupervisor || auth.isEbanista || auth.usuario?.rol === 'vendedor') {
     consultasStore.cargar()
   }
   if (auth.usuario?.rol === 'despachador') {
@@ -126,7 +126,7 @@ watch(() => auth.usuario?.id, (id) => {
         despachoProd.cargar()
       }
       if (['consulta_costo_nueva', 'consulta_costo_respondida', 'consulta_costo_mensaje'].includes(n.tipo)) {
-        if (auth.isSupervisor || auth.isEbanista) consultasStore.cargar()
+        if (auth.isSupervisor || auth.isEbanista || auth.usuario?.rol === 'vendedor') consultasStore.cargar()
       }
       if (n.tipo === 'despacho_asignado' && auth.usuario?.rol === 'conductor') {
         despacho.cargarMisEntregas()
@@ -204,26 +204,30 @@ const navItems = computed(() => {
       { name: 'mis-stats',    label: 'Estadíst.',    icon: PresentationChartLineIcon },
     ]
   }
+  // Vendedor regular
   return [
-    { name: 'dashboard',  label: 'Inicio',      icon: HomeIcon },
-    { name: 'ordenes',    label: 'Órdenes',     icon: ClipboardDocumentListIcon },
-    { name: 'clientes',   label: 'Clientes',    icon: UserGroupIcon },
-    { name: 'inventario', label: 'Inventario',  icon: ArchiveBoxIcon, badge: surtidos.pendientesCount },
-    { name: 'mis-stats',  label: 'Estadíst.',   icon: PresentationChartLineIcon },
-    { name: 'consultas',  label: 'Cotizaciones', icon: CurrencyDollarIcon },
+    { name: 'dashboard',  label: 'Inicio',       icon: HomeIcon },
+    { name: 'ordenes',    label: 'Órdenes',      icon: ClipboardDocumentListIcon },
+    { name: 'clientes',   label: 'Clientes',     icon: UserGroupIcon },
+    { name: 'inventario', label: 'Inventario',   icon: ArchiveBoxIcon, badge: surtidos.pendientesCount },
+    { name: 'consultas',  label: 'Cotizaciones', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
+    { name: 'redes',      label: 'Redes',        icon: ChatBubbleLeftRightIcon, badge: redesPendientes.value },
+    { name: 'citas',      label: 'Citas',        icon: CalendarDaysIcon },
+    { name: 'mis-stats',  label: 'Estadíst.',    icon: PresentationChartLineIcon },
+    { name: 'perfil',     label: 'Perfil',       icon: UserCircleIcon },
   ]
 })
 
-// Para supervisor y facturador: primeros 4 siempre visibles, el resto en "Más"
+// Conductor y roles con ≤4 items: todos visibles. Supervisor/facturador/vendedor: 4 + "Más"
 const navPrimarios   = computed(() => {
   const items = navItems.value
   if (auth.usuario?.rol === 'conductor') return items
-  if (auth.isSupervisor || auth.isFacturador) return items.slice(0, 4)
+  if (auth.isSupervisor || auth.isFacturador || auth.usuario?.rol === 'vendedor') return items.slice(0, 4)
   return items
 })
 const navSecundarios = computed(() => {
   if (auth.usuario?.rol === 'conductor') return []
-  if (auth.isSupervisor || auth.isFacturador) return navItems.value.slice(4)
+  if (auth.isSupervisor || auth.isFacturador || auth.usuario?.rol === 'vendedor') return navItems.value.slice(4)
   return []
 })
 const masActivo      = computed(() => navSecundarios.value.some(i => i.name === route.name))
