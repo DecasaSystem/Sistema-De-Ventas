@@ -199,9 +199,13 @@ const navItems = computed(() => {
       { name: 'dashboard',    label: 'Inicio',       icon: HomeIcon },
       { name: 'facturacion',  label: 'Facturación',  icon: DocumentCurrencyDollarIcon, badge: abonosNoLeidos.value },
       { name: 'ordenes',      label: 'Órdenes',      icon: ClipboardDocumentListIcon },
-      { name: 'inventario',   label: 'Inventario',   icon: ArchiveBoxIcon, badge: surtidos.pendientesCount },
       { name: 'clientes',     label: 'Clientes',     icon: UserGroupIcon },
+      { name: 'consultas',    label: 'Cotizaciones', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
+      { name: 'inventario',   label: 'Inventario',   icon: ArchiveBoxIcon, badge: surtidos.pendientesCount },
+      { name: 'redes',        label: 'Redes',        icon: ChatBubbleLeftRightIcon, badge: redesPendientes.value },
+      { name: 'citas',        label: 'Citas',        icon: CalendarDaysIcon },
       { name: 'mis-stats',    label: 'Estadíst.',    icon: PresentationChartLineIcon },
+      { name: 'perfil',       label: 'Perfil',       icon: UserCircleIcon },
     ]
   }
   // Vendedor regular — primeros 4 siempre visibles, resto en "Más"
