@@ -87,7 +87,7 @@ watch(() => auth.isAuthenticated, (isAuth) => {
   if (!isAuth) return
   notif.cargar()
   registrarPush()
-  if (['supervisor', 'conductor'].includes(auth.usuario?.rol)) {
+  if (auth.isSupervisor) {
     despacho.refrescar()
   }
   if (auth.usuario?.rol === 'vendedor') {
