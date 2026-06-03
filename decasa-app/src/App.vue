@@ -90,6 +90,9 @@ watch(() => auth.isAuthenticated, (isAuth) => {
   if (auth.isSupervisor) {
     despacho.refrescar()
   }
+  if (auth.usuario?.rol === 'conductor') {
+    despacho.cargarMisEntregas()
+  }
   if (auth.usuario?.rol === 'vendedor') {
     surtidos.cargarPendientes()
   }
@@ -124,6 +127,9 @@ watch(() => auth.usuario?.id, (id) => {
       }
       if (['consulta_costo_nueva', 'consulta_costo_respondida', 'consulta_costo_mensaje'].includes(n.tipo)) {
         if (auth.isSupervisor || auth.isEbanista) consultasStore.cargar()
+      }
+      if (n.tipo === 'despacho_asignado' && auth.usuario?.rol === 'conductor') {
+        despacho.cargarMisEntregas()
       }
     })
   conectarSurtidos()
@@ -170,7 +176,7 @@ const navItems = computed(() => {
   }
   if (auth.usuario?.rol === 'conductor') {
     return [
-      { name: 'mis-entregas',        label: 'Entregas',  icon: TruckIcon, badge: despacho.ordenesPendientes },
+      { name: 'mis-entregas',        label: 'Entregas',  icon: TruckIcon, badge: despacho.misEntregasPendientes },
       { name: 'mis-stats-conductor', label: 'Estadíst.', icon: PresentationChartLineIcon },
     ]
   }
@@ -240,6 +246,9 @@ async function abrirNotificacion(n) {
   // Notificaciones de consultas de costo — van al detalle de la consulta
   if (datos.consulta_id) {
     router.push({ name: 'consulta-detalle', params: { id: datos.consulta_id } })
+  } else if (n.tipo === 'despacho_asignado' || (auth.usuario?.rol === 'conductor' && datos.orden_id)) {
+    // Conductor: cualquier notificación con orden_id o despacho asignado va a sus entregas
+    router.push({ name: 'mis-entregas' })
   } else if (datos.orden_id) {
     if (n.tipo === 'venta_otra_tienda') {
       const ids = datos.productos
@@ -279,6 +288,7 @@ function tipoIcono(tipo) {
     abono_registrado:   BanknotesIcon,
     redes:              ChatBubbleLeftRightIcon,
     cita_recordatorio:          CalendarDaysIcon,
+    despacho_asignado:          TruckIcon,
     consulta_costo_nueva:       CurrencyDollarIcon,
     consulta_costo_respondida:  CurrencyDollarIcon,
     consulta_costo_mensaje:     ChatBubbleLeftRightIcon,
