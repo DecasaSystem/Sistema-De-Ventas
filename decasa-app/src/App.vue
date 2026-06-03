@@ -237,7 +237,10 @@ async function abrirNotificacion(n) {
   notif.leer(n.id)
   abrirNotif.value = false
   const datos = n.datos ?? {}
-  if (datos.orden_id) {
+  // Notificaciones de consultas de costo — van al detalle de la consulta
+  if (datos.consulta_id) {
+    router.push({ name: 'consulta-detalle', params: { id: datos.consulta_id } })
+  } else if (datos.orden_id) {
     if (n.tipo === 'venta_otra_tienda') {
       const ids = datos.productos
       router.push({ name: 'inventario', query: ids?.length ? { abrir: ids.join(',') } : {} })
@@ -250,8 +253,6 @@ async function abrirNotificacion(n) {
     router.push({ name: auth.isSupervisor ? 'surtir' : 'inventario' })
   } else if (datos.cita_id) {
     router.push({ name: 'citas' })
-  } else if (datos.consulta_id) {
-    router.push({ name: 'consulta-detalle', params: { id: datos.consulta_id } })
   } else if (datos.conversacion_id || n.tipo === 'redes') {
     router.push({ name: 'redes' })
   }
