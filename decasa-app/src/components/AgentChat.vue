@@ -8,6 +8,7 @@ import {
   PaperAirplaneIcon,
   ArrowPathIcon,
   PhotoIcon,
+  MicrophoneIcon,
 } from '@heroicons/vue/24/outline'
 import { SparklesIcon as SparklesSolid } from '@heroicons/vue/24/solid'
 
@@ -27,6 +28,50 @@ const fileInputRef = ref(null)
 
 // imagen adjunta pendiente de enviar
 const imagenPendiente = ref(null)   // { base64: string, nombre: string }
+
+// ── Reconocimiento de voz (Web Speech API) ────────────────────────────────
+const escuchando = ref(false)
+let reconocimiento = null
+
+function toggleVoz() {
+  if (escuchando.value) {
+    reconocimiento?.stop()
+    return
+  }
+
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+  if (!SR) {
+    alert('Tu navegador no soporta reconocimiento de voz. Usa Chrome o Edge.')
+    return
+  }
+
+  reconocimiento          = new SR()
+  reconocimiento.lang     = 'es-CO'
+  reconocimiento.continuous      = false
+  reconocimiento.interimResults  = true
+
+  const textoBase = inputText.value.trim()
+
+  reconocimiento.onstart = () => { escuchando.value = true }
+
+  reconocimiento.onresult = (e) => {
+    const transcripcion = Array.from(e.results).map(r => r[0].transcript).join('')
+    inputText.value = textoBase ? textoBase + ' ' + transcripcion : transcripcion
+  }
+
+  reconocimiento.onend = () => {
+    escuchando.value = false
+    reconocimiento   = null
+    nextTick(() => inputRef.value?.focus())
+  }
+
+  reconocimiento.onerror = () => {
+    escuchando.value = false
+    reconocimiento   = null
+  }
+
+  reconocimiento.start()
+}
 
 function abrirSelectorImagen() {
   fileInputRef.value?.click()
@@ -134,7 +179,10 @@ function onEscGlobal(e) {
   if (e.key === 'Escape') imagenAmpliada.value = null
 }
 onMounted(() => window.addEventListener('keydown', onEscGlobal))
-onUnmounted(() => window.removeEventListener('keydown', onEscGlobal))
+onUnmounted(() => {
+  window.removeEventListener('keydown', onEscGlobal)
+  reconocimiento?.stop()
+})
 
 
 function limpiar() {
@@ -297,15 +345,30 @@ function formatearTexto(texto) {
             </button>
           </div>
 
-          <div class="flex items-end gap-2 bg-gray-50 rounded-xl border border-gray-200 px-3 py-2">
+          <div class="flex items-end gap-2 bg-gray-50 rounded-xl border border-gray-200 px-3 py-2" :class="escuchando ? 'border-red-300 bg-red-50' : ''">
             <!-- Botón adjuntar imagen -->
             <button
               @click="abrirSelectorImagen"
-              :disabled="cargando"
+              :disabled="cargando || escuchando"
               class="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-all mb-0.5"
               title="Adjuntar foto o boceto"
             >
               <PhotoIcon class="w-4 h-4" />
+            </button>
+
+            <!-- Botón micrófono -->
+            <button
+              @click="toggleVoz"
+              :disabled="cargando"
+              :class="[
+                'flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition-all mb-0.5',
+                escuchando
+                  ? 'text-red-500 bg-red-100 hover:bg-red-200'
+                  : 'text-gray-400 hover:text-blue-600 hover:bg-blue-50',
+              ]"
+              :title="escuchando ? 'Toca para detener' : 'Habla tu pregunta'"
+            >
+              <MicrophoneIcon class="w-4 h-4" :class="escuchando ? 'animate-pulse' : ''" />
             </button>
 
             <textarea
@@ -313,7 +376,7 @@ function formatearTexto(texto) {
               v-model="inputText"
               @keydown="onKeydown"
               :disabled="cargando"
-              :placeholder="imagenPendiente ? 'Añade una descripción o medidas (opcional)...' : 'Escribe tu pregunta...'"
+              :placeholder="escuchando ? 'Escuchando...' : imagenPendiente ? 'Añade una descripción o medidas (opcional)...' : 'Escribe o habla tu pregunta...'"
               rows="1"
               class="flex-1 bg-transparent text-sm text-gray-800 placeholder-gray-400 resize-none outline-none leading-relaxed max-h-28 min-h-[1.5rem]"
               style="field-sizing: content;"
@@ -331,7 +394,10 @@ function formatearTexto(texto) {
               <PaperAirplaneIcon class="w-4 h-4" />
             </button>
           </div>
-          <p class="text-[10px] text-gray-400 text-center mt-1.5">Enter para enviar · Shift+Enter nueva línea</p>
+          <p class="text-[10px] text-gray-400 text-center mt-1.5">
+            <span v-if="escuchando" class="text-red-400 font-medium">● Escuchando — toca el micrófono para terminar</span>
+            <span v-else>Enter para enviar · Shift+Enter nueva línea</span>
+          </p>
 
           <!-- Input de archivo oculto -->
           <input
