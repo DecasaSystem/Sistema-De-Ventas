@@ -646,14 +646,24 @@ onMounted(() => {
       </div>
 
       <!-- Estado respondida para el vendedor -->
-      <div v-if="consulta.estado === 'respondida'" class="bg-green-50 rounded-xl p-4 text-sm text-green-800 flex items-start gap-2">
-        <CheckCircleIcon class="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
-        <div>
-          <p class="font-semibold">Cotización respondida</p>
-          <p class="text-xs text-green-600 mt-0.5">
-            Los precios fueron actualizados en la orden.
-            Puedes revisar y finalizar la orden cuando quieras.
-          </p>
+      <div v-if="consulta.estado === 'respondida'" class="bg-green-50 rounded-xl p-4 text-sm text-green-800 space-y-3">
+        <div class="flex items-start gap-2">
+          <CheckCircleIcon class="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <p class="font-semibold">Cotización respondida</p>
+            <p class="text-xs text-green-600 mt-0.5">
+              Los precios fueron calculados. Ve a la orden para confirmar si el cliente acepta y registrar el anticipo.
+            </p>
+          </div>
+        </div>
+        <button
+          v-if="consulta.solicitado_por_id === authStore.usuario?.id"
+          @click="router.push({ name: 'orden-detalle', params: { id: consulta.orden_id } })"
+          class="w-full bg-green-600 text-white rounded-xl py-2.5 text-sm font-bold hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
+        >
+          <CheckCircleIcon class="w-4 h-4" />
+          Ir a la orden — confirmar con el cliente
+        </button>
         </div>
       </div>
 
