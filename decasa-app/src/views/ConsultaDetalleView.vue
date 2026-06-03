@@ -7,7 +7,7 @@ import { getConsulta, guardarItem, enviarConsulta, getMensajes, enviarMensaje } 
 import { getMateriales } from '@/api/materiales'
 import {
   SparklesIcon, PlusIcon, TrashIcon, CheckCircleIcon,
-  ClipboardDocumentCheckIcon, ArrowDownTrayIcon, PaperAirplaneIcon,
+  ArrowDownTrayIcon, PaperAirplaneIcon,
   MagnifyingGlassIcon, ChatBubbleLeftEllipsisIcon,
 } from '@heroicons/vue/24/outline'
 
@@ -171,7 +171,10 @@ function formatMoney(val) {
 function formatFecha(str) {
   if (!str) return '—'
   const d = new Date(str)
-  return d.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })
+  const hoy = new Date()
+  const mismodia = d.toDateString() === hoy.toDateString()
+  if (mismodia) return d.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })
+  return d.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
 }
 
 async function cargar() {
@@ -285,9 +288,7 @@ onMounted(() => {
 
     <div v-else-if="error" class="bg-red-50 rounded-xl px-4 py-3 text-sm text-red-600">{{ error }}</div>
 
-    <template v-else-if="consulta">
-
-      <!-- Info de la orden -->
+    <template v-else-if="consulta">      <!-- Info de la orden -->
       <div class="bg-white rounded-xl shadow-sm p-4 space-y-2 text-sm">
         <p class="text-xs font-semibold text-gray-500 uppercase mb-2">Información de la orden</p>
         <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
@@ -613,15 +614,15 @@ onMounted(() => {
             </div>
             <div class="flex justify-between text-sm pt-1 border-t border-gray-100">
               <span class="text-gray-500">Costo base</span>
-              <span class="font-medium">{{ formatMoney(item.precio_base) }}</span>
+              <span class="font-medium">{{ formatMoney(Number(item.precio_base)) }}</span>
             </div>
             <div class="flex justify-between text-sm">
               <span class="text-gray-500">Ganancia ({{ item.margen_ganancia_pct }}%)</span>
-              <span class="font-medium">{{ formatMoney(item.precio_final - item.precio_base) }}</span>
+              <span class="font-medium">{{ formatMoney(Number(item.precio_final) - Number(item.precio_base)) }}</span>
             </div>
             <div class="flex justify-between text-sm font-bold">
               <span>Precio final</span>
-              <span class="text-violet-700">{{ formatMoney(item.precio_final) }}</span>
+              <span class="text-violet-700">{{ formatMoney(Number(item.precio_final)) }}</span>
             </div>
           </div>
         </template>
@@ -664,7 +665,6 @@ onMounted(() => {
           <CheckCircleIcon class="w-4 h-4" />
           Ir a la orden — confirmar con el cliente
         </button>
-        </div>
       </div>
 
       <!-- Chat -->
