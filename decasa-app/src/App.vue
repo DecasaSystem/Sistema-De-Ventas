@@ -204,13 +204,13 @@ const navItems = computed(() => {
       { name: 'mis-stats',    label: 'Estadíst.',    icon: PresentationChartLineIcon },
     ]
   }
-  // Vendedor regular
+  // Vendedor regular — primeros 4 siempre visibles, resto en "Más"
   return [
     { name: 'dashboard',  label: 'Inicio',       icon: HomeIcon },
     { name: 'ordenes',    label: 'Órdenes',      icon: ClipboardDocumentListIcon },
     { name: 'clientes',   label: 'Clientes',     icon: UserGroupIcon },
-    { name: 'inventario', label: 'Inventario',   icon: ArchiveBoxIcon, badge: surtidos.pendientesCount },
     { name: 'consultas',  label: 'Cotizaciones', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
+    { name: 'inventario', label: 'Inventario',   icon: ArchiveBoxIcon, badge: surtidos.pendientesCount },
     { name: 'redes',      label: 'Redes',        icon: ChatBubbleLeftRightIcon, badge: redesPendientes.value },
     { name: 'citas',      label: 'Citas',        icon: CalendarDaysIcon },
     { name: 'mis-stats',  label: 'Estadíst.',    icon: PresentationChartLineIcon },
