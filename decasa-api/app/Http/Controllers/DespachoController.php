@@ -193,7 +193,11 @@ class DespachoController extends Controller
      */
     public function enviarRuta(Request $request, int $id)
     {
-        $data    = $request->validate(['camion_id' => 'required|exists:camiones,id']);
+        $data = $request->validate([
+            'camion_id'     => 'required|exists:camiones,id',
+            'nombre_ruta'   => 'sometimes|nullable|string|max:120',
+            'instrucciones' => 'sometimes|nullable|string|max:2000',
+        ]);
         $ruta    = Despacho::with('items.orden')->where('estado', 'borrador')->findOrFail($id);
         $usuario = $request->user();
 
@@ -211,16 +215,19 @@ class DespachoController extends Controller
             return response()->json(['message' => 'El conductor del camión no está disponible.'], 422);
         }
 
-        DB::transaction(function () use ($ruta, $camion, $conductor, $usuario) {
+        DB::transaction(function () use ($ruta, $camion, $conductor, $usuario, $data) {
             foreach ($ruta->items as $item) {
                 $item->orden->update(['estado' => 'en_camino']);
             }
-            $ruta->update([
+            $update = [
                 'camion_id'    => $camion->id,
                 'conductor_id' => $conductor->id,
                 'supervisor_id' => $usuario->id,
                 'estado'       => 'asignado',
-            ]);
+            ];
+            if (array_key_exists('nombre_ruta', $data))   $update['nombre_ruta']   = $data['nombre_ruta'];
+            if (array_key_exists('instrucciones', $data)) $update['instrucciones'] = $data['instrucciones'];
+            $ruta->update($update);
         });
 
         event(new DespachoAsignado($ruta->id, $conductor->id, $ruta->items->count()));

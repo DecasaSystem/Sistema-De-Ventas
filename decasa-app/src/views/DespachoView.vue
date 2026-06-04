@@ -218,9 +218,11 @@ const creandoRuta      = ref(false)
 // ruta cuyo selector de "agregar orden" está abierto
 const rutaAgregando    = ref(null)
 // ruta cuyo modal "cerrar y enviar" está abierto
-const rutaEnviando     = ref(null)
-const camionEnvio      = ref('')
-const enviandoRuta     = ref(false)
+const rutaEnviando        = ref(null)
+const camionEnvio         = ref('')
+const editNombreRuta      = ref('')
+const editInstrucciones   = ref('')
+const enviandoRuta        = ref(false)
 
 async function cargarRutas() {
   cargandoRutas.value = true
@@ -308,7 +310,11 @@ async function confirmarEnvioRuta() {
   if (!camionEnvio.value || !rutaEnviando.value) return
   enviandoRuta.value = true
   try {
-    await enviarRuta(rutaEnviando.value.id, { camion_id: camionEnvio.value })
+    await enviarRuta(rutaEnviando.value.id, {
+      camion_id:     camionEnvio.value,
+      nombre_ruta:   editNombreRuta.value.trim()    || null,
+      instrucciones: editInstrucciones.value.trim() || null,
+    })
     toast.success('Ruta enviada al conductor')
     rutaEnviando.value = null
     camionEnvio.value  = ''
@@ -644,7 +650,7 @@ onBeforeUnmount(() => {
           </button>
           <button
             v-if="ruta.items?.length > 0"
-            @click="rutaEnviando = ruta; camionEnvio = camionesList[0]?.id ?? ''"
+            @click="rutaEnviando = ruta; camionEnvio = camionesList[0]?.id ?? ''; editNombreRuta = ruta.nombre_ruta ?? ''; editInstrucciones = ruta.instrucciones ?? ''"
             class="flex-1 bg-green-600 text-white rounded-lg py-2 text-xs font-semibold hover:bg-green-700 transition-colors"
           >
             🚛 Cerrar y enviar
@@ -661,11 +667,30 @@ onBeforeUnmount(() => {
           <h3 class="text-base font-bold text-gray-900">Enviar ruta al conductor</h3>
           <button @click="rutaEnviando = null" class="text-gray-400 hover:text-gray-600">&times;</button>
         </div>
-        <p class="text-sm text-gray-600">
-          <span class="font-semibold">{{ rutaEnviando?.nombre_ruta }}</span>
-          · {{ rutaEnviando?.items?.length }} orden(es)
-          · {{ fmtFechaCorta(rutaEnviando?.fecha_despacho) }}
-        </p>
+        <p class="text-xs text-gray-400">{{ rutaEnviando?.items?.length }} orden(es) · {{ fmtFechaCorta(rutaEnviando?.fecha_despacho) }}</p>
+
+        <!-- Nombre editable -->
+        <div>
+          <label class="text-xs font-semibold text-gray-500 uppercase mb-1.5 block">Nombre de la ruta</label>
+          <input
+            v-model="editNombreRuta"
+            type="text"
+            placeholder="Nombre de la ruta"
+            class="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+
+        <!-- Instrucciones editables -->
+        <div>
+          <label class="text-xs font-semibold text-gray-500 uppercase mb-1.5 block">Instrucciones para el conductor</label>
+          <textarea
+            v-model="editInstrucciones"
+            rows="2"
+            placeholder="Instrucciones (opcional)"
+            class="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+          />
+        </div>
+
         <div>
           <label class="text-xs font-semibold text-gray-500 uppercase mb-1.5 block">Asignar camión</label>
           <select
