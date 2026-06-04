@@ -186,6 +186,8 @@ class ProductoController extends Controller
             'precio_base' => 'sometimes|numeric|min:0',
             'foto_url'    => 'sometimes|nullable|string|max:500',
             'es_tapizado' => 'sometimes|boolean',
+            'nombre'      => 'sometimes|string|max:150',
+            'descripcion' => 'sometimes|nullable|string',
         ]);
 
         if (empty($data)) {

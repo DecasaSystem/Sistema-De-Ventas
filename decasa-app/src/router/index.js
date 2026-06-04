@@ -27,7 +27,7 @@ const routes = [
   { path: '/stats/vendedor/:id', name: 'stats-vendedor', component: () => import('@/views/StatsVendedorDetalleView.vue'), meta: { requiresAuth: true, requiresSupervisor: true } },
   { path: '/costos', name: 'costos', component: () => import('@/views/CostosView.vue'), meta: { requiresAuth: true, requiresCostos: true } },
   { path: '/facturacion', name: 'facturacion', component: () => import('@/views/FacturacionView.vue'), meta: { requiresAuth: true, requiresFacturador: true } },
-  { path: '/redes',  name: 'redes',  component: () => import('@/views/RedesView.vue'),  meta: { requiresAuth: true } },
+  { path: '/redes',  name: 'redes',  component: () => import('@/views/RedesView.vue'),  meta: { requiresAuth: true, requiresRedes: true } },
   { path: '/citas',  name: 'citas',  component: () => import('@/views/CitasView.vue'),  meta: { requiresAuth: true } },
   { path: '/consultas-costo', name: 'consultas', component: () => import('@/views/ConsultasView.vue'), meta: { requiresAuth: true, requiresConsultas: true } },
   { path: '/consultas-costo/:id', name: 'consulta-detalle', component: () => import('@/views/ConsultaDetalleView.vue'), meta: { requiresAuth: true, requiresConsultas: true } },
@@ -49,6 +49,7 @@ router.beforeEach((to) => {
   if (to.meta.requiresDespachador && auth.usuario?.rol !== 'despachador') return { name: 'dashboard' }
   if (to.meta.requiresProduccionWorker && !auth.tieneAccesoPasos) return { name: 'dashboard' }
   if (to.meta.requiresFacturador && !auth.isFacturador) return { name: 'dashboard' }
+  if (to.meta.requiresRedes && !auth.tieneAccesoRedes) return { name: 'dashboard' }
   if (to.meta.requiresConsultas && !auth.isSupervisor && auth.usuario?.rol !== 'ebanista' && auth.usuario?.rol !== 'vendedor') return { name: 'dashboard' }
 })
 

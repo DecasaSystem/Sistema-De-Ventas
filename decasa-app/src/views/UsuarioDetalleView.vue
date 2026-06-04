@@ -34,7 +34,7 @@ const nuevaPassword = ref('')
 const confirmacionPassword = ref('')
 
 // Edit form
-const editForm = ref({ nombre: '', email: '', rol: '', facturacion: false, es_tapicero: false, notif_asignar_fecha: true, tienda_default_id: '' })
+const editForm = ref({ nombre: '', email: '', rol: '', facturacion: false, es_tapicero: false, notif_asignar_fecha: true, acceso_redes: false, tienda_default_id: '' })
 const rolesSinTienda = ['conductor', 'ebanista', 'despachador']
 
 const ROL_LABELS = {
@@ -111,6 +111,7 @@ function openEditModal() {
     facturacion: usuario.value.facturacion ?? false,
     es_tapicero: usuario.value.es_tapicero ?? false,
     notif_asignar_fecha: usuario.value.notif_asignar_fecha ?? true,
+    acceso_redes: usuario.value.acceso_redes ?? false,
     tienda_default_id: usuario.value.tienda_default_id,
   }
   actionError.value = ''
@@ -137,6 +138,7 @@ async function submitEdit() {
       facturacion: editForm.value.rol === 'vendedor' ? editForm.value.facturacion : false,
       es_tapicero: editForm.value.rol === 'supervisor' ? editForm.value.es_tapicero : false,
       notif_asignar_fecha: editForm.value.rol === 'supervisor' ? editForm.value.notif_asignar_fecha : false,
+      acceso_redes: ['vendedor', 'supervisor'].includes(editForm.value.rol) ? editForm.value.acceso_redes : false,
       tienda_default_id: sinTienda ? null : editForm.value.tienda_default_id,
     })
     showEditModal.value = false
@@ -235,6 +237,15 @@ onMounted(async () => {
             <p class="font-medium" :class="usuario.notif_asignar_fecha ? 'text-gray-800' : 'text-gray-400'">
               {{ usuario.notif_asignar_fecha ? 'Habilitada' : 'Deshabilitada' }}
             </p>
+          </div>
+        </div>
+        <div v-if="usuario.acceso_redes && ['vendedor', 'supervisor'].includes(usuario.rol)" class="flex items-center gap-3">
+          <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
+            <span class="text-sm">📱</span>
+          </div>
+          <div>
+            <p class="text-xs text-gray-400">Módulo de redes</p>
+            <p class="font-medium text-blue-700">Acceso habilitado</p>
           </div>
         </div>
         <div v-if="usuario.tienda_default && !rolesSinTienda.includes(usuario.rol)" class="flex items-center gap-3">
@@ -377,81 +388,102 @@ onMounted(async () => {
     <Transition name="fade">
       <div v-if="showEditModal" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="showEditModal = false">
         <div class="absolute inset-0 bg-black/40" />
-        <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md p-5 space-y-4">
-          <div class="flex items-center justify-between">
+        <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md flex flex-col max-h-[90vh]">
+
+          <!-- Cabecera fija -->
+          <div class="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100 flex-shrink-0">
             <h3 class="text-lg font-bold text-gray-800">Editar usuario</h3>
             <button @click="showEditModal = false" class="text-gray-400 text-2xl leading-none">&times;</button>
           </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Nombre</label>
-            <input v-model="editForm.nombre" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
-            <input v-model="editForm.email" type="email" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Rol</label>
-            <select v-model="editForm.rol" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-              <option value="vendedor">Vendedor</option>
-              <option value="supervisor">Supervisor</option>
-              <option value="conductor">Conductor</option>
-              <option value="ebanista">Ebanista</option>
-              <option value="despachador">Despachador</option>
-            </select>
-          </div>
-          <div v-if="editForm.rol === 'vendedor'" class="flex items-start gap-3 py-2">
-            <input
-              id="edit-facturacion"
-              type="checkbox"
-              v-model="editForm.facturacion"
-              class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-            />
+
+          <!-- Cuerpo scrollable -->
+          <div class="overflow-y-auto flex-1 px-5 py-4 space-y-4">
             <div>
-              <label for="edit-facturacion" class="text-sm font-medium text-gray-700 cursor-pointer">Facturación</label>
-              <p class="text-xs text-gray-500 mt-0.5">Podrá ver órdenes entregadas de toda la tienda para facturación externa.</p>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Nombre</label>
+              <input v-model="editForm.nombre" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
-          </div>
-          <template v-if="editForm.rol === 'supervisor'">
-            <div class="flex items-start gap-3 py-2">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+              <input v-model="editForm.email" type="email" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Rol</label>
+              <select v-model="editForm.rol" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="vendedor">Vendedor</option>
+                <option value="supervisor">Supervisor</option>
+                <option value="conductor">Conductor</option>
+                <option value="ebanista">Ebanista</option>
+                <option value="despachador">Despachador</option>
+              </select>
+            </div>
+            <div v-if="editForm.rol === 'vendedor'" class="flex items-start gap-3 py-1">
               <input
-                id="edit-tapicero"
+                id="edit-facturacion"
                 type="checkbox"
-                v-model="editForm.es_tapicero"
+                v-model="editForm.facturacion"
                 class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
               />
               <div>
-                <label for="edit-tapicero" class="text-sm font-medium text-gray-700 cursor-pointer">Encargado de tapicería</label>
-                <p class="text-xs text-gray-500 mt-0.5">Puede completar pasos de <strong>tapizado</strong> y <strong>laca</strong>.</p>
+                <label for="edit-facturacion" class="text-sm font-medium text-gray-700 cursor-pointer">Facturación</label>
+                <p class="text-xs text-gray-500 mt-0.5">Podrá ver órdenes entregadas de toda la tienda para facturación externa.</p>
               </div>
             </div>
-            <div class="flex items-start gap-3 py-2">
+            <template v-if="editForm.rol === 'supervisor'">
+              <div class="flex items-start gap-3 py-1">
+                <input
+                  id="edit-tapicero"
+                  type="checkbox"
+                  v-model="editForm.es_tapicero"
+                  class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <div>
+                  <label for="edit-tapicero" class="text-sm font-medium text-gray-700 cursor-pointer">Encargado de tapicería</label>
+                  <p class="text-xs text-gray-500 mt-0.5">Puede completar pasos de <strong>tapizado</strong> y <strong>laca</strong>.</p>
+                </div>
+              </div>
+              <div class="flex items-start gap-3 py-1">
+                <input
+                  id="edit-notif-fecha"
+                  type="checkbox"
+                  v-model="editForm.notif_asignar_fecha"
+                  class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <div>
+                  <label for="edit-notif-fecha" class="text-sm font-medium text-gray-700 cursor-pointer">Recibe notificaciones de asignación de fecha</label>
+                  <p class="text-xs text-gray-500 mt-0.5">Recibirá una alerta cada vez que se cree una orden nueva para asignar fecha de entrega.</p>
+                </div>
+              </div>
+            </template>
+            <div v-if="['vendedor', 'supervisor'].includes(editForm.rol)" class="flex items-start gap-3 py-1">
               <input
-                id="edit-notif-fecha"
+                id="edit-acceso-redes"
                 type="checkbox"
-                v-model="editForm.notif_asignar_fecha"
+                v-model="editForm.acceso_redes"
                 class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
               />
               <div>
-                <label for="edit-notif-fecha" class="text-sm font-medium text-gray-700 cursor-pointer">Recibe notificaciones de asignación de fecha</label>
-                <p class="text-xs text-gray-500 mt-0.5">Recibirá una alerta cada vez que se cree una orden nueva para asignar fecha de entrega.</p>
+                <label for="edit-acceso-redes" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a módulo de redes</label>
+                <p class="text-xs text-gray-500 mt-0.5">Podrá acceder al módulo de redes sociales y seguimiento digital.</p>
               </div>
             </div>
-          </template>
-          <div v-if="!rolesSinTienda.includes(editForm.rol)">
-            <label class="block text-sm font-medium text-gray-700 mb-1">Tienda</label>
-            <select v-model="editForm.tienda_default_id" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-              <option value="">Seleccionar...</option>
-              <option v-for="t in tiendas" :key="t.id" :value="t.id">{{ t.nombre }}</option>
-            </select>
+            <div v-if="!rolesSinTienda.includes(editForm.rol)">
+              <label class="block text-sm font-medium text-gray-700 mb-1">Tienda</label>
+              <select v-model="editForm.tienda_default_id" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="">Seleccionar...</option>
+                <option v-for="t in tiendas" :key="t.id" :value="t.id">{{ t.nombre }}</option>
+              </select>
+            </div>
+            <p v-if="actionError" class="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{{ actionError }}</p>
           </div>
-          <p v-if="actionError" class="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{{ actionError }}</p>
-          <div class="flex gap-3">
+
+          <!-- Pie fijo -->
+          <div class="px-5 pb-5 pt-3 border-t border-gray-100 flex-shrink-0 flex gap-3">
             <button @click="showEditModal = false" class="flex-1 bg-gray-100 text-gray-700 rounded-lg py-2.5 text-sm font-semibold">Cancelar</button>
             <button @click="submitEdit" :disabled="editLoading" class="flex-1 bg-blue-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50">
               {{ editLoading ? 'Guardando...' : 'Guardar' }}
             </button>
           </div>
+
         </div>
       </div>
     </Transition>

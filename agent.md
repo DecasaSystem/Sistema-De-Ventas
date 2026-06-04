@@ -116,6 +116,72 @@ UNION ALL SELECT 'usuarios', COUNT(*) FROM usuarios;
 Esperado aprox.: tiendas=5, productos=208, materiales=621, fichas=306, items=4666,
 salarios=4, tarifas=16, inventario = 208×5 = **1040**, usuarios=**1**.
 
+## ⚠️ Encoding UTF-8 — problema conocido, prevención obligatoria
+
+### Qué pasó en la BD de prueba (Aiven no-definitiva)
+Al importar `costos_seed.sql` y otros datos, 90 filas de `productos` quedaron con
+`??` en lugar de `ñ`, `á`, `é`, `ó`, etc. (ej: `Dise??o`, `construcci??n`).
+
+**Causa:** el cliente `mysql` CLI o el script PHP que hizo la inserción no forzó
+`utf8mb4` en la conexión. MySQL recibió bytes UTF-8 de 2 bytes por carácter especial,
+no pudo convertirlos a `latin1` (el charset de sesión por defecto) y los sustituyó por `?`.
+
+### Lista de verificación antes de migrar a la BD definitiva
+
+#### 1. Importar el SQL con charset explícito
+```bash
+mysql -h <host> -P <port> -u <user> -p<pass> \
+  --ssl-mode=REQUIRED \
+  --default-character-set=utf8mb4 \
+  <db> < costos_seed.sql
+```
+El flag `--default-character-set=utf8mb4` es el que previene el problema.
+Sin él, aunque el SQL diga `utf8mb4`, la *sesión* usa `latin1` y los caracteres se corrompen.
+
+#### 2. Verificar que `costos_seed.sql` tiene la cabecera correcta
+Al inicio del archivo debe existir:
+```sql
+SET NAMES utf8mb4;
+SET CHARACTER SET utf8mb4;
+```
+Si no está, añadirla antes de importar (o pásarla con el flag del punto 1).
+
+#### 3. Si se usan scripts PHP directos (sin Laravel), ejecutar SET NAMES inmediatamente
+```php
+$pdo = new PDO($dsn, $user, $pass, $opts);
+$pdo->exec("SET NAMES utf8mb4");  // ← obligatorio antes de cualquier query
+```
+Laravel lo hace automáticamente gracias a `charset = utf8mb4` en `config/database.php`,
+pero cualquier script PHP manual (migraciones ad-hoc, seeders con PDO directo) debe
+incluir esta línea.
+
+#### 4. Verificar encoding ANTES de dar la migración por buena
+Correr esta query en la BD definitiva recién sembrada:
+```sql
+SELECT COUNT(*) AS filas_corruptas
+FROM productos
+WHERE nombre     LIKE '%??%'
+   OR descripcion LIKE '%??%'
+   OR material    LIKE '%??%'
+   OR categoria   LIKE '%??%';
+```
+El resultado debe ser **0**. Si hay filas corruptas, la fuente de datos local (local MySQL)
+siempre tiene los datos correctos y se puede re-sincronizar con un script PHP que:
+- Conecte a local con `SET NAMES utf8mb4`
+- Conecte a Aiven con `SET NAMES utf8mb4`
+- Lea todos los productos de local y haga `UPDATE` en Aiven por `id`
+
+#### 5. Tablas adicionales a revisar (no solo productos)
+Cualquier tabla con columnas `TEXT` o `VARCHAR` puede tener el mismo problema:
+- `materiales` (columna `nombre`)
+- `fichas_tecnicas` (columna `nombre`)
+- `tiendas` (columna `nombre`, `ciudad`)
+- `usuarios` (columna `nombre`)
+
+El mismo `SELECT COUNT(*) WHERE x LIKE '%??%'` aplica para todas.
+
+---
+
 ## Notas / decisiones pendientes del usuario
 - **Credenciales del admin** (email + contraseña): confirmarlas antes del paso 5.
 - ¿`costos_seed.sql` sigue siendo el snapshot bueno de productos/costos, o hay que

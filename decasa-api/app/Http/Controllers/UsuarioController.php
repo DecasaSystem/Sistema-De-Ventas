@@ -34,6 +34,7 @@ class UsuarioController extends Controller
                 'facturacion'       => $u->facturacion,
                 'es_tapicero'         => (bool) $u->es_tapicero,
                 'notif_asignar_fecha' => (bool) $u->notif_asignar_fecha,
+                'acceso_redes'        => (bool) $u->acceso_redes,
                 'tienda_default_id'   => $u->tienda_default_id,
                 'tienda_default'      => $u->tiendaDefault,
                 'activo'              => $u->activo,
@@ -53,6 +54,7 @@ class UsuarioController extends Controller
             'facturacion'         => $usuario->facturacion,
             'es_tapicero'         => (bool) $usuario->es_tapicero,
             'notif_asignar_fecha' => (bool) $usuario->notif_asignar_fecha,
+            'acceso_redes'        => (bool) $usuario->acceso_redes,
             'tienda_default_id'   => $usuario->tienda_default_id,
             'tienda_default'      => $usuario->tiendaDefault,
             'activo'              => $usuario->activo,
@@ -72,6 +74,7 @@ class UsuarioController extends Controller
             'facturacion'         => 'boolean',
             'es_tapicero'         => 'boolean',
             'notif_asignar_fecha' => 'boolean',
+            'acceso_redes'        => 'boolean',
             'tienda_default_id' => [
                 Rule::requiredIf(fn () => ! in_array($request->rol, $rolesProduccion)),
                 'nullable',
@@ -94,14 +97,17 @@ class UsuarioController extends Controller
 
         $esSupervisor = ($data['rol'] === 'supervisor');
 
+        $puedeAccesoRedes = in_array($data['rol'], ['vendedor', 'supervisor']);
+
         $usuario = Usuario::create([
             'nombre'              => $data['nombre'],
             'email'               => $data['email'],
             'password'            => Hash::make($data['password']),
             'rol'                 => $data['rol'],
-            'facturacion'         => ($data['rol'] === 'vendedor') ? ($data['facturacion'] ?? false) : false,
-            'es_tapicero'         => $esSupervisor ? ($data['es_tapicero'] ?? false) : false,
-            'notif_asignar_fecha' => $esSupervisor ? ($data['notif_asignar_fecha'] ?? true) : false,
+            'facturacion'         => ($data['rol'] === 'vendedor') && $request->boolean('facturacion'),
+            'es_tapicero'         => $esSupervisor && $request->boolean('es_tapicero'),
+            'notif_asignar_fecha' => $esSupervisor && $request->boolean('notif_asignar_fecha'),
+            'acceso_redes'        => $puedeAccesoRedes && $request->boolean('acceso_redes'),
             'tienda_default_id'   => $data['tienda_default_id'] ?? null,
             'activo'              => true,
         ]);
@@ -114,6 +120,7 @@ class UsuarioController extends Controller
             'facturacion'         => $usuario->facturacion,
             'es_tapicero'         => (bool) $usuario->es_tapicero,
             'notif_asignar_fecha' => (bool) $usuario->notif_asignar_fecha,
+            'acceso_redes'        => (bool) $usuario->acceso_redes,
             'tienda_default_id'   => $usuario->tienda_default_id,
             'activo'              => $usuario->activo,
         ], 201);
@@ -131,6 +138,7 @@ class UsuarioController extends Controller
             'facturacion'         => 'nullable|boolean',
             'es_tapicero'         => 'nullable|boolean',
             'notif_asignar_fecha' => 'nullable|boolean',
+            'acceso_redes'        => 'nullable|boolean',
             'tienda_default_id'   => 'sometimes|nullable|exists:tiendas,id',
         ], [
             'nombre.max'               => 'El nombre no puede tener más de 100 caracteres.',
@@ -142,17 +150,20 @@ class UsuarioController extends Controller
 
         $rolFinal = $data['rol'] ?? $usuario->rol;
 
-        // es_tapicero y notif_asignar_fecha solo aplican a supervisores
-        if (array_key_exists('es_tapicero', $data)) {
-            $data['es_tapicero'] = ($rolFinal === 'supervisor') ? (bool) $data['es_tapicero'] : false;
+        // Booleans: usar $request->has() + $request->boolean() para manejar
+        // correctamente el valor false enviado como JSON (array_key_exists falla
+        // con false porque Laravel lo excluye del array validado en algunos casos)
+        if ($request->has('es_tapicero')) {
+            $data['es_tapicero'] = ($rolFinal === 'supervisor') && $request->boolean('es_tapicero');
         }
-        if (array_key_exists('notif_asignar_fecha', $data)) {
-            $data['notif_asignar_fecha'] = ($rolFinal === 'supervisor') ? (bool) $data['notif_asignar_fecha'] : false;
+        if ($request->has('notif_asignar_fecha')) {
+            $data['notif_asignar_fecha'] = ($rolFinal === 'supervisor') && $request->boolean('notif_asignar_fecha');
         }
-
-        // facturacion solo aplica a vendedores
-        if (array_key_exists('facturacion', $data)) {
-            $data['facturacion'] = ($rolFinal === 'vendedor') ? (bool) $data['facturacion'] : false;
+        if ($request->has('facturacion')) {
+            $data['facturacion'] = ($rolFinal === 'vendedor') && $request->boolean('facturacion');
+        }
+        if ($request->has('acceso_redes')) {
+            $data['acceso_redes'] = in_array($rolFinal, ['vendedor', 'supervisor']) && $request->boolean('acceso_redes');
         }
 
         // Si el nuevo rol no requiere tienda, limpiar tienda
@@ -171,6 +182,7 @@ class UsuarioController extends Controller
             'facturacion'         => $usuario->facturacion,
             'es_tapicero'         => (bool) $usuario->es_tapicero,
             'notif_asignar_fecha' => (bool) $usuario->notif_asignar_fecha,
+            'acceso_redes'        => (bool) $usuario->acceso_redes,
             'tienda_default_id'   => $usuario->tienda_default_id,
             'tienda_default'      => $usuario->tiendaDefault,
             'activo'              => $usuario->activo,

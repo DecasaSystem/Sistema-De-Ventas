@@ -22,6 +22,7 @@ class Usuario extends Authenticatable
         'facturacion',
         'es_tapicero',
         'notif_asignar_fecha',
+        'acceso_redes',
         'tienda_default_id',
         'activo',
         'firma_url',
@@ -38,6 +39,7 @@ class Usuario extends Authenticatable
             'facturacion'        => 'boolean',
             'es_tapicero'        => 'boolean',
             'notif_asignar_fecha' => 'boolean',
+            'acceso_redes'       => 'boolean',
         ];
     }
 

@@ -16,6 +16,7 @@ import SurtidosPendientesPanel from '@/components/inventario/SurtidosPendientesP
 import { useRealtime } from '@/composables/useRealtime'
 import { TELAS_CATALOGO, marcasOrdenadas, tiposTelaDeM, coloresDeTela } from '@/data/telasCatalogo'
 import { cloudinaryOpt } from '@/utils/cloudinary'
+import { useToast } from '@/composables/useToast'
 import { getTiendas } from '@/api/ordenes'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
@@ -54,6 +55,40 @@ const quitarStockLoad   = ref(false)
 const fotoModal = ref(false)
 const fotoProducto = ref(null)
 
+// ── Cambiar nombre / descripción desde gestionar ─────────────────────────────
+const gestionNombre       = ref('')
+const gestionDescripcion  = ref('')
+const gestionInfoLoading  = ref(false)
+const gestionInfoError    = ref('')
+
+async function guardarNombreDescripcion() {
+  gestionInfoError.value = ''
+  if (!gestionNombre.value.trim()) {
+    gestionInfoError.value = 'El nombre no puede estar vacío.'
+    return
+  }
+  gestionInfoLoading.value = true
+  try {
+    await api.patch(`/productos/${itemGestionar.value.producto_id}`, {
+      nombre:      gestionNombre.value.trim(),
+      descripcion: gestionDescripcion.value.trim() || null,
+    })
+    if (itemGestionar.value.producto) {
+      itemGestionar.value.producto.nombre      = gestionNombre.value.trim()
+      itemGestionar.value.producto.descripcion = gestionDescripcion.value.trim() || null
+    }
+    const idx = inventario.value.findIndex(i => i.producto_id === itemGestionar.value.producto_id)
+    if (idx !== -1 && inventario.value[idx].producto) {
+      inventario.value[idx].producto.nombre = gestionNombre.value.trim()
+    }
+    toast.success('Nombre y descripción guardados.')
+  } catch (e) {
+    gestionInfoError.value = e.response?.data?.message ?? 'Error al guardar.'
+  } finally {
+    gestionInfoLoading.value = false
+  }
+}
+
 // ── Cambiar foto desde gestionar ──────────────────────────────────────────────
 const gestionFotoFile       = ref(null)
 const gestionFotoPreviewUrl = ref('')
@@ -88,6 +123,7 @@ async function guardarFotoProducto() {
     await api.patch(`/productos/${itemGestionar.value.producto_id}`, { foto_url: upload.url })
     if (itemGestionar.value.producto) itemGestionar.value.producto.foto_url = upload.url
     quitarGestionFoto()
+    toast.success('Foto actualizada.')
     await cargarInventario(true)
   } catch (e) {
     gestionFotoError.value = e.response?.data?.message ?? 'Error al subir la foto.'
@@ -319,6 +355,9 @@ function setupObserver() {
 function openGestionar(item) {
   itemGestionar.value = item
   nuevoPrecio.value = parseFloat(item.producto?.precio_base ?? 0)
+  gestionNombre.value      = item.producto?.nombre ?? ''
+  gestionDescripcion.value = item.producto?.descripcion ?? ''
+  gestionInfoError.value   = ''
   nuevoStock.value = 0
   stockMotivo.value = ''
   gestionError.value = ''
@@ -338,6 +377,7 @@ async function guardarPrecio() {
     await api.patch(`/productos/${itemGestionar.value.producto_id}`, {
       precio_base: nuevoPrecio.value,
     })
+    toast.success('Precio actualizado.')
     mostrarGestionar.value = false
     await cargarInventario(true)
   } catch (e) {
@@ -552,6 +592,7 @@ async function guardarNuevaVariante() {
 }
 
 const { listen } = useRealtime()
+const toast = useToast()
 
 onMounted(async () => {
   await cargarTiendas()
@@ -1054,6 +1095,39 @@ onMounted(async () => {
                 class="mt-2 w-full bg-blue-600 text-white rounded-lg py-2 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
               >
                 {{ gestionLoading ? 'Guardando...' : 'Actualizar precio' }}
+              </button>
+            </div>
+
+            <div class="border-t border-gray-100" />
+
+            <!-- Nombre y descripción -->
+            <div class="space-y-3">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Nombre del producto</label>
+                <input
+                  v-model="gestionNombre"
+                  type="text"
+                  maxlength="150"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Nombre del producto"
+                />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Descripción</label>
+                <textarea
+                  v-model="gestionDescripcion"
+                  rows="3"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                  placeholder="Descripción del producto (opcional)"
+                />
+              </div>
+              <p v-if="gestionInfoError" class="text-xs text-red-600">{{ gestionInfoError }}</p>
+              <button
+                @click="guardarNombreDescripcion"
+                :disabled="gestionInfoLoading"
+                class="w-full bg-blue-600 text-white rounded-lg py-2 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
+              >
+                {{ gestionInfoLoading ? 'Guardando...' : 'Guardar nombre y descripción' }}
               </button>
             </div>
 

@@ -19,6 +19,7 @@ const form = ref({
   facturacion: false,
   es_tapicero: false,
   notif_asignar_fecha: true,
+  acceso_redes: false,
   tienda_default_id: '',
 })
 
@@ -69,6 +70,7 @@ async function submit() {
       facturacion: form.value.facturacion,
       es_tapicero: form.value.es_tapicero,
       notif_asignar_fecha: form.value.notif_asignar_fecha,
+      acceso_redes: form.value.acceso_redes,
       tienda_default_id: requiereTienda.value ? form.value.tienda_default_id : null,
     })
     router.push({ name: 'usuarios' })
@@ -244,6 +246,20 @@ async function submit() {
           </div>
         </div>
       </template>
+
+      <!-- Acceso redes (vendedor y supervisor) -->
+      <div v-if="['vendedor', 'supervisor'].includes(form.rol)" class="flex items-start gap-3 py-2">
+        <input
+          id="acceso_redes"
+          type="checkbox"
+          v-model="form.acceso_redes"
+          class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+        />
+        <div>
+          <label for="acceso_redes" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a módulo de redes</label>
+          <p class="text-xs text-gray-500 mt-0.5">Podrá acceder al módulo de redes sociales y seguimiento digital.</p>
+        </div>
+      </div>
 
       <!-- Tienda -->
       <div v-if="requiereTienda">
