@@ -855,7 +855,8 @@ class DespachoController extends Controller
         ]);
 
         if (! $response->ok()) {
-            abort(502, 'Error al subir imagen a Cloudinary.');
+            $detalle = $response->json('error.message') ?? $response->body();
+            abort(502, "Error Cloudinary: {$detalle}");
         }
 
         return $response->json('secure_url');

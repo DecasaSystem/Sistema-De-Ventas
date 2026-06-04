@@ -43,8 +43,9 @@ class UploadController extends Controller
         ]);
 
         if (! $response->ok()) {
+            $detalle = $response->json('error.message') ?? $response->body();
             return response()->json(
-                ['message' => 'Error al subir la imagen a Cloudinary.'],
+                ['message' => "Error Cloudinary: {$detalle}"],
                 502
             );
         }

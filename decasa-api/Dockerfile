@@ -6,6 +6,10 @@ RUN apt-get update && apt-get install -y \
     && docker-php-ext-install -j$(nproc) gd pdo_mysql bcmath zip pcntl \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# Aumentar límites de subida de archivos (default PHP = 2M, insuficiente para fotos)
+RUN echo "upload_max_filesize = 20M\npost_max_size = 25M\nmemory_limit = 256M\nmax_execution_time = 60" \
+    > /usr/local/etc/php/conf.d/uploads.ini
+
 RUN a2enmod rewrite proxy proxy_http proxy_wstunnel
 
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
