@@ -62,6 +62,7 @@ class DespachoController extends Controller
             'orden:id,cliente_id,tienda_id,valor_total,estado,created_at',
             'orden.cliente:id,nombre,telefono,direccion',
             'orden.tienda:id,nombre',
+            'orden.pagos:id,orden_id,monto',
         ])->whereHas('despacho', function ($q) use ($camionId, $desde, $hasta) {
             $q->whereIn('estado', ['asignado', 'en_ruta']);
             if ($camionId) $q->where('camion_id', $camionId);
@@ -71,6 +72,15 @@ class DespachoController extends Controller
             ->orderBy('despacho_id')
             ->orderBy('posicion')
             ->get();
+
+        $items->each(function ($item) {
+            if ($item->orden) {
+                $totalPagado = (float) $item->orden->pagos->sum('monto');
+                $item->orden->total_pagado    = $totalPagado;
+                $item->orden->saldo_pendiente = (float) $item->orden->valor_total - $totalPagado;
+                unset($item->orden->pagos);
+            }
+        });
 
         $agrupado = $items->groupBy('despacho_id')->values();
 
