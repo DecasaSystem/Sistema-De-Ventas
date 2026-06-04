@@ -604,6 +604,17 @@ const firmaBlob            = ref(null)
 const firmaUrl             = ref('')
 watch(firmaBlob, () => { firmaUrl.value = '' })
 
+// Foto del anexo firmado (solo presencial)
+const anexoFotoFile      = ref(null)
+const anexoFotoUrl       = ref('')
+const anexoFotoPreview   = ref('')
+const subiendoAnexo      = ref(false)
+watch(anexoFotoFile, (file) => {
+  if (anexoFotoPreview.value) URL.revokeObjectURL(anexoFotoPreview.value)
+  anexoFotoPreview.value = file ? URL.createObjectURL(file) : ''
+  anexoFotoUrl.value = ''
+})
+
 watch(facturaFotoFile, (file, oldFile) => {
   if (facturaFotoPreview.value) URL.revokeObjectURL(facturaFotoPreview.value)
   facturaFotoPreview.value = file ? URL.createObjectURL(file) : ''
@@ -717,6 +728,19 @@ async function submit() {
       }
     }
 
+    // Foto del anexo firmado (si está presente)
+    if (anexoFotoFile.value && !anexoFotoUrl.value) {
+      subiendoAnexo.value = true
+      const fd = new FormData()
+      fd.append('foto', anexoFotoFile.value)
+      fd.append('folder', 'facturas')
+      const { data: uploadData } = await api.post('/upload/foto', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      anexoFotoUrl.value  = uploadData.url
+      subiendoAnexo.value = false
+    }
+
     // Firma del cliente: subir el blob dibujado en el canvas
     if (firmaBlob.value && !firmaUrl.value) {
       const fd = new FormData()
@@ -738,8 +762,9 @@ async function submit() {
       anticipo_metodo:      anticipo_metodo.value,
       anticipo_referencia:  anticipo_referencia.value || undefined,
       notas:                notas.value || undefined,
-      factura_foto_url:     facturaFotoUrl.value || undefined,
-      firma_url:            firmaUrl.value || undefined,
+      factura_foto_url:     facturaFotoUrl.value  || undefined,
+      firma_url:            firmaUrl.value        || undefined,
+      anexo_foto_url:       anexoFotoUrl.value    || undefined,
       departamento_envio:   departamentoEnvio.value || undefined,
       ciudad_envio:         ciudadEnvio.value || undefined,
       direccion_envio:      direccionEnvio.value || undefined,
@@ -2118,6 +2143,45 @@ function removeFacturaFoto() {
         v-model:ciudad="ciudadEnvio"
         v-model:direccion="direccionEnvio"
       />
+
+      <!-- Foto del anexo firmado — solo cuando la compra es presencial -->
+      <div v-if="canal === 'fisica'">
+        <label class="label">
+          Foto del anexo firmado
+          <span class="text-xs font-normal text-gray-400 ml-1">(opcional)</span>
+        </label>
+        <p class="text-xs text-gray-400 mb-2">Sube la foto del documento firmado por el cliente en la tienda.</p>
+
+        <div v-if="anexoFotoFile" class="space-y-2">
+          <div class="relative">
+            <img
+              :src="anexoFotoUrl || anexoFotoPreview"
+              alt="Vista previa anexo"
+              class="w-full rounded-xl border-2 border-gray-200 object-contain bg-gray-50"
+              style="max-height: 200px;"
+            />
+            <button
+              @click="anexoFotoFile = null; anexoFotoUrl = ''; anexoFotoPreview = ''"
+              class="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1.5 shadow-lg"
+            >
+              <XMarkIcon class="w-4 h-4" />
+            </button>
+          </div>
+          <p class="text-xs text-gray-400 truncate">{{ anexoFotoFile.name }}</p>
+          <p v-if="subiendoAnexo" class="text-xs text-blue-600">Subiendo imagen...</p>
+        </div>
+        <label v-else class="flex flex-col items-center gap-2 border-2 border-dashed border-gray-300 rounded-xl p-5 cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors">
+          <PhotoIcon class="w-7 h-7 text-gray-300" />
+          <span class="text-sm text-gray-500">Toca para adjuntar foto del anexo</span>
+          <span class="text-xs text-gray-400">JPG, PNG — máx 5 MB</span>
+          <input
+            type="file"
+            accept="image/*"
+            @change="e => { anexoFotoFile = e.target.files[0] }"
+            class="hidden"
+          />
+        </label>
+      </div>
 
       <!-- Foto del comprobante -->
       <div>

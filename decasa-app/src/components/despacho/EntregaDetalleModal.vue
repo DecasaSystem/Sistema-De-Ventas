@@ -25,8 +25,10 @@ const metodo     = ref('efectivo')
 const referencia = ref('')
 const fotoProducto        = ref(null)
 const fotoPago            = ref(null)
+const fotoAnexo           = ref(null)
 const fotoProductoPreview = ref(null)
 const fotoPagoPreview     = ref(null)
+const fotoAnexoPreview    = ref(null)
 
 const puedeEntregar = computed(() => {
   if (!fotoProductoPreview.value) return false
@@ -92,6 +94,15 @@ function onFotoPago(e) {
   reader.readAsDataURL(file)
 }
 
+function onFotoAnexo(e) {
+  const file = e.target.files[0]
+  if (!file) return
+  fotoAnexo.value = file
+  const reader = new FileReader()
+  reader.onload = (ev) => { fotoAnexoPreview.value = ev.target.result }
+  reader.readAsDataURL(file)
+}
+
 async function guardarPagoYEntregar() {
   if (!puedeEntregar.value) return
   registrando.value = true
@@ -107,6 +118,7 @@ async function guardarPagoYEntregar() {
     } else {
       fd.append('monto', '0')
     }
+    if (fotoAnexo.value) fd.append('foto_anexo', fotoAnexo.value)
 
     await registrarPagoEntrega(props.despachoItemId, fd)
     await marcarEntregado(props.despachoItemId)
@@ -313,6 +325,30 @@ async function guardarPagoYEntregar() {
             <!-- Sin saldo: mensaje informativo -->
             <div v-else class="bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-sm text-green-700 font-medium text-center">
               ✓ Esta orden ya está completamente pagada — solo sube la foto del producto
+            </div>
+
+            <!-- Foto del anexo firmado — si aún no se ha subido -->
+            <div v-if="!item.orden?.anexo_foto_url" class="border-t border-gray-100 pt-4">
+              <h4 class="text-sm font-semibold text-gray-700 mb-1">
+                Foto del anexo firmado
+                <span class="text-xs font-normal text-gray-400 ml-1">(opcional)</span>
+              </h4>
+              <p class="text-xs text-gray-400 mb-2">Si el cliente firma el documento en la entrega, súbelo aquí.</p>
+              <label class="block border-2 border-dashed rounded-xl p-3 text-center cursor-pointer transition-colors"
+                :class="fotoAnexoPreview ? 'border-blue-400' : 'border-gray-300 hover:border-blue-400'"
+              >
+                <input type="file" accept="image/*" capture="environment" class="hidden" @change="onFotoAnexo" />
+                <img v-if="fotoAnexoPreview" :src="fotoAnexoPreview" class="w-full h-28 object-cover rounded-lg" />
+                <span v-else class="text-sm text-gray-400">📋 Tomar foto del anexo firmado</span>
+              </label>
+            </div>
+
+            <!-- Anexo ya subido -->
+            <div v-else class="border-t border-gray-100 pt-4">
+              <h4 class="text-sm font-semibold text-gray-700 mb-2">Anexo firmado</h4>
+              <a :href="item.orden.anexo_foto_url" target="_blank">
+                <img :src="item.orden.anexo_foto_url" class="w-full h-28 object-cover rounded-xl border border-gray-100" />
+              </a>
             </div>
 
             <button

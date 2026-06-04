@@ -20,6 +20,7 @@ class Orden extends Model
         'notas',
         'factura_foto_url',
         'firma_url',
+        'anexo_foto_url',
         'direccion_envio',
         'ciudad_envio',
         'departamento_envio',

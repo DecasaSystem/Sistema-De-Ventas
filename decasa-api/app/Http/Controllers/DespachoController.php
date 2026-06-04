@@ -664,6 +664,7 @@ class DespachoController extends Controller
             'referencia'    => 'nullable|string|max:100',
             'foto_producto' => 'required|image|max:10240',
             'foto_pago'     => $requierePago ? 'required|image|max:10240' : 'nullable|image|max:10240',
+            'foto_anexo'    => 'nullable|image|max:10240',
         ]);
 
         if ($requierePago && $data['monto'] > $saldoPendiente + 0.01) {
@@ -676,12 +677,19 @@ class DespachoController extends Controller
         $fotoPago     = $request->hasFile('foto_pago')
             ? $this->subirCloudinary($request->file('foto_pago'))
             : null;
+        $fotoAnexo    = $request->hasFile('foto_anexo')
+            ? $this->subirCloudinary($request->file('foto_anexo'))
+            : null;
 
-        DB::transaction(function () use ($item, $data, $usuario, $fotoProducto, $fotoPago, $requierePago) {
+        DB::transaction(function () use ($item, $data, $usuario, $fotoProducto, $fotoPago, $fotoAnexo, $requierePago) {
             $item->update([
                 'foto_producto' => $fotoProducto,
                 'foto_pago'     => $fotoPago,
             ]);
+
+            if ($fotoAnexo) {
+                $item->orden->update(['anexo_foto_url' => $fotoAnexo]);
+            }
 
             if ($requierePago) {
                 Pago::create([
