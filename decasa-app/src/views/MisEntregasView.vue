@@ -63,7 +63,7 @@ const rutasAgrupadas = computed(() => {
   return [...grupos.values()].sort((a, b) => {
     const fa = a.despacho?.fecha_despacho ?? ''
     const fb = b.despacho?.fecha_despacho ?? ''
-    return fa.localeCompare(fb)
+    return fb.localeCompare(fa) // más reciente primero
   })
 })
 
