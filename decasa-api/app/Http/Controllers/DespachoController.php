@@ -23,7 +23,7 @@ class DespachoController extends Controller
 {
     /**
      * GET /api/despacho/cola
-     * Órdenes en listo_entrega, ordenadas cronológicamente.
+     * Órdenes en listo_entrega SIN asignar a ninguna ruta/despacho activo.
      */
     public function cola(Request $request)
     {
@@ -32,6 +32,11 @@ class DespachoController extends Controller
             'tienda:id,nombre',
         ])->withSum('pagos', 'monto')
             ->where('estado', 'listo_entrega')
+            ->whereDoesntHave('despachoItem', fn($q) =>
+                $q->whereHas('despacho', fn($q2) =>
+                    $q2->whereIn('estado', ['borrador', 'asignado', 'en_ruta'])
+                )
+            )
             ->orderBy('listo_entrega_at')
             ->get();
 
@@ -43,6 +48,195 @@ class DespachoController extends Controller
         });
 
         return response()->json($ordenes);
+    }
+
+    // ── Rutas (borradores) ────────────────────────────────────────────────────
+
+    /**
+     * GET /api/despacho/rutas
+     * Lista rutas en borrador del supervisor.
+     */
+    public function rutas(Request $request)
+    {
+        $rutas = Despacho::with([
+            'camion:id,nombre',
+            'items' => fn($q) => $q->orderBy('posicion'),
+            'items.orden:id,cliente_id,valor_total',
+            'items.orden.cliente:id,nombre,telefono,direccion',
+            'items.orden.pagos:id,orden_id,monto',
+        ])->where('estado', 'borrador')
+            ->orderBy('fecha_despacho')
+            ->orderByDesc('created_at')
+            ->get();
+
+        $rutas->each(fn($ruta) => $ruta->items->each(function ($item) {
+            if ($item->orden) {
+                $pagado = (float) $item->orden->pagos->sum('monto');
+                $item->orden->saldo_pendiente = (float) $item->orden->valor_total - $pagado;
+                unset($item->orden->pagos);
+            }
+        }));
+
+        return response()->json($rutas);
+    }
+
+    /**
+     * POST /api/despacho/rutas
+     * Crea una ruta en borrador (nombre + fecha, sin órdenes aún).
+     */
+    public function crearRuta(Request $request)
+    {
+        $data = $request->validate([
+            'nombre_ruta'    => 'required|string|max:120',
+            'fecha_despacho' => 'required|date',
+            'instrucciones'  => 'nullable|string|max:2000',
+        ]);
+
+        $despacho = Despacho::create([
+            'supervisor_id'  => $request->user()->id,
+            'estado'         => 'borrador',
+            'nombre_ruta'    => $data['nombre_ruta'],
+            'fecha_despacho' => $data['fecha_despacho'],
+            'instrucciones'  => $data['instrucciones'] ?? null,
+        ]);
+
+        return response()->json($despacho, 201);
+    }
+
+    /**
+     * POST /api/despacho/rutas/{id}/ordenes
+     * Agrega una orden de la cola a una ruta borrador.
+     */
+    public function agregarOrdenARuta(Request $request, int $id)
+    {
+        $data  = $request->validate(['orden_id' => 'required|exists:ordenes,id']);
+        $ruta  = Despacho::where('estado', 'borrador')->findOrFail($id);
+        $orden = Orden::findOrFail($data['orden_id']);
+
+        if ($orden->estado !== 'listo_entrega') {
+            return response()->json(['message' => 'La orden no está en cola de entrega.'], 422);
+        }
+
+        $yaEnRuta = DespachoItem::where('orden_id', $data['orden_id'])
+            ->whereHas('despacho', fn($q) => $q->whereIn('estado', ['borrador', 'asignado', 'en_ruta']))
+            ->exists();
+
+        if ($yaEnRuta) {
+            return response()->json(['message' => 'Esta orden ya está en una ruta activa.'], 422);
+        }
+
+        $posicion = $ruta->items()->count() + 1;
+
+        $item = DespachoItem::create([
+            'despacho_id' => $ruta->id,
+            'orden_id'    => $data['orden_id'],
+            'posicion'    => $posicion,
+            'estado'      => 'pendiente',
+        ]);
+
+        $item->load('orden:id,cliente_id,valor_total', 'orden.cliente:id,nombre,telefono,direccion', 'orden.pagos:id,orden_id,monto');
+        if ($item->orden) {
+            $pagado = (float) $item->orden->pagos->sum('monto');
+            $item->orden->saldo_pendiente = (float) $item->orden->valor_total - $pagado;
+            unset($item->orden->pagos);
+        }
+
+        return response()->json($item, 201);
+    }
+
+    /**
+     * DELETE /api/despacho/rutas/{id}/ordenes/{itemId}
+     * Quita una orden de una ruta borrador (la devuelve a la cola).
+     */
+    public function quitarOrdenDeRuta(int $id, int $itemId)
+    {
+        $ruta = Despacho::where('estado', 'borrador')->findOrFail($id);
+        $item = DespachoItem::where('despacho_id', $ruta->id)->findOrFail($itemId);
+        $item->delete();
+
+        // Reindexar posiciones
+        $ruta->items()->orderBy('posicion')->get()->each(function ($it, $i) {
+            $it->update(['posicion' => $i + 1]);
+        });
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
+     * PATCH /api/despacho/rutas/{id}/reordenar
+     * Actualiza las posiciones de los items de una ruta borrador.
+     */
+    public function reordenarRuta(Request $request, int $id)
+    {
+        $data = $request->validate([
+            'items'            => 'required|array',
+            'items.*.id'       => 'required|integer',
+            'items.*.posicion' => 'required|integer|min:1',
+        ]);
+
+        $ruta = Despacho::where('estado', 'borrador')->findOrFail($id);
+
+        DB::transaction(function () use ($data, $ruta) {
+            foreach ($data['items'] as $itemData) {
+                DespachoItem::where('despacho_id', $ruta->id)
+                    ->where('id', $itemData['id'])
+                    ->update(['posicion' => $itemData['posicion']]);
+            }
+        });
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
+     * PATCH /api/despacho/rutas/{id}/enviar
+     * Cierra la ruta: asigna camión, cambia estados y notifica al conductor.
+     */
+    public function enviarRuta(Request $request, int $id)
+    {
+        $data    = $request->validate(['camion_id' => 'required|exists:camiones,id']);
+        $ruta    = Despacho::with('items.orden')->where('estado', 'borrador')->findOrFail($id);
+        $usuario = $request->user();
+
+        if ($ruta->items->isEmpty()) {
+            return response()->json(['message' => 'La ruta no tiene órdenes asignadas.'], 422);
+        }
+
+        $camion = Camion::findOrFail($data['camion_id']);
+        if (! $camion->conductor_id) {
+            return response()->json(['message' => 'El camión no tiene conductor asignado.'], 422);
+        }
+
+        $conductor = Usuario::findOrFail($camion->conductor_id);
+        if (! $conductor->activo || $conductor->rol !== 'conductor') {
+            return response()->json(['message' => 'El conductor del camión no está disponible.'], 422);
+        }
+
+        DB::transaction(function () use ($ruta, $camion, $conductor, $usuario) {
+            foreach ($ruta->items as $item) {
+                $item->orden->update(['estado' => 'en_camino']);
+            }
+            $ruta->update([
+                'camion_id'    => $camion->id,
+                'conductor_id' => $conductor->id,
+                'supervisor_id' => $usuario->id,
+                'estado'       => 'asignado',
+            ]);
+        });
+
+        event(new DespachoAsignado($ruta->id, $conductor->id, $ruta->items->count()));
+
+        $fechaFmt   = \Carbon\Carbon::parse($ruta->fecha_despacho)->locale('es')->isoFormat('D [de] MMMM');
+        $nombreRuta = $ruta->nombre_ruta ? " — {$ruta->nombre_ruta}" : '';
+
+        NotificacionService::crear(
+            'despacho_asignado',
+            'Nuevas entregas asignadas',
+            "Tienes {$ruta->items->count()} entrega(s) para el {$fechaFmt}{$nombreRuta}",
+            ['despacho_id' => $ruta->id],
+            $conductor->id,
+        );
+
+        return response()->json(['ok' => true]);
     }
 
     /**
@@ -141,8 +335,7 @@ class DespachoController extends Controller
                 }
 
                 $yaAsignada = DespachoItem::where('orden_id', $item['orden_id'])
-                    ->where('estado', 'pendiente')
-                    ->whereHas('despacho', fn($q) => $q->whereIn('estado', ['asignado', 'en_ruta']))
+                    ->whereHas('despacho', fn($q) => $q->whereIn('estado', ['borrador', 'asignado', 'en_ruta']))
                     ->exists();
 
                 if ($yaAsignada) {

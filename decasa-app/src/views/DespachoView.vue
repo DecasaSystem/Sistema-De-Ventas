@@ -3,7 +3,7 @@ import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useDespachoStore } from '@/stores/despacho'
 import { useDespachoSocket } from '@/composables/useDespachoSocket'
-import { asignar, asignados, historialDespacho, detalleDespacho, camiones as getCamiones, crearCamion, actualizarCamion } from '@/api/despacho'
+import { asignar, asignados, historialDespacho, detalleDespacho, camiones as getCamiones, crearCamion, actualizarCamion, listarRutas, crearRuta, agregarOrdenARuta, quitarOrdenDeRuta, reordenarRuta, enviarRuta } from '@/api/despacho'
 import { useToast } from '@/composables/useToast'
 import { ChevronDownIcon, XMarkIcon, ArrowTopRightOnSquareIcon, TruckIcon, PencilSquareIcon, CheckIcon } from '@heroicons/vue/24/outline'
 import DespachoCard from '@/components/despacho/DespachoCard.vue'
@@ -208,6 +208,127 @@ async function cargarHistorial() {
   }
 }
 
+// ── Rutas (borradores) ────────────────────────────────────────────────────────
+const rutas            = ref([])
+const cargandoRutas    = ref(false)
+const mostrarFormRuta  = ref(false)
+const formRuta         = ref({ nombre_ruta: '', fecha_despacho: '', instrucciones: '' })
+const creandoRuta      = ref(false)
+
+// ruta cuyo selector de "agregar orden" está abierto
+const rutaAgregando    = ref(null)
+// ruta cuyo modal "cerrar y enviar" está abierto
+const rutaEnviando     = ref(null)
+const camionEnvio      = ref('')
+const enviandoRuta     = ref(false)
+
+async function cargarRutas() {
+  cargandoRutas.value = true
+  try {
+    const { data } = await listarRutas()
+    rutas.value = data
+  } catch {} finally {
+    cargandoRutas.value = false
+  }
+}
+
+async function crearNuevaRuta() {
+  if (!formRuta.value.nombre_ruta.trim() || !formRuta.value.fecha_despacho) return
+  creandoRuta.value = true
+  try {
+    const { data } = await crearRuta({
+      nombre_ruta:    formRuta.value.nombre_ruta.trim(),
+      fecha_despacho: formRuta.value.fecha_despacho,
+      instrucciones:  formRuta.value.instrucciones.trim() || null,
+    })
+    rutas.value.unshift(data)
+    formRuta.value     = { nombre_ruta: '', fecha_despacho: '', instrucciones: '' }
+    mostrarFormRuta.value = false
+    toast.success('Ruta creada')
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'Error al crear ruta')
+  } finally {
+    creandoRuta.value = false
+  }
+}
+
+// Órdenes de la cola que NO están ya en ninguna ruta
+function colaDisponible(ruta) {
+  const idsEnRutas = new Set(
+    rutas.value.flatMap(r => r.items?.map(i => i.orden_id) ?? [])
+  )
+  return despacho.cola.filter(o => !idsEnRutas.has(o.id))
+}
+
+async function agregarOrden(ruta, orden) {
+  try {
+    const { data } = await agregarOrdenARuta(ruta.id, { orden_id: orden.id })
+    ruta.items = [...(ruta.items ?? []), data]
+    // quitar de la cola local
+    despacho.quitarDeCola(orden.id)
+    toast.success('Orden agregada a la ruta')
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'Error al agregar orden')
+  }
+}
+
+async function quitarOrden(ruta, item) {
+  try {
+    await quitarOrdenDeRuta(ruta.id, item.id)
+    ruta.items = ruta.items.filter(i => i.id !== item.id)
+    // re-numerar posiciones locales
+    ruta.items.forEach((it, idx) => { it.posicion = idx + 1 })
+    // devolver a la cola local
+    await despacho.refrescar()
+    toast.success('Orden devuelta a la cola')
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'Error al quitar orden')
+  }
+}
+
+async function subirOrden(ruta, idx) {
+  if (idx === 0) return
+  const items = [...ruta.items]
+  ;[items[idx - 1], items[idx]] = [items[idx], items[idx - 1]]
+  items.forEach((it, i) => { it.posicion = i + 1 })
+  ruta.items = items
+  await reordenarRuta(ruta.id, { items: items.map(i => ({ id: i.id, posicion: i.posicion })) })
+}
+
+async function bajarOrden(ruta, idx) {
+  if (idx >= ruta.items.length - 1) return
+  const items = [...ruta.items]
+  ;[items[idx], items[idx + 1]] = [items[idx + 1], items[idx]]
+  items.forEach((it, i) => { it.posicion = i + 1 })
+  ruta.items = items
+  await reordenarRuta(ruta.id, { items: items.map(i => ({ id: i.id, posicion: i.posicion })) })
+}
+
+async function confirmarEnvioRuta() {
+  if (!camionEnvio.value || !rutaEnviando.value) return
+  enviandoRuta.value = true
+  try {
+    await enviarRuta(rutaEnviando.value.id, { camion_id: camionEnvio.value })
+    toast.success('Ruta enviada al conductor')
+    rutaEnviando.value = null
+    camionEnvio.value  = ''
+    await Promise.all([cargarRutas(), despacho.refrescar()])
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'Error al enviar ruta')
+  } finally {
+    enviandoRuta.value = false
+  }
+}
+
+function fmtFechaCorta(f) {
+  if (!f) return ''
+  return new Date(f + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' })
+}
+
+function fmtDinero(n) {
+  return Number(n || 0).toLocaleString('es-CO')
+}
+
 const verFactura = ref(false)
 
 async function toggleDetalle(despachoId) {
@@ -277,13 +398,14 @@ function fotoUrl(url) {
 onMounted(async () => {
   await despacho.refrescar()
   socket.conectar()
-  await Promise.all([cargarCamiones(), cargarConductores(), cargarAsignadosFiltrados()])
+  await Promise.all([cargarCamiones(), cargarConductores(), cargarAsignadosFiltrados(), cargarRutas()])
 })
 
 watch(tab, (t) => {
   if (t === 'asignados') cargarAsignadosFiltrados()
   if (t === 'historial') cargarHistorial()
   if (t === 'camiones')  cargarCamiones()
+  if (t === 'rutas')     cargarRutas()
 })
 
 onBeforeUnmount(() => {
@@ -316,6 +438,14 @@ onBeforeUnmount(() => {
         :class="tab === 'asignados' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'"
       >
         Activos
+      </button>
+      <button
+        @click="tab = 'rutas'"
+        class="flex-1 py-2 text-sm font-medium rounded-lg transition-colors relative"
+        :class="tab === 'rutas' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'"
+      >
+        Rutas
+        <span v-if="rutas.length > 0" class="absolute -top-1 -right-1 w-4 h-4 bg-amber-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">{{ rutas.length }}</span>
       </button>
       <button
         @click="tab = 'camiones'"
@@ -374,6 +504,196 @@ onBeforeUnmount(() => {
           </div>
         </Transition>
       </template>
+    </div>
+
+    <!-- Tab: Rutas (borradores) -->
+    <div v-if="tab === 'rutas'" class="space-y-4">
+
+      <!-- Botón nueva ruta -->
+      <div class="flex items-center justify-between">
+        <p class="text-xs text-gray-400">Crea rutas y asigna órdenes antes de enviarlas al conductor.</p>
+        <button
+          @click="mostrarFormRuta = !mostrarFormRuta"
+          class="flex items-center gap-1.5 text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 transition-colors"
+        >
+          + Nueva ruta
+        </button>
+      </div>
+
+      <!-- Formulario nueva ruta -->
+      <div v-if="mostrarFormRuta" class="bg-blue-50 border border-blue-200 rounded-xl p-4 space-y-3">
+        <p class="text-xs font-semibold text-blue-700 uppercase">Nueva ruta</p>
+        <input
+          v-model="formRuta.nombre_ruta"
+          type="text"
+          placeholder="Nombre de la ruta (ej: Ruta Norte)"
+          class="w-full rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+        />
+        <input
+          v-model="formRuta.fecha_despacho"
+          type="date"
+          class="w-full rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+        />
+        <textarea
+          v-model="formRuta.instrucciones"
+          rows="2"
+          placeholder="Instrucciones para el conductor (opcional)"
+          class="w-full rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none"
+        />
+        <div class="flex gap-2">
+          <button @click="mostrarFormRuta = false" class="flex-1 border border-blue-200 text-blue-600 rounded-lg py-2 text-sm font-medium hover:bg-blue-100">
+            Cancelar
+          </button>
+          <button
+            @click="crearNuevaRuta"
+            :disabled="creandoRuta || !formRuta.nombre_ruta.trim() || !formRuta.fecha_despacho"
+            class="flex-1 bg-blue-600 text-white rounded-lg py-2 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
+          >
+            {{ creandoRuta ? 'Creando...' : 'Crear ruta' }}
+          </button>
+        </div>
+      </div>
+
+      <div v-if="cargandoRutas" class="text-center py-8 text-sm text-gray-400">Cargando rutas...</div>
+      <EmptyState v-else-if="rutas.length === 0 && !mostrarFormRuta" message="No hay rutas en preparación. Crea una para empezar." />
+
+      <!-- Tarjetas de ruta -->
+      <div v-for="ruta in rutas" :key="ruta.id" class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+
+        <!-- Header de la ruta -->
+        <div class="bg-gradient-to-r from-blue-600 to-blue-500 px-4 py-3 text-white">
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex-1 min-w-0">
+              <p class="font-bold truncate">{{ ruta.nombre_ruta }}</p>
+              <p class="text-xs text-blue-200">{{ fmtFechaCorta(ruta.fecha_despacho) }} · {{ ruta.items?.length ?? 0 }} orden(es)</p>
+            </div>
+            <span class="text-xs bg-amber-400 text-amber-900 font-semibold px-2 py-0.5 rounded-full flex-shrink-0">Borrador</span>
+          </div>
+          <!-- Instrucciones si existen -->
+          <p v-if="ruta.instrucciones" class="text-xs text-blue-100 mt-1.5 leading-snug">📋 {{ ruta.instrucciones }}</p>
+        </div>
+
+        <!-- Total a cobrar -->
+        <div v-if="ruta.items?.length" class="px-4 py-2 bg-green-50 border-b border-green-100 flex items-center justify-between">
+          <span class="text-xs text-green-600 font-medium">Total a cobrar en esta ruta</span>
+          <span class="text-sm font-bold text-green-700">
+            ${{ fmtDinero(ruta.items.reduce((s, i) => s + (parseFloat(i.orden?.saldo_pendiente) || 0), 0)) }}
+          </span>
+        </div>
+
+        <!-- Lista de órdenes -->
+        <div class="divide-y divide-gray-50">
+          <div
+            v-for="(item, idx) in ruta.items"
+            :key="item.id"
+            class="flex items-center gap-3 px-4 py-3"
+          >
+            <!-- Posición -->
+            <span class="w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-xs font-bold flex items-center justify-center flex-shrink-0">
+              {{ item.posicion }}
+            </span>
+            <!-- Info cliente -->
+            <div class="flex-1 min-w-0">
+              <p class="text-sm font-medium text-gray-800 truncate">{{ item.orden?.cliente?.nombre }}</p>
+              <p class="text-xs text-gray-400 truncate">{{ item.orden?.cliente?.direccion }}</p>
+              <p v-if="item.orden?.saldo_pendiente > 0" class="text-xs text-orange-600 font-medium">
+                Cobra: ${{ fmtDinero(item.orden.saldo_pendiente) }}
+              </p>
+            </div>
+            <!-- Botones subir/bajar/quitar -->
+            <div class="flex items-center gap-1 flex-shrink-0">
+              <button @click="subirOrden(ruta, idx)" :disabled="idx === 0" class="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-blue-600 hover:bg-blue-50 disabled:opacity-30 transition-all text-sm font-bold">↑</button>
+              <button @click="bajarOrden(ruta, idx)" :disabled="idx >= ruta.items.length - 1" class="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-blue-600 hover:bg-blue-50 disabled:opacity-30 transition-all text-sm font-bold">↓</button>
+              <button @click="quitarOrden(ruta, item)" class="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all">
+                <XMarkIcon class="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          <!-- Empty state -->
+          <div v-if="!ruta.items?.length" class="px-4 py-4 text-center text-sm text-gray-400">
+            Sin órdenes — agrega desde la cola
+          </div>
+        </div>
+
+        <!-- Panel "Agregar orden" -->
+        <div v-if="rutaAgregando === ruta.id" class="border-t border-gray-100 bg-gray-50 px-4 py-3 space-y-2 max-h-48 overflow-y-auto">
+          <p class="text-xs font-semibold text-gray-500 uppercase">Órdenes disponibles en cola</p>
+          <div v-if="colaDisponible(ruta).length === 0" class="text-xs text-gray-400 py-2 text-center">
+            No hay órdenes disponibles en la cola.
+          </div>
+          <button
+            v-for="orden in colaDisponible(ruta)"
+            :key="orden.id"
+            @click="agregarOrden(ruta, orden); rutaAgregando = null"
+            class="w-full text-left px-3 py-2 rounded-lg border border-gray-200 bg-white hover:border-blue-400 hover:bg-blue-50 transition-all"
+          >
+            <p class="text-sm font-medium text-gray-800">{{ orden.cliente?.nombre }}</p>
+            <p class="text-xs text-gray-400 truncate">{{ orden.cliente?.direccion }}</p>
+            <p class="text-xs text-orange-600 font-medium">Cobra: ${{ fmtDinero(orden.saldo_pendiente) }}</p>
+          </button>
+        </div>
+
+        <!-- Acciones -->
+        <div class="px-4 py-3 flex gap-2 border-t border-gray-100">
+          <button
+            @click="rutaAgregando = rutaAgregando === ruta.id ? null : ruta.id"
+            class="flex-1 border border-blue-200 text-blue-600 rounded-lg py-2 text-xs font-semibold hover:bg-blue-50 transition-colors"
+          >
+            {{ rutaAgregando === ruta.id ? 'Cerrar lista' : '+ Agregar orden' }}
+          </button>
+          <button
+            v-if="ruta.items?.length > 0"
+            @click="rutaEnviando = ruta; camionEnvio = camionesList[0]?.id ?? ''"
+            class="flex-1 bg-green-600 text-white rounded-lg py-2 text-xs font-semibold hover:bg-green-700 transition-colors"
+          >
+            🚛 Cerrar y enviar
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal "Cerrar y enviar" -->
+    <div v-if="rutaEnviando" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+      <div class="fixed inset-0 bg-black/40" @click="rutaEnviando = null" />
+      <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 z-10 space-y-4">
+        <div class="flex items-center justify-between">
+          <h3 class="text-base font-bold text-gray-900">Enviar ruta al conductor</h3>
+          <button @click="rutaEnviando = null" class="text-gray-400 hover:text-gray-600">&times;</button>
+        </div>
+        <p class="text-sm text-gray-600">
+          <span class="font-semibold">{{ rutaEnviando?.nombre_ruta }}</span>
+          · {{ rutaEnviando?.items?.length }} orden(es)
+          · {{ fmtFechaCorta(rutaEnviando?.fecha_despacho) }}
+        </p>
+        <div>
+          <label class="text-xs font-semibold text-gray-500 uppercase mb-1.5 block">Asignar camión</label>
+          <select
+            v-model="camionEnvio"
+            class="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">Selecciona un camión</option>
+            <option v-for="c in camionesList.filter(c => c.activo && c.conductor_id)" :key="c.id" :value="c.id">
+              {{ c.nombre ?? `Camión ${c.id}` }} — {{ c.conductor?.nombre }}
+            </option>
+          </select>
+          <p v-if="camionesList.filter(c => c.activo && c.conductor_id).length === 0" class="text-xs text-amber-600 mt-1">
+            Ningún camión tiene conductor asignado. Ve a la pestaña Camiones.
+          </p>
+        </div>
+        <div class="flex gap-2">
+          <button @click="rutaEnviando = null" class="flex-1 border border-gray-200 text-gray-600 rounded-lg py-2.5 text-sm font-medium hover:bg-gray-50">
+            Cancelar
+          </button>
+          <button
+            @click="confirmarEnvioRuta"
+            :disabled="!camionEnvio || enviandoRuta"
+            class="flex-1 bg-green-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-green-700 disabled:opacity-50"
+          >
+            {{ enviandoRuta ? 'Enviando...' : '✓ Confirmar y enviar' }}
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- Tab: Camiones -->

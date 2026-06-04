@@ -214,6 +214,13 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::post('/asignar',      [DespachoController::class, 'asignar']);
             Route::get('/conductores',   [DespachoController::class, 'conductores']);
             Route::get('/historial',     [DespachoController::class, 'historial']);
+            // Rutas (borradores)
+            Route::get('/rutas',                                [DespachoController::class, 'rutas']);
+            Route::post('/rutas',                               [DespachoController::class, 'crearRuta']);
+            Route::post('/rutas/{id}/ordenes',                  [DespachoController::class, 'agregarOrdenARuta'])->whereNumber('id');
+            Route::delete('/rutas/{id}/ordenes/{itemId}',       [DespachoController::class, 'quitarOrdenDeRuta'])->whereNumber('id')->whereNumber('itemId');
+            Route::patch('/rutas/{id}/reordenar',               [DespachoController::class, 'reordenarRuta'])->whereNumber('id');
+            Route::patch('/rutas/{id}/enviar',                  [DespachoController::class, 'enviarRuta'])->whereNumber('id');
             Route::get('/{id}',          [DespachoController::class, 'show'])->whereNumber('id');
         });
 
