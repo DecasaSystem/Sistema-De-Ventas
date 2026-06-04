@@ -679,6 +679,31 @@ onMounted(cargarOrden)
         />
       </div>
 
+      <!-- Foto del anexo firmado -->
+      <div v-if="orden.anexo_foto_url" class="bg-white rounded-xl shadow-sm p-4 space-y-2">
+        <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center gap-1.5">
+            <p class="text-xs font-semibold text-gray-500 uppercase">Anexo firmado</p>
+            <span class="text-xs bg-green-100 text-green-700 font-semibold px-2 py-0.5 rounded-full">✓ Firmado</span>
+          </div>
+          <a
+            :href="orden.anexo_foto_url"
+            target="_blank"
+            rel="noopener"
+            class="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium"
+          >
+            <ArrowDownTrayIcon class="w-3.5 h-3.5" />
+            Abrir
+          </a>
+        </div>
+        <img
+          :src="orden.anexo_foto_url"
+          alt="Anexo firmado"
+          class="w-full rounded-lg border border-gray-200 object-contain max-h-72 cursor-pointer"
+          @click="verFactura = orden.anexo_foto_url"
+        />
+      </div>
+
       <!-- Progreso de pago -->
       <div class="bg-white rounded-xl shadow-sm p-4 space-y-3">
         <p class="text-xs font-semibold text-gray-500 uppercase">Pago</p>
