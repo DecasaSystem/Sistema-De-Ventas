@@ -1,8 +1,8 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { CheckCircleIcon, ArchiveBoxArrowDownIcon, ClockIcon, ArrowTopRightOnSquareIcon } from '@heroicons/vue/24/outline'
-import { getPendientesDespacho, completarDespacho, getHistorialDespacho } from '@/api/produccion'
+import { CheckCircleIcon, ArchiveBoxArrowDownIcon, ClockIcon, ArrowTopRightOnSquareIcon, ArrowUturnLeftIcon } from '@heroicons/vue/24/outline'
+import { getPendientesDespacho, completarDespacho, getHistorialDespacho, devolverDesdeDespacho } from '@/api/produccion'
 import { useToast } from '@/composables/useToast'
 import { useRealtime } from '@/composables/useRealtime'
 import { useDespachoProduccionStore } from '@/stores/despachoProduccion'
@@ -23,6 +23,13 @@ const loading        = ref(true)
 const completandoId  = ref(null)
 const mostrarModal   = ref(false)
 const itemConfirmar  = ref(null)
+
+// Modal devolver
+const mostrarModalDevolver = ref(false)
+const itemDevolver         = ref(null)
+const pasoDestinoId        = ref('')
+const motivoDevolucion     = ref('')
+const devolviendo          = ref(false)
 
 const historial        = ref([])
 const loadingHistorial = ref(false)
@@ -71,6 +78,31 @@ async function confirmarDespacho() {
     toast.error(e.response?.data?.message ?? 'Error al completar el despacho.')
   } finally {
     completandoId.value = null
+  }
+}
+
+function abrirDevolver(item) {
+  itemDevolver.value     = item
+  pasoDestinoId.value    = ''
+  motivoDevolucion.value = ''
+  mostrarModalDevolver.value = true
+}
+
+async function confirmarDevolucion() {
+  if (!pasoDestinoId.value || !motivoDevolucion.value.trim()) return
+  devolviendo.value = true
+  try {
+    await devolverDesdeDespacho(itemDevolver.value.id, {
+      paso_destino_id: pasoDestinoId.value,
+      motivo:          motivoDevolucion.value.trim(),
+    })
+    toast.success('Producto devuelto al paso de producción')
+    mostrarModalDevolver.value = false
+    await cargar()
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'Error al devolver el producto')
+  } finally {
+    devolviendo.value = false
   }
 }
 
@@ -198,10 +230,16 @@ onMounted(async () => {
           <div class="flex gap-2">
             <button
               @click="verOrden(item.orden_item?.orden?.id)"
-              class="flex-1 bg-gray-100 text-gray-700 rounded-xl py-2.5 text-sm font-semibold hover:bg-gray-200 transition-colors flex items-center justify-center gap-1.5"
+              class="flex-shrink-0 bg-gray-100 text-gray-700 rounded-xl py-2.5 px-3 text-sm font-semibold hover:bg-gray-200 transition-colors flex items-center justify-center"
             >
               <ArrowTopRightOnSquareIcon class="w-4 h-4" />
-              Ver orden
+            </button>
+            <button
+              @click="abrirDevolver(item)"
+              class="flex-1 border border-red-200 text-red-600 rounded-xl py-2.5 text-sm font-semibold hover:bg-red-50 transition-colors flex items-center justify-center gap-1.5"
+            >
+              <ArrowUturnLeftIcon class="w-4 h-4" />
+              Devolver
             </button>
             <button
               @click="abrirConfirmar(item)"
@@ -317,6 +355,65 @@ onMounted(async () => {
             <button @click="mostrarModal = false" class="flex-1 bg-gray-100 text-gray-700 rounded-lg py-2.5 text-sm font-semibold">Cancelar</button>
             <button @click="confirmarDespacho" class="flex-1 bg-purple-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-purple-700">
               Sí, listo
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- Modal devolver al paso de producción -->
+    <Transition name="fade">
+      <div v-if="mostrarModalDevolver" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="mostrarModalDevolver = false">
+        <div class="absolute inset-0 bg-black/40" />
+        <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-4">
+          <div class="flex items-center gap-2">
+            <ArrowUturnLeftIcon class="w-5 h-5 text-red-500" />
+            <h3 class="text-base font-bold text-gray-800">Devolver a producción</h3>
+            <button @click="mostrarModalDevolver = false" class="ml-auto text-gray-400 hover:text-gray-600">&times;</button>
+          </div>
+
+          <p class="text-sm text-gray-600">
+            <strong>{{ itemDevolver?.orden_item?.producto?.nombre }}</strong> tiene un defecto.
+            Selecciona el paso al que debe regresar para corrección.
+          </p>
+
+          <div>
+            <label class="text-xs font-semibold text-gray-500 uppercase mb-1.5 block">¿A qué paso devolver?</label>
+            <select
+              v-model="pasoDestinoId"
+              class="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+            >
+              <option value="">Selecciona el paso con el defecto</option>
+              <option
+                v-for="paso in (itemDevolver?.pasos ?? [])"
+                :key="paso.id"
+                :value="paso.id"
+              >
+                {{ PROCESO_LABEL[paso.tipo_proceso] ?? paso.tipo_proceso }}
+              </option>
+            </select>
+          </div>
+
+          <div>
+            <label class="text-xs font-semibold text-gray-500 uppercase mb-1.5 block">Motivo <span class="text-red-500">*</span></label>
+            <textarea
+              v-model="motivoDevolucion"
+              rows="2"
+              placeholder="Describe el defecto encontrado..."
+              class="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-400 resize-none"
+            />
+          </div>
+
+          <div class="flex gap-2">
+            <button @click="mostrarModalDevolver = false" class="flex-1 border border-gray-200 text-gray-600 rounded-lg py-2.5 text-sm font-medium hover:bg-gray-50">
+              Cancelar
+            </button>
+            <button
+              @click="confirmarDevolucion"
+              :disabled="!pasoDestinoId || !motivoDevolucion.trim() || devolviendo"
+              class="flex-1 bg-red-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-red-700 disabled:opacity-50 transition-colors"
+            >
+              {{ devolviendo ? 'Devolviendo...' : 'Devolver al paso' }}
             </button>
           </div>
         </div>

@@ -333,6 +333,89 @@ class ProduccionController extends Controller
     }
 
     /**
+     * PATCH /api/produccion/{id}/devolver-despacho
+     * Despachador detecta un defecto y devuelve el producto a un paso anterior.
+     */
+    public function devolverDesdeDespacho(Request $request, int $id)
+    {
+        $usuario = $request->user();
+
+        $data = $request->validate([
+            'paso_destino_id' => 'required|integer|exists:produccion_pasos,id',
+            'motivo'          => 'required|string|max:500',
+        ]);
+
+        $produccion = Produccion::with([
+            'pasos',
+            'ordenItem.producto',
+            'ordenItem.orden',
+        ])->where('estado', 'pendiente_despachador')->findOrFail($id);
+
+        $pasoDestino = ProduccionPaso::findOrFail($data['paso_destino_id']);
+
+        if ($pasoDestino->produccion_id !== $produccion->id) {
+            return response()->json(['message' => 'El paso no pertenece a esta producción.'], 422);
+        }
+
+        $productoNombre = $produccion->ordenItem->producto->nombre ?? 'Producto';
+        $orden          = $produccion->ordenItem->orden;
+
+        DB::transaction(function () use ($produccion, $pasoDestino, $usuario, $data) {
+            // Registrar rechazo en el paso devuelto
+            $pasoDestino->update([
+                'rechazos'         => $pasoDestino->rechazos + 1,
+                'ultimo_rechazo'   => $data['motivo'],
+                'rechazado_por_id' => $usuario->id,
+                'rechazado_at'     => now(),
+            ]);
+
+            // Resetear todos los pasos desde el destino en adelante
+            ProduccionPaso::where('produccion_id', $produccion->id)
+                ->where('orden', '>=', $pasoDestino->orden)
+                ->update([
+                    'estado'         => 'pendiente',
+                    'completado_por' => null,
+                    'completado_at'  => now(),
+                    'trabajadores'   => null,
+                ]);
+
+            // Activar el paso con el defecto
+            $pasoDestino->update(['estado' => 'en_proceso']);
+
+            // Produccion regresa a en_proceso
+            $produccion->update(['estado' => 'en_proceso']);
+        });
+
+        $this->notificarTrabajadores(
+            $pasoDestino->tipo_proceso,
+            $produccion->id,
+            $orden->id,
+            $productoNombre
+        );
+
+        $labelDestino = ProduccionPaso::labelProceso($pasoDestino->tipo_proceso);
+
+        NotificacionService::crear(
+            'paso_produccion',
+            'Producto devuelto por el despachador',
+            "\"{$productoNombre}\" devuelto a {$labelDestino} — {$data['motivo']}",
+            ['produccion_id' => $produccion->id, 'orden_id' => $orden->id],
+        );
+
+        NotificacionService::crear(
+            'paso_produccion',
+            'Corrección en tu pedido',
+            "\"{$productoNombre}\" regresó a {$labelDestino} para corrección",
+            ['produccion_id' => $produccion->id, 'orden_id' => $orden->id],
+            $orden->vendedor_id,
+        );
+
+        event(new ProduccionActualizada($produccion->id, $orden->id, 'en_proceso'));
+
+        return response()->json(['message' => "Producto devuelto a {$labelDestino} correctamente."]);
+    }
+
+    /**
      * PATCH /api/produccion/{id}/completar-despacho
      * Despachador marca el producto como listo → la orden pasa a listo_entrega.
      */

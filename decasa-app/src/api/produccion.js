@@ -28,3 +28,6 @@ export const getHistorialDespacho = () =>
 
 export const completarDespacho = (produccionId) =>
   api.patch(`/produccion/${produccionId}/completar-despacho`)
+
+export const devolverDesdeDespacho = (produccionId, data) =>
+  api.patch(`/produccion/${produccionId}/devolver-despacho`, data)

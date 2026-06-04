@@ -159,6 +159,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/produccion/pendientes-despacho',              [ProduccionController::class, 'pendientesDespacho']);
     Route::get('/produccion/historial-despacho',               [ProduccionController::class, 'historialDespacho']);
     Route::patch('/produccion/{id}/completar-despacho',        [ProduccionController::class, 'completarDespacho'])->whereNumber('id')->middleware('role:despachador,supervisor');
+    Route::patch('/produccion/{id}/devolver-despacho',         [ProduccionController::class, 'devolverDesdeDespacho'])->whereNumber('id')->middleware('role:despachador,supervisor');
 
     // Stats — ambos roles (vendedor ve solo lo suyo, supervisor ve todo)
     Route::prefix('stats')->group(function () {
