@@ -23,4 +23,5 @@ export const registrarPagoEntrega    = (id, fd) => api.post(`/despacho/mis-entre
   headers: { 'Content-Type': 'multipart/form-data' },
 })
 export const marcarEntregado         = (id)     => api.patch(`/despacho/mis-entregas/${id}/entregar`)
+export const iniciarRuta             = (id)     => api.patch(`/despacho/mis-entregas/rutas/${id}/iniciar`)
 export const despachoPorOrden        = (id)     => api.get(`/despacho/por-orden/${id}`)

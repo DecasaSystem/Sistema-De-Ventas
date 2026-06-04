@@ -1,12 +1,12 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useDespachoSocket } from '@/composables/useDespachoSocket'
-import { misEntregas, historialMisEntregas } from '@/api/despacho'
+import { misEntregas, historialMisEntregas, iniciarRuta as apiIniciarRuta } from '@/api/despacho'
 import EntregaDetalleModal from '@/components/despacho/EntregaDetalleModal.vue'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
-import { TruckIcon, CheckCircleIcon, ClockIcon, MapPinIcon, ChevronRightIcon, ArrowLeftIcon } from '@heroicons/vue/24/outline'
+import { TruckIcon, CheckCircleIcon, ClockIcon, MapPinIcon, ChevronRightIcon, ArrowLeftIcon, PlayIcon } from '@heroicons/vue/24/outline'
 
 const socket = useDespachoSocket()
 
@@ -18,6 +18,7 @@ const itemActivo = ref(null)
 
 // Ruta seleccionada para ver sus entregas (null = vista de tarjetas)
 const rutaSeleccionada = ref(null)
+const iniciando        = ref(false)
 
 const historial        = ref([])
 const loadingHistorial = ref(false)
@@ -40,8 +41,8 @@ async function cargar() {
     const { data } = await misEntregas()
     entregas.value = data
     // Si solo hay una ruta, entrar directo
-    if (rutasAgrupadas.value.length === 1) {
-      rutaSeleccionada.value = rutasAgrupadas.value[0].despacho_id
+    if (rutasOrdenadas.value.length === 1) {
+      rutaSeleccionada.value = rutasOrdenadas.value[0].despacho_id
     }
   } catch (e) {
     error.value = e.response?.data?.message || 'Error al cargar las entregas'
@@ -50,7 +51,7 @@ async function cargar() {
   }
 }
 
-// Agrupar entregas por despacho y ordenar por fecha
+// Agrupar entregas por despacho
 const rutasAgrupadas = computed(() => {
   const grupos = new Map()
   for (const item of entregas.value) {
@@ -60,12 +61,41 @@ const rutasAgrupadas = computed(() => {
     }
     grupos.get(key).items.push(item)
   }
-  return [...grupos.values()].sort((a, b) => {
-    const fa = a.despacho?.fecha_despacho ?? ''
-    const fb = b.despacho?.fecha_despacho ?? ''
-    return fb.localeCompare(fa) // más reciente primero
-  })
+  return [...grupos.values()]
 })
+
+// En proceso (en_ruta) primero, luego pendientes (asignado) más recientes primero
+const rutasEnProceso = computed(() =>
+  rutasAgrupadas.value.filter(g => g.despacho?.estado === 'en_ruta')
+)
+const rutasPendientes = computed(() =>
+  rutasAgrupadas.value
+    .filter(g => g.despacho?.estado === 'asignado')
+    .sort((a, b) => (b.despacho?.fecha_despacho ?? '').localeCompare(a.despacho?.fecha_despacho ?? ''))
+)
+const rutasOrdenadas = computed(() => [...rutasEnProceso.value, ...rutasPendientes.value])
+
+// ¿Puede iniciar hoy?
+function puedeIniciar(grupo) {
+  if (grupo.despacho?.estado !== 'asignado') return false
+  const fecha = grupo.despacho?.fecha_despacho
+  if (!fecha) return true
+  const hoy = new Date().toISOString().slice(0, 10)
+  return fecha <= hoy
+}
+
+async function iniciarRuta(grupo) {
+  iniciando.value = true
+  try {
+    await apiIniciarRuta(grupo.despacho_id)
+    // Actualizar estado local sin recargar todo
+    if (grupo.despacho) grupo.despacho.estado = 'en_ruta'
+  } catch (e) {
+    alert(e.response?.data?.message || 'No se pudo iniciar la ruta')
+  } finally {
+    iniciando.value = false
+  }
+}
 
 const itemsRutaActiva = computed(() =>
   rutaSeleccionada.value
@@ -189,47 +219,102 @@ function pendientesRuta(items) {
       <div v-else-if="error" class="bg-red-50 rounded-xl px-4 py-3 text-sm text-red-600">{{ error }}</div>
       <EmptyState v-else-if="entregas.length === 0" message="No tienes entregas asignadas en este momento." />
 
-      <!-- Vista de tarjetas de rutas -->
-      <div v-else-if="!rutaSeleccionada" class="space-y-3">
-        <p class="text-xs text-gray-400">Toca una ruta para ver sus entregas.</p>
-        <button
-          v-for="grupo in rutasAgrupadas"
-          :key="grupo.despacho_id"
-          @click="entrarRuta(grupo)"
-          class="w-full text-left bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden active:scale-[0.98] transition-transform"
-        >
-          <!-- Cabecera azul -->
-          <div class="bg-gradient-to-r from-blue-600 to-blue-500 px-4 py-3 text-white">
-            <div class="flex items-center justify-between gap-2">
-              <div class="flex items-center gap-2 flex-1 min-w-0">
-                <TruckIcon class="w-5 h-5 flex-shrink-0" />
-                <p class="font-bold text-base truncate">
-                  {{ grupo.despacho?.nombre_ruta || 'Ruta de entregas' }}
+      <!-- Vista de tarjetas de rutas (separadas por estado) -->
+      <div v-else-if="!rutaSeleccionada" class="space-y-4">
+
+        <!-- Sección En proceso -->
+        <template v-if="rutasEnProceso.length">
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse flex-shrink-0"></span>
+            <p class="text-xs font-semibold text-gray-500 uppercase">En proceso</p>
+          </div>
+          <div class="space-y-3">
+            <button
+              v-for="grupo in rutasEnProceso"
+              :key="grupo.despacho_id"
+              @click="entrarRuta(grupo)"
+              class="w-full text-left bg-white rounded-2xl shadow-sm border-2 border-green-400 overflow-hidden active:scale-[0.98] transition-transform"
+            >
+              <div class="bg-gradient-to-r from-green-600 to-green-500 px-4 py-3 text-white">
+                <div class="flex items-center justify-between gap-2">
+                  <div class="flex items-center gap-2 flex-1 min-w-0">
+                    <TruckIcon class="w-5 h-5 flex-shrink-0" />
+                    <p class="font-bold text-base truncate">{{ grupo.despacho?.nombre_ruta || 'Ruta de entregas' }}</p>
+                  </div>
+                  <span class="text-xs bg-white/20 text-white font-semibold px-2 py-0.5 rounded-full flex-shrink-0">En proceso</span>
+                </div>
+                <p class="text-xs text-green-100 mt-0.5 capitalize">{{ fmtFechaRuta(grupo.despacho?.fecha_despacho) }}</p>
+              </div>
+              <div class="px-4 py-3 flex items-center justify-between gap-4">
+                <p class="text-sm font-semibold text-gray-800">{{ pendientesRuta(grupo.items) }} entrega(s) pendiente(s)</p>
+                <div class="text-right flex-shrink-0">
+                  <p class="text-xs text-gray-400">A cobrar</p>
+                  <p class="text-base font-bold text-green-600">${{ totalRuta(grupo.items).toLocaleString('es-CO') }}</p>
+                </div>
+              </div>
+            </button>
+          </div>
+        </template>
+
+        <!-- Sección Pendientes -->
+        <template v-if="rutasPendientes.length">
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-amber-400 flex-shrink-0"></span>
+            <p class="text-xs font-semibold text-gray-500 uppercase">Pendientes</p>
+          </div>
+          <div class="space-y-3">
+            <div
+              v-for="grupo in rutasPendientes"
+              :key="grupo.despacho_id"
+              class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden"
+            >
+              <!-- Header de la tarjeta (toca para entrar) -->
+              <button
+                @click="entrarRuta(grupo)"
+                class="w-full text-left"
+              >
+                <div class="bg-gradient-to-r from-blue-600 to-blue-500 px-4 py-3 text-white">
+                  <div class="flex items-center justify-between gap-2">
+                    <div class="flex items-center gap-2 flex-1 min-w-0">
+                      <TruckIcon class="w-5 h-5 flex-shrink-0" />
+                      <p class="font-bold text-base truncate">{{ grupo.despacho?.nombre_ruta || 'Ruta de entregas' }}</p>
+                    </div>
+                    <ChevronRightIcon class="w-5 h-5 text-blue-200 flex-shrink-0" />
+                  </div>
+                  <p class="text-xs text-blue-200 mt-0.5 capitalize">{{ fmtFechaRuta(grupo.despacho?.fecha_despacho) }}</p>
+                </div>
+                <div class="px-4 py-3 flex items-center justify-between gap-4">
+                  <div class="space-y-0.5">
+                    <p class="text-sm font-semibold text-gray-800">{{ pendientesRuta(grupo.items) }} entrega(s)</p>
+                    <p v-if="grupo.despacho?.instrucciones" class="text-xs text-gray-400 truncate max-w-[200px]">📋 {{ grupo.despacho.instrucciones }}</p>
+                  </div>
+                  <div class="text-right flex-shrink-0">
+                    <p class="text-xs text-gray-400">A cobrar</p>
+                    <p class="text-base font-bold text-green-600">${{ totalRuta(grupo.items).toLocaleString('es-CO') }}</p>
+                  </div>
+                </div>
+              </button>
+
+              <!-- Botón Empezar ruta (solo si ya es el día) -->
+              <div v-if="puedeIniciar(grupo)" class="px-4 pb-3">
+                <button
+                  @click="iniciarRuta(grupo)"
+                  :disabled="iniciando"
+                  class="w-full flex items-center justify-center gap-2 bg-green-600 text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-green-700 disabled:opacity-50 transition-colors"
+                >
+                  <PlayIcon class="w-4 h-4" />
+                  {{ iniciando ? 'Iniciando...' : 'Empezar ruta' }}
+                </button>
+              </div>
+              <!-- Mensaje si aún no es el día -->
+              <div v-else class="px-4 pb-3">
+                <p class="text-center text-xs text-gray-400 bg-gray-50 rounded-xl py-2">
+                  🗓 Disponible el {{ fmtFechaRuta(grupo.despacho?.fecha_despacho) }}
                 </p>
               </div>
-              <ChevronRightIcon class="w-5 h-5 text-blue-200 flex-shrink-0" />
-            </div>
-            <p class="text-xs text-blue-200 mt-0.5 capitalize">{{ fmtFechaRuta(grupo.despacho?.fecha_despacho) }}</p>
-          </div>
-
-          <!-- Resumen -->
-          <div class="px-4 py-3 flex items-center justify-between gap-4">
-            <div class="space-y-0.5">
-              <p class="text-sm font-semibold text-gray-800">
-                {{ pendientesRuta(grupo.items) }} entrega(s) pendiente(s)
-              </p>
-              <p v-if="grupo.despacho?.instrucciones" class="text-xs text-gray-400 truncate max-w-[200px]">
-                📋 {{ grupo.despacho.instrucciones }}
-              </p>
-            </div>
-            <div class="text-right flex-shrink-0">
-              <p class="text-xs text-gray-400">A cobrar</p>
-              <p class="text-base font-bold text-green-600">
-                ${{ totalRuta(grupo.items).toLocaleString('es-CO') }}
-              </p>
             </div>
           </div>
-        </button>
+        </template>
       </div>
 
       <!-- Vista de entregas de la ruta seleccionada -->
@@ -251,6 +336,19 @@ function pendientesRuta(items) {
             <p class="text-xs text-blue-100 font-semibold mb-0.5">Instrucciones</p>
             <p class="text-sm text-white leading-snug">{{ infoRutaActiva.despacho.instrucciones }}</p>
           </div>
+          <!-- Botón Empezar dentro del detalle -->
+          <button
+            v-if="puedeIniciar(infoRutaActiva)"
+            @click="iniciarRuta(infoRutaActiva)"
+            :disabled="iniciando"
+            class="w-full flex items-center justify-center gap-2 bg-white text-blue-700 rounded-xl py-2.5 text-sm font-bold hover:bg-blue-50 disabled:opacity-50 transition-colors"
+          >
+            <PlayIcon class="w-4 h-4" />
+            {{ iniciando ? 'Iniciando...' : 'Empezar ruta' }}
+          </button>
+          <p v-else-if="infoRutaActiva?.despacho?.estado === 'en_ruta'" class="text-center text-xs text-green-200 font-semibold py-1">
+            🟢 Ruta en proceso
+          </p>
         </div>
 
         <!-- Tarjetas de entrega -->

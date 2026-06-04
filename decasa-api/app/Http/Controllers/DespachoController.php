@@ -462,6 +462,37 @@ class DespachoController extends Controller
     }
 
     /**
+     * PATCH /api/despacho/mis-entregas/rutas/{despachoId}/iniciar
+     * Conductor marca una ruta como "en proceso" (asignado → en_ruta).
+     * Solo si ya es el día de la fecha asignada.
+     */
+    public function iniciarRuta(Request $request, int $despachoId)
+    {
+        $usuario  = $request->user();
+        $despacho = Despacho::findOrFail($despachoId);
+
+        if ((int) $despacho->conductor_id !== (int) $usuario->id) {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+
+        if ($despacho->estado !== 'asignado') {
+            return response()->json(['message' => 'Esta ruta ya está en proceso o fue completada.'], 422);
+        }
+
+        // Solo puede iniciar si ya llegó o pasó la fecha de despacho
+        if ($despacho->fecha_despacho && $despacho->fecha_despacho->gt(now()->startOfDay())) {
+            $fechaFmt = $despacho->fecha_despacho->locale('es')->isoFormat('dddd D [de] MMMM');
+            return response()->json([
+                'message' => "Esta ruta está programada para el {$fechaFmt}. Aún no puedes iniciarla.",
+            ], 422);
+        }
+
+        $despacho->update(['estado' => 'en_ruta']);
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
      * GET /api/despacho/mis-entregas
      * Conductor autenticado: lista sus entregas activas ordenadas por posicion.
      */
@@ -470,7 +501,7 @@ class DespachoController extends Controller
         $usuario = $request->user();
 
         $items = DespachoItem::with([
-            'despacho:id,conductor_id,nombre_ruta,instrucciones,notas,fecha_despacho',
+            'despacho:id,conductor_id,estado,nombre_ruta,instrucciones,notas,fecha_despacho',
             'orden.cliente:id,nombre,telefono,direccion',
             'orden.tienda:id,nombre',
             'orden.items.producto:id,nombre,foto_url',

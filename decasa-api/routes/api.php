@@ -225,6 +225,7 @@ Route::middleware('auth:sanctum')->group(function () {
         });
 
         // Conductor (autenticado)
+        Route::patch('/mis-entregas/rutas/{despachoId}/iniciar', [DespachoController::class, 'iniciarRuta'])->whereNumber('despachoId');
         Route::get('/mis-entregas',                          [DespachoController::class, 'misEntregas']);
         Route::get('/mis-entregas/historial',                [DespachoController::class, 'misHistorial']);
         Route::get('/mis-entregas/{despachoItemId}',         [DespachoController::class, 'showEntrega']);
