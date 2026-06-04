@@ -81,7 +81,7 @@ function puedeIniciar(grupo) {
   const fecha = grupo.despacho?.fecha_despacho
   if (!fecha) return true
   const hoy = new Date().toISOString().slice(0, 10)
-  return fecha <= hoy
+  return String(fecha).slice(0, 10) <= hoy
 }
 
 async function iniciarRuta(grupo) {
@@ -161,7 +161,7 @@ function fmtFecha(iso) {
 
 function fmtFechaRuta(f) {
   if (!f) return ''
-  return new Date(f + 'T12:00:00').toLocaleDateString('es-CO', {
+  return new Date(String(f).slice(0, 10) + 'T12:00:00').toLocaleDateString('es-CO', {
     weekday: 'long', day: 'numeric', month: 'long',
   })
 }

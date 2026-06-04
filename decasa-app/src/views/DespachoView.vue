@@ -909,7 +909,7 @@ onBeforeUnmount(() => {
                   <p class="text-xs text-gray-500">
                     {{ grupo[0]?.despacho?.conductor?.nombre }}
                     <span v-if="grupo[0]?.despacho?.fecha_despacho" class="ml-1 text-gray-400">
-                      · {{ new Date(grupo[0].despacho.fecha_despacho + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' }) }}
+                      · {{ new Date(String(grupo[0].despacho.fecha_despacho).slice(0,10) + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' }) }}
                     </span>
                   </p>
                 </div>
@@ -1063,7 +1063,7 @@ onBeforeUnmount(() => {
                 </div>
                 <p class="text-xs text-gray-400 mt-0.5">
                   {{ d.conductor?.nombre }}
-                  <span v-if="d.fecha_despacho"> · {{ new Date(d.fecha_despacho + 'T12:00:00').toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' }) }}</span>
+                  <span v-if="d.fecha_despacho"> · {{ new Date(String(d.fecha_despacho).slice(0,10) + 'T12:00:00').toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' }) }}</span>
                   · {{ d.items?.length ?? 0 }} orden(es)
                 </p>
               </div>
