@@ -104,6 +104,40 @@ class DespachoController extends Controller
     }
 
     /**
+     * PATCH /api/despacho/rutas/{id}
+     * Edita nombre, fecha o instrucciones de una ruta borrador.
+     */
+    public function actualizarRuta(Request $request, int $id)
+    {
+        $data = $request->validate([
+            'nombre_ruta'    => 'sometimes|nullable|string|max:120',
+            'fecha_despacho' => 'sometimes|required|date',
+            'instrucciones'  => 'sometimes|nullable|string|max:2000',
+        ]);
+
+        $ruta = Despacho::where('estado', 'borrador')->findOrFail($id);
+        $ruta->update($data);
+
+        return response()->json($ruta);
+    }
+
+    /**
+     * DELETE /api/despacho/rutas/{id}
+     * Elimina una ruta borrador y devuelve sus órdenes a la cola.
+     */
+    public function eliminarRuta(int $id)
+    {
+        $ruta = Despacho::where('estado', 'borrador')->findOrFail($id);
+
+        DB::transaction(function () use ($ruta) {
+            $ruta->items()->delete();
+            $ruta->delete();
+        });
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
      * POST /api/despacho/rutas/{id}/ordenes
      * Agrega una orden de la cola a una ruta borrador.
      */

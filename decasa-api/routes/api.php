@@ -217,6 +217,8 @@ Route::middleware('auth:sanctum')->group(function () {
             // Rutas (borradores)
             Route::get('/rutas',                                [DespachoController::class, 'rutas']);
             Route::post('/rutas',                               [DespachoController::class, 'crearRuta']);
+            Route::patch('/rutas/{id}',                         [DespachoController::class, 'actualizarRuta'])->whereNumber('id');
+            Route::delete('/rutas/{id}',                        [DespachoController::class, 'eliminarRuta'])->whereNumber('id');
             Route::post('/rutas/{id}/ordenes',                  [DespachoController::class, 'agregarOrdenARuta'])->whereNumber('id');
             Route::delete('/rutas/{id}/ordenes/{itemId}',       [DespachoController::class, 'quitarOrdenDeRuta'])->whereNumber('id')->whereNumber('itemId');
             Route::patch('/rutas/{id}/reordenar',               [DespachoController::class, 'reordenarRuta'])->whereNumber('id');

@@ -10,6 +10,8 @@ export const actualizarCamion        = (id, d)  => api.patch(`/camiones/${id}`, 
 // Rutas (borradores)
 export const listarRutas             = ()       => api.get('/despacho/rutas')
 export const crearRuta               = (d)      => api.post('/despacho/rutas', d)
+export const actualizarRuta          = (id, d)  => api.patch(`/despacho/rutas/${id}`, d)
+export const eliminarRuta            = (id)     => api.delete(`/despacho/rutas/${id}`)
 export const agregarOrdenARuta       = (id, d)  => api.post(`/despacho/rutas/${id}/ordenes`, d)
 export const quitarOrdenDeRuta       = (id, iid) => api.delete(`/despacho/rutas/${id}/ordenes/${iid}`)
 export const reordenarRuta           = (id, d)  => api.patch(`/despacho/rutas/${id}/reordenar`, d)

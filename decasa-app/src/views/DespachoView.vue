@@ -3,9 +3,9 @@ import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useDespachoStore } from '@/stores/despacho'
 import { useDespachoSocket } from '@/composables/useDespachoSocket'
-import { asignar, asignados, historialDespacho, detalleDespacho, camiones as getCamiones, crearCamion, actualizarCamion, listarRutas, crearRuta, agregarOrdenARuta, quitarOrdenDeRuta, reordenarRuta, enviarRuta } from '@/api/despacho'
+import { asignar, asignados, historialDespacho, detalleDespacho, camiones as getCamiones, crearCamion, actualizarCamion, listarRutas, crearRuta, actualizarRuta, eliminarRuta as apiEliminarRuta, agregarOrdenARuta, quitarOrdenDeRuta, reordenarRuta, enviarRuta } from '@/api/despacho'
 import { useToast } from '@/composables/useToast'
-import { ChevronDownIcon, XMarkIcon, ArrowTopRightOnSquareIcon, TruckIcon, PencilSquareIcon, CheckIcon } from '@heroicons/vue/24/outline'
+import { ChevronDownIcon, XMarkIcon, ArrowTopRightOnSquareIcon, TruckIcon, PencilSquareIcon, CheckIcon, TrashIcon } from '@heroicons/vue/24/outline'
 import DespachoCard from '@/components/despacho/DespachoCard.vue'
 import ColaCamionesModal from '@/components/despacho/ColaCamionesModal.vue'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
@@ -214,6 +214,8 @@ const cargandoRutas    = ref(false)
 const mostrarFormRuta  = ref(false)
 const formRuta         = ref({ nombre_ruta: '', fecha_despacho: '', instrucciones: '' })
 const creandoRuta      = ref(false)
+const editandoRuta     = ref(null)   // { id, nombre_ruta, fecha_despacho, instrucciones }
+const guardandoRuta    = ref(false)
 
 // ruta cuyo selector de "agregar orden" está abierto
 const rutaAgregando    = ref(null)
@@ -231,6 +233,51 @@ async function cargarRutas() {
     rutas.value = data
   } catch {} finally {
     cargandoRutas.value = false
+  }
+}
+
+function abrirEditRuta(ruta) {
+  editandoRuta.value = {
+    id:             ruta.id,
+    nombre_ruta:    ruta.nombre_ruta    ?? '',
+    fecha_despacho: ruta.fecha_despacho ? String(ruta.fecha_despacho).slice(0, 10) : '',
+    instrucciones:  ruta.instrucciones  ?? '',
+  }
+}
+
+async function guardarEditRuta() {
+  if (!editandoRuta.value) return
+  guardandoRuta.value = true
+  try {
+    const { data } = await actualizarRuta(editandoRuta.value.id, {
+      nombre_ruta:    editandoRuta.value.nombre_ruta    || null,
+      fecha_despacho: editandoRuta.value.fecha_despacho || null,
+      instrucciones:  editandoRuta.value.instrucciones  || null,
+    })
+    const ruta = rutas.value.find(r => r.id === editandoRuta.value.id)
+    if (ruta) {
+      ruta.nombre_ruta    = data.nombre_ruta
+      ruta.fecha_despacho = data.fecha_despacho
+      ruta.instrucciones  = data.instrucciones
+    }
+    editandoRuta.value = null
+    toast.success('Ruta actualizada')
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'Error al guardar')
+  } finally {
+    guardandoRuta.value = false
+  }
+}
+
+async function borrarRuta(ruta) {
+  if (!confirm(`¿Eliminar la ruta "${ruta.nombre_ruta || 'sin nombre'}"? Las órdenes volverán a la cola.`)) return
+  try {
+    await apiEliminarRuta(ruta.id)
+    rutas.value = rutas.value.filter(r => r.id !== ruta.id)
+    await despacho.refrescar()
+    toast.success('Ruta eliminada')
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'Error al eliminar')
   }
 }
 
@@ -568,15 +615,60 @@ onBeforeUnmount(() => {
 
         <!-- Header de la ruta -->
         <div class="bg-gradient-to-r from-blue-600 to-blue-500 px-4 py-3 text-white">
-          <div class="flex items-center justify-between gap-2">
-            <div class="flex-1 min-w-0">
-              <p class="font-bold truncate">{{ ruta.nombre_ruta }}</p>
-              <p class="text-xs text-blue-200">{{ fmtFechaCorta(ruta.fecha_despacho) }} · {{ ruta.items?.length ?? 0 }} orden(es)</p>
+          <!-- Modo vista -->
+          <template v-if="editandoRuta?.id !== ruta.id">
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex-1 min-w-0">
+                <p class="font-bold truncate">{{ ruta.nombre_ruta || 'Sin nombre' }}</p>
+                <p class="text-xs text-blue-200">{{ fmtFechaCorta(ruta.fecha_despacho) }} · {{ ruta.items?.length ?? 0 }} orden(es)</p>
+              </div>
+              <div class="flex items-center gap-1 flex-shrink-0">
+                <button @click.stop="abrirEditRuta(ruta)" class="p-1.5 rounded-lg hover:bg-white/20 transition-colors" title="Editar fecha / nombre">
+                  <PencilSquareIcon class="w-4 h-4 text-blue-200" />
+                </button>
+                <button @click.stop="borrarRuta(ruta)" class="p-1.5 rounded-lg hover:bg-white/20 transition-colors" title="Eliminar ruta">
+                  <TrashIcon class="w-4 h-4 text-red-300" />
+                </button>
+              </div>
             </div>
-            <span class="text-xs bg-amber-400 text-amber-900 font-semibold px-2 py-0.5 rounded-full flex-shrink-0">Borrador</span>
-          </div>
-          <!-- Instrucciones si existen -->
-          <p v-if="ruta.instrucciones" class="text-xs text-blue-100 mt-1.5 leading-snug">📋 {{ ruta.instrucciones }}</p>
+            <p v-if="ruta.instrucciones" class="text-xs text-blue-100 mt-1.5 leading-snug">📋 {{ ruta.instrucciones }}</p>
+          </template>
+
+          <!-- Modo edición inline -->
+          <template v-else>
+            <p class="text-xs text-blue-200 font-semibold uppercase mb-2">Editar ruta</p>
+            <div class="space-y-2">
+              <input
+                v-model="editandoRuta.nombre_ruta"
+                type="text"
+                placeholder="Nombre de la ruta"
+                class="w-full rounded-lg bg-white/20 text-white placeholder-blue-300 border border-white/30 px-3 py-2 text-sm focus:outline-none focus:bg-white/30"
+              />
+              <input
+                v-model="editandoRuta.fecha_despacho"
+                type="date"
+                class="w-full rounded-lg bg-white/20 text-white border border-white/30 px-3 py-2 text-sm focus:outline-none focus:bg-white/30"
+              />
+              <textarea
+                v-model="editandoRuta.instrucciones"
+                rows="2"
+                placeholder="Instrucciones (opcional)"
+                class="w-full rounded-lg bg-white/20 text-white placeholder-blue-300 border border-white/30 px-3 py-2 text-sm focus:outline-none focus:bg-white/30 resize-none"
+              />
+              <div class="flex gap-2 pt-1">
+                <button @click="editandoRuta = null" class="flex-1 border border-white/30 text-blue-100 rounded-lg py-1.5 text-xs font-medium hover:bg-white/10">
+                  Cancelar
+                </button>
+                <button
+                  @click="guardarEditRuta"
+                  :disabled="guardandoRuta"
+                  class="flex-1 bg-white text-blue-700 rounded-lg py-1.5 text-xs font-bold hover:bg-blue-50 disabled:opacity-50"
+                >
+                  {{ guardandoRuta ? 'Guardando...' : 'Guardar' }}
+                </button>
+              </div>
+            </div>
+          </template>
         </div>
 
         <!-- Total a cobrar -->
