@@ -347,7 +347,10 @@ class OrdenController extends Controller
             $ordenCargada->cliente->nombre,
         ));
 
-        $supervisores = Usuario::where('rol', 'supervisor')->where('activo', true)->get();
+        $supervisores = Usuario::where('rol', 'supervisor')
+            ->where('activo', true)
+            ->where('id', '!=', $request->user()->id)
+            ->get();
 
         foreach ($supervisores as $sup) {
             NotificacionService::crear(
@@ -562,7 +565,10 @@ class OrdenController extends Controller
         $tiendaId      = $orden->tienda_id;
 
         // Notificar supervisores: orden confirmada + asignar fecha
-        $supervisores = Usuario::where('rol', 'supervisor')->where('activo', true)->get();
+        $supervisores = Usuario::where('rol', 'supervisor')
+            ->where('activo', true)
+            ->where('id', '!=', $request->user()->id)
+            ->get();
         foreach ($supervisores as $sup) {
             NotificacionService::crear(
                 'venta_nueva',
