@@ -1,20 +1,23 @@
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useDespachoSocket } from '@/composables/useDespachoSocket'
 import { misEntregas, historialMisEntregas } from '@/api/despacho'
 import EntregaDetalleModal from '@/components/despacho/EntregaDetalleModal.vue'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
-import { TruckIcon, CheckCircleIcon, ClockIcon, MapPinIcon } from '@heroicons/vue/24/outline'
+import { TruckIcon, CheckCircleIcon, ClockIcon, MapPinIcon, ChevronRightIcon, ArrowLeftIcon } from '@heroicons/vue/24/outline'
 
 const socket = useDespachoSocket()
 
-const tab          = ref('activas')
-const entregas     = ref([])
-const cargando     = ref(true)
-const error        = ref('')
-const itemActivo   = ref(null)
+const tab        = ref('activas')
+const entregas   = ref([])
+const cargando   = ref(true)
+const error      = ref('')
+const itemActivo = ref(null)
+
+// Ruta seleccionada para ver sus entregas (null = vista de tarjetas)
+const rutaSeleccionada = ref(null)
 
 const historial        = ref([])
 const loadingHistorial = ref(false)
@@ -36,11 +39,50 @@ async function cargar() {
   try {
     const { data } = await misEntregas()
     entregas.value = data
+    // Si solo hay una ruta, entrar directo
+    if (rutasAgrupadas.value.length === 1) {
+      rutaSeleccionada.value = rutasAgrupadas.value[0].despacho_id
+    }
   } catch (e) {
     error.value = e.response?.data?.message || 'Error al cargar las entregas'
   } finally {
     cargando.value = false
   }
+}
+
+// Agrupar entregas por despacho y ordenar por fecha
+const rutasAgrupadas = computed(() => {
+  const grupos = new Map()
+  for (const item of entregas.value) {
+    const key = item.despacho_id
+    if (!grupos.has(key)) {
+      grupos.set(key, { despacho_id: key, despacho: item.despacho, items: [] })
+    }
+    grupos.get(key).items.push(item)
+  }
+  return [...grupos.values()].sort((a, b) => {
+    const fa = a.despacho?.fecha_despacho ?? ''
+    const fb = b.despacho?.fecha_despacho ?? ''
+    return fa.localeCompare(fb)
+  })
+})
+
+const itemsRutaActiva = computed(() =>
+  rutaSeleccionada.value
+    ? (rutasAgrupadas.value.find(g => g.despacho_id === rutaSeleccionada.value)?.items ?? [])
+    : []
+)
+
+const infoRutaActiva = computed(() =>
+  rutasAgrupadas.value.find(g => g.despacho_id === rutaSeleccionada.value)
+)
+
+function entrarRuta(grupo) {
+  rutaSeleccionada.value = grupo.despacho_id
+}
+
+function volverARutas() {
+  rutaSeleccionada.value = null
 }
 
 async function cargarHistorial(page = 1, append = false) {
@@ -49,8 +91,8 @@ async function cargarHistorial(page = 1, append = false) {
     const { data } = await historialMisEntregas({ page })
     const items = data.data ?? []
     historial.value = append ? [...historial.value, ...items] : items
-    historialPage.value  = data.current_page
-    historialHasMore.value = data.current_page < data.last_page
+    historialPage.value     = data.current_page
+    historialHasMore.value  = data.current_page < data.last_page
   } catch {} finally {
     loadingHistorial.value = false
   }
@@ -61,6 +103,7 @@ async function switchTab(t) {
   if (t === 'historial' && historial.value.length === 0) {
     await cargarHistorial(1, false)
   }
+  if (t === 'activas') rutaSeleccionada.value = null
 }
 
 async function cargarMas() {
@@ -68,18 +111,13 @@ async function cargarMas() {
   await cargarHistorial(historialPage.value + 1, true)
 }
 
-function abrirDetalle(item) {
-  itemActivo.value = item
-}
-
-function cerrarDetalle() {
-  itemActivo.value = null
-}
+function abrirDetalle(item) { itemActivo.value = item }
+function cerrarDetalle()    { itemActivo.value = null  }
 
 async function trasEntregar() {
   await cargar()
   historial.value = []
-  historialPage.value = 1
+  historialPage.value    = 1
   historialHasMore.value = true
 }
 
@@ -90,17 +128,40 @@ function fmtFecha(iso) {
     hour: '2-digit', minute: '2-digit',
   })
 }
+
+function fmtFechaRuta(f) {
+  if (!f) return ''
+  return new Date(f + 'T12:00:00').toLocaleDateString('es-CO', {
+    weekday: 'long', day: 'numeric', month: 'long',
+  })
+}
+
+function totalRuta(items) {
+  return items.reduce((s, i) => s + (parseFloat(i.orden?.saldo_pendiente) || 0), 0)
+}
+
+function pendientesRuta(items) {
+  return items.filter(i => i.estado !== 'entregado').length
+}
 </script>
 
 <template>
   <div class="p-4 max-w-2xl mx-auto space-y-4 pb-8">
+
     <!-- Header -->
     <div class="flex items-center gap-2">
-      <TruckIcon class="w-6 h-6 text-blue-600" />
-      <h1 class="text-xl font-bold text-gray-900 flex-1">Mis Entregas</h1>
-      <span v-if="tab === 'activas' && entregas.length > 0" class="text-sm text-gray-500">
-        {{ entregas.length }} pendiente(s)
-      </span>
+      <!-- Botón atrás cuando estamos dentro de una ruta (y hay más de 1) -->
+      <button
+        v-if="rutaSeleccionada && rutasAgrupadas.length > 1"
+        @click="volverARutas"
+        class="p-1.5 -ml-1 text-blue-600"
+      >
+        <ArrowLeftIcon class="w-5 h-5" />
+      </button>
+      <TruckIcon v-else class="w-6 h-6 text-blue-600" />
+      <h1 class="text-xl font-bold text-gray-900 flex-1">
+        {{ rutaSeleccionada ? (infoRutaActiva?.despacho?.nombre_ruta || 'Mis Entregas') : 'Mis Entregas' }}
+      </h1>
     </div>
 
     <!-- Tabs -->
@@ -128,50 +189,80 @@ function fmtFecha(iso) {
       <div v-else-if="error" class="bg-red-50 rounded-xl px-4 py-3 text-sm text-red-600">{{ error }}</div>
       <EmptyState v-else-if="entregas.length === 0" message="No tienes entregas asignadas en este momento." />
 
-      <div v-else class="space-y-3">
-        <template v-for="(item, idx) in entregas" :key="item.id">
-          <!-- Banner de ruta al inicio de cada despacho -->
-          <div
-            v-if="idx === 0 || item.despacho_id !== entregas[idx - 1].despacho_id"
-            class="bg-blue-600 rounded-xl p-4 text-white space-y-2"
-          >
+      <!-- Vista de tarjetas de rutas -->
+      <div v-else-if="!rutaSeleccionada" class="space-y-3">
+        <p class="text-xs text-gray-400">Toca una ruta para ver sus entregas.</p>
+        <button
+          v-for="grupo in rutasAgrupadas"
+          :key="grupo.despacho_id"
+          @click="entrarRuta(grupo)"
+          class="w-full text-left bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden active:scale-[0.98] transition-transform"
+        >
+          <!-- Cabecera azul -->
+          <div class="bg-gradient-to-r from-blue-600 to-blue-500 px-4 py-3 text-white">
             <div class="flex items-center justify-between gap-2">
-              <div class="flex items-center gap-2">
+              <div class="flex items-center gap-2 flex-1 min-w-0">
                 <TruckIcon class="w-5 h-5 flex-shrink-0" />
-                <p class="font-bold text-base">
-                  {{ item.despacho?.nombre_ruta || 'Ruta de entregas' }}
+                <p class="font-bold text-base truncate">
+                  {{ grupo.despacho?.nombre_ruta || 'Ruta de entregas' }}
                 </p>
               </div>
-              <span v-if="item.despacho?.fecha_despacho" class="text-xs text-blue-200 font-medium">
-                {{ new Date(item.despacho.fecha_despacho + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' }) }}
-              </span>
+              <ChevronRightIcon class="w-5 h-5 text-blue-200 flex-shrink-0" />
             </div>
-
-            <!-- Total a cobrar en esta ruta -->
-            <div class="bg-white/15 rounded-lg px-3 py-2 flex items-center justify-between">
-              <span class="text-xs text-blue-100">Total a cobrar en esta ruta</span>
-              <span class="font-bold text-white">
-                ${{ entregas
-                  .filter(e => e.despacho_id === item.despacho_id)
-                  .reduce((s, e) => s + (parseFloat(e.orden?.saldo_pendiente) || 0), 0)
-                  .toLocaleString('es-CO') }}
-              </span>
-            </div>
-
-            <!-- Instrucciones del supervisor -->
-            <div v-if="item.despacho?.instrucciones" class="bg-white/15 rounded-lg px-3 py-2">
-              <p class="text-xs text-blue-100 font-semibold mb-0.5">Instrucciones</p>
-              <p class="text-sm text-white leading-snug">{{ item.despacho.instrucciones }}</p>
-            </div>
+            <p class="text-xs text-blue-200 mt-0.5 capitalize">{{ fmtFechaRuta(grupo.despacho?.fecha_despacho) }}</p>
           </div>
 
-          <div
-            @click="abrirDetalle(item)"
-            class="bg-white rounded-xl p-4 shadow-sm border border-gray-100 active:scale-[0.98] transition-transform cursor-pointer"
-          >
+          <!-- Resumen -->
+          <div class="px-4 py-3 flex items-center justify-between gap-4">
+            <div class="space-y-0.5">
+              <p class="text-sm font-semibold text-gray-800">
+                {{ pendientesRuta(grupo.items) }} entrega(s) pendiente(s)
+              </p>
+              <p v-if="grupo.despacho?.instrucciones" class="text-xs text-gray-400 truncate max-w-[200px]">
+                📋 {{ grupo.despacho.instrucciones }}
+              </p>
+            </div>
+            <div class="text-right flex-shrink-0">
+              <p class="text-xs text-gray-400">A cobrar</p>
+              <p class="text-base font-bold text-green-600">
+                ${{ totalRuta(grupo.items).toLocaleString('es-CO') }}
+              </p>
+            </div>
+          </div>
+        </button>
+      </div>
+
+      <!-- Vista de entregas de la ruta seleccionada -->
+      <div v-else class="space-y-3">
+
+        <!-- Banner de la ruta -->
+        <div class="bg-blue-600 rounded-xl p-4 text-white space-y-2">
+          <div class="flex items-center justify-between gap-2">
+            <p class="font-bold text-base">{{ infoRutaActiva?.despacho?.nombre_ruta || 'Ruta de entregas' }}</p>
+            <span class="text-xs text-blue-200 font-medium capitalize">{{ fmtFechaRuta(infoRutaActiva?.despacho?.fecha_despacho) }}</span>
+          </div>
+          <div class="bg-white/15 rounded-lg px-3 py-2 flex items-center justify-between">
+            <span class="text-xs text-blue-100">Total a cobrar</span>
+            <span class="font-bold text-white">
+              ${{ totalRuta(itemsRutaActiva).toLocaleString('es-CO') }}
+            </span>
+          </div>
+          <div v-if="infoRutaActiva?.despacho?.instrucciones" class="bg-white/15 rounded-lg px-3 py-2">
+            <p class="text-xs text-blue-100 font-semibold mb-0.5">Instrucciones</p>
+            <p class="text-sm text-white leading-snug">{{ infoRutaActiva.despacho.instrucciones }}</p>
+          </div>
+        </div>
+
+        <!-- Tarjetas de entrega -->
+        <div
+          v-for="(item, idx) in itemsRutaActiva"
+          :key="item.id"
+          @click="abrirDetalle(item)"
+          class="bg-white rounded-xl p-4 shadow-sm border border-gray-100 active:scale-[0.98] transition-transform cursor-pointer"
+        >
           <div class="flex items-start gap-3">
             <div class="flex-shrink-0 w-9 h-9 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-sm font-bold">
-              {{ idx + 1 }}
+              {{ item.posicion ?? idx + 1 }}
             </div>
             <div class="flex-1 min-w-0">
               <div class="flex items-center justify-between gap-2 min-w-0">
@@ -183,24 +274,18 @@ function fmtFecha(iso) {
                 <MapPinIcon class="w-3.5 h-3.5 flex-shrink-0 text-gray-400" />
                 <span class="truncate">{{ item.orden?.direccion_envio || item.orden?.cliente?.direccion }}</span>
               </div>
-
-              <!-- Productos breve -->
               <p v-if="item.orden?.items?.length" class="text-xs text-gray-400 mt-1 truncate">
                 {{ item.orden.items.map(i => i.producto?.nombre).filter(Boolean).join(', ') }}
               </p>
-
               <div class="flex items-center gap-3 mt-2 text-sm">
-                <span class="text-gray-600">
-                  <MoneyDisplay :amount="item.orden?.valor_total" />
-                </span>
-                <span v-if="item.orden?.saldo_pendiente > 0" class="text-orange-600 text-xs">
-                  Saldo: <MoneyDisplay :amount="item.orden?.saldo_pendiente" />
+                <span class="text-gray-600"><MoneyDisplay :amount="item.orden?.valor_total" /></span>
+                <span v-if="item.orden?.saldo_pendiente > 0" class="text-orange-600 text-xs font-medium">
+                  Cobra: <MoneyDisplay :amount="item.orden?.saldo_pendiente" />
                 </span>
               </div>
             </div>
           </div>
-          </div>
-        </template>
+        </div>
       </div>
     </template>
 
@@ -230,16 +315,11 @@ function fmtFecha(iso) {
                 <MapPinIcon class="w-3.5 h-3.5 flex-shrink-0" />
                 {{ item.orden?.cliente?.direccion }}
               </p>
-
-              <!-- Productos breve -->
               <p v-if="item.orden?.items?.length" class="text-xs text-gray-400 mt-1 truncate">
                 {{ item.orden.items.map(i => i.producto?.nombre).filter(Boolean).join(', ') }}
               </p>
-
               <div class="flex items-center justify-between mt-2">
-                <span class="text-sm text-gray-600">
-                  <MoneyDisplay :amount="item.orden?.valor_total" />
-                </span>
+                <span class="text-sm text-gray-600"><MoneyDisplay :amount="item.orden?.valor_total" /></span>
                 <span class="text-xs text-gray-400 flex items-center gap-1">
                   <ClockIcon class="w-3.5 h-3.5" />
                   {{ fmtFecha(item.entregado_at) }}
@@ -249,7 +329,6 @@ function fmtFecha(iso) {
           </div>
         </div>
 
-        <!-- Cargar más -->
         <div class="text-center py-2">
           <button
             v-if="historialHasMore"
