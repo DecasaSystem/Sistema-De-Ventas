@@ -41,40 +41,50 @@ const creandoCliente = ref(false)
 const errCliente = ref('')
 
 // Completar datos de interesado antes de continuar
-const formCompletarCliente     = ref({ telefono: '', cedula: '' })
+const formCompletarCliente = ref({ nombre: '', cedula: '', telefono: '', email: '', direccion: '' })
 const guardandoCompletarCliente = ref(false)
-const errCompletarCliente      = ref('')
+const errCompletarCliente       = ref('')
 
+// Un cliente requiere completar si es interesado O le falta algún campo obligatorio
 const clienteRequiereCompletar = computed(() => {
   const c = clienteSeleccionado.value
   if (!c) return false
-  return c.tipo === 'interesado' || !c.telefono
+  return c.tipo === 'interesado' || !c.cedula || !c.telefono || !c.direccion
 })
 
 watch(clienteSeleccionado, (c) => {
   if (c) {
-    formCompletarCliente.value = { telefono: c.telefono || '', cedula: c.cedula || '' }
-    errCompletarCliente.value  = ''
+    formCompletarCliente.value = {
+      nombre:    c.nombre    || '',
+      cedula:    c.cedula    || '',
+      telefono:  c.telefono  || '',
+      email:     c.email     || '',
+      direccion: c.direccion || '',
+    }
+    errCompletarCliente.value = ''
   }
 })
 
 async function completarYConvertirCliente() {
   errCompletarCliente.value = ''
-  if (!formCompletarCliente.value.telefono.trim()) {
-    errCompletarCliente.value = 'El teléfono es obligatorio para continuar.'
-    return
-  }
+  const f = formCompletarCliente.value
+  if (!f.nombre.trim())    { errCompletarCliente.value = 'El nombre es obligatorio.';    return }
+  if (!f.cedula.trim())    { errCompletarCliente.value = 'La cédula es obligatoria.';    return }
+  if (!f.telefono.trim())  { errCompletarCliente.value = 'El teléfono es obligatorio.';  return }
+  if (!f.direccion.trim()) { errCompletarCliente.value = 'La dirección es obligatoria.'; return }
+
   guardandoCompletarCliente.value = true
   try {
-    const payload = { tipo: 'oficial', telefono: formCompletarCliente.value.telefono.trim() }
-    if (formCompletarCliente.value.cedula.trim()) payload.cedula = formCompletarCliente.value.cedula.trim()
-    await updateCliente(clienteSeleccionado.value.id, payload)
-    clienteSeleccionado.value = {
-      ...clienteSeleccionado.value,
-      tipo: 'oficial',
-      telefono: payload.telefono,
-      cedula: payload.cedula ?? clienteSeleccionado.value.cedula,
+    const payload = {
+      tipo:      'oficial',
+      nombre:    f.nombre.trim(),
+      cedula:    f.cedula.trim(),
+      telefono:  f.telefono.trim(),
+      email:     f.email.trim() || null,
+      direccion: f.direccion.trim(),
     }
+    await updateCliente(clienteSeleccionado.value.id, payload)
+    clienteSeleccionado.value = { ...clienteSeleccionado.value, ...payload }
   } catch (e) {
     errCompletarCliente.value = e.response?.data?.message ?? 'Error al actualizar el cliente'
   } finally {
@@ -107,8 +117,22 @@ function seleccionarCliente(c) {
   clienteQuery.value = c.nombre
 }
 
+function nuevoClienteValido() {
+  const c = nuevoCliente.value
+  if (c.tipo === 'interesado') return true  // todo opcional para interesado
+  // Oficial: todos los campos requeridos
+  return c.nombre.trim() && c.cedula.trim() && c.telefono.trim() && c.direccion.trim()
+}
+
 async function crearCliente() {
   errCliente.value = ''
+  const c = nuevoCliente.value
+  if (c.tipo === 'oficial') {
+    if (!c.nombre.trim())    { errCliente.value = 'El nombre es obligatorio.';    return }
+    if (!c.cedula.trim())    { errCliente.value = 'La cédula es obligatoria.';    return }
+    if (!c.telefono.trim())  { errCliente.value = 'El teléfono es obligatorio.';  return }
+    if (!c.direccion.trim()) { errCliente.value = 'La dirección es obligatoria.'; return }
+  }
   creandoCliente.value = true
   try {
     const { data } = await api.post('/clientes', nuevoCliente.value)
@@ -978,31 +1002,33 @@ function removeFacturaFoto() {
             </span>
           </div>
 
-          <!-- Formulario inline para completar datos del interesado -->
+          <!-- Formulario inline para completar datos (interesado → oficial) -->
           <div v-if="clienteRequiereCompletar" class="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-3">
             <p class="text-xs font-semibold text-amber-800 flex items-center gap-1.5">
               <ExclamationTriangleIcon class="w-4 h-4 flex-shrink-0" />
-              Completa los datos para poder crear la orden
+              Completa todos los datos del cliente para crear la orden
             </p>
 
             <div class="space-y-2">
               <div>
-                <label class="text-xs text-gray-500 mb-1 block">Teléfono <span class="text-red-500">*</span></label>
-                <input
-                  v-model="formCompletarCliente.telefono"
-                  type="tel"
-                  placeholder="Ej: 3001234567"
-                  class="input"
-                />
+                <label class="text-xs text-gray-500 mb-1 block">Nombre completo <span class="text-red-500">*</span></label>
+                <input v-model="formCompletarCliente.nombre" type="text" placeholder="Nombre y apellido" class="input" />
               </div>
               <div>
-                <label class="text-xs text-gray-500 mb-1 block">Cédula / NIT <span class="text-gray-400 font-normal">(opcional)</span></label>
-                <input
-                  v-model="formCompletarCliente.cedula"
-                  type="text"
-                  placeholder="Ej: 1012345678"
-                  class="input"
-                />
+                <label class="text-xs text-gray-500 mb-1 block">Cédula / NIT <span class="text-red-500">*</span></label>
+                <input v-model="formCompletarCliente.cedula" type="text" placeholder="Ej: 1012345678" class="input" />
+              </div>
+              <div>
+                <label class="text-xs text-gray-500 mb-1 block">Teléfono <span class="text-red-500">*</span></label>
+                <input v-model="formCompletarCliente.telefono" type="tel" placeholder="Ej: 3001234567" class="input" />
+              </div>
+              <div>
+                <label class="text-xs text-gray-500 mb-1 block">Email <span class="text-gray-400 font-normal">(opcional)</span></label>
+                <input v-model="formCompletarCliente.email" type="email" placeholder="correo@ejemplo.com" class="input" />
+              </div>
+              <div>
+                <label class="text-xs text-gray-500 mb-1 block">Dirección <span class="text-red-500">*</span></label>
+                <input v-model="formCompletarCliente.direccion" type="text" placeholder="Dirección de entrega" class="input" />
               </div>
             </div>
 
@@ -1010,11 +1036,11 @@ function removeFacturaFoto() {
 
             <button
               @click="completarYConvertirCliente"
-              :disabled="guardandoCompletarCliente || !formCompletarCliente.telefono.trim()"
+              :disabled="guardandoCompletarCliente"
               class="w-full py-2 bg-amber-500 text-white text-xs font-semibold rounded-lg hover:bg-amber-600 disabled:opacity-50 transition-colors flex items-center justify-center gap-1.5"
             >
               <ArrowPathIcon v-if="guardandoCompletarCliente" class="w-3.5 h-3.5 animate-spin" />
-              {{ guardandoCompletarCliente ? 'Guardando...' : 'Guardar datos y convertir a cliente oficial' }}
+              {{ guardandoCompletarCliente ? 'Guardando...' : 'Guardar y convertir a cliente oficial' }}
             </button>
           </div>
         </div>
@@ -1051,11 +1077,37 @@ function removeFacturaFoto() {
           </div>
         </div>
 
-        <input v-model="nuevoCliente.nombre"    class="input" placeholder="Nombre completo *" />
-        <input v-model="nuevoCliente.cedula"    class="input" placeholder="Cédula / NIT (empresa)" />
-        <input v-model="nuevoCliente.telefono"  class="input" placeholder="Teléfono" type="tel" />
-        <input v-model="nuevoCliente.email"     class="input" placeholder="Email" type="email" />
-        <input v-model="nuevoCliente.direccion" class="input" placeholder="Dirección" />
+        <!-- Para oficial todos los campos son requeridos; para interesado todos opcionales -->
+        <div v-if="nuevoCliente.tipo === 'oficial'" class="text-xs text-gray-400">
+          Todos los campos marcados con <span class="text-red-500">*</span> son obligatorios.
+        </div>
+        <input
+          v-model="nuevoCliente.nombre"
+          class="input"
+          :placeholder="nuevoCliente.tipo === 'oficial' ? 'Nombre completo *' : 'Nombre completo (opcional)'"
+        />
+        <input
+          v-model="nuevoCliente.cedula"
+          class="input"
+          :placeholder="nuevoCliente.tipo === 'oficial' ? 'Cédula / NIT *' : 'Cédula / NIT (opcional)'"
+        />
+        <input
+          v-model="nuevoCliente.telefono"
+          class="input"
+          type="tel"
+          :placeholder="nuevoCliente.tipo === 'oficial' ? 'Teléfono *' : 'Teléfono (opcional)'"
+        />
+        <input
+          v-model="nuevoCliente.email"
+          class="input"
+          type="email"
+          placeholder="Email (opcional)"
+        />
+        <input
+          v-model="nuevoCliente.direccion"
+          class="input"
+          :placeholder="nuevoCliente.tipo === 'oficial' ? 'Dirección *' : 'Dirección (opcional)'"
+        />
 
         <!-- Campos para interesado -->
         <template v-if="nuevoCliente.tipo === 'interesado'">
@@ -1089,7 +1141,7 @@ function removeFacturaFoto() {
         <p v-if="errCliente" class="text-xs text-red-600">{{ errCliente }}</p>
         <div class="flex gap-2">
           <button @click="modoNuevoCliente = false" class="btn-secondary flex-1">Cancelar</button>
-          <button @click="crearCliente" :disabled="creandoCliente || !nuevoCliente.nombre" class="btn-primary flex-1">
+          <button @click="crearCliente" :disabled="creandoCliente || !nuevoClienteValido()" class="btn-primary flex-1">
             {{ creandoCliente ? 'Guardando...' : 'Guardar' }}
           </button>
         </div>
