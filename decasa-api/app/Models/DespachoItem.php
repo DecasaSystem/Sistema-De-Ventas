@@ -37,11 +37,6 @@ class DespachoItem extends Model
         return $this->belongsTo(Orden::class, 'orden_id');
     }
 
-    public function tieneFotos(): bool
-    {
-        return $this->foto_producto !== null && $this->foto_pago !== null;
-    }
-
     public function tienePago(): bool
     {
         return $this->orden->pagos()
@@ -51,6 +46,13 @@ class DespachoItem extends Model
 
     public function puedeEntregar(): bool
     {
-        return $this->tieneFotos() && $this->tienePago();
+        // Evidencia de llegada siempre obligatoria
+        if ($this->foto_producto === null) return false;
+
+        // Sin saldo pendiente: solo se necesita foto del producto
+        if ($this->orden->saldoPendiente() <= 0.01) return true;
+
+        // Con saldo: también foto del pago y pago registrado
+        return $this->foto_pago !== null && $this->tienePago();
     }
 }

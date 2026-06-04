@@ -645,17 +645,8 @@ class DespachoController extends Controller
      */
     public function registrarPago(Request $request, int $despachoItemId)
     {
-        $data = $request->validate([
-            'monto'         => 'required|numeric|min:1',
-            'metodo'        => 'required|in:efectivo,transferencia,tarjeta,otro',
-            'referencia'    => 'nullable|string|max:100',
-            'foto_producto' => 'required|image|max:10240',
-            'foto_pago'     => 'required|image|max:10240',
-        ]);
-
         $usuario = $request->user();
-
-        $item = DespachoItem::with('despacho', 'orden')->findOrFail($despachoItemId);
+        $item    = DespachoItem::with('despacho', 'orden')->findOrFail($despachoItemId);
 
         if ($item->despacho->conductor_id !== $usuario->id) {
             return response()->json(['message' => 'No autorizado.'], 403);
@@ -665,29 +656,43 @@ class DespachoController extends Controller
         }
 
         $saldoPendiente = $item->orden->saldoPendiente();
-        if ($data['monto'] > $saldoPendiente + 0.01) {
+        $requierePago   = $saldoPendiente > 0.01;
+
+        $data = $request->validate([
+            'monto'         => $requierePago ? 'required|numeric|min:1'                         : 'nullable|numeric|min:0',
+            'metodo'        => $requierePago ? 'required|in:efectivo,transferencia,tarjeta,otro' : 'nullable|in:efectivo,transferencia,tarjeta,otro',
+            'referencia'    => 'nullable|string|max:100',
+            'foto_producto' => 'required|image|max:10240',
+            'foto_pago'     => $requierePago ? 'required|image|max:10240' : 'nullable|image|max:10240',
+        ]);
+
+        if ($requierePago && $data['monto'] > $saldoPendiente + 0.01) {
             return response()->json([
-                'message' => "El monto ($data[monto]) supera el saldo pendiente (" . round($saldoPendiente, 2) . ").",
+                'message' => "El monto ({$data['monto']}) supera el saldo pendiente (" . round($saldoPendiente, 2) . ").",
             ], 422);
         }
 
         $fotoProducto = $this->subirCloudinary($request->file('foto_producto'));
-        $fotoPago     = $this->subirCloudinary($request->file('foto_pago'));
+        $fotoPago     = $request->hasFile('foto_pago')
+            ? $this->subirCloudinary($request->file('foto_pago'))
+            : null;
 
-        DB::transaction(function () use ($item, $data, $usuario, $fotoProducto, $fotoPago) {
+        DB::transaction(function () use ($item, $data, $usuario, $fotoProducto, $fotoPago, $requierePago) {
             $item->update([
                 'foto_producto' => $fotoProducto,
                 'foto_pago'     => $fotoPago,
             ]);
 
-            Pago::create([
-                'orden_id'    => $item->orden_id,
-                'vendedor_id' => $usuario->id,
-                'tipo'        => 'saldo_final',
-                'monto'       => $data['monto'],
-                'metodo'      => $data['metodo'],
-                'referencia'  => $data['referencia'] ?? null,
-            ]);
+            if ($requierePago) {
+                Pago::create([
+                    'orden_id'    => $item->orden_id,
+                    'vendedor_id' => $usuario->id,
+                    'tipo'        => 'saldo_final',
+                    'monto'       => $data['monto'],
+                    'metodo'      => $data['metodo'],
+                    'referencia'  => $data['referencia'] ?? null,
+                ]);
+            }
         });
 
         $item->load('orden.cliente:id,nombre');

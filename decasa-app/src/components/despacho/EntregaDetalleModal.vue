@@ -17,21 +17,31 @@ const cargando  = ref(true)
 const registrando = ref(false)
 
 const esEntregado = computed(() => item.value?.estado === 'entregado')
+const tieneSaldo  = computed(() => (item.value?.orden?.saldo_pendiente ?? 0) > 0.01)
 
 // Formulario de pago
-const monto       = ref(0)
-const metodo      = ref('efectivo')
-const referencia  = ref('')
-const fotoProducto      = ref(null)
-const fotoPago          = ref(null)
+const monto      = ref(0)
+const metodo     = ref('efectivo')
+const referencia = ref('')
+const fotoProducto        = ref(null)
+const fotoPago            = ref(null)
 const fotoProductoPreview = ref(null)
 const fotoPagoPreview     = ref(null)
 
-const puedeEntregar = computed(() =>
-  fotoProductoPreview.value &&
-  fotoPagoPreview.value &&
-  monto.value > 0
-)
+const puedeEntregar = computed(() => {
+  if (!fotoProductoPreview.value) return false
+  if (tieneSaldo.value) return !!fotoPagoPreview.value && monto.value > 0
+  return true  // sin saldo: solo se necesita foto del producto
+})
+
+const mensajeBoton = computed(() => {
+  if (!fotoProductoPreview.value) return 'Sube la foto del producto para continuar'
+  if (tieneSaldo.value) {
+    if (!fotoPagoPreview.value) return 'Sube la foto del comprobante de pago'
+    if (!(monto.value > 0))     return 'Ingresa el monto cobrado'
+  }
+  return null
+})
 
 const METODO_LABEL = {
   efectivo: 'Efectivo', transferencia: 'Transferencia',
@@ -87,11 +97,16 @@ async function guardarPagoYEntregar() {
   registrando.value = true
   try {
     const fd = new FormData()
-    fd.append('monto', monto.value)
-    fd.append('metodo', metodo.value)
-    if (referencia.value) fd.append('referencia', referencia.value)
     fd.append('foto_producto', fotoProducto.value)
-    fd.append('foto_pago', fotoPago.value)
+
+    if (tieneSaldo.value) {
+      fd.append('monto', monto.value)
+      fd.append('metodo', metodo.value)
+      if (referencia.value) fd.append('referencia', referencia.value)
+      fd.append('foto_pago', fotoPago.value)
+    } else {
+      fd.append('monto', '0')
+    }
 
     await registrarPagoEntrega(props.despachoItemId, fd)
     await marcarEntregado(props.despachoItemId)
@@ -132,7 +147,6 @@ async function guardarPagoYEntregar() {
             <p class="font-bold text-gray-900">{{ item.orden?.cliente?.nombre }}</p>
             <p class="text-sm text-gray-500">{{ item.orden?.cliente?.telefono }}</p>
 
-            <!-- Dirección de envío (si difiere de la del cliente) -->
             <div v-if="item.orden?.direccion_envio" class="flex items-start gap-1.5 text-sm text-gray-600 mt-1">
               <MapPinIcon class="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
               <span>
@@ -149,12 +163,12 @@ async function guardarPagoYEntregar() {
               <span class="text-gray-600">
                 Total: <MoneyDisplay :amount="item.orden?.valor_total" :bold="true" />
               </span>
-              <span v-if="!esEntregado && item.orden?.saldo_pendiente > 0" class="text-orange-600">
-                Saldo: <MoneyDisplay :amount="item.orden?.saldo_pendiente" />
+              <span v-if="!esEntregado && tieneSaldo" class="text-orange-600 font-semibold">
+                Cobra: <MoneyDisplay :amount="item.orden?.saldo_pendiente" />
               </span>
+              <span v-else-if="!esEntregado" class="text-green-600 text-xs font-semibold">✓ Ya pagado</span>
             </div>
 
-            <!-- Fecha entregado -->
             <div v-if="esEntregado && item.entregado_at" class="flex items-center gap-1.5 text-sm text-green-600 pt-1 border-t border-gray-200 mt-1">
               <ClockIcon class="w-4 h-4" />
               Entregado el {{ fmtFecha(item.entregado_at) }}
@@ -171,11 +185,7 @@ async function guardarPagoYEntregar() {
           <div v-if="item.orden?.items?.length">
             <h4 class="text-sm font-semibold text-gray-700 mb-2">Productos</h4>
             <div class="space-y-2">
-              <div
-                v-for="p in item.orden.items"
-                :key="p.id"
-                class="flex items-center gap-3"
-              >
+              <div v-for="p in item.orden.items" :key="p.id" class="flex items-center gap-3">
                 <img
                   v-if="p.producto?.foto_url"
                   :src="p.producto.foto_url"
@@ -193,8 +203,6 @@ async function guardarPagoYEntregar() {
 
           <!-- ── MODO LECTURA (entregado) ─────────────────────────────────── -->
           <template v-if="esEntregado">
-
-            <!-- Pago registrado -->
             <div v-if="item.orden?.pagos?.length" class="space-y-2">
               <h4 class="text-sm font-semibold text-gray-700">Pago registrado</h4>
               <div
@@ -203,9 +211,7 @@ async function guardarPagoYEntregar() {
                 class="bg-green-50 border border-green-100 rounded-xl px-4 py-3 flex items-center justify-between"
               >
                 <div>
-                  <p class="text-sm font-semibold text-green-800">
-                    <MoneyDisplay :amount="pago.monto" />
-                  </p>
+                  <p class="text-sm font-semibold text-green-800"><MoneyDisplay :amount="pago.monto" /></p>
                   <p class="text-xs text-green-600">
                     {{ METODO_LABEL[pago.metodo] ?? pago.metodo }}
                     <span v-if="pago.referencia"> · {{ pago.referencia }}</span>
@@ -215,7 +221,6 @@ async function guardarPagoYEntregar() {
               </div>
             </div>
 
-            <!-- Fotos de evidencia -->
             <div v-if="item.foto_producto || item.foto_pago">
               <h4 class="text-sm font-semibold text-gray-700 mb-2">Fotos de evidencia</h4>
               <div class="grid grid-cols-2 gap-3">
@@ -234,80 +239,80 @@ async function guardarPagoYEntregar() {
               </div>
             </div>
 
-            <button
-              @click="emit('cerrar')"
-              class="w-full py-3 rounded-xl font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
-            >
+            <button @click="emit('cerrar')" class="w-full py-3 rounded-xl font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors">
               Cerrar
             </button>
           </template>
 
           <!-- ── MODO ACTIVO (pendiente) ──────────────────────────────────── -->
           <template v-else>
+
+            <!-- Foto del producto — siempre obligatoria -->
             <div>
-              <h4 class="text-sm font-semibold text-gray-700 mb-3">Registrar Pago</h4>
-              <div class="space-y-3">
-                <div>
-                  <label class="text-xs text-gray-500">Monto a cobrar</label>
-                  <input
-                    v-model.number="monto"
-                    type="number"
-                    step="0.01"
-                    min="1"
-                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                  />
-                </div>
+              <h4 class="text-sm font-semibold text-gray-700 mb-2">
+                Foto del producto <span class="text-red-500">*</span>
+                <span class="text-xs font-normal text-gray-400 ml-1">Evidencia de que llegó el mueble</span>
+              </h4>
+              <label class="block border-2 border-dashed rounded-xl p-3 text-center cursor-pointer transition-colors"
+                :class="fotoProductoPreview ? 'border-green-400' : 'border-gray-300 hover:border-blue-400'"
+              >
+                <input type="file" accept="image/*" capture="environment" class="hidden" @change="onFotoProducto" />
+                <img v-if="fotoProductoPreview" :src="fotoProductoPreview" class="w-full h-32 object-cover rounded-lg" />
+                <span v-else class="text-sm text-gray-400">📷 Tomar foto del producto entregado</span>
+              </label>
+            </div>
 
-                <div>
-                  <label class="text-xs text-gray-500">Método de pago</label>
-                  <select
-                    v-model="metodo"
-                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                  >
-                    <option value="efectivo">Efectivo</option>
-                    <option value="transferencia">Transferencia</option>
-                    <option value="tarjeta">Tarjeta</option>
-                    <option value="otro">Otro</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label class="text-xs text-gray-500">Referencia (opcional)</label>
-                  <input
-                    v-model="referencia"
-                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                  />
-                </div>
-
-                <!-- Uploads de fotos -->
-                <div class="grid grid-cols-2 gap-3">
+            <!-- Sección de pago — solo cuando hay saldo pendiente -->
+            <template v-if="tieneSaldo">
+              <div class="border-t border-gray-100 pt-4">
+                <h4 class="text-sm font-semibold text-gray-700 mb-3">
+                  Registrar cobro <span class="text-red-500">*</span>
+                </h4>
+                <div class="space-y-3">
                   <div>
-                    <label class="text-xs text-gray-500 block mb-1">Foto del producto</label>
-                    <label class="block border-2 border-dashed border-gray-300 rounded-xl p-3 text-center cursor-pointer hover:border-blue-400 transition-colors">
-                      <input type="file" accept="image/*" capture="environment" class="hidden" @change="onFotoProducto" />
-                      <template v-if="fotoProductoPreview">
-                        <img :src="fotoProductoPreview" class="w-full h-24 object-cover rounded-lg" />
-                      </template>
-                      <template v-else>
-                        <span class="text-xs text-gray-400">Tomar foto</span>
-                      </template>
-                    </label>
+                    <label class="text-xs text-gray-500">Monto cobrado</label>
+                    <input
+                      v-model.number="monto"
+                      type="number"
+                      step="0.01"
+                      min="1"
+                      class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label class="text-xs text-gray-500">Método de pago</label>
+                    <select v-model="metodo" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+                      <option value="efectivo">Efectivo</option>
+                      <option value="transferencia">Transferencia</option>
+                      <option value="tarjeta">Tarjeta</option>
+                      <option value="otro">Otro</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="text-xs text-gray-500">Referencia (opcional)</label>
+                    <input v-model="referencia" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
                   </div>
 
+                  <!-- Foto del comprobante — solo cuando hay saldo -->
                   <div>
-                    <label class="text-xs text-gray-500 block mb-1">Foto del comprobante</label>
-                    <label class="block border-2 border-dashed border-gray-300 rounded-xl p-3 text-center cursor-pointer hover:border-blue-400 transition-colors">
+                    <label class="text-xs text-gray-500 block mb-1">
+                      Foto del comprobante de pago <span class="text-red-500">*</span>
+                    </label>
+                    <label class="block border-2 border-dashed rounded-xl p-3 text-center cursor-pointer transition-colors"
+                      :class="fotoPagoPreview ? 'border-green-400' : 'border-gray-300 hover:border-blue-400'"
+                    >
                       <input type="file" accept="image/*" capture="environment" class="hidden" @change="onFotoPago" />
-                      <template v-if="fotoPagoPreview">
-                        <img :src="fotoPagoPreview" class="w-full h-24 object-cover rounded-lg" />
-                      </template>
-                      <template v-else>
-                        <span class="text-xs text-gray-400">Tomar foto</span>
-                      </template>
+                      <img v-if="fotoPagoPreview" :src="fotoPagoPreview" class="w-full h-28 object-cover rounded-lg" />
+                      <span v-else class="text-sm text-gray-400">📷 Tomar foto de la factura o transferencia</span>
                     </label>
                   </div>
                 </div>
               </div>
+            </template>
+
+            <!-- Sin saldo: mensaje informativo -->
+            <div v-else class="bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-sm text-green-700 font-medium text-center">
+              ✓ Esta orden ya está completamente pagada — solo sube la foto del producto
             </div>
 
             <button
@@ -317,10 +322,8 @@ async function guardarPagoYEntregar() {
               :class="puedeEntregar && !registrando ? 'bg-emerald-600 hover:bg-emerald-700 shadow-md' : 'bg-gray-300 cursor-not-allowed'"
             >
               <template v-if="registrando">Procesando...</template>
-              <template v-else-if="!puedeEntregar">
-                {{ !fotoProductoPreview || !fotoPagoPreview ? 'Sube ambas fotos para continuar' : 'Ingresa el monto' }}
-              </template>
-              <template v-else>Entregado</template>
+              <template v-else-if="mensajeBoton">{{ mensajeBoton }}</template>
+              <template v-else>✓ Marcar como entregado</template>
             </button>
           </template>
 
