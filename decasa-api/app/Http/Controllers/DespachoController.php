@@ -89,6 +89,8 @@ class DespachoController extends Controller
             'ordenes'            => 'required|array|min:1',
             'ordenes.*.orden_id' => 'required|exists:ordenes,id',
             'ordenes.*.posicion' => 'required|integer|min:1',
+            'nombre_ruta'        => 'nullable|string|max:120',
+            'instrucciones'      => 'nullable|string|max:2000',
             'notas'              => 'nullable|string|max:1000',
         ]);
 
@@ -116,7 +118,9 @@ class DespachoController extends Controller
                 'supervisor_id'  => $usuario->id,
                 'fecha_despacho' => $data['fecha_despacho'],
                 'estado'         => 'asignado',
-                'notas'          => $data['notas'] ?? null,
+                'nombre_ruta'    => $data['nombre_ruta']   ?? null,
+                'instrucciones'  => $data['instrucciones'] ?? null,
+                'notas'          => $data['notas']         ?? null,
             ]);
 
             foreach ($data['ordenes'] as $item) {
@@ -256,7 +260,7 @@ class DespachoController extends Controller
         $usuario = $request->user();
 
         $items = DespachoItem::with([
-            'despacho:id,conductor_id,notas',
+            'despacho:id,conductor_id,nombre_ruta,instrucciones,notas,fecha_despacho',
             'orden.cliente:id,nombre,telefono,direccion',
             'orden.tienda:id,nombre',
             'orden.items.producto:id,nombre,foto_url',

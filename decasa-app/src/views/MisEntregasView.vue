@@ -130,14 +130,39 @@ function fmtFecha(iso) {
 
       <div v-else class="space-y-3">
         <template v-for="(item, idx) in entregas" :key="item.id">
-          <!-- Separador cuando cambia de despacho (segunda ruta asignada) -->
+          <!-- Banner de ruta al inicio de cada despacho -->
           <div
-            v-if="idx > 0 && item.despacho_id !== entregas[idx - 1].despacho_id"
-            class="flex items-center gap-2 py-1"
+            v-if="idx === 0 || item.despacho_id !== entregas[idx - 1].despacho_id"
+            class="bg-blue-600 rounded-xl p-4 text-white space-y-2"
           >
-            <div class="flex-1 h-px bg-gray-200" />
-            <span class="text-xs text-gray-400 font-medium whitespace-nowrap">Ruta adicional</span>
-            <div class="flex-1 h-px bg-gray-200" />
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-2">
+                <TruckIcon class="w-5 h-5 flex-shrink-0" />
+                <p class="font-bold text-base">
+                  {{ item.despacho?.nombre_ruta || 'Ruta de entregas' }}
+                </p>
+              </div>
+              <span v-if="item.despacho?.fecha_despacho" class="text-xs text-blue-200 font-medium">
+                {{ new Date(item.despacho.fecha_despacho + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' }) }}
+              </span>
+            </div>
+
+            <!-- Total a cobrar en esta ruta -->
+            <div class="bg-white/15 rounded-lg px-3 py-2 flex items-center justify-between">
+              <span class="text-xs text-blue-100">Total a cobrar en esta ruta</span>
+              <span class="font-bold text-white">
+                ${{ entregas
+                  .filter(e => e.despacho_id === item.despacho_id)
+                  .reduce((s, e) => s + (parseFloat(e.orden?.saldo_pendiente) || 0), 0)
+                  .toLocaleString('es-CO') }}
+              </span>
+            </div>
+
+            <!-- Instrucciones del supervisor -->
+            <div v-if="item.despacho?.instrucciones" class="bg-white/15 rounded-lg px-3 py-2">
+              <p class="text-xs text-blue-100 font-semibold mb-0.5">Instrucciones</p>
+              <p class="text-sm text-white leading-snug">{{ item.despacho.instrucciones }}</p>
+            </div>
           </div>
 
           <div

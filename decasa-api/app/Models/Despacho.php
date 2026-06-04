@@ -15,6 +15,8 @@ class Despacho extends Model
         'fecha_despacho',
         'estado',
         'notas',
+        'nombre_ruta',
+        'instrucciones',
     ];
 
     protected function casts(): array

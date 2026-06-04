@@ -1,15 +1,20 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { camiones as getCamiones } from '@/api/despacho'
-import { TruckIcon, UserIcon } from '@heroicons/vue/24/outline'
+import { TruckIcon, UserIcon, BanknotesIcon } from '@heroicons/vue/24/outline'
 
-const props = defineProps({ cantidadOrdenes: { type: Number, default: 0 } })
-const emit  = defineEmits(['confirmar', 'cerrar'])
+const props = defineProps({
+  cantidadOrdenes: { type: Number, default: 0 },
+  totalSaldo:      { type: Number, default: 0 },
+})
+const emit = defineEmits(['confirmar', 'cerrar'])
 
-const lista    = ref([])
-const cargando = ref(true)
+const lista       = ref([])
+const cargando    = ref(true)
 const seleccionado = ref(null)
-const fecha    = ref(hoy())
+const fecha        = ref(hoy())
+const nombreRuta   = ref('')
+const instrucciones = ref('')
 
 function hoy() {
   return new Date().toISOString().slice(0, 10)
@@ -28,7 +33,16 @@ const puedeConfirmar = computed(() => seleccionado.value && fecha.value)
 
 function confirmar() {
   if (!puedeConfirmar.value) return
-  emit('confirmar', { camion: seleccionado.value, fecha: fecha.value })
+  emit('confirmar', {
+    camion:       seleccionado.value,
+    fecha:        fecha.value,
+    nombre_ruta:  nombreRuta.value.trim()    || null,
+    instrucciones: instrucciones.value.trim() || null,
+  })
+}
+
+function formatMoney(n) {
+  return Number(n).toLocaleString('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 })
 }
 
 function labelFecha(f) {
@@ -42,10 +56,42 @@ function labelFecha(f) {
   <div class="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
     <div class="fixed inset-0 bg-black/40" @click="emit('cerrar')" />
 
-    <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md max-h-[85vh] overflow-y-auto p-5 z-10">
+    <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md max-h-[90vh] overflow-y-auto p-5 z-10">
       <div class="flex items-center justify-between mb-4">
-        <h3 class="text-lg font-bold text-gray-900">Asignar al camión</h3>
+        <h3 class="text-lg font-bold text-gray-900">Asignar despacho</h3>
         <button @click="emit('cerrar')" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+      </div>
+
+      <!-- Total a cobrar — destacado -->
+      <div class="bg-green-50 border border-green-200 rounded-xl px-4 py-3 mb-4 flex items-center gap-3">
+        <BanknotesIcon class="w-6 h-6 text-green-600 flex-shrink-0" />
+        <div>
+          <p class="text-xs text-green-600 font-medium">Total a cobrar ({{ props.cantidadOrdenes }} orden(es))</p>
+          <p class="text-xl font-bold text-green-700">{{ formatMoney(props.totalSaldo) }}</p>
+          <p class="text-xs text-green-500">Prepara este cambio para el camionero</p>
+        </div>
+      </div>
+
+      <!-- Nombre de la ruta -->
+      <div class="mb-3">
+        <label class="text-xs font-semibold text-gray-500 uppercase mb-1.5 block">Nombre de la ruta</label>
+        <input
+          v-model="nombreRuta"
+          type="text"
+          placeholder="Ej: Ruta Norte, Ruta Centro..."
+          class="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+      </div>
+
+      <!-- Instrucciones para el conductor -->
+      <div class="mb-4">
+        <label class="text-xs font-semibold text-gray-500 uppercase mb-1.5 block">Instrucciones para el conductor</label>
+        <textarea
+          v-model="instrucciones"
+          rows="2"
+          placeholder="Ej: Entregar primero en el barrio X, llamar antes de llegar..."
+          class="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+        />
       </div>
 
       <!-- Fecha de salida -->
@@ -100,14 +146,6 @@ function labelFecha(f) {
             </div>
           </div>
         </button>
-      </div>
-
-      <!-- Resumen -->
-      <div v-if="puedeConfirmar" class="bg-blue-50 rounded-xl px-4 py-3 mb-4 text-sm text-blue-700">
-        <span class="font-semibold">{{ props.cantidadOrdenes }}</span> orden(es) →
-        <span class="font-semibold">{{ seleccionado?.nombre ?? `Camión ${seleccionado?.id}` }}</span>
-        · {{ seleccionado?.conductor?.nombre }}
-        · {{ labelFecha(fecha) }}
       </div>
 
       <button

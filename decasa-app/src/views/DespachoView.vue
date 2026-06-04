@@ -28,6 +28,10 @@ const ordenesSeleccionadas = computed(() =>
 
 const haySeleccionadas = computed(() => seleccionadas.value.size > 0)
 
+const totalSaldoSeleccionado = computed(() =>
+  ordenesSeleccionadas.value.reduce((sum, o) => sum + (parseFloat(o.saldo_pendiente) || 0), 0)
+)
+
 const mostrarModalCamion = ref(false)
 const asignando = ref(false)
 
@@ -54,7 +58,7 @@ function abrirAsignar() {
   mostrarModalCamion.value = true
 }
 
-async function confirmarAsignacion({ camion, fecha }) {
+async function confirmarAsignacion({ camion, fecha, nombre_ruta, instrucciones }) {
   asignando.value = true
   mostrarModalCamion.value = false
   try {
@@ -62,7 +66,7 @@ async function confirmarAsignacion({ camion, fecha }) {
       orden_id: o.id,
       posicion: seleccionadas.value.get(o.id),
     }))
-    await asignar({ camion_id: camion.id, fecha_despacho: fecha, ordenes })
+    await asignar({ camion_id: camion.id, fecha_despacho: fecha, nombre_ruta, instrucciones, ordenes })
     const nombreCamion = camion.nombre ?? `Camión ${camion.id}`
     toast.success(`Despacho asignado a ${nombreCamion} — ${camion.conductor?.nombre}`)
     seleccionadas.value = new Map()
@@ -548,23 +552,37 @@ onBeforeUnmount(() => {
           :key="grupo[0]?.despacho_id"
           class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 space-y-2"
         >
-          <div class="flex items-start justify-between text-sm gap-2">
-            <div class="flex items-center gap-2 flex-1 min-w-0">
-              <TruckIcon class="w-4 h-4 text-blue-500 flex-shrink-0" />
-              <div class="min-w-0">
-                <p class="font-semibold text-gray-800 truncate">
-                  {{ grupo[0]?.despacho?.camion?.nombre ?? 'Camión' }}
-                  <span v-if="grupo[0]?.despacho?.camion?.placa" class="font-normal text-gray-400 text-xs">· {{ grupo[0]?.despacho?.camion?.placa }}</span>
-                </p>
-                <p class="text-xs text-gray-500">
-                  {{ grupo[0]?.despacho?.conductor?.nombre }}
-                  <span v-if="grupo[0]?.despacho?.fecha_despacho" class="ml-1 text-gray-400">
-                    · {{ new Date(grupo[0].despacho.fecha_despacho + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' }) }}
-                  </span>
-                </p>
+          <div class="space-y-2">
+            <div class="flex items-start justify-between gap-2">
+              <div class="flex items-center gap-2 flex-1 min-w-0">
+                <TruckIcon class="w-4 h-4 text-blue-500 flex-shrink-0" />
+                <div class="min-w-0">
+                  <p class="font-semibold text-gray-800 truncate">
+                    {{ grupo[0]?.despacho?.camion?.nombre ?? 'Camión' }}
+                    <span v-if="grupo[0]?.despacho?.camion?.placa" class="font-normal text-gray-400 text-xs">· {{ grupo[0]?.despacho?.camion?.placa }}</span>
+                  </p>
+                  <p class="text-xs text-gray-500">
+                    {{ grupo[0]?.despacho?.conductor?.nombre }}
+                    <span v-if="grupo[0]?.despacho?.fecha_despacho" class="ml-1 text-gray-400">
+                      · {{ new Date(grupo[0].despacho.fecha_despacho + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' }) }}
+                    </span>
+                  </p>
+                </div>
               </div>
+              <BadgeEstado :estado="grupo[0]?.despacho?.estado" />
             </div>
-            <BadgeEstado :estado="grupo[0]?.despacho?.estado" />
+            <!-- Nombre de ruta + total a cobrar -->
+            <div class="flex items-center justify-between gap-2 flex-wrap">
+              <span
+                v-if="grupo[0]?.despacho?.nombre_ruta"
+                class="text-xs font-semibold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full"
+              >
+                {{ grupo[0].despacho.nombre_ruta }}
+              </span>
+              <span class="flex items-center gap-1 text-xs font-semibold text-green-700 bg-green-50 px-2 py-0.5 rounded-full ml-auto">
+                💵 ${{ grupo.reduce((s, i) => s + (parseFloat(i.orden?.saldo_pendiente) || 0), 0).toLocaleString('es-CO') }}
+              </span>
+            </div>
           </div>
 
           <div class="space-y-1">
@@ -786,6 +804,7 @@ onBeforeUnmount(() => {
     <ColaCamionesModal
       v-if="mostrarModalCamion"
       :cantidad-ordenes="seleccionadas.size"
+      :total-saldo="totalSaldoSeleccionado"
       @confirmar="confirmarAsignacion"
       @cerrar="mostrarModalCamion = false"
     />
