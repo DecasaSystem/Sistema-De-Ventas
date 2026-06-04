@@ -22,6 +22,7 @@ use App\Http\Controllers\TrasladoController;
 use App\Http\Controllers\VarianteController;
 use App\Http\Controllers\FichaTecnicaController;
 use App\Http\Controllers\MaterialController;
+use App\Http\Controllers\CamionController;
 use App\Http\Controllers\AgentController;
 use App\Http\Controllers\ConsultaCostoController;
 use App\Http\Controllers\PrecioItemController;
@@ -192,6 +193,12 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/resumen-mensual',           [ReporteController::class, 'resumenMensual']);
             Route::get('/resumen-mensual/exportar',  [ReporteController::class, 'exportarResumenMensual']);
         });
+    });
+
+    // ── Camiones ─────────────────────────────────────────────────────────────
+    Route::get('/camiones', [CamionController::class, 'index']);
+    Route::middleware('role:supervisor')->group(function () {
+        Route::patch('/camiones/{camion}', [CamionController::class, 'update']);
     });
 
     // ── Despacho ─────────────────────────────────────────────────────────────

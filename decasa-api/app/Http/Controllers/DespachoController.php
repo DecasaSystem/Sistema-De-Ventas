@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Events\DespachoAsignado;
 use App\Events\OrdenEntregada;
+use App\Models\Camion;
 use App\Models\Despacho;
 use App\Models\DespachoItem;
 use App\Models\Inventario;
@@ -46,25 +47,26 @@ class DespachoController extends Controller
 
     /**
      * GET /api/despacho/asignados
-     * Órdenes en estado en_camino con su despacho y conductor.
+     * Órdenes en estado en_camino agrupadas por despacho (camión + fecha).
      */
     public function asignados(Request $request)
     {
-        $conductorId = $request->query('conductor_id');
-        $desde       = $request->query('desde');
-        $hasta       = $request->query('hasta');
+        $camionId = $request->query('camion_id');
+        $desde    = $request->query('desde');
+        $hasta    = $request->query('hasta');
 
         $items = DespachoItem::with([
+            'despacho.camion:id,nombre,placa',
             'despacho.conductor:id,nombre',
             'despacho.supervisor:id,nombre',
             'orden:id,cliente_id,tienda_id,valor_total,estado,created_at',
             'orden.cliente:id,nombre,telefono,direccion',
             'orden.tienda:id,nombre',
-        ])->whereHas('despacho', function ($q) use ($conductorId, $desde, $hasta) {
+        ])->whereHas('despacho', function ($q) use ($camionId, $desde, $hasta) {
             $q->whereIn('estado', ['asignado', 'en_ruta']);
-            if ($conductorId) $q->where('conductor_id', $conductorId);
-            if ($desde)       $q->whereDate('created_at', '>=', $desde);
-            if ($hasta)       $q->whereDate('created_at', '<=', $hasta);
+            if ($camionId) $q->where('camion_id', $camionId);
+            if ($desde)    $q->whereDate('fecha_despacho', '>=', $desde);
+            if ($hasta)    $q->whereDate('fecha_despacho', '<=', $hasta);
         })
             ->orderBy('despacho_id')
             ->orderBy('posicion')
@@ -77,42 +79,53 @@ class DespachoController extends Controller
 
     /**
      * POST /api/despacho/asignar
-     * Crea un despacho con sus items.
+     * Crea un despacho asignado a un camión (el conductor se toma del camión).
      */
     public function asignar(Request $request)
     {
         $data = $request->validate([
-            'conductor_id'       => 'required|exists:usuarios,id',
+            'camion_id'          => 'required|exists:camiones,id',
+            'fecha_despacho'     => 'required|date',
             'ordenes'            => 'required|array|min:1',
             'ordenes.*.orden_id' => 'required|exists:ordenes,id',
             'ordenes.*.posicion' => 'required|integer|min:1',
             'notas'              => 'nullable|string|max:1000',
         ]);
 
-        $conductor = Usuario::findOrFail($data['conductor_id']);
+        $camion = Camion::findOrFail($data['camion_id']);
+
+        if (! $camion->conductor_id) {
+            return response()->json(['message' => 'El camión no tiene conductor asignado.'], 422);
+        }
+
+        $conductor = Usuario::findOrFail($camion->conductor_id);
+
         if ($conductor->rol !== 'conductor') {
-            return response()->json(['message' => 'El usuario seleccionado no es un conductor.'], 422);
+            return response()->json(['message' => 'El usuario asignado al camión no es un conductor.'], 422);
+        }
+        if (! $conductor->activo) {
+            return response()->json(['message' => 'El conductor del camión no está activo.'], 422);
         }
 
         $usuario = $request->user();
 
-        $despacho = DB::transaction(function () use ($data, $usuario) {
+        $despacho = DB::transaction(function () use ($data, $usuario, $camion, $conductor) {
             $despacho = Despacho::create([
-                'conductor_id'  => $data['conductor_id'],
-                'supervisor_id' => $usuario->id,
-                'estado'        => 'asignado',
-                'notas'         => $data['notas'] ?? null,
+                'camion_id'      => $camion->id,
+                'conductor_id'   => $conductor->id,
+                'supervisor_id'  => $usuario->id,
+                'fecha_despacho' => $data['fecha_despacho'],
+                'estado'         => 'asignado',
+                'notas'          => $data['notas'] ?? null,
             ]);
 
             foreach ($data['ordenes'] as $item) {
-                // lockForUpdate previene race condition si dos requests asignan la misma orden simultáneamente
                 $orden = Orden::lockForUpdate()->findOrFail($item['orden_id']);
 
                 if ($orden->estado !== 'listo_entrega') {
                     abort(422, "La orden #{$orden->id} no está en estado listo_entrega.");
                 }
 
-                // Verificar que la orden no esté ya en otro despacho activo de cualquier conductor
                 $yaAsignada = DespachoItem::where('orden_id', $item['orden_id'])
                     ->where('estado', 'pendiente')
                     ->whereHas('despacho', fn($q) => $q->whereIn('estado', ['asignado', 'en_ruta']))
@@ -129,28 +142,29 @@ class DespachoController extends Controller
                     'estado'      => 'pendiente',
                 ]);
 
-                $orden->update([
-                    'estado' => 'en_camino',
-                ]);
+                $orden->update(['estado' => 'en_camino']);
             }
 
             return $despacho;
         });
 
-        $despacho->load('items.orden.cliente:id,nombre', 'conductor:id,nombre');
+        $despacho->load('items.orden.cliente:id,nombre', 'conductor:id,nombre', 'camion:id,nombre,placa');
 
         event(new DespachoAsignado(
             $despacho->id,
-            (int) $data['conductor_id'],
+            $conductor->id,
             count($data['ordenes']),
         ));
+
+        $nombreCamion = $camion->nombre ? " — {$camion->nombre}" : '';
+        $fechaFmt     = \Carbon\Carbon::parse($data['fecha_despacho'])->locale('es')->isoFormat('D [de] MMMM');
 
         NotificacionService::crear(
             'despacho_asignado',
             'Nuevas entregas asignadas',
-            "Tienes " . count($data['ordenes']) . " entrega(s) asignada(s) por " . $usuario->nombre,
+            "Tienes " . count($data['ordenes']) . " entrega(s) para el {$fechaFmt}{$nombreCamion}",
             ['despacho_id' => $despacho->id],
-            $data['conductor_id'],
+            $conductor->id,
         );
 
         return response()->json($despacho, 201);
@@ -175,21 +189,22 @@ class DespachoController extends Controller
     public function historial(Request $request)
     {
         $query = Despacho::with([
+            'camion:id,nombre,placa',
             'conductor:id,nombre',
             'items.orden.cliente:id,nombre',
         ])->where('estado', 'completado');
 
-        if ($v = $request->query('conductor_id')) {
-            $query->where('conductor_id', $v);
+        if ($v = $request->query('camion_id')) {
+            $query->where('camion_id', $v);
         }
         if ($v = $request->query('desde')) {
-            $query->whereDate('created_at', '>=', $v);
+            $query->whereDate('fecha_despacho', '>=', $v);
         }
         if ($v = $request->query('hasta')) {
-            $query->whereDate('created_at', '<=', $v);
+            $query->whereDate('fecha_despacho', '<=', $v);
         }
 
-        return response()->json($query->orderByDesc('created_at')->paginate(20));
+        return response()->json($query->orderByDesc('fecha_despacho')->paginate(20));
     }
 
     /**

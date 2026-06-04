@@ -3,11 +3,11 @@ import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useDespachoStore } from '@/stores/despacho'
 import { useDespachoSocket } from '@/composables/useDespachoSocket'
-import { asignar, asignados, historialDespacho, detalleDespacho, conductores } from '@/api/despacho'
+import { asignar, asignados, historialDespacho, detalleDespacho, camiones as getCamiones, actualizarCamion } from '@/api/despacho'
 import { useToast } from '@/composables/useToast'
-import { ChevronDownIcon, XMarkIcon, ArrowTopRightOnSquareIcon } from '@heroicons/vue/24/outline'
+import { ChevronDownIcon, XMarkIcon, ArrowTopRightOnSquareIcon, TruckIcon, PencilSquareIcon, CheckIcon } from '@heroicons/vue/24/outline'
 import DespachoCard from '@/components/despacho/DespachoCard.vue'
-import ColaConductoresModal from '@/components/despacho/ColaConductoresModal.vue'
+import ColaCamionesModal from '@/components/despacho/ColaCamionesModal.vue'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
@@ -28,7 +28,7 @@ const ordenesSeleccionadas = computed(() =>
 
 const haySeleccionadas = computed(() => seleccionadas.value.size > 0)
 
-const mostrarModalConductor = ref(false)
+const mostrarModalCamion = ref(false)
 const asignando = ref(false)
 
 function toggleSeleccion(ordenId) {
@@ -51,19 +51,20 @@ function toggleSeleccion(ordenId) {
 
 function abrirAsignar() {
   if (!haySeleccionadas.value) return
-  mostrarModalConductor.value = true
+  mostrarModalCamion.value = true
 }
 
-async function confirmarAsignacion(conductor) {
+async function confirmarAsignacion({ camion, fecha }) {
   asignando.value = true
-  mostrarModalConductor.value = false
+  mostrarModalCamion.value = false
   try {
     const ordenes = ordenesSeleccionadas.value.map(o => ({
       orden_id: o.id,
       posicion: seleccionadas.value.get(o.id),
     }))
-    await asignar({ conductor_id: conductor.id, ordenes })
-    toast.success(`Despacho asignado a ${conductor.nombre}`)
+    await asignar({ camion_id: camion.id, fecha_despacho: fecha, ordenes })
+    const nombreCamion = camion.nombre ?? `Camión ${camion.id}`
+    toast.success(`Despacho asignado a ${nombreCamion} — ${camion.conductor?.nombre}`)
     seleccionadas.value = new Map()
     await despacho.refrescar()
   } catch (e) {
@@ -77,16 +78,61 @@ function verDetalle(ordenId) {
   router.push({ name: 'orden-detalle', params: { id: ordenId } })
 }
 
+// ── Camiones ─────────────────────────────────────────────────────────────────
+const camionesList    = ref([])
+const editandoCamion  = ref(null)  // { id, nombre, placa, conductor_id }
+const guardandoCamion = ref(false)
+
+async function cargarCamiones() {
+  try {
+    const { data } = await getCamiones()
+    camionesList.value = data
+  } catch {}
+}
+
+function abrirEditCamion(c) {
+  editandoCamion.value = { id: c.id, nombre: c.nombre ?? '', placa: c.placa ?? '', conductor_id: c.conductor_id ?? '' }
+}
+
+async function guardarCamion() {
+  if (!editandoCamion.value) return
+  guardandoCamion.value = true
+  try {
+    await actualizarCamion(editandoCamion.value.id, {
+      nombre:       editandoCamion.value.nombre       || null,
+      placa:        editandoCamion.value.placa         || null,
+      conductor_id: editandoCamion.value.conductor_id || null,
+    })
+    editandoCamion.value = null
+    await cargarCamiones()
+    toast.success('Camión actualizado')
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'Error al guardar')
+  } finally {
+    guardandoCamion.value = false
+  }
+}
+
+// conductores disponibles para asignar al camión
+const conductoresDisponibles = ref([])
+async function cargarConductores() {
+  try {
+    const { conductores } = await import('@/api/despacho')
+    const { data } = await conductores()
+    conductoresDisponibles.value = data
+  } catch {}
+}
+
 // ── Asignados con filtros ────────────────────────────────────────────────────
 const asignadosFiltrados    = ref([])
 const cargandoAsignados     = ref(false)
-const filtrosAsignados      = ref({ conductor_id: '', desde: '', hasta: '' })
+const filtrosAsignados      = ref({ camion_id: '', desde: '', hasta: '' })
 
 async function cargarAsignadosFiltrados() {
   cargandoAsignados.value = true
   try {
     const params = {}
-    if (filtrosAsignados.value.conductor_id) params.conductor_id = filtrosAsignados.value.conductor_id
+    if (filtrosAsignados.value.camion_id) params.camion_id = filtrosAsignados.value.camion_id
     if (filtrosAsignados.value.desde) params.desde = filtrosAsignados.value.desde
     if (filtrosAsignados.value.hasta) params.hasta = filtrosAsignados.value.hasta
     const { data } = await asignados(params)
@@ -97,19 +143,18 @@ async function cargarAsignadosFiltrados() {
 }
 
 function limpiarFiltrosAsignados() {
-  filtrosAsignados.value = { conductor_id: '', desde: '', hasta: '' }
+  filtrosAsignados.value = { camion_id: '', desde: '', hasta: '' }
   cargarAsignadosFiltrados()
 }
 
 const hayFiltrosAsignados = computed(() =>
-  filtrosAsignados.value.conductor_id || filtrosAsignados.value.desde || filtrosAsignados.value.hasta
+  filtrosAsignados.value.camion_id || filtrosAsignados.value.desde || filtrosAsignados.value.hasta
 )
 
 // ── Historial ────────────────────────────────────────────────────────────────
 const historial = ref([])
 const cargandoHistorial = ref(false)
-const conductoresLista = ref([])
-const filtrosHistorial = ref({ conductor_id: '', desde: '', hasta: '' })
+const filtrosHistorial = ref({ camion_id: '', desde: '', hasta: '' })
 const historialPaginacion = ref(null)
 const detalleExpandido = ref(null)
 const detalleExpandidoAsignado = ref(null)
@@ -120,7 +165,7 @@ async function cargarHistorial() {
   cargandoHistorial.value = true
   try {
     const params = {}
-    if (filtrosHistorial.value.conductor_id) params.conductor_id = filtrosHistorial.value.conductor_id
+    if (filtrosHistorial.value.camion_id) params.camion_id = filtrosHistorial.value.camion_id
     if (filtrosHistorial.value.desde) params.desde = filtrosHistorial.value.desde
     if (filtrosHistorial.value.hasta) params.hasta = filtrosHistorial.value.hasta
     const { data } = await historialDespacho(params)
@@ -135,13 +180,6 @@ async function cargarHistorial() {
   } catch {} finally {
     cargandoHistorial.value = false
   }
-}
-
-async function cargarConductores() {
-  try {
-    const { data } = await conductores()
-    conductoresLista.value = data
-  } catch {}
 }
 
 const verFactura = ref(false)
@@ -181,7 +219,7 @@ async function cargarPagina(page) {
   cargandoHistorial.value = true
   try {
     const params = { page }
-    if (filtrosHistorial.value.conductor_id) params.conductor_id = filtrosHistorial.value.conductor_id
+    if (filtrosHistorial.value.camion_id) params.camion_id = filtrosHistorial.value.camion_id
     if (filtrosHistorial.value.desde) params.desde = filtrosHistorial.value.desde
     if (filtrosHistorial.value.hasta) params.hasta = filtrosHistorial.value.hasta
     const { data } = await historialDespacho(params)
@@ -213,13 +251,13 @@ function fotoUrl(url) {
 onMounted(async () => {
   await despacho.refrescar()
   socket.conectar()
-  await cargarConductores()
-  await cargarAsignadosFiltrados()
+  await Promise.all([cargarCamiones(), cargarConductores(), cargarAsignadosFiltrados()])
 })
 
 watch(tab, (t) => {
   if (t === 'asignados') cargarAsignadosFiltrados()
   if (t === 'historial') cargarHistorial()
+  if (t === 'camiones')  cargarCamiones()
 })
 
 onBeforeUnmount(() => {
@@ -251,7 +289,14 @@ onBeforeUnmount(() => {
         class="flex-1 py-2 text-sm font-medium rounded-lg transition-colors"
         :class="tab === 'asignados' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'"
       >
-        Asignados
+        Activos
+      </button>
+      <button
+        @click="tab = 'camiones'"
+        class="flex-1 py-2 text-sm font-medium rounded-lg transition-colors"
+        :class="tab === 'camiones' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'"
+      >
+        Camiones
       </button>
       <button
         @click="tab = 'historial'"
@@ -305,17 +350,91 @@ onBeforeUnmount(() => {
       </template>
     </div>
 
+    <!-- Tab: Camiones -->
+    <div v-if="tab === 'camiones'" class="space-y-3">
+      <p class="text-xs text-gray-400">Toca el lápiz para editar nombre, placa o conductor de cada camión.</p>
+
+      <div
+        v-for="c in camionesList"
+        :key="c.id"
+        class="bg-white rounded-xl shadow-sm p-4 space-y-3"
+      >
+        <!-- Vista -->
+        <template v-if="editandoCamion?.id !== c.id">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center flex-shrink-0">
+              <TruckIcon class="w-6 h-6 text-blue-600" />
+            </div>
+            <div class="flex-1 min-w-0">
+              <p class="font-semibold text-gray-800">{{ c.nombre ?? `Camión ${c.id}` }}</p>
+              <p class="text-xs text-gray-400">
+                {{ c.placa ? `Placa: ${c.placa}` : 'Sin placa' }} ·
+                {{ c.conductor?.nombre ?? 'Sin conductor' }}
+              </p>
+            </div>
+            <button @click="abrirEditCamion(c)" class="p-2 text-gray-400 hover:text-blue-600 transition-colors">
+              <PencilSquareIcon class="w-4 h-4" />
+            </button>
+          </div>
+        </template>
+
+        <!-- Edición -->
+        <template v-else>
+          <p class="text-xs font-semibold text-gray-500 uppercase">Editar camión</p>
+          <div class="space-y-2">
+            <input
+              v-model="editandoCamion.nombre"
+              type="text"
+              placeholder="Nombre (ej: Camión 1)"
+              class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+            />
+            <input
+              v-model="editandoCamion.placa"
+              type="text"
+              placeholder="Placa (opcional)"
+              class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+            />
+            <select
+              v-model="editandoCamion.conductor_id"
+              class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+            >
+              <option value="">Sin conductor asignado</option>
+              <option v-for="cond in conductoresDisponibles" :key="cond.id" :value="cond.id">
+                {{ cond.nombre }}
+              </option>
+            </select>
+          </div>
+          <div class="flex gap-2">
+            <button
+              @click="editandoCamion = null"
+              class="flex-1 border border-gray-200 text-gray-600 rounded-lg py-2 text-sm font-medium hover:bg-gray-50"
+            >
+              Cancelar
+            </button>
+            <button
+              @click="guardarCamion"
+              :disabled="guardandoCamion"
+              class="flex-1 bg-blue-600 text-white rounded-lg py-2 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-1.5"
+            >
+              <CheckIcon class="w-4 h-4" />
+              {{ guardandoCamion ? 'Guardando...' : 'Guardar' }}
+            </button>
+          </div>
+        </template>
+      </div>
+    </div>
+
     <!-- Tab: Asignados -->
     <div v-if="tab === 'asignados'" class="space-y-3">
 
       <!-- Filtros -->
       <div class="bg-white rounded-xl shadow-sm p-3 space-y-2">
         <select
-          v-model="filtrosAsignados.conductor_id"
+          v-model="filtrosAsignados.camion_id"
           class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
-          <option value="">Todos los conductores</option>
-          <option v-for="c in conductoresLista" :key="c.id" :value="c.id">{{ c.nombre }}</option>
+          <option value="">Todos los camiones</option>
+          <option v-for="c in camionesList" :key="c.id" :value="c.id">{{ c.nombre ?? `Camión ${c.id}` }}</option>
         </select>
         <div class="flex gap-2">
           <input
@@ -358,10 +477,22 @@ onBeforeUnmount(() => {
           :key="grupo[0]?.despacho_id"
           class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 space-y-2"
         >
-          <div class="flex items-center justify-between text-sm">
-            <span class="font-semibold text-gray-700">
-              Conductor: {{ grupo[0]?.despacho?.conductor?.nombre }}
-            </span>
+          <div class="flex items-start justify-between text-sm gap-2">
+            <div class="flex items-center gap-2 flex-1 min-w-0">
+              <TruckIcon class="w-4 h-4 text-blue-500 flex-shrink-0" />
+              <div class="min-w-0">
+                <p class="font-semibold text-gray-800 truncate">
+                  {{ grupo[0]?.despacho?.camion?.nombre ?? 'Camión' }}
+                  <span v-if="grupo[0]?.despacho?.camion?.placa" class="font-normal text-gray-400 text-xs">· {{ grupo[0]?.despacho?.camion?.placa }}</span>
+                </p>
+                <p class="text-xs text-gray-500">
+                  {{ grupo[0]?.despacho?.conductor?.nombre }}
+                  <span v-if="grupo[0]?.despacho?.fecha_despacho" class="ml-1 text-gray-400">
+                    · {{ new Date(grupo[0].despacho.fecha_despacho + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' }) }}
+                  </span>
+                </p>
+              </div>
+            </div>
             <BadgeEstado :estado="grupo[0]?.despacho?.estado" />
           </div>
 
@@ -446,11 +577,11 @@ onBeforeUnmount(() => {
       <!-- Filtros -->
       <div class="bg-white rounded-xl shadow-sm p-3 space-y-2">
         <select
-          v-model="filtrosHistorial.conductor_id"
+          v-model="filtrosHistorial.camion_id"
           class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
-          <option value="">Todos los conductores</option>
-          <option v-for="c in conductoresLista" :key="c.id" :value="c.id">{{ c.nombre }}</option>
+          <option value="">Todos los camiones</option>
+          <option v-for="c in camionesList" :key="c.id" :value="c.id">{{ c.nombre ?? `Camión ${c.id}` }}</option>
         </select>
         <div class="flex gap-2">
           <input
@@ -491,11 +622,16 @@ onBeforeUnmount(() => {
               class="p-4 flex items-center gap-3 cursor-pointer hover:bg-gray-50 transition-colors"
             >
               <div class="flex-1 min-w-0">
-                <div class="flex items-center gap-2">
-                  <p class="font-semibold text-gray-800 text-sm">{{ d.conductor?.nombre }}</p>
+                <div class="flex items-center gap-2 flex-wrap">
+                  <TruckIcon class="w-4 h-4 text-blue-400 flex-shrink-0" />
+                  <p class="font-semibold text-gray-800 text-sm">{{ d.camion?.nombre ?? 'Camión' }}</p>
                   <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Completado</span>
                 </div>
-                <p class="text-xs text-gray-400 mt-0.5">{{ formatFecha(d.created_at) }} · {{ d.items?.length ?? 0 }} orden(es)</p>
+                <p class="text-xs text-gray-400 mt-0.5">
+                  {{ d.conductor?.nombre }}
+                  <span v-if="d.fecha_despacho"> · {{ new Date(d.fecha_despacho + 'T12:00:00').toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' }) }}</span>
+                  · {{ d.items?.length ?? 0 }} orden(es)
+                </p>
               </div>
               <ChevronDownIcon
                 class="w-5 h-5 text-gray-400 transition-transform"
@@ -575,11 +711,12 @@ onBeforeUnmount(() => {
       </template>
     </div>
 
-    <!-- Modal de conductores -->
-    <ColaConductoresModal
-      v-if="mostrarModalConductor"
+    <!-- Modal de camiones -->
+    <ColaCamionesModal
+      v-if="mostrarModalCamion"
+      :cantidad-ordenes="seleccionadas.size"
       @confirmar="confirmarAsignacion"
-      @cerrar="mostrarModalConductor = false"
+      @cerrar="mostrarModalCamion = false"
     />
 
     <!-- Lightbox -->

@@ -9,11 +9,23 @@ class Despacho extends Model
     protected $table = 'despachos';
 
     protected $fillable = [
+        'camion_id',
         'conductor_id',
         'supervisor_id',
+        'fecha_despacho',
         'estado',
         'notas',
     ];
+
+    protected function casts(): array
+    {
+        return ['fecha_despacho' => 'date'];
+    }
+
+    public function camion()
+    {
+        return $this->belongsTo(Camion::class, 'camion_id');
+    }
 
     public function conductor()
     {
