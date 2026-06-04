@@ -215,6 +215,7 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/conductores',   [DespachoController::class, 'conductores']);
             Route::get('/historial',     [DespachoController::class, 'historial']);
             // Rutas (borradores)
+            Route::patch('/{id}/reprogramar',                   [DespachoController::class, 'reprogramarRuta'])->whereNumber('id');
             Route::get('/rutas',                                [DespachoController::class, 'rutas']);
             Route::post('/rutas',                               [DespachoController::class, 'crearRuta']);
             Route::patch('/rutas/{id}',                         [DespachoController::class, 'actualizarRuta'])->whereNumber('id');

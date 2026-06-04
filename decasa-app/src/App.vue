@@ -254,6 +254,8 @@ async function abrirNotificacion(n) {
   // Notificaciones de consultas de costo — van al detalle de la consulta
   if (datos.consulta_id) {
     router.push({ name: 'consulta-detalle', params: { id: datos.consulta_id } })
+  } else if (n.tipo === 'ruta_atrasada') {
+    router.push({ name: 'despacho' })
   } else if (n.tipo === 'despacho_asignado' || (auth.usuario?.rol === 'conductor' && datos.orden_id)) {
     // Conductor: cualquier notificación con orden_id o despacho asignado va a sus entregas
     router.push({ name: 'mis-entregas' })
@@ -297,6 +299,7 @@ function tipoIcono(tipo) {
     redes:              ChatBubbleLeftRightIcon,
     cita_recordatorio:          CalendarDaysIcon,
     despacho_asignado:          TruckIcon,
+    ruta_atrasada:              ExclamationTriangleIcon,
     consulta_costo_nueva:       CurrencyDollarIcon,
     consulta_costo_respondida:  CurrencyDollarIcon,
     consulta_costo_mensaje:     ChatBubbleLeftRightIcon,

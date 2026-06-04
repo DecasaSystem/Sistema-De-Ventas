@@ -1,6 +1,7 @@
 <?php
 
 use App\Jobs\AlertarRetrasoProduccion;
+use App\Jobs\AlertarRutasAtrasadas;
 use App\Jobs\RecordatoriosCitas;
 use Illuminate\Support\Facades\Schedule;
 
@@ -12,6 +13,12 @@ use Illuminate\Support\Facades\Schedule;
 Schedule::job(new AlertarRetrasoProduccion())
     ->dailyAt('07:00')
     ->name('alertar-retraso-produccion')
+    ->withoutOverlapping();
+
+Schedule::job(new AlertarRutasAtrasadas())
+    ->dailyAt('07:30')
+    ->timezone('America/Bogota')
+    ->name('alertar-rutas-atrasadas')
     ->withoutOverlapping();
 
 Schedule::job(new RecordatoriosCitas())

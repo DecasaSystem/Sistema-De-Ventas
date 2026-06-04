@@ -53,6 +53,35 @@ class DespachoController extends Controller
     // ── Rutas (borradores) ────────────────────────────────────────────────────
 
     /**
+     * PATCH /api/despacho/{id}/reprogramar
+     * Supervisor reprograma la fecha de una ruta ya enviada (asignado).
+     */
+    public function reprogramarRuta(Request $request, int $id)
+    {
+        $data = $request->validate([
+            'fecha_despacho' => 'required|date',
+        ]);
+
+        $despacho = Despacho::whereIn('estado', ['asignado', 'borrador'])->findOrFail($id);
+        $despacho->update(['fecha_despacho' => $data['fecha_despacho']]);
+
+        // Notificar al conductor de la nueva fecha
+        if ($despacho->conductor_id) {
+            $fechaFmt   = \Carbon\Carbon::parse($data['fecha_despacho'])->locale('es')->isoFormat('D [de] MMMM');
+            $nombreRuta = $despacho->nombre_ruta ?? "Ruta #{$despacho->id}";
+            NotificacionService::crear(
+                'ruta_atrasada',
+                'Fecha de ruta actualizada',
+                "{$nombreRuta} ha sido reprogramada para el {$fechaFmt}",
+                ['despacho_id' => $despacho->id],
+                $despacho->conductor_id,
+            );
+        }
+
+        return response()->json($despacho);
+    }
+
+    /**
      * GET /api/despacho/rutas
      * Lista rutas en borrador del supervisor.
      */

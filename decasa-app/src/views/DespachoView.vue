@@ -3,9 +3,9 @@ import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useDespachoStore } from '@/stores/despacho'
 import { useDespachoSocket } from '@/composables/useDespachoSocket'
-import { asignar, asignados, historialDespacho, detalleDespacho, camiones as getCamiones, crearCamion, actualizarCamion, listarRutas, crearRuta, actualizarRuta, eliminarRuta as apiEliminarRuta, agregarOrdenARuta, quitarOrdenDeRuta, reordenarRuta, enviarRuta } from '@/api/despacho'
+import { asignar, asignados, historialDespacho, detalleDespacho, camiones as getCamiones, crearCamion, actualizarCamion, listarRutas, crearRuta, actualizarRuta, eliminarRuta as apiEliminarRuta, agregarOrdenARuta, quitarOrdenDeRuta, reordenarRuta, enviarRuta, reprogramarRuta as apiReprogramarRuta } from '@/api/despacho'
 import { useToast } from '@/composables/useToast'
-import { ChevronDownIcon, XMarkIcon, ArrowTopRightOnSquareIcon, TruckIcon, PencilSquareIcon, CheckIcon, TrashIcon } from '@heroicons/vue/24/outline'
+import { ChevronDownIcon, XMarkIcon, ArrowTopRightOnSquareIcon, TruckIcon, PencilSquareIcon, CheckIcon, TrashIcon, ExclamationTriangleIcon } from '@heroicons/vue/24/outline'
 import DespachoCard from '@/components/despacho/DespachoCard.vue'
 import ColaCamionesModal from '@/components/despacho/ColaCamionesModal.vue'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
@@ -147,6 +147,39 @@ async function cargarConductores() {
     const { data } = await conductores()
     conductoresDisponibles.value = data
   } catch {}
+}
+
+// ── Reprogramar ruta atrasada ─────────────────────────────────────────────────
+const reprogramando    = ref(null)   // { despacho_id, nueva_fecha }
+const guardandoFecha   = ref(false)
+
+function abrirReprogramar(grupo) {
+  reprogramando.value = {
+    despacho_id: grupo.despacho_id,
+    nueva_fecha: new Date().toISOString().slice(0, 10),
+  }
+}
+
+async function confirmarReprogramar() {
+  if (!reprogramando.value) return
+  guardandoFecha.value = true
+  try {
+    await apiReprogramarRuta(reprogramando.value.despacho_id, { fecha_despacho: reprogramando.value.nueva_fecha })
+    toast.success('Ruta reprogramada y conductor notificado')
+    reprogramando.value = null
+    await cargarAsignadosFiltrados()
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'Error al reprogramar')
+  } finally {
+    guardandoFecha.value = false
+  }
+}
+
+function esAtrasada(grupo) {
+  const fecha = grupo[0]?.despacho?.fecha_despacho
+  if (!fecha) return false
+  const hoy = new Date().toISOString().slice(0, 10)
+  return String(fecha).slice(0, 10) < hoy && grupo[0]?.despacho?.estado === 'asignado'
 }
 
 // ── Asignados con filtros ────────────────────────────────────────────────────
@@ -989,6 +1022,20 @@ onBeforeUnmount(() => {
           :key="grupo[0]?.despacho_id"
           class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 space-y-2"
         >
+          <!-- Badge atrasada -->
+          <div v-if="esAtrasada(grupo)" class="flex items-center justify-between bg-red-50 border border-red-200 rounded-xl px-3 py-2 -mx-4 mx-0">
+            <div class="flex items-center gap-2">
+              <ExclamationTriangleIcon class="w-4 h-4 text-red-500 flex-shrink-0" />
+              <p class="text-xs font-semibold text-red-700">Ruta atrasada — el conductor no ha salido</p>
+            </div>
+            <button
+              @click="abrirReprogramar(grupo)"
+              class="text-xs bg-red-600 text-white px-2.5 py-1 rounded-lg hover:bg-red-700 font-semibold flex-shrink-0 ml-2"
+            >
+              Reprogramar
+            </button>
+          </div>
+
           <div class="space-y-2">
             <div class="flex items-start justify-between gap-2">
               <div class="flex items-center gap-2 flex-1 min-w-0">
@@ -1245,6 +1292,39 @@ onBeforeUnmount(() => {
       @confirmar="confirmarAsignacion"
       @cerrar="mostrarModalCamion = false"
     />
+
+    <!-- Modal reprogramar ruta -->
+    <div v-if="reprogramando" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+      <div class="fixed inset-0 bg-black/40" @click="reprogramando = null" />
+      <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 z-10 space-y-4">
+        <div class="flex items-center gap-2">
+          <ExclamationTriangleIcon class="w-5 h-5 text-red-500 flex-shrink-0" />
+          <h3 class="text-base font-bold text-gray-900">Reprogramar ruta</h3>
+          <button @click="reprogramando = null" class="ml-auto text-gray-400 hover:text-gray-600">&times;</button>
+        </div>
+        <p class="text-sm text-gray-600">Selecciona la nueva fecha de salida. El conductor recibirá una notificación automáticamente.</p>
+        <div>
+          <label class="text-xs font-semibold text-gray-500 uppercase mb-1.5 block">Nueva fecha de salida</label>
+          <input
+            v-model="reprogramando.nueva_fecha"
+            type="date"
+            class="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        <div class="flex gap-2">
+          <button @click="reprogramando = null" class="flex-1 border border-gray-200 text-gray-600 rounded-lg py-2.5 text-sm font-medium hover:bg-gray-50">
+            Cancelar
+          </button>
+          <button
+            @click="confirmarReprogramar"
+            :disabled="!reprogramando.nueva_fecha || guardandoFecha"
+            class="flex-1 bg-blue-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
+          >
+            {{ guardandoFecha ? 'Guardando...' : 'Confirmar fecha' }}
+          </button>
+        </div>
+      </div>
+    </div>
 
     <!-- Lightbox -->
     <div

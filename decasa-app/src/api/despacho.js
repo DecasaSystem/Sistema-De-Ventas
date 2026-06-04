@@ -26,4 +26,5 @@ export const registrarPagoEntrega    = (id, fd) => api.post(`/despacho/mis-entre
 })
 export const marcarEntregado         = (id)     => api.patch(`/despacho/mis-entregas/${id}/entregar`)
 export const iniciarRuta             = (id)     => api.patch(`/despacho/mis-entregas/rutas/${id}/iniciar`)
+export const reprogramarRuta         = (id, d)  => api.patch(`/despacho/${id}/reprogramar`, d)
 export const despachoPorOrden        = (id)     => api.get(`/despacho/por-orden/${id}`)
