@@ -13,6 +13,9 @@ import {
   QuestionMarkCircleIcon,
   UserGroupIcon,
   ArrowPathIcon,
+  PencilSquareIcon,
+  XMarkIcon,
+  CheckIcon,
 } from '@heroicons/vue/24/outline'
 import { getCliente, getClienteOrdenes, updateCliente } from '@/api/clientes'
 import { CATEGORIAS_DISPONIBLES } from '@/api/clientes'
@@ -148,6 +151,48 @@ async function convertirAOficial() {
   }
 }
 
+// ── Edición de datos del cliente ─────────────────────────────────────────
+const editando  = ref(false)
+const guardando = ref(false)
+const errorEdit = ref('')
+const formEdit  = ref({ nombre: '', cedula: '', telefono: '', email: '', direccion: '' })
+
+function abrirEdicion() {
+  formEdit.value = {
+    nombre:    cliente.value?.nombre    ?? '',
+    cedula:    cliente.value?.cedula    ?? '',
+    telefono:  cliente.value?.telefono  ?? '',
+    email:     cliente.value?.email     ?? '',
+    direccion: cliente.value?.direccion ?? '',
+  }
+  errorEdit.value = ''
+  editando.value  = true
+}
+
+async function guardarEdicion() {
+  errorEdit.value = ''
+  if (!formEdit.value.nombre.trim()) {
+    errorEdit.value = 'El nombre es obligatorio.'
+    return
+  }
+  guardando.value = true
+  try {
+    await updateCliente(cliente.value.id, {
+      nombre:    formEdit.value.nombre.trim(),
+      cedula:    formEdit.value.cedula.trim()    || null,
+      telefono:  formEdit.value.telefono.trim()  || null,
+      email:     formEdit.value.email.trim()     || null,
+      direccion: formEdit.value.direccion.trim() || null,
+    })
+    editando.value = false
+    await cargarCliente()
+  } catch (e) {
+    errorEdit.value = e.response?.data?.message ?? 'Error al guardar los cambios.'
+  } finally {
+    guardando.value = false
+  }
+}
+
 const sentinel = ref(null)
 let observer = null
 
@@ -182,12 +227,20 @@ onMounted(async () => {
         {{ cliente?.nombre ?? 'Cargando...' }}
       </h2>
       <span
-        v-if="cliente?.tipo === 'interesado'"
+        v-if="cliente?.tipo === 'interesado' && !editando"
         class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700"
       >
         <UserGroupIcon class="w-3.5 h-3.5" />
         Interesado
       </span>
+      <button
+        v-if="cliente && !editando"
+        @click="abrirEdicion"
+        class="flex items-center gap-1.5 text-xs text-blue-600 border border-blue-200 rounded-lg px-2.5 py-1.5 hover:bg-blue-50 transition-colors"
+      >
+        <PencilSquareIcon class="w-3.5 h-3.5" />
+        Editar
+      </button>
     </div>
 
     <!-- Loading -->
@@ -309,11 +362,11 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- Info del cliente -->
-      <div class="bg-white rounded-xl shadow-sm p-4 space-y-2 text-sm">
+      <!-- Info del cliente — modo vista -->
+      <div v-if="!editando" class="bg-white rounded-xl shadow-sm p-4 space-y-2 text-sm">
         <p class="text-xs font-semibold text-gray-500 uppercase mb-2">Información</p>
         <div v-if="cliente.cedula" class="flex items-center gap-3">
-          <IdentificationIcon class="w-4.5 h-4.5 text-gray-400 flex-shrink-0 w-5" />
+          <IdentificationIcon class="w-5 h-5 text-gray-400 flex-shrink-0" />
           <div>
             <p class="text-xs text-gray-400">Cédula</p>
             <p class="font-medium text-gray-800">{{ cliente.cedula }}</p>
@@ -339,6 +392,85 @@ onMounted(async () => {
             <p class="text-xs text-gray-400">Dirección</p>
             <p class="font-medium text-gray-800">{{ cliente.direccion }}</p>
           </div>
+        </div>
+        <p v-if="!cliente.cedula && !cliente.telefono && !cliente.email && !cliente.direccion" class="text-xs text-gray-400 italic">
+          Sin datos de contacto registrados.
+        </p>
+      </div>
+
+      <!-- Info del cliente — modo edición -->
+      <div v-else class="bg-white rounded-xl shadow-sm p-4 space-y-3 text-sm">
+        <div class="flex items-center justify-between mb-1">
+          <p class="text-xs font-semibold text-gray-500 uppercase">Editar información</p>
+          <button @click="editando = false" class="text-gray-400 hover:text-gray-600">
+            <XMarkIcon class="w-4 h-4" />
+          </button>
+        </div>
+
+        <div>
+          <label class="text-xs font-medium text-gray-600 mb-1 block">Nombre <span class="text-red-500">*</span></label>
+          <input
+            v-model="formEdit.nombre"
+            type="text"
+            placeholder="Nombre completo"
+            class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+          />
+        </div>
+        <div>
+          <label class="text-xs font-medium text-gray-600 mb-1 block">Cédula</label>
+          <input
+            v-model="formEdit.cedula"
+            type="text"
+            placeholder="Número de cédula"
+            class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+          />
+        </div>
+        <div>
+          <label class="text-xs font-medium text-gray-600 mb-1 block">Teléfono</label>
+          <input
+            v-model="formEdit.telefono"
+            type="tel"
+            placeholder="Número de teléfono"
+            class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+          />
+        </div>
+        <div>
+          <label class="text-xs font-medium text-gray-600 mb-1 block">Email</label>
+          <input
+            v-model="formEdit.email"
+            type="email"
+            placeholder="correo@ejemplo.com"
+            class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+          />
+        </div>
+        <div>
+          <label class="text-xs font-medium text-gray-600 mb-1 block">Dirección</label>
+          <input
+            v-model="formEdit.direccion"
+            type="text"
+            placeholder="Dirección"
+            class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+          />
+        </div>
+
+        <p v-if="errorEdit" class="text-xs text-red-600 font-medium">{{ errorEdit }}</p>
+
+        <div class="flex gap-2 pt-1">
+          <button
+            @click="editando = false"
+            class="flex-1 border border-gray-200 text-gray-600 rounded-lg py-2.5 text-sm font-medium hover:bg-gray-50 transition-colors"
+          >
+            Cancelar
+          </button>
+          <button
+            @click="guardarEdicion"
+            :disabled="guardando"
+            class="flex-1 bg-blue-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2 transition-colors"
+          >
+            <ArrowPathIcon v-if="guardando" class="w-4 h-4 animate-spin" />
+            <CheckIcon v-else class="w-4 h-4" />
+            {{ guardando ? 'Guardando...' : 'Guardar cambios' }}
+          </button>
         </div>
       </div>
 
