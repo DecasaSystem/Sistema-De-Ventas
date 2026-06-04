@@ -198,7 +198,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // ── Camiones ─────────────────────────────────────────────────────────────
     Route::get('/camiones', [CamionController::class, 'index']);
     Route::middleware('role:supervisor')->group(function () {
-        Route::patch('/camiones/{camion}', [CamionController::class, 'update']);
+        Route::post('/camiones',             [CamionController::class, 'store']);
+        Route::patch('/camiones/{camion}',   [CamionController::class, 'update']);
     });
 
     // ── Despacho ─────────────────────────────────────────────────────────────

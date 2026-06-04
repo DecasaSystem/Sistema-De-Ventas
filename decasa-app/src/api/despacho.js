@@ -5,6 +5,7 @@ export const asignados               = (params) => api.get('/despacho/asignados'
 export const asignar                 = (data)   => api.post('/despacho/asignar', data)
 export const conductores             = ()       => api.get('/despacho/conductores')
 export const camiones                = ()       => api.get('/camiones')
+export const crearCamion             = (d)      => api.post('/camiones', d)
 export const actualizarCamion        = (id, d)  => api.patch(`/camiones/${id}`, d)
 export const historialDespacho       = (params) => api.get('/despacho/historial', { params })
 export const detalleDespacho         = (id)     => api.get(`/despacho/${id}`)

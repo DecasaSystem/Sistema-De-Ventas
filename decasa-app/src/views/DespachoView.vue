@@ -3,7 +3,7 @@ import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useDespachoStore } from '@/stores/despacho'
 import { useDespachoSocket } from '@/composables/useDespachoSocket'
-import { asignar, asignados, historialDespacho, detalleDespacho, camiones as getCamiones, actualizarCamion } from '@/api/despacho'
+import { asignar, asignados, historialDespacho, detalleDespacho, camiones as getCamiones, crearCamion, actualizarCamion } from '@/api/despacho'
 import { useToast } from '@/composables/useToast'
 import { ChevronDownIcon, XMarkIcon, ArrowTopRightOnSquareIcon, TruckIcon, PencilSquareIcon, CheckIcon } from '@heroicons/vue/24/outline'
 import DespachoCard from '@/components/despacho/DespachoCard.vue'
@@ -82,6 +82,9 @@ function verDetalle(ordenId) {
 const camionesList    = ref([])
 const editandoCamion  = ref(null)  // { id, nombre, placa, conductor_id }
 const guardandoCamion = ref(false)
+const mostrarFormNuevo = ref(false)
+const formNuevo        = ref({ nombre: '', placa: '', conductor_id: '' })
+const creandoCamion    = ref(false)
 
 async function cargarCamiones() {
   try {
@@ -92,6 +95,25 @@ async function cargarCamiones() {
 
 function abrirEditCamion(c) {
   editandoCamion.value = { id: c.id, nombre: c.nombre ?? '', placa: c.placa ?? '', conductor_id: c.conductor_id ?? '' }
+}
+
+async function crearNuevoCamion() {
+  creandoCamion.value = true
+  try {
+    await crearCamion({
+      nombre:       formNuevo.value.nombre       || null,
+      placa:        formNuevo.value.placa         || null,
+      conductor_id: formNuevo.value.conductor_id || null,
+    })
+    formNuevo.value      = { nombre: '', placa: '', conductor_id: '' }
+    mostrarFormNuevo.value = false
+    await cargarCamiones()
+    toast.success('Camión creado')
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'Error al crear camión')
+  } finally {
+    creandoCamion.value = false
+  }
 }
 
 async function guardarCamion() {
@@ -352,7 +374,56 @@ onBeforeUnmount(() => {
 
     <!-- Tab: Camiones -->
     <div v-if="tab === 'camiones'" class="space-y-3">
-      <p class="text-xs text-gray-400">Toca el lápiz para editar nombre, placa o conductor de cada camión.</p>
+      <div class="flex items-center justify-between">
+        <p class="text-xs text-gray-400">Toca el lápiz para editar nombre, placa o conductor.</p>
+        <button
+          @click="mostrarFormNuevo = !mostrarFormNuevo; editandoCamion = null"
+          class="flex items-center gap-1.5 text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 transition-colors"
+        >
+          + Nuevo camión
+        </button>
+      </div>
+
+      <!-- Formulario nuevo camión -->
+      <div v-if="mostrarFormNuevo" class="bg-blue-50 border border-blue-200 rounded-xl p-4 space-y-3">
+        <p class="text-xs font-semibold text-blue-700 uppercase">Nuevo camión</p>
+        <input
+          v-model="formNuevo.nombre"
+          type="text"
+          placeholder="Nombre (ej: Camión 3)"
+          class="w-full rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+        />
+        <input
+          v-model="formNuevo.placa"
+          type="text"
+          placeholder="Placa (opcional)"
+          class="w-full rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+        />
+        <select
+          v-model="formNuevo.conductor_id"
+          class="w-full rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+        >
+          <option value="">Sin conductor (asignar después)</option>
+          <option v-for="cond in conductoresDisponibles" :key="cond.id" :value="cond.id">
+            {{ cond.nombre }}
+          </option>
+        </select>
+        <div class="flex gap-2">
+          <button
+            @click="mostrarFormNuevo = false"
+            class="flex-1 border border-blue-200 text-blue-600 rounded-lg py-2 text-sm font-medium hover:bg-blue-100"
+          >
+            Cancelar
+          </button>
+          <button
+            @click="crearNuevoCamion"
+            :disabled="creandoCamion"
+            class="flex-1 bg-blue-600 text-white rounded-lg py-2 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
+          >
+            {{ creandoCamion ? 'Creando...' : 'Crear camión' }}
+          </button>
+        </div>
+      </div>
 
       <div
         v-for="c in camionesList"
