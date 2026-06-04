@@ -250,9 +250,7 @@ class DespachoController extends Controller
         }
 
         DB::transaction(function () use ($ruta, $camion, $conductor, $usuario, $data) {
-            foreach ($ruta->items as $item) {
-                $item->orden->update(['estado' => 'en_camino']);
-            }
+            // Las órdenes NO pasan a en_camino aquí — lo hacen cuando el conductor inicia la ruta
             $update = [
                 'camion_id'    => $camion->id,
                 'conductor_id' => $conductor->id,
@@ -521,7 +519,13 @@ class DespachoController extends Controller
             ], 422);
         }
 
-        $despacho->update(['estado' => 'en_ruta']);
+        DB::transaction(function () use ($despacho) {
+            // Ahora sí pasan a en_camino — el conductor está saliendo
+            foreach ($despacho->items()->with('orden')->get() as $item) {
+                $item->orden?->update(['estado' => 'en_camino']);
+            }
+            $despacho->update(['estado' => 'en_ruta']);
+        });
 
         return response()->json(['ok' => true]);
     }
