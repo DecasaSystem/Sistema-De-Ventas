@@ -49,7 +49,7 @@ const accesos = computed(() => {
     { label: 'Órdenes',      icon: ClipboardDocumentListIcon, to: { name: 'ordenes' } },
     { label: 'Clientes',     icon: UserGroupIcon, to: { name: 'clientes' } },
     { label: 'Inventario',   icon: ArchiveBoxIcon, to: { name: 'inventario' } },
-    { label: 'Redes',        icon: ChatBubbleLeftRightIcon, to: { name: 'redes' } },
+    ...(auth.tieneAccesoRedes ? [{ label: 'Redes', icon: ChatBubbleLeftRightIcon, to: { name: 'redes' } }] : []),
     { label: 'Citas',        icon: CalendarDaysIcon,        to: { name: 'citas' } },
   ]
 

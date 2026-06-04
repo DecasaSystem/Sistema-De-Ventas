@@ -145,7 +145,7 @@ const abonosNoLeidos = computed(() =>
 // Badge de conversaciones WA pendientes (carga inicial + actualización por WebSocket)
 const redesPendientes = ref(0)
 function cargarRedesPendientes() {
-  if (!auth.isAuthenticated) return
+  if (!auth.isAuthenticated || !auth.tieneAccesoRedes) return
   api.get('/redes/conversaciones?estado=pendiente').then(r => {
     redesPendientes.value = r.data.length
   }).catch(() => {})
@@ -153,7 +153,7 @@ function cargarRedesPendientes() {
 watch(() => auth.usuario?.id, (id) => {
   if (!id) return
   cargarRedesPendientes()
-  if (!window.Echo) return
+  if (!window.Echo || !auth.tieneAccesoRedes) return
   window.Echo.channel('redes').listen('.conversacion.actualizada', cargarRedesPendientes)
 }, { immediate: true })
 
@@ -171,6 +171,9 @@ const navItems = computed(() => {
     ]
     if (auth.isTapicero) {
       items.unshift({ name: 'mis-pasos', label: 'Mis pasos', icon: ClipboardDocumentCheckIcon, badge: pasos.pendientesCount })
+    }
+    if (auth.tieneAccesoRedes) {
+      items.push({ name: 'redes', label: 'Redes', icon: ChatBubbleLeftRightIcon, badge: redesPendientes.value })
     }
     return items
   }
@@ -202,7 +205,7 @@ const navItems = computed(() => {
       { name: 'clientes',     label: 'Clientes',     icon: UserGroupIcon },
       { name: 'consultas',    label: 'Cotizaciones', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
       { name: 'inventario',   label: 'Inventario',   icon: ArchiveBoxIcon, badge: surtidos.pendientesCount },
-      { name: 'redes',        label: 'Redes',        icon: ChatBubbleLeftRightIcon, badge: redesPendientes.value },
+      ...(auth.tieneAccesoRedes ? [{ name: 'redes', label: 'Redes', icon: ChatBubbleLeftRightIcon, badge: redesPendientes.value }] : []),
       { name: 'citas',        label: 'Citas',        icon: CalendarDaysIcon },
       { name: 'mis-stats',    label: 'Estadíst.',    icon: PresentationChartLineIcon },
       { name: 'perfil',       label: 'Perfil',       icon: UserCircleIcon },
@@ -215,7 +218,7 @@ const navItems = computed(() => {
     { name: 'clientes',   label: 'Clientes',     icon: UserGroupIcon },
     { name: 'consultas',  label: 'Cotizaciones', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
     { name: 'inventario', label: 'Inventario',   icon: ArchiveBoxIcon, badge: surtidos.pendientesCount },
-    { name: 'redes',      label: 'Redes',        icon: ChatBubbleLeftRightIcon, badge: redesPendientes.value },
+    ...(auth.tieneAccesoRedes ? [{ name: 'redes', label: 'Redes', icon: ChatBubbleLeftRightIcon, badge: redesPendientes.value }] : []),
     { name: 'citas',      label: 'Citas',        icon: CalendarDaysIcon },
     { name: 'mis-stats',  label: 'Estadíst.',    icon: PresentationChartLineIcon },
     { name: 'perfil',     label: 'Perfil',       icon: UserCircleIcon },
