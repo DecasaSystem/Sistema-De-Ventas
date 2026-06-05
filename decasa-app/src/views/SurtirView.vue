@@ -20,6 +20,7 @@ import {
 } from '@/api/surtidos'
 import { getStockTienda, crearTraslado, getTraslados } from '@/api/traslados'
 import { getTiendas } from '@/api/ordenes'
+import { getReservaInfo, getReservaStockLote } from '@/api/reserva'
 import api from '@/api'
 import { useToast } from '@/composables/useToast'
 import ComboInput from '@/components/common/ComboInput.vue'
@@ -129,6 +130,15 @@ const tabActivo = ref('nuevo')  // 'nuevo' | 'historial'
 // ── Wizard paso ──────────────────────────────────────────────────────────────
 const paso = ref(1)
 
+// ── Desde fábrica ─────────────────────────────────────────────────────────────
+const desdeFabrica   = ref(false)
+const fabricaId      = ref(null)
+const fabricaStockMap = ref({})   // { producto_id: stock_libre }
+
+onMounted(async () => {
+  try { const { data } = await getReservaInfo(); fabricaId.value = data.id } catch {}
+})
+
 // ── Paso 1 — Productos ────────────────────────────────────────────────────────
 const busquedaProd  = ref('')
 const resultados    = ref([])   // máx 10 resultados del servidor
@@ -147,11 +157,26 @@ watch(busquedaProd, (val) => {
 async function buscarProductos(term) {
   buscandoProd.value = true
   try {
-    const { data } = await api.get('/productos', { params: { search: term, limit: 10 } })
+    const params = { search: term, limit: 10 }
+    if (desdeFabrica.value && fabricaId.value) params.tienda_id = fabricaId.value
+    const { data } = await api.get('/productos', { params })
     const yaAgregados = new Set(productosAgr.value.map(p => p.producto.id))
-    resultados.value = (Array.isArray(data) ? data : (data.data ?? []))
+    let lista = (Array.isArray(data) ? data : (data.data ?? []))
       .filter(p => !yaAgregados.has(p.id))
       .map(p => markRaw(p))
+
+    if (desdeFabrica.value) {
+      // Solo mostrar los que tienen stock libre en fábrica
+      lista = lista.filter(p => (p.stock_disponible ?? 0) - (p.stock_reservado ?? 0) > 0)
+      lista.forEach(p => { fabricaStockMap.value[p.id] = (p.stock_disponible ?? 0) - (p.stock_reservado ?? 0) })
+    } else if (fabricaId.value && lista.length) {
+      // Mostrar badge de fábrica aunque se busque en otra fuente
+      const ids = lista.map(p => p.id)
+      const { data: stocks } = await getReservaStockLote(ids)
+      fabricaStockMap.value = stocks
+    }
+
+    resultados.value = lista
   } catch {
     resultados.value = []
   } finally {
@@ -282,6 +307,7 @@ async function enviarSurtido() {
   try {
     const payload = {
       notas: notasSurtido.value || null,
+      fuente_fabrica: desdeFabrica.value,
       programado_para: (programarActivo.value && programadoPara.value) ? programadoPara.value : null,
       tiendas: tiendasSelec.value.map(tid => ({
         tienda_id:               tid,
@@ -323,6 +349,8 @@ function resetWizard() {
   busquedaProd.value        = ''
   programarActivo.value     = false
   programadoPara.value      = ''
+  desdeFabrica.value        = false
+  fabricaStockMap.value     = {}
 }
 
 async function avanzar() {
@@ -704,6 +732,23 @@ onMounted(async () => {
       <div v-if="paso === 1" class="space-y-3">
         <h3 class="text-sm font-semibold text-gray-700">¿Qué productos vas a enviar?</h3>
 
+        <!-- Toggle Desde fábrica -->
+        <label class="flex items-center gap-3 bg-purple-50 rounded-xl px-4 py-3 cursor-pointer select-none border border-purple-100">
+          <button
+            type="button"
+            @click="desdeFabrica = !desdeFabrica; productosAgr = []; resultados = []; busquedaProd = ''; fabricaStockMap = {}"
+            :class="['relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0',
+              desdeFabrica ? 'bg-purple-600' : 'bg-gray-300']"
+          >
+            <span :class="['inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+              desdeFabrica ? 'translate-x-6' : 'translate-x-1']" />
+          </button>
+          <div>
+            <p class="text-sm font-semibold text-purple-800">Surtir desde Reserva (Fábrica)</p>
+            <p class="text-xs text-purple-600">Los productos se toman del stock de fábrica. Se reservan al enviar y se descuentan al aceptar.</p>
+          </div>
+        </label>
+
         <!-- Buscador -->
         <div class="relative">
           <MagnifyingGlassIcon class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -739,7 +784,17 @@ onMounted(async () => {
                 <p class="text-sm font-medium text-gray-800 truncate">{{ p.nombre }}</p>
                 <p class="text-xs text-gray-400">{{ p.categoria }}</p>
               </div>
-              <PlusIcon class="w-4 h-4 text-blue-500 flex-shrink-0" />
+              <div class="flex items-center gap-1.5 flex-shrink-0">
+                <span v-if="desdeFabrica && (p.stock_disponible - p.stock_reservado) > 0"
+                  class="text-xs font-medium px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700">
+                  {{ p.stock_disponible - p.stock_reservado }} fab.
+                </span>
+                <span v-else-if="!desdeFabrica && fabricaStockMap[p.id] > 0"
+                  class="text-xs font-medium px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700">
+                  Fab: {{ fabricaStockMap[p.id] }}
+                </span>
+                <PlusIcon class="w-4 h-4 text-blue-500" />
+              </div>
             </button>
           </div>
           <!-- Pista mínimo 2 letras -->
@@ -1026,6 +1081,11 @@ onMounted(async () => {
       <!-- ── PASO 4: Revisión y envío ── -->
       <div v-else-if="paso === 4" class="space-y-3">
         <h3 class="text-sm font-semibold text-gray-700">Revisa el surtido antes de enviar</h3>
+
+        <div v-if="desdeFabrica" class="flex items-center gap-2 bg-purple-50 rounded-xl px-4 py-2.5 border border-purple-100">
+          <span class="text-purple-700 text-sm font-semibold">Origen: Reserva de Fábrica</span>
+          <span class="text-xs text-purple-500">— el stock de fábrica se reserva al enviar y se descuenta al aceptar</span>
+        </div>
 
         <!-- Resumen por tienda -->
         <div

@@ -13,6 +13,7 @@ use App\Models\ProductoVariante;
 use App\Models\Surtido;
 use App\Models\SurtidoItem;
 use App\Models\SurtidoTienda;
+use App\Models\Tienda;
 use App\Models\Usuario;
 use App\Services\NotificacionService;
 use Illuminate\Http\Request;
@@ -29,6 +30,7 @@ class SurtidoController extends Controller
     {
         $data = $request->validate([
             'notas'                                     => 'nullable|string|max:1000',
+            'fuente_fabrica'                            => 'boolean',
             'programado_para'                           => 'nullable|date|after:now',
             'tiendas'                                   => 'required|array|min:1',
             'tiendas.*.tienda_id'                       => 'required|exists:tiendas,id',
@@ -39,16 +41,38 @@ class SurtidoController extends Controller
             'tiendas.*.items.*.especificaciones'        => 'nullable|array',
         ]);
 
-        $supervisor    = $request->user();
+        $supervisor     = $request->user();
         $programadoPara = isset($data['programado_para']) ? \Carbon\Carbon::parse($data['programado_para']) : null;
+        $desdeFabrica   = $request->boolean('fuente_fabrica');
+        $fabricaId      = $desdeFabrica ? Tienda::where('es_fabrica', true)->value('id') : null;
 
-        $surtido = DB::transaction(function () use ($data, $supervisor, $programadoPara) {
+        $surtido = DB::transaction(function () use ($data, $supervisor, $programadoPara, $desdeFabrica, $fabricaId) {
             $surtido = Surtido::create([
-                'supervisor_id'  => $supervisor->id,
-                'notas'          => $data['notas'] ?? null,
-                'estado'         => $programadoPara ? 'programado' : 'enviado',
+                'supervisor_id'   => $supervisor->id,
+                'notas'           => $data['notas'] ?? null,
+                'fuente_fabrica'  => $desdeFabrica,
+                'estado'          => $programadoPara ? 'programado' : 'enviado',
                 'programado_para' => $programadoPara,
             ]);
+
+            // Si viene de fábrica, reservar stock en fábrica para cada producto
+            if ($desdeFabrica && $fabricaId) {
+                $productosUnicos = collect($data['tiendas'])
+                    ->flatMap(fn($t) => $t['items'])
+                    ->groupBy('producto_id')
+                    ->map(fn($items) => $items->sum('cantidad'));
+
+                foreach ($productosUnicos as $productoId => $cantTotal) {
+                    $inv = Inventario::where('producto_id', $productoId)
+                        ->where('tienda_id', $fabricaId)
+                        ->lockForUpdate()->first();
+
+                    if (!$inv || ($inv->cantidad_disponible - $inv->cantidad_reservada) < $cantTotal) {
+                        abort(422, "Stock insuficiente en fábrica para el producto #{$productoId}.");
+                    }
+                    $inv->increment('cantidad_reservada', $cantTotal);
+                }
+            }
 
             foreach ($data['tiendas'] as $tiendaData) {
                 $st = SurtidoTienda::create([
@@ -182,8 +206,38 @@ class SurtidoController extends Controller
             return response()->json(['message' => 'Este surtido ya fue respondido.'], 422);
         }
 
-        DB::transaction(function () use ($st, $usuario) {
+        $fabricaId = $st->surtido->fuente_fabrica
+            ? Tienda::where('es_fabrica', true)->value('id')
+            : null;
+
+        DB::transaction(function () use ($st, $usuario, $fabricaId) {
             foreach ($st->items as $item) {
+                // Descontar de fábrica si el surtido viene de allí
+                if ($fabricaId) {
+                    $invFab = Inventario::where('producto_id', $item->producto_id)
+                        ->where('tienda_id', $fabricaId)
+                        ->first();
+                    if ($invFab) {
+                        $invFab->decrement('cantidad_disponible', $item->cantidad);
+                        $invFab->decrement('cantidad_reservada',  $item->cantidad);
+                    }
+                    // Variante tapizado — descontar también inventario_variantes de fábrica
+                    $esp = $item->especificaciones;
+                    if ($esp && !empty($esp['marca']) && !empty($esp['tela']) && !empty($esp['color'])) {
+                        $variante = ProductoVariante::where('producto_id', $item->producto_id)->get()
+                            ->first(fn($v) =>
+                                mb_strtolower(trim($v->marca ?? '')) === mb_strtolower(trim($esp['marca'])) &&
+                                mb_strtolower(trim($v->marca_tela))  === mb_strtolower(trim($esp['tela']))  &&
+                                mb_strtolower(trim($v->nombre_color)) === mb_strtolower(trim($esp['color']))
+                            );
+                        if ($variante) {
+                            InventarioVariante::where('variante_id', $variante->id)
+                                ->where('tienda_id', $fabricaId)
+                                ->decrement('cantidad_disponible', $item->cantidad);
+                        }
+                    }
+                }
+
                 $inv = Inventario::firstOrCreate(
                     ['producto_id' => $item->producto_id, 'tienda_id' => $st->tienda_id],
                     ['cantidad_disponible' => 0, 'cantidad_reservada' => 0, 'stock_minimo' => 1]
@@ -309,13 +363,29 @@ class SurtidoController extends Controller
         $data    = $request->validate(['notas_vendedor' => 'nullable|string|max:500']);
         $usuario = $request->user();
 
-        $st = SurtidoTienda::with(['surtido.supervisor:id,nombre', 'tienda:id,nombre'])->findOrFail($id);
+        $st = SurtidoTienda::with(['surtido.supervisor:id,nombre', 'surtido.tiendas', 'tienda:id,nombre', 'items'])->findOrFail($id);
 
         if ($st->vendedor_validador_id !== $usuario->id) {
             return response()->json(['message' => 'No autorizado.'], 403);
         }
         if ($st->estado !== 'pendiente') {
             return response()->json(['message' => 'Este surtido ya fue respondido.'], 422);
+        }
+
+        // Si viene de fábrica, liberar reserva solo si TODAS las tiendas rechazan
+        if ($st->surtido->fuente_fabrica) {
+            $fabricaId = Tienda::where('es_fabrica', true)->value('id');
+            if ($fabricaId) {
+                DB::transaction(function () use ($st, $fabricaId) {
+                    foreach ($st->items as $item) {
+                        $invFab = Inventario::where('producto_id', $item->producto_id)
+                            ->where('tienda_id', $fabricaId)->first();
+                        if ($invFab && $invFab->cantidad_reservada >= $item->cantidad) {
+                            $invFab->decrement('cantidad_reservada', $item->cantidad);
+                        }
+                    }
+                });
+            }
         }
 
         $st->update([
