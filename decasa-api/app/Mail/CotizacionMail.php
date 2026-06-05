@@ -36,27 +36,40 @@ class CotizacionMail extends Mailable
 
     public function attachments(): array
     {
-        $orden = $this->cargarOrden();
+        ini_set('memory_limit', '512M');
+        set_time_limit(120);
 
-        $firmaCliente  = $this->urlToBase64($orden->firma_url);
-        $firmaVendedor = $this->urlToBase64($orden->vendedor?->firma_url);
-        $logoBase64    = $this->avifToPngBase64(public_path('img/logo.avif'));
-        $bocetosBase64 = [];
-        foreach ($orden->items as $item) {
-            if ($item->es_personalizado && $item->boceto_url) {
-                $bocetosBase64[$item->id] = $this->urlToBase64($item->boceto_url);
+        try {
+            $orden = $this->cargarOrden();
+
+            $firmaCliente  = $this->urlToBase64($orden->firma_url);
+            $firmaVendedor = $this->urlToBase64($orden->vendedor?->firma_url);
+            $logoBase64    = $this->avifToPngBase64(public_path('img/logo.avif'));
+            $bocetosBase64 = [];
+            foreach ($orden->items as $item) {
+                if ($item->es_personalizado && $item->boceto_url) {
+                    $bocetosBase64[$item->id] = $this->urlToBase64($item->boceto_url);
+                }
             }
+
+            $pdf = Pdf::loadView('pdf.orden', compact('orden', 'firmaCliente', 'firmaVendedor', 'logoBase64', 'bocetosBase64'));
+            $pdf->setPaper('letter');
+
+            return [
+                Attachment::fromData(
+                    fn () => $pdf->output(),
+                    "cotizacion-decasa-{$this->ordenId}.pdf"
+                )->withMime('application/pdf'),
+            ];
+        } catch (\Throwable $e) {
+            \Log::error('CotizacionMail: fallo al generar PDF', [
+                'orden_id' => $this->ordenId,
+                'error'    => $e->getMessage(),
+                'file'     => $e->getFile(),
+                'line'     => $e->getLine(),
+            ]);
+            return [];
         }
-
-        $pdf = Pdf::loadView('pdf.orden', compact('orden', 'firmaCliente', 'firmaVendedor', 'logoBase64', 'bocetosBase64'));
-        $pdf->setPaper('letter');
-
-        return [
-            Attachment::fromData(
-                fn () => $pdf->output(),
-                "cotizacion-decasa-{$this->ordenId}.pdf"
-            )->withMime('application/pdf'),
-        ];
     }
 
     private function cargarOrden(): Orden

@@ -128,13 +128,13 @@
                                 $color = $specs['variante_color'] ?? null;
                             @endphp
                             @if($marca || $color)
-                                <br><span style="font-size: 9px; color: #7c3aed;">🧵 {{ implode(' · ', array_filter([$marca, $color])) }}</span>
+                                <br><span style="font-size: 9px; color: #7c3aed;">{{ implode(' · ', array_filter([$marca, $color])) }}</span>
                             @endif
                             @if(!empty($specs['descripcion']))
                                 <br><span style="font-size: 9px; color: #6b7280;">{{ $specs['descripcion'] }}</span>
                             @endif
                             @if($item->tienda_origen_id)
-                                <br><span style="font-size: 9px; color: #d97706;">📍 Otra tienda</span>
+                                <br><span style="font-size: 9px; color: #d97706;">Otra tienda</span>
                             @endif
                         </td>
                         <td style="padding: 8px; text-align: center;">{{ $item->cantidad }}</td>
@@ -160,7 +160,7 @@
     @php $itemsPersonalizados = $orden->items->where('es_personalizado', true); @endphp
     @if($itemsPersonalizados->isNotEmpty())
     <div style="margin-bottom: 20px; border: 1px solid #ede9fe; border-radius: 8px; padding: 16px; background-color: #faf5ff;">
-        <p style="font-size: 10px; font-weight: bold; color: #7c3aed; text-transform: uppercase; margin: 0 0 12px 0;">✦ Detalles de Personalización</p>
+        <p style="font-size: 10px; font-weight: bold; color: #7c3aed; text-transform: uppercase; margin: 0 0 12px 0;">Detalles de Personalizacion</p>
         @foreach($itemsPersonalizados as $item)
             @php $specs = $item->specs_personalizacion ?? []; @endphp
             <div style="margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #ede9fe;">
