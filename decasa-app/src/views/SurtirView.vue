@@ -20,7 +20,6 @@ import {
   getRecomendaciones,
 } from '@/api/surtidos'
 import { getStockTienda, crearTraslado, getTraslados } from '@/api/traslados'
-import { getVendedoresTienda } from '@/api/surtidos'
 import { getTiendas } from '@/api/ordenes'
 import { getReservaInfo, getReservaStockLote } from '@/api/reserva'
 import { getVariantes } from '@/api/inventario'
