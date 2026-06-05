@@ -344,20 +344,58 @@ function nombreTiendaBusqueda() {
   return tiendas.value.find(t => t.id == tiendaBusqueda.value)?.nombre ?? ''
 }
 
-function tomarDeFabrica(producto) {
+// ── Picker variante para fábrica (tapizado) ───────────────────────────────────
+const mostrarFabricaVariantePicker = ref(false)
+const fabricaVariantesProd         = ref(null)
+const fabricaVariantesDisponibles  = ref([])
+const fabricaVarianteSeleccionada  = ref(null)
+const cargandoFabricaVariantes     = ref(false)
+
+async function tomarDeFabrica(producto) {
+  if (producto.es_tapizado) {
+    fabricaVariantesProd.value        = producto
+    fabricaVarianteSeleccionada.value = null
+    cargandoFabricaVariantes.value    = true
+    mostrarFabricaVariantePicker.value = true
+    try {
+      const { data } = await getVariantes(producto.id, fabricaId.value)
+      fabricaVariantesDisponibles.value = data.filter(v => v.stock_libre > 0)
+    } finally {
+      cargandoFabricaVariantes.value = false
+    }
+    return
+  }
+
+  _pushItemFabrica(producto, null)
+}
+
+function confirmarFabricaVariante() {
+  if (!fabricaVarianteSeleccionada.value) return
+  _pushItemFabrica(fabricaVariantesProd.value, fabricaVarianteSeleccionada.value)
+  mostrarFabricaVariantePicker.value = false
+}
+
+function _pushItemFabrica(producto, variante) {
+  const varianteLabel = variante
+    ? [variante.marca, variante.marca_tela, variante.nombre_color].filter(Boolean).join(' · ')
+    : null
+
   const existe = items.value.find(i =>
-    i.producto_id === producto.id && i.tienda_origen_id === fabricaId.value && !i._fabricar_pedido
+    i.producto_id === producto.id &&
+    i.variante_id === (variante?.id ?? null) &&
+    i.tienda_origen_id === fabricaId.value &&
+    !i._fabricar_pedido
   )
   if (existe) { existe.cantidad++; return }
 
   items.value.push({
     producto_id: producto.id,
-    variante_id: null,
+    variante_id: variante?.id ?? null,
     tienda_origen_id: fabricaId.value,
     nombre: producto.nombre,
     categoria: producto.categoria,
-    variante_label: null,
-    stock_libre: fabricaStock.value[producto.id] ?? 0,
+    variante_label: varianteLabel,
+    stock_libre: variante ? (variante.stock_libre ?? 0) : (fabricaStock.value[producto.id] ?? 0),
     personalizable: producto.personalizable ?? false,
     cantidad: 1,
     precio_unitario: producto.precio_base ?? 0,
@@ -2440,6 +2478,59 @@ function removeFacturaFoto() {
           class="w-full bg-blue-600 text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-blue-700"
         >
           Agregar al carrito
+        </button>
+      </div>
+    </div>
+  </Transition>
+
+  <!-- Modal picker variante FÁBRICA (tapizado) -->
+  <Transition name="fade">
+    <div v-if="mostrarFabricaVariantePicker" class="fixed inset-0 z-[70] flex items-end sm:items-center justify-center" @click.self="mostrarFabricaVariantePicker = false">
+      <div class="absolute inset-0 bg-black/50" @click="mostrarFabricaVariantePicker = false" />
+      <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <h3 class="text-base font-bold text-gray-800">Variante de fábrica</h3>
+            <p class="text-xs text-purple-600 mt-0.5 truncate">{{ fabricaVariantesProd?.nombre }}</p>
+          </div>
+          <button @click="mostrarFabricaVariantePicker = false" class="text-gray-400 text-2xl leading-none">&times;</button>
+        </div>
+
+        <div v-if="cargandoFabricaVariantes" class="text-center py-6 text-gray-400 text-sm">Cargando variantes...</div>
+
+        <div v-else class="space-y-2">
+          <button
+            v-for="v in fabricaVariantesDisponibles"
+            :key="v.id"
+            @click="fabricaVarianteSeleccionada = v"
+            :class="['w-full text-left px-3 py-2.5 rounded-xl border text-sm transition-colors',
+              fabricaVarianteSeleccionada?.id === v.id
+                ? 'border-purple-500 bg-purple-50 text-purple-700 font-medium'
+                : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50']"
+          >
+            <template v-if="v.marca">
+              <span class="text-xs text-gray-400">{{ v.marca }}</span>
+              <span class="text-gray-300 mx-1">·</span>
+            </template>
+            <span class="font-medium">{{ v.marca_tela }}</span>
+            <span class="text-gray-400 mx-1">·</span>
+            {{ v.nombre_color }}
+            <span class="text-xs ml-2 font-semibold text-green-600">
+              {{ v.stock_libre }} en fábrica
+            </span>
+          </button>
+
+          <p v-if="!fabricaVariantesDisponibles.length" class="text-xs text-gray-400 text-center py-2">
+            No hay variantes con stock en fábrica para este producto.
+          </p>
+        </div>
+
+        <button
+          @click="confirmarFabricaVariante"
+          :disabled="!fabricaVarianteSeleccionada"
+          class="w-full bg-purple-600 text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-purple-700 disabled:opacity-40"
+        >
+          Tomar de fábrica
         </button>
       </div>
     </div>

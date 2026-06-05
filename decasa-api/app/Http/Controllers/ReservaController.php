@@ -42,6 +42,7 @@ class ReservaController extends Controller
                 'productos.categoria as prod_categoria',
                 'productos.foto_url as prod_foto_url',
                 'productos.precio_base as prod_precio_base',
+                'productos.es_tapizado as prod_es_tapizado',
                 DB::raw('COALESCE(inventario.id, 0) as inv_id'),
                 DB::raw('COALESCE(inventario.cantidad_disponible, 0) as cantidad_disponible'),
                 DB::raw('COALESCE(inventario.cantidad_reservada, 0) as cantidad_reservada'),
@@ -65,8 +66,9 @@ class ReservaController extends Controller
                 'id'         => $row->producto_id,
                 'nombre'     => $row->prod_nombre,
                 'categoria'  => $row->prod_categoria,
-                'foto_url'   => $row->prod_foto_url,
-                'precio_base'=> (float) $row->prod_precio_base,
+                'foto_url'    => $row->prod_foto_url,
+                'precio_base' => (float) $row->prod_precio_base,
+                'es_tapizado' => (bool) $row->prod_es_tapizado,
             ];
             return $row;
         });
@@ -84,6 +86,7 @@ class ReservaController extends Controller
             return response()->json([]);
         }
 
+        // Stock a nivel de producto (no-tapizado)
         $rows = Inventario::where('tienda_id', $fabrica->id)
             ->whereIn('producto_id', $ids)
             ->get(['producto_id', 'cantidad_disponible', 'cantidad_reservada']);
@@ -91,6 +94,23 @@ class ReservaController extends Controller
         $result = [];
         foreach ($rows as $r) {
             $result[$r->producto_id] = max(0, $r->cantidad_disponible - $r->cantidad_reservada);
+        }
+
+        // Stock a nivel de variante (tapizado) — suma libre por producto
+        $varianteRows = DB::table('inventario_variantes')
+            ->join('producto_variantes', 'producto_variantes.id', '=', 'inventario_variantes.variante_id')
+            ->where('inventario_variantes.tienda_id', $fabrica->id)
+            ->whereIn('producto_variantes.producto_id', $ids)
+            ->where('producto_variantes.activo', true)
+            ->groupBy('producto_variantes.producto_id')
+            ->selectRaw('producto_variantes.producto_id, SUM(inventario_variantes.cantidad_disponible - inventario_variantes.cantidad_reservada) as stock_libre')
+            ->get();
+
+        foreach ($varianteRows as $v) {
+            $libre = max(0, (int) $v->stock_libre);
+            if ($libre > 0) {
+                $result[$v->producto_id] = $libre;
+            }
         }
 
         return response()->json($result);
