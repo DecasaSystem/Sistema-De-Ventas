@@ -14,7 +14,9 @@ use App\Models\InventarioVariante;
 use App\Models\Orden;
 use App\Models\OrdenItem;
 use App\Models\Produccion;
+use App\Models\Producto;
 use App\Models\ProductoVariante;
+use App\Models\Tienda;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -394,7 +396,7 @@ class OrdenController extends Controller
 
         // Notificar cambio de inventario, detectar ventas cruzadas y alertar si sin stock
         $origenesExternos = [];
-        $fabricaId = \App\Models\Tienda::where('es_fabrica', true)->value('id');
+        $fabricaId = Tienda::where('es_fabrica', true)->value('id');
         $itemsFabrica = [];
 
         foreach ($data['items'] as $itemData) {
