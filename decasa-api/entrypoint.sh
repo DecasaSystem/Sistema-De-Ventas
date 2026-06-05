@@ -11,6 +11,10 @@ php artisan route:cache 2>/dev/null || true
 php artisan view:cache 2>/dev/null || true
 php artisan migrate --force 2>/dev/null || true
 
+# Los comandos artisan corren como root y pueden crear archivos en storage con
+# permisos de root. Re-chownear para que www-data (Apache) pueda escribir logs.
+chown -R www-data:www-data /var/www/html/storage 2>/dev/null || true
+
 php artisan queue:work --tries=3 --timeout=60 --sleep=3 2>/dev/null &
 
 (while true; do php artisan schedule:run --no-interaction 2>/dev/null; sleep 60; done) &

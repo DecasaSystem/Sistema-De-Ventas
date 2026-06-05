@@ -477,8 +477,8 @@ class OrdenController extends Controller
         try {
             Mail::to($email)->send(new CotizacionMail($orden->id));
         } catch (\Throwable $e) {
-            \Log::error('reenviarCotizacion: fallo al enviar email', ['orden_id' => $orden->id, 'email' => $email, 'error' => $e->getMessage()]);
-            return response()->json(['message' => 'No se pudo enviar el correo. Verifica la configuración de email.'], 502);
+            try { \Log::error('reenviarCotizacion: fallo', ['orden_id' => $orden->id, 'error' => $e->getMessage()]); } catch (\Throwable) {}
+            return response()->json(['message' => 'No se pudo enviar el correo: ' . $e->getMessage()], 502);
         }
 
         return response()->json(['message' => "Cotización enviada a {$email}."]);
