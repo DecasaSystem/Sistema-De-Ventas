@@ -17,7 +17,8 @@
         "openai-php/laravel": "^0.19.1",
         "phpoffice/phpspreadsheet": "^1.30",
         "pusher/pusher-php-server": "^7.2",
-        "symfony/brevo-mailer": "^8.1"
+        "symfony/brevo-mailer": "^8.1",
+        "symfony/http-client": "*"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",
