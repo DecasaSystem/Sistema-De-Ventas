@@ -7,6 +7,7 @@ use App\Models\Inventario;
 use App\Models\InventarioMovimiento;
 use App\Models\Traslado;
 use App\Models\TrasladoItem;
+use App\Services\NotificacionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -189,6 +190,18 @@ class TrasladoController extends Controller
 
         $traslado->load($this->withRelaciones());
 
+        // Notificar al validador cuando el vendedor crea un traslado pendiente
+        if ($esVendedor && $traslado->vendedor_validador_id) {
+            $cantItems = count($data['items']);
+            NotificacionService::crear(
+                'traslado_pendiente',
+                'Traslado pendiente de validación',
+                "{$user->nombre} solicita trasladar {$cantItems} producto(s) desde {$nombreOrigen} a {$nombreDestino}. Acepta o rechaza desde tu inventario.",
+                ['traslado_id' => $traslado->id],
+                $traslado->vendedor_validador_id,
+            );
+        }
+
         return response()->json($traslado, 201);
     }
 
@@ -299,6 +312,15 @@ class TrasladoController extends Controller
             return response()->json(['message' => $e->getMessage()], 422);
         }
 
+        // Notificar al iniciador
+        NotificacionService::crear(
+            'traslado_aceptado',
+            'Traslado aceptado',
+            "{$user->nombre} aceptó el traslado #{$traslado->id}. El inventario fue actualizado.",
+            ['traslado_id' => $traslado->id],
+            $traslado->supervisor_id,
+        );
+
         return response()->json(['message' => 'Traslado aceptado. Inventario actualizado.']);
     }
 
@@ -325,6 +347,16 @@ class TrasladoController extends Controller
             : $notasActuales;
 
         $traslado->update(['estado' => 'rechazado', 'notas' => $nuevasNotas]);
+
+        // Notificar al iniciador
+        $motivo = $notas ? " Motivo: $notas" : '';
+        NotificacionService::crear(
+            'traslado_rechazado',
+            'Traslado rechazado',
+            "{$user->nombre} rechazó el traslado #{$traslado->id}.{$motivo}",
+            ['traslado_id' => $traslado->id],
+            $traslado->supervisor_id,
+        );
 
         return response()->json(['message' => 'Traslado rechazado.']);
     }

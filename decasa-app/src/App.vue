@@ -273,6 +273,9 @@ async function abrirNotificacion(n) {
     }
   } else if (datos.surtido_id) {
     router.push({ name: auth.isSupervisor ? 'surtir' : 'inventario' })
+  } else if (datos.traslado_id) {
+    // Validador (traslado_pendiente) → inventario; iniciador (aceptado/rechazado) → surtir
+    router.push({ name: n.tipo === 'traslado_pendiente' ? 'inventario' : 'surtir' })
   } else if (datos.cita_id) {
     router.push({ name: 'citas' })
   } else if (datos.conversacion_id || n.tipo === 'redes') {
@@ -295,6 +298,9 @@ function tipoIcono(tipo) {
     surtido_enviado:    ArchiveBoxArrowDownIcon,
     surtido_aceptado:   CheckCircleIcon,
     surtido_rechazado:  XCircleIcon,
+    traslado_pendiente: ArrowPathIcon,
+    traslado_aceptado:  CheckCircleIcon,
+    traslado_rechazado: XCircleIcon,
     facturar:           ClipboardDocumentListIcon,
     paso_produccion:    WrenchScrewdriverIcon,
     orden_editada:      PencilSquareIcon,
