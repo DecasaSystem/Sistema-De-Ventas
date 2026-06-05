@@ -39,3 +39,27 @@ services:
         value: https://decasa-api-b91v.onrender.com
       - key: SANCTUM_STATEFUL_DOMAINS
         value: sistema-de-ventas-olive.vercel.app
+      # --- Mail (Gmail SMTP) — valores definidos en el panel de Render, no aquí ---
+      - key: MAIL_MAILER
+        value: smtp
+      - key: MAIL_HOST
+        value: smtp.gmail.com
+      - key: MAIL_PORT
+        value: "587"
+      - key: MAIL_ENCRYPTION
+        value: tls
+      - key: MAIL_USERNAME
+        sync: false   # correo Gmail en panel de Render
+      - key: MAIL_PASSWORD
+        sync: false   # contraseña de aplicación Gmail en panel de Render
+      - key: MAIL_FROM_ADDRESS
+        sync: false   # igual que MAIL_USERNAME
+      - key: MAIL_FROM_NAME
+        value: "Decasa"
+      # --- Cloudinary — definidos en el panel de Render ---
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false

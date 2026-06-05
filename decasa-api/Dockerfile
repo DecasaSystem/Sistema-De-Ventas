@@ -1,8 +1,8 @@
 FROM php:8.4-apache
 
 RUN apt-get update && apt-get install -y \
-    git unzip libpng-dev libjpeg-dev libfreetype6-dev libzip-dev \
-    && docker-php-ext-configure gd --with-freetype --with-jpeg \
+    git unzip libpng-dev libjpeg-dev libfreetype6-dev libzip-dev libavif-dev \
+    && docker-php-ext-configure gd --with-freetype --with-jpeg --with-avif \
     && docker-php-ext-install -j$(nproc) gd pdo_mysql bcmath zip pcntl \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
