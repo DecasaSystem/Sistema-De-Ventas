@@ -325,11 +325,13 @@ async function buscarProducto() {
       params: { search: productoQuery.value, tienda_id: tiendaBusqueda.value || tiendaId.value },
     })
     productoResultados.value = data
-    // Cargar stock de fábrica para los productos encontrados
-    if (fabricaId.value && data.length) {
+    // Cargar badge de fábrica solo cuando NO se está buscando ya en fábrica
+    if (fabricaId.value && data.length && tiendaBusqueda.value != fabricaId.value) {
       const ids = data.map(p => p.id)
       const { data: stocks } = await getReservaStockLote(ids)
       fabricaStock.value = stocks
+    } else {
+      fabricaStock.value = {}
     }
   } finally {
     buscandoProducto.value = false
@@ -1282,13 +1284,17 @@ function removeFacturaFoto() {
 
       <!-- Selector tienda de búsqueda -->
       <div>
-        <label class="label">Buscar en tienda</label>
-        <select v-model="tiendaBusqueda" @change="productoResultados = []" class="input text-sm">
+        <label class="label">Buscar en</label>
+        <select v-model="tiendaBusqueda" @change="productoResultados = []; fabricaStock = {}" class="input text-sm">
           <option v-for="t in tiendas" :key="t.id" :value="t.id">
             {{ t.nombre }}{{ t.id == tiendaId ? ' (tu tienda)' : '' }}
           </option>
+          <option v-if="fabricaId" :value="fabricaId">Reserva (Fábrica)</option>
         </select>
-        <p v-if="tiendaBusqueda && tiendaBusqueda != tiendaId" class="mt-1 text-xs text-amber-600 font-medium">
+        <p v-if="tiendaBusqueda == fabricaId" class="mt-1 text-xs text-purple-600 font-medium">
+          Consultando reserva de fábrica — los productos se toman directamente de fábrica al cliente
+        </p>
+        <p v-else-if="tiendaBusqueda && tiendaBusqueda != tiendaId" class="mt-1 text-xs text-amber-600 font-medium">
           Consultando stock de otra tienda — la orden se registra en {{ tiendas.find(t => t.id == tiendaId)?.nombre }}
         </p>
       </div>
@@ -1380,12 +1386,6 @@ function removeFacturaFoto() {
                 >Personalizar</button>
               </template>
 
-              <!-- Desde fábrica (siempre visible si hay stock en fábrica) -->
-              <button
-                v-if="fabricaStock[p.id] > 0 && fabricaId"
-                @click="tomarDeFabrica(p)"
-                class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-purple-600 text-white hover:bg-purple-700 transition-colors"
-              >Fábrica</button>
             </div>
           </div>
         </li>
