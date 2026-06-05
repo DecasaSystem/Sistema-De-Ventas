@@ -1,4 +1,5 @@
 
+
 <?php
 
 use App\Http\Controllers\AuthController;
@@ -29,6 +30,7 @@ use App\Http\Controllers\PrecioItemController;
 use App\Http\Controllers\ConfiguracionCostosController;
 use App\Http\Controllers\FacturacionController;
 use App\Http\Controllers\PushSubscriptionController;
+use App\Http\Controllers\ReservaController;
 use App\Http\Controllers\RestauracionController;
 use Illuminate\Support\Facades\Route;
 
@@ -54,6 +56,16 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Tiendas (solo lectura — usada por el selector de tienda en la orden)
     Route::get('/tiendas', [TiendaController::class, 'index']);
+
+    // Reserva / Fábrica
+    Route::get('/reserva/info',                          [ReservaController::class, 'info']);
+    Route::get('/reserva/stock-lote',                    [ReservaController::class, 'stockLote']);
+    Route::middleware('role:supervisor')->group(function () {
+        Route::get('/reserva/inventario',                [ReservaController::class, 'inventario']);
+        Route::post('/reserva/entrada',                  [ReservaController::class, 'entrada']);
+        Route::post('/reserva/salida',                   [ReservaController::class, 'salida']);
+        Route::get('/reserva/movimientos/{productoId}',  [ReservaController::class, 'movimientos'])->whereNumber('productoId');
+    });
 
     // Productos
     Route::get('/productos',             [ProductoController::class, 'index']);

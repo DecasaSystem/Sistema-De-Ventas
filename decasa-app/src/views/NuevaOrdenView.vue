@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
 import api from '@/api'
 import { getVariantes } from '@/api/inventario'
+import { getReservaInfo, getReservaStockLote } from '@/api/reserva'
 import { updateCliente, CATEGORIAS_DISPONIBLES } from '@/api/clientes'
 import { SPECS_TEMPLATES, resolverCategoria, camposParaModo, specsToDescripcion, extraerDimensiones } from '@/constants/specsConfig'
 import { marcasOrdenadas, tiposTelaDeM, coloresDeTela } from '@/data/telasCatalogo'
@@ -305,6 +306,17 @@ function agregarProductoCustom() {
   modoProductoCustom.value = false
 }
 
+// ── Fábrica / Reserva ────────────────────────────────────────────────────────
+const fabricaId    = ref(null)
+const fabricaStock = ref({})   // { producto_id: stock_libre }
+
+onMounted(async () => {
+  try {
+    const { data } = await getReservaInfo()
+    fabricaId.value = data.id
+  } catch {}
+})
+
 async function buscarProducto() {
   if (!productoQuery.value.trim()) return
   buscandoProducto.value = true
@@ -313,6 +325,12 @@ async function buscarProducto() {
       params: { search: productoQuery.value, tienda_id: tiendaBusqueda.value || tiendaId.value },
     })
     productoResultados.value = data
+    // Cargar stock de fábrica para los productos encontrados
+    if (fabricaId.value && data.length) {
+      const ids = data.map(p => p.id)
+      const { data: stocks } = await getReservaStockLote(ids)
+      fabricaStock.value = stocks
+    }
   } finally {
     buscandoProducto.value = false
   }
@@ -324,6 +342,45 @@ function stockLibre(p) {
 
 function nombreTiendaBusqueda() {
   return tiendas.value.find(t => t.id == tiendaBusqueda.value)?.nombre ?? ''
+}
+
+function tomarDeFabrica(producto) {
+  const existe = items.value.find(i =>
+    i.producto_id === producto.id && i.tienda_origen_id === fabricaId.value && !i._fabricar_pedido
+  )
+  if (existe) { existe.cantidad++; return }
+
+  items.value.push({
+    producto_id: producto.id,
+    variante_id: null,
+    tienda_origen_id: fabricaId.value,
+    nombre: producto.nombre,
+    categoria: producto.categoria,
+    variante_label: null,
+    stock_libre: fabricaStock.value[producto.id] ?? 0,
+    personalizable: producto.personalizable ?? false,
+    cantidad: 1,
+    precio_unitario: producto.precio_base ?? 0,
+    es_personalizado: false,
+    specs: {},
+    specs_notas: '',
+    tienda_origen: 'Fábrica',
+    fecha_entrega_prometida: null,
+    boceto_blob: null,
+    boceto_url: '',
+    boceto_preview: null,
+    _fabricar_pedido:    false,
+    _cotizarPrecio:      false,
+    _descuento_pct:      0,
+    _mostrarCalculadora: false,
+    _calculandoPrecio:   false,
+    _precioCalc:         null,
+    _precioReferencia:   null,
+    _telaSelections:     {},
+  })
+  productoResultados.value = []
+  productoQuery.value = ''
+  fabricaStock.value = {}
 }
 
 // ── Selector de variante ──────────────────────────────────────────────────────
@@ -1249,26 +1306,30 @@ function removeFacturaFoto() {
 
           <!-- Fila inferior: stock + botones -->
           <div class="flex items-center justify-between gap-2 pt-0.5">
-            <!-- Badge stock -->
-            <span :class="[
-              'text-xs font-medium px-2 py-0.5 rounded-full',
-              stockLibre(p) > 0
-                ? 'bg-green-50 text-green-700'
-                : 'bg-red-50 text-red-600'
-            ]">
-              {{ stockLibre(p) > 0 ? `${stockLibre(p)} en stock` : 'Sin stock' }}
-            </span>
+            <!-- Badges stock -->
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <span :class="[
+                'text-xs font-medium px-2 py-0.5 rounded-full',
+                stockLibre(p) > 0 ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'
+              ]">
+                {{ stockLibre(p) > 0 ? `${stockLibre(p)} en stock` : 'Sin stock' }}
+              </span>
+              <span v-if="fabricaStock[p.id] > 0"
+                class="text-xs font-medium px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">
+                Fábrica: {{ fabricaStock[p.id] }}
+              </span>
+            </div>
 
             <!-- Botones de acción -->
             <div class="flex items-center gap-1.5">
-              <!-- Con stock -->
+              <!-- Con stock en tienda -->
               <button
                 v-if="stockLibre(p) > 0"
                 @click="agregarItem(p)"
                 class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors"
               >+ Agregar</button>
 
-              <!-- Sin stock -->
+              <!-- Sin stock en tienda -->
               <template v-else>
                 <button
                   @click="fabricarBajoPedido(p)"
@@ -1280,6 +1341,13 @@ function removeFacturaFoto() {
                   class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-purple-100 text-purple-700 hover:bg-purple-200 transition-colors"
                 >Personalizar</button>
               </template>
+
+              <!-- Desde fábrica (siempre visible si hay stock en fábrica) -->
+              <button
+                v-if="fabricaStock[p.id] > 0 && fabricaId"
+                @click="tomarDeFabrica(p)"
+                class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-purple-600 text-white hover:bg-purple-700 transition-colors"
+              >Fábrica</button>
             </div>
           </div>
         </li>

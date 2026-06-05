@@ -19,6 +19,7 @@ import {
   ChatBubbleLeftRightIcon,
   CalendarDaysIcon,
   CurrencyDollarIcon,
+  CubeIcon,
 } from '@heroicons/vue/24/outline'
 
 const auth   = useAuthStore()
@@ -54,6 +55,7 @@ const accesos = computed(() => {
   ]
 
   if (auth.isSupervisor) {
+    items.push({ label: 'Reserva', icon: CubeIcon, to: { name: 'reserva' } })
     items.push({ label: 'Producción', icon: WrenchScrewdriverIcon, to: { name: 'produccion' } })
     if (auth.isTapicero) {
       items.push({ label: 'Mis pasos', icon: ClipboardDocumentCheckIcon,     to: { name: 'mis-pasos' } })

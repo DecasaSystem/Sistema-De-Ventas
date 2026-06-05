@@ -394,15 +394,43 @@ class OrdenController extends Controller
 
         // Notificar cambio de inventario, detectar ventas cruzadas y alertar si sin stock
         $origenesExternos = [];
+        $fabricaId = \App\Models\Tienda::where('es_fabrica', true)->value('id');
+        $itemsFabrica = [];
+
         foreach ($data['items'] as $itemData) {
             if (! ($itemData['es_personalizado'] ?? false) && ! empty($itemData['producto_id'])) {
                 $origenTiendaId = $itemData['tienda_origen_id'] ?? $tiendaId;
                 event(new InventarioActualizado((int) $origenTiendaId, (int) $itemData['producto_id'], 'reserva'));
                 $this->notificarSiSinStock((int) $itemData['producto_id'], (int) $origenTiendaId);
 
-                if ($origenTiendaId && (int) $origenTiendaId !== (int) $tiendaId) {
+                if ($fabricaId && (int) $origenTiendaId === (int) $fabricaId) {
+                    $itemsFabrica[] = $itemData;
+                } elseif ($origenTiendaId && (int) $origenTiendaId !== (int) $tiendaId) {
                     $origenesExternos[] = (int) $origenTiendaId;
                 }
+            }
+        }
+
+        // Notificar supervisores cuando se toma de la reserva de fábrica
+        if (!empty($itemsFabrica)) {
+            $productoIds = array_column($itemsFabrica, 'producto_id');
+            $productos = Producto::whereIn('id', $productoIds)->pluck('nombre', 'id');
+            $resumen = collect($itemsFabrica)
+                ->map(fn($i) => ($productos[$i['producto_id']] ?? "Producto #{$i['producto_id']}") . " ({$i['cantidad']} ud.)")
+                ->implode(', ');
+
+            $supervisores = Usuario::where('rol', 'supervisor')
+                ->where('activo', true)
+                ->where('id', '!=', $request->user()->id)
+                ->get();
+            foreach ($supervisores as $sup) {
+                NotificacionService::crear(
+                    'reserva_fabrica',
+                    'Producto tomado de reserva',
+                    "Orden #{$orden->id}: {$resumen}",
+                    ['orden_id' => $orden->id],
+                    $sup->id,
+                );
             }
         }
 

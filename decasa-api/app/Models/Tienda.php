@@ -8,11 +8,14 @@ class Tienda extends Model
 {
     const UPDATED_AT = null;
 
-    protected $fillable = ['nombre', 'ciudad', 'direccion', 'telefono', 'activa'];
+    protected $fillable = ['nombre', 'ciudad', 'direccion', 'telefono', 'activa', 'es_fabrica'];
 
     protected function casts(): array
     {
-        return ['activa' => 'boolean'];
+        return [
+            'activa'     => 'boolean',
+            'es_fabrica' => 'boolean',
+        ];
     }
 
     public function usuarios()
