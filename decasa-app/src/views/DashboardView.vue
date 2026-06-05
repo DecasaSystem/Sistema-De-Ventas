@@ -20,6 +20,7 @@ import {
   CalendarDaysIcon,
   CurrencyDollarIcon,
   CubeIcon,
+  ArrowPathIcon,
 } from '@heroicons/vue/24/outline'
 
 const auth   = useAuthStore()
@@ -49,7 +50,8 @@ const accesos = computed(() => {
     { label: 'Nueva orden',  icon: PlusIcon, to: { name: 'nueva-orden' } },
     { label: 'Órdenes',      icon: ClipboardDocumentListIcon, to: { name: 'ordenes' } },
     { label: 'Clientes',     icon: UserGroupIcon, to: { name: 'clientes' } },
-    { label: 'Inventario',   icon: ArchiveBoxIcon, to: { name: 'inventario' } },
+    { label: 'Inventario',   icon: ArchiveBoxIcon,  to: { name: 'inventario' } },
+    ...(!auth.isSupervisor ? [{ label: 'Traslado', icon: ArrowPathIcon, to: { name: 'surtir' } }] : []),
     ...(auth.tieneAccesoRedes ? [{ label: 'Redes', icon: ChatBubbleLeftRightIcon, to: { name: 'redes' } }] : []),
     { label: 'Citas',        icon: CalendarDaysIcon,        to: { name: 'citas' } },
   ]
