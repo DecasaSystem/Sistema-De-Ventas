@@ -648,6 +648,7 @@ onMounted(async () => {
 </script>
 
 <template>
+  <div>
   <div class="p-4 max-w-2xl mx-auto space-y-4 pb-10">
 
     <!-- Header -->
@@ -1818,7 +1819,7 @@ onMounted(async () => {
       </div>
     </div>
   </Transition>
-
+  </div>
 </template>
 
 <style scoped>
