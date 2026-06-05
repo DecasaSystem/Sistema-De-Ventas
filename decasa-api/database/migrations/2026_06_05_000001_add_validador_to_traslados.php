@@ -8,6 +8,7 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasColumn('traslados', 'vendedor_validador_id')) return;
         Schema::table('traslados', function (Blueprint $table) {
             $table->unsignedBigInteger('vendedor_validador_id')->nullable()->after('supervisor_id');
             $table->foreign('vendedor_validador_id')->references('id')->on('usuarios')->nullOnDelete();

@@ -8,6 +8,7 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasColumn('produccion_pasos', 'rechazos')) return;
         Schema::table('produccion_pasos', function (Blueprint $table) {
             $table->unsignedTinyInteger('rechazos')->default(0)->after('trabajadores');
             $table->text('ultimo_rechazo')->nullable()->after('rechazos');

@@ -8,6 +8,7 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasColumn('pagos', 'comprobante_url')) return;
         Schema::table('pagos', function (Blueprint $table) {
             $table->string('comprobante_url', 500)->nullable()->after('notas');
         });

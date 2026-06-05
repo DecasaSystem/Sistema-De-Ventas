@@ -8,13 +8,16 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('traslado_items', function (Blueprint $table) {
-            $table->unsignedInteger('cantidad_aceptada')->nullable()->after('cantidad');
-        });
-
-        Schema::table('surtido_items', function (Blueprint $table) {
-            $table->unsignedInteger('cantidad_aceptada')->nullable()->after('cantidad');
-        });
+        if (!Schema::hasColumn('traslado_items', 'cantidad_aceptada')) {
+            Schema::table('traslado_items', function (Blueprint $table) {
+                $table->unsignedInteger('cantidad_aceptada')->nullable()->after('cantidad');
+            });
+        }
+        if (!Schema::hasColumn('surtido_items', 'cantidad_aceptada')) {
+            Schema::table('surtido_items', function (Blueprint $table) {
+                $table->unsignedInteger('cantidad_aceptada')->nullable()->after('cantidad');
+            });
+        }
     }
 
     public function down(): void

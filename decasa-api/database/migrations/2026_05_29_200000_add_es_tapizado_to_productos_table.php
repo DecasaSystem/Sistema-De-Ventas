@@ -8,6 +8,7 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasColumn('productos', 'es_tapizado')) return;
         Schema::table('productos', function (Blueprint $table) {
             $table->boolean('es_tapizado')->default(false)->after('personalizable');
         });

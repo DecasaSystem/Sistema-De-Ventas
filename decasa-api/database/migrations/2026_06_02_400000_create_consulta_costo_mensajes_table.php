@@ -8,13 +8,15 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('consulta_costo_mensajes', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('consulta_id')->constrained('consultas_costo')->cascadeOnDelete();
-            $table->foreignId('usuario_id')->constrained('usuarios')->cascadeOnDelete();
-            $table->text('mensaje');
-            $table->timestamps();
-        });
+        if (!Schema::hasTable('consulta_costo_mensajes')) {
+            Schema::create('consulta_costo_mensajes', function (Blueprint $table) {
+                $table->id();
+                $table->foreignId('consulta_id')->constrained('consultas_costo')->cascadeOnDelete();
+                $table->foreignId('usuario_id')->constrained('usuarios')->cascadeOnDelete();
+                $table->text('mensaje');
+                $table->timestamps();
+            });
+        }
     }
 
     public function down(): void

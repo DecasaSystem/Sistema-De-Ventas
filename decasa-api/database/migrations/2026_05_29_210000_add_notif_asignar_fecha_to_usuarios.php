@@ -8,6 +8,7 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasColumn('usuarios', 'notif_asignar_fecha')) return;
         Schema::table('usuarios', function (Blueprint $table) {
             $table->boolean('notif_asignar_fecha')->default(true)->after('es_tapicero');
         });
