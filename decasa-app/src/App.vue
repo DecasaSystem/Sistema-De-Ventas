@@ -165,9 +165,7 @@ const navItems = computed(() => {
       { name: 'produccion', label: 'Producción',   icon: WrenchScrewdriverIcon },
       { name: 'despacho',   label: 'Despacho',     icon: TruckIcon, badge: despacho.ordenesPendientes },
       { name: 'inventario', label: 'Inventario',   icon: ArchiveBoxIcon },
-      { name: 'reserva',    label: 'Reserva',      icon: CubeIcon },
       { name: 'reportes',   label: 'Reportes',     icon: ChartBarIcon },
-      { name: 'costos',     label: 'Costos',       icon: CalculatorIcon },
       { name: 'consultas',  label: 'Cotizaciones', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
     ]
     if (auth.isTapicero) {

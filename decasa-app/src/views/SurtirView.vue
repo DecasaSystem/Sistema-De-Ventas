@@ -21,6 +21,7 @@ import {
 import { getStockTienda, crearTraslado, getTraslados } from '@/api/traslados'
 import { getTiendas } from '@/api/ordenes'
 import { getReservaInfo, getReservaStockLote } from '@/api/reserva'
+import { getVariantes } from '@/api/inventario'
 import api from '@/api'
 import { useToast } from '@/composables/useToast'
 import ComboInput from '@/components/common/ComboInput.vue'
@@ -184,10 +185,74 @@ async function buscarProductos(term) {
   }
 }
 
-function agregarProducto(prod) {
-  if (productosAgr.value.some(p => p.producto.id === prod.id)) return
+// ── Picker variantes fábrica (tapizado) ──────────────────────────────────────
+const mostrarVariantesFabrica  = ref(false)
+const prodParaVariantes        = ref(null)
+const variantesFabrica         = ref([])      // variantes con stock en fábrica
+const cargandoVariantesFab     = ref(false)
+const selecVariantesFab        = ref({})      // { variante_id: cantidad }
+
+async function agregarProducto(prod) {
+  if (desdeFabrica.value && prod.es_tapizado) {
+    // Tapizado desde fábrica → mostrar picker de variantes
+    prodParaVariantes.value    = prod
+    selecVariantesFab.value    = {}
+    cargandoVariantesFab.value = true
+    mostrarVariantesFabrica.value = true
+    busquedaProd.value = ''
+    try {
+      const { data } = await getVariantes(prod.id, fabricaId.value)
+      variantesFabrica.value = data.filter(v => v.stock_libre > 0)
+    } finally {
+      cargandoVariantesFab.value = false
+    }
+    return
+  }
+  // Producto sin variante o no es fábrica — flujo normal
+  if (productosAgr.value.some(p => p.producto.id === prod.id && !p._variante_id)) return
   productosAgr.value.push({ producto: prod, cantidad: 1, especificaciones: { marca: '', tela: '', color: '', medidas: '', acabado: '' } })
   busquedaProd.value = ''
+}
+
+function toggleVarianteFab(v) {
+  if (selecVariantesFab.value[v.id] !== undefined) {
+    const { [v.id]: _, ...rest } = selecVariantesFab.value
+    selecVariantesFab.value = rest
+  } else {
+    selecVariantesFab.value = { ...selecVariantesFab.value, [v.id]: v.stock_libre }
+  }
+}
+
+function seleccionarTodasVariantesFab() {
+  const todas = {}
+  variantesFabrica.value.forEach(v => { todas[v.id] = v.stock_libre })
+  selecVariantesFab.value = todas
+}
+
+function confirmarVariantesFab() {
+  const prod = prodParaVariantes.value
+  Object.entries(selecVariantesFab.value).forEach(([vidStr, cant]) => {
+    const vid = parseInt(vidStr)
+    const v   = variantesFabrica.value.find(x => x.id === vid)
+    if (!v) return
+    const yaEsta = productosAgr.value.some(p => p.producto.id === prod.id && p._variante_id === vid)
+    if (!yaEsta) {
+      productosAgr.value.push({
+        producto: prod,
+        _variante_id: vid,
+        _variante_label: [v.marca, v.marca_tela, v.nombre_color].filter(Boolean).join(' · '),
+        cantidad: Math.max(1, cant),
+        especificaciones: {
+          marca:   v.marca        ?? '',
+          tela:    v.marca_tela   ?? '',
+          color:   v.nombre_color ?? '',
+          medidas: '',
+          acabado: '',
+        },
+      })
+    }
+  })
+  mostrarVariantesFabrica.value = false
 }
 
 function quitarProducto(idx) {
@@ -199,7 +264,7 @@ function toggleEspec(idx) {
 }
 
 const paso1Valido    = computed(() => productosAgr.value.length > 0 && productosAgr.value.every(p => p.cantidad >= 1))
-const productosAgrIds = computed(() => new Set(productosAgr.value.map(p => p.producto.id)))
+const productosAgrIds = computed(() => new Set(productosAgr.value.map(p => p._variante_id ? `${p.producto.id}-${p._variante_id}` : p.producto.id)))
 
 // ── Paso 2 — Tiendas ──────────────────────────────────────────────────────────
 const tiendas              = ref([])
@@ -816,7 +881,7 @@ onMounted(async () => {
 
         <div
           v-for="(item, idx) in productosAgr"
-          :key="item.producto.id"
+          :key="`${item.producto.id}-${item._variante_id ?? idx}`"
           v-memo="[item.cantidad, !!especAbiertos[idx], item.especificaciones.marca, item.especificaciones.tela, item.especificaciones.color, item.especificaciones.medidas, item.especificaciones.acabado]"
           class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden"
         >
@@ -826,7 +891,10 @@ onMounted(async () => {
             <div class="w-10 h-10 rounded-lg bg-gray-100 flex-shrink-0" v-else />
             <div class="flex-1 min-w-0">
               <p class="text-sm font-medium text-gray-800 truncate">{{ item.producto.nombre }}</p>
-              <p class="text-xs text-gray-400">{{ item.producto.categoria }}</p>
+              <p class="text-xs text-gray-400">
+                {{ item.producto.categoria }}
+                <span v-if="item._variante_label" class="ml-1 text-purple-600 font-medium">· {{ item._variante_label }}</span>
+              </p>
             </div>
             <!-- Cantidad -->
             <div class="flex items-center gap-1 flex-shrink-0">
@@ -1531,9 +1599,125 @@ onMounted(async () => {
     </template>
 
   </div>
+
+  <!-- ── Modal: picker de variantes fábrica (tapizado) ── -->
+  <Transition name="fade">
+    <div v-if="mostrarVariantesFabrica" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+      <!-- Backdrop -->
+      <div class="absolute inset-0 bg-black/40" @click="mostrarVariantesFabrica = false" />
+
+      <!-- Panel -->
+      <div class="relative bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[80vh] flex flex-col overflow-hidden">
+
+        <!-- Header -->
+        <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+          <div class="min-w-0">
+            <p class="text-sm font-bold text-gray-800">Variantes disponibles en fábrica</p>
+            <p class="text-xs text-gray-400 truncate">{{ prodParaVariantes?.nombre }}</p>
+          </div>
+          <button @click="mostrarVariantesFabrica = false" class="text-gray-400 hover:text-gray-600 ml-3 flex-shrink-0">
+            <XMarkIcon class="w-5 h-5" />
+          </button>
+        </div>
+
+        <!-- Body -->
+        <div class="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+
+          <!-- Cargando -->
+          <div v-if="cargandoVariantesFab" class="flex justify-center py-8">
+            <div class="w-6 h-6 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
+          </div>
+
+          <!-- Sin variantes con stock -->
+          <div v-else-if="variantesFabrica.length === 0" class="text-center py-8 text-sm text-gray-400">
+            No hay variantes con stock disponible en fábrica para este producto.
+          </div>
+
+          <!-- Lista de variantes -->
+          <template v-else>
+            <button
+              @click="seleccionarTodasVariantesFab"
+              class="text-xs text-purple-600 font-semibold hover:underline"
+            >
+              Seleccionar todas ({{ variantesFabrica.length }})
+            </button>
+
+            <div
+              v-for="v in variantesFabrica"
+              :key="v.id"
+              @click="toggleVarianteFab(v)"
+              :class="[
+                'flex items-center gap-3 rounded-xl border px-3 py-2.5 cursor-pointer transition-colors',
+                selecVariantesFab[v.id] !== undefined
+                  ? 'border-purple-400 bg-purple-50'
+                  : 'border-gray-200 bg-white hover:bg-gray-50',
+              ]"
+            >
+              <!-- Checkbox visual -->
+              <div :class="[
+                'w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors',
+                selecVariantesFab[v.id] !== undefined ? 'border-purple-500 bg-purple-500' : 'border-gray-300',
+              ]">
+                <CheckIcon v-if="selecVariantesFab[v.id] !== undefined" class="w-3 h-3 text-white" />
+              </div>
+
+              <!-- Info variante -->
+              <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium text-gray-800 truncate">
+                  {{ [v.marca, v.marca_tela, v.nombre_color].filter(Boolean).join(' · ') || 'Sin especificación' }}
+                </p>
+                <p class="text-xs text-purple-600 font-semibold">{{ v.stock_libre }} disponibles</p>
+              </div>
+
+              <!-- Ajuste de cantidad si está seleccionada -->
+              <div v-if="selecVariantesFab[v.id] !== undefined" class="flex items-center gap-1 flex-shrink-0" @click.stop>
+                <button
+                  @click="selecVariantesFab[v.id] > 1 && selecVariantesFab[v.id]--"
+                  class="w-6 h-6 rounded-full bg-gray-200 text-gray-600 flex items-center justify-center text-sm hover:bg-gray-300"
+                >−</button>
+                <input
+                  v-model.number="selecVariantesFab[v.id]"
+                  type="number"
+                  :min="1"
+                  :max="v.stock_libre"
+                  class="w-12 text-center rounded border border-gray-300 py-0.5 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-purple-500"
+                />
+                <button
+                  @click="selecVariantesFab[v.id] < v.stock_libre && selecVariantesFab[v.id]++"
+                  class="w-6 h-6 rounded-full bg-gray-200 text-gray-600 flex items-center justify-center text-sm hover:bg-gray-300"
+                >+</button>
+              </div>
+              <span v-else class="text-xs text-gray-300 flex-shrink-0">{{ v.stock_libre }} disp.</span>
+            </div>
+          </template>
+        </div>
+
+        <!-- Footer -->
+        <div class="px-4 py-3 border-t border-gray-100 flex gap-2">
+          <button
+            @click="mostrarVariantesFabrica = false"
+            class="flex-1 border border-gray-300 text-gray-600 rounded-xl py-2.5 text-sm font-semibold hover:bg-gray-50"
+          >
+            Cancelar
+          </button>
+          <button
+            @click="confirmarVariantesFab"
+            :disabled="Object.keys(selecVariantesFab).length === 0"
+            class="flex-1 bg-purple-600 text-white rounded-xl py-2.5 text-sm font-bold hover:bg-purple-700 disabled:opacity-50 transition-colors"
+          >
+            Agregar{{ Object.keys(selecVariantesFab).length > 0 ? ` (${Object.keys(selecVariantesFab).length})` : '' }}
+          </button>
+        </div>
+
+      </div>
+    </div>
+  </Transition>
+
 </template>
 
 <style scoped>
 .slide-enter-active, .slide-leave-active { transition: all 0.18s ease; }
 .slide-enter-from, .slide-leave-to       { opacity: 0; transform: translateY(-5px); }
+.fade-enter-active, .fade-leave-active   { transition: opacity 0.18s ease; }
+.fade-enter-from, .fade-leave-to         { opacity: 0; }
 </style>
