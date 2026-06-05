@@ -8,13 +8,18 @@ class Traslado extends Model
 {
     protected $table = 'traslados';
 
-    protected $fillable = ['supervisor_id', 'tienda_origen_id', 'tienda_destino_id', 'notas', 'programado_para', 'estado'];
+    protected $fillable = ['supervisor_id', 'vendedor_validador_id', 'tienda_origen_id', 'tienda_destino_id', 'notas', 'programado_para', 'estado'];
 
     protected $casts = ['programado_para' => 'datetime'];
 
     public function supervisor()
     {
         return $this->belongsTo(Usuario::class, 'supervisor_id');
+    }
+
+    public function vendedorValidador()
+    {
+        return $this->belongsTo(Usuario::class, 'vendedor_validador_id');
     }
 
     public function tiendaOrigen()

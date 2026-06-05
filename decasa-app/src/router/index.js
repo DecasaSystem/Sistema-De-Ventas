@@ -20,7 +20,7 @@ const routes = [
   { path: '/perfil', name: 'perfil', component: () => import('@/views/PerfilView.vue'), meta: { requiresAuth: true } },
   { path: '/despacho', name: 'despacho', component: () => import('@/views/DespachoView.vue'), meta: { requiresAuth: true, requiresSupervisor: true } },
   { path: '/mis-entregas', name: 'mis-entregas', component: () => import('@/views/MisEntregasView.vue'), meta: { requiresAuth: true, requiresConductor: true } },
-  { path: '/surtir', name: 'surtir', component: () => import('@/views/SurtirView.vue'), meta: { requiresAuth: true, requiresSupervisor: true } },
+  { path: '/surtir', name: 'surtir', component: () => import('@/views/SurtirView.vue'), meta: { requiresAuth: true, requiresSurtir: true } },
   // Nuevas rutas para roles de producción
   { path: '/mis-pasos', name: 'mis-pasos', component: () => import('@/views/EbanistaView.vue'), meta: { requiresAuth: true, requiresProduccionWorker: true } },
   { path: '/despacho-produccion', name: 'despacho-produccion', component: () => import('@/views/DespachadorProduccionView.vue'), meta: { requiresAuth: true, requiresDespachador: true } },
@@ -45,6 +45,7 @@ router.beforeEach((to) => {
   if (to.meta.requiresAuth && !auth.isAuthenticated) return { name: 'login' }
   if (to.meta.guest && auth.isAuthenticated) return { name: 'dashboard' }
   if (to.meta.requiresSupervisor && !auth.isSupervisor) return { name: 'dashboard' }
+  if (to.meta.requiresSurtir && !auth.isSupervisor && auth.usuario?.rol !== 'vendedor') return { name: 'dashboard' }
   if (to.meta.requiresCostos && !auth.isSupervisor && auth.usuario?.rol !== 'ebanista') return { name: 'dashboard' }
   if (to.meta.requiresConductor && auth.usuario?.rol !== 'conductor') return { name: 'dashboard' }
   if (to.meta.requiresDespachador && auth.usuario?.rol !== 'despachador') return { name: 'dashboard' }

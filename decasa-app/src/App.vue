@@ -217,6 +217,7 @@ const navItems = computed(() => {
     { name: 'clientes',   label: 'Clientes',     icon: UserGroupIcon },
     { name: 'consultas',  label: 'Cotizaciones', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
     { name: 'inventario', label: 'Inventario',   icon: ArchiveBoxIcon, badge: surtidos.pendientesCount },
+    { name: 'surtir',     label: 'Traslado',     icon: ArrowPathIcon },
     ...(auth.tieneAccesoRedes ? [{ name: 'redes', label: 'Redes', icon: ChatBubbleLeftRightIcon, badge: redesPendientes.value }] : []),
     { name: 'citas',      label: 'Citas',        icon: CalendarDaysIcon },
     { name: 'mis-stats',  label: 'Estadíst.',    icon: PresentationChartLineIcon },

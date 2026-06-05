@@ -12,12 +12,28 @@ use Illuminate\Support\Facades\DB;
 
 class TrasladoController extends Controller
 {
+    private function withRelaciones()
+    {
+        return [
+            'supervisor:id,nombre',
+            'vendedorValidador:id,nombre',
+            'tiendaOrigen:id,nombre',
+            'tiendaDestino:id,nombre',
+            'items.producto:id,nombre,categoria',
+        ];
+    }
+
     /**
      * GET /api/inventario/traslados/stock-tienda/{tiendaId}
-     * Retorna los productos con stock libre > 0 en la tienda origen.
+     * Vendedor solo puede consultar su propia tienda.
      */
-    public function stockTienda(int $tiendaId)
+    public function stockTienda(Request $request, int $tiendaId)
     {
+        $user = $request->user();
+        if ($user->rol === 'vendedor' && $user->tienda_default_id != $tiendaId) {
+            abort(403, 'Solo puedes ver el stock de tu propia tienda.');
+        }
+
         $stock = DB::table('inventario as inv')
             ->join('productos as p', 'p.id', '=', 'inv.producto_id')
             ->where('inv.tienda_id', $tiendaId)
@@ -41,24 +57,36 @@ class TrasladoController extends Controller
 
     /**
      * POST /api/inventario/traslados
-     * Supervisor crea un traslado: descuenta de origen y suma en destino de inmediato.
+     * Supervisor: ejecuta inmediatamente (o programa).
+     * Vendedor: crea traslado pendiente de validación; solo puede usar su tienda como origen.
      */
     public function crear(Request $request)
     {
         $data = $request->validate([
-            'tienda_origen_id'    => 'required|exists:tiendas,id',
-            'tienda_destino_id'   => 'required|exists:tiendas,id|different:tienda_origen_id',
-            'notas'               => 'nullable|string|max:500',
-            'programado_para'     => 'nullable|date|after:now',
-            'items'               => 'required|array|min:1',
-            'items.*.producto_id' => 'required|exists:productos,id',
-            'items.*.cantidad'    => 'required|integer|min:1',
+            'tienda_origen_id'      => 'required|exists:tiendas,id',
+            'tienda_destino_id'     => 'required|exists:tiendas,id|different:tienda_origen_id',
+            'notas'                 => 'nullable|string|max:500',
+            'programado_para'       => 'nullable|date|after:now',
+            'vendedor_validador_id' => 'nullable|exists:usuarios,id',
+            'items'                 => 'required|array|min:1',
+            'items.*.producto_id'   => 'required|exists:productos,id',
+            'items.*.cantidad'      => 'required|integer|min:1',
         ]);
 
-        $supervisor    = $request->user();
+        $user      = $request->user();
+        $esVendedor = $user->rol === 'vendedor';
+
+        if ($esVendedor) {
+            if ($user->tienda_default_id != $data['tienda_origen_id']) {
+                abort(403, 'Solo puedes trasladar desde tu propia tienda.');
+            }
+            if (empty($data['vendedor_validador_id'])) {
+                return response()->json(['message' => 'Debes seleccionar un vendedor validador en la tienda destino.'], 422);
+            }
+        }
+
         $programadoPara = isset($data['programado_para']) ? \Carbon\Carbon::parse($data['programado_para']) : null;
 
-        // Pre-cargar nombres de tienda para los movimientos
         $tiendas = DB::table('tiendas')
             ->whereIn('id', [$data['tienda_origen_id'], $data['tienda_destino_id']])
             ->pluck('nombre', 'id');
@@ -66,11 +94,13 @@ class TrasladoController extends Controller
         $nombreOrigen  = $tiendas[$data['tienda_origen_id']]  ?? "Tienda #{$data['tienda_origen_id']}";
         $nombreDestino = $tiendas[$data['tienda_destino_id']] ?? "Tienda #{$data['tienda_destino_id']}";
 
-        try {
-            $traslado = DB::transaction(function () use ($data, $supervisor, $nombreOrigen, $nombreDestino, $programadoPara) {
+        // Vendedores crean traslado pendiente (inventario no se mueve hasta aceptar)
+        $ejecutaInmediato = !$esVendedor && !$programadoPara;
 
-                if (! $programadoPara) {
-                    // Validar stock libre antes de tocar nada (solo para traslados inmediatos)
+        try {
+            $traslado = DB::transaction(function () use ($data, $user, $esVendedor, $nombreOrigen, $nombreDestino, $programadoPara, $ejecutaInmediato) {
+
+                if ($ejecutaInmediato) {
                     foreach ($data['items'] as $item) {
                         $inv = Inventario::where('producto_id', $item['producto_id'])
                             ->where('tienda_id', $data['tienda_origen_id'])
@@ -92,13 +122,22 @@ class TrasladoController extends Controller
                     }
                 }
 
+                if ($esVendedor) {
+                    $estado = 'pendiente';
+                } elseif ($programadoPara) {
+                    $estado = 'programado';
+                } else {
+                    $estado = 'completado';
+                }
+
                 $traslado = Traslado::create([
-                    'supervisor_id'     => $supervisor->id,
-                    'tienda_origen_id'  => $data['tienda_origen_id'],
-                    'tienda_destino_id' => $data['tienda_destino_id'],
-                    'notas'             => $data['notas'] ?? null,
-                    'programado_para'   => $programadoPara,
-                    'estado'            => $programadoPara ? 'programado' : 'completado',
+                    'supervisor_id'         => $user->id,
+                    'vendedor_validador_id' => $data['vendedor_validador_id'] ?? null,
+                    'tienda_origen_id'      => $data['tienda_origen_id'],
+                    'tienda_destino_id'     => $data['tienda_destino_id'],
+                    'notas'                 => $data['notas'] ?? null,
+                    'programado_para'       => $programadoPara,
+                    'estado'                => $estado,
                 ]);
 
                 foreach ($data['items'] as $item) {
@@ -108,27 +147,24 @@ class TrasladoController extends Controller
                         'cantidad'    => $item['cantidad'],
                     ]);
 
-                    if (! $programadoPara) {
-                        // Descontar de la tienda origen
+                    if ($ejecutaInmediato) {
                         Inventario::where('producto_id', $item['producto_id'])
                             ->where('tienda_id', $data['tienda_origen_id'])
                             ->decrement('cantidad_disponible', $item['cantidad']);
 
-                        // Sumar en la tienda destino (crear si no existe)
                         $invDest = Inventario::firstOrCreate(
                             ['producto_id' => $item['producto_id'], 'tienda_id' => $data['tienda_destino_id']],
                             ['cantidad_disponible' => 0, 'cantidad_reservada' => 0, 'stock_minimo' => 1]
                         );
                         $invDest->increment('cantidad_disponible', $item['cantidad']);
 
-                        // Movimientos de inventario
                         InventarioMovimiento::create([
                             'producto_id' => $item['producto_id'],
                             'tienda_id'   => $data['tienda_origen_id'],
                             'tipo'        => 'traslado_salida',
                             'cantidad'    => $item['cantidad'],
                             'motivo'      => "Traslado #{$traslado->id} → $nombreDestino",
-                            'usuario_id'  => $supervisor->id,
+                            'usuario_id'  => $user->id,
                         ]);
                         InventarioMovimiento::create([
                             'producto_id' => $item['producto_id'],
@@ -136,7 +172,7 @@ class TrasladoController extends Controller
                             'tipo'        => 'traslado_entrada',
                             'cantidad'    => $item['cantidad'],
                             'motivo'      => "Traslado #{$traslado->id} ← $nombreOrigen",
-                            'usuario_id'  => $supervisor->id,
+                            'usuario_id'  => $user->id,
                         ]);
                     }
                 }
@@ -147,33 +183,149 @@ class TrasladoController extends Controller
             return response()->json(['message' => $e->getMessage()], 422);
         }
 
-        if ($programadoPara) {
+        if ($programadoPara && !$esVendedor) {
             EjecutarTrasladoProgramado::dispatch($traslado->id)->delay($programadoPara);
         }
 
-        $traslado->load([
-            'supervisor:id,nombre',
-            'tiendaOrigen:id,nombre',
-            'tiendaDestino:id,nombre',
-            'items.producto:id,nombre,categoria',
-        ]);
+        $traslado->load($this->withRelaciones());
 
         return response()->json($traslado, 201);
     }
 
     /**
      * GET /api/inventario/traslados
-     * Historial de traslados — solo supervisor.
+     * Supervisor: todos. Vendedor: los de su tienda.
      */
-    public function index()
+    public function index(Request $request)
     {
-        $traslados = Traslado::with([
-            'supervisor:id,nombre',
-            'tiendaOrigen:id,nombre',
-            'tiendaDestino:id,nombre',
-            'items.producto:id,nombre,categoria',
-        ])->orderByDesc('created_at')->paginate(20);
+        $user = $request->user();
+        $q = Traslado::with($this->withRelaciones())->orderByDesc('created_at');
+
+        if ($user->rol === 'vendedor') {
+            $q->where(function ($q) use ($user) {
+                $q->where('tienda_origen_id', $user->tienda_default_id)
+                  ->orWhere('tienda_destino_id', $user->tienda_default_id);
+            });
+        }
+
+        return response()->json($q->paginate(20));
+    }
+
+    /**
+     * GET /api/inventario/traslados/pendientes
+     * Traslados pendientes de validación para el vendedor autenticado.
+     */
+    public function pendientes(Request $request)
+    {
+        $user = $request->user();
+
+        $traslados = Traslado::with($this->withRelaciones())
+            ->where('estado', 'pendiente')
+            ->where('vendedor_validador_id', $user->id)
+            ->orderByDesc('created_at')
+            ->get();
 
         return response()->json($traslados);
+    }
+
+    /**
+     * PATCH /api/inventario/traslados/{id}/aceptar
+     * El validador acepta: mueve el inventario y marca como completado.
+     */
+    public function aceptar(Request $request, int $id)
+    {
+        $traslado = Traslado::with('items')->findOrFail($id);
+        $user     = $request->user();
+
+        if ($traslado->estado !== 'pendiente') {
+            return response()->json(['message' => 'Este traslado ya fue procesado.'], 422);
+        }
+        if ($traslado->vendedor_validador_id !== $user->id && $user->rol !== 'supervisor') {
+            abort(403, 'No tienes permiso para aceptar este traslado.');
+        }
+
+        $tiendas = DB::table('tiendas')
+            ->whereIn('id', [$traslado->tienda_origen_id, $traslado->tienda_destino_id])
+            ->pluck('nombre', 'id');
+
+        $nombreOrigen  = $tiendas[$traslado->tienda_origen_id]  ?? '';
+        $nombreDestino = $tiendas[$traslado->tienda_destino_id] ?? '';
+
+        try {
+            DB::transaction(function () use ($traslado, $user, $nombreOrigen, $nombreDestino) {
+                foreach ($traslado->items as $item) {
+                    $inv   = Inventario::where('producto_id', $item->producto_id)
+                        ->where('tienda_id', $traslado->tienda_origen_id)
+                        ->first();
+                    $libre = ($inv?->cantidad_disponible ?? 0) - ($inv?->cantidad_reservada ?? 0);
+                    if ($libre < $item->cantidad) {
+                        $nombre = DB::table('productos')->where('id', $item->producto_id)->value('nombre');
+                        throw new \RuntimeException("Stock insuficiente para \"$nombre\" al momento de aceptar.");
+                    }
+                }
+
+                foreach ($traslado->items as $item) {
+                    Inventario::where('producto_id', $item->producto_id)
+                        ->where('tienda_id', $traslado->tienda_origen_id)
+                        ->decrement('cantidad_disponible', $item->cantidad);
+
+                    $invDest = Inventario::firstOrCreate(
+                        ['producto_id' => $item->producto_id, 'tienda_id' => $traslado->tienda_destino_id],
+                        ['cantidad_disponible' => 0, 'cantidad_reservada' => 0, 'stock_minimo' => 1]
+                    );
+                    $invDest->increment('cantidad_disponible', $item->cantidad);
+
+                    InventarioMovimiento::create([
+                        'producto_id' => $item->producto_id,
+                        'tienda_id'   => $traslado->tienda_origen_id,
+                        'tipo'        => 'traslado_salida',
+                        'cantidad'    => $item->cantidad,
+                        'motivo'      => "Traslado #{$traslado->id} → $nombreDestino (aceptado)",
+                        'usuario_id'  => $user->id,
+                    ]);
+                    InventarioMovimiento::create([
+                        'producto_id' => $item->producto_id,
+                        'tienda_id'   => $traslado->tienda_destino_id,
+                        'tipo'        => 'traslado_entrada',
+                        'cantidad'    => $item->cantidad,
+                        'motivo'      => "Traslado #{$traslado->id} ← $nombreOrigen (aceptado)",
+                        'usuario_id'  => $user->id,
+                    ]);
+                }
+
+                $traslado->update(['estado' => 'completado']);
+            });
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        return response()->json(['message' => 'Traslado aceptado. Inventario actualizado.']);
+    }
+
+    /**
+     * PATCH /api/inventario/traslados/{id}/rechazar
+     * El validador rechaza el traslado (inventario no se mueve).
+     */
+    public function rechazar(Request $request, int $id)
+    {
+        $traslado = Traslado::findOrFail($id);
+        $user     = $request->user();
+
+        if ($traslado->estado !== 'pendiente') {
+            return response()->json(['message' => 'Este traslado ya fue procesado.'], 422);
+        }
+        if ($traslado->vendedor_validador_id !== $user->id && $user->rol !== 'supervisor') {
+            abort(403, 'No tienes permiso para rechazar este traslado.');
+        }
+
+        $notas = $request->input('notas');
+        $notasActuales = $traslado->notas;
+        $nuevasNotas   = $notas
+            ? ($notasActuales ? $notasActuales . "\nMotivo rechazo: $notas" : "Motivo rechazo: $notas")
+            : $notasActuales;
+
+        $traslado->update(['estado' => 'rechazado', 'notas' => $nuevasNotas]);
+
+        return response()->json(['message' => 'Traslado rechazado.']);
     }
 }

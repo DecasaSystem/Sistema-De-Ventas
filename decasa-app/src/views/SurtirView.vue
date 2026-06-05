@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, watch, onMounted, markRaw } from 'vue'
+import { useAuthStore } from '@/stores/auth'
 import {
   MagnifyingGlassIcon,
   PlusIcon,
@@ -19,6 +20,7 @@ import {
   getRecomendaciones,
 } from '@/api/surtidos'
 import { getStockTienda, crearTraslado, getTraslados } from '@/api/traslados'
+import { getVendedoresTienda } from '@/api/surtidos'
 import { getTiendas } from '@/api/ordenes'
 import { getReservaInfo, getReservaStockLote } from '@/api/reserva'
 import { getVariantes } from '@/api/inventario'
@@ -28,6 +30,7 @@ import ComboInput from '@/components/common/ComboInput.vue'
 import { TELAS_CATALOGO, marcasOrdenadas, tiposTelaDeM, coloresDeTela } from '@/data/telasCatalogo'
 
 const toast = useToast()
+const auth  = useAuthStore()
 
 function thumbUrl(url, size = 80) {
   if (!url || !url.includes('cloudinary.com')) return url
@@ -475,15 +478,17 @@ function labelEstado(estado) {
 
 function badgeEstadoTraslado(estado) {
   const map = {
+    pendiente:  'bg-amber-100 text-amber-700',
     programado: 'bg-purple-100 text-purple-700',
     completado: 'bg-green-100 text-green-700',
+    rechazado:  'bg-red-100 text-red-700',
     fallido:    'bg-red-100 text-red-700',
   }
   return map[estado] ?? 'bg-gray-100 text-gray-600'
 }
 
 function labelEstadoTraslado(estado) {
-  return { programado: 'Programado', completado: 'Completado', fallido: 'Fallido' }[estado] ?? estado
+  return { pendiente: 'Pendiente', programado: 'Programado', completado: 'Completado', rechazado: 'Rechazado', fallido: 'Fallido' }[estado] ?? estado
 }
 
 function badgeEstadoTienda(estado) {
@@ -496,22 +501,29 @@ function fmtFecha(iso) {
 }
 
 // ── Traslados entre tiendas ───────────────────────────────────────────────────
-const tPaso          = ref(1)           // 1=productos, 2=destino, 3=revisión
-const tOrigenId      = ref('')
-const tDestinoId     = ref('')
-const tStockOrigen   = ref([])          // [{producto_id, nombre, categoria, foto_url, stock_libre}]
-const tCargandoStock = ref(false)
-const tBusqueda      = ref('')
-const tItems         = ref([])          // [{producto, cantidad}]
-const tNotas         = ref('')
+const tPaso              = ref(1)
+const tOrigenId          = ref('')
+const tDestinoId         = ref('')
+const tStockOrigen       = ref([])
+const tCargandoStock     = ref(false)
+const tBusqueda          = ref('')
+const tItems             = ref([])
+const tNotas             = ref('')
 const tEnviando          = ref(false)
 const tError             = ref('')
 const tProgramarActivo   = ref(false)
 const tProgramadoPara    = ref('')
+const tValidadorId       = ref(null)
+const tVendedoresDest    = ref([])
+const tCargandoValidador = ref(false)
+
+// Vendedor: número de pasos = 4 (incluye paso 3 de validador)
+// Supervisor: 3 pasos
+const tEsVendedor = computed(() => auth.usuario?.rol === 'vendedor')
 
 // historial traslados
-const tHistorial     = ref([])
-const tCargandoHist  = ref(false)
+const tHistorial      = ref([])
+const tCargandoHist   = ref(false)
 const tDetalleAbierto = ref({})
 
 const tStockFiltrado = computed(() => {
@@ -538,6 +550,20 @@ async function tSeleccionarOrigen(tiendaId) {
   }
 }
 
+// Cuando el vendedor elige destino → cargar vendedores de esa tienda para el validador
+watch(tDestinoId, async (tid) => {
+  if (!tEsVendedor.value || !tid) return
+  tValidadorId.value    = null
+  tVendedoresDest.value = []
+  tCargandoValidador.value = true
+  try {
+    const { data } = await getVendedoresTienda(tid)
+    tVendedoresDest.value = data
+  } catch {} finally {
+    tCargandoValidador.value = false
+  }
+})
+
 function tAgregarProducto(prod) {
   if (tItems.value.some(i => i.producto.producto_id === prod.producto_id)) return
   tItems.value.push({ producto: prod, cantidad: 1 })
@@ -550,19 +576,26 @@ function tQuitarProducto(idx) {
 
 const tPaso1Valido = computed(() => tOrigenId.value && tItems.value.length > 0 && tItems.value.every(i => i.cantidad >= 1))
 const tPaso2Valido = computed(() => tDestinoId.value && tDestinoId.value !== tOrigenId.value)
+const tPaso3Valido = computed(() => !tEsVendedor.value || !!tValidadorId.value)
+
+// Paso de confirmación: 3 para supervisor, 4 para vendedor
+const tPasoConfirm = computed(() => tEsVendedor.value ? 4 : 3)
 
 async function tEnviar() {
   tEnviando.value = true
   tError.value    = ''
   try {
     await crearTraslado({
-      tienda_origen_id:  tOrigenId.value,
-      tienda_destino_id: tDestinoId.value,
-      notas: tNotas.value || null,
-      programado_para: (tProgramarActivo.value && tProgramadoPara.value) ? tProgramadoPara.value : null,
+      tienda_origen_id:       tOrigenId.value,
+      tienda_destino_id:      tDestinoId.value,
+      notas:                  tNotas.value || null,
+      programado_para:        (!tEsVendedor.value && tProgramarActivo.value && tProgramadoPara.value) ? tProgramadoPara.value : null,
+      vendedor_validador_id:  tValidadorId.value || null,
       items: tItems.value.map(i => ({ producto_id: i.producto.producto_id, cantidad: i.cantidad })),
     })
-    if (tProgramarActivo.value && tProgramadoPara.value) {
+    if (tEsVendedor.value) {
+      toast.success('Solicitud de traslado enviada. El vendedor de destino recibirá la notificación para aceptarla.')
+    } else if (tProgramarActivo.value && tProgramadoPara.value) {
       const fecha = new Date(tProgramadoPara.value).toLocaleString('es-CO', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
       toast.success(`Traslado programado para el ${fecha}. El inventario se actualizará en ese momento.`)
     } else {
@@ -579,16 +612,18 @@ async function tEnviar() {
 }
 
 function tResetear() {
-  tPaso.value          = 1
-  tOrigenId.value      = ''
-  tDestinoId.value     = ''
-  tStockOrigen.value   = []
-  tItems.value         = []
-  tNotas.value         = ''
-  tError.value         = ''
-  tBusqueda.value      = ''
-  tProgramarActivo.value = false
-  tProgramadoPara.value  = ''
+  tPaso.value              = 1
+  tOrigenId.value          = tEsVendedor.value ? (auth.usuario?.tienda_default_id ?? '') : ''
+  tDestinoId.value         = ''
+  tStockOrigen.value       = []
+  tItems.value             = []
+  tNotas.value             = ''
+  tError.value             = ''
+  tBusqueda.value          = ''
+  tProgramarActivo.value   = false
+  tProgramadoPara.value    = ''
+  tValidadorId.value       = null
+  tVendedoresDest.value    = []
 }
 
 async function cargarHistorialTraslados() {
@@ -605,6 +640,11 @@ onMounted(async () => {
   const { data } = await getTiendas()
   tiendas.value = data
   cargarRecomendaciones()
+  // Vendedor: auto-seleccionar su tienda como origen
+  if (auth.usuario?.rol === 'vendedor' && auth.usuario?.tienda_default_id) {
+    await tSeleccionarOrigen(auth.usuario.tienda_default_id)
+    tabActivo.value = 'traslado'
+  }
 })
 </script>
 
@@ -614,18 +654,23 @@ onMounted(async () => {
     <!-- Header -->
     <div class="flex items-center gap-2">
       <ArchiveBoxArrowDownIcon class="w-6 h-6 text-blue-600" />
-      <h2 class="text-lg font-bold text-gray-800 flex-1">Surtir tiendas</h2>
+      <h2 class="text-lg font-bold text-gray-800 flex-1">{{ auth.isSupervisor ? 'Surtir tiendas' : 'Traslados' }}</h2>
     </div>
 
     <!-- Tabs -->
     <div class="flex bg-gray-100 rounded-xl p-1 gap-1">
       <button
-        v-for="tab in [
-          { k: 'nuevo',               label: 'Nuevo surtido' },
-          { k: 'traslado',            label: 'Traslado' },
-          { k: 'historial',           label: 'Surtidos' },
-          { k: 'historial-traslados', label: 'Traslados' },
-        ]"
+        v-for="tab in (auth.isSupervisor
+          ? [
+              { k: 'nuevo',               label: 'Nuevo surtido' },
+              { k: 'traslado',            label: 'Traslado' },
+              { k: 'historial',           label: 'Surtidos' },
+              { k: 'historial-traslados', label: 'Traslados' },
+            ]
+          : [
+              { k: 'traslado',            label: 'Nuevo traslado' },
+              { k: 'historial-traslados', label: 'Mis traslados' },
+            ])"
         :key="tab.k"
         @click="tabActivo = tab.k;
           tab.k === 'historial' && cargarHistorial();
@@ -639,8 +684,8 @@ onMounted(async () => {
       </button>
     </div>
 
-    <!-- ═══════════════ PANEL: RECOMENDACIONES ═══════════════ -->
-    <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+    <!-- ═══════════════ PANEL: RECOMENDACIONES (solo supervisor) ═══════════════ -->
+    <div v-if="auth.isSupervisor" class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
       <!-- Header toggle -->
       <button
         @click="recomVisible = !recomVisible"
@@ -1249,9 +1294,11 @@ onMounted(async () => {
 
       <!-- Paso 1: Seleccionar origen + productos -->
       <div v-if="tPaso === 1" class="space-y-3">
-        <h3 class="text-sm font-semibold text-gray-700">¿De qué tienda se van a sacar los productos?</h3>
+        <h3 class="text-sm font-semibold text-gray-700">¿Qué productos vas a trasladar?</h3>
 
+        <!-- Supervisor: selector de tienda origen -->
         <select
+          v-if="!tEsVendedor"
           :value="tOrigenId"
           @change="tSeleccionarOrigen($event.target.value)"
           class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -1259,6 +1306,11 @@ onMounted(async () => {
           <option value="">Seleccionar tienda origen...</option>
           <option v-for="t in tiendas" :key="t.id" :value="t.id">{{ t.nombre }}</option>
         </select>
+
+        <!-- Vendedor: muestra su tienda como origen (auto) -->
+        <div v-else class="flex items-center gap-2 bg-blue-50 rounded-xl px-4 py-2.5 border border-blue-100">
+          <span class="text-sm text-blue-700 font-semibold">Desde: {{ tiendas.find(t => t.id == tOrigenId)?.nombre ?? '...' }}</span>
+        </div>
 
         <!-- Stock disponible -->
         <template v-if="tOrigenId">
@@ -1370,8 +1422,49 @@ onMounted(async () => {
             <ChevronLeftIcon class="w-4 h-4" />Atrás
           </button>
           <button
-            @click="tPaso = 3"
+            @click="tPaso = tEsVendedor ? 3 : tPasoConfirm"
             :disabled="!tPaso2Valido"
+            class="flex-1 flex items-center justify-center gap-2 bg-blue-600 text-white rounded-xl py-3 text-sm font-bold hover:bg-blue-700 disabled:opacity-50 transition-colors"
+          >
+            {{ tEsVendedor ? 'Siguiente: validador' : 'Revisar traslado' }}
+            <ChevronRightIcon class="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      <!-- Paso 3 (solo vendedor): Seleccionar validador en tienda destino -->
+      <div v-else-if="tPaso === 3 && tEsVendedor" class="space-y-3">
+        <h3 class="text-sm font-semibold text-gray-700">¿Quién confirma la llegada en destino?</h3>
+        <p class="text-xs text-gray-500">Selecciona el vendedor de la tienda destino que validará que los productos llegaron.</p>
+
+        <div v-if="tCargandoValidador" class="flex justify-center py-6">
+          <div class="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+        </div>
+
+        <div v-else class="bg-white rounded-xl border border-gray-200 shadow-sm divide-y divide-gray-100">
+          <label
+            v-for="v in tVendedoresDest"
+            :key="v.id"
+            class="flex items-center gap-3 px-4 py-3 cursor-pointer"
+          >
+            <input type="radio" :value="v.id" v-model="tValidadorId" class="w-4 h-4 text-blue-600" />
+            <div>
+              <p class="text-sm font-medium text-gray-800">{{ v.nombre }}</p>
+              <p v-if="v.tienda_default?.nombre" class="text-xs text-gray-400">{{ v.tienda_default.nombre }}</p>
+            </div>
+          </label>
+          <p v-if="!tCargandoValidador && !tVendedoresDest.length" class="px-4 py-3 text-xs text-gray-400 text-center">
+            No hay vendedores activos en la tienda destino.
+          </p>
+        </div>
+
+        <div class="flex gap-2">
+          <button @click="tPaso = 2" class="flex items-center gap-1 border border-gray-300 text-gray-600 rounded-xl px-4 py-3 text-sm font-semibold hover:bg-gray-50">
+            <ChevronLeftIcon class="w-4 h-4" />Atrás
+          </button>
+          <button
+            @click="tPaso = 4"
+            :disabled="!tPaso3Valido"
             class="flex-1 flex items-center justify-center gap-2 bg-blue-600 text-white rounded-xl py-3 text-sm font-bold hover:bg-blue-700 disabled:opacity-50 transition-colors"
           >
             Revisar traslado
@@ -1380,8 +1473,8 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- Paso 3: Revisión y confirmación -->
-      <div v-else-if="tPaso === 3" class="space-y-3">
+      <!-- Paso de confirmación: 3 para supervisor, 4 para vendedor -->
+      <div v-else-if="tPaso === tPasoConfirm" class="space-y-3">
         <h3 class="text-sm font-semibold text-gray-700">Revisa el traslado antes de confirmar</h3>
 
         <!-- Resumen origen → destino -->
@@ -1398,6 +1491,14 @@ onMounted(async () => {
               <p class="text-xs text-gray-400 mb-0.5">Destino</p>
               <p class="font-bold text-blue-700">{{ tiendas.find(t => String(t.id) === String(tDestinoId))?.nombre }}</p>
             </div>
+          </div>
+
+          <!-- Validador (solo vendedor) -->
+          <div v-if="tEsVendedor && tValidadorId" class="flex items-center gap-2 border-t border-gray-100 pt-2">
+            <span class="text-xs text-gray-400">Valida:</span>
+            <span class="text-xs font-semibold text-gray-700">
+              {{ tVendedoresDest.find(v => v.id === tValidadorId)?.nombre }}
+            </span>
           </div>
 
           <div class="space-y-1 border-t border-gray-100 pt-3">
@@ -1420,8 +1521,8 @@ onMounted(async () => {
           />
         </div>
 
-        <!-- Toggle programar traslado -->
-        <div class="bg-purple-50 rounded-xl border border-purple-100 overflow-hidden">
+        <!-- Toggle programar (solo supervisor) -->
+        <div v-if="!tEsVendedor" class="bg-purple-50 rounded-xl border border-purple-100 overflow-hidden">
           <label class="flex items-center gap-3 px-4 py-3 cursor-pointer">
             <div
               @click="tProgramarActivo = !tProgramarActivo"
@@ -1447,22 +1548,26 @@ onMounted(async () => {
           </Transition>
         </div>
 
+        <!-- Aviso para vendedor: traslado quedará pendiente -->
+        <div v-else class="flex items-start gap-2 bg-amber-50 rounded-xl px-4 py-3 border border-amber-100">
+          <span class="text-amber-600 text-xs leading-relaxed">
+            El traslado quedará <strong>pendiente</strong> hasta que el validador lo acepte en la tienda destino. El inventario se moverá en ese momento.
+          </span>
+        </div>
+
         <p v-if="tError" class="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">{{ tError }}</p>
 
         <div class="flex gap-2">
-          <button @click="tPaso = 2" class="flex items-center gap-1 border border-gray-300 text-gray-600 rounded-xl px-4 py-3 text-sm font-semibold hover:bg-gray-50">
+          <button @click="tPaso--" class="flex items-center gap-1 border border-gray-300 text-gray-600 rounded-xl px-4 py-3 text-sm font-semibold hover:bg-gray-50">
             <ChevronLeftIcon class="w-4 h-4" />Atrás
           </button>
           <button
             @click="tEnviar"
-            :disabled="tEnviando || (tProgramarActivo && !tProgramadoPara)"
-            :class="[
-              'flex-1 flex items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold disabled:opacity-50 transition-colors',
-              tProgramarActivo ? 'bg-purple-600 hover:bg-purple-700 text-white' : 'bg-green-600 hover:bg-green-700 text-white'
-            ]"
+            :disabled="tEnviando || (!tEsVendedor && tProgramarActivo && !tProgramadoPara)"
+            class="flex-1 flex items-center justify-center gap-2 bg-green-600 text-white rounded-xl py-3 text-sm font-bold hover:bg-green-700 disabled:opacity-50 transition-colors"
           >
             <ArchiveBoxArrowDownIcon class="w-4 h-4" />
-            {{ tEnviando ? (tProgramarActivo ? 'Programando...' : 'Procesando...') : (tProgramarActivo ? 'Programar traslado' : 'Confirmar traslado') }}
+            {{ tEnviando ? 'Enviando...' : (tEsVendedor ? 'Enviar solicitud' : (tProgramarActivo ? 'Programar traslado' : 'Confirmar traslado')) }}
           </button>
         </div>
       </div>
@@ -1499,7 +1604,9 @@ onMounted(async () => {
                 <template v-else>
                   {{ fmtFecha(tr.created_at) }} ·
                 </template>
-                {{ tr.items?.length ?? 0 }} producto(s) · {{ tr.supervisor?.nombre }}
+                {{ tr.items?.length ?? 0 }} producto(s)
+                <template v-if="tr.vendedor_validador?.nombre"> · Valida: {{ tr.vendedor_validador.nombre }}</template>
+                <template v-else-if="tr.supervisor?.nombre"> · {{ tr.supervisor.nombre }}</template>
               </p>
             </div>
             <component :is="tDetalleAbierto[tr.id] ? ChevronUpIcon : ChevronDownIcon" class="w-4 h-4 text-gray-400 flex-shrink-0 ml-2" />

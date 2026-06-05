@@ -10,9 +10,15 @@ import {
   ArchiveBoxIcon,
   PhotoIcon,
   XMarkIcon,
+  CheckCircleIcon,
+  XCircleIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
+  ArrowRightIcon,
 } from '@heroicons/vue/24/outline'
 import { getInventario, addStock, removeStock, getVariantes, crearVariante, addStockVariante, getMovimientos } from '@/api/inventario'
 import SurtidosPendientesPanel from '@/components/inventario/SurtidosPendientesPanel.vue'
+import { getTrasladosPendientes, aceptarTraslado, rechazarTraslado } from '@/api/traslados'
 import { useRealtime } from '@/composables/useRealtime'
 import { TELAS_CATALOGO, marcasOrdenadas, tiposTelaDeM, coloresDeTela } from '@/data/telasCatalogo'
 import { cloudinaryOpt } from '@/utils/cloudinary'
@@ -594,8 +600,55 @@ async function guardarNuevaVariante() {
 const { listen } = useRealtime()
 const toast = useToast()
 
+// ── Traslados pendientes de validación (vendedor validador) ───────────────────
+const trasladosPend        = ref([])
+const tPendAbiertos        = ref({})
+const tPendAceptando       = ref({})
+const tPendRechazando      = ref({})
+const tPendModalRechazar   = ref(null)
+const tPendNotasRechazar   = ref('')
+const tPendRechazandoLoad  = ref(false)
+
+async function cargarTrasladosPendientes() {
+  if (auth.usuario?.rol !== 'vendedor') return
+  try {
+    const { data } = await getTrasladosPendientes()
+    trasladosPend.value = data
+  } catch {}
+}
+
+async function tPendAceptar(tr) {
+  tPendAceptando.value[tr.id] = true
+  try {
+    await aceptarTraslado(tr.id)
+    trasladosPend.value = trasladosPend.value.filter(t => t.id !== tr.id)
+    cargarInventario(true)
+    toast.success(`Traslado #${tr.id} aceptado. Inventario actualizado.`)
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'Error al aceptar el traslado.')
+  } finally {
+    tPendAceptando.value[tr.id] = false
+  }
+}
+
+async function tPendConfirmarRechazar() {
+  if (!tPendModalRechazar.value) return
+  tPendRechazandoLoad.value = true
+  try {
+    await rechazarTraslado(tPendModalRechazar.value.id, tPendNotasRechazar.value || null)
+    trasladosPend.value = trasladosPend.value.filter(t => t.id !== tPendModalRechazar.value.id)
+    toast.info(`Traslado #${tPendModalRechazar.value.id} rechazado.`)
+    tPendModalRechazar.value = null
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'Error al rechazar.')
+  } finally {
+    tPendRechazandoLoad.value = false
+  }
+}
+
 onMounted(async () => {
   await cargarTiendas()
+  cargarTrasladosPendientes()
   if (auth.usuario?.tienda_default_id) {
     tiendaId.value = auth.usuario.tienda_default_id
     await cargarInventario(true)
@@ -669,6 +722,118 @@ onMounted(async () => {
 
     <!-- Panel de surtidos pendientes (solo vendedor) -->
     <SurtidosPendientesPanel v-if="!auth.isSupervisor" @aceptado="cargarInventario(true)" />
+
+    <!-- Panel de traslados pendientes de validación (solo vendedor validador) -->
+    <div v-if="trasladosPend.length > 0" class="space-y-3">
+      <div class="flex items-center gap-2">
+        <ArrowRightIcon class="w-5 h-5 text-blue-500" />
+        <h3 class="text-sm font-bold text-gray-800">Traslados pendientes ({{ trasladosPend.length }})</h3>
+      </div>
+
+      <div
+        v-for="tr in trasladosPend"
+        :key="tr.id"
+        class="bg-blue-50 border border-blue-200 rounded-xl overflow-hidden shadow-sm"
+      >
+        <!-- Cabecera -->
+        <button
+          @click="tPendAbiertos[tr.id] = !tPendAbiertos[tr.id]"
+          class="w-full flex items-center justify-between px-4 py-3 text-left"
+        >
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-semibold text-gray-800">
+              Traslado #{{ tr.id }}
+              <span class="ml-1 text-xs font-normal text-gray-500">de {{ tr.supervisor?.nombre }}</span>
+            </p>
+            <p class="text-xs text-gray-500 mt-0.5">
+              {{ tr.tienda_origen?.nombre }} → {{ tr.tienda_destino?.nombre }} · {{ tr.items?.length ?? 0 }} producto(s)
+            </p>
+          </div>
+          <component :is="tPendAbiertos[tr.id] ? ChevronUpIcon : ChevronDownIcon" class="w-4 h-4 text-gray-400 flex-shrink-0 ml-2" />
+        </button>
+
+        <!-- Productos -->
+        <Transition name="slide">
+          <div v-if="tPendAbiertos[tr.id]" class="border-t border-blue-100 px-4 pb-3 pt-2 space-y-2">
+            <div
+              v-for="item in tr.items"
+              :key="item.id"
+              class="flex items-center gap-3 bg-white rounded-lg px-3 py-2"
+            >
+              <img v-if="item.producto?.foto_url" :src="item.producto.foto_url" class="w-9 h-9 rounded-lg object-cover flex-shrink-0" />
+              <div class="w-9 h-9 rounded-lg bg-gray-100 flex-shrink-0" v-else />
+              <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium text-gray-800 truncate">{{ item.producto?.nombre }}</p>
+                <p class="text-xs text-gray-400">{{ item.producto?.categoria }}</p>
+              </div>
+              <span class="text-sm font-bold text-green-700 flex-shrink-0">+{{ item.cantidad }}</span>
+            </div>
+            <p v-if="tr.notas" class="text-xs text-gray-500 italic">Notas: "{{ tr.notas }}"</p>
+          </div>
+        </Transition>
+
+        <!-- Acciones -->
+        <div class="flex gap-2 px-4 pb-3" :class="{ 'border-t border-blue-100 pt-3': !tPendAbiertos[tr.id] }">
+          <button
+            @click="tPendAceptar(tr)"
+            :disabled="tPendAceptando[tr.id]"
+            class="flex-1 flex items-center justify-center gap-1.5 bg-green-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-green-700 disabled:opacity-50 transition-colors"
+          >
+            <CheckCircleIcon class="w-4 h-4" />
+            {{ tPendAceptando[tr.id] ? 'Aceptando...' : 'Aceptar' }}
+          </button>
+          <button
+            @click="tPendModalRechazar = tr; tPendNotasRechazar = ''"
+            :disabled="tPendAceptando[tr.id]"
+            class="px-4 flex items-center gap-1.5 border border-red-300 text-red-600 rounded-lg py-2.5 text-sm font-semibold hover:bg-red-50 disabled:opacity-50 transition-colors"
+          >
+            <XCircleIcon class="w-4 h-4" />
+            Rechazar
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal rechazar traslado -->
+    <Transition name="fade">
+      <div
+        v-if="tPendModalRechazar"
+        class="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
+        @click.self="tPendModalRechazar = null"
+      >
+        <div class="absolute inset-0 bg-black/40" />
+        <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-4">
+          <div class="flex items-center justify-between">
+            <h3 class="text-base font-bold text-gray-800">Rechazar traslado #{{ tPendModalRechazar.id }}</h3>
+            <button @click="tPendModalRechazar = null" class="text-gray-400 text-2xl leading-none">&times;</button>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Motivo (opcional)</label>
+            <textarea
+              v-model="tPendNotasRechazar"
+              rows="3"
+              placeholder="Ej: Los productos no llegaron completos..."
+              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500 resize-none"
+            />
+          </div>
+          <div class="flex gap-2">
+            <button
+              @click="tPendModalRechazar = null"
+              class="flex-1 border border-gray-300 text-gray-600 rounded-lg py-2.5 text-sm font-semibold hover:bg-gray-50"
+            >
+              Cancelar
+            </button>
+            <button
+              @click="tPendConfirmarRechazar"
+              :disabled="tPendRechazandoLoad"
+              class="flex-1 bg-red-600 text-white rounded-lg py-2.5 text-sm font-bold hover:bg-red-700 disabled:opacity-50"
+            >
+              {{ tPendRechazandoLoad ? 'Rechazando...' : 'Confirmar rechazo' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
 
     <!-- Sin tienda seleccionada -->
     <EmptyState
@@ -1464,4 +1629,6 @@ onMounted(async () => {
 .fade-leave-to {
   opacity: 0;
 }
+.slide-enter-active, .slide-leave-active { transition: all 0.18s ease; }
+.slide-enter-from, .slide-leave-to       { opacity: 0; transform: translateY(-6px); }
 </style>
