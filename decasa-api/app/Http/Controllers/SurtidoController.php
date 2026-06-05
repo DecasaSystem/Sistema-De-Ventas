@@ -191,7 +191,7 @@ class SurtidoController extends Controller
 
     /**
      * PATCH /api/inventario/surtido-tiendas/{id}/aceptar
-     * Vendedor acepta el surtido — actualiza inventario y movimientos.
+     * Vendedor acepta el surtido. Body opcional: items=[{id, cantidad_aceptada}] para aceptación parcial.
      */
     public function aceptar(Request $request, int $id)
     {
@@ -206,64 +206,72 @@ class SurtidoController extends Controller
             return response()->json(['message' => 'Este surtido ya fue respondido.'], 422);
         }
 
+        // Mapa item_id → cantidad_aceptada (vacío = aceptar todo completo)
+        $cantidadesMap = collect($request->input('items', []))
+            ->keyBy('id')
+            ->map(fn($i) => (int) $i['cantidad_aceptada']);
+
         $fabricaId = $st->surtido->fuente_fabrica
             ? Tienda::where('es_fabrica', true)->value('id')
             : null;
 
-        DB::transaction(function () use ($st, $usuario, $fabricaId) {
+        DB::transaction(function () use ($st, $usuario, $fabricaId, $cantidadesMap) {
             foreach ($st->items as $item) {
-                // Descontar de fábrica si el surtido viene de allí
+                $cantAceptada = $cantidadesMap->has($item->id)
+                    ? min($cantidadesMap[$item->id], $item->cantidad)
+                    : $item->cantidad;
+
+                $item->update(['cantidad_aceptada' => $cantAceptada]);
+
+                // Fábrica: siempre liberar la reserva completa; solo descontar disponible por lo aceptado
                 if ($fabricaId) {
                     $invFab = Inventario::where('producto_id', $item->producto_id)
                         ->where('tienda_id', $fabricaId)
                         ->first();
                     if ($invFab) {
-                        $invFab->decrement('cantidad_disponible', $item->cantidad);
-                        $invFab->decrement('cantidad_reservada',  $item->cantidad);
+                        if ($cantAceptada > 0) {
+                            $invFab->decrement('cantidad_disponible', $cantAceptada);
+                        }
+                        // Liberar reserva completa independientemente de cuánto se aceptó
+                        if ($invFab->cantidad_reservada >= $item->cantidad) {
+                            $invFab->decrement('cantidad_reservada', $item->cantidad);
+                        }
                     }
-                    // Variante tapizado — descontar también inventario_variantes de fábrica
-                    $esp = $item->especificaciones;
-                    if ($esp && !empty($esp['marca']) && !empty($esp['tela']) && !empty($esp['color'])) {
-                        $variante = ProductoVariante::where('producto_id', $item->producto_id)->get()
-                            ->first(fn($v) =>
-                                mb_strtolower(trim($v->marca ?? '')) === mb_strtolower(trim($esp['marca'])) &&
-                                mb_strtolower(trim($v->marca_tela))  === mb_strtolower(trim($esp['tela']))  &&
-                                mb_strtolower(trim($v->nombre_color)) === mb_strtolower(trim($esp['color']))
-                            );
-                        if ($variante) {
-                            InventarioVariante::where('variante_id', $variante->id)
-                                ->where('tienda_id', $fabricaId)
-                                ->decrement('cantidad_disponible', $item->cantidad);
+                    // Variante tapizado — descontar inventario_variantes de fábrica solo por lo aceptado
+                    if ($cantAceptada > 0) {
+                        $esp = $item->especificaciones;
+                        if ($esp && !empty($esp['marca']) && !empty($esp['tela']) && !empty($esp['color'])) {
+                            $variante = ProductoVariante::where('producto_id', $item->producto_id)->get()
+                                ->first(fn($v) =>
+                                    mb_strtolower(trim($v->marca ?? '')) === mb_strtolower(trim($esp['marca'])) &&
+                                    mb_strtolower(trim($v->marca_tela))  === mb_strtolower(trim($esp['tela']))  &&
+                                    mb_strtolower(trim($v->nombre_color)) === mb_strtolower(trim($esp['color']))
+                                );
+                            if ($variante) {
+                                InventarioVariante::where('variante_id', $variante->id)
+                                    ->where('tienda_id', $fabricaId)
+                                    ->decrement('cantidad_disponible', $cantAceptada);
+                            }
                         }
                     }
                 }
+
+                if ($cantAceptada <= 0) continue;
 
                 $inv = Inventario::firstOrCreate(
                     ['producto_id' => $item->producto_id, 'tienda_id' => $st->tienda_id],
                     ['cantidad_disponible' => 0, 'cantidad_reservada' => 0, 'stock_minimo' => 1]
                 );
-                $inv->increment('cantidad_disponible', $item->cantidad);
+                $inv->increment('cantidad_disponible', $cantAceptada);
 
                 $varianteId = null;
                 $esp = $item->especificaciones;
-                Log::info('[SURTIDO_ACEPTAR] item', [
-                    'producto_id' => $item->producto_id,
-                    'cantidad' => $item->cantidad,
-                    'especificaciones' => $esp,
-                ]);
 
                 if ($esp && !empty($esp['marca']) && !empty($esp['tela']) && !empty($esp['color'])) {
                     $marca = trim($esp['marca']);
                     $tela  = trim($esp['tela']);
                     $color = trim($esp['color']);
 
-                    Log::info('[SURTIDO_ACEPTAR] buscando variante', [
-                        'marca' => $marca,
-                        'tela' => $tela,
-                        'color' => $color,
-                    ]);
-
-                    // Buscar variante por comparacion en PHP (evita problemas de encoding/SQL)
                     $variante = ProductoVariante::where('producto_id', $item->producto_id)
                         ->get()
                         ->first(function ($v) use ($marca, $tela, $color) {
@@ -272,7 +280,6 @@ class SurtidoController extends Controller
                                 && mb_strtolower(trim($v->nombre_color)) === mb_strtolower($color);
                         });
 
-                    // Si no existe, crearla automaticamente
                     if (!$variante) {
                         $variante = ProductoVariante::create([
                             'producto_id'  => $item->producto_id,
@@ -281,9 +288,6 @@ class SurtidoController extends Controller
                             'nombre_color' => $color,
                             'activo'       => true,
                         ]);
-                        Log::info('[SURTIDO_ACEPTAR] variante creada automaticamente', $variante->toArray());
-
-                        // Crear InventarioVariante en tiendas donde existe el producto
                         $tiendaIds = Inventario::where('producto_id', $item->producto_id)->pluck('tienda_id');
                         foreach ($tiendaIds as $tid) {
                             InventarioVariante::firstOrCreate(
@@ -291,7 +295,6 @@ class SurtidoController extends Controller
                                 ['cantidad_disponible' => 0, 'cantidad_reservada' => 0, 'stock_minimo' => 0]
                             );
                         }
-                        Log::info('[SURTIDO_ACEPTAR] InventarioVariante creado para ' . $tiendaIds->count() . ' tienda(s)');
                     }
 
                     $varianteId = $variante->id;
@@ -299,28 +302,17 @@ class SurtidoController extends Controller
                         ['variante_id' => $varianteId, 'tienda_id' => $st->tienda_id],
                         ['cantidad_disponible' => 0, 'cantidad_reservada' => 0, 'stock_minimo' => 0]
                     );
-                    $invVar->increment('cantidad_disponible', $item->cantidad);
-                    Log::info('[SURTIDO_ACEPTAR] InventarioVariante actualizado', [
-                        'variante_id' => $varianteId,
-                        'tienda_id' => $st->tienda_id,
-                        'nuevo_stock' => $invVar->cantidad_disponible,
-                    ]);
-                } else {
-                    Log::warning('[SURTIDO_ACEPTAR] especificaciones vacias o nulas', ['esp' => $esp]);
+                    $invVar->increment('cantidad_disponible', $cantAceptada);
                 }
 
-                $mov = InventarioMovimiento::create([
+                InventarioMovimiento::create([
                     'producto_id'  => $item->producto_id,
                     'tienda_id'    => $st->tienda_id,
                     'variante_id'  => $varianteId,
                     'tipo'         => 'entrada',
-                    'cantidad'     => $item->cantidad,
+                    'cantidad'     => $cantAceptada,
                     'motivo'       => 'Surtido #' . $st->surtido_id,
                     'usuario_id'   => $usuario->id,
-                ]);
-                Log::info('[SURTIDO_ACEPTAR] movimiento creado', [
-                    'movimiento_id' => $mov->id,
-                    'variante_id' => $varianteId,
                 ]);
             }
 
@@ -334,6 +326,10 @@ class SurtidoController extends Controller
 
         $supervisor = $st->surtido->supervisor;
 
+        $aceptadoParcial = $cantidadesMap->isNotEmpty() && $st->items->some(
+            fn($i) => $cantidadesMap->has($i->id) && $cantidadesMap[$i->id] < $i->cantidad
+        );
+
         try {
             event(new SurtidoAceptado(
                 $st->surtido_id,
@@ -345,8 +341,10 @@ class SurtidoController extends Controller
 
         NotificacionService::crear(
             'surtido_aceptado',
-            'Surtido aceptado',
-            "{$st->tienda->nombre} confirmó la recepción del surtido #{$st->surtido_id} (validado por {$usuario->nombre})",
+            $aceptadoParcial ? 'Surtido aceptado parcialmente' : 'Surtido aceptado',
+            $aceptadoParcial
+                ? "{$st->tienda->nombre} aceptó parcialmente el surtido #{$st->surtido_id}. Algunos items llegaron con menos cantidad."
+                : "{$st->tienda->nombre} confirmó la recepción del surtido #{$st->surtido_id} (validado por {$usuario->nombre})",
             ['surtido_id' => $st->surtido_id],
             $supervisor->id,
         );

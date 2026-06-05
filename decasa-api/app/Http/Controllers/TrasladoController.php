@@ -243,7 +243,8 @@ class TrasladoController extends Controller
 
     /**
      * PATCH /api/inventario/traslados/{id}/aceptar
-     * El validador acepta: mueve el inventario y marca como completado.
+     * El validador acepta: mueve el inventario según las cantidades recibidas y marca como completado.
+     * Body opcional: items = [{id, cantidad_aceptada}] para aceptación parcial.
      */
     public function aceptar(Request $request, int $id)
     {
@@ -257,6 +258,11 @@ class TrasladoController extends Controller
             abort(403, 'No tienes permiso para aceptar este traslado.');
         }
 
+        // Mapa item_id → cantidad_aceptada (null = usar cantidad original completa)
+        $cantidadesMap = collect($request->input('items', []))
+            ->keyBy('id')
+            ->map(fn($i) => (int) $i['cantidad_aceptada']);
+
         $tiendas = DB::table('tiendas')
             ->whereIn('id', [$traslado->tienda_origen_id, $traslado->tienda_destino_id])
             ->pluck('nombre', 'id');
@@ -265,34 +271,43 @@ class TrasladoController extends Controller
         $nombreDestino = $tiendas[$traslado->tienda_destino_id] ?? '';
 
         try {
-            DB::transaction(function () use ($traslado, $user, $nombreOrigen, $nombreDestino) {
+            DB::transaction(function () use ($traslado, $user, $cantidadesMap, $nombreOrigen, $nombreDestino) {
                 foreach ($traslado->items as $item) {
+                    $cantAceptada = $cantidadesMap->has($item->id)
+                        ? min($cantidadesMap[$item->id], $item->cantidad)
+                        : $item->cantidad;
+
+                    if ($cantAceptada <= 0) {
+                        $item->update(['cantidad_aceptada' => 0]);
+                        continue;
+                    }
+
                     $inv   = Inventario::where('producto_id', $item->producto_id)
                         ->where('tienda_id', $traslado->tienda_origen_id)
                         ->first();
                     $libre = ($inv?->cantidad_disponible ?? 0) - ($inv?->cantidad_reservada ?? 0);
-                    if ($libre < $item->cantidad) {
+                    if ($libre < $cantAceptada) {
                         $nombre = DB::table('productos')->where('id', $item->producto_id)->value('nombre');
                         throw new \RuntimeException("Stock insuficiente para \"$nombre\" al momento de aceptar.");
                     }
-                }
 
-                foreach ($traslado->items as $item) {
+                    $item->update(['cantidad_aceptada' => $cantAceptada]);
+
                     Inventario::where('producto_id', $item->producto_id)
                         ->where('tienda_id', $traslado->tienda_origen_id)
-                        ->decrement('cantidad_disponible', $item->cantidad);
+                        ->decrement('cantidad_disponible', $cantAceptada);
 
                     $invDest = Inventario::firstOrCreate(
                         ['producto_id' => $item->producto_id, 'tienda_id' => $traslado->tienda_destino_id],
                         ['cantidad_disponible' => 0, 'cantidad_reservada' => 0, 'stock_minimo' => 1]
                     );
-                    $invDest->increment('cantidad_disponible', $item->cantidad);
+                    $invDest->increment('cantidad_disponible', $cantAceptada);
 
                     InventarioMovimiento::create([
                         'producto_id' => $item->producto_id,
                         'tienda_id'   => $traslado->tienda_origen_id,
                         'tipo'        => 'traslado_salida',
-                        'cantidad'    => $item->cantidad,
+                        'cantidad'    => $cantAceptada,
                         'motivo'      => "Traslado #{$traslado->id} → $nombreDestino (aceptado)",
                         'usuario_id'  => $user->id,
                     ]);
@@ -300,7 +315,7 @@ class TrasladoController extends Controller
                         'producto_id' => $item->producto_id,
                         'tienda_id'   => $traslado->tienda_destino_id,
                         'tipo'        => 'traslado_entrada',
-                        'cantidad'    => $item->cantidad,
+                        'cantidad'    => $cantAceptada,
                         'motivo'      => "Traslado #{$traslado->id} ← $nombreOrigen (aceptado)",
                         'usuario_id'  => $user->id,
                     ]);
@@ -312,11 +327,16 @@ class TrasladoController extends Controller
             return response()->json(['message' => $e->getMessage()], 422);
         }
 
-        // Notificar al iniciador
+        $aceptadosParcial = $cantidadesMap->isNotEmpty() && $traslado->items->some(
+            fn($i) => $cantidadesMap->has($i->id) && $cantidadesMap[$i->id] < $i->cantidad
+        );
+
         NotificacionService::crear(
             'traslado_aceptado',
-            'Traslado aceptado',
-            "{$user->nombre} aceptó el traslado #{$traslado->id}. El inventario fue actualizado.",
+            $aceptadosParcial ? 'Traslado aceptado parcialmente' : 'Traslado aceptado',
+            $aceptadosParcial
+                ? "{$user->nombre} aceptó el traslado #{$traslado->id} parcialmente. Revisa el historial para ver qué items se recibieron."
+                : "{$user->nombre} aceptó el traslado #{$traslado->id}. El inventario fue actualizado.",
             ['traslado_id' => $traslado->id],
             $traslado->supervisor_id,
         );

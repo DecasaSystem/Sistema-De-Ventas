@@ -14,6 +14,7 @@ class SurtidoItem extends Model
         'surtido_tienda_id',
         'producto_id',
         'cantidad',
+        'cantidad_aceptada',
         'especificaciones',
     ];
 

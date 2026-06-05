@@ -8,7 +8,7 @@ class TrasladoItem extends Model
 {
     protected $table = 'traslado_items';
 
-    protected $fillable = ['traslado_id', 'producto_id', 'cantidad'];
+    protected $fillable = ['traslado_id', 'producto_id', 'cantidad', 'cantidad_aceptada'];
 
     public function traslado()
     {

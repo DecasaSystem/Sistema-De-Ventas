@@ -9,6 +9,6 @@ export const getRecomendaciones  = (params)  => api.get('/inventario/recomendaci
 
 // Vendedor
 export const getSurtidosPendientes = ()         => api.get('/inventario/surtidos/pendientes')
-export const aceptarSurtido        = (stId)     => api.patch(`/inventario/surtido-tiendas/${stId}/aceptar`)
+export const aceptarSurtido        = (stId, payload = {}) => api.patch(`/inventario/surtido-tiendas/${stId}/aceptar`, payload)
 export const rechazarSurtido       = (stId, notas) =>
   api.patch(`/inventario/surtido-tiendas/${stId}/rechazar`, { notas_vendedor: notas })

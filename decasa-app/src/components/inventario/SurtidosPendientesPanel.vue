@@ -16,11 +16,15 @@ const surtidos = useSurtidosStore()
 const toast    = useToast()
 
 const abiertos      = ref({})
-const aceptando     = ref({})
 const rechazando    = ref({})
-const modalRechazar = ref(null)   // { stId, notasRechazar }
+const modalRechazar = ref(null)
 const notasRechazar = ref('')
 const rechazarLoad  = ref(false)
+
+// Modal aceptar con cantidades por item
+const modalAceptar  = ref(null)   // SurtidoTienda que se acepta
+const cantidades    = ref({})     // { item.id: cantidad_aceptada }
+const aceptarLoad   = ref(false)
 
 onMounted(() => surtidos.cargarPendientes())
 
@@ -28,17 +32,33 @@ function toggleAbierto(id) {
   abiertos.value[id] = !abiertos.value[id]
 }
 
-async function aceptar(st) {
-  aceptando.value[st.id] = true
+function abrirAceptar(st) {
+  modalAceptar.value = st
+  const map = {}
+  for (const item of st.items ?? []) {
+    map[item.id] = item.cantidad
+  }
+  cantidades.value = map
+}
+
+async function confirmarAceptar() {
+  const st = modalAceptar.value
+  if (!st) return
+  aceptarLoad.value = true
   try {
-    await aceptarSurtido(st.id)
+    const items = (st.items ?? []).map(item => ({
+      id: item.id,
+      cantidad_aceptada: cantidades.value[item.id] ?? item.cantidad,
+    }))
+    await aceptarSurtido(st.id, { items })
     surtidos.quitarPendiente(st.id)
     emit('aceptado')
     toast.success(`Surtido #${st.surtido_id} aceptado. Inventario actualizado.`)
+    modalAceptar.value = null
   } catch (e) {
     toast.error(e.response?.data?.message ?? 'Error al aceptar el surtido.')
   } finally {
-    aceptando.value[st.id] = false
+    aceptarLoad.value = false
   }
 }
 
@@ -137,17 +157,15 @@ function fmtEspecificaciones(esp) {
       <!-- Acciones -->
       <div class="flex gap-2 px-4 pb-3" :class="{ 'border-t border-amber-100 pt-3': !abiertos[st.id] }">
         <button
-          @click="aceptar(st)"
-          :disabled="aceptando[st.id]"
-          class="flex-1 flex items-center justify-center gap-1.5 bg-green-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-green-700 disabled:opacity-50 transition-colors"
+          @click="abrirAceptar(st)"
+          class="flex-1 flex items-center justify-center gap-1.5 bg-green-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-green-700 transition-colors"
         >
           <CheckCircleIcon class="w-4 h-4" />
-          {{ aceptando[st.id] ? 'Aceptando...' : 'Aceptar todo' }}
+          Confirmar recepción
         </button>
         <button
           @click="abrirRechazar(st)"
-          :disabled="aceptando[st.id]"
-          class="px-4 flex items-center gap-1.5 border border-red-300 text-red-600 rounded-lg py-2.5 text-sm font-semibold hover:bg-red-50 disabled:opacity-50 transition-colors"
+          class="px-4 flex items-center gap-1.5 border border-red-300 text-red-600 rounded-lg py-2.5 text-sm font-semibold hover:bg-red-50 transition-colors"
         >
           <XCircleIcon class="w-4 h-4" />
           Rechazar
@@ -155,6 +173,66 @@ function fmtEspecificaciones(esp) {
       </div>
     </div>
   </div>
+
+  <!-- Modal confirmar recepción de surtido (por item) -->
+  <Transition name="fade">
+    <div
+      v-if="modalAceptar"
+      class="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
+      @click.self="modalAceptar = null"
+    >
+      <div class="absolute inset-0 bg-black/40" />
+      <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-4 max-h-[85vh] flex flex-col">
+        <div class="flex items-center justify-between flex-shrink-0">
+          <h3 class="text-base font-bold text-gray-800">Confirmar recepción #{{ modalAceptar.surtido_id }}</h3>
+          <button @click="modalAceptar = null" class="text-gray-400 text-2xl leading-none">&times;</button>
+        </div>
+        <p class="text-xs text-gray-500 flex-shrink-0">Ajusta la cantidad recibida. Pon 0 si un item no llegó o fue rechazado.</p>
+        <div class="overflow-y-auto flex-1 space-y-2">
+          <div
+            v-for="item in modalAceptar.items"
+            :key="item.id"
+            class="flex items-center gap-3 bg-gray-50 rounded-lg px-3 py-2"
+          >
+            <img v-if="item.producto?.foto_url" :src="item.producto.foto_url" class="w-9 h-9 rounded-lg object-cover flex-shrink-0" />
+            <div class="w-9 h-9 rounded-lg bg-gray-100 flex-shrink-0" v-else />
+            <div class="flex-1 min-w-0">
+              <p class="text-sm font-medium text-gray-800 truncate">{{ item.producto?.nombre }}</p>
+              <p class="text-xs text-gray-400">
+                Enviado: {{ item.cantidad }}
+                <span v-if="fmtEspecificaciones(item.especificaciones)" class="text-blue-500 ml-1">
+                  · {{ fmtEspecificaciones(item.especificaciones) }}
+                </span>
+              </p>
+            </div>
+            <input
+              type="number"
+              :min="0"
+              :max="item.cantidad"
+              v-model.number="cantidades[item.id]"
+              class="w-16 rounded-lg border border-gray-300 text-center text-sm font-bold py-1.5 focus:outline-none focus:ring-2 focus:ring-green-500"
+              :class="{ 'text-red-600 border-red-300': cantidades[item.id] < item.cantidad }"
+            />
+          </div>
+        </div>
+        <div class="flex gap-2 flex-shrink-0">
+          <button
+            @click="modalAceptar = null"
+            class="flex-1 border border-gray-300 text-gray-600 rounded-lg py-2.5 text-sm font-semibold hover:bg-gray-50"
+          >
+            Cancelar
+          </button>
+          <button
+            @click="confirmarAceptar"
+            :disabled="aceptarLoad"
+            class="flex-1 bg-green-600 text-white rounded-lg py-2.5 text-sm font-bold hover:bg-green-700 disabled:opacity-50"
+          >
+            {{ aceptarLoad ? 'Guardando...' : 'Confirmar' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </Transition>
 
   <!-- Modal rechazar -->
   <Transition name="fade">

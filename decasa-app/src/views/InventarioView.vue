@@ -603,11 +603,15 @@ const toast = useToast()
 // ── Traslados pendientes de validación (vendedor validador) ───────────────────
 const trasladosPend        = ref([])
 const tPendAbiertos        = ref({})
-const tPendAceptando       = ref({})
 const tPendRechazando      = ref({})
 const tPendModalRechazar   = ref(null)
 const tPendNotasRechazar   = ref('')
 const tPendRechazandoLoad  = ref(false)
+
+// Modal aceptar con cantidades por item
+const tPendModalAceptar   = ref(null)   // traslado que se está aceptando
+const tPendCantidades     = ref({})     // { item.id: cantidad_aceptada }
+const tPendAceptandoLoad  = ref(false)
 
 async function cargarTrasladosPendientes() {
   if (auth.usuario?.rol !== 'vendedor') return
@@ -617,17 +621,33 @@ async function cargarTrasladosPendientes() {
   } catch {}
 }
 
-async function tPendAceptar(tr) {
-  tPendAceptando.value[tr.id] = true
+function tPendAbrirAceptar(tr) {
+  tPendModalAceptar.value = tr
+  const cantidades = {}
+  for (const item of tr.items ?? []) {
+    cantidades[item.id] = item.cantidad
+  }
+  tPendCantidades.value = cantidades
+}
+
+async function tPendConfirmarAceptar() {
+  const tr = tPendModalAceptar.value
+  if (!tr) return
+  tPendAceptandoLoad.value = true
   try {
-    await aceptarTraslado(tr.id)
+    const items = (tr.items ?? []).map(item => ({
+      id: item.id,
+      cantidad_aceptada: tPendCantidades.value[item.id] ?? item.cantidad,
+    }))
+    await aceptarTraslado(tr.id, { items })
     trasladosPend.value = trasladosPend.value.filter(t => t.id !== tr.id)
     cargarInventario(true)
     toast.success(`Traslado #${tr.id} aceptado. Inventario actualizado.`)
+    tPendModalAceptar.value = null
   } catch (e) {
     toast.error(e.response?.data?.message ?? 'Error al aceptar el traslado.')
   } finally {
-    tPendAceptando.value[tr.id] = false
+    tPendAceptandoLoad.value = false
   }
 }
 
@@ -775,17 +795,15 @@ onMounted(async () => {
         <!-- Acciones -->
         <div class="flex gap-2 px-4 pb-3" :class="{ 'border-t border-blue-100 pt-3': !tPendAbiertos[tr.id] }">
           <button
-            @click="tPendAceptar(tr)"
-            :disabled="tPendAceptando[tr.id]"
-            class="flex-1 flex items-center justify-center gap-1.5 bg-green-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-green-700 disabled:opacity-50 transition-colors"
+            @click="tPendAbrirAceptar(tr)"
+            class="flex-1 flex items-center justify-center gap-1.5 bg-green-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-green-700 transition-colors"
           >
             <CheckCircleIcon class="w-4 h-4" />
-            {{ tPendAceptando[tr.id] ? 'Aceptando...' : 'Aceptar' }}
+            Confirmar recepción
           </button>
           <button
             @click="tPendModalRechazar = tr; tPendNotasRechazar = ''"
-            :disabled="tPendAceptando[tr.id]"
-            class="px-4 flex items-center gap-1.5 border border-red-300 text-red-600 rounded-lg py-2.5 text-sm font-semibold hover:bg-red-50 disabled:opacity-50 transition-colors"
+            class="px-4 flex items-center gap-1.5 border border-red-300 text-red-600 rounded-lg py-2.5 text-sm font-semibold hover:bg-red-50 transition-colors"
           >
             <XCircleIcon class="w-4 h-4" />
             Rechazar
@@ -793,6 +811,61 @@ onMounted(async () => {
         </div>
       </div>
     </div>
+
+    <!-- Modal confirmar recepción de traslado (por item) -->
+    <Transition name="fade">
+      <div
+        v-if="tPendModalAceptar"
+        class="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
+        @click.self="tPendModalAceptar = null"
+      >
+        <div class="absolute inset-0 bg-black/40" />
+        <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-4 max-h-[85vh] flex flex-col">
+          <div class="flex items-center justify-between flex-shrink-0">
+            <h3 class="text-base font-bold text-gray-800">Confirmar recepción #{{ tPendModalAceptar.id }}</h3>
+            <button @click="tPendModalAceptar = null" class="text-gray-400 text-2xl leading-none">&times;</button>
+          </div>
+          <p class="text-xs text-gray-500 flex-shrink-0">Ajusta la cantidad recibida de cada producto. Pon 0 si un item no llegó o fue rechazado.</p>
+          <div class="overflow-y-auto flex-1 space-y-2">
+            <div
+              v-for="item in tPendModalAceptar.items"
+              :key="item.id"
+              class="flex items-center gap-3 bg-gray-50 rounded-lg px-3 py-2"
+            >
+              <img v-if="item.producto?.foto_url" :src="item.producto.foto_url" class="w-9 h-9 rounded-lg object-cover flex-shrink-0" />
+              <div class="w-9 h-9 rounded-lg bg-gray-100 flex-shrink-0" v-else />
+              <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium text-gray-800 truncate">{{ item.producto?.nombre }}</p>
+                <p class="text-xs text-gray-400">Enviado: {{ item.cantidad }}</p>
+              </div>
+              <input
+                type="number"
+                :min="0"
+                :max="item.cantidad"
+                v-model.number="tPendCantidades[item.id]"
+                class="w-16 rounded-lg border border-gray-300 text-center text-sm font-bold py-1.5 focus:outline-none focus:ring-2 focus:ring-green-500"
+                :class="{ 'text-red-600 border-red-300': tPendCantidades[item.id] < item.cantidad }"
+              />
+            </div>
+          </div>
+          <div class="flex gap-2 flex-shrink-0">
+            <button
+              @click="tPendModalAceptar = null"
+              class="flex-1 border border-gray-300 text-gray-600 rounded-lg py-2.5 text-sm font-semibold hover:bg-gray-50"
+            >
+              Cancelar
+            </button>
+            <button
+              @click="tPendConfirmarAceptar"
+              :disabled="tPendAceptandoLoad"
+              class="flex-1 bg-green-600 text-white rounded-lg py-2.5 text-sm font-bold hover:bg-green-700 disabled:opacity-50"
+            >
+              {{ tPendAceptandoLoad ? 'Guardando...' : 'Confirmar' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
 
     <!-- Modal rechazar traslado -->
     <Transition name="fade">
