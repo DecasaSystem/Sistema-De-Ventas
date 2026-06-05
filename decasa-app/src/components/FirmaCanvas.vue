@@ -2,6 +2,7 @@
 import { ref, onMounted, nextTick } from 'vue'
 import { PencilIcon, PaperClipIcon, ArrowsPointingOutIcon, CheckIcon } from '@heroicons/vue/24/outline'
 
+defineProps({ modelValue: { default: null } })
 const emit = defineEmits(['update:modelValue'])
 
 const canvasRef       = ref(null)
