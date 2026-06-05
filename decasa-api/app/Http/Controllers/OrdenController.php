@@ -457,6 +457,9 @@ class OrdenController extends Controller
      */
     public function reenviarCotizacion(Request $request, int $id)
     {
+        ini_set('memory_limit', '512M');
+        set_time_limit(120);
+
         $usuario = $request->user();
 
         $orden = Orden::with('cliente:id,nombre,email')->findOrFail($id);
