@@ -4,8 +4,8 @@ import {
   MagnifyingGlassIcon, PlusIcon, ArchiveBoxIcon,
   PhotoIcon, XMarkIcon,
 } from '@heroicons/vue/24/outline'
-import { getReservaInventario, addReservaStock, removeReservaStock, getReservaMovimientos, getReservaInfo } from '@/api/reserva'
-import { getVariantes, addStockVariante } from '@/api/inventario'
+import { getReservaInventario, addReservaStock, addReservaVarianteStock, removeReservaStock, getReservaMovimientos, getReservaInfo } from '@/api/reserva'
+import { getVariantes } from '@/api/inventario'
 import { cloudinaryOpt } from '@/utils/cloudinary'
 import { useToast } from '@/composables/useToast'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
@@ -110,9 +110,8 @@ async function guardarStockVariante() {
   if (varianteStockCant.value < 1) { varianteStockError.value = 'Cantidad inválida.'; return }
   varianteStockLoading.value = true
   try {
-    await addStockVariante({
+    await addReservaVarianteStock({
       variante_id: varianteStockItem.value.variante.id,
-      tienda_id: fabricaId.value,
       cantidad: varianteStockCant.value,
       motivo: varianteStockMotivo.value || undefined,
     })

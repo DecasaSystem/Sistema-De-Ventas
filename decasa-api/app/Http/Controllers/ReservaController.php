@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\Inventario;
 use App\Models\InventarioMovimiento;
+use App\Models\InventarioVariante;
 use App\Models\Producto;
+use App\Models\ProductoVariante;
 use App\Models\Tienda;
 use App\Events\InventarioActualizado;
 use Illuminate\Http\Request;
@@ -199,6 +201,63 @@ class ReservaController extends Controller
             'cantidad_reservada'  => $inv->cantidad_reservada,
             'stock_libre'         => $inv->cantidad_disponible - $inv->cantidad_reservada,
         ]);
+    }
+
+    /**
+     * POST /reserva/variante-entrada
+     * Agrega stock a una variante de tela en fábrica.
+     * Maneja base + variante en una sola operación — no requiere stock base previo.
+     */
+    public function entradaVariante(Request $request)
+    {
+        $data = $request->validate([
+            'variante_id' => 'required|exists:producto_variantes,id',
+            'cantidad'    => 'required|integer|min:1',
+            'motivo'      => 'nullable|string|max:200',
+        ]);
+
+        $fabrica  = $this->fabrica();
+        $variante = ProductoVariante::findOrFail($data['variante_id']);
+
+        DB::transaction(function () use ($data, $fabrica, $variante, $request) {
+            // 1. Asegurar que hay suficiente stock base libre para esta variante
+            $invBase = Inventario::firstOrCreate(
+                ['producto_id' => $variante->producto_id, 'tienda_id' => $fabrica->id],
+                ['cantidad_disponible' => 0, 'cantidad_reservada' => 0, 'stock_minimo' => 0]
+            );
+
+            $totalAsignado = InventarioVariante::where('tienda_id', $fabrica->id)
+                ->whereHas('variante', fn ($q) => $q->where('producto_id', $variante->producto_id)->where('activo', true))
+                ->sum('cantidad_disponible');
+
+            $sinAsignar = $invBase->cantidad_disponible - $totalAsignado;
+
+            if ($sinAsignar < $data['cantidad']) {
+                // Incrementar base automáticamente con lo que falte
+                $invBase->increment('cantidad_disponible', $data['cantidad'] - $sinAsignar);
+            }
+
+            // 2. Incrementar stock de la variante
+            $invVar = InventarioVariante::firstOrCreate(
+                ['variante_id' => $data['variante_id'], 'tienda_id' => $fabrica->id],
+                ['cantidad_disponible' => 0, 'cantidad_reservada' => 0, 'stock_minimo' => 0]
+            );
+            $invVar->increment('cantidad_disponible', $data['cantidad']);
+
+            // 3. Movimiento de inventario
+            InventarioMovimiento::create([
+                'producto_id' => $variante->producto_id,
+                'tienda_id'   => $fabrica->id,
+                'usuario_id'  => $request->user()->id,
+                'tipo'        => 'entrada',
+                'cantidad'    => $data['cantidad'],
+                'motivo'      => $data['motivo'] ?? 'Entrada variante a fábrica',
+            ]);
+        });
+
+        event(new InventarioActualizado($fabrica->id, $variante->producto_id, 'entrada'));
+
+        return response()->json(['ok' => true]);
     }
 
     /** GET /reserva/movimientos/{productoId} — historial de fábrica para un producto */

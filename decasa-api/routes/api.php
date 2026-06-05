@@ -63,6 +63,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('role:supervisor')->group(function () {
         Route::get('/reserva/inventario',                [ReservaController::class, 'inventario']);
         Route::post('/reserva/entrada',                  [ReservaController::class, 'entrada']);
+        Route::post('/reserva/variante-entrada',         [ReservaController::class, 'entradaVariante']);
         Route::post('/reserva/salida',                   [ReservaController::class, 'salida']);
         Route::get('/reserva/movimientos/{productoId}',  [ReservaController::class, 'movimientos'])->whereNumber('productoId');
     });
