@@ -21,6 +21,7 @@ import {
   CurrencyDollarIcon,
   CubeIcon,
   ArrowPathIcon,
+  UserCircleIcon,
 } from '@heroicons/vue/24/outline'
 
 const auth   = useAuthStore()
@@ -88,10 +89,14 @@ const accesosAdmin = computed(() => {
 
 <template>
   <div class="p-4 space-y-4">
-    <div class="bg-blue-600 text-white rounded-2xl p-5">
+    <div
+      class="bg-blue-600 text-white rounded-2xl p-5 relative cursor-pointer active:brightness-90 transition-all"
+      @click="router.push({ name: 'perfil' })"
+    >
       <p class="text-sm opacity-80">Bienvenido</p>
-      <p class="text-xl font-bold">{{ auth.usuario?.nombre }}</p>
+      <p class="text-xl font-bold pr-10">{{ auth.usuario?.nombre }}</p>
       <p class="text-xs opacity-70 mt-1 capitalize">{{ auth.usuario?.rol }}</p>
+      <UserCircleIcon class="w-8 h-8 absolute top-4 right-4 opacity-80" />
     </div>
 
     <div class="grid grid-cols-2 gap-3">
