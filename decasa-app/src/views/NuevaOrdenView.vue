@@ -1477,7 +1477,7 @@ function removeFacturaFoto() {
             >
               <PhotoIcon class="w-5 h-5" />
               Subir foto
-              <input type="file" accept="image/*" capture="environment" class="hidden" @change="onFotoRestauracionForm" />
+              <input type="file" accept="image/*" class="hidden" @change="onFotoRestauracionForm" />
             </label>
           </div>
 
@@ -2008,7 +2008,7 @@ function removeFacturaFoto() {
                 >
                   <PhotoIcon class="w-5 h-5" />
                   Seleccionar foto
-                  <input type="file" accept="image/*" capture="environment" class="hidden" @change="onFotoRestauracionItem(item, $event)" />
+                  <input type="file" accept="image/*" class="hidden" @change="onFotoRestauracionItem(item, $event)" />
                 </label>
               </div>
             </div>
