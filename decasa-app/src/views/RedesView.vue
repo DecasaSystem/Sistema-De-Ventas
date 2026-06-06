@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
@@ -23,7 +23,7 @@ const toast  = useToast()
 const router = useRouter()
 const items   = ref([])
 const tab     = ref('pendiente') // pendiente | tomada | terminada
-const cargando = ref(false)
+const cargando = ref(true)
 const error    = ref('')
 const tomando  = ref(null) // id de la conversación que se está tomando
 

@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { ref, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '@/api'
@@ -21,7 +21,7 @@ const desde    = ref('')
 const hasta    = ref('')
 const ordenes  = ref([])
 const meta     = ref(null)
-const cargando = ref(false)
+const cargando = ref(true)
 const error    = ref('')
 const pagina   = ref(1)
 const mostrarFiltros = ref(false)

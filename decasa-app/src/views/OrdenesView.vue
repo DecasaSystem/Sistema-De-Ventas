@@ -12,7 +12,7 @@ import EmptyState from '@/components/common/EmptyState.vue'
 const router = useRouter()
 
 const ordenes = ref([])
-const loading = ref(false)
+const loading = ref(true)
 const loadingMore = ref(false)
 const hasMore = ref(true)
 const currentPage = ref(1)

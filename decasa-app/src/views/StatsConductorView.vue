@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { Chart } from 'chart.js/auto'
 import api from '@/api'
@@ -30,7 +30,7 @@ function aplicarCustom() {
 }
 
 // ── Datos ─────────────────────────────────────────────────────────────────────
-const loading = ref(false)
+const loading = ref(true)
 const stats   = ref(null)
 
 // ── Canvas ────────────────────────────────────────────────────────────────────

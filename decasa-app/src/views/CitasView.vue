@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
@@ -24,7 +24,7 @@ const auth     = useAuthStore()
 const toast    = useToast()
 const items    = ref([])
 const tab      = ref('activas') // activas | completadas | canceladas
-const cargando = ref(false)
+const cargando = ref(true)
 const editando = ref(null)   // { id, notas }
 
 // Formulario nueva cita manual

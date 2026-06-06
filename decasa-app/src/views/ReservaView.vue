@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { ref, computed, onMounted, nextTick } from 'vue'
 import {
   MagnifyingGlassIcon, PlusIcon, ArchiveBoxIcon,
@@ -17,7 +17,7 @@ const toast = useToast()
 const fabricaId      = ref(null)
 const inventario     = ref([])
 const busqueda       = ref('')
-const loading        = ref(false)
+const loading        = ref(true)
 const currentPage    = ref(1)
 const tieneMas       = ref(false)
 const loadingMore    = ref(false)
