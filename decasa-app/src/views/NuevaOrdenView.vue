@@ -1635,8 +1635,8 @@ function removeFacturaFoto() {
             </div>
           </div>
 
-          <!-- Descuento — solo para ítems del catálogo en stock (no personalizados) -->
-          <div v-if="!item.es_personalizado && item.producto_id" class="flex items-center gap-2">
+          <!-- Descuento — disponible para cualquier ítem con precio definido -->
+          <div v-if="!item._cotizarPrecio" class="flex items-center gap-2">
             <label class="text-xs text-gray-500 flex-shrink-0">Descuento</label>
             <div class="flex items-center gap-1 flex-1">
               <input
