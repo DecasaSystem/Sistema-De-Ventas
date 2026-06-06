@@ -295,6 +295,19 @@ onMounted(async () => {
             </p>
           </div>
 
+          <!-- Motivo de devolución -->
+          <div
+            v-if="paso.ultimo_rechazo"
+            class="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5"
+          >
+            <ExclamationTriangleIcon class="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+            <div class="min-w-0">
+              <p class="text-xs font-semibold text-red-700">Devuelto para corrección</p>
+              <p class="text-xs text-red-600 mt-0.5 leading-snug">{{ paso.ultimo_rechazo }}</p>
+              <p v-if="paso.rechazos > 1" class="text-[10px] text-red-400 mt-1">{{ paso.rechazos }} devoluciones en este paso</p>
+            </div>
+          </div>
+
           <!-- Botones -->
           <div class="flex gap-2">
             <button
