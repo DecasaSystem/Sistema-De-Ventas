@@ -1,9 +1,30 @@
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
 import { detalleEntrega, registrarPagoEntrega, marcarEntregado } from '@/api/despacho'
 import { useToast } from '@/composables/useToast'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import { CheckCircleIcon, MapPinIcon, ClockIcon } from '@heroicons/vue/24/outline'
+
+function compressImage(file, maxWidth = 1280, quality = 0.75) {
+  return new Promise((resolve) => {
+    const img = new Image()
+    const url = URL.createObjectURL(file)
+    img.onload = () => {
+      URL.revokeObjectURL(url)
+      let { width, height } = img
+      if (width > maxWidth) {
+        height = Math.round((height * maxWidth) / width)
+        width = maxWidth
+      }
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      canvas.getContext('2d').drawImage(img, 0, 0, width, height)
+      canvas.toBlob(resolve, 'image/jpeg', quality)
+    }
+    img.src = url
+  })
+}
 
 const props = defineProps({
   despachoItemId: { type: Number, required: true },
@@ -76,31 +97,36 @@ async function cargar(id) {
   }
 }
 
-function onFotoProducto(e) {
+const _blobUrls = []
+function _createPreviewUrl(blob) {
+  const url = URL.createObjectURL(blob)
+  _blobUrls.push(url)
+  return url
+}
+onUnmounted(() => _blobUrls.forEach(u => URL.revokeObjectURL(u)))
+
+async function onFotoProducto(e) {
   const file = e.target.files[0]
   if (!file) return
-  fotoProducto.value = file
-  const reader = new FileReader()
-  reader.onload = (ev) => { fotoProductoPreview.value = ev.target.result }
-  reader.readAsDataURL(file)
+  const blob = await compressImage(file)
+  fotoProducto.value = blob
+  fotoProductoPreview.value = _createPreviewUrl(blob)
 }
 
-function onFotoPago(e) {
+async function onFotoPago(e) {
   const file = e.target.files[0]
   if (!file) return
-  fotoPago.value = file
-  const reader = new FileReader()
-  reader.onload = (ev) => { fotoPagoPreview.value = ev.target.result }
-  reader.readAsDataURL(file)
+  const blob = await compressImage(file)
+  fotoPago.value = blob
+  fotoPagoPreview.value = _createPreviewUrl(blob)
 }
 
-function onFotoAnexo(e) {
+async function onFotoAnexo(e) {
   const file = e.target.files[0]
   if (!file) return
-  fotoAnexo.value = file
-  const reader = new FileReader()
-  reader.onload = (ev) => { fotoAnexoPreview.value = ev.target.result }
-  reader.readAsDataURL(file)
+  const blob = await compressImage(file)
+  fotoAnexo.value = blob
+  fotoAnexoPreview.value = _createPreviewUrl(blob)
 }
 
 async function guardarPagoYEntregar() {
@@ -108,17 +134,17 @@ async function guardarPagoYEntregar() {
   registrando.value = true
   try {
     const fd = new FormData()
-    fd.append('foto_producto', fotoProducto.value)
+    fd.append('foto_producto', fotoProducto.value, 'foto_producto.jpg')
 
     if (tieneSaldo.value) {
       fd.append('monto', monto.value)
       fd.append('metodo', metodo.value)
       if (referencia.value) fd.append('referencia', referencia.value)
-      fd.append('foto_pago', fotoPago.value)
+      fd.append('foto_pago', fotoPago.value, 'foto_pago.jpg')
     } else {
       fd.append('monto', '0')
     }
-    if (fotoAnexo.value) fd.append('foto_anexo', fotoAnexo.value)
+    if (fotoAnexo.value) fd.append('foto_anexo', fotoAnexo.value, 'foto_anexo.jpg')
 
     await registrarPagoEntrega(props.despachoItemId, fd)
     await marcarEntregado(props.despachoItemId)
