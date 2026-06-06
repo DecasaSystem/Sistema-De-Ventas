@@ -1138,7 +1138,7 @@ function removeFacturaFoto() {
               </div>
               <div>
                 <label class="text-xs text-gray-500 mb-1 block">Cédula / NIT <span class="text-red-500">*</span></label>
-                <input v-model="formCompletarCliente.cedula" type="text" placeholder="Ej: 1012345678" class="input" />
+                <input v-model="formCompletarCliente.cedula" type="text" inputmode="numeric" placeholder="Ej: 1012345678" class="input" />
               </div>
               <div>
                 <label class="text-xs text-gray-500 mb-1 block">Teléfono <span class="text-red-500">*</span></label>
@@ -1211,6 +1211,7 @@ function removeFacturaFoto() {
         <input
           v-model="nuevoCliente.cedula"
           class="input"
+          inputmode="numeric"
           :placeholder="nuevoCliente.tipo === 'oficial' ? 'Cédula / NIT *' : 'Cédula / NIT (opcional)'"
         />
         <input
