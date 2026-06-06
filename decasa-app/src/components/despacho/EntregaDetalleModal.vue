@@ -294,9 +294,9 @@ async function guardarPagoYEntregar() {
               <label class="block border-2 border-dashed rounded-xl p-3 text-center cursor-pointer transition-colors"
                 :class="fotoProductoPreview ? 'border-green-400' : 'border-gray-300 hover:border-blue-400'"
               >
-                <input type="file" accept="image/*" capture="environment" class="hidden" @change="onFotoProducto" />
+                <input type="file" accept="image/*" class="hidden" @change="onFotoProducto" />
                 <img v-if="fotoProductoPreview" :src="fotoProductoPreview" class="w-full h-32 object-cover rounded-lg" />
-                <span v-else class="text-sm text-gray-400">📷 Tomar foto del producto entregado</span>
+                <span v-else class="text-sm text-gray-400">📷 Foto del producto entregado</span>
               </label>
             </div>
 
@@ -339,9 +339,9 @@ async function guardarPagoYEntregar() {
                     <label class="block border-2 border-dashed rounded-xl p-3 text-center cursor-pointer transition-colors"
                       :class="fotoPagoPreview ? 'border-green-400' : 'border-gray-300 hover:border-blue-400'"
                     >
-                      <input type="file" accept="image/*" capture="environment" class="hidden" @change="onFotoPago" />
+                      <input type="file" accept="image/*" class="hidden" @change="onFotoPago" />
                       <img v-if="fotoPagoPreview" :src="fotoPagoPreview" class="w-full h-28 object-cover rounded-lg" />
-                      <span v-else class="text-sm text-gray-400">📷 Tomar foto de la factura o transferencia</span>
+                      <span v-else class="text-sm text-gray-400">📷 Foto o pantallazo del comprobante</span>
                     </label>
                   </div>
                 </div>
@@ -363,9 +363,9 @@ async function guardarPagoYEntregar() {
               <label class="block border-2 border-dashed rounded-xl p-3 text-center cursor-pointer transition-colors"
                 :class="fotoAnexoPreview ? 'border-blue-400' : 'border-gray-300 hover:border-blue-400'"
               >
-                <input type="file" accept="image/*" capture="environment" class="hidden" @change="onFotoAnexo" />
+                <input type="file" accept="image/*" class="hidden" @change="onFotoAnexo" />
                 <img v-if="fotoAnexoPreview" :src="fotoAnexoPreview" class="w-full h-28 object-cover rounded-lg" />
-                <span v-else class="text-sm text-gray-400">📋 Tomar foto del anexo firmado</span>
+                <span v-else class="text-sm text-gray-400">📋 Foto del anexo firmado</span>
               </label>
             </div>
 
