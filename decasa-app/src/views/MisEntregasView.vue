@@ -141,7 +141,10 @@ async function cargarMas() {
   await cargarHistorial(historialPage.value + 1, true)
 }
 
-function abrirDetalle(item) { itemActivo.value = item }
+function abrirDetalle(item) {
+  if (infoRutaActiva.value?.despacho?.estado !== 'en_ruta') return
+  itemActivo.value = item
+}
 function cerrarDetalle()    { itemActivo.value = null  }
 
 async function trasEntregar() {
@@ -318,71 +321,94 @@ function pendientesRuta(items) {
       </div>
 
       <!-- Vista de entregas de la ruta seleccionada -->
-      <div v-else class="space-y-3">
+      <div v-else>
 
-        <!-- Banner de la ruta -->
-        <div class="bg-blue-600 rounded-xl p-4 text-white space-y-2">
-          <div class="flex items-center justify-between gap-2">
-            <p class="font-bold text-base">{{ infoRutaActiva?.despacho?.nombre_ruta || 'Ruta de entregas' }}</p>
-            <span class="text-xs text-blue-200 font-medium capitalize">{{ fmtFechaRuta(infoRutaActiva?.despacho?.fecha_despacho) }}</span>
-          </div>
-          <div class="bg-white/15 rounded-lg px-3 py-2 flex items-center justify-between">
-            <span class="text-xs text-blue-100">Total a cobrar</span>
-            <span class="font-bold text-white">
-              ${{ totalRuta(itemsRutaActiva).toLocaleString('es-CO') }}
-            </span>
-          </div>
-          <div v-if="infoRutaActiva?.despacho?.instrucciones" class="bg-white/15 rounded-lg px-3 py-2">
-            <p class="text-xs text-blue-100 font-semibold mb-0.5">Instrucciones</p>
-            <p class="text-sm text-white leading-snug">{{ infoRutaActiva.despacho.instrucciones }}</p>
-          </div>
-          <!-- Botón Empezar dentro del detalle -->
-          <button
-            v-if="puedeIniciar(infoRutaActiva)"
-            @click="iniciarRuta(infoRutaActiva)"
-            :disabled="iniciando"
-            class="w-full flex items-center justify-center gap-2 bg-white text-blue-700 rounded-xl py-2.5 text-sm font-bold hover:bg-blue-50 disabled:opacity-50 transition-colors"
-          >
-            <PlayIcon class="w-4 h-4" />
-            {{ iniciando ? 'Iniciando...' : 'Empezar ruta' }}
-          </button>
-          <p v-else-if="infoRutaActiva?.despacho?.estado === 'en_ruta'" class="text-center text-xs text-green-200 font-semibold py-1">
-            🟢 Ruta en proceso
-          </p>
-        </div>
-
-        <!-- Tarjetas de entrega -->
-        <div
-          v-for="(item, idx) in itemsRutaActiva"
-          :key="item.id"
-          @click="abrirDetalle(item)"
-          class="bg-white rounded-xl p-4 shadow-sm border border-gray-100 active:scale-[0.98] transition-transform cursor-pointer"
+        <!-- Contenedor principal: ruta + entregas agrupadas -->
+        <div class="rounded-2xl overflow-hidden shadow-sm border"
+          :class="infoRutaActiva?.despacho?.estado === 'en_ruta' ? 'border-green-400' : 'border-blue-200'"
         >
-          <div class="flex items-start gap-3">
-            <div class="flex-shrink-0 w-9 h-9 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-sm font-bold">
-              {{ item.posicion ?? idx + 1 }}
+
+          <!-- Banner de la ruta -->
+          <div class="p-4 text-white space-y-2"
+            :class="infoRutaActiva?.despacho?.estado === 'en_ruta'
+              ? 'bg-gradient-to-r from-green-600 to-green-500'
+              : 'bg-gradient-to-r from-blue-600 to-blue-500'"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <p class="font-bold text-base">{{ infoRutaActiva?.despacho?.nombre_ruta || 'Ruta de entregas' }}</p>
+              <span class="text-xs font-medium capitalize opacity-80">{{ fmtFechaRuta(infoRutaActiva?.despacho?.fecha_despacho) }}</span>
             </div>
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center justify-between gap-2 min-w-0">
-                <p class="font-semibold text-gray-900 truncate flex-1 min-w-0">{{ item.orden?.cliente?.nombre }}</p>
-                <BadgeEstado :estado="item.estado" class="flex-shrink-0" />
-              </div>
-              <p class="text-xs text-gray-500 mt-0.5">{{ item.orden?.cliente?.telefono }}</p>
-              <div class="flex items-center gap-1 text-xs text-gray-500 mt-0.5 min-w-0">
-                <MapPinIcon class="w-3.5 h-3.5 flex-shrink-0 text-gray-400" />
-                <span class="truncate">{{ item.orden?.direccion_envio || item.orden?.cliente?.direccion }}</span>
-              </div>
-              <p v-if="item.orden?.items?.length" class="text-xs text-gray-400 mt-1 truncate">
-                {{ item.orden.items.map(i => i.producto?.nombre).filter(Boolean).join(', ') }}
-              </p>
-              <div class="flex items-center gap-3 mt-2 text-sm">
-                <span class="text-gray-600"><MoneyDisplay :amount="item.orden?.valor_total" /></span>
-                <span v-if="item.orden?.saldo_pendiente > 0" class="text-orange-600 text-xs font-medium">
-                  Cobra: <MoneyDisplay :amount="item.orden?.saldo_pendiente" />
-                </span>
+            <div class="bg-white/15 rounded-lg px-3 py-2 flex items-center justify-between">
+              <span class="text-xs opacity-80">Total a cobrar</span>
+              <span class="font-bold">${{ totalRuta(itemsRutaActiva).toLocaleString('es-CO') }}</span>
+            </div>
+            <div v-if="infoRutaActiva?.despacho?.instrucciones" class="bg-white/15 rounded-lg px-3 py-2">
+              <p class="text-xs opacity-70 font-semibold mb-0.5">Instrucciones</p>
+              <p class="text-sm leading-snug">{{ infoRutaActiva.despacho.instrucciones }}</p>
+            </div>
+            <!-- Botón Empezar -->
+            <button
+              v-if="puedeIniciar(infoRutaActiva)"
+              @click="iniciarRuta(infoRutaActiva)"
+              :disabled="iniciando"
+              class="w-full flex items-center justify-center gap-2 bg-white text-blue-700 rounded-xl py-2.5 text-sm font-bold hover:bg-blue-50 disabled:opacity-50 transition-colors"
+            >
+              <PlayIcon class="w-4 h-4" />
+              {{ iniciando ? 'Iniciando...' : 'Empezar ruta' }}
+            </button>
+            <p v-else-if="infoRutaActiva?.despacho?.estado === 'en_ruta'" class="text-center text-xs text-green-100 font-semibold py-0.5">
+              🟢 Ruta en proceso — toca una entrega para registrarla
+            </p>
+          </div>
+
+          <!-- Aviso si la ruta aún no se ha iniciado -->
+          <div v-if="infoRutaActiva?.despacho?.estado !== 'en_ruta'" class="bg-amber-50 px-4 py-2 border-b border-amber-100">
+            <p class="text-xs text-amber-700 font-medium text-center">⚠️ Inicia la ruta para poder registrar entregas</p>
+          </div>
+
+          <!-- Tarjetas de entrega (dentro del mismo contenedor) -->
+          <div class="bg-white divide-y divide-gray-100">
+            <div
+              v-for="(item, idx) in itemsRutaActiva"
+              :key="item.id"
+              @click="abrirDetalle(item)"
+              class="p-4 transition-colors"
+              :class="infoRutaActiva?.despacho?.estado === 'en_ruta'
+                ? 'cursor-pointer active:bg-gray-50'
+                : 'opacity-60 cursor-not-allowed'"
+            >
+              <div class="flex items-start gap-3">
+                <div class="flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold"
+                  :class="item.estado === 'entregado'
+                    ? 'bg-green-100 text-green-700'
+                    : 'bg-blue-100 text-blue-700'"
+                >
+                  {{ item.posicion ?? idx + 1 }}
+                </div>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center justify-between gap-2 min-w-0">
+                    <p class="font-semibold text-gray-900 truncate flex-1 min-w-0">{{ item.orden?.cliente?.nombre }}</p>
+                    <BadgeEstado :estado="item.estado" class="flex-shrink-0" />
+                  </div>
+                  <p class="text-xs text-gray-500 mt-0.5">{{ item.orden?.cliente?.telefono }}</p>
+                  <div class="flex items-center gap-1 text-xs text-gray-500 mt-0.5 min-w-0">
+                    <MapPinIcon class="w-3.5 h-3.5 flex-shrink-0 text-gray-400" />
+                    <span class="truncate">{{ item.orden?.direccion_envio || item.orden?.cliente?.direccion }}</span>
+                  </div>
+                  <p v-if="item.orden?.items?.length" class="text-xs text-gray-400 mt-1 truncate">
+                    {{ item.orden.items.map(i => i.producto?.nombre).filter(Boolean).join(', ') }}
+                  </p>
+                  <div class="flex items-center gap-3 mt-2 text-sm">
+                    <span class="text-gray-600"><MoneyDisplay :amount="item.orden?.valor_total" /></span>
+                    <span v-if="item.orden?.saldo_pendiente > 0" class="text-orange-600 text-xs font-medium">
+                      Cobra: <MoneyDisplay :amount="item.orden?.saldo_pendiente" />
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
+
         </div>
       </div>
     </template>
