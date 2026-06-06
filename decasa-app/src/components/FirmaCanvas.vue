@@ -252,16 +252,17 @@ function cambiarModo(modo) {
           Quitar
         </button>
       </div>
-      <div v-else>
+      <label v-else class="block border-2 border-dashed border-gray-300 rounded-xl p-4 text-center cursor-pointer hover:border-blue-400 transition-colors">
         <input
           ref="archivoRef"
           type="file"
           accept="image/png,image/jpeg,image/jpg"
           @change="onArchivoChange"
-          class="block w-full text-sm text-gray-600 border border-gray-200 rounded-lg cursor-pointer file:border-0 file:bg-gray-50 file:px-3 file:py-2 file:text-sm file:text-gray-700 file:font-medium file:mr-3"
+          class="hidden"
         />
-        <p class="text-xs text-gray-400 mt-1">PNG o JPG, máx. 5 MB</p>
-      </div>
+        <p class="text-sm text-gray-400">📎 Tomar foto o elegir de galería</p>
+        <p class="text-xs text-gray-300 mt-1">PNG o JPG</p>
+      </label>
     </div>
   </div>
 
