@@ -28,7 +28,7 @@ const step = ref(1)
 const tiendas = ref([])
 onMounted(async () => {
   const { data } = await api.get('/tiendas')
-  tiendas.value = data
+  tiendas.value = data.filter(t => !t.es_fabrica)
 })
 
 // ── Paso 1: Cliente ───────────────────────────────────────────────────────────

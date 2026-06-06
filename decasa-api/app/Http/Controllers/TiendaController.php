@@ -8,6 +8,6 @@ class TiendaController extends Controller
 {
     public function index()
     {
-        return response()->json(Tienda::where('activa', true)->where('es_fabrica', false)->get());
+        return response()->json(Tienda::where('activa', true)->get());
     }
 }

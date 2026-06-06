@@ -637,7 +637,7 @@ async function cargarHistorialTraslados() {
 
 onMounted(async () => {
   const { data } = await getTiendas()
-  tiendas.value = data
+  tiendas.value = data.filter(t => !t.es_fabrica)
   cargarRecomendaciones()
   // Vendedor: auto-seleccionar su tienda como origen
   if (auth.usuario?.rol === 'vendedor' && auth.usuario?.tienda_default_id) {
