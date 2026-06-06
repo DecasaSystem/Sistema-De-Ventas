@@ -28,7 +28,7 @@ const step = ref(1)
 const tiendas = ref([])
 onMounted(async () => {
   const { data } = await api.get('/tiendas')
-  tiendas.value = data.filter(t => !t.es_fabrica)
+  tiendas.value = data
 })
 
 // ── Paso 1: Cliente ───────────────────────────────────────────────────────────
@@ -1287,7 +1287,7 @@ function removeFacturaFoto() {
       <div>
         <label class="label">Buscar en</label>
         <select v-model="tiendaBusqueda" @change="productoResultados = []; fabricaStock = {}" class="input text-sm">
-          <option v-for="t in tiendas" :key="t.id" :value="t.id">
+          <option v-for="t in tiendas.filter(t => !t.es_fabrica)" :key="t.id" :value="t.id">
             {{ t.nombre }}{{ t.id == tiendaId ? ' (tu tienda)' : '' }}
           </option>
           <option v-if="fabricaId" :value="fabricaId">Reserva (Fábrica)</option>
