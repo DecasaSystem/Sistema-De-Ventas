@@ -37,5 +37,9 @@ export const useNotificacionesStore = defineStore('notificaciones', () => {
     items.value = []
   }
 
-  return { items, noLeidas, cargar, agregarNueva, leer, leerTodas, eliminar, eliminarTodas }
+  function limpiar() {
+    items.value = []
+  }
+
+  return { items, noLeidas, cargar, agregarNueva, leer, leerTodas, eliminar, eliminarTodas, limpiar }
 })

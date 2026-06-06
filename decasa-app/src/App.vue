@@ -112,7 +112,10 @@ watch(() => auth.isAuthenticated, (isAuth) => {
 
 // WebSockets — espera a que usuario esté cargado (fetchMe) para tener id y rol
 // immediate: true para que conecte aunque el ID ya esté en localStorage al cargar la página
-watch(() => auth.usuario?.id, (id) => {
+watch(() => auth.usuario?.id, (id, oldId) => {
+  if (window.Echo && oldId && oldId !== id) {
+    window.Echo.leaveChannel(`notificaciones.${oldId}`)
+  }
   if (!id || !window.Echo) return
   window.Echo.channel(`notificaciones.${id}`)
     .stopListening('.nueva.notificacion')
@@ -150,7 +153,10 @@ function cargarRedesPendientes() {
     redesPendientes.value = r.data.length
   }).catch(() => {})
 }
-watch(() => auth.usuario?.id, (id) => {
+watch(() => auth.usuario?.id, (id, oldId) => {
+  if (window.Echo && oldId && oldId !== id) {
+    window.Echo.leaveChannel('redes')
+  }
   if (!id) return
   cargarRedesPendientes()
   if (!window.Echo || !auth.tieneAccesoRedes) return
@@ -247,6 +253,7 @@ function irA(name) {
 async function doLogout() {
   await cancelarPush()
   await auth.logout()
+  notif.limpiar()
   router.push({ name: 'login' })
 }
 
