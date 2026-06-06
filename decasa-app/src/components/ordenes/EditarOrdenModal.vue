@@ -21,6 +21,13 @@ const ciudadEnvio    = ref('')
 const items          = ref([])
 const guardando = ref(false)
 
+function precioEfectivo(item) {
+  const base = item.precio_unitario ?? 0
+  const pct  = item._descuento_pct ?? 0
+  if (!pct) return base
+  return Math.round(base * (1 - pct / 100))
+}
+
 const auth       = useAuthStore()
 
 // product search per item
@@ -41,6 +48,7 @@ watch(() => props.show, (v) => {
     producto_nombre: item.producto?.nombre ?? '',
     cantidad: item.cantidad,
     precio_unitario: item.precio_unitario,
+    _descuento_pct: 0,
     fecha_entrega_prom: item.fecha_entrega_prom
       ? String(item.fecha_entrega_prom).substring(0, 10)
       : '',
@@ -115,7 +123,7 @@ async function guardar() {
       items: items.value.map(item => {
         const out = {
           id:               item.id,
-          precio_unitario:  parseFloat(item.precio_unitario),
+          precio_unitario:  precioEfectivo(item),
           fecha_entrega_prom: item.fecha_entrega_prom || null,
         }
         if (item.es_personalizado) {
@@ -243,6 +251,26 @@ async function guardar() {
                   <p v-else class="text-sm text-gray-800 py-2">
                     {{ item.fecha_entrega_prom || '—' }}
                   </p>
+                </div>
+              </div>
+
+              <!-- Descuento -->
+              <div class="flex items-center gap-2">
+                <label class="text-xs text-gray-500 flex-shrink-0">Descuento</label>
+                <div class="flex items-center gap-1 flex-1">
+                  <input
+                    v-model.number="item._descuento_pct"
+                    type="number"
+                    min="0"
+                    max="99"
+                    step="1"
+                    placeholder="0"
+                    class="w-20 rounded-lg border border-gray-300 px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <span class="text-xs text-gray-400">%</span>
+                </div>
+                <div v-if="item._descuento_pct > 0" class="text-xs text-green-700 bg-green-50 px-2 py-1 rounded-lg font-medium flex-shrink-0">
+                  {{ new Intl.NumberFormat('es-CO').format(precioEfectivo(item)) }} c/u
                 </div>
               </div>
 
