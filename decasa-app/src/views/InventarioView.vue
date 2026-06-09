@@ -102,6 +102,13 @@ const gestionFotoInput      = ref(null)
 const gestionFotoLoading    = ref(false)
 const gestionFotoError      = ref('')
 
+// Segunda foto
+const gestionFoto2File       = ref(null)
+const gestionFoto2PreviewUrl = ref('')
+const gestionFoto2Input      = ref(null)
+const gestionFoto2Loading    = ref(false)
+const gestionFoto2Error      = ref('')
+
 function onGestionFotoChange(e) {
   const file = e.target.files[0]
   if (!file) return
@@ -115,6 +122,42 @@ function quitarGestionFoto() {
   gestionFotoFile.value = null
   gestionFotoPreviewUrl.value = ''
   if (gestionFotoInput.value) gestionFotoInput.value.value = ''
+}
+
+function onGestionFoto2Change(e) {
+  const file = e.target.files[0]
+  if (!file) return
+  if (gestionFoto2PreviewUrl.value) URL.revokeObjectURL(gestionFoto2PreviewUrl.value)
+  gestionFoto2File.value = file
+  gestionFoto2PreviewUrl.value = URL.createObjectURL(file)
+}
+
+function quitarGestionFoto2() {
+  if (gestionFoto2PreviewUrl.value) URL.revokeObjectURL(gestionFoto2PreviewUrl.value)
+  gestionFoto2File.value = null
+  gestionFoto2PreviewUrl.value = ''
+  if (gestionFoto2Input.value) gestionFoto2Input.value.value = ''
+}
+
+async function guardarFoto2Producto() {
+  gestionFoto2Error.value = ''
+  gestionFoto2Loading.value = true
+  try {
+    const fd = new FormData()
+    fd.append('foto', gestionFoto2File.value)
+    const { data: upload } = await api.post('/upload/foto', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    await api.patch(`/productos/${itemGestionar.value.producto_id}`, { foto_url_2: upload.url })
+    if (itemGestionar.value.producto) itemGestionar.value.producto.foto_url_2 = upload.url
+    quitarGestionFoto2()
+    toast.success('Segunda foto actualizada.')
+    await cargarInventario(true)
+  } catch (e) {
+    gestionFoto2Error.value = e.response?.data?.message ?? 'Error al subir la foto.'
+  } finally {
+    gestionFoto2Loading.value = false
+  }
 }
 
 async function guardarFotoProducto() {
@@ -373,6 +416,8 @@ function openGestionar(item) {
   quitarStockError.value  = ''
   quitarGestionFoto()
   gestionFotoError.value = ''
+  quitarGestionFoto2()
+  gestionFoto2Error.value = ''
   mostrarGestionar.value = true
 }
 
@@ -1398,6 +1443,45 @@ onMounted(async () => {
                 <div class="text-left">
                   <p class="text-sm font-medium text-gray-700">{{ itemGestionar?.producto?.foto_url ? 'Cambiar foto' : 'Agregar foto' }}</p>
                   <p class="text-xs text-gray-400">JPG, PNG, WEBP · se guarda en Cloudinary</p>
+                </div>
+              </button>
+            </div>
+
+            <!-- Segunda foto (para IA) -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Foto adicional <span class="text-xs font-normal text-gray-400">(para la IA de WhatsApp/Instagram)</span></label>
+              <input ref="gestionFoto2Input" type="file" accept="image/*" class="hidden" @change="onGestionFoto2Change" />
+
+              <div v-if="gestionFoto2PreviewUrl" class="space-y-2">
+                <div class="relative rounded-xl overflow-hidden border-2 border-blue-300 bg-gray-50">
+                  <img :src="gestionFoto2PreviewUrl" alt="Segunda foto" class="w-full object-contain max-h-40" />
+                  <button type="button" @click="quitarGestionFoto2" class="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1.5 shadow-lg">
+                    <XMarkIcon class="w-4 h-4" />
+                  </button>
+                </div>
+                <p v-if="gestionFoto2Error" class="text-xs text-red-600">{{ gestionFoto2Error }}</p>
+                <button
+                  @click="guardarFoto2Producto"
+                  :disabled="gestionFoto2Loading"
+                  class="w-full bg-blue-600 text-white rounded-lg py-2 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                >
+                  {{ gestionFoto2Loading ? 'Subiendo...' : 'Guardar segunda foto' }}
+                </button>
+              </div>
+
+              <button
+                v-else
+                type="button"
+                @click="gestionFoto2Input.click()"
+                class="w-full flex items-center gap-3 border-2 border-dashed border-gray-300 rounded-xl px-4 py-3 hover:border-blue-400 hover:bg-blue-50 transition-colors cursor-pointer"
+              >
+                <div class="w-9 h-9 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0 flex items-center justify-center">
+                  <img v-if="itemGestionar?.producto?.foto_url_2" :src="itemGestionar.producto.foto_url_2" class="w-full h-full object-cover" />
+                  <PhotoIcon v-else class="w-5 h-5 text-gray-300" />
+                </div>
+                <div class="text-left">
+                  <p class="text-sm font-medium text-gray-700">{{ itemGestionar?.producto?.foto_url_2 ? 'Cambiar foto adicional' : 'Agregar foto adicional' }}</p>
+                  <p class="text-xs text-gray-400">JPG, PNG, WEBP · ángulo diferente del producto</p>
                 </div>
               </button>
             </div>

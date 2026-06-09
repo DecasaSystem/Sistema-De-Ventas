@@ -16,6 +16,7 @@ class Producto extends Model
         'es_tapizado',
         'descripcion',
         'foto_url',
+        'foto_url_2',
         'medidas',
         'material',
         'activo',
