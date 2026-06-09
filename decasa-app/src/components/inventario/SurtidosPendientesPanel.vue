@@ -24,6 +24,7 @@ const rechazarLoad  = ref(false)
 // Modal aceptar con cantidades por item
 const modalAceptar  = ref(null)   // SurtidoTienda que se acepta
 const cantidades    = ref({})     // { item.id: cantidad_aceptada }
+const notasAceptar  = ref('')
 const aceptarLoad   = ref(false)
 
 onMounted(() => surtidos.cargarPendientes())
@@ -34,6 +35,7 @@ function toggleAbierto(id) {
 
 function abrirAceptar(st) {
   modalAceptar.value = st
+  notasAceptar.value = ''
   const map = {}
   for (const item of st.items ?? []) {
     map[item.id] = item.cantidad
@@ -44,13 +46,17 @@ function abrirAceptar(st) {
 async function confirmarAceptar() {
   const st = modalAceptar.value
   if (!st) return
+  if (!notasAceptar.value.trim()) {
+    toast.error('La nota de recepción es obligatoria.')
+    return
+  }
   aceptarLoad.value = true
   try {
     const items = (st.items ?? []).map(item => ({
       id: item.id,
       cantidad_aceptada: cantidades.value[item.id] ?? item.cantidad,
     }))
-    await aceptarSurtido(st.id, { items })
+    await aceptarSurtido(st.id, { items, notas_vendedor: notasAceptar.value.trim() })
     surtidos.quitarPendiente(st.id)
     emit('aceptado')
     toast.success(`Surtido #${st.surtido_id} aceptado. Inventario actualizado.`)
@@ -215,6 +221,19 @@ function fmtEspecificaciones(esp) {
             />
           </div>
         </div>
+        <div class="flex-shrink-0 space-y-1">
+          <label class="block text-sm font-semibold text-gray-700">
+            Nota de recepción <span class="text-red-500">*</span>
+          </label>
+          <textarea
+            v-model="notasAceptar"
+            rows="3"
+            placeholder="Describe el estado de los productos recibidos, novedades, cantidades, etc."
+            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 resize-none"
+            :class="{ 'border-red-400': !notasAceptar.trim() && aceptarLoad === false }"
+          />
+          <p class="text-xs text-gray-400">Obligatoria — el supervisor verá esta nota.</p>
+        </div>
         <div class="flex gap-2 flex-shrink-0">
           <button
             @click="modalAceptar = null"
@@ -224,7 +243,7 @@ function fmtEspecificaciones(esp) {
           </button>
           <button
             @click="confirmarAceptar"
-            :disabled="aceptarLoad"
+            :disabled="aceptarLoad || !notasAceptar.trim()"
             class="flex-1 bg-green-600 text-white rounded-lg py-2.5 text-sm font-bold hover:bg-green-700 disabled:opacity-50"
           >
             {{ aceptarLoad ? 'Guardando...' : 'Confirmar' }}

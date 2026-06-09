@@ -195,6 +195,7 @@ class SurtidoController extends Controller
      */
     public function aceptar(Request $request, int $id)
     {
+        $data    = $request->validate(['notas_vendedor' => 'required|string|min:1|max:500']);
         $usuario = $request->user();
 
         $st = SurtidoTienda::with(['surtido.supervisor:id,nombre', 'tienda:id,nombre', 'items'])->findOrFail($id);
@@ -317,8 +318,9 @@ class SurtidoController extends Controller
             }
 
             $st->update([
-                'estado'        => 'aceptado',
-                'respondido_at' => now(),
+                'estado'         => 'aceptado',
+                'notas_vendedor' => $data['notas_vendedor'],
+                'respondido_at'  => now(),
             ]);
 
             $this->recalcularEstadoSurtido($st->surtido_id);
@@ -339,12 +341,13 @@ class SurtidoController extends Controller
             ));
         } catch (\Throwable) {}
 
+        $notaTexto = $data['notas_vendedor'];
         NotificacionService::crear(
             'surtido_aceptado',
             $aceptadoParcial ? 'Surtido aceptado parcialmente' : 'Surtido aceptado',
             $aceptadoParcial
-                ? "{$st->tienda->nombre} aceptó parcialmente el surtido #{$st->surtido_id}. Algunos items llegaron con menos cantidad."
-                : "{$st->tienda->nombre} confirmó la recepción del surtido #{$st->surtido_id} (validado por {$usuario->nombre})",
+                ? "{$st->tienda->nombre} aceptó parcialmente el surtido #{$st->surtido_id}. Nota: {$notaTexto}"
+                : "{$st->tienda->nombre} confirmó la recepción del surtido #{$st->surtido_id} ({$usuario->nombre}). Nota: {$notaTexto}",
             ['surtido_id' => $st->surtido_id],
             $supervisor->id,
         );

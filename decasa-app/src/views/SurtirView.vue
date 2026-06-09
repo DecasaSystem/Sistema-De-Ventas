@@ -1691,8 +1691,11 @@ onMounted(async () => {
                     <span class="font-bold text-gray-700">× {{ item.cantidad }}</span>
                   </div>
                 </div>
-                <p v-if="st.notas_vendedor" class="px-3 pb-2 text-xs text-red-600 italic">
+                <p v-if="st.notas_vendedor && st.estado === 'rechazado'" class="px-3 pb-2 text-xs text-red-600 italic">
                   Motivo rechazo: "{{ st.notas_vendedor }}"
+                </p>
+                <p v-else-if="st.notas_vendedor && st.estado === 'aceptado'" class="px-3 pb-2 text-xs text-green-700 italic">
+                  Nota de recepción: "{{ st.notas_vendedor }}"
                 </p>
               </div>
 
