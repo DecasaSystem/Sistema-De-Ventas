@@ -8,9 +8,9 @@ class ProductoVariante extends Model
 {
     protected $table = 'producto_variantes';
 
-    protected $fillable = ['producto_id', 'marca', 'marca_tela', 'nombre_color', 'foto_url', 'activo'];
+    protected $fillable = ['producto_id', 'marca', 'marca_tela', 'nombre_color', 'medida', 'precio_variante', 'foto_url', 'activo'];
 
-    protected $casts = ['activo' => 'boolean'];
+    protected $casts = ['activo' => 'boolean', 'precio_variante' => 'decimal:2'];
 
     public function producto()
     {

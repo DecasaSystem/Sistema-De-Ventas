@@ -14,6 +14,7 @@ class Producto extends Model
         'precio_base',
         'personalizable',
         'es_tapizado',
+        'tiene_tallas',
         'descripcion',
         'foto_url',
         'foto_url_2',
@@ -28,6 +29,7 @@ class Producto extends Model
             'precio_base'    => 'decimal:2',
             'personalizable' => 'boolean',
             'es_tapizado'    => 'boolean',
+            'tiene_tallas'   => 'boolean',
             'activo'         => 'boolean',
         ];
     }

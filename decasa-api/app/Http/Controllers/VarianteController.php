@@ -72,10 +72,12 @@ class VarianteController extends Controller
     public function store(Request $request, int $productoId)
     {
         $data = $request->validate([
-            'marca'        => 'nullable|string|max:100',
-            'marca_tela'   => 'required|string|max:100',
-            'nombre_color' => 'required|string|max:100',
-            'foto_url'     => 'nullable|string|max:500',
+            'marca'           => 'nullable|string|max:100',
+            'marca_tela'      => 'required_without:medida|nullable|string|max:100',
+            'nombre_color'    => 'required_without:medida|nullable|string|max:100',
+            'medida'          => 'nullable|string|max:50',
+            'precio_variante' => 'nullable|numeric|min:0',
+            'foto_url'        => 'nullable|string|max:500',
         ]);
 
         $user = $request->user();
@@ -90,12 +92,14 @@ class VarianteController extends Controller
 
         $variante = DB::transaction(function () use ($productoId, $data) {
             $v = ProductoVariante::create([
-                'producto_id'  => $productoId,
-                'marca'        => $data['marca'] ?? null,
-                'marca_tela'   => $data['marca_tela'],
-                'nombre_color' => $data['nombre_color'],
-                'foto_url'     => $data['foto_url'] ?? null,
-                'activo'       => true,
+                'producto_id'     => $productoId,
+                'marca'           => $data['marca'] ?? null,
+                'marca_tela'      => $data['marca_tela'] ?? null,
+                'nombre_color'    => $data['nombre_color'] ?? null,
+                'medida'          => $data['medida'] ?? null,
+                'precio_variante' => $data['precio_variante'] ?? null,
+                'foto_url'        => $data['foto_url'] ?? null,
+                'activo'          => true,
             ]);
 
             // Auto-crear inventario_variantes en cada tienda donde existe el producto
@@ -142,7 +146,7 @@ class VarianteController extends Controller
 
         $baseDisponible = $baseInv?->cantidad_disponible ?? 0;
         if ($baseDisponible === 0) {
-            abort(422, 'Agrega primero stock base a este producto en esta tienda antes de asignar variantes de tela.');
+            abort(422, 'Agrega primero stock base a este producto en esta tienda antes de asignar variantes.');
         }
 
         $totalAsignado = InventarioVariante::where('tienda_id', $data['tienda_id'])
@@ -151,7 +155,7 @@ class VarianteController extends Controller
 
         $sinAsignar = $baseDisponible - $totalAsignado;
         if ($data['cantidad'] > $sinAsignar) {
-            abort(422, "Solo hay {$sinAsignar} unidad(es) sin asignar tela en esta tienda (stock base: {$baseDisponible}, ya asignadas a variantes: {$totalAsignado}).");
+            abort(422, "Solo hay {$sinAsignar} unidad(es) sin asignar en esta tienda (stock base: {$baseDisponible}, ya asignadas a variantes: {$totalAsignado}).");
         }
 
         $inv = InventarioVariante::firstOrCreate(
@@ -169,7 +173,7 @@ class VarianteController extends Controller
             'variante_id'  => $data['variante_id'],
             'tipo'         => 'entrada',
             'cantidad'     => $data['cantidad'],
-            'motivo'       => $data['motivo'] ?? "Entrada variante: " . implode(' · ', array_filter([$variante->marca, $variante->marca_tela, $variante->nombre_color])),
+            'motivo'       => $data['motivo'] ?? "Entrada variante: " . implode(' · ', array_filter([$variante->medida, $variante->marca, $variante->marca_tela, $variante->nombre_color])),
             'usuario_id'   => $user->id,
         ]);
 

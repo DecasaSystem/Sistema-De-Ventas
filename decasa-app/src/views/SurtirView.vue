@@ -84,7 +84,7 @@ function agregarDesdeRecom(prod) {
         foto_url:  prod.foto_url,
       },
       cantidad: 1,
-      especificaciones: { marca: '', tela: '', color: '', medidas: '', acabado: '' },
+      especificaciones: { marca: '', tela: '', color: '', medidas: '', acabado: '', medida: '' },
     })
   }
 }
@@ -92,6 +92,10 @@ function agregarDesdeRecom(prod) {
 // ── Telas — solo para productos tapizados ────────────────────────────────────
 function necesitaTela(prod) {
   return !!prod?.es_tapizado
+}
+
+function necesitaTalla(prod) {
+  return !!prod?.tiene_tallas
 }
 
 // ── Telas — opciones en cascada ───────────────────────────────────────────────
@@ -195,8 +199,8 @@ const cargandoVariantesFab     = ref(false)
 const selecVariantesFab        = ref({})      // { variante_id: cantidad }
 
 async function agregarProducto(prod) {
-  if (desdeFabrica.value && prod.es_tapizado) {
-    // Tapizado desde fábrica → mostrar picker de variantes
+  if (desdeFabrica.value && (prod.es_tapizado || prod.tiene_tallas)) {
+    // Tapizado / talla desde fábrica → mostrar picker de variantes
     prodParaVariantes.value    = prod
     selecVariantesFab.value    = {}
     cargandoVariantesFab.value = true
@@ -212,7 +216,7 @@ async function agregarProducto(prod) {
   }
   // Producto sin variante o no es fábrica — flujo normal
   if (productosAgr.value.some(p => p.producto.id === prod.id && !p._variante_id)) return
-  productosAgr.value.push({ producto: prod, cantidad: 1, especificaciones: { marca: '', tela: '', color: '', medidas: '', acabado: '' } })
+  productosAgr.value.push({ producto: prod, cantidad: 1, especificaciones: { marca: '', tela: '', color: '', medidas: '', acabado: '', medida: '' } })
   busquedaProd.value = ''
 }
 
@@ -237,20 +241,19 @@ function confirmarVariantesFab() {
     const vid = parseInt(vidStr)
     const v   = variantesFabrica.value.find(x => x.id === vid)
     if (!v) return
+    const esTalla = !!v.medida
     const yaEsta = productosAgr.value.some(p => p.producto.id === prod.id && p._variante_id === vid)
     if (!yaEsta) {
       productosAgr.value.push({
         producto: prod,
         _variante_id: vid,
-        _variante_label: [v.marca, v.marca_tela, v.nombre_color].filter(Boolean).join(' · '),
+        _variante_label: esTalla
+          ? v.medida
+          : [v.marca, v.marca_tela, v.nombre_color].filter(Boolean).join(' · '),
         cantidad: Math.max(1, cant),
-        especificaciones: {
-          marca:   v.marca        ?? '',
-          tela:    v.marca_tela   ?? '',
-          color:   v.nombre_color ?? '',
-          medidas: '',
-          acabado: '',
-        },
+        especificaciones: esTalla
+          ? { marca: '', tela: '', color: '', medidas: '', acabado: '', medida: v.medida }
+          : { marca: v.marca ?? '', tela: v.marca_tela ?? '', color: v.nombre_color ?? '', medidas: '', acabado: '', medida: '' },
       })
     }
   })
@@ -1005,6 +1008,20 @@ onMounted(async () => {
                     class="mt-0.5"
                     @update:model-value="v => item.especificaciones.color = v"
                   />
+                </div>
+              </template>
+
+              <!-- Talla — solo para productos con tallas (ej: colchones) -->
+              <template v-else-if="necesitaTalla(item.producto)">
+                <div>
+                  <label class="text-[11px] font-medium text-gray-500">Talla / Medida</label>
+                  <input
+                    v-model="item.especificaciones.medida"
+                    type="text"
+                    placeholder="Ej: 1.00 x 1.80, 1.40 x 1.90…"
+                    class="mt-0.5 w-full rounded border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                  <p class="text-[10px] text-gray-400 mt-0.5">El precio varía por talla. Verifica la lista de precios.</p>
                 </div>
               </template>
 
@@ -1774,7 +1791,13 @@ onMounted(async () => {
               <!-- Info variante -->
               <div class="flex-1 min-w-0">
                 <p class="text-sm font-medium text-gray-800 truncate">
-                  {{ [v.marca, v.marca_tela, v.nombre_color].filter(Boolean).join(' · ') || 'Sin especificación' }}
+                  <template v-if="v.medida">
+                    {{ v.medida }}
+                    <span v-if="v.precio_variante" class="text-blue-600 ml-1">— ${{ (Number(v.precio_variante) / 1000).toFixed(0) }}k</span>
+                  </template>
+                  <template v-else>
+                    {{ [v.marca, v.marca_tela, v.nombre_color].filter(Boolean).join(' · ') || 'Sin especificación' }}
+                  </template>
                 </p>
                 <p class="text-xs text-purple-600 font-semibold">{{ v.stock_libre }} disponibles</p>
               </div>

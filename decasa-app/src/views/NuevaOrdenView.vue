@@ -354,7 +354,7 @@ const fabricaVarianteSeleccionada  = ref(null)
 const cargandoFabricaVariantes     = ref(false)
 
 async function tomarDeFabrica(producto) {
-  if (producto.es_tapizado) {
+  if (producto.es_tapizado || producto.tiene_tallas) {
     fabricaVariantesProd.value        = producto
     fabricaVarianteSeleccionada.value = null
     cargandoFabricaVariantes.value    = true
@@ -379,7 +379,9 @@ function confirmarFabricaVariante() {
 
 function _pushItemFabrica(producto, variante) {
   const varianteLabel = variante
-    ? [variante.marca, variante.marca_tela, variante.nombre_color].filter(Boolean).join(' · ')
+    ? (variante.medida
+        ? variante.medida
+        : [variante.marca, variante.marca_tela, variante.nombre_color].filter(Boolean).join(' · '))
     : null
 
   const existe = items.value.find(i =>
@@ -400,7 +402,7 @@ function _pushItemFabrica(producto, variante) {
     stock_libre: variante ? (variante.stock_libre ?? 0) : (fabricaStock.value[producto.id] ?? 0),
     personalizable: producto.personalizable ?? false,
     cantidad: 1,
-    precio_unitario: producto.precio_base ?? 0,
+    precio_unitario: (variante?.precio_variante != null ? Number(variante.precio_variante) : null) ?? producto.precio_base ?? 0,
     es_personalizado: false,
     specs: {},
     specs_notas: '',
@@ -461,7 +463,9 @@ function _pushItem(producto, variante) {
     : stockLibre(producto)
 
   const varianteLabel = variante
-    ? [variante.marca, variante.marca_tela, variante.nombre_color].filter(Boolean).join(' · ')
+    ? (variante.medida
+        ? variante.medida
+        : [variante.marca, variante.marca_tela, variante.nombre_color].filter(Boolean).join(' · '))
     : null
 
   const existe = items.value.find((i) =>
@@ -479,7 +483,7 @@ function _pushItem(producto, variante) {
     stock_libre: stockL,
     personalizable: producto.personalizable ?? false,
     cantidad: 1,
-    precio_unitario: producto.precio_base ?? 0,
+    precio_unitario: (variante?.precio_variante != null ? Number(variante.precio_variante) : null) ?? producto.precio_base ?? 0,
     es_personalizado: false,
     specs: {},
     specs_notas: '',
@@ -2432,8 +2436,9 @@ function removeFacturaFoto() {
         <div v-if="cargandoVariantes" class="text-center py-6 text-gray-400 text-sm">Cargando variantes...</div>
 
         <div v-else class="space-y-2">
-          <!-- Opción sin variante -->
+          <!-- Opción sin variante (solo para tapizado, no para tallas) -->
           <button
+            v-if="!productoParaVariante?.tiene_tallas"
             @click="varianteSeleccionada = null"
             :class="['w-full text-left px-3 py-2.5 rounded-xl border text-sm transition-colors',
               varianteSeleccionada === null
@@ -2457,13 +2462,21 @@ function removeFacturaFoto() {
                   ? 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
                   : 'border-gray-100 bg-gray-50 text-gray-300 cursor-not-allowed']"
           >
-            <template v-if="v.marca">
-              <span class="text-xs text-gray-400">{{ v.marca }}</span>
-              <span class="text-gray-300 mx-1">·</span>
+            <template v-if="v.medida">
+              <span class="font-medium">{{ v.medida }}</span>
+              <span v-if="v.precio_variante" class="text-xs ml-2 font-semibold text-blue-600">
+                ${{ (Number(v.precio_variante) / 1000).toFixed(0) }}k
+              </span>
             </template>
-            <span class="font-medium">{{ v.marca_tela }}</span>
-            <span class="text-gray-400 mx-1">·</span>
-            {{ v.nombre_color }}
+            <template v-else>
+              <template v-if="v.marca">
+                <span class="text-xs text-gray-400">{{ v.marca }}</span>
+                <span class="text-gray-300 mx-1">·</span>
+              </template>
+              <span class="font-medium">{{ v.marca_tela }}</span>
+              <span class="text-gray-400 mx-1">·</span>
+              {{ v.nombre_color }}
+            </template>
             <span :class="['text-xs ml-2 font-semibold', v.stock_libre > 0 ? 'text-green-600' : 'text-red-400']">
               {{ v.stock_libre > 0 ? `${v.stock_libre} disponible${v.stock_libre > 1 ? 's' : ''}` : 'Sin stock' }}
             </span>
@@ -2509,13 +2522,21 @@ function removeFacturaFoto() {
                 ? 'border-purple-500 bg-purple-50 text-purple-700 font-medium'
                 : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50']"
           >
-            <template v-if="v.marca">
-              <span class="text-xs text-gray-400">{{ v.marca }}</span>
-              <span class="text-gray-300 mx-1">·</span>
+            <template v-if="v.medida">
+              <span class="font-medium">{{ v.medida }}</span>
+              <span v-if="v.precio_variante" class="text-xs ml-2 font-semibold text-blue-600">
+                ${{ (Number(v.precio_variante) / 1000).toFixed(0) }}k
+              </span>
             </template>
-            <span class="font-medium">{{ v.marca_tela }}</span>
-            <span class="text-gray-400 mx-1">·</span>
-            {{ v.nombre_color }}
+            <template v-else>
+              <template v-if="v.marca">
+                <span class="text-xs text-gray-400">{{ v.marca }}</span>
+                <span class="text-gray-300 mx-1">·</span>
+              </template>
+              <span class="font-medium">{{ v.marca_tela }}</span>
+              <span class="text-gray-400 mx-1">·</span>
+              {{ v.nombre_color }}
+            </template>
             <span class="text-xs ml-2 font-semibold text-green-600">
               {{ v.stock_libre }} en fábrica
             </span>

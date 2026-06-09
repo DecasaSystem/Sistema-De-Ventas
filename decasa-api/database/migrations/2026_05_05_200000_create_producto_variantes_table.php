@@ -11,8 +11,8 @@ return new class extends Migration
         Schema::create('producto_variantes', function (Blueprint $table) {
             $table->id();
             $table->foreignId('producto_id')->constrained('productos')->onDelete('cascade');
-            $table->string('marca_tela', 100);
-            $table->string('nombre_color', 100);
+            $table->string('marca_tela', 100)->nullable();
+            $table->string('nombre_color', 100)->nullable();
             $table->string('foto_url', 500)->nullable();
             $table->boolean('activo')->default(true);
             $table->timestamps();
