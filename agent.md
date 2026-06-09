@@ -135,9 +135,10 @@ UNION ALL SELECT 'salarios_cargo', COUNT(*) FROM salarios_cargo
 UNION ALL SELECT 'tarifas_proceso', COUNT(*) FROM tarifas_proceso
 UNION ALL SELECT 'inventario', COUNT(*) FROM inventario
 UNION ALL SELECT 'usuarios', COUNT(*) FROM usuarios;
+UNION ALL SELECT 'configuracion', COUNT(*) FROM configuracion;
 ```
 Esperado aprox.: tiendas=**5**, productos=208, materiales=621, fichas=306, items=4666,
-salarios=4, tarifas=16, inventario=**1040**, usuarios=**1**.
+salarios=4, tarifas=16, inventario=**1040**, usuarios=**1**, configuracion=**19**.
 
 ```sql
 -- Verificar tiendas correctas
@@ -241,6 +242,8 @@ pero se documentan aquí para referencia.
 | `add_fuente_fabrica_to_surtidos` | columna `fuente_fabrica` BOOL en `surtidos` |
 | `add_cantidad_aceptada_to_items` | columna `cantidad_aceptada` en `traslado_items` y `surtido_items` |
 | `create_v_saldo_ordenes_view` | vista `v_saldo_ordenes` usada por reportes y stats |
+| `add_foto_url_2_to_productos` *(nueva, jun-09)* | columna `foto_url_2` nullable en `productos`; permite 2ª imagen para IAs de WS/IG |
+| `create_configuracion_table` *(nueva, jun-09)* | crea tabla `configuracion` Y la siembra con los 19 registros iniciales (datos empresa + URLs catálogos Google Drive) — **no necesita importación manual** |
 
 ---
 
