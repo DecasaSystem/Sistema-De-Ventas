@@ -907,13 +907,6 @@ onMounted(async () => {
       </div>
     </Transition>
 
-    <!-- Sin tienda seleccionada -->
-    <EmptyState
-      v-if="!tiendaId"
-      message="Selecciona una tienda para ver el inventario."
-      icon="ArchiveBoxIcon"
-    />
-
     <!-- Indicador vista global -->
     <div v-if="esVistaGlobal" class="flex items-center gap-2 bg-blue-50 rounded-lg px-3 py-2">
       <ArchiveBoxIcon class="w-4 h-4 text-blue-500 flex-shrink-0" />
