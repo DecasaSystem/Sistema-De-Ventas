@@ -33,10 +33,10 @@ const route = useRoute()
 const auth = useAuthStore()
 
 const tiendas = ref([])
-const tiendaId = ref('')
+const tiendaId = ref(auth.usuario?.tienda_default_id ?? '')
 const inventario = ref([])
 const busqueda = ref('')
-const loading = ref(true)
+const loading = ref(!!auth.usuario?.tienda_default_id)
 const currentPage = ref(1)
 const lastPage = ref(1)
 const tieneMas = ref(false)
@@ -669,8 +669,7 @@ async function tPendConfirmarRechazar() {
 onMounted(async () => {
   await cargarTiendas()
   cargarTrasladosPendientes()
-  if (auth.usuario?.tienda_default_id) {
-    tiendaId.value = auth.usuario.tienda_default_id
+  if (tiendaId.value) {
     await cargarInventario(true)
   }
 
