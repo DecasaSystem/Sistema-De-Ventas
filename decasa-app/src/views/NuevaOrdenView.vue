@@ -2466,7 +2466,7 @@ function removeFacturaFoto() {
             <template v-if="v.medida">
               <span class="font-medium">{{ v.medida }}</span>
               <span v-if="v.precio_variante" class="text-xs ml-2 font-semibold text-blue-600">
-                ${{ (Number(v.precio_variante) / 1000).toFixed(0) }}k
+                ${{ Number(v.precio_variante).toLocaleString('es-CO') }}
               </span>
             </template>
             <template v-else>
@@ -2527,7 +2527,7 @@ function removeFacturaFoto() {
             <template v-if="v.medida">
               <span class="font-medium">{{ v.medida }}</span>
               <span v-if="v.precio_variante" class="text-xs ml-2 font-semibold text-blue-600">
-                ${{ (Number(v.precio_variante) / 1000).toFixed(0) }}k
+                ${{ Number(v.precio_variante).toLocaleString('es-CO') }}
               </span>
             </template>
             <template v-else>

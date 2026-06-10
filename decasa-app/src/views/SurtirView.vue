@@ -1793,7 +1793,7 @@ onMounted(async () => {
                 <p class="text-sm font-medium text-gray-800 truncate">
                   <template v-if="v.medida">
                     {{ v.medida }}
-                    <span v-if="v.precio_variante" class="text-blue-600 ml-1">— ${{ (Number(v.precio_variante) / 1000).toFixed(0) }}k</span>
+                    <span v-if="v.precio_variante" class="text-blue-600 ml-1">— ${{ Number(v.precio_variante).toLocaleString('es-CO') }}</span>
                   </template>
                   <template v-else>
                     {{ [v.marca, v.marca_tela, v.nombre_color].filter(Boolean).join(' · ') || 'Sin especificación' }}
