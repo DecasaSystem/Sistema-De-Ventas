@@ -167,17 +167,16 @@ async function buscarProductos(term) {
     const params = { search: term, limit: 10 }
     if (desdeFabrica.value && fabricaId.value) params.tienda_id = fabricaId.value
     const { data } = await api.get('/productos', { params })
+    if (busquedaProd.value.trim() !== term) return  // respuesta tardía, ignorar
     const yaAgregados = new Set(productosAgr.value.map(p => p.producto.id))
     let lista = (Array.isArray(data) ? data : (data.data ?? []))
       .filter(p => !yaAgregados.has(p.id))
       .map(p => markRaw(p))
 
     if (desdeFabrica.value) {
-      // Solo mostrar los que tienen stock libre en fábrica
       lista = lista.filter(p => (p.stock_disponible ?? 0) - (p.stock_reservado ?? 0) > 0)
       lista.forEach(p => { fabricaStockMap.value[p.id] = (p.stock_disponible ?? 0) - (p.stock_reservado ?? 0) })
     } else if (fabricaId.value && lista.length) {
-      // Mostrar badge de fábrica aunque se busque en otra fuente
       const ids = lista.map(p => p.id)
       const { data: stocks } = await getReservaStockLote(ids)
       fabricaStockMap.value = stocks
@@ -199,13 +198,13 @@ const cargandoVariantesFab     = ref(false)
 const selecVariantesFab        = ref({})      // { variante_id: cantidad }
 
 async function agregarProducto(prod) {
+  resultados.value = []
+  busquedaProd.value = ''
   if (desdeFabrica.value && (prod.es_tapizado || prod.tiene_tallas)) {
-    // Tapizado / talla desde fábrica → mostrar picker de variantes
     prodParaVariantes.value    = prod
     selecVariantesFab.value    = {}
     cargandoVariantesFab.value = true
     mostrarVariantesFabrica.value = true
-    busquedaProd.value = ''
     try {
       const { data } = await getVariantes(prod.id, fabricaId.value)
       variantesFabrica.value = data.filter(v => v.stock_libre > 0)
@@ -214,10 +213,8 @@ async function agregarProducto(prod) {
     }
     return
   }
-  // Producto sin variante o no es fábrica — flujo normal
   if (productosAgr.value.some(p => p.producto.id === prod.id && !p._variante_id)) return
   productosAgr.value.push({ producto: prod, cantidad: 1, especificaciones: { marca: '', tela: '', color: '', medidas: '', acabado: '', medida: '' } })
-  busquedaProd.value = ''
 }
 
 function toggleVarianteFab(v) {
