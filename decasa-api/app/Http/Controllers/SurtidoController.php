@@ -216,7 +216,7 @@ class SurtidoController extends Controller
             ? Tienda::where('es_fabrica', true)->value('id')
             : null;
 
-        DB::transaction(function () use ($st, $usuario, $fabricaId, $cantidadesMap) {
+        DB::transaction(function () use ($st, $usuario, $fabricaId, $cantidadesMap, $data) {
             foreach ($st->items as $item) {
                 $cantAceptada = $cantidadesMap->has($item->id)
                     ? min($cantidadesMap[$item->id], $item->cantidad)
