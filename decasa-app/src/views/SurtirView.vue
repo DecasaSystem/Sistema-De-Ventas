@@ -98,6 +98,24 @@ function necesitaTalla(prod) {
   return !!prod?.tiene_tallas
 }
 
+const variantesTallaMap = ref({})  // { producto_id: variante[] }
+
+async function cargarTallas(prodId) {
+  if (variantesTallaMap.value[prodId]) return
+  try {
+    const { data } = await getVariantes(prodId)
+    variantesTallaMap.value[prodId] = data.filter(v => v.medida)
+  } catch {}
+}
+
+function tallaSeleccionadaPrecio(item) {
+  const pid = item.producto.id
+  const medida = item.especificaciones.medida
+  if (!medida || !variantesTallaMap.value[pid]) return null
+  const v = variantesTallaMap.value[pid].find(x => x.medida === medida)
+  return v?.precio_variante ? Number(v.precio_variante) : null
+}
+
 // ── Telas — opciones en cascada ───────────────────────────────────────────────
 const _todosTipos = (() => {
   const s = new Set()
@@ -263,6 +281,10 @@ function quitarProducto(idx) {
 
 function toggleEspec(idx) {
   especAbiertos.value[idx] = !especAbiertos.value[idx]
+  if (especAbiertos.value[idx]) {
+    const item = productosAgr.value[idx]
+    if (item?.producto?.tiene_tallas) cargarTallas(item.producto.id)
+  }
 }
 
 const paso1Valido    = computed(() => productosAgr.value.length > 0 && productosAgr.value.every(p => p.cantidad >= 1))
@@ -927,7 +949,7 @@ onMounted(async () => {
         <div
           v-for="(item, idx) in productosAgr"
           :key="`${item.producto.id}-${item._variante_id ?? idx}`"
-          v-memo="[item.cantidad, !!especAbiertos[idx], item.especificaciones.marca, item.especificaciones.tela, item.especificaciones.color, item.especificaciones.medidas, item.especificaciones.acabado, item.especificaciones.medida]"
+          v-memo="[item.cantidad, !!especAbiertos[idx], item.especificaciones.marca, item.especificaciones.tela, item.especificaciones.color, item.especificaciones.medidas, item.especificaciones.acabado, item.especificaciones.medida, variantesTallaMap[item.producto.id]?.length]"
           class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden"
         >
           <!-- Fila principal -->
@@ -1012,13 +1034,17 @@ onMounted(async () => {
               <template v-else-if="necesitaTalla(item.producto)">
                 <div>
                   <label class="text-[11px] font-medium text-gray-500">Talla / Medida</label>
-                  <input
-                    v-model="item.especificaciones.medida"
-                    type="text"
+                  <ComboInput
+                    :model-value="item.especificaciones.medida"
+                    :options="(variantesTallaMap[item.producto.id] ?? []).map(v => v.medida)"
                     placeholder="Ej: 1.00 x 1.80, 1.40 x 1.90…"
-                    class="mt-0.5 w-full rounded border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    class="mt-0.5"
+                    @update:model-value="v => item.especificaciones.medida = v"
                   />
-                  <p class="text-[10px] text-gray-400 mt-0.5">El precio varía por talla. Verifica la lista de precios.</p>
+                  <p v-if="tallaSeleccionadaPrecio(item)" class="text-[10px] text-purple-600 mt-0.5 font-medium">
+                    Precio: ${{ tallaSeleccionadaPrecio(item).toLocaleString('es-CO') }}
+                  </p>
+                  <p v-else class="text-[10px] text-gray-400 mt-0.5">El precio varía por talla.</p>
                 </div>
               </template>
 
