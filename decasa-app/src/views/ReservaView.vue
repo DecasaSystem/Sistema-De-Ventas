@@ -59,6 +59,8 @@ const mostrarNuevaVariante  = ref(false)
 const nuevaVarianteProdId   = ref(null)
 const nuevaVarianteCant     = ref(1)
 const formVariante          = ref({ marca: '', marcaManual: '', marca_tela: '', telaManual: '', nombre_color: '', colorManual: '' })
+const varianteTipoTalla     = ref(false)
+const formVarianteTalla     = ref({ medida: '', precio_variante: '' })
 const varianteCreandoLoad   = ref(false)
 const varianteCreandoError  = ref('')
 
@@ -74,38 +76,60 @@ const marcaFinal  = computed(() => formVariante.value.marca === 'Otro'      ? fo
 const telaFinal   = computed(() => formVariante.value.marca_tela === 'Otro' ? formVariante.value.telaManual   : formVariante.value.marca_tela)
 const colorFinal  = computed(() => formVariante.value.nombre_color === 'Otro'? formVariante.value.colorManual  : formVariante.value.nombre_color)
 
-function abrirNuevaVariante(productoId) {
+function abrirNuevaVariante(productoId, esTalla = false) {
   nuevaVarianteProdId.value  = productoId
+  varianteTipoTalla.value    = !!esTalla
   nuevaVarianteCant.value    = 1
   formVariante.value         = { marca: '', marcaManual: '', marca_tela: '', telaManual: '', nombre_color: '', colorManual: '' }
+  formVarianteTalla.value    = { medida: '', precio_variante: '' }
   varianteCreandoError.value = ''
   mostrarNuevaVariante.value = true
 }
 
 async function guardarNuevaVariante() {
   varianteCreandoError.value = ''
-  if (!marcaFinal.value || !telaFinal.value || !colorFinal.value) {
-    varianteCreandoError.value = 'Completa todos los campos: marca, tipo de tela y color.'
-    return
-  }
   if (!nuevaVarianteCant.value || nuevaVarianteCant.value < 1) {
     varianteCreandoError.value = 'Ingresa una cantidad válida.'
     return
   }
+
+  if (varianteTipoTalla.value) {
+    if (!formVarianteTalla.value.medida.trim()) {
+      varianteCreandoError.value = 'Ingresa la talla o medida.'
+      return
+    }
+    varianteCreandoLoad.value = true
+    try {
+      const { data: nuevaVariante } = await crearVariante(nuevaVarianteProdId.value, {
+        medida: formVarianteTalla.value.medida.trim(),
+        precio_variante: formVarianteTalla.value.precio_variante || null,
+      })
+      await addReservaVarianteStock({ variante_id: nuevaVariante.id, cantidad: nuevaVarianteCant.value })
+      toast.success('Variante de talla creada y stock agregado.')
+      mostrarNuevaVariante.value = false
+      const { data } = await getVariantes(nuevaVarianteProdId.value, fabricaId.value)
+      variantesReserva.value[nuevaVarianteProdId.value] = data
+      await cargarInventario(true)
+    } catch (e) {
+      varianteCreandoError.value = e.response?.data?.message ?? 'Error al crear la variante.'
+    } finally {
+      varianteCreandoLoad.value = false
+    }
+    return
+  }
+
+  if (!marcaFinal.value || !telaFinal.value || !colorFinal.value) {
+    varianteCreandoError.value = 'Completa todos los campos: marca, tipo de tela y color.'
+    return
+  }
   varianteCreandoLoad.value = true
   try {
-    // 1. Crear la variante
     const { data: nuevaVariante } = await crearVariante(nuevaVarianteProdId.value, {
       marca: marcaFinal.value, marca_tela: telaFinal.value, nombre_color: colorFinal.value,
     })
-    // 2. Agregar stock en fábrica
-    await addReservaVarianteStock({
-      variante_id: nuevaVariante.id,
-      cantidad: nuevaVarianteCant.value,
-    })
+    await addReservaVarianteStock({ variante_id: nuevaVariante.id, cantidad: nuevaVarianteCant.value })
     toast.success('Variante creada y stock agregado a fábrica.')
     mostrarNuevaVariante.value = false
-    // Recargar variantes y base stock
     const { data } = await getVariantes(nuevaVarianteProdId.value, fabricaId.value)
     variantesReserva.value[nuevaVarianteProdId.value] = data
     await cargarInventario(true)
@@ -150,7 +174,7 @@ async function cargarInventario(reset = false) {
     currentPage.value = data.current_page
     tieneMas.value = data.current_page < data.last_page
     // Cargar variantes para tapizados
-    nextTick(() => inventario.value.forEach(i => { if (i.producto?.es_tapizado) cargarVariantes(i) }))
+    nextTick(() => inventario.value.forEach(i => { if (i.producto?.es_tapizado || i.producto?.tiene_tallas) cargarVariantes(i) }))
   } catch {
     if (reset) inventario.value = []
   } finally {
@@ -358,9 +382,9 @@ onMounted(async () => {
             </button>
           </div>
 
-          <!-- Variantes tapizado -->
-          <div v-if="item.producto?.es_tapizado" class="border-t border-gray-100 pt-2">
-            <p class="text-xs font-medium text-purple-700 mb-2">Variantes de tela/color en fábrica</p>
+          <!-- Variantes tapizado / talla -->
+          <div v-if="item.producto?.es_tapizado || item.producto?.tiene_tallas" class="border-t border-gray-100 pt-2">
+            <p class="text-xs font-medium text-purple-700 mb-2">{{ item.producto?.tiene_tallas ? 'Variantes por talla en fábrica' : 'Variantes de tela/color en fábrica' }}</p>
             <div v-if="varianteCargando[item.producto_id]" class="text-xs text-gray-400">Cargando...</div>
             <template v-else-if="variantesReserva[item.producto_id]">
               <div class="flex flex-wrap gap-1.5">
@@ -370,15 +394,18 @@ onMounted(async () => {
                   @click="abrirStockVariante(v, item.producto_id)"
                   :class="['px-2.5 py-1 rounded-full text-xs font-medium border transition-colors',
                     v.stock_libre > 0 ? 'bg-green-50 border-green-300 text-green-800' : 'bg-gray-50 border-gray-200 text-gray-400']"
-                  :title="[v.marca, v.marca_tela, v.nombre_color].filter(Boolean).join(' · ') + ' — clic para agregar stock'"
+                  :title="(item.producto?.tiene_tallas ? v.medida : [v.marca, v.marca_tela, v.nombre_color].filter(Boolean).join(' · ')) + ' — clic para agregar stock'"
                 >
-                  {{ v.marca_tela }} · {{ v.nombre_color }}
+                  <template v-if="item.producto?.tiene_tallas">
+                    {{ v.medida }}<span v-if="v.precio_variante" class="ml-1 opacity-70">${{ Number(v.precio_variante).toLocaleString('es-CO') }}</span>
+                  </template>
+                  <template v-else>{{ v.marca_tela }} · {{ v.nombre_color }}</template>
                   <span class="ml-1 font-bold">{{ v.stock_libre ?? 0 }}</span>
                 </button>
                 <span v-if="!variantesReserva[item.producto_id]?.length" class="text-xs text-gray-400 italic">Sin variantes registradas</span>
               </div>
               <button
-                @click="abrirNuevaVariante(item.producto_id)"
+                @click="abrirNuevaVariante(item.producto_id, item.producto?.tiene_tallas)"
                 class="text-xs text-purple-600 font-medium hover:text-purple-800 mt-1"
               >+ Nueva variante</button>
             </template>
@@ -478,10 +505,31 @@ onMounted(async () => {
         <div class="absolute inset-0 bg-black/40" />
         <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-3">
           <div class="flex items-center justify-between">
-            <h3 class="text-base font-bold text-gray-800">Nueva variante de tela</h3>
+            <h3 class="text-base font-bold text-gray-800">{{ varianteTipoTalla ? 'Nueva talla' : 'Nueva variante de tela' }}</h3>
             <button @click="mostrarNuevaVariante = false" class="text-gray-400 text-2xl leading-none">&times;</button>
           </div>
 
+          <!-- Formulario talla -->
+          <template v-if="varianteTipoTalla">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Talla / Medida *</label>
+              <input v-model="formVarianteTalla.medida" type="text" placeholder="Ej: 1.00 x 1.90"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Precio de venta (opcional)</label>
+              <input v-model.number="formVarianteTalla.precio_variante" type="number" min="0" placeholder="Ej: 850000"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Cantidad en fábrica *</label>
+              <input v-model.number="nuevaVarianteCant" type="number" min="1"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
+            </div>
+          </template>
+
+          <!-- Formulario tela -->
+          <template v-else>
           <!-- Marca -->
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">Marca fabricante *</label>
@@ -534,6 +582,7 @@ onMounted(async () => {
             <input v-model.number="nuevaVarianteCant" type="number" min="1"
               class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
           </div>
+          </template><!-- /v-else formulario tela -->
 
           <p v-if="varianteCreandoError" class="text-xs text-red-600">{{ varianteCreandoError }}</p>
           <div class="flex gap-3 pt-1">
@@ -556,7 +605,7 @@ onMounted(async () => {
             <div>
               <h3 class="text-base font-bold text-gray-800">Agregar stock de variante</h3>
               <p class="text-xs text-gray-500 mt-0.5">
-                {{ [varianteStockItem?.variante?.marca, varianteStockItem?.variante?.marca_tela, varianteStockItem?.variante?.nombre_color].filter(Boolean).join(' · ') }}
+                {{ varianteStockItem?.variante?.medida ?? [varianteStockItem?.variante?.marca, varianteStockItem?.variante?.marca_tela, varianteStockItem?.variante?.nombre_color].filter(Boolean).join(' · ') }}
               </p>
             </div>
             <button @click="mostrarStockVariante = false" class="text-gray-400 text-2xl leading-none">&times;</button>

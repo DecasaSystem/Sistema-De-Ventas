@@ -45,6 +45,7 @@ class ReservaController extends Controller
                 'productos.foto_url as prod_foto_url',
                 'productos.precio_base as prod_precio_base',
                 'productos.es_tapizado as prod_es_tapizado',
+                'productos.tiene_tallas as prod_tiene_tallas',
                 DB::raw('COALESCE(inventario.id, 0) as inv_id'),
                 DB::raw('COALESCE(inventario.cantidad_disponible, 0) as cantidad_disponible'),
                 DB::raw('COALESCE(inventario.cantidad_reservada, 0) as cantidad_reservada'),
@@ -70,7 +71,8 @@ class ReservaController extends Controller
                 'categoria'  => $row->prod_categoria,
                 'foto_url'    => $row->prod_foto_url,
                 'precio_base' => (float) $row->prod_precio_base,
-                'es_tapizado' => (bool) $row->prod_es_tapizado,
+                'es_tapizado'  => (bool) $row->prod_es_tapizado,
+                'tiene_tallas' => (bool) $row->prod_tiene_tallas,
             ];
             return $row;
         });
