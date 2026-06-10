@@ -1372,12 +1372,20 @@ function removeFacturaFoto() {
 
             <!-- Botones de acción -->
             <div class="flex items-center gap-1.5">
-              <!-- Con stock en tienda -->
+              <!-- Productos con tallas: botón siempre visible (stock real está en variantes) -->
               <button
-                v-if="stockLibre(p) > 0"
+                v-if="p.tiene_tallas"
                 @click="agregarItem(p)"
                 class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors"
-              >+ Agregar</button>
+              >Seleccionar talla</button>
+
+              <!-- Productos normales: solo con stock -->
+              <template v-else-if="stockLibre(p) > 0">
+                <button
+                  @click="agregarItem(p)"
+                  class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                >+ Agregar</button>
+              </template>
 
               <!-- Sin stock en tienda -->
               <template v-else>
@@ -2455,11 +2463,11 @@ function removeFacturaFoto() {
             v-for="v in variantesDisponibles"
             :key="v.id"
             @click="varianteSeleccionada = v"
-            :disabled="!v.personalizable && v.stock_libre <= 0"
+            :disabled="!productoParaVariante?.tiene_tallas && !v.personalizable && v.stock_libre <= 0"
             :class="['w-full text-left px-3 py-2.5 rounded-xl border text-sm transition-colors',
               varianteSeleccionada?.id === v.id
                 ? 'border-blue-500 bg-blue-50 text-blue-700 font-medium'
-                : v.stock_libre > 0
+                : (productoParaVariante?.tiene_tallas || v.stock_libre > 0)
                   ? 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
                   : 'border-gray-100 bg-gray-50 text-gray-300 cursor-not-allowed']"
           >
@@ -2478,7 +2486,7 @@ function removeFacturaFoto() {
               <span class="text-gray-400 mx-1">·</span>
               {{ v.nombre_color }}
             </template>
-            <span :class="['text-xs ml-2 font-semibold', v.stock_libre > 0 ? 'text-green-600' : 'text-red-400']">
+            <span :class="['text-xs ml-2 font-semibold', v.stock_libre > 0 ? 'text-green-600' : productoParaVariante?.tiene_tallas ? 'text-gray-400' : 'text-red-400']">
               {{ v.stock_libre > 0 ? `${v.stock_libre} disponible${v.stock_libre > 1 ? 's' : ''}` : 'Sin stock' }}
             </span>
           </button>
