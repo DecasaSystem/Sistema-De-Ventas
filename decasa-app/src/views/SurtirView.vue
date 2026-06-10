@@ -150,7 +150,7 @@ function onTelaChange(item, v) {
 }
 
 // ── Tabs ─────────────────────────────────────────────────────────────────────
-const tabActivo = ref('nuevo')  // 'nuevo' | 'historial'
+const tabActivo = ref(auth.usuario?.rol === 'vendedor' ? 'traslado' : 'nuevo')
 
 // ── Wizard paso ──────────────────────────────────────────────────────────────
 const paso = ref(1)
@@ -660,11 +660,10 @@ async function cargarHistorialTraslados() {
 onMounted(async () => {
   const { data } = await getTiendas()
   tiendas.value = data.filter(t => !t.es_fabrica)
-  cargarRecomendaciones()
-  // Vendedor: auto-seleccionar su tienda como origen
   if (auth.usuario?.rol === 'vendedor' && auth.usuario?.tienda_default_id) {
     await tSeleccionarOrigen(auth.usuario.tienda_default_id)
-    tabActivo.value = 'traslado'
+  } else {
+    cargarRecomendaciones()
   }
 })
 </script>
