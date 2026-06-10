@@ -73,7 +73,7 @@ async function switchTab(id) {
 }
 
 // ── Datos ─────────────────────────────────────────────────────────────────────
-const loading    = ref(false)
+const loading    = ref(true)
 const panel      = ref(null)
 const tendencia  = ref(null)
 const vendedores = ref([])
