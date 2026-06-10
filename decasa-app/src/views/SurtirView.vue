@@ -930,7 +930,7 @@ onMounted(async () => {
         <div
           v-for="(item, idx) in productosAgr"
           :key="`${item.producto.id}-${item._variante_id ?? idx}`"
-          v-memo="[item.cantidad, !!especAbiertos[idx], item.especificaciones.marca, item.especificaciones.tela, item.especificaciones.color, item.especificaciones.medidas, item.especificaciones.acabado]"
+          v-memo="[item.cantidad, !!especAbiertos[idx], item.especificaciones.marca, item.especificaciones.tela, item.especificaciones.color, item.especificaciones.medidas, item.especificaciones.acabado, item.especificaciones.medida]"
           class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden"
         >
           <!-- Fila principal -->
@@ -1239,7 +1239,7 @@ onMounted(async () => {
             >
               <span class="flex-1 text-gray-700 font-medium truncate">{{ item.nombre }}</span>
               <span v-if="item.especificaciones" class="text-gray-400 truncate max-w-[140px]">
-                {{ [item.especificaciones.marca, item.especificaciones.tela, item.especificaciones.color, item.especificaciones.medidas, item.especificaciones.acabado].filter(Boolean).join(' · ') }}
+                {{ [item.especificaciones.medida, item.especificaciones.marca, item.especificaciones.tela, item.especificaciones.color, item.especificaciones.medidas, item.especificaciones.acabado].filter(Boolean).join(' · ') }}
               </span>
               <span class="font-bold text-green-700 flex-shrink-0">× {{ item.cantidad }}</span>
             </div>

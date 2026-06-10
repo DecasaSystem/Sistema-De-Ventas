@@ -433,9 +433,9 @@ const cargandoVariantes = ref(false)
 const varianteSeleccionada = ref(null)
 
 async function agregarItem(producto) {
-  // Si tiene variantes en la tienda de búsqueda, abrir picker
+  // Si tiene variantes o requiere talla, abrir picker
   const tiendaConsulta = tiendaBusqueda.value || tiendaId.value
-  if (producto.variantes?.length > 0) {
+  if (producto.variantes?.length > 0 || producto.tiene_tallas || producto.es_tapizado) {
     productoParaVariante.value = producto
     varianteSeleccionada.value = null
     cargandoVariantes.value = true
@@ -452,6 +452,7 @@ async function agregarItem(producto) {
 }
 
 function confirmarVariante() {
+  if (productoParaVariante.value?.tiene_tallas && !varianteSeleccionada.value) return
   _pushItem(productoParaVariante.value, varianteSeleccionada.value)
   mostrarVariantePicker.value = false
 }
@@ -2489,7 +2490,8 @@ function removeFacturaFoto() {
 
         <button
           @click="confirmarVariante"
-          class="w-full bg-blue-600 text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-blue-700"
+          :disabled="!!(productoParaVariante?.tiene_tallas && !varianteSeleccionada)"
+          class="w-full bg-blue-600 text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
         >
           Agregar al carrito
         </button>

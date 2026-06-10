@@ -54,6 +54,7 @@ class InventarioController extends Controller
                 'productos.foto_url as prod_foto_url',
                 'productos.personalizable as prod_personalizable',
                 'productos.es_tapizado as prod_es_tapizado',
+                'productos.tiene_tallas as prod_tiene_tallas',
                 'productos.descripcion as prod_descripcion',
             )
             ->orderBy('productos.nombre');
@@ -77,6 +78,7 @@ class InventarioController extends Controller
                 'foto_url'       => $inv->prod_foto_url,
                 'personalizable' => (bool) $inv->prod_personalizable,
                 'es_tapizado'    => (bool) $inv->prod_es_tapizado,
+                'tiene_tallas'   => (bool) $inv->prod_tiene_tallas,
                 'descripcion'    => $inv->prod_descripcion,
                 'activo'         => true,
             ];
@@ -100,6 +102,7 @@ class InventarioController extends Controller
                 'productos.foto_url',
                 'productos.personalizable',
                 'productos.es_tapizado',
+                'productos.tiene_tallas',
                 'productos.descripcion',
                 DB::raw('COALESCE(SUM(inventario.cantidad_disponible), 0) as cantidad_disponible'),
                 DB::raw('COALESCE(SUM(inventario.cantidad_reservada), 0) as cantidad_reservada'),
@@ -113,6 +116,7 @@ class InventarioController extends Controller
                 'productos.foto_url',
                 'productos.personalizable',
                 'productos.es_tapizado',
+                'productos.tiene_tallas',
                 'productos.descripcion',
             );
 
@@ -147,6 +151,7 @@ class InventarioController extends Controller
                         'foto_url'       => $inv->foto_url,
                         'personalizable' => (bool) $inv->personalizable,
                         'es_tapizado'    => (bool) $inv->es_tapizado,
+                        'tiene_tallas'   => (bool) $inv->tiene_tallas,
                         'descripcion'    => $inv->descripcion,
                         'activo'         => true,
                     ],
