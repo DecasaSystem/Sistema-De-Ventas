@@ -1372,22 +1372,15 @@ function removeFacturaFoto() {
 
             <!-- Botones de acción -->
             <div class="flex items-center gap-1.5">
-              <!-- Productos con tallas: botón siempre visible (stock real está en variantes) -->
-              <button
-                v-if="p.tiene_tallas"
-                @click="agregarItem(p)"
-                class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors"
-              >Seleccionar talla</button>
-
-              <!-- Productos normales: solo con stock -->
-              <template v-else-if="stockLibre(p) > 0">
+              <!-- Con stock O tiene variantes de talla/tela -->
+              <template v-if="stockLibre(p) > 0 || p.variantes?.length > 0 || p.es_tapizado || p.tiene_tallas">
                 <button
                   @click="agregarItem(p)"
                   class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors"
-                >+ Agregar</button>
+                >{{ p.tiene_tallas ? 'Seleccionar talla' : '+ Agregar' }}</button>
               </template>
 
-              <!-- Sin stock en tienda -->
+              <!-- Sin stock y sin variantes -->
               <template v-else>
                 <button
                   @click="fabricarBajoPedido(p)"
