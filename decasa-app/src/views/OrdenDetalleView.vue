@@ -361,7 +361,7 @@ const itemsConProduccion = computed(() =>
 )
 
 function labelProceso(tipo) {
-  return { ebanisteria: 'Ebanistería', tapizado: 'Tapizado', laca: 'Laca' }[tipo] ?? tipo
+  return { ebanisteria: 'Ebanistería', tapizado: 'Tapizado', laca: 'Laca', esqueleteria: 'Esqueletería', pintura: 'Pintura', costura: 'Costura' }[tipo] ?? tipo
 }
 
 function colorPaso(estado) {
