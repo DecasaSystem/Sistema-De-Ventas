@@ -254,9 +254,9 @@ function agregarItemRestauracion() {
     specs_notas: '',
     tienda_origen: null,
     fecha_entrega_prometida: null,
-    boceto_blob:    f.foto_blob    ?? null,
-    boceto_url:     '',
-    boceto_preview: f.foto_preview ?? null,
+    boceto_blobs:    f.foto_blob    ? [f.foto_blob]    : [],
+    boceto_urls:     f.foto_blob    ? ['']             : [],
+    boceto_previews: f.foto_preview ? [f.foto_preview] : [],
     _cotizarPrecio:      true,
     _mostrarCalculadora: false,
     _calculandoPrecio:   false,
@@ -292,9 +292,9 @@ function agregarProductoCustom() {
     specs_notas: '',
     tienda_origen: null,
     fecha_entrega_prometida: null,
-    boceto_blob: null,
-    boceto_url: '',
-    boceto_preview: null,
+    boceto_blobs: [],
+    boceto_urls: [],
+    boceto_previews: [],
     _cotizarPrecio:      true,
     _mostrarCalculadora: false,
     _calculandoPrecio:   false,
@@ -408,9 +408,9 @@ function _pushItemFabrica(producto, variante) {
     specs_notas: '',
     tienda_origen: 'Fábrica',
     fecha_entrega_prometida: null,
-    boceto_blob: null,
-    boceto_url: '',
-    boceto_preview: null,
+    boceto_blobs: [],
+    boceto_urls: [],
+    boceto_previews: [],
     _fabricar_pedido:    false,
     _cotizarPrecio:      false,
     _descuento_pct:      0,
@@ -490,9 +490,9 @@ function _pushItem(producto, variante) {
     specs_notas: '',
     tienda_origen: esOtraTienda ? nombreTiendaBusqueda() : null,
     fecha_entrega_prometida: null,
-    boceto_blob: null,
-    boceto_url: '',
-    boceto_preview: null,
+    boceto_blobs: [],
+    boceto_urls: [],
+    boceto_previews: [],
     _fabricar_pedido:    false,
     _cotizarPrecio:      false,
     _descuento_pct:      0,
@@ -527,9 +527,9 @@ function fabricarBajoPedido(producto) {
     specs_notas: '',
     tienda_origen: null,
     fecha_entrega_prometida: null,
-    boceto_blob: null,
-    boceto_url: '',
-    boceto_preview: null,
+    boceto_blobs: [],
+    boceto_urls: [],
+    boceto_previews: [],
     _fabricar_pedido:    true,
     _esTapizado:         producto.es_tapizado ?? false,
     _cotizarPrecio:      false,
@@ -564,9 +564,9 @@ function agregarPersonalizado(producto) {
     specs_notas:         '',
     tienda_origen:       null,
     fecha_entrega_prometida: null,
-    boceto_blob:         null,
-    boceto_url:          '',
-    boceto_preview:      null,
+    boceto_blobs:        [],
+    boceto_urls:         [],
+    boceto_previews:     [],
     _fabricar_pedido:    false,
     _cotizarPrecio:      true,
     _mostrarCalculadora: false,
@@ -581,24 +581,37 @@ function agregarPersonalizado(producto) {
 
 function quitarItem(idx) {
   const item = items.value[idx]
-  if (item.boceto_preview) URL.revokeObjectURL(item.boceto_preview)
+  item.boceto_previews.forEach(p => { if (p) URL.revokeObjectURL(p) })
   items.value.splice(idx, 1)
 }
 
 function onBocetoUpdate(item, blob) {
-  if (item.boceto_preview) URL.revokeObjectURL(item.boceto_preview)
-  item.boceto_blob    = blob
-  item.boceto_url     = ''
-  item.boceto_preview = blob ? URL.createObjectURL(blob) : null
+  if (item.boceto_previews[0]) URL.revokeObjectURL(item.boceto_previews[0])
+  if (blob) {
+    item.boceto_blobs[0]    = blob
+    item.boceto_urls[0]     = ''
+    item.boceto_previews[0] = URL.createObjectURL(blob)
+  } else {
+    item.boceto_blobs.splice(0, 1)
+    item.boceto_urls.splice(0, 1)
+    item.boceto_previews.splice(0, 1)
+  }
 }
 
-function onFotoRestauracionItem(item, event) {
-  const file = event.target.files[0]
-  if (!file) return
-  if (item.boceto_preview) URL.revokeObjectURL(item.boceto_preview)
-  item.boceto_blob    = file
-  item.boceto_preview = URL.createObjectURL(file)
-  item.boceto_url     = ''
+function onAgregarFotosItem(item, event) {
+  for (const file of event.target.files) {
+    item.boceto_blobs.push(file)
+    item.boceto_urls.push('')
+    item.boceto_previews.push(URL.createObjectURL(file))
+  }
+  event.target.value = ''
+}
+
+function onQuitarFotoItem(item, idx) {
+  if (item.boceto_previews[idx]) URL.revokeObjectURL(item.boceto_previews[idx])
+  item.boceto_blobs.splice(idx, 1)
+  item.boceto_urls.splice(idx, 1)
+  item.boceto_previews.splice(idx, 1)
 }
 
 // ── Picker de tela cascada: Marca → Tipo → Color (igual que en Inventario) ────
@@ -632,13 +645,13 @@ async function calcularPrecioIA(item) {
   item._calculandoPrecio = true
   item._precioCalc = null
   try {
-    // Subir boceto ahora si aún no tiene URL (para que la IA lo vea)
-    if (item.boceto_blob && !item.boceto_url) {
+    // Subir primera foto ahora si aún no tiene URL (para que la IA lo vea)
+    if (item.boceto_blobs[0] && !item.boceto_urls[0]) {
       const fd = new FormData()
-      fd.append('foto', item.boceto_blob, 'boceto.png')
+      fd.append('foto', item.boceto_blobs[0], 'boceto.png')
       fd.append('folder', 'bocetos')
       const { data: up } = await api.post('/upload/foto', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-      item.boceto_url = up.url
+      item.boceto_urls[0] = up.url
     }
 
     // Restauración: parámetros específicos del servicio
@@ -648,7 +661,7 @@ async function calcularPrecioIA(item) {
         nombre:    item.nombre,
         trabajo:   item.specs?.descripcion_trabajo || '',
         cantidad:  item.cantidad,
-        boceto_url: item.boceto_url || null,
+        boceto_url: item.boceto_urls[0] || null,
       })
       item._precioCalc = data
     } else {
@@ -671,7 +684,7 @@ async function calcularPrecioIA(item) {
         precio_referencia: item._precioReferencia ? Number(item._precioReferencia) : null,
         precio_base:       item.producto_id && item.precio_unitario ? item.precio_unitario : null,
         ...dims,
-        boceto_url:        item.boceto_url || null,
+        boceto_url:        item.boceto_urls[0] || null,
       })
       item._precioCalc = data
     }
@@ -817,16 +830,20 @@ async function submit() {
       subiendoFactura.value = false
     }
 
-    // Bocetos de ítems personalizados: subir los que tengan blob pendiente
+    // Bocetos/fotos de ítems personalizados: subir los que tengan blob pendiente
     for (const item of items.value) {
-      if (item.es_personalizado && item.boceto_blob && !item.boceto_url) {
-        const fd = new FormData()
-        fd.append('foto', item.boceto_blob, 'boceto.png')
-        fd.append('folder', 'bocetos')
-        const { data: uploadData } = await api.post('/upload/foto', fd, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-        })
-        item.boceto_url = uploadData.url
+      if (item.es_personalizado) {
+        for (let fi = 0; fi < item.boceto_blobs.length; fi++) {
+          if (item.boceto_blobs[fi] && !item.boceto_urls[fi]) {
+            const fd = new FormData()
+            fd.append('foto', item.boceto_blobs[fi], fi === 0 ? 'boceto.png' : `boceto_${fi}.png`)
+            fd.append('folder', 'bocetos')
+            const { data: uploadData } = await api.post('/upload/foto', fd, {
+              headers: { 'Content-Type': 'multipart/form-data' },
+            })
+            item.boceto_urls[fi] = uploadData.url
+          }
+        }
       }
     }
 
@@ -891,7 +908,9 @@ async function submit() {
               return Object.keys(s).length ? s : undefined
             })()
           : undefined,
-        boceto_url:              i.es_personalizado && i.boceto_url ? i.boceto_url : undefined,
+        boceto_urls:             i.es_personalizado && i.boceto_urls.some(Boolean)
+          ? i.boceto_urls.filter(Boolean)
+          : undefined,
       })),
     }
 
@@ -1025,7 +1044,7 @@ function removeFacturaFoto() {
       <!-- Tienda -->
       <div>
         <label class="label">Tienda</label>
-        <select v-if="auth.isSupervisor" v-model="tiendaId" class="input">
+        <select v-if="auth.isSupervisor || auth.isEbanista" v-model="tiendaId" class="input">
           <option value="">Seleccionar...</option>
           <option v-for="t in tiendas" :key="t.id" :value="t.id">{{ t.nombre }}</option>
         </select>
@@ -1944,79 +1963,92 @@ function removeFacturaFoto() {
             </div>
           </template>
 
-          <!-- Boceto (venta) / Foto (restauración) -->
+          <!-- Boceto (venta) / Fotos (restauración) -->
           <template v-if="item.es_personalizado">
 
-            <!-- Modo venta: canvas de boceto -->
+            <!-- Modo venta: boceto + fotos adicionales -->
             <div v-if="tipoOrden !== 'restauracion'" class="space-y-1.5">
-              <div class="flex items-center justify-between">
-                <p class="text-xs font-medium text-purple-700">
-                  Boceto del producto
-                  <span class="text-gray-400 font-normal">(opcional)</span>
-                </p>
-                <button
-                  v-if="item.boceto_preview"
-                  type="button"
-                  @click="onBocetoUpdate(item, null)"
-                  class="text-xs text-red-500 hover:underline"
-                >Quitar boceto</button>
+              <p class="text-xs font-medium text-purple-700">
+                Boceto / Fotos
+                <span class="text-gray-400 font-normal">(opcional)</span>
+              </p>
+
+              <!-- Grid de fotos cuando hay al menos una -->
+              <div v-if="item.boceto_previews.length" class="grid grid-cols-3 gap-1.5">
+                <div
+                  v-for="(preview, fi) in item.boceto_previews"
+                  :key="fi"
+                  class="relative aspect-square"
+                >
+                  <img
+                    :src="preview"
+                    class="w-full h-full rounded-lg border-2 border-purple-200 object-cover bg-white"
+                  />
+                  <button
+                    type="button"
+                    @click="onQuitarFotoItem(item, fi)"
+                    class="absolute top-1 right-1 bg-white rounded-full p-0.5 shadow text-red-400 hover:text-red-600"
+                  ><XMarkIcon class="w-3.5 h-3.5" /></button>
+                </div>
               </div>
-              <div v-if="item.boceto_preview" class="relative">
-                <img
-                  :src="item.boceto_preview"
-                  alt="Boceto"
-                  class="w-full rounded-lg border-2 border-purple-300 object-contain bg-white"
-                  style="max-height: 200px;"
-                />
-                <button
-                  type="button"
-                  @click="onBocetoUpdate(item, null)"
-                  class="absolute bottom-2 right-2 text-xs text-gray-500 bg-white border border-gray-200 rounded-md px-2 py-1 hover:bg-gray-50 shadow-sm"
-                >Re-dibujar</button>
-              </div>
+
+              <!-- Canvas de boceto cuando no hay foto en el slot 0 -->
               <BocetoCanvas
-                v-else
-                :modelValue="item.boceto_blob"
+                v-if="!item.boceto_previews[0]"
+                :modelValue="item.boceto_blobs[0] ?? null"
                 @update:modelValue="onBocetoUpdate(item, $event)"
               />
+
+              <!-- Agregar fotos -->
+              <label class="flex items-center justify-center gap-1.5 border border-dashed border-purple-200 rounded-lg py-2 text-xs text-purple-500 cursor-pointer hover:border-purple-400 hover:text-purple-700 transition-colors">
+                <PhotoIcon class="w-4 h-4" />
+                {{ item.boceto_previews.length ? 'Agregar otra foto' : 'Subir foto' }}
+                <input type="file" accept="image/*" multiple class="hidden" @change="onAgregarFotosItem(item, $event)" />
+              </label>
             </div>
 
-            <!-- Modo restauración: descripción + foto simple -->
-            <div v-else class="space-y-2">
+            <!-- Modo restauración: fotos múltiples -->
+            <div v-else class="space-y-1.5">
               <div
                 v-if="item.specs?.descripcion_trabajo"
                 class="text-xs text-indigo-700 font-medium bg-indigo-50 rounded-lg px-3 py-2"
               >
                 Trabajo: {{ item.specs.descripcion_trabajo }}
               </div>
-              <div class="space-y-1">
-                <p class="text-xs font-medium text-gray-600">
-                  Foto del mueble <span class="font-normal text-gray-400">(opcional)</span>
-                </p>
-                <div v-if="item.boceto_preview" class="relative">
-                  <img
-                    :src="item.boceto_preview"
-                    alt="Foto mueble"
-                    class="w-full rounded-xl object-cover border border-gray-200"
-                    style="max-height: 180px;"
-                  />
+              <p class="text-xs font-medium text-gray-600">
+                Fotos del mueble <span class="font-normal text-gray-400">(opcional)</span>
+              </p>
+
+              <!-- Grid con fotos + botón agregar inline -->
+              <div v-if="item.boceto_previews.length" class="grid grid-cols-3 gap-1.5">
+                <div
+                  v-for="(preview, fi) in item.boceto_previews"
+                  :key="fi"
+                  class="relative aspect-square"
+                >
+                  <img :src="preview" class="w-full h-full rounded-xl object-cover border border-gray-200" />
                   <button
                     type="button"
-                    @click="onBocetoUpdate(item, null)"
-                    class="absolute top-2 right-2 bg-white rounded-full p-1 shadow text-red-400"
-                  >
-                    <XMarkIcon class="w-4 h-4" />
-                  </button>
+                    @click="onQuitarFotoItem(item, fi)"
+                    class="absolute top-1 right-1 bg-white rounded-full p-0.5 shadow text-red-400"
+                  ><XMarkIcon class="w-3.5 h-3.5" /></button>
                 </div>
-                <label
-                  v-else
-                  class="flex items-center justify-center gap-2 border-2 border-dashed border-gray-200 rounded-xl py-5 text-sm text-gray-400 cursor-pointer hover:border-indigo-300 hover:text-indigo-500 transition-colors"
-                >
+                <label class="flex flex-col items-center justify-center aspect-square border-2 border-dashed border-gray-200 rounded-xl text-gray-400 cursor-pointer hover:border-indigo-300 hover:text-indigo-500 transition-colors">
                   <PhotoIcon class="w-5 h-5" />
-                  Seleccionar foto
-                  <input type="file" accept="image/*" class="hidden" @change="onFotoRestauracionItem(item, $event)" />
+                  <span class="text-xs mt-0.5">Agregar</span>
+                  <input type="file" accept="image/*" multiple class="hidden" @change="onAgregarFotosItem(item, $event)" />
                 </label>
               </div>
+
+              <!-- Estado vacío -->
+              <label
+                v-else
+                class="flex items-center justify-center gap-2 border-2 border-dashed border-gray-200 rounded-xl py-5 text-sm text-gray-400 cursor-pointer hover:border-indigo-300 hover:text-indigo-500 transition-colors"
+              >
+                <PhotoIcon class="w-5 h-5" />
+                Seleccionar fotos
+                <input type="file" accept="image/*" multiple class="hidden" @change="onAgregarFotosItem(item, $event)" />
+              </label>
             </div>
 
           </template>

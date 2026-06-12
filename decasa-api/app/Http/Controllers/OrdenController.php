@@ -146,6 +146,8 @@ class OrdenController extends Controller
             'items.*.es_personalizado'           => 'nullable|boolean',
             'items.*.specs_personalizacion'      => 'nullable|array',
             'items.*.boceto_url'                 => 'nullable|string|max:500',
+            'items.*.boceto_urls'                => 'nullable|array|max:10',
+            'items.*.boceto_urls.*'              => 'nullable|string|max:500',
             'items.*.fecha_entrega_prometida'    => 'nullable|date',
         ]);
 
@@ -277,7 +279,12 @@ class OrdenController extends Controller
                     'precio_unitario'       => $itemData['precio_unitario'],
                     'es_personalizado'      => $esPersonalizado || $esProductoCustom,
                     'specs_personalizacion' => $specsExtra,
-                    'boceto_url'            => $itemData['boceto_url'] ?? null,
+                    'boceto_url'            => isset($itemData['boceto_urls'])
+                        ? (array_values(array_filter($itemData['boceto_urls']))[0] ?? null)
+                        : ($itemData['boceto_url'] ?? null),
+                    'boceto_fotos'          => isset($itemData['boceto_urls']) && count(array_filter($itemData['boceto_urls'])) > 1
+                        ? array_values(array_filter($itemData['boceto_urls']))
+                        : null,
                     'fecha_entrega_prom'    => $itemData['fecha_entrega_prometida'] ?? null,
                 ]);
 
@@ -673,7 +680,7 @@ class OrdenController extends Controller
 
         $orden = Orden::with(['items', 'items.producto:id,nombre'])->findOrFail($id);
 
-        if ($usuario->rol === 'vendedor' && $orden->vendedor_id !== $usuario->id) {
+        if (in_array($usuario->rol, ['vendedor', 'ebanista']) && $orden->vendedor_id !== $usuario->id) {
             return response()->json(['message' => 'No autorizado.'], 403);
         }
 
@@ -870,7 +877,7 @@ class OrdenController extends Controller
             'estado' => 'required|in:pendiente_anticipo,en_produccion,listo_entrega,en_camino,entregado,cancelado',
         ]);
 
-        if ($usuario->rol === 'vendedor') {
+        if (in_array($usuario->rol, ['vendedor', 'ebanista'])) {
             return response()->json(['message' => 'Solo el supervisor puede cambiar el estado de las órdenes.'], 403);
         }
 

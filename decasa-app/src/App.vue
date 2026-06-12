@@ -188,7 +188,20 @@ const navItems = computed(() => {
       { name: 'mis-stats-conductor', label: 'Estadíst.', icon: PresentationChartLineIcon },
     ]
   }
-  if (auth.usuario?.rol === 'ebanista' || (auth.usuario?.rol === 'supervisor' && auth.usuario?.es_tapicero)) {
+  if (auth.usuario?.rol === 'ebanista') {
+    return [
+      { name: 'dashboard',   label: 'Inicio',       icon: HomeIcon },
+      { name: 'mis-pasos',   label: 'Mis pasos',    icon: WrenchScrewdriverIcon, badge: pasos.pendientesCount },
+      { name: 'ordenes',     label: 'Órdenes',      icon: ClipboardDocumentListIcon },
+      { name: 'consultas',   label: 'Cotizaciones', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
+      { name: 'costos',      label: 'Costos',       icon: CalculatorIcon },
+      { name: 'nueva-orden', label: 'Nueva orden',  icon: ShoppingCartIcon },
+      { name: 'clientes',    label: 'Clientes',     icon: UserGroupIcon },
+      { name: 'mis-stats',   label: 'Estadíst.',    icon: PresentationChartLineIcon },
+      { name: 'perfil',      label: 'Perfil',       icon: UserCircleIcon },
+    ]
+  }
+  if (auth.usuario?.rol === 'supervisor' && auth.usuario?.es_tapicero) {
     return [
       { name: 'mis-pasos',  label: 'Mis pasos',   icon: WrenchScrewdriverIcon, badge: pasos.pendientesCount },
       { name: 'consultas',  label: 'Cotizaciones', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
@@ -235,12 +248,12 @@ const navItems = computed(() => {
 const navPrimarios   = computed(() => {
   const items = navItems.value
   if (auth.usuario?.rol === 'conductor') return items
-  if (auth.isSupervisor || auth.isFacturador || auth.usuario?.rol === 'vendedor') return items.slice(0, 4)
+  if (auth.isSupervisor || auth.isFacturador || auth.usuario?.rol === 'vendedor' || auth.isEbanista) return items.slice(0, 4)
   return items
 })
 const navSecundarios = computed(() => {
   if (auth.usuario?.rol === 'conductor') return []
-  if (auth.isSupervisor || auth.isFacturador || auth.usuario?.rol === 'vendedor') return navItems.value.slice(4)
+  if (auth.isSupervisor || auth.isFacturador || auth.usuario?.rol === 'vendedor' || auth.isEbanista) return navItems.value.slice(4)
   return []
 })
 const masActivo      = computed(() => navSecundarios.value.some(i => i.name === route.name))

@@ -46,7 +46,7 @@ const pruebaEntregaVisible = computed(() =>
 const puedeEditar = computed(() => {
   if (!orden.value) return false
   if (['entregado', 'cancelado', 'listo_entrega', 'en_camino'].includes(orden.value.estado)) return false
-  if (auth.usuario?.rol === 'vendedor' && Number(orden.value.vendedor_id) !== Number(auth.usuario.id)) return false
+  if ((auth.usuario?.rol === 'vendedor' || auth.isEbanista) && Number(orden.value.vendedor_id) !== Number(auth.usuario.id)) return false
   return true
 })
 
@@ -93,7 +93,11 @@ const tienePersonalizados = computed(() =>
 )
 
 const puedeRegistrarPago = computed(() => {
-  return orden.value && !['entregado', 'cancelado'].includes(orden.value.estado) && orden.value.saldo_pendiente > 0
+  if (!orden.value) return false
+  if (['entregado', 'cancelado'].includes(orden.value.estado)) return false
+  if (orden.value.saldo_pendiente <= 0) return false
+  if (auth.isEbanista && Number(orden.value.vendedor_id) !== Number(auth.usuario?.id)) return false
+  return true
 })
 
 const opcionesNuevoEstado = computed(() => {
@@ -755,24 +759,27 @@ onMounted(cargarOrden)
                 </p>
                 <p v-if="item.specs_personalizacion.descripcion" class="whitespace-pre-wrap">{{ item.specs_personalizacion.descripcion }}</p>
               </div>
-              <div v-if="item.boceto_url" class="mt-2">
-                <div class="flex items-center justify-between mb-1">
-                  <p class="text-xs text-gray-400">Boceto</p>
-                  <button
-                    @click.stop="descargarBoceto(item.boceto_url)"
-                    class="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 transition-colors"
-                    title="Descargar boceto"
+              <div v-if="item.boceto_url || item.boceto_fotos?.length" class="mt-2 space-y-1.5">
+                <p class="text-xs text-gray-400">Boceto / Fotos</p>
+                <div class="grid grid-cols-3 gap-1.5">
+                  <div
+                    v-for="(url, fi) in (item.boceto_fotos?.length ? item.boceto_fotos : [item.boceto_url])"
+                    :key="fi"
+                    class="relative aspect-square"
                   >
-                    <ArrowDownTrayIcon class="w-3.5 h-3.5" />
-                    Descargar
-                  </button>
+                    <img
+                      :src="url"
+                      :alt="`Boceto ${fi + 1}`"
+                      class="w-full h-full rounded-lg border border-purple-200 object-cover bg-white cursor-pointer"
+                      @click="bocetoModal = url"
+                    />
+                    <button
+                      @click.stop="descargarBoceto(url)"
+                      class="absolute bottom-1 right-1 bg-white rounded-md p-0.5 shadow text-blue-500 hover:text-blue-700"
+                      title="Descargar"
+                    ><ArrowDownTrayIcon class="w-3.5 h-3.5" /></button>
+                  </div>
                 </div>
-                <img
-                  :src="item.boceto_url"
-                  alt="Boceto"
-                  class="rounded-lg border border-purple-200 object-contain bg-white w-full max-h-48 cursor-pointer"
-                  @click="bocetoModal = item.boceto_url"
-                />
               </div>
               <p v-if="item.fecha_entrega_prom" class="text-xs text-gray-500 mt-0.5">
                 Entrega estimada: {{ formatFecha(item.fecha_entrega_prom) }}

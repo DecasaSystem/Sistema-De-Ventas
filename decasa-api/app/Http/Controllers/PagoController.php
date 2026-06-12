@@ -19,7 +19,7 @@ class PagoController extends Controller
         $usuario = $request->user();
         $orden   = Orden::findOrFail($id);
 
-        if ($usuario->rol === 'vendedor' && $orden->vendedor_id !== $usuario->id) {
+        if (in_array($usuario->rol, ['vendedor', 'ebanista']) && $orden->vendedor_id !== $usuario->id) {
             return response()->json(['message' => 'No autorizado.'], 403);
         }
 
@@ -45,7 +45,7 @@ class PagoController extends Controller
         $usuario = $request->user();
         $orden   = Orden::with('items')->findOrFail($id);
 
-        if ($usuario->rol === 'vendedor' && $orden->vendedor_id !== $usuario->id) {
+        if (in_array($usuario->rol, ['vendedor', 'ebanista']) && $orden->vendedor_id !== $usuario->id) {
             return response()->json(['message' => 'No autorizado.'], 403);
         }
 

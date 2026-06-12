@@ -22,6 +22,7 @@ class OrdenItem extends Model
         'es_personalizado',
         'specs_personalizacion',
         'boceto_url',
+        'boceto_fotos',
         'fecha_entrega_prom',
     ];
 
@@ -31,8 +32,17 @@ class OrdenItem extends Model
             'precio_unitario'       => 'decimal:2',
             'es_personalizado'      => 'boolean',
             'specs_personalizacion' => 'array',
+            'boceto_fotos'          => 'array',
             'fecha_entrega_prom'    => 'date',
         ];
+    }
+
+    public function getBocetosListAttribute(): array
+    {
+        if ($this->boceto_fotos) {
+            return $this->boceto_fotos;
+        }
+        return $this->boceto_url ? [$this->boceto_url] : [];
     }
 
     public function orden()

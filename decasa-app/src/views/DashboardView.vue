@@ -36,9 +36,13 @@ const accesos = computed(() => {
   }
   if (auth.usuario?.rol === 'ebanista') {
     return [
-      { label: 'Mis pasos',    icon: ClipboardDocumentCheckIcon, to: { name: 'mis-pasos'  } },
-      { label: 'Cotizaciones', icon: CurrencyDollarIcon,         to: { name: 'consultas'  } },
-      { label: 'Costos',       icon: CalculatorIcon,             to: { name: 'costos'     } },
+      { label: 'Nueva orden',  icon: PlusIcon,                   to: { name: 'nueva-orden' } },
+      { label: 'Órdenes',      icon: ClipboardDocumentListIcon,  to: { name: 'ordenes'     } },
+      { label: 'Clientes',     icon: UserGroupIcon,              to: { name: 'clientes'    } },
+      { label: 'Mis pasos',    icon: ClipboardDocumentCheckIcon, to: { name: 'mis-pasos'   } },
+      { label: 'Cotizaciones', icon: CurrencyDollarIcon,         to: { name: 'consultas'   } },
+      { label: 'Costos',       icon: CalculatorIcon,             to: { name: 'costos'      } },
+      { label: 'Estadísticas', icon: PresentationChartLineIcon,  to: { name: 'mis-stats'   } },
     ]
   }
   if (auth.usuario?.rol === 'despachador') {

@@ -378,22 +378,26 @@ onMounted(() => {
           </p>
         </div>
 
-        <!-- Boceto -->
-        <div v-if="item.orden_item?.boceto_url">
-          <div class="flex items-center justify-between mb-1">
-            <p class="text-xs text-gray-400 font-semibold uppercase">Boceto</p>
-            <button
-              @click="descargarBoceto(item.orden_item.boceto_url)"
-              class="flex items-center gap-1 text-xs text-blue-600"
+        <!-- Boceto / Fotos -->
+        <div v-if="item.orden_item?.boceto_url || item.orden_item?.boceto_fotos?.length" class="space-y-1.5">
+          <p class="text-xs text-gray-400 font-semibold uppercase">Boceto / Fotos</p>
+          <div class="grid grid-cols-3 gap-1.5">
+            <div
+              v-for="(url, fi) in (item.orden_item.boceto_fotos?.length ? item.orden_item.boceto_fotos : [item.orden_item.boceto_url])"
+              :key="fi"
+              class="relative aspect-square"
             >
-              <ArrowDownTrayIcon class="w-3.5 h-3.5" />
-              Ver / Descargar
-            </button>
+              <img
+                :src="url"
+                class="w-full h-full object-cover rounded-lg border border-violet-200 bg-white"
+              />
+              <button
+                @click="descargarBoceto(url)"
+                class="absolute bottom-1 right-1 bg-white rounded-md p-0.5 shadow text-blue-500 hover:text-blue-700"
+                title="Descargar"
+              ><ArrowDownTrayIcon class="w-3.5 h-3.5" /></button>
+            </div>
           </div>
-          <img
-            :src="item.orden_item.boceto_url"
-            class="w-full max-h-48 object-contain rounded-lg border border-violet-200 bg-white"
-          />
         </div>
 
         <!-- Formulario de cálculo — solo para el receptor y mientras está pendiente -->
