@@ -1010,6 +1010,15 @@ class OrdenController extends Controller
                     $sup->id,
                 );
             }
+
+            // Notificar al vendedor
+            NotificacionService::crear(
+                'listo_entrega',
+                'Tu pedido está listo para entrega',
+                "Orden #{$orden->id} — {$ordenFresh->cliente->nombre} está lista para ser despachada",
+                ['orden_id' => $orden->id],
+                $orden->vendedor_id,
+            );
         }
 
         if ($estadoNuevo === 'entregado') {

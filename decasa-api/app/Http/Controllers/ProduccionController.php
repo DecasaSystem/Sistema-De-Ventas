@@ -588,6 +588,15 @@ class ProduccionController extends Controller
                 if ($orden->estado !== 'listo_entrega') {
                     $orden->update(['estado' => 'listo_entrega', 'listo_entrega_at' => now()]);
                     try { event(new OrdenListaParaEntrega($orden->id)); } catch (\Throwable) {}
+                    $produccion->loadMissing('ordenItem.producto:id,nombre');
+                    $nomProd = $produccion->ordenItem->producto->nombre ?? 'Producto';
+                    NotificacionService::crear(
+                        'listo_entrega',
+                        'Tu pedido está listo para entrega',
+                        "\"{$nomProd}\" completó producción y está en espera de despacho",
+                        ['orden_id' => $orden->id],
+                        $orden->vendedor_id,
+                    );
                 }
             } else {
                 $orden->update(['estado' => 'en_produccion']);
