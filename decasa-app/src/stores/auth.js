@@ -12,7 +12,7 @@ export const useAuthStore = defineStore('auth', () => {
   const isEbanista       = computed(() => usuario.value?.rol === 'ebanista')
   const isTapicero       = computed(() => usuario.value?.rol === 'supervisor' && !!usuario.value?.es_tapicero)
   const isDespachador    = computed(() => usuario.value?.rol === 'despachador')
-  const tieneAccesoPasos = computed(() => isEbanista.value || isTapicero.value)
+  const tieneAccesoPasos = computed(() => isEbanista.value || isTapicero.value || isDespachador.value)
   const isFacturador     = computed(() => usuario.value?.rol === 'vendedor' && !!usuario.value?.facturacion)
   const tieneAccesoRedes = computed(() => !!usuario.value?.acceso_redes)
 

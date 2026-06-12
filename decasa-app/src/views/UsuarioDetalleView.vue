@@ -225,7 +225,7 @@ onMounted(async () => {
           </div>
           <div>
             <p class="text-xs text-gray-400">Especialidad</p>
-            <p class="font-medium text-gray-800">Encargado de tapicería y laca</p>
+            <p class="font-medium text-gray-800">Encargado de tapicería, esqueletería, costura y pintura</p>
           </div>
         </div>
         <div v-if="usuario.rol === 'supervisor'" class="flex items-center gap-3">
@@ -438,7 +438,7 @@ onMounted(async () => {
                 />
                 <div>
                   <label for="edit-tapicero" class="text-sm font-medium text-gray-700 cursor-pointer">Encargado de tapicería</label>
-                  <p class="text-xs text-gray-500 mt-0.5">Puede completar pasos de <strong>tapizado</strong> y <strong>laca</strong>.</p>
+                  <p class="text-xs text-gray-500 mt-0.5">Puede completar pasos de <strong>tapizado</strong>, <strong>laca</strong>, <strong>esqueletería</strong>, <strong>costura</strong> y <strong>pintura</strong>.</p>
                 </div>
               </div>
               <div class="flex items-start gap-3 py-1">

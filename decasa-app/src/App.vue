@@ -96,7 +96,7 @@ watch(() => auth.isAuthenticated, (isAuth) => {
   if (auth.usuario?.rol === 'vendedor') {
     surtidos.cargarPendientes()
   }
-  if (auth.usuario?.rol === 'ebanista' || (auth.usuario?.rol === 'supervisor' && auth.usuario?.es_tapicero)) {
+  if (auth.tieneAccesoPasos) {
     pasos.cargar()
   }
   if (auth.isSupervisor || auth.isEbanista || auth.usuario?.rol === 'vendedor') {
@@ -122,7 +122,7 @@ watch(() => auth.usuario?.id, (id, oldId) => {
     .listen('.nueva.notificacion', n => {
       notif.agregarNueva(n)
       // Recargar badge de pasos cuando llega una notificación de producción
-      if (n.tipo === 'paso_produccion' && (auth.isEbanista || auth.isTapicero)) {
+      if (n.tipo === 'paso_produccion' && auth.tieneAccesoPasos) {
         pasos.cargar()
       }
       if (n.tipo === 'paso_produccion' && auth.isDespachador) {
@@ -211,6 +211,7 @@ const navItems = computed(() => {
   if (auth.usuario?.rol === 'despachador') {
     return [
       { name: 'despacho-produccion', label: 'Despacho prod.', icon: ArchiveBoxArrowDownIcon, badge: despachoProd.pendientesCount },
+      { name: 'mis-pasos',           label: 'Mis pasos',      icon: WrenchScrewdriverIcon, badge: pasos.pendientesCount },
       { name: 'perfil',              label: 'Perfil',          icon: UserCircleIcon },
     ]
   }

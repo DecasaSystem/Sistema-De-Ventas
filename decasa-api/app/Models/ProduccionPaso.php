@@ -44,6 +44,9 @@ class ProduccionPaso extends Model
             'ebanisteria' => 'Ebanistería',
             'tapizado'    => 'Tapizado',
             'laca'        => 'Laca',
+            'esqueleteria'=> 'Esqueletería',
+            'pintura'     => 'Pintura',
+            'costura'     => 'Costura',
             default       => $tipo,
         };
     }

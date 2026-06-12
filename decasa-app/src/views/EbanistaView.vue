@@ -32,7 +32,7 @@ const inputTrabajador = ref('')
 const historial        = ref([])
 const loadingHistorial = ref(false)
 
-const PROCESO_LABEL = { ebanisteria: 'Ebanistería', tapizado: 'Tapizado', laca: 'Laca' }
+const PROCESO_LABEL = { ebanisteria: 'Ebanistería', tapizado: 'Tapizado', laca: 'Laca', esqueleteria: 'Esqueletería', pintura: 'Pintura', costura: 'Costura' }
 
 // ── Devolver paso ──────────────────────────────────────────────────────────────
 const mostrarModalDevolver = ref(false)
@@ -71,9 +71,12 @@ async function confirmarDevolver() {
   }
 }
 const PROCESO_COLOR = {
-  ebanisteria: 'bg-orange-100 text-orange-700',
-  tapizado:    'bg-teal-100 text-teal-700',
-  laca:        'bg-indigo-100 text-indigo-700',
+  ebanisteria:  'bg-orange-100 text-orange-700',
+  tapizado:     'bg-teal-100 text-teal-700',
+  laca:         'bg-indigo-100 text-indigo-700',
+  esqueleteria: 'bg-yellow-100 text-yellow-700',
+  pintura:      'bg-purple-100 text-purple-700',
+  costura:      'bg-pink-100 text-pink-700',
 }
 
 async function cargar() {
@@ -172,8 +175,10 @@ onMounted(async () => {
 
     <p class="text-xs text-gray-500">
       {{ auth.isTapicero
-        ? 'Pasos de tapizado y laca asignados a ti'
-        : 'Pasos de ebanistería y laca asignados a ti' }}
+        ? 'Pasos de tapizado, esqueletería, costura y pintura asignados a ti'
+        : auth.isDespachador
+          ? 'Pasos de pintura asignados a ti'
+          : 'Pasos de ebanistería, laca y pintura asignados a ti' }}
     </p>
 
     <!-- Tabs -->
@@ -253,7 +258,7 @@ onMounted(async () => {
                   p.estado === 'en_proceso'  ? 'bg-blue-500' :
                   'bg-gray-200'
                 ]"
-                :title="{ ebanisteria: 'Ebanistería', tapizado: 'Tapizado', laca: 'Laca' }[p.tipo_proceso]"
+                :title="PROCESO_LABEL[p.tipo_proceso] ?? p.tipo_proceso"
               />
             </div>
           </div>

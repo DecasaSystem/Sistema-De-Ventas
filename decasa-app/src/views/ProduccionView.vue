@@ -46,9 +46,12 @@ const modalLoading = ref(false)
 
 // Pasos de producción (para cuando se cambia a en_proceso)
 const PROCESOS_DISPONIBLES = [
-  { tipo: 'ebanisteria', label: 'Ebanistería', desc: 'Madera, lija y pintura' },
-  { tipo: 'tapizado',    label: 'Tapizado',    desc: 'Telas y relleno' },
-  { tipo: 'laca',        label: 'Laca',        desc: 'Acabado final' },
+  { tipo: 'ebanisteria',  label: 'Ebanistería',  desc: 'Estructura en madera' },
+  { tipo: 'esqueleteria', label: 'Esqueletería', desc: 'Armazón y refuerzos' },
+  { tipo: 'tapizado',     label: 'Tapizado',     desc: 'Telas y relleno' },
+  { tipo: 'costura',      label: 'Costura',      desc: 'Unión y acabado de telas' },
+  { tipo: 'laca',         label: 'Laca',         desc: 'Acabado con laca' },
+  { tipo: 'pintura',      label: 'Pintura',      desc: 'Pintura y acabado final' },
 ]
 const pasosSeleccionados = ref([]) // [{tipo_proceso, orden}] en orden de selección
 const pasoSelectorRef   = ref(null)
@@ -97,7 +100,7 @@ function pasoActualLabel(p) {
 }
 
 function labelProceso(tipo) {
-  const m = { ebanisteria: 'Ebanistería', tapizado: 'Tapizado', laca: 'Laca' }
+  const m = { ebanisteria: 'Ebanistería', tapizado: 'Tapizado', laca: 'Laca', esqueleteria: 'Esqueletería', pintura: 'Pintura', costura: 'Costura' }
   return m[tipo] ?? tipo
 }
 
@@ -526,7 +529,7 @@ onUnmounted(() => {
                 </button>
               </div>
               <p v-if="pasosSeleccionados.length > 0" class="text-xs text-blue-600 mt-2">
-                Orden seleccionado: {{ pasosSeleccionados.map(p => ({ ebanisteria: 'Ebanistería', tapizado: 'Tapizado', laca: 'Laca' }[p.tipo_proceso])).join(' → ') }}
+                Orden seleccionado: {{ pasosSeleccionados.map(p => labelProceso(p.tipo_proceso)).join(' → ') }}
               </p>
             </div>
           </div>

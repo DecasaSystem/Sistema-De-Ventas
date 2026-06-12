@@ -198,10 +198,10 @@ async function submit() {
       <!-- Descripción del rol de producción -->
       <div v-if="['ebanista', 'despachador'].includes(form.rol)" class="bg-amber-50 rounded-lg px-3 py-2 text-xs text-amber-700">
         <span v-if="form.rol === 'ebanista'">
-          El ebanista puede ver y completar los pasos de <strong>ebanistería</strong> y <strong>laca</strong> en las órdenes personalizadas.
+          El ebanista puede ver y completar los pasos de <strong>ebanistería</strong>, <strong>laca</strong> y <strong>pintura</strong> en las órdenes personalizadas.
         </span>
         <span v-else>
-          El despachador recibe las órdenes cuando terminan todos los pasos de producción y las envía a entrega.
+          El despachador recibe las órdenes cuando terminan todos los pasos de producción, las envía a entrega, y también puede completar pasos de <strong>pintura</strong>.
         </span>
       </div>
 
@@ -230,7 +230,7 @@ async function submit() {
           />
           <div>
             <label for="es_tapicero" class="text-sm font-medium text-gray-700 cursor-pointer">Encargado de tapicería</label>
-            <p class="text-xs text-gray-500 mt-0.5">Podrá completar los pasos de <strong>tapizado</strong> y <strong>laca</strong> en producción personalizada.</p>
+            <p class="text-xs text-gray-500 mt-0.5">Podrá completar los pasos de <strong>tapizado</strong>, <strong>laca</strong>, <strong>esqueletería</strong>, <strong>costura</strong> y <strong>pintura</strong> en producción personalizada.</p>
           </div>
         </div>
         <div class="flex items-start gap-3 py-2">

@@ -497,7 +497,7 @@ class ProduccionController extends Controller
             'estado'         => 'required|in:pendiente,en_proceso,listo,retrasado,entregado,cancelado',
             'motivo_retraso' => 'nullable|string|max:500',
             'pasos'          => 'nullable|array|min:1',
-            'pasos.*.tipo_proceso' => 'required_with:pasos|in:ebanisteria,tapizado,laca',
+            'pasos.*.tipo_proceso' => 'required_with:pasos|in:ebanisteria,tapizado,laca,esqueleteria,pintura,costura',
             'pasos.*.orden'        => 'required_with:pasos|integer|min:1',
         ]);
 
@@ -686,10 +686,13 @@ class ProduccionController extends Controller
     private function tiposParaRol(Usuario $usuario): array
     {
         if ($usuario->rol === 'ebanista') {
-            return ['ebanisteria', 'laca'];
+            return ['ebanisteria', 'laca', 'pintura'];
         }
         if ($usuario->rol === 'supervisor' && $usuario->es_tapicero) {
-            return ['tapizado', 'laca'];
+            return ['tapizado', 'laca', 'esqueleteria', 'costura', 'pintura'];
+        }
+        if ($usuario->rol === 'despachador') {
+            return ['pintura'];
         }
         return [];
     }
@@ -700,15 +703,21 @@ class ProduccionController extends Controller
 
         $usuariosANotificar = collect();
 
-        if (in_array($tipoProceso, ['ebanisteria', 'laca'])) {
+        if (in_array($tipoProceso, ['ebanisteria', 'laca', 'pintura'])) {
             $usuariosANotificar = $usuariosANotificar->merge(
                 Usuario::where('rol', 'ebanista')->where('activo', true)->get()
             );
         }
 
-        if (in_array($tipoProceso, ['tapizado', 'laca'])) {
+        if (in_array($tipoProceso, ['tapizado', 'laca', 'esqueleteria', 'costura', 'pintura'])) {
             $usuariosANotificar = $usuariosANotificar->merge(
                 Usuario::where('rol', 'supervisor')->where('es_tapicero', true)->where('activo', true)->get()
+            );
+        }
+
+        if ($tipoProceso === 'pintura') {
+            $usuariosANotificar = $usuariosANotificar->merge(
+                Usuario::where('rol', 'despachador')->where('activo', true)->get()
             );
         }
 
