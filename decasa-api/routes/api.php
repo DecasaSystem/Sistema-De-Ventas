@@ -258,9 +258,11 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Materiales (catálogo maestro)
     Route::get('/materiales', [MaterialController::class, 'index']);
-    Route::middleware('role:supervisor')->group(function () {
+    Route::middleware('role:supervisor,ebanista')->group(function () {
         Route::post('/materiales',             [MaterialController::class, 'store']);
         Route::patch('/materiales/{material}', [MaterialController::class, 'update']);
+    });
+    Route::middleware('role:supervisor')->group(function () {
         Route::post('/materiales/importar',    [MaterialController::class, 'importar']);
     });
 
@@ -281,8 +283,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/consultas-costo/{id}/mensajes',                 [ConsultaCostoController::class, 'mensajes'])->whereNumber('id');
     Route::post('/consultas-costo/{id}/mensajes',                [ConsultaCostoController::class, 'enviarMensaje'])->whereNumber('id');
 
-    // Configuración de costos — solo supervisor
-    Route::middleware('role:supervisor')->group(function () {
+    // Configuración de costos — supervisor y ebanista
+    Route::middleware('role:supervisor,ebanista')->group(function () {
         Route::get('/configuracion/costos',                      [ConfiguracionCostosController::class, 'index']);
         Route::put('/configuracion/costos',                      [ConfiguracionCostosController::class, 'guardar']);
         Route::post('/configuracion/costos/cargos',              [ConfiguracionCostosController::class, 'crearCargo']);
@@ -305,9 +307,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/fichas-tecnicas',                        [FichaTecnicaController::class, 'index']);
     Route::get('/fichas-tecnicas/materiales-sugeridos',   [FichaTecnicaController::class, 'materialesSugeridos']);
     Route::get('/fichas-tecnicas/{fichaTecnica}',         [FichaTecnicaController::class, 'show']);
-    Route::middleware('role:supervisor')->group(function () {
+    Route::middleware('role:supervisor,ebanista')->group(function () {
         Route::post('/fichas-tecnicas',                          [FichaTecnicaController::class, 'store']);
         Route::patch('/fichas-tecnicas/{fichaTecnica}/items',    [FichaTecnicaController::class, 'updateItems']);
+    });
+    Route::middleware('role:supervisor')->group(function () {
         Route::post('/fichas-tecnicas/reimportar',               [FichaTecnicaController::class, 'reimportar']);
     });
 });

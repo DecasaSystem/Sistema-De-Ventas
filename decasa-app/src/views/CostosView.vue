@@ -3,6 +3,9 @@ import { ref, computed, onMounted } from 'vue'
 import { getFichas, getFicha, crearFicha, getMaterialesSugeridos, actualizarItems, reimportarFichas } from '@/api/fichas'
 import { getMateriales, crearMaterial, actualizarMaterial, importarMateriales } from '@/api/materiales'
 import { getCostos, guardarCostos, crearCargo, eliminarCargo, crearProceso, eliminarProceso } from '@/api/configuracion'
+import { useAuthStore } from '@/stores/auth'
+
+const auth = useAuthStore()
 import {
   MagnifyingGlassIcon,
   XMarkIcon,
@@ -561,7 +564,7 @@ onMounted(() => {
       <div class="flex items-center justify-between px-4 pt-3 pb-2">
         <h1 class="text-lg font-bold text-gray-800">Costos de producción</h1>
         <div class="flex items-center gap-2">
-          <button v-if="tab === 'productos'" @click="reimportar" :disabled="reimportando" class="p-1.5 text-gray-400 hover:text-gray-600 disabled:opacity-40">
+          <button v-if="tab === 'productos' && auth.isSupervisor" @click="reimportar" :disabled="reimportando" class="p-1.5 text-gray-400 hover:text-gray-600 disabled:opacity-40">
             <ArrowPathIcon class="w-4 h-4" :class="{ 'animate-spin': reimportando }" />
           </button>
           <button v-if="tab === 'productos'" @click="abrirFormNuevo"
