@@ -16,7 +16,7 @@ class UploadController extends Controller
     public function foto(Request $request)
     {
         $request->validate([
-            'foto'  => 'required|file|image|max:5120',
+            'foto'  => 'required|file|image|max:10240',
             'folder' => 'nullable|string|in:productos,facturas,firmas,bocetos',
         ]);
 

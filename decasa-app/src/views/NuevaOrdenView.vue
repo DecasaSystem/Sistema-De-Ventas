@@ -10,6 +10,7 @@ import { updateCliente, CATEGORIAS_DISPONIBLES } from '@/api/clientes'
 import { SPECS_TEMPLATES, resolverCategoria, camposParaModo, specsToDescripcion, extraerDimensiones } from '@/constants/specsConfig'
 import { marcasOrdenadas, tiposTelaDeM, coloresDeTela } from '@/data/telasCatalogo'
 import { cloudinaryOpt } from '@/utils/cloudinary'
+import { comprimirImagen } from '@/utils/comprimirImagen'
 import { ArrowPathIcon, SparklesIcon, XMarkIcon } from '@heroicons/vue/24/solid'
 import { ArrowPathIcon as ArrowPathOutlineIcon, PhotoIcon, UserGroupIcon, ArrowPathIcon as ConvertIcon, ExclamationTriangleIcon, PencilIcon, MapPinIcon, SwatchIcon, CurrencyDollarIcon, PlusIcon } from '@heroicons/vue/24/outline'
 import { getReceptores, crearConsulta } from '@/api/consultas'
@@ -206,7 +207,7 @@ async function calcularRestauracionForm() {
     let boceto_url = null
     if (f.foto_blob) {
       const fd = new FormData()
-      fd.append('foto', f.foto_blob, 'restauracion.jpg')
+      fd.append('foto', await comprimirImagen(f.foto_blob), 'restauracion.jpg')
       fd.append('folder', 'bocetos')
       const { data: up } = await api.post('/upload/foto', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
       boceto_url = up.url
@@ -648,7 +649,7 @@ async function calcularPrecioIA(item) {
     // Subir primera foto ahora si aún no tiene URL (para que la IA lo vea)
     if (item.boceto_blobs[0] && !item.boceto_urls[0]) {
       const fd = new FormData()
-      fd.append('foto', item.boceto_blobs[0], 'boceto.png')
+      fd.append('foto', await comprimirImagen(item.boceto_blobs[0]), 'boceto.jpg')
       fd.append('folder', 'bocetos')
       const { data: up } = await api.post('/upload/foto', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
       item.boceto_urls[0] = up.url
@@ -821,7 +822,7 @@ async function submit() {
     if (facturaFotoFile.value && !facturaFotoUrl.value) {
       subiendoFactura.value = true
       const fd = new FormData()
-      fd.append('foto', facturaFotoFile.value)
+      fd.append('foto', await comprimirImagen(facturaFotoFile.value), 'factura.jpg')
       fd.append('folder', 'facturas')
       const { data: uploadData } = await api.post('/upload/foto', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -836,7 +837,7 @@ async function submit() {
         for (let fi = 0; fi < item.boceto_blobs.length; fi++) {
           if (item.boceto_blobs[fi] && !item.boceto_urls[fi]) {
             const fd = new FormData()
-            fd.append('foto', item.boceto_blobs[fi], fi === 0 ? 'boceto.png' : `boceto_${fi}.png`)
+            fd.append('foto', await comprimirImagen(item.boceto_blobs[fi]), fi === 0 ? 'boceto.jpg' : `boceto_${fi}.jpg`)
             fd.append('folder', 'bocetos')
             const { data: uploadData } = await api.post('/upload/foto', fd, {
               headers: { 'Content-Type': 'multipart/form-data' },
@@ -851,7 +852,7 @@ async function submit() {
     if (anexoFotoFile.value && !anexoFotoUrl.value) {
       subiendoAnexo.value = true
       const fd = new FormData()
-      fd.append('foto', anexoFotoFile.value)
+      fd.append('foto', await comprimirImagen(anexoFotoFile.value), 'anexo.jpg')
       fd.append('folder', 'facturas')
       const { data: uploadData } = await api.post('/upload/foto', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },

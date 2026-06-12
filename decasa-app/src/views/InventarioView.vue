@@ -27,6 +27,7 @@ import { getTiendas } from '@/api/ordenes'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import api from '@/api'
+import { comprimirImagen } from '@/utils/comprimirImagen'
 
 const router = useRouter()
 const route = useRoute()
@@ -144,7 +145,7 @@ async function guardarFoto2Producto() {
   gestionFoto2Loading.value = true
   try {
     const fd = new FormData()
-    fd.append('foto', gestionFoto2File.value)
+    fd.append('foto', await comprimirImagen(gestionFoto2File.value), 'producto.jpg')
     const { data: upload } = await api.post('/upload/foto', fd, {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
@@ -165,7 +166,7 @@ async function guardarFotoProducto() {
   gestionFotoLoading.value = true
   try {
     const fd = new FormData()
-    fd.append('foto', gestionFotoFile.value)
+    fd.append('foto', await comprimirImagen(gestionFotoFile.value), 'producto.jpg')
     const { data: upload } = await api.post('/upload/foto', fd, {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
@@ -316,7 +317,7 @@ async function crearProducto() {
     if (fotoFile.value) {
       subiendoFoto.value = true
       const fd = new FormData()
-      fd.append('foto', fotoFile.value)
+      fd.append('foto', await comprimirImagen(fotoFile.value), 'producto.jpg')
       const { data } = await api.post('/upload/foto', fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })

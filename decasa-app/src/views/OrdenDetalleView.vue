@@ -14,6 +14,7 @@ import EditarOrdenModal from '@/components/ordenes/EditarOrdenModal.vue'
 import { SparklesIcon, XMarkIcon } from '@heroicons/vue/24/solid'
 import { DocumentIcon, EnvelopeIcon, ChatBubbleLeftEllipsisIcon, ArrowDownTrayIcon, CalendarIcon, BuildingOffice2Icon, TruckIcon, PencilSquareIcon, ClockIcon, CheckBadgeIcon, LockClosedIcon, WrenchScrewdriverIcon, CheckCircleIcon, UserGroupIcon, CurrencyDollarIcon, BanknotesIcon } from '@heroicons/vue/24/outline'
 import FirmaCanvas from '@/components/FirmaCanvas.vue'
+import { comprimirImagen } from '@/utils/comprimirImagen'
 
 const route = useRoute()
 const router = useRouter()
@@ -440,7 +441,7 @@ async function doConfirmarCotizacion() {
     // Subir foto comprobante
     if (facturaConfirmarFile.value && !facturaConfirmarUrl.value) {
       const fd = new FormData()
-      fd.append('foto', facturaConfirmarFile.value)
+      fd.append('foto', await comprimirImagen(facturaConfirmarFile.value), 'factura.jpg')
       fd.append('folder', 'facturas')
       const { data: up } = await api.post('/upload/foto', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
       facturaConfirmarUrl.value = up.url

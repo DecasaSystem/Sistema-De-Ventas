@@ -2,6 +2,7 @@
 import { ref, watch, computed } from 'vue'
 import { registrarPago } from '@/api/ordenes'
 import api from '@/api'
+import { comprimirImagen } from '@/utils/comprimirImagen'
 import { PhotoIcon, XMarkIcon } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -90,7 +91,7 @@ async function submit() {
     // Subir comprobante si es un archivo nuevo
     if (comprobanteFile.value && !comprobanteUrl.value) {
       const fd = new FormData()
-      fd.append('foto', comprobanteFile.value)
+      fd.append('foto', await comprimirImagen(comprobanteFile.value), 'comprobante.jpg')
       fd.append('folder', 'comprobantes')
       const { data: up } = await api.post('/upload/foto', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
       comprobanteUrl.value = up.url
