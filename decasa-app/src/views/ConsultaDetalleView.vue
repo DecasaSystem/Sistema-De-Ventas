@@ -1,8 +1,9 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
+import { useRealtime } from '@/composables/useRealtime'
 import { getConsulta, guardarItem, enviarConsulta, getMensajes, enviarMensaje } from '@/api/consultas'
 import { getMateriales } from '@/api/materiales'
 import {
@@ -15,16 +16,25 @@ const route     = useRoute()
 const router    = useRouter()
 const toast     = useToast()
 const authStore = useAuthStore()
+const { listen } = useRealtime()
 
 // ── Chat ─────────────────────────────────────────────────────────────────────
 const mensajes        = ref([])
 const nuevoMensaje    = ref('')
 const enviandoMensaje = ref(false)
+const chatRef         = ref(null)
+
+function scrollAlFinal() {
+  nextTick(() => {
+    if (chatRef.value) chatRef.value.scrollTop = chatRef.value.scrollHeight
+  })
+}
 
 async function cargarMensajes() {
   try {
     const { data } = await getMensajes(route.params.id)
     mensajes.value = Array.isArray(data) ? data : []
+    scrollAlFinal()
   } catch { mensajes.value = [] }
 }
 
@@ -36,6 +46,7 @@ async function doEnviarMensaje() {
     const { data } = await enviarMensaje(route.params.id, texto)
     mensajes.value.push(data)
     nuevoMensaje.value = ''
+    scrollAlFinal()
   } catch (e) {
     toast.error(e.response?.data?.message ?? 'Error al enviar el mensaje.')
   } finally {
@@ -262,6 +273,14 @@ onMounted(() => {
   cargar()
   cargarMensajes()
   getMateriales('').then(r => { materialesCatalogo.value = r.data ?? [] }).catch(() => {})
+
+  // Escuchar nuevos mensajes en tiempo real
+  listen(`consulta.${route.params.id}`, 'consulta.mensaje', (data) => {
+    if (!mensajes.value.some(m => m.id === data.id)) {
+      mensajes.value.push(data)
+      scrollAlFinal()
+    }
+  })
 })
 </script>
 
@@ -675,7 +694,7 @@ onMounted(() => {
         </div>
 
         <!-- Historial de mensajes -->
-        <div class="px-4 py-3 space-y-3 max-h-72 overflow-y-auto">
+        <div ref="chatRef" class="px-4 py-3 space-y-3 max-h-72 overflow-y-auto">
           <p v-if="!mensajes.length" class="text-xs text-gray-400 text-center py-4">
             Sin mensajes aún. Usa el chat para aclarar dudas.
           </p>

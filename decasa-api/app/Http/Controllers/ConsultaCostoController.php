@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\ConsultaMensajeEnviado;
 use App\Models\ConsultaCosto;
 use App\Models\ConsultaCostoDesglose;
 use App\Models\ConsultaCostoItem;
@@ -354,6 +355,9 @@ class ConsultaCostoController extends Controller
         ]);
 
         $msg->load('usuario:id,nombre,rol');
+
+        // Broadcast en tiempo real al canal de la consulta
+        broadcast(new ConsultaMensajeEnviado($msg->toArray(), $id));
 
         // Notificar a la otra parte
         $destinatarioId = $consulta->asignado_a_id === $usuario->id
