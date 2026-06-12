@@ -72,4 +72,42 @@ class AuthController extends Controller
         $request->user()->update(['firma_url' => $data['firma_url']]);
         return response()->json(['firma_url' => $data['firma_url']]);
     }
+
+    public function actualizarCuenta(Request $request)
+    {
+        $usuario = $request->user();
+
+        $data = $request->validate([
+            'password_actual'          => 'required|string',
+            'email'                    => 'nullable|email|max:200|unique:usuarios,email,' . $usuario->id,
+            'password_nuevo'           => 'nullable|string|min:8|confirmed',
+            'password_nuevo_confirmation' => 'nullable|string',
+        ]);
+
+        if (! Hash::check($data['password_actual'], $usuario->password)) {
+            return response()->json([
+                'message' => 'La contraseña actual no es correcta.',
+                'errors'  => ['password_actual' => ['Contraseña incorrecta.']],
+            ], 422);
+        }
+
+        $updates = [];
+        if (! empty($data['email'])) {
+            $updates['email'] = $data['email'];
+        }
+        if (! empty($data['password_nuevo'])) {
+            $updates['password'] = Hash::make($data['password_nuevo']);
+        }
+
+        if (empty($updates)) {
+            return response()->json(['message' => 'No ingresaste ningún cambio.'], 422);
+        }
+
+        $usuario->update($updates);
+
+        return response()->json([
+            'message' => 'Cuenta actualizada correctamente.',
+            'email'   => $usuario->email,
+        ]);
+    }
 }

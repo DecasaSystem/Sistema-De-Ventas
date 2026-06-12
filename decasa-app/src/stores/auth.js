@@ -60,6 +60,13 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  function setEmail(email) {
+    if (usuario.value) {
+      usuario.value = { ...usuario.value, email }
+      localStorage.setItem('usuario', JSON.stringify(usuario.value))
+    }
+  }
+
   async function logout() {
     try { await apiLogout() } catch {}
     clearSession()
@@ -72,5 +79,5 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem('usuario')
   }
 
-  return { token, usuario, isAuthenticated, isSupervisor, isEbanista, isTapicero, isDespachador, tieneAccesoPasos, isFacturador, tieneAccesoRedes, login, fetchMe, setFirma, logout, clearSession }
+  return { token, usuario, isAuthenticated, isSupervisor, isEbanista, isTapicero, isDespachador, tieneAccesoPasos, isFacturador, tieneAccesoRedes, login, fetchMe, setFirma, setEmail, logout, clearSession }
 })
