@@ -1391,17 +1391,18 @@ function removeFacturaFoto() {
             </div>
 
             <!-- Botones de acción -->
-            <div class="flex items-center gap-1.5">
-              <!-- Con stock en tienda o tapizado/tallas (siempre necesitan picker) -->
-              <template v-if="stockLibre(p) > 0 || p.es_tapizado || p.tiene_tallas">
-                <button
-                  @click="agregarItem(p)"
-                  class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors"
-                >{{ p.tiene_tallas ? 'Seleccionar talla' : '+ Agregar' }}</button>
-              </template>
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <!-- Picker: tapizado/tallas siempre lo necesitan para elegir variante;
+                   productos normales solo si tienen stock -->
+              <button
+                v-if="stockLibre(p) > 0 || p.es_tapizado || p.tiene_tallas"
+                @click="agregarItem(p)"
+                class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+              >{{ p.tiene_tallas ? 'Seleccionar talla' : '+ Agregar' }}</button>
 
-              <!-- Sin stock en tienda ni en fábrica → fabricar -->
-              <template v-else>
+              <!-- Sin stock base → mostrar Fabricar y Personalizar
+                   (aplica también a tapizados/tallas que no tienen stock en su tienda) -->
+              <template v-if="stockLibre(p) <= 0">
                 <button
                   @click="fabricarBajoPedido(p)"
                   class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-orange-500 text-white hover:bg-orange-600 transition-colors"
@@ -1412,7 +1413,6 @@ function removeFacturaFoto() {
                   class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-purple-100 text-purple-700 hover:bg-purple-200 transition-colors"
                 >Personalizar</button>
               </template>
-
             </div>
           </div>
         </li>
