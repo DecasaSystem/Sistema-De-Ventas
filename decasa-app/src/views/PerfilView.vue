@@ -6,7 +6,7 @@ import FirmaCanvas from '@/components/FirmaCanvas.vue'
 import { CheckCircleIcon } from '@heroicons/vue/24/solid'
 
 const auth    = useAuthStore()
-const ocultarFirma = computed(() => ['conductor', 'ebanista', 'despachador'].includes(auth.usuario?.rol))
+const ocultarFirma = computed(() => ['conductor', 'despachador'].includes(auth.usuario?.rol))
 
 const firmaBlob    = ref(null)
 const cambiandoFirma = ref(!auth.usuario?.firma_url)
