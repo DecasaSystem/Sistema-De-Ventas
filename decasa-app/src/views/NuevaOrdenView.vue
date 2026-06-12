@@ -1392,17 +1392,15 @@ function removeFacturaFoto() {
 
             <!-- Botones de acción -->
             <div class="flex items-center gap-1.5 flex-wrap">
-              <!-- Picker: tapizado/tallas siempre lo necesitan para elegir variante;
-                   productos normales solo si tienen stock -->
+              <!-- Agregar: solo si hay stock en tienda O (tapizado con stock en reserva de fábrica) -->
               <button
-                v-if="stockLibre(p) > 0 || p.es_tapizado || p.tiene_tallas"
+                v-if="stockLibre(p) > 0 || (p.es_tapizado && fabricaStock[p.id] > 0)"
                 @click="agregarItem(p)"
                 class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors"
               >{{ p.tiene_tallas ? 'Seleccionar talla' : '+ Agregar' }}</button>
 
-              <!-- Sin stock base → mostrar Fabricar y Personalizar
-                   (aplica también a tapizados/tallas que no tienen stock en su tienda) -->
-              <template v-if="stockLibre(p) <= 0">
+              <!-- Sin stock en tienda ni en fábrica → Fabricar y Personalizar -->
+              <template v-if="stockLibre(p) <= 0 && !(p.es_tapizado && fabricaStock[p.id] > 0)">
                 <button
                   @click="fabricarBajoPedido(p)"
                   class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-orange-500 text-white hover:bg-orange-600 transition-colors"
