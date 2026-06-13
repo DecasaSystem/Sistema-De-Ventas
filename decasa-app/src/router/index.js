@@ -39,6 +39,19 @@ const router = createRouter({
   routes,
 })
 
+// Cuando un chunk lazy falla por cache stale (deployment nuevo), recargar la página
+router.onError((err) => {
+  const isChunkError = err?.message && (
+    err.message.includes('Failed to fetch dynamically imported module') ||
+    err.message.includes('Importing a module script failed') ||
+    err.message.includes('error loading dynamically imported module') ||
+    err.message.includes('MIME type')
+  )
+  if (isChunkError) {
+    window.location.reload()
+  }
+})
+
 router.beforeEach((to) => {
   const auth = useAuthStore()
 
