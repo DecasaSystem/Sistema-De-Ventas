@@ -18,13 +18,18 @@ class ProduccionPaso extends Model
         'completado_por',
         'completado_at',
         'trabajadores',
+        'rechazos',
+        'ultimo_rechazo',
+        'rechazado_por_id',
+        'rechazado_at',
     ];
 
     protected function casts(): array
     {
         return [
-            'completado_at' => 'datetime',
-            'trabajadores'  => 'array',
+            'completado_at'  => 'datetime',
+            'rechazado_at'   => 'datetime',
+            'trabajadores'   => 'array',
         ];
     }
 
