@@ -224,7 +224,6 @@ const navItems = computed(() => {
       { name: 'consultas',    label: 'Cotizaciones', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
       { name: 'inventario',   label: 'Inventario',   icon: ArchiveBoxIcon, badge: surtidos.pendientesCount },
       ...(auth.tieneAccesoRedes ? [{ name: 'redes', label: 'Redes', icon: ChatBubbleLeftRightIcon, badge: redesPendientes.value }] : []),
-      { name: 'citas',        label: 'Citas',        icon: CalendarDaysIcon },
       { name: 'mis-stats',    label: 'Estadíst.',    icon: PresentationChartLineIcon },
       { name: 'perfil',       label: 'Perfil',       icon: UserCircleIcon },
     ]
