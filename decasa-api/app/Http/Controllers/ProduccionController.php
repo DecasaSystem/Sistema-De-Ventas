@@ -603,11 +603,13 @@ class ProduccionController extends Controller
             }
         }
 
-        event(new ProduccionActualizada(
-            $produccion->id,
-            $produccion->ordenItem->orden->id,
-            $data['estado'],
-        ));
+        try {
+            event(new ProduccionActualizada(
+                $produccion->id,
+                $produccion->ordenItem->orden->id,
+                $data['estado'],
+            ));
+        } catch (\Throwable) {}
 
         $produccion->load([
             'ordenItem.producto:id,nombre,categoria',

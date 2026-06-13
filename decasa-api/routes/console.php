@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Schedule;
 
 Schedule::job(new AlertarRetrasoProduccion())
     ->dailyAt('07:00')
+    ->timezone('America/Bogota')
     ->name('alertar-retraso-produccion')
     ->withoutOverlapping();
 
