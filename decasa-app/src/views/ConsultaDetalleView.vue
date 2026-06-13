@@ -10,6 +10,7 @@ import {
   SparklesIcon, PlusIcon, TrashIcon, CheckCircleIcon,
   ArrowDownTrayIcon, PaperAirplaneIcon,
   MagnifyingGlassIcon, ChatBubbleLeftEllipsisIcon,
+  XMarkIcon,
 } from '@heroicons/vue/24/outline'
 
 const route     = useRoute()
@@ -17,6 +18,9 @@ const router    = useRouter()
 const toast     = useToast()
 const authStore = useAuthStore()
 const { listen } = useRealtime()
+
+// ── Lightbox ──────────────────────────────────────────────────────────────────
+const imagenAmpliada = ref(null)
 
 // ── Chat ─────────────────────────────────────────────────────────────────────
 const mensajes        = ref([])
@@ -391,7 +395,8 @@ onMounted(() => {
             >
               <img
                 :src="url"
-                class="w-full h-full object-cover rounded-lg border border-violet-200 bg-white"
+                @click="imagenAmpliada = url"
+                class="w-full h-full object-cover rounded-lg border border-violet-200 bg-white cursor-zoom-in"
               />
               <button
                 @click="descargarBoceto(url)"
@@ -749,4 +754,33 @@ onMounted(() => {
 
     </template>
   </div>
+
+  <!-- Lightbox -->
+  <Teleport to="body">
+    <Transition name="fade">
+      <div
+        v-if="imagenAmpliada"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
+        @click.self="imagenAmpliada = null"
+      >
+        <button
+          @click="imagenAmpliada = null"
+          class="absolute top-4 right-4 bg-white/10 hover:bg-white/20 text-white rounded-full p-2 transition-colors"
+        >
+          <XMarkIcon class="w-6 h-6" />
+        </button>
+        <img
+          :src="imagenAmpliada"
+          class="max-w-[92vw] max-h-[88vh] rounded-xl object-contain shadow-2xl"
+        />
+        <button
+          @click="descargarBoceto(imagenAmpliada)"
+          class="absolute bottom-4 right-4 flex items-center gap-1.5 bg-white/10 hover:bg-white/20 text-white text-sm font-medium rounded-xl px-4 py-2 transition-colors"
+        >
+          <ArrowDownTrayIcon class="w-4 h-4" />
+          Descargar
+        </button>
+      </div>
+    </Transition>
+  </Teleport>
 </template>
