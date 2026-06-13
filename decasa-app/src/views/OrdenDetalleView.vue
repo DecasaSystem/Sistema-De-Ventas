@@ -6,7 +6,7 @@ import { useToast } from '@/composables/useToast'
 import { getOrden, updateEstado, descargarPdfOrden, reenviarCotizacion, asignarFechasEntrega, confirmarCotizacion } from '@/api/ordenes'
 import { despachoPorOrden } from '@/api/despacho'
 import { tomarFacturacion, marcarFacturada } from '@/api/pagos'
-import { getReceptores, crearConsulta } from '@/api/consultas'
+import { getReceptores, crearConsulta, getConsultas } from '@/api/consultas'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import RegistroPagoModal from '@/components/ordenes/RegistroPagoModal.vue'
@@ -138,11 +138,12 @@ async function cargarOrden() {
 
     // Cargar consulta activa si hay ítems personalizados
     if (data.items?.some(i => i.es_personalizado)) {
-      import('@/api/consultas').then(({ getConsultas }) =>
-        getConsultas().then(r => {
-          consultaActiva.value = (r.data ?? []).find(c => c.orden_id === data.id) ?? null
-        }).catch(() => {})
-      )
+      try {
+        const r = await getConsultas()
+        consultaActiva.value = (r.data ?? []).find(c => c.orden_id === data.id) ?? null
+      } catch {
+        consultaActiva.value = null
+      }
     }
   } catch (e) {
     error.value = e.response?.data?.message ?? 'No se pudo cargar la orden.'
