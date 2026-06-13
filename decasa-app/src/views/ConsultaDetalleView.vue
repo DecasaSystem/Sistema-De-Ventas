@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
@@ -280,7 +280,6 @@ onMounted(() => {
   cargarMensajes()
   getMateriales('').then(r => { materialesCatalogo.value = r.data ?? [] }).catch(() => {})
 
-  // Escuchar nuevos mensajes en tiempo real
   listen(`consulta.${route.params.id}`, 'consulta.mensaje', (data) => {
     if (!mensajes.value.some(m => m.id === data.id)) {
       mensajes.value.push(data)
@@ -288,6 +287,14 @@ onMounted(() => {
     }
   })
 })
+
+// Pre-cargar el chunk de OrdenDetalleView en segundo plano cuando la
+// consulta ya está respondida, para que el click no tenga que esperar descarga
+watch(() => consulta.value?.estado, (estado) => {
+  if (estado === 'respondida') {
+    import('@/views/OrdenDetalleView.vue').catch(() => {})
+  }
+}, { immediate: true })
 </script>
 
 <template>
@@ -696,6 +703,7 @@ onMounted(() => {
           Ir a la orden — confirmar con el cliente
         </button>
       </div>
+      
 
       <!-- Chat -->
       <div class="bg-white rounded-xl shadow-sm overflow-hidden">

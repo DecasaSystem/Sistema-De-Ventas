@@ -462,9 +462,9 @@ function formatFecha(iso) {
     </header>
 
     <!-- Page content -->
-    <main class="flex-1 pb-20">
+    <main class="flex-1 pb-20 relative">
       <RouterView v-slot="{ Component, route }">
-        <Transition name="page" mode="out-in">
+        <Transition name="page">
           <component :is="Component" :key="route.fullPath" />
         </Transition>
       </RouterView>
@@ -575,9 +575,14 @@ function formatFecha(iso) {
   opacity: 0;
 }
 
-.page-enter-active,
+.page-enter-active {
+  transition: opacity 0.15s ease;
+}
 .page-leave-active {
-  transition: opacity 0.12s ease;
+  transition: opacity 0.1s ease;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
 }
 .page-enter-from,
 .page-leave-to {
