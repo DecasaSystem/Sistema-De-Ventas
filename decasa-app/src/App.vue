@@ -61,9 +61,13 @@ const despachoProd = useDespachoProduccionStore()
 const consultasStore = useConsultasStore()
 const { conectar: conectarSurtidos } = useSurtidosSocket()
 
-const showNav    = computed(() => auth.isAuthenticated && route.name !== 'login')
-const abrirNotif = ref(false)
-const abrirMas   = ref(false)
+const showNav       = computed(() => auth.isAuthenticated && route.name !== 'login')
+const abrirNotif    = ref(false)
+const abrirMas      = ref(false)
+const navCargando   = ref(false)
+
+router.beforeEach(() => { navCargando.value = true })
+router.afterEach(()  => { navCargando.value = false })
 
 function onSwMessage(e) {
   if (e.data?.type === 'push-click') {
@@ -348,6 +352,14 @@ function formatFecha(iso) {
 
 <template>
   <div class="flex flex-col min-h-screen bg-gray-50">
+    <!-- Barra de progreso de navegación -->
+    <div
+      v-if="navCargando"
+      class="fixed top-0 inset-x-0 z-[200] h-0.5 bg-blue-200 overflow-hidden"
+    >
+      <div class="h-full bg-blue-500 animate-nav-bar" />
+    </div>
+
     <!-- Top bar -->
     <header v-if="showNav" class="sticky top-0 z-10 bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
       <span class="font-bold text-blue-600 text-lg">Decasa</span>
@@ -570,5 +582,14 @@ function formatFecha(iso) {
 .page-enter-from,
 .page-leave-to {
   opacity: 0;
+}
+
+@keyframes nav-bar-slide {
+  0%   { transform: translateX(-100%); }
+  60%  { transform: translateX(-10%); }
+  100% { transform: translateX(0%); }
+}
+.animate-nav-bar {
+  animation: nav-bar-slide 1.5s ease-out forwards;
 }
 </style>
