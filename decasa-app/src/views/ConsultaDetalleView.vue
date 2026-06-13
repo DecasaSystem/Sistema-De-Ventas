@@ -44,7 +44,9 @@ async function doEnviarMensaje() {
   enviandoMensaje.value = true
   try {
     const { data } = await enviarMensaje(route.params.id, texto)
-    mensajes.value.push(data)
+    if (!mensajes.value.some(m => m.id === data.id)) {
+      mensajes.value.push(data)
+    }
     nuevoMensaje.value = ''
     scrollAlFinal()
   } catch (e) {
