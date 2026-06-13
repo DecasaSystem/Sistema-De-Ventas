@@ -19,6 +19,8 @@ const previewUrl      = ref('')
 let ctx    = null
 let ctxExp = null
 let ratio  = 1
+let lastX = 0, lastY = 0
+let lastXExp = 0, lastYExp = 0
 
 onMounted(initCanvas)
 
@@ -69,26 +71,34 @@ function getPos(e, canvas) {
   return { x: src.clientX - rect.left, y: src.clientY - rect.top }
 }
 
-// Canvas pequeño
+// Canvas pequeño — segmentos independientes para que levantar el dedo no rompa el trazo
 function startDraw(e) {
   e.preventDefault()
   dibujando.value = true
   const { x, y } = getPos(e, canvasRef.value)
+  lastX = x; lastY = y
+  // Punto para taps sin movimiento
   ctx.beginPath()
-  ctx.moveTo(x, y)
+  ctx.arc(x, y, ctx.lineWidth / 2, 0, Math.PI * 2)
+  ctx.fillStyle = '#1e293b'
+  ctx.fill()
+  hayFirma.value = true
 }
 function draw(e) {
   e.preventDefault()
   if (!dibujando.value) return
   const { x, y } = getPos(e, canvasRef.value)
+  ctx.beginPath()
+  ctx.moveTo(lastX, lastY)
   ctx.lineTo(x, y)
   ctx.stroke()
+  lastX = x; lastY = y
   hayFirma.value = true
 }
 function endDraw() {
   if (!dibujando.value) return
   dibujando.value = false
-  if (hayFirma.value) emitBlob(canvasRef.value)
+  emitBlob(canvasRef.value)
 }
 
 // Canvas expandido
@@ -96,15 +106,22 @@ function startDrawExp(e) {
   e.preventDefault()
   dibujandoExp.value = true
   const { x, y } = getPos(e, canvasExpandido.value)
+  lastXExp = x; lastYExp = y
   ctxExp.beginPath()
-  ctxExp.moveTo(x, y)
+  ctxExp.arc(x, y, ctxExp.lineWidth / 2, 0, Math.PI * 2)
+  ctxExp.fillStyle = '#1e293b'
+  ctxExp.fill()
+  hayFirmaExp.value = true
 }
 function drawExp(e) {
   e.preventDefault()
   if (!dibujandoExp.value) return
   const { x, y } = getPos(e, canvasExpandido.value)
+  ctxExp.beginPath()
+  ctxExp.moveTo(lastXExp, lastYExp)
   ctxExp.lineTo(x, y)
   ctxExp.stroke()
+  lastXExp = x; lastYExp = y
   hayFirmaExp.value = true
 }
 function endDrawExp() {
