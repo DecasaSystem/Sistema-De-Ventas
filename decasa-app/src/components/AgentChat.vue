@@ -14,6 +14,47 @@ import { SparklesIcon as SparklesSolid } from '@heroicons/vue/24/solid'
 
 const abierto   = ref(false)
 const cargando  = ref(false)
+
+// ── Botón arrastrable ─────────────────────────────────────────────────────────
+const BTN_SIZE = 52
+function posInicial() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('agent-btn-pos'))
+    if (saved && typeof saved.x === 'number') return saved
+  } catch {}
+  return { x: window.innerWidth - BTN_SIZE - 16, y: window.innerHeight - BTN_SIZE - 160 }
+}
+const btnPos     = ref(posInicial())
+const arrastrando = ref(false)
+let _dragClientStart = { x: 0, y: 0 }
+let _dragPosStart    = { x: 0, y: 0 }
+let _seArrastro      = false
+
+function onBtnPointerDown(e) {
+  e.currentTarget.setPointerCapture(e.pointerId)
+  arrastrando.value   = true
+  _seArrastro         = false
+  _dragClientStart    = { x: e.clientX, y: e.clientY }
+  _dragPosStart       = { ...btnPos.value }
+}
+function onBtnPointerMove(e) {
+  if (!arrastrando.value) return
+  const dx = e.clientX - _dragClientStart.x
+  const dy = e.clientY - _dragClientStart.y
+  if (Math.abs(dx) > 4 || Math.abs(dy) > 4) _seArrastro = true
+  btnPos.value = {
+    x: Math.min(Math.max(0, _dragPosStart.x + dx), window.innerWidth  - BTN_SIZE),
+    y: Math.min(Math.max(0, _dragPosStart.y + dy), window.innerHeight - BTN_SIZE),
+  }
+}
+function onBtnPointerUp() {
+  arrastrando.value = false
+  if (!_seArrastro) {
+    toggle()
+  } else {
+    try { localStorage.setItem('agent-btn-pos', JSON.stringify(btnPos.value)) } catch {}
+  }
+}
 const inputText = ref('')
 const imagenAmpliada = ref(null)   // src de la imagen en lightbox
 const mensajes  = ref([
@@ -225,12 +266,16 @@ function formatearTexto(texto) {
 
 <template>
   <Teleport to="body">
-    <!-- Botón flotante -->
+    <!-- Botón flotante (arrastrable) -->
     <button
       v-if="!abierto"
-      @click="toggle"
-      class="fixed bottom-40 right-4 z-50 w-13 h-13 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg flex items-center justify-center transition-all hover:scale-105 active:scale-95"
-      title="Asistente Decasa"
+      :style="{ left: btnPos.x + 'px', top: btnPos.y + 'px', touchAction: 'none' }"
+      :class="['fixed z-50 w-13 h-13 bg-blue-600 text-white rounded-full shadow-lg flex items-center justify-center select-none',
+               arrastrando ? 'cursor-grabbing scale-110 shadow-xl' : 'cursor-grab hover:bg-blue-700 hover:scale-105 active:scale-95 transition-all']"
+      @pointerdown="onBtnPointerDown"
+      @pointermove="onBtnPointerMove"
+      @pointerup="onBtnPointerUp"
+      title="Asistente Decasa — arrastra para mover"
     >
       <SparklesSolid class="w-6 h-6" />
     </button>
