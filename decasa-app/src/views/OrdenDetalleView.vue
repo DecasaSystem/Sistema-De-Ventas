@@ -131,24 +131,26 @@ async function cargarOrden() {
     }
     fechasEdicion.value = edicion
 
-    // Cargar datos de despacho si está entregado
     if (data.estado === 'entregado') {
       cargarDespachoEntrega(data.id)
-    }
-
-    // Cargar consulta activa si hay ítems personalizados
-    if (data.items?.some(i => i.es_personalizado)) {
-      try {
-        const r = await getConsultas()
-        consultaActiva.value = (r.data ?? []).find(c => c.orden_id === data.id) ?? null
-      } catch {
-        consultaActiva.value = null
-      }
     }
   } catch (e) {
     error.value = e.response?.data?.message ?? 'No se pudo cargar la orden.'
   } finally {
     loading.value = false
+  }
+
+  // Cargar consulta activa después de mostrar la orden (no bloquea el spinner)
+  if (orden.value?.items?.some(i => i.es_personalizado)) {
+    cargandoConsulta.value = true
+    try {
+      const r = await getConsultas()
+      consultaActiva.value = (r.data ?? []).find(c => c.orden_id === orden.value.id) ?? null
+    } catch {
+      consultaActiva.value = null
+    } finally {
+      cargandoConsulta.value = false
+    }
   }
 }
 
@@ -468,7 +470,8 @@ async function doConfirmarCotizacion() {
 
 // ── Consulta de costo ────────────────────────────────────────────────────────
 
-const consultaActiva     = ref(null)
+const consultaActiva        = ref(null)
+const cargandoConsulta      = ref(false)
 const showModalCotizar   = ref(false)
 const receptores         = ref([])
 const cotizarReceptorId  = ref(null)
@@ -610,8 +613,17 @@ onMounted(cargarOrden)
           Cotización de costo
         </p>
 
+        <!-- Cargando consulta -->
+        <div v-if="cargandoConsulta" class="flex items-center gap-2 py-1">
+          <div class="w-8 h-8 rounded-full bg-gray-100 animate-pulse flex-shrink-0" />
+          <div class="flex-1 space-y-1.5">
+            <div class="h-3 bg-gray-100 rounded animate-pulse w-32" />
+            <div class="h-2.5 bg-gray-100 rounded animate-pulse w-24" />
+          </div>
+        </div>
+
         <!-- Estado de la consulta activa -->
-        <div v-if="consultaActiva" class="flex items-start gap-3">
+        <div v-else-if="consultaActiva" class="flex items-start gap-3">
           <div
             :class="[
               'flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center',
@@ -658,7 +670,7 @@ onMounted(cargarOrden)
         </div>
 
         <!-- Sin consulta -->
-        <div v-else>
+        <div v-else-if="!cargandoConsulta">
           <p class="text-xs text-gray-400">No se solicitó cotización de costo para esta orden.</p>
         </div>
       </div>
