@@ -11,6 +11,7 @@ import { useDespachoProduccionStore } from '@/stores/despachoProduccion'
 import { useConsultasStore } from '@/stores/consultas'
 import { useSurtidosSocket } from '@/composables/useSurtidosSocket'
 import { registrarPush, cancelarPush } from '@/composables/usePushNotifications'
+import { cargarCatalogoDB } from '@/data/telasCatalogo'
 import ScrollToTop from '@/components/common/ScrollToTop.vue'
 import ToastContainer from '@/components/common/ToastContainer.vue'
 import AppInstallPrompt from '@/components/common/AppInstallPrompt.vue'
@@ -92,6 +93,7 @@ watch(() => auth.isAuthenticated, (isAuth) => {
   if (!isAuth) return
   notif.cargar()
   registrarPush()
+  cargarCatalogoDB(api)
   if (auth.isSupervisor) {
     despacho.refrescar()
   }

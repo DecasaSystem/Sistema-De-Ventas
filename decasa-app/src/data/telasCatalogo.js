@@ -1,4 +1,6 @@
-export const TELAS_CATALOGO = {
+import { reactive, computed } from 'vue'
+
+const _static = {
   'Visual': {
     'Bistro': ['Marfil', 'Crema', 'Beige', 'Moca', 'Olivia', 'Petroleo', 'Plata', 'Grafito'],
     'Kanvas': ['Crudo', 'Marfil', 'Sand', 'Beige', 'Capuchino', 'Gris'],
@@ -53,10 +55,41 @@ export const TELAS_CATALOGO = {
   },
 }
 
-export const marcasOrdenadas = Object.keys(TELAS_CATALOGO)
+// Reactive catalog — starts with static data, DB additions merge in after auth
+export const TELAS_CATALOGO = reactive({ ..._static })
+
+function _mergeDB(data) {
+  for (const { marca, tipos } of data) {
+    if (!TELAS_CATALOGO[marca]) TELAS_CATALOGO[marca] = {}
+    for (const { tipo, colores } of tipos) {
+      if (!TELAS_CATALOGO[marca][tipo]) {
+        TELAS_CATALOGO[marca][tipo] = colores.map(c => c.color)
+      } else {
+        const existing = new Set(TELAS_CATALOGO[marca][tipo])
+        for (const { color } of colores) {
+          if (!existing.has(color)) {
+            TELAS_CATALOGO[marca][tipo].push(color)
+            existing.add(color)
+          }
+        }
+      }
+    }
+  }
+}
+
+// Called once from App.vue after the user authenticates
+export async function cargarCatalogoDB(api) {
+  try {
+    const { data } = await api.get('/catalogo-telas')
+    _mergeDB(data)
+  } catch {}
+}
+
+// computed ref — auto-unwrapped in templates (script setup)
+export const marcasOrdenadas = computed(() => Object.keys(TELAS_CATALOGO).sort())
 
 export function tiposTelaDeM(marca) {
-  return Object.keys(TELAS_CATALOGO[marca] ?? {})
+  return Object.keys(TELAS_CATALOGO[marca] ?? {}).sort()
 }
 
 export function coloresDeTela(marca, tela) {

@@ -32,6 +32,7 @@ use App\Http\Controllers\FacturacionController;
 use App\Http\Controllers\PushSubscriptionController;
 use App\Http\Controllers\ReservaController;
 use App\Http\Controllers\RestauracionController;
+use App\Http\Controllers\CatalogoTelaController;
 use Illuminate\Support\Facades\Route;
 
 // ── Auth (público) ────────────────────────────────────────────────────────────
@@ -147,6 +148,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/productos/{id}/variantes',  [VarianteController::class, 'index']);
     Route::middleware('role:supervisor')->group(function () {
         Route::post('/productos/{id}/variantes', [VarianteController::class, 'store']);
+    });
+
+    // Catálogo de telas (marca → tipo → color)
+    Route::get('/catalogo-telas', [CatalogoTelaController::class, 'index']);
+    Route::middleware('role:supervisor')->group(function () {
+        Route::post('/catalogo-telas',        [CatalogoTelaController::class, 'store']);
+        Route::delete('/catalogo-telas/{id}', [CatalogoTelaController::class, 'destroy'])->whereNumber('id');
     });
 
     // Notificaciones (todos los roles, filtrado por rol en el controlador)
