@@ -202,7 +202,6 @@ const navItems = computed(() => {
       { name: 'costos',      label: 'Costos',       icon: CalculatorIcon },
       { name: 'clientes',    label: 'Clientes',     icon: UserGroupIcon },
       { name: 'mis-stats',   label: 'Estadíst.',    icon: PresentationChartLineIcon },
-      { name: 'perfil',      label: 'Perfil',       icon: UserCircleIcon },
     ]
   }
   if (auth.usuario?.rol === 'supervisor' && auth.usuario?.es_tapicero) {
@@ -210,14 +209,12 @@ const navItems = computed(() => {
       { name: 'mis-pasos',  label: 'Mis pasos',   icon: WrenchScrewdriverIcon, badge: pasos.pendientesCount },
       { name: 'consultas',  label: 'Cotizaciones', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
       { name: 'costos',     label: 'Costos',       icon: CalculatorIcon },
-      { name: 'perfil',     label: 'Perfil',       icon: UserCircleIcon },
     ]
   }
   if (auth.usuario?.rol === 'despachador') {
     return [
       { name: 'despacho-produccion', label: 'Despacho prod.', icon: ArchiveBoxArrowDownIcon, badge: despachoProd.pendientesCount },
       { name: 'mis-pasos',           label: 'Mis pasos',      icon: WrenchScrewdriverIcon, badge: pasos.pendientesCount },
-      { name: 'perfil',              label: 'Perfil',          icon: UserCircleIcon },
     ]
   }
   if (auth.isFacturador) {
@@ -231,7 +228,6 @@ const navItems = computed(() => {
       { name: 'reserva',      label: 'Fábrica',      icon: BuildingOffice2Icon },
       ...(auth.tieneAccesoRedes ? [{ name: 'redes', label: 'Redes', icon: ChatBubbleLeftRightIcon, badge: redesPendientes.value }] : []),
       { name: 'mis-stats',    label: 'Estadíst.',    icon: PresentationChartLineIcon },
-      { name: 'perfil',       label: 'Perfil',       icon: UserCircleIcon },
     ]
   }
   // Vendedor regular — primeros 4 siempre visibles, resto en "Más"
@@ -245,7 +241,6 @@ const navItems = computed(() => {
     { name: 'surtir',     label: 'Traslado',     icon: ArrowPathIcon },
     ...(auth.tieneAccesoRedes ? [{ name: 'redes', label: 'Redes', icon: ChatBubbleLeftRightIcon, badge: redesPendientes.value }] : []),
     { name: 'mis-stats',  label: 'Estadíst.',    icon: PresentationChartLineIcon },
-    { name: 'perfil',     label: 'Perfil',       icon: UserCircleIcon },
   ]
 })
 
