@@ -57,7 +57,7 @@ const accesos = computed(() => {
     { label: 'Órdenes',      icon: ClipboardDocumentListIcon, to: { name: 'ordenes' } },
     { label: 'Clientes',     icon: UserGroupIcon, to: { name: 'clientes' } },
     { label: 'Inventario',   icon: ArchiveBoxIcon,  to: { name: 'inventario' } },
-    { label: 'Fábrica',      icon: BuildingOffice2Icon, to: { name: 'reserva' } },
+    ...(!auth.isSupervisor ? [{ label: 'Fábrica', icon: BuildingOffice2Icon, to: { name: 'reserva' } }] : []),
     ...(!auth.isSupervisor ? [{ label: 'Traslado', icon: ArrowPathIcon, to: { name: 'surtir' } }] : []),
     ...(auth.tieneAccesoRedes ? [{ label: 'Redes', icon: ChatBubbleLeftRightIcon, to: { name: 'redes' } }] : []),
     { label: 'Citas',        icon: CalendarDaysIcon,        to: { name: 'citas' } },
