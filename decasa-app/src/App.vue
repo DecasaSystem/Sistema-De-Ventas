@@ -48,6 +48,7 @@ import {
   ChatBubbleLeftRightIcon,
   ArrowPathIcon,
   CurrencyDollarIcon,
+  BuildingOffice2Icon,
 } from '@heroicons/vue/24/outline'
 
 const route  = useRoute()
@@ -239,6 +240,7 @@ const navItems = computed(() => {
     { name: 'clientes',   label: 'Clientes',     icon: UserGroupIcon },
     { name: 'consultas',  label: 'Cotizaciones', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
     { name: 'inventario', label: 'Inventario',   icon: ArchiveBoxIcon, badge: surtidos.pendientesCount },
+    { name: 'reserva',    label: 'Fábrica',      icon: BuildingOffice2Icon },
     { name: 'surtir',     label: 'Traslado',     icon: ArrowPathIcon },
     ...(auth.tieneAccesoRedes ? [{ name: 'redes', label: 'Redes', icon: ChatBubbleLeftRightIcon, badge: redesPendientes.value }] : []),
     { name: 'mis-stats',  label: 'Estadíst.',    icon: PresentationChartLineIcon },

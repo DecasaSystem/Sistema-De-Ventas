@@ -27,7 +27,7 @@ const routes = [
   { path: '/stats/vendedor/:id', name: 'stats-vendedor', component: () => import('@/views/StatsVendedorDetalleView.vue'), meta: { requiresAuth: true, requiresSupervisor: true } },
   { path: '/costos', name: 'costos', component: () => import('@/views/CostosView.vue'), meta: { requiresAuth: true, requiresCostos: true } },
   { path: '/facturacion', name: 'facturacion', component: () => import('@/views/FacturacionView.vue'), meta: { requiresAuth: true, requiresFacturador: true } },
-  { path: '/reserva', name: 'reserva', component: () => import('@/views/ReservaView.vue'), meta: { requiresAuth: true, requiresSupervisor: true } },
+  { path: '/reserva', name: 'reserva', component: () => import('@/views/ReservaView.vue'), meta: { requiresAuth: true, requiresReserva: true } },
   { path: '/redes',  name: 'redes',  component: () => import('@/views/RedesView.vue'),  meta: { requiresAuth: true, requiresRedes: true } },
   { path: '/citas',  name: 'citas',  component: () => import('@/views/CitasView.vue'),  meta: { requiresAuth: true } },
   { path: '/consultas-costo', name: 'consultas', component: () => import('@/views/ConsultasView.vue'), meta: { requiresAuth: true, requiresConsultas: true } },
@@ -66,6 +66,7 @@ router.beforeEach((to) => {
   if (to.meta.requiresFacturador && !auth.isFacturador) return { name: 'dashboard' }
   if (to.meta.requiresRedes && !auth.tieneAccesoRedes) return { name: 'dashboard' }
   if (to.meta.requiresConsultas && !auth.isSupervisor && auth.usuario?.rol !== 'ebanista' && auth.usuario?.rol !== 'vendedor') return { name: 'dashboard' }
+  if (to.meta.requiresReserva && !auth.isSupervisor && auth.usuario?.rol !== 'vendedor') return { name: 'dashboard' }
 })
 
 export default router

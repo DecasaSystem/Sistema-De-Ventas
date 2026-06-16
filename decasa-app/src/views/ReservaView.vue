@@ -9,10 +9,13 @@ import { getVariantes, crearVariante } from '@/api/inventario'
 import { marcasOrdenadas, tiposTelaDeM, coloresDeTela } from '@/data/telasCatalogo'
 import { cloudinaryOpt } from '@/utils/cloudinary'
 import { useToast } from '@/composables/useToast'
+import { useAuthStore } from '@/stores/auth'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 
-const toast = useToast()
+const toast      = useToast()
+const auth       = useAuthStore()
+const soloLectura = computed(() => !auth.isSupervisor)
 
 const fabricaId      = ref(null)
 const inventario     = ref([])
@@ -307,7 +310,9 @@ onMounted(async () => {
   <div class="p-4 max-w-2xl mx-auto space-y-3 pb-8">
     <!-- Header -->
     <div class="flex items-center gap-2">
-      <h2 class="text-lg font-bold text-gray-800 flex-1">Reserva de Fábrica</h2>
+      <h2 class="text-lg font-bold text-gray-800 flex-1">
+        Reserva de Fábrica<span v-if="soloLectura" class="ml-2 text-xs font-normal text-gray-400">(solo lectura)</span>
+      </h2>
     </div>
 
     <div class="flex items-center gap-2 bg-purple-50 rounded-lg px-3 py-2">
@@ -372,8 +377,8 @@ onMounted(async () => {
             </div>
           </div>
 
-          <!-- Acciones -->
-          <div class="flex gap-2">
+          <!-- Acciones (solo supervisor) -->
+          <div v-if="!soloLectura" class="flex gap-2">
             <button @click="openEntrada(item)" class="flex-1 flex items-center justify-center gap-1.5 bg-green-600 text-white rounded-lg py-2 text-sm font-semibold hover:bg-green-700">
               <PlusIcon class="w-4 h-4" /> Agregar
             </button>
@@ -388,23 +393,25 @@ onMounted(async () => {
             <div v-if="varianteCargando[item.producto_id]" class="text-xs text-gray-400">Cargando...</div>
             <template v-else-if="variantesReserva[item.producto_id]">
               <div class="flex flex-wrap gap-1.5">
-                <button
+                <component
+                  :is="soloLectura ? 'span' : 'button'"
                   v-for="v in variantesReserva[item.producto_id]"
                   :key="v.id"
-                  @click="abrirStockVariante(v, item.producto_id)"
-                  :class="['px-2.5 py-1 rounded-full text-xs font-medium border transition-colors',
-                    v.stock_libre > 0 ? 'bg-green-50 border-green-300 text-green-800' : 'bg-gray-50 border-gray-200 text-gray-400']"
-                  :title="(item.producto?.tiene_tallas ? v.medida : [v.marca, v.marca_tela, v.nombre_color].filter(Boolean).join(' · ')) + ' — clic para agregar stock'"
+                  v-bind="soloLectura ? {} : { onClick: () => abrirStockVariante(v, item.producto_id) }"
+                  :class="['px-2.5 py-1 rounded-full text-xs font-medium border',
+                    v.stock_libre > 0 ? 'bg-green-50 border-green-300 text-green-800' : 'bg-gray-50 border-gray-200 text-gray-400',
+                    !soloLectura && 'transition-colors']"
                 >
                   <template v-if="item.producto?.tiene_tallas">
                     {{ v.medida }}<span v-if="v.precio_variante" class="ml-1 opacity-70">${{ Number(v.precio_variante).toLocaleString('es-CO') }}</span>
                   </template>
                   <template v-else>{{ v.marca_tela }} · {{ v.nombre_color }}</template>
                   <span class="ml-1 font-bold">{{ v.stock_libre ?? 0 }}</span>
-                </button>
+                </component>
                 <span v-if="!variantesReserva[item.producto_id]?.length" class="text-xs text-gray-400 italic">Sin variantes registradas</span>
               </div>
               <button
+                v-if="!soloLectura"
                 @click="abrirNuevaVariante(item.producto_id, item.producto?.tiene_tallas)"
                 class="text-xs text-purple-600 font-medium hover:text-purple-800 mt-1"
               >+ Nueva variante</button>

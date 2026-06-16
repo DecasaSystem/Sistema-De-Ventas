@@ -61,8 +61,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // Reserva / Fábrica
     Route::get('/reserva/info',                          [ReservaController::class, 'info']);
     Route::get('/reserva/stock-lote',                    [ReservaController::class, 'stockLote']);
+    // Lectura de inventario: cualquier usuario autenticado (vendedor consulta, supervisor gestiona)
+    Route::get('/reserva/inventario',                    [ReservaController::class, 'inventario']);
     Route::middleware('role:supervisor')->group(function () {
-        Route::get('/reserva/inventario',                [ReservaController::class, 'inventario']);
         Route::post('/reserva/entrada',                  [ReservaController::class, 'entrada']);
         Route::post('/reserva/variante-entrada',         [ReservaController::class, 'entradaVariante']);
         Route::post('/reserva/salida',                   [ReservaController::class, 'salida']);
