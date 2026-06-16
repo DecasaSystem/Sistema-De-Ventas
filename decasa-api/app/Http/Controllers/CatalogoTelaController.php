@@ -53,6 +53,34 @@ class CatalogoTelaController extends Controller
     }
 
     /**
+     * POST /catalogo-telas/batch
+     * Agrega varios colores de una vez para una misma marca+tipo.
+     */
+    public function storeBatch(Request $request)
+    {
+        $data = $request->validate([
+            'marca'     => 'required|string|max:100',
+            'tipo'      => 'required|string|max:100',
+            'colores'   => 'required|array|min:1',
+            'colores.*' => 'required|string|max:100',
+        ]);
+
+        $creados = [];
+        foreach ($data['colores'] as $color) {
+            $tela = CatalogoTela::firstOrCreate(
+                ['marca' => trim($data['marca']), 'tipo' => trim($data['tipo']), 'color' => trim($color)],
+                ['activo' => true]
+            );
+            if (!$tela->activo) {
+                $tela->update(['activo' => true]);
+            }
+            $creados[] = $tela;
+        }
+
+        return response()->json($creados, 201);
+    }
+
+    /**
      * DELETE /catalogo-telas/{id}
      * Desactiva una entrada del catálogo.
      */

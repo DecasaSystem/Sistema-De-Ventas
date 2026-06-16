@@ -153,8 +153,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // Catálogo de telas (marca → tipo → color)
     Route::get('/catalogo-telas', [CatalogoTelaController::class, 'index']);
     Route::middleware('role:supervisor')->group(function () {
-        Route::post('/catalogo-telas',        [CatalogoTelaController::class, 'store']);
-        Route::delete('/catalogo-telas/{id}', [CatalogoTelaController::class, 'destroy'])->whereNumber('id');
+        Route::post('/catalogo-telas',              [CatalogoTelaController::class, 'store']);
+        Route::post('/catalogo-telas/batch',        [CatalogoTelaController::class, 'storeBatch']);
+        Route::delete('/catalogo-telas/{id}',       [CatalogoTelaController::class, 'destroy'])->whereNumber('id');
     });
 
     // Notificaciones (todos los roles, filtrado por rol en el controlador)
