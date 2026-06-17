@@ -516,6 +516,23 @@ async function toggleEsTapizado() {
   }
 }
 
+async function toggleTieneTallas() {
+  const nuevoValor = !itemGestionar.value.producto.tiene_tallas
+  try {
+    await api.patch(`/productos/${itemGestionar.value.producto_id}`, { tiene_tallas: nuevoValor })
+    itemGestionar.value.producto.tiene_tallas = nuevoValor
+    const idx = inventario.value.findIndex(i => i.producto_id === itemGestionar.value.producto_id)
+    if (idx !== -1) {
+      inventario.value[idx].producto.tiene_tallas = nuevoValor
+      if (nuevoValor && !variantesData.value[itemGestionar.value.producto_id]) {
+        await cargarVariantes(inventario.value[idx])
+      }
+    }
+  } catch {
+    // silencioso
+  }
+}
+
 // ── Variantes ─────────────────────────────────────────────────────────────────
 const variantesAbiertas  = ref({})   // { producto_id: bool }
 const variantesData      = ref({})   // { producto_id: Variante[] }
@@ -1558,6 +1575,28 @@ onMounted(async () => {
                   :class="[
                     'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
                     itemGestionar?.producto?.es_tapizado ? 'translate-x-6' : 'translate-x-1'
+                  ]"
+                />
+              </button>
+            </div>
+
+            <!-- Toggle tiene tallas -->
+            <div class="flex items-center justify-between">
+              <div>
+                <p class="text-sm font-medium text-gray-700">Variantes por medida</p>
+                <p class="text-xs text-gray-400">Activa para camas y colchones con precio por talla</p>
+              </div>
+              <button
+                @click="toggleTieneTallas"
+                :class="[
+                  'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
+                  itemGestionar?.producto?.tiene_tallas ? 'bg-blue-600' : 'bg-gray-200'
+                ]"
+              >
+                <span
+                  :class="[
+                    'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                    itemGestionar?.producto?.tiene_tallas ? 'translate-x-6' : 'translate-x-1'
                   ]"
                 />
               </button>
