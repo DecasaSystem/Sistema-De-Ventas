@@ -56,6 +56,8 @@ class InventarioController extends Controller
                 'productos.es_tapizado as prod_es_tapizado',
                 'productos.tiene_tallas as prod_tiene_tallas',
                 'productos.descripcion as prod_descripcion',
+                'productos.medidas as prod_medidas',
+                'productos.material as prod_material',
             )
             ->orderBy('productos.nombre');
 
@@ -80,6 +82,8 @@ class InventarioController extends Controller
                 'es_tapizado'    => (bool) $inv->prod_es_tapizado,
                 'tiene_tallas'   => (bool) $inv->prod_tiene_tallas,
                 'descripcion'    => $inv->prod_descripcion,
+                'medidas'        => $inv->prod_medidas,
+                'material'       => $inv->prod_material,
                 'activo'         => true,
             ];
             return $inv;
@@ -104,6 +108,8 @@ class InventarioController extends Controller
                 'productos.es_tapizado',
                 'productos.tiene_tallas',
                 'productos.descripcion',
+                'productos.medidas',
+                'productos.material',
                 DB::raw('COALESCE(SUM(inventario.cantidad_disponible), 0) as cantidad_disponible'),
                 DB::raw('COALESCE(SUM(inventario.cantidad_reservada), 0) as cantidad_reservada'),
                 DB::raw('COUNT(DISTINCT inventario.tienda_id) as tiendas_count'),
@@ -118,6 +124,8 @@ class InventarioController extends Controller
                 'productos.es_tapizado',
                 'productos.tiene_tallas',
                 'productos.descripcion',
+                'productos.medidas',
+                'productos.material',
             );
 
         if ($search) {
@@ -153,6 +161,8 @@ class InventarioController extends Controller
                         'es_tapizado'    => (bool) $inv->es_tapizado,
                         'tiene_tallas'   => (bool) $inv->tiene_tallas,
                         'descripcion'    => $inv->descripcion,
+                        'medidas'        => $inv->medidas,
+                        'material'       => $inv->material,
                         'activo'         => true,
                     ],
                 ];

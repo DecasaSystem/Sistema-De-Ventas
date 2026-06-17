@@ -190,6 +190,8 @@ class ProductoController extends Controller
             'tiene_tallas' => 'sometimes|boolean',
             'nombre'       => 'sometimes|string|max:150',
             'descripcion'  => 'sometimes|nullable|string',
+            'medidas'      => 'sometimes|nullable|string|max:200',
+            'material'     => 'sometimes|nullable|string|max:200',
         ]);
 
         if (empty($data)) {

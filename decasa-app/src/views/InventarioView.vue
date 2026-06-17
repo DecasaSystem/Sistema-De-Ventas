@@ -68,6 +68,8 @@ const fotoProducto = ref(null)
 // ── Cambiar nombre / descripción desde gestionar ─────────────────────────────
 const gestionNombre       = ref('')
 const gestionDescripcion  = ref('')
+const gestionMedidas      = ref('')
+const gestionMaterial     = ref('')
 const gestionInfoLoading  = ref(false)
 const gestionInfoError    = ref('')
 
@@ -82,16 +84,20 @@ async function guardarNombreDescripcion() {
     await api.patch(`/productos/${itemGestionar.value.producto_id}`, {
       nombre:      gestionNombre.value.trim(),
       descripcion: gestionDescripcion.value.trim() || null,
+      medidas:     gestionMedidas.value.trim() || null,
+      material:    gestionMaterial.value.trim() || null,
     })
     if (itemGestionar.value.producto) {
       itemGestionar.value.producto.nombre      = gestionNombre.value.trim()
       itemGestionar.value.producto.descripcion = gestionDescripcion.value.trim() || null
+      itemGestionar.value.producto.medidas     = gestionMedidas.value.trim() || null
+      itemGestionar.value.producto.material    = gestionMaterial.value.trim() || null
     }
     const idx = inventario.value.findIndex(i => i.producto_id === itemGestionar.value.producto_id)
     if (idx !== -1 && inventario.value[idx].producto) {
       inventario.value[idx].producto.nombre = gestionNombre.value.trim()
     }
-    toast.success('Nombre y descripción guardados.')
+    toast.success('Información guardada.')
   } catch (e) {
     gestionInfoError.value = e.response?.data?.message ?? 'Error al guardar.'
   } finally {
@@ -413,6 +419,8 @@ function openGestionar(item) {
   nuevoPrecio.value = parseFloat(item.producto?.precio_base ?? 0)
   gestionNombre.value      = item.producto?.nombre ?? ''
   gestionDescripcion.value = item.producto?.descripcion ?? ''
+  gestionMedidas.value     = item.producto?.medidas ?? ''
+  gestionMaterial.value    = item.producto?.material ?? ''
   gestionInfoError.value   = ''
   nuevoStock.value = 0
   stockMotivo.value = ''
@@ -1466,13 +1474,33 @@ onMounted(async () => {
                   placeholder="Descripción del producto (opcional)"
                 />
               </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Medidas</label>
+                <input
+                  v-model="gestionMedidas"
+                  type="text"
+                  maxlength="200"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Ej: 200x90x80 cm (opcional)"
+                />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Material</label>
+                <input
+                  v-model="gestionMaterial"
+                  type="text"
+                  maxlength="200"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Ej: Cuero, madera, tela... (opcional)"
+                />
+              </div>
               <p v-if="gestionInfoError" class="text-xs text-red-600">{{ gestionInfoError }}</p>
               <button
                 @click="guardarNombreDescripcion"
                 :disabled="gestionInfoLoading"
                 class="w-full bg-blue-600 text-white rounded-lg py-2 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
               >
-                {{ gestionInfoLoading ? 'Guardando...' : 'Guardar nombre y descripción' }}
+                {{ gestionInfoLoading ? 'Guardando...' : 'Guardar información' }}
               </button>
             </div>
 
