@@ -365,13 +365,15 @@ async function cargarTiendas() {
 async function cargarInventario(reset = false) {
   if (!tiendaId.value) return
   if (reset) loading.value = true
+  let nuevosItems = []
   try {
     const page = reset ? 1 : currentPage.value + 1
     const { data } = await getInventario(tiendaId.value, busqueda.value.trim(), page)
+    nuevosItems = data.data
     if (reset) {
-      inventario.value = data.data
+      inventario.value = nuevosItems
     } else {
-      inventario.value.push(...data.data)
+      inventario.value.push(...nuevosItems)
     }
     currentPage.value = data.current_page
     lastPage.value = data.last_page
@@ -383,9 +385,9 @@ async function cargarInventario(reset = false) {
     loadingMore.value = false
   }
   if (tieneMas.value) nextTick(setupObserver)
-  if (reset) {
-    nextTick(() => inventario.value.forEach(cargarVariantes))
-  }
+  nextTick(() => {
+    nuevosItems.forEach(i => { if (i.producto?.es_tapizado || i.producto?.tiene_tallas) cargarVariantes(i) })
+  })
 }
 
 function loadMore() {
