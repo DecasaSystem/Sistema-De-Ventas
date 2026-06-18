@@ -36,10 +36,34 @@ const router = useRouter()
 const route = useRoute()
 const auth = useAuthStore()
 
+const CATEGORY_LABELS = {
+  'cajoneros':       'Cajoneros',
+  'camas':           'Camas',
+  'colchones':       'Colchones',
+  'comedores':       'Bases comedor',
+  'cunas':           'Cunas',
+  'Electrica':       'Eléctrica',
+  'escritorios':     'Escritorios',
+  'mesas_aux':       'Mesas aux.',
+  'mesas_centro':    'Mesas centro',
+  'mesas_noche':     'Mesas noche',
+  'mesas_tv':        'Mesas TV',
+  'Puff':            'Puff',
+  'Reloj':           'Relojes',
+  'sillas_aux':      'Sillas de sala',
+  'sillas_barra':    'Sillas de barra',
+  'sillas_comedor':  'Sillas comedor',
+  'sofa_camas':      'Sofacamas',
+  'sofas':           'Sofás',
+  'sofas_modulares': 'Modulares',
+}
+
 const tiendas = ref([])
 const tiendaId = ref(auth.usuario?.tienda_default_id ?? '')
 const inventario = ref([])
 const busqueda = ref('')
+const categoriaFiltro = ref('')
+const categoriasDisponibles = ref([])
 const loading = ref(!!auth.usuario?.tienda_default_id)
 const currentPage = ref(1)
 const lastPage = ref(1)
@@ -368,13 +392,25 @@ async function cargarTiendas() {
   } catch {}
 }
 
+async function cargarCategorias() {
+  try {
+    const { data } = await api.get('/productos/categorias')
+    categoriasDisponibles.value = data.filter(c => c)
+  } catch {}
+}
+
+function seleccionarCategoria(cat) {
+  categoriaFiltro.value = cat
+  cargarInventario(true)
+}
+
 async function cargarInventario(reset = false) {
   if (!tiendaId.value) return
   if (reset) loading.value = true
   let nuevosItems = []
   try {
     const page = reset ? 1 : currentPage.value + 1
-    const { data } = await getInventario(tiendaId.value, busqueda.value.trim(), page)
+    const { data } = await getInventario(tiendaId.value, busqueda.value.trim(), page, categoriaFiltro.value)
     nuevosItems = data.data
     if (reset) {
       inventario.value = nuevosItems
@@ -775,7 +811,7 @@ async function tPendConfirmarRechazar() {
 }
 
 onMounted(async () => {
-  await cargarTiendas()
+  await Promise.all([cargarTiendas(), cargarCategorias()])
   cargarTrasladosPendientes()
   if (tiendaId.value) {
     await cargarInventario(true)
@@ -835,7 +871,7 @@ onMounted(async () => {
       <label class="block text-xs font-medium text-gray-500 mb-1">Tienda</label>
       <select
         v-model="tiendaId"
-        @change="cargarInventario(true)"
+        @change="categoriaFiltro = ''; cargarInventario(true)"
         class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
       >
         <option value="">Seleccionar tienda...</option>
@@ -853,6 +889,34 @@ onMounted(async () => {
         placeholder="Buscar por nombre o categoría..."
         class="w-full rounded-lg border border-gray-300 pl-10 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
       />
+    </div>
+
+    <!-- Filtro por categoría -->
+    <div v-if="tiendaId && categoriasDisponibles.length" class="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+      <button
+        @click="seleccionarCategoria('')"
+        :class="[
+          'shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors',
+          categoriaFiltro === ''
+            ? 'bg-blue-600 text-white border-blue-600'
+            : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'
+        ]"
+      >
+        Todas
+      </button>
+      <button
+        v-for="cat in categoriasDisponibles"
+        :key="cat"
+        @click="seleccionarCategoria(cat)"
+        :class="[
+          'shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors',
+          categoriaFiltro === cat
+            ? 'bg-blue-600 text-white border-blue-600'
+            : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'
+        ]"
+      >
+        {{ CATEGORY_LABELS[cat] ?? cat }}
+      </button>
     </div>
 
     <!-- Panel de surtidos pendientes (solo vendedor) -->
