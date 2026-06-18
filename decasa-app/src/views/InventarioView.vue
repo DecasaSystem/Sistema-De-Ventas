@@ -20,7 +20,7 @@ import {
 } from '@heroicons/vue/24/outline'
 import { getInventario, addStock, removeStock, getVariantes, crearVariante, addStockVariante, getMovimientos } from '@/api/inventario'
 import SurtidosPendientesPanel from '@/components/inventario/SurtidosPendientesPanel.vue'
-import ModalCatalogoTela from '@/components/inventario/ModalCatalogoTela.vue'
+import ModalVariantes from '@/components/inventario/ModalVariantes.vue'
 import { getTrasladosPendientes, aceptarTraslado, rechazarTraslado } from '@/api/traslados'
 import { useRealtime } from '@/composables/useRealtime'
 import { TELAS_CATALOGO, marcasOrdenadas, tiposTelaDeM, coloresDeTela } from '@/data/telasCatalogo'
@@ -243,7 +243,7 @@ async function abrirHistorial(item) {
 
 // ── Agregar producto ──────────────────────────────────────────────────────────
 const mostrarAgregarProducto = ref(false)
-const mostrarCatalogoTela    = ref(false)
+const mostrarVariantes = ref(false)
 const creandoProducto = ref(false)
 const subiendoFoto = ref(false)
 const errCrearProducto = ref('')
@@ -851,11 +851,11 @@ onMounted(async () => {
       <h2 class="text-lg font-bold text-gray-800 flex-1">Inventario</h2>
       <button
         v-if="auth.isSupervisor"
-        @click="mostrarCatalogoTela = true"
+        @click="mostrarVariantes = true"
         class="flex items-center gap-1.5 bg-white border border-gray-300 text-gray-700 text-sm font-semibold px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors"
       >
         <PlusIcon class="w-4 h-4" />
-        Tela
+        Variantes
       </button>
       <button
         @click="abrirAgregarProducto"
@@ -1258,7 +1258,7 @@ onMounted(async () => {
     </template>
 
     <!-- Modal Catálogo Tela -->
-    <ModalCatalogoTela v-if="mostrarCatalogoTela" @close="mostrarCatalogoTela = false" />
+    <ModalVariantes v-if="mostrarVariantes" @close="mostrarVariantes = false" />
 
     <!-- Modal Agregar Producto -->
     <Transition name="fade">
