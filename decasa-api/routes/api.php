@@ -33,6 +33,7 @@ use App\Http\Controllers\PushSubscriptionController;
 use App\Http\Controllers\ReservaController;
 use App\Http\Controllers\RestauracionController;
 use App\Http\Controllers\CatalogoTelaController;
+use App\Http\Controllers\TipoVarianteController;
 use Illuminate\Support\Facades\Route;
 
 // ── Auth (público) ────────────────────────────────────────────────────────────
@@ -156,6 +157,15 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/catalogo-telas',              [CatalogoTelaController::class, 'store']);
         Route::post('/catalogo-telas/batch',        [CatalogoTelaController::class, 'storeBatch']);
         Route::delete('/catalogo-telas/{id}',       [CatalogoTelaController::class, 'destroy'])->whereNumber('id');
+    });
+
+    // Tipos de variante configurables (Alerones, Color, Tipo de madera…)
+    Route::get('/tipos-variante', [TipoVarianteController::class, 'index']);
+    Route::middleware('role:supervisor')->group(function () {
+        Route::post('/tipos-variante',                          [TipoVarianteController::class, 'store']);
+        Route::delete('/tipos-variante/{id}',                   [TipoVarianteController::class, 'destroy'])->whereNumber('id');
+        Route::post('/tipos-variante/{id}/opciones',            [TipoVarianteController::class, 'storeOpciones'])->whereNumber('id');
+        Route::delete('/tipos-variante/opciones/{id}',          [TipoVarianteController::class, 'destroyOpcion'])->whereNumber('id');
     });
 
     // Notificaciones (todos los roles, filtrado por rol en el controlador)
