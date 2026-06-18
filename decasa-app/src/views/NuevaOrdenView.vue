@@ -354,6 +354,33 @@ const fabricaVariantesDisponibles  = ref([])
 const fabricaVarianteSeleccionada  = ref(null)
 const cargandoFabricaVariantes     = ref(false)
 
+// ── Picker variantes personalizadas (custom) ──────────────────────────────────
+const mostrarVCPicker   = ref(false)
+const vcPickerProd      = ref(null)
+const vcPickerGrupos    = ref([])
+const vcPickerCargando  = ref(false)
+const vcPickerSelec     = ref({})     // { tipo_variante_id: { config_id, opcion_nombre, tipo_nombre, precio_adicional, stock } }
+const vcPickerEsFabrica = ref(false)
+
+const vcPickerValido = computed(() =>
+  vcPickerGrupos.value.length > 0 &&
+  vcPickerGrupos.value.every(g => vcPickerSelec.value[g.tipo_variante_id])
+)
+
+function confirmarVCPickerOrden() {
+  const prod = vcPickerProd.value
+  const selecciones = Object.values(vcPickerSelec.value)
+  if (selecciones.length === 0) return
+  const label = selecciones.map(s => `${s.tipo_nombre}: ${s.opcion_nombre}`).join(' / ')
+  const precioAdicional = selecciones.reduce((sum, s) => sum + (s.precio_adicional ?? 0), 0)
+  if (vcPickerEsFabrica.value) {
+    _pushItemFabricaVC(prod, label, precioAdicional)
+  } else {
+    _pushItemVC(prod, label, precioAdicional)
+  }
+  mostrarVCPicker.value = false
+}
+
 async function tomarDeFabrica(producto) {
   if (producto.es_tapizado || producto.tiene_tallas) {
     fabricaVariantesProd.value        = producto
@@ -367,6 +394,29 @@ async function tomarDeFabrica(producto) {
       cargandoFabricaVariantes.value = false
     }
     return
+  }
+
+  if (fabricaId.value) {
+    vcPickerProd.value    = producto
+    vcPickerSelec.value   = {}
+    vcPickerGrupos.value  = []
+    vcPickerEsFabrica.value = true
+    vcPickerCargando.value  = true
+    mostrarVCPicker.value   = true
+    try {
+      const { data } = await api.get(`/productos/${producto.id}/variante-configs`, { params: { tienda_id: fabricaId.value } })
+      const gruposConStock = data.filter(g => g.items.some(i => (i.stock_disponible ?? 0) > 0))
+      if (gruposConStock.length === 0) {
+        mostrarVCPicker.value = false
+      } else {
+        vcPickerGrupos.value = gruposConStock
+        return
+      }
+    } catch {
+      mostrarVCPicker.value = false
+    } finally {
+      vcPickerCargando.value = false
+    }
   }
 
   _pushItemFabrica(producto, null)
@@ -426,6 +476,50 @@ function _pushItemFabrica(producto, variante) {
   fabricaStock.value = {}
 }
 
+function _pushItemVC(producto, varianteLabel, precioAdicional) {
+  const esOtraTienda = tiendaBusqueda.value && tiendaBusqueda.value != tiendaId.value
+  const existe = items.value.find(i => i.producto_id === producto.id && i.variante_label === varianteLabel && !i._fabricar_pedido)
+  if (existe) { existe.cantidad++; return }
+  items.value.push({
+    producto_id: producto.id, variante_id: null,
+    tienda_origen_id: esOtraTienda ? (tiendaBusqueda.value ?? null) : null,
+    nombre: producto.nombre, categoria: producto.categoria,
+    variante_label: varianteLabel,
+    stock_libre: stockLibre(producto),
+    personalizable: producto.personalizable ?? false, cantidad: 1,
+    precio_unitario: (producto.precio_base ?? 0) + precioAdicional,
+    es_personalizado: false, specs: {}, specs_notas: '',
+    tienda_origen: esOtraTienda ? nombreTiendaBusqueda() : null,
+    fecha_entrega_prometida: null, boceto_blobs: [], boceto_urls: [], boceto_previews: [],
+    _fabricar_pedido: false, _cotizarPrecio: false, _descuento_pct: 0,
+    _mostrarCalculadora: false, _calculandoPrecio: false, _precioCalc: null, _precioReferencia: null, _telaSelections: {},
+  })
+  productoResultados.value = []
+  productoQuery.value = ''
+}
+
+function _pushItemFabricaVC(producto, varianteLabel, precioAdicional) {
+  const existe = items.value.find(i => i.producto_id === producto.id && i.variante_label === varianteLabel && i.tienda_origen_id === fabricaId.value && !i._fabricar_pedido)
+  if (existe) { existe.cantidad++; return }
+  items.value.push({
+    producto_id: producto.id, variante_id: null,
+    tienda_origen_id: fabricaId.value,
+    nombre: producto.nombre, categoria: producto.categoria,
+    variante_label: varianteLabel,
+    stock_libre: fabricaStock.value[producto.id] ?? 0,
+    personalizable: producto.personalizable ?? false, cantidad: 1,
+    precio_unitario: (producto.precio_base ?? 0) + precioAdicional,
+    es_personalizado: false, specs: {}, specs_notas: '',
+    tienda_origen: 'Fábrica',
+    fecha_entrega_prometida: null, boceto_blobs: [], boceto_urls: [], boceto_previews: [],
+    _fabricar_pedido: false, _cotizarPrecio: false, _descuento_pct: 0,
+    _mostrarCalculadora: false, _calculandoPrecio: false, _precioCalc: null, _precioReferencia: null, _telaSelections: {},
+  })
+  productoResultados.value = []
+  productoQuery.value = ''
+  fabricaStock.value = {}
+}
+
 // ── Selector de variante ──────────────────────────────────────────────────────
 const mostrarVariantePicker = ref(false)
 const productoParaVariante = ref(null)
@@ -434,7 +528,7 @@ const cargandoVariantes = ref(false)
 const varianteSeleccionada = ref(null)
 
 async function agregarItem(producto) {
-  // Si tiene variantes o requiere talla, abrir picker
+  // Si tiene variantes o requiere talla, abrir picker tapizado/talla
   const tiendaConsulta = tiendaBusqueda.value || tiendaId.value
   if (producto.variantes?.length > 0 || producto.tiene_tallas || producto.es_tapizado) {
     productoParaVariante.value = producto
@@ -449,6 +543,31 @@ async function agregarItem(producto) {
     }
     return
   }
+
+  // Verificar variantes personalizadas
+  if (tiendaConsulta) {
+    vcPickerProd.value     = producto
+    vcPickerSelec.value    = {}
+    vcPickerGrupos.value   = []
+    vcPickerEsFabrica.value = false
+    vcPickerCargando.value  = true
+    mostrarVCPicker.value   = true
+    try {
+      const { data } = await api.get(`/productos/${producto.id}/variante-configs`, { params: { tienda_id: tiendaConsulta } })
+      const gruposConStock = data.filter(g => g.items.some(i => (i.stock_disponible ?? 0) > 0))
+      if (gruposConStock.length === 0) {
+        mostrarVCPicker.value = false
+      } else {
+        vcPickerGrupos.value = gruposConStock
+        return
+      }
+    } catch {
+      mostrarVCPicker.value = false
+    } finally {
+      vcPickerCargando.value = false
+    }
+  }
+
   _pushItem(producto, null)
 }
 
@@ -2532,6 +2651,57 @@ function removeFacturaFoto() {
   </Transition>
 
   <!-- Modal picker variante FÁBRICA (tapizado) -->
+  <Transition name="fade">
+    <!-- ── Picker variantes personalizadas (custom) ── -->
+    <div v-if="mostrarVCPicker" class="fixed inset-0 z-[70] flex items-end sm:items-center justify-center" @click.self="mostrarVCPicker = false">
+      <div class="absolute inset-0 bg-black/50" @click="mostrarVCPicker = false" />
+      <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-4 max-h-[80vh] overflow-y-auto">
+        <div class="flex items-center justify-between">
+          <div>
+            <h3 class="text-base font-bold text-gray-800">Selecciona variantes</h3>
+            <p class="text-xs text-indigo-600 mt-0.5 truncate">{{ vcPickerProd?.nombre }}</p>
+          </div>
+          <button @click="mostrarVCPicker = false" class="text-gray-400 text-2xl leading-none">&times;</button>
+        </div>
+
+        <div v-if="vcPickerCargando" class="text-center py-6 text-gray-400 text-sm">Cargando variantes...</div>
+
+        <template v-else>
+          <div v-for="grupo in vcPickerGrupos" :key="grupo.tipo_variante_id" class="space-y-2">
+            <p class="text-xs font-bold text-gray-500 uppercase tracking-wide">{{ grupo.tipo.nombre }}</p>
+            <div class="space-y-1.5">
+              <button
+                v-for="opt in grupo.items"
+                :key="opt.id"
+                @click="vcPickerSelec = { ...vcPickerSelec, [grupo.tipo_variante_id]: { config_id: opt.id, opcion_nombre: opt.opcion_nombre, tipo_nombre: grupo.tipo.nombre, precio_adicional: opt.precio_adicional ?? 0, stock: opt.stock_disponible ?? 0 } }"
+                :class="['w-full text-left px-3 py-2.5 rounded-xl border text-sm transition-colors',
+                  vcPickerSelec[grupo.tipo_variante_id]?.config_id === opt.id
+                    ? 'border-indigo-500 bg-indigo-50 text-indigo-700 font-medium'
+                    : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50']"
+              >
+                <span class="font-medium">{{ opt.opcion_nombre }}</span>
+                <span v-if="(opt.precio_adicional ?? 0) > 0" class="text-xs ml-2 text-indigo-600 font-semibold">
+                  +${{ Number(opt.precio_adicional).toLocaleString('es-CO') }}
+                </span>
+                <span class="text-xs ml-2 font-semibold" :class="(opt.stock_disponible ?? 0) > 0 ? 'text-green-600' : 'text-red-400'">
+                  {{ opt.stock_disponible ?? 0 }} disp.
+                </span>
+              </button>
+            </div>
+          </div>
+        </template>
+
+        <button
+          @click="confirmarVCPickerOrden"
+          :disabled="!vcPickerValido"
+          class="w-full bg-indigo-600 text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-indigo-700 disabled:opacity-40"
+        >
+          Agregar al pedido
+        </button>
+      </div>
+    </div>
+  </Transition>
+
   <Transition name="fade">
     <div v-if="mostrarFabricaVariantePicker" class="fixed inset-0 z-[70] flex items-end sm:items-center justify-center" @click.self="mostrarFabricaVariantePicker = false">
       <div class="absolute inset-0 bg-black/50" @click="mostrarFabricaVariantePicker = false" />
