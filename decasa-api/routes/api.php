@@ -162,6 +162,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Variante configs por producto (asignación de tipos a productos con precio)
     Route::get('/productos/{id}/variante-configs', [ProductoVarianteConfigController::class, 'index'])->whereNumber('id');
+    Route::post('/inventario/variante-configs/entrada', [ProductoVarianteConfigController::class, 'entrada']);
     Route::middleware('role:supervisor')->group(function () {
         Route::post('/productos/{id}/variante-configs', [ProductoVarianteConfigController::class, 'upsert'])->whereNumber('id');
         Route::delete('/productos/{id}/variante-configs/tipo/{tipoId}', [ProductoVarianteConfigController::class, 'destroyTipo'])->whereNumber(['id', 'tipoId']);
