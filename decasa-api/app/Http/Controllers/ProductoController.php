@@ -202,4 +202,15 @@ class ProductoController extends Controller
 
         return response()->json($producto);
     }
+
+    /**
+     * DELETE /api/productos/{id}
+     * Solo supervisores. Desactiva el producto (activo=false) para preservar historial.
+     */
+    public function destroy(int $id)
+    {
+        $producto = Producto::findOrFail($id);
+        $producto->update(['activo' => false]);
+        return response()->json(['ok' => true]);
+    }
 }

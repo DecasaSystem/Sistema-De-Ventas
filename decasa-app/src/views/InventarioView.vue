@@ -86,6 +86,9 @@ const quitarStockMotivo = ref('')
 const quitarStockError  = ref('')
 const quitarStockLoad   = ref(false)
 
+const eliminarConfirm  = ref(false)
+const eliminarLoading  = ref(false)
+
 // ── Variantes personalizadas por producto ────────────────────────────────────
 const vcTiposAsignados  = ref([])
 const vcTodosLosTipos   = ref([])
@@ -474,7 +477,23 @@ function setupObserver() {
   })
 }
 
+async function eliminarProducto() {
+  if (!itemGestionar.value) return
+  eliminarLoading.value = true
+  try {
+    await api.delete(`/productos/${itemGestionar.value.producto_id}`)
+    inventario.value = inventario.value.filter(i => i.producto_id !== itemGestionar.value.producto_id)
+    mostrarGestionar.value = false
+    eliminarConfirm.value  = false
+  } catch (e) {
+    alert(e.response?.data?.message ?? 'Error al eliminar el producto.')
+  } finally {
+    eliminarLoading.value = false
+  }
+}
+
 function openGestionar(item) {
+  eliminarConfirm.value  = false
   itemGestionar.value = item
   nuevoPrecio.value = parseFloat(item.producto?.precio_base ?? 0)
   gestionNombre.value      = item.producto?.nombre ?? ''
@@ -2015,6 +2034,37 @@ onMounted(async () => {
                 <p v-if="quitarStockError" class="text-xs text-red-600 mt-1">{{ quitarStockError }}</p>
               </div>
             </template>
+
+            <!-- Eliminar producto -->
+            <div class="border-t border-gray-100" />
+            <div>
+              <template v-if="!eliminarConfirm">
+                <button
+                  @click="eliminarConfirm = true"
+                  class="w-full border border-red-300 text-red-600 rounded-lg py-2.5 text-sm font-semibold hover:bg-red-50 transition-colors"
+                >
+                  Eliminar producto
+                </button>
+              </template>
+              <template v-else>
+                <p class="text-sm text-red-700 font-semibold mb-2">¿Seguro que quieres eliminar este producto? Desaparecerá de todo el sistema.</p>
+                <div class="flex gap-2">
+                  <button
+                    @click="eliminarConfirm = false"
+                    class="flex-1 border border-gray-300 text-gray-600 rounded-lg py-2 text-sm font-semibold hover:bg-gray-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    @click="eliminarProducto"
+                    :disabled="eliminarLoading"
+                    class="flex-1 bg-red-600 text-white rounded-lg py-2 text-sm font-bold hover:bg-red-700 disabled:opacity-50 transition-colors"
+                  >
+                    {{ eliminarLoading ? 'Eliminando...' : 'Sí, eliminar' }}
+                  </button>
+                </div>
+              </template>
+            </div>
 
           </div>
         </div>
