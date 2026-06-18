@@ -24,9 +24,10 @@ class InventarioController extends Controller
 
         $tiendaId = $request->query('tienda_id');
         $search   = $request->query('search');
+        $categoria = $request->query('categoria');
 
         if ($tiendaId === 'todas') {
-            return $this->inventarioTodas($search);
+            return $this->inventarioTodas($search, $categoria);
         }
 
         $request->validate([
@@ -69,6 +70,10 @@ class InventarioController extends Controller
             });
         }
 
+        if ($categoria) {
+            $query->where('productos.categoria', $categoria);
+        }
+
         return response()->json($query->paginate(20)->through(function ($inv) {
             $inv->stock_libre = $inv->cantidad_disponible - $inv->cantidad_reservada;
             $inv->bajo_stock  = $inv->cantidad_disponible <= $inv->stock_minimo;
@@ -93,7 +98,7 @@ class InventarioController extends Controller
     /**
      * Devuelve inventario agrupado por producto de TODAS las tiendas.
      */
-    private function inventarioTodas($search = null)
+    private function inventarioTodas($search = null, $categoria = null)
     {
         $query = DB::table('productos')
             ->leftJoin('inventario', 'inventario.producto_id', '=', 'productos.id')
@@ -134,6 +139,10 @@ class InventarioController extends Controller
                 $q->where('productos.nombre', 'like', $term)
                   ->orWhere('productos.categoria', 'like', $term);
             });
+        }
+
+        if ($categoria) {
+            $query->where('productos.categoria', $categoria);
         }
 
         return response()->json($query
