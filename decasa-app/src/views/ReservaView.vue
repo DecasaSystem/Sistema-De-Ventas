@@ -12,6 +12,7 @@ import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
+import api from '@/api'
 
 const toast      = useToast()
 const auth       = useAuthStore()
@@ -53,9 +54,26 @@ const loadMovimientos   = ref(false)
 const fotoModal    = ref(false)
 const fotoProducto = ref(null)
 
-// Variantes tapizado
+// Variantes tapizado / talla
 const variantesReserva    = ref({})   // { producto_id: variante[] }
 const varianteCargando    = ref({})
+
+// Variantes personalizadas (configs)
+const varianteConfigsReserva = ref({})   // { producto_id: grupos[] }
+const vcConfigsCargando      = ref({})
+const vcStockModal  = ref(false)
+const vcStockItem   = ref(null)  // { config, grupo, productoItem }
+const vcStockCant   = ref(1)
+const vcStockMotivo = ref('')
+const vcStockLoad   = ref(false)
+const vcStockError  = ref('')
+const vcStockSinAsignar = computed(() => {
+  if (!vcStockItem.value) return 0
+  const { grupo, productoItem } = vcStockItem.value
+  const baseStock = productoItem?.cantidad_disponible ?? 0
+  const totalTipo = grupo.items.reduce((s, it) => s + (it.stock_disponible ?? 0), 0)
+  return Math.max(0, baseStock - totalTipo)
+})
 
 // Nueva variante (crear + agregar stock en un paso)
 const mostrarNuevaVariante  = ref(false)
@@ -163,6 +181,61 @@ async function cargarVariantes(item) {
   }
 }
 
+async function cargarVarConfigsReserva(item) {
+  if (!fabricaId.value) return
+  const pid = item.producto_id
+  if (varianteConfigsReserva.value[pid] !== undefined) return
+  vcConfigsCargando.value[pid] = true
+  try {
+    const { data } = await api.get(`/productos/${pid}/variante-configs`, {
+      params: { tienda_id: fabricaId.value },
+    })
+    varianteConfigsReserva.value[pid] = data.filter(g => g.items.length > 0)
+  } catch {
+    varianteConfigsReserva.value[pid] = []
+  } finally {
+    vcConfigsCargando.value[pid] = false
+  }
+}
+
+function abrirVcStock(configItem, grupo, productoItem) {
+  vcStockItem.value   = { config: configItem, grupo, productoItem }
+  vcStockCant.value   = 1
+  vcStockMotivo.value = ''
+  vcStockError.value  = ''
+  vcStockModal.value  = true
+}
+
+async function guardarVcStock() {
+  vcStockError.value = ''
+  if (vcStockCant.value < 1) { vcStockError.value = 'Cantidad inválida.'; return }
+  vcStockLoad.value = true
+  try {
+    await api.post('/inventario/variante-configs/entrada', {
+      config_id: vcStockItem.value.config.id,
+      tienda_id: fabricaId.value,
+      cantidad:  vcStockCant.value,
+      motivo:    vcStockMotivo.value || undefined,
+    })
+    toast.success('Stock agregado.')
+    vcStockModal.value = false
+    const pid = vcStockItem.value.productoItem.producto_id
+    vcConfigsCargando.value[pid] = true
+    try {
+      const { data } = await api.get(`/productos/${pid}/variante-configs`, {
+        params: { tienda_id: fabricaId.value },
+      })
+      varianteConfigsReserva.value[pid] = data.filter(g => g.items.length > 0)
+    } finally {
+      vcConfigsCargando.value[pid] = false
+    }
+  } catch (e) {
+    vcStockError.value = e.response?.data?.message ?? 'Error al agregar stock.'
+  } finally {
+    vcStockLoad.value = false
+  }
+}
+
 async function cargarInventario(reset = false) {
   if (reset) loading.value = true
   try {
@@ -177,7 +250,10 @@ async function cargarInventario(reset = false) {
     currentPage.value = data.current_page
     tieneMas.value = data.current_page < data.last_page
     // Cargar variantes para tapizados
-    nextTick(() => inventario.value.forEach(i => { if (i.producto?.es_tapizado || i.producto?.tiene_tallas) cargarVariantes(i) }))
+    nextTick(() => inventario.value.forEach(i => {
+      if (i.producto?.es_tapizado || i.producto?.tiene_tallas) cargarVariantes(i)
+      cargarVarConfigsReserva(i)
+    }))
   } catch {
     if (reset) inventario.value = []
   } finally {
@@ -417,6 +493,31 @@ onMounted(async () => {
               >+ Nueva variante</button>
             </template>
           </div>
+
+          <!-- Variantes personalizadas en fábrica -->
+          <div
+            v-for="grupo in varianteConfigsReserva[item.producto_id]"
+            :key="grupo.tipo_variante_id"
+            class="border-t border-gray-100 pt-2"
+          >
+            <p class="text-xs font-medium text-purple-700 mb-2">{{ grupo.tipo.nombre }}</p>
+            <div class="flex flex-wrap gap-1.5">
+              <component
+                :is="soloLectura ? 'span' : 'button'"
+                v-for="configItem in grupo.items"
+                :key="configItem.id"
+                v-bind="soloLectura ? {} : { onClick: () => abrirVcStock(configItem, grupo, item) }"
+                :class="['px-2.5 py-1 rounded-full text-xs font-medium border',
+                  (configItem.stock_disponible ?? 0) > 0 ? 'bg-green-50 border-green-300 text-green-800' : 'bg-gray-50 border-gray-200 text-gray-400']"
+              >
+                {{ configItem.opcion_nombre }}
+                <span v-if="grupo.tipo.afecta_precio && configItem.precio_adicional > 0" class="opacity-70 ml-1">
+                  +${{ Number(configItem.precio_adicional).toLocaleString('es-CO') }}
+                </span>
+                <span class="ml-1 font-bold">{{ configItem.stock_disponible ?? 0 }}</span>
+              </component>
+            </div>
+          </div>
         </li>
       </ul>
 
@@ -631,6 +732,59 @@ onMounted(async () => {
             <button @click="mostrarStockVariante = false" class="flex-1 bg-gray-100 text-gray-700 rounded-lg py-2.5 text-sm font-semibold">Cancelar</button>
             <button @click="guardarStockVariante" :disabled="varianteStockLoading" class="flex-1 bg-purple-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-purple-700 disabled:opacity-50">
               {{ varianteStockLoading ? 'Guardando...' : 'Agregar' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- Modal stock variante personalizada -->
+    <Transition name="fade">
+      <div v-if="vcStockModal" class="fixed inset-0 z-[60] flex items-end sm:items-center justify-center" @click.self="vcStockModal = false">
+        <div class="absolute inset-0 bg-black/40" />
+        <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <h3 class="text-base font-bold text-gray-800">Agregar stock · variante</h3>
+              <p class="text-xs text-gray-500 mt-0.5">{{ vcStockItem?.grupo?.tipo?.nombre }} — {{ vcStockItem?.config?.opcion_nombre }}</p>
+            </div>
+            <button @click="vcStockModal = false" class="text-gray-400 text-2xl leading-none">&times;</button>
+          </div>
+          <div class="bg-gray-50 rounded-lg px-3 py-2 text-xs space-y-0.5">
+            <div class="flex justify-between text-gray-600">
+              <span>Stock base del producto</span>
+              <span class="font-semibold">{{ vcStockItem?.productoItem?.cantidad_disponible ?? 0 }}</span>
+            </div>
+            <div class="flex justify-between text-gray-600">
+              <span>Sin asignar ({{ vcStockItem?.grupo?.tipo?.nombre }})</span>
+              <span class="font-semibold" :class="vcStockSinAsignar > 0 ? 'text-green-700' : 'text-red-600'">{{ vcStockSinAsignar }}</span>
+            </div>
+            <div class="flex justify-between text-gray-600">
+              <span>Ya asignadas a esta opción</span>
+              <span class="font-semibold">{{ vcStockItem?.config?.stock_disponible ?? 0 }}</span>
+            </div>
+          </div>
+          <p v-if="vcStockSinAsignar === 0" class="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">
+            No hay unidades sin asignar. Agrega más stock base primero.
+          </p>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+              Cantidad <span class="text-gray-400 font-normal">(máx {{ vcStockSinAsignar }})</span>
+            </label>
+            <input v-model.number="vcStockCant" type="number" min="1" :max="vcStockSinAsignar"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Motivo (opcional)</label>
+            <input v-model="vcStockMotivo" type="text" placeholder="Producción completada..."
+              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
+          </div>
+          <p v-if="vcStockError" class="text-xs text-red-600">{{ vcStockError }}</p>
+          <div class="flex gap-3">
+            <button @click="vcStockModal = false" class="flex-1 bg-gray-100 text-gray-700 rounded-lg py-2.5 text-sm font-semibold">Cancelar</button>
+            <button @click="guardarVcStock" :disabled="vcStockLoad || vcStockSinAsignar === 0"
+              class="flex-1 bg-purple-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-purple-700 disabled:opacity-50">
+              {{ vcStockLoad ? 'Guardando...' : 'Agregar' }}
             </button>
           </div>
         </div>
