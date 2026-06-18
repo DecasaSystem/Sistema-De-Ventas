@@ -182,14 +182,12 @@ async function cargarVariantes(item) {
 }
 
 async function cargarVarConfigsReserva(item) {
-  if (!fabricaId.value) return
   const pid = item.producto_id
   if (varianteConfigsReserva.value[pid] !== undefined) return
   vcConfigsCargando.value[pid] = true
   try {
-    const { data } = await api.get(`/productos/${pid}/variante-configs`, {
-      params: { tienda_id: fabricaId.value },
-    })
+    const params = fabricaId.value ? { tienda_id: fabricaId.value } : {}
+    const { data } = await api.get(`/productos/${pid}/variante-configs`, { params })
     varianteConfigsReserva.value[pid] = data.filter(g => g.items.length > 0)
   } catch {
     varianteConfigsReserva.value[pid] = []
@@ -220,15 +218,8 @@ async function guardarVcStock() {
     toast.success('Stock agregado.')
     vcStockModal.value = false
     const pid = vcStockItem.value.productoItem.producto_id
-    vcConfigsCargando.value[pid] = true
-    try {
-      const { data } = await api.get(`/productos/${pid}/variante-configs`, {
-        params: { tienda_id: fabricaId.value },
-      })
-      varianteConfigsReserva.value[pid] = data.filter(g => g.items.length > 0)
-    } finally {
-      vcConfigsCargando.value[pid] = false
-    }
+    delete varianteConfigsReserva.value[pid]
+    await cargarVarConfigsReserva(vcStockItem.value.productoItem)
   } catch (e) {
     vcStockError.value = e.response?.data?.message ?? 'Error al agregar stock.'
   } finally {
@@ -244,6 +235,7 @@ async function cargarInventario(reset = false) {
     if (reset) {
       inventario.value = data.data
       variantesReserva.value = {}
+      varianteConfigsReserva.value = {}
     } else {
       inventario.value.push(...data.data)
     }
