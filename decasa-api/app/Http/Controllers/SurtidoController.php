@@ -9,6 +9,7 @@ use App\Jobs\EnviarSurtidoProgramado;
 use App\Models\Inventario;
 use App\Models\InventarioMovimiento;
 use App\Models\InventarioVariante;
+use App\Models\InventarioVarianteConfig;
 use App\Models\ProductoVariante;
 use App\Models\Surtido;
 use App\Models\SurtidoItem;
@@ -263,6 +264,10 @@ class SurtidoController extends Controller
                                     ->where('tienda_id', $fabricaId)
                                     ->decrement('cantidad_disponible', $cantAceptada);
                             }
+                        } elseif ($esp && !empty($esp['config_id'])) {
+                            InventarioVarianteConfig::where('config_id', (int) $esp['config_id'])
+                                ->where('tienda_id', $fabricaId)
+                                ->decrement('cantidad_disponible', $cantAceptada);
                         }
                     }
                 }
@@ -344,6 +349,13 @@ class SurtidoController extends Controller
                         ['cantidad_disponible' => 0, 'cantidad_reservada' => 0, 'stock_minimo' => 0]
                     );
                     $invVar->increment('cantidad_disponible', $cantAceptada);
+
+                } elseif ($esp && !empty($esp['config_id'])) {
+                    $invVC = InventarioVarianteConfig::firstOrCreate(
+                        ['config_id' => (int) $esp['config_id'], 'tienda_id' => $st->tienda_id],
+                        ['cantidad_disponible' => 0, 'cantidad_reservada' => 0]
+                    );
+                    $invVC->increment('cantidad_disponible', $cantAceptada);
                 }
 
                 InventarioMovimiento::create([

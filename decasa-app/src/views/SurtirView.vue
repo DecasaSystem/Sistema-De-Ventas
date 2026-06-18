@@ -215,6 +215,13 @@ const variantesFabrica         = ref([])      // variantes con stock en fábrica
 const cargandoVariantesFab     = ref(false)
 const selecVariantesFab        = ref({})      // { variante_id: cantidad }
 
+// ── Picker variantes personalizadas fábrica ───────────────────────────────────
+const mostrarVCPicker   = ref(false)
+const vcPickerProd      = ref(null)
+const vcPickerGrupos    = ref([])   // [{ tipo_variante_id, tipo, items:[{id, opcion_nombre, stock_disponible}] }]
+const vcPickerCargando  = ref(false)
+const vcPickerSelec     = ref({})   // { config_id: cantidad }
+
 async function agregarProducto(prod) {
   resultados.value = []
   busquedaProd.value = ''
@@ -231,8 +238,57 @@ async function agregarProducto(prod) {
     }
     return
   }
-  if (productosAgr.value.some(p => p.producto.id === prod.id && !p._variante_id)) return
+
+  if (desdeFabrica.value && fabricaId.value) {
+    vcPickerProd.value    = prod
+    vcPickerSelec.value   = {}
+    vcPickerGrupos.value  = []
+    vcPickerCargando.value = true
+    mostrarVCPicker.value = true
+    try {
+      const { data } = await api.get(`/productos/${prod.id}/variante-configs`, {
+        params: { tienda_id: fabricaId.value }
+      })
+      const gruposConStock = data.filter(g => g.items.some(i => (i.stock_disponible ?? 0) > 0))
+      if (gruposConStock.length === 0) {
+        mostrarVCPicker.value = false
+      } else {
+        vcPickerGrupos.value = gruposConStock
+        return
+      }
+    } catch {
+      mostrarVCPicker.value = false
+    } finally {
+      vcPickerCargando.value = false
+    }
+  }
+
+  if (productosAgr.value.some(p => p.producto.id === prod.id && !p._variante_id && !p._config_id)) return
   productosAgr.value.push({ producto: prod, cantidad: 1, especificaciones: { marca: '', tela: '', color: '', medidas: '', acabado: '', medida: '' } })
+}
+
+function confirmarVCPicker() {
+  const prod = vcPickerProd.value
+  Object.entries(vcPickerSelec.value).forEach(([cidStr, cant]) => {
+    const cid = parseInt(cidStr)
+    let found = null, tipoNombre = ''
+    for (const g of vcPickerGrupos.value) {
+      const it = g.items.find(i => i.id === cid)
+      if (it) { found = it; tipoNombre = g.tipo.nombre; break }
+    }
+    if (!found || cant <= 0) return
+    const yaEsta = productosAgr.value.some(p => p.producto.id === prod.id && p._config_id === cid)
+    if (!yaEsta) {
+      productosAgr.value.push({
+        producto: prod,
+        _config_id: cid,
+        _config_label: `${tipoNombre}: ${found.opcion_nombre}`,
+        cantidad: Math.max(1, cant),
+        especificaciones: { config_id: cid },
+      })
+    }
+  })
+  mostrarVCPicker.value = false
 }
 
 function toggleVarianteFab(v) {
@@ -288,7 +344,11 @@ function toggleEspec(idx) {
 }
 
 const paso1Valido    = computed(() => productosAgr.value.length > 0 && productosAgr.value.every(p => p.cantidad >= 1))
-const productosAgrIds = computed(() => new Set(productosAgr.value.map(p => p._variante_id ? `${p.producto.id}-${p._variante_id}` : p.producto.id)))
+const productosAgrIds = computed(() => new Set(productosAgr.value.map(p =>
+  p._config_id   ? `${p.producto.id}-vc-${p._config_id}` :
+  p._variante_id ? `${p.producto.id}-${p._variante_id}` :
+  p.producto.id
+)))
 
 // ── Paso 2 — Tiendas ──────────────────────────────────────────────────────────
 const tiendas              = ref([])
@@ -386,7 +446,10 @@ function itemsPorTienda(tid) {
 }
 
 function especificacionesLimpias(esp) {
-  const clean = Object.fromEntries(Object.entries(esp ?? {}).filter(([, v]) => v?.trim()))
+  const clean = Object.fromEntries(Object.entries(esp ?? {}).filter(([, v]) => {
+    if (typeof v === 'number') return true
+    return typeof v === 'string' && v.trim()
+  }))
   return Object.keys(clean).length ? clean : null
 }
 
@@ -947,7 +1010,7 @@ onMounted(async () => {
 
         <div
           v-for="(item, idx) in productosAgr"
-          :key="`${item.producto.id}-${item._variante_id ?? idx}`"
+          :key="`${item.producto.id}-${item._variante_id ?? item._config_id ?? idx}`"
           v-memo="[item.cantidad, !!especAbiertos[idx], item.especificaciones.marca, item.especificaciones.tela, item.especificaciones.color, item.especificaciones.medidas, item.especificaciones.acabado, item.especificaciones.medida, variantesTallaMap[item.producto.id]?.length]"
           class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden"
         >
@@ -959,7 +1022,7 @@ onMounted(async () => {
               <p class="text-sm font-medium text-gray-800 truncate">{{ item.producto.nombre }}</p>
               <p class="text-xs text-gray-400">
                 {{ item.producto.categoria }}
-                <span v-if="item._variante_label" class="ml-1 text-purple-600 font-medium">· {{ item._variante_label }}</span>
+                <span v-if="item._variante_label || item._config_label" class="ml-1 text-purple-600 font-medium">· {{ item._variante_label || item._config_label }}</span>
               </p>
             </div>
             <!-- Cantidad -->
@@ -1748,6 +1811,100 @@ onMounted(async () => {
     </template>
 
   </div>
+
+  <!-- ── Modal: picker variantes personalizadas fábrica ── -->
+  <Transition name="fade">
+    <div v-if="mostrarVCPicker" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+      <div class="absolute inset-0 bg-black/40" @click="mostrarVCPicker = false" />
+      <div class="relative bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[80vh] flex flex-col overflow-hidden">
+
+        <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+          <div class="min-w-0">
+            <p class="text-sm font-bold text-gray-800">Variantes disponibles en fábrica</p>
+            <p class="text-xs text-gray-400 truncate">{{ vcPickerProd?.nombre }}</p>
+          </div>
+          <button @click="mostrarVCPicker = false" class="text-gray-400 hover:text-gray-600 ml-3 flex-shrink-0">
+            <XMarkIcon class="w-5 h-5" />
+          </button>
+        </div>
+
+        <div class="flex-1 overflow-y-auto px-4 py-3 space-y-4">
+          <div v-if="vcPickerCargando" class="flex justify-center py-8">
+            <div class="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+          </div>
+
+          <div v-else-if="vcPickerGrupos.length === 0" class="text-center py-8 text-sm text-gray-400">
+            No hay variantes con stock disponible en fábrica para este producto.
+          </div>
+
+          <template v-else>
+            <div v-for="grupo in vcPickerGrupos" :key="grupo.tipo_variante_id" class="space-y-2">
+              <p class="text-xs font-bold text-gray-500 uppercase tracking-wide">{{ grupo.tipo.nombre }}</p>
+              <div
+                v-for="item in grupo.items"
+                :key="item.id"
+                @click="vcPickerSelec[item.id] !== undefined ? (delete vcPickerSelec[item.id], vcPickerSelec = {...vcPickerSelec}) : (vcPickerSelec = {...vcPickerSelec, [item.id]: item.stock_disponible})"
+                :class="[
+                  'flex items-center gap-3 rounded-xl border px-3 py-2.5 cursor-pointer transition-colors',
+                  vcPickerSelec[item.id] !== undefined
+                    ? 'border-indigo-400 bg-indigo-50'
+                    : 'border-gray-200 bg-white hover:bg-gray-50',
+                ]"
+              >
+                <div :class="[
+                  'w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors',
+                  vcPickerSelec[item.id] !== undefined ? 'border-indigo-500 bg-indigo-500' : 'border-gray-300',
+                ]">
+                  <CheckIcon v-if="vcPickerSelec[item.id] !== undefined" class="w-3 h-3 text-white" />
+                </div>
+
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm font-medium text-gray-800 truncate">{{ item.opcion_nombre }}</p>
+                  <p class="text-xs text-indigo-600 font-semibold">{{ item.stock_disponible }} disponibles</p>
+                </div>
+
+                <div v-if="vcPickerSelec[item.id] !== undefined" class="flex items-center gap-1 flex-shrink-0" @click.stop>
+                  <button
+                    @click="vcPickerSelec[item.id] > 1 && vcPickerSelec[item.id]--"
+                    class="w-6 h-6 rounded-full bg-gray-200 text-gray-600 flex items-center justify-center text-sm hover:bg-gray-300"
+                  >−</button>
+                  <input
+                    v-model.number="vcPickerSelec[item.id]"
+                    type="number"
+                    :min="1"
+                    :max="item.stock_disponible"
+                    class="w-12 text-center rounded border border-gray-300 py-0.5 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                  <button
+                    @click="vcPickerSelec[item.id] < item.stock_disponible && vcPickerSelec[item.id]++"
+                    class="w-6 h-6 rounded-full bg-gray-200 text-gray-600 flex items-center justify-center text-sm hover:bg-gray-300"
+                  >+</button>
+                </div>
+                <span v-else class="text-xs text-gray-300 flex-shrink-0">{{ item.stock_disponible }} disp.</span>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <div class="px-4 py-3 border-t border-gray-100 flex gap-2">
+          <button
+            @click="mostrarVCPicker = false"
+            class="flex-1 border border-gray-300 text-gray-600 rounded-xl py-2.5 text-sm font-semibold hover:bg-gray-50"
+          >
+            Cancelar
+          </button>
+          <button
+            @click="confirmarVCPicker"
+            :disabled="Object.keys(vcPickerSelec).length === 0"
+            class="flex-1 bg-indigo-600 text-white rounded-xl py-2.5 text-sm font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+          >
+            Agregar{{ Object.keys(vcPickerSelec).length > 0 ? ` (${Object.keys(vcPickerSelec).length})` : '' }}
+          </button>
+        </div>
+
+      </div>
+    </div>
+  </Transition>
 
   <!-- ── Modal: picker de variantes fábrica (tapizado) ── -->
   <Transition name="fade">
