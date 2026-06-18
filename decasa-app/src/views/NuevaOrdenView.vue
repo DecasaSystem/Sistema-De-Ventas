@@ -372,7 +372,7 @@ function confirmarVCPickerOrden() {
   const selecciones = Object.values(vcPickerSelec.value)
   if (selecciones.length === 0) return
   const label = selecciones.map(s => `${s.tipo_nombre}: ${s.opcion_nombre}`).join(' / ')
-  const precioAdicional = selecciones.reduce((sum, s) => sum + (s.precio_adicional ?? 0), 0)
+  const precioAdicional = selecciones.reduce((sum, s) => sum + Number(s.precio_adicional ?? 0), 0)
   if (vcPickerEsFabrica.value) {
     _pushItemFabricaVC(prod, label, precioAdicional)
   } else {
@@ -500,7 +500,7 @@ function _pushItemVC(producto, varianteLabel, precioAdicional) {
     variante_label: varianteLabel,
     stock_libre: stockLibre(producto),
     personalizable: producto.personalizable ?? false, cantidad: 1,
-    precio_unitario: (producto.precio_base ?? 0) + precioAdicional,
+    precio_unitario: Number(producto.precio_base ?? 0) + precioAdicional,
     es_personalizado: false, specs: {}, specs_notas: '',
     tienda_origen: esOtraTienda ? nombreTiendaBusqueda() : null,
     fecha_entrega_prometida: null, boceto_blobs: [], boceto_urls: [], boceto_previews: [],
@@ -521,7 +521,7 @@ function _pushItemFabricaVC(producto, varianteLabel, precioAdicional) {
     variante_label: varianteLabel,
     stock_libre: fabricaStock.value[producto.id] ?? 0,
     personalizable: producto.personalizable ?? false, cantidad: 1,
-    precio_unitario: (producto.precio_base ?? 0) + precioAdicional,
+    precio_unitario: Number(producto.precio_base ?? 0) + precioAdicional,
     es_personalizado: false, specs: {}, specs_notas: '',
     tienda_origen: 'Fábrica',
     fecha_entrega_prometida: null, boceto_blobs: [], boceto_urls: [], boceto_previews: [],
