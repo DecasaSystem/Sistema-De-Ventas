@@ -86,6 +86,15 @@ const quitarStockMotivo = ref('')
 const quitarStockError  = ref('')
 const quitarStockLoad   = ref(false)
 
+// ── Variantes personalizadas por producto ────────────────────────────────────
+const vcTiposAsignados  = ref([])
+const vcTodosLosTipos   = ref([])
+const vcCargando        = ref(false)
+const vcAddTipoId       = ref('')
+const vcPendingOpciones = ref([])
+const vcPrecios         = ref({})
+const vcGuardando       = ref({})
+
 const fotoModal = ref(false)
 const fotoProducto = ref(null)
 
@@ -469,7 +478,14 @@ function openGestionar(item) {
   gestionFotoError.value = ''
   quitarGestionFoto2()
   gestionFoto2Error.value = ''
-  mostrarGestionar.value = true
+  vcTiposAsignados.value  = []
+  vcTodosLosTipos.value   = []
+  vcAddTipoId.value       = ''
+  vcPendingOpciones.value = []
+  vcPrecios.value         = {}
+  vcGuardando.value       = {}
+  mostrarGestionar.value  = true
+  cargarVarConfigs()
 }
 
 async function guardarPrecio() {
@@ -574,6 +590,97 @@ async function toggleTieneTallas() {
     }
   } catch {
     // silencioso
+  }
+}
+
+async function cargarVarConfigs() {
+  if (!itemGestionar.value) return
+  vcCargando.value = true
+  try {
+    const [configsRes, tiposRes] = await Promise.all([
+      api.get(`/productos/${itemGestionar.value.producto_id}/variante-configs`),
+      api.get('/tipos-variante'),
+    ])
+    vcTiposAsignados.value = configsRes.data
+    vcTodosLosTipos.value  = tiposRes.data
+    const p = {}
+    for (const grupo of configsRes.data) {
+      p[grupo.tipo_variante_id] = {}
+      for (const item of grupo.items) {
+        p[grupo.tipo_variante_id][item.opcion_id] = item.precio_adicional
+      }
+    }
+    vcPrecios.value = p
+  } catch {
+    // silencioso
+  } finally {
+    vcCargando.value = false
+  }
+}
+
+function vcIniciarAgregar() {
+  const tipo = vcTodosLosTipos.value.find(t => t.id == vcAddTipoId.value)
+  if (!tipo) return
+  vcPendingOpciones.value = tipo.opciones.map(o => ({
+    opcion_id: o.id,
+    nombre: o.nombre,
+    precio_adicional: 0,
+  }))
+}
+
+async function vcGuardarTipo(tipoId) {
+  vcGuardando.value[tipoId] = true
+  try {
+    const precios = vcPrecios.value[tipoId] || {}
+    const grupo   = vcTiposAsignados.value.find(g => g.tipo_variante_id == tipoId)
+    const items   = grupo.items.map(item => ({
+      opcion_id:        item.opcion_id,
+      precio_adicional: precios[item.opcion_id] ?? 0,
+    }))
+    await api.post(`/productos/${itemGestionar.value.producto_id}/variante-configs`, {
+      tipo_variante_id: tipoId,
+      items,
+    })
+    toast.success('Precios guardados.')
+    await cargarVarConfigs()
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'Error al guardar.')
+  } finally {
+    vcGuardando.value[tipoId] = false
+  }
+}
+
+async function vcGuardarNuevoTipo() {
+  const tipoId = parseInt(vcAddTipoId.value)
+  if (!tipoId || !vcPendingOpciones.value.length) return
+  vcGuardando.value['nuevo'] = true
+  try {
+    await api.post(`/productos/${itemGestionar.value.producto_id}/variante-configs`, {
+      tipo_variante_id: tipoId,
+      items: vcPendingOpciones.value.map(o => ({
+        opcion_id:        o.opcion_id,
+        precio_adicional: o.precio_adicional || 0,
+      })),
+    })
+    toast.success('Tipo de variante agregado.')
+    vcAddTipoId.value       = ''
+    vcPendingOpciones.value = []
+    await cargarVarConfigs()
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'Error al guardar.')
+  } finally {
+    vcGuardando.value['nuevo'] = false
+  }
+}
+
+async function vcQuitarTipo(tipoId) {
+  if (!confirm('¿Quitar este tipo de variante del producto?')) return
+  try {
+    await api.delete(`/productos/${itemGestionar.value.producto_id}/variante-configs/tipo/${tipoId}`)
+    toast.success('Tipo removido.')
+    await cargarVarConfigs()
+  } catch {
+    toast.error('Error al quitar tipo.')
   }
 }
 
@@ -1692,6 +1799,106 @@ onMounted(async () => {
                   ]"
                 />
               </button>
+            </div>
+
+            <div class="border-t border-gray-100" />
+
+            <!-- Variantes personalizadas -->
+            <div>
+              <div class="flex items-center justify-between mb-2">
+                <p class="text-sm font-medium text-gray-700">Variantes personalizadas</p>
+                <span v-if="vcCargando" class="text-xs text-gray-400">Cargando...</span>
+              </div>
+
+              <!-- Tipos asignados -->
+              <div v-for="grupo in vcTiposAsignados" :key="grupo.tipo_variante_id" class="mb-3 rounded-lg border border-gray-200 p-3">
+                <div class="flex items-center justify-between mb-2">
+                  <span class="text-sm font-medium text-gray-700">
+                    {{ grupo.tipo.nombre }}
+                    <span v-if="grupo.tipo.afecta_precio" class="text-xs font-normal text-blue-500 ml-1">· afecta precio</span>
+                  </span>
+                  <button @click="vcQuitarTipo(grupo.tipo_variante_id)" class="text-xs text-red-400 hover:text-red-600">Quitar</button>
+                </div>
+                <div class="space-y-1.5">
+                  <div v-for="item in grupo.items" :key="item.opcion_id" class="flex items-center gap-2">
+                    <span class="text-xs text-gray-600 flex-1 min-w-0 truncate">{{ item.opcion_nombre }}</span>
+                    <div v-if="grupo.tipo.afecta_precio" class="flex items-center gap-1">
+                      <span class="text-xs text-gray-400">+$</span>
+                      <input
+                        :value="vcPrecios[grupo.tipo_variante_id]?.[item.opcion_id] ?? 0"
+                        @input="vcPrecios[grupo.tipo_variante_id] = { ...vcPrecios[grupo.tipo_variante_id], [item.opcion_id]: Number($event.target.value) }"
+                        type="number"
+                        min="0"
+                        step="1000"
+                        class="w-24 text-xs rounded border border-gray-300 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500 text-right"
+                      />
+                    </div>
+                    <span v-else class="text-xs text-gray-400 italic">sin precio</span>
+                  </div>
+                </div>
+                <button
+                  v-if="grupo.tipo.afecta_precio"
+                  @click="vcGuardarTipo(grupo.tipo_variante_id)"
+                  :disabled="!!vcGuardando[grupo.tipo_variante_id]"
+                  class="mt-2 text-xs bg-blue-600 text-white rounded px-3 py-1.5 hover:bg-blue-700 disabled:opacity-50"
+                >{{ vcGuardando[grupo.tipo_variante_id] ? 'Guardando...' : 'Guardar precios' }}</button>
+              </div>
+
+              <!-- Selector para agregar nuevo tipo -->
+              <div v-if="!vcPendingOpciones.length" class="flex gap-2">
+                <select
+                  v-model="vcAddTipoId"
+                  class="flex-1 text-sm rounded-lg border border-gray-300 px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                >
+                  <option value="">+ Agregar tipo de variante</option>
+                  <option
+                    v-for="tipo in vcTodosLosTipos.filter(t => !vcTiposAsignados.some(a => a.tipo_variante_id === t.id))"
+                    :key="tipo.id"
+                    :value="tipo.id"
+                  >{{ tipo.nombre }}</option>
+                </select>
+                <button
+                  @click="vcIniciarAgregar"
+                  :disabled="!vcAddTipoId"
+                  class="text-sm bg-gray-100 text-gray-700 rounded-lg px-3 py-1.5 hover:bg-gray-200 disabled:opacity-40"
+                >Configurar</button>
+              </div>
+
+              <!-- Configuración del nuevo tipo pendiente -->
+              <div v-if="vcPendingOpciones.length" class="border border-blue-200 rounded-lg p-3 bg-blue-50">
+                <p class="text-xs font-medium text-blue-700 mb-2">
+                  {{ vcTodosLosTipos.find(t => t.id == vcAddTipoId)?.nombre }}
+                  <span v-if="vcTodosLosTipos.find(t => t.id == vcAddTipoId)?.afecta_precio" class="font-normal text-blue-500"> — precio adicional por opción</span>
+                  <span v-else class="font-normal text-blue-400"> — sin cambio de precio</span>
+                </p>
+                <div class="space-y-1.5">
+                  <div v-for="op in vcPendingOpciones" :key="op.opcion_id" class="flex items-center gap-2">
+                    <span class="text-xs text-gray-600 flex-1 min-w-0 truncate">{{ op.nombre }}</span>
+                    <div v-if="vcTodosLosTipos.find(t => t.id == vcAddTipoId)?.afecta_precio" class="flex items-center gap-1">
+                      <span class="text-xs text-gray-400">+$</span>
+                      <input
+                        v-model.number="op.precio_adicional"
+                        type="number"
+                        min="0"
+                        step="1000"
+                        class="w-24 text-xs rounded border border-blue-300 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white text-right"
+                      />
+                    </div>
+                    <span v-else class="text-xs text-blue-400 italic">sin precio</span>
+                  </div>
+                </div>
+                <div class="flex gap-2 mt-3">
+                  <button
+                    @click="vcGuardarNuevoTipo"
+                    :disabled="!!vcGuardando['nuevo']"
+                    class="flex-1 text-xs bg-blue-600 text-white rounded-lg py-1.5 hover:bg-blue-700 disabled:opacity-50 font-medium"
+                  >{{ vcGuardando['nuevo'] ? 'Guardando...' : 'Guardar' }}</button>
+                  <button
+                    @click="vcAddTipoId = ''; vcPendingOpciones = []"
+                    class="text-xs text-gray-500 hover:text-gray-700 px-3 py-1.5"
+                  >Cancelar</button>
+                </div>
+              </div>
             </div>
 
             <div class="border-t border-gray-100" />
