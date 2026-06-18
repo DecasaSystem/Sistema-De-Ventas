@@ -98,20 +98,25 @@ const vcPendingOpciones = ref([])
 const vcPrecios         = ref({})
 const vcGuardando       = ref({})
 
-const vcStockModal  = ref(false)
-const vcStockItem   = ref(null)   // { config: item, grupo }
-const vcStockCant   = ref(1)
-const vcStockMotivo = ref('')
-const vcStockLoad   = ref(false)
-const vcStockError  = ref('')
+const vcStockModal    = ref(false)
+const vcStockItem     = ref(null)   // { config: item, grupo }
+const vcStockBaseItem = ref(null)   // inventario item (tiene cantidad_disponible)
+const vcStockCant     = ref(1)
+const vcStockMotivo   = ref('')
+const vcStockLoad     = ref(false)
+const vcStockError    = ref('')
 
 const vcStockSinAsignar = computed(() => {
-  if (!vcStockItem.value || !itemGestionar.value) return 0
+  if (!vcStockItem.value || !vcStockBaseItem.value) return 0
   const { grupo } = vcStockItem.value
-  const baseStock = itemGestionar.value.cantidad_disponible ?? 0
+  const baseStock = vcStockBaseItem.value.cantidad_disponible ?? 0
   const totalTipo = grupo.items.reduce((s, it) => s + (it.stock_disponible ?? 0), 0)
   return Math.max(0, baseStock - totalTipo)
 })
+
+// ── Variantes personalizadas en tarjeta de inventario ─────────────────────────
+const vcConfigsCard        = ref({})   // { producto_id: grupos[] }
+const vcConfigsCardCargando = ref({}) // { producto_id: bool }
 
 const fotoModal = ref(false)
 const fotoProducto = ref(null)
@@ -433,7 +438,11 @@ function seleccionarCategoria(cat) {
 
 async function cargarInventario(reset = false) {
   if (!tiendaId.value) return
-  if (reset) loading.value = true
+  if (reset) {
+    loading.value = true
+    variantesData.value = {}
+    vcConfigsCard.value = {}
+  }
   let nuevosItems = []
   try {
     const page = reset ? 1 : currentPage.value + 1
@@ -455,7 +464,10 @@ async function cargarInventario(reset = false) {
   }
   if (tieneMas.value) nextTick(setupObserver)
   nextTick(() => {
-    nuevosItems.forEach(i => { if (i.producto?.es_tapizado || i.producto?.tiene_tallas) cargarVariantes(i) })
+    nuevosItems.forEach(i => {
+      if (i.producto?.es_tapizado || i.producto?.tiene_tallas) cargarVariantes(i)
+      cargarVCConfigsCard(i)
+    })
   })
 }
 
@@ -647,6 +659,9 @@ async function cargarVarConfigs() {
       }
     }
     vcPrecios.value = p
+    // Sincronizar tarjeta
+    const pid = itemGestionar.value.producto_id
+    vcConfigsCard.value[pid] = configsRes.data.filter(g => g.items.length > 0)
   } catch {
     // silencioso
   } finally {
@@ -720,12 +735,13 @@ async function vcQuitarTipo(tipoId) {
   }
 }
 
-function abrirStockVarConfig(item, grupo) {
-  vcStockItem.value   = { config: item, grupo }
-  vcStockCant.value   = 1
-  vcStockMotivo.value = ''
-  vcStockError.value  = ''
-  vcStockModal.value  = true
+function abrirStockVarConfig(item, grupo, inventoryItem = null) {
+  vcStockItem.value     = { config: item, grupo }
+  vcStockBaseItem.value = inventoryItem ?? itemGestionar.value
+  vcStockCant.value     = 1
+  vcStockMotivo.value   = ''
+  vcStockError.value    = ''
+  vcStockModal.value    = true
 }
 
 async function guardarStockVarConfig() {
@@ -743,11 +759,32 @@ async function guardarStockVarConfig() {
       motivo:    vcStockMotivo.value || undefined,
     })
     vcStockModal.value = false
-    await cargarVarConfigs()
+    const pid = vcStockBaseItem.value?.producto_id
+    if (pid) {
+      // Refrescar tarjeta + gestionar panel
+      delete vcConfigsCard.value[pid]
+      await cargarVCConfigsCard({ producto_id: pid })
+      if (itemGestionar.value?.producto_id === pid) await cargarVarConfigs()
+    } else {
+      await cargarVarConfigs()
+    }
   } catch (e) {
     vcStockError.value = e.response?.data?.message ?? 'Error al agregar stock.'
   } finally {
     vcStockLoad.value = false
+  }
+}
+
+async function cargarVCConfigsCard(item) {
+  const pid = item.producto_id
+  if (vcConfigsCard.value[pid] !== undefined) return
+  vcConfigsCardCargando.value[pid] = true
+  try {
+    const params = tiendaId.value && tiendaId.value !== 'todas' ? { tienda_id: tiendaId.value } : {}
+    const { data } = await api.get(`/productos/${pid}/variante-configs`, { params })
+    vcConfigsCard.value[pid] = data.filter(g => g.items.length > 0)
+  } finally {
+    vcConfigsCardCargando.value[pid] = false
   }
 }
 
@@ -998,6 +1035,7 @@ onMounted(async () => {
       // Limpiar cache de variantes para que se recarguen al expandir
       variantesData.value = {}
       variantesAbiertas.value = {}
+      vcConfigsCard.value = {}
       cargarInventario(true)
     }
   })
@@ -1368,6 +1406,29 @@ onMounted(async () => {
               <ExclamationTriangleIcon class="w-3.5 h-3.5" />
               Bajo stock
             </span>
+          </div>
+
+          <!-- Variantes personalizadas en tarjeta -->
+          <div v-if="vcConfigsCard[item.producto_id]?.length" class="border-t border-gray-100 pt-2">
+            <div v-for="grupo in vcConfigsCard[item.producto_id]" :key="grupo.tipo_variante_id" class="mb-2">
+              <p class="text-xs text-indigo-600 font-medium mb-1">{{ grupo.tipo.nombre }}</p>
+              <div class="flex flex-wrap gap-1.5">
+                <button
+                  v-for="opt in grupo.items"
+                  :key="opt.id"
+                  @click="!esVistaGlobal && puedeGestionar && abrirStockVarConfig(opt, grupo, item)"
+                  :class="['px-2.5 py-1 rounded-full text-xs font-medium border transition-colors',
+                    (opt.stock_disponible ?? 0) > 0
+                      ? 'bg-indigo-50 border-indigo-300 text-indigo-800'
+                      : 'bg-gray-50 border-gray-200 text-gray-400',
+                    (!esVistaGlobal && puedeGestionar) ? 'cursor-pointer hover:opacity-75' : 'cursor-default']"
+                  :title="opt.opcion_nombre + ((!esVistaGlobal && puedeGestionar) ? ' — clic para agregar stock' : '')"
+                >
+                  {{ opt.opcion_nombre }}
+                  <span class="ml-1 font-bold">{{ opt.stock_disponible ?? 0 }}</span>
+                </button>
+              </div>
+            </div>
           </div>
 
           <!-- Variantes tela/color o talla — para productos tapizados o con tallas -->
