@@ -390,6 +390,19 @@ async function tomarDeFabrica(producto) {
     try {
       const { data } = await getVariantes(producto.id, fabricaId.value)
       fabricaVariantesDisponibles.value = data.filter(v => v.stock_libre > 0)
+      // Sin variantes tapizado → buscar variantes personalizadas en fábrica
+      if (fabricaVariantesDisponibles.value.length === 0 && fabricaId.value) {
+        const { data: vcData } = await api.get(`/productos/${producto.id}/variante-configs`, { params: { tienda_id: fabricaId.value } }).catch(() => ({ data: [] }))
+        const gruposConStock = vcData.filter(g => g.items.some(i => (i.stock_disponible ?? 0) > 0))
+        if (gruposConStock.length > 0) {
+          mostrarFabricaVariantePicker.value = false
+          vcPickerProd.value      = producto
+          vcPickerSelec.value     = {}
+          vcPickerGrupos.value    = gruposConStock
+          vcPickerEsFabrica.value = true
+          mostrarVCPicker.value   = true
+        }
+      }
     } finally {
       cargandoFabricaVariantes.value = false
     }
@@ -528,7 +541,6 @@ const cargandoVariantes = ref(false)
 const varianteSeleccionada = ref(null)
 
 async function agregarItem(producto) {
-  // Si tiene variantes o requiere talla, abrir picker tapizado/talla
   const tiendaConsulta = tiendaBusqueda.value || tiendaId.value
   if (producto.variantes?.length > 0 || producto.tiene_tallas || producto.es_tapizado) {
     productoParaVariante.value = producto
@@ -538,6 +550,19 @@ async function agregarItem(producto) {
     try {
       const { data } = await getVariantes(producto.id, tiendaConsulta)
       variantesDisponibles.value = data
+      // Si no hay variantes tapizado registradas, buscar variantes personalizadas
+      if (data.length === 0 && tiendaConsulta) {
+        const { data: vcData } = await api.get(`/productos/${producto.id}/variante-configs`, { params: { tienda_id: tiendaConsulta } }).catch(() => ({ data: [] }))
+        const gruposConStock = vcData.filter(g => g.items.some(i => (i.stock_disponible ?? 0) > 0))
+        if (gruposConStock.length > 0) {
+          mostrarVariantePicker.value = false
+          vcPickerProd.value      = producto
+          vcPickerSelec.value     = {}
+          vcPickerGrupos.value    = gruposConStock
+          vcPickerEsFabrica.value = false
+          mostrarVCPicker.value   = true
+        }
+      }
     } finally {
       cargandoVariantes.value = false
     }
