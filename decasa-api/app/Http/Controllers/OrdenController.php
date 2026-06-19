@@ -11,6 +11,7 @@ use App\Models\Inventario;
 use App\Models\Usuario;
 use App\Models\InventarioMovimiento;
 use App\Models\InventarioVariante;
+use App\Models\InventarioVarianteCombinacion;
 use App\Models\Orden;
 use App\Models\OrdenItem;
 use App\Models\Produccion;
@@ -256,6 +257,7 @@ class OrdenController extends Controller
                 $esProductoCustom = empty($itemData['producto_id']); // no existe en catálogo
 
                 $varianteId     = $itemData['variante_id']      ?? null;
+                $comboConfigId  = $itemData['combo_config_id']  ?? null;
                 $origenTiendaId = $itemData['tienda_origen_id'] ?? $tiendaId;
 
                 // Snapshot del nombre de variante para legibilidad
@@ -274,6 +276,7 @@ class OrdenController extends Controller
                     'nombre_custom'         => $esProductoCustom ? ($itemData['nombre_custom'] ?? null) : null,
                     'categoria_custom'      => $esProductoCustom ? ($itemData['categoria_custom'] ?? null) : null,
                     'variante_id'           => $varianteId,
+                    'combo_config_id'       => $comboConfigId,
                     'tienda_origen_id'      => $origenTiendaId !== $tiendaId ? $origenTiendaId : null,
                     'cantidad'              => $itemData['cantidad'],
                     'precio_unitario'       => $itemData['precio_unitario'],
@@ -305,6 +308,13 @@ class OrdenController extends Controller
                         InventarioVariante::where('variante_id', $varianteId)
                             ->where('tienda_id', $origenTiendaId)
                             ->increment('cantidad_reservada', $itemData['cantidad']);
+                        // Si hay combo, reservar también en inventario_variante_combinaciones
+                        if ($comboConfigId) {
+                            InventarioVarianteCombinacion::where('variante_id', $varianteId)
+                                ->where('config_id', $comboConfigId)
+                                ->where('tienda_id', $origenTiendaId)
+                                ->increment('cantidad_reservada', $itemData['cantidad']);
+                        }
                         // Las variantes son parte del stock base → reservar en ambos
                         Inventario::where('producto_id', $itemData['producto_id'])
                             ->where('tienda_id', $origenTiendaId)

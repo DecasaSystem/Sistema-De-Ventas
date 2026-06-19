@@ -16,6 +16,7 @@ class OrdenItem extends Model
         'nombre_custom',
         'categoria_custom',
         'variante_id',
+        'combo_config_id',
         'tienda_origen_id',
         'cantidad',
         'precio_unitario',

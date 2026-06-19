@@ -462,6 +462,7 @@ function _pushItemFabrica(producto, variante) {
     producto_id: producto.id,
     variante_id: variante?.id ?? null,
     _combo_id:   variante?._combo_id ?? null,
+    _config_id:  variante?._config_id ?? null,
     tienda_origen_id: fabricaId.value,
     nombre: producto.nombre,
     categoria: producto.categoria,
@@ -627,6 +628,7 @@ function _pushItem(producto, variante) {
     producto_id: producto.id,
     variante_id: variante?.id ?? null,
     _combo_id:   variante?._combo_id ?? null,
+    _config_id:  variante?._config_id ?? null,
     tienda_origen_id: esOtraTienda ? (tiendaBusqueda.value ?? null) : null,
     nombre: producto.nombre,
     categoria: producto.categoria,
@@ -1042,6 +1044,7 @@ async function submit() {
         nombre_custom:           i.nombre_custom || undefined,
         categoria_custom:        i.categoria_custom || undefined,
         variante_id:             i.variante_id || undefined,
+        combo_config_id:         i._config_id  || undefined,
         tienda_origen_id:        i.tienda_origen_id || undefined,
         cantidad:                i.cantidad,
         precio_unitario:         i._cotizarPrecio ? 0 : precioEfectivo(i),
@@ -2634,11 +2637,11 @@ function removeFacturaFoto() {
           <!-- Variantes disponibles -->
           <button
             v-for="v in variantesDisponibles"
-            :key="v._combo_id !== undefined ? 'combo-' + v._combo_id : 'var-' + v.id"
+            :key="v._config_id ? 'c' + v._config_id + '-v' + v.id : 'var-' + v.id"
             @click="varianteSeleccionada = v"
             :disabled="!productoParaVariante?.tiene_tallas && !v.personalizable && v.stock_libre <= 0"
             :class="['w-full text-left px-3 py-2.5 rounded-xl border text-sm transition-colors',
-              (varianteSeleccionada?._combo_id !== undefined ? varianteSeleccionada?._combo_id === v._combo_id : varianteSeleccionada?.id === v.id && !v._combo_id)
+              (varianteSeleccionada?._config_id ? (varianteSeleccionada._config_id === v._config_id && varianteSeleccionada.id === v.id) : varianteSeleccionada?.id === v.id && !v._config_id)
                 ? 'border-blue-500 bg-blue-50 text-blue-700 font-medium'
                 : (productoParaVariante?.tiene_tallas || v.stock_libre > 0)
                   ? 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
@@ -2753,10 +2756,10 @@ function removeFacturaFoto() {
         <div v-else class="space-y-2">
           <button
             v-for="v in fabricaVariantesDisponibles"
-            :key="v.id"
+            :key="v._config_id ? 'c' + v._config_id + '-v' + v.id : 'var-' + v.id"
             @click="fabricaVarianteSeleccionada = v"
             :class="['w-full text-left px-3 py-2.5 rounded-xl border text-sm transition-colors',
-              fabricaVarianteSeleccionada?.id === v.id
+              (fabricaVarianteSeleccionada?._config_id ? (fabricaVarianteSeleccionada._config_id === v._config_id && fabricaVarianteSeleccionada.id === v.id) : fabricaVarianteSeleccionada?.id === v.id && !v._config_id)
                 ? 'border-purple-500 bg-purple-50 text-purple-700 font-medium'
                 : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50']"
           >
@@ -2774,9 +2777,13 @@ function removeFacturaFoto() {
               <span class="font-medium">{{ v.marca_tela }}</span>
               <span class="text-gray-400 mx-1">·</span>
               {{ v.nombre_color }}
+              <template v-if="v._config_label">
+                <span class="text-indigo-400 mx-1">·</span>
+                <span class="text-indigo-600 font-semibold">{{ v._config_label }}</span>
+              </template>
             </template>
-            <span class="text-xs ml-2 font-semibold text-green-600">
-              {{ v.stock_libre }} en fábrica
+            <span :class="['text-xs ml-2 font-semibold', v.stock_libre > 0 ? 'text-green-600' : 'text-red-400']">
+              {{ v.stock_libre > 0 ? `${v.stock_libre} en fábrica` : 'Sin stock' }}
             </span>
           </button>
 

@@ -35,6 +35,44 @@ class VarianteController extends Controller
             // Si no se pide saltar combos, expandir entradas combinadas (tapizado × config)
             if (!$request->query('skip_combos')) {
                 $varianteIds = $variantes->pluck('id');
+
+                // Obtener configs de variante personalizadas del producto (estructura a nivel de producto)
+                $customConfigs = DB::table('producto_variante_configs as pvc')
+                    ->join('tipo_variante_opciones as tvo', 'pvc.opcion_id', '=', 'tvo.id')
+                    ->join('tipos_variante as tv', 'pvc.tipo_variante_id', '=', 'tv.id')
+                    ->where('pvc.producto_id', $productoId)
+                    ->select(['pvc.id as config_id', 'tvo.nombre as opcion_nombre', 'tv.nombre as tipo_nombre'])
+                    ->get();
+
+                if ($customConfigs->isNotEmpty()) {
+                    // El producto tiene variantes personalizadas: siempre mostrar entradas
+                    // tapizado × opción, usando el stock real de inventario_variante_combinaciones
+                    $existingCombos = DB::table('inventario_variante_combinaciones')
+                        ->where('tienda_id', $tiendaId)
+                        ->whereIn('variante_id', $varianteIds)
+                        ->get()
+                        ->groupBy('variante_id');
+
+                    $result = collect();
+                    foreach ($variantes as $v) {
+                        $combosDeVariante = $existingCombos->get($v->id) ?? collect();
+                        foreach ($customConfigs as $config) {
+                            $combo = $combosDeVariante->firstWhere('config_id', $config->config_id);
+                            $entry = $v->toArray();
+                            $entry['_combo_id']        = $combo?->id ?? null;
+                            $entry['_config_id']       = $config->config_id;
+                            $entry['_config_label']    = $config->opcion_nombre;
+                            $entry['_tipo_nombre']     = $config->tipo_nombre;
+                            $entry['stock_disponible'] = $combo?->cantidad_disponible ?? 0;
+                            $entry['stock_reservado']  = $combo?->cantidad_reservada  ?? 0;
+                            $entry['stock_libre']      = max(0, ($combo?->cantidad_disponible ?? 0) - ($combo?->cantidad_reservada ?? 0));
+                            $result->push($entry);
+                        }
+                    }
+                    return response()->json($result->values());
+                }
+
+                // Producto sin configs personalizadas: buscar filas de combo existentes
                 $combinaciones = DB::table('inventario_variante_combinaciones as ivcom')
                     ->join('producto_variante_configs as pvc', 'ivcom.config_id', '=', 'pvc.id')
                     ->join('tipo_variante_opciones as tvo', 'pvc.opcion_id', '=', 'tvo.id')
