@@ -33,7 +33,7 @@ class VarianteController extends Controller
                 ->keyBy('variante_id');
 
             // Si no se pide saltar combos, expandir entradas combinadas (tapizado × config)
-            if (!$request->query('skip_combos') && Schema::hasTable('inventario_variante_combinaciones')) {
+            if (!$request->query('skip_combos')) {
                 $varianteIds = $variantes->pluck('id');
                 $combinaciones = DB::table('inventario_variante_combinaciones as ivcom')
                     ->join('producto_variante_configs as pvc', 'ivcom.config_id', '=', 'pvc.id')
