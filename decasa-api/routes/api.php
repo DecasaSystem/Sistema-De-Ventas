@@ -117,9 +117,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/inventario',                              [InventarioController::class, 'index']);
     Route::get('/inventario/{productoId}/movimientos',     [InventarioController::class, 'movimientos'])->whereNumber('productoId');
     Route::middleware('role:supervisor')->group(function () {
-        Route::post('/inventario/entrada',               [InventarioController::class, 'entrada']);
-        Route::post('/inventario/salida',                [InventarioController::class, 'salida']);
-        Route::post('/inventario/variantes/entrada',     [VarianteController::class, 'entrada']);
+        Route::post('/inventario/entrada',                              [InventarioController::class, 'entrada']);
+        Route::post('/inventario/salida',                               [InventarioController::class, 'salida']);
+        Route::post('/inventario/variantes/entrada',                    [VarianteController::class, 'entrada']);
+        Route::post('/inventario/variantes/salida',                     [VarianteController::class, 'salida']);
+        Route::post('/inventario/variante-configs/salida',              [ProductoVarianteConfigController::class, 'salidaConfig']);
+        Route::post('/inventario/variante-combinaciones/salida',        [ProductoVarianteConfigController::class, 'salidaCombinacion']);
     });
 
     // Vendedores-tienda — usado para seleccionar validadores en surtidos y traslados

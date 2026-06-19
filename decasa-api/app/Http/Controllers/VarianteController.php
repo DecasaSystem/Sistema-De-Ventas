@@ -95,6 +95,60 @@ class VarianteController extends Controller
     }
 
     /**
+     * POST /api/inventario/variantes/salida
+     *
+     * Quita stock de una variante tapizado. Valida que el resultado no sea
+     * menor al total de combos asignados para esa variante en esa tienda.
+     */
+    public function salida(Request $request)
+    {
+        $data = $request->validate([
+            'variante_id' => 'required|exists:producto_variantes,id',
+            'tienda_id'   => 'required|exists:tiendas,id',
+            'cantidad'    => 'required|integer|min:1',
+            'motivo'      => 'nullable|string|max:200',
+        ]);
+
+        $variante = ProductoVariante::findOrFail($data['variante_id']);
+
+        $inv = InventarioVariante::where('variante_id', $data['variante_id'])
+            ->where('tienda_id', $data['tienda_id'])
+            ->first();
+
+        if (!$inv || $inv->cantidad_disponible === 0) {
+            abort(422, 'Esta variante no tiene stock en la tienda seleccionada.');
+        }
+
+        // Cuánto ya está asignado a combos para esta variante en esta tienda
+        $enCombos = DB::table('inventario_variante_combinaciones')
+            ->where('variante_id', $data['variante_id'])
+            ->where('tienda_id', $data['tienda_id'])
+            ->sum('cantidad_disponible');
+
+        $nuevaCantidad = $inv->cantidad_disponible - $data['cantidad'];
+        if ($nuevaCantidad < $enCombos) {
+            $puedeQuitar = $inv->cantidad_disponible - (int) $enCombos;
+            abort(422, "Hay {$enCombos} unidad(es) asignadas a combinaciones (tela×variante). Solo puedes quitar hasta {$puedeQuitar}.");
+        }
+
+        $inv->decrement('cantidad_disponible', $data['cantidad']);
+
+        event(new InventarioActualizado((int) $data['tienda_id'], (int) $variante->producto_id, 'salida'));
+
+        InventarioMovimiento::create([
+            'producto_id' => $variante->producto_id,
+            'tienda_id'   => $data['tienda_id'],
+            'variante_id' => $data['variante_id'],
+            'tipo'        => 'salida',
+            'cantidad'    => $data['cantidad'],
+            'motivo'      => $data['motivo'] ?? 'Ajuste variante',
+            'usuario_id'  => $request->user()->id,
+        ]);
+
+        return response()->json($inv->fresh(), 201);
+    }
+
+    /**
      * GET /api/variantes/telas
      *
      * Lista todas las combinaciones de tela/material guardadas en el catálogo.

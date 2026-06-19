@@ -269,4 +269,108 @@ class ProductoVarianteConfigController extends Controller
 
         return response()->json(['ok' => true]);
     }
+
+    /**
+     * POST /api/inventario/variante-configs/salida
+     * Quita stock de una opción de variante personalizada.
+     * Valida que no quede por debajo del total de combos asignados para esa opción.
+     */
+    public function salidaConfig(Request $request)
+    {
+        $data = $request->validate([
+            'config_id' => 'required|exists:producto_variante_configs,id',
+            'tienda_id' => 'required|exists:tiendas,id',
+            'cantidad'  => 'required|integer|min:1',
+            'motivo'    => 'nullable|string|max:200',
+        ]);
+
+        $config = ProductoVarianteConfig::with(['tipo', 'opcion'])->findOrFail($data['config_id']);
+
+        $inv = InventarioVarianteConfig::where('config_id', $data['config_id'])
+            ->where('tienda_id', $data['tienda_id'])
+            ->first();
+
+        if (!$inv || $inv->cantidad_disponible === 0) {
+            abort(422, 'Esta opción no tiene stock en la tienda seleccionada.');
+        }
+
+        // Cuánto ya está asignado a combos para esta opción en esta tienda
+        $enCombos = DB::table('inventario_variante_combinaciones')
+            ->where('config_id', $data['config_id'])
+            ->where('tienda_id', $data['tienda_id'])
+            ->sum('cantidad_disponible');
+
+        $nuevaCantidad = $inv->cantidad_disponible - $data['cantidad'];
+        if ($nuevaCantidad < $enCombos) {
+            $puedeQuitar = $inv->cantidad_disponible - (int) $enCombos;
+            abort(422, "Hay {$enCombos} unidad(es) asignadas a combinaciones (tela×variante). Solo puedes quitar hasta {$puedeQuitar}.");
+        }
+
+        $inv->decrement('cantidad_disponible', $data['cantidad']);
+
+        InventarioMovimiento::create([
+            'producto_id' => $config->producto_id,
+            'tienda_id'   => $data['tienda_id'],
+            'tipo'        => 'salida',
+            'cantidad'    => $data['cantidad'],
+            'motivo'      => $data['motivo'] ?? "Ajuste variante {$config->tipo->nombre}: {$config->opcion->nombre}",
+            'usuario_id'  => $request->user()->id,
+        ]);
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
+     * POST /api/inventario/variante-combinaciones/salida
+     * Quita stock de una combinación (tela × variante personalizada).
+     * También reduce el total en inventario_variantes para mantener consistencia.
+     */
+    public function salidaCombinacion(Request $request)
+    {
+        $data = $request->validate([
+            'variante_id' => 'required|exists:producto_variantes,id',
+            'config_id'   => 'required|exists:producto_variante_configs,id',
+            'tienda_id'   => 'required|exists:tiendas,id',
+            'cantidad'    => 'required|integer|min:1',
+            'motivo'      => 'nullable|string|max:200',
+        ]);
+
+        $config   = ProductoVarianteConfig::with(['tipo', 'opcion'])->findOrFail($data['config_id']);
+        $variante = ProductoVariante::findOrFail($data['variante_id']);
+
+        $combo = InventarioVarianteCombinacion::where('variante_id', $data['variante_id'])
+            ->where('config_id', $data['config_id'])
+            ->where('tienda_id', $data['tienda_id'])
+            ->first();
+
+        if (!$combo || $combo->cantidad_disponible === 0) {
+            abort(422, 'No hay stock en esta combinación.');
+        }
+
+        $libre = $combo->cantidad_disponible - $combo->cantidad_reservada;
+        if ($data['cantidad'] > $libre) {
+            abort(422, "Solo hay {$libre} unidad(es) disponibles en esta combinación.");
+        }
+
+        DB::transaction(function () use ($data, $combo, $variante, $config) {
+            $combo->decrement('cantidad_disponible', $data['cantidad']);
+
+            // Reducir también el total en inventario_variantes
+            InventarioVariante::where('variante_id', $data['variante_id'])
+                ->where('tienda_id', $data['tienda_id'])
+                ->decrement('cantidad_disponible', $data['cantidad']);
+
+            InventarioMovimiento::create([
+                'producto_id' => $variante->producto_id,
+                'tienda_id'   => $data['tienda_id'],
+                'variante_id' => $data['variante_id'],
+                'tipo'        => 'salida',
+                'cantidad'    => $data['cantidad'],
+                'motivo'      => $data['motivo'] ?? "Ajuste combo: {$variante->marca_tela} {$variante->nombre_color} · {$config->tipo->nombre}: {$config->opcion->nombre}",
+                'usuario_id'  => request()->user()->id,
+            ]);
+        });
+
+        return response()->json(['ok' => true]);
+    }
 }

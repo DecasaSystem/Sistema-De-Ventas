@@ -67,6 +67,7 @@ const vcStockCant   = ref(1)
 const vcStockMotivo = ref('')
 const vcStockLoad   = ref(false)
 const vcStockError  = ref('')
+const vcStockModo   = ref('agregar')  // 'agregar' | 'quitar'
 const vcStockSinAsignar = computed(() => {
   if (!vcStockItem.value) return 0
   const { grupo, productoItem } = vcStockItem.value
@@ -168,6 +169,7 @@ const varianteStockCant      = ref(1)
 const varianteStockMotivo    = ref('')
 const varianteStockLoading   = ref(false)
 const varianteStockError     = ref('')
+const varianteStockModo      = ref('agregar')  // 'agregar' | 'quitar'
 
 async function cargarVariantes(item) {
   const pid = item.producto_id
@@ -201,6 +203,7 @@ function abrirVcStock(configItem, grupo, productoItem) {
   vcStockCant.value   = 1
   vcStockMotivo.value = ''
   vcStockError.value  = ''
+  vcStockModo.value   = 'agregar'
   vcStockModal.value  = true
 }
 
@@ -209,19 +212,22 @@ async function guardarVcStock() {
   if (vcStockCant.value < 1) { vcStockError.value = 'Cantidad inválida.'; return }
   vcStockLoad.value = true
   try {
-    await api.post('/inventario/variante-configs/entrada', {
+    const endpoint = vcStockModo.value === 'quitar'
+      ? '/inventario/variante-configs/salida'
+      : '/inventario/variante-configs/entrada'
+    await api.post(endpoint, {
       config_id: vcStockItem.value.config.id,
       tienda_id: fabricaId.value,
       cantidad:  vcStockCant.value,
       motivo:    vcStockMotivo.value || undefined,
     })
-    toast.success('Stock agregado.')
+    toast.success(vcStockModo.value === 'quitar' ? 'Stock reducido.' : 'Stock agregado.')
     vcStockModal.value = false
     const pid = vcStockItem.value.productoItem.producto_id
     delete varianteConfigsReserva.value[pid]
     await cargarVarConfigsReserva(vcStockItem.value.productoItem)
   } catch (e) {
-    vcStockError.value = e.response?.data?.message ?? 'Error al agregar stock.'
+    vcStockError.value = e.response?.data?.message ?? 'Error al actualizar stock.'
   } finally {
     vcStockLoad.value = false
   }
@@ -265,6 +271,7 @@ function abrirStockVariante(variante, productoId) {
   varianteStockCant.value = 1
   varianteStockMotivo.value = ''
   varianteStockError.value = ''
+  varianteStockModo.value = 'agregar'
   mostrarStockVariante.value = true
 }
 
@@ -278,6 +285,15 @@ const combModalMotivo       = ref('')
 const combModalError        = ref('')
 const combModalLoad         = ref(false)
 const combModalRawVariantes = ref([])
+const combModalModo         = ref('agregar')  // 'agregar' | 'quitar'
+
+const combModalQuitarMax = computed(() => {
+  if (!combModalVarianteId.value || !combModalConfigId.value || !combModalProdId.value) return 0
+  const entry = (variantesReserva.value[combModalProdId.value] ?? []).find(
+    c => c.id === combModalVarianteId.value && c._config_id === combModalConfigId.value
+  )
+  return entry?.stock_libre ?? 0
+})
 
 const combModalMaxCant = computed(() => {
   if (!combModalConfigId.value || !combModalProdId.value) return 0
@@ -300,6 +316,7 @@ async function abrirCombModal(variante, productoId) {
   combModalCant.value       = 1
   combModalMotivo.value     = ''
   combModalError.value      = ''
+  combModalModo.value       = 'agregar'
   combModalRawVariantes.value = []
   combModal.value           = true
   try {
@@ -317,14 +334,17 @@ async function guardarCombinacion() {
   if (combModalCant.value < 1)    { combModalError.value = 'Cantidad inválida.'; return }
   combModalLoad.value = true
   try {
-    await api.post('/inventario/variante-combinaciones/entrada', {
+    const endpoint = combModalModo.value === 'quitar'
+      ? '/inventario/variante-combinaciones/salida'
+      : '/inventario/variante-combinaciones/entrada'
+    await api.post(endpoint, {
       variante_id: combModalVarianteId.value,
       config_id:   combModalConfigId.value,
       tienda_id:   fabricaId.value,
       cantidad:    combModalCant.value,
       motivo:      combModalMotivo.value || undefined,
     })
-    toast.success('Combinación asignada.')
+    toast.success(combModalModo.value === 'quitar' ? 'Stock de combinación reducido.' : 'Combinación asignada.')
     combModal.value = false
     const pid = combModalProdId.value
     delete variantesReserva.value[pid]
@@ -346,18 +366,28 @@ async function guardarStockVariante() {
   if (varianteStockCant.value < 1) { varianteStockError.value = 'Cantidad inválida.'; return }
   varianteStockLoading.value = true
   try {
-    await addReservaVarianteStock({
-      variante_id: varianteStockItem.value.variante.id,
-      cantidad: varianteStockCant.value,
-      motivo: varianteStockMotivo.value || undefined,
-    })
-    toast.success('Stock de variante agregado.')
+    if (varianteStockModo.value === 'quitar') {
+      await api.post('/inventario/variantes/salida', {
+        variante_id: varianteStockItem.value.variante.id,
+        tienda_id:   fabricaId.value,
+        cantidad:    varianteStockCant.value,
+        motivo:      varianteStockMotivo.value || undefined,
+      })
+      toast.success('Stock de variante reducido.')
+    } else {
+      await addReservaVarianteStock({
+        variante_id: varianteStockItem.value.variante.id,
+        cantidad: varianteStockCant.value,
+        motivo: varianteStockMotivo.value || undefined,
+      })
+      toast.success('Stock de variante agregado.')
+    }
     mostrarStockVariante.value = false
     const pid = varianteStockItem.value.productoId
     const { data } = await getVariantes(pid, fabricaId.value)
     variantesReserva.value[pid] = data
   } catch (e) {
-    varianteStockError.value = e.response?.data?.message ?? 'Error al agregar stock.'
+    varianteStockError.value = e.response?.data?.message ?? 'Error al actualizar stock.'
   } finally {
     varianteStockLoading.value = false
   }
@@ -785,44 +815,83 @@ onMounted(async () => {
         <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-4">
           <div class="flex items-center justify-between">
             <div>
-              <h3 class="text-base font-bold text-gray-800">Agregar stock de variante</h3>
+              <h3 class="text-base font-bold text-gray-800">{{ varianteStockModo === 'agregar' ? 'Agregar' : 'Quitar' }} stock de variante</h3>
               <p class="text-xs text-gray-500 mt-0.5">
                 {{ varianteStockItem?.variante?.medida ?? [varianteStockItem?.variante?.marca, varianteStockItem?.variante?.marca_tela, varianteStockItem?.variante?.nombre_color].filter(Boolean).join(' · ') }}
               </p>
             </div>
             <button @click="mostrarStockVariante = false" class="text-gray-400 text-2xl leading-none">&times;</button>
           </div>
-          <p class="text-xs text-blue-600 bg-blue-50 rounded-lg px-3 py-2">Asegúrate de haber agregado el stock base del producto primero.</p>
+          <!-- Toggle agregar / quitar -->
+          <div class="flex rounded-lg border border-gray-200 overflow-hidden text-sm font-medium">
+            <button @click="varianteStockModo = 'agregar'; varianteStockCant = 1"
+              :class="['flex-1 py-2 transition-colors', varianteStockModo === 'agregar' ? 'bg-purple-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50']">
+              + Agregar
+            </button>
+            <button @click="varianteStockModo = 'quitar'; varianteStockCant = 1"
+              :class="['flex-1 py-2 transition-colors', varianteStockModo === 'quitar' ? 'bg-red-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50']">
+              − Quitar
+            </button>
+          </div>
+          <p v-if="varianteStockModo === 'agregar'" class="text-xs text-blue-600 bg-blue-50 rounded-lg px-3 py-2">Asegúrate de haber agregado el stock base del producto primero.</p>
+          <div v-else class="bg-gray-50 rounded-lg px-3 py-2 text-xs space-y-0.5">
+            <div class="flex justify-between text-gray-600">
+              <span>Stock disponible (sin reservar)</span>
+              <span class="font-semibold" :class="(varianteStockItem?.variante?.stock_libre ?? 0) > 0 ? 'text-green-700' : 'text-red-600'">
+                {{ varianteStockItem?.variante?.stock_libre ?? 0 }}
+              </span>
+            </div>
+          </div>
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Cantidad</label>
-            <input v-model.number="varianteStockCant" type="number" min="1" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+              Cantidad
+              <span v-if="varianteStockModo === 'quitar'" class="text-gray-400 font-normal">(máx {{ varianteStockItem?.variante?.stock_libre ?? 0 }})</span>
+            </label>
+            <input v-model.number="varianteStockCant" type="number" min="1"
+              :max="varianteStockModo === 'quitar' ? (varianteStockItem?.variante?.stock_libre ?? 0) : undefined"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
           </div>
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">Motivo (opcional)</label>
-            <input v-model="varianteStockMotivo" type="text" placeholder="Producción completada..." class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
+            <input v-model="varianteStockMotivo" type="text"
+              :placeholder="varianteStockModo === 'agregar' ? 'Producción completada...' : 'Ajuste de inventario...'"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
           </div>
           <p v-if="varianteStockError" class="text-xs text-red-600">{{ varianteStockError }}</p>
           <div class="flex gap-3">
             <button @click="mostrarStockVariante = false" class="flex-1 bg-gray-100 text-gray-700 rounded-lg py-2.5 text-sm font-semibold">Cancelar</button>
-            <button @click="guardarStockVariante" :disabled="varianteStockLoading" class="flex-1 bg-purple-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-purple-700 disabled:opacity-50">
-              {{ varianteStockLoading ? 'Guardando...' : 'Agregar' }}
+            <button @click="guardarStockVariante"
+              :disabled="varianteStockLoading || (varianteStockModo === 'quitar' && (varianteStockItem?.variante?.stock_libre ?? 0) === 0)"
+              :class="['flex-1 text-white rounded-lg py-2.5 text-sm font-semibold disabled:opacity-50', varianteStockModo === 'agregar' ? 'bg-purple-600 hover:bg-purple-700' : 'bg-red-600 hover:bg-red-700']">
+              {{ varianteStockLoading ? 'Guardando...' : varianteStockModo === 'agregar' ? 'Agregar' : 'Quitar' }}
             </button>
           </div>
         </div>
       </div>
     </Transition>
 
-    <!-- Modal: Asignar tela × variante personalizada (combinación) -->
+    <!-- Modal: Asignar/Quitar tela × variante personalizada (combinación) -->
     <Transition name="fade">
       <div v-if="combModal" class="fixed inset-0 z-[65] flex items-end sm:items-center justify-center" @click.self="combModal = false">
         <div class="absolute inset-0 bg-black/40" />
         <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-4 max-h-[88vh] overflow-y-auto">
           <div class="flex items-center justify-between">
             <div>
-              <h3 class="text-base font-bold text-gray-800">Asignar tela a variante</h3>
-              <p class="text-xs text-indigo-600 mt-0.5">Combina tela/color con una opción de variante</p>
+              <h3 class="text-base font-bold text-gray-800">{{ combModalModo === 'agregar' ? 'Asignar' : 'Quitar' }} tela × variante</h3>
+              <p class="text-xs text-indigo-600 mt-0.5">Combinación tela/color · opción de variante</p>
             </div>
             <button @click="combModal = false" class="text-gray-400 text-2xl leading-none">&times;</button>
+          </div>
+          <!-- Toggle agregar / quitar -->
+          <div class="flex rounded-lg border border-gray-200 overflow-hidden text-sm font-medium">
+            <button @click="combModalModo = 'agregar'; combModalCant = 1"
+              :class="['flex-1 py-2 transition-colors', combModalModo === 'agregar' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50']">
+              + Agregar
+            </button>
+            <button @click="combModalModo = 'quitar'; combModalCant = 1"
+              :class="['flex-1 py-2 transition-colors', combModalModo === 'quitar' ? 'bg-red-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50']">
+              − Quitar
+            </button>
           </div>
           <div class="space-y-4">
             <div>
@@ -831,7 +900,7 @@ onMounted(async () => {
                 <p v-if="!combModalRawVariantes.length" class="text-xs text-gray-400 italic px-2 py-1">Cargando telas...</p>
                 <button
                   v-for="v in combModalRawVariantes" :key="v.id"
-                  @click="combModalVarianteId = v.id"
+                  @click="combModalVarianteId = v.id; combModalCant = 1"
                   :class="['w-full text-left px-3 py-2 rounded-lg border text-sm transition-colors',
                     combModalVarianteId === v.id
                       ? 'border-indigo-500 bg-indigo-50 text-indigo-700 font-medium'
@@ -855,25 +924,35 @@ onMounted(async () => {
                 </div>
               </template>
             </div>
-            <div v-if="combModalConfigId" class="bg-indigo-50 rounded-lg px-3 py-2 text-xs text-indigo-700">
-              Disponible para asignar: <strong>{{ combModalMaxCant }}</strong>
-            </div>
+            <template v-if="combModalConfigId && combModalVarianteId">
+              <div v-if="combModalModo === 'agregar'" class="bg-indigo-50 rounded-lg px-3 py-2 text-xs text-indigo-700">
+                Disponible para asignar: <strong>{{ combModalMaxCant }}</strong>
+              </div>
+              <div v-else class="bg-red-50 rounded-lg px-3 py-2 text-xs text-red-700">
+                Stock disponible en esta combinación: <strong>{{ combModalQuitarMax }}</strong>
+              </div>
+            </template>
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Cantidad <span class="text-gray-400 font-normal">(máx {{ combModalMaxCant }})</span></label>
-              <input v-model.number="combModalCant" type="number" min="1" :max="combModalMaxCant"
+              <label class="block text-sm font-medium text-gray-700 mb-1">
+                Cantidad
+                <span v-if="combModalModo === 'agregar'" class="text-gray-400 font-normal">(máx {{ combModalMaxCant }})</span>
+                <span v-else class="text-gray-400 font-normal">(máx {{ combModalQuitarMax }})</span>
+              </label>
+              <input v-model.number="combModalCant" type="number" min="1"
+                :max="combModalModo === 'agregar' ? combModalMaxCant : combModalQuitarMax"
                 class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
             </div>
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Motivo (opcional)</label>
               <input v-model="combModalMotivo"
                 class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                placeholder="Entrada de bodega..." />
+                :placeholder="combModalModo === 'agregar' ? 'Entrada de bodega...' : 'Ajuste de inventario...'" />
             </div>
             <p v-if="combModalError" class="text-xs text-red-600">{{ combModalError }}</p>
             <button @click="guardarCombinacion"
-              :disabled="combModalLoad || !combModalVarianteId || !combModalConfigId || combModalMaxCant === 0"
-              class="w-full bg-indigo-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50">
-              {{ combModalLoad ? 'Guardando...' : combModalMaxCant === 0 && combModalConfigId ? 'Sin capacidad disponible' : 'Asignar' }}
+              :disabled="combModalLoad || !combModalVarianteId || !combModalConfigId || (combModalModo === 'agregar' ? combModalMaxCant === 0 : combModalQuitarMax === 0)"
+              :class="['w-full text-white rounded-lg py-2.5 text-sm font-semibold disabled:opacity-50', combModalModo === 'agregar' ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-red-600 hover:bg-red-700']">
+              {{ combModalLoad ? 'Guardando...' : combModalModo === 'agregar' ? 'Asignar' : 'Quitar' }}
             </button>
           </div>
         </div>
@@ -887,46 +966,72 @@ onMounted(async () => {
         <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-4">
           <div class="flex items-center justify-between">
             <div>
-              <h3 class="text-base font-bold text-gray-800">Agregar stock · variante</h3>
+              <h3 class="text-base font-bold text-gray-800">{{ vcStockModo === 'agregar' ? 'Agregar' : 'Quitar' }} stock · variante</h3>
               <p class="text-xs text-gray-500 mt-0.5">{{ vcStockItem?.grupo?.tipo?.nombre }} — {{ vcStockItem?.config?.opcion_nombre }}</p>
             </div>
             <button @click="vcStockModal = false" class="text-gray-400 text-2xl leading-none">&times;</button>
           </div>
-          <div class="bg-gray-50 rounded-lg px-3 py-2 text-xs space-y-0.5">
-            <div class="flex justify-between text-gray-600">
-              <span>Stock base del producto</span>
-              <span class="font-semibold">{{ vcStockItem?.productoItem?.cantidad_disponible ?? 0 }}</span>
+          <!-- Toggle agregar / quitar -->
+          <div class="flex rounded-lg border border-gray-200 overflow-hidden text-sm font-medium">
+            <button @click="vcStockModo = 'agregar'; vcStockCant = 1"
+              :class="['flex-1 py-2 transition-colors', vcStockModo === 'agregar' ? 'bg-purple-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50']">
+              + Agregar
+            </button>
+            <button @click="vcStockModo = 'quitar'; vcStockCant = 1"
+              :class="['flex-1 py-2 transition-colors', vcStockModo === 'quitar' ? 'bg-red-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50']">
+              − Quitar
+            </button>
+          </div>
+          <!-- Info agregar -->
+          <template v-if="vcStockModo === 'agregar'">
+            <div class="bg-gray-50 rounded-lg px-3 py-2 text-xs space-y-0.5">
+              <div class="flex justify-between text-gray-600">
+                <span>Stock base del producto</span>
+                <span class="font-semibold">{{ vcStockItem?.productoItem?.cantidad_disponible ?? 0 }}</span>
+              </div>
+              <div class="flex justify-between text-gray-600">
+                <span>Sin asignar ({{ vcStockItem?.grupo?.tipo?.nombre }})</span>
+                <span class="font-semibold" :class="vcStockSinAsignar > 0 ? 'text-green-700' : 'text-red-600'">{{ vcStockSinAsignar }}</span>
+              </div>
+              <div class="flex justify-between text-gray-600">
+                <span>Ya asignadas a esta opción</span>
+                <span class="font-semibold">{{ vcStockItem?.config?.stock_disponible ?? 0 }}</span>
+              </div>
             </div>
+            <p v-if="vcStockSinAsignar === 0" class="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">
+              No hay unidades sin asignar. Agrega más stock base primero.
+            </p>
+          </template>
+          <!-- Info quitar -->
+          <div v-else class="bg-gray-50 rounded-lg px-3 py-2 text-xs space-y-0.5">
             <div class="flex justify-between text-gray-600">
-              <span>Sin asignar ({{ vcStockItem?.grupo?.tipo?.nombre }})</span>
-              <span class="font-semibold" :class="vcStockSinAsignar > 0 ? 'text-green-700' : 'text-red-600'">{{ vcStockSinAsignar }}</span>
-            </div>
-            <div class="flex justify-between text-gray-600">
-              <span>Ya asignadas a esta opción</span>
+              <span>Stock asignado a esta opción</span>
               <span class="font-semibold">{{ vcStockItem?.config?.stock_disponible ?? 0 }}</span>
             </div>
           </div>
-          <p v-if="vcStockSinAsignar === 0" class="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">
-            No hay unidades sin asignar. Agrega más stock base primero.
-          </p>
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">
-              Cantidad <span class="text-gray-400 font-normal">(máx {{ vcStockSinAsignar }})</span>
+              Cantidad
+              <span v-if="vcStockModo === 'agregar'" class="text-gray-400 font-normal">(máx {{ vcStockSinAsignar }})</span>
+              <span v-else class="text-gray-400 font-normal">(máx {{ vcStockItem?.config?.stock_disponible ?? 0 }})</span>
             </label>
-            <input v-model.number="vcStockCant" type="number" min="1" :max="vcStockSinAsignar"
+            <input v-model.number="vcStockCant" type="number" min="1"
+              :max="vcStockModo === 'agregar' ? vcStockSinAsignar : (vcStockItem?.config?.stock_disponible ?? 0)"
               class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
           </div>
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">Motivo (opcional)</label>
-            <input v-model="vcStockMotivo" type="text" placeholder="Producción completada..."
+            <input v-model="vcStockMotivo" type="text"
+              :placeholder="vcStockModo === 'agregar' ? 'Producción completada...' : 'Ajuste de inventario...'"
               class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
           </div>
           <p v-if="vcStockError" class="text-xs text-red-600">{{ vcStockError }}</p>
           <div class="flex gap-3">
             <button @click="vcStockModal = false" class="flex-1 bg-gray-100 text-gray-700 rounded-lg py-2.5 text-sm font-semibold">Cancelar</button>
-            <button @click="guardarVcStock" :disabled="vcStockLoad || vcStockSinAsignar === 0"
-              class="flex-1 bg-purple-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-purple-700 disabled:opacity-50">
-              {{ vcStockLoad ? 'Guardando...' : 'Agregar' }}
+            <button @click="guardarVcStock"
+              :disabled="vcStockLoad || (vcStockModo === 'agregar' ? vcStockSinAsignar === 0 : (vcStockItem?.config?.stock_disponible ?? 0) === 0)"
+              :class="['flex-1 text-white rounded-lg py-2.5 text-sm font-semibold disabled:opacity-50', vcStockModo === 'agregar' ? 'bg-purple-600 hover:bg-purple-700' : 'bg-red-600 hover:bg-red-700']">
+              {{ vcStockLoad ? 'Guardando...' : vcStockModo === 'agregar' ? 'Agregar' : 'Quitar' }}
             </button>
           </div>
         </div>
