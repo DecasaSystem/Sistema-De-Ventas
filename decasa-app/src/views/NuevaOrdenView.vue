@@ -2713,11 +2713,14 @@ function removeFacturaFoto() {
               <button
                 v-for="opt in grupo.items"
                 :key="opt.id"
+                :disabled="(opt.stock_disponible ?? 0) === 0"
                 @click="vcPickerSelec = { ...vcPickerSelec, [grupo.tipo_variante_id]: { config_id: opt.id, opcion_nombre: opt.opcion_nombre, tipo_nombre: grupo.tipo.nombre, precio_adicional: opt.precio_adicional ?? 0, stock: opt.stock_disponible ?? 0 } }"
                 :class="['w-full text-left px-3 py-2.5 rounded-xl border text-sm transition-colors',
                   vcPickerSelec[grupo.tipo_variante_id]?.config_id === opt.id
                     ? 'border-indigo-500 bg-indigo-50 text-indigo-700 font-medium'
-                    : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50']"
+                    : (opt.stock_disponible ?? 0) > 0
+                      ? 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                      : 'border-gray-100 bg-gray-50 text-gray-300 cursor-not-allowed']"
               >
                 <span class="font-medium">{{ opt.opcion_nombre }}</span>
                 <span v-if="(opt.precio_adicional ?? 0) > 0" class="text-xs ml-2 text-indigo-600 font-semibold">
