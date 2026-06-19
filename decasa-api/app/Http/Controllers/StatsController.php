@@ -337,9 +337,9 @@ class StatsController extends Controller
 
         $vendedores = DB::table('usuarios as u')
             ->leftJoin('tiendas as t', 't.id', '=', 'u.tienda_default_id')
-            ->where('u.rol', 'vendedor')->where('u.activo', true)
+            ->whereIn('u.rol', ['vendedor', 'supervisor'])->where('u.activo', true)
             ->when($tiendaId, fn($q) => $q->where('u.tienda_default_id', $tiendaId))
-            ->selectRaw('u.id, u.nombre, t.nombre AS tienda, t.id AS tienda_id')
+            ->selectRaw('u.id, u.nombre, u.rol, t.nombre AS tienda, t.id AS tienda_id')
             ->get();
 
         $resultado = $vendedores->map(function ($v) use ($rango) {
@@ -365,6 +365,7 @@ class StatsController extends Controller
             return [
                 'id'                 => $v->id,
                 'nombre'             => $v->nombre,
+                'rol'                => $v->rol,
                 'tienda'             => $v->tienda,
                 'tienda_id'          => $v->tienda_id,
                 'ingresos'           => $ingresos,
@@ -404,7 +405,7 @@ class StatsController extends Controller
             $totalEquipo = (float) DB::table('pagos as p')
                 ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
                 ->whereBetween('p.created_at', $rango)->sum('p.monto');
-            $nVendedores = DB::table('usuarios')->where('rol', 'vendedor')->where('activo', true)->count();
+            $nVendedores = DB::table('usuarios')->whereIn('rol', ['vendedor', 'supervisor'])->where('activo', true)->count();
 
             $perfil['comparativa_equipo'] = [
                 'promedio_ingresos' => $nVendedores > 0 ? round($totalEquipo / $nVendedores) : 0,

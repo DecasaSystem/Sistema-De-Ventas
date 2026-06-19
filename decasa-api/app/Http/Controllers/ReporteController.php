@@ -346,16 +346,17 @@ class ReporteController extends Controller
                 ->whereBetween('o.created_at', [$desde . ' 00:00:00', $hasta . ' 23:59:59'])
             )
             ->leftJoin('pagos as p', 'p.orden_id', '=', 'o.id')
-            ->where('u.rol', 'vendedor')
+            ->whereIn('u.rol', ['vendedor', 'supervisor'])
             ->where('u.activo', true)
             ->selectRaw('
                 u.id            AS vendedor_id,
                 u.nombre        AS vendedor,
+                u.rol           AS rol,
                 COUNT(DISTINCT o.id)  AS total_ordenes,
                 COALESCE(SUM(p.monto), 0)  AS total_cobrado,
                 COALESCE(AVG(o.valor_total), 0) AS ticket_promedio
             ')
-            ->groupBy('u.id', 'u.nombre')
+            ->groupBy('u.id', 'u.nombre', 'u.rol')
             ->orderByDesc('total_cobrado')
             ->get()
             ->toArray();

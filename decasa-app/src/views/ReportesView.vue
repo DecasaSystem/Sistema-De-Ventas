@@ -519,7 +519,7 @@ onBeforeUnmount(() => {
 
         <!-- Gráfica horizontal -->
         <div v-if="vendedores.length" class="bg-white rounded-xl shadow-sm p-4">
-          <p class="text-sm font-semibold text-gray-700 mb-3">Ingresos por vendedor</p>
+          <p class="text-sm font-semibold text-gray-700 mb-3">Ingresos por vendedor / supervisor</p>
           <div :style="{ height: `${Math.min(vendedores.length, 8) * 44 + 20}px` }">
             <canvas ref="vendCanvas"></canvas>
           </div>
@@ -528,7 +528,7 @@ onBeforeUnmount(() => {
         <!-- Tabla ranking -->
         <div class="bg-white rounded-xl shadow-sm overflow-hidden">
           <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-            <p class="text-sm font-semibold text-gray-700">Ranking vendedores</p>
+            <p class="text-sm font-semibold text-gray-700">Ranking de ventas</p>
             <button @click="exportar('vendedores')" class="text-xs text-blue-600 font-medium hover:underline">Exportar</button>
           </div>
           <div class="overflow-x-auto">
@@ -536,7 +536,7 @@ onBeforeUnmount(() => {
               <thead class="bg-gray-50 text-xs text-gray-500">
                 <tr>
                   <th class="px-3 py-2 text-left">#</th>
-                  <th class="px-3 py-2 text-left">Vendedor</th>
+                  <th class="px-3 py-2 text-left">Nombre</th>
                   <th class="px-3 py-2 text-left">Tienda</th>
                   <th class="px-3 py-2 text-right">Ingresos</th>
                   <th class="px-3 py-2 text-right">Órdenes</th>
@@ -555,7 +555,10 @@ onBeforeUnmount(() => {
                       {{ i + 1 }}
                     </span>
                   </td>
-                  <td class="px-3 py-2.5 font-medium text-gray-800">{{ v.nombre }}</td>
+                  <td class="px-3 py-2.5 font-medium text-gray-800">
+                    {{ v.nombre }}
+                    <span v-if="v.rol === 'supervisor'" class="ml-1 text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full font-semibold">Sup</span>
+                  </td>
                   <td class="px-3 py-2.5 text-gray-500 text-xs">{{ v.tienda }}</td>
                   <td class="px-3 py-2.5 text-right font-semibold text-blue-600">{{ cop(v.ingresos) }}</td>
                   <td class="px-3 py-2.5 text-right text-gray-600">{{ v.ordenes_totales }}</td>
