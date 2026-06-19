@@ -572,7 +572,7 @@ onMounted(async () => {
                 <component
                   :is="soloLectura ? 'span' : 'button'"
                   v-for="v in variantesReserva[item.producto_id]"
-                  :key="v._combo_id !== undefined ? 'combo-' + v._combo_id : 'var-' + v.id"
+                  :key="v._config_id !== undefined ? 'cfg-' + v._config_id + '-v' + v.id : 'var-' + v.id"
                   v-bind="soloLectura ? {} : { onClick: () => abrirStockVariante(v, item.producto_id) }"
                   :class="['px-2.5 py-1 rounded-full text-xs font-medium border',
                     v.stock_libre > 0

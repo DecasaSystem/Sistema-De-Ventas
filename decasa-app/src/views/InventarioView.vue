@@ -1558,7 +1558,7 @@ onMounted(async () => {
                 <div class="flex flex-wrap gap-1.5">
                   <button
                     v-for="v in variantesData[item.producto_id]"
-                    :key="v._combo_id !== undefined ? 'combo-' + v._combo_id : 'var-' + v.id"
+                    :key="v._config_id !== undefined ? 'cfg-' + v._config_id + '-v' + v.id : 'var-' + v.id"
                     @click="!esVistaGlobal && puedeGestionar && abrirStockVariante(v, item)"
                     :class="['px-2.5 py-1 rounded-full text-xs font-medium border transition-colors',
                       v.stock_libre > 0

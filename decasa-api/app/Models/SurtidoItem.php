@@ -13,6 +13,8 @@ class SurtidoItem extends Model
     protected $fillable = [
         'surtido_tienda_id',
         'producto_id',
+        'variante_id',
+        'combo_config_id',
         'cantidad',
         'cantidad_aceptada',
         'especificaciones',

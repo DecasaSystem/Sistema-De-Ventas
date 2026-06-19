@@ -470,7 +470,7 @@ function _pushItemFabrica(producto, variante) {
     stock_libre: variante ? (variante.stock_libre ?? 0) : (fabricaStock.value[producto.id] ?? 0),
     personalizable: producto.personalizable ?? false,
     cantidad: 1,
-    precio_unitario: (variante?.precio_variante != null ? Number(variante.precio_variante) : null) ?? producto.precio_base ?? 0,
+    precio_unitario: variante?.precio_variante != null ? Number(variante.precio_variante) : Number(producto.precio_base ?? 0),
     es_personalizado: false,
     specs: {},
     specs_notas: '',
@@ -636,7 +636,7 @@ function _pushItem(producto, variante) {
     stock_libre: stockL,
     personalizable: producto.personalizable ?? false,
     cantidad: 1,
-    precio_unitario: (variante?.precio_variante != null ? Number(variante.precio_variante) : null) ?? producto.precio_base ?? 0,
+    precio_unitario: variante?.precio_variante != null ? Number(variante.precio_variante) : Number(producto.precio_base ?? 0),
     es_personalizado: false,
     specs: {},
     specs_notas: '',
@@ -2665,6 +2665,9 @@ function removeFacturaFoto() {
                 <span class="text-indigo-400 mx-1">·</span>
                 <span class="text-indigo-600 font-semibold">{{ v._config_label }}</span>
               </template>
+              <span v-if="v.precio_variante" class="text-xs ml-2 font-semibold text-blue-600">
+                ${{ Number(v.precio_variante).toLocaleString('es-CO') }}
+              </span>
             </template>
             <span :class="['text-xs ml-2 font-semibold', v.stock_libre > 0 ? 'text-green-600' : productoParaVariante?.tiene_tallas ? 'text-gray-400' : 'text-red-400']">
               {{ v.stock_libre > 0 ? `${v.stock_libre} disponible${v.stock_libre > 1 ? 's' : ''}` : 'Sin stock' }}
@@ -2781,6 +2784,9 @@ function removeFacturaFoto() {
                 <span class="text-indigo-400 mx-1">·</span>
                 <span class="text-indigo-600 font-semibold">{{ v._config_label }}</span>
               </template>
+              <span v-if="v.precio_variante" class="text-xs ml-2 font-semibold text-blue-600">
+                ${{ Number(v.precio_variante).toLocaleString('es-CO') }}
+              </span>
             </template>
             <span :class="['text-xs ml-2 font-semibold', v.stock_libre > 0 ? 'text-green-600' : 'text-red-400']">
               {{ v.stock_libre > 0 ? `${v.stock_libre} en fábrica` : 'Sin stock' }}

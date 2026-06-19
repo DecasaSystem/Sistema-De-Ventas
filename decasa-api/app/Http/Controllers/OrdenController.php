@@ -212,9 +212,17 @@ class OrdenController extends Controller
                     $origenTiendaId = $item['tienda_origen_id'] ?? $tiendaId;
 
                     if ($varianteId) {
-                        $inv = InventarioVariante::where('variante_id', $varianteId)
-                            ->where('tienda_id', $origenTiendaId)
-                            ->lockForUpdate()->first();
+                        $comboConfigIdCheck = $item['combo_config_id'] ?? null;
+                        if ($comboConfigIdCheck) {
+                            $inv = InventarioVarianteCombinacion::where('variante_id', $varianteId)
+                                ->where('config_id', $comboConfigIdCheck)
+                                ->where('tienda_id', $origenTiendaId)
+                                ->lockForUpdate()->first();
+                        } else {
+                            $inv = InventarioVariante::where('variante_id', $varianteId)
+                                ->where('tienda_id', $origenTiendaId)
+                                ->lockForUpdate()->first();
+                        }
                     } else {
                         $inv = Inventario::where('producto_id', $item['producto_id'])
                             ->where('tienda_id', $origenTiendaId)
@@ -934,7 +942,15 @@ class OrdenController extends Controller
                                 'cantidad_disponible' => DB::raw("cantidad_disponible - {$item->cantidad}"),
                                 'cantidad_reservada'  => DB::raw("cantidad_reservada - {$item->cantidad}"),
                             ]);
-                        // Variante es parte del stock base → descontar en ambos
+                        if ($item->combo_config_id) {
+                            InventarioVarianteCombinacion::where('variante_id', $item->variante_id)
+                                ->where('config_id', $item->combo_config_id)
+                                ->where('tienda_id', $origenId)
+                                ->update([
+                                    'cantidad_disponible' => DB::raw("cantidad_disponible - {$item->cantidad}"),
+                                    'cantidad_reservada'  => DB::raw("cantidad_reservada - {$item->cantidad}"),
+                                ]);
+                        }
                         Inventario::where('producto_id', $item->producto_id)
                             ->where('tienda_id', $origenId)
                             ->update([
@@ -962,7 +978,12 @@ class OrdenController extends Controller
                         InventarioVariante::where('variante_id', $item->variante_id)
                             ->where('tienda_id', $origenId)
                             ->decrement('cantidad_reservada', $item->cantidad);
-                        // Liberar también en el stock base
+                        if ($item->combo_config_id) {
+                            InventarioVarianteCombinacion::where('variante_id', $item->variante_id)
+                                ->where('config_id', $item->combo_config_id)
+                                ->where('tienda_id', $origenId)
+                                ->decrement('cantidad_reservada', $item->cantidad);
+                        }
                         Inventario::where('producto_id', $item->producto_id)
                             ->where('tienda_id', $origenId)
                             ->decrement('cantidad_reservada', $item->cantidad);

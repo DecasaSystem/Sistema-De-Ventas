@@ -9,6 +9,7 @@ use App\Jobs\EnviarSurtidoProgramado;
 use App\Models\Inventario;
 use App\Models\InventarioMovimiento;
 use App\Models\InventarioVariante;
+use App\Models\InventarioVarianteCombinacion;
 use App\Models\InventarioVarianteConfig;
 use App\Models\ProductoVariante;
 use App\Models\Surtido;
@@ -39,6 +40,8 @@ class SurtidoController extends Controller
             'tiendas.*.items'                           => 'required|array|min:1',
             'tiendas.*.items.*.producto_id'             => 'required|exists:productos,id',
             'tiendas.*.items.*.cantidad'                => 'required|integer|min:1',
+            'tiendas.*.items.*.variante_id'             => 'nullable|exists:producto_variantes,id',
+            'tiendas.*.items.*.combo_config_id'         => 'nullable|exists:producto_variante_configs,id',
             'tiendas.*.items.*.especificaciones'        => 'nullable|array',
         ]);
 
@@ -87,8 +90,10 @@ class SurtidoController extends Controller
                     SurtidoItem::create([
                         'surtido_tienda_id' => $st->id,
                         'producto_id'       => $item['producto_id'],
+                        'variante_id'       => $item['variante_id']       ?? null,
+                        'combo_config_id'   => $item['combo_config_id']   ?? null,
                         'cantidad'          => $item['cantidad'],
-                        'especificaciones'  => $item['especificaciones'] ?? null,
+                        'especificaciones'  => $item['especificaciones']   ?? null,
                     ]);
                 }
             }
@@ -241,33 +246,47 @@ class SurtidoController extends Controller
                     }
                     // Variante (talla o tapizado) — descontar inventario_variantes de fábrica
                     if ($cantAceptada > 0) {
-                        $esp = $item->especificaciones;
-                        if ($esp && !empty($esp['medida'])) {
-                            $medida = mb_strtolower(trim($esp['medida']));
-                            $varianteTalla = ProductoVariante::where('producto_id', $item->producto_id)
-                                ->whereNotNull('medida')->get()
-                                ->first(fn($v) => mb_strtolower(trim($v->medida)) === $medida);
-                            if ($varianteTalla) {
-                                InventarioVariante::where('variante_id', $varianteTalla->id)
-                                    ->where('tienda_id', $fabricaId)
-                                    ->decrement('cantidad_disponible', $cantAceptada);
-                            }
-                        } elseif ($esp && !empty($esp['marca']) && !empty($esp['tela']) && !empty($esp['color'])) {
-                            $variante = ProductoVariante::where('producto_id', $item->producto_id)->get()
-                                ->first(fn($v) =>
-                                    mb_strtolower(trim($v->marca ?? '')) === mb_strtolower(trim($esp['marca'])) &&
-                                    mb_strtolower(trim($v->marca_tela))  === mb_strtolower(trim($esp['tela']))  &&
-                                    mb_strtolower(trim($v->nombre_color)) === mb_strtolower(trim($esp['color']))
-                                );
-                            if ($variante) {
-                                InventarioVariante::where('variante_id', $variante->id)
-                                    ->where('tienda_id', $fabricaId)
-                                    ->decrement('cantidad_disponible', $cantAceptada);
-                            }
-                        } elseif ($esp && !empty($esp['config_id'])) {
-                            InventarioVarianteConfig::where('config_id', (int) $esp['config_id'])
+                        if ($item->variante_id) {
+                            // Direct FK reference (new items)
+                            InventarioVariante::where('variante_id', $item->variante_id)
                                 ->where('tienda_id', $fabricaId)
                                 ->decrement('cantidad_disponible', $cantAceptada);
+                            if ($item->combo_config_id) {
+                                InventarioVarianteCombinacion::where('variante_id', $item->variante_id)
+                                    ->where('config_id', $item->combo_config_id)
+                                    ->where('tienda_id', $fabricaId)
+                                    ->decrement('cantidad_disponible', $cantAceptada);
+                            }
+                        } else {
+                            // Fallback: resolve variant from especificaciones (legacy items)
+                            $esp = $item->especificaciones;
+                            if ($esp && !empty($esp['medida'])) {
+                                $medida = mb_strtolower(trim($esp['medida']));
+                                $varianteTalla = ProductoVariante::where('producto_id', $item->producto_id)
+                                    ->whereNotNull('medida')->get()
+                                    ->first(fn($v) => mb_strtolower(trim($v->medida)) === $medida);
+                                if ($varianteTalla) {
+                                    InventarioVariante::where('variante_id', $varianteTalla->id)
+                                        ->where('tienda_id', $fabricaId)
+                                        ->decrement('cantidad_disponible', $cantAceptada);
+                                }
+                            } elseif ($esp && !empty($esp['marca']) && !empty($esp['tela']) && !empty($esp['color'])) {
+                                $variante = ProductoVariante::where('producto_id', $item->producto_id)->get()
+                                    ->first(fn($v) =>
+                                        mb_strtolower(trim($v->marca ?? '')) === mb_strtolower(trim($esp['marca'])) &&
+                                        mb_strtolower(trim($v->marca_tela))  === mb_strtolower(trim($esp['tela']))  &&
+                                        mb_strtolower(trim($v->nombre_color)) === mb_strtolower(trim($esp['color']))
+                                    );
+                                if ($variante) {
+                                    InventarioVariante::where('variante_id', $variante->id)
+                                        ->where('tienda_id', $fabricaId)
+                                        ->decrement('cantidad_disponible', $cantAceptada);
+                                }
+                            } elseif ($esp && !empty($esp['config_id'])) {
+                                InventarioVarianteConfig::where('config_id', (int) $esp['config_id'])
+                                    ->where('tienda_id', $fabricaId)
+                                    ->decrement('cantidad_disponible', $cantAceptada);
+                            }
                         }
                     }
                 }
@@ -281,81 +300,101 @@ class SurtidoController extends Controller
                 $inv->increment('cantidad_disponible', $cantAceptada);
 
                 $varianteId = null;
-                $esp = $item->especificaciones;
 
-                if ($esp && !empty($esp['medida'])) {
-                    // Variante por talla (ej: colchones)
-                    $medida   = trim($esp['medida']);
-                    $variante = ProductoVariante::where('producto_id', $item->producto_id)
-                        ->whereNotNull('medida')->get()
-                        ->first(fn($v) => mb_strtolower(trim($v->medida)) === mb_strtolower($medida));
-
-                    if (!$variante) {
-                        $variante = ProductoVariante::create([
-                            'producto_id' => $item->producto_id,
-                            'medida'      => $medida,
-                            'activo'      => true,
-                        ]);
-                        $tiendaIds = Inventario::where('producto_id', $item->producto_id)->pluck('tienda_id');
-                        foreach ($tiendaIds as $tid) {
-                            InventarioVariante::firstOrCreate(
-                                ['variante_id' => $variante->id, 'tienda_id' => $tid],
-                                ['cantidad_disponible' => 0, 'cantidad_reservada' => 0, 'stock_minimo' => 0]
-                            );
-                        }
-                    }
-
-                    $varianteId = $variante->id;
+                if ($item->variante_id) {
+                    // Direct FK reference (new items)
+                    $varianteId = $item->variante_id;
                     $invVar = InventarioVariante::firstOrCreate(
                         ['variante_id' => $varianteId, 'tienda_id' => $st->tienda_id],
                         ['cantidad_disponible' => 0, 'cantidad_reservada' => 0, 'stock_minimo' => 0]
                     );
                     $invVar->increment('cantidad_disponible', $cantAceptada);
 
-                } elseif ($esp && !empty($esp['marca']) && !empty($esp['tela']) && !empty($esp['color'])) {
-                    // Variante por tela (tapizado)
-                    $marca = trim($esp['marca']);
-                    $tela  = trim($esp['tela']);
-                    $color = trim($esp['color']);
-
-                    $variante = ProductoVariante::where('producto_id', $item->producto_id)
-                        ->get()
-                        ->first(function ($v) use ($marca, $tela, $color) {
-                            return mb_strtolower(trim($v->marca ?? '')) === mb_strtolower($marca)
-                                && mb_strtolower(trim($v->marca_tela)) === mb_strtolower($tela)
-                                && mb_strtolower(trim($v->nombre_color)) === mb_strtolower($color);
-                        });
-
-                    if (!$variante) {
-                        $variante = ProductoVariante::create([
-                            'producto_id'  => $item->producto_id,
-                            'marca'        => $marca,
-                            'marca_tela'   => $tela,
-                            'nombre_color' => $color,
-                            'activo'       => true,
-                        ]);
-                        $tiendaIds = Inventario::where('producto_id', $item->producto_id)->pluck('tienda_id');
-                        foreach ($tiendaIds as $tid) {
-                            InventarioVariante::firstOrCreate(
-                                ['variante_id' => $variante->id, 'tienda_id' => $tid],
-                                ['cantidad_disponible' => 0, 'cantidad_reservada' => 0, 'stock_minimo' => 0]
-                            );
-                        }
+                    if ($item->combo_config_id) {
+                        $invCombo = InventarioVarianteCombinacion::firstOrCreate(
+                            ['variante_id' => $varianteId, 'config_id' => $item->combo_config_id, 'tienda_id' => $st->tienda_id],
+                            ['cantidad_disponible' => 0, 'cantidad_reservada' => 0]
+                        );
+                        $invCombo->increment('cantidad_disponible', $cantAceptada);
                     }
+                } else {
+                    // Fallback: resolve variant from especificaciones (legacy items)
+                    $esp = $item->especificaciones;
 
-                    $varianteId = $variante->id;
-                    $invVar = InventarioVariante::firstOrCreate(
-                        ['variante_id' => $varianteId, 'tienda_id' => $st->tienda_id],
-                        ['cantidad_disponible' => 0, 'cantidad_reservada' => 0, 'stock_minimo' => 0]
-                    );
-                    $invVar->increment('cantidad_disponible', $cantAceptada);
+                    if ($esp && !empty($esp['medida'])) {
+                        // Variante por talla (ej: colchones)
+                        $medida   = trim($esp['medida']);
+                        $variante = ProductoVariante::where('producto_id', $item->producto_id)
+                            ->whereNotNull('medida')->get()
+                            ->first(fn($v) => mb_strtolower(trim($v->medida)) === mb_strtolower($medida));
 
-                } elseif ($esp && !empty($esp['config_id'])) {
-                    $invVC = InventarioVarianteConfig::firstOrCreate(
-                        ['config_id' => (int) $esp['config_id'], 'tienda_id' => $st->tienda_id],
-                        ['cantidad_disponible' => 0, 'cantidad_reservada' => 0]
-                    );
-                    $invVC->increment('cantidad_disponible', $cantAceptada);
+                        if (!$variante) {
+                            $variante = ProductoVariante::create([
+                                'producto_id' => $item->producto_id,
+                                'medida'      => $medida,
+                                'activo'      => true,
+                            ]);
+                            $tiendaIds = Inventario::where('producto_id', $item->producto_id)->pluck('tienda_id');
+                            foreach ($tiendaIds as $tid) {
+                                InventarioVariante::firstOrCreate(
+                                    ['variante_id' => $variante->id, 'tienda_id' => $tid],
+                                    ['cantidad_disponible' => 0, 'cantidad_reservada' => 0, 'stock_minimo' => 0]
+                                );
+                            }
+                        }
+
+                        $varianteId = $variante->id;
+                        $invVar = InventarioVariante::firstOrCreate(
+                            ['variante_id' => $varianteId, 'tienda_id' => $st->tienda_id],
+                            ['cantidad_disponible' => 0, 'cantidad_reservada' => 0, 'stock_minimo' => 0]
+                        );
+                        $invVar->increment('cantidad_disponible', $cantAceptada);
+
+                    } elseif ($esp && !empty($esp['marca']) && !empty($esp['tela']) && !empty($esp['color'])) {
+                        // Variante por tela (tapizado)
+                        $marca = trim($esp['marca']);
+                        $tela  = trim($esp['tela']);
+                        $color = trim($esp['color']);
+
+                        $variante = ProductoVariante::where('producto_id', $item->producto_id)
+                            ->get()
+                            ->first(function ($v) use ($marca, $tela, $color) {
+                                return mb_strtolower(trim($v->marca ?? '')) === mb_strtolower($marca)
+                                    && mb_strtolower(trim($v->marca_tela)) === mb_strtolower($tela)
+                                    && mb_strtolower(trim($v->nombre_color)) === mb_strtolower($color);
+                            });
+
+                        if (!$variante) {
+                            $variante = ProductoVariante::create([
+                                'producto_id'  => $item->producto_id,
+                                'marca'        => $marca,
+                                'marca_tela'   => $tela,
+                                'nombre_color' => $color,
+                                'activo'       => true,
+                            ]);
+                            $tiendaIds = Inventario::where('producto_id', $item->producto_id)->pluck('tienda_id');
+                            foreach ($tiendaIds as $tid) {
+                                InventarioVariante::firstOrCreate(
+                                    ['variante_id' => $variante->id, 'tienda_id' => $tid],
+                                    ['cantidad_disponible' => 0, 'cantidad_reservada' => 0, 'stock_minimo' => 0]
+                                );
+                            }
+                        }
+
+                        $varianteId = $variante->id;
+                        $invVar = InventarioVariante::firstOrCreate(
+                            ['variante_id' => $varianteId, 'tienda_id' => $st->tienda_id],
+                            ['cantidad_disponible' => 0, 'cantidad_reservada' => 0, 'stock_minimo' => 0]
+                        );
+                        $invVar->increment('cantidad_disponible', $cantAceptada);
+
+                    } elseif ($esp && !empty($esp['config_id'])) {
+                        $invVC = InventarioVarianteConfig::firstOrCreate(
+                            ['config_id' => (int) $esp['config_id'], 'tienda_id' => $st->tienda_id],
+                            ['cantidad_disponible' => 0, 'cantidad_reservada' => 0]
+                        );
+                        $invVC->increment('cantidad_disponible', $cantAceptada);
+                    }
                 }
 
                 InventarioMovimiento::create([

@@ -291,7 +291,7 @@ function confirmarVCPicker() {
   mostrarVCPicker.value = false
 }
 
-function vKey(v) { return v._combo_id !== undefined ? 'c' + v._combo_id : String(v.id) }
+function vKey(v) { return v._config_id !== undefined ? 'cfg' + v._config_id + 'v' + v.id : String(v.id) }
 
 function toggleVarianteFab(v) {
   const k = vKey(v)
@@ -384,9 +384,11 @@ function inicializarCantidadesPorTienda() {
   tiendasSelec.value.forEach(tid => {
     if (!cantidadesPorTienda.value[tid]) {
       cantidadesPorTienda.value[tid] = productosAgr.value.map(p => ({
-        producto_id: p.producto.id,
-        nombre: p.producto.nombre,
-        cantidad: p.cantidad,
+        producto_id:     p.producto.id,
+        nombre:          p.producto.nombre,
+        cantidad:        p.cantidad,
+        _variante_id:    p._variante_id    ?? null,
+        _combo_config_id: p._combo_config_id ?? null,
         especificaciones: p.especificaciones,
       }))
     }
@@ -439,16 +441,20 @@ const minDatetime = computed(() => {
 function itemsPorTienda(tid) {
   if (mismasCantidades.value) {
     return productosAgr.value.map(p => ({
-      producto_id: p.producto.id,
-      nombre: p.producto.nombre,
-      cantidad: p.cantidad,
+      producto_id:    p.producto.id,
+      nombre:         p.producto.nombre,
+      cantidad:       p.cantidad,
+      variante_id:    p._variante_id    ?? null,
+      combo_config_id: p._combo_config_id ?? null,
       especificaciones: especificacionesLimpias(p.especificaciones),
     }))
   }
   return (cantidadesPorTienda.value[tid] ?? []).map(p => ({
-    producto_id: p.producto_id,
-    nombre: p.nombre,
-    cantidad: p.cantidad,
+    producto_id:    p.producto_id,
+    nombre:         p.nombre,
+    cantidad:       p.cantidad,
+    variante_id:    p._variante_id    ?? null,
+    combo_config_id: p._combo_config_id ?? null,
     especificaciones: especificacionesLimpias(p.especificaciones),
   }))
 }
@@ -472,9 +478,11 @@ async function enviarSurtido() {
       tiendas: tiendasSelec.value.map(tid => ({
         tienda_id:               tid,
         vendedor_validador_id:   validadoresPorTienda.value[tid],
-        items: itemsPorTienda(tid).map(({ producto_id, cantidad, especificaciones }) => ({
+        items: itemsPorTienda(tid).map(({ producto_id, cantidad, variante_id, combo_config_id, especificaciones }) => ({
           producto_id,
           cantidad,
+          variante_id:     variante_id    || undefined,
+          combo_config_id: combo_config_id || undefined,
           especificaciones,
         })),
       })),
@@ -1958,7 +1966,7 @@ onMounted(async () => {
 
             <div
               v-for="v in variantesFabrica"
-              :key="v._combo_id !== undefined ? 'combo-' + v._combo_id : 'var-' + v.id"
+              :key="v._config_id !== undefined ? 'cfg-' + v._config_id + '-v' + v.id : 'var-' + v.id"
               @click="toggleVarianteFab(v)"
               :class="[
                 'flex items-center gap-3 rounded-xl border px-3 py-2.5 cursor-pointer transition-colors',
