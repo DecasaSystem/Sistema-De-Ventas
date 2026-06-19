@@ -445,12 +445,14 @@ function _pushItemFabrica(producto, variante) {
   const varianteLabel = variante
     ? (variante.medida
         ? variante.medida
-        : [variante.marca, variante.marca_tela, variante.nombre_color].filter(Boolean).join(' · '))
+        : [variante.marca, variante.marca_tela, variante.nombre_color, variante._config_label].filter(Boolean).join(' · '))
     : null
 
+  const comboKey = variante?._combo_id ?? null
   const existe = items.value.find(i =>
     i.producto_id === producto.id &&
     i.variante_id === (variante?.id ?? null) &&
+    i._combo_id   === comboKey &&
     i.tienda_origen_id === fabricaId.value &&
     !i._fabricar_pedido
   )
@@ -459,6 +461,7 @@ function _pushItemFabrica(producto, variante) {
   items.value.push({
     producto_id: producto.id,
     variante_id: variante?.id ?? null,
+    _combo_id:   variante?._combo_id ?? null,
     tienda_origen_id: fabricaId.value,
     nombre: producto.nombre,
     categoria: producto.categoria,
@@ -611,17 +614,19 @@ function _pushItem(producto, variante) {
   const varianteLabel = variante
     ? (variante.medida
         ? variante.medida
-        : [variante.marca, variante.marca_tela, variante.nombre_color].filter(Boolean).join(' · '))
+        : [variante.marca, variante.marca_tela, variante.nombre_color, variante._config_label].filter(Boolean).join(' · '))
     : null
 
+  const comboKey = variante?._combo_id ?? null
   const existe = items.value.find((i) =>
-    i.producto_id === producto.id && i.variante_id === (variante?.id ?? null) && !i._fabricar_pedido
+    i.producto_id === producto.id && i.variante_id === (variante?.id ?? null) && i._combo_id === comboKey && !i._fabricar_pedido
   )
   if (existe) { existe.cantidad++; return }
 
   items.value.push({
     producto_id: producto.id,
     variante_id: variante?.id ?? null,
+    _combo_id:   variante?._combo_id ?? null,
     tienda_origen_id: esOtraTienda ? (tiendaBusqueda.value ?? null) : null,
     nombre: producto.nombre,
     categoria: producto.categoria,
@@ -2629,11 +2634,11 @@ function removeFacturaFoto() {
           <!-- Variantes disponibles -->
           <button
             v-for="v in variantesDisponibles"
-            :key="v.id"
+            :key="v._combo_id !== undefined ? 'combo-' + v._combo_id : 'var-' + v.id"
             @click="varianteSeleccionada = v"
             :disabled="!productoParaVariante?.tiene_tallas && !v.personalizable && v.stock_libre <= 0"
             :class="['w-full text-left px-3 py-2.5 rounded-xl border text-sm transition-colors',
-              varianteSeleccionada?.id === v.id
+              (varianteSeleccionada?._combo_id !== undefined ? varianteSeleccionada?._combo_id === v._combo_id : varianteSeleccionada?.id === v.id && !v._combo_id)
                 ? 'border-blue-500 bg-blue-50 text-blue-700 font-medium'
                 : (productoParaVariante?.tiene_tallas || v.stock_libre > 0)
                   ? 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
@@ -2653,6 +2658,10 @@ function removeFacturaFoto() {
               <span class="font-medium">{{ v.marca_tela }}</span>
               <span class="text-gray-400 mx-1">·</span>
               {{ v.nombre_color }}
+              <template v-if="v._config_label">
+                <span class="text-indigo-400 mx-1">·</span>
+                <span class="text-indigo-600 font-semibold">{{ v._config_label }}</span>
+              </template>
             </template>
             <span :class="['text-xs ml-2 font-semibold', v.stock_libre > 0 ? 'text-green-600' : productoParaVariante?.tiene_tallas ? 'text-gray-400' : 'text-red-400']">
               {{ v.stock_libre > 0 ? `${v.stock_libre} disponible${v.stock_libre > 1 ? 's' : ''}` : 'Sin stock' }}

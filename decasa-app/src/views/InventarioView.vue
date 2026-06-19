@@ -863,11 +863,90 @@ const varianteStockSinAsignar = computed(() => {
 })
 
 function abrirStockVariante(variante, item) {
+  // Si el producto tiene variantes personalizadas, abrir modal de combo
+  if (vcConfigsCard.value[item.producto_id]?.length > 0) {
+    abrirCombModal(variante, item)
+    return
+  }
   varianteStockItem.value   = { variante, productoId: item.producto_id, item }
   varianteStockCantidad.value = 1
   varianteStockMotivo.value  = ''
   varianteStockError.value   = ''
   mostrarStockVariante.value = true
+}
+
+// ── Modal combinación tela × variante personalizada ───────────────────────────
+const combModal              = ref(false)
+const combModalProdId        = ref(null)
+const combModalItem          = ref(null)
+const combModalVarianteId    = ref(null)
+const combModalConfigId      = ref(null)
+const combModalCant          = ref(1)
+const combModalMotivo        = ref('')
+const combModalError         = ref('')
+const combModalLoad          = ref(false)
+const combModalRawVariantes  = ref([])
+
+const combModalMaxCant = computed(() => {
+  if (!combModalConfigId.value || !combModalProdId.value) return 0
+  const vcGroups = vcConfigsCard.value[combModalProdId.value] ?? []
+  let customTotal = 0
+  for (const g of vcGroups) {
+    const optItem = g.items.find(i => i.id === combModalConfigId.value)
+    if (optItem) { customTotal = optItem.stock_disponible ?? 0; break }
+  }
+  const usadoPorCombos = (variantesData.value[combModalProdId.value] ?? [])
+    .filter(c => c._config_id === combModalConfigId.value)
+    .reduce((s, c) => s + (c.stock_disponible ?? 0), 0)
+  return Math.max(0, customTotal - usadoPorCombos)
+})
+
+async function abrirCombModal(variante, item) {
+  combModalProdId.value     = item.producto_id
+  combModalItem.value       = item
+  combModalVarianteId.value = variante.id
+  combModalConfigId.value   = variante._config_id ?? null
+  combModalCant.value       = 1
+  combModalMotivo.value     = ''
+  combModalError.value      = ''
+  combModalRawVariantes.value = []
+  combModal.value           = true
+  try {
+    const { data } = await api.get(`/productos/${item.producto_id}/variantes`, {
+      params: { tienda_id: tiendaId.value, skip_combos: 1 }
+    })
+    combModalRawVariantes.value = data
+  } catch { combModalRawVariantes.value = [] }
+}
+
+async function guardarCombinacion() {
+  combModalError.value = ''
+  if (!combModalVarianteId.value) { combModalError.value = 'Selecciona un tipo de tela.'; return }
+  if (!combModalConfigId.value)   { combModalError.value = 'Selecciona la variante.'; return }
+  if (combModalCant.value < 1)    { combModalError.value = 'Cantidad inválida.'; return }
+  combModalLoad.value = true
+  try {
+    await api.post('/inventario/variante-combinaciones/entrada', {
+      variante_id: combModalVarianteId.value,
+      config_id:   combModalConfigId.value,
+      tienda_id:   tiendaId.value,
+      cantidad:    combModalCant.value,
+      motivo:      combModalMotivo.value || undefined,
+    })
+    combModal.value = false
+    const pid = combModalProdId.value
+    delete variantesData.value[pid]
+    delete vcConfigsCard.value[pid]
+    const invItem = inventario.value.find(i => i.producto_id === pid)
+    if (invItem) {
+      await cargarVariantes(invItem)
+      await cargarVCConfigsCard(invItem)
+    }
+  } catch (e) {
+    combModalError.value = e.response?.data?.message ?? 'Error al guardar.'
+  } finally {
+    combModalLoad.value = false
+  }
 }
 
 async function guardarStockVariante() {
@@ -1448,20 +1527,22 @@ onMounted(async () => {
                 <div class="flex flex-wrap gap-1.5">
                   <button
                     v-for="v in variantesData[item.producto_id]"
-                    :key="v.id"
+                    :key="v._combo_id !== undefined ? 'combo-' + v._combo_id : 'var-' + v.id"
                     @click="!esVistaGlobal && puedeGestionar && abrirStockVariante(v, item)"
                     :class="['px-2.5 py-1 rounded-full text-xs font-medium border transition-colors',
                       v.stock_libre > 0
-                        ? 'bg-green-50 border-green-300 text-green-800'
+                        ? (v._config_label ? 'bg-indigo-50 border-indigo-300 text-indigo-800' : 'bg-green-50 border-green-300 text-green-800')
                         : 'bg-gray-50 border-gray-200 text-gray-400',
                       puedeGestionar ? 'cursor-pointer hover:opacity-75' : 'cursor-default']"
-                    :title="(esTalla(item) ? v.medida : [v.marca, v.marca_tela, v.nombre_color].filter(Boolean).join(' · ')) + (puedeGestionar ? ' — clic para agregar stock' : '')"
+                    :title="(esTalla(item) ? v.medida : [v.marca, v.marca_tela, v.nombre_color, v._config_label].filter(Boolean).join(' · ')) + (puedeGestionar ? ' — clic para agregar stock' : '')"
                   >
                     <template v-if="esTalla(item)">
                       {{ v.medida }}
                       <span v-if="v.precio_variante" class="text-gray-500"> ${{ Number(v.precio_variante).toLocaleString('es-CO') }}</span>
                     </template>
-                    <template v-else>{{ v.marca_tela }} · {{ v.nombre_color }}</template>
+                    <template v-else>
+                      {{ [v.marca_tela, v.nombre_color].filter(Boolean).join(' · ') }}<span v-if="v._config_label" class="text-indigo-600"> · {{ v._config_label }}</span>
+                    </template>
                     <span class="ml-1 font-bold">{{ v.stock_libre ?? '—' }}</span>
                   </button>
                   <span v-if="!variantesData[item.producto_id]?.length" class="text-xs text-gray-400 italic">
@@ -2217,6 +2298,92 @@ onMounted(async () => {
             <button @click="guardarStockVariante" :disabled="varianteStockLoading || varianteStockSinAsignar === 0"
               class="w-full bg-green-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-green-700 disabled:opacity-50">
               {{ varianteStockLoading ? 'Guardando...' : 'Agregar stock' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- Modal: Asignar tela × variante personalizada (combinación) -->
+    <Transition name="fade">
+      <div v-if="combModal" class="fixed inset-0 z-[65] flex items-end sm:items-center justify-center" @click.self="combModal = false">
+        <div class="absolute inset-0 bg-black/40" />
+        <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-4 max-h-[88vh] overflow-y-auto">
+          <div class="flex items-center justify-between">
+            <div>
+              <h3 class="text-base font-bold text-gray-800">Asignar tela a variante</h3>
+              <p class="text-xs text-indigo-600 mt-0.5">Combina tela/color con una opción de variante</p>
+            </div>
+            <button @click="combModal = false" class="text-gray-400 text-2xl leading-none">&times;</button>
+          </div>
+
+          <div class="space-y-4">
+            <!-- Seleccionar tipo de tela -->
+            <div>
+              <p class="text-sm font-semibold text-gray-700 mb-2">Tela / Color</p>
+              <div class="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                <p v-if="!combModalRawVariantes.length" class="text-xs text-gray-400 italic px-2 py-1">Cargando telas...</p>
+                <button
+                  v-for="v in combModalRawVariantes"
+                  :key="v.id"
+                  @click="combModalVarianteId = v.id"
+                  :class="['w-full text-left px-3 py-2 rounded-lg border text-sm transition-colors',
+                    combModalVarianteId === v.id
+                      ? 'border-indigo-500 bg-indigo-50 text-indigo-700 font-medium'
+                      : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50']"
+                >
+                  {{ [v.marca, v.marca_tela, v.nombre_color].filter(Boolean).join(' · ') }}
+                </button>
+              </div>
+            </div>
+
+            <!-- Seleccionar variante personalizada -->
+            <div>
+              <p class="text-sm font-semibold text-gray-700 mb-2">Variante personalizada</p>
+              <template v-for="grupo in (vcConfigsCard[combModalProdId] ?? [])" :key="grupo.tipo_variante_id">
+                <p class="text-xs font-bold text-gray-400 uppercase tracking-wide mb-1">{{ grupo.tipo.nombre }}</p>
+                <div class="space-y-1.5 mb-3">
+                  <button
+                    v-for="opt in grupo.items"
+                    :key="opt.id"
+                    @click="combModalConfigId = opt.id; combModalCant = 1"
+                    :class="['w-full text-left px-3 py-2 rounded-lg border text-sm transition-colors',
+                      combModalConfigId === opt.id
+                        ? 'border-indigo-500 bg-indigo-50 text-indigo-700 font-medium'
+                        : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50']"
+                  >
+                    {{ opt.opcion_nombre }}
+                    <span class="text-xs text-gray-400 ml-2">{{ opt.stock_disponible ?? 0 }} asignadas</span>
+                  </button>
+                </div>
+              </template>
+            </div>
+
+            <!-- Info de capacidad restante -->
+            <div v-if="combModalConfigId" class="bg-indigo-50 rounded-lg px-3 py-2 text-xs text-indigo-700">
+              Disponible para asignar en esta opción: <strong>{{ combModalMaxCant }}</strong>
+            </div>
+
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">
+                Cantidad <span class="text-gray-400 font-normal">(máx {{ combModalMaxCant }})</span>
+              </label>
+              <input v-model.number="combModalCant" type="number" min="1" :max="combModalMaxCant"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Motivo (opcional)</label>
+              <input v-model="combModalMotivo"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                placeholder="Entrada de bodega..." />
+            </div>
+            <p v-if="combModalError" class="text-xs text-red-600">{{ combModalError }}</p>
+            <button
+              @click="guardarCombinacion"
+              :disabled="combModalLoad || !combModalVarianteId || !combModalConfigId || combModalMaxCant === 0"
+              class="w-full bg-indigo-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {{ combModalLoad ? 'Guardando...' : combModalMaxCant === 0 && combModalConfigId ? 'Sin capacidad disponible' : 'Asignar' }}
             </button>
           </div>
         </div>

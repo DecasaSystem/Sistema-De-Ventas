@@ -32,6 +32,56 @@ class VarianteController extends Controller
                 ->get()
                 ->keyBy('variante_id');
 
+            // Si no se pide saltar combos, expandir entradas combinadas (tapizado × config)
+            if (!$request->query('skip_combos') && Schema::hasTable('inventario_variante_combinaciones')) {
+                $varianteIds = $variantes->pluck('id');
+                $combinaciones = DB::table('inventario_variante_combinaciones as ivcom')
+                    ->join('producto_variante_configs as pvc', 'ivcom.config_id', '=', 'pvc.id')
+                    ->join('tipo_variante_opciones as tvo', 'pvc.opcion_id', '=', 'tvo.id')
+                    ->join('tipos_variante as tv', 'pvc.tipo_variante_id', '=', 'tv.id')
+                    ->where('ivcom.tienda_id', $tiendaId)
+                    ->whereIn('ivcom.variante_id', $varianteIds)
+                    ->where('ivcom.cantidad_disponible', '>', 0)
+                    ->select([
+                        'ivcom.id as combo_id',
+                        'ivcom.variante_id',
+                        'ivcom.config_id',
+                        'ivcom.cantidad_disponible',
+                        'ivcom.cantidad_reservada',
+                        'tvo.nombre as opcion_nombre',
+                        'tv.nombre as tipo_nombre',
+                    ])
+                    ->get()
+                    ->groupBy('variante_id');
+
+                if ($combinaciones->isNotEmpty()) {
+                    $result = collect();
+                    foreach ($variantes as $v) {
+                        $varCombos = $combinaciones->get($v->id);
+                        if ($varCombos && $varCombos->count() > 0) {
+                            foreach ($varCombos as $combo) {
+                                $entry = $v->toArray();
+                                $entry['_combo_id']     = $combo->combo_id;
+                                $entry['_config_id']    = $combo->config_id;
+                                $entry['_config_label'] = $combo->opcion_nombre;
+                                $entry['_tipo_nombre']  = $combo->tipo_nombre;
+                                $entry['stock_disponible'] = $combo->cantidad_disponible;
+                                $entry['stock_reservado']  = $combo->cantidad_reservada;
+                                $entry['stock_libre']      = max(0, $combo->cantidad_disponible - $combo->cantidad_reservada);
+                                $result->push($entry);
+                            }
+                        } else {
+                            $inv = $stocks->get($v->id);
+                            $v->stock_disponible = $inv?->cantidad_disponible ?? 0;
+                            $v->stock_reservado  = $inv?->cantidad_reservada  ?? 0;
+                            $v->stock_libre      = ($inv?->cantidad_disponible ?? 0) - ($inv?->cantidad_reservada ?? 0);
+                            $result->push($v->toArray());
+                        }
+                    }
+                    return response()->json($result->values());
+                }
+            }
+
             $variantes = $variantes->map(function ($v) use ($stocks) {
                 $inv = $stocks->get($v->id);
                 $v->stock_disponible = $inv?->cantidad_disponible ?? 0;

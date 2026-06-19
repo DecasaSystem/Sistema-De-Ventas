@@ -291,36 +291,43 @@ function confirmarVCPicker() {
   mostrarVCPicker.value = false
 }
 
+function vKey(v) { return v._combo_id !== undefined ? 'c' + v._combo_id : String(v.id) }
+
 function toggleVarianteFab(v) {
-  if (selecVariantesFab.value[v.id] !== undefined) {
-    const { [v.id]: _, ...rest } = selecVariantesFab.value
+  const k = vKey(v)
+  if (selecVariantesFab.value[k] !== undefined) {
+    const { [k]: _, ...rest } = selecVariantesFab.value
     selecVariantesFab.value = rest
   } else {
-    selecVariantesFab.value = { ...selecVariantesFab.value, [v.id]: v.stock_libre }
+    selecVariantesFab.value = { ...selecVariantesFab.value, [k]: v.stock_libre }
   }
 }
 
 function seleccionarTodasVariantesFab() {
   const todas = {}
-  variantesFabrica.value.forEach(v => { todas[v.id] = v.stock_libre })
+  variantesFabrica.value.forEach(v => { todas[vKey(v)] = v.stock_libre })
   selecVariantesFab.value = todas
 }
 
 function confirmarVariantesFab() {
   const prod = prodParaVariantes.value
-  Object.entries(selecVariantesFab.value).forEach(([vidStr, cant]) => {
-    const vid = parseInt(vidStr)
-    const v   = variantesFabrica.value.find(x => x.id === vid)
+  Object.entries(selecVariantesFab.value).forEach(([k, cant]) => {
+    const v = variantesFabrica.value.find(x => vKey(x) === k)
     if (!v) return
     const esTalla = !!v.medida
-    const yaEsta = productosAgr.value.some(p => p.producto.id === prod.id && p._variante_id === vid)
+    const yaEsta = productosAgr.value.some(p =>
+      p.producto.id === prod.id &&
+      p._variante_id === v.id &&
+      (p._combo_config_id ?? null) === (v._config_id ?? null)
+    )
     if (!yaEsta) {
       productosAgr.value.push({
         producto: prod,
-        _variante_id: vid,
+        _variante_id: v.id,
+        _combo_config_id: v._config_id ?? null,
         _variante_label: esTalla
           ? v.medida
-          : [v.marca, v.marca_tela, v.nombre_color].filter(Boolean).join(' · '),
+          : [v.marca, v.marca_tela, v.nombre_color, v._config_label].filter(Boolean).join(' · '),
         cantidad: Math.max(1, cant),
         especificaciones: esTalla
           ? { marca: '', tela: '', color: '', medidas: '', acabado: '', medida: v.medida }
@@ -345,6 +352,7 @@ function toggleEspec(idx) {
 
 const paso1Valido    = computed(() => productosAgr.value.length > 0 && productosAgr.value.every(p => p.cantidad >= 1))
 const productosAgrIds = computed(() => new Set(productosAgr.value.map(p =>
+  p._variante_id && p._combo_config_id ? `${p.producto.id}-${p._variante_id}-cc${p._combo_config_id}` :
   p._config_id   ? `${p.producto.id}-vc-${p._config_id}` :
   p._variante_id ? `${p.producto.id}-${p._variante_id}` :
   p.producto.id
@@ -1950,11 +1958,11 @@ onMounted(async () => {
 
             <div
               v-for="v in variantesFabrica"
-              :key="v.id"
+              :key="v._combo_id !== undefined ? 'combo-' + v._combo_id : 'var-' + v.id"
               @click="toggleVarianteFab(v)"
               :class="[
                 'flex items-center gap-3 rounded-xl border px-3 py-2.5 cursor-pointer transition-colors',
-                selecVariantesFab[v.id] !== undefined
+                selecVariantesFab[vKey(v)] !== undefined
                   ? 'border-purple-400 bg-purple-50'
                   : 'border-gray-200 bg-white hover:bg-gray-50',
               ]"
@@ -1962,9 +1970,9 @@ onMounted(async () => {
               <!-- Checkbox visual -->
               <div :class="[
                 'w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors',
-                selecVariantesFab[v.id] !== undefined ? 'border-purple-500 bg-purple-500' : 'border-gray-300',
+                selecVariantesFab[vKey(v)] !== undefined ? 'border-purple-500 bg-purple-500' : 'border-gray-300',
               ]">
-                <CheckIcon v-if="selecVariantesFab[v.id] !== undefined" class="w-3 h-3 text-white" />
+                <CheckIcon v-if="selecVariantesFab[vKey(v)] !== undefined" class="w-3 h-3 text-white" />
               </div>
 
               <!-- Info variante -->
@@ -1975,27 +1983,27 @@ onMounted(async () => {
                     <span v-if="v.precio_variante" class="text-blue-600 ml-1">— ${{ Number(v.precio_variante).toLocaleString('es-CO') }}</span>
                   </template>
                   <template v-else>
-                    {{ [v.marca, v.marca_tela, v.nombre_color].filter(Boolean).join(' · ') || 'Sin especificación' }}
+                    {{ [v.marca, v.marca_tela, v.nombre_color].filter(Boolean).join(' · ') || 'Sin especificación' }}<span v-if="v._config_label" class="text-indigo-600 font-semibold"> · {{ v._config_label }}</span>
                   </template>
                 </p>
                 <p class="text-xs text-purple-600 font-semibold">{{ v.stock_libre }} disponibles</p>
               </div>
 
               <!-- Ajuste de cantidad si está seleccionada -->
-              <div v-if="selecVariantesFab[v.id] !== undefined" class="flex items-center gap-1 flex-shrink-0" @click.stop>
+              <div v-if="selecVariantesFab[vKey(v)] !== undefined" class="flex items-center gap-1 flex-shrink-0" @click.stop>
                 <button
-                  @click="selecVariantesFab[v.id] > 1 && selecVariantesFab[v.id]--"
+                  @click="selecVariantesFab[vKey(v)] > 1 && selecVariantesFab[vKey(v)]--"
                   class="w-6 h-6 rounded-full bg-gray-200 text-gray-600 flex items-center justify-center text-sm hover:bg-gray-300"
                 >−</button>
                 <input
-                  v-model.number="selecVariantesFab[v.id]"
+                  v-model.number="selecVariantesFab[vKey(v)]"
                   type="number"
                   :min="1"
                   :max="v.stock_libre"
                   class="w-12 text-center rounded border border-gray-300 py-0.5 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-purple-500"
                 />
                 <button
-                  @click="selecVariantesFab[v.id] < v.stock_libre && selecVariantesFab[v.id]++"
+                  @click="selecVariantesFab[vKey(v)] < v.stock_libre && selecVariantesFab[vKey(v)]++ "
                   class="w-6 h-6 rounded-full bg-gray-200 text-gray-600 flex items-center justify-center text-sm hover:bg-gray-300"
                 >+</button>
               </div>
