@@ -315,6 +315,29 @@ class InventarioController extends Controller
                 );
             }
 
+            // Validar que el stock base resultante no quede por debajo de lo asignado a variantes
+            $asignadoConfigs = DB::table('inventario_variante_configs as ivc')
+                ->join('producto_variante_configs as pvc', 'ivc.config_id', '=', 'pvc.id')
+                ->where('ivc.tienda_id', $data['tienda_id'])
+                ->where('pvc.producto_id', $data['producto_id'])
+                ->sum('ivc.cantidad_disponible');
+
+            $asignadoVariantes = DB::table('inventario_variantes as iv')
+                ->join('producto_variantes as pv', 'iv.variante_id', '=', 'pv.id')
+                ->where('iv.tienda_id', $data['tienda_id'])
+                ->where('pv.producto_id', $data['producto_id'])
+                ->sum('iv.cantidad_disponible');
+
+            $maxAsignado = max((int) $asignadoConfigs, (int) $asignadoVariantes);
+            $nuevoDisponible = $inv->cantidad_disponible - $data['cantidad'];
+
+            if ($nuevoDisponible < $maxAsignado) {
+                $puedeQuitar = $inv->cantidad_disponible - $maxAsignado;
+                throw new \RuntimeException(
+                    "Hay {$maxAsignado} unidad(es) asignadas a variantes. Solo puedes quitar hasta {$puedeQuitar}."
+                );
+            }
+
             $inv->decrement('cantidad_disponible', $data['cantidad']);
 
             InventarioMovimiento::create([
