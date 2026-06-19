@@ -504,7 +504,7 @@ function _pushItemVC(producto, varianteLabel, precioAdicional) {
     variante_label: varianteLabel,
     stock_libre: stockLibre(producto),
     personalizable: producto.personalizable ?? false, cantidad: 1,
-    precio_unitario: Number(producto.precio_base ?? 0) + precioAdicional,
+    precio_unitario: precioAdicional > 0 ? precioAdicional : Number(producto.precio_base ?? 0),
     es_personalizado: false, specs: {}, specs_notas: '',
     tienda_origen: esOtraTienda ? nombreTiendaBusqueda() : null,
     fecha_entrega_prometida: null, boceto_blobs: [], boceto_urls: [], boceto_previews: [],
@@ -525,7 +525,7 @@ function _pushItemFabricaVC(producto, varianteLabel, precioAdicional) {
     variante_label: varianteLabel,
     stock_libre: fabricaStock.value[producto.id] ?? 0,
     personalizable: producto.personalizable ?? false, cantidad: 1,
-    precio_unitario: Number(producto.precio_base ?? 0) + precioAdicional,
+    precio_unitario: precioAdicional > 0 ? precioAdicional : Number(producto.precio_base ?? 0),
     es_personalizado: false, specs: {}, specs_notas: '',
     tienda_origen: 'Fábrica',
     fecha_entrega_prometida: null, boceto_blobs: [], boceto_urls: [], boceto_previews: [],
@@ -2721,7 +2721,7 @@ function removeFacturaFoto() {
               >
                 <span class="font-medium">{{ opt.opcion_nombre }}</span>
                 <span v-if="(opt.precio_adicional ?? 0) > 0" class="text-xs ml-2 text-indigo-600 font-semibold">
-                  +${{ Number(opt.precio_adicional).toLocaleString('es-CO') }}
+                  ${{ Number(opt.precio_adicional).toLocaleString('es-CO') }}
                 </span>
                 <span class="text-xs ml-2 font-semibold" :class="(opt.stock_disponible ?? 0) > 0 ? 'text-green-600' : 'text-red-400'">
                   {{ opt.stock_disponible ?? 0 }} disp.
