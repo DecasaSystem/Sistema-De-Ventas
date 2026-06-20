@@ -967,6 +967,22 @@ async function submit() {
     return
   }
 
+  // Validar disponibilidad de tela para items a fabricar bajo pedido
+  for (const item of items.value) {
+    if (!item._fabricar_pedido || !item._esTapizado) continue
+    const sel = item._telaSelections?.tela
+    if (!sel || !sel.tipo || sel.tipo === 'Otro' || sel.marca === 'Otro') continue
+    try {
+      const { data: tv } = await api.get('/inventario-telas/validar', { params: { referencia: sel.tipo } })
+      if (!tv.disponible) {
+        toast.error(`No hay metros disponibles de "${sel.tipo}". Elige otra tela o contacta al encargado.`)
+        return
+      }
+    } catch {
+      // Si falla la validación, dejar pasar (no bloquear por error de red)
+    }
+  }
+
   submitting.value = true
   try {
     // Subir foto de factura si se seleccionó

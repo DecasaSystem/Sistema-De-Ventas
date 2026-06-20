@@ -50,6 +50,7 @@ import {
   ArrowPathIcon,
   CurrencyDollarIcon,
   BuildingOffice2Icon,
+  SwatchIcon,
 } from '@heroicons/vue/24/outline'
 
 const route  = useRoute()
@@ -187,7 +188,13 @@ const navItems = computed(() => {
     if (auth.tieneAccesoRedes) {
       items.push({ name: 'redes', label: 'Redes', icon: ChatBubbleLeftRightIcon, badge: redesPendientes.value })
     }
+    items.push({ name: 'telas', label: 'Telas', icon: SwatchIcon })
     return items
+  }
+  if (auth.isCosturero) {
+    return [
+      { name: 'telas', label: 'Telas', icon: SwatchIcon },
+    ]
   }
   if (auth.usuario?.rol === 'conductor') {
     return [
@@ -229,6 +236,7 @@ const navItems = computed(() => {
       { name: 'inventario',   label: 'Inventario',   icon: ArchiveBoxIcon, badge: surtidos.pendientesCount },
       { name: 'reserva',      label: 'Fábrica',      icon: BuildingOffice2Icon },
       ...(auth.tieneAccesoRedes ? [{ name: 'redes', label: 'Redes', icon: ChatBubbleLeftRightIcon, badge: redesPendientes.value }] : []),
+      ...(auth.puedeRecargarTelas ? [{ name: 'telas', label: 'Telas', icon: SwatchIcon }] : []),
       { name: 'mis-stats',    label: 'Estadíst.',    icon: PresentationChartLineIcon },
     ]
   }
@@ -242,6 +250,7 @@ const navItems = computed(() => {
     { name: 'reserva',    label: 'Fábrica',      icon: BuildingOffice2Icon },
     { name: 'surtir',     label: 'Traslado',     icon: ArrowPathIcon },
     ...(auth.tieneAccesoRedes ? [{ name: 'redes', label: 'Redes', icon: ChatBubbleLeftRightIcon, badge: redesPendientes.value }] : []),
+    ...(auth.puedeRecargarTelas ? [{ name: 'telas', label: 'Telas', icon: SwatchIcon }] : []),
     { name: 'mis-stats',  label: 'Estadíst.',    icon: PresentationChartLineIcon },
   ]
 })

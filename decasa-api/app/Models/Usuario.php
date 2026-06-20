@@ -23,6 +23,7 @@ class Usuario extends Authenticatable
         'es_tapicero',
         'notif_asignar_fecha',
         'acceso_redes',
+        'recarga_telas',
         'tienda_default_id',
         'activo',
         'firma_url',
@@ -34,12 +35,13 @@ class Usuario extends Authenticatable
     protected function casts(): array
     {
         return [
-            'password'    => 'hashed',
-            'activo'             => 'boolean',
-            'facturacion'        => 'boolean',
-            'es_tapicero'        => 'boolean',
+            'password'            => 'hashed',
+            'activo'              => 'boolean',
+            'facturacion'         => 'boolean',
+            'es_tapicero'         => 'boolean',
             'notif_asignar_fecha' => 'boolean',
-            'acceso_redes'       => 'boolean',
+            'acceso_redes'        => 'boolean',
+            'recarga_telas'       => 'boolean',
         ];
     }
 

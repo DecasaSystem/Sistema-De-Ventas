@@ -7,14 +7,16 @@ export const useAuthStore = defineStore('auth', () => {
   const token   = ref(localStorage.getItem('token') ?? null)
   const usuario = ref(JSON.parse(localStorage.getItem('usuario') ?? 'null'))
 
-  const isAuthenticated  = computed(() => !!token.value)
-  const isSupervisor     = computed(() => usuario.value?.rol === 'supervisor')
-  const isEbanista       = computed(() => usuario.value?.rol === 'ebanista')
-  const isTapicero       = computed(() => usuario.value?.rol === 'supervisor' && !!usuario.value?.es_tapicero)
-  const isDespachador    = computed(() => usuario.value?.rol === 'despachador')
-  const tieneAccesoPasos = computed(() => isEbanista.value || isTapicero.value || isDespachador.value)
-  const isFacturador     = computed(() => usuario.value?.rol === 'vendedor' && !!usuario.value?.facturacion)
-  const tieneAccesoRedes = computed(() => !!usuario.value?.acceso_redes)
+  const isAuthenticated    = computed(() => !!token.value)
+  const isSupervisor       = computed(() => usuario.value?.rol === 'supervisor')
+  const isEbanista         = computed(() => usuario.value?.rol === 'ebanista')
+  const isTapicero         = computed(() => usuario.value?.rol === 'supervisor' && !!usuario.value?.es_tapicero)
+  const isDespachador      = computed(() => usuario.value?.rol === 'despachador')
+  const isCosturero        = computed(() => usuario.value?.rol === 'costurero')
+  const tieneAccesoPasos   = computed(() => isEbanista.value || isTapicero.value || isDespachador.value)
+  const isFacturador       = computed(() => usuario.value?.rol === 'vendedor' && !!usuario.value?.facturacion)
+  const tieneAccesoRedes   = computed(() => !!usuario.value?.acceso_redes)
+  const puedeRecargarTelas = computed(() => isSupervisor.value || (!!usuario.value?.recarga_telas && ['vendedor', 'supervisor'].includes(usuario.value?.rol)))
 
   async function login(email, password) {
     const { data } = await apiLogin(email, password)
@@ -23,9 +25,10 @@ export const useAuthStore = defineStore('auth', () => {
       id:                data.id,
       nombre:            data.nombre,
       rol:               data.rol,
-      es_tapicero:       data.es_tapicero  ?? false,
-      facturacion:       data.facturacion  ?? false,
-      acceso_redes:      data.acceso_redes ?? false,
+      es_tapicero:       data.es_tapicero    ?? false,
+      facturacion:       data.facturacion    ?? false,
+      acceso_redes:      data.acceso_redes   ?? false,
+      recarga_telas:     data.recarga_telas  ?? false,
       tienda_default_id: data.tienda_default_id,
       firma_url:         data.firma_url ?? null,
     }
@@ -43,9 +46,10 @@ export const useAuthStore = defineStore('auth', () => {
         nombre:            data.nombre,
         email:             data.email,
         rol:               data.rol,
-        es_tapicero:       data.es_tapicero  ?? false,
-        facturacion:       data.facturacion  ?? false,
-        acceso_redes:      data.acceso_redes ?? false,
+        es_tapicero:       data.es_tapicero    ?? false,
+        facturacion:       data.facturacion    ?? false,
+        acceso_redes:      data.acceso_redes   ?? false,
+        recarga_telas:     data.recarga_telas  ?? false,
         tienda_default_id: data.tienda_default_id,
         firma_url:         data.firma_url ?? null,
       }
@@ -79,5 +83,5 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem('usuario')
   }
 
-  return { token, usuario, isAuthenticated, isSupervisor, isEbanista, isTapicero, isDespachador, tieneAccesoPasos, isFacturador, tieneAccesoRedes, login, fetchMe, setFirma, setEmail, logout, clearSession }
+  return { token, usuario, isAuthenticated, isSupervisor, isEbanista, isTapicero, isDespachador, isCosturero, tieneAccesoPasos, isFacturador, tieneAccesoRedes, puedeRecargarTelas, login, fetchMe, setFirma, setEmail, logout, clearSession }
 })

@@ -20,6 +20,7 @@ const form = ref({
   es_tapicero: false,
   notif_asignar_fecha: true,
   acceso_redes: false,
+  recarga_telas: false,
   tienda_default_id: '',
 })
 
@@ -28,7 +29,7 @@ const errores = ref({})
 const mostrarPass    = ref(false)
 const mostrarConfirm = ref(false)
 
-const rolesSinTienda = ['conductor', 'ebanista', 'despachador']
+const rolesSinTienda = ['conductor', 'ebanista', 'despachador', 'costurero']
 const requiereTienda = computed(() => !rolesSinTienda.includes(form.value.rol))
 
 function errMsg(e) {
@@ -71,6 +72,7 @@ async function submit() {
       es_tapicero: form.value.es_tapicero,
       notif_asignar_fecha: form.value.notif_asignar_fecha,
       acceso_redes: form.value.acceso_redes,
+      recarga_telas: form.value.recarga_telas,
       tienda_default_id: requiereTienda.value ? form.value.tienda_default_id : null,
     })
     router.push({ name: 'usuarios' })
@@ -192,13 +194,17 @@ async function submit() {
           <option value="conductor">Conductor</option>
           <option value="ebanista">Ebanista</option>
           <option value="despachador">Despachador</option>
+          <option value="costurero">Costurero</option>
         </select>
       </div>
 
       <!-- Descripción del rol de producción -->
-      <div v-if="['ebanista', 'despachador'].includes(form.rol)" class="bg-amber-50 rounded-lg px-3 py-2 text-xs text-amber-700">
+      <div v-if="['ebanista', 'despachador', 'costurero'].includes(form.rol)" class="bg-amber-50 rounded-lg px-3 py-2 text-xs text-amber-700">
         <span v-if="form.rol === 'ebanista'">
           El ebanista puede ver y completar los pasos de <strong>ebanistería</strong>, <strong>laca</strong> y <strong>pintura</strong> en las órdenes personalizadas.
+        </span>
+        <span v-else-if="form.rol === 'costurero'">
+          El costurero puede <strong>descontar metros de tela</strong> del inventario cuando los use en producción.
         </span>
         <span v-else>
           El despachador recibe las órdenes cuando terminan todos los pasos de producción, las envía a entrega, y también puede completar pasos de <strong>pintura</strong>.
@@ -258,6 +264,20 @@ async function submit() {
         <div>
           <label for="acceso_redes" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a módulo de redes</label>
           <p class="text-xs text-gray-500 mt-0.5">Podrá acceder al módulo de redes sociales y seguimiento digital.</p>
+        </div>
+      </div>
+
+      <!-- Recarga telas (vendedor y supervisor) -->
+      <div v-if="['vendedor', 'supervisor'].includes(form.rol)" class="flex items-start gap-3 py-2">
+        <input
+          id="recarga_telas"
+          type="checkbox"
+          v-model="form.recarga_telas"
+          class="mt-0.5 rounded border-gray-300 text-pink-600 focus:ring-pink-500"
+        />
+        <div>
+          <label for="recarga_telas" class="text-sm font-medium text-gray-700 cursor-pointer">Puede recargar telas</label>
+          <p class="text-xs text-gray-500 mt-0.5">Tendrá acceso al módulo de telas para agregar metros cuando llegue nueva mercancía.</p>
         </div>
       </div>
 

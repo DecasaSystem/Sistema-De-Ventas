@@ -34,15 +34,16 @@ const nuevaPassword = ref('')
 const confirmacionPassword = ref('')
 
 // Edit form
-const editForm = ref({ nombre: '', email: '', rol: '', facturacion: false, es_tapicero: false, notif_asignar_fecha: true, acceso_redes: false, tienda_default_id: '' })
-const rolesSinTienda = ['conductor', 'ebanista', 'despachador']
+const editForm = ref({ nombre: '', email: '', rol: '', facturacion: false, es_tapicero: false, notif_asignar_fecha: true, acceso_redes: false, recarga_telas: false, tienda_default_id: '' })
+const rolesSinTienda = ['conductor', 'ebanista', 'despachador', 'costurero']
 
 const ROL_LABELS = {
-  supervisor: 'Supervisor',
-  conductor:  'Conductor',
-  ebanista:   'Ebanista',
+  supervisor:  'Supervisor',
+  conductor:   'Conductor',
+  ebanista:    'Ebanista',
   despachador: 'Despachador',
-  vendedor:   'Vendedor',
+  costurero:   'Costurero',
+  vendedor:    'Vendedor',
 }
 
 const rolLabel = computed(() => ROL_LABELS[usuario.value?.rol] ?? 'Vendedor')
@@ -112,6 +113,7 @@ function openEditModal() {
     es_tapicero: usuario.value.es_tapicero ?? false,
     notif_asignar_fecha: usuario.value.notif_asignar_fecha ?? true,
     acceso_redes: usuario.value.acceso_redes ?? false,
+    recarga_telas: usuario.value.recarga_telas ?? false,
     tienda_default_id: usuario.value.tienda_default_id,
   }
   actionError.value = ''
@@ -139,6 +141,7 @@ async function submitEdit() {
       es_tapicero: editForm.value.rol === 'supervisor' ? editForm.value.es_tapicero : false,
       notif_asignar_fecha: editForm.value.rol === 'supervisor' ? editForm.value.notif_asignar_fecha : false,
       acceso_redes: ['vendedor', 'supervisor'].includes(editForm.value.rol) ? editForm.value.acceso_redes : false,
+      recarga_telas: ['vendedor', 'supervisor'].includes(editForm.value.rol) ? editForm.value.recarga_telas : false,
       tienda_default_id: sinTienda ? null : editForm.value.tienda_default_id,
     })
     showEditModal.value = false
@@ -186,6 +189,7 @@ onMounted(async () => {
           usuario.rol === 'conductor'   ? 'bg-amber-100 text-amber-700' :
           usuario.rol === 'ebanista'    ? 'bg-orange-100 text-orange-700' :
           usuario.rol === 'despachador' ? 'bg-purple-100 text-purple-700' :
+          usuario.rol === 'costurero'   ? 'bg-pink-100 text-pink-700' :
           'bg-gray-100 text-gray-600'
         ]"
       >
@@ -246,6 +250,15 @@ onMounted(async () => {
           <div>
             <p class="text-xs text-gray-400">Módulo de redes</p>
             <p class="font-medium text-blue-700">Acceso habilitado</p>
+          </div>
+        </div>
+        <div v-if="usuario.recarga_telas && ['vendedor', 'supervisor'].includes(usuario.rol)" class="flex items-center gap-3">
+          <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
+            <span class="text-sm">🧵</span>
+          </div>
+          <div>
+            <p class="text-xs text-gray-400">Módulo de telas</p>
+            <p class="font-medium text-pink-700">Puede recargar telas</p>
           </div>
         </div>
         <div v-if="usuario.tienda_default && !rolesSinTienda.includes(usuario.rol)" class="flex items-center gap-3">
@@ -414,6 +427,7 @@ onMounted(async () => {
                 <option value="conductor">Conductor</option>
                 <option value="ebanista">Ebanista</option>
                 <option value="despachador">Despachador</option>
+                <option value="costurero">Costurero</option>
               </select>
             </div>
             <div v-if="editForm.rol === 'vendedor'" class="flex items-start gap-3 py-1">
@@ -464,6 +478,18 @@ onMounted(async () => {
               <div>
                 <label for="edit-acceso-redes" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a módulo de redes</label>
                 <p class="text-xs text-gray-500 mt-0.5">Podrá acceder al módulo de redes sociales y seguimiento digital.</p>
+              </div>
+            </div>
+            <div v-if="['vendedor', 'supervisor'].includes(editForm.rol)" class="flex items-start gap-3 py-1">
+              <input
+                id="edit-recarga-telas"
+                type="checkbox"
+                v-model="editForm.recarga_telas"
+                class="mt-0.5 rounded border-gray-300 text-pink-600 focus:ring-pink-500"
+              />
+              <div>
+                <label for="edit-recarga-telas" class="text-sm font-medium text-gray-700 cursor-pointer">Puede recargar telas</label>
+                <p class="text-xs text-gray-500 mt-0.5">Tendrá acceso al módulo de telas para agregar metros cuando llegue nueva mercancía.</p>
               </div>
             </div>
             <div v-if="!rolesSinTienda.includes(editForm.rol)">

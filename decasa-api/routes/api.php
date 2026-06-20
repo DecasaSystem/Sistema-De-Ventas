@@ -33,6 +33,7 @@ use App\Http\Controllers\PushSubscriptionController;
 use App\Http\Controllers\ReservaController;
 use App\Http\Controllers\RestauracionController;
 use App\Http\Controllers\CatalogoTelaController;
+use App\Http\Controllers\InventarioTelaController;
 use App\Http\Controllers\TipoVarianteController;
 use App\Http\Controllers\ProductoVarianteConfigController;
 use Illuminate\Support\Facades\Route;
@@ -154,6 +155,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/productos/{id}/variantes',  [VarianteController::class, 'index']);
     Route::middleware('role:supervisor')->group(function () {
         Route::post('/productos/{id}/variantes', [VarianteController::class, 'store']);
+    });
+
+    // Inventario de telas físicas (metros)
+    Route::get('/inventario-telas',                [InventarioTelaController::class, 'index']);
+    Route::get('/inventario-telas/validar',        [InventarioTelaController::class, 'validar']);
+    Route::post('/inventario-telas/recargar',      [InventarioTelaController::class, 'recargar']);
+    Route::middleware('role:costurero,supervisor')->group(function () {
+        Route::post('/inventario-telas/descontar', [InventarioTelaController::class, 'descontar']);
     });
 
     // Catálogo de telas (marca → tipo → color)

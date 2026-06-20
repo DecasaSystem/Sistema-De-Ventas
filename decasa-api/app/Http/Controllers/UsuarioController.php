@@ -27,14 +27,15 @@ class UsuarioController extends Controller
 
         return response()->json($query->orderBy('nombre')->paginate(20)->through(function ($u) {
             return [
-                'id'                => $u->id,
-                'nombre'            => $u->nombre,
-                'email'             => $u->email,
-                'rol'               => $u->rol,
-                'facturacion'       => $u->facturacion,
+                'id'                  => $u->id,
+                'nombre'              => $u->nombre,
+                'email'               => $u->email,
+                'rol'                 => $u->rol,
+                'facturacion'         => $u->facturacion,
                 'es_tapicero'         => (bool) $u->es_tapicero,
                 'notif_asignar_fecha' => (bool) $u->notif_asignar_fecha,
                 'acceso_redes'        => (bool) $u->acceso_redes,
+                'recarga_telas'       => (bool) $u->recarga_telas,
                 'tienda_default_id'   => $u->tienda_default_id,
                 'tienda_default'      => $u->tiendaDefault,
                 'activo'              => $u->activo,
@@ -55,6 +56,7 @@ class UsuarioController extends Controller
             'es_tapicero'         => (bool) $usuario->es_tapicero,
             'notif_asignar_fecha' => (bool) $usuario->notif_asignar_fecha,
             'acceso_redes'        => (bool) $usuario->acceso_redes,
+            'recarga_telas'       => (bool) $usuario->recarga_telas,
             'tienda_default_id'   => $usuario->tienda_default_id,
             'tienda_default'      => $usuario->tiendaDefault,
             'activo'              => $usuario->activo,
@@ -64,17 +66,18 @@ class UsuarioController extends Controller
 
     public function store(Request $request)
     {
-        $rolesProduccion = ['ebanista', 'despachador', 'conductor'];
+        $rolesProduccion = ['ebanista', 'despachador', 'conductor', 'costurero'];
 
         $data = $request->validate([
             'nombre'            => 'required|string|max:100',
             'email'             => 'required|email|unique:usuarios,email',
             'password'          => 'required|string|min:8|confirmed',
-            'rol'                 => ['required', Rule::in(['vendedor', 'supervisor', 'conductor', 'ebanista', 'despachador'])],
+            'rol'                 => ['required', Rule::in(['vendedor', 'supervisor', 'conductor', 'ebanista', 'despachador', 'costurero'])],
             'facturacion'         => 'boolean',
             'es_tapicero'         => 'boolean',
             'notif_asignar_fecha' => 'boolean',
             'acceso_redes'        => 'boolean',
+            'recarga_telas'       => 'boolean',
             'tienda_default_id' => [
                 Rule::requiredIf(fn () => ! in_array($request->rol, $rolesProduccion)),
                 'nullable',
@@ -98,6 +101,7 @@ class UsuarioController extends Controller
         $esSupervisor = ($data['rol'] === 'supervisor');
 
         $puedeAccesoRedes = in_array($data['rol'], ['vendedor', 'supervisor']);
+        $puedeRecargaTelas = in_array($data['rol'], ['vendedor', 'supervisor']);
 
         $usuario = Usuario::create([
             'nombre'              => $data['nombre'],
@@ -108,6 +112,7 @@ class UsuarioController extends Controller
             'es_tapicero'         => $esSupervisor && $request->boolean('es_tapicero'),
             'notif_asignar_fecha' => $esSupervisor && $request->boolean('notif_asignar_fecha'),
             'acceso_redes'        => $puedeAccesoRedes && $request->boolean('acceso_redes'),
+            'recarga_telas'       => $puedeRecargaTelas && $request->boolean('recarga_telas'),
             'tienda_default_id'   => $data['tienda_default_id'] ?? null,
             'activo'              => true,
         ]);
@@ -121,6 +126,7 @@ class UsuarioController extends Controller
             'es_tapicero'         => (bool) $usuario->es_tapicero,
             'notif_asignar_fecha' => (bool) $usuario->notif_asignar_fecha,
             'acceso_redes'        => (bool) $usuario->acceso_redes,
+            'recarga_telas'       => (bool) $usuario->recarga_telas,
             'tienda_default_id'   => $usuario->tienda_default_id,
             'activo'              => $usuario->activo,
         ], 201);
@@ -129,16 +135,17 @@ class UsuarioController extends Controller
     public function update(Request $request, $id)
     {
         $usuario = Usuario::findOrFail($id);
-        $rolesProduccion = ['ebanista', 'despachador', 'conductor'];
+        $rolesProduccion = ['ebanista', 'despachador', 'conductor', 'costurero'];
 
         $data = $request->validate([
             'nombre'            => 'sometimes|string|max:100',
             'email'             => ['sometimes', 'email', Rule::unique('usuarios', 'email')->ignore($usuario->id)],
-            'rol'                 => ['sometimes', Rule::in(['vendedor', 'supervisor', 'conductor', 'ebanista', 'despachador'])],
+            'rol'                 => ['sometimes', Rule::in(['vendedor', 'supervisor', 'conductor', 'ebanista', 'despachador', 'costurero'])],
             'facturacion'         => 'nullable|boolean',
             'es_tapicero'         => 'nullable|boolean',
             'notif_asignar_fecha' => 'nullable|boolean',
             'acceso_redes'        => 'nullable|boolean',
+            'recarga_telas'       => 'nullable|boolean',
             'tienda_default_id'   => 'sometimes|nullable|exists:tiendas,id',
         ], [
             'nombre.max'               => 'El nombre no puede tener más de 100 caracteres.',
@@ -150,9 +157,6 @@ class UsuarioController extends Controller
 
         $rolFinal = $data['rol'] ?? $usuario->rol;
 
-        // Booleans: usar $request->has() + $request->boolean() para manejar
-        // correctamente el valor false enviado como JSON (array_key_exists falla
-        // con false porque Laravel lo excluye del array validado en algunos casos)
         if ($request->has('es_tapicero')) {
             $data['es_tapicero'] = ($rolFinal === 'supervisor') && $request->boolean('es_tapicero');
         }
@@ -165,8 +169,10 @@ class UsuarioController extends Controller
         if ($request->has('acceso_redes')) {
             $data['acceso_redes'] = in_array($rolFinal, ['vendedor', 'supervisor']) && $request->boolean('acceso_redes');
         }
+        if ($request->has('recarga_telas')) {
+            $data['recarga_telas'] = in_array($rolFinal, ['vendedor', 'supervisor']) && $request->boolean('recarga_telas');
+        }
 
-        // Si el nuevo rol no requiere tienda, limpiar tienda
         if (isset($data['rol']) && in_array($data['rol'], $rolesProduccion)) {
             $data['tienda_default_id'] = null;
         }
@@ -183,6 +189,7 @@ class UsuarioController extends Controller
             'es_tapicero'         => (bool) $usuario->es_tapicero,
             'notif_asignar_fecha' => (bool) $usuario->notif_asignar_fecha,
             'acceso_redes'        => (bool) $usuario->acceso_redes,
+            'recarga_telas'       => (bool) $usuario->recarga_telas,
             'tienda_default_id'   => $usuario->tienda_default_id,
             'tienda_default'      => $usuario->tiendaDefault,
             'activo'              => $usuario->activo,
