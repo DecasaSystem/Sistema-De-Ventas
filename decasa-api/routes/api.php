@@ -159,6 +159,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Inventario de telas físicas (metros)
     Route::get('/inventario-telas',                [InventarioTelaController::class, 'index']);
+    Route::get('/inventario-telas/proveedores',    [InventarioTelaController::class, 'proveedores']);
     Route::get('/inventario-telas/validar',        [InventarioTelaController::class, 'validar']);
     Route::post('/inventario-telas/recargar',      [InventarioTelaController::class, 'recargar']);
     Route::middleware('role:costurero,supervisor')->group(function () {

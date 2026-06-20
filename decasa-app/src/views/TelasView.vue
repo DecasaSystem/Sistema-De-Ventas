@@ -8,36 +8,48 @@ import api from '@/api'
 const auth  = useAuthStore()
 const toast = useToast()
 
-const telas        = ref([])
-const busqueda     = ref('')
-const cargando     = ref(true)
-const showModal    = ref(false)
-const modalTipo    = ref('recargar') // 'recargar' | 'descontar'
-const telaActiva   = ref(null)
-const metros       = ref('')
-const nota         = ref('')
-const guardando    = ref(false)
-const modalError   = ref('')
+const telas          = ref([])
+const proveedores    = ref([])
+const busqueda       = ref('')
+const proveedorFiltro = ref('')
+const cargando       = ref(true)
+const showModal      = ref(false)
+const modalTipo      = ref('recargar')
+const telaActiva     = ref(null)
+const metros         = ref('')
+const nota           = ref('')
+const guardando      = ref(false)
+const modalError     = ref('')
 
 const puedeRecargar  = computed(() => auth.puedeRecargarTelas)
 const puedeDescontar = computed(() => auth.isCosturero || auth.isSupervisor)
 
 const telasFiltradas = computed(() => {
-  if (!busqueda.value.trim()) return telas.value
-  const q = busqueda.value.toLowerCase()
-  return telas.value.filter(t =>
-    t.referencia.toLowerCase().includes(q) ||
-    t.color.toLowerCase().includes(q) ||
-    t.textura?.toLowerCase().includes(q) ||
-    t.proveedor?.toLowerCase().includes(q)
-  )
+  let lista = telas.value
+  if (proveedorFiltro.value) {
+    lista = lista.filter(t => t.proveedor === proveedorFiltro.value)
+  }
+  if (busqueda.value.trim()) {
+    const q = busqueda.value.toLowerCase()
+    lista = lista.filter(t =>
+      t.referencia.toLowerCase().includes(q) ||
+      (t.color?.toLowerCase().includes(q)) ||
+      (t.textura?.toLowerCase().includes(q)) ||
+      (t.proveedor?.toLowerCase().includes(q))
+    )
+  }
+  return lista
 })
 
 async function cargar() {
   cargando.value = true
   try {
-    const { data } = await api.get('/inventario-telas')
-    telas.value = data
+    const [{ data: telasData }, { data: provData }] = await Promise.all([
+      api.get('/inventario-telas'),
+      api.get('/inventario-telas/proveedores'),
+    ])
+    telas.value     = telasData
+    proveedores.value = provData
   } catch {
     toast.error('Error al cargar el inventario de telas.')
   } finally {
@@ -77,10 +89,19 @@ async function confirmar() {
       nota: nota.value || undefined,
     })
 
-    const idx = telas.value.findIndex(t => t.id === data.id)
-    if (idx !== -1) telas.value[idx] = data
+    // Reemplazar en la lista si existe; si es nueva entrada (creada desde catálogo), actualizar
+    const idx = telas.value.findIndex(t => t.referencia === data.referencia)
+    if (idx !== -1) {
+      telas.value[idx] = data
+    } else {
+      telas.value.push(data)
+    }
     showModal.value = false
-    toast.success(modalTipo.value === 'recargar' ? `+${m} m agregados a ${data.referencia}` : `-${m} m descontados de ${data.referencia}`)
+    toast.success(
+      modalTipo.value === 'recargar'
+        ? `+${m} m agregados a ${data.referencia}`
+        : `-${m} m descontados de ${data.referencia}`
+    )
   } catch (e) {
     modalError.value = e.response?.data?.message ?? 'Error al actualizar.'
   } finally {
@@ -102,7 +123,7 @@ onMounted(cargar)
     <!-- Header -->
     <div class="flex items-center justify-between">
       <h2 class="text-lg font-bold text-gray-800">Inventario de telas</h2>
-      <span class="text-xs text-gray-400">{{ telas.length }} telas</span>
+      <span class="text-xs text-gray-400">{{ telasFiltradas.length }} / {{ telas.length }}</span>
     </div>
 
     <!-- Search -->
@@ -111,9 +132,33 @@ onMounted(cargar)
       <input
         v-model="busqueda"
         type="search"
-        placeholder="Buscar por referencia, color, textura o proveedor..."
+        placeholder="Buscar por referencia, color, textura..."
         class="w-full pl-9 pr-3 py-2.5 rounded-xl border border-gray-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
       />
+    </div>
+
+    <!-- Filtro por proveedor -->
+    <div v-if="proveedores.length" class="flex flex-wrap gap-2">
+      <button
+        @click="proveedorFiltro = ''"
+        :class="[
+          'px-3 py-1 rounded-full text-xs font-semibold transition-colors',
+          proveedorFiltro === '' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+        ]"
+      >
+        Todos
+      </button>
+      <button
+        v-for="prov in proveedores"
+        :key="prov"
+        @click="proveedorFiltro = prov"
+        :class="[
+          'px-3 py-1 rounded-full text-xs font-semibold transition-colors',
+          proveedorFiltro === prov ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+        ]"
+      >
+        {{ prov }}
+      </button>
     </div>
 
     <!-- Loading -->
@@ -123,15 +168,16 @@ onMounted(cargar)
 
     <!-- Empty -->
     <div v-else-if="!telasFiltradas.length" class="text-center py-12 text-sm text-gray-400">
-      {{ busqueda ? 'Sin resultados para "' + busqueda + '"' : 'No hay telas en el inventario.' }}
+      {{ busqueda || proveedorFiltro ? 'Sin resultados para el filtro actual.' : 'No hay telas en el inventario.' }}
     </div>
 
     <!-- List -->
     <div v-else class="space-y-2">
       <div
         v-for="tela in telasFiltradas"
-        :key="tela.id"
+        :key="tela.referencia"
         class="bg-white rounded-xl shadow-sm p-4"
+        :class="{ 'opacity-75': tela.solo_catalogo }"
       >
         <!-- Title row -->
         <div class="flex items-start justify-between gap-2">
@@ -143,6 +189,7 @@ onMounted(cargar)
               <span v-if="tela.textura">{{ tela.textura }}</span>
               <span v-if="tela.proveedor" class="text-gray-400"> · {{ tela.proveedor }}</span>
             </p>
+            <p v-if="tela.solo_catalogo" class="text-xs text-gray-400 mt-0.5 italic">Sin stock registrado</p>
           </div>
           <span :class="['text-xs font-bold px-2.5 py-1 rounded-full whitespace-nowrap', colorBadge(tela.metros_libres)]">
             {{ tela.metros_libres }} m
@@ -160,7 +207,7 @@ onMounted(cargar)
             Recargar
           </button>
           <button
-            v-if="puedeDescontar"
+            v-if="puedeDescontar && !tela.solo_catalogo"
             @click="abrirDescontar(tela)"
             :disabled="tela.metros_libres <= 0"
             class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-50 text-red-700 text-xs font-semibold hover:bg-red-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
