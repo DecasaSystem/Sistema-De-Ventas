@@ -892,8 +892,9 @@ const combModalCant          = ref(1)
 const combModalMotivo        = ref('')
 const combModalError         = ref('')
 const combModalLoad          = ref(false)
-const combModalRawVariantes  = ref([])
-const combModalModo          = ref('agregar')  // 'agregar' | 'quitar'
+const combModalCatalogoTelas  = ref([])          // todos los telas del catálogo
+const combModalSelectedTelaId = ref(null)        // catalogo_telas.id seleccionado
+const combModalModo           = ref('agregar')   // 'agregar' | 'quitar'
 
 const combModalQuitarMax = computed(() => {
   if (!combModalVarianteId.value || !combModalConfigId.value || !combModalProdId.value) return 0
@@ -902,6 +903,16 @@ const combModalQuitarMax = computed(() => {
   )
   return entry?.stock_libre ?? 0
 })
+
+function seleccionarCatalogoTela(ct) {
+  combModalSelectedTelaId.value = ct.id
+  combModalCant.value = 1
+  const variantesProducto = variantesData.value[combModalProdId.value] ?? []
+  const existing = variantesProducto.find(v =>
+    v.marca === ct.marca && v.marca_tela === ct.tipo && v.nombre_color === ct.color
+  )
+  combModalVarianteId.value = existing?.id ?? null
+}
 
 const combModalMaxCant = computed(() => {
   if (!combModalConfigId.value || !combModalProdId.value) return 0
@@ -918,36 +929,54 @@ const combModalMaxCant = computed(() => {
 })
 
 async function abrirCombModal(variante, item) {
-  combModalProdId.value     = item.producto_id
-  combModalItem.value       = item
-  combModalVarianteId.value = variante.id
-  combModalConfigId.value   = variante._config_id ?? null
-  combModalCant.value       = 1
-  combModalMotivo.value     = ''
-  combModalError.value      = ''
-  combModalModo.value       = 'agregar'
-  combModalRawVariantes.value = []
-  combModal.value           = true
+  combModalProdId.value      = item.producto_id
+  combModalItem.value        = item
+  combModalVarianteId.value  = variante.id
+  combModalConfigId.value    = variante._config_id ?? null
+  combModalCant.value        = 1
+  combModalMotivo.value      = ''
+  combModalError.value       = ''
+  combModalModo.value        = 'agregar'
+  combModalCatalogoTelas.value  = []
+  combModalSelectedTelaId.value = null
+  combModal.value            = true
   try {
-    const { data } = await api.get(`/productos/${item.producto_id}/variantes`, {
-      params: { tienda_id: tiendaId.value, skip_combos: 1 }
-    })
-    combModalRawVariantes.value = data
-  } catch { combModalRawVariantes.value = [] }
+    const { data } = await api.get('/inventario-telas')
+    combModalCatalogoTelas.value = data
+    // Pre-seleccionar la tela del chip clickeado
+    const pre = data.find(ct =>
+      ct.marca === variante.marca &&
+      ct.tipo  === variante.marca_tela &&
+      ct.color === variante.nombre_color
+    )
+    if (pre) combModalSelectedTelaId.value = pre.id
+  } catch { combModalCatalogoTelas.value = [] }
 }
 
 async function guardarCombinacion() {
   combModalError.value = ''
-  if (!combModalVarianteId.value) { combModalError.value = 'Selecciona un tipo de tela.'; return }
-  if (!combModalConfigId.value)   { combModalError.value = 'Selecciona la variante.'; return }
-  if (combModalCant.value < 1)    { combModalError.value = 'Cantidad inválida.'; return }
+  if (!combModalSelectedTelaId.value) { combModalError.value = 'Selecciona un tipo de tela.'; return }
+  if (!combModalConfigId.value)        { combModalError.value = 'Selecciona la variante.'; return }
+  if (combModalCant.value < 1)         { combModalError.value = 'Cantidad inválida.'; return }
   combModalLoad.value = true
   try {
+    let varianteId = combModalVarianteId.value
+    // Si la tela seleccionada no tiene variante vinculada al producto, crearla
+    if (!varianteId) {
+      const ct = combModalCatalogoTelas.value.find(t => t.id === combModalSelectedTelaId.value)
+      if (!ct) { combModalError.value = 'Tela no encontrada.'; return }
+      const { data: nv } = await api.post(`/productos/${combModalProdId.value}/variantes`, {
+        marca: ct.marca, marca_tela: ct.tipo, nombre_color: ct.color,
+      })
+      varianteId = nv.id
+      combModalVarianteId.value = varianteId
+    }
+
     const endpoint = combModalModo.value === 'quitar'
       ? '/inventario/variante-combinaciones/salida'
       : '/inventario/variante-combinaciones/entrada'
     await api.post(endpoint, {
-      variante_id: combModalVarianteId.value,
+      variante_id: varianteId,
       config_id:   combModalConfigId.value,
       tienda_id:   tiendaId.value,
       cantidad:    combModalCant.value,
@@ -2367,21 +2396,26 @@ onMounted(async () => {
           </div>
 
           <div class="space-y-4">
-            <!-- Seleccionar tipo de tela -->
+            <!-- Seleccionar tipo de tela (catálogo completo) -->
             <div>
               <p class="text-sm font-semibold text-gray-700 mb-2">Tela / Color</p>
-              <div class="space-y-1.5 max-h-36 overflow-y-auto pr-1">
-                <p v-if="!combModalRawVariantes.length" class="text-xs text-gray-400 italic px-2 py-1">Cargando telas...</p>
+              <div class="space-y-1.5 max-h-52 overflow-y-auto pr-1">
+                <p v-if="!combModalCatalogoTelas.length" class="text-xs text-gray-400 italic px-2 py-1">Cargando telas...</p>
                 <button
-                  v-for="v in combModalRawVariantes"
-                  :key="v.id"
-                  @click="combModalVarianteId = v.id; combModalCant = 1"
+                  v-for="ct in combModalCatalogoTelas"
+                  :key="ct.id"
+                  @click="seleccionarCatalogoTela(ct)"
                   :class="['w-full text-left px-3 py-2 rounded-lg border text-sm transition-colors',
-                    combModalVarianteId === v.id
+                    combModalSelectedTelaId === ct.id
                       ? 'border-indigo-500 bg-indigo-50 text-indigo-700 font-medium'
                       : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50']"
                 >
-                  {{ [v.marca, v.marca_tela, v.nombre_color].filter(Boolean).join(' · ') }}
+                  <span class="font-medium">{{ ct.tipo }}</span>
+                  <span class="text-gray-500"> · {{ ct.color }}</span>
+                  <span class="text-xs ml-1 opacity-60">{{ ct.marca }}</span>
+                  <span :class="['text-xs ml-2 font-bold', ct.metros_libres > 0 ? 'text-green-700' : 'text-red-500']">
+                    {{ ct.metros_libres }}m
+                  </span>
                 </button>
               </div>
             </div>
@@ -2409,7 +2443,7 @@ onMounted(async () => {
             </div>
 
             <!-- Info de capacidad -->
-            <template v-if="combModalConfigId && combModalVarianteId">
+            <template v-if="combModalConfigId && combModalSelectedTelaId">
               <div v-if="combModalModo === 'agregar'" class="bg-indigo-50 rounded-lg px-3 py-2 text-xs text-indigo-700">
                 Disponible para asignar en esta opción: <strong>{{ combModalMaxCant }}</strong>
               </div>
@@ -2437,7 +2471,7 @@ onMounted(async () => {
             <p v-if="combModalError" class="text-xs text-red-600">{{ combModalError }}</p>
             <button
               @click="guardarCombinacion"
-              :disabled="combModalLoad || !combModalVarianteId || !combModalConfigId || (combModalModo === 'agregar' ? combModalMaxCant === 0 : combModalQuitarMax === 0)"
+              :disabled="combModalLoad || !combModalSelectedTelaId || !combModalConfigId || (combModalModo === 'agregar' ? combModalMaxCant === 0 : combModalQuitarMax === 0)"
               :class="['w-full text-white rounded-lg py-2.5 text-sm font-semibold disabled:opacity-50', combModalModo === 'agregar' ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-red-600 hover:bg-red-700']"
             >
               {{ combModalLoad ? 'Guardando...' : combModalModo === 'agregar' ? 'Asignar' : 'Quitar' }}

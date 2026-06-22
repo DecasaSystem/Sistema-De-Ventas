@@ -1,22 +1,14 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import {
   XMarkIcon, PlusIcon, TrashIcon,
-  ChevronDownIcon, ChevronRightIcon, SwatchIcon, AdjustmentsHorizontalIcon
+  ChevronDownIcon, ChevronRightIcon,
 } from '@heroicons/vue/24/outline'
-import { TELAS_CATALOGO, marcasOrdenadas, tiposTelaDeM, coloresDeTela, cargarCatalogoDB } from '@/data/telasCatalogo'
 import api from '@/api'
 import { useToast } from '@/composables/useToast'
 
 const emit = defineEmits(['close'])
 const toast = useToast()
-
-// ── Tabs ─────────────────────────────────────────────────────────────────────
-const tab = ref('variantes') // 'variantes' | 'telas'
-
-// ══════════════════════════════════════════════════════════════════════════════
-// TAB: TIPOS DE VARIANTE
-// ══════════════════════════════════════════════════════════════════════════════
 
 const tipos      = ref([])
 const loadingTipos = ref(true)
@@ -140,101 +132,7 @@ async function eliminarOpcion(tipo, opcion) {
   }
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// TAB: TELAS (lógica igual que ModalCatalogoTela)
-// ══════════════════════════════════════════════════════════════════════════════
 
-const telaForm        = ref({ marca: '', tipo: '' })
-const telaChips       = ref([])
-const telaInput       = ref('')
-const telaInputEl     = ref(null)
-const telaGuardando   = ref(false)
-const telaError       = ref('')
-const telaMarcaAbierta = ref(null)
-const telaTipoAbierto  = ref(null)
-const dbEntradas       = ref([])
-const loadingDB        = ref(true)
-
-const marcasSugeridas = computed(() => marcasOrdenadas.value)
-const tiposSugeridos  = computed(() => telaForm.value.marca ? tiposTelaDeM(telaForm.value.marca) : [])
-
-const coloresExistentes = computed(() =>
-  telaForm.value.marca && telaForm.value.tipo
-    ? new Set(coloresDeTela(telaForm.value.marca, telaForm.value.tipo).map(c => c.toLowerCase()))
-    : new Set()
-)
-
-const telaInputDuplicado = computed(() => {
-  const v = telaInput.value.trim().toLowerCase()
-  return v && (coloresExistentes.value.has(v) || telaChips.value.map(c => c.toLowerCase()).includes(v))
-})
-
-const telaChipsDuplicados = computed(() =>
-  new Set(telaChips.value.filter(c => coloresExistentes.value.has(c.toLowerCase())))
-)
-
-const puedeGuardarTela = computed(() =>
-  telaForm.value.marca.trim() && telaForm.value.tipo.trim() &&
-  telaChips.value.length > 0 &&
-  telaChips.value.some(c => !coloresExistentes.value.has(c.toLowerCase()))
-)
-
-function agregarTelaChip() {
-  const v = telaInput.value.trim()
-  if (!v) return
-  if (!telaChips.value.map(c => c.toLowerCase()).includes(v.toLowerCase())) {
-    telaChips.value.push(v)
-  }
-  telaInput.value = ''
-}
-
-function onTelaKey(e) {
-  if (e.key === 'Enter' || e.key === ',') {
-    e.preventDefault(); agregarTelaChip()
-  } else if (e.key === 'Backspace' && !telaInput.value && telaChips.value.length) {
-    telaChips.value.pop()
-  }
-}
-
-async function guardarTela() {
-  agregarTelaChip()
-  telaError.value = ''
-  const { marca, tipo } = telaForm.value
-  if (!marca.trim() || !tipo.trim()) { telaError.value = 'Completa marca y tipo.'; return }
-  const nuevos = telaChips.value.filter(c => !coloresExistentes.value.has(c.toLowerCase()))
-  if (!nuevos.length) { telaError.value = 'Todos los colores ya existen.'; return }
-  telaGuardando.value = true
-  try {
-    await api.post('/catalogo-telas/batch', { marca: marca.trim(), tipo: tipo.trim(), colores: nuevos })
-    await cargarCatalogoDB(api)
-    await cargarDB()
-    toast.success(`${nuevos.length} color${nuevos.length > 1 ? 'es' : ''} agregado${nuevos.length > 1 ? 's' : ''}: ${marca} → ${tipo}`)
-    telaChips.value = []
-    telaInput.value = ''
-    telaMarcaAbierta.value = marca.trim()
-  } catch (e) {
-    telaError.value = e.response?.data?.message ?? 'Error al guardar.'
-  } finally {
-    telaGuardando.value = false
-  }
-}
-
-async function cargarDB() {
-  loadingDB.value = true
-  try {
-    const { data } = await api.get('/catalogo-telas'); dbEntradas.value = data
-  } catch {}
-  loadingDB.value = false
-}
-cargarDB()
-
-async function eliminarTela(id, m, t, c) {
-  try {
-    await api.delete(`/catalogo-telas/${id}`)
-    await cargarDB(); await cargarCatalogoDB(api)
-    toast.success(`Eliminado: ${m} → ${t} → ${c}`)
-  } catch { toast.error('No se pudo eliminar.') }
-}
 </script>
 
 <template>
@@ -247,28 +145,8 @@ async function eliminarTela(id, m, t, c) {
         <button @click="emit('close')" class="text-gray-400 hover:text-gray-600 p-1"><XMarkIcon class="w-5 h-5" /></button>
       </div>
 
-      <!-- Tabs -->
-      <div class="flex border-b shrink-0">
-        <button
-          @click="tab = 'variantes'"
-          :class="['flex-1 flex items-center justify-center gap-1.5 py-2.5 text-sm font-semibold border-b-2 transition-colors',
-            tab === 'variantes' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700']"
-        >
-          <AdjustmentsHorizontalIcon class="w-4 h-4" /> Tipos de variante
-        </button>
-        <button
-          @click="tab = 'telas'"
-          :class="['flex-1 flex items-center justify-center gap-1.5 py-2.5 text-sm font-semibold border-b-2 transition-colors',
-            tab === 'telas' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700']"
-        >
-          <SwatchIcon class="w-4 h-4" /> Telas
-        </button>
-      </div>
-
       <div class="overflow-y-auto flex-1 px-5 py-4 space-y-5">
-
-        <!-- ══ TAB VARIANTES ══ -->
-        <template v-if="tab === 'variantes'">
+        <template>
 
           <!-- Crear tipo nuevo -->
           <div class="bg-blue-50 rounded-xl p-4 space-y-3">
@@ -394,93 +272,6 @@ async function eliminarTela(id, m, t, c) {
                     <PlusIcon class="w-4 h-4" />
                     {{ guardandoOpc[tipo.id] ? 'Guardando…' : 'Agregar opciones' }}
                   </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </template>
-
-        <!-- ══ TAB TELAS ══ -->
-        <template v-if="tab === 'telas'">
-
-          <!-- Formulario agregar tela -->
-          <div class="bg-blue-50 rounded-xl p-4 space-y-3">
-            <p class="text-sm font-semibold text-blue-800">Agregar al catálogo</p>
-            <div class="grid grid-cols-2 gap-2">
-              <div>
-                <label class="text-xs font-medium text-gray-600 mb-1 block">Marca</label>
-                <input v-model="telaForm.marca" list="dl-marcas" placeholder="Ej: Visual"
-                  class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                  @change="telaForm.tipo = ''; telaChips = []" />
-                <datalist id="dl-marcas"><option v-for="m in marcasSugeridas" :key="m" :value="m" /></datalist>
-              </div>
-              <div>
-                <label class="text-xs font-medium text-gray-600 mb-1 block">Tipo de tela</label>
-                <input v-model="telaForm.tipo" list="dl-tipos" placeholder="Ej: Bistro"
-                  class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                  @change="telaChips = []" />
-                <datalist id="dl-tipos"><option v-for="t in tiposSugeridos" :key="t" :value="t" /></datalist>
-              </div>
-            </div>
-
-            <div>
-              <label class="text-xs font-medium text-gray-600 mb-1 block">
-                Colores <span class="font-normal text-gray-400">— Enter o coma para agregar</span>
-              </label>
-              <div
-                class="min-h-[42px] w-full border border-gray-300 rounded-lg px-2 py-1.5 bg-white flex flex-wrap gap-1.5 items-center cursor-text focus-within:ring-2 focus-within:ring-blue-500"
-                @click="telaInputEl?.focus()"
-              >
-                <span v-for="(chip, i) in telaChips" :key="i"
-                  :class="['inline-flex items-center gap-1 text-xs rounded-full px-2.5 py-1 font-medium',
-                    telaChipsDuplicados.has(chip) ? 'bg-amber-100 text-amber-700 border border-amber-300' : 'bg-blue-100 text-blue-800 border border-blue-200']">
-                  {{ chip }}
-                  <button type="button" @click.stop="telaChips.splice(i,1)" class="hover:text-red-500"><XMarkIcon class="w-3 h-3" /></button>
-                </span>
-                <input ref="telaInputEl" v-model="telaInput" list="dl-colores" placeholder="Escribe un color…"
-                  :class="['flex-1 min-w-[120px] text-sm outline-none bg-transparent py-0.5', telaInputDuplicado ? 'text-amber-600' : 'text-gray-800']"
-                  @keydown="onTelaKey" @blur="agregarTelaChip" />
-                <datalist id="dl-colores"><option v-for="c in coloresDeTela(telaForm.marca, telaForm.tipo)" :key="c" :value="c" /></datalist>
-              </div>
-            </div>
-
-            <p v-if="telaError" class="text-xs text-red-600">{{ telaError }}</p>
-            <button @click="guardarTela" :disabled="telaGuardando || !puedeGuardarTela"
-              class="w-full flex items-center justify-center gap-1.5 bg-blue-600 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
-              <PlusIcon class="w-4 h-4" />
-              {{ telaGuardando ? 'Guardando…' : `Guardar ${telaChips.length > 1 ? telaChips.length + ' colores' : 'color'}` }}
-            </button>
-          </div>
-
-          <!-- Entradas DB telas -->
-          <div>
-            <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Entradas agregadas</p>
-            <div v-if="loadingDB" class="space-y-2"><div v-for="i in 3" :key="i" class="h-10 bg-gray-100 rounded-lg animate-pulse" /></div>
-            <div v-else-if="!dbEntradas.length" class="text-sm text-gray-400 text-center py-4">No hay entradas aún.</div>
-            <div v-else class="space-y-1">
-              <div v-for="mg in dbEntradas" :key="mg.marca" class="border border-gray-200 rounded-xl overflow-hidden">
-                <button @click="telaMarcaAbierta = telaMarcaAbierta === mg.marca ? null : mg.marca"
-                  class="w-full flex items-center justify-between px-4 py-2.5 bg-gray-50 hover:bg-gray-100 transition-colors text-left">
-                  <span class="text-sm font-semibold text-gray-800">{{ mg.marca }}</span>
-                  <component :is="telaMarcaAbierta === mg.marca ? ChevronDownIcon : ChevronRightIcon" class="w-4 h-4 text-gray-400" />
-                </button>
-                <div v-if="telaMarcaAbierta === mg.marca" class="divide-y divide-gray-100">
-                  <div v-for="tg in mg.tipos" :key="tg.tipo">
-                    <button @click="telaTipoAbierto = telaTipoAbierto === `${mg.marca}::${tg.tipo}` ? null : `${mg.marca}::${tg.tipo}`"
-                      class="w-full flex items-center justify-between px-4 py-2 hover:bg-gray-50 transition-colors text-left">
-                      <span class="text-sm text-gray-700 pl-2">{{ tg.tipo }}</span>
-                      <span class="text-xs text-gray-400">{{ tg.colores.length }} colores</span>
-                    </button>
-                    <div v-if="telaTipoAbierto === `${mg.marca}::${tg.tipo}`" class="px-4 pb-3 flex flex-wrap gap-1.5">
-                      <span v-for="c in tg.colores" :key="c.id"
-                        class="flex items-center gap-1 text-xs bg-white border border-gray-200 rounded-full px-2.5 py-1">
-                        {{ c.color }}
-                        <button @click.stop="eliminarTela(c.id, mg.marca, tg.tipo, c.color)" class="text-gray-300 hover:text-red-500 transition-colors">
-                          <TrashIcon class="w-3 h-3" />
-                        </button>
-                      </span>
-                    </div>
-                  </div>
                 </div>
               </div>
             </div>

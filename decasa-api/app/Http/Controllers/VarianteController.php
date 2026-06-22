@@ -233,16 +233,31 @@ class VarianteController extends Controller
         }
 
         $variante = DB::transaction(function () use ($productoId, $data) {
-            $v = ProductoVariante::create([
-                'producto_id'     => $productoId,
-                'marca'           => $data['marca'] ?? null,
-                'marca_tela'      => $data['marca_tela'] ?? null,
-                'nombre_color'    => $data['nombre_color'] ?? null,
-                'medida'          => $data['medida'] ?? null,
-                'precio_variante' => $data['precio_variante'] ?? null,
-                'foto_url'        => $data['foto_url'] ?? null,
-                'activo'          => true,
-            ]);
+            // Para variantes de tapizado (tela+color sin medida), evitar duplicados
+            if (!empty($data['marca_tela']) && !empty($data['nombre_color']) && empty($data['medida'])) {
+                $v = ProductoVariante::firstOrCreate(
+                    ['producto_id' => $productoId, 'marca_tela' => $data['marca_tela'], 'nombre_color' => $data['nombre_color']],
+                    [
+                        'marca'           => $data['marca'] ?? null,
+                        'medida'          => null,
+                        'precio_variante' => $data['precio_variante'] ?? null,
+                        'foto_url'        => $data['foto_url'] ?? null,
+                        'activo'          => true,
+                    ]
+                );
+                if (!$v->activo) $v->update(['activo' => true]);
+            } else {
+                $v = ProductoVariante::create([
+                    'producto_id'     => $productoId,
+                    'marca'           => $data['marca'] ?? null,
+                    'marca_tela'      => $data['marca_tela'] ?? null,
+                    'nombre_color'    => $data['nombre_color'] ?? null,
+                    'medida'          => $data['medida'] ?? null,
+                    'precio_variante' => $data['precio_variante'] ?? null,
+                    'foto_url'        => $data['foto_url'] ?? null,
+                    'activo'          => true,
+                ]);
+            }
 
             // Auto-crear inventario_variantes en cada tienda donde existe el producto
             $tiendaIds = Inventario::where('producto_id', $productoId)->pluck('tienda_id');
