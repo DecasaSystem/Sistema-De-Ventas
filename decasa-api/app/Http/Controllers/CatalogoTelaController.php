@@ -40,21 +40,46 @@ class CatalogoTelaController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-            'marca' => 'required|string|max:100',
-            'tipo'  => 'required|string|max:100',
-            'color' => 'required|string|max:100',
+            'marca'           => 'required|string|max:100',
+            'tipo'            => 'required|string|max:100',
+            'color'           => 'required|string|max:100',
+            'referencia'      => 'nullable|string|max:200',
+            'textura'         => 'nullable|string|max:100',
+            'metros_iniciales'=> 'nullable|numeric|min:0',
         ]);
 
         $tela = CatalogoTela::firstOrCreate(
             ['marca' => trim($data['marca']), 'tipo' => trim($data['tipo']), 'color' => trim($data['color'])],
-            ['activo' => true]
+            [
+                'activo'     => true,
+                'referencia' => isset($data['referencia']) ? trim($data['referencia']) : null,
+                'textura'    => isset($data['textura'])    ? trim($data['textura'])    : null,
+            ]
         );
 
         if (!$tela->activo) {
             $tela->update(['activo' => true]);
         }
 
-        return response()->json($tela, 201);
+        $metros = (float) ($data['metros_iniciales'] ?? 0);
+        if ($metros > 0) {
+            \Illuminate\Support\Facades\DB::table('catalogo_telas')
+                ->where('id', $tela->id)
+                ->increment('metros_disponibles', $metros);
+            $tela = $tela->fresh();
+        }
+
+        return response()->json([
+            'id'                 => $tela->id,
+            'marca'              => $tela->marca,
+            'tipo'               => $tela->tipo,
+            'color'              => $tela->color,
+            'referencia'         => $tela->referencia,
+            'textura'            => $tela->textura,
+            'metros_disponibles' => (float) $tela->metros_disponibles,
+            'metros_reservados'  => (float) $tela->metros_reservados,
+            'metros_libres'      => round((float) $tela->metros_disponibles - (float) $tela->metros_reservados, 2),
+        ], 201);
     }
 
     /**

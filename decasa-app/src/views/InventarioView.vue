@@ -1018,41 +1018,17 @@ function abrirNuevaVariante(item) {
 async function guardarNuevaVariante() {
   varianteCreandoError.value = ''
 
-  if (varianteTipoTalla.value) {
-    if (!formVarianteTalla.value.medida.trim()) {
-      varianteCreandoError.value = 'Ingresa la medida (ej: 1.60x1.90).'
-      return
-    }
-    varianteCreandoLoad.value = true
-    try {
-      await crearVariante(varianteProdId.value, {
-        medida:          formVarianteTalla.value.medida.trim(),
-        precio_variante: formVarianteTalla.value.precio_variante || null,
-      })
-      mostrarNuevaVariante.value = false
-      const { data } = await getVariantes(varianteProdId.value, tiendaId.value)
-      variantesData.value[varianteProdId.value] = data
-    } catch (e) {
-      varianteCreandoError.value = e.response?.data?.message ?? 'Error al crear variante.'
-    } finally {
-      varianteCreandoLoad.value = false
-    }
-    return
-  }
-
-  if (!marcaFinal.value || !telaFinal.value || !colorFinal.value) {
-    varianteCreandoError.value = 'Completa todos los campos: marca, tipo de tela y color.'
+  if (!formVarianteTalla.value.medida.trim()) {
+    varianteCreandoError.value = 'Ingresa la medida (ej: 1.60x1.90).'
     return
   }
   varianteCreandoLoad.value = true
   try {
     await crearVariante(varianteProdId.value, {
-      marca:        marcaFinal.value,
-      marca_tela:   telaFinal.value,
-      nombre_color: colorFinal.value,
+      medida:          formVarianteTalla.value.medida.trim(),
+      precio_variante: formVarianteTalla.value.precio_variante || null,
     })
     mostrarNuevaVariante.value = false
-    // Recargar variantes
     const { data } = await getVariantes(varianteProdId.value, tiendaId.value)
     variantesData.value[varianteProdId.value] = data
   } catch (e) {
@@ -1582,11 +1558,11 @@ onMounted(async () => {
                 </div>
 
                 <button
-                  v-if="!esVistaGlobal && puedeGestionar"
+                  v-if="!esVistaGlobal && puedeGestionar && esTalla(item)"
                   @click="abrirNuevaVariante(item)"
                   class="text-xs text-blue-500 font-medium flex items-center gap-0.5 hover:text-blue-700"
                 >
-                  {{ esTalla(item) ? '+ Nueva talla' : '+ Nueva variante' }}
+                  + Nueva talla
                 </button>
               </template>
               <div v-else class="text-xs text-gray-400 italic">Cargando variantes...</div>
@@ -2560,118 +2536,34 @@ onMounted(async () => {
         <div class="absolute inset-0 bg-black/40" />
         <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-4">
           <div class="flex items-center justify-between">
-            <h3 class="text-base font-bold text-gray-800">{{ varianteTipoTalla ? 'Nueva talla' : 'Nueva variante de tela' }}</h3>
+            <h3 class="text-base font-bold text-gray-800">Nueva talla</h3>
             <button @click="mostrarNuevaVariante = false" class="text-gray-400 text-2xl leading-none">&times;</button>
           </div>
 
           <div class="space-y-3">
-            <!-- Formulario: producto con tallas (ej: colchones) -->
-            <template v-if="varianteTipoTalla">
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Medida <span class="text-red-500">*</span></label>
-                <input
-                  v-model="formVarianteTalla.medida"
-                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Ej: 1.60x1.90, Queen, King..."
-                />
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Precio (opcional)</label>
-                <input
-                  v-model="formVarianteTalla.precio_variante"
-                  type="number"
-                  min="0"
-                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Precio en pesos..."
-                />
-              </div>
-            </template>
-
-            <!-- Formulario: producto tapizado (tela/color) -->
-            <template v-else>
-              <!-- 1. Marca fabricante -->
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Marca fabricante <span class="text-red-500">*</span></label>
-                <select
-                  v-model="formVariante.marca"
-                  @change="formVariante.marca_tela = ''; formVariante.nombre_color = ''"
-                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">Seleccionar...</option>
-                  <option v-for="m in marcasOrdenadas" :key="m" :value="m">{{ m }}</option>
-                  <option value="Otro">Otro (ingresar manualmente)</option>
-                </select>
-                <input
-                  v-if="formVariante.marca === 'Otro'"
-                  v-model="formVariante.marcaManual"
-                  class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Nombre de la marca..."
-                />
-              </div>
-
-              <!-- 2. Tipo de tela -->
-              <div v-if="formVariante.marca">
-                <label class="block text-sm font-medium text-gray-700 mb-1">Tipo de tela <span class="text-red-500">*</span></label>
-                <select
-                  v-if="tiposTelaOpciones.length"
-                  v-model="formVariante.marca_tela"
-                  @change="formVariante.nombre_color = ''"
-                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">Seleccionar...</option>
-                  <option v-for="t in tiposTelaOpciones" :key="t" :value="t">{{ t }}</option>
-                  <option value="Otro">Otro (ingresar manualmente)</option>
-                </select>
-                <input
-                  v-else
-                  v-model="formVariante.telaManual"
-                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Nombre de la tela..."
-                />
-                <input
-                  v-if="formVariante.marca_tela === 'Otro'"
-                  v-model="formVariante.telaManual"
-                  class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Nombre de la tela..."
-                />
-              </div>
-
-              <!-- 3. Color -->
-              <div v-if="formVariante.marca && (formVariante.marca_tela || formVariante.marca === 'Otro')">
-                <label class="block text-sm font-medium text-gray-700 mb-1">Color <span class="text-red-500">*</span></label>
-                <select
-                  v-if="coloresOpciones.length"
-                  v-model="formVariante.nombre_color"
-                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">Seleccionar...</option>
-                  <option v-for="c in coloresOpciones" :key="c" :value="c">{{ c }}</option>
-                  <option value="Otro">Otro (ingresar manualmente)</option>
-                </select>
-                <input
-                  v-else
-                  v-model="formVariante.colorManual"
-                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Nombre del color..."
-                />
-                <input
-                  v-if="formVariante.nombre_color === 'Otro'"
-                  v-model="formVariante.colorManual"
-                  class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Nombre del color..."
-                />
-              </div>
-
-              <!-- Preview -->
-              <div v-if="marcaFinal && telaFinal && colorFinal" class="bg-blue-50 rounded-lg px-3 py-2 text-xs text-blue-700 font-medium">
-                Variante: {{ marcaFinal }} · {{ telaFinal }} · {{ colorFinal }}
-              </div>
-            </template>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Medida <span class="text-red-500">*</span></label>
+              <input
+                v-model="formVarianteTalla.medida"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Ej: 1.60x1.90, Queen, King..."
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Precio (opcional)</label>
+              <input
+                v-model="formVarianteTalla.precio_variante"
+                type="number"
+                min="0"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Precio en pesos..."
+              />
+            </div>
 
             <p v-if="varianteCreandoError" class="text-xs text-red-600">{{ varianteCreandoError }}</p>
             <button @click="guardarNuevaVariante" :disabled="varianteCreandoLoad"
               class="w-full bg-blue-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50">
-              {{ varianteCreandoLoad ? 'Guardando...' : 'Crear variante' }}
+              {{ varianteCreandoLoad ? 'Guardando...' : 'Crear talla' }}
             </button>
           </div>
         </div>

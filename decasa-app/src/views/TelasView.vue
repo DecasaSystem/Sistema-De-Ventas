@@ -21,6 +21,12 @@ const nota           = ref('')
 const guardando      = ref(false)
 const modalError     = ref('')
 
+// Modal creación
+const showCrear  = ref(false)
+const creando    = ref(false)
+const crearError = ref('')
+const crearForm  = ref({ marca: '', marcaNueva: '', tipo: '', color: '', textura: '', metros: '' })
+
 const puedeRecargar  = computed(() => auth.puedeRecargarTelas)
 const puedeDescontar = computed(() => auth.isCosturero || auth.isSupervisor)
 
@@ -55,6 +61,44 @@ async function cargar() {
     toast.error('Error al cargar el inventario de telas.')
   } finally {
     cargando.value = false
+  }
+}
+
+function abrirCrear() {
+  crearForm.value = { marca: '', marcaNueva: '', tipo: '', color: '', textura: '', metros: '' }
+  crearError.value = ''
+  showCrear.value = true
+}
+
+async function crearTela() {
+  crearError.value = ''
+  const marcaFinal = crearForm.value.marca === '__nueva__'
+    ? crearForm.value.marcaNueva.trim()
+    : crearForm.value.marca.trim()
+  if (!marcaFinal)                       { crearError.value = 'Selecciona o ingresa la marca/proveedor.'; return }
+  if (!crearForm.value.tipo.trim())      { crearError.value = 'Ingresa el tipo o nombre de la tela.'; return }
+  if (!crearForm.value.color.trim())     { crearError.value = 'Ingresa el color.'; return }
+
+  creando.value = true
+  try {
+    const payload = {
+      marca:            marcaFinal,
+      tipo:             crearForm.value.tipo.trim(),
+      color:            crearForm.value.color.trim(),
+      textura:          crearForm.value.textura.trim() || undefined,
+      metros_iniciales: parseFloat(crearForm.value.metros) || 0,
+    }
+    const { data } = await api.post('/catalogo-telas', payload)
+    telas.value.unshift(data)
+    if (!proveedores.value.includes(data.marca)) {
+      proveedores.value = [...proveedores.value, data.marca].sort()
+    }
+    showCrear.value = false
+    toast.success(`Tela "${data.referencia || data.tipo} (${data.color})" agregada.`)
+  } catch (e) {
+    crearError.value = e.response?.data?.message ?? 'Error al crear la tela.'
+  } finally {
+    creando.value = false
   }
 }
 
@@ -122,7 +166,17 @@ onMounted(cargar)
     <!-- Header -->
     <div class="flex items-center justify-between">
       <h2 class="text-lg font-bold text-gray-800">Inventario de telas</h2>
-      <span class="text-xs text-gray-400">{{ telasFiltradas.length }} / {{ telas.length }}</span>
+      <div class="flex items-center gap-3">
+        <span class="text-xs text-gray-400">{{ telasFiltradas.length }} / {{ telas.length }}</span>
+        <button
+          v-if="puedeRecargar"
+          @click="abrirCrear"
+          class="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-colors"
+        >
+          <PlusIcon class="w-3.5 h-3.5" />
+          Agregar tela
+        </button>
+      </div>
     </div>
 
     <!-- Search -->
@@ -225,7 +279,97 @@ onMounted(cargar)
       </div>
     </div>
 
-    <!-- Modal -->
+    <!-- Modal: Agregar tela -->
+    <Transition name="fade">
+      <div v-if="showCrear" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="showCrear = false">
+        <div class="absolute inset-0 bg-black/40" />
+        <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-4">
+          <div class="flex items-center justify-between">
+            <h3 class="text-base font-bold text-gray-800">Agregar tela</h3>
+            <button @click="showCrear = false" class="text-gray-400 text-2xl leading-none">&times;</button>
+          </div>
+
+          <div class="space-y-3">
+            <!-- Proveedor/Marca -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Proveedor / Marca <span class="text-red-500">*</span></label>
+              <select
+                v-model="crearForm.marca"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">Seleccionar...</option>
+                <option v-for="p in proveedores" :key="p" :value="p">{{ p }}</option>
+                <option value="__nueva__">Otro (nuevo proveedor)</option>
+              </select>
+              <input
+                v-if="crearForm.marca === '__nueva__'"
+                v-model="crearForm.marcaNueva"
+                class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Nombre del proveedor..."
+              />
+            </div>
+
+            <!-- Tipo de tela -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Tipo / Nombre <span class="text-red-500">*</span></label>
+              <input
+                v-model="crearForm.tipo"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Ej: Antifaz, Terciopelo, ALPES GRIS..."
+              />
+            </div>
+
+            <!-- Color -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Color <span class="text-red-500">*</span></label>
+              <input
+                v-model="crearForm.color"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Ej: Gris, Beige, Azul..."
+              />
+            </div>
+
+            <!-- Textura -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Textura (opcional)</label>
+              <input
+                v-model="crearForm.textura"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Ej: Lisa, Bordada..."
+              />
+            </div>
+
+            <!-- Metros iniciales -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Metros iniciales</label>
+              <input
+                v-model="crearForm.metros"
+                type="number"
+                min="0"
+                step="0.5"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="0"
+              />
+            </div>
+
+            <p v-if="crearError" class="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{{ crearError }}</p>
+
+            <div class="flex gap-3">
+              <button @click="showCrear = false" class="flex-1 bg-gray-100 text-gray-700 rounded-lg py-2.5 text-sm font-semibold">Cancelar</button>
+              <button
+                @click="crearTela"
+                :disabled="creando"
+                class="flex-1 bg-blue-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
+              >
+                {{ creando ? 'Guardando...' : 'Crear tela' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- Modal: Recargar / Descontar -->
     <Transition name="fade">
       <div v-if="showModal" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="showModal = false">
         <div class="absolute inset-0 bg-black/40" />
