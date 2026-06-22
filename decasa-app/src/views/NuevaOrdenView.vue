@@ -1975,54 +1975,27 @@ function removeFacturaFoto() {
                   class="input text-sm"
                 >
                   <option value="">— sin cambio de tela —</option>
-                  <option v-for="m in marcasOrdenadas" :key="m" :value="m">{{ m }}</option>
-                  <option value="Otro">Otra marca...</option>
+                  <option v-for="m in marcasConStock()" :key="m" :value="m">{{ m }}</option>
                 </select>
-                <input
-                  v-if="getTelaSelection(item, 'tela').marca === 'Otro'"
-                  v-model="getTelaSelection(item, 'tela').marcaManual"
-                  type="text" placeholder="Nombre de la marca..."
-                  class="input text-sm"
-                />
 
                 <!-- 2. Tipo de tela (cuando hay marca) -->
-                <template v-if="getTelaSelection(item, 'tela').marca && getTelaSelection(item, 'tela').marca !== 'Otro'">
+                <template v-if="getTelaSelection(item, 'tela').marca">
                   <select
                     v-model="getTelaSelection(item, 'tela').tipo"
                     @change="getTelaSelection(item, 'tela').color = ''"
                     class="input text-sm"
                   >
                     <option value="">— tipo de tela —</option>
-                    <option v-for="t in tiposTelaDeM(getTelaSelection(item, 'tela').marca)" :key="t" :value="t">{{ t }}</option>
-                    <option value="Otro">Otro tipo...</option>
+                    <option v-for="t in tiposConStock(getTelaSelection(item, 'tela').marca)" :key="t" :value="t">{{ t }}</option>
                   </select>
-                  <input
-                    v-if="getTelaSelection(item, 'tela').tipo === 'Otro'"
-                    v-model="getTelaSelection(item, 'tela').telaManual"
-                    type="text" placeholder="Nombre del tipo de tela..."
-                    class="input text-sm"
-                  />
 
                   <!-- 3. Color (cuando hay tipo) -->
-                  <template v-if="getTelaSelection(item, 'tela').tipo && getTelaSelection(item, 'tela').tipo !== 'Otro'">
+                  <template v-if="getTelaSelection(item, 'tela').tipo">
                     <select v-model="getTelaSelection(item, 'tela').color" class="input text-sm">
                       <option value="">— color —</option>
-                      <option v-for="c in coloresDeTela(getTelaSelection(item, 'tela').marca, getTelaSelection(item, 'tela').tipo)" :key="c" :value="c">{{ c }}</option>
-                      <option value="Otro">Otro color...</option>
+                      <option v-for="c in coloresConStock(getTelaSelection(item, 'tela').marca, getTelaSelection(item, 'tela').tipo)" :key="c" :value="c">{{ c }}</option>
                     </select>
-                    <input
-                      v-if="getTelaSelection(item, 'tela').color === 'Otro'"
-                      v-model="getTelaSelection(item, 'tela').colorManual"
-                      type="text" placeholder="Nombre del color..."
-                      class="input text-sm"
-                    />
                   </template>
-                  <input
-                    v-else-if="getTelaSelection(item, 'tela').tipo === 'Otro'"
-                    v-model="getTelaSelection(item, 'tela').colorManual"
-                    type="text" placeholder="Color..."
-                    class="input text-sm"
-                  />
                 </template>
 
                 <!-- Preview tela elegida -->
@@ -2072,7 +2045,7 @@ function removeFacturaFoto() {
                     <label class="text-xs text-gray-500">
                       {{ campo.label }}{{ campo.unit ? ' (' + campo.unit + ')' : '' }}
                     </label>
-                    <!-- Tela: cascada Marca → Tipo → Color -->
+                    <!-- Tela: cascada Marca → Tipo → Color (solo telas con metros disponibles) -->
                     <template v-if="campo.useVariantes">
                       <select
                         v-model="getTelaSelection(item, campo.key).marca"
@@ -2080,38 +2053,23 @@ function removeFacturaFoto() {
                         class="input text-sm"
                       >
                         <option value="">— seleccionar marca —</option>
-                        <option v-for="m in marcasOrdenadas" :key="m" :value="m">{{ m }}</option>
-                        <option value="Otro">Otra marca...</option>
+                        <option v-for="m in marcasConStock()" :key="m" :value="m">{{ m }}</option>
                       </select>
-                      <input v-if="getTelaSelection(item, campo.key).marca === 'Otro'"
-                        v-model="getTelaSelection(item, campo.key).marcaManual"
-                        type="text" placeholder="Nombre de la marca..." class="input text-sm mt-1" />
-                      <template v-if="getTelaSelection(item, campo.key).marca && getTelaSelection(item, campo.key).marca !== 'Otro'">
+                      <template v-if="getTelaSelection(item, campo.key).marca">
                         <select
                           v-model="getTelaSelection(item, campo.key).tipo"
                           @change="getTelaSelection(item, campo.key).color = ''"
                           class="input text-sm mt-1"
                         >
                           <option value="">— tipo de tela —</option>
-                          <option v-for="t in tiposTelaDeM(getTelaSelection(item, campo.key).marca)" :key="t" :value="t">{{ t }}</option>
-                          <option value="Otro">Otro tipo...</option>
+                          <option v-for="t in tiposConStock(getTelaSelection(item, campo.key).marca)" :key="t" :value="t">{{ t }}</option>
                         </select>
-                        <input v-if="getTelaSelection(item, campo.key).tipo === 'Otro'"
-                          v-model="getTelaSelection(item, campo.key).telaManual"
-                          type="text" placeholder="Nombre del tipo de tela..." class="input text-sm mt-1" />
-                        <template v-if="getTelaSelection(item, campo.key).tipo && getTelaSelection(item, campo.key).tipo !== 'Otro'">
+                        <template v-if="getTelaSelection(item, campo.key).tipo">
                           <select v-model="getTelaSelection(item, campo.key).color" class="input text-sm mt-1">
                             <option value="">— color —</option>
-                            <option v-for="c in coloresDeTela(getTelaSelection(item, campo.key).marca, getTelaSelection(item, campo.key).tipo)" :key="c" :value="c">{{ c }}</option>
-                            <option value="Otro">Otro color...</option>
+                            <option v-for="c in coloresConStock(getTelaSelection(item, campo.key).marca, getTelaSelection(item, campo.key).tipo)" :key="c" :value="c">{{ c }}</option>
                           </select>
-                          <input v-if="getTelaSelection(item, campo.key).color === 'Otro'"
-                            v-model="getTelaSelection(item, campo.key).colorManual"
-                            type="text" placeholder="Nombre del color..." class="input text-sm mt-1" />
                         </template>
-                        <input v-else-if="getTelaSelection(item, campo.key).tipo === 'Otro'"
-                          v-model="getTelaSelection(item, campo.key).colorManual"
-                          type="text" placeholder="Color..." class="input text-sm mt-1" />
                       </template>
                       <p v-if="telaResumidaCampo(item, campo.key)" class="text-xs text-purple-600 font-medium mt-1">
                         {{ campo.label }}: {{ telaResumidaCampo(item, campo.key) }}
