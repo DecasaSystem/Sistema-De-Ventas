@@ -4,6 +4,7 @@ import { MagnifyingGlassIcon, PlusIcon, MinusIcon } from '@heroicons/vue/24/outl
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
 import api from '@/api'
+import { TELAS_CATALOGO } from '@/data/telasCatalogo'
 
 const auth  = useAuthStore()
 const toast = useToast()
@@ -93,6 +94,12 @@ async function crearTela() {
     telas.value.unshift(data)
     if (!proveedores.value.includes(data.marca)) {
       proveedores.value = [...proveedores.value, data.marca].sort()
+    }
+    // Sync TELAS_CATALOGO reactive object so InventarioView sees the new tela immediately
+    if (!TELAS_CATALOGO[data.marca]) TELAS_CATALOGO[data.marca] = {}
+    if (!TELAS_CATALOGO[data.marca][data.tipo]) TELAS_CATALOGO[data.marca][data.tipo] = []
+    if (!TELAS_CATALOGO[data.marca][data.tipo].includes(data.color)) {
+      TELAS_CATALOGO[data.marca][data.tipo].push(data.color)
     }
     showCrear.value = false
     toast.success(`Tela "${data.referencia || data.tipo} (${data.color})" agregada.`)
