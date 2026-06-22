@@ -25,7 +25,7 @@ const modalError     = ref('')
 const showCrear  = ref(false)
 const creando    = ref(false)
 const crearError = ref('')
-const crearForm  = ref({ marca: '', marcaNueva: '', tipo: '', color: '', textura: '', metros: '' })
+const crearForm  = ref({ marca: '', marcaNueva: '', tipo: '', color: '', referencia: '', textura: '', metros: '' })
 
 const puedeRecargar  = computed(() => auth.puedeRecargarTelas)
 const puedeDescontar = computed(() => auth.isCosturero || auth.isSupervisor)
@@ -65,7 +65,7 @@ async function cargar() {
 }
 
 function abrirCrear() {
-  crearForm.value = { marca: '', marcaNueva: '', tipo: '', color: '', textura: '', metros: '' }
+  crearForm.value = { marca: '', marcaNueva: '', tipo: '', color: '', referencia: '', textura: '', metros: '' }
   crearError.value = ''
   showCrear.value = true
 }
@@ -85,6 +85,7 @@ async function crearTela() {
       marca:            marcaFinal,
       tipo:             crearForm.value.tipo.trim(),
       color:            crearForm.value.color.trim(),
+      referencia:       crearForm.value.referencia.trim() || undefined,
       textura:          crearForm.value.textura.trim() || undefined,
       metros_iniciales: parseFloat(crearForm.value.metros) || 0,
     }
@@ -316,6 +317,16 @@ onMounted(cargar)
                 v-model="crearForm.tipo"
                 class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="Ej: Antifaz, Terciopelo, ALPES GRIS..."
+              />
+            </div>
+
+            <!-- Referencia -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Referencia (opcional)</label>
+              <input
+                v-model="crearForm.referencia"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Ej: ADARA 10 HUMO, ALPES GRIS..."
               />
             </div>
 
