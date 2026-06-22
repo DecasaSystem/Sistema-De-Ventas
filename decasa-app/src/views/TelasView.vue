@@ -32,10 +32,11 @@ const telasFiltradas = computed(() => {
   if (busqueda.value.trim()) {
     const q = busqueda.value.toLowerCase()
     lista = lista.filter(t =>
-      t.referencia.toLowerCase().includes(q) ||
-      (t.color?.toLowerCase().includes(q)) ||
-      (t.textura?.toLowerCase().includes(q)) ||
-      (t.proveedor?.toLowerCase().includes(q))
+      t.referencia?.toLowerCase().includes(q) ||
+      t.tipo?.toLowerCase().includes(q) ||
+      t.color?.toLowerCase().includes(q) ||
+      t.textura?.toLowerCase().includes(q) ||
+      t.proveedor?.toLowerCase().includes(q)
     )
   }
   return lista
@@ -84,23 +85,22 @@ async function confirmar() {
   try {
     const endpoint = modalTipo.value === 'recargar' ? '/inventario-telas/recargar' : '/inventario-telas/descontar'
     const { data } = await api.post(endpoint, {
-      referencia: telaActiva.value.referencia,
+      fuente: telaActiva.value.fuente,
+      id:     telaActiva.value.id,
       metros: m,
-      nota: nota.value || undefined,
+      nota:   nota.value || undefined,
     })
 
-    // Reemplazar en la lista si existe; si es nueva entrada (creada desde catálogo), actualizar
-    const idx = telas.value.findIndex(t => t.referencia === data.referencia)
+    const idx = telas.value.findIndex(t => t.fuente === data.fuente && t.id === data.id)
     if (idx !== -1) {
       telas.value[idx] = data
-    } else {
-      telas.value.push(data)
     }
     showModal.value = false
+    const nombreTela = data.fuente === 'catalogo' ? `${data.tipo} (${data.color})` : data.referencia
     toast.success(
       modalTipo.value === 'recargar'
-        ? `+${m} m agregados a ${data.referencia}`
-        : `-${m} m descontados de ${data.referencia}`
+        ? `+${m} m agregados a ${nombreTela}`
+        : `-${m} m descontados de ${nombreTela}`
     )
   } catch (e) {
     modalError.value = e.response?.data?.message ?? 'Error al actualizar.'
@@ -175,21 +175,29 @@ onMounted(cargar)
     <div v-else class="space-y-2">
       <div
         v-for="tela in telasFiltradas"
-        :key="tela.referencia"
+        :key="tela.fuente + '-' + tela.id"
         class="bg-white rounded-xl shadow-sm p-4"
-        :class="{ 'opacity-75': tela.solo_catalogo }"
       >
         <!-- Title row -->
         <div class="flex items-start justify-between gap-2">
           <div class="flex-1 min-w-0">
-            <p class="font-semibold text-sm text-gray-800 truncate">{{ tela.referencia }}</p>
-            <p class="text-xs text-gray-500 mt-0.5">
-              <span v-if="tela.color">{{ tela.color }}</span>
-              <span v-if="tela.color && tela.textura"> · </span>
-              <span v-if="tela.textura">{{ tela.textura }}</span>
-              <span v-if="tela.proveedor" class="text-gray-400"> · {{ tela.proveedor }}</span>
-            </p>
-            <p v-if="tela.solo_catalogo" class="text-xs text-gray-400 mt-0.5 italic">Sin stock registrado</p>
+            <!-- Catálogo: mostrar tipo como título, marca+color como sub -->
+            <template v-if="tela.fuente === 'catalogo'">
+              <p class="font-semibold text-sm text-gray-800 truncate">{{ tela.tipo }}</p>
+              <p class="text-xs text-gray-500 mt-0.5">
+                {{ tela.color }}<span class="text-gray-400"> · {{ tela.marca }}</span>
+              </p>
+            </template>
+            <!-- Inventario (Excel): mostrar referencia como título -->
+            <template v-else>
+              <p class="font-semibold text-sm text-gray-800 truncate">{{ tela.referencia }}</p>
+              <p class="text-xs text-gray-500 mt-0.5">
+                <span v-if="tela.color">{{ tela.color }}</span>
+                <span v-if="tela.color && tela.textura"> · </span>
+                <span v-if="tela.textura">{{ tela.textura }}</span>
+                <span v-if="tela.proveedor" class="text-gray-400"> · {{ tela.proveedor }}</span>
+              </p>
+            </template>
           </div>
           <span :class="['text-xs font-bold px-2.5 py-1 rounded-full whitespace-nowrap', colorBadge(tela.metros_libres)]">
             {{ tela.metros_libres }} m
@@ -207,7 +215,7 @@ onMounted(cargar)
             Recargar
           </button>
           <button
-            v-if="puedeDescontar && !tela.solo_catalogo"
+            v-if="puedeDescontar"
             @click="abrirDescontar(tela)"
             :disabled="tela.metros_libres <= 0"
             class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-50 text-red-700 text-xs font-semibold hover:bg-red-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
@@ -232,7 +240,9 @@ onMounted(cargar)
           </div>
 
           <div class="bg-gray-50 rounded-lg px-3 py-2">
-            <p class="text-sm font-semibold text-gray-800">{{ telaActiva?.referencia }}</p>
+            <p class="text-sm font-semibold text-gray-800">
+              {{ telaActiva?.fuente === 'catalogo' ? `${telaActiva.tipo} (${telaActiva.color})` : telaActiva?.referencia }}
+            </p>
             <p class="text-xs text-gray-500 mt-0.5">
               Disponible: <strong>{{ telaActiva?.metros_libres }} m</strong>
             </p>

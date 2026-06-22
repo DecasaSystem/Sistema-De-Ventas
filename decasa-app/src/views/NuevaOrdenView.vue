@@ -971,15 +971,17 @@ async function submit() {
   for (const item of items.value) {
     if (!item._fabricar_pedido || !item._esTapizado) continue
     const sel = item._telaSelections?.tela
-    if (!sel || !sel.tipo || sel.tipo === 'Otro' || sel.marca === 'Otro') continue
+    if (!sel || !sel.tipo || sel.tipo === 'Otro' || sel.marca === 'Otro' || !sel.color) continue
     try {
-      const { data: tv } = await api.get('/inventario-telas/validar', { params: { referencia: sel.tipo } })
+      const { data: tv } = await api.get('/inventario-telas/validar', {
+        params: { marca: sel.marca, tipo: sel.tipo, color: sel.color },
+      })
       if (!tv.disponible) {
-        toast.error(`No hay metros disponibles de "${sel.tipo}". Elige otra tela o contacta al encargado.`)
+        toast.error(`No hay metros disponibles de "${sel.tipo} – ${sel.color}". Elige otra tela o contacta al encargado.`)
         return
       }
     } catch {
-      // Si falla la validación, dejar pasar (no bloquear por error de red)
+      // No bloquear si falla la validación por error de red
     }
   }
 
