@@ -15,13 +15,18 @@ class CatalogoTelaController extends Controller
     {
         $rows = CatalogoTela::where('activo', true)
             ->orderBy('marca')->orderBy('tipo')->orderBy('color')
-            ->get(['id', 'marca', 'tipo', 'color']);
+            ->get(['id', 'marca', 'tipo', 'color', 'referencia', 'textura']);
 
         $grouped = $rows->groupBy('marca')->map(fn($marcaRows, $marca) => [
             'marca' => $marca,
             'tipos' => $marcaRows->groupBy('tipo')->map(fn($tipoRows, $tipo) => [
-                'tipo'   => $tipo,
-                'colores' => $tipoRows->map(fn($r) => ['id' => $r->id, 'color' => $r->color])->values(),
+                'tipo'    => $tipo,
+                'colores' => $tipoRows->map(fn($r) => [
+                    'id'         => $r->id,
+                    'color'      => $r->color,
+                    'referencia' => $r->referencia,
+                    'textura'    => $r->textura,
+                ])->values(),
             ])->values(),
         ])->values();
 

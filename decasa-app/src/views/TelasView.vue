@@ -32,9 +32,11 @@ const telasFiltradas = computed(() => {
   if (busqueda.value.trim()) {
     const q = busqueda.value.toLowerCase()
     lista = lista.filter(t =>
+      t.referencia?.toLowerCase().includes(q) ||
       t.tipo?.toLowerCase().includes(q) ||
       t.color?.toLowerCase().includes(q) ||
-      t.marca?.toLowerCase().includes(q)
+      t.marca?.toLowerCase().includes(q) ||
+      t.textura?.toLowerCase().includes(q)
     )
   }
   return lista
@@ -93,7 +95,7 @@ async function confirmar() {
       telas.value[idx] = data
     }
     showModal.value = false
-    const nombreTela = `${data.tipo} (${data.color})`
+    const nombreTela = data.referencia || `${data.tipo} (${data.color})`
     toast.success(
       modalTipo.value === 'recargar'
         ? `+${m} m agregados a ${nombreTela}`
@@ -178,21 +180,20 @@ onMounted(cargar)
         <!-- Title row -->
         <div class="flex items-start justify-between gap-2">
           <div class="flex-1 min-w-0">
-            <!-- Catálogo: mostrar tipo como título, marca+color como sub -->
-            <template v-if="tela.fuente === 'catalogo'">
-              <p class="font-semibold text-sm text-gray-800 truncate">{{ tela.tipo }}</p>
-              <p class="text-xs text-gray-500 mt-0.5">
-                {{ tela.color }}<span class="text-gray-400"> · {{ tela.marca }}</span>
-              </p>
-            </template>
-            <!-- Inventario (Excel): mostrar referencia como título -->
-            <template v-else>
+            <!-- Si tiene referencia (del Excel): mostrarla como título principal -->
+            <template v-if="tela.referencia">
               <p class="font-semibold text-sm text-gray-800 truncate">{{ tela.referencia }}</p>
               <p class="text-xs text-gray-500 mt-0.5">
                 <span v-if="tela.color">{{ tela.color }}</span>
-                <span v-if="tela.color && tela.textura"> · </span>
-                <span v-if="tela.textura">{{ tela.textura }}</span>
-                <span v-if="tela.proveedor" class="text-gray-400"> · {{ tela.proveedor }}</span>
+                <span v-if="tela.textura"> · {{ tela.textura }}</span>
+                <span class="text-gray-400"> · {{ tela.marca }}</span>
+              </p>
+            </template>
+            <!-- Sin referencia: entrada del catálogo estático -->
+            <template v-else>
+              <p class="font-semibold text-sm text-gray-800 truncate">{{ tela.tipo }}</p>
+              <p class="text-xs text-gray-500 mt-0.5">
+                {{ tela.color }}<span class="text-gray-400"> · {{ tela.marca }}</span>
               </p>
             </template>
           </div>
@@ -238,7 +239,8 @@ onMounted(cargar)
 
           <div class="bg-gray-50 rounded-lg px-3 py-2">
             <p class="text-sm font-semibold text-gray-800">
-              {{ telaActiva?.tipo }} <span class="text-gray-500 font-normal">({{ telaActiva?.color }})</span>
+              {{ telaActiva?.referencia || telaActiva?.tipo }}
+              <span class="text-gray-500 font-normal">({{ telaActiva?.color }})</span>
             </p>
             <p class="text-xs text-gray-500 mt-0.5">
               Disponible: <strong>{{ telaActiva?.metros_libres }} m</strong>

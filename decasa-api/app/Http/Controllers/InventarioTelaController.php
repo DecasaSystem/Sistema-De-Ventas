@@ -21,7 +21,9 @@ class InventarioTelaController extends Controller
             $query->where(function ($q) use ($term) {
                 $q->whereRaw('LOWER(tipo) LIKE ?', [$term])
                   ->orWhereRaw('LOWER(color) LIKE ?', [$term])
-                  ->orWhereRaw('LOWER(marca) LIKE ?', [$term]);
+                  ->orWhereRaw('LOWER(marca) LIKE ?', [$term])
+                  ->orWhereRaw('LOWER(COALESCE(referencia,"")) LIKE ?', [$term])
+                  ->orWhereRaw('LOWER(COALESCE(textura,"")) LIKE ?', [$term]);
             });
         }
         if ($proveedor) {
@@ -29,7 +31,7 @@ class InventarioTelaController extends Controller
         }
 
         $telas = $query->orderBy('marca')->orderBy('tipo')->orderBy('color')
-            ->get(['id', 'marca', 'tipo', 'color', 'metros_disponibles', 'metros_reservados'])
+            ->get(['id', 'marca', 'tipo', 'color', 'referencia', 'textura', 'metros_disponibles', 'metros_reservados'])
             ->map(fn ($t) => $this->format($t));
 
         return response()->json($telas);
@@ -149,11 +151,11 @@ class InventarioTelaController extends Controller
     {
         return [
             'id'                 => $t->id,
-            'fuente'             => 'catalogo',
             'marca'              => $t->marca,
             'tipo'               => $t->tipo,
             'color'              => $t->color,
-            'proveedor'          => $t->marca,
+            'referencia'         => $t->referencia ?? null,
+            'textura'            => $t->textura ?? null,
             'metros_disponibles' => (float) $t->metros_disponibles,
             'metros_reservados'  => (float) $t->metros_reservados,
             'metros_libres'      => round((float) $t->metros_disponibles - (float) $t->metros_reservados, 2),
