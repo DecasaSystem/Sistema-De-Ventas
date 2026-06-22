@@ -1947,7 +1947,7 @@ function removeFacturaFoto() {
               <p v-if="telaResumidaCampo(item, 'tela')" class="text-xs font-semibold text-amber-700">
                 ✓ Tela: {{ telaResumidaCampo(item, 'tela') }}
               </p>
-              <p v-else-if="Object.keys(telaMetrosMap.value).length && !marcasConStock().length" class="text-xs text-red-600 italic">
+              <p v-else-if="Object.keys(telaMetrosMap).length && !marcasConStock().length" class="text-xs text-red-600 italic">
                 No hay telas con metros disponibles en este momento.
               </p>
               <p v-else class="text-xs text-amber-600 italic">Selecciona la tela para que producción sepa cuál usar</p>
