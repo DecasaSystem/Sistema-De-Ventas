@@ -27,16 +27,14 @@ const puedeDescontar = computed(() => auth.isCosturero || auth.isSupervisor)
 const telasFiltradas = computed(() => {
   let lista = telas.value
   if (proveedorFiltro.value) {
-    lista = lista.filter(t => t.proveedor === proveedorFiltro.value)
+    lista = lista.filter(t => t.marca === proveedorFiltro.value)
   }
   if (busqueda.value.trim()) {
     const q = busqueda.value.toLowerCase()
     lista = lista.filter(t =>
-      t.referencia?.toLowerCase().includes(q) ||
       t.tipo?.toLowerCase().includes(q) ||
       t.color?.toLowerCase().includes(q) ||
-      t.textura?.toLowerCase().includes(q) ||
-      t.proveedor?.toLowerCase().includes(q)
+      t.marca?.toLowerCase().includes(q)
     )
   }
   return lista
@@ -85,18 +83,17 @@ async function confirmar() {
   try {
     const endpoint = modalTipo.value === 'recargar' ? '/inventario-telas/recargar' : '/inventario-telas/descontar'
     const { data } = await api.post(endpoint, {
-      fuente: telaActiva.value.fuente,
       id:     telaActiva.value.id,
       metros: m,
       nota:   nota.value || undefined,
     })
 
-    const idx = telas.value.findIndex(t => t.fuente === data.fuente && t.id === data.id)
+    const idx = telas.value.findIndex(t => t.id === data.id)
     if (idx !== -1) {
       telas.value[idx] = data
     }
     showModal.value = false
-    const nombreTela = data.fuente === 'catalogo' ? `${data.tipo} (${data.color})` : data.referencia
+    const nombreTela = `${data.tipo} (${data.color})`
     toast.success(
       modalTipo.value === 'recargar'
         ? `+${m} m agregados a ${nombreTela}`
@@ -132,12 +129,12 @@ onMounted(cargar)
       <input
         v-model="busqueda"
         type="search"
-        placeholder="Buscar por referencia, color, textura..."
+        placeholder="Buscar por tipo, color, marca..."
         class="w-full pl-9 pr-3 py-2.5 rounded-xl border border-gray-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
       />
     </div>
 
-    <!-- Filtro por proveedor -->
+    <!-- Filtro por marca/proveedor -->
     <div v-if="proveedores.length" class="flex flex-wrap gap-2">
       <button
         @click="proveedorFiltro = ''"
@@ -146,7 +143,7 @@ onMounted(cargar)
           proveedorFiltro === '' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
         ]"
       >
-        Todos
+        Todas
       </button>
       <button
         v-for="prov in proveedores"
@@ -241,7 +238,7 @@ onMounted(cargar)
 
           <div class="bg-gray-50 rounded-lg px-3 py-2">
             <p class="text-sm font-semibold text-gray-800">
-              {{ telaActiva?.fuente === 'catalogo' ? `${telaActiva.tipo} (${telaActiva.color})` : telaActiva?.referencia }}
+              {{ telaActiva?.tipo }} <span class="text-gray-500 font-normal">({{ telaActiva?.color }})</span>
             </p>
             <p class="text-xs text-gray-500 mt-0.5">
               Disponible: <strong>{{ telaActiva?.metros_libres }} m</strong>

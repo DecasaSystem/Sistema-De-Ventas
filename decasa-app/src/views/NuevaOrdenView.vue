@@ -8,7 +8,7 @@ import { getVariantes } from '@/api/inventario'
 import { getReservaInfo, getReservaStockLote } from '@/api/reserva'
 import { updateCliente, CATEGORIAS_DISPONIBLES } from '@/api/clientes'
 import { SPECS_TEMPLATES, resolverCategoria, camposParaModo, specsToDescripcion, extraerDimensiones } from '@/constants/specsConfig'
-import { marcasOrdenadas, tiposTelaDeM, coloresDeTela } from '@/data/telasCatalogo'
+import { TELAS_CATALOGO, marcasOrdenadas, tiposTelaDeM, coloresDeTela } from '@/data/telasCatalogo'
 import { cloudinaryOpt } from '@/utils/cloudinary'
 import { comprimirImagen } from '@/utils/comprimirImagen'
 import { ArrowPathIcon, SparklesIcon, XMarkIcon } from '@heroicons/vue/24/solid'
@@ -27,10 +27,40 @@ const step = ref(1)
 
 // ── Tiendas ───────────────────────────────────────────────────────────────────
 const tiendas = ref([])
+
+// Telas con metros disponibles (para filtrar el picker en fabricar bajo pedido)
+const telaMetrosMap = ref({}) // clave "marca|tipo|color" → metros_libres
 onMounted(async () => {
-  const { data } = await api.get('/tiendas')
-  tiendas.value = data
+  const [{ data: tiendasData }, { data: telasData }] = await Promise.all([
+    api.get('/tiendas'),
+    api.get('/inventario-telas').catch(() => ({ data: [] })),
+  ])
+  tiendas.value = tiendasData
+  const map = {}
+  for (const t of telasData) {
+    map[`${t.marca}|${t.tipo}|${t.color}`] = t.metros_libres
+  }
+  telaMetrosMap.value = map
 })
+
+function tieneStock(marca, tipo, color) {
+  return (telaMetrosMap.value[`${marca}|${tipo}|${color}`] ?? 0) > 0
+}
+function marcasConStock() {
+  return marcasOrdenadas.value.filter(m =>
+    Object.keys(TELAS_CATALOGO[m] ?? {}).some(tipo =>
+      (TELAS_CATALOGO[m][tipo] ?? []).some(color => tieneStock(m, tipo, color))
+    )
+  )
+}
+function tiposConStock(marca) {
+  return tiposTelaDeM(marca).filter(tipo =>
+    (TELAS_CATALOGO[marca]?.[tipo] ?? []).some(color => tieneStock(marca, tipo, color))
+  )
+}
+function coloresConStock(marca, tipo) {
+  return coloresDeTela(marca, tipo).filter(color => tieneStock(marca, tipo, color))
+}
 
 // ── Paso 1: Cliente ───────────────────────────────────────────────────────────
 const clienteQuery     = ref('')
@@ -1886,22 +1916,15 @@ function removeFacturaFoto() {
             <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
               <p class="text-xs font-semibold text-amber-800">Selecciona el tapizado <span class="text-red-500">*</span></p>
 
-              <!-- Cascada Marca → Tipo → Color -->
+              <!-- Cascada Marca → Tipo → Color (solo muestra telas con metros disponibles) -->
               <select
                 v-model="getTelaSelection(item, 'tela').marca"
                 @change="getTelaSelection(item, 'tela').tipo = ''; getTelaSelection(item, 'tela').color = ''"
                 class="input text-sm"
               >
                 <option value="">— elige la marca de tela —</option>
-                <option v-for="m in marcasOrdenadas" :key="m" :value="m">{{ m }}</option>
-                <option value="Otro">Otra marca...</option>
+                <option v-for="m in marcasConStock()" :key="m" :value="m">{{ m }}</option>
               </select>
-              <input
-                v-if="getTelaSelection(item, 'tela').marca === 'Otro'"
-                v-model="getTelaSelection(item, 'tela').marcaManual"
-                type="text" placeholder="Nombre de la marca..."
-                class="input text-sm"
-              />
 
               <template v-if="getTelaSelection(item, 'tela').marca && getTelaSelection(item, 'tela').marca !== 'Otro'">
                 <select
@@ -1910,39 +1933,22 @@ function removeFacturaFoto() {
                   class="input text-sm"
                 >
                   <option value="">— tipo de tela —</option>
-                  <option v-for="t in tiposTelaDeM(getTelaSelection(item, 'tela').marca)" :key="t" :value="t">{{ t }}</option>
-                  <option value="Otro">Otro tipo...</option>
+                  <option v-for="t in tiposConStock(getTelaSelection(item, 'tela').marca)" :key="t" :value="t">{{ t }}</option>
                 </select>
-                <input
-                  v-if="getTelaSelection(item, 'tela').tipo === 'Otro'"
-                  v-model="getTelaSelection(item, 'tela').telaManual"
-                  type="text" placeholder="Tipo de tela..."
-                  class="input text-sm"
-                />
 
-                <template v-if="getTelaSelection(item, 'tela').tipo && getTelaSelection(item, 'tela').tipo !== 'Otro'">
+                <template v-if="getTelaSelection(item, 'tela').tipo">
                   <select v-model="getTelaSelection(item, 'tela').color" class="input text-sm">
                     <option value="">— color —</option>
-                    <option v-for="c in coloresDeTela(getTelaSelection(item, 'tela').marca, getTelaSelection(item, 'tela').tipo)" :key="c" :value="c">{{ c }}</option>
-                    <option value="Otro">Otro color...</option>
+                    <option v-for="c in coloresConStock(getTelaSelection(item, 'tela').marca, getTelaSelection(item, 'tela').tipo)" :key="c" :value="c">{{ c }}</option>
                   </select>
-                  <input
-                    v-if="getTelaSelection(item, 'tela').color === 'Otro'"
-                    v-model="getTelaSelection(item, 'tela').colorManual"
-                    type="text" placeholder="Color..."
-                    class="input text-sm"
-                  />
                 </template>
-                <input
-                  v-else-if="getTelaSelection(item, 'tela').tipo === 'Otro'"
-                  v-model="getTelaSelection(item, 'tela').colorManual"
-                  type="text" placeholder="Color..."
-                  class="input text-sm"
-                />
               </template>
 
               <p v-if="telaResumidaCampo(item, 'tela')" class="text-xs font-semibold text-amber-700">
                 ✓ Tela: {{ telaResumidaCampo(item, 'tela') }}
+              </p>
+              <p v-else-if="Object.keys(telaMetrosMap.value).length && !marcasConStock().length" class="text-xs text-red-600 italic">
+                No hay telas con metros disponibles en este momento.
               </p>
               <p v-else class="text-xs text-amber-600 italic">Selecciona la tela para que producción sepa cuál usar</p>
             </div>
