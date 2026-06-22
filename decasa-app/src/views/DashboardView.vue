@@ -23,6 +23,7 @@ import {
   ArrowPathIcon,
   UserCircleIcon,
   BuildingOffice2Icon,
+  SwatchIcon,
 } from '@heroicons/vue/24/outline'
 
 const auth   = useAuthStore()
@@ -57,6 +58,7 @@ const accesos = computed(() => {
     { label: 'Órdenes',      icon: ClipboardDocumentListIcon, to: { name: 'ordenes' } },
     { label: 'Clientes',     icon: UserGroupIcon, to: { name: 'clientes' } },
     { label: 'Inventario',   icon: ArchiveBoxIcon,  to: { name: 'inventario' } },
+    ...((auth.puedeRecargarTelas || auth.isCosturero) ? [{ label: 'Telas', icon: SwatchIcon, to: { name: 'telas' } }] : []),
     ...(!auth.isSupervisor ? [{ label: 'Fábrica', icon: BuildingOffice2Icon, to: { name: 'reserva' } }] : []),
     ...(!auth.isSupervisor ? [{ label: 'Traslado', icon: ArrowPathIcon, to: { name: 'surtir' } }] : []),
     ...(auth.tieneAccesoRedes ? [{ label: 'Redes', icon: ChatBubbleLeftRightIcon, to: { name: 'redes' } }] : []),
