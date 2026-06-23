@@ -258,6 +258,7 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/productos-top',             [ReporteController::class, 'productosTop']);
             Route::get('/pendientes',                [ReporteController::class, 'pendientes']);
             Route::get('/interesados',               [ReporteController::class, 'interesados']);
+            Route::get('/canales',                   [ReporteController::class, 'canalVentas']);
             Route::get('/resumen-mensual',           [ReporteController::class, 'resumenMensual']);
             Route::get('/resumen-mensual/exportar',  [ReporteController::class, 'exportarResumenMensual']);
         });

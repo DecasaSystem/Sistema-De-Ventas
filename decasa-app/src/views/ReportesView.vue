@@ -52,6 +52,7 @@ const todosTabs = [
   { id: 'productos',        label: 'Productos' },
   { id: 'cartera',          label: 'Cartera' },
   { id: 'produccion',       label: 'Producción' },
+  { id: 'canales',           label: 'Canales' },
   { id: 'conductores',      label: 'Conductores' },
   { id: 'interesados',      label: 'Interesados' },
   ...(esPrimeroDelMes ? [{ id: 'resumen-mensual', label: 'Resumen mensual' }] : []),
@@ -68,6 +69,7 @@ async function switchTab(id) {
   if (id === 'resumen-mensual') cargarResumenMensual()
   if (id === 'interesados' && !interesados.value) cargarInteresados()
   if (id === 'conductores') cargarConductores()
+  if (id === 'canales') cargarCanales()
   await nextTick()
   rebuildCharts(id)
 }
@@ -120,8 +122,41 @@ async function cargarResumenMensual() {
   }
 }
 
+const canalesData         = ref(null)
+const cargandoCanales     = ref(false)
+
+const CANAL_LABELS = {
+  fisica:     'Física',
+  whatsapp:   'WhatsApp',
+  instagram:  'Instagram',
+  facebook:   'Facebook',
+  pagina:     'Página web',
+  red_social: 'Red social',
+  otro:       'Otro',
+}
+const CANAL_COLORS = {
+  fisica:     '#2563eb',
+  whatsapp:   '#16a34a',
+  instagram:  '#e1306c',
+  facebook:   '#1877f2',
+  pagina:     '#7c3aed',
+  red_social: '#d97706',
+  otro:       '#6b7280',
+}
+
 const conductores         = ref(null)
 const cargandoConductores = ref(false)
+
+async function cargarCanales() {
+  cargandoCanales.value = true
+  try {
+    const p = paramsFiltro()
+    const { data } = await api.get('/reportes/canales', { params: p })
+    canalesData.value = data
+  } catch {} finally {
+    cargandoCanales.value = false
+  }
+}
 
 async function cargarConductores() {
   cargandoConductores.value = true
@@ -209,6 +244,7 @@ async function cargarTodo() {
   busquedaProducto.value = ''
   interesados.value = null
   conductores.value = null
+  canalesData.value = null
   if (tabActivo.value === 'interesados') cargandoInteresados.value = true
   if (tabActivo.value === 'conductores') cargarConductores()
   try {
@@ -754,6 +790,81 @@ onBeforeUnmount(() => {
           </li>
         </ul>
         <p v-if="!retrasos.length" class="text-center py-8 text-gray-400 text-sm">Sin retrasos registrados.</p>
+      </div>
+
+      <!-- ══════ TAB: CANALES ══════ -->
+      <div v-show="tabActivo === 'canales' && auth.isSupervisor" class="space-y-4">
+
+        <div v-if="cargandoCanales" class="flex justify-center py-10">
+          <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+        </div>
+
+        <template v-else-if="canalesData">
+
+          <!-- KPI total -->
+          <div class="grid grid-cols-2 gap-3">
+            <div class="bg-white rounded-xl shadow-sm p-4">
+              <p class="text-xs text-gray-400 mb-1">Total órdenes</p>
+              <p class="text-2xl font-bold text-gray-800">{{ canalesData.total_ordenes }}</p>
+            </div>
+            <div class="bg-white rounded-xl shadow-sm p-4">
+              <p class="text-xs text-gray-400 mb-1">Valor bruto</p>
+              <p class="text-xl font-bold text-blue-600">{{ cop(canalesData.total_valor) }}</p>
+            </div>
+          </div>
+
+          <!-- Lista por canal -->
+          <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+            <div class="px-4 py-3 border-b border-gray-100">
+              <p class="text-sm font-semibold text-gray-700">Ventas por canal</p>
+            </div>
+            <div class="divide-y divide-gray-50">
+              <div
+                v-for="c in canalesData.por_canal"
+                :key="c.canal"
+                class="px-4 py-3.5"
+              >
+                <div class="flex items-center justify-between mb-2">
+                  <div class="flex items-center gap-2">
+                    <span
+                      class="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                      :style="{ background: CANAL_COLORS[c.canal] ?? '#6b7280' }"
+                    />
+                    <span class="text-sm font-semibold text-gray-800">
+                      {{ CANAL_LABELS[c.canal] ?? c.canal }}
+                    </span>
+                  </div>
+                  <div class="text-right">
+                    <p class="text-sm font-bold text-blue-600">{{ cop(c.valor_bruto) }}</p>
+                    <p class="text-xs text-gray-400">{{ c.total_ordenes }} orden{{ c.total_ordenes !== 1 ? 'es' : '' }}</p>
+                  </div>
+                </div>
+                <!-- Barra de progreso -->
+                <div class="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                  <div
+                    class="h-full rounded-full transition-all"
+                    :style="{
+                      width: c.pct_valor + '%',
+                      background: CANAL_COLORS[c.canal] ?? '#6b7280',
+                    }"
+                  />
+                </div>
+                <div class="flex justify-between text-[11px] text-gray-400 mt-1">
+                  <span>{{ c.pct_ordenes }}% de órdenes</span>
+                  <span>{{ c.pct_valor }}% del valor</span>
+                </div>
+              </div>
+            </div>
+            <p v-if="!canalesData.por_canal.length" class="text-center py-8 text-sm text-gray-400">
+              Sin órdenes en este período.
+            </p>
+          </div>
+
+        </template>
+
+        <div v-else-if="!cargandoCanales" class="text-center py-12 text-gray-400 text-sm">
+          Haz clic en el tab para cargar los datos de canales.
+        </div>
       </div>
 
       <!-- ══════ TAB: CONDUCTORES ══════ -->
