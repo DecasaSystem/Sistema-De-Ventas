@@ -24,6 +24,7 @@ import {
   UserCircleIcon,
   BuildingOffice2Icon,
   SwatchIcon,
+  BanknotesIcon,
 } from '@heroicons/vue/24/outline'
 
 const auth   = useAuthStore()
@@ -63,6 +64,7 @@ const accesos = computed(() => {
     ...(!auth.isSupervisor ? [{ label: 'Traslado', icon: ArrowPathIcon, to: { name: 'surtir' } }] : []),
     ...(auth.tieneAccesoRedes ? [{ label: 'Redes', icon: ChatBubbleLeftRightIcon, to: { name: 'redes' } }] : []),
     { label: 'Citas',        icon: CalendarDaysIcon,        to: { name: 'citas' } },
+    { label: 'Caja',        icon: BanknotesIcon,           to: { name: 'caja'  } },
   ]
 
   if (auth.isSupervisor) {
