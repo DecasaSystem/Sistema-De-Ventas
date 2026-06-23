@@ -278,14 +278,21 @@ class ConsultaCostoController extends Controller
         }
 
         DB::transaction(function () use ($consulta) {
-            // Actualizar precio_unitario de cada orden_item
             foreach ($consulta->items as $item) {
+                // El ordenItem puede ser null si el ítem fue borrado de la orden
+                // después de crear la consulta. En ese caso lo saltamos.
+                if (! $item->ordenItem) {
+                    \Log::warning('enviar: ordenItem no encontrado, saltando', [
+                        'consulta_item_id' => $item->id,
+                        'orden_item_id'    => $item->orden_item_id,
+                    ]);
+                    continue;
+                }
                 $item->ordenItem->update(['precio_unitario' => $item->precio_final]);
             }
 
-            // Recalcular valor_total de la orden
             $orden = $consulta->orden;
-            $orden->loadMissing('items');
+            $orden->load('items');
             $nuevoTotal = $orden->items->sum(fn($i) => $i->cantidad * $i->precio_unitario);
             $orden->update(['valor_total' => $nuevoTotal]);
 
