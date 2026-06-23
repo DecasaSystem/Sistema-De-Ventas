@@ -1583,7 +1583,7 @@ onMounted(cargarOrden)
 
           <!-- Firma del cliente -->
           <div class="space-y-2">
-            <label class="block text-xs font-semibold text-gray-600 uppercase">Firma del cliente (opcional)</label>
+            <label class="block text-xs font-semibold text-gray-600 uppercase">Firma del cliente <span class="text-red-500">*</span></label>
             <FirmaCanvas
               v-if="!borradorFirmaUrl"
               v-model="borradorFirmaBlob"
@@ -1636,7 +1636,7 @@ onMounted(cargarOrden)
 
           <!-- Comprobante de pago -->
           <div class="space-y-1">
-            <label class="block text-xs font-semibold text-gray-600 uppercase">Foto del comprobante (opcional)</label>
+            <label class="block text-xs font-semibold text-gray-600 uppercase">Foto del comprobante <span class="text-red-500">*</span></label>
             <div v-if="borradorComprobanteFile" class="relative">
               <img :src="borradorComprobanteUrl || borradorComprobantePreview" class="w-full rounded-xl border border-gray-200 object-contain bg-gray-50 max-h-40" />
               <button @click="borradorComprobanteFile = null; borradorComprobanteUrl = ''; borradorComprobantePreview = ''" class="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 shadow">
@@ -1653,7 +1653,7 @@ onMounted(cargarOrden)
 
           <!-- Dirección de envío -->
           <div class="space-y-1">
-            <label class="block text-xs font-semibold text-gray-600 uppercase">Dirección de envío (opcional)</label>
+            <label class="block text-xs font-semibold text-gray-600 uppercase">Dirección de envío <span class="text-red-500">*</span></label>
             <DireccionColombia
               v-model:departamento="borradorForm.departamento_envio"
               v-model:ciudad="borradorForm.ciudad_envio"
@@ -1663,7 +1663,7 @@ onMounted(cargarOrden)
 
           <!-- Anexo firmado (solo si canal es física) -->
           <div v-if="orden?.canal === 'fisica'" class="space-y-1">
-            <label class="block text-xs font-semibold text-gray-600 uppercase">Foto del anexo firmado (opcional)</label>
+            <label class="block text-xs font-semibold text-gray-600 uppercase">Foto del anexo firmado <span class="text-red-500">*</span></label>
             <div v-if="borradorAnexoFile" class="relative">
               <img :src="borradorAnexoUrl || borradorAnexoPreview" class="w-full rounded-xl border border-gray-200 object-contain bg-gray-50 max-h-40" />
               <button @click="borradorAnexoFile = null; borradorAnexoUrl = ''; borradorAnexoPreview = ''" class="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 shadow">
@@ -1690,10 +1690,16 @@ onMounted(cargarOrden)
             </button>
             <button
               @click="completarBorrador"
-              :disabled="completandoBorrador"
+              :disabled="completandoBorrador || subiendoComprobante || subiendoAnexo ||
+                (!borradorFirmaBlob && !borradorFirmaUrl) ||
+                (!borradorComprobanteFile && !borradorComprobanteUrl) ||
+                !borradorForm.departamento_envio ||
+                !borradorForm.ciudad_envio ||
+                !borradorForm.direccion_envio ||
+                (orden?.canal === 'fisica' && !borradorAnexoFile && !borradorAnexoUrl)"
               class="flex-1 bg-green-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-green-700 disabled:opacity-40 transition-colors"
             >
-              {{ completandoBorrador ? 'Confirmando...' : 'Confirmar orden' }}
+              {{ completandoBorrador ? 'Confirmando...' : subiendoComprobante || subiendoAnexo ? 'Subiendo...' : 'Confirmar orden' }}
             </button>
           </div>
         </div>

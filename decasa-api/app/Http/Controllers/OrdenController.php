@@ -905,17 +905,19 @@ class OrdenController extends Controller
             return response()->json(['message' => 'No tienes permiso para completar esta orden.'], 403);
         }
 
+        $esPresencial = $orden->canal === 'fisica';
+
         $data = $request->validate([
-            'firma_url'           => 'nullable|string|max:500',
+            'firma_url'           => 'required|string|max:500',
             'anticipo_monto'      => 'required|numeric|min:0',
             'anticipo_metodo'     => 'nullable|in:efectivo,transferencia,tarjeta,otro',
             'anticipo_referencia' => 'nullable|string|max:100',
             'notas'               => 'nullable|string|max:1000',
-            'factura_foto_url'    => 'nullable|string|max:500',
-            'anexo_foto_url'      => 'nullable|string|max:500',
-            'departamento_envio'  => 'nullable|string|max:100',
-            'ciudad_envio'        => 'nullable|string|max:100',
-            'direccion_envio'     => 'nullable|string|max:300',
+            'factura_foto_url'    => 'required|string|max:500',
+            'anexo_foto_url'      => ($esPresencial ? 'required' : 'nullable') . '|string|max:500',
+            'departamento_envio'  => 'required|string|max:100',
+            'ciudad_envio'        => 'required|string|max:100',
+            'direccion_envio'     => 'required|string|max:300',
         ]);
 
         $tieneItemsCotizacion = $orden->items->contains(
