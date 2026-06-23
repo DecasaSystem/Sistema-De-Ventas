@@ -28,6 +28,9 @@ const step = ref(1)
 // ── Tiendas ───────────────────────────────────────────────────────────────────
 const tiendas = ref([])
 
+const tiendaVirtualId = computed(() => tiendas.value.find(t => t.nombre === 'Tienda Virtual')?.id ?? null)
+const canalVirtual    = computed(() => canal.value !== 'fisica')
+
 // Telas con metros disponibles (para filtrar el picker en fabricar bajo pedido)
 const telaMetrosMap = ref({}) // clave "marca|tipo|color" → metros_libres
 onMounted(async () => {
@@ -189,6 +192,20 @@ const canalesopts = [
   { value: 'red_social', label: 'Red social' },
   { value: 'otro',       label: 'Otro' },
 ]
+
+// Al cambiar canal: si es virtual → asignar Tienda Virtual automáticamente
+watch(canal, (nuevoCanal) => {
+  if (nuevoCanal !== 'fisica' && tiendaVirtualId.value) {
+    tiendaId.value = tiendaVirtualId.value
+  } else if (nuevoCanal === 'fisica') {
+    tiendaId.value = auth.usuario?.tienda_default_id ?? (tiendas.value.find(t => !t.es_fabrica && t.nombre !== 'Tienda Virtual')?.id ?? '')
+  }
+})
+
+// También reaccionar cuando carguen las tiendas (por si el watch disparó antes)
+watch(tiendaVirtualId, (id) => {
+  if (id && canal.value !== 'fisica') tiendaId.value = id
+})
 
 function paso1Valido() {
   return clienteSeleccionado.value && tiendaId.value && canal.value && !clienteRequiereCompletar.value
@@ -1261,13 +1278,21 @@ function removeFacturaFoto() {
       <!-- Tienda -->
       <div>
         <label class="label">Tienda</label>
-        <select v-if="auth.isSupervisor || auth.isEbanista" v-model="tiendaId" class="input">
-          <option value="">Seleccionar...</option>
-          <option v-for="t in tiendas" :key="t.id" :value="t.id">{{ t.nombre }}</option>
-        </select>
-        <div v-else class="input bg-gray-50 text-gray-700 cursor-default select-none">
-          {{ tiendas.find(t => t.id == tiendaId)?.nombre ?? 'Cargando...' }}
-        </div>
+        <template v-if="canalVirtual">
+          <div class="input bg-gray-50 text-gray-700 cursor-default select-none">
+            Tienda Virtual
+          </div>
+          <p class="text-xs text-blue-600 mt-1">Las ventas por {{ canalesopts.find(c => c.value === canal)?.label }} se registran automáticamente en Tienda Virtual.</p>
+        </template>
+        <template v-else>
+          <select v-if="auth.isSupervisor || auth.isEbanista" v-model="tiendaId" class="input">
+            <option value="">Seleccionar...</option>
+            <option v-for="t in tiendas.filter(t => t.nombre !== 'Tienda Virtual')" :key="t.id" :value="t.id">{{ t.nombre }}</option>
+          </select>
+          <div v-else class="input bg-gray-50 text-gray-700 cursor-default select-none">
+            {{ tiendas.find(t => t.id == tiendaId)?.nombre ?? 'Cargando...' }}
+          </div>
+        </template>
       </div>
 
       <!-- Canal -->
