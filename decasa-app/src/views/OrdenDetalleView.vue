@@ -129,10 +129,6 @@ watch(showCompletarBorradorModal, (open) => {
 })
 
 async function completarBorrador() {
-  if (!borradorFirmaBlob.value && !borradorFirmaUrl.value) {
-    toast.error('La firma del cliente es obligatoria para confirmar la orden.')
-    return
-  }
   completandoBorrador.value = true
   try {
     if (borradorFirmaBlob.value && !borradorFirmaUrl.value) {
@@ -149,7 +145,7 @@ async function completarBorrador() {
       borradorFirmaUrl.value = uploadData.url
     }
     const { data } = await completarBorradorApi(orden.value.id, {
-      firma_url:           borradorFirmaUrl.value,
+      firma_url:           borradorFirmaUrl.value || undefined,
       anticipo_monto:      borradorForm.value.anticipo_monto,
       anticipo_metodo:     borradorForm.value.anticipo_metodo,
       anticipo_referencia: borradorForm.value.anticipo_referencia || undefined,
@@ -1508,7 +1504,7 @@ onMounted(cargarOrden)
 
           <!-- Firma del cliente -->
           <div class="space-y-2">
-            <label class="block text-xs font-semibold text-gray-600 uppercase">Firma del cliente *</label>
+            <label class="block text-xs font-semibold text-gray-600 uppercase">Firma del cliente (opcional)</label>
             <FirmaCanvas
               v-if="!borradorFirmaUrl"
               v-model="borradorFirmaBlob"
@@ -1571,7 +1567,7 @@ onMounted(cargarOrden)
             </button>
             <button
               @click="completarBorrador"
-              :disabled="completandoBorrador || (!borradorFirmaBlob && !borradorFirmaUrl)"
+              :disabled="completandoBorrador"
               class="flex-1 bg-green-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-green-700 disabled:opacity-40 transition-colors"
             >
               {{ completandoBorrador ? 'Confirmando...' : 'Confirmar orden' }}

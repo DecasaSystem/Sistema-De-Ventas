@@ -906,7 +906,7 @@ class OrdenController extends Controller
         }
 
         $data = $request->validate([
-            'firma_url'           => 'required|string|max:500',
+            'firma_url'           => 'nullable|string|max:500',
             'anticipo_monto'      => 'required|numeric|min:0',
             'anticipo_metodo'     => 'nullable|in:efectivo,transferencia,tarjeta,otro',
             'anticipo_referencia' => 'nullable|string|max:100',
