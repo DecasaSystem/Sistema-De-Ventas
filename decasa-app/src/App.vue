@@ -189,6 +189,7 @@ const navItems = computed(() => {
       items.push({ name: 'redes', label: 'Redes', icon: ChatBubbleLeftRightIcon, badge: redesPendientes.value })
     }
     items.push({ name: 'telas', label: 'Telas', icon: SwatchIcon })
+    items.push({ name: 'caja',  label: 'Caja',  icon: BanknotesIcon })
     return items
   }
   if (auth.isCosturero) {
@@ -237,6 +238,7 @@ const navItems = computed(() => {
       { name: 'reserva',      label: 'Fábrica',      icon: BuildingOffice2Icon },
       ...(auth.tieneAccesoRedes ? [{ name: 'redes', label: 'Redes', icon: ChatBubbleLeftRightIcon, badge: redesPendientes.value }] : []),
       ...(auth.puedeRecargarTelas ? [{ name: 'telas', label: 'Telas', icon: SwatchIcon }] : []),
+      { name: 'caja',         label: 'Caja',         icon: BanknotesIcon },
       { name: 'mis-stats',    label: 'Estadíst.',    icon: PresentationChartLineIcon },
     ]
   }
@@ -251,6 +253,7 @@ const navItems = computed(() => {
     { name: 'surtir',     label: 'Traslado',     icon: ArrowPathIcon },
     ...(auth.tieneAccesoRedes ? [{ name: 'redes', label: 'Redes', icon: ChatBubbleLeftRightIcon, badge: redesPendientes.value }] : []),
     ...(auth.puedeRecargarTelas ? [{ name: 'telas', label: 'Telas', icon: SwatchIcon }] : []),
+    { name: 'caja',       label: 'Caja',         icon: BanknotesIcon },
     { name: 'mis-stats',  label: 'Estadíst.',    icon: PresentationChartLineIcon },
   ]
 })

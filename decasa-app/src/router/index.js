@@ -33,6 +33,7 @@ const routes = [
   { path: '/consultas-costo', name: 'consultas', component: () => import('@/views/ConsultasView.vue'), meta: { requiresAuth: true, requiresConsultas: true } },
   { path: '/consultas-costo/:id', name: 'consulta-detalle', component: () => import('@/views/ConsultaDetalleView.vue'), meta: { requiresAuth: true, requiresConsultas: true } },
   { path: '/telas', name: 'telas', component: () => import('@/views/TelasView.vue'), meta: { requiresAuth: true, requiresTelas: true } },
+  { path: '/caja',  name: 'caja',  component: () => import('@/views/CajaView.vue'),  meta: { requiresAuth: true, requiresCaja: true } },
 ]
 
 const router = createRouter({
@@ -69,6 +70,7 @@ router.beforeEach((to) => {
   if (to.meta.requiresConsultas && !auth.isSupervisor && auth.usuario?.rol !== 'ebanista' && auth.usuario?.rol !== 'vendedor') return { name: 'dashboard' }
   if (to.meta.requiresReserva && !auth.isSupervisor && auth.usuario?.rol !== 'vendedor') return { name: 'dashboard' }
   if (to.meta.requiresTelas && !auth.isCosturero && !auth.puedeRecargarTelas) return { name: 'dashboard' }
+  if (to.meta.requiresCaja && !auth.isSupervisor && auth.usuario?.rol !== 'vendedor') return { name: 'dashboard' }
 })
 
 export default router

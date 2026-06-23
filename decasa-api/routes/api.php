@@ -36,6 +36,7 @@ use App\Http\Controllers\CatalogoTelaController;
 use App\Http\Controllers\InventarioTelaController;
 use App\Http\Controllers\TipoVarianteController;
 use App\Http\Controllers\ProductoVarianteConfigController;
+use App\Http\Controllers\CajaController;
 use Illuminate\Support\Facades\Route;
 
 // ── Auth (público) ────────────────────────────────────────────────────────────
@@ -348,6 +349,17 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/citas',          [CitaController::class, 'index']);
     Route::post('/citas',         [CitaController::class, 'store']);
     Route::patch('/citas/{id}',   [CitaController::class, 'update']);
+
+    // Caja de tienda
+    Route::prefix('caja')->group(function () {
+        Route::get('/balance',     [CajaController::class, 'balance']);
+        Route::get('/movimientos', [CajaController::class, 'movimientos']);
+        Route::post('/movimiento', [CajaController::class, 'registrarMovimiento']);
+        Route::middleware('role:supervisor')->group(function () {
+            Route::get('/resumen-tiendas',        [CajaController::class, 'resumenTiendas']);
+            Route::delete('/movimiento/{id}',     [CajaController::class, 'eliminarMovimiento'])->whereNumber('id');
+        });
+    });
 
     // Fichas Técnicas (costos de producción)
     Route::get('/fichas-tecnicas',                        [FichaTecnicaController::class, 'index']);
