@@ -1528,10 +1528,10 @@ function removeFacturaFoto() {
       <div>
         <label class="label">Buscar en</label>
         <select v-model="tiendaBusqueda" @change="productoResultados = []; fabricaStock = {}" class="input text-sm">
-          <option v-for="t in tiendas" :key="t.id" :value="t.id">
+          <option v-for="t in tiendas.filter(t => t.id != fabricaId)" :key="t.id" :value="t.id">
             {{ t.nombre }}{{ t.id == tiendaId ? ' (tu tienda)' : '' }}
           </option>
-          <option v-if="fabricaId" :value="fabricaId">Reserva (Fábrica)</option>
+          <option v-if="fabricaId" :value="fabricaId">Reserva · Decasa Bolívar (Fábrica)</option>
         </select>
         <p v-if="tiendaBusqueda == fabricaId" class="mt-1 text-xs text-purple-600 font-medium">
           Consultando reserva de fábrica — los productos se toman directamente de fábrica al cliente
