@@ -96,10 +96,21 @@ async function onFotoChange(e) {
     const fd = new FormData()
     fd.append('foto', file)
     fd.append('folder', 'comprobantes')
-    const { data } = await api.post('/upload/foto', fd, {
-      headers: { 'Content-Type': undefined },
+    // fetch en lugar de axios para que el browser ponga el Content-Type
+    // correcto (multipart/form-data con boundary) sin interferencia del
+    // Content-Type: application/json que tiene el instance de axios por defecto
+    const token = localStorage.getItem('token')
+    const res = await fetch('/api/upload/foto', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: fd,
     })
-    egresoForm.value.comprobante_url = data.url
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.message ?? 'Error al subir foto')
+    }
+    const result = await res.json()
+    egresoForm.value.comprobante_url = result.url
   } finally {
     subiendo.value = false
     e.target.value = ''
