@@ -5,7 +5,8 @@ import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
 import { TELAS_CATALOGO, marcasOrdenadas, tiposTelaDeM, coloresDeTela } from '@/data/telasCatalogo'
 import ComboInput from '@/components/common/ComboInput.vue'
-import { XMarkIcon, SparklesIcon, MagnifyingGlassIcon } from '@heroicons/vue/24/outline'
+import { XMarkIcon, SparklesIcon, MagnifyingGlassIcon, SwatchIcon } from '@heroicons/vue/24/outline'
+import api from '@/api'
 
 const props = defineProps({
   show: Boolean,
@@ -37,6 +38,8 @@ const query = ref({})
 
 watch(() => props.show, (v) => {
   if (!v) return
+  mostrarStockTela.value = {}
+  cargarTelas()
   notas.value          = props.orden.notas ?? ''
   canal.value          = props.orden.canal ?? ''
   direccionEnvio.value = props.orden.direccion_envio ?? ''
@@ -65,6 +68,52 @@ watch(() => props.show, (v) => {
   resultados.value = {}
   buscando.value = {}
 })
+
+// ── Inventario de telas ──────────────────────────────────────────────────────
+const telaMetrosMap    = ref({})  // "marca|tipo|color" → metros_libres
+const telasConStock    = ref([])  // [{ marca, tipo, color, metros_libres }]
+const mostrarStockTela = ref({})  // { itemId: bool } para expandir el panel
+
+async function cargarTelas() {
+  try {
+    const { data } = await api.get('/inventario-telas')
+    const map = {}
+    for (const t of data) {
+      map[`${t.marca}|${t.tipo}|${t.color}`] = t.metros_libres
+    }
+    telaMetrosMap.value = map
+    telasConStock.value = data
+      .filter(t => t.metros_libres > 0)
+      .sort((a, b) => b.metros_libres - a.metros_libres)
+  } catch {}
+}
+
+function metrosLibresItem(item) {
+  if (!item.specs.marca || !item.specs.tela || !item.specs.color) return null
+  const m = telaMetrosMap.value[`${item.specs.marca}|${item.specs.tela}|${item.specs.color}`]
+  return m ?? null
+}
+
+function telasDisponiblesParaItem(item) {
+  // Filtrar por marca si está seleccionada
+  return item.specs.marca
+    ? telasConStock.value.filter(t => t.marca === item.specs.marca)
+    : telasConStock.value
+}
+
+function seleccionarTelaStock(item, tela) {
+  item.specs.marca = tela.marca
+  item.specs.tela  = tela.tipo
+  item.specs.color = tela.color
+  mostrarStockTela.value[item.id] = false
+}
+
+function colorMetros(m) {
+  if (m <= 0)  return 'bg-red-100 text-red-700'
+  if (m <= 3)  return 'bg-orange-100 text-orange-700'
+  if (m <= 8)  return 'bg-yellow-100 text-yellow-700'
+  return 'bg-green-100 text-green-700'
+}
 
 // ── Tela cascade ────────────────────────────────────────────────────────────
 const _todosTipos = (() => {
@@ -330,6 +379,59 @@ async function guardar() {
               <template v-else>
                 <div class="space-y-3 pt-1 border-t border-purple-100">
                   <p class="text-xs font-medium text-purple-600">Especificaciones de personalización</p>
+
+                  <!-- Panel: telas con stock disponible -->
+                  <div class="rounded-xl border border-green-200 bg-green-50 overflow-hidden">
+                    <button
+                      type="button"
+                      class="w-full flex items-center justify-between px-3 py-2.5 text-left"
+                      @click="mostrarStockTela[item.id] = !mostrarStockTela[item.id]"
+                    >
+                      <span class="flex items-center gap-2 text-xs font-semibold text-green-800">
+                        <SwatchIcon class="w-4 h-4" />
+                        Telas con stock disponible
+                        <span class="bg-green-200 text-green-900 text-[10px] px-1.5 py-0.5 rounded-full font-bold">
+                          {{ telasDisponiblesParaItem(item).length }}
+                        </span>
+                      </span>
+                      <span class="text-green-600 text-xs">{{ mostrarStockTela[item.id] ? '▲' : '▼' }}</span>
+                    </button>
+
+                    <div v-if="mostrarStockTela[item.id]" class="border-t border-green-200 max-h-52 overflow-y-auto divide-y divide-green-100">
+                      <div
+                        v-if="!telasDisponiblesParaItem(item).length"
+                        class="px-3 py-3 text-xs text-green-700 text-center"
+                      >
+                        Sin telas con stock{{ item.specs.marca ? ' para ' + item.specs.marca : '' }}
+                      </div>
+                      <button
+                        v-for="t in telasDisponiblesParaItem(item)"
+                        :key="`${t.marca}|${t.tipo}|${t.color}`"
+                        type="button"
+                        @click="seleccionarTelaStock(item, t)"
+                        class="w-full flex items-center justify-between px-3 py-2.5 hover:bg-green-100 transition-colors text-left"
+                      >
+                        <div class="min-w-0 flex-1">
+                          <p class="text-xs font-semibold text-gray-800">{{ t.marca }} — {{ t.tipo }}</p>
+                          <p class="text-[11px] text-gray-500">{{ t.color }}</p>
+                        </div>
+                        <span :class="['ml-2 flex-shrink-0 text-[11px] font-bold px-2 py-0.5 rounded-full', colorMetros(t.metros_libres)]">
+                          {{ t.metros_libres }}m libres
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Metros disponibles para selección actual -->
+                  <div
+                    v-if="metrosLibresItem(item) !== null"
+                    :class="['rounded-lg px-3 py-2 text-xs font-semibold flex items-center gap-2', colorMetros(metrosLibresItem(item))]"
+                  >
+                    <SwatchIcon class="w-3.5 h-3.5 flex-shrink-0" />
+                    Selección actual: {{ metrosLibresItem(item) }}m libres disponibles
+                    <span v-if="metrosLibresItem(item) <= 0" class="font-normal">(sin stock)</span>
+                  </div>
+
                   <div class="grid grid-cols-2 gap-3">
                     <div>
                       <label class="block text-xs font-medium text-gray-600 mb-1">Marca de tela</label>
