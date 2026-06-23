@@ -911,6 +911,11 @@ class OrdenController extends Controller
             'anticipo_metodo'     => 'nullable|in:efectivo,transferencia,tarjeta,otro',
             'anticipo_referencia' => 'nullable|string|max:100',
             'notas'               => 'nullable|string|max:1000',
+            'factura_foto_url'    => 'nullable|string|max:500',
+            'anexo_foto_url'      => 'nullable|string|max:500',
+            'departamento_envio'  => 'nullable|string|max:100',
+            'ciudad_envio'        => 'nullable|string|max:100',
+            'direccion_envio'     => 'nullable|string|max:300',
         ]);
 
         $tieneItemsCotizacion = $orden->items->contains(
@@ -931,9 +936,14 @@ class OrdenController extends Controller
             $nuevoEstado = $tieneItemsCotizacion ? 'pendiente_cotizacion' : 'pendiente_anticipo';
 
             $orden->update([
-                'estado'    => $nuevoEstado,
-                'firma_url' => $data['firma_url'],
-                'notas'     => $data['notas'] ?? $orden->notas,
+                'estado'             => $nuevoEstado,
+                'firma_url'          => $data['firma_url']          ?? $orden->firma_url,
+                'notas'              => $data['notas']              ?? $orden->notas,
+                'factura_foto_url'   => $data['factura_foto_url']   ?? $orden->factura_foto_url,
+                'anexo_foto_url'     => $data['anexo_foto_url']     ?? $orden->anexo_foto_url,
+                'departamento_envio' => $data['departamento_envio'] ?? $orden->departamento_envio,
+                'ciudad_envio'       => $data['ciudad_envio']       ?? $orden->ciudad_envio,
+                'direccion_envio'    => $data['direccion_envio']    ?? $orden->direccion_envio,
             ]);
 
             if (($data['anticipo_monto'] ?? 0) > 0) {

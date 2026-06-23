@@ -14,7 +14,9 @@ import EditarOrdenModal from '@/components/ordenes/EditarOrdenModal.vue'
 import { SparklesIcon, XMarkIcon } from '@heroicons/vue/24/solid'
 import { DocumentIcon, EnvelopeIcon, ChatBubbleLeftEllipsisIcon, ArrowDownTrayIcon, CalendarIcon, BuildingOffice2Icon, TruckIcon, PencilSquareIcon, ClockIcon, CheckBadgeIcon, LockClosedIcon, WrenchScrewdriverIcon, CheckCircleIcon, UserGroupIcon, CurrencyDollarIcon, BanknotesIcon } from '@heroicons/vue/24/outline'
 import FirmaCanvas from '@/components/FirmaCanvas.vue'
+import DireccionColombia from '@/components/DireccionColombia.vue'
 import { comprimirImagen } from '@/utils/comprimirImagen'
+import { PhotoIcon } from '@heroicons/vue/24/outline'
 
 const route = useRoute()
 const router = useRouter()
@@ -113,20 +115,58 @@ const borradorForm = ref({
   anticipo_metodo:     'efectivo',
   anticipo_referencia: '',
   notas:               '',
+  departamento_envio:  '',
+  ciudad_envio:        '',
+  direccion_envio:     '',
 })
+
+// Archivos del modal completar
+const borradorComprobanteFile    = ref(null)
+const borradorComprobanteUrl     = ref('')
+const borradorComprobantePreview = ref('')
+const borradorAnexoFile          = ref(null)
+const borradorAnexoUrl           = ref('')
+const borradorAnexoPreview       = ref('')
+const subiendoComprobante        = ref(false)
+const subiendoAnexo              = ref(false)
 
 watch(showCompletarBorradorModal, (open) => {
   if (open) {
-    borradorFirmaBlob.value = null
-    borradorFirmaUrl.value  = ''
+    borradorFirmaBlob.value        = null
+    borradorFirmaUrl.value         = ''
+    borradorComprobanteFile.value  = null
+    borradorComprobanteUrl.value   = ''
+    borradorComprobantePreview.value = ''
+    borradorAnexoFile.value        = null
+    borradorAnexoUrl.value         = ''
+    borradorAnexoPreview.value     = ''
     borradorForm.value = {
       anticipo_monto:      borradorTieneItemsCotiz.value ? 0 : borradorAnticipoMinimo.value,
       anticipo_metodo:     'efectivo',
       anticipo_referencia: '',
-      notas:               '',
+      notas:               orden.value?.notas ?? '',
+      departamento_envio:  orden.value?.departamento_envio ?? '',
+      ciudad_envio:        orden.value?.ciudad_envio ?? '',
+      direccion_envio:     orden.value?.direccion_envio ?? '',
     }
   }
 })
+
+function onBorradorComprobanteChange(e) {
+  const file = e.target.files[0]
+  if (!file) return
+  borradorComprobanteFile.value    = file
+  borradorComprobanteUrl.value     = ''
+  borradorComprobantePreview.value = URL.createObjectURL(file)
+}
+
+function onBorradorAnexoChange(e) {
+  const file = e.target.files[0]
+  if (!file) return
+  borradorAnexoFile.value    = file
+  borradorAnexoUrl.value     = ''
+  borradorAnexoPreview.value = URL.createObjectURL(file)
+}
 
 async function completarBorrador() {
   completandoBorrador.value = true
@@ -144,12 +184,51 @@ async function completarBorrador() {
       const uploadData = await res.json()
       borradorFirmaUrl.value = uploadData.url
     }
+    // Subir comprobante de pago
+    if (borradorComprobanteFile.value && !borradorComprobanteUrl.value) {
+      subiendoComprobante.value = true
+      const fd = new FormData()
+      fd.append('foto', await comprimirImagen(borradorComprobanteFile.value), 'comprobante.jpg')
+      fd.append('folder', 'facturas')
+      const token = localStorage.getItem('token')
+      const res = await fetch('/api/upload/foto', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      })
+      const uploadData = await res.json()
+      borradorComprobanteUrl.value = uploadData.url
+      subiendoComprobante.value = false
+    }
+
+    // Subir foto del anexo firmado
+    if (borradorAnexoFile.value && !borradorAnexoUrl.value) {
+      subiendoAnexo.value = true
+      const fd = new FormData()
+      fd.append('foto', await comprimirImagen(borradorAnexoFile.value), 'anexo.jpg')
+      fd.append('folder', 'facturas')
+      const token = localStorage.getItem('token')
+      const res = await fetch('/api/upload/foto', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      })
+      const uploadData = await res.json()
+      borradorAnexoUrl.value = uploadData.url
+      subiendoAnexo.value = false
+    }
+
     const { data } = await completarBorradorApi(orden.value.id, {
       firma_url:           borradorFirmaUrl.value || undefined,
       anticipo_monto:      borradorForm.value.anticipo_monto,
       anticipo_metodo:     borradorForm.value.anticipo_metodo,
       anticipo_referencia: borradorForm.value.anticipo_referencia || undefined,
       notas:               borradorForm.value.notas || undefined,
+      factura_foto_url:    borradorComprobanteUrl.value || undefined,
+      anexo_foto_url:      borradorAnexoUrl.value || undefined,
+      departamento_envio:  borradorForm.value.departamento_envio || undefined,
+      ciudad_envio:        borradorForm.value.ciudad_envio || undefined,
+      direccion_envio:     borradorForm.value.direccion_envio || undefined,
     })
     orden.value = data
     showCompletarBorradorModal.value = false
@@ -1553,6 +1632,50 @@ onMounted(cargarOrden)
 
           <div v-if="borradorTieneItemsCotiz" class="text-xs text-gray-500 bg-gray-50 rounded-lg p-3">
             Esta orden tiene ítems sin precio. El anticipo se registrará cuando el cliente confirme los precios.
+          </div>
+
+          <!-- Comprobante de pago -->
+          <div class="space-y-1">
+            <label class="block text-xs font-semibold text-gray-600 uppercase">Foto del comprobante (opcional)</label>
+            <div v-if="borradorComprobanteFile" class="relative">
+              <img :src="borradorComprobanteUrl || borradorComprobantePreview" class="w-full rounded-xl border border-gray-200 object-contain bg-gray-50 max-h-40" />
+              <button @click="borradorComprobanteFile = null; borradorComprobanteUrl = ''; borradorComprobantePreview = ''" class="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 shadow">
+                <XMarkIcon class="w-4 h-4" />
+              </button>
+              <p v-if="subiendoComprobante" class="text-xs text-blue-600 mt-1">Subiendo...</p>
+            </div>
+            <label v-else class="flex flex-col items-center gap-2 border-2 border-dashed border-amber-300 rounded-xl p-4 cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors">
+              <PhotoIcon class="w-7 h-7 text-amber-300" />
+              <span class="text-xs text-gray-500">Adjuntar foto del comprobante</span>
+              <input type="file" accept="image/*" capture="environment" @change="onBorradorComprobanteChange" class="hidden" />
+            </label>
+          </div>
+
+          <!-- Dirección de envío -->
+          <div class="space-y-1">
+            <label class="block text-xs font-semibold text-gray-600 uppercase">Dirección de envío (opcional)</label>
+            <DireccionColombia
+              v-model:departamento="borradorForm.departamento_envio"
+              v-model:ciudad="borradorForm.ciudad_envio"
+              v-model:direccion="borradorForm.direccion_envio"
+            />
+          </div>
+
+          <!-- Anexo firmado (solo si canal es física) -->
+          <div v-if="orden?.canal === 'fisica'" class="space-y-1">
+            <label class="block text-xs font-semibold text-gray-600 uppercase">Foto del anexo firmado (opcional)</label>
+            <div v-if="borradorAnexoFile" class="relative">
+              <img :src="borradorAnexoUrl || borradorAnexoPreview" class="w-full rounded-xl border border-gray-200 object-contain bg-gray-50 max-h-40" />
+              <button @click="borradorAnexoFile = null; borradorAnexoUrl = ''; borradorAnexoPreview = ''" class="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 shadow">
+                <XMarkIcon class="w-4 h-4" />
+              </button>
+              <p v-if="subiendoAnexo" class="text-xs text-blue-600 mt-1">Subiendo...</p>
+            </div>
+            <label v-else class="flex flex-col items-center gap-2 border-2 border-dashed border-gray-300 rounded-xl p-4 cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors">
+              <PhotoIcon class="w-7 h-7 text-gray-300" />
+              <span class="text-xs text-gray-500">Adjuntar foto del anexo firmado</span>
+              <input type="file" accept="image/*" @change="onBorradorAnexoChange" class="hidden" />
+            </label>
           </div>
 
           <!-- Notas -->
