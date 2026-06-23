@@ -123,7 +123,7 @@ class OrdenController extends Controller
         $data = $request->validate([
             'cliente_id'                    => 'required|exists:clientes,id',
             'tienda_id'                     => 'required|exists:tiendas,id',
-            'canal'                         => 'required|in:fisica,whatsapp,red_social,otro',
+            'canal'                         => 'required|in:fisica,whatsapp,instagram,facebook,pagina,red_social,otro',
             'tipo'                          => 'nullable|in:venta,restauracion',
             'anticipo_pct'                  => 'nullable|numeric|min:1|max:100',
             'notas'                              => 'nullable|string|max:1000',
@@ -689,7 +689,7 @@ class OrdenController extends Controller
 
         $data = $request->validate([
             'notas'                         => 'sometimes|nullable|string|max:1000',
-            'canal'                         => 'sometimes|nullable|in:fisica,whatsapp,red_social,otro',
+            'canal'                         => 'sometimes|nullable|in:fisica,whatsapp,instagram,facebook,pagina,red_social,otro',
             'departamento_envio'            => 'sometimes|nullable|string|max:100',
             'ciudad_envio'                  => 'sometimes|nullable|string|max:100',
             'direccion_envio'               => 'sometimes|nullable|string|max:300',

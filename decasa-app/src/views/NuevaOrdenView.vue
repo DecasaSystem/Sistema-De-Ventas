@@ -189,7 +189,9 @@ const canal = ref('fisica')
 const canalesopts = [
   { value: 'fisica',     label: 'Física' },
   { value: 'whatsapp',   label: 'WhatsApp' },
-  { value: 'red_social', label: 'Red social' },
+  { value: 'instagram',  label: 'Instagram' },
+  { value: 'facebook',   label: 'Facebook' },
+  { value: 'pagina',     label: 'Página web' },
   { value: 'otro',       label: 'Otro' },
 ]
 

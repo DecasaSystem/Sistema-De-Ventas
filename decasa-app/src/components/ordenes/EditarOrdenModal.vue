@@ -185,6 +185,9 @@ async function guardar() {
                   <option value="" disabled>Seleccionar...</option>
                   <option value="fisica">Física</option>
                   <option value="whatsapp">WhatsApp</option>
+                  <option value="instagram">Instagram</option>
+                  <option value="facebook">Facebook</option>
+                  <option value="pagina">Página web</option>
                   <option value="red_social">Red social</option>
                   <option value="otro">Otro</option>
                 </select>
