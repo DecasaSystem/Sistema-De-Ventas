@@ -238,7 +238,9 @@ async function completarBorrador() {
     const detalle = errores ? ' · ' + Object.values(errores).flat().join(', ') : ''
     toast.error((e.response?.data?.message ?? 'Error al confirmar la orden') + detalle)
   } finally {
-    completandoBorrador.value = false
+    completandoBorrador.value    = false
+    subiendoComprobante.value    = false
+    subiendoAnexo.value          = false
   }
 }
 

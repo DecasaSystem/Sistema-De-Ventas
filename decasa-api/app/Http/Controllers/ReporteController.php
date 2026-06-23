@@ -172,15 +172,13 @@ class ReporteController extends Controller
         $tiendaId = $request->query('tienda_id');
 
         $filas = DB::table('ordenes as o')
-            ->leftJoin('pagos as p', 'p.orden_id', '=', 'o.id')
             ->where('o.estado', '!=', 'cancelado')
             ->whereBetween('o.created_at', [$desde . ' 00:00:00', $hasta . ' 23:59:59'])
             ->when($tiendaId, fn($q) => $q->where('o.tienda_id', $tiendaId))
             ->selectRaw('
-                COALESCE(o.canal, "otro")          AS canal,
-                COUNT(DISTINCT o.id)               AS total_ordenes,
-                SUM(o.valor_total)                 AS valor_bruto,
-                COALESCE(SUM(p.monto), 0)          AS total_cobrado
+                COALESCE(o.canal, "otro")  AS canal,
+                COUNT(*)                   AS total_ordenes,
+                SUM(o.valor_total)         AS valor_bruto
             ')
             ->groupBy('o.canal')
             ->orderByDesc('total_ordenes')
@@ -193,7 +191,6 @@ class ReporteController extends Controller
             'canal'          => $f->canal,
             'total_ordenes'  => (int) $f->total_ordenes,
             'valor_bruto'    => (float) $f->valor_bruto,
-            'total_cobrado'  => (float) $f->total_cobrado,
             'pct_ordenes'    => $totalOrdenes > 0 ? round($f->total_ordenes / $totalOrdenes * 100, 1) : 0,
             'pct_valor'      => $totalValor   > 0 ? round($f->valor_bruto   / $totalValor   * 100, 1) : 0,
         ]);

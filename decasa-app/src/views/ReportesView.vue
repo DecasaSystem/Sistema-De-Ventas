@@ -247,6 +247,7 @@ async function cargarTodo() {
   canalesData.value = null
   if (tabActivo.value === 'interesados') cargandoInteresados.value = true
   if (tabActivo.value === 'conductores') cargarConductores()
+  if (tabActivo.value === 'canales')    cargarCanales()
   try {
     const p = paramsFiltro()
     const promises = [
