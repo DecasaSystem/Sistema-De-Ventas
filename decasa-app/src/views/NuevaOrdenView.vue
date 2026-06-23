@@ -889,6 +889,7 @@ const anticipo_metodo      = ref('efectivo')
 const anticipo_referencia  = ref('')
 const notas                = ref('')
 const submitting           = ref(false)
+const modoGuardarBorrador  = ref(false)
 const cooldown             = ref(0)   // segundos restantes antes de poder reintentar
 let   cooldownTimer        = null
 
@@ -1017,8 +1018,8 @@ async function submit() {
 
   submitting.value = true
   try {
-    // Subir foto de factura si se seleccionó
-    if (facturaFotoFile.value && !facturaFotoUrl.value) {
+    // Subir foto de factura si se seleccionó (no aplica para borrador)
+    if (!modoGuardarBorrador.value && facturaFotoFile.value && !facturaFotoUrl.value) {
       subiendoFactura.value = true
       const fd = new FormData()
       fd.append('foto', await comprimirImagen(facturaFotoFile.value), 'factura.jpg')
@@ -1047,8 +1048,8 @@ async function submit() {
       }
     }
 
-    // Foto del anexo firmado (si está presente)
-    if (anexoFotoFile.value && !anexoFotoUrl.value) {
+    // Foto del anexo firmado (no aplica para borrador)
+    if (!modoGuardarBorrador.value && anexoFotoFile.value && !anexoFotoUrl.value) {
       subiendoAnexo.value = true
       const fd = new FormData()
       fd.append('foto', await comprimirImagen(anexoFotoFile.value), 'anexo.jpg')
@@ -1060,8 +1061,8 @@ async function submit() {
       subiendoAnexo.value = false
     }
 
-    // Firma del cliente: subir el blob dibujado en el canvas
-    if (firmaBlob.value && !firmaUrl.value) {
+    // Firma del cliente: subir el blob dibujado en el canvas (no aplica para borrador)
+    if (!modoGuardarBorrador.value && firmaBlob.value && !firmaUrl.value) {
       const fd = new FormData()
       fd.append('foto', firmaBlob.value, 'firma.png')
       fd.append('folder', 'firmas')
@@ -1077,9 +1078,10 @@ async function submit() {
       canal:                canal.value,
       tipo:                 tipoOrden.value,
       anticipo_pct:         anticipo_pct.value,
-      anticipo_monto:       hayItemsCotizar.value ? 0 : anticipo_monto.value,
+      anticipo_monto:       (modoGuardarBorrador.value || hayItemsCotizar.value) ? 0 : anticipo_monto.value,
       anticipo_metodo:      anticipo_metodo.value,
       anticipo_referencia:  anticipo_referencia.value || undefined,
+      guardar_borrador:     modoGuardarBorrador.value || undefined,
       notas:                notas.value || undefined,
       factura_foto_url:     facturaFotoUrl.value  || undefined,
       firma_url:            firmaUrl.value        || undefined,
@@ -1131,6 +1133,9 @@ async function submit() {
     // Si el backend detectó duplicado (409), redirigir a la orden existente
     if (data?.orden_id) {
       router.push({ name: 'orden-detalle', params: { id: data.orden_id } })
+    } else if (modoGuardarBorrador.value && data?.id) {
+      toast.success('Borrador guardado. Los productos quedan reservados.')
+      router.push({ name: 'orden-detalle', params: { id: data.id } })
     } else {
       router.push({ name: 'ordenes' })
     }
@@ -1155,7 +1160,18 @@ async function submit() {
   } finally {
     submitting.value = false
     subiendoFactura.value = false
+    modoGuardarBorrador.value = false
   }
+}
+
+async function submitBorrador() {
+  if (submitting.value) return
+  if (!items.value.length) {
+    toast.error('Agrega al menos un producto antes de guardar el borrador.')
+    return
+  }
+  modoGuardarBorrador.value = true
+  await submit()
 }
 
 function onFacturaFotoChange(e) {
@@ -2316,11 +2332,18 @@ function removeFacturaFoto() {
         {{ tipoOrden === 'restauracion' ? 'Agrega los muebles arriba.' : 'Busca y agrega productos al carrito.' }}
       </div>
 
-      <button
-        @click="irAPaso3"
-        :disabled="items.length === 0"
-        class="btn-primary w-full"
-      >Continuar → Pago</button>
+      <div class="flex gap-2">
+        <button
+          @click="submitBorrador"
+          :disabled="items.length === 0 || submitting"
+          class="btn-secondary flex-1"
+        >{{ submitting && modoGuardarBorrador ? 'Guardando...' : 'Guardar borrador' }}</button>
+        <button
+          @click="irAPaso3"
+          :disabled="items.length === 0"
+          class="btn-primary flex-1"
+        >Continuar → Pago</button>
+      </div>
     </template>
 
     <!-- ═══════════════════════════════════════════════════════ PASO 3 ══ -->
@@ -2580,8 +2603,17 @@ function removeFacturaFoto() {
          :disabled="submitting || subiendoFactura || cooldown > 0 || anticipo_monto < minimoAnticipofEfectivo || (!hayItemsCotizar && !firmaBlob) || !facturaFotoFile"
          class="btn-primary w-full text-base py-3 flex items-center justify-center gap-2"
        >
-         <ArrowPathOutlineIcon v-if="submitting || subiendoFactura" class="w-5 h-5 animate-spin" />
-         {{ subiendoFactura ? 'Subiendo foto...' : submitting ? 'Guardando...' : cooldown > 0 ? `Reintentar en ${cooldown}s...` : 'Crear orden' }}
+         <ArrowPathOutlineIcon v-if="submitting && !modoGuardarBorrador" class="w-5 h-5 animate-spin" />
+         {{ subiendoFactura ? 'Subiendo foto...' : (submitting && !modoGuardarBorrador) ? 'Guardando...' : cooldown > 0 ? `Reintentar en ${cooldown}s...` : 'Crear orden' }}
+       </button>
+
+       <button
+         @click="submitBorrador"
+         :disabled="submitting || cooldown > 0"
+         class="btn-secondary w-full py-3 flex items-center justify-center gap-2"
+       >
+         <ArrowPathOutlineIcon v-if="submitting && modoGuardarBorrador" class="w-5 h-5 animate-spin" />
+         {{ (submitting && modoGuardarBorrador) ? 'Guardando borrador...' : 'Guardar como borrador' }}
        </button>
     </template>
 

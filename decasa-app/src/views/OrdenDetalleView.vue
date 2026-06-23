@@ -3,7 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
-import { getOrden, updateEstado, descargarPdfOrden, reenviarCotizacion, asignarFechasEntrega, confirmarCotizacion } from '@/api/ordenes'
+import { getOrden, updateEstado, descargarPdfOrden, reenviarCotizacion, asignarFechasEntrega, confirmarCotizacion, completarBorrador as completarBorradorApi } from '@/api/ordenes'
 import { despachoPorOrden } from '@/api/despacho'
 import { tomarFacturacion, marcarFacturada } from '@/api/pagos'
 import { getReceptores, crearConsulta, getConsultas } from '@/api/consultas'
@@ -56,6 +56,7 @@ const todasFechasAsignadas = computed(() =>
 )
 
 const transicionesValidas = {
+  borrador: ['cancelado'],
   pendiente_cotizacion: ['cancelado'],
   pendiente_anticipo: ['en_produccion', 'listo_entrega', 'cancelado'],
   en_produccion: ['listo_entrega', 'cancelado'],
@@ -93,9 +94,82 @@ const tienePersonalizados = computed(() =>
   orden.value?.items?.some(i => i.es_personalizado) ?? false
 )
 
+const esBorrador = computed(() => orden.value?.estado === 'borrador')
+
+// ── Completar borrador ────────────────────────────────────────────────────────
+const showCompletarBorradorModal = ref(false)
+const completandoBorrador        = ref(false)
+const borradorFirmaBlob          = ref(null)
+const borradorFirmaUrl           = ref('')
+const borradorAnticipoPct        = computed(() => orden.value?.anticipo_pct ?? 50)
+const borradorAnticipoMinimo     = computed(() =>
+  Math.ceil((orden.value?.valor_total ?? 0) * borradorAnticipoPct.value / 100)
+)
+const borradorTieneItemsCotiz    = computed(() =>
+  orden.value?.items?.some(i => i.es_personalizado && i.precio_unitario == 0) ?? false
+)
+const borradorForm = ref({
+  anticipo_monto:      0,
+  anticipo_metodo:     'efectivo',
+  anticipo_referencia: '',
+  notas:               '',
+})
+
+watch(showCompletarBorradorModal, (open) => {
+  if (open) {
+    borradorFirmaBlob.value = null
+    borradorFirmaUrl.value  = ''
+    borradorForm.value = {
+      anticipo_monto:      borradorTieneItemsCotiz.value ? 0 : borradorAnticipoMinimo.value,
+      anticipo_metodo:     'efectivo',
+      anticipo_referencia: '',
+      notas:               '',
+    }
+  }
+})
+
+async function completarBorrador() {
+  if (!borradorFirmaBlob.value && !borradorFirmaUrl.value) {
+    toast.error('La firma del cliente es obligatoria para confirmar la orden.')
+    return
+  }
+  completandoBorrador.value = true
+  try {
+    if (borradorFirmaBlob.value && !borradorFirmaUrl.value) {
+      const fd = new FormData()
+      fd.append('foto', borradorFirmaBlob.value, 'firma.png')
+      fd.append('folder', 'firmas')
+      const token = localStorage.getItem('token')
+      const res = await fetch('/api/upload/foto', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      })
+      const uploadData = await res.json()
+      borradorFirmaUrl.value = uploadData.url
+    }
+    const { data } = await completarBorradorApi(orden.value.id, {
+      firma_url:           borradorFirmaUrl.value,
+      anticipo_monto:      borradorForm.value.anticipo_monto,
+      anticipo_metodo:     borradorForm.value.anticipo_metodo,
+      anticipo_referencia: borradorForm.value.anticipo_referencia || undefined,
+      notas:               borradorForm.value.notas || undefined,
+    })
+    orden.value = data
+    showCompletarBorradorModal.value = false
+    toast.success('Orden confirmada correctamente.')
+  } catch (e) {
+    const errores = e.response?.data?.errors
+    const detalle = errores ? ' · ' + Object.values(errores).flat().join(', ') : ''
+    toast.error((e.response?.data?.message ?? 'Error al confirmar la orden') + detalle)
+  } finally {
+    completandoBorrador.value = false
+  }
+}
+
 const puedeRegistrarPago = computed(() => {
   if (!orden.value) return false
-  if (['entregado', 'cancelado'].includes(orden.value.estado)) return false
+  if (['entregado', 'cancelado', 'borrador'].includes(orden.value.estado)) return false
   if (orden.value.saldo_pendiente <= 0) return false
   if (auth.isEbanista && Number(orden.value.vendedor_id) !== Number(auth.usuario?.id)) return false
   return true
@@ -177,6 +251,11 @@ async function cambiarEstado() {
   } finally {
     changingEstado.value = false
   }
+}
+
+async function cancelarBorrador() {
+  nuevoEstado.value = 'cancelado'
+  await cambiarEstado()
 }
 
 function onPagoRegistrado() {
@@ -1114,6 +1193,36 @@ onMounted(cargarOrden)
         </template>
       </div>
 
+      <!-- Banner y acciones: orden en borrador -->
+      <template v-if="esBorrador">
+        <div class="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3">
+          <ClockIcon class="w-5 h-5 mt-0.5 text-amber-600 flex-shrink-0" />
+          <div>
+            <p class="text-sm font-semibold text-amber-800">Orden en borrador</p>
+            <p class="text-xs text-amber-700 mt-0.5">Los productos están reservados. Cuando el cliente regrese, completa la orden con su firma y anticipo.</p>
+          </div>
+        </div>
+
+        <div class="space-y-2">
+          <button
+            v-if="auth.isSupervisor || Number(orden.vendedor_id) === Number(auth.usuario?.id)"
+            @click="showCompletarBorradorModal = true"
+            class="w-full bg-green-600 text-white rounded-xl py-3 text-sm font-semibold hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
+          >
+            <CheckCircleIcon class="w-4 h-4" />
+            Completar orden
+          </button>
+          <button
+            v-if="auth.isSupervisor || Number(orden.vendedor_id) === Number(auth.usuario?.id)"
+            @click="cancelarBorrador"
+            :disabled="changingEstado"
+            class="w-full border border-red-300 text-red-600 rounded-xl py-2.5 text-sm font-medium hover:bg-red-50 transition-colors"
+          >
+            Cancelar borrador
+          </button>
+        </div>
+      </template>
+
       <!-- Aviso: orden en despacho -->
       <div
         v-if="orden.estado === 'listo_entrega'"
@@ -1381,6 +1490,91 @@ onMounted(cargarOrden)
               class="flex-1 bg-violet-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-violet-700 disabled:opacity-40 transition-colors"
             >
               {{ enviandoCotizacion ? 'Enviando...' : 'Enviar consulta' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- Modal: completar orden borrador -->
+    <Transition name="fade">
+      <div v-if="showCompletarBorradorModal" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="showCompletarBorradorModal = false">
+        <div class="absolute inset-0 bg-black/40" />
+        <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-4 max-h-[92vh] overflow-y-auto">
+          <h3 class="text-lg font-bold text-gray-800 flex items-center gap-2">
+            <CheckCircleIcon class="w-5 h-5 text-green-600" />
+            Completar orden
+          </h3>
+
+          <!-- Firma del cliente -->
+          <div class="space-y-2">
+            <label class="block text-xs font-semibold text-gray-600 uppercase">Firma del cliente *</label>
+            <FirmaCanvas
+              v-if="!borradorFirmaUrl"
+              v-model="borradorFirmaBlob"
+              class="rounded-xl border border-gray-200"
+            />
+            <div v-else class="relative">
+              <img :src="borradorFirmaUrl" class="w-full rounded-xl border border-gray-200 bg-gray-50" />
+              <button @click="borradorFirmaUrl = ''; borradorFirmaBlob = null" class="absolute top-1 right-1 bg-white rounded-full p-1 shadow">
+                <XMarkIcon class="w-4 h-4 text-gray-500" />
+              </button>
+            </div>
+          </div>
+
+          <!-- Anticipo (solo si no hay cotización pendiente) -->
+          <template v-if="!borradorTieneItemsCotiz">
+            <div class="space-y-1">
+              <label class="block text-xs font-semibold text-gray-600 uppercase">
+                Anticipo (mín. {{ new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(borradorAnticipoMinimo) }})
+              </label>
+              <input
+                v-model.number="borradorForm.anticipo_monto"
+                type="number"
+                min="0"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
+              />
+            </div>
+            <div class="space-y-1">
+              <label class="block text-xs font-semibold text-gray-600 uppercase">Método de pago</label>
+              <select v-model="borradorForm.anticipo_metodo" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400">
+                <option value="efectivo">Efectivo</option>
+                <option value="transferencia">Transferencia</option>
+                <option value="tarjeta">Tarjeta</option>
+                <option value="otro">Otro</option>
+              </select>
+            </div>
+            <div v-if="borradorForm.anticipo_metodo !== 'efectivo'" class="space-y-1">
+              <label class="block text-xs font-semibold text-gray-600 uppercase">Referencia (opcional)</label>
+              <input
+                v-model="borradorForm.anticipo_referencia"
+                type="text"
+                placeholder="Nro. transacción"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
+              />
+            </div>
+          </template>
+
+          <div v-if="borradorTieneItemsCotiz" class="text-xs text-gray-500 bg-gray-50 rounded-lg p-3">
+            Esta orden tiene ítems sin precio. El anticipo se registrará cuando el cliente confirme los precios.
+          </div>
+
+          <!-- Notas -->
+          <div class="space-y-1">
+            <label class="block text-xs font-semibold text-gray-600 uppercase">Notas (opcional)</label>
+            <textarea v-model="borradorForm.notas" rows="2" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400 resize-none" />
+          </div>
+
+          <div class="flex gap-3">
+            <button @click="showCompletarBorradorModal = false" class="flex-1 bg-gray-100 text-gray-700 rounded-lg py-2.5 text-sm font-semibold">
+              Cancelar
+            </button>
+            <button
+              @click="completarBorrador"
+              :disabled="completandoBorrador || (!borradorFirmaBlob && !borradorFirmaUrl)"
+              class="flex-1 bg-green-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-green-700 disabled:opacity-40 transition-colors"
+            >
+              {{ completandoBorrador ? 'Confirmando...' : 'Confirmar orden' }}
             </button>
           </div>
         </div>

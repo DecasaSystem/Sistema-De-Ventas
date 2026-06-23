@@ -30,6 +30,7 @@ const filtros = ref({
 
 const estadosOpts = [
   { value: '', label: 'Todos' },
+  { value: 'borrador', label: 'Borrador' },
   { value: 'pendiente_anticipo', label: 'Pendiente anticipo' },
   { value: 'en_produccion', label: 'En producción' },
   { value: 'listo_entrega', label: 'Listo entrega' },

@@ -98,6 +98,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('/ordenes/{id}',                       [OrdenController::class, 'update']);
     Route::patch('/ordenes/{id}/estado',                [OrdenController::class, 'updateEstado']);
     Route::post('/ordenes/{id}/confirmar-cotizacion',   [OrdenController::class, 'confirmarCotizacion']);
+    Route::post('/ordenes/{id}/completar-borrador',     [OrdenController::class, 'completarBorrador']);
     Route::get('/ordenes/{id}/pdf',                     [OrdenController::class, 'pdf']);
     Route::post('/ordenes/{id}/reenviar-cotizacion',    [OrdenController::class, 'reenviarCotizacion']);
     Route::patch('/ordenes/{id}/fechas-entrega',        [OrdenController::class, 'asignarFechas']);

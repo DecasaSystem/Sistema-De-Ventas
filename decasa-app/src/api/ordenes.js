@@ -12,5 +12,6 @@ export const asignarFechasEntrega = (id, items) =>
   api.patch(`/ordenes/${id}/fechas-entrega`, { items })
 export const editarOrden = (id, data) => api.patch(`/ordenes/${id}`, data)
 export const confirmarCotizacion = (id, data) => api.post(`/ordenes/${id}/confirmar-cotizacion`, data)
+export const completarBorrador = (id, data) => api.post(`/ordenes/${id}/completar-borrador`, data)
 export const buscarProductos = (search = '') => api.get('/productos', { params: { search } })
 export const getTiendas = () => api.get('/tiendas')

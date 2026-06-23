@@ -136,6 +136,7 @@ class OrdenController extends Controller
             'anticipo_monto'                     => 'required|numeric|min:0',
             'anticipo_metodo'                    => 'nullable|in:efectivo,transferencia,tarjeta,otro',
             'anticipo_referencia'                => 'nullable|string|max:100',
+            'guardar_borrador'                   => 'nullable|boolean',
             'items'                              => 'required|array|min:1',
             'items.*.producto_id'                => 'nullable|exists:productos,id',
             'items.*.nombre_custom'              => 'required_without:items.*.producto_id|nullable|string|max:200',
@@ -159,8 +160,9 @@ class OrdenController extends Controller
             ], 422);
         }
 
-        $tiendaId    = $data['tienda_id'];
-        $anticupoPct = $data['anticipo_pct'] ?? 50;
+        $guardarBorrador = $request->boolean('guardar_borrador', false);
+        $tiendaId        = $data['tienda_id'];
+        $anticupoPct     = $data['anticipo_pct'] ?? 50;
 
         // Calcular valor total server-side
         $valorTotal = collect($data['items'])->sum(
@@ -172,20 +174,22 @@ class OrdenController extends Controller
             fn($i) => ($i['es_personalizado'] ?? false) && (($i['precio_unitario'] ?? 0) == 0)
         );
 
-        // Firma requerida solo cuando no hay cotización pendiente
-        if (empty($data['firma_url']) && ! $tieneItemsCotizacionPendiente) {
-            return response()->json([
-                'message' => 'Se requiere la firma del cliente para confirmar la orden.',
-                'errors'  => ['firma_url' => ['La firma es obligatoria.']],
-            ], 422);
-        }
+        if (! $guardarBorrador) {
+            // Firma requerida solo cuando no hay cotización pendiente
+            if (empty($data['firma_url']) && ! $tieneItemsCotizacionPendiente) {
+                return response()->json([
+                    'message' => 'Se requiere la firma del cliente para confirmar la orden.',
+                    'errors'  => ['firma_url' => ['La firma es obligatoria.']],
+                ], 422);
+            }
 
-        $minimoAnticipo = round($valorTotal * $anticupoPct / 100, 2);
-        if (! $tieneItemsCotizacionPendiente && $data['anticipo_monto'] < $minimoAnticipo) {
-            return response()->json([
-                'message' => "El anticipo mínimo es " . number_format($minimoAnticipo, 2) . " COP ({$anticupoPct}% de " . number_format($valorTotal, 2) . ").",
-                'errors'  => ['anticipo_monto' => ["Debe ser al menos {$minimoAnticipo}"]],
-            ], 422);
+            $minimoAnticipo = round($valorTotal * $anticupoPct / 100, 2);
+            if (! $tieneItemsCotizacionPendiente && $data['anticipo_monto'] < $minimoAnticipo) {
+                return response()->json([
+                    'message' => "El anticipo mínimo es " . number_format($minimoAnticipo, 2) . " COP ({$anticupoPct}% de " . number_format($valorTotal, 2) . ").",
+                    'errors'  => ['anticipo_monto' => ["Debe ser al menos {$minimoAnticipo}"]],
+                ], 422);
+            }
         }
 
         // Protección contra doble envío: misma orden del mismo vendedor en los últimos 15 segundos
@@ -203,7 +207,7 @@ class OrdenController extends Controller
             ], 409);
         }
 
-        $orden = DB::transaction(function () use ($data, $tiendaId, $anticupoPct, $valorTotal, $request, $tieneItemsCotizacionPendiente) {
+        $orden = DB::transaction(function () use ($data, $tiendaId, $anticupoPct, $valorTotal, $request, $tieneItemsCotizacionPendiente, $guardarBorrador) {
 
             // --- 1. Verificar stock para items no personalizados (con bloqueo) ---
             foreach ($data['items'] as $item) {
@@ -247,7 +251,7 @@ class OrdenController extends Controller
                 'tienda_id'         => $tiendaId,
                 'canal'             => $data['canal'],
                 'tipo'              => $data['tipo'] ?? 'venta',
-                'estado'            => $tieneItemsCotizacionPendiente ? 'pendiente_cotizacion' : 'pendiente_anticipo',
+                'estado'            => $guardarBorrador ? 'borrador' : ($tieneItemsCotizacionPendiente ? 'pendiente_cotizacion' : 'pendiente_anticipo'),
                 'valor_total'       => $valorTotal,
                 'anticipo_pct'      => $anticupoPct,
                 'notas'             => $data['notas'] ?? null,
@@ -367,55 +371,57 @@ class OrdenController extends Controller
             'pagos',
         ]);
 
+        $estadoFinal = $guardarBorrador ? 'borrador' : ($tieneItemsCotizacionPendiente ? 'pendiente_cotizacion' : 'pendiente_anticipo');
+
         event(new OrdenActualizada(
             $orden->id,
             (int) $tiendaId,
-            $tieneItemsCotizacionPendiente ? 'pendiente_cotizacion' : 'pendiente_anticipo',
+            $estadoFinal,
             $ordenCargada->cliente->nombre,
         ));
 
-        $supervisores = Usuario::where('rol', 'supervisor')
-            ->where('activo', true)
-            ->where('id', '!=', $request->user()->id)
-            ->get();
+        if (! $guardarBorrador) {
+            $supervisores = Usuario::where('rol', 'supervisor')
+                ->where('activo', true)
+                ->where('id', '!=', $request->user()->id)
+                ->get();
 
-        foreach ($supervisores as $sup) {
-            NotificacionService::crear(
-                'venta_nueva',
-                'Nueva venta registrada',
-                "Orden #{$orden->id} — {$ordenCargada->cliente->nombre} · $" . number_format($valorTotal, 0, ',', '.') . " COP",
-                ['orden_id' => $orden->id, 'tienda_id' => (int) $tiendaId, 'valor_total' => $valorTotal],
-                $sup->id,
-            );
-
-            // Notificación de fecha solo cuando NO hay cotización pendiente
-            // (si hay cotización, se envía después de que el cliente confirme el precio)
-            if ($sup->notif_asignar_fecha && ! $tieneItemsCotizacionPendiente) {
+            foreach ($supervisores as $sup) {
                 NotificacionService::crear(
-                    'asignar_fecha',
-                    'Asignar fecha de entrega',
-                    "Orden #{$orden->id} de {$ordenCargada->cliente->nombre} necesita fecha de entrega",
-                    ['orden_id' => $orden->id],
+                    'venta_nueva',
+                    'Nueva venta registrada',
+                    "Orden #{$orden->id} — {$ordenCargada->cliente->nombre} · $" . number_format($valorTotal, 0, ',', '.') . " COP",
+                    ['orden_id' => $orden->id, 'tienda_id' => (int) $tiendaId, 'valor_total' => $valorTotal],
                     $sup->id,
                 );
+
+                if ($sup->notif_asignar_fecha && ! $tieneItemsCotizacionPendiente) {
+                    NotificacionService::crear(
+                        'asignar_fecha',
+                        'Asignar fecha de entrega',
+                        "Orden #{$orden->id} de {$ordenCargada->cliente->nombre} necesita fecha de entrega",
+                        ['orden_id' => $orden->id],
+                        $sup->id,
+                    );
+                }
             }
-        }
 
-        // Notificar a facturadores sobre el anticipo inicial (solo si se registró uno)
-        $facturadores = $data['anticipo_monto'] > 0
-            ? Usuario::where('facturacion', true)->where('activo', true)->where('id', '!=', $request->user()->id)->get()
-            : collect();
+            // Notificar a facturadores sobre el anticipo inicial (solo si se registró uno)
+            $facturadores = $data['anticipo_monto'] > 0
+                ? Usuario::where('facturacion', true)->where('activo', true)->where('id', '!=', $request->user()->id)->get()
+                : collect();
 
-        if ($facturadores->isNotEmpty()) {
-            $montoFormateado = '$ ' . number_format($data['anticipo_monto'], 0, ',', '.');
-            foreach ($facturadores as $facturador) {
-                NotificacionService::crear(
-                    tipo:      'abono_registrado',
-                    titulo:    "Pago registrado – Orden #{$orden->id}",
-                    mensaje:   "{$request->user()->nombre} registró un anticipo de {$montoFormateado} en la orden de {$ordenCargada->cliente->nombre}.",
-                    datos:     ['orden_id' => $orden->id],
-                    usuarioId: $facturador->id,
-                );
+            if ($facturadores->isNotEmpty()) {
+                $montoFormateado = '$ ' . number_format($data['anticipo_monto'], 0, ',', '.');
+                foreach ($facturadores as $facturador) {
+                    NotificacionService::crear(
+                        tipo:      'abono_registrado',
+                        titulo:    "Pago registrado – Orden #{$orden->id}",
+                        mensaje:   "{$request->user()->nombre} registró un anticipo de {$montoFormateado} en la orden de {$ordenCargada->cliente->nombre}.",
+                        datos:     ['orden_id' => $orden->id],
+                        usuarioId: $facturador->id,
+                    );
+                }
             }
         }
 
@@ -881,6 +887,95 @@ class OrdenController extends Controller
     }
 
     /**
+     * POST /api/ordenes/{id}/completar-borrador
+     *
+     * Completa una orden en estado borrador: registra la firma del cliente,
+     * el anticipo y la transiciona a pendiente_anticipo o pendiente_cotizacion.
+     */
+    public function completarBorrador(Request $request, int $id)
+    {
+        $orden = Orden::with('items')->findOrFail($id);
+
+        if ($orden->estado !== 'borrador') {
+            return response()->json(['message' => 'La orden no está en borrador.'], 422);
+        }
+
+        $usuario = $request->user();
+        if ($usuario->rol !== 'supervisor' && $orden->vendedor_id !== $usuario->id) {
+            return response()->json(['message' => 'No tienes permiso para completar esta orden.'], 403);
+        }
+
+        $data = $request->validate([
+            'firma_url'           => 'required|string|max:500',
+            'anticipo_monto'      => 'required|numeric|min:0',
+            'anticipo_metodo'     => 'nullable|in:efectivo,transferencia,tarjeta,otro',
+            'anticipo_referencia' => 'nullable|string|max:100',
+            'notas'               => 'nullable|string|max:1000',
+        ]);
+
+        $tieneItemsCotizacion = $orden->items->contains(
+            fn($i) => $i->es_personalizado && $i->precio_unitario == 0
+        );
+
+        if (! $tieneItemsCotizacion) {
+            $minimoAnticipo = round($orden->valor_total * ($orden->anticipo_pct ?? 50) / 100, 2);
+            if ($data['anticipo_monto'] < $minimoAnticipo) {
+                return response()->json([
+                    'message' => "El anticipo mínimo es " . number_format($minimoAnticipo, 2) . " COP.",
+                    'errors'  => ['anticipo_monto' => ["Debe ser al menos " . number_format($minimoAnticipo, 2)]],
+                ], 422);
+            }
+        }
+
+        DB::transaction(function () use ($orden, $data, $tieneItemsCotizacion, $usuario) {
+            $nuevoEstado = $tieneItemsCotizacion ? 'pendiente_cotizacion' : 'pendiente_anticipo';
+
+            $orden->update([
+                'estado'    => $nuevoEstado,
+                'firma_url' => $data['firma_url'],
+                'notas'     => $data['notas'] ?? $orden->notas,
+            ]);
+
+            if (($data['anticipo_monto'] ?? 0) > 0) {
+                $orden->pagos()->create([
+                    'vendedor_id' => $usuario->id,
+                    'tipo'        => 'anticipo',
+                    'monto'       => $data['anticipo_monto'],
+                    'metodo'      => $data['anticipo_metodo'] ?? 'efectivo',
+                    'referencia'  => $data['anticipo_referencia'] ?? null,
+                ]);
+            }
+        });
+
+        $ordenFresh = $orden->fresh()->load([
+            'cliente:id,nombre,cedula,telefono',
+            'vendedor:id,nombre',
+            'tienda:id,nombre',
+            'items.producto:id,nombre,categoria,foto_url',
+            'items.produccion',
+            'pagos',
+        ]);
+
+        // Notify supervisors of the now-confirmed order
+        $supervisores = Usuario::where('rol', 'supervisor')
+            ->where('activo', true)
+            ->where('id', '!=', $usuario->id)
+            ->get();
+
+        foreach ($supervisores as $sup) {
+            NotificacionService::crear(
+                'venta_nueva',
+                'Nueva venta registrada',
+                "Orden #{$orden->id} — {$ordenFresh->cliente->nombre} · $" . number_format($orden->valor_total, 0, ',', '.') . " COP",
+                ['orden_id' => $orden->id, 'tienda_id' => (int) $orden->tienda_id, 'valor_total' => $orden->valor_total],
+                $sup->id,
+            );
+        }
+
+        return response()->json($ordenFresh);
+    }
+
+    /**
      * PATCH /api/ordenes/{id}/estado
      *
      * Transiciones que afectan inventario:
@@ -917,8 +1012,10 @@ class OrdenController extends Controller
 
         // Transiciones válidas (despacho controla listo_entrega y en_camino)
         $transiciones = [
-            'pendiente_anticipo' => ['en_produccion', 'listo_entrega', 'cancelado'],
-            'en_produccion'      => ['listo_entrega', 'cancelado'],
+            'borrador'              => ['cancelado'],
+            'pendiente_cotizacion'  => ['cancelado'],
+            'pendiente_anticipo'    => ['en_produccion', 'listo_entrega', 'cancelado'],
+            'en_produccion'         => ['listo_entrega', 'cancelado'],
         ];
         $permitidos = $transiciones[$estadoAnterior] ?? [];
         if (!empty($permitidos) && !in_array($estadoNuevo, $permitidos)) {
