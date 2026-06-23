@@ -96,7 +96,9 @@ async function onFotoChange(e) {
     const fd = new FormData()
     fd.append('foto', file)
     fd.append('folder', 'comprobantes')
-    const { data } = await api.post('/upload/foto', fd)
+    const { data } = await api.post('/upload/foto', fd, {
+      headers: { 'Content-Type': undefined },
+    })
     egresoForm.value.comprobante_url = data.url
   } finally {
     subiendo.value = false
