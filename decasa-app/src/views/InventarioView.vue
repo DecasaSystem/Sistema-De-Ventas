@@ -1059,7 +1059,7 @@ async function guardarNuevaVariante() {
         precio_variante: formVarianteTalla.value.precio_variante || null,
       })
       mostrarNuevaVariante.value = false
-      const { data } = await getVariantes(varianteProdId.value, tiendaId.value)
+      const { data } = await getVariantes(varianteProdId.value, esVistaGlobal.value ? null : tiendaId.value)
       variantesData.value[varianteProdId.value] = data
     } catch (e) {
       varianteCreandoError.value = e.response?.data?.message ?? 'Error al crear variante.'
@@ -1081,7 +1081,7 @@ async function guardarNuevaVariante() {
       nombre_color: colorFinal.value,
     })
     mostrarNuevaVariante.value = false
-    const { data } = await getVariantes(varianteProdId.value, tiendaId.value)
+    const { data } = await getVariantes(varianteProdId.value, esVistaGlobal.value ? null : tiendaId.value)
     variantesData.value[varianteProdId.value] = data
   } catch (e) {
     varianteCreandoError.value = e.response?.data?.message ?? 'Error al crear variante.'
@@ -1610,7 +1610,7 @@ onMounted(async () => {
                 </div>
 
                 <button
-                  v-if="!esVistaGlobal && puedeGestionar"
+                  v-if="(auth.isSupervisor || !esVistaGlobal) && puedeGestionar"
                   @click="abrirNuevaVariante(item)"
                   class="text-xs text-blue-500 font-medium flex items-center gap-0.5 hover:text-blue-700"
                 >
