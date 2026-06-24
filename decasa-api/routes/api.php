@@ -252,7 +252,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/retrasos', [ReporteController::class, 'retrasos']);
         Route::get('/exportar', [ReporteController::class, 'exportar']);
 
-        Route::middleware('role:supervisor')->group(function () {
+        Route::middleware('role:supervisor,ebanista')->group(function () {
             Route::get('/ventas',                    [ReporteController::class, 'ventas']);
             Route::get('/vendedores',                [ReporteController::class, 'vendedores']);
             Route::get('/productos-top',             [ReporteController::class, 'productosTop']);
@@ -329,6 +329,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/consultas-costo/{id}',                          [ConsultaCostoController::class, 'show'])->whereNumber('id');
     Route::put('/consultas-costo/{id}/items/{itemId}',           [ConsultaCostoController::class, 'guardarItem'])->whereNumber('id')->whereNumber('itemId');
     Route::post('/consultas-costo/{id}/enviar',                  [ConsultaCostoController::class, 'enviar'])->whereNumber('id');
+    Route::patch('/consultas-costo/{id}/ajustar-precio',         [ConsultaCostoController::class, 'ajustarPrecio'])->whereNumber('id');
     Route::get('/consultas-costo/{id}/mensajes',                 [ConsultaCostoController::class, 'mensajes'])->whereNumber('id');
     Route::post('/consultas-costo/{id}/mensajes',                [ConsultaCostoController::class, 'enviarMensaje'])->whereNumber('id');
 

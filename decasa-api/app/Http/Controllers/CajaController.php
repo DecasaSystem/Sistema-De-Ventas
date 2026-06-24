@@ -20,8 +20,29 @@ class CajaController extends Controller
         return $user->tienda_default_id ? (int) $user->tienda_default_id : null;
     }
 
+    private function esEbanista(): bool
+    {
+        return auth()->user()?->rol === 'ebanista';
+    }
+
     public function balance(Request $request)
     {
+        $user = auth()->user();
+
+        if ($this->esEbanista()) {
+            $ingresoVentas = Pago::where('vendedor_id', $user->id)->sum('monto');
+            $ingresoManual = CajaMovimiento::where('usuario_id', $user->id)->where('tipo', 'ingreso_manual')->sum('monto');
+            $egresos       = CajaMovimiento::where('usuario_id', $user->id)->where('tipo', 'egreso')->sum('monto');
+
+            return response()->json([
+                'tienda_id'      => null,
+                'balance'        => (float) ($ingresoVentas + $ingresoManual - $egresos),
+                'ingreso_ventas' => (float) $ingresoVentas,
+                'ingreso_manual' => (float) $ingresoManual,
+                'egresos'        => (float) $egresos,
+            ]);
+        }
+
         $tiendaId = $this->tiendaId($request);
 
         if (! $tiendaId) {
@@ -56,8 +77,52 @@ class CajaController extends Controller
 
     public function movimientos(Request $request)
     {
+        $user   = auth()->user();
+        $limite = min((int) $request->input('limite', 60), 200);
+
+        if ($this->esEbanista()) {
+            $pagos = Pago::with(['vendedor:id,nombre'])
+                ->where('vendedor_id', $user->id)
+                ->latest()
+                ->limit($limite)
+                ->get()
+                ->map(fn($p) => [
+                    'id'              => 'pago_' . $p->id,
+                    'tipo'            => 'ingreso_venta',
+                    'monto'           => (float) $p->monto,
+                    'concepto'        => 'Venta #' . $p->orden_id,
+                    'descripcion'     => $p->notas,
+                    'comprobante_url' => null,
+                    'usuario'         => $p->vendedor?->nombre,
+                    'fecha'           => $p->created_at,
+                    'metodo'          => $p->metodo,
+                    'tipo_pago'       => $p->tipo,
+                ]);
+
+            $manuales = CajaMovimiento::with('usuario:id,nombre')
+                ->where('usuario_id', $user->id)
+                ->latest()
+                ->limit($limite)
+                ->get()
+                ->map(fn($m) => [
+                    'id'              => 'mov_' . $m->id,
+                    'tipo'            => $m->tipo,
+                    'monto'           => (float) $m->monto,
+                    'concepto'        => $m->concepto,
+                    'descripcion'     => $m->descripcion,
+                    'comprobante_url' => $m->comprobante_url,
+                    'usuario'         => $m->usuario?->nombre,
+                    'fecha'           => $m->created_at,
+                    'metodo'          => null,
+                    'tipo_pago'       => null,
+                ]);
+
+            return response()->json(
+                collect($pagos)->merge($manuales)->sortByDesc('fecha')->values()
+            );
+        }
+
         $tiendaId = $this->tiendaId($request);
-        $limite   = min((int) $request->input('limite', 60), 200);
 
         if (! $tiendaId) {
             return response()->json([]);
@@ -118,9 +183,11 @@ class CajaController extends Controller
             'tienda_id'       => 'nullable|integer|exists:tiendas,id',
         ]);
 
-        $tiendaId = $this->tiendaId($request);
+        $tiendaId = $this->esEbanista()
+            ? (auth()->user()->tienda_default_id ?? null)
+            : $this->tiendaId($request);
 
-        if (! $tiendaId) {
+        if (! $this->esEbanista() && ! $tiendaId) {
             return response()->json(['message' => 'Usuario sin tienda asignada.'], 422);
         }
 
