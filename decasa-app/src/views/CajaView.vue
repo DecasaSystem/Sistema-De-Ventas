@@ -37,10 +37,10 @@ async function cargarTiendas() {
   if (!auth.isSupervisor) return
   const [tRes, uRes] = await Promise.all([
     api.get('/tiendas'),
-    api.get('/usuarios'),
+    api.get('/usuarios', { params: { rol: 'ebanista' } }),
   ])
   tiendas.value   = tRes.data.filter(t => !t.es_fabrica)
-  ebanistas.value = uRes.data.filter(u => u.rol === 'ebanista' && u.activo)
+  ebanistas.value = (uRes.data.data ?? []).filter(u => u.activo)
   if (!seleccion.value) {
     if (tiendas.value.length)   seleccion.value = 't:' + tiendas.value[0].id
     else if (ebanistas.value.length) seleccion.value = 'e:' + ebanistas.value[0].id
