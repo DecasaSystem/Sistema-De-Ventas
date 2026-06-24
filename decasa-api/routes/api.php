@@ -155,7 +155,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // Variantes de producto (tela/color)
     Route::get('/variantes/telas',           [VarianteController::class, 'telas']);
     Route::get('/productos/{id}/variantes',  [VarianteController::class, 'index']);
-    Route::middleware('role:supervisor')->group(function () {
+    Route::middleware('role:supervisor,vendedor')->group(function () {
         Route::post('/productos/{id}/variantes', [VarianteController::class, 'store']);
     });
 
