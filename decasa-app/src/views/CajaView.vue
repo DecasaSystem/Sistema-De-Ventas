@@ -16,16 +16,34 @@ import {
 
 const auth = useAuthStore()
 
-// ── Tienda ────────────────────────────────────────────────────────────────────
-const tiendas       = ref([])
-const tiendaSelecId = ref(auth.usuario?.tienda_default_id ?? null)
+// ── Selección (tienda o ebanista) ─────────────────────────────────────────────
+const tiendas   = ref([])
+const ebanistas = ref([])
+const seleccion = ref('')  // 't:{id}' | 'e:{id}'
+
+const viendo = computed(() => {
+  if (seleccion.value.startsWith('e:')) return 'ebanista'
+  return 'tienda'
+})
+
+function buildParams() {
+  if (!auth.isSupervisor) return {}
+  if (seleccion.value.startsWith('e:')) return { ebanista_id: seleccion.value.slice(2) }
+  if (seleccion.value.startsWith('t:')) return { tienda_id:   seleccion.value.slice(2) }
+  return {}
+}
 
 async function cargarTiendas() {
   if (!auth.isSupervisor) return
-  const { data } = await api.get('/tiendas')
-  tiendas.value = data.filter(t => !t.es_fabrica)
-  if (!tiendaSelecId.value && tiendas.value.length) {
-    tiendaSelecId.value = tiendas.value[0].id
+  const [tRes, uRes] = await Promise.all([
+    api.get('/tiendas'),
+    api.get('/usuarios'),
+  ])
+  tiendas.value   = tRes.data.filter(t => !t.es_fabrica)
+  ebanistas.value = uRes.data.filter(u => u.rol === 'ebanista' && u.activo)
+  if (!seleccion.value) {
+    if (tiendas.value.length)   seleccion.value = 't:' + tiendas.value[0].id
+    else if (ebanistas.value.length) seleccion.value = 'e:' + ebanistas.value[0].id
   }
 }
 
@@ -34,7 +52,7 @@ const balance  = ref({ balance: 0, ingreso_ventas: 0, ingreso_manual: 0, egresos
 const cargando = ref(true)
 
 async function cargarBalance() {
-  const { data } = await getBalance(auth.isSupervisor ? tiendaSelecId.value : null)
+  const { data } = await getBalance(buildParams())
   balance.value = data
 }
 
@@ -55,7 +73,7 @@ function toggleExpand(id) {
 async function cargarMovimientos() {
   cargandoMovs.value = true
   try {
-    const { data } = await getMovimientos(auth.isSupervisor ? tiendaSelecId.value : null)
+    const { data } = await getMovimientos(buildParams())
     movimientos.value = data
   } finally {
     cargandoMovs.value = false
@@ -71,7 +89,7 @@ async function cargarTodo() {
   }
 }
 
-watch(tiendaSelecId, () => { if (auth.isSupervisor) cargarTodo() })
+watch(seleccion, () => { if (auth.isSupervisor) cargarTodo() })
 
 onMounted(async () => {
   await cargarTiendas()
@@ -137,7 +155,7 @@ async function guardarEgreso() {
       monto:           Number(egresoForm.value.monto),
       descripcion:     egresoForm.value.descripcion.trim() || null,
       comprobante_url: egresoForm.value.comprobante_url || null,
-      ...(auth.isSupervisor && tiendaSelecId.value ? { tienda_id: tiendaSelecId.value } : {}),
+      ...(auth.isSupervisor ? buildParams() : {}),
     })
     abrirEgreso.value = false
     resetEgreso()
@@ -169,7 +187,7 @@ async function guardarIngreso() {
       concepto:    ingresoForm.value.concepto.trim(),
       monto:       Number(ingresoForm.value.monto),
       descripcion: ingresoForm.value.descripcion.trim() || null,
-      ...(auth.isSupervisor && tiendaSelecId.value ? { tienda_id: tiendaSelecId.value } : {}),
+      ...(auth.isSupervisor ? buildParams() : {}),
     })
     abrirIngreso.value = false
     resetIngreso()
@@ -243,12 +261,17 @@ const balancePositivo = computed(() => balance.value.balance >= 0)
         <h1 class="text-xl font-bold text-gray-900">Caja</h1>
       </div>
 
-      <div v-if="auth.isSupervisor && tiendas.length > 1" class="relative">
+      <div v-if="auth.isSupervisor && (tiendas.length + ebanistas.length) > 0" class="relative">
         <select
-          v-model="tiendaSelecId"
+          v-model="seleccion"
           class="appearance-none bg-white border border-gray-200 rounded-lg pl-3 pr-8 py-1.5 text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
-          <option v-for="t in tiendas" :key="t.id" :value="t.id">{{ t.nombre }}</option>
+          <optgroup v-if="tiendas.length" label="Tiendas">
+            <option v-for="t in tiendas" :key="'t:'+t.id" :value="'t:'+t.id">{{ t.nombre }}</option>
+          </optgroup>
+          <optgroup v-if="ebanistas.length" label="Ebanistas">
+            <option v-for="e in ebanistas" :key="'e:'+e.id" :value="'e:'+e.id">{{ e.nombre }}</option>
+          </optgroup>
         </select>
         <ChevronDownIcon class="w-4 h-4 text-gray-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
       </div>
@@ -285,8 +308,8 @@ const balancePositivo = computed(() => balance.value.balance >= 0)
         </div>
       </div>
 
-      <!-- Botones de acción -->
-      <div class="grid grid-cols-2 gap-3">
+      <!-- Botones de acción (ocultos si supervisor ve caja de ebanista) -->
+      <div v-if="!(auth.isSupervisor && viendo === 'ebanista')" class="grid grid-cols-2 gap-3">
         <button
           @click="abrirEgreso = true"
           class="bg-red-500 hover:bg-red-600 active:bg-red-700 text-white rounded-xl py-3 font-semibold text-sm flex items-center justify-center gap-2 transition-colors"

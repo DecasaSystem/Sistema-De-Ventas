@@ -25,22 +25,31 @@ class CajaController extends Controller
         return auth()->user()?->rol === 'ebanista';
     }
 
+    private function balancePorUsuario(int $userId): array
+    {
+        $ingresoVentas = Pago::where('vendedor_id', $userId)->sum('monto');
+        $ingresoManual = CajaMovimiento::where('usuario_id', $userId)->where('tipo', 'ingreso_manual')->sum('monto');
+        $egresos       = CajaMovimiento::where('usuario_id', $userId)->where('tipo', 'egreso')->sum('monto');
+
+        return [
+            'tienda_id'      => null,
+            'balance'        => (float) ($ingresoVentas + $ingresoManual - $egresos),
+            'ingreso_ventas' => (float) $ingresoVentas,
+            'ingreso_manual' => (float) $ingresoManual,
+            'egresos'        => (float) $egresos,
+        ];
+    }
+
     public function balance(Request $request)
     {
         $user = auth()->user();
 
         if ($this->esEbanista()) {
-            $ingresoVentas = Pago::where('vendedor_id', $user->id)->sum('monto');
-            $ingresoManual = CajaMovimiento::where('usuario_id', $user->id)->where('tipo', 'ingreso_manual')->sum('monto');
-            $egresos       = CajaMovimiento::where('usuario_id', $user->id)->where('tipo', 'egreso')->sum('monto');
+            return response()->json($this->balancePorUsuario($user->id));
+        }
 
-            return response()->json([
-                'tienda_id'      => null,
-                'balance'        => (float) ($ingresoVentas + $ingresoManual - $egresos),
-                'ingreso_ventas' => (float) $ingresoVentas,
-                'ingreso_manual' => (float) $ingresoManual,
-                'egresos'        => (float) $egresos,
-            ]);
+        if ($user->rol === 'supervisor' && $request->filled('ebanista_id')) {
+            return response()->json($this->balancePorUsuario((int) $request->input('ebanista_id')));
         }
 
         $tiendaId = $this->tiendaId($request);
@@ -75,51 +84,54 @@ class CajaController extends Controller
         ]);
     }
 
+    private function movimientosPorUsuario(int $userId, int $limite): \Illuminate\Support\Collection
+    {
+        $pagos = Pago::with(['vendedor:id,nombre'])
+            ->where('vendedor_id', $userId)
+            ->latest()->limit($limite)->get()
+            ->map(fn($p) => [
+                'id'              => 'pago_' . $p->id,
+                'tipo'            => 'ingreso_venta',
+                'monto'           => (float) $p->monto,
+                'concepto'        => 'Venta #' . $p->orden_id,
+                'descripcion'     => $p->notas,
+                'comprobante_url' => null,
+                'usuario'         => $p->vendedor?->nombre,
+                'fecha'           => $p->created_at,
+                'metodo'          => $p->metodo,
+                'tipo_pago'       => $p->tipo,
+            ]);
+
+        $manuales = CajaMovimiento::with('usuario:id,nombre')
+            ->where('usuario_id', $userId)
+            ->latest()->limit($limite)->get()
+            ->map(fn($m) => [
+                'id'              => 'mov_' . $m->id,
+                'tipo'            => $m->tipo,
+                'monto'           => (float) $m->monto,
+                'concepto'        => $m->concepto,
+                'descripcion'     => $m->descripcion,
+                'comprobante_url' => $m->comprobante_url,
+                'usuario'         => $m->usuario?->nombre,
+                'fecha'           => $m->created_at,
+                'metodo'          => null,
+                'tipo_pago'       => null,
+            ]);
+
+        return collect($pagos)->merge($manuales)->sortByDesc('fecha')->values();
+    }
+
     public function movimientos(Request $request)
     {
         $user   = auth()->user();
         $limite = min((int) $request->input('limite', 60), 200);
 
         if ($this->esEbanista()) {
-            $pagos = Pago::with(['vendedor:id,nombre'])
-                ->where('vendedor_id', $user->id)
-                ->latest()
-                ->limit($limite)
-                ->get()
-                ->map(fn($p) => [
-                    'id'              => 'pago_' . $p->id,
-                    'tipo'            => 'ingreso_venta',
-                    'monto'           => (float) $p->monto,
-                    'concepto'        => 'Venta #' . $p->orden_id,
-                    'descripcion'     => $p->notas,
-                    'comprobante_url' => null,
-                    'usuario'         => $p->vendedor?->nombre,
-                    'fecha'           => $p->created_at,
-                    'metodo'          => $p->metodo,
-                    'tipo_pago'       => $p->tipo,
-                ]);
+            return response()->json($this->movimientosPorUsuario($user->id, $limite));
+        }
 
-            $manuales = CajaMovimiento::with('usuario:id,nombre')
-                ->where('usuario_id', $user->id)
-                ->latest()
-                ->limit($limite)
-                ->get()
-                ->map(fn($m) => [
-                    'id'              => 'mov_' . $m->id,
-                    'tipo'            => $m->tipo,
-                    'monto'           => (float) $m->monto,
-                    'concepto'        => $m->concepto,
-                    'descripcion'     => $m->descripcion,
-                    'comprobante_url' => $m->comprobante_url,
-                    'usuario'         => $m->usuario?->nombre,
-                    'fecha'           => $m->created_at,
-                    'metodo'          => null,
-                    'tipo_pago'       => null,
-                ]);
-
-            return response()->json(
-                collect($pagos)->merge($manuales)->sortByDesc('fecha')->values()
-            );
+        if ($user->rol === 'supervisor' && $request->filled('ebanista_id')) {
+            return response()->json($this->movimientosPorUsuario((int) $request->input('ebanista_id'), $limite));
         }
 
         $tiendaId = $this->tiendaId($request);
