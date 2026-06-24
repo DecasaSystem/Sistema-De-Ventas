@@ -45,6 +45,7 @@ const accesos = computed(() => {
       { label: 'Mis pasos',    icon: ClipboardDocumentCheckIcon, to: { name: 'mis-pasos'   } },
       { label: 'Cotizaciones', icon: CurrencyDollarIcon,         to: { name: 'consultas'   } },
       { label: 'Costos',       icon: CalculatorIcon,             to: { name: 'costos'      } },
+      { label: 'Telas',        icon: SwatchIcon,                 to: { name: 'telas'       } },
       { label: 'Estadísticas', icon: PresentationChartLineIcon,  to: { name: 'mis-stats'   } },
     ]
   }
