@@ -69,7 +69,7 @@ router.beforeEach((to) => {
   if (to.meta.requiresRedes && !auth.tieneAccesoRedes) return { name: 'dashboard' }
   if (to.meta.requiresConsultas && !auth.isSupervisor && auth.usuario?.rol !== 'ebanista' && auth.usuario?.rol !== 'vendedor') return { name: 'dashboard' }
   if (to.meta.requiresReserva && !auth.isSupervisor && auth.usuario?.rol !== 'vendedor') return { name: 'dashboard' }
-  if (to.meta.requiresTelas && !auth.isCosturero && !auth.puedeRecargarTelas && auth.usuario?.rol !== 'vendedor') return { name: 'dashboard' }
+  if (to.meta.requiresTelas && !auth.isCosturero && !auth.puedeRecargarTelas && auth.usuario?.rol !== 'vendedor' && !auth.isEbanista) return { name: 'dashboard' }
   if (to.meta.requiresCaja && !auth.isSupervisor && auth.usuario?.rol !== 'vendedor') return { name: 'dashboard' }
 })
 

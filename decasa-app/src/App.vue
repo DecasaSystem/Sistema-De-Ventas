@@ -209,6 +209,7 @@ const navItems = computed(() => {
       { name: 'ordenes',     label: 'Órdenes',      icon: ClipboardDocumentListIcon },
       { name: 'consultas',   label: 'Cotizaciones', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
       { name: 'costos',      label: 'Costos',       icon: CalculatorIcon },
+      { name: 'telas',       label: 'Telas',        icon: SwatchIcon },
       { name: 'clientes',    label: 'Clientes',     icon: UserGroupIcon },
       { name: 'mis-stats',   label: 'Estadíst.',    icon: PresentationChartLineIcon },
     ]
