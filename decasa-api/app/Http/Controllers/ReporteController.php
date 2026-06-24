@@ -474,7 +474,9 @@ class ReporteController extends Controller
             ->havingRaw('
                 (MIN(pr.fecha_compromiso) IS NOT NULL AND MIN(pr.fecha_compromiso) < CURDATE())
                 OR MAX(pr.estado = "retrasado") = 1
-                OR (MIN(pr.fecha_compromiso) IS NULL AND o.created_at < DATE_SUB(CURDATE(), INTERVAL 30 DAY))
+                OR (MIN(oi.fecha_entrega_prom) IS NOT NULL AND MIN(oi.fecha_entrega_prom) < CURDATE())
+                OR (COALESCE(MIN(pr.fecha_compromiso), MIN(oi.fecha_entrega_prom)) IS NULL
+                    AND o.created_at < DATE_SUB(CURDATE(), INTERVAL 30 DAY))
             ')
             ->selectRaw('
                 o.id                  AS orden_id,
@@ -484,10 +486,10 @@ class ReporteController extends Controller
                 t.nombre              AS tienda,
                 o.estado,
                 o.created_at,
-                MIN(pr.fecha_compromiso) AS fecha_compromiso,
+                COALESCE(MIN(pr.fecha_compromiso), MIN(oi.fecha_entrega_prom)) AS fecha_compromiso,
                 CASE
-                    WHEN MIN(pr.fecha_compromiso) IS NOT NULL
-                    THEN DATEDIFF(CURDATE(), MIN(pr.fecha_compromiso))
+                    WHEN COALESCE(MIN(pr.fecha_compromiso), MIN(oi.fecha_entrega_prom)) IS NOT NULL
+                    THEN DATEDIFF(CURDATE(), COALESCE(MIN(pr.fecha_compromiso), MIN(oi.fecha_entrega_prom)))
                     ELSE DATEDIFF(CURDATE(), DATE_ADD(DATE(o.created_at), INTERVAL 30 DAY))
                 END                   AS dias_retraso,
                 COUNT(DISTINCT oi.id) AS items_count
