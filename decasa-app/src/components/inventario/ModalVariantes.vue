@@ -146,7 +146,6 @@ async function eliminarOpcion(tipo, opcion) {
       </div>
 
       <div class="overflow-y-auto flex-1 px-5 py-4 space-y-5">
-        <template>
 
           <!-- Crear tipo nuevo -->
           <div class="bg-blue-50 rounded-xl p-4 space-y-3">
@@ -276,7 +275,6 @@ async function eliminarOpcion(tipo, opcion) {
               </div>
             </div>
           </div>
-        </template>
 
       </div>
     </div>
