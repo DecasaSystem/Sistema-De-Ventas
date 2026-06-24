@@ -252,7 +252,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/retrasos', [ReporteController::class, 'retrasos']);
         Route::get('/exportar', [ReporteController::class, 'exportar']);
 
-        Route::middleware('role:supervisor,ebanista')->group(function () {
+        Route::middleware('role:supervisor')->group(function () {
             Route::get('/ventas',                    [ReporteController::class, 'ventas']);
             Route::get('/vendedores',                [ReporteController::class, 'vendedores']);
             Route::get('/productos-top',             [ReporteController::class, 'productosTop']);

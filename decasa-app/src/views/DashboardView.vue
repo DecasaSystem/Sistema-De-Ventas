@@ -47,7 +47,6 @@ const accesos = computed(() => {
       { label: 'Costos',       icon: CalculatorIcon,             to: { name: 'costos'      } },
       { label: 'Telas',        icon: SwatchIcon,                 to: { name: 'telas'       } },
       { label: 'Caja',         icon: BanknotesIcon,              to: { name: 'caja'        } },
-      { label: 'Reportes',     icon: ChartBarIcon,               to: { name: 'reportes'    } },
       { label: 'Estadísticas', icon: PresentationChartLineIcon,  to: { name: 'mis-stats'   } },
     ]
   }

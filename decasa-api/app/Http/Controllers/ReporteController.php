@@ -385,7 +385,7 @@ class ReporteController extends Controller
                 ->whereBetween('o.created_at', [$desde . ' 00:00:00', $hasta . ' 23:59:59'])
             )
             ->leftJoin('pagos as p', 'p.orden_id', '=', 'o.id')
-            ->whereIn('u.rol', ['vendedor', 'supervisor'])
+            ->whereIn('u.rol', ['vendedor', 'supervisor', 'ebanista'])
             ->where('u.activo', true)
             ->selectRaw('
                 u.id            AS vendedor_id,
