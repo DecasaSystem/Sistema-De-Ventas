@@ -462,35 +462,37 @@ class ReporteController extends Controller
         $user = $request->user();
         $vendedorId = $user->rol === 'vendedor' ? $user->id : null;
 
-        return DB::table('produccion as pr')
-            ->join('orden_items as oi', 'oi.id', '=', 'pr.orden_item_id')
-            ->join('ordenes as o',      'o.id',  '=', 'oi.orden_id')
-            ->join('clientes as c',     'c.id',  '=', 'o.cliente_id')
-            ->leftJoin('productos as pd', 'pd.id', '=', 'oi.producto_id')
-            ->join('usuarios as u',     'u.id',  '=', 'o.vendedor_id')
-            ->join('tiendas as t',      't.id',  '=', 'o.tienda_id')
-            ->where(function ($q) {
-                $q->where('pr.estado', 'retrasado')
-                  ->orWhere(fn($q2) =>
-                      $q2->where('pr.estado', 'en_proceso')
-                         ->whereRaw('pr.fecha_compromiso < CURDATE()')
-                  );
-            })
+        return DB::table('ordenes as o')
+            ->join('clientes as c',         'c.id',            '=', 'o.cliente_id')
+            ->join('usuarios as u',         'u.id',            '=', 'o.vendedor_id')
+            ->join('tiendas as t',          't.id',            '=', 'o.tienda_id')
+            ->leftJoin('orden_items as oi', 'oi.orden_id',     '=', 'o.id')
+            ->leftJoin('produccion as pr',  'pr.orden_item_id','=', 'oi.id')
+            ->whereNotIn('o.estado', ['entregado', 'cancelado', 'borrador'])
             ->when($vendedorId, fn($q) => $q->where('o.vendedor_id', $vendedorId))
-            ->selectRaw('
-                pr.id                AS produccion_id,
-                o.id                 AS orden_id,
-                c.nombre             AS cliente,
-                c.telefono,
-                COALESCE(pd.nombre, oi.nombre_custom, "Producto personalizado") AS producto,
-                pr.fecha_compromiso,
-                DATEDIFF(CURDATE(), pr.fecha_compromiso) AS dias_retraso,
-                pr.estado,
-                pr.motivo_retraso,
-                u.nombre             AS vendedor,
-                t.nombre             AS tienda
+            ->groupBy('o.id', 'c.nombre', 'c.telefono', 'u.nombre', 't.nombre', 'o.estado', 'o.created_at')
+            ->havingRaw('
+                (MIN(pr.fecha_compromiso) IS NOT NULL AND MIN(pr.fecha_compromiso) < CURDATE())
+                OR MAX(pr.estado = "retrasado") = 1
+                OR (MIN(pr.fecha_compromiso) IS NULL AND o.created_at < DATE_SUB(CURDATE(), INTERVAL 30 DAY))
             ')
-            ->orderBy('pr.fecha_compromiso')
+            ->selectRaw('
+                o.id                  AS orden_id,
+                c.nombre              AS cliente,
+                c.telefono,
+                u.nombre              AS vendedor,
+                t.nombre              AS tienda,
+                o.estado,
+                o.created_at,
+                MIN(pr.fecha_compromiso) AS fecha_compromiso,
+                CASE
+                    WHEN MIN(pr.fecha_compromiso) IS NOT NULL
+                    THEN DATEDIFF(CURDATE(), MIN(pr.fecha_compromiso))
+                    ELSE DATEDIFF(CURDATE(), DATE_ADD(DATE(o.created_at), INTERVAL 30 DAY))
+                END                   AS dias_retraso,
+                COUNT(DISTINCT oi.id) AS items_count
+            ')
+            ->orderByDesc('dias_retraso')
             ->get()
             ->toArray();
     }
@@ -676,17 +678,17 @@ class ReporteController extends Controller
     private function rowsRetrasos(Request $request): array
     {
         $rows = collect($this->buildRetrasos($request))->map(fn($r) => [
-            $r->produccion_id, $r->orden_id, $r->cliente, $r->telefono,
-            $r->producto, $r->fecha_compromiso, $r->dias_retraso,
-            $r->estado, $r->motivo_retraso, $r->vendedor, $r->tienda,
+            $r->orden_id, $r->cliente, $r->telefono, $r->vendedor, $r->tienda,
+            $r->estado, $r->items_count, $r->fecha_compromiso ?? 'Sin fecha',
+            $r->dias_retraso, $r->created_at,
         ]);
 
         return [
             $rows,
-            ['ID Prod.', 'Orden ID', 'Cliente', 'Teléfono', 'Producto',
-             'Fecha Compromiso', 'Días Retraso', 'Estado', 'Motivo', 'Vendedor', 'Tienda'],
-            'retrasos_produccion_' . now()->toDateString() . '.xlsx',
-            'Retrasos Producción',
+            ['Orden ID', 'Cliente', 'Teléfono', 'Vendedor', 'Tienda',
+             'Estado', 'Items', 'Fecha Compromiso', 'Días Retraso', 'Fecha Creación'],
+            'ordenes_atrasadas_' . now()->toDateString() . '.xlsx',
+            'Órdenes Atrasadas',
             [],
             $this->metaStr(null, null),
         ];

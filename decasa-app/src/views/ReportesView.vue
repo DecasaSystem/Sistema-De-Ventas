@@ -771,27 +771,33 @@ onBeforeUnmount(() => {
       <!-- ══════ TAB: PRODUCCIÓN ══════ -->
       <div v-show="tabActivo === 'produccion'" class="space-y-3">
         <div class="flex items-center justify-between">
-          <p class="text-sm text-gray-500">{{ retrasos.length }} item{{ retrasos.length !== 1 ? 's' : '' }} en retraso o por vencer</p>
+          <p class="text-sm text-gray-500">{{ retrasos.length }} orden{{ retrasos.length !== 1 ? 'es' : '' }} atrasada{{ retrasos.length !== 1 ? 's' : '' }}</p>
           <button @click="exportar('retrasos')" class="text-xs text-blue-600 font-medium hover:underline">Exportar</button>
         </div>
         <ul class="space-y-2">
-          <li v-for="r in retrasos" :key="r.produccion_id"
+          <li v-for="r in retrasos" :key="r.orden_id"
             @click="router.push({ name: 'orden-detalle', params: { id: r.orden_id } })"
             class="bg-white rounded-xl shadow-sm p-4 cursor-pointer hover:shadow-md transition-shadow">
             <div class="flex justify-between items-start mb-1">
               <div class="min-w-0 flex-1">
-                <p class="font-medium text-sm text-gray-800 truncate">{{ r.producto }}</p>
-                <p class="text-xs text-gray-500">{{ r.cliente }} · {{ r.vendedor }}</p>
-                <p class="text-xs text-gray-400">{{ r.tienda }} · Compromiso: {{ r.fecha_compromiso }}</p>
+                <div class="flex items-center gap-2 mb-0.5">
+                  <p class="font-semibold text-sm text-gray-800">Orden #{{ r.orden_id }}</p>
+                  <span class="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full">{{ r.items_count }} item{{ r.items_count !== 1 ? 's' : '' }}</span>
+                </div>
+                <p class="text-xs text-gray-600">{{ r.cliente }} · {{ r.vendedor }}</p>
+                <p class="text-xs text-gray-400">
+                  {{ r.tienda }} ·
+                  <span v-if="r.fecha_compromiso">Compromiso: {{ r.fecha_compromiso }}</span>
+                  <span v-else>Sin fecha de producción · creada {{ r.created_at?.substring(0, 10) }}</span>
+                </p>
               </div>
               <span :class="['ml-2 flex-shrink-0 text-xs font-bold px-2.5 py-1 rounded-full', retrasoColor(r.dias_retraso)]">
-                {{ r.dias_retraso > 0 ? `+${r.dias_retraso}d` : `${r.dias_retraso}d` }}
+                +{{ r.dias_retraso }}d
               </span>
             </div>
-            <p v-if="r.motivo_retraso" class="text-xs text-gray-400 mt-1 italic">{{ r.motivo_retraso }}</p>
           </li>
         </ul>
-        <p v-if="!retrasos.length" class="text-center py-8 text-gray-400 text-sm">Sin retrasos registrados.</p>
+        <p v-if="!retrasos.length" class="text-center py-8 text-gray-400 text-sm">Sin órdenes atrasadas.</p>
       </div>
 
       <!-- ══════ TAB: CANALES ══════ -->
