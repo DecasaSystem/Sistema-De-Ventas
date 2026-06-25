@@ -968,6 +968,9 @@ class OrdenController extends Controller
             'pagos',
         ]);
 
+        $ordenFresh->total_pagado    = $ordenFresh->totalPagado();
+        $ordenFresh->saldo_pendiente = $ordenFresh->saldoPendiente();
+
         // Notify supervisors of the now-confirmed order
         $supervisores = Usuario::where('rol', 'supervisor')
             ->where('activo', true)
