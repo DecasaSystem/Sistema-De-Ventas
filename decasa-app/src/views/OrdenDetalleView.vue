@@ -6,7 +6,7 @@ import { useToast } from '@/composables/useToast'
 import { getOrden, updateEstado, descargarPdfOrden, reenviarCotizacion, asignarFechasEntrega, confirmarCotizacion, completarBorrador as completarBorradorApi } from '@/api/ordenes'
 import { despachoPorOrden } from '@/api/despacho'
 import { tomarFacturacion, marcarFacturada } from '@/api/pagos'
-import { getReceptores, crearConsulta, getConsultas } from '@/api/consultas'
+import { getReceptores, crearConsulta, getConsultas, ajustarPrecio as ajustarPrecioApi } from '@/api/consultas'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import RegistroPagoModal from '@/components/ordenes/RegistroPagoModal.vue'
@@ -628,6 +628,84 @@ async function doConfirmarCotizacion() {
 
 const consultaActiva        = ref(null)
 const cargandoConsulta      = ref(false)
+
+// Ajuste de precio sobre cotización respondida
+const descuentoCotizPct  = ref(null)   // null = sin selección, number = % seleccionado
+const descuentoCustom    = ref('')     // campo manual si no usa preset
+const aplicandoAjuste    = ref(false)
+const modoAjustePorItem  = ref(false)  // false = % global, true = precio exacto por ítem
+const preciosAjustados   = ref({})     // { [consulta_item_id]: number }
+
+const PRESETS_DESCUENTO = [1, 2, 3, 5]
+
+function entrarModoAjustePorItem() {
+  preciosAjustados.value = {}
+  for (const item of consultaActiva.value?.items ?? []) {
+    preciosAjustados.value[item.id] = item.precio_final
+  }
+  modoAjustePorItem.value = true
+}
+
+function salirModoAjustePorItem() {
+  modoAjustePorItem.value = false
+  preciosAjustados.value = {}
+}
+
+async function aplicarAjustePorItem() {
+  if (!consultaActiva.value) return
+  aplicandoAjuste.value = true
+  try {
+    const items = consultaActiva.value.items.map(ci => ({
+      consulta_item_id: ci.id,
+      precio_ajustado:  Number(preciosAjustados.value[ci.id] ?? ci.precio_final),
+    }))
+    const { data } = await ajustarPrecioApi(consultaActiva.value.id, { items })
+    consultaActiva.value = data.consulta
+    if (orden.value) orden.value.valor_total = data.orden_valor_total
+    toast.success('Precios actualizados correctamente.')
+    modoAjustePorItem.value = false
+    preciosAjustados.value = {}
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'Error al ajustar precios.')
+  } finally {
+    aplicandoAjuste.value = false
+  }
+}
+
+function precioAjustado(precioFinal) {
+  const pct = descuentoCotizPct.value ?? 0
+  return Math.round(precioFinal * (1 - pct / 100))
+}
+
+function seleccionarDescuento(pct) {
+  descuentoCotizPct.value = descuentoCotizPct.value === pct ? null : pct
+  descuentoCustom.value   = ''
+}
+
+function onCustomDescuento(e) {
+  const v = parseFloat(e.target.value)
+  descuentoCotizPct.value = (!isNaN(v) && v > 0) ? v : null
+}
+
+async function aplicarAjuste() {
+  if (descuentoCotizPct.value === null || !consultaActiva.value) return
+  aplicandoAjuste.value = true
+  try {
+    const { data } = await ajustarPrecioApi(consultaActiva.value.id, {
+      descuento_pct: descuentoCotizPct.value,
+    })
+    consultaActiva.value = data.consulta
+    if (orden.value) orden.value.valor_total = data.orden_valor_total
+    toast.success(`Descuento del ${descuentoCotizPct.value}% aplicado.`)
+    descuentoCotizPct.value = null
+    descuentoCustom.value   = ''
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'Error al aplicar el ajuste.')
+  } finally {
+    aplicandoAjuste.value = false
+  }
+}
+
 const showModalCotizar   = ref(false)
 const receptores         = ref([])
 const cotizarReceptorId  = ref(null)
@@ -796,7 +874,9 @@ onMounted(cargarOrden)
             <p class="text-xs text-gray-400">
               Asignada a {{ consultaActiva.asignado_a?.nombre ?? '—' }}
             </p>
-            <div v-if="consultaActiva.estado === 'respondida'" class="space-y-2 mt-1.5">
+            <div v-if="consultaActiva.estado === 'respondida'" class="space-y-3 mt-1.5">
+
+              <!-- Precios por ítem -->
               <div class="flex flex-wrap gap-1.5">
                 <span
                   v-for="item in consultaActiva.items"
@@ -807,6 +887,109 @@ onMounted(cargarOrden)
                   {{ new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(item.precio_final) }}
                 </span>
               </div>
+
+              <!-- Panel de ajuste de precio -->
+              <div
+                v-if="['pendiente_cotizacion','pendiente_anticipo'].includes(orden.estado)"
+                class="border border-amber-200 bg-amber-50 rounded-xl p-3 space-y-2.5"
+              >
+                <!-- Cabecera con toggle de modo -->
+                <div class="flex items-center justify-between">
+                  <p class="text-xs font-semibold text-amber-800">Ajustar precio al cliente</p>
+                  <button
+                    @click="modoAjustePorItem ? salirModoAjustePorItem() : entrarModoAjustePorItem()"
+                    class="text-[11px] font-medium underline underline-offset-2 text-amber-700 hover:text-amber-900"
+                  >
+                    {{ modoAjustePorItem ? '← Volver a % descuento' : 'Ingresar precio exacto' }}
+                  </button>
+                </div>
+
+                <!-- MODO % descuento global -->
+                <template v-if="!modoAjustePorItem">
+                  <!-- Botones de descuento rápido -->
+                  <div class="flex gap-1.5 flex-wrap">
+                    <button
+                      v-for="pct in PRESETS_DESCUENTO"
+                      :key="pct"
+                      @click="seleccionarDescuento(pct)"
+                      :class="['px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors',
+                        descuentoCotizPct === pct
+                          ? 'bg-amber-600 text-white border-amber-600'
+                          : 'bg-white text-amber-700 border-amber-300 hover:border-amber-500']"
+                    >
+                      {{ pct }}%
+                    </button>
+                    <div class="flex items-center gap-1 bg-white border border-amber-300 rounded-lg px-2 py-1">
+                      <input
+                        :value="descuentoCustom"
+                        @input="onCustomDescuento"
+                        type="number" min="0.1" max="99" step="0.5" placeholder="Otro"
+                        class="w-14 text-xs text-center focus:outline-none bg-transparent"
+                      />
+                      <span class="text-xs text-amber-600 font-bold">%</span>
+                    </div>
+                  </div>
+
+                  <!-- Preview -->
+                  <div v-if="descuentoCotizPct !== null && descuentoCotizPct > 0" class="space-y-1">
+                    <p class="text-[11px] text-amber-700 font-medium">Con {{ descuentoCotizPct }}% de descuento:</p>
+                    <div class="flex flex-wrap gap-1.5">
+                      <span
+                        v-for="item in consultaActiva.items"
+                        :key="item.id"
+                        class="text-xs bg-white border border-amber-300 text-amber-900 px-2 py-0.5 rounded-full font-medium"
+                      >
+                        {{ item.orden_item?.nombre_custom ?? item.orden_item?.producto?.nombre ?? 'Ítem' }}:
+                        {{ new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(precioAjustado(item.precio_final)) }}
+                      </span>
+                    </div>
+                  </div>
+
+                  <button
+                    @click="aplicarAjuste"
+                    :disabled="aplicandoAjuste || descuentoCotizPct === null || descuentoCotizPct <= 0"
+                    class="w-full bg-amber-600 text-white rounded-lg py-2 text-xs font-bold hover:bg-amber-700 disabled:opacity-40 transition-colors"
+                  >
+                    {{ aplicandoAjuste ? 'Aplicando...' : descuentoCotizPct ? `Aplicar descuento del ${descuentoCotizPct}%` : 'Selecciona un descuento' }}
+                  </button>
+                </template>
+
+                <!-- MODO precio exacto por ítem -->
+                <template v-else>
+                  <p class="text-[11px] text-amber-700">Ingresa el precio acordado con el cotizador para cada ítem:</p>
+                  <div class="space-y-2">
+                    <div
+                      v-for="item in consultaActiva.items"
+                      :key="item.id"
+                      class="flex items-center gap-2 bg-white rounded-lg border border-amber-200 px-3 py-2"
+                    >
+                      <span class="flex-1 text-xs text-gray-700 font-medium truncate">
+                        {{ item.orden_item?.nombre_custom ?? item.orden_item?.producto?.nombre ?? 'Ítem' }}
+                      </span>
+                      <span class="text-[11px] text-gray-400 line-through flex-shrink-0">
+                        {{ new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(item.precio_final) }}
+                      </span>
+                      <div class="flex items-center gap-0.5 bg-amber-50 border border-amber-300 rounded-lg px-2 py-1 flex-shrink-0">
+                        <span class="text-xs text-amber-700 font-bold">$</span>
+                        <input
+                          v-model.number="preciosAjustados[item.id]"
+                          type="number" min="0"
+                          class="w-24 text-xs text-right focus:outline-none bg-transparent font-semibold text-amber-900"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    @click="aplicarAjustePorItem"
+                    :disabled="aplicandoAjuste"
+                    class="w-full bg-amber-600 text-white rounded-lg py-2 text-xs font-bold hover:bg-amber-700 disabled:opacity-40 transition-colors"
+                  >
+                    {{ aplicandoAjuste ? 'Guardando...' : 'Guardar precios acordados' }}
+                  </button>
+                </template>
+              </div>
+
+              <!-- Confirmar venta -->
               <button
                 v-if="orden.estado === 'pendiente_cotizacion'"
                 @click="anticipoPctConfirmar = 50; anticipoConfirmar = Math.ceil(totalAcordado * 0.5); showModalConfirmar = true"
