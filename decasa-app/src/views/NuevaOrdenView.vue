@@ -324,37 +324,108 @@ const productoCustomForm = ref({ nombre: '', categoria: '', precio_unitario: 0, 
 // ── Crear producto nuevo desde la orden ───────────────────────────────────────
 const busquedaHecha        = ref(false)
 const mostrarCrearProducto = ref(false)
-const crearProductoForm    = ref({ nombre: '', categoria: '', precio_base: '' })
-const creandoProducto      = ref(false)
-const crearProductoError   = ref('')
+const crearProductoForm    = ref({
+  nombre: '', categoria: '', precio_base: '',
+  descripcion: '', medidas: '', material: '',
+  personalizable: false, es_tapizado: false,
+})
+const creandoProducto    = ref(false)
+const crearProductoError = ref('')
+const subiendoFotoNuevo  = ref(false)
+const fotoNuevoFile      = ref(null)
+const fotoNuevoPreview   = ref('')
+const fotoNuevoInput     = ref(null)
+const categoriasNuevo    = ref([])
+const categoriaSelNuevo  = ref('')
 
-function abrirCrearProducto() {
-  crearProductoForm.value = { nombre: productoQuery.value.trim(), categoria: '', precio_base: '' }
+const CATS_TAPIZADO = /sofa|sofá|silla|modular/i
+
+function esTapizadoPorCat(texto) {
+  return CATS_TAPIZADO.test(texto ?? '')
+}
+
+function onNombreNuevoInput() {
+  if (esTapizadoPorCat(crearProductoForm.value.nombre)) crearProductoForm.value.es_tapizado = true
+}
+
+function onCategoriaNuevoSelect(val) {
+  categoriaSelNuevo.value = val
+  if (val !== '__nueva__') {
+    crearProductoForm.value.categoria = val
+    if (esTapizadoPorCat(val)) crearProductoForm.value.es_tapizado = true
+  } else {
+    crearProductoForm.value.categoria = ''
+  }
+}
+
+function onFotoNuevoChange(e) {
+  const file = e.target.files[0]
+  if (!file) return
+  if (fotoNuevoPreview.value) URL.revokeObjectURL(fotoNuevoPreview.value)
+  fotoNuevoFile.value = file
+  fotoNuevoPreview.value = URL.createObjectURL(file)
+}
+
+function quitarFotoNuevo() {
+  if (fotoNuevoPreview.value) URL.revokeObjectURL(fotoNuevoPreview.value)
+  fotoNuevoFile.value = null
+  fotoNuevoPreview.value = ''
+  if (fotoNuevoInput.value) fotoNuevoInput.value.value = ''
+}
+
+async function abrirCrearProducto() {
+  crearProductoForm.value = {
+    nombre: productoQuery.value.trim(), categoria: '', precio_base: '',
+    descripcion: '', medidas: '', material: '',
+    personalizable: false, es_tapizado: false,
+  }
+  categoriaSelNuevo.value = ''
   crearProductoError.value = ''
+  quitarFotoNuevo()
   mostrarCrearProducto.value = true
+  try {
+    const { data } = await api.get('/productos/categorias')
+    categoriasNuevo.value = data
+  } catch {}
 }
 
 async function crearYAgregarProducto() {
-  const { nombre, categoria, precio_base } = crearProductoForm.value
-  if (!nombre.trim() || !precio_base) {
+  const f = crearProductoForm.value
+  if (!f.nombre.trim() || !f.precio_base) {
     crearProductoError.value = 'Nombre y precio base son requeridos.'
     return
   }
   creandoProducto.value = true
   crearProductoError.value = ''
   try {
+    let foto_url = undefined
+    if (fotoNuevoFile.value) {
+      subiendoFotoNuevo.value = true
+      const fd = new FormData()
+      fd.append('foto', await comprimirImagen(fotoNuevoFile.value), 'producto.jpg')
+      const { data: up } = await api.post('/upload/foto', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      foto_url = up.url
+      subiendoFotoNuevo.value = false
+    }
     const { data: prod } = await api.post('/productos', {
-      nombre:      nombre.trim(),
-      categoria:   categoria.trim() || null,
-      precio_base: Number(precio_base),
-      tiendas:     [Number(tiendaId.value)],
+      nombre:         f.nombre.trim(),
+      categoria:      f.categoria.trim() || null,
+      precio_base:    Number(f.precio_base),
+      descripcion:    f.descripcion.trim() || null,
+      medidas:        f.medidas.trim() || null,
+      material:       f.material.trim() || null,
+      personalizable: f.personalizable,
+      es_tapizado:    f.es_tapizado,
+      tiendas:        [Number(tiendaId.value)],
+      ...(foto_url ? { foto_url } : {}),
     })
     fabricarBajoPedido(prod)
     mostrarCrearProducto.value = false
     busquedaHecha.value = false
-    crearProductoForm.value = { nombre: '', categoria: '', precio_base: '' }
+    quitarFotoNuevo()
     toast.success(`"${prod.nombre}" creado y registrado en inventario.`)
   } catch (e) {
+    subiendoFotoNuevo.value = false
     crearProductoError.value = e.response?.data?.message ?? 'Error al crear el producto.'
   } finally {
     creandoProducto.value = false
@@ -1723,35 +1794,100 @@ function removeFacturaFoto() {
           </button>
         </div>
         <p class="text-xs text-gray-500">El producto quedará guardado en el inventario para que otros vendedores puedan encontrarlo.</p>
+
+        <!-- Nombre -->
         <input
           v-model="crearProductoForm.nombre"
+          @input="onNombreNuevoInput"
           class="input text-sm"
           placeholder="Nombre del producto *"
         />
-        <input
-          v-model="crearProductoForm.categoria"
-          class="input text-sm"
-          placeholder="Categoría (ej: silla, sofá, comedor...)"
-        />
-        <div>
-          <label class="text-xs text-gray-500 mb-1 block">Precio base *</label>
-          <input
-            v-model.number="crearProductoForm.precio_base"
-            type="number"
-            min="0"
-            class="input text-sm"
-            placeholder="0"
-          />
+
+        <!-- Categoría + Precio -->
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="text-xs text-gray-600 mb-1 block">Categoría</label>
+            <select
+              :value="categoriaSelNuevo"
+              @change="onCategoriaNuevoSelect($event.target.value)"
+              class="input text-sm bg-white"
+            >
+              <option value="">Sin categoría</option>
+              <option v-for="cat in categoriasNuevo" :key="cat" :value="cat">{{ cat }}</option>
+              <option value="__nueva__">＋ Nueva…</option>
+            </select>
+            <input
+              v-if="categoriaSelNuevo === '__nueva__'"
+              v-model="crearProductoForm.categoria"
+              class="input text-sm mt-1"
+              placeholder="Escribe la categoría"
+              autofocus
+            />
+          </div>
+          <div>
+            <label class="text-xs text-gray-600 mb-1 block">Precio base *</label>
+            <input
+              v-model.number="crearProductoForm.precio_base"
+              type="number" min="0"
+              class="input text-sm"
+              placeholder="0"
+            />
+          </div>
         </div>
+
+        <!-- Medidas + Material -->
+        <div class="grid grid-cols-2 gap-2">
+          <input v-model="crearProductoForm.medidas" class="input text-sm" placeholder="Medidas (ej: 200x90)" />
+          <input v-model="crearProductoForm.material" class="input text-sm" placeholder="Material (ej: Cuero)" />
+        </div>
+
+        <!-- Foto -->
+        <div>
+          <label class="text-xs text-gray-600 mb-1.5 block">Foto del producto</label>
+          <input ref="fotoNuevoInput" type="file" accept="image/*" class="hidden" @change="onFotoNuevoChange" />
+          <div v-if="fotoNuevoPreview" class="space-y-1.5">
+            <div class="relative rounded-xl overflow-hidden border-2 border-green-300 bg-white">
+              <img :src="fotoNuevoPreview" alt="Vista previa" class="w-full object-contain" style="max-height:180px" />
+              <button type="button" @click="quitarFotoNuevo" class="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1.5 shadow">
+                <XMarkIcon class="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <button type="button" @click="fotoNuevoInput.click()" class="text-xs text-green-700 font-medium hover:underline">Cambiar foto</button>
+          </div>
+          <button
+            v-else
+            type="button"
+            @click="fotoNuevoInput.click()"
+            class="w-full flex flex-col items-center gap-1.5 border-2 border-dashed border-green-300 rounded-xl p-4 hover:bg-green-100 transition-colors"
+          >
+            <PhotoIcon class="w-6 h-6 text-green-400" />
+            <span class="text-xs text-gray-500">Toca para agregar foto</span>
+          </button>
+        </div>
+
+        <!-- Descripción -->
+        <textarea
+          v-model="crearProductoForm.descripcion"
+          rows="2"
+          class="input text-sm resize-none"
+          placeholder="Descripción (opcional)"
+        />
+
+        <!-- Es tapizado -->
+        <label class="flex items-center gap-2 cursor-pointer select-none">
+          <input type="checkbox" v-model="crearProductoForm.es_tapizado" class="rounded w-4 h-4 text-amber-600" />
+          <span class="text-sm text-gray-700">Lleva tapizado <span class="text-gray-400">(activa selección de tela)</span></span>
+        </label>
+
         <p v-if="crearProductoError" class="text-xs text-red-600">{{ crearProductoError }}</p>
         <p class="text-xs text-amber-600">Se creará con stock 0 y se agregará como fabricación bajo pedido.</p>
         <div class="flex gap-2">
           <button @click="mostrarCrearProducto = false" class="btn-secondary flex-1 text-sm">Cancelar</button>
           <button
             @click="crearYAgregarProducto"
-            :disabled="creandoProducto || !crearProductoForm.nombre.trim() || !crearProductoForm.precio_base"
+            :disabled="creandoProducto || subiendoFotoNuevo || !crearProductoForm.nombre.trim() || !crearProductoForm.precio_base"
             class="btn-primary flex-1 text-sm disabled:opacity-40"
-          >{{ creandoProducto ? 'Creando…' : 'Crear y agregar' }}</button>
+          >{{ subiendoFotoNuevo ? 'Subiendo foto…' : creandoProducto ? 'Creando…' : 'Crear y agregar' }}</button>
         </div>
       </div>
 
