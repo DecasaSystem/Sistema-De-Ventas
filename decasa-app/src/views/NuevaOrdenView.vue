@@ -416,7 +416,7 @@ async function crearYAgregarProducto() {
       material:       f.material.trim() || null,
       personalizable: f.personalizable,
       es_tapizado:    f.es_tapizado,
-      tiendas:        [Number(tiendaId.value)],
+      tiendas:        tiendas.value.map(t => t.id),
       ...(foto_url ? { foto_url } : {}),
     })
     fabricarBajoPedido(prod)
