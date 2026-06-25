@@ -598,19 +598,23 @@ class OrdenController extends Controller
             return response()->json(['message' => 'No autorizado.'], 403);
         }
 
+        $esPresencial = $orden->canal === 'fisica';
+
         $data = $request->validate([
-            'firma_url'        => 'required|string|max:500',
-            'factura_foto_url' => 'required|string|max:500',
-            'anticipo_monto'   => 'required|numeric|min:0',
-            'anticipo_metodo'  => 'required|in:efectivo,transferencia,tarjeta,otro',
+            'firma_url'          => 'required|string|max:500',
+            'factura_foto_url'   => 'nullable|string|max:500',
+            'anexo_foto_url'     => ($esPresencial ? 'required' : 'nullable') . '|string|max:500',
+            'anticipo_monto'     => 'required|numeric|min:0',
+            'anticipo_metodo'    => 'required|in:efectivo,transferencia,tarjeta,otro',
             'anticipo_referencia' => 'nullable|string|max:100',
         ]);
 
         DB::transaction(function () use ($orden, $data, $usuario) {
             $orden->update([
-                'firma_url'       => $data['firma_url'],
-                'factura_foto_url' => $data['factura_foto_url'],
-                'estado'          => 'pendiente_anticipo',
+                'firma_url'        => $data['firma_url'],
+                'factura_foto_url' => $data['factura_foto_url'] ?? null,
+                'anexo_foto_url'   => $data['anexo_foto_url'] ?? null,
+                'estado'           => 'pendiente_anticipo',
             ]);
 
             if ($data['anticipo_monto'] > 0) {
