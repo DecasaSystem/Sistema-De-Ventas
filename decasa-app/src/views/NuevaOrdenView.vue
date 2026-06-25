@@ -321,6 +321,46 @@ function agregarItemRestauracion() {
 const modoProductoCustom = ref(false)
 const productoCustomForm = ref({ nombre: '', categoria: '', precio_unitario: 0, cantidad: 1 })
 
+// ── Crear producto nuevo desde la orden ───────────────────────────────────────
+const busquedaHecha        = ref(false)
+const mostrarCrearProducto = ref(false)
+const crearProductoForm    = ref({ nombre: '', categoria: '', precio_base: '' })
+const creandoProducto      = ref(false)
+const crearProductoError   = ref('')
+
+function abrirCrearProducto() {
+  crearProductoForm.value = { nombre: productoQuery.value.trim(), categoria: '', precio_base: '' }
+  crearProductoError.value = ''
+  mostrarCrearProducto.value = true
+}
+
+async function crearYAgregarProducto() {
+  const { nombre, categoria, precio_base } = crearProductoForm.value
+  if (!nombre.trim() || !precio_base) {
+    crearProductoError.value = 'Nombre y precio base son requeridos.'
+    return
+  }
+  creandoProducto.value = true
+  crearProductoError.value = ''
+  try {
+    const { data: prod } = await api.post('/productos', {
+      nombre:      nombre.trim(),
+      categoria:   categoria.trim() || null,
+      precio_base: Number(precio_base),
+      tiendas:     [Number(tiendaId.value)],
+    })
+    fabricarBajoPedido(prod)
+    mostrarCrearProducto.value = false
+    busquedaHecha.value = false
+    crearProductoForm.value = { nombre: '', categoria: '', precio_base: '' }
+    toast.success(`"${prod.nombre}" creado y registrado en inventario.`)
+  } catch (e) {
+    crearProductoError.value = e.response?.data?.message ?? 'Error al crear el producto.'
+  } finally {
+    creandoProducto.value = false
+  }
+}
+
 function agregarProductoCustom() {
   const f = productoCustomForm.value
   if (!f.nombre.trim() || f.cantidad < 1) return
@@ -370,11 +410,14 @@ onMounted(async () => {
 async function buscarProducto() {
   if (!productoQuery.value.trim()) return
   buscandoProducto.value = true
+  busquedaHecha.value = false
+  mostrarCrearProducto.value = false
   try {
     const { data } = await api.get('/productos', {
       params: { search: productoQuery.value, tienda_id: tiendaBusqueda.value || tiendaId.value },
     })
     productoResultados.value = data
+    busquedaHecha.value = true
     // Cargar badge de fábrica solo cuando NO se está buscando ya en fábrica
     if (fabricaId.value && data.length && tiendaBusqueda.value != fabricaId.value) {
       const ids = data.map(p => p.id)
@@ -1650,6 +1693,67 @@ function removeFacturaFoto() {
           </div>
         </li>
       </ul>
+
+      <!-- Sin resultados: ofrecer crear producto nuevo -->
+      <div
+        v-if="busquedaHecha && !productoResultados.length && !buscandoProducto && !mostrarCrearProducto"
+        class="bg-gray-50 border border-dashed border-gray-300 rounded-xl p-4 text-center space-y-2.5"
+      >
+        <p class="text-sm text-gray-500">No se encontró <strong class="text-gray-700">"{{ productoQuery }}"</strong> en el catálogo.</p>
+        <button
+          @click="abrirCrearProducto"
+          class="text-sm font-semibold text-green-700 border border-green-300 bg-green-50 px-4 py-2 rounded-lg hover:bg-green-100 transition-colors"
+        >+ Registrar como nuevo producto</button>
+      </div>
+
+      <!-- Link para crear cuando SÍ hay resultados pero no es lo que busca -->
+      <div v-if="busquedaHecha && productoResultados.length && !mostrarCrearProducto" class="text-center">
+        <button
+          @click="abrirCrearProducto"
+          class="text-xs text-gray-400 hover:text-green-700 transition-colors underline underline-offset-2"
+        >¿No encuentras lo que buscas? Registrar nuevo producto</button>
+      </div>
+
+      <!-- Formulario crear producto nuevo -->
+      <div v-if="mostrarCrearProducto" class="bg-green-50 border border-green-200 rounded-xl p-4 space-y-3">
+        <div class="flex items-center justify-between">
+          <p class="text-sm font-semibold text-green-800">Registrar nuevo producto</p>
+          <button @click="mostrarCrearProducto = false" class="text-green-400 hover:text-green-600">
+            <XMarkIcon class="w-4 h-4" />
+          </button>
+        </div>
+        <p class="text-xs text-gray-500">El producto quedará guardado en el inventario para que otros vendedores puedan encontrarlo.</p>
+        <input
+          v-model="crearProductoForm.nombre"
+          class="input text-sm"
+          placeholder="Nombre del producto *"
+        />
+        <input
+          v-model="crearProductoForm.categoria"
+          class="input text-sm"
+          placeholder="Categoría (ej: silla, sofá, comedor...)"
+        />
+        <div>
+          <label class="text-xs text-gray-500 mb-1 block">Precio base *</label>
+          <input
+            v-model.number="crearProductoForm.precio_base"
+            type="number"
+            min="0"
+            class="input text-sm"
+            placeholder="0"
+          />
+        </div>
+        <p v-if="crearProductoError" class="text-xs text-red-600">{{ crearProductoError }}</p>
+        <p class="text-xs text-amber-600">Se creará con stock 0 y se agregará como fabricación bajo pedido.</p>
+        <div class="flex gap-2">
+          <button @click="mostrarCrearProducto = false" class="btn-secondary flex-1 text-sm">Cancelar</button>
+          <button
+            @click="crearYAgregarProducto"
+            :disabled="creandoProducto || !crearProductoForm.nombre.trim() || !crearProductoForm.precio_base"
+            class="btn-primary flex-1 text-sm disabled:opacity-40"
+          >{{ creandoProducto ? 'Creando…' : 'Crear y agregar' }}</button>
+        </div>
+      </div>
 
       <!-- Producto no catalogado -->
       <div>
