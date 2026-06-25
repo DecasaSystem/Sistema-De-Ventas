@@ -890,7 +890,7 @@ onMounted(cargarOrden)
 
               <!-- Panel de ajuste de precio -->
               <div
-                v-if="['pendiente_cotizacion','pendiente_anticipo'].includes(orden.estado)"
+                v-if="orden && ['pendiente_cotizacion','pendiente_anticipo'].includes(orden.estado)"
                 class="border border-amber-200 bg-amber-50 rounded-xl p-3 space-y-2.5"
               >
                 <!-- Cabecera con toggle de modo -->
