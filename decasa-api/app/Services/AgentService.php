@@ -402,6 +402,40 @@ class AgentService
             [
                 'type' => 'function',
                 'function' => [
+                    'name' => 'consultar_telas',
+                    'description' => 'Consulta el inventario de telas disponibles en bodega: metros disponibles, metros reservados y metros libres. Úsala ante preguntas como "¿qué telas hay?", "¿cuántos metros de [tela/color] hay?", "¿hay [marca] en [color]?", "telas con stock disponible", "proveedores de telas". Devuelve lista con marca, tipo, color, metros_disponibles, metros_reservados y metros_libres.',
+                    'parameters' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'busqueda'       => ['type' => 'string', 'description' => 'Búsqueda libre por marca, tipo, color, referencia o textura'],
+                            'marca'          => ['type' => 'string', 'description' => 'Filtrar por proveedor/marca específica (búsqueda parcial)'],
+                            'tipo'           => ['type' => 'string', 'description' => 'Filtrar por tipo de tela (velvet, cuero, lino, etc.)'],
+                            'color'          => ['type' => 'string', 'description' => 'Filtrar por color específico'],
+                            'solo_con_metros'=> ['type' => 'boolean', 'description' => 'Solo mostrar telas con metros_libres > 0 (default: false)'],
+                        ],
+                    ],
+                ],
+            ],
+            [
+                'type' => 'function',
+                'function' => [
+                    'name' => 'consultar_caja',
+                    'description' => 'Consulta el balance de caja de una tienda o de todas las tiendas: ingresos por ventas, ingresos manuales, egresos y balance neto. También puede mostrar los movimientos recientes. Úsala ante preguntas como "¿cuánto hay en caja?", "¿cuánto dinero tiene la tienda X?", "¿qué movimientos hubo?", "resumen de caja de todas las tiendas", "egresos del mes".',
+                    'parameters' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'nombre_tienda'   => ['type' => 'string', 'description' => 'Nombre parcial de la tienda a consultar (búsqueda por LIKE)'],
+                            'tienda_id'       => ['type' => 'integer', 'description' => 'ID numérico de la tienda (solo si se conoce con certeza)'],
+                            'todas'           => ['type' => 'boolean', 'description' => 'Mostrar resumen de caja de TODAS las tiendas activas'],
+                            'con_movimientos' => ['type' => 'boolean', 'description' => 'Incluir listado de movimientos recientes de la tienda'],
+                            'periodo'         => ['type' => 'string', 'description' => 'Filtrar movimientos por período: hoy, semana, mes, mes_anterior, anio (solo aplica con con_movimientos=true)'],
+                        ],
+                    ],
+                ],
+            ],
+            [
+                'type' => 'function',
+                'function' => [
                     'name' => 'consultar_interesados',
                     'description' => 'Consulta estadísticas de clientes interesados (leads): cuántos hay, qué categorías preguntan más, distribución por tienda y por canal. Úsala ante preguntas como "¿qué es lo que más preguntan?", "¿cuántos interesados tenemos?", "¿qué se pregunta más en tienda X?", "¿qué deberíamos fabricar según la demanda?".',
                     'parameters' => [
@@ -2090,6 +2124,172 @@ class AgentService
         ];
     }
 
+    private function handleConsultarTelas(array $args): array
+    {
+        $query = DB::table('catalogo_telas')->where('activo', true);
+
+        // Búsqueda general (marca, tipo, color, referencia, textura)
+        if (! empty($args['busqueda'])) {
+            $term = $this->likeI($args['busqueda']);
+            $query->where(function ($q) use ($term) {
+                $q->whereRaw('LOWER(marca) LIKE ?', [$term])
+                  ->orWhereRaw('LOWER(tipo) LIKE ?', [$term])
+                  ->orWhereRaw('LOWER(color) LIKE ?', [$term])
+                  ->orWhereRaw('LOWER(COALESCE(referencia,"")) LIKE ?', [$term])
+                  ->orWhereRaw('LOWER(COALESCE(textura,"")) LIKE ?', [$term]);
+            });
+        }
+
+        if (! empty($args['marca'])) {
+            $query->whereRaw('LOWER(marca) LIKE ?', [$this->likeI($args['marca'])]);
+        }
+        if (! empty($args['tipo'])) {
+            $query->whereRaw('LOWER(tipo) LIKE ?', [$this->likeI($args['tipo'])]);
+        }
+        if (! empty($args['color'])) {
+            $query->whereRaw('LOWER(color) LIKE ?', [$this->likeI($args['color'])]);
+        }
+
+        $telas = $query
+            ->orderBy('marca')->orderBy('tipo')->orderBy('color')
+            ->get(['id', 'marca', 'tipo', 'color', 'referencia', 'textura', 'metros_disponibles', 'metros_reservados'])
+            ->map(fn($t) => [
+                'id'                 => $t->id,
+                'marca'              => $t->marca,
+                'tipo'               => $t->tipo,
+                'color'              => $t->color,
+                'referencia'         => $t->referencia,
+                'textura'            => $t->textura,
+                'metros_disponibles' => (float) $t->metros_disponibles,
+                'metros_reservados'  => (float) $t->metros_reservados,
+                'metros_libres'      => round((float) $t->metros_disponibles - (float) $t->metros_reservados, 2),
+            ]);
+
+        if (! empty($args['solo_con_metros'])) {
+            $telas = $telas->filter(fn($t) => $t['metros_libres'] > 0)->values();
+        }
+
+        // Resumen por marca
+        $porMarca = $telas->groupBy('marca')->map(fn($g) => [
+            'marca'          => $g->first()['marca'],
+            'num_referencias'=> $g->count(),
+            'metros_libres_total' => round($g->sum('metros_libres'), 2),
+        ])->values();
+
+        // Lista de marcas únicas disponibles en sistema
+        $marcasDisponibles = DB::table('catalogo_telas')
+            ->where('activo', true)->distinct()->orderBy('marca')->pluck('marca');
+
+        return [
+            'nota'               => 'metros_libres = metros_disponibles - metros_reservados (disponibles para usar ahora)',
+            'total_referencias'  => $telas->count(),
+            'proveedores'        => $marcasDisponibles,
+            'resumen_por_marca'  => $porMarca,
+            'telas'              => $telas->values(),
+        ];
+    }
+
+    private function handleConsultarCaja(array $args, Usuario $usuario): array
+    {
+        $mostrarTodas = ! empty($args['todas']);
+
+        // Resolver tienda
+        $tiendaId = $args['tienda_id'] ?? null;
+        if (! $tiendaId && ! empty($args['nombre_tienda'])) {
+            $tiendaId = DB::table('tiendas')
+                ->whereRaw('LOWER(nombre) LIKE ?', [$this->likeI($args['nombre_tienda'])])
+                ->value('id');
+        }
+
+        // Vendedor solo puede ver su tienda
+        if ($usuario->rol === 'vendedor') {
+            $tiendaId     = $usuario->tienda_default_id;
+            $mostrarTodas = false;
+        }
+
+        // Función de balance para una tienda
+        $balanceTienda = function (int $id, string $nombre) {
+            $ingresoVentas = DB::table('pagos as p')
+                ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
+                ->where('o.tienda_id', $id)
+                ->sum('p.monto');
+
+            $ingresoManual = DB::table('caja_movimientos')
+                ->where('tienda_id', $id)->where('tipo', 'ingreso_manual')->sum('monto');
+
+            $egresos = DB::table('caja_movimientos')
+                ->where('tienda_id', $id)->where('tipo', 'egreso')->sum('monto');
+
+            return [
+                'tienda_id'      => $id,
+                'tienda'         => $nombre,
+                'balance'        => round((float) ($ingresoVentas + $ingresoManual - $egresos), 2),
+                'ingreso_ventas' => round((float) $ingresoVentas, 2),
+                'ingreso_manual' => round((float) $ingresoManual, 2),
+                'egresos'        => round((float) $egresos, 2),
+            ];
+        };
+
+        if ($mostrarTodas) {
+            $tiendas = DB::table('tiendas')->where('activa', true)->orderBy('nombre')->get(['id', 'nombre']);
+            $resumen = $tiendas->map(fn($t) => $balanceTienda($t->id, $t->nombre))->values();
+
+            return [
+                'tipo'            => 'todas_tiendas',
+                'total_balance'   => round($resumen->sum('balance'), 2),
+                'total_ingresos'  => round($resumen->sum('ingreso_ventas') + $resumen->sum('ingreso_manual'), 2),
+                'total_egresos'   => round($resumen->sum('egresos'), 2),
+                'por_tienda'      => $resumen,
+                'nota'            => 'balance = ingreso_ventas + ingreso_manual - egresos. Ingreso_ventas acumula TODOS los pagos recibidos desde el inicio del sistema.',
+            ];
+        }
+
+        if (! $tiendaId) {
+            return ['error' => 'Especifica una tienda con nombre_tienda o usa todas=true para ver todas.'];
+        }
+
+        $tiendaNombre = DB::table('tiendas')->where('id', $tiendaId)->value('nombre') ?? "Tienda #{$tiendaId}";
+        $balance      = $balanceTienda($tiendaId, $tiendaNombre);
+
+        // Movimientos recientes opcionales
+        if (! empty($args['con_movimientos'])) {
+            [$desde, $hasta] = isset($args['periodo'])
+                ? $this->parsePeriodo($args['periodo'])
+                : [null, null];
+
+            $pagos = DB::table('pagos as p')
+                ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
+                ->leftJoin('usuarios as u', 'u.id', '=', 'p.vendedor_id')
+                ->where('o.tienda_id', $tiendaId)
+                ->when($desde, fn($q) => $q->whereBetween('p.created_at', [$desde . ' 00:00:00', $hasta . ' 23:59:59']))
+                ->selectRaw("'ingreso_venta' AS tipo, p.monto, CONCAT('Venta #', p.orden_id) AS concepto, u.nombre AS usuario, p.metodo, p.created_at AS fecha")
+                ->orderByDesc('p.created_at')
+                ->limit(30)
+                ->get();
+
+            $manuales = DB::table('caja_movimientos as cm')
+                ->leftJoin('usuarios as u', 'u.id', '=', 'cm.usuario_id')
+                ->where('cm.tienda_id', $tiendaId)
+                ->when($desde, fn($q) => $q->whereBetween('cm.created_at', [$desde . ' 00:00:00', $hasta . ' 23:59:59']))
+                ->selectRaw("cm.tipo, cm.monto, cm.concepto, u.nombre AS usuario, NULL AS metodo, cm.created_at AS fecha")
+                ->orderByDesc('cm.created_at')
+                ->limit(30)
+                ->get();
+
+            $movimientos = $pagos->concat($manuales)
+                ->sortByDesc('fecha')
+                ->take(40)
+                ->values();
+
+            $balance['movimientos'] = $movimientos;
+            $balance['periodo']     = $desde ? compact('desde', 'hasta') : 'todo el historial';
+        }
+
+        return array_merge(['tipo' => 'tienda_especifica'], $balance, [
+            'nota' => 'balance = ingreso_ventas + ingreso_manual - egresos. Todos los montos en COP.',
+        ]);
+    }
+
     // ─── Dispatcher de tool calls ─────────────────────────────────────────────
 
     private function ejecutarTool(string $toolName, array $args, Usuario $usuario): array
@@ -2117,6 +2317,8 @@ class AgentService
             'analizar_rotacion_inventario' => $this->handleAnalizarRotacionInventario($args, $usuario),
             'consultar_variantes_producto' => $this->handleConsultarVariantesProducto($args, $usuario),
             'consultar_interesados'        => $this->handleConsultarInteresados($args, $usuario),
+            'consultar_telas'              => $this->handleConsultarTelas($args),
+            'consultar_caja'               => $this->handleConsultarCaja($args, $usuario),
             default                        => ['error' => "Tool '{$toolName}' no reconocida."],
         };
     }
@@ -2502,6 +2704,19 @@ Si tiene_variantes = true y hay variantes con stock → lista así:
 · ..."
 Si no hay ninguna variante con stock → "Actualmente no hay stock disponible en ninguna variante de ese producto[en esa tienda]."
 NUNCA inventes variantes ni colores. NUNCA respondas que no tiene variantes si no has llamado el tool primero.
+
+TELAS — usa consultar_telas ante cualquier pregunta sobre inventario de telas: "¿qué telas hay?", "¿cuántos metros de [tela/color] quedan?", "¿hay [marca]?", "telas disponibles", "proveedores de telas", "¿alcanza la tela para X pedidos?". Parámetros clave: busqueda (texto libre), marca, tipo, color, solo_con_metros=true (solo las que tienen metros libres). Formato de respuesta:
+"**Telas disponibles**
+· [Marca] — [Tipo] [Color]: [N] m libres ([N] disponibles, [N] reservados)
+· ...
+Proveedores: [lista de marcas]"
+Si filtra por color o tipo que no existe, responde: "No hay referencias de [X] con metros disponibles actualmente."
+
+CAJA — usa consultar_caja ante preguntas sobre dinero en tiendas: "¿cuánto hay en caja?", "¿cuánto tiene la tienda X?", "balance de la caja", "ingresos de la semana", "egresos", "resumen de todas las cajas". Parámetros clave: nombre_tienda (nombre parcial), todas=true (todas las tiendas), con_movimientos=true + periodo (para ver movimientos). Formato:
+"**Caja — [Tienda]**
+Balance: $ X.XXX.XXX
+Ingresos ventas: $ X.XXX.XXX | Ingresos manuales: $ X.XXX.XXX | Egresos: $ X.XXX.XXX"
+Para todas las tiendas lista cada una con su balance. Nota: los ingresos de caja acumulan TODOS los pagos desde el inicio, no solo el período actual; si el usuario quiere del período usa con_movimientos=true + periodo.
 
 RESTRICCIONES POR ROL — aplican automáticamente en el backend:
 - Vendedor: puede consultar inventario y variantes de CUALQUIER tienda (para verificar si otra tienda tiene el producto que busca el cliente). Solo ve sus propias órdenes, producción de su tienda y retrasos de su tienda. NO tiene acceso a reporte de vendedores ni ventas globales de toda la empresa.

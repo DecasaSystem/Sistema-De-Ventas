@@ -318,6 +318,98 @@ class ConsultaCostoController extends Controller
     }
 
     /**
+     * PATCH /api/consultas-costo/{id}/ajustar-precio
+     * El vendedor que solicitó la cotización puede aplicar un descuento
+     * o fijar precios manuales por ítem sobre los precios respondidos.
+     * Actualiza precio_unitario en orden_items y recalcula valor_total.
+     */
+    public function ajustarPrecio(Request $request, int $id)
+    {
+        $usuario  = $request->user();
+        $consulta = ConsultaCosto::with(['items.ordenItem', 'orden'])->findOrFail($id);
+
+        if ($consulta->solicitado_por_id !== $usuario->id && $usuario->rol !== 'supervisor') {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+
+        if ($consulta->estado !== 'respondida') {
+            return response()->json(['message' => 'Solo se pueden ajustar precios de consultas respondidas.'], 422);
+        }
+
+        if (! in_array($consulta->orden->estado, ['pendiente_cotizacion', 'pendiente_anticipo'])) {
+            return response()->json(['message' => 'La orden ya no permite ajuste de precios.'], 422);
+        }
+
+        $data = $request->validate([
+            'descuento_pct' => 'nullable|numeric|min:0|max:99',
+            'items'         => 'nullable|array',
+            'items.*.consulta_item_id' => 'required_with:items|integer|exists:consulta_costo_items,id',
+            'items.*.precio_ajustado'  => 'required_with:items|numeric|min:0',
+        ]);
+
+        if (! isset($data['descuento_pct']) && empty($data['items'])) {
+            return response()->json(['message' => 'Envía descuento_pct o una lista de precios ajustados por ítem.'], 422);
+        }
+
+        $cambios = [];
+
+        DB::transaction(function () use ($consulta, $data, &$cambios) {
+            foreach ($consulta->items as $ci) {
+                if (! $ci->ordenItem) continue;
+
+                $precioOriginal = (float) $ci->precio_final;
+
+                if (! empty($data['items'])) {
+                    $match = collect($data['items'])->firstWhere('consulta_item_id', $ci->id);
+                    if (! $match) continue;
+                    $precioNuevo = round((float) $match['precio_ajustado'], 2);
+                } else {
+                    $pct = (float) ($data['descuento_pct'] ?? 0);
+                    $precioNuevo = round($precioOriginal * (1 - $pct / 100), 2);
+                }
+
+                if ($precioNuevo === (float) $ci->ordenItem->precio_unitario) continue;
+
+                $cambios[] = [
+                    'item'    => $ci->ordenItem->nombre_custom ?? "Ítem #{$ci->orden_item_id}",
+                    'antes'   => $ci->ordenItem->precio_unitario,
+                    'despues' => $precioNuevo,
+                ];
+
+                $ci->ordenItem->update(['precio_unitario' => $precioNuevo]);
+            }
+
+            // Recalcular valor_total de la orden
+            $consulta->orden->load('items');
+            $nuevoTotal = $consulta->orden->items->sum(fn($i) => $i->cantidad * $i->precio_unitario);
+            $consulta->orden->update(['valor_total' => $nuevoTotal]);
+        });
+
+        // Registrar auditoría
+        if (! empty($cambios)) {
+            \App\Models\OrdenEdicion::create([
+                'orden_id'   => $consulta->orden_id,
+                'usuario_id' => $usuario->id,
+                'cambios'    => array_map(fn($c) => [
+                    'campo'   => 'precio_cotizacion',
+                    'label'   => "Precio ajustado — {$c['item']}",
+                    'antes'   => $c['antes'],
+                    'despues' => $c['despues'],
+                ], $cambios),
+            ]);
+        }
+
+        // Devolver consulta con precios actualizados
+        $consulta->load(['items.ordenItem', 'orden']);
+
+        return response()->json([
+            'message' => 'Precios ajustados correctamente.',
+            'consulta' => $consulta,
+            'orden_valor_total' => $consulta->orden->valor_total,
+        ]);
+    }
+
+    /**
      * GET /api/consultas-costo/{id}/mensajes
      */
     public function mensajes(Request $request, int $id)

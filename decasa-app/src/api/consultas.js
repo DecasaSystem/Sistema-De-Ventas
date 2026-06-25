@@ -21,6 +21,9 @@ export const guardarItem = (id, itemId, data) =>
 export const enviarConsulta = (id) =>
   api.post(`/consultas-costo/${id}/enviar`)
 
+export const ajustarPrecio = (id, data) =>
+  api.patch(`/consultas-costo/${id}/ajustar-precio`, data)
+
 export const getMensajes = (id) =>
   api.get(`/consultas-costo/${id}/mensajes`)
 
