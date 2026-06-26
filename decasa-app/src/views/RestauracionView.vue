@@ -1,6 +1,8 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
+import api from '@/api'
+import { TELAS_CATALOGO, marcasOrdenadas, tiposTelaDeM, coloresDeTela, cargarCatalogoDB } from '@/data/telasCatalogo'
 import {
   PlusIcon,
   MagnifyingGlassIcon,
@@ -19,6 +21,39 @@ import { useToast } from '@/composables/useToast'
 
 const auth  = useAuthStore()
 const toast = useToast()
+
+// ── Telas ─────────────────────────────────────────────────────────────────────
+const telaMetrosMap = ref({})
+
+function tieneStock(marca, tipo, color) {
+  return (telaMetrosMap.value[`${marca}|${tipo}|${color}`] ?? 0) > 0
+}
+function marcasConStock() {
+  return marcasOrdenadas.value.filter(m =>
+    Object.keys(TELAS_CATALOGO[m] ?? {}).some(tipo =>
+      (TELAS_CATALOGO[m][tipo] ?? []).some(color => tieneStock(m, tipo, color))
+    )
+  )
+}
+function tiposConStock(marca) {
+  return tiposTelaDeM(marca).filter(tipo =>
+    (TELAS_CATALOGO[marca]?.[tipo] ?? []).some(color => tieneStock(marca, tipo, color))
+  )
+}
+function coloresConStock(marca, tipo) {
+  return coloresDeTela(marca, tipo).filter(color => tieneStock(marca, tipo, color))
+}
+function getTelaSelection(item, key) {
+  if (!item._telaSelections[key]) {
+    item._telaSelections[key] = { marca: '', tipo: '', color: '' }
+  }
+  return item._telaSelections[key]
+}
+function telaResumidaCampo(item, key) {
+  const s = item._telaSelections?.[key]
+  if (!s?.marca || !s?.tipo || !s?.color) return ''
+  return `${s.marca} · ${s.tipo} · ${s.color}`
+}
 
 // ── Lista ─────────────────────────────────────────────────────────────────────
 const restauraciones = ref([])
@@ -128,10 +163,11 @@ function limpiarCliente() {
 }
 
 // Items
-const items = ref([{ nombre_mueble: '', descripcion_trabajo: '', cantidad: 1, precio_unitario: '' }])
+const itemVacio = () => ({ nombre_mueble: '', descripcion_trabajo: '', cantidad: 1, precio_unitario: '', _retapizar: false, _telaSelections: {} })
+const items = ref([itemVacio()])
 
 function agregarItem() {
-  items.value.push({ nombre_mueble: '', descripcion_trabajo: '', cantidad: 1, precio_unitario: '' })
+  items.value.push(itemVacio())
 }
 
 function quitarItem(idx) {
@@ -148,7 +184,7 @@ function resetForm() {
   clienteSelected.value = null
   clienteQuery.value    = ''
   clienteOpts.value     = []
-  items.value = [{ nombre_mueble: '', descripcion_trabajo: '', cantidad: 1, precio_unitario: '' }]
+  items.value = [itemVacio()]
   notas.value = ''
 }
 
@@ -165,6 +201,12 @@ async function guardar() {
     toast.error('Todos los ítems deben tener un precio mayor a 0.')
     return
   }
+  for (const i of items.value) {
+    if (i._retapizar && !telaResumidaCampo(i, 'tela')) {
+      toast.error(`Selecciona la tela para "${i.nombre_mueble || 'ítem'}" (marcaste retapizar).`)
+      return
+    }
+  }
 
   saving.value = true
   try {
@@ -177,6 +219,8 @@ async function guardar() {
         descripcion_trabajo: i.descripcion_trabajo.trim() || null,
         cantidad:            Number(i.cantidad),
         precio_unitario:     Number(i.precio_unitario),
+        retapizar:           i._retapizar || false,
+        tela:                i._retapizar ? (telaResumidaCampo(i, 'tela') || null) : null,
       })),
     })
     toast.success('Restauración creada y enviada a producción.')
@@ -195,7 +239,18 @@ function abrirForm() {
   showForm.value = true
 }
 
-onMounted(() => fetchLista(1))
+onMounted(async () => {
+  fetchLista(1)
+  try {
+    await cargarCatalogoDB(api)
+    const { data: telasData } = await api.get('/inventario-telas')
+    const map = {}
+    for (const t of telasData) {
+      map[`${t.marca}|${t.tipo}|${t.color}`] = t.metros_libres
+    }
+    telaMetrosMap.value = map
+  } catch {}
+})
 </script>
 
 <template>
@@ -290,6 +345,8 @@ onMounted(() => fetchLista(1))
               <span class="font-medium text-gray-800">{{ item.nombre_custom }}</span>
               <span v-if="item.cantidad > 1" class="text-gray-400"> ×{{ item.cantidad }}</span>
               <span v-if="item.specs_personalizacion?.descripcion_trabajo" class="text-gray-400"> — {{ item.specs_personalizacion.descripcion_trabajo }}</span>
+              <span v-if="item.specs_personalizacion?.retapizar" class="ml-1 text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-medium">retapizar</span>
+              <span v-if="item.specs_personalizacion?.tela" class="text-gray-400"> · {{ item.specs_personalizacion.tela }}</span>
             </span>
           </div>
         </div>
@@ -429,6 +486,60 @@ onMounted(() => fetchLista(1))
                           class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 bg-white"
                         />
                       </div>
+                    </div>
+
+                    <!-- Retapizar -->
+                    <label class="flex items-center gap-2 cursor-pointer select-none pt-1">
+                      <input
+                        type="checkbox"
+                        v-model="item._retapizar"
+                        @change="if (!item._retapizar) item._telaSelections = {}"
+                        class="w-4 h-4 rounded accent-indigo-600"
+                      />
+                      <span class="text-sm text-gray-700 font-medium">Retapizar</span>
+                    </label>
+
+                    <!-- Picker de tela (solo si retapizar) -->
+                    <div v-if="item._retapizar" class="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
+                      <p class="text-xs font-semibold text-amber-800">Selecciona la tela <span class="text-red-500">*</span></p>
+
+                      <select
+                        v-model="getTelaSelection(item, 'tela').marca"
+                        @change="getTelaSelection(item, 'tela').tipo = ''; getTelaSelection(item, 'tela').color = ''"
+                        class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-300"
+                      >
+                        <option value="">— elige la marca —</option>
+                        <option v-for="m in marcasConStock()" :key="m" :value="m">{{ m }}</option>
+                      </select>
+
+                      <template v-if="getTelaSelection(item, 'tela').marca">
+                        <select
+                          v-model="getTelaSelection(item, 'tela').tipo"
+                          @change="getTelaSelection(item, 'tela').color = ''"
+                          class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-300"
+                        >
+                          <option value="">— tipo de tela —</option>
+                          <option v-for="t in tiposConStock(getTelaSelection(item, 'tela').marca)" :key="t" :value="t">{{ t }}</option>
+                        </select>
+
+                        <template v-if="getTelaSelection(item, 'tela').tipo">
+                          <select
+                            v-model="getTelaSelection(item, 'tela').color"
+                            class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-300"
+                          >
+                            <option value="">— color —</option>
+                            <option v-for="c in coloresConStock(getTelaSelection(item, 'tela').marca, getTelaSelection(item, 'tela').tipo)" :key="c" :value="c">{{ c }}</option>
+                          </select>
+                        </template>
+                      </template>
+
+                      <p v-if="telaResumidaCampo(item, 'tela')" class="text-xs font-semibold text-amber-700">
+                        ✓ {{ telaResumidaCampo(item, 'tela') }}
+                      </p>
+                      <p v-else-if="Object.keys(telaMetrosMap).length && !marcasConStock().length" class="text-xs text-red-600 italic">
+                        No hay telas disponibles en este momento.
+                      </p>
+                      <p v-else class="text-xs text-amber-600 italic">Selecciona qué tela usará el tapicero</p>
                     </div>
                   </div>
                 </div>

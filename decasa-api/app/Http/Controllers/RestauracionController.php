@@ -60,6 +60,8 @@ class RestauracionController extends Controller
             'items.*.descripcion_trabajo'       => 'nullable|string|max:500',
             'items.*.cantidad'                  => 'required|integer|min:1',
             'items.*.precio_unitario'           => 'required|numeric|min:0',
+            'items.*.retapizar'                 => 'nullable|boolean',
+            'items.*.tela'                      => 'nullable|string|max:200',
         ]);
 
         $valorTotal = collect($data['items'])->sum(
@@ -80,10 +82,17 @@ class RestauracionController extends Controller
             ]);
 
             foreach ($data['items'] as $itemData) {
-                $specs = null;
+                $specs = [];
                 if (!empty($itemData['descripcion_trabajo'])) {
-                    $specs = ['descripcion_trabajo' => $itemData['descripcion_trabajo']];
+                    $specs['descripcion_trabajo'] = $itemData['descripcion_trabajo'];
                 }
+                if (!empty($itemData['retapizar'])) {
+                    $specs['retapizar'] = true;
+                    if (!empty($itemData['tela'])) {
+                        $specs['tela'] = $itemData['tela'];
+                    }
+                }
+                $specs = empty($specs) ? null : $specs;
 
                 $item = OrdenItem::create([
                     'orden_id'              => $orden->id,
