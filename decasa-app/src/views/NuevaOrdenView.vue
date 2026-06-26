@@ -229,7 +229,7 @@ const items = ref([])
 const tiendaBusqueda = ref(auth.usuario?.tienda_default_id ?? '')
 
 // Formulario para restauraciones
-const restauracionItem = ref({ nombre_mueble: '', descripcion_trabajo: '', cantidad: 1, precio_unitario: 0, foto_blob: null, foto_preview: null })
+const restauracionItem = ref({ nombre_mueble: '', descripcion_trabajo: '', cantidad: 1, precio_unitario: 0, foto_blob: null, foto_preview: null, _retapizar: false, _telaSelections: {} })
 const restauracionCalc = ref({ calculando: false, resultado: null, mostrar: false })
 
 function onFotoRestauracionForm(event) {
@@ -286,6 +286,8 @@ function agregarItemRestauracion() {
   const f = restauracionItem.value
   if (!f.nombre_mueble.trim()) return
   restauracionCalc.value = { calculando: false, resultado: null, mostrar: false }
+  const specsBase = f.descripcion_trabajo.trim() ? { descripcion_trabajo: f.descripcion_trabajo.trim() } : {}
+  if (f._retapizar) specsBase.retapizar = true
   items.value.push({
     producto_id: null,
     variante_id: null,
@@ -300,7 +302,7 @@ function agregarItemRestauracion() {
     cantidad: f.cantidad,
     precio_unitario: f.precio_unitario,
     es_personalizado: true,
-    specs: f.descripcion_trabajo.trim() ? { descripcion_trabajo: f.descripcion_trabajo.trim() } : {},
+    specs: specsBase,
     specs_notas: '',
     tienda_origen: null,
     fecha_entrega_prometida: null,
@@ -312,9 +314,9 @@ function agregarItemRestauracion() {
     _calculandoPrecio:   false,
     _precioCalc:         null,
     _precioReferencia:   null,
-    _telaSelections:     {},
+    _telaSelections:     f._retapizar ? { ...f._telaSelections } : {},
   })
-  restauracionItem.value = { nombre_mueble: '', descripcion_trabajo: '', cantidad: 1, precio_unitario: 0, foto_blob: null, foto_preview: null }
+  restauracionItem.value = { nombre_mueble: '', descripcion_trabajo: '', cantidad: 1, precio_unitario: 0, foto_blob: null, foto_preview: null, _retapizar: false, _telaSelections: {} }
 }
 
 // Producto no catalogado
@@ -1990,6 +1992,54 @@ function removeFacturaFoto() {
               <input v-model.number="restauracionItem.precio_unitario" type="number" min="0" placeholder="0" class="input text-sm" />
             </div>
           </div>
+
+          <!-- Retapizar -->
+          <label class="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              v-model="restauracionItem._retapizar"
+              @change="if (!restauracionItem._retapizar) restauracionItem._telaSelections = {}"
+              class="w-4 h-4 rounded accent-indigo-600"
+            />
+            <span class="text-sm text-gray-700 font-medium">Retapizar</span>
+          </label>
+
+          <div v-if="restauracionItem._retapizar" class="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
+            <p class="text-xs font-semibold text-amber-800">Selecciona la tela <span class="text-red-500">*</span></p>
+
+            <select
+              v-model="getTelaSelection(restauracionItem, 'tela').marca"
+              @change="getTelaSelection(restauracionItem, 'tela').tipo = ''; getTelaSelection(restauracionItem, 'tela').color = ''"
+              class="input text-sm"
+            >
+              <option value="">— elige la marca —</option>
+              <option v-for="m in marcasConStock()" :key="m" :value="m">{{ m }}</option>
+            </select>
+
+            <template v-if="getTelaSelection(restauracionItem, 'tela').marca">
+              <select
+                v-model="getTelaSelection(restauracionItem, 'tela').tipo"
+                @change="getTelaSelection(restauracionItem, 'tela').color = ''"
+                class="input text-sm"
+              >
+                <option value="">— tipo de tela —</option>
+                <option v-for="t in tiposConStock(getTelaSelection(restauracionItem, 'tela').marca)" :key="t" :value="t">{{ t }}</option>
+              </select>
+
+              <template v-if="getTelaSelection(restauracionItem, 'tela').tipo">
+                <select v-model="getTelaSelection(restauracionItem, 'tela').color" class="input text-sm">
+                  <option value="">— color —</option>
+                  <option v-for="c in coloresConStock(getTelaSelection(restauracionItem, 'tela').marca, getTelaSelection(restauracionItem, 'tela').tipo)" :key="c" :value="c">{{ c }}</option>
+                </select>
+              </template>
+            </template>
+
+            <p v-if="telaResumidaCampo(restauracionItem, 'tela')" class="text-xs font-semibold text-amber-700">
+              ✓ {{ telaResumidaCampo(restauracionItem, 'tela') }}
+            </p>
+            <p v-else class="text-xs text-amber-600 italic">Selecciona qué tela usará el tapicero</p>
+          </div>
+
           <!-- Cotizador IA (en el formulario, antes de agregar) -->
           <div>
             <button
