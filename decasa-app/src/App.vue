@@ -400,22 +400,22 @@ function formatFecha(iso) {
             <div v-if="abrirNotif" class="fixed inset-0 z-[100] bg-black/20 sm:bg-transparent" @click="abrirNotif = false" />
             <div
               v-if="abrirNotif"
-              class="fixed inset-x-2 top-14 z-[110] max-h-[70vh] overflow-y-auto bg-white rounded-xl shadow-xl border border-gray-200 sm:inset-x-auto sm:left-auto sm:right-4 sm:w-80 sm:max-h-[28rem]"
+              class="fixed inset-x-2 top-14 z-[110] max-h-[70vh] overflow-y-auto overflow-x-hidden bg-white rounded-xl shadow-xl border border-gray-200 sm:inset-x-auto sm:left-auto sm:right-4 sm:w-80 sm:max-h-[28rem]"
             >
-              <div class="flex items-center justify-between px-4 py-2 border-b border-gray-100 sticky top-0 bg-white">
-                <span class="font-semibold text-sm text-gray-700">Notificaciones</span>
-                <div class="flex items-center gap-3">
+              <div class="flex items-center justify-between gap-2 px-4 py-2 border-b border-gray-100 sticky top-0 bg-white">
+                <span class="font-semibold text-sm text-gray-700 shrink-0">Notificaciones</span>
+                <div class="flex items-center gap-2 min-w-0">
                   <button
                     v-if="notif.noLeidas > 0"
                     @click="notif.leerTodas()"
-                    class="text-xs text-blue-600 hover:underline"
+                    class="text-xs text-blue-600 hover:underline whitespace-nowrap"
                   >
-                    Marcar todas como leídas
+                    Leer todas
                   </button>
                   <button
                     v-if="notif.items.length > 0"
                     @click="notif.eliminarTodas()"
-                    class="text-xs text-red-500 hover:text-red-700 flex items-center gap-0.5"
+                    class="text-xs text-red-500 hover:text-red-700 flex items-center gap-0.5 shrink-0"
                     title="Eliminar todas"
                   >
                     <TrashIcon class="w-3.5 h-3.5" />
@@ -442,9 +442,9 @@ function formatFecha(iso) {
                 >
                   <div class="flex gap-2 items-start">
                     <component :is="tipoIcono(n.tipo)" class="w-4 h-4 mt-0.5 text-gray-600 flex-shrink-0" />
-                    <div class="flex-1 min-w-0">
-                      <p class="text-sm font-medium text-gray-800 leading-tight">{{ n.titulo }}</p>
-                      <p class="text-xs text-gray-500 leading-snug mt-0.5">{{ n.mensaje }}</p>
+                    <div class="flex-1 min-w-0 overflow-hidden">
+                      <p class="text-sm font-medium text-gray-800 leading-tight break-words">{{ n.titulo }}</p>
+                      <p class="text-xs text-gray-500 leading-snug mt-0.5 break-words">{{ n.mensaje }}</p>
                       <p class="text-[11px] text-gray-400 mt-1">{{ formatFecha(n.created_at) }}</p>
                     </div>
                     <span v-if="!n.leida" class="w-2 h-2 bg-blue-500 rounded-full mt-1 flex-shrink-0" />
