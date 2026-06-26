@@ -240,6 +240,10 @@ function onFotoRestauracionForm(event) {
   restauracionItem.value.foto_preview = URL.createObjectURL(file)
 }
 
+function limpiarTelaRestauracion() {
+  restauracionItem.value._telaSelections = {}
+}
+
 function quitarFotoRestauracionForm() {
   if (restauracionItem.value.foto_preview) URL.revokeObjectURL(restauracionItem.value.foto_preview)
   restauracionItem.value.foto_blob    = null
@@ -1998,7 +2002,6 @@ function removeFacturaFoto() {
             <input
               type="checkbox"
               v-model="restauracionItem._retapizar"
-              @change="if (!restauracionItem._retapizar) restauracionItem._telaSelections = {}"
               class="w-4 h-4 rounded accent-indigo-600"
             />
             <span class="text-sm text-gray-700 font-medium">Retapizar</span>
