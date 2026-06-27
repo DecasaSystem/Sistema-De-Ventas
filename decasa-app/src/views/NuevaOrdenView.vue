@@ -1101,7 +1101,7 @@ function precioEfectivo(item) {
 }
 
 const valorTotal = computed(() =>
-  items.value.reduce((s, i) => s + i.cantidad * precioEfectivo(i), 0)
+  items.value.reduce((s, i) => i._cotizarPrecio ? s : s + i.cantidad * precioEfectivo(i), 0)
 )
 
 const minimoAnticipo = computed(() =>
