@@ -2671,13 +2671,13 @@ function removeFacturaFoto() {
       <div v-if="clienteRequiereCompletar" class="bg-amber-50 border border-amber-300 rounded-xl p-4 space-y-3">
         <p class="text-sm font-semibold text-amber-800 flex items-center gap-1.5">
           <ExclamationTriangleIcon class="w-4 h-4 flex-shrink-0" />
-          Cliente interesado — elige cómo continuar
+          {{ clienteSeleccionado.tipo === 'interesado' ? 'Cliente interesado' : 'Datos del cliente incompletos' }} — elige cómo continuar
         </p>
 
         <!-- Opción A: enviar cotización (borrador) -->
         <div class="bg-white border border-amber-200 rounded-lg p-3 space-y-1">
           <p class="text-xs font-semibold text-gray-700">Opción A — Enviar cotización al cliente</p>
-          <p class="text-xs text-gray-500">Guarda el pedido como borrador y comparte el PDF con el cliente. Cuando confirme, vuelves a la orden y finalizas con sus datos.</p>
+          <p class="text-xs text-gray-500">Guarda el pedido como borrador y comparte el PDF. Cuando el cliente confirme, vuelves y finalizas con los datos que falten.</p>
           <button
             @click="submitBorrador"
             :disabled="submitting"
@@ -2688,18 +2688,18 @@ function removeFacturaFoto() {
           </button>
         </div>
 
-        <!-- Opción B: completar datos y crear orden ahora -->
+        <!-- Opción B: completar datos que faltan y crear orden ahora -->
         <div class="bg-white border border-amber-200 rounded-lg p-3 space-y-2">
-          <p class="text-xs font-semibold text-gray-700">Opción B — Completar datos y crear la orden ahora</p>
-          <div>
+          <p class="text-xs font-semibold text-gray-700">Opción B — Completar información y crear la orden ahora</p>
+          <div v-if="!clienteSeleccionado.nombre">
             <label class="text-xs text-gray-500 mb-1 block">Nombre completo <span class="text-red-500">*</span></label>
             <input v-model="formCompletarCliente.nombre" type="text" placeholder="Nombre y apellido" class="input" />
           </div>
-          <div>
+          <div v-if="!clienteSeleccionado.cedula">
             <label class="text-xs text-gray-500 mb-1 block">Cédula / NIT <span class="text-red-500">*</span></label>
             <input v-model="formCompletarCliente.cedula" type="text" inputmode="numeric" placeholder="Ej: 1012345678" class="input" />
           </div>
-          <div>
+          <div v-if="!clienteSeleccionado.telefono">
             <label class="text-xs text-gray-500 mb-1 block">Teléfono <span class="text-red-500">*</span></label>
             <input v-model="formCompletarCliente.telefono" type="tel" placeholder="Ej: 3001234567" class="input" />
           </div>
@@ -2707,7 +2707,7 @@ function removeFacturaFoto() {
             <label class="text-xs text-gray-500 mb-1 block">Email <span class="text-gray-400 font-normal">(opcional)</span></label>
             <input v-model="formCompletarCliente.email" type="email" placeholder="correo@ejemplo.com" class="input" />
           </div>
-          <div>
+          <div v-if="!clienteSeleccionado.direccion">
             <label class="text-xs text-gray-500 mb-1 block">Dirección <span class="text-red-500">*</span></label>
             <input v-model="formCompletarCliente.direccion" type="text" placeholder="Dirección de entrega" class="input" />
           </div>
@@ -2718,7 +2718,7 @@ function removeFacturaFoto() {
             class="w-full py-2 bg-amber-500 text-white text-xs font-semibold rounded-lg hover:bg-amber-600 disabled:opacity-50 transition-colors flex items-center justify-center gap-1.5"
           >
             <ArrowPathIcon v-if="guardandoCompletarCliente" class="w-3.5 h-3.5 animate-spin" />
-            {{ guardandoCompletarCliente ? 'Guardando...' : 'Guardar datos del cliente' }}
+            {{ guardandoCompletarCliente ? 'Guardando...' : 'Guardar y continuar' }}
           </button>
         </div>
       </div>

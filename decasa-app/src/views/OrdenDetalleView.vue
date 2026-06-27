@@ -1816,22 +1816,22 @@ onMounted(cargarOrden)
             Completar orden
           </h3>
 
-          <!-- Datos del cliente (solo si es interesado o le faltan campos) -->
+          <!-- Datos del cliente faltantes (interesado o campos vacíos) -->
           <div v-if="borradorClienteRequiereCompletar" class="bg-amber-50 border border-amber-300 rounded-xl p-4 space-y-3">
             <p class="text-sm font-semibold text-amber-800 flex items-center gap-1.5">
               <ExclamationTriangleIcon class="w-4 h-4 flex-shrink-0" />
-              Completa los datos del cliente
+              {{ orden.cliente?.tipo === 'interesado' ? 'Datos del cliente interesado' : 'Información del cliente incompleta' }}
             </p>
             <div class="space-y-2">
-              <div>
+              <div v-if="!orden.cliente?.nombre">
                 <label class="text-xs text-gray-500 mb-1 block">Nombre completo <span class="text-red-500">*</span></label>
                 <input v-model="borradorFormCliente.nombre" type="text" placeholder="Nombre y apellido" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
               </div>
-              <div>
+              <div v-if="!orden.cliente?.cedula">
                 <label class="text-xs text-gray-500 mb-1 block">Cédula / NIT <span class="text-red-500">*</span></label>
                 <input v-model="borradorFormCliente.cedula" type="text" inputmode="numeric" placeholder="Ej: 1012345678" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
               </div>
-              <div>
+              <div v-if="!orden.cliente?.telefono">
                 <label class="text-xs text-gray-500 mb-1 block">Teléfono <span class="text-red-500">*</span></label>
                 <input v-model="borradorFormCliente.telefono" type="tel" placeholder="Ej: 3001234567" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
               </div>
@@ -1839,7 +1839,7 @@ onMounted(cargarOrden)
                 <label class="text-xs text-gray-500 mb-1 block">Email <span class="text-gray-400 font-normal">(opcional)</span></label>
                 <input v-model="borradorFormCliente.email" type="email" placeholder="correo@ejemplo.com" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
               </div>
-              <div>
+              <div v-if="!orden.cliente?.direccion">
                 <label class="text-xs text-gray-500 mb-1 block">Dirección <span class="text-red-500">*</span></label>
                 <input v-model="borradorFormCliente.direccion" type="text" placeholder="Dirección de entrega" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
               </div>
