@@ -49,8 +49,9 @@ class PagoController extends Controller
             return response()->json(['message' => 'No autorizado.'], 403);
         }
 
-        if ($orden->estado === 'cancelado') {
-            return response()->json(['message' => 'No se pueden registrar pagos en una orden cancelada.'], 422);
+        $estadosQueAceptanPago = ['pendiente_anticipo', 'en_produccion', 'listo_entrega', 'en_camino'];
+        if (! in_array($orden->estado, $estadosQueAceptanPago)) {
+            return response()->json(['message' => 'No se pueden registrar pagos en una orden con estado "' . $orden->estado . '".'], 422);
         }
 
         $data = $request->validate([

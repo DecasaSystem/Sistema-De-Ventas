@@ -927,6 +927,8 @@ function togglePersonalizado(item) {
     item.tienda_origen_id = null
     item._cotizarPrecio   = true
     item._telaSelections  = {}
+  } else {
+    item._cotizarPrecio = false
   }
 }
 

@@ -351,8 +351,8 @@ class OrdenController extends Controller
                 }
             }
 
-            // --- 4. Registrar anticipo (solo si el monto es mayor a 0) ---
-            if ($data['anticipo_monto'] > 0) {
+            // --- 4. Registrar anticipo solo en órdenes confirmadas (no borradores) ---
+            if (! $guardarBorrador && $data['anticipo_monto'] > 0) {
                 $orden->pagos()->create([
                     'vendedor_id' => $request->user()->id,
                     'tipo'        => 'anticipo',
@@ -447,58 +447,59 @@ class OrdenController extends Controller
             }
         }
 
-        // Notificar supervisores cuando se toma de la reserva de fábrica
-        if (!empty($itemsFabrica)) {
-            $productoIds = array_column($itemsFabrica, 'producto_id');
-            $productos = Producto::whereIn('id', $productoIds)->pluck('nombre', 'id');
-            $resumen = collect($itemsFabrica)
-                ->map(fn($i) => ($productos[$i['producto_id']] ?? "Producto #{$i['producto_id']}") . " ({$i['cantidad']} ud.)")
-                ->implode(', ');
+        // Notificaciones de stock cruzado solo para órdenes confirmadas
+        if (! $guardarBorrador) {
+            if (!empty($itemsFabrica)) {
+                $productoIds = array_column($itemsFabrica, 'producto_id');
+                $productos = Producto::whereIn('id', $productoIds)->pluck('nombre', 'id');
+                $resumen = collect($itemsFabrica)
+                    ->map(fn($i) => ($productos[$i['producto_id']] ?? "Producto #{$i['producto_id']}") . " ({$i['cantidad']} ud.)")
+                    ->implode(', ');
 
-            $supervisores = Usuario::where('rol', 'supervisor')
-                ->where('activo', true)
-                ->where('id', '!=', $request->user()->id)
-                ->get();
-            foreach ($supervisores as $sup) {
-                NotificacionService::crear(
-                    'reserva_fabrica',
-                    'Producto tomado de reserva',
-                    "Orden #{$orden->id}: {$resumen}",
-                    ['orden_id' => $orden->id],
-                    $sup->id,
-                );
+                $supervisores = Usuario::where('rol', 'supervisor')
+                    ->where('activo', true)
+                    ->where('id', '!=', $request->user()->id)
+                    ->get();
+                foreach ($supervisores as $sup) {
+                    NotificacionService::crear(
+                        'reserva_fabrica',
+                        'Producto tomado de reserva',
+                        "Orden #{$orden->id}: {$resumen}",
+                        ['orden_id' => $orden->id],
+                        $sup->id,
+                    );
+                }
             }
-        }
 
-        // Notificar a vendedores de la tienda fuente cuando se usa su stock
-        foreach (array_unique($origenesExternos) as $origenId) {
-            $itemsOrigen = $ordenCargada->items
-                ->where('tienda_origen_id', $origenId)
-                ->where('es_personalizado', false);
+            foreach (array_unique($origenesExternos) as $origenId) {
+                $itemsOrigen = $ordenCargada->items
+                    ->where('tienda_origen_id', $origenId)
+                    ->where('es_personalizado', false);
 
-            $productosStr = $itemsOrigen
-                ->map(fn($i) => "{$i->producto->nombre} ({$i->cantidad})")
-                ->implode(', ');
+                $productosStr = $itemsOrigen
+                    ->map(fn($i) => "{$i->producto->nombre} ({$i->cantidad})")
+                    ->implode(', ');
 
-            $productosIds = $itemsOrigen->pluck('producto_id')->values();
+                $productosIds = $itemsOrigen->pluck('producto_id')->values();
 
-            $vendedoresOrigen = Usuario::where('tienda_default_id', $origenId)
-                ->where('rol', 'vendedor')
-                ->where('activo', true)
-                ->pluck('id');
+                $vendedoresOrigen = Usuario::where('tienda_default_id', $origenId)
+                    ->where('rol', 'vendedor')
+                    ->where('activo', true)
+                    ->pluck('id');
 
-            foreach ($vendedoresOrigen as $vendedorId) {
-                NotificacionService::crear(
-                    'venta_otra_tienda',
-                    'Venta desde otra tienda',
-                    "Orden #{$orden->id} - {$productosStr}",
-                    [
-                        'orden_id'  => $orden->id,
-                        'tienda_id' => $origenId,
-                        'productos' => $productosIds,
-                    ],
-                    $vendedorId,
-                );
+                foreach ($vendedoresOrigen as $vendedorId) {
+                    NotificacionService::crear(
+                        'venta_otra_tienda',
+                        'Venta desde otra tienda',
+                        "Orden #{$orden->id} - {$productosStr}",
+                        [
+                            'orden_id'  => $orden->id,
+                            'tienda_id' => $origenId,
+                            'productos' => $productosIds,
+                        ],
+                        $vendedorId,
+                    );
+                }
             }
         }
 
@@ -536,6 +537,10 @@ class OrdenController extends Controller
 
         if ($usuario->rol === 'vendedor' && $orden->vendedor_id !== $usuario->id) {
             return response()->json(['message' => 'No autorizado.'], 403);
+        }
+
+        if ($orden->estado === 'borrador') {
+            return response()->json(['message' => 'No se puede enviar cotización de un borrador sin confirmar.'], 422);
         }
 
         $email = $request->input('email') ?? $orden->cliente->email;
@@ -721,7 +726,7 @@ class OrdenController extends Controller
             return response()->json(['message' => 'No autorizado.'], 403);
         }
 
-        if (! in_array($orden->estado, ['pendiente_anticipo', 'en_produccion'])) {
+        if (! in_array($orden->estado, ['borrador', 'pendiente_anticipo', 'en_produccion'])) {
             return response()->json([
                 'message' => 'No se puede editar una orden en estado "' . $orden->estado . '".',
             ], 422);
@@ -1006,6 +1011,10 @@ class OrdenController extends Controller
             ->where('id', '!=', $usuario->id)
             ->get();
 
+        $tieneItemsCotizPendiente = $ordenFresh->items->contains(
+            fn($i) => $i->es_personalizado && (float) $i->precio_unitario === 0.0
+        );
+
         foreach ($supervisores as $sup) {
             NotificacionService::crear(
                 'venta_nueva',
@@ -1014,6 +1023,35 @@ class OrdenController extends Controller
                 ['orden_id' => $orden->id, 'tienda_id' => (int) $orden->tienda_id, 'valor_total' => $orden->valor_total],
                 $sup->id,
             );
+
+            if ($sup->notif_asignar_fecha && ! $tieneItemsCotizPendiente) {
+                NotificacionService::crear(
+                    'asignar_fecha',
+                    'Asignar fecha de entrega',
+                    "Orden #{$orden->id} de {$ordenFresh->cliente->nombre} necesita fecha de entrega",
+                    ['orden_id' => $orden->id],
+                    $sup->id,
+                );
+            }
+        }
+
+        // Notificar a facturadores del anticipo si se registró uno
+        $anticipo = $ordenFresh->pagos->where('tipo', 'anticipo')->first();
+        if ($anticipo) {
+            $facturadores = Usuario::where('facturacion', true)
+                ->where('activo', true)
+                ->where('id', '!=', $usuario->id)
+                ->get();
+            $montoFormateado = '$ ' . number_format($anticipo->monto, 0, ',', '.');
+            foreach ($facturadores as $facturador) {
+                NotificacionService::crear(
+                    tipo:      'abono_registrado',
+                    titulo:    "Pago registrado – Orden #{$orden->numero_orden ?? $orden->id}",
+                    mensaje:   "{$usuario->nombre} confirmó un anticipo de {$montoFormateado} en la orden de {$ordenFresh->cliente->nombre}.",
+                    datos:     ['orden_id' => $orden->id],
+                    usuarioId: $facturador->id,
+                );
+            }
         }
 
         return response()->json($ordenFresh);
@@ -1142,6 +1180,13 @@ class OrdenController extends Controller
                         'usuario_id'  => $usuario->id,
                     ]);
                 }
+            }
+
+            // Cancelar registros de producción activos al cancelar la orden
+            if ($estadoNuevo === 'cancelado' && $estadoAnterior !== 'cancelado') {
+                \App\Models\Produccion::whereHas('ordenItem', fn($q) => $q->where('orden_id', $orden->id))
+                    ->whereNotIn('estado', ['cancelado', 'completado'])
+                    ->update(['estado' => 'cancelado']);
             }
 
             $updateData = ['estado' => $estadoNuevo];

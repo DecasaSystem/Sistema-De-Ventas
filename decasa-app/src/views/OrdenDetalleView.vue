@@ -1966,7 +1966,7 @@ onMounted(cargarOrden)
               :disabled="completandoBorrador || subiendoComprobante || subiendoAnexo ||
                 borradorClienteRequiereCompletar ||
                 (!borradorFirmaBlob && !borradorFirmaUrl) ||
-                (!borradorComprobanteFile && !borradorComprobanteUrl) ||
+                (!borradorTieneItemsCotiz && !borradorComprobanteFile && !borradorComprobanteUrl) ||
                 !borradorForm.departamento_envio ||
                 !borradorForm.ciudad_envio ||
                 !borradorForm.direccion_envio ||
