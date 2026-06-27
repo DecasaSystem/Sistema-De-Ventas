@@ -1140,7 +1140,7 @@ async function irAPaso3() {
 async function submit() {
   if (submitting.value || subiendoFactura.value || cooldown.value > 0) return
 
-  if (clienteRequiereCompletar.value) {
+  if (clienteRequiereCompletar.value && !modoGuardarBorrador.value) {
     toast.error('Completa los datos del cliente antes de crear la orden.')
     return
   }
@@ -2667,13 +2667,30 @@ function removeFacturaFoto() {
         </div>
       </div>
 
-      <!-- Completar datos del cliente interesado antes de finalizar -->
+      <!-- Bloque interesado: enviar cotización primero o completar datos para orden final -->
       <div v-if="clienteRequiereCompletar" class="bg-amber-50 border border-amber-300 rounded-xl p-4 space-y-3">
         <p class="text-sm font-semibold text-amber-800 flex items-center gap-1.5">
           <ExclamationTriangleIcon class="w-4 h-4 flex-shrink-0" />
-          Completa los datos del cliente para crear la orden
+          Cliente interesado — elige cómo continuar
         </p>
-        <div class="space-y-2">
+
+        <!-- Opción A: enviar cotización (borrador) -->
+        <div class="bg-white border border-amber-200 rounded-lg p-3 space-y-1">
+          <p class="text-xs font-semibold text-gray-700">Opción A — Enviar cotización al cliente</p>
+          <p class="text-xs text-gray-500">Guarda el pedido como borrador y comparte el PDF con el cliente. Cuando confirme, vuelves a la orden y finalizas con sus datos.</p>
+          <button
+            @click="submitBorrador"
+            :disabled="submitting"
+            class="mt-2 w-full py-2 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-1.5"
+          >
+            <ArrowPathOutlineIcon v-if="submitting && modoGuardarBorrador" class="w-4 h-4 animate-spin" />
+            {{ submitting && modoGuardarBorrador ? 'Guardando...' : 'Guardar borrador y enviar PDF' }}
+          </button>
+        </div>
+
+        <!-- Opción B: completar datos y crear orden ahora -->
+        <div class="bg-white border border-amber-200 rounded-lg p-3 space-y-2">
+          <p class="text-xs font-semibold text-gray-700">Opción B — Completar datos y crear la orden ahora</p>
           <div>
             <label class="text-xs text-gray-500 mb-1 block">Nombre completo <span class="text-red-500">*</span></label>
             <input v-model="formCompletarCliente.nombre" type="text" placeholder="Nombre y apellido" class="input" />
@@ -2694,16 +2711,16 @@ function removeFacturaFoto() {
             <label class="text-xs text-gray-500 mb-1 block">Dirección <span class="text-red-500">*</span></label>
             <input v-model="formCompletarCliente.direccion" type="text" placeholder="Dirección de entrega" class="input" />
           </div>
+          <p v-if="errCompletarCliente" class="text-xs text-red-600">{{ errCompletarCliente }}</p>
+          <button
+            @click="completarYConvertirCliente"
+            :disabled="guardandoCompletarCliente"
+            class="w-full py-2 bg-amber-500 text-white text-xs font-semibold rounded-lg hover:bg-amber-600 disabled:opacity-50 transition-colors flex items-center justify-center gap-1.5"
+          >
+            <ArrowPathIcon v-if="guardandoCompletarCliente" class="w-3.5 h-3.5 animate-spin" />
+            {{ guardandoCompletarCliente ? 'Guardando...' : 'Guardar datos del cliente' }}
+          </button>
         </div>
-        <p v-if="errCompletarCliente" class="text-xs text-red-600">{{ errCompletarCliente }}</p>
-        <button
-          @click="completarYConvertirCliente"
-          :disabled="guardandoCompletarCliente"
-          class="w-full py-2 bg-amber-500 text-white text-sm font-semibold rounded-lg hover:bg-amber-600 disabled:opacity-50 transition-colors flex items-center justify-center gap-1.5"
-        >
-          <ArrowPathIcon v-if="guardandoCompletarCliente" class="w-4 h-4 animate-spin" />
-          {{ guardandoCompletarCliente ? 'Guardando...' : 'Guardar datos del cliente' }}
-        </button>
       </div>
 
       <!-- Anticipo — oculto cuando hay ítems con cotización pendiente -->
@@ -2943,6 +2960,7 @@ function removeFacturaFoto() {
        </button>
 
        <button
+         v-if="!clienteRequiereCompletar"
          @click="submitBorrador"
          :disabled="submitting || cooldown > 0"
          class="btn-secondary w-full py-3 flex items-center justify-center gap-2"
