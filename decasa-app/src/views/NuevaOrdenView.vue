@@ -210,7 +210,7 @@ watch(tiendaVirtualId, (id) => {
 })
 
 function paso1Valido() {
-  return clienteSeleccionado.value && tiendaId.value && canal.value && !clienteRequiereCompletar.value
+  return clienteSeleccionado.value && tiendaId.value && canal.value
 }
 
 // ── Tipo de orden ─────────────────────────────────────────────────────────────
@@ -1140,6 +1140,11 @@ async function irAPaso3() {
 async function submit() {
   if (submitting.value || subiendoFactura.value || cooldown.value > 0) return
 
+  if (clienteRequiereCompletar.value) {
+    toast.error('Completa los datos del cliente antes de crear la orden.')
+    return
+  }
+
   const sinPrecio = items.value.filter(i => i.es_personalizado && !i.precio_unitario && !i._cotizarPrecio)
   if (sinPrecio.length) {
     toast.error(`${sinPrecio.length} producto(s) sin precio. Usa el cotizador IA, ingresa el precio manualmente, o activa "Consultar precio".`)
@@ -1518,46 +1523,10 @@ function removeFacturaFoto() {
             </span>
           </div>
 
-          <!-- Formulario inline para completar datos (interesado → oficial) -->
-          <div v-if="clienteRequiereCompletar" class="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-3">
-            <p class="text-xs font-semibold text-amber-800 flex items-center gap-1.5">
-              <ExclamationTriangleIcon class="w-4 h-4 flex-shrink-0" />
-              Completa todos los datos del cliente para crear la orden
-            </p>
-
-            <div class="space-y-2">
-              <div>
-                <label class="text-xs text-gray-500 mb-1 block">Nombre completo <span class="text-red-500">*</span></label>
-                <input v-model="formCompletarCliente.nombre" type="text" placeholder="Nombre y apellido" class="input" />
-              </div>
-              <div>
-                <label class="text-xs text-gray-500 mb-1 block">Cédula / NIT <span class="text-red-500">*</span></label>
-                <input v-model="formCompletarCliente.cedula" type="text" inputmode="numeric" placeholder="Ej: 1012345678" class="input" />
-              </div>
-              <div>
-                <label class="text-xs text-gray-500 mb-1 block">Teléfono <span class="text-red-500">*</span></label>
-                <input v-model="formCompletarCliente.telefono" type="tel" placeholder="Ej: 3001234567" class="input" />
-              </div>
-              <div>
-                <label class="text-xs text-gray-500 mb-1 block">Email <span class="text-gray-400 font-normal">(opcional)</span></label>
-                <input v-model="formCompletarCliente.email" type="email" placeholder="correo@ejemplo.com" class="input" />
-              </div>
-              <div>
-                <label class="text-xs text-gray-500 mb-1 block">Dirección <span class="text-red-500">*</span></label>
-                <input v-model="formCompletarCliente.direccion" type="text" placeholder="Dirección de entrega" class="input" />
-              </div>
-            </div>
-
-            <p v-if="errCompletarCliente" class="text-xs text-red-600">{{ errCompletarCliente }}</p>
-
-            <button
-              @click="completarYConvertirCliente"
-              :disabled="guardandoCompletarCliente"
-              class="w-full py-2 bg-amber-500 text-white text-xs font-semibold rounded-lg hover:bg-amber-600 disabled:opacity-50 transition-colors flex items-center justify-center gap-1.5"
-            >
-              <ArrowPathIcon v-if="guardandoCompletarCliente" class="w-3.5 h-3.5 animate-spin" />
-              {{ guardandoCompletarCliente ? 'Guardando...' : 'Guardar y convertir a cliente oficial' }}
-            </button>
+          <!-- Aviso suave: datos se completarán en el paso de pago -->
+          <div v-if="clienteRequiereCompletar" class="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 flex items-center gap-2">
+            <ExclamationTriangleIcon class="w-4 h-4 text-amber-500 flex-shrink-0" />
+            <p class="text-xs text-amber-700">Los datos del cliente se completarán al finalizar la venta.</p>
           </div>
         </div>
       </div>
@@ -2698,6 +2667,45 @@ function removeFacturaFoto() {
         </div>
       </div>
 
+      <!-- Completar datos del cliente interesado antes de finalizar -->
+      <div v-if="clienteRequiereCompletar" class="bg-amber-50 border border-amber-300 rounded-xl p-4 space-y-3">
+        <p class="text-sm font-semibold text-amber-800 flex items-center gap-1.5">
+          <ExclamationTriangleIcon class="w-4 h-4 flex-shrink-0" />
+          Completa los datos del cliente para crear la orden
+        </p>
+        <div class="space-y-2">
+          <div>
+            <label class="text-xs text-gray-500 mb-1 block">Nombre completo <span class="text-red-500">*</span></label>
+            <input v-model="formCompletarCliente.nombre" type="text" placeholder="Nombre y apellido" class="input" />
+          </div>
+          <div>
+            <label class="text-xs text-gray-500 mb-1 block">Cédula / NIT <span class="text-red-500">*</span></label>
+            <input v-model="formCompletarCliente.cedula" type="text" inputmode="numeric" placeholder="Ej: 1012345678" class="input" />
+          </div>
+          <div>
+            <label class="text-xs text-gray-500 mb-1 block">Teléfono <span class="text-red-500">*</span></label>
+            <input v-model="formCompletarCliente.telefono" type="tel" placeholder="Ej: 3001234567" class="input" />
+          </div>
+          <div>
+            <label class="text-xs text-gray-500 mb-1 block">Email <span class="text-gray-400 font-normal">(opcional)</span></label>
+            <input v-model="formCompletarCliente.email" type="email" placeholder="correo@ejemplo.com" class="input" />
+          </div>
+          <div>
+            <label class="text-xs text-gray-500 mb-1 block">Dirección <span class="text-red-500">*</span></label>
+            <input v-model="formCompletarCliente.direccion" type="text" placeholder="Dirección de entrega" class="input" />
+          </div>
+        </div>
+        <p v-if="errCompletarCliente" class="text-xs text-red-600">{{ errCompletarCliente }}</p>
+        <button
+          @click="completarYConvertirCliente"
+          :disabled="guardandoCompletarCliente"
+          class="w-full py-2 bg-amber-500 text-white text-sm font-semibold rounded-lg hover:bg-amber-600 disabled:opacity-50 transition-colors flex items-center justify-center gap-1.5"
+        >
+          <ArrowPathIcon v-if="guardandoCompletarCliente" class="w-4 h-4 animate-spin" />
+          {{ guardandoCompletarCliente ? 'Guardando...' : 'Guardar datos del cliente' }}
+        </button>
+      </div>
+
       <!-- Anticipo — oculto cuando hay ítems con cotización pendiente -->
       <template v-if="!hayItemsCotizar">
         <div>
@@ -2927,7 +2935,7 @@ function removeFacturaFoto() {
 
        <button
          @click="submit"
-         :disabled="submitting || subiendoFactura || cooldown > 0 || anticipo_monto < minimoAnticipofEfectivo || (!hayItemsCotizar && !firmaBlob) || !facturaFotoFile"
+         :disabled="submitting || subiendoFactura || cooldown > 0 || clienteRequiereCompletar || anticipo_monto < minimoAnticipofEfectivo || (!hayItemsCotizar && !firmaBlob) || !facturaFotoFile"
          class="btn-primary w-full text-base py-3 flex items-center justify-center gap-2"
        >
          <ArrowPathOutlineIcon v-if="submitting && !modoGuardarBorrador" class="w-5 h-5 animate-spin" />
