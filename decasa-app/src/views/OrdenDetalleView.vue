@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
 import { getOrden, updateEstado, descargarPdfOrden, reenviarCotizacion, asignarFechasEntrega, confirmarCotizacion, completarBorrador as completarBorradorApi } from '@/api/ordenes'
+import { updateCliente } from '@/api/clientes'
 import { despachoPorOrden } from '@/api/despacho'
 import { tomarFacturacion, marcarFacturada } from '@/api/pagos'
 import { getReceptores, crearConsulta, getConsultas, ajustarPrecio as ajustarPrecioApi } from '@/api/consultas'
@@ -12,7 +13,7 @@ import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import RegistroPagoModal from '@/components/ordenes/RegistroPagoModal.vue'
 import EditarOrdenModal from '@/components/ordenes/EditarOrdenModal.vue'
 import { SparklesIcon, XMarkIcon } from '@heroicons/vue/24/solid'
-import { DocumentIcon, EnvelopeIcon, ChatBubbleLeftEllipsisIcon, ArrowDownTrayIcon, CalendarIcon, BuildingOffice2Icon, TruckIcon, PencilSquareIcon, ClockIcon, CheckBadgeIcon, LockClosedIcon, WrenchScrewdriverIcon, CheckCircleIcon, UserGroupIcon, CurrencyDollarIcon, BanknotesIcon } from '@heroicons/vue/24/outline'
+import { DocumentIcon, EnvelopeIcon, ChatBubbleLeftEllipsisIcon, ArrowDownTrayIcon, CalendarIcon, BuildingOffice2Icon, TruckIcon, PencilSquareIcon, ClockIcon, CheckBadgeIcon, LockClosedIcon, WrenchScrewdriverIcon, CheckCircleIcon, UserGroupIcon, CurrencyDollarIcon, BanknotesIcon, ExclamationTriangleIcon } from '@heroicons/vue/24/outline'
 import FirmaCanvas from '@/components/FirmaCanvas.vue'
 import DireccionColombia from '@/components/DireccionColombia.vue'
 import { comprimirImagen } from '@/utils/comprimirImagen'
@@ -130,6 +131,42 @@ const borradorAnexoPreview       = ref('')
 const subiendoComprobante        = ref(false)
 const subiendoAnexo              = ref(false)
 
+// ── Datos cliente interesado dentro del modal ─────────────────────────────────
+const borradorClienteRequiereCompletar = computed(() => {
+  const c = orden.value?.cliente
+  if (!c) return false
+  return c.tipo === 'interesado' || !c.cedula || !c.telefono || !c.direccion
+})
+const borradorFormCliente    = ref({ nombre: '', cedula: '', telefono: '', email: '', direccion: '' })
+const borradorClienteGuardando = ref(false)
+const borradorClienteErr       = ref('')
+
+async function completarClienteBorrador() {
+  borradorClienteErr.value = ''
+  const f = borradorFormCliente.value
+  if (!f.nombre.trim())    { borradorClienteErr.value = 'El nombre es obligatorio.';    return }
+  if (!f.cedula.trim())    { borradorClienteErr.value = 'La cédula es obligatoria.';    return }
+  if (!f.telefono.trim())  { borradorClienteErr.value = 'El teléfono es obligatorio.';  return }
+  if (!f.direccion.trim()) { borradorClienteErr.value = 'La dirección es obligatoria.'; return }
+  borradorClienteGuardando.value = true
+  try {
+    const payload = {
+      tipo:      'oficial',
+      nombre:    f.nombre.trim(),
+      cedula:    f.cedula.trim(),
+      telefono:  f.telefono.trim(),
+      email:     f.email.trim() || null,
+      direccion: f.direccion.trim(),
+    }
+    await updateCliente(orden.value.cliente.id, payload)
+    orden.value.cliente = { ...orden.value.cliente, ...payload }
+  } catch (e) {
+    borradorClienteErr.value = e.response?.data?.message ?? 'Error al actualizar el cliente'
+  } finally {
+    borradorClienteGuardando.value = false
+  }
+}
+
 watch(showCompletarBorradorModal, (open) => {
   if (open) {
     borradorFirmaBlob.value        = null
@@ -140,6 +177,14 @@ watch(showCompletarBorradorModal, (open) => {
     borradorAnexoFile.value        = null
     borradorAnexoUrl.value         = ''
     borradorAnexoPreview.value     = ''
+    borradorClienteErr.value       = ''
+    borradorFormCliente.value = {
+      nombre:    orden.value?.cliente?.nombre    || '',
+      cedula:    orden.value?.cliente?.cedula    || '',
+      telefono:  orden.value?.cliente?.telefono  || '',
+      email:     orden.value?.cliente?.email     || '',
+      direccion: orden.value?.cliente?.direccion || '',
+    }
     borradorForm.value = {
       anticipo_monto:      borradorTieneItemsCotiz.value ? 0 : borradorAnticipoMinimo.value,
       anticipo_metodo:     'efectivo',
@@ -1771,6 +1816,44 @@ onMounted(cargarOrden)
             Completar orden
           </h3>
 
+          <!-- Datos del cliente (solo si es interesado o le faltan campos) -->
+          <div v-if="borradorClienteRequiereCompletar" class="bg-amber-50 border border-amber-300 rounded-xl p-4 space-y-3">
+            <p class="text-sm font-semibold text-amber-800 flex items-center gap-1.5">
+              <ExclamationTriangleIcon class="w-4 h-4 flex-shrink-0" />
+              Completa los datos del cliente
+            </p>
+            <div class="space-y-2">
+              <div>
+                <label class="text-xs text-gray-500 mb-1 block">Nombre completo <span class="text-red-500">*</span></label>
+                <input v-model="borradorFormCliente.nombre" type="text" placeholder="Nombre y apellido" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
+              </div>
+              <div>
+                <label class="text-xs text-gray-500 mb-1 block">Cédula / NIT <span class="text-red-500">*</span></label>
+                <input v-model="borradorFormCliente.cedula" type="text" inputmode="numeric" placeholder="Ej: 1012345678" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
+              </div>
+              <div>
+                <label class="text-xs text-gray-500 mb-1 block">Teléfono <span class="text-red-500">*</span></label>
+                <input v-model="borradorFormCliente.telefono" type="tel" placeholder="Ej: 3001234567" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
+              </div>
+              <div>
+                <label class="text-xs text-gray-500 mb-1 block">Email <span class="text-gray-400 font-normal">(opcional)</span></label>
+                <input v-model="borradorFormCliente.email" type="email" placeholder="correo@ejemplo.com" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
+              </div>
+              <div>
+                <label class="text-xs text-gray-500 mb-1 block">Dirección <span class="text-red-500">*</span></label>
+                <input v-model="borradorFormCliente.direccion" type="text" placeholder="Dirección de entrega" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
+              </div>
+            </div>
+            <p v-if="borradorClienteErr" class="text-xs text-red-600">{{ borradorClienteErr }}</p>
+            <button
+              @click="completarClienteBorrador"
+              :disabled="borradorClienteGuardando"
+              class="w-full py-2 bg-amber-500 text-white text-xs font-semibold rounded-lg hover:bg-amber-600 disabled:opacity-50 transition-colors flex items-center justify-center gap-1.5"
+            >
+              {{ borradorClienteGuardando ? 'Guardando...' : 'Guardar datos del cliente' }}
+            </button>
+          </div>
+
           <!-- Firma del cliente -->
           <div class="space-y-2">
             <label class="block text-xs font-semibold text-gray-600 uppercase">Firma del cliente <span class="text-red-500">*</span></label>
@@ -1881,6 +1964,7 @@ onMounted(cargarOrden)
             <button
               @click="completarBorrador"
               :disabled="completandoBorrador || subiendoComprobante || subiendoAnexo ||
+                borradorClienteRequiereCompletar ||
                 (!borradorFirmaBlob && !borradorFirmaUrl) ||
                 (!borradorComprobanteFile && !borradorComprobanteUrl) ||
                 !borradorForm.departamento_envio ||
