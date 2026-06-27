@@ -906,6 +906,20 @@ function quitarItem(idx) {
   items.value.splice(idx, 1)
 }
 
+function togglePersonalizado(item) {
+  const nuevo = !item.es_personalizado
+  item.es_personalizado = nuevo
+  if (nuevo) {
+    // Al convertir a personalizado: liberar la variante de stock para no descontarla
+    item.variante_id      = null
+    item._combo_id        = null
+    item._config_id       = null
+    item.tienda_origen_id = null
+    item._cotizarPrecio   = true
+    item._telaSelections  = {}
+  }
+}
+
 function onBocetoUpdate(item, blob) {
   if (item.boceto_previews[0]) URL.revokeObjectURL(item.boceto_previews[0])
   if (blob) {
@@ -2232,7 +2246,8 @@ function removeFacturaFoto() {
           <label v-if="tipoOrden !== 'restauracion' && !item._fabricar_pedido" :class="['flex items-center gap-2 text-sm text-gray-600', item.producto_id === null ? 'opacity-60 cursor-default' : 'cursor-pointer']">
             <input
               type="checkbox"
-              v-model="item.es_personalizado"
+              :checked="item.es_personalizado"
+              @change="togglePersonalizado(item)"
               :disabled="item.producto_id === null"
               class="rounded"
             />
