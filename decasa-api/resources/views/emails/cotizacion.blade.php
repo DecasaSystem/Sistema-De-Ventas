@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Cotización Decasa #{{ $orden->id }}</title>
+  <title>Cotización Decasa #{{ $orden->numero_orden ?? $orden->id }}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: #f3f4f6; color: #1f2937; }
@@ -51,7 +51,7 @@
       <!-- Header -->
       <div class="header">
         <h1>Decasa — Tu Cotización</h1>
-        <p>Orden #{{ $orden->id }} · {{ now()->locale('es')->isoFormat('D [de] MMMM [de] YYYY') }}</p>
+        <p>Orden #{{ $orden->numero_orden ?? $orden->id }} · {{ now()->locale('es')->isoFormat('D [de] MMMM [de] YYYY') }}</p>
       </div>
 
       <!-- Body -->

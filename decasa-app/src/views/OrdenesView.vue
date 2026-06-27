@@ -270,7 +270,7 @@ onUnmounted(() => {
           <div class="flex justify-between items-start gap-2">
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-2 mb-1 flex-wrap">
-                <span class="font-semibold text-sm text-gray-800">#{{ o.id }}</span>
+                <span class="font-semibold text-sm text-gray-800">#{{ o.numero_orden ?? o.id }}</span>
                 <BadgeEstado :estado="o.estado" />
                 <span
                   v-if="o.atrasado"

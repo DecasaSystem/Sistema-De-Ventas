@@ -35,7 +35,7 @@ function formatFecha(iso) {
 
       <div class="flex-1 min-w-0">
         <div class="flex items-center justify-between gap-2">
-          <span class="text-xs text-gray-400">#{{ orden.id }}</span>
+          <span class="text-xs text-gray-400">#{{ orden.numero_orden ?? orden.id }}</span>
           <BadgeEstado :estado="orden.estado" />
         </div>
         <p class="font-semibold text-gray-900 mt-1 truncate">{{ orden.cliente?.nombre }}</p>

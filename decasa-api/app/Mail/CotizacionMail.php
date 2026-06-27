@@ -21,8 +21,9 @@ class CotizacionMail extends Mailable
 
     public function envelope(): Envelope
     {
+        $num = $this->cargarOrden()->numero_orden ?? $this->ordenId;
         return new Envelope(
-            subject: "Cotización Decasa — Orden #{$this->ordenId}",
+            subject: "Cotización Decasa — Orden #{$num}",
         );
     }
 
@@ -55,10 +56,11 @@ class CotizacionMail extends Mailable
             $pdf = Pdf::loadView('pdf.orden', compact('orden', 'firmaCliente', 'firmaVendedor', 'logoBase64', 'bocetosBase64'));
             $pdf->setPaper('letter');
 
+            $num = $orden->numero_orden ?? $this->ordenId;
             return [
                 Attachment::fromData(
                     fn () => $pdf->output(),
-                    "cotizacion-decasa-{$this->ordenId}.pdf"
+                    "cotizacion-decasa-{$num}.pdf"
                 )->withMime('application/pdf'),
             ];
         } catch (\Throwable $e) {

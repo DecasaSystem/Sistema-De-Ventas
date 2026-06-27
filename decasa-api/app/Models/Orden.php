@@ -15,6 +15,7 @@ class Orden extends Model
         'canal',
         'tipo',
         'estado',
+        'numero_orden',
         'valor_total',
         'anticipo_pct',
         'notas',

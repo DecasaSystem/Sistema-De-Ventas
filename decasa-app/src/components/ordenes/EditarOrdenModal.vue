@@ -213,7 +213,7 @@ async function guardar() {
           <!-- Header -->
           <div class="sticky top-0 bg-white z-10 flex items-center justify-between px-5 py-4 border-b border-gray-100">
             <div>
-              <h3 class="font-bold text-gray-900">Editar orden #{{ orden.id }}</h3>
+              <h3 class="font-bold text-gray-900">Editar orden #{{ orden.numero_orden ?? orden.id }}</h3>
               <p class="text-xs text-gray-500 mt-0.5">Los cambios quedan registrados con tu nombre</p>
             </div>
             <button @click="emit('close')" class="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">

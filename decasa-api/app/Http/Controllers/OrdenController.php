@@ -499,6 +499,12 @@ class OrdenController extends Controller
             }
         }
 
+        // Asignar número de orden secuencial solo a órdenes confirmadas (no borradores)
+        if (! $guardarBorrador) {
+            $this->asignarNumeroOrden($orden);
+            $ordenCargada->numero_orden = $orden->numero_orden;
+        }
+
         // Enviar cotización por email si el cliente tiene email
         if ($ordenCargada->cliente->email) {
             try {
@@ -975,6 +981,10 @@ class OrdenController extends Controller
         $ordenFresh->total_pagado    = $ordenFresh->totalPagado();
         $ordenFresh->saldo_pendiente = $ordenFresh->saldoPendiente();
 
+        // Asignar número de orden secuencial al confirmar el borrador
+        $this->asignarNumeroOrden($orden);
+        $ordenFresh->numero_orden = $orden->numero_orden;
+
         // Notify supervisors of the now-confirmed order
         $supervisores = Usuario::where('rol', 'supervisor')
             ->where('activo', true)
@@ -1400,6 +1410,14 @@ class OrdenController extends Controller
                 ['producto_id' => $productoId, 'tienda_id' => $tiendaId],
             );
         }
+    }
+
+    private function asignarNumeroOrden(Orden $orden): void
+    {
+        DB::transaction(function () use ($orden) {
+            $max = DB::table('ordenes')->lockForUpdate()->max('numero_orden') ?? 0;
+            $orden->update(['numero_orden' => $max + 1]);
+        });
     }
 
     private function avifToPngBase64(string $path): ?string
