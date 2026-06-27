@@ -304,12 +304,15 @@ class OrdenController extends Controller
                 ]);
 
                 if ($esPersonalizado || $esProductoCustom) {
-                    Produccion::create([
-                        'orden_item_id'    => $item->id,
-                        'fecha_inicio'     => now()->toDateString(),
-                        'fecha_compromiso' => $itemData['fecha_entrega_prometida'] ?? null,
-                        'estado'           => 'pendiente',
-                    ]);
+                    // Solo crear producción si la orden es confirmada, no si es borrador
+                    if (! $guardarBorrador) {
+                        Produccion::create([
+                            'orden_item_id'    => $item->id,
+                            'fecha_inicio'     => now()->toDateString(),
+                            'fecha_compromiso' => $itemData['fecha_entrega_prometida'] ?? null,
+                            'estado'           => 'pendiente',
+                        ]);
+                    }
                 } else {
                     // Reservar stock en la tienda de origen (puede ser otra tienda)
                     $varianteMarca = $specsExtra['variante_marca'] ?? '';
@@ -904,7 +907,7 @@ class OrdenController extends Controller
      */
     public function completarBorrador(Request $request, int $id)
     {
-        $orden = Orden::with('items')->findOrFail($id);
+        $orden = Orden::with('items.produccion')->findOrFail($id);
 
         if ($orden->estado !== 'borrador') {
             return response()->json(['message' => 'La orden no está en borrador.'], 422);
@@ -957,6 +960,18 @@ class OrdenController extends Controller
                 'ciudad_envio'       => $data['ciudad_envio']       ?? $orden->ciudad_envio,
                 'direccion_envio'    => $data['direccion_envio']    ?? $orden->direccion_envio,
             ]);
+
+            // Crear registros de producción para los items personalizados del borrador
+            foreach ($orden->items->where('es_personalizado', true) as $item) {
+                if (! $item->produccion) {
+                    Produccion::create([
+                        'orden_item_id'    => $item->id,
+                        'fecha_inicio'     => now()->toDateString(),
+                        'fecha_compromiso' => $item->fecha_entrega_prom,
+                        'estado'           => 'pendiente',
+                    ]);
+                }
+            }
 
             if (($data['anticipo_monto'] ?? 0) > 0) {
                 $orden->pagos()->create([
