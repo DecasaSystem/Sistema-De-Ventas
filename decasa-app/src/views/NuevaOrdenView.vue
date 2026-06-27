@@ -6,7 +6,7 @@ import { useToast } from '@/composables/useToast'
 import api from '@/api'
 import { getVariantes } from '@/api/inventario'
 import { getReservaInfo, getReservaStockLote } from '@/api/reserva'
-import { updateCliente, CATEGORIAS_DISPONIBLES } from '@/api/clientes'
+import { updateCliente } from '@/api/clientes'
 import { SPECS_TEMPLATES, resolverCategoria, camposParaModo, specsToDescripcion, extraerDimensiones } from '@/constants/specsConfig'
 import { TELAS_CATALOGO, marcasOrdenadas, tiposTelaDeM, coloresDeTela } from '@/data/telasCatalogo'
 import { cloudinaryOpt } from '@/utils/cloudinary'
@@ -30,11 +30,15 @@ const tiendas = ref([])
 
 // Telas con metros disponibles (para filtrar el picker en fabricar bajo pedido)
 const telaMetrosMap = ref({}) // clave "marca|tipo|color" → metros_libres
+const categoriasInteresOpts = ref([])
+
 onMounted(async () => {
-  const [{ data: tiendasData }, { data: telasData }] = await Promise.all([
+  const [{ data: tiendasData }, { data: telasData }, { data: catData }] = await Promise.all([
     api.get('/tiendas'),
     api.get('/inventario-telas').catch(() => ({ data: [] })),
+    api.get('/productos/categorias').catch(() => ({ data: [] })),
   ])
+  categoriasInteresOpts.value = catData.filter(c => c)
   tiendas.value = tiendasData
   const map = {}
   for (const t of telasData) {
@@ -147,6 +151,12 @@ function seleccionarCliente(c) {
   clienteSeleccionado.value = c
   clienteResultados.value = []
   clienteQuery.value = c.nombre
+}
+
+function toggleCatInteresNuevo(cat) {
+  const arr = nuevoCliente.value.categorias_interes
+  const idx = arr.indexOf(cat)
+  idx === -1 ? arr.push(cat) : arr.splice(idx, 1)
 }
 
 function nuevoClienteValido() {
@@ -1598,24 +1608,19 @@ function removeFacturaFoto() {
         <!-- Campos para interesado -->
         <template v-if="nuevoCliente.tipo === 'interesado'">
           <div>
-            <label class="text-xs text-gray-500 mb-1">
-              Categorías de interés
-              <span class="text-gray-400 font-normal">(mantén presionado para varias)</span>
-            </label>
-            <select
-              v-model="nuevoCliente.categorias_interes"
-              multiple
-              size="5"
-              class="input text-sm"
-            >
-              <option v-for="cat in CATEGORIAS_DISPONIBLES" :key="cat" :value="cat">{{ cat }}</option>
-            </select>
-            <div v-if="nuevoCliente.categorias_interes.length > 0" class="flex flex-wrap gap-1 mt-1.5">
-              <span
-                v-for="cat in nuevoCliente.categorias_interes"
+            <label class="text-xs text-gray-500 mb-1.5">Categorías de interés</label>
+            <div class="flex flex-wrap gap-1.5">
+              <button
+                v-for="cat in categoriasInteresOpts"
                 :key="cat"
-                class="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700"
-              >{{ cat }}</span>
+                type="button"
+                @click="toggleCatInteresNuevo(cat)"
+                class="px-2.5 py-1 text-xs rounded-full border transition-colors"
+                :class="nuevoCliente.categorias_interes.includes(cat)
+                  ? 'bg-amber-100 text-amber-700 border-amber-300 font-medium'
+                  : 'bg-white text-gray-500 border-gray-200 hover:border-amber-300 hover:text-amber-600'"
+              >{{ cat }}</button>
+              <span v-if="!categoriasInteresOpts.length" class="text-xs text-gray-400 italic">Cargando...</span>
             </div>
           </div>
           <div>

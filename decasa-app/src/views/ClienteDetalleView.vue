@@ -18,7 +18,6 @@ import {
   CheckIcon,
 } from '@heroicons/vue/24/outline'
 import { getCliente, getClienteOrdenes, updateCliente } from '@/api/clientes'
-import { CATEGORIAS_DISPONIBLES } from '@/api/clientes'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import EmptyState from '@/components/common/EmptyState.vue'

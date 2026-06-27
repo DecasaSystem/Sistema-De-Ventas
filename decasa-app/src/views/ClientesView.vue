@@ -10,7 +10,7 @@ import {
   UserGroupIcon,
   ArrowDownTrayIcon,
 } from '@heroicons/vue/24/outline'
-import { getClientes, createCliente, updateCliente, exportarClientes, CATEGORIAS_DISPONIBLES } from '@/api/clientes'
+import { getClientes, createCliente, updateCliente, exportarClientes } from '@/api/clientes'
 import EmptyState from '@/components/common/EmptyState.vue'
 import { useAuthStore } from '@/stores/auth'
 import api from '@/api'
@@ -181,13 +181,22 @@ async function guardar() {
   }
 }
 
+const categoriasInteresOpts = ref([])
+
+function toggleCatNuevo(cat) {
+  const arr = nuevo.value.categorias_interes
+  const idx = arr.indexOf(cat)
+  idx === -1 ? arr.push(cat) : arr.splice(idx, 1)
+}
+
 onMounted(async () => {
   fetchClientes(1, false)
   setupObserver()
-  if (auth.isSupervisor) {
-    const { data } = await api.get('/tiendas')
-    tiendas.value = data
-  }
+  const requests = [api.get('/productos/categorias').catch(() => ({ data: [] }))]
+  if (auth.isSupervisor) requests.push(api.get('/tiendas'))
+  const [catRes, tiendasRes] = await Promise.all(requests)
+  categoriasInteresOpts.value = (catRes.data ?? []).filter(c => c)
+  if (tiendasRes) tiendas.value = tiendasRes.data
 })
 
 onUnmounted(() => {
@@ -375,24 +384,19 @@ onUnmounted(() => {
             </div>
 
             <div>
-              <label class="block text-xs font-medium text-gray-500 mb-1">
-                Categorías de interés
-                <span class="text-gray-400 font-normal ml-1">(mantén presionado para elegir varias)</span>
-              </label>
-              <select
-                v-model="nuevo.categorias_interes"
-                multiple
-                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                size="5"
-              >
-                <option v-for="cat in CATEGORIAS_DISPONIBLES" :key="cat" :value="cat">{{ cat }}</option>
-              </select>
-              <div v-if="nuevo.categorias_interes.length > 0" class="flex flex-wrap gap-1.5 mt-2">
-                <span
-                  v-for="cat in nuevo.categorias_interes"
+              <label class="block text-xs font-medium text-gray-500 mb-1.5">Categorías de interés</label>
+              <div class="flex flex-wrap gap-1.5">
+                <button
+                  v-for="cat in categoriasInteresOpts"
                   :key="cat"
-                  class="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700"
-                >{{ cat }}</span>
+                  type="button"
+                  @click="toggleCatNuevo(cat)"
+                  class="px-2.5 py-1 text-xs rounded-full border transition-colors"
+                  :class="nuevo.categorias_interes.includes(cat)
+                    ? 'bg-amber-100 text-amber-700 border-amber-300 font-medium'
+                    : 'bg-white text-gray-500 border-gray-200 hover:border-amber-300 hover:text-amber-600'"
+                >{{ cat }}</button>
+                <span v-if="!categoriasInteresOpts.length" class="text-xs text-gray-400 italic">Cargando...</span>
               </div>
             </div>
             <div>
