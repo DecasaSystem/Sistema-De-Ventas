@@ -1,12 +1,21 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useAuthStore } from '@/stores/auth'
+import { useAppearanceStore } from '@/stores/appearance'
 import api from '@/api'
 import FirmaCanvas from '@/components/FirmaCanvas.vue'
 import { CheckCircleIcon, EyeIcon, EyeSlashIcon } from '@heroicons/vue/24/solid'
+import { Cog6ToothIcon, SunIcon, MoonIcon } from '@heroicons/vue/24/outline'
 
-const auth    = useAuthStore()
+const auth       = useAuthStore()
+const appearance = useAppearanceStore()
 const ocultarFirma = computed(() => ['conductor', 'despachador'].includes(auth.usuario?.rol))
+
+const fontOptions = [
+  { value: 'sm',   label: 'Pequeña', sizeClass: 'text-sm' },
+  { value: 'base', label: 'Normal',  sizeClass: 'text-xl' },
+  { value: 'lg',   label: 'Grande',  sizeClass: 'text-3xl' },
+]
 
 // ── Firma ────────────────────────────────────────────────────────────────────
 const firmaBlob    = ref(null)
@@ -276,6 +285,70 @@ async function guardarCuenta() {
             {{ guardando ? 'Guardando...' : 'Guardar firma' }}
           </button>
         </div>
+      </div>
+    </div>
+
+    <!-- Apariencia -->
+    <div class="bg-white rounded-xl shadow-sm p-4 space-y-5">
+
+      <!-- Encabezado sección -->
+      <div class="flex items-center gap-2">
+        <Cog6ToothIcon class="w-4 h-4 text-gray-400" />
+        <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Apariencia</p>
+      </div>
+
+      <!-- Modo claro / oscuro -->
+      <div class="flex items-center justify-between gap-4">
+        <div class="flex items-center gap-3">
+          <div
+            :class="['w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors', appearance.darkMode ? 'bg-indigo-900' : 'bg-amber-100']"
+          >
+            <MoonIcon v-if="appearance.darkMode" class="w-5 h-5 text-indigo-300" />
+            <SunIcon  v-else                      class="w-5 h-5 text-amber-500" />
+          </div>
+          <div>
+            <p class="text-sm font-semibold text-gray-800">{{ appearance.darkMode ? 'Modo oscuro' : 'Modo claro' }}</p>
+            <p class="text-xs text-gray-400 mt-0.5">{{ appearance.darkMode ? 'Interfaz oscura activa' : 'Interfaz clara activa' }}</p>
+          </div>
+        </div>
+
+        <!-- Toggle switch animado -->
+        <button
+          @click="appearance.toggleDark()"
+          :class="['relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500', appearance.darkMode ? 'bg-indigo-600' : 'bg-gray-300']"
+          :aria-pressed="appearance.darkMode"
+          aria-label="Alternar modo oscuro"
+        >
+          <span
+            :class="['pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg transition duration-200 ease-in-out', appearance.darkMode ? 'translate-x-6' : 'translate-x-1']"
+          />
+        </button>
+      </div>
+
+      <hr class="border-gray-100" />
+
+      <!-- Tamaño de fuente -->
+      <div class="space-y-3">
+        <p class="text-sm font-semibold text-gray-700">Tamaño de letra</p>
+        <div class="grid grid-cols-3 gap-2">
+          <button
+            v-for="opt in fontOptions"
+            :key="opt.value"
+            @click="appearance.setFontSize(opt.value)"
+            :class="[
+              'flex flex-col items-center gap-1.5 py-4 rounded-xl border-2 transition-all duration-150',
+              appearance.fontSize === opt.value
+                ? 'border-blue-500 bg-blue-50'
+                : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'
+            ]"
+          >
+            <span
+              :class="['font-bold leading-none transition-colors', opt.sizeClass, appearance.fontSize === opt.value ? 'text-blue-600' : 'text-gray-700']"
+            >Aa</span>
+            <span :class="['text-xs font-medium transition-colors', appearance.fontSize === opt.value ? 'text-blue-600' : 'text-gray-400']">{{ opt.label }}</span>
+          </button>
+        </div>
+        <p class="text-xs text-gray-400 text-center">Los cambios se aplican de inmediato y se guardan automáticamente</p>
       </div>
     </div>
 

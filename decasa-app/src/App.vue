@@ -3,6 +3,7 @@ import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import api from '@/api'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useAppearanceStore } from '@/stores/appearance'
 import { useNotificacionesStore } from '@/stores/notificaciones'
 import { useDespachoStore } from '@/stores/despacho'
 import { useSurtidosStore } from '@/stores/surtidos'
@@ -51,11 +52,13 @@ import {
   CurrencyDollarIcon,
   BuildingOffice2Icon,
   SwatchIcon,
+  Cog6ToothIcon,
 } from '@heroicons/vue/24/outline'
 
 const route  = useRoute()
 const router = useRouter()
-const auth   = useAuthStore()
+const auth       = useAuthStore()
+useAppearanceStore() // inicializa y aplica tema/fuente guardados
 const notif  = useNotificacionesStore()
 const despacho = useDespachoStore()
 const surtidos = useSurtidosStore()
@@ -381,6 +384,14 @@ function formatFecha(iso) {
         >
           <UserCircleIcon class="w-5 h-5" />
           {{ auth.usuario?.nombre }}
+        </button>
+        <button
+          v-if="auth.isAuthenticated"
+          @click="router.push({ name: 'perfil' })"
+          class="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-gray-100 transition-colors"
+          title="Configuración"
+        >
+          <Cog6ToothIcon class="w-5 h-5" />
         </button>
 
         <!-- Campana de notificaciones -->
