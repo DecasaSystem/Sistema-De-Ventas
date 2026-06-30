@@ -1058,6 +1058,11 @@ const modoGuardarBorrador  = ref(false)
 const cooldown             = ref(0)   // segundos restantes antes de poder reintentar
 let   cooldownTimer        = null
 
+const borradorNecesitaContacto = ref(false)
+const borradorEmailInput       = ref('')
+const borradorTelefonoInput    = ref('')
+const guardandoContactoBorrador = ref(false)
+
 const facturaFotoFile      = ref(null)
 const facturaFotoUrl       = ref('')
 const facturaFotoPreview   = ref('')
@@ -1304,7 +1309,17 @@ async function submit() {
     if (data?.orden_id) {
       router.push({ name: 'orden-detalle', params: { id: data.orden_id } })
     } else if (modoGuardarBorrador.value && data?.id) {
-      toast.success('Borrador guardado. Los productos quedan reservados.')
+      const emailCliente = clienteSeleccionado.value?.email
+      if (emailCliente) {
+        try {
+          await api.post(`/ordenes/${data.id}/reenviar-cotizacion`, { email: emailCliente })
+          toast.success('Borrador guardado y cotización enviada por email.')
+        } catch {
+          toast.success('Borrador guardado. Comparte el PDF desde el detalle de la orden.')
+        }
+      } else {
+        toast.success('Borrador guardado.')
+      }
       router.push({ name: 'orden-detalle', params: { id: data.id } })
     } else {
       router.push({ name: 'ordenes' })
@@ -1342,6 +1357,45 @@ async function submitBorrador() {
   }
   modoGuardarBorrador.value = true
   await submit()
+}
+
+async function iniciarBorradorConEnvio() {
+  if (submitting.value) return
+  if (!items.value.length) {
+    toast.error('Agrega al menos un producto antes de guardar el borrador.')
+    return
+  }
+  const tieneContacto = clienteSeleccionado.value?.email || clienteSeleccionado.value?.telefono
+  if (tieneContacto) {
+    await submitBorrador()
+    return
+  }
+  borradorEmailInput.value = ''
+  borradorTelefonoInput.value = ''
+  borradorNecesitaContacto.value = true
+}
+
+async function guardarContactoYBorrador() {
+  const email    = borradorEmailInput.value.trim()
+  const telefono = borradorTelefonoInput.value.trim()
+  if (!email && !telefono) {
+    toast.error('Ingresa el email o teléfono del cliente.')
+    return
+  }
+  guardandoContactoBorrador.value = true
+  try {
+    const patch = {}
+    if (email)    patch.email    = email
+    if (telefono) patch.telefono = telefono
+    await updateCliente(clienteSeleccionado.value.id, patch)
+    clienteSeleccionado.value = { ...clienteSeleccionado.value, ...patch }
+    borradorNecesitaContacto.value = false
+    await submitBorrador()
+  } catch {
+    toast.error('No se pudo guardar el contacto del cliente.')
+  } finally {
+    guardandoContactoBorrador.value = false
+  }
 }
 
 function onFacturaFotoChange(e) {
@@ -2682,13 +2736,31 @@ function removeFacturaFoto() {
         </p>
 
         <!-- Opción A: enviar cotización (borrador) -->
-        <div class="bg-white border border-amber-200 rounded-lg p-3 space-y-1">
+        <div class="bg-white border border-amber-200 rounded-lg p-3 space-y-2">
           <p class="text-xs font-semibold text-gray-700">Opción A — Enviar cotización al cliente</p>
           <p class="text-xs text-gray-500">Guarda el pedido como borrador y comparte el PDF. Cuando el cliente confirme, vuelves y finalizas con los datos que falten.</p>
+
+          <!-- Mini-form si el cliente no tiene email ni teléfono -->
+          <template v-if="borradorNecesitaContacto">
+            <p class="text-xs font-semibold text-blue-700 mt-1">¿Cómo le enviamos la cotización?</p>
+            <p class="text-xs text-gray-500">El cliente no tiene email ni teléfono registrado. Ingresa al menos uno.</p>
+            <input v-model="borradorEmailInput" type="email" placeholder="Email del cliente" class="input text-sm" />
+            <input v-model="borradorTelefonoInput" type="tel" placeholder="Teléfono / WhatsApp" class="input text-sm" />
+            <div class="flex gap-2 mt-1">
+              <button @click="borradorNecesitaContacto = false" class="btn-secondary flex-1 text-xs py-1.5">Cancelar</button>
+              <button
+                @click="guardarContactoYBorrador"
+                :disabled="guardandoContactoBorrador || (!borradorEmailInput.trim() && !borradorTelefonoInput.trim())"
+                class="btn-primary flex-1 text-xs py-1.5 disabled:opacity-50"
+              >{{ guardandoContactoBorrador ? 'Guardando...' : 'Guardar y enviar' }}</button>
+            </div>
+          </template>
+
           <button
-            @click="submitBorrador"
+            v-else
+            @click="iniciarBorradorConEnvio"
             :disabled="submitting"
-            class="mt-2 w-full py-2 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-1.5"
+            class="mt-1 w-full py-2 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-1.5"
           >
             <ArrowPathOutlineIcon v-if="submitting && modoGuardarBorrador" class="w-4 h-4 animate-spin" />
             {{ submitting && modoGuardarBorrador ? 'Guardando...' : 'Guardar borrador y enviar PDF' }}

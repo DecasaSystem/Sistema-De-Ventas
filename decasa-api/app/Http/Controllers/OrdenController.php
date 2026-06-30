@@ -376,12 +376,16 @@ class OrdenController extends Controller
 
         $estadoFinal = $guardarBorrador ? 'borrador' : ($tieneItemsCotizacionPendiente ? 'pendiente_cotizacion' : 'pendiente_anticipo');
 
-        event(new OrdenActualizada(
-            $orden->id,
-            (int) $tiendaId,
-            $estadoFinal,
-            $ordenCargada->cliente->nombre,
-        ));
+        try {
+            event(new OrdenActualizada(
+                $orden->id,
+                (int) $tiendaId,
+                $estadoFinal,
+                $ordenCargada->cliente->nombre,
+            ));
+        } catch (\Throwable) {
+            // Broadcasting failure never blocks the response
+        }
 
         if (! $guardarBorrador) {
             $supervisores = Usuario::where('rol', 'supervisor')
@@ -509,8 +513,8 @@ class OrdenController extends Controller
             $ordenCargada->numero_orden = $orden->numero_orden;
         }
 
-        // Enviar cotización por email si el cliente tiene email
-        if ($ordenCargada->cliente->email) {
+        // Enviar cotización por email solo en órdenes confirmadas (no borradores — el frontend llama reenviarCotizacion por separado)
+        if (! $guardarBorrador && $ordenCargada->cliente->email) {
             try {
                 Mail::to($ordenCargada->cliente->email)
                     ->send(new CotizacionMail($orden->id));
@@ -537,10 +541,6 @@ class OrdenController extends Controller
 
         if ($usuario->rol === 'vendedor' && $orden->vendedor_id !== $usuario->id) {
             return response()->json(['message' => 'No autorizado.'], 403);
-        }
-
-        if ($orden->estado === 'borrador') {
-            return response()->json(['message' => 'No se puede enviar cotización de un borrador sin confirmar.'], 422);
         }
 
         $email = $request->input('email') ?? $orden->cliente->email;
