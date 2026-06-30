@@ -300,7 +300,7 @@ class OrdenController extends Controller
                     'boceto_fotos'          => isset($itemData['boceto_urls']) && count(array_filter($itemData['boceto_urls'])) > 1
                         ? array_values(array_filter($itemData['boceto_urls']))
                         : null,
-                    'fecha_entrega_prom'    => $itemData['fecha_entrega_prometida'] ?? null,
+                    'fecha_entrega_prom'    => null, // El supervisor asigna fechas después de confirmar la orden
                 ]);
 
                 if ($esPersonalizado || $esProductoCustom) {
@@ -309,7 +309,7 @@ class OrdenController extends Controller
                         Produccion::create([
                             'orden_item_id'    => $item->id,
                             'fecha_inicio'     => now()->toDateString(),
-                            'fecha_compromiso' => $itemData['fecha_entrega_prometida'] ?? null,
+                            'fecha_compromiso' => null, // El supervisor asigna la fecha vía asignarFechas()
                             'estado'           => 'pendiente',
                         ]);
                     }
@@ -972,7 +972,7 @@ class OrdenController extends Controller
                     Produccion::create([
                         'orden_item_id'    => $item->id,
                         'fecha_inicio'     => now()->toDateString(),
-                        'fecha_compromiso' => $item->fecha_entrega_prom,
+                        'fecha_compromiso' => null, // El supervisor asigna la fecha vía asignarFechas()
                         'estado'           => 'pendiente',
                     ]);
                 }
