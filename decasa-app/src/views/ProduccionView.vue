@@ -88,6 +88,12 @@ const estadosOpts = [
   { value: 'cancelado',            label: 'Cancelado' },
 ]
 
+function telaResumen(item) {
+  const s = item?.specs_personalizacion
+  if (!s) return ''
+  return [s.marca || s.variante_marca, s.tela, s.color || s.variante_color].filter(Boolean).join(' · ')
+}
+
 function pasoActualLabel(p) {
   if (!p.pasos || p.pasos.length === 0) return null
   const activo = p.pasos.find(x => x.estado === 'en_proceso')
@@ -376,8 +382,9 @@ onUnmounted(() => {
           <!-- Producto + badge de estado -->
           <div class="flex justify-between items-start">
             <div class="flex-1 min-w-0">
-              <p class="font-medium text-sm text-gray-800 truncate">{{ p.orden_item?.producto?.nombre }}</p>
-              <p class="text-xs text-gray-400">{{ p.orden_item?.producto?.categoria }}</p>
+              <p class="font-medium text-sm text-gray-800 truncate">{{ p.orden_item?.producto?.nombre || p.orden_item?.nombre_custom }}</p>
+              <p class="text-xs text-gray-400">{{ p.orden_item?.producto?.categoria || p.orden_item?.categoria_custom }}</p>
+              <p v-if="telaResumen(p.orden_item)" class="text-xs text-indigo-600 mt-0.5">{{ telaResumen(p.orden_item) }}</p>
             </div>
             <span
               :class="['inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium flex-shrink-0 ml-2', badgeInfo(p).cls]"

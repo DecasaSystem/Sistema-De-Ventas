@@ -1150,9 +1150,12 @@ onMounted(cargarOrden)
               <p v-if="item.es_personalizado" class="text-xs text-purple-600 mt-1 flex items-center gap-1">
                 <SparklesIcon class="w-3.5 h-3.5" /> Personalizado
               </p>
-              <div v-if="item.es_personalizado && item.specs_personalizacion" class="mt-1 bg-purple-50 rounded-lg px-2 py-1.5 text-xs text-gray-600 space-y-0.5">
-                <p v-if="item.specs_personalizacion.marca || item.specs_personalizacion.tela || item.specs_personalizacion.color">
-                  <span v-if="item.specs_personalizacion.marca">{{ item.specs_personalizacion.marca }}</span><span v-if="item.specs_personalizacion.tela"> · {{ item.specs_personalizacion.tela }}</span><span v-if="item.specs_personalizacion.color"> · {{ item.specs_personalizacion.color }}</span>
+              <div
+                v-if="item.specs_personalizacion && (item.specs_personalizacion.marca || item.specs_personalizacion.tela || item.specs_personalizacion.color || item.specs_personalizacion.variante_marca || item.specs_personalizacion.variante_color)"
+                :class="['mt-1 rounded-lg px-2 py-1.5 text-xs text-gray-600 space-y-0.5', item.es_personalizado ? 'bg-purple-50' : 'bg-gray-50']"
+              >
+                <p v-if="item.specs_personalizacion.marca || item.specs_personalizacion.variante_marca || item.specs_personalizacion.tela || item.specs_personalizacion.color || item.specs_personalizacion.variante_color">
+                  <span v-if="item.specs_personalizacion.marca || item.specs_personalizacion.variante_marca">{{ item.specs_personalizacion.marca || item.specs_personalizacion.variante_marca }}</span><span v-if="item.specs_personalizacion.tela"> · {{ item.specs_personalizacion.tela }}</span><span v-if="item.specs_personalizacion.color || item.specs_personalizacion.variante_color"> · {{ item.specs_personalizacion.color || item.specs_personalizacion.variante_color }}</span>
                 </p>
                 <p v-if="item.specs_personalizacion.medidas || item.specs_personalizacion.acabado">
                   <span v-if="item.specs_personalizacion.medidas">{{ item.specs_personalizacion.medidas }}</span><span v-if="item.specs_personalizacion.acabado"> · {{ item.specs_personalizacion.acabado }}</span>
