@@ -119,17 +119,14 @@ Route::middleware('auth:sanctum')->group(function () {
     // Inventario
     Route::get('/inventario',                              [InventarioController::class, 'index']);
     Route::get('/inventario/{productoId}/movimientos',     [InventarioController::class, 'movimientos'])->whereNumber('productoId');
-    // Entrada de stock: vendedor puede añadir en su propia tienda (el controlador valida tienda_id != 'todas')
+    // Entrada y salida de stock: vendedor puede operar en su propia tienda (controllers validan tienda_id)
     Route::middleware('role:supervisor,vendedor')->group(function () {
-        Route::post('/inventario/entrada',           [InventarioController::class, 'entrada']);
-        Route::post('/inventario/variantes/entrada', [VarianteController::class, 'entrada']);
-    });
-    // Salida y ajustes: solo supervisor
-    Route::middleware('role:supervisor')->group(function () {
-        Route::post('/inventario/salida',                               [InventarioController::class, 'salida']);
-        Route::post('/inventario/variantes/salida',                     [VarianteController::class, 'salida']);
-        Route::post('/inventario/variante-configs/salida',              [ProductoVarianteConfigController::class, 'salidaConfig']);
-        Route::post('/inventario/variante-combinaciones/salida',        [ProductoVarianteConfigController::class, 'salidaCombinacion']);
+        Route::post('/inventario/entrada',                             [InventarioController::class, 'entrada']);
+        Route::post('/inventario/salida',                              [InventarioController::class, 'salida']);
+        Route::post('/inventario/variantes/entrada',                   [VarianteController::class, 'entrada']);
+        Route::post('/inventario/variantes/salida',                    [VarianteController::class, 'salida']);
+        Route::post('/inventario/variante-configs/salida',             [ProductoVarianteConfigController::class, 'salidaConfig']);
+        Route::post('/inventario/variante-combinaciones/salida',       [ProductoVarianteConfigController::class, 'salidaCombinacion']);
     });
 
     // Vendedores-tienda — usado para seleccionar validadores en surtidos y traslados

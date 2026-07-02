@@ -149,6 +149,11 @@ class VarianteController extends Controller
 
         $variante = ProductoVariante::findOrFail($data['variante_id']);
 
+        $user = $request->user();
+        if ($user->rol === 'vendedor' && $user->tienda_default_id != $data['tienda_id']) {
+            abort(403, 'Solo puedes quitar stock de tu propia tienda.');
+        }
+
         $inv = InventarioVariante::where('variante_id', $data['variante_id'])
             ->where('tienda_id', $data['tienda_id'])
             ->first();

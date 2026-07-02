@@ -298,6 +298,11 @@ class InventarioController extends Controller
             'motivo'      => 'nullable|string|max:200',
         ]);
 
+        $user = $request->user();
+        if ($user->rol === 'vendedor' && $user->tienda_default_id != $data['tienda_id']) {
+            abort(403, 'Solo puedes quitar stock de tu propia tienda.');
+        }
+
         $inv = DB::transaction(function () use ($data, $request) {
             $inv = Inventario::where('producto_id', $data['producto_id'])
                 ->where('tienda_id', $data['tienda_id'])

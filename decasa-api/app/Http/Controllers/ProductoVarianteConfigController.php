@@ -286,6 +286,11 @@ class ProductoVarianteConfigController extends Controller
 
         $config = ProductoVarianteConfig::with(['tipo', 'opcion'])->findOrFail($data['config_id']);
 
+        $user = $request->user();
+        if ($user->rol === 'vendedor' && $user->tienda_default_id != $data['tienda_id']) {
+            abort(403, 'Solo puedes quitar stock de tu propia tienda.');
+        }
+
         $inv = InventarioVarianteConfig::where('config_id', $data['config_id'])
             ->where('tienda_id', $data['tienda_id'])
             ->first();
@@ -337,6 +342,11 @@ class ProductoVarianteConfigController extends Controller
 
         $config   = ProductoVarianteConfig::with(['tipo', 'opcion'])->findOrFail($data['config_id']);
         $variante = ProductoVariante::findOrFail($data['variante_id']);
+
+        $user = $request->user();
+        if ($user->rol === 'vendedor' && $user->tienda_default_id != $data['tienda_id']) {
+            abort(403, 'Solo puedes quitar stock de tu propia tienda.');
+        }
 
         $combo = InventarioVarianteCombinacion::where('variante_id', $data['variante_id'])
             ->where('config_id', $data['config_id'])
