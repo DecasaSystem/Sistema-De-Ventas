@@ -371,10 +371,12 @@ async function sincronizarMateriales() {
 }
 
 function exportarMaterialesExcel() {
+  const cop = v => '$' + Math.round(parseFloat(v) || 0).toLocaleString('es-CO')
+
   const filas = materiales.value.map(m => ({
     'Nombre':          m.nombre,
     'Unidad':          m.unidad ?? '',
-    'Precio unitario': parseFloat(m.precio_unitario) || 0,
+    'Precio unitario': cop(m.precio_unitario),
     'Descripción':     m.descripcion ?? '',
   }))
 
@@ -382,8 +384,7 @@ function exportarMaterialesExcel() {
   const libro = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(libro, hoja, 'Materiales')
 
-  // Ancho de columnas
-  hoja['!cols'] = [{ wch: 40 }, { wch: 12 }, { wch: 18 }, { wch: 40 }]
+  hoja['!cols'] = [{ wch: 40 }, { wch: 12 }, { wch: 20 }, { wch: 40 }]
 
   XLSX.writeFile(libro, 'materiales_decasa.xlsx')
 }
