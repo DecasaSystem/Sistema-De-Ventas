@@ -27,7 +27,7 @@ class CajaController extends Controller
 
     private function balancePorUsuario(int $userId): array
     {
-        $ingresoVentas = Pago::where('vendedor_id', $userId)->sum('monto');
+        $ingresoVentas = Pago::where('vendedor_id', $userId)->where('metodo', 'efectivo')->sum('monto');
         $ingresoManual = CajaMovimiento::where('usuario_id', $userId)->where('tipo', 'ingreso_manual')->sum('monto');
         $egresos       = CajaMovimiento::where('usuario_id', $userId)->where('tipo', 'egreso')->sum('monto');
 
@@ -65,6 +65,7 @@ class CajaController extends Controller
         }
 
         $ingresoVentas = Pago::whereHas('orden', fn($q) => $q->where('tienda_id', $tiendaId))
+            ->where('metodo', 'efectivo')
             ->sum('monto');
 
         $ingresoManual = CajaMovimiento::where('tienda_id', $tiendaId)
@@ -88,12 +89,13 @@ class CajaController extends Controller
     {
         $pagos = Pago::with(['vendedor:id,nombre'])
             ->where('vendedor_id', $userId)
+            ->where('metodo', 'efectivo')
             ->latest()->limit($limite)->get()
             ->map(fn($p) => [
                 'id'              => 'pago_' . $p->id,
                 'tipo'            => 'ingreso_venta',
                 'monto'           => (float) $p->monto,
-                'concepto'        => 'Venta #' . $p->orden_id,
+                'concepto'        => 'Venta efectivo #' . $p->orden_id,
                 'descripcion'     => $p->notas,
                 'comprobante_url' => null,
                 'usuario'         => $p->vendedor?->nombre,
@@ -142,6 +144,7 @@ class CajaController extends Controller
 
         $pagos = Pago::with(['vendedor:id,nombre'])
             ->whereHas('orden', fn($q) => $q->where('tienda_id', $tiendaId))
+            ->where('metodo', 'efectivo')
             ->latest()
             ->limit($limite)
             ->get()
@@ -149,7 +152,7 @@ class CajaController extends Controller
                 'id'              => 'pago_' . $p->id,
                 'tipo'            => 'ingreso_venta',
                 'monto'           => (float) $p->monto,
-                'concepto'        => 'Venta #' . $p->orden_id,
+                'concepto'        => 'Venta efectivo #' . $p->orden_id,
                 'descripcion'     => $p->notas,
                 'comprobante_url' => null,
                 'usuario'         => $p->vendedor?->nombre,
@@ -233,6 +236,7 @@ class CajaController extends Controller
 
         $resumen = $tiendas->map(function ($tienda) {
             $ingresoVentas = Pago::whereHas('orden', fn($q) => $q->where('tienda_id', $tienda->id))
+                ->where('metodo', 'efectivo')
                 ->sum('monto');
 
             $ingresoManual = CajaMovimiento::where('tienda_id', $tienda->id)
