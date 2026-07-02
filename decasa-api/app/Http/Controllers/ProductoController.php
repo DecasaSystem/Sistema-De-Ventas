@@ -192,6 +192,7 @@ class ProductoController extends Controller
             'descripcion'  => 'sometimes|nullable|string',
             'medidas'      => 'sometimes|nullable|string|max:200',
             'material'     => 'sometimes|nullable|string|max:200',
+            'categoria'    => 'sometimes|nullable|string|max:80',
         ]);
 
         if (empty($data)) {
