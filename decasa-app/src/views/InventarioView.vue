@@ -123,12 +123,14 @@ const fotoModal = ref(false)
 const fotoProducto = ref(null)
 
 // ── Cambiar nombre / descripción desde gestionar ─────────────────────────────
-const gestionNombre       = ref('')
-const gestionDescripcion  = ref('')
-const gestionMedidas      = ref('')
-const gestionMaterial     = ref('')
-const gestionInfoLoading  = ref(false)
-const gestionInfoError    = ref('')
+const gestionNombre        = ref('')
+const gestionDescripcion   = ref('')
+const gestionMedidas       = ref('')
+const gestionMaterial      = ref('')
+const gestionCategoria     = ref('')
+const gestionCategoriaCustom = ref('')
+const gestionInfoLoading   = ref(false)
+const gestionInfoError     = ref('')
 
 async function guardarNombreDescripcion() {
   gestionInfoError.value = ''
@@ -138,21 +140,30 @@ async function guardarNombreDescripcion() {
   }
   gestionInfoLoading.value = true
   try {
+    const catFinal = gestionCategoria.value === '__nueva__'
+      ? gestionCategoriaCustom.value.trim() || null
+      : gestionCategoria.value.trim() || null
     await api.patch(`/productos/${itemGestionar.value.producto_id}`, {
       nombre:      gestionNombre.value.trim(),
       descripcion: gestionDescripcion.value.trim() || null,
       medidas:     gestionMedidas.value.trim() || null,
       material:    gestionMaterial.value.trim() || null,
+      categoria:   catFinal,
     })
     if (itemGestionar.value.producto) {
       itemGestionar.value.producto.nombre      = gestionNombre.value.trim()
       itemGestionar.value.producto.descripcion = gestionDescripcion.value.trim() || null
       itemGestionar.value.producto.medidas     = gestionMedidas.value.trim() || null
       itemGestionar.value.producto.material    = gestionMaterial.value.trim() || null
+      itemGestionar.value.producto.categoria   = catFinal
     }
     const idx = inventario.value.findIndex(i => i.producto_id === itemGestionar.value.producto_id)
     if (idx !== -1 && inventario.value[idx].producto) {
-      inventario.value[idx].producto.nombre = gestionNombre.value.trim()
+      inventario.value[idx].producto.nombre    = gestionNombre.value.trim()
+      inventario.value[idx].producto.categoria = catFinal
+    }
+    if (catFinal && !categoriasDisponibles.value.includes(catFinal)) {
+      categoriasDisponibles.value = [...categoriasDisponibles.value, catFinal].sort()
     }
     toast.success('Información guardada.')
   } catch (e) {
@@ -509,10 +520,12 @@ function openGestionar(item) {
   eliminarConfirm.value  = false
   itemGestionar.value = item
   nuevoPrecio.value = parseFloat(item.producto?.precio_base ?? 0)
-  gestionNombre.value      = item.producto?.nombre ?? ''
-  gestionDescripcion.value = item.producto?.descripcion ?? ''
-  gestionMedidas.value     = item.producto?.medidas ?? ''
-  gestionMaterial.value    = item.producto?.material ?? ''
+  gestionNombre.value          = item.producto?.nombre ?? ''
+  gestionDescripcion.value     = item.producto?.descripcion ?? ''
+  gestionMedidas.value         = item.producto?.medidas ?? ''
+  gestionMaterial.value        = item.producto?.material ?? ''
+  gestionCategoria.value       = item.producto?.categoria ?? ''
+  gestionCategoriaCustom.value = ''
   gestionInfoError.value   = ''
   nuevoStock.value = 0
   stockMotivo.value = ''
@@ -1931,6 +1944,29 @@ onMounted(async () => {
                   maxlength="200"
                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="Ej: Cuero, madera, tela... (opcional)"
+                />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Categoría</label>
+                <select
+                  v-model="gestionCategoria"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Sin categoría</option>
+                  <option
+                    v-for="cat in categoriasDisponibles"
+                    :key="cat"
+                    :value="cat"
+                  >{{ cat }}</option>
+                  <option value="__nueva__">+ Nueva categoría...</option>
+                </select>
+                <input
+                  v-if="gestionCategoria === '__nueva__'"
+                  v-model="gestionCategoriaCustom"
+                  type="text"
+                  maxlength="80"
+                  class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Nombre de la nueva categoría"
                 />
               </div>
               <p v-if="gestionInfoError" class="text-xs text-red-600">{{ gestionInfoError }}</p>
