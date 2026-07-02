@@ -6,6 +6,7 @@ import { getCostos, guardarCostos, crearCargo, eliminarCargo, crearProceso, elim
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
+import * as XLSX from 'xlsx'
 import {
   MagnifyingGlassIcon,
   XMarkIcon,
@@ -17,6 +18,7 @@ import {
   CheckIcon,
   PlusIcon,
   TrashIcon,
+  ArrowDownTrayIcon,
 } from '@heroicons/vue/24/outline'
 
 // ── TAB activo ────────────────────────────────────────────────────────────────
@@ -368,6 +370,24 @@ async function sincronizarMateriales() {
   }
 }
 
+function exportarMaterialesExcel() {
+  const filas = materiales.value.map(m => ({
+    'Nombre':          m.nombre,
+    'Unidad':          m.unidad ?? '',
+    'Precio unitario': parseFloat(m.precio_unitario) || 0,
+    'Descripción':     m.descripcion ?? '',
+  }))
+
+  const hoja  = XLSX.utils.json_to_sheet(filas)
+  const libro = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(libro, hoja, 'Materiales')
+
+  // Ancho de columnas
+  hoja['!cols'] = [{ wch: 40 }, { wch: 12 }, { wch: 18 }, { wch: 40 }]
+
+  XLSX.writeFile(libro, 'materiales_decasa.xlsx')
+}
+
 // ════════════════════════════════════════════════════════════════════════════════
 // TAB: TARIFAS
 // ════════════════════════════════════════════════════════════════════════════════
@@ -570,6 +590,10 @@ onMounted(() => {
           <button v-if="tab === 'productos'" @click="abrirFormNuevo"
             class="flex items-center gap-1 text-xs bg-blue-600 text-white rounded-lg px-3 py-1.5 font-medium hover:bg-blue-700">
             <PlusIcon class="w-3.5 h-3.5" />Nuevo
+          </button>
+          <button v-if="tab === 'materiales'" @click="exportarMaterialesExcel" :disabled="!materiales.length"
+            class="flex items-center gap-1 text-xs bg-green-600 text-white rounded-lg px-3 py-1.5 font-medium hover:bg-green-700 disabled:opacity-40">
+            <ArrowDownTrayIcon class="w-3.5 h-3.5" />Excel
           </button>
           <button v-if="tab === 'materiales'" @click="mostrarFormMat = true"
             class="flex items-center gap-1 text-xs bg-blue-600 text-white rounded-lg px-3 py-1.5 font-medium hover:bg-blue-700">
