@@ -65,6 +65,12 @@ class LimpiarDatosCommand extends Command
 
         DB::statement('SET FOREIGN_KEY_CHECKS=1');
 
+        // Resetear reservas de inventario (quedan huérfanas al borrar órdenes)
+        DB::table('inventario')->update(['cantidad_reservada' => 0]);
+        $this->line('  ✓ inventario.cantidad_reservada → 0');
+        DB::table('inventario_variantes')->update(['cantidad_reservada' => 0]);
+        $this->line('  ✓ inventario_variantes.cantidad_reservada → 0');
+
         $this->newLine();
         $this->info('Base de datos limpiada correctamente.');
         return self::SUCCESS;
