@@ -94,8 +94,10 @@ class RedesController extends Controller
         $titulo  = $titulos[$conv->tipo] ?? "Mensaje de {$canal}";
         $mensaje = ($conv->nombre_cliente ? $conv->nombre_cliente . ': ' : '') . $conv->resumen;
 
-        // Supervisores reciben todas; vendedores solo las de su tienda
-        $queryUsuarios = Usuario::whereIn('rol', ['vendedor', 'supervisor'])->where('activo', true);
+        // Solo usuarios con acceso al módulo de redes
+        $queryUsuarios = Usuario::whereIn('rol', ['vendedor', 'supervisor'])
+            ->where('activo', true)
+            ->where('acceso_redes', true);
         if ($conv->tipo === 'cita' && $conv->tienda_id) {
             $queryUsuarios->where(function ($q) use ($conv) {
                 $q->where('rol', 'supervisor')
