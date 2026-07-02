@@ -2805,7 +2805,7 @@ function removeFacturaFoto() {
       <!-- Anticipo — oculto cuando hay ítems con cotización pendiente -->
       <template v-if="!hayItemsCotizar">
         <div>
-          <label class="label">Porcentaje mínimo anticipo</label>
+          <label class="label">Anticipo rápido</label>
           <div class="flex gap-2">
             <button v-for="pct in [30, 50, 70, 100]" :key="pct"
               @click="anticipo_pct = pct; anticipo_monto = minimoAnticipo"
@@ -2818,14 +2818,11 @@ function removeFacturaFoto() {
         </div>
 
         <div>
-          <label class="label">
-            Monto anticipo
-            <span class="text-gray-400 font-normal ml-1">(mínimo ${{ minimoAnticipo.toLocaleString('es-CO') }})</span>
-          </label>
+          <label class="label">Monto anticipo</label>
           <input
             v-model.number="anticipo_monto"
             type="number"
-            :min="minimoAnticipo"
+            min="0"
             class="input"
           />
         </div>
@@ -3031,7 +3028,7 @@ function removeFacturaFoto() {
 
        <button
          @click="submit"
-         :disabled="submitting || subiendoFactura || cooldown > 0 || clienteRequiereCompletar || anticipo_monto < minimoAnticipofEfectivo || (!hayItemsCotizar && !firmaBlob) || !facturaFotoFile"
+         :disabled="submitting || subiendoFactura || cooldown > 0 || clienteRequiereCompletar || (!hayItemsCotizar && !firmaBlob) || !facturaFotoFile"
          class="btn-primary w-full text-base py-3 flex items-center justify-center gap-2"
        >
          <ArrowPathOutlineIcon v-if="submitting && !modoGuardarBorrador" class="w-5 h-5 animate-spin" />
