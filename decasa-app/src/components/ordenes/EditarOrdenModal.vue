@@ -1,11 +1,11 @@
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { editarOrden, buscarProductos } from '@/api/ordenes'
 import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
 import { TELAS_CATALOGO, marcasOrdenadas, tiposTelaDeM, coloresDeTela } from '@/data/telasCatalogo'
 import ComboInput from '@/components/common/ComboInput.vue'
-import { XMarkIcon, SparklesIcon, MagnifyingGlassIcon, SwatchIcon } from '@heroicons/vue/24/outline'
+import { XMarkIcon, SparklesIcon, MagnifyingGlassIcon, SwatchIcon, TrashIcon, PlusIcon } from '@heroicons/vue/24/outline'
 import api from '@/api'
 
 const props = defineProps({
@@ -20,7 +20,69 @@ const canal          = ref('')
 const direccionEnvio = ref('')
 const ciudadEnvio    = ref('')
 const items          = ref([])
-const guardando = ref(false)
+const itemsEliminar  = ref([])   // IDs de ítems existentes a borrar
+const itemsNuevos    = ref([])   // Ítems nuevos a agregar
+const guardando      = ref(false)
+
+// ── Totales en tiempo real ───────────────────────────────────────────────────
+const totalEstimado = computed(() => {
+  const existentes = items.value
+    .filter(i => !itemsEliminar.value.includes(i.id))
+    .reduce((s, i) => s + precioEfectivo(i) * (i.cantidad || 1), 0)
+  const nuevos = itemsNuevos.value
+    .reduce((s, i) => s + (parseFloat(i.precio_unitario) || 0) * (parseInt(i.cantidad) || 1), 0)
+  return existentes + nuevos
+})
+
+// ── Eliminar ítem existente ──────────────────────────────────────────────────
+function marcarEliminar(item) {
+  const prod = item._produccion
+  if (prod && prod.pasos?.some(p => ['en_proceso', 'completado'].includes(p.estado))) {
+    toast.error(`"${item.producto_nombre}" ya está en producción y no se puede quitar.`)
+    return
+  }
+  itemsEliminar.value.push(item.id)
+}
+function desmarcarEliminar(itemId) {
+  itemsEliminar.value = itemsEliminar.value.filter(id => id !== itemId)
+}
+
+// ── Nuevo ítem ───────────────────────────────────────────────────────────────
+const nuevoQuery      = ref('')
+const nuevoResultados = ref([])
+const nuevoBuscando   = ref(false)
+const nuevoItem       = ref({ producto_id: null, producto_nombre: '', cantidad: 1, precio_unitario: '' })
+
+let nuevoDebounce = null
+async function onBuscarNuevo(term) {
+  nuevoQuery.value = term
+  clearTimeout(nuevoDebounce)
+  if (!term || term.length < 2) { nuevoResultados.value = []; return }
+  nuevoDebounce = setTimeout(async () => {
+    nuevoBuscando.value = true
+    try {
+      const { data } = await buscarProductos(term)
+      nuevoResultados.value = Array.isArray(data) ? data : (data.data ?? [])
+    } catch { nuevoResultados.value = [] }
+    finally { nuevoBuscando.value = false }
+  }, 300)
+}
+function seleccionarNuevo(prod) {
+  nuevoItem.value.producto_id    = prod.id
+  nuevoItem.value.producto_nombre = prod.nombre
+  nuevoItem.value.precio_unitario = prod.precio_base ?? ''
+  nuevoQuery.value     = ''
+  nuevoResultados.value = []
+}
+function agregarNuevo() {
+  if (!nuevoItem.value.producto_id || !nuevoItem.value.precio_unitario) return
+  itemsNuevos.value.push({ ...nuevoItem.value })
+  nuevoItem.value = { producto_id: null, producto_nombre: '', cantidad: 1, precio_unitario: '' }
+  nuevoQuery.value = ''
+}
+function quitarNuevo(idx) {
+  itemsNuevos.value.splice(idx, 1)
+}
 
 function precioEfectivo(item) {
   const base = item.precio_unitario ?? 0
@@ -44,6 +106,10 @@ watch(() => props.show, (v) => {
   canal.value          = props.orden.canal ?? ''
   direccionEnvio.value = props.orden.direccion_envio ?? ''
   ciudadEnvio.value    = props.orden.ciudad_envio ?? ''
+  itemsEliminar.value  = []
+  itemsNuevos.value    = []
+  nuevoItem.value      = { producto_id: null, producto_nombre: '', cantidad: 1, precio_unitario: '' }
+  nuevoQuery.value     = ''
   items.value = (props.orden.items ?? []).map(item => ({
     id: item.id,
     es_personalizado: item.es_personalizado,
@@ -55,6 +121,7 @@ watch(() => props.show, (v) => {
     fecha_entrega_prom: item.fecha_entrega_prom
       ? String(item.fecha_entrega_prom).substring(0, 10)
       : '',
+    _produccion: item.produccion ?? null,
     specs: {
       marca:       item.specs_personalizacion?.marca       ?? '',
       tela:        item.specs_personalizacion?.tela        ?? '',
@@ -162,6 +229,10 @@ function seleccionarProducto(item, producto) {
 
 // ── Guardar ──────────────────────────────────────────────────────────────────
 async function guardar() {
+  if (itemsNuevos.value.some(i => !i.producto_id || !i.precio_unitario)) {
+    toast.error('Completa todos los campos de los ítems nuevos antes de guardar.')
+    return
+  }
   guardando.value = true
   try {
     const payload = {
@@ -169,27 +240,37 @@ async function guardar() {
       canal:           canal.value,
       direccion_envio: direccionEnvio.value || null,
       ciudad_envio:    ciudadEnvio.value    || null,
-      items: items.value.map(item => {
-        const out = {
-          id:               item.id,
-          precio_unitario:  precioEfectivo(item),
-          fecha_entrega_prom: item.fecha_entrega_prom || null,
-        }
-        if (item.es_personalizado) {
-          out.specs_personalizacion = {
-            marca:       item.specs.marca,
-            tela:        item.specs.tela,
-            color:       item.specs.color,
-            medidas:     item.specs.medidas,
-            acabado:     item.specs.acabado,
-            descripcion: item.specs.descripcion,
+      items: items.value
+        .filter(item => !itemsEliminar.value.includes(item.id))
+        .map(item => {
+          const out = {
+            id:               item.id,
+            precio_unitario:  precioEfectivo(item),
+            fecha_entrega_prom: item.fecha_entrega_prom || null,
           }
-        } else {
-          out.cantidad    = parseInt(item.cantidad)
-          out.producto_id = item.producto_id
-        }
-        return out
-      }),
+          if (item.es_personalizado) {
+            out.specs_personalizacion = {
+              marca:       item.specs.marca,
+              tela:        item.specs.tela,
+              color:       item.specs.color,
+              medidas:     item.specs.medidas,
+              acabado:     item.specs.acabado,
+              descripcion: item.specs.descripcion,
+            }
+          } else {
+            out.cantidad    = parseInt(item.cantidad)
+            out.producto_id = item.producto_id
+          }
+          return out
+        }),
+      items_eliminar: itemsEliminar.value.length ? itemsEliminar.value : undefined,
+      items_nuevos: itemsNuevos.value.length
+        ? itemsNuevos.value.map(i => ({
+            producto_id:     i.producto_id,
+            cantidad:        parseInt(i.cantidad) || 1,
+            precio_unitario: parseFloat(i.precio_unitario),
+          }))
+        : undefined,
     }
     const { data } = await editarOrden(props.orden.id, payload)
     toast.success('Orden actualizada correctamente.')
@@ -274,12 +355,37 @@ async function guardar() {
             <div
               v-for="item in items"
               :key="item.id"
-              class="border border-gray-200 rounded-xl p-4 space-y-3"
+              :class="['border rounded-xl p-4 space-y-3 transition-all', itemsEliminar.includes(item.id) ? 'border-red-300 bg-red-50 opacity-60' : 'border-gray-200']"
             >
               <div class="flex items-center gap-2">
                 <SparklesIcon v-if="item.es_personalizado" class="w-4 h-4 text-purple-500 flex-shrink-0" />
-                <p class="font-medium text-sm text-gray-800 truncate">{{ item.producto_nombre }}</p>
+                <p class="font-medium text-sm text-gray-800 truncate flex-1">{{ item.producto_nombre }}</p>
+                <!-- Botón quitar ítem -->
+                <button
+                  v-if="!itemsEliminar.includes(item.id)"
+                  type="button"
+                  @click="marcarEliminar(item)"
+                  class="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors flex-shrink-0"
+                  title="Quitar ítem de la orden"
+                >
+                  <TrashIcon class="w-4 h-4" />
+                </button>
+                <button
+                  v-else
+                  type="button"
+                  @click="desmarcarEliminar(item.id)"
+                  class="text-xs text-red-600 font-semibold hover:underline flex-shrink-0"
+                >
+                  Deshacer
+                </button>
               </div>
+              <!-- Aviso si marcado para eliminar -->
+              <p v-if="itemsEliminar.includes(item.id)" class="text-xs text-red-600 font-medium">
+                Este ítem se eliminará al guardar
+              </p>
+
+              <!-- Campos de edición (ocultos si marcado para eliminar) -->
+              <template v-if="!itemsEliminar.includes(item.id)">
 
               <!-- Precio + fecha -->
               <div class="grid grid-cols-2 gap-3">
@@ -492,24 +598,104 @@ async function guardar() {
                   </div>
                 </div>
               </template>
+
+              </template><!-- /v-if !itemsEliminar -->
+            </div>
+
+            <!-- Agregar ítem nuevo -->
+            <div class="border-2 border-dashed border-blue-200 rounded-xl p-4 space-y-3 bg-blue-50/40">
+              <p class="text-xs font-semibold text-blue-700 uppercase flex items-center gap-1.5">
+                <PlusIcon class="w-3.5 h-3.5" /> Agregar producto a la orden
+              </p>
+
+              <!-- Ítems nuevos ya agregados -->
+              <div v-for="(ni, idx) in itemsNuevos" :key="idx" class="flex items-center gap-2 bg-white border border-blue-200 rounded-lg px-3 py-2">
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm font-medium text-gray-800 truncate">{{ ni.producto_nombre }}</p>
+                  <p class="text-xs text-gray-500">× {{ ni.cantidad }} — ${{ Number(ni.precio_unitario).toLocaleString('es-CO') }}</p>
+                </div>
+                <button type="button" @click="quitarNuevo(idx)" class="p-1 text-red-400 hover:text-red-600 flex-shrink-0">
+                  <XMarkIcon class="w-4 h-4" />
+                </button>
+              </div>
+
+              <!-- Buscador de producto nuevo -->
+              <div class="relative">
+                <div class="flex items-center gap-2 bg-white border border-gray-300 rounded-lg px-3 py-2">
+                  <MagnifyingGlassIcon class="w-4 h-4 text-gray-400 flex-shrink-0" />
+                  <input
+                    :value="nuevoQuery"
+                    @input="onBuscarNuevo($event.target.value)"
+                    type="text"
+                    placeholder="Buscar producto para agregar..."
+                    class="flex-1 text-sm outline-none bg-transparent"
+                  />
+                  <span v-if="nuevoBuscando" class="text-xs text-gray-400">Buscando...</span>
+                </div>
+                <div
+                  v-if="nuevoResultados.length"
+                  class="absolute z-20 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-44 overflow-y-auto"
+                >
+                  <button
+                    v-for="prod in nuevoResultados"
+                    :key="prod.id"
+                    type="button"
+                    @mousedown.prevent="seleccionarNuevo(prod)"
+                    class="w-full text-left px-4 py-2.5 hover:bg-blue-50 transition-colors border-b border-gray-50 last:border-0"
+                  >
+                    <p class="text-sm font-medium text-gray-800">{{ prod.nombre }}</p>
+                    <p class="text-xs text-gray-400">{{ prod.categoria }}</p>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Campos cantidad + precio del nuevo ítem -->
+              <div v-if="nuevoItem.producto_id" class="space-y-2">
+                <p class="text-xs font-semibold text-blue-700 truncate">{{ nuevoItem.producto_nombre }}</p>
+                <div class="flex gap-2">
+                  <div class="flex-1">
+                    <label class="block text-xs text-gray-500 mb-1">Cantidad</label>
+                    <input v-model="nuevoItem.cantidad" type="number" min="1" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                  <div class="flex-1">
+                    <label class="block text-xs text-gray-500 mb-1">Precio unitario</label>
+                    <input v-model="nuevoItem.precio_unitario" type="number" min="0" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  @click="agregarNuevo"
+                  :disabled="!nuevoItem.precio_unitario"
+                  class="w-full py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-40 transition-colors flex items-center justify-center gap-1.5"
+                >
+                  <PlusIcon class="w-4 h-4" /> Agregar ítem
+                </button>
+              </div>
             </div>
           </div>
 
           <!-- Footer -->
-          <div class="sticky bottom-0 bg-white border-t border-gray-100 px-5 py-4 flex gap-3">
-            <button
-              @click="emit('close')"
-              class="flex-1 py-2.5 rounded-xl border border-gray-300 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
-            >
-              Cancelar
-            </button>
-            <button
-              @click="guardar"
-              :disabled="guardando"
-              class="flex-1 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors"
-            >
-              {{ guardando ? 'Guardando...' : 'Guardar cambios' }}
-            </button>
+          <div class="sticky bottom-0 bg-white border-t border-gray-100 px-5 py-4 space-y-3">
+            <!-- Total estimado -->
+            <div class="flex items-center justify-between text-sm">
+              <span class="text-gray-500">Total estimado</span>
+              <span class="font-bold text-gray-900">${{ totalEstimado.toLocaleString('es-CO') }}</span>
+            </div>
+            <div class="flex gap-3">
+              <button
+                @click="emit('close')"
+                class="flex-1 py-2.5 rounded-xl border border-gray-300 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                @click="guardar"
+                :disabled="guardando"
+                class="flex-1 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors"
+              >
+                {{ guardando ? 'Guardando...' : 'Guardar cambios' }}
+              </button>
+            </div>
           </div>
         </div>
       </div>

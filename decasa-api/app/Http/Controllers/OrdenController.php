@@ -718,6 +718,13 @@ class OrdenController extends Controller
             'items.*.fecha_entrega_prom'    => 'sometimes|nullable|date',
             'items.*.cantidad'              => 'sometimes|nullable|integer|min:1',
             'items.*.producto_id'           => 'sometimes|nullable|exists:productos,id',
+            'items_eliminar'                => 'sometimes|nullable|array',
+            'items_eliminar.*'              => 'integer|exists:orden_items,id',
+            'items_nuevos'                  => 'sometimes|nullable|array',
+            'items_nuevos.*.producto_id'    => 'required_with:items_nuevos|integer|exists:productos,id',
+            'items_nuevos.*.cantidad'       => 'required_with:items_nuevos|integer|min:1',
+            'items_nuevos.*.precio_unitario'=> 'required_with:items_nuevos|numeric|min:0',
+            'items_nuevos.*.fecha_entrega_prom' => 'sometimes|nullable|date',
         ]);
 
         $orden = Orden::with(['items', 'items.producto:id,nombre'])->findOrFail($id);
@@ -856,6 +863,113 @@ class OrdenController extends Controller
                         $item->update($updateItem);
                     }
                 }
+            }
+
+            // ── Eliminar ítems ────────────────────────────────────────────────
+            if (! empty($data['items_eliminar'])) {
+                $idsDeOrden      = $orden->items->pluck('id')->toArray();
+                $idsAEliminar    = array_intersect($data['items_eliminar'], $idsDeOrden);
+                $itemsQueQuedan  = count($idsDeOrden) - count($idsAEliminar);
+                $hayNuevos       = ! empty($data['items_nuevos']);
+
+                if ($itemsQueQuedan < 1 && ! $hayNuevos) {
+                    abort(422, 'La orden debe conservar al menos un ítem.');
+                }
+
+                $itemsAEliminar = OrdenItem::with(['produccion.pasos', 'producto:id,nombre'])
+                    ->whereIn('id', $idsAEliminar)
+                    ->get();
+
+                foreach ($itemsAEliminar as $item) {
+                    $nombreProd = $item->producto?->nombre ?? "Ítem #{$item->id}";
+                    $origenId   = $item->tienda_origen_id ?? $orden->tienda_id;
+
+                    // Bloquear si la producción ya avanzó
+                    if ($item->produccion) {
+                        $avanzado = $item->produccion->pasos->contains(
+                            fn ($p) => in_array($p->estado, ['en_proceso', 'completado'])
+                        );
+                        if ($avanzado) {
+                            abort(422, "No se puede quitar \"{$nombreProd}\" porque su producción ya está en curso.");
+                        }
+                        $item->produccion->pasos()->delete();
+                        $item->produccion->delete();
+                    }
+
+                    // Liberar reserva de inventario (solo ítems no personalizados)
+                    if (! $item->es_personalizado && $item->producto_id) {
+                        Inventario::where('producto_id', $item->producto_id)
+                            ->where('tienda_id', $origenId)
+                            ->decrement('cantidad_reservada', max(0, (int) $item->cantidad));
+                        InventarioMovimiento::create([
+                            'producto_id' => $item->producto_id,
+                            'tienda_id'   => $origenId,
+                            'tipo'        => 'liberacion',
+                            'cantidad'    => (int) $item->cantidad,
+                            'motivo'      => "Edición orden #{$orden->id} — ítem eliminado",
+                            'usuario_id'  => $usuario->id,
+                        ]);
+                    }
+
+                    $cambios[] = [
+                        'campo'   => "item_{$item->id}_eliminado",
+                        'label'   => 'Ítem eliminado',
+                        'antes'   => "{$nombreProd} × {$item->cantidad}",
+                        'despues' => null,
+                    ];
+                    $item->delete();
+                }
+
+                $orden->load('items');
+            }
+
+            // ── Agregar ítems nuevos ──────────────────────────────────────────
+            if (! empty($data['items_nuevos'])) {
+                foreach ($data['items_nuevos'] as $nuevoData) {
+                    $productoId = (int) $nuevoData['producto_id'];
+                    $cantidad   = (int) $nuevoData['cantidad'];
+                    $precio     = (float) $nuevoData['precio_unitario'];
+                    $origenId   = (int) $orden->tienda_id;
+
+                    // Verificar stock disponible
+                    $inv        = Inventario::where('producto_id', $productoId)->where('tienda_id', $origenId)->lockForUpdate()->first();
+                    $stockLibre = $inv ? ($inv->cantidad_disponible - $inv->cantidad_reservada) : 0;
+                    if ($stockLibre < $cantidad) {
+                        $nomProd = Producto::find($productoId)?->nombre ?? "Producto #{$productoId}";
+                        abort(422, "Stock insuficiente para \"{$nomProd}\". Libre: {$stockLibre}, necesario: {$cantidad}.");
+                    }
+
+                    $nuevoItem = OrdenItem::create([
+                        'orden_id'           => $orden->id,
+                        'producto_id'        => $productoId,
+                        'cantidad'           => $cantidad,
+                        'precio_unitario'    => $precio,
+                        'es_personalizado'   => false,
+                        'tienda_origen_id'   => $origenId,
+                        'fecha_entrega_prom' => $nuevoData['fecha_entrega_prom'] ?? null,
+                    ]);
+
+                    Inventario::where('producto_id', $productoId)->where('tienda_id', $origenId)
+                        ->increment('cantidad_reservada', $cantidad);
+                    InventarioMovimiento::create([
+                        'producto_id' => $productoId,
+                        'tienda_id'   => $origenId,
+                        'tipo'        => 'reserva',
+                        'cantidad'    => $cantidad,
+                        'motivo'      => "Edición orden #{$orden->id} — ítem agregado",
+                        'usuario_id'  => $usuario->id,
+                    ]);
+
+                    $nomProd   = Producto::find($productoId)?->nombre ?? "Producto #{$productoId}";
+                    $cambios[] = [
+                        'campo'   => "item_nuevo_{$nuevoItem->id}",
+                        'label'   => 'Ítem agregado',
+                        'antes'   => null,
+                        'despues' => "{$nomProd} × {$cantidad} @ $" . number_format($precio, 0, ',', '.'),
+                    ];
+                }
+
+                $orden->load('items');
             }
 
             // Recalcular valor total
