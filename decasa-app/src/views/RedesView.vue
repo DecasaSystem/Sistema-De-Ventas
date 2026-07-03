@@ -29,7 +29,7 @@ const tomando  = ref(null) // id de la conversación que se está tomando
 
 const filtrados = computed(() => {
   if (tab.value === 'mias') {
-    return items.value.filter(c => c.estado === 'tomada' && c.tomada_por === auth.usuario?.id)
+    return items.value.filter(c => c.estado === 'tomada' && c.tomada_por?.id === auth.usuario?.id)
   }
   return items.value.filter(c => c.estado === tab.value)
 })
@@ -401,7 +401,7 @@ onUnmounted(() => {
 
             <!-- Botón Terminar — quien tomó O supervisor -->
             <button
-              v-if="conv.estado === 'tomada' && (conv.tomada_por === auth.usuario?.id || auth.isSupervisor)"
+              v-if="conv.estado === 'tomada' && (conv.tomada_por?.id === auth.usuario?.id || auth.isSupervisor)"
               @click="terminar(conv.id)"
               class="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white text-xs font-semibold rounded-lg hover:bg-green-700 transition-colors"
             >
@@ -411,7 +411,7 @@ onUnmounted(() => {
 
             <!-- Estado tomada por otro (solo vendedores que no la tomaron) -->
             <span
-              v-else-if="conv.estado === 'tomada' && conv.tomada_por !== auth.usuario?.id && !auth.isSupervisor"
+              v-else-if="conv.estado === 'tomada' && conv.tomada_por?.id !== auth.usuario?.id && !auth.isSupervisor"
               class="text-xs text-gray-400 italic"
             >Tomada</span>
 
