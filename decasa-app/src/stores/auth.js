@@ -4,9 +4,62 @@ import api from '@/api'
 import { login as apiLogin, logout as apiLogout } from '@/api/auth'
 
 export const useAuthStore = defineStore('auth', () => {
-  const token   = ref(localStorage.getItem('token') ?? null)
-  const usuario = ref(JSON.parse(localStorage.getItem('usuario') ?? 'null'))
 
+  // ── Migración de sesión antigua (single-profile) ─────────────────────────
+  function migrarSiNecesario() {
+    const oldToken   = localStorage.getItem('token')
+    const oldUsuario = localStorage.getItem('usuario')
+    if (oldToken && oldUsuario && !localStorage.getItem('perfiles')) {
+      localStorage.setItem('perfiles',     JSON.stringify([{ token: oldToken, usuario: JSON.parse(oldUsuario) }]))
+      localStorage.setItem('perfilActivo', '0')
+    }
+  }
+  migrarSiNecesario()
+
+  // ── Estado interno ────────────────────────────────────────────────────────
+  const _perfiles      = ref(JSON.parse(localStorage.getItem('perfiles')     ?? '[]'))
+  const _perfilActivo  = ref(parseInt(localStorage.getItem('perfilActivo')   ?? '0', 10))
+
+  // Refs públicos siempre alineados con el perfil activo
+  const token   = ref(_perfiles.value[_perfilActivo.value]?.token   ?? null)
+  const usuario = ref(_perfiles.value[_perfilActivo.value]?.usuario ?? null)
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function _syncStorage() {
+    if (token.value) {
+      localStorage.setItem('token',   token.value)
+      localStorage.setItem('usuario', JSON.stringify(usuario.value))
+    } else {
+      localStorage.removeItem('token')
+      localStorage.removeItem('usuario')
+    }
+    localStorage.setItem('perfiles',     JSON.stringify(_perfiles.value))
+    localStorage.setItem('perfilActivo', String(_perfilActivo.value))
+  }
+
+  function _buildUsuario(data) {
+    return {
+      id:                data.id,
+      nombre:            data.nombre,
+      email:             data.email ?? null,
+      rol:               data.rol,
+      es_tapicero:       data.es_tapicero       ?? false,
+      facturacion:       data.facturacion       ?? false,
+      acceso_redes:      data.acceso_redes      ?? false,
+      recarga_telas:     data.recarga_telas     ?? false,
+      tienda_default_id: data.tienda_default_id ?? null,
+      firma_url:         data.firma_url         ?? null,
+    }
+  }
+
+  function _activarPerfil(idx) {
+    _perfilActivo.value = idx
+    token.value         = _perfiles.value[idx]?.token   ?? null
+    usuario.value       = _perfiles.value[idx]?.usuario ?? null
+    _syncStorage()
+  }
+
+  // ── Getters ───────────────────────────────────────────────────────────────
   const isAuthenticated    = computed(() => !!token.value)
   const isSupervisor       = computed(() => usuario.value?.rol === 'supervisor')
   const isEbanista         = computed(() => usuario.value?.rol === 'ebanista')
@@ -18,57 +71,54 @@ export const useAuthStore = defineStore('auth', () => {
   const tieneAccesoRedes   = computed(() => !!usuario.value?.acceso_redes)
   const puedeRecargarTelas = computed(() => isSupervisor.value || (!!usuario.value?.recarga_telas && ['vendedor', 'supervisor'].includes(usuario.value?.rol)))
 
+  // Dual-profile getters
+  const tienePerfilAlternativo = computed(() => _perfiles.value.length > 1)
+  const perfilAlternativo      = computed(() => {
+    const otroIdx = _perfilActivo.value === 0 ? 1 : 0
+    return _perfiles.value[otroIdx]?.usuario ?? null
+  })
+  const perfilActivoIdx = computed(() => _perfilActivo.value)
+
+  // ── Acciones de sesión ────────────────────────────────────────────────────
   async function login(email, password) {
     const { data } = await apiLogin(email, password)
-    token.value = data.token
-    usuario.value = {
-      id:                data.id,
-      nombre:            data.nombre,
-      rol:               data.rol,
-      es_tapicero:       data.es_tapicero    ?? false,
-      facturacion:       data.facturacion    ?? false,
-      acceso_redes:      data.acceso_redes   ?? false,
-      recarga_telas:     data.recarga_telas  ?? false,
-      tienda_default_id: data.tienda_default_id,
-      firma_url:         data.firma_url ?? null,
-    }
-    localStorage.setItem('token',   data.token)
-    localStorage.setItem('usuario', JSON.stringify(usuario.value))
+    const u = _buildUsuario(data)
+    _perfiles.value     = [{ token: data.token, usuario: u }]
+    _perfilActivo.value = 0
+    token.value         = data.token
+    usuario.value       = u
+    _syncStorage()
   }
 
-  // Refresca los datos del usuario desde el servidor (incluye firma_url e id)
   async function fetchMe() {
     if (!token.value) return
     try {
       const { data } = await api.get('/auth/me')
-      usuario.value = {
-        id:                data.id,
-        nombre:            data.nombre,
-        email:             data.email,
-        rol:               data.rol,
-        es_tapicero:       data.es_tapicero    ?? false,
-        facturacion:       data.facturacion    ?? false,
-        acceso_redes:      data.acceso_redes   ?? false,
-        recarga_telas:     data.recarga_telas  ?? false,
-        tienda_default_id: data.tienda_default_id,
-        firma_url:         data.firma_url ?? null,
+      const u = _buildUsuario(data)
+      usuario.value = u
+      if (_perfiles.value[_perfilActivo.value]) {
+        _perfiles.value[_perfilActivo.value].usuario = u
       }
-      localStorage.setItem('usuario', JSON.stringify(usuario.value))
+      _syncStorage()
     } catch {}
   }
 
   function setFirma(url) {
-    if (usuario.value) {
-      usuario.value = { ...usuario.value, firma_url: url }
-      localStorage.setItem('usuario', JSON.stringify(usuario.value))
+    if (!usuario.value) return
+    usuario.value = { ...usuario.value, firma_url: url }
+    if (_perfiles.value[_perfilActivo.value]) {
+      _perfiles.value[_perfilActivo.value].usuario = usuario.value
     }
+    _syncStorage()
   }
 
   function setEmail(email) {
-    if (usuario.value) {
-      usuario.value = { ...usuario.value, email }
-      localStorage.setItem('usuario', JSON.stringify(usuario.value))
+    if (!usuario.value) return
+    usuario.value = { ...usuario.value, email }
+    if (_perfiles.value[_perfilActivo.value]) {
+      _perfiles.value[_perfilActivo.value].usuario = usuario.value
     }
+    _syncStorage()
   }
 
   async function logout() {
@@ -77,11 +127,51 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function clearSession() {
-    token.value   = null
-    usuario.value = null
+    _perfiles.value     = []
+    _perfilActivo.value = 0
+    token.value         = null
+    usuario.value       = null
     localStorage.removeItem('token')
     localStorage.removeItem('usuario')
+    localStorage.removeItem('perfiles')
+    localStorage.removeItem('perfilActivo')
   }
 
-  return { token, usuario, isAuthenticated, isSupervisor, isEbanista, isTapicero, isDespachador, isCosturero, tieneAccesoPasos, isFacturador, tieneAccesoRedes, puedeRecargarTelas, login, fetchMe, setFirma, setEmail, logout, clearSession }
+  // ── Acciones de doble perfil ──────────────────────────────────────────────
+  async function loginPerfilAlternativo(email, password) {
+    const { data } = await apiLogin(email, password)
+    if (data.id === usuario.value?.id) {
+      throw new Error('Este usuario ya es el perfil activo.')
+    }
+    const u = _buildUsuario(data)
+    // Siempre guardar el alternativo en índice 1 (el principal es siempre 0)
+    const principal = _perfiles.value[0]
+    _perfiles.value = [principal, { token: data.token, usuario: u }]
+    _syncStorage()
+    return u
+  }
+
+  function cambiarPerfil() {
+    if (!tienePerfilAlternativo.value) return
+    const nuevoIdx = _perfilActivo.value === 0 ? 1 : 0
+    _activarPerfil(nuevoIdx)
+  }
+
+  function eliminarPerfilAlternativo() {
+    // Si estamos en el perfil 1, volver al 0 antes de eliminarlo
+    if (_perfilActivo.value === 1) {
+      _activarPerfil(0)
+    }
+    _perfiles.value = [_perfiles.value[0]]
+    _syncStorage()
+  }
+
+  return {
+    token, usuario,
+    isAuthenticated, isSupervisor, isEbanista, isTapicero, isDespachador, isCosturero,
+    tieneAccesoPasos, isFacturador, tieneAccesoRedes, puedeRecargarTelas,
+    tienePerfilAlternativo, perfilAlternativo, perfilActivoIdx,
+    login, fetchMe, setFirma, setEmail, logout, clearSession,
+    loginPerfilAlternativo, cambiarPerfil, eliminarPerfilAlternativo,
+  }
 })

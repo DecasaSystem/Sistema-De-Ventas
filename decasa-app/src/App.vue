@@ -53,6 +53,7 @@ import {
   BuildingOffice2Icon,
   SwatchIcon,
   Cog6ToothIcon,
+  ArrowsRightLeftIcon,
 } from '@heroicons/vue/24/outline'
 
 const route  = useRoute()
@@ -377,8 +378,21 @@ function formatFecha(iso) {
     <!-- Top bar -->
     <header v-if="showNav" class="sticky top-0 z-10 bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
       <span class="font-bold text-blue-600 text-lg">Decasa</span>
-      <div class="flex items-center gap-3">
+      <div class="flex items-center gap-2">
+        <!-- Chip de perfil activo / cambio rápido -->
         <button
+          v-if="auth.tienePerfilAlternativo"
+          @click="auth.cambiarPerfil()"
+          class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-blue-50 border border-blue-200 hover:bg-blue-100 transition-colors"
+          title="Cambiar perfil"
+        >
+          <span class="text-xs font-semibold text-blue-700 max-w-[80px] truncate">{{ auth.usuario?.nombre }}</span>
+          <ArrowsRightLeftIcon class="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />
+          <span class="text-xs text-gray-400 max-w-[80px] truncate">{{ auth.perfilAlternativo?.nombre }}</span>
+        </button>
+        <!-- Sin perfil alternativo: solo nombre -->
+        <button
+          v-else
           @click="router.push({ name: 'perfil' })"
           class="hidden sm:flex items-center gap-1.5 text-xs text-gray-500 hover:text-blue-600 transition-colors"
         >

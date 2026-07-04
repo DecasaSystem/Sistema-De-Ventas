@@ -5,7 +5,7 @@ import { useAppearanceStore } from '@/stores/appearance'
 import api from '@/api'
 import FirmaCanvas from '@/components/FirmaCanvas.vue'
 import { CheckCircleIcon, EyeIcon, EyeSlashIcon } from '@heroicons/vue/24/solid'
-import { Cog6ToothIcon, SunIcon, MoonIcon } from '@heroicons/vue/24/outline'
+import { Cog6ToothIcon, SunIcon, MoonIcon, UserCircleIcon, ArrowsRightLeftIcon, TrashIcon, PlusCircleIcon } from '@heroicons/vue/24/outline'
 
 const auth       = useAuthStore()
 const appearance = useAppearanceStore()
@@ -112,6 +112,50 @@ async function guardarCuenta() {
   } finally {
     segGuardando.value = false
   }
+}
+
+// ── Perfil alternativo ────────────────────────────────────────────────────────
+const mostrarFormAlt  = ref(false)
+const altEmail        = ref('')
+const altPassword     = ref('')
+const altGuardando    = ref(false)
+const altErr          = ref('')
+const altMostrarPass  = ref(false)
+
+function abrirFormAlt() {
+  altEmail.value    = ''
+  altPassword.value = ''
+  altErr.value      = ''
+  mostrarFormAlt.value = true
+}
+
+function cancelarAlt() {
+  mostrarFormAlt.value = false
+  altErr.value = ''
+}
+
+async function activarPerfilAlternativo() {
+  altErr.value = ''
+  if (!altEmail.value || !altPassword.value) {
+    altErr.value = 'Ingresa el correo y la contraseña del segundo perfil.'
+    return
+  }
+  altGuardando.value = true
+  try {
+    await auth.loginPerfilAlternativo(altEmail.value, altPassword.value)
+    mostrarFormAlt.value = false
+  } catch (e) {
+    altErr.value = e.message?.includes('mismo usuario')
+      ? 'Ese usuario ya es el perfil activo.'
+      : (e.response?.data?.message ?? 'Correo o contraseña incorrectos.')
+  } finally {
+    altGuardando.value = false
+  }
+}
+
+function rolLabel(rol) {
+  const map = { supervisor: 'Supervisor', vendedor: 'Vendedor', conductor: 'Conductor', ebanista: 'Ebanista', despachador: 'Despachador', costurero: 'Costurero' }
+  return map[rol] ?? rol
 }
 </script>
 
@@ -350,6 +394,103 @@ async function guardarCuenta() {
         </div>
         <p class="text-xs text-gray-400 text-center">Los cambios se aplican de inmediato y se guardan automáticamente</p>
       </div>
+    </div>
+
+    <!-- ── Perfil alternativo ─────────────────────────────────────────── -->
+    <div class="bg-white rounded-xl shadow-sm p-4 space-y-3">
+      <p class="text-xs font-semibold text-gray-400 uppercase flex items-center gap-1.5">
+        <ArrowsRightLeftIcon class="w-3.5 h-3.5" /> Doble perfil
+      </p>
+      <p class="text-xs text-gray-500">
+        Permite cambiar de usuario sin cerrar sesión — ideal cuando dos personas comparten un mismo equipo.
+      </p>
+
+      <!-- Sin perfil alternativo -->
+      <template v-if="!auth.tienePerfilAlternativo">
+        <button
+          v-if="!mostrarFormAlt"
+          @click="abrirFormAlt"
+          class="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-dashed border-blue-300 text-blue-600 text-sm font-semibold hover:bg-blue-50 transition-colors"
+        >
+          <PlusCircleIcon class="w-5 h-5" /> Activar perfil alternativo
+        </button>
+
+        <!-- Formulario para añadir segundo perfil -->
+        <div v-else class="space-y-3">
+          <p class="text-xs text-gray-600 font-medium">Ingresa las credenciales del segundo usuario:</p>
+          <input
+            v-model="altEmail"
+            type="email"
+            placeholder="Correo del segundo usuario"
+            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <div class="relative">
+            <input
+              v-model="altPassword"
+              :type="altMostrarPass ? 'text' : 'password'"
+              placeholder="Contraseña"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm pr-10 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <button type="button" @click="altMostrarPass = !altMostrarPass" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
+              <EyeIcon v-if="!altMostrarPass" class="w-4 h-4" />
+              <EyeSlashIcon v-else class="w-4 h-4" />
+            </button>
+          </div>
+          <p v-if="altErr" class="text-xs text-red-500">{{ altErr }}</p>
+          <div class="flex gap-2">
+            <button @click="cancelarAlt" class="flex-1 py-2 rounded-xl border border-gray-300 text-sm text-gray-600 hover:bg-gray-50 transition-colors">
+              Cancelar
+            </button>
+            <button
+              @click="activarPerfilAlternativo"
+              :disabled="altGuardando"
+              class="flex-1 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            >
+              {{ altGuardando ? 'Verificando...' : 'Activar' }}
+            </button>
+          </div>
+        </div>
+      </template>
+
+      <!-- Con perfil alternativo: mostrar ambos -->
+      <template v-else>
+        <!-- Perfil 0 -->
+        <div
+          v-for="(idx) in [0, 1]"
+          :key="idx"
+          :class="[
+            'flex items-center gap-3 rounded-xl p-3 border-2 transition-all',
+            auth.perfilActivoIdx === idx
+              ? 'border-blue-400 bg-blue-50'
+              : 'border-gray-200 bg-gray-50 cursor-pointer hover:border-blue-200'
+          ]"
+          @click="auth.perfilActivoIdx !== idx && auth.cambiarPerfil()"
+        >
+          <div :class="['w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 text-white text-sm font-bold', idx === 0 ? 'bg-blue-500' : 'bg-purple-500']">
+            {{ (idx === 0 ? auth.usuario?.nombre : auth.perfilAlternativo?.nombre)?.charAt(0)?.toUpperCase() }}
+          </div>
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-semibold text-gray-800 truncate">
+              {{ idx === 0 ? auth.usuario?.nombre : auth.perfilAlternativo?.nombre }}
+            </p>
+            <p class="text-xs text-gray-500">{{ rolLabel(idx === 0 ? auth.usuario?.rol : auth.perfilAlternativo?.rol) }}</p>
+          </div>
+          <span v-if="auth.perfilActivoIdx === idx" class="text-xs bg-blue-600 text-white px-2 py-0.5 rounded-full font-semibold flex-shrink-0">
+            Activo
+          </span>
+          <span v-else class="text-xs text-blue-600 font-semibold flex-shrink-0">
+            Cambiar →
+          </span>
+        </div>
+
+        <!-- Botón eliminar perfil alternativo -->
+        <button
+          @click="auth.eliminarPerfilAlternativo()"
+          class="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-red-200 text-red-500 text-xs font-medium hover:bg-red-50 transition-colors"
+        >
+          <TrashIcon class="w-3.5 h-3.5" /> Desactivar perfil alternativo
+        </button>
+      </template>
     </div>
 
   </div>
