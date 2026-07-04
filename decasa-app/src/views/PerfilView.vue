@@ -145,9 +145,14 @@ async function activarPerfilAlternativo() {
     await auth.loginPerfilAlternativo(altEmail.value, altPassword.value)
     mostrarFormAlt.value = false
   } catch (e) {
-    altErr.value = e.message?.includes('mismo usuario')
-      ? 'Ese usuario ya es el perfil activo.'
-      : (e.response?.data?.message ?? 'Correo o contraseña incorrectos.')
+    if (e.message?.includes('mismo usuario')) {
+      altErr.value = 'Ese usuario ya es el perfil activo.'
+    } else {
+      const serverMsg = e.response?.data?.errors?.email?.[0] ?? e.response?.data?.message ?? null
+      altErr.value = serverMsg
+        ? `Correo o contraseña incorrectos. Usa exactamente el correo y contraseña con los que ese usuario entra a Decasa.`
+        : 'No se pudo verificar. Revisa correo y contraseña.'
+    }
   } finally {
     altGuardando.value = false
   }
@@ -417,11 +422,12 @@ function rolLabel(rol) {
 
         <!-- Formulario para añadir segundo perfil -->
         <div v-else class="space-y-3">
-          <p class="text-xs text-gray-600 font-medium">Ingresa las credenciales del segundo usuario:</p>
+          <p class="text-xs text-gray-700 font-medium">Ingresa el correo y contraseña de la otra persona:</p>
+          <p class="text-xs text-gray-400">Debe ser un usuario que ya tenga cuenta en Decasa (creado en el módulo Usuarios).</p>
           <input
             v-model="altEmail"
             type="email"
-            placeholder="Correo del segundo usuario"
+            placeholder="Correo con el que esa persona inicia sesión"
             class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
           <div class="relative">
