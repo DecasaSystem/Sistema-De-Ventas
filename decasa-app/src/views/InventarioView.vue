@@ -1573,9 +1573,10 @@ onMounted(async () => {
                       ? 'bg-indigo-50 border-indigo-300 text-indigo-800'
                       : 'bg-gray-50 border-gray-200 text-gray-400',
                     (!esVistaGlobal && puedeGestionar) ? 'cursor-pointer hover:opacity-75' : 'cursor-default']"
-                  :title="opt.opcion_nombre + ((!esVistaGlobal && puedeGestionar) ? ' — clic para agregar stock' : '')"
+                  :title="opt.opcion_nombre + (opt.precio_adicional > 0 ? ' +$' + Number(opt.precio_adicional).toLocaleString('es-CO') : '') + ((!esVistaGlobal && puedeGestionar) ? ' — clic para agregar stock' : '')"
                 >
                   {{ opt.opcion_nombre }}
+                  <span v-if="opt.precio_adicional > 0" class="ml-1 text-emerald-600 font-semibold">+${{ Number(opt.precio_adicional).toLocaleString('es-CO') }}</span>
                   <span class="ml-1 font-bold">{{ opt.stock_disponible ?? 0 }}</span>
                 </button>
               </div>
@@ -1610,10 +1611,11 @@ onMounted(async () => {
                   >
                     <template v-if="esTalla(item)">
                       {{ v.medida }}
-                      <span v-if="v.precio_variante" class="text-gray-500"> ${{ Number(v.precio_variante).toLocaleString('es-CO') }}</span>
+                      <span v-if="v.precio_variante" class="ml-1 text-emerald-600 font-semibold">${{ Number(v.precio_variante).toLocaleString('es-CO') }}</span>
                     </template>
                     <template v-else>
                       {{ [v.marca_tela, v.nombre_color].filter(Boolean).join(' · ') }}<span v-if="v._config_label" class="text-indigo-600"> · {{ v._config_label }}</span>
+                      <span v-if="v.precio_variante" class="ml-1 text-emerald-600 font-semibold">${{ Number(v.precio_variante).toLocaleString('es-CO') }}</span>
                     </template>
                     <span class="ml-1 font-bold">{{ v.stock_libre ?? '—' }}</span>
                   </button>
