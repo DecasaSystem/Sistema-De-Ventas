@@ -708,6 +708,7 @@ async function vcGuardarTipo(tipoId) {
     })
     toast.success('Precios guardados.')
     await cargarVarConfigs()
+    await _recargarCardVariantes(itemGestionar.value.producto_id)
   } catch (e) {
     toast.error(e.response?.data?.message ?? 'Error al guardar.')
   } finally {
@@ -731,6 +732,7 @@ async function vcGuardarNuevoTipo() {
     vcAddTipoId.value       = ''
     vcPendingOpciones.value = []
     await cargarVarConfigs()
+    await _recargarCardVariantes(itemGestionar.value.producto_id)
   } catch (e) {
     toast.error(e.response?.data?.message ?? 'Error al guardar.')
   } finally {
@@ -744,9 +746,15 @@ async function vcQuitarTipo(tipoId) {
     await api.delete(`/productos/${itemGestionar.value.producto_id}/variante-configs/tipo/${tipoId}`)
     toast.success('Tipo removido.')
     await cargarVarConfigs()
+    await _recargarCardVariantes(itemGestionar.value.producto_id)
   } catch {
     toast.error('Error al quitar tipo.')
   }
+}
+
+async function _recargarCardVariantes(pid) {
+  delete vcConfigsCard.value[pid]
+  await cargarVCConfigsCard({ producto_id: pid })
 }
 
 function abrirStockVarConfig(item, grupo, inventoryItem = null) {
