@@ -59,8 +59,7 @@ class InventarioController extends Controller
                 'productos.descripcion as prod_descripcion',
                 'productos.medidas as prod_medidas',
                 'productos.material as prod_material',
-            )
-            ->orderBy('productos.nombre');
+            );
 
         if ($search) {
             $term = "%{$search}%";
@@ -72,6 +71,9 @@ class InventarioController extends Controller
 
         if ($categoria) {
             $query->where('productos.categoria', $categoria);
+            $query->orderBy(DB::raw('COALESCE(inventario.cantidad_disponible, 0)'), 'desc');
+        } else {
+            $query->orderBy('productos.nombre');
         }
 
         return response()->json($query->paginate(20)->through(function ($inv) {
@@ -143,10 +145,12 @@ class InventarioController extends Controller
 
         if ($categoria) {
             $query->where('productos.categoria', $categoria);
+            $query->orderByRaw('COALESCE(SUM(inventario.cantidad_disponible), 0) DESC');
+        } else {
+            $query->orderBy('productos.nombre');
         }
 
         return response()->json($query
-            ->orderBy('productos.nombre')
             ->paginate(20)
             ->through(function ($inv) {
                 $disp = (int) $inv->cantidad_disponible;
