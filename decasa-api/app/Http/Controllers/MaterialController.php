@@ -97,6 +97,98 @@ class MaterialController extends Controller
     }
 
     /**
+     * Lista todas las fichas técnicas que usan este material.
+     */
+    public function usos(Material $material)
+    {
+        $usos = DB::table('ficha_tecnica_items as fti')
+            ->join('fichas_tecnicas as ft', 'ft.id', '=', 'fti.ficha_tecnica_id')
+            ->whereRaw('TRIM(fti.descripcion) = TRIM(?)', [$material->nombre])
+            ->where('fti.es_mano_obra', false)
+            ->select(
+                'ft.id   as ficha_id',
+                'ft.nombre as ficha_nombre',
+                'ft.categoria as ficha_categoria',
+                'fti.id  as item_id',
+                'fti.cantidad',
+                'fti.precio_unitario',
+                'fti.subtotal',
+            )
+            ->orderBy('ft.nombre')
+            ->get();
+
+        return response()->json([
+            'material' => $material,
+            'usos'     => $usos,
+            'total'    => $usos->count(),
+        ]);
+    }
+
+    /**
+     * Elimina un material reemplazando o vaciando sus usos en fichas técnicas.
+     * Body: { reemplazar_con_id?: int|null }
+     *   - Si se provee id: sustituye descripcion/unidad/precio en todos los ítems
+     *   - Si es null: deja los ítems con descripcion='' y precio=0
+     */
+    public function destroy(Request $request, Material $material)
+    {
+        $data = $request->validate([
+            'reemplazar_con_id' => 'nullable|integer|exists:materiales,id',
+        ]);
+
+        DB::transaction(function () use ($material, $data) {
+            // Obtener fichas afectadas ANTES de modificar los ítems
+            $fichaIds = DB::table('ficha_tecnica_items')
+                ->whereRaw('TRIM(descripcion) = TRIM(?)', [$material->nombre])
+                ->where('es_mano_obra', false)
+                ->pluck('ficha_tecnica_id')
+                ->unique();
+
+            if (!empty($data['reemplazar_con_id'])) {
+                $nuevo = Material::findOrFail($data['reemplazar_con_id']);
+                $nuevoPrecio = (float) $nuevo->precio_unitario;
+                DB::table('ficha_tecnica_items')
+                    ->whereRaw('TRIM(descripcion) = TRIM(?)', [$material->nombre])
+                    ->where('es_mano_obra', false)
+                    ->update([
+                        'descripcion'     => $nuevo->nombre,
+                        'unidad'          => $nuevo->unidad,
+                        'precio_unitario' => $nuevoPrecio,
+                        'subtotal'        => DB::raw("ROUND(cantidad * {$nuevoPrecio}, 2)"),
+                        'updated_at'      => now(),
+                    ]);
+            } else {
+                // Limpiar sin reemplazar
+                DB::table('ficha_tecnica_items')
+                    ->whereRaw('TRIM(descripcion) = TRIM(?)', [$material->nombre])
+                    ->where('es_mano_obra', false)
+                    ->update([
+                        'descripcion'     => '',
+                        'precio_unitario' => 0,
+                        'subtotal'        => 0,
+                        'updated_at'      => now(),
+                    ]);
+            }
+
+            // Recalcular totales de cada ficha afectada
+            foreach ($fichaIds as $fichaId) {
+                $todos           = FichaTecnicaItem::where('ficha_tecnica_id', $fichaId)->get();
+                $costoMateriales = $todos->where('es_mano_obra', false)->sum('subtotal');
+                $costoManoObra   = $todos->where('es_mano_obra', true)->sum('subtotal');
+                FichaTecnica::where('id', $fichaId)->update([
+                    'costo_materiales' => $costoMateriales,
+                    'costo_mano_obra'  => $costoManoObra,
+                    'costo_total'      => $costoMateriales + $costoManoObra,
+                ]);
+            }
+
+            $material->delete();
+        });
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
      * Importa materiales únicos desde ficha_tecnica_items al catálogo.
      * Usa precio promedio de todos los items que usan ese material.
      */

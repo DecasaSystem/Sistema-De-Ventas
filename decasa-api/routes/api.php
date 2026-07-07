@@ -307,13 +307,15 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     // Materiales (catálogo maestro)
-    Route::get('/materiales', [MaterialController::class, 'index']);
+    Route::get('/materiales',               [MaterialController::class, 'index']);
+    Route::get('/materiales/{material}/usos', [MaterialController::class, 'usos']);
     Route::middleware('role:supervisor,ebanista')->group(function () {
         Route::post('/materiales',             [MaterialController::class, 'store']);
         Route::patch('/materiales/{material}', [MaterialController::class, 'update']);
     });
     Route::middleware('role:supervisor')->group(function () {
-        Route::post('/materiales/importar',    [MaterialController::class, 'importar']);
+        Route::post('/materiales/importar',      [MaterialController::class, 'importar']);
+        Route::delete('/materiales/{material}',  [MaterialController::class, 'destroy']);
     });
 
     // Facturación (vendedores con facturacion=true)

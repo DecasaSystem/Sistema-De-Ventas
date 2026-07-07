@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { getFichas, getFicha, crearFicha, getMaterialesSugeridos, actualizarItems, reimportarFichas } from '@/api/fichas'
+import api from '@/api'
 import { getMateriales, crearMaterial, actualizarMaterial, importarMateriales } from '@/api/materiales'
 import { getCostos, guardarCostos, crearCargo, eliminarCargo, crearProceso, eliminarProceso } from '@/api/configuracion'
 import { useAuthStore } from '@/stores/auth'
@@ -387,6 +388,85 @@ async function guardarMaterial() {
   }
 }
 
+// ── Eliminar material ─────────────────────────────────────────────────────────
+const elimMatModal    = ref(false)
+const elimMatItem     = ref(null)    // material que se va a eliminar
+const elimMatUsos     = ref([])      // fichas que lo usan
+const elimMatUsoLoad  = ref(false)
+const elimMatMode     = ref('replace') // 'replace' | 'clear'
+const elimMatReempl   = ref(null)    // material de reemplazo seleccionado
+const elimMatSearch   = ref('')
+const elimMatResultados = ref([])
+const elimMatSearchLoad = ref(false)
+const elimMatLoad     = ref(false)
+const elimMatErr      = ref('')
+let debounceElimMat   = null
+
+async function abrirEliminarMat(mat, e) {
+  e.stopPropagation()
+  elimMatItem.value      = mat
+  elimMatUsos.value      = []
+  elimMatReempl.value    = null
+  elimMatMode.value      = 'replace'
+  elimMatSearch.value    = ''
+  elimMatResultados.value = []
+  elimMatErr.value       = ''
+  elimMatModal.value     = true
+  elimMatUsoLoad.value   = true
+  try {
+    const res = await api.get(`/materiales/${mat.id}/usos`)
+    elimMatUsos.value = res.data.usos
+  } finally {
+    elimMatUsoLoad.value = false
+  }
+}
+
+function cerrarElimMat() {
+  elimMatModal.value = false
+  elimMatItem.value  = null
+}
+
+async function buscarReemplazo() {
+  elimMatSearchLoad.value = true
+  try {
+    const res = await getMateriales(elimMatSearch.value)
+    elimMatResultados.value = res.data.filter(m => m.id !== elimMatItem.value?.id)
+  } finally {
+    elimMatSearchLoad.value = false
+  }
+}
+
+function onElimMatSearchInput() {
+  clearTimeout(debounceElimMat)
+  debounceElimMat = setTimeout(buscarReemplazo, 300)
+}
+
+function seleccionarReemplazo(mat) {
+  elimMatReempl.value  = mat
+  elimMatSearch.value  = mat.nombre
+  elimMatResultados.value = []
+}
+
+async function confirmarEliminarMat() {
+  elimMatErr.value  = ''
+  elimMatLoad.value = true
+  try {
+    await api.delete(`/materiales/${elimMatItem.value.id}`, {
+      data: { reemplazar_con_id: elimMatMode.value === 'replace' ? (elimMatReempl.value?.id ?? null) : null },
+    })
+    materiales.value = materiales.value.filter(m => m.id !== elimMatItem.value.id)
+    cerrarElimMat()
+    if (elimMatUsos.value.length > 0) {
+      afectados.value = elimMatUsos.value.length
+      cargar()
+    }
+  } catch (e) {
+    elimMatErr.value = e.response?.data?.message ?? 'Error al eliminar el material.'
+  } finally {
+    elimMatLoad.value = false
+  }
+}
+
 async function guardarNuevoMaterial() {
   if (!formMat.value.nombre.trim()) { alert('Ingresa el nombre del material'); return }
   guardandoMat.value = true
@@ -742,24 +822,35 @@ onMounted(() => {
 
       <div v-else class="px-4 pt-3">
         <div class="bg-white rounded-xl shadow-sm divide-y divide-gray-100 overflow-hidden">
-          <button
+          <div
             v-for="mat in materiales"
             :key="mat.id"
-            @click="abrirEdicion(mat)"
-            class="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 text-left"
+            class="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50"
           >
-            <div class="flex-1 min-w-0 mr-3">
-              <p class="text-sm font-medium text-gray-800 truncate">{{ mat.nombre }}</p>
-              <div class="flex items-center gap-2 mt-0.5">
-                <span v-if="mat.unidad" class="text-xs text-gray-400">{{ mat.unidad }}</span>
-                <span v-if="mat.descripcion" class="text-xs text-gray-400 truncate">· {{ mat.descripcion }}</span>
+            <!-- Zona editar -->
+            <button @click="abrirEdicion(mat)" class="flex-1 flex items-center justify-between text-left min-w-0 mr-2">
+              <div class="flex-1 min-w-0 mr-3">
+                <p class="text-sm font-medium text-gray-800 truncate">{{ mat.nombre }}</p>
+                <div class="flex items-center gap-2 mt-0.5">
+                  <span v-if="mat.unidad" class="text-xs text-gray-400">{{ mat.unidad }}</span>
+                  <span v-if="mat.descripcion" class="text-xs text-gray-400 truncate">· {{ mat.descripcion }}</span>
+                </div>
               </div>
-            </div>
-            <div class="flex items-center gap-2">
-              <span class="text-sm font-bold text-blue-700">{{ formatPeso(mat.precio_unitario) }}</span>
-              <PencilSquareIcon class="w-4 h-4 text-gray-300" />
-            </div>
-          </button>
+              <div class="flex items-center gap-2 flex-shrink-0">
+                <span class="text-sm font-bold text-blue-700">{{ formatPeso(mat.precio_unitario) }}</span>
+                <PencilSquareIcon class="w-4 h-4 text-gray-300" />
+              </div>
+            </button>
+            <!-- Botón eliminar (solo supervisor) -->
+            <button
+              v-if="auth.isSupervisor"
+              @click="abrirEliminarMat(mat, $event)"
+              class="flex-shrink-0 p-1.5 rounded-lg text-red-300 hover:text-red-600 hover:bg-red-50 transition-colors"
+              title="Eliminar material"
+            >
+              <TrashIcon class="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
     </template>
@@ -1130,6 +1221,140 @@ onMounted(() => {
               </div>
             </li>
           </ul>
+        </div>
+      </div>
+
+      <!-- ── Modal eliminar material ──────────────────────────────────────────── -->
+      <div v-if="elimMatModal" class="fixed inset-0 z-[60] flex flex-col bg-white">
+        <div class="sticky top-0 bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3">
+          <button @click="cerrarElimMat" class="p-1 -ml-1"><XMarkIcon class="w-5 h-5 text-gray-600" /></button>
+          <div class="flex-1">
+            <p class="text-sm font-semibold text-gray-800">Eliminar material</p>
+            <p class="text-xs text-gray-400 truncate">{{ elimMatItem?.nombre }}</p>
+          </div>
+        </div>
+
+        <div class="flex-1 overflow-y-auto pb-8">
+          <!-- Usos -->
+          <div class="px-4 pt-4">
+            <div v-if="elimMatUsoLoad" class="flex justify-center py-6"><div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"/></div>
+            <template v-else>
+              <!-- Sin usos: eliminar directo -->
+              <div v-if="!elimMatUsos.length" class="bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-sm text-green-700">
+                Este material no está siendo usado en ninguna ficha técnica. Puedes eliminarlo sin problema.
+              </div>
+
+              <!-- Con usos -->
+              <template v-else>
+                <p class="text-xs font-semibold text-gray-500 uppercase mb-2">
+                  Usado en {{ elimMatUsos.length }} ficha{{ elimMatUsos.length > 1 ? 's' : '' }} técnica{{ elimMatUsos.length > 1 ? 's' : '' }}
+                </p>
+                <div class="bg-gray-50 rounded-xl divide-y divide-gray-100 mb-4">
+                  <div v-for="uso in elimMatUsos" :key="uso.item_id" class="flex items-center justify-between px-3 py-2.5">
+                    <div>
+                      <p class="text-sm font-medium text-gray-800">{{ uso.ficha_nombre }}</p>
+                      <p v-if="uso.ficha_categoria" class="text-xs text-gray-400">{{ uso.ficha_categoria }}</p>
+                    </div>
+                    <div class="text-right">
+                      <p class="text-xs text-gray-500">{{ uso.cantidad }} und · {{ formatPeso(uso.precio_unitario) }}</p>
+                      <p class="text-xs font-semibold text-gray-700">= {{ formatPeso(uso.subtotal) }}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Opciones -->
+                <p class="text-xs font-semibold text-gray-500 uppercase mb-2">¿Qué hacer con estos ítems?</p>
+                <div class="space-y-2 mb-4">
+                  <button
+                    @click="elimMatMode = 'replace'"
+                    :class="['w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 text-left transition-colors', elimMatMode === 'replace' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300']"
+                  >
+                    <div :class="['w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center', elimMatMode === 'replace' ? 'border-blue-500' : 'border-gray-300']">
+                      <div v-if="elimMatMode === 'replace'" class="w-2 h-2 rounded-full bg-blue-500"/>
+                    </div>
+                    <div>
+                      <p class="text-sm font-medium text-gray-800">Reemplazar con otro material</p>
+                      <p class="text-xs text-gray-400">El nuevo material reemplaza la descripción y actualiza el precio</p>
+                    </div>
+                  </button>
+                  <button
+                    @click="elimMatMode = 'clear'"
+                    :class="['w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 text-left transition-colors', elimMatMode === 'clear' ? 'border-orange-400 bg-orange-50' : 'border-gray-200 hover:border-gray-300']"
+                  >
+                    <div :class="['w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center', elimMatMode === 'clear' ? 'border-orange-400' : 'border-gray-300']">
+                      <div v-if="elimMatMode === 'clear'" class="w-2 h-2 rounded-full bg-orange-400"/>
+                    </div>
+                    <div>
+                      <p class="text-sm font-medium text-gray-800">Dejar vacío</p>
+                      <p class="text-xs text-gray-400">Los ítems quedan con descripción y precio en blanco (subtotal $0)</p>
+                    </div>
+                  </button>
+                </div>
+
+                <!-- Picker de reemplazo -->
+                <template v-if="elimMatMode === 'replace'">
+                  <p class="text-xs font-semibold text-gray-500 uppercase mb-1.5">Seleccionar material de reemplazo</p>
+                  <div class="relative mb-2">
+                    <MagnifyingGlassIcon class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/>
+                    <input
+                      v-model="elimMatSearch"
+                      @input="onElimMatSearchInput"
+                      type="text"
+                      placeholder="Buscar material de reemplazo..."
+                      class="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <!-- Resultado seleccionado -->
+                  <div v-if="elimMatReempl" class="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2 mb-2">
+                    <CheckIcon class="w-4 h-4 text-blue-600 flex-shrink-0"/>
+                    <div class="flex-1 min-w-0">
+                      <p class="text-sm font-medium text-blue-800 truncate">{{ elimMatReempl.nombre }}</p>
+                      <p class="text-xs text-blue-600">{{ formatPeso(elimMatReempl.precio_unitario) }} · {{ elimMatReempl.unidad }}</p>
+                    </div>
+                    <button @click="elimMatReempl = null; elimMatSearch = ''" class="text-blue-400 hover:text-blue-600">
+                      <XMarkIcon class="w-4 h-4"/>
+                    </button>
+                  </div>
+                  <!-- Lista de resultados -->
+                  <div v-if="elimMatResultados.length" class="bg-white border border-gray-200 rounded-xl divide-y divide-gray-100 mb-2">
+                    <button
+                      v-for="mat in elimMatResultados"
+                      :key="mat.id"
+                      @click="seleccionarReemplazo(mat)"
+                      class="w-full flex items-center justify-between px-3 py-2.5 hover:bg-blue-50 text-left transition-colors"
+                    >
+                      <div>
+                        <p class="text-sm font-medium text-gray-800">{{ mat.nombre }}</p>
+                        <p v-if="mat.unidad" class="text-xs text-gray-400">{{ mat.unidad }}</p>
+                      </div>
+                      <p class="text-sm font-bold text-blue-700">{{ formatPeso(mat.precio_unitario) }}</p>
+                    </button>
+                  </div>
+                  <div v-if="elimMatSearchLoad" class="text-xs text-center text-gray-400 py-2">Buscando...</div>
+                </template>
+              </template>
+            </template>
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="sticky bottom-0 bg-white border-t border-gray-200 px-4 py-3 space-y-2">
+          <p v-if="elimMatErr" class="text-xs text-red-500">{{ elimMatErr }}</p>
+          <div class="flex gap-2">
+            <button @click="cerrarElimMat" class="flex-1 py-2.5 rounded-xl border border-gray-300 text-sm text-gray-600 hover:bg-gray-50">
+              Cancelar
+            </button>
+            <button
+              @click="confirmarEliminarMat"
+              :disabled="elimMatLoad || (elimMatMode === 'replace' && elimMatUsos.length > 0 && !elimMatReempl) || elimMatUsoLoad"
+              class="flex-1 py-2.5 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:opacity-40 transition-colors"
+            >
+              {{ elimMatLoad ? 'Eliminando...' : 'Eliminar material' }}
+            </button>
+          </div>
+          <p v-if="elimMatMode === 'replace' && elimMatUsos.length > 0 && !elimMatReempl" class="text-xs text-center text-amber-600">
+            Selecciona un material de reemplazo para continuar
+          </p>
         </div>
       </div>
 
