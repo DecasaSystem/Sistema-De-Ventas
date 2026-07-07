@@ -90,10 +90,9 @@ async function confirmarRechazar() {
 
 function fmtEspecificaciones(esp) {
   if (!esp) return ''
-  return Object.entries(esp)
-    .filter(([, v]) => v)
-    .map(([k, v]) => `${k}: ${v}`)
-    .join(' · ')
+  if (esp.variante) return esp.variante                                    // vcPicker: label guardado
+  if (esp.medida)   return esp.medida                                      // talla
+  return [esp.marca, esp.tela, esp.color].filter(Boolean).join(' · ')     // tapizado
 }
 </script>
 

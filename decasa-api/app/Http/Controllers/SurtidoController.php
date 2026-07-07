@@ -61,8 +61,10 @@ class SurtidoController extends Controller
 
             // Si viene de fábrica, reservar stock en fábrica para cada producto
             if ($desdeFabrica && $fabricaId) {
-                $productosUnicos = collect($data['tiendas'])
-                    ->flatMap(fn($t) => $t['items'])
+                $todosItems = collect($data['tiendas'])->flatMap(fn($t) => $t['items']);
+
+                // ── Stock por producto (total general) ────────────────────────
+                $productosUnicos = $todosItems
                     ->groupBy('producto_id')
                     ->map(fn($items) => $items->sum('cantidad'));
 
@@ -75,6 +77,38 @@ class SurtidoController extends Controller
                         abort(422, "Stock insuficiente en fábrica para el producto #{$productoId}.");
                     }
                     $inv->increment('cantidad_reservada', $cantTotal);
+                }
+
+                // ── Stock por variante (tela/talla) ───────────────────────────
+                $varianteTotales = $todosItems
+                    ->filter(fn($i) => !empty($i['variante_id']))
+                    ->groupBy('variante_id')
+                    ->map(fn($items) => collect($items)->sum('cantidad'));
+
+                foreach ($varianteTotales as $varianteId => $cantTotal) {
+                    $invVar = InventarioVariante::where('variante_id', $varianteId)
+                        ->where('tienda_id', $fabricaId)
+                        ->lockForUpdate()->first();
+                    $libre = $invVar ? ($invVar->cantidad_disponible - $invVar->cantidad_reservada) : 0;
+                    if ($libre < $cantTotal) {
+                        abort(422, "Stock insuficiente de esta variante específica en fábrica.");
+                    }
+                }
+
+                // ── Stock por variante personalizada (config) ─────────────────
+                $configTotales = $todosItems
+                    ->filter(fn($i) => !empty($i['especificaciones']['config_id']))
+                    ->groupBy(fn($i) => (int) $i['especificaciones']['config_id'])
+                    ->map(fn($items) => collect($items)->sum('cantidad'));
+
+                foreach ($configTotales as $configId => $cantTotal) {
+                    $invVC = InventarioVarianteConfig::where('config_id', $configId)
+                        ->where('tienda_id', $fabricaId)
+                        ->lockForUpdate()->first();
+                    $libre = $invVC ? ($invVC->cantidad_disponible - $invVC->cantidad_reservada) : 0;
+                    if ($libre < $cantTotal) {
+                        abort(422, "Stock insuficiente de esta variante personalizada en fábrica.");
+                    }
                 }
             }
 

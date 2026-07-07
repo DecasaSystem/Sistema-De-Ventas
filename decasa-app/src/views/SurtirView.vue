@@ -284,7 +284,7 @@ function confirmarVCPicker() {
         _config_id: cid,
         _config_label: `${tipoNombre}: ${found.opcion_nombre}`,
         cantidad: Math.max(1, cant),
-        especificaciones: { config_id: cid },
+        especificaciones: { config_id: cid, variante: `${tipoNombre}: ${found.opcion_nombre}` },
       })
     }
   })
