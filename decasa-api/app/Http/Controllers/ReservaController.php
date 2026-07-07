@@ -28,9 +28,10 @@ class ReservaController extends Controller
     /** GET /reserva/inventario — inventario paginado de fábrica (supervisor) */
     public function inventario(Request $request)
     {
-        $fabrica = $this->fabrica();
-        $search  = $request->query('search', '');
-        $page    = (int) $request->query('page', 1);
+        $fabrica   = $this->fabrica();
+        $search    = $request->query('search', '');
+        $page      = (int) $request->query('page', 1);
+        $categoria = $request->query('categoria', '');
 
         $query = DB::table('productos')
             ->leftJoin('inventario', function ($join) use ($fabrica) {
@@ -49,8 +50,7 @@ class ReservaController extends Controller
                 DB::raw('COALESCE(inventario.id, 0) as inv_id'),
                 DB::raw('COALESCE(inventario.cantidad_disponible, 0) as cantidad_disponible'),
                 DB::raw('COALESCE(inventario.cantidad_reservada, 0) as cantidad_reservada'),
-            )
-            ->orderBy('productos.nombre');
+            );
 
         if ($search) {
             $term = "%{$search}%";
@@ -58,6 +58,13 @@ class ReservaController extends Controller
                 $q->where('productos.nombre', 'like', $term)
                   ->orWhere('productos.categoria', 'like', $term);
             });
+        }
+
+        if ($categoria) {
+            $query->where('productos.categoria', $categoria);
+            $query->orderBy(DB::raw('COALESCE(inventario.cantidad_disponible, 0)'), 'desc');
+        } else {
+            $query->orderBy('productos.nombre');
         }
 
         $paginated = $query->paginate(20, ['*'], 'page', $page);

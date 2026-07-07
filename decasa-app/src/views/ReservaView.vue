@@ -18,10 +18,12 @@ const toast      = useToast()
 const auth       = useAuthStore()
 const soloLectura = computed(() => !auth.isSupervisor)
 
-const fabricaId      = ref(null)
-const inventario     = ref([])
-const busqueda       = ref('')
-const loading        = ref(true)
+const fabricaId             = ref(null)
+const inventario            = ref([])
+const busqueda              = ref('')
+const categoriaFiltro       = ref('')
+const categoriasDisponibles = ref([])
+const loading               = ref(true)
 const currentPage    = ref(1)
 const tieneMas       = ref(false)
 const loadingMore    = ref(false)
@@ -233,11 +235,23 @@ async function guardarVcStock() {
   }
 }
 
+async function cargarCategorias() {
+  try {
+    const { data } = await api.get('/productos/categorias')
+    categoriasDisponibles.value = data.filter(c => c)
+  } catch {}
+}
+
+function seleccionarCategoria(cat) {
+  categoriaFiltro.value = cat
+  cargarInventario(true)
+}
+
 async function cargarInventario(reset = false) {
   if (reset) loading.value = true
   try {
     const page = reset ? 1 : currentPage.value + 1
-    const { data } = await getReservaInventario(busqueda.value.trim(), page)
+    const { data } = await getReservaInventario(busqueda.value.trim(), page, categoriaFiltro.value)
     if (reset) {
       inventario.value = data.data
       variantesReserva.value = {}
@@ -478,6 +492,7 @@ async function openHistorial(item) {
 
 onMounted(async () => {
   try { const { data } = await getReservaInfo(); fabricaId.value = data.id } catch {}
+  cargarCategorias()
   cargarInventario(true)
 })
 </script>
@@ -501,10 +516,38 @@ onMounted(async () => {
       <MagnifyingGlassIcon class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
       <input
         v-model="busqueda"
-        @keyup.enter="cargarInventario(true)"
+        @keyup.enter="categoriaFiltro = ''; cargarInventario(true)"
         placeholder="Buscar por nombre o categoría..."
         class="w-full rounded-lg border border-gray-300 pl-10 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
       />
+    </div>
+
+    <!-- Filtro por categoría -->
+    <div v-if="categoriasDisponibles.length" class="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+      <button
+        @click="seleccionarCategoria('')"
+        :class="[
+          'shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors',
+          categoriaFiltro === ''
+            ? 'bg-purple-600 text-white border-purple-600'
+            : 'bg-white text-gray-600 border-gray-300 hover:border-purple-400'
+        ]"
+      >
+        Todas
+      </button>
+      <button
+        v-for="cat in categoriasDisponibles"
+        :key="cat"
+        @click="seleccionarCategoria(cat)"
+        :class="[
+          'shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors',
+          categoriaFiltro === cat
+            ? 'bg-purple-600 text-white border-purple-600'
+            : 'bg-white text-gray-600 border-gray-300 hover:border-purple-400'
+        ]"
+      >
+        {{ cat }}
+      </button>
     </div>
 
     <AppSpinner v-if="loading" />
