@@ -3,6 +3,10 @@ import { ref, computed } from 'vue'
 import api from '@/api'
 import { login as apiLogin, logout as apiLogout } from '@/api/auth'
 
+// 'perfilAlt' es la clave que sobrevive logout y 401 para que el perfil
+// alternativo no se pierda cuando el usuario cierra sesión y vuelve a entrar.
+const KEY_PERFIL_ALT = 'perfilAlt'
+
 export const useAuthStore = defineStore('auth', () => {
 
   // ── Migración de sesión antigua (single-profile) ─────────────────────────
@@ -35,6 +39,26 @@ export const useAuthStore = defineStore('auth', () => {
     }
     localStorage.setItem('perfiles',     JSON.stringify(_perfiles.value))
     localStorage.setItem('perfilActivo', String(_perfilActivo.value))
+  }
+
+  // Guarda el perfil alternativo en clave persistente (sobrevive logout/401)
+  function _persistirAlt() {
+    const altIdx = _perfilActivo.value === 0 ? 1 : 0
+    const alt = _perfiles.value[altIdx]
+    if (alt?.token && alt?.usuario) {
+      localStorage.setItem(KEY_PERFIL_ALT, JSON.stringify(alt))
+    }
+  }
+
+  // Recupera el perfil alternativo guardado si es un usuario distinto
+  function _recuperarAlt(mainUserId) {
+    try {
+      const saved = JSON.parse(localStorage.getItem(KEY_PERFIL_ALT) ?? 'null')
+      if (saved?.token && saved?.usuario?.id && saved.usuario.id !== mainUserId) {
+        return saved
+      }
+    } catch {}
+    return null
   }
 
   function _buildUsuario(data) {
@@ -83,7 +107,10 @@ export const useAuthStore = defineStore('auth', () => {
   async function login(email, password) {
     const { data } = await apiLogin(email, password)
     const u = _buildUsuario(data)
-    _perfiles.value     = [{ token: data.token, usuario: u }]
+
+    // Restaurar perfil alternativo si sobrevivió al logout/401
+    const alt = _recuperarAlt(data.id)
+    _perfiles.value     = alt ? [{ token: data.token, usuario: u }, alt] : [{ token: data.token, usuario: u }]
     _perfilActivo.value = 0
     token.value         = data.token
     usuario.value       = u
@@ -127,6 +154,9 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function clearSession() {
+    // Persistir el perfil alternativo ANTES de limpiar, para que sobreviva
+    _persistirAlt()
+
     _perfiles.value     = []
     _perfilActivo.value = 0
     token.value         = null
@@ -135,6 +165,7 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem('usuario')
     localStorage.removeItem('perfiles')
     localStorage.removeItem('perfilActivo')
+    // KEY_PERFIL_ALT se mantiene intencionalmente
   }
 
   // ── Acciones de doble perfil ──────────────────────────────────────────────
@@ -144,10 +175,11 @@ export const useAuthStore = defineStore('auth', () => {
       throw new Error('Este usuario ya es el perfil activo.')
     }
     const u = _buildUsuario(data)
-    // Siempre guardar el alternativo en índice 1 (el principal es siempre 0)
     const principal = _perfiles.value[0]
     _perfiles.value = [principal, { token: data.token, usuario: u }]
     _syncStorage()
+    // Guardar también en clave persistente
+    _persistirAlt()
     return u
   }
 
@@ -158,12 +190,13 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function eliminarPerfilAlternativo() {
-    // Si estamos en el perfil 1, volver al 0 antes de eliminarlo
     if (_perfilActivo.value === 1) {
       _activarPerfil(0)
     }
     _perfiles.value = [_perfiles.value[0]]
     _syncStorage()
+    // Eliminar también la clave persistente
+    localStorage.removeItem(KEY_PERFIL_ALT)
   }
 
   return {

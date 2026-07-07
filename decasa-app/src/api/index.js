@@ -19,6 +19,7 @@ api.interceptors.response.use(
       localStorage.removeItem('usuario')
       localStorage.removeItem('perfiles')
       localStorage.removeItem('perfilActivo')
+      // 'perfilAlt' se mantiene para restaurar el doble perfil en el próximo login
       window.location.href = '/login'
     }
     return Promise.reject(err)
