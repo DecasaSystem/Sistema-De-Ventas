@@ -198,6 +198,10 @@ export const useAuthStore = defineStore('auth', () => {
     if (!tienePerfilAlternativo.value) return
     const nuevoIdx = _perfilActivo.value === 0 ? 1 : 0
     _activarPerfil(nuevoIdx)
+    // Recargar la página para que todas las vistas re-fetchen datos con el
+    // nuevo perfil. Sin esto, refs inicializados en onMounted (tiendaId, etc.)
+    // y datos cargados al montar quedan con el contexto del perfil anterior.
+    window.location.reload()
   }
 
   function eliminarPerfilAlternativo() {
