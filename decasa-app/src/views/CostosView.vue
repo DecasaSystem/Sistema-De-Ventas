@@ -19,6 +19,7 @@ import {
   PlusIcon,
   TrashIcon,
   ArrowDownTrayIcon,
+  ArrowsRightLeftIcon,
 } from '@heroicons/vue/24/outline'
 
 // ── TAB activo ────────────────────────────────────────────────────────────────
@@ -262,6 +263,50 @@ function seleccionarSugerencia(item, sug) {
 
 function cerrarSugerencias() {
   setTimeout(() => { sugerencias.value = []; idBuscando.value = null }, 150)
+}
+
+// ── Picker de material (cambiar material de un ítem en modo edición) ──────────
+const pickerItem       = ref(null)   // item al que se le cambia el material
+const pickerSearch     = ref('')
+const pickerResultados = ref([])
+const pickerCargando   = ref(false)
+let debouncePickerMat  = null
+
+function abrirPickerMaterial(item) {
+  pickerItem.value       = item
+  pickerSearch.value     = item.descripcion  // pre-rellenar con la descripción actual
+  pickerResultados.value = []
+  pickerCargando.value   = false
+  buscarEnPicker()
+}
+
+function cerrarPickerMaterial() {
+  pickerItem.value = null
+}
+
+async function buscarEnPicker() {
+  pickerCargando.value = true
+  try {
+    const res = await getMateriales(pickerSearch.value)
+    pickerResultados.value = res.data
+  } finally {
+    pickerCargando.value = false
+  }
+}
+
+function onPickerInput() {
+  clearTimeout(debouncePickerMat)
+  debouncePickerMat = setTimeout(buscarEnPicker, 300)
+}
+
+function confirmarPickerMaterial(mat) {
+  if (!pickerItem.value) return
+  const item           = pickerItem.value
+  item.descripcion     = mat.descripcion || mat.nombre
+  item.unidad          = mat.unidad ?? item.unidad
+  item.precio_unitario = parseFloat(mat.precio_unitario) || item.precio_unitario
+  onCampoChange(item)
+  cerrarPickerMaterial()
 }
 
 // ── Reimportar ────────────────────────────────────────────────────────────────
@@ -1003,7 +1048,19 @@ onMounted(() => {
                   <tbody>
                     <tr v-for="item in seccion.items" :key="item.id"
                       :class="['border-b border-gray-100 last:border-0', item.es_mano_obra ? 'bg-orange-50' : '']">
-                      <td class="px-3 py-2 text-gray-700">{{ item.descripcion }}</td>
+                      <td class="px-3 py-2 text-gray-700">
+                        <div class="flex items-center gap-1">
+                          <span :class="modoEdicion && !item.es_mano_obra ? 'max-w-[120px] truncate' : ''">{{ item.descripcion }}</span>
+                          <button
+                            v-if="modoEdicion && !item.es_mano_obra"
+                            @click="abrirPickerMaterial(item)"
+                            class="flex-shrink-0 p-0.5 rounded text-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                            title="Cambiar material"
+                          >
+                            <ArrowsRightLeftIcon class="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
                       <td class="px-2 py-1.5 text-right">
                         <input v-if="modoEdicion" v-model="item.cantidad" @input="onCampoChange(item)" type="number" step="any" min="0"
                           class="w-16 text-right text-xs border border-blue-300 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white" />
@@ -1024,6 +1081,55 @@ onMounted(() => {
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- ── Picker cambiar material ──────────────────────────────────────────── -->
+      <div v-if="pickerItem" class="fixed inset-0 z-[60] flex flex-col bg-white">
+        <div class="sticky top-0 bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3">
+          <button @click="cerrarPickerMaterial" class="p-1 -ml-1"><XMarkIcon class="w-5 h-5 text-gray-600" /></button>
+          <div class="flex-1">
+            <p class="text-sm font-semibold text-gray-800">Cambiar material</p>
+            <p class="text-xs text-gray-400 truncate">Ítem actual: <span class="text-gray-600">{{ pickerItem.descripcion }}</span></p>
+          </div>
+        </div>
+
+        <div class="px-4 pt-3 pb-2 border-b border-gray-100">
+          <div class="relative">
+            <MagnifyingGlassIcon class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              v-model="pickerSearch"
+              @input="onPickerInput"
+              type="text"
+              placeholder="Buscar material..."
+              autofocus
+              class="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+        </div>
+
+        <div class="flex-1 overflow-y-auto">
+          <div v-if="pickerCargando" class="flex justify-center py-10">
+            <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          </div>
+          <div v-else-if="!pickerResultados.length" class="text-center py-10 text-sm text-gray-400">Sin resultados</div>
+          <ul v-else class="divide-y divide-gray-100">
+            <li
+              v-for="mat in pickerResultados"
+              :key="mat.id"
+              @click="confirmarPickerMaterial(mat)"
+              class="flex items-center justify-between px-4 py-3 hover:bg-blue-50 cursor-pointer transition-colors"
+            >
+              <div class="flex-1 min-w-0 pr-3">
+                <p class="text-sm font-medium text-gray-800 truncate">{{ mat.nombre }}</p>
+                <p v-if="mat.descripcion && mat.descripcion !== mat.nombre" class="text-xs text-gray-400 truncate">{{ mat.descripcion }}</p>
+              </div>
+              <div class="text-right flex-shrink-0">
+                <p class="text-sm font-semibold text-blue-700">${{ Number(mat.precio_unitario).toLocaleString('es-CO') }}</p>
+                <p v-if="mat.unidad" class="text-xs text-gray-400">{{ mat.unidad }}</p>
+              </div>
+            </li>
+          </ul>
         </div>
       </div>
 
