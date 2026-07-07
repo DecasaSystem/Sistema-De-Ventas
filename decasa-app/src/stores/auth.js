@@ -41,21 +41,32 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.setItem('perfilActivo', String(_perfilActivo.value))
   }
 
-  // Guarda el perfil alternativo en clave persistente (sobrevive logout/401)
+  // Guarda el perfil alternativo junto al ID del principal al que pertenece.
+  // El perfil principal siempre está en índice 0; el alternativo en índice 1.
   function _persistirAlt() {
-    const altIdx = _perfilActivo.value === 0 ? 1 : 0
-    const alt = _perfiles.value[altIdx]
-    if (alt?.token && alt?.usuario) {
-      localStorage.setItem(KEY_PERFIL_ALT, JSON.stringify(alt))
+    const principal = _perfiles.value[0]
+    const alt       = _perfiles.value[1]
+    if (alt?.token && alt?.usuario && principal?.usuario?.id) {
+      localStorage.setItem(KEY_PERFIL_ALT, JSON.stringify({
+        mainUserId: principal.usuario.id,   // ← quién activó este perfil alternativo
+        token:      alt.token,
+        usuario:    alt.usuario,
+      }))
     }
   }
 
-  // Recupera el perfil alternativo guardado si es un usuario distinto
+  // Restaura el perfil alternativo SOLO si quien inicia sesión es el mismo
+  // usuario principal que lo configuró originalmente.
   function _recuperarAlt(mainUserId) {
     try {
       const saved = JSON.parse(localStorage.getItem(KEY_PERFIL_ALT) ?? 'null')
-      if (saved?.token && saved?.usuario?.id && saved.usuario.id !== mainUserId) {
-        return saved
+      if (
+        saved?.mainUserId === mainUserId &&
+        saved?.token &&
+        saved?.usuario?.id &&
+        saved.usuario.id !== mainUserId
+      ) {
+        return { token: saved.token, usuario: saved.usuario }
       }
     } catch {}
     return null
