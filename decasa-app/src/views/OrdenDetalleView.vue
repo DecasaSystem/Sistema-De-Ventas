@@ -169,15 +169,16 @@ async function completarClienteBorrador() {
 
 watch(showCompletarBorradorModal, (open) => {
   if (open) {
-    borradorFirmaBlob.value        = null
-    borradorFirmaUrl.value         = ''
-    borradorComprobanteFile.value  = null
-    borradorComprobanteUrl.value   = ''
+    // Pre-llenar con lo que ya tiene la orden guardada en el borrador
+    borradorFirmaBlob.value          = null
+    borradorFirmaUrl.value           = orden.value?.firma_url          ?? ''
+    borradorComprobanteFile.value    = null
+    borradorComprobanteUrl.value     = orden.value?.factura_foto_url   ?? ''
     borradorComprobantePreview.value = ''
-    borradorAnexoFile.value        = null
-    borradorAnexoUrl.value         = ''
-    borradorAnexoPreview.value     = ''
-    borradorClienteErr.value       = ''
+    borradorAnexoFile.value          = null
+    borradorAnexoUrl.value           = orden.value?.anexo_foto_url     ?? ''
+    borradorAnexoPreview.value       = ''
+    borradorClienteErr.value         = ''
     borradorFormCliente.value = {
       nombre:    orden.value?.cliente?.nombre    || '',
       cedula:    orden.value?.cliente?.cedula    || '',
@@ -1876,9 +1877,7 @@ onMounted(cargarOrden)
           <!-- Anticipo (solo si no hay cotización pendiente) -->
           <template v-if="!borradorTieneItemsCotiz">
             <div class="space-y-1">
-              <label class="block text-xs font-semibold text-gray-600 uppercase">
-                Anticipo (mín. {{ new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(borradorAnticipoMinimo) }})
-              </label>
+              <label class="block text-xs font-semibold text-gray-600 uppercase">Anticipo</label>
               <input
                 v-model.number="borradorForm.anticipo_monto"
                 type="number"
@@ -1913,8 +1912,9 @@ onMounted(cargarOrden)
           <!-- Comprobante de pago -->
           <div class="space-y-1">
             <label class="block text-xs font-semibold text-gray-600 uppercase">Foto del comprobante <span class="text-red-500">*</span></label>
-            <div v-if="borradorComprobanteFile" class="relative">
+            <div v-if="borradorComprobanteFile || borradorComprobanteUrl" class="relative">
               <img :src="borradorComprobanteUrl || borradorComprobantePreview" class="w-full rounded-xl border border-gray-200 object-contain bg-gray-50 max-h-40" />
+              <div v-if="borradorComprobanteUrl && !borradorComprobanteFile" class="absolute top-1 left-1 bg-green-600 text-white text-[10px] font-semibold px-2 py-0.5 rounded-full">Ya subido</div>
               <button @click="borradorComprobanteFile = null; borradorComprobanteUrl = ''; borradorComprobantePreview = ''" class="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 shadow">
                 <XMarkIcon class="w-4 h-4" />
               </button>
@@ -1940,8 +1940,9 @@ onMounted(cargarOrden)
           <!-- Anexo firmado (solo si canal es física) -->
           <div v-if="orden?.canal === 'fisica'" class="space-y-1">
             <label class="block text-xs font-semibold text-gray-600 uppercase">Foto del anexo firmado <span class="text-red-500">*</span></label>
-            <div v-if="borradorAnexoFile" class="relative">
+            <div v-if="borradorAnexoFile || borradorAnexoUrl" class="relative">
               <img :src="borradorAnexoUrl || borradorAnexoPreview" class="w-full rounded-xl border border-gray-200 object-contain bg-gray-50 max-h-40" />
+              <div v-if="borradorAnexoUrl && !borradorAnexoFile" class="absolute top-1 left-1 bg-green-600 text-white text-[10px] font-semibold px-2 py-0.5 rounded-full">Ya subido</div>
               <button @click="borradorAnexoFile = null; borradorAnexoUrl = ''; borradorAnexoPreview = ''" class="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 shadow">
                 <XMarkIcon class="w-4 h-4" />
               </button>
