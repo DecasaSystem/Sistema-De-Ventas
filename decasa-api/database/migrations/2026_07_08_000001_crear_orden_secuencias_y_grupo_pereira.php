@@ -30,16 +30,19 @@ return new class extends Migration
         ");
 
         // 4. Asignar numero_orden = 1208 a la última orden de Circunvalar
-        //    (la que el usuario ya creó y debe llevar ese número)
+        //    (MySQL no permite ORDER BY en UPDATE con JOIN — se usa subquery)
         DB::statement("
-            UPDATE ordenes o
-            JOIN tiendas t ON t.id = o.tienda_id
-            SET o.numero_orden = 1208
-            WHERE t.nombre = 'Decasa Circunvalar'
-              AND o.estado != 'borrador'
-              AND o.numero_orden IS NOT NULL
-            ORDER BY o.id DESC
-            LIMIT 1
+            UPDATE ordenes
+            SET numero_orden = 1208, grupo_secuencia = 'pereira'
+            WHERE id = (
+                SELECT max_id FROM (
+                    SELECT MAX(o.id) AS max_id
+                    FROM ordenes o
+                    JOIN tiendas t ON t.id = o.tienda_id
+                    WHERE t.nombre = 'Decasa Circunvalar'
+                      AND o.estado != 'borrador'
+                ) sub
+            )
         ");
 
         // 5. Seed del grupo pereira en 1208 (siguiente orden será 1209)
