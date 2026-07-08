@@ -16,6 +16,7 @@ class Orden extends Model
         'tipo',
         'estado',
         'numero_orden',
+        'grupo_secuencia',
         'valor_total',
         'anticipo_pct',
         'notas',

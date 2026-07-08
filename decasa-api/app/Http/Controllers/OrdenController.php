@@ -1572,11 +1572,46 @@ class OrdenController extends Controller
         }
     }
 
+    // Tiendas que comparten secuencia de numeración por grupo
+    private const GRUPOS_SECUENCIA = [
+        'pereira' => ['Decasa Unicentro Pereira', 'Decasa Circunvalar'],
+    ];
+
     private function asignarNumeroOrden(Orden $orden): void
     {
-        DB::transaction(function () use ($orden) {
-            $max = DB::table('ordenes')->lockForUpdate()->max('numero_orden') ?? 0;
-            $orden->update(['numero_orden' => $max + 1]);
+        $tiendaNombre = DB::table('tiendas')->where('id', $orden->tienda_id)->value('nombre');
+
+        $grupo = null;
+        foreach (self::GRUPOS_SECUENCIA as $key => $nombres) {
+            if (in_array($tiendaNombre, $nombres, true)) {
+                $grupo = $key;
+                break;
+            }
+        }
+
+        DB::transaction(function () use ($orden, $grupo) {
+            if ($grupo) {
+                // Incrementar contador atómico del grupo con bloqueo
+                $actual = DB::table('orden_secuencias')
+                    ->where('grupo', $grupo)
+                    ->lockForUpdate()
+                    ->value('ultimo_numero') ?? 0;
+
+                $siguiente = $actual + 1;
+
+                DB::table('orden_secuencias')
+                    ->where('grupo', $grupo)
+                    ->update(['ultimo_numero' => $siguiente]);
+
+                $orden->update([
+                    'numero_orden'    => $siguiente,
+                    'grupo_secuencia' => $grupo,
+                ]);
+            } else {
+                // Sin grupo definido: MAX global (comportamiento previo)
+                $max = DB::table('ordenes')->lockForUpdate()->max('numero_orden') ?? 0;
+                $orden->update(['numero_orden' => $max + 1]);
+            }
         });
     }
 
