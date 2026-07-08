@@ -1131,6 +1131,12 @@ const minimoAnticipofEfectivo = computed(() =>
   hayItemsCotizar.value ? 0 : minimoAnticipo.value
 )
 
+// Porcentaje que representa el monto actual sobre el total (para mostrar al vendedor)
+const anticipoPctActual = computed(() => {
+  if (!valorTotal.value || !anticipo_monto.value) return 0
+  return Math.round((anticipo_monto.value / valorTotal.value) * 100)
+})
+
 // ── Cotización de costo durante la creación ───────────────────────────────────
 const cotizarReceptorId   = ref(null)
 const cotizarNotas        = ref('')
@@ -2806,11 +2812,18 @@ function removeFacturaFoto() {
       <template v-if="!hayItemsCotizar">
         <div>
           <label class="label">Anticipo rápido</label>
-          <div class="flex gap-2">
+          <div class="flex gap-2 flex-wrap">
+            <button
+              @click="anticipo_pct = 0; anticipo_monto = 0"
+              :class="['px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors',
+                anticipo_monto === 0
+                  ? 'bg-gray-700 text-white border-gray-700'
+                  : 'bg-white text-gray-700 border-gray-300']"
+            >$0</button>
             <button v-for="pct in [30, 50, 70, 100]" :key="pct"
               @click="anticipo_pct = pct; anticipo_monto = minimoAnticipo"
               :class="['px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors',
-                anticipo_pct === pct
+                anticipo_monto > 0 && anticipoPctActual === pct
                   ? 'bg-blue-600 text-white border-blue-600'
                   : 'bg-white text-gray-700 border-gray-300']"
             >{{ pct }}%</button>
@@ -2825,6 +2838,12 @@ function removeFacturaFoto() {
             min="0"
             class="input"
           />
+          <p v-if="valorTotal > 0 && anticipo_monto > 0" class="mt-1 text-xs text-gray-400">
+            = {{ anticipoPctActual }}% del total
+          </p>
+          <p v-else-if="anticipo_monto === 0" class="mt-1 text-xs text-amber-500">
+            Sin anticipo — la orden queda pendiente de pago
+          </p>
         </div>
 
         <div>

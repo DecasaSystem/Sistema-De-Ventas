@@ -183,13 +183,7 @@ class OrdenController extends Controller
                 ], 422);
             }
 
-            $minimoAnticipo = round($valorTotal * $anticupoPct / 100, 2);
-            if (! $tieneItemsCotizacionPendiente && $data['anticipo_monto'] < $minimoAnticipo) {
-                return response()->json([
-                    'message' => "El anticipo mínimo es " . number_format($minimoAnticipo, 2) . " COP ({$anticupoPct}% de " . number_format($valorTotal, 2) . ").",
-                    'errors'  => ['anticipo_monto' => ["Debe ser al menos {$minimoAnticipo}"]],
-                ], 422);
-            }
+            // No se fuerza un mínimo — el vendedor puede poner cualquier monto ≥ 0
         }
 
         // Protección contra doble envío: misma orden del mismo vendedor en los últimos 15 segundos
@@ -1056,15 +1050,7 @@ class OrdenController extends Controller
             fn($i) => $i->es_personalizado && $i->precio_unitario == 0
         );
 
-        if (! $tieneItemsCotizacion) {
-            $minimoAnticipo = round($orden->valor_total * ($orden->anticipo_pct ?? 50) / 100, 2);
-            if ($data['anticipo_monto'] < $minimoAnticipo) {
-                return response()->json([
-                    'message' => "El anticipo mínimo es " . number_format($minimoAnticipo, 2) . " COP.",
-                    'errors'  => ['anticipo_monto' => ["Debe ser al menos " . number_format($minimoAnticipo, 2)]],
-                ], 422);
-            }
-        }
+        // No se fuerza un mínimo — el vendedor puede poner cualquier monto ≥ 0
 
         DB::transaction(function () use ($orden, $data, $tieneItemsCotizacion, $usuario) {
             $nuevoEstado = $tieneItemsCotizacion ? 'pendiente_cotizacion' : 'pendiente_anticipo';
