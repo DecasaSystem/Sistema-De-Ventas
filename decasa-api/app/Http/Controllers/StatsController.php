@@ -77,6 +77,7 @@ class StatsController extends Controller
 
         return [
             'ingresos_totales'   => $ingresos,
+            'total_vendido'      => $ingresos + $cartera,
             'ordenes_totales'    => (int) ($ord->total      ?? 0),
             'ordenes_entregadas' => $entregadas,
             'ordenes_pendientes' => (int) ($ord->pendientes ?? 0),
@@ -369,6 +370,7 @@ class StatsController extends Controller
                 'tienda'             => $v->tienda,
                 'tienda_id'          => $v->tienda_id,
                 'ingresos'           => $ingresos,
+                'total_vendido'      => $ingresos + $cartera,
                 'ordenes_totales'    => (int) ($ord->total     ?? 0),
                 'ordenes_entregadas' => $entregadas,
                 'ordenes_canceladas' => (int) ($ord->canceladas ?? 0),
@@ -590,6 +592,7 @@ class StatsController extends Controller
 
         return [
             'dinero_vendido'     => $ingresos,
+            'total_vendido'      => $ingresos + $cartera,
             'ordenes_creadas'    => (int) ($ord->total      ?? 0),
             'ordenes_entregadas' => $entregadas,
             'ordenes_pendientes' => (int) ($ord->pendientes ?? 0),

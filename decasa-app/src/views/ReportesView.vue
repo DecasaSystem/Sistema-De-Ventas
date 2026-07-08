@@ -575,7 +575,8 @@ onBeforeUnmount(() => {
                   <th class="px-3 py-2 text-left">#</th>
                   <th class="px-3 py-2 text-left">Nombre</th>
                   <th class="px-3 py-2 text-left">Tienda</th>
-                  <th class="px-3 py-2 text-right">Ingresos</th>
+                  <th class="px-3 py-2 text-right">Total vendido</th>
+                  <th class="px-3 py-2 text-right">Cobrado</th>
                   <th class="px-3 py-2 text-right">Órdenes</th>
                   <th class="px-3 py-2 text-right">Cartera</th>
                 </tr>
@@ -598,6 +599,7 @@ onBeforeUnmount(() => {
                     <span v-if="v.rol === 'ebanista'" class="ml-1 text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full font-semibold">Eba</span>
                   </td>
                   <td class="px-3 py-2.5 text-gray-500 text-xs">{{ v.tienda }}</td>
+                  <td class="px-3 py-2.5 text-right font-bold text-green-700">{{ cop(v.total_vendido) }}</td>
                   <td class="px-3 py-2.5 text-right font-semibold text-blue-600">{{ cop(v.ingresos) }}</td>
                   <td class="px-3 py-2.5 text-right text-gray-600">{{ v.ordenes_totales }}</td>
                   <td class="px-3 py-2.5 text-right text-red-500 text-xs">{{ cop(v.cartera_pendiente) }}</td>
