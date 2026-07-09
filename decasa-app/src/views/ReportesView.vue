@@ -345,14 +345,17 @@ watch(vendMetrica, () => buildVend())
 
 // ── Chart: barras por tienda ──────────────────────────────────────────────────
 const TIENDA_COLORS = ['#2563eb', '#16a34a', '#d97706', '#dc2626', '#7c3aed', '#0891b2']
+const tiendMetrica = ref('total_vendido') // 'total_vendido' | 'ingresos'
+
 function buildTiend() {
   if (tiendChart) { tiendChart.destroy(); tiendChart = null }
   if (!tiendCanvas.value || !tiendasData.value.length) return
+  const usaTotal = tiendMetrica.value === 'total_vendido'
   tiendChart = new Chart(tiendCanvas.value, {
     type: 'bar',
     data: {
       labels: tiendasData.value.map(t => t.nombre),
-      datasets: [{ label: 'Ingresos', data: tiendasData.value.map(t => t.ingresos), backgroundColor: tiendasData.value.map((_, i) => TIENDA_COLORS[i % TIENDA_COLORS.length]), borderRadius: 6 }],
+      datasets: [{ label: usaTotal ? 'Total vendido' : 'Cobrado', data: tiendasData.value.map(t => usaTotal ? t.total_vendido : t.ingresos), backgroundColor: tiendasData.value.map((_, i) => TIENDA_COLORS[i % TIENDA_COLORS.length]), borderRadius: 6 }],
     },
     options: {
       responsive: true, maintainAspectRatio: false,
@@ -361,6 +364,8 @@ function buildTiend() {
     },
   })
 }
+
+watch(tiendMetrica, () => buildTiend())
 
 // ── Chart: dona por categoría (Productos) ─────────────────────────────────────
 function buildDona() {
@@ -634,7 +639,21 @@ onBeforeUnmount(() => {
 
         <!-- Gráfica barras -->
         <div v-if="tiendasData.length" class="bg-white rounded-xl shadow-sm p-4">
-          <p class="text-sm font-semibold text-gray-700 mb-3">Ingresos por tienda</p>
+          <div class="flex items-center justify-between mb-3">
+            <p class="text-sm font-semibold text-gray-700">Ventas por tienda</p>
+            <div class="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-semibold">
+              <button
+                @click="tiendMetrica = 'total_vendido'"
+                :class="tiendMetrica === 'total_vendido' ? 'bg-green-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'"
+                class="px-3 py-1 transition-colors"
+              >Total vendido</button>
+              <button
+                @click="tiendMetrica = 'ingresos'"
+                :class="tiendMetrica === 'ingresos' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'"
+                class="px-3 py-1 border-l border-gray-200 transition-colors"
+              >Cobrado</button>
+            </div>
+          </div>
           <div class="h-48">
             <canvas ref="tiendCanvas"></canvas>
           </div>
@@ -650,7 +669,10 @@ onBeforeUnmount(() => {
                 <p class="font-semibold text-gray-800">{{ t.nombre }}</p>
                 <p v-if="t.ciudad" class="text-xs text-gray-400">{{ t.ciudad }}</p>
               </div>
-              <p class="text-lg font-bold text-blue-600">{{ cop(t.ingresos) }}</p>
+              <div class="text-right">
+                <p class="text-lg font-bold text-green-700">{{ cop(t.total_vendido) }}</p>
+                <p class="text-xs text-gray-400">Cobrado {{ cop(t.ingresos) }} · Cartera {{ cop(t.cartera_pendiente) }}</p>
+              </div>
             </div>
             <div class="grid grid-cols-3 gap-2 text-center text-xs">
               <div class="bg-gray-50 rounded-lg py-1.5">

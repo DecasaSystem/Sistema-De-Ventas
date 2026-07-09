@@ -294,6 +294,12 @@ class StatsController extends Controller
                 ->where('o.tienda_id', $t->id)->whereBetween('p.created_at', $rango)
                 ->sum('p.monto');
 
+            $cartera = (float) DB::table('v_saldo_ordenes as vs')
+                ->join('ordenes as o', 'o.id', '=', 'vs.orden_id')
+                ->where('o.tienda_id', $t->id)
+                ->whereBetween('o.created_at', [$desde . ' 00:00:00', $hasta . ' 23:59:59'])
+                ->sum('vs.saldo_pendiente');
+
             $ord = DB::table('ordenes')->where('tienda_id', $t->id)
                 ->whereBetween('created_at', $rango)
                 ->selectRaw('COUNT(*) AS total, SUM(estado = "entregado") AS entregadas')
@@ -314,6 +320,8 @@ class StatsController extends Controller
                 'nombre'             => $t->nombre,
                 'ciudad'             => $t->ciudad,
                 'ingresos'           => $ingresos,
+                'cartera_pendiente'  => $cartera,
+                'total_vendido'      => $ingresos + $cartera,
                 'ordenes_totales'    => (int) ($ord->total ?? 0),
                 'ordenes_entregadas' => $entregadas,
                 'ticket_promedio'    => $entregadas > 0 ? round($ingresos / $entregadas) : 0,
