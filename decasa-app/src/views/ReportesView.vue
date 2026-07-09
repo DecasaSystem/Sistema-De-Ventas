@@ -1,5 +1,5 @@
 ﻿<script setup>
-import { ref, onMounted, onBeforeUnmount, nextTick, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, nextTick, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Chart } from 'chart.js/auto'
 
@@ -320,15 +320,18 @@ function buildLine() {
 }
 
 // ── Chart: barras horizontales vendedores ─────────────────────────────────────
+const vendMetrica = ref('total_vendido') // 'total_vendido' | 'ingresos'
+
 function buildVend() {
   if (vendChart) { vendChart.destroy(); vendChart = null }
   if (!vendCanvas.value || !vendedores.value.length) return
   const top = vendedores.value.slice(0, 8)
+  const usaTotal = vendMetrica.value === 'total_vendido'
   vendChart = new Chart(vendCanvas.value, {
     type: 'bar',
     data: {
       labels: top.map(v => v.nombre.length > 18 ? v.nombre.slice(0, 16) + '…' : v.nombre),
-      datasets: [{ label: 'Ingresos', data: top.map(v => v.ingresos), backgroundColor: '#2563eb', borderRadius: 4 }],
+      datasets: [{ label: usaTotal ? 'Total vendido' : 'Cobrado', data: top.map(v => usaTotal ? v.total_vendido : v.ingresos), backgroundColor: usaTotal ? '#16a34a' : '#2563eb', borderRadius: 4 }],
     },
     options: {
       indexAxis: 'y', responsive: true, maintainAspectRatio: false,
@@ -337,6 +340,8 @@ function buildVend() {
     },
   })
 }
+
+watch(vendMetrica, () => buildVend())
 
 // ── Chart: barras por tienda ──────────────────────────────────────────────────
 const TIENDA_COLORS = ['#2563eb', '#16a34a', '#d97706', '#dc2626', '#7c3aed', '#0891b2']
@@ -556,7 +561,21 @@ onBeforeUnmount(() => {
 
         <!-- Gráfica horizontal -->
         <div v-if="vendedores.length" class="bg-white rounded-xl shadow-sm p-4">
-          <p class="text-sm font-semibold text-gray-700 mb-3">Ingresos por vendedor / supervisor</p>
+          <div class="flex items-center justify-between mb-3">
+            <p class="text-sm font-semibold text-gray-700">Ventas por vendedor / supervisor</p>
+            <div class="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-semibold">
+              <button
+                @click="vendMetrica = 'total_vendido'"
+                :class="vendMetrica === 'total_vendido' ? 'bg-green-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'"
+                class="px-3 py-1 transition-colors"
+              >Total vendido</button>
+              <button
+                @click="vendMetrica = 'ingresos'"
+                :class="vendMetrica === 'ingresos' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'"
+                class="px-3 py-1 border-l border-gray-200 transition-colors"
+              >Cobrado</button>
+            </div>
+          </div>
           <div :style="{ height: `${Math.min(vendedores.length, 8) * 44 + 20}px` }">
             <canvas ref="vendCanvas"></canvas>
           </div>
