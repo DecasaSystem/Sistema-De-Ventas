@@ -78,8 +78,11 @@ class ProductoVarianteConfigController extends Controller
         $tipoId = (int) $data['tipo_variante_id'];
 
         DB::transaction(function () use ($productoId, $tipoId, $data) {
+            // Tiendas donde existe el producto (para auto-crear stock en 0)
+            $tiendaIds = Inventario::where('producto_id', $productoId)->pluck('tienda_id');
+
             foreach ($data['items'] as $item) {
-                ProductoVarianteConfig::updateOrCreate(
+                $config = ProductoVarianteConfig::updateOrCreate(
                     [
                         'producto_id'      => $productoId,
                         'tipo_variante_id' => $tipoId,
@@ -89,6 +92,15 @@ class ProductoVarianteConfigController extends Controller
                         'precio_adicional' => $item['precio_adicional'] ?? 0,
                     ]
                 );
+
+                // Auto-crear InventarioVarianteConfig en cada tienda (stock 0)
+                // para que la opción aparezca en las cards aunque no tenga stock aún
+                foreach ($tiendaIds as $tiendaId) {
+                    InventarioVarianteConfig::firstOrCreate(
+                        ['config_id' => $config->id, 'tienda_id' => $tiendaId],
+                        ['cantidad_disponible' => 0, 'cantidad_reservada' => 0]
+                    );
+                }
             }
         });
 

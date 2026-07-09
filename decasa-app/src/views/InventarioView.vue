@@ -97,6 +97,7 @@ const vcAddTipoId       = ref('')
 const vcPendingOpciones = ref([])
 const vcPrecios         = ref({})
 const vcGuardando       = ref({})
+const vcOpcionesAgregadas = ref({}) // { tipoId: [{ opcion_id, opcion_nombre }] }
 
 const vcStockModal    = ref(false)
 const vcStockItem     = ref(null)   // { config: item, grupo }
@@ -538,12 +539,13 @@ function openGestionar(item) {
   gestionFotoError.value = ''
   quitarGestionFoto2()
   gestionFoto2Error.value = ''
-  vcTiposAsignados.value  = []
-  vcTodosLosTipos.value   = []
-  vcAddTipoId.value       = ''
-  vcPendingOpciones.value = []
-  vcPrecios.value         = {}
-  vcGuardando.value       = {}
+  vcTiposAsignados.value    = []
+  vcTodosLosTipos.value     = []
+  vcAddTipoId.value         = ''
+  vcPendingOpciones.value   = []
+  vcPrecios.value           = {}
+  vcGuardando.value         = {}
+  vcOpcionesAgregadas.value = {}
   mostrarGestionar.value  = true
   cargarVarConfigs()
 }
@@ -696,23 +698,52 @@ function vcIniciarAgregar() {
 async function vcGuardarTipo(tipoId) {
   vcGuardando.value[tipoId] = true
   try {
-    const precios = vcPrecios.value[tipoId] || {}
-    const grupo   = vcTiposAsignados.value.find(g => g.tipo_variante_id == tipoId)
-    const items   = grupo.items.map(item => ({
+    const precios  = vcPrecios.value[tipoId] || {}
+    const grupo    = vcTiposAsignados.value.find(g => g.tipo_variante_id == tipoId)
+    const existing = grupo.items.map(item => ({
       opcion_id:        item.opcion_id,
       precio_adicional: precios[item.opcion_id] ?? 0,
     }))
+    const nuevas = (vcOpcionesAgregadas.value[tipoId] ?? []).map(op => ({
+      opcion_id:        op.opcion_id,
+      precio_adicional: precios[op.opcion_id] ?? 0,
+    }))
     await api.post(`/productos/${itemGestionar.value.producto_id}/variante-configs`, {
       tipo_variante_id: tipoId,
-      items,
+      items: [...existing, ...nuevas],
     })
-    toast.success('Precios guardados.')
+    vcOpcionesAgregadas.value[tipoId] = []
+    toast.success('Variantes guardadas.')
     await cargarVarConfigs()
     await _recargarCardVariantes(itemGestionar.value.producto_id)
   } catch (e) {
     toast.error(e.response?.data?.message ?? 'Error al guardar.')
   } finally {
     vcGuardando.value[tipoId] = false
+  }
+}
+
+function vcOpcFaltantesGrupo(grupo) {
+  const tipo = vcTodosLosTipos.value.find(t => t.id === grupo.tipo_variante_id)
+  if (!tipo) return []
+  const yaIds = new Set([
+    ...grupo.items.map(i => i.opcion_id),
+    ...(vcOpcionesAgregadas.value[grupo.tipo_variante_id] ?? []).map(o => o.opcion_id),
+  ])
+  return tipo.opciones.filter(o => !yaIds.has(o.id))
+}
+
+function vcAgregarOpcionAGrupo(grupo, opcion) {
+  const tipoId = grupo.tipo_variante_id
+  if (!vcOpcionesAgregadas.value[tipoId]) vcOpcionesAgregadas.value[tipoId] = []
+  vcOpcionesAgregadas.value[tipoId].push({ opcion_id: opcion.id, opcion_nombre: opcion.nombre })
+  if (!vcPrecios.value[tipoId]) vcPrecios.value[tipoId] = {}
+  vcPrecios.value[tipoId][opcion.id] = 0
+}
+
+function vcQuitarOpcionAgregada(tipoId, opcionId) {
+  if (vcOpcionesAgregadas.value[tipoId]) {
+    vcOpcionesAgregadas.value[tipoId] = vcOpcionesAgregadas.value[tipoId].filter(o => o.opcion_id !== opcionId)
   }
 }
 
@@ -2154,13 +2185,46 @@ onMounted(async () => {
                       class="flex-shrink-0 text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 rounded px-1.5 py-0.5 hover:bg-emerald-100 font-medium"
                     >{{ item.stock_disponible }} uds.</button>
                   </div>
+
+                  <!-- Opciones recién añadidas (pendientes de guardar) -->
+                  <div
+                    v-for="op in (vcOpcionesAgregadas[grupo.tipo_variante_id] ?? [])"
+                    :key="'pend-' + op.opcion_id"
+                    class="flex items-center gap-2 bg-blue-50 rounded px-2 py-1"
+                  >
+                    <span class="text-xs text-blue-700 flex-1 truncate">{{ op.opcion_nombre }}</span>
+                    <div v-if="grupo.tipo.afecta_precio" class="flex items-center gap-1">
+                      <span class="text-xs text-gray-400">+$</span>
+                      <input
+                        :value="vcPrecios[grupo.tipo_variante_id]?.[op.opcion_id] ?? 0"
+                        @input="vcPrecios[grupo.tipo_variante_id] = { ...vcPrecios[grupo.tipo_variante_id], [op.opcion_id]: Number($event.target.value) }"
+                        type="number" min="0" step="1000"
+                        class="w-24 text-xs rounded border border-blue-300 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white text-right"
+                      />
+                    </div>
+                    <span v-else class="text-xs text-blue-400 italic">sin precio</span>
+                    <button @click="vcQuitarOpcionAgregada(grupo.tipo_variante_id, op.opcion_id)" class="text-gray-300 hover:text-red-400">✕</button>
+                  </div>
+
+                  <!-- Opciones del tipo que aún no están en este producto -->
+                  <div v-if="vcOpcFaltantesGrupo(grupo).length" class="pt-1 border-t border-dashed border-gray-200 mt-1">
+                    <p class="text-xs text-gray-400 mb-1">Sin añadir en este producto:</p>
+                    <div class="flex flex-wrap gap-1">
+                      <button
+                        v-for="op in vcOpcFaltantesGrupo(grupo)"
+                        :key="op.id"
+                        @click="vcAgregarOpcionAGrupo(grupo, op)"
+                        class="text-xs bg-gray-100 text-gray-600 border border-gray-300 rounded-full px-2.5 py-0.5 hover:bg-blue-100 hover:text-blue-700 hover:border-blue-300 transition-colors"
+                      >+ {{ op.nombre }}</button>
+                    </div>
+                  </div>
                 </div>
                 <button
-                  v-if="grupo.tipo.afecta_precio"
+                  v-if="grupo.tipo.afecta_precio || (vcOpcionesAgregadas[grupo.tipo_variante_id]?.length)"
                   @click="vcGuardarTipo(grupo.tipo_variante_id)"
                   :disabled="!!vcGuardando[grupo.tipo_variante_id]"
                   class="mt-2 text-xs bg-blue-600 text-white rounded px-3 py-1.5 hover:bg-blue-700 disabled:opacity-50"
-                >{{ vcGuardando[grupo.tipo_variante_id] ? 'Guardando...' : 'Guardar precios' }}</button>
+                >{{ vcGuardando[grupo.tipo_variante_id] ? 'Guardando...' : (grupo.tipo.afecta_precio ? 'Guardar precios' : 'Guardar opciones') }}</button>
               </div>
 
               <!-- Selector para agregar nuevo tipo -->
