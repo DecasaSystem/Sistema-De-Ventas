@@ -132,6 +132,8 @@ class RedesController extends Controller
                 'tomada_at'  => now(),
             ]);
 
+            $this->silenciarBot($c->telefono, true);
+
             return $c->id;
         });
 
@@ -185,6 +187,29 @@ class RedesController extends Controller
         ]));
     }
 
+    // Los bots de WhatsApp/Instagram comparten esta misma base de datos y se
+    // auto-silencian leyendo estado_usuario.transferido (join por clientes_wa.telefono,
+    // que llega igual en ambos lados — con prefijo ig_<psid> cuando es Instagram, ver
+    // InstagramAgent/db.js). Antes solo el propio bot podía activar ese flag (cuando el
+    // cliente pedía asesor); ahora el clic real de "Tomar"/"Terminar" en este panel es
+    // la fuente de verdad, para que la IA no le siga respondiendo al cliente mientras un
+    // asesor humano ya se está haciendo cargo (y evitar que hablen los dos al tiempo).
+    private function silenciarBot(?string $telefono, bool $transferido): void
+    {
+        if (!$telefono) return;
+
+        try {
+            DB::update(
+                'INSERT INTO estado_usuario (usuario_id, transferido)
+                 SELECT id, ? FROM clientes_wa WHERE telefono = ?
+                 ON DUPLICATE KEY UPDATE transferido = VALUES(transferido)',
+                [$transferido, $telefono]
+            );
+        } catch (\Throwable $e) {
+            \Log::warning('[redes] no se pudo sincronizar transferido con el bot: ' . $e->getMessage());
+        }
+    }
+
     private function parsearFechaCita(string $dia): ?string
     {
         static $meses = [
@@ -234,6 +259,8 @@ class RedesController extends Controller
             'estado'       => 'terminada',
             'terminada_at' => now(),
         ]);
+
+        $this->silenciarBot($conv->telefono, false);
 
         // Si la conversación tiene una cita vinculada, también completarla
         Cita::where('conversacion_wa_id', $conv->id)
