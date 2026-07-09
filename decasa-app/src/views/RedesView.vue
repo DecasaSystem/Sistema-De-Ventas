@@ -16,6 +16,7 @@ import {
   WrenchScrewdriverIcon,
   ExclamationCircleIcon,
   MapPinIcon,
+  TrashIcon,
 } from '@heroicons/vue/24/outline'
 
 const auth   = useAuthStore()
@@ -87,6 +88,23 @@ async function terminar(id) {
     actualizarItem(data)
   } catch (e) {
     alert(e.response?.data?.error || 'Error al terminar')
+  }
+}
+
+const limpiando = ref(false)
+async function limpiarTerminadas() {
+  const n = badges.value.terminada
+  if (!n) return
+  if (!confirm(`¿Eliminar las ${n} conversaciones terminadas? Esta acción no se puede deshacer.`)) return
+  limpiando.value = true
+  try {
+    const { data } = await api.delete('/redes/conversaciones/terminadas')
+    items.value = items.value.filter(c => c.estado !== 'terminada')
+    toast.success(`${data.eliminadas} conversaciones eliminadas`)
+  } catch (e) {
+    toast.error('Error al limpiar las terminadas')
+  } finally {
+    limpiando.value = false
   }
 }
 
@@ -259,6 +277,18 @@ onUnmounted(() => {
             t.key === 'pendiente' ? 'bg-red-500' : 'bg-blue-500'
           ]"
         >{{ badges[t.key] > 9 ? '9+' : badges[t.key] }}</span>
+      </button>
+    </div>
+
+    <!-- Botón limpiar terminadas (solo supervisor, solo en pestaña terminadas) -->
+    <div v-if="tab === 'terminada' && auth.isSupervisor && badges.terminada > 0" class="flex justify-end mb-3">
+      <button
+        @click="limpiarTerminadas"
+        :disabled="limpiando"
+        class="flex items-center gap-1.5 text-xs font-semibold text-red-600 border border-red-200 bg-red-50 hover:bg-red-100 rounded-lg px-3 py-1.5 transition-colors disabled:opacity-50"
+      >
+        <TrashIcon class="w-3.5 h-3.5" />
+        {{ limpiando ? 'Eliminando…' : `Limpiar terminadas (${badges.terminada})` }}
       </button>
     </div>
 

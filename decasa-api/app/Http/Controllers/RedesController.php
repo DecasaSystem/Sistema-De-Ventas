@@ -240,6 +240,13 @@ class RedesController extends Controller
         return $fecha->toDateString();
     }
 
+    // DELETE /api/redes/conversaciones/terminadas — solo supervisor
+    public function limpiarTerminadas()
+    {
+        $eliminadas = ConversacionWa::where('estado', 'terminada')->delete();
+        return response()->json(['eliminadas' => $eliminadas]);
+    }
+
     // POST /api/redes/conversaciones/{id}/terminar
     public function terminar(Request $request, $id)
     {
