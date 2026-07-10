@@ -288,7 +288,9 @@ class StatsController extends Controller
 
         $tiendas = DB::table('tiendas')->where('activa', true)->get();
 
-        $resultado = $tiendas->map(function ($t) use ($rango, $desde, $hasta) {
+        $mesActual = Carbon::now()->format('Y-m');
+
+        $resultado = $tiendas->map(function ($t) use ($rango, $desde, $hasta, $mesActual) {
             $ingresos = (float) DB::table('pagos as p')
                 ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
                 ->where('o.tienda_id', $t->id)->whereBetween('p.created_at', $rango)
@@ -315,6 +317,11 @@ class StatsController extends Controller
                 ->groupBy('u.id', 'u.nombre')->orderByDesc('ingresos')
                 ->first();
 
+            $metaReg        = DB::table('metas_tienda')->where('tienda_id', $t->id)->where('mes', $mesActual)->first();
+            $totalTiendaMes = (float) DB::table('comisiones')->where('tienda_id', $t->id)->where('mes_venta', $mesActual)->sum('valor_orden');
+            $metaVal        = $metaReg ? (float) $metaReg->meta : null;
+            $pct            = ($metaVal && $metaVal > 0) ? min(100, round($totalTiendaMes / $metaVal * 100, 1)) : null;
+
             return [
                 'tienda_id'          => $t->id,
                 'nombre'             => $t->nombre,
@@ -330,6 +337,13 @@ class StatsController extends Controller
                     'nombre'   => $top->nombre,
                     'ingresos' => (float) $top->ingresos,
                 ] : null,
+                'meta_mes' => [
+                    'mes'          => $mesActual,
+                    'meta'         => $metaVal,
+                    'total_tienda' => $totalTiendaMes,
+                    'pct'          => $pct,
+                    'cumplida'     => $pct !== null && $pct >= 100,
+                ],
             ];
         });
 

@@ -688,6 +688,38 @@ onBeforeUnmount(() => {
                 <p class="text-gray-400">Ticket</p>
               </div>
             </div>
+            <!-- Barra meta mensual -->
+            <div v-if="t.meta_mes?.meta" class="mt-3 pt-3 border-t border-gray-100">
+              <div class="flex items-center justify-between mb-1">
+                <p class="text-xs font-semibold text-gray-600">Meta {{ t.meta_mes.mes }}</p>
+                <span :class="['text-xs font-bold px-2 py-0.5 rounded-full',
+                  t.meta_mes.pct >= 100 ? 'bg-green-100 text-green-700' :
+                  t.meta_mes.pct >= 80  ? 'bg-blue-100 text-blue-700' :
+                  t.meta_mes.pct >= 50  ? 'bg-yellow-100 text-yellow-700' :
+                  'bg-gray-100 text-gray-500']">
+                  {{ t.meta_mes.pct }}%
+                </span>
+              </div>
+              <div class="h-2 bg-gray-100 rounded-full overflow-hidden mb-1.5">
+                <div class="h-full rounded-full transition-all duration-700"
+                  :class="[
+                    t.meta_mes.pct >= 100 ? 'bg-green-500' :
+                    t.meta_mes.pct >= 80  ? 'bg-blue-500' :
+                    t.meta_mes.pct >= 50  ? 'bg-yellow-400' : 'bg-gray-300'
+                  ]"
+                  :style="{ width: `${Math.min(t.meta_mes.pct, 100)}%` }"
+                />
+              </div>
+              <div class="flex items-center justify-between text-[11px] text-gray-400">
+                <span>Vendido: <span class="font-semibold text-gray-600">{{ cop(t.meta_mes.total_tienda) }}</span></span>
+                <span>Meta: <span class="font-semibold text-gray-600">{{ cop(t.meta_mes.meta) }}</span></span>
+              </div>
+              <p v-if="t.meta_mes.cumplida" class="mt-1 text-[11px] font-semibold text-green-600">✓ ¡Meta alcanzada!</p>
+              <p v-else class="mt-1 text-[11px] text-gray-400">
+                Faltan <span class="font-semibold text-gray-600">{{ cop(t.meta_mes.meta - t.meta_mes.total_tienda) }}</span>
+              </p>
+            </div>
+
             <div v-if="t.vendedor_destacado" class="mt-3 text-xs text-gray-500 flex items-center gap-1">
               <StarIcon class="w-4 h-4 text-yellow-500 inline-block" />
               <span>{{ t.vendedor_destacado.nombre }}</span>
