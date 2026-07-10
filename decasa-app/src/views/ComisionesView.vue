@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
+import { useRouter } from 'vue-router'
 import api from '@/api'
 import {
   ReceiptPercentIcon,
@@ -13,9 +14,11 @@ import {
   ChevronUpIcon,
   Cog6ToothIcon,
   UserGroupIcon,
+  ArrowTopRightOnSquareIcon,
 } from '@heroicons/vue/24/outline'
 
-const auth  = useAuthStore()
+const auth   = useAuthStore()
+const router = useRouter()
 const toast = useToast()
 
 // ── Estado ─────────────────────────────────────────────────────────────────────
@@ -332,7 +335,17 @@ onMounted(cargar)
           <div class="flex items-start justify-between gap-2 mb-2">
             <div class="flex-1 min-w-0">
               <p class="font-semibold text-gray-800 text-sm truncate">{{ c.vendedor_nombre }}</p>
-              <p class="text-xs text-gray-400">{{ c.tienda_nombre }} · Orden #{{ c.orden_numero }}</p>
+              <div class="flex items-center gap-1.5 mt-0.5">
+                <p class="text-xs text-gray-400">{{ c.tienda_nombre }} · Orden #{{ c.orden_numero }}</p>
+                <button
+                  v-if="c.orden_id"
+                  @click="router.push({ name: 'orden-detalle', params: { id: c.orden_id } })"
+                  class="flex items-center gap-0.5 text-[10px] font-semibold text-blue-600 hover:text-blue-800 transition-colors"
+                >
+                  <ArrowTopRightOnSquareIcon class="w-3 h-3" />
+                  Ver
+                </button>
+              </div>
             </div>
             <!-- Comisión calculada -->
             <div class="text-right shrink-0">
