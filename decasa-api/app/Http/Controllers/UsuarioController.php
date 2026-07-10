@@ -145,6 +145,7 @@ class UsuarioController extends Controller
             'es_tapicero'         => 'nullable|boolean',
             'notif_asignar_fecha' => 'nullable|boolean',
             'acceso_redes'        => 'nullable|boolean',
+            'acceso_comisiones'   => 'nullable|boolean',
             'recarga_telas'       => 'nullable|boolean',
             'tienda_default_id'   => 'sometimes|nullable|exists:tiendas,id',
         ], [
@@ -169,6 +170,9 @@ class UsuarioController extends Controller
         if ($request->has('acceso_redes')) {
             $data['acceso_redes'] = in_array($rolFinal, ['vendedor', 'supervisor']) && $request->boolean('acceso_redes');
         }
+        if ($request->has('acceso_comisiones')) {
+            $data['acceso_comisiones'] = ($rolFinal === 'supervisor') && $request->boolean('acceso_comisiones');
+        }
         if ($request->has('recarga_telas')) {
             $data['recarga_telas'] = in_array($rolFinal, ['vendedor', 'supervisor']) && $request->boolean('recarga_telas');
         }
@@ -189,6 +193,7 @@ class UsuarioController extends Controller
             'es_tapicero'         => (bool) $usuario->es_tapicero,
             'notif_asignar_fecha' => (bool) $usuario->notif_asignar_fecha,
             'acceso_redes'        => (bool) $usuario->acceso_redes,
+            'acceso_comisiones'   => (bool) $usuario->acceso_comisiones,
             'recarga_telas'       => (bool) $usuario->recarga_telas,
             'tienda_default_id'   => $usuario->tienda_default_id,
             'tienda_default'      => $usuario->tiendaDefault,
