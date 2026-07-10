@@ -202,6 +202,53 @@ const badges = computed(() => ({
 
 const vendedorActual = computed(() => vendedores.value.find(v => v.id === vendedorSel.value))
 
+// ── Resumen computed ───────────────────────────────────────────────────────────
+const resumenFiltro = ref('vendedor') // 'general' | 'tienda' | 'vendedor'
+
+const totalGeneral = computed(() => ({
+  comision: resumenData.value.reduce((s, r) => s + r.comision_total, 0),
+  ventas:   resumenData.value.reduce((s, r) => s + r.total_ventas, 0),
+  ordenes:  resumenData.value.reduce((s, r) => s + r.total_ordenes, 0),
+  asesores: resumenData.value.length,
+  pendientes: resumenData.value.reduce((s, r) => s + r.pendientes, 0),
+  listas:     resumenData.value.reduce((s, r) => s + r.listas, 0),
+  pagadas:    resumenData.value.reduce((s, r) => s + r.pagadas, 0),
+}))
+
+const resumenPorTienda = computed(() => {
+  const map = {}
+  for (const r of resumenData.value) {
+    if (!map[r.tienda_id]) {
+      map[r.tienda_id] = {
+        tienda_id:      r.tienda_id,
+        tienda_nombre:  r.tienda_nombre,
+        comision_total: 0,
+        total_ventas:   0,
+        total_ordenes:  0,
+        pendientes:     0,
+        listas:         0,
+        pagadas:        0,
+        vendedores:     [],
+      }
+    }
+    const t = map[r.tienda_id]
+    t.comision_total += r.comision_total
+    t.total_ventas   += r.total_ventas
+    t.total_ordenes  += r.total_ordenes
+    t.pendientes     += r.pendientes
+    t.listas         += r.listas
+    t.pagadas        += r.pagadas
+    t.vendedores.push(r)
+  }
+  return Object.values(map).sort((a, b) => b.comision_total - a.comision_total)
+})
+
+const expandidosTienda = ref(new Set())
+function toggleExpandTienda(id) {
+  if (expandidosTienda.value.has(id)) expandidosTienda.value.delete(id)
+  else expandidosTienda.value.add(id)
+}
+
 function vendedoresDisponibles(tiendaId) {
   const meta = metas.value.find(m => m.tienda_id === tiendaId)
   const yaAsignados = new Set((meta?.asesores ?? []).map(a => a.vendedor_id))
@@ -411,103 +458,193 @@ onMounted(async () => {
         <p class="text-gray-400 text-sm">Sin datos para {{ mesActual }}</p>
       </div>
 
-      <div v-else class="space-y-3">
-        <!-- Totales globales del mes -->
-        <div class="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-100 rounded-xl p-3 mb-4">
-          <p class="text-[10px] font-semibold text-green-600 uppercase tracking-wide mb-1">Total a pagar {{ mesActual }}</p>
-          <p class="text-2xl font-bold text-green-800">
-            {{ cop(resumenData.reduce((s, r) => s + r.comision_total, 0)) }}
-          </p>
-          <p class="text-xs text-green-600 mt-0.5">
-            {{ resumenData.length }} asesor{{ resumenData.length !== 1 ? 'es' : '' }} ·
-            {{ resumenData.reduce((s, r) => s + r.total_ordenes, 0) }} órdenes
-          </p>
+      <div v-else>
+        <!-- Selector de agrupación -->
+        <div class="flex rounded-xl bg-gray-100 p-1 mb-4 gap-1">
+          <button
+            v-for="f in [{ key: 'general', label: 'General' }, { key: 'tienda', label: 'Por tienda' }, { key: 'vendedor', label: 'Por vendedor' }]"
+            :key="f.key"
+            @click="resumenFiltro = f.key"
+            :class="['flex-1 py-1.5 rounded-lg text-xs font-semibold transition-colors', resumenFiltro === f.key ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700']"
+          >{{ f.label }}</button>
         </div>
 
-        <!-- Card por vendedor -->
-        <div
-          v-for="r in resumenData"
-          :key="r.vendedor_id"
-          class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden"
-        >
-          <div class="p-4">
-            <div class="flex items-start justify-between gap-2 mb-2">
-              <div class="flex-1 min-w-0">
-                <p class="font-semibold text-gray-800 text-sm truncate">{{ r.vendedor_nombre }}</p>
-                <p class="text-xs text-gray-400 mt-0.5">{{ r.tienda_nombre }}</p>
-              </div>
-              <div class="text-right shrink-0">
-                <p class="text-lg font-bold text-green-700">{{ cop(r.comision_total) }}</p>
-                <p class="text-[10px] text-gray-400">de {{ cop(r.total_ventas) }} vendidos</p>
-              </div>
+        <!-- ── GENERAL ──────────────────────────────────────────────────── -->
+        <div v-if="resumenFiltro === 'general'" class="space-y-3">
+          <!-- Gran total -->
+          <div class="bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl p-5 text-white">
+            <p class="text-xs font-semibold uppercase tracking-wide opacity-80 mb-1">Total a pagar — {{ mesActual }}</p>
+            <p class="text-4xl font-bold mb-2">{{ cop(totalGeneral.comision) }}</p>
+            <p class="text-sm opacity-80">{{ totalGeneral.asesores }} asesores · {{ totalGeneral.ordenes }} órdenes</p>
+          </div>
+          <!-- Desglose estados -->
+          <div class="grid grid-cols-3 gap-2">
+            <div class="bg-orange-50 border border-orange-100 rounded-xl p-3 text-center">
+              <p class="text-xl font-bold text-orange-600">{{ totalGeneral.pendientes }}</p>
+              <p class="text-[10px] text-orange-500 font-medium mt-0.5">Pendientes</p>
             </div>
-
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-2">
-                <span
-                  :class="['inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full', resumenEstadoLabel(r).bg, resumenEstadoLabel(r).color]"
-                >
-                  {{ resumenEstadoLabel(r).text }}
-                </span>
-                <span class="text-xs text-gray-400">{{ r.total_ordenes }} orden{{ r.total_ordenes !== 1 ? 'es' : '' }}</span>
-              </div>
-              <button @click="toggleExpandRes(r.vendedor_id)" class="text-gray-300 hover:text-gray-500">
-                <ChevronUpIcon v-if="expandidosRes.has(r.vendedor_id)" class="w-4 h-4" />
-                <ChevronDownIcon v-else class="w-4 h-4" />
-              </button>
+            <div class="bg-green-50 border border-green-100 rounded-xl p-3 text-center">
+              <p class="text-xl font-bold text-green-700">{{ totalGeneral.listas }}</p>
+              <p class="text-[10px] text-green-600 font-medium mt-0.5">Listas</p>
+            </div>
+            <div class="bg-gray-100 border border-gray-200 rounded-xl p-3 text-center">
+              <p class="text-xl font-bold text-gray-700">{{ totalGeneral.pagadas }}</p>
+              <p class="text-[10px] text-gray-500 font-medium mt-0.5">Pagadas</p>
             </div>
           </div>
+          <!-- Ventas totales referencia -->
+          <div class="bg-white border border-gray-100 rounded-xl p-4 flex justify-between items-center">
+            <div>
+              <p class="text-xs text-gray-400">Total ventas del mes</p>
+              <p class="text-base font-bold text-gray-700">{{ cop(totalGeneral.ventas) }}</p>
+            </div>
+            <div class="text-right">
+              <p class="text-xs text-gray-400">Comisión sobre ventas</p>
+              <p class="text-base font-bold text-green-700">
+                {{ totalGeneral.ventas > 0 ? (totalGeneral.comision / totalGeneral.ventas * 100).toFixed(1) : 0 }}%
+              </p>
+            </div>
+          </div>
+        </div>
 
-          <!-- Detalle órdenes expandido -->
-          <div v-if="expandidosRes.has(r.vendedor_id)" class="border-t border-gray-50 bg-gray-50 px-4 py-3">
-            <!-- Resumen estados -->
-            <div class="grid grid-cols-3 gap-2 mb-3">
-              <div class="bg-orange-50 rounded-lg p-2 text-center">
-                <p class="text-sm font-bold text-orange-600">{{ r.pendientes }}</p>
-                <p class="text-[10px] text-orange-500">Pendientes</p>
+        <!-- ── POR TIENDA ───────────────────────────────────────────────── -->
+        <div v-else-if="resumenFiltro === 'tienda'" class="space-y-3">
+          <!-- Subtotal global pequeño -->
+          <div class="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-100 rounded-xl px-4 py-3 flex justify-between items-center">
+            <p class="text-xs font-semibold text-green-700">Total general</p>
+            <p class="text-lg font-bold text-green-800">{{ cop(totalGeneral.comision) }}</p>
+          </div>
+
+          <div
+            v-for="t in resumenPorTienda"
+            :key="t.tienda_id"
+            class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden"
+          >
+            <div class="p-4">
+              <div class="flex items-start justify-between gap-2 mb-2">
+                <div class="flex-1 min-w-0">
+                  <p class="font-semibold text-gray-800 text-sm truncate">{{ t.tienda_nombre }}</p>
+                  <p class="text-xs text-gray-400 mt-0.5">{{ t.vendedores.length }} asesor{{ t.vendedores.length !== 1 ? 'es' : '' }} · {{ t.total_ordenes }} órdenes</p>
+                </div>
+                <div class="text-right shrink-0">
+                  <p class="text-lg font-bold text-green-700">{{ cop(t.comision_total) }}</p>
+                  <p class="text-[10px] text-gray-400">de {{ cop(t.total_ventas) }}</p>
+                </div>
               </div>
-              <div class="bg-green-50 rounded-lg p-2 text-center">
-                <p class="text-sm font-bold text-green-700">{{ r.listas }}</p>
-                <p class="text-[10px] text-green-600">Listas</p>
-              </div>
-              <div class="bg-gray-100 rounded-lg p-2 text-center">
-                <p class="text-sm font-bold text-gray-700">{{ r.pagadas }}</p>
-                <p class="text-[10px] text-gray-500">Pagadas</p>
+              <!-- Mini badges estados -->
+              <div class="flex items-center justify-between">
+                <div class="flex gap-2">
+                  <span v-if="t.pendientes" class="text-[11px] font-semibold text-orange-600 bg-orange-50 px-2 py-0.5 rounded-full">{{ t.pendientes }} pend.</span>
+                  <span v-if="t.listas"    class="text-[11px] font-semibold text-green-700 bg-green-50 px-2 py-0.5 rounded-full">{{ t.listas }} lista{{ t.listas !== 1 ? 's' : '' }}</span>
+                  <span v-if="t.pagadas"   class="text-[11px] font-semibold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">{{ t.pagadas }} pag.</span>
+                </div>
+                <button @click="toggleExpandTienda(t.tienda_id)" class="text-gray-300 hover:text-gray-500">
+                  <ChevronUpIcon v-if="expandidosTienda.has(t.tienda_id)" class="w-4 h-4" />
+                  <ChevronDownIcon v-else class="w-4 h-4" />
+                </button>
               </div>
             </div>
 
-            <!-- Tabla órdenes -->
-            <p class="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Órdenes</p>
-            <div class="space-y-1.5">
+            <!-- Vendedores de esa tienda -->
+            <div v-if="expandidosTienda.has(t.tienda_id)" class="border-t border-gray-50 bg-gray-50 px-4 py-3 space-y-2">
               <div
-                v-for="o in r.ordenes"
-                :key="o.id"
-                class="flex items-center justify-between text-xs bg-white rounded-lg px-3 py-2 border border-gray-100"
+                v-for="r in t.vendedores"
+                :key="r.vendedor_id"
+                class="flex items-center justify-between text-xs bg-white rounded-lg px-3 py-2.5 border border-gray-100"
               >
-                <div class="flex items-center gap-2 min-w-0">
-                  <span
-                    :class="[
-                      'w-1.5 h-1.5 rounded-full shrink-0',
-                      o.estado === 'pagada' ? 'bg-green-500' : o.estado === 'lista' ? 'bg-green-400' : 'bg-orange-300'
-                    ]"
-                  />
-                  <button
-                    @click="router.push({ name: 'orden-detalle', params: { id: o.orden_id } })"
-                    class="font-semibold text-blue-600 hover:text-blue-800 truncate"
-                  >#{{ o.orden_numero }}</button>
-                  <span class="text-gray-400 truncate">{{ fmtFecha(o.fecha_venta) }}</span>
+                <div>
+                  <p class="font-semibold text-gray-800">{{ r.vendedor_nombre }}</p>
+                  <p class="text-gray-400 mt-0.5">{{ r.total_ordenes }} órdenes</p>
                 </div>
-                <div class="text-right shrink-0 ml-2">
-                  <span class="font-semibold text-green-700">{{ cop(o.monto_comision) }}</span>
-                  <span class="text-gray-400 ml-1">/ {{ cop(o.valor_orden) }}</span>
+                <p class="font-bold text-green-700 text-sm">{{ cop(r.comision_total) }}</p>
+              </div>
+              <div class="flex items-center justify-between pt-1 border-t border-gray-200 text-xs font-bold">
+                <span class="text-gray-600">Total tienda</span>
+                <span class="text-green-700 text-base">{{ cop(t.comision_total) }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── POR VENDEDOR ─────────────────────────────────────────────── -->
+        <div v-else class="space-y-3">
+          <!-- Subtotal global pequeño -->
+          <div class="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-100 rounded-xl px-4 py-3 flex justify-between items-center">
+            <p class="text-xs font-semibold text-green-700">Total general</p>
+            <p class="text-lg font-bold text-green-800">{{ cop(totalGeneral.comision) }}</p>
+          </div>
+
+          <div
+            v-for="r in resumenData"
+            :key="r.vendedor_id"
+            class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden"
+          >
+            <div class="p-4">
+              <div class="flex items-start justify-between gap-2 mb-2">
+                <div class="flex-1 min-w-0">
+                  <p class="font-semibold text-gray-800 text-sm truncate">{{ r.vendedor_nombre }}</p>
+                  <p class="text-xs text-gray-400 mt-0.5">{{ r.tienda_nombre }}</p>
                 </div>
+                <div class="text-right shrink-0">
+                  <p class="text-lg font-bold text-green-700">{{ cop(r.comision_total) }}</p>
+                  <p class="text-[10px] text-gray-400">de {{ cop(r.total_ventas) }} vendidos</p>
+                </div>
+              </div>
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <span :class="['inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full', resumenEstadoLabel(r).bg, resumenEstadoLabel(r).color]">
+                    {{ resumenEstadoLabel(r).text }}
+                  </span>
+                  <span class="text-xs text-gray-400">{{ r.total_ordenes }} orden{{ r.total_ordenes !== 1 ? 'es' : '' }}</span>
+                </div>
+                <button @click="toggleExpandRes(r.vendedor_id)" class="text-gray-300 hover:text-gray-500">
+                  <ChevronUpIcon v-if="expandidosRes.has(r.vendedor_id)" class="w-4 h-4" />
+                  <ChevronDownIcon v-else class="w-4 h-4" />
+                </button>
               </div>
             </div>
 
-            <!-- Total fila -->
-            <div class="flex items-center justify-between mt-2 pt-2 border-t border-gray-200 text-xs font-bold">
-              <span class="text-gray-700">Total a pagar</span>
-              <span class="text-green-700 text-base">{{ cop(r.comision_total) }}</span>
+            <!-- Detalle órdenes -->
+            <div v-if="expandidosRes.has(r.vendedor_id)" class="border-t border-gray-50 bg-gray-50 px-4 py-3">
+              <div class="grid grid-cols-3 gap-2 mb-3">
+                <div class="bg-orange-50 rounded-lg p-2 text-center">
+                  <p class="text-sm font-bold text-orange-600">{{ r.pendientes }}</p>
+                  <p class="text-[10px] text-orange-500">Pendientes</p>
+                </div>
+                <div class="bg-green-50 rounded-lg p-2 text-center">
+                  <p class="text-sm font-bold text-green-700">{{ r.listas }}</p>
+                  <p class="text-[10px] text-green-600">Listas</p>
+                </div>
+                <div class="bg-gray-100 rounded-lg p-2 text-center">
+                  <p class="text-sm font-bold text-gray-700">{{ r.pagadas }}</p>
+                  <p class="text-[10px] text-gray-500">Pagadas</p>
+                </div>
+              </div>
+              <p class="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Órdenes</p>
+              <div class="space-y-1.5">
+                <div
+                  v-for="o in r.ordenes"
+                  :key="o.id"
+                  class="flex items-center justify-between text-xs bg-white rounded-lg px-3 py-2 border border-gray-100"
+                >
+                  <div class="flex items-center gap-2 min-w-0">
+                    <span :class="['w-1.5 h-1.5 rounded-full shrink-0', o.estado === 'pagada' ? 'bg-green-500' : o.estado === 'lista' ? 'bg-green-400' : 'bg-orange-300']" />
+                    <button
+                      @click="router.push({ name: 'orden-detalle', params: { id: o.orden_id } })"
+                      class="font-semibold text-blue-600 hover:text-blue-800 truncate"
+                    >#{{ o.orden_numero }}</button>
+                    <span class="text-gray-400 truncate">{{ fmtFecha(o.fecha_venta) }}</span>
+                  </div>
+                  <div class="text-right shrink-0 ml-2">
+                    <span class="font-semibold text-green-700">{{ cop(o.monto_comision) }}</span>
+                    <span class="text-gray-400 ml-1">/ {{ cop(o.valor_orden) }}</span>
+                  </div>
+                </div>
+              </div>
+              <div class="flex items-center justify-between mt-2 pt-2 border-t border-gray-200 text-xs font-bold">
+                <span class="text-gray-700">Total a pagar</span>
+                <span class="text-green-700 text-base">{{ cop(r.comision_total) }}</span>
+              </div>
             </div>
           </div>
         </div>
