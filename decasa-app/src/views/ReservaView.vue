@@ -97,8 +97,8 @@ const coloresOpciones = computed(() =>
     ? coloresDeTela(formVariante.value.marca, formVariante.value.marca_tela) : []
 )
 const marcaFinal  = computed(() => formVariante.value.marca === 'Otro'      ? formVariante.value.marcaManual  : formVariante.value.marca)
-const telaFinal   = computed(() => formVariante.value.marca_tela === 'Otro' ? formVariante.value.telaManual   : formVariante.value.marca_tela)
-const colorFinal  = computed(() => formVariante.value.nombre_color === 'Otro'? formVariante.value.colorManual  : formVariante.value.nombre_color)
+const telaFinal   = computed(() => formVariante.value.marca_tela === 'Otro' || !tiposTelaOpciones.value.length ? formVariante.value.telaManual  : formVariante.value.marca_tela)
+const colorFinal  = computed(() => formVariante.value.nombre_color === 'Otro' || !coloresOpciones.value.length ? formVariante.value.colorManual : formVariante.value.nombre_color)
 
 function abrirNuevaVariante(productoId, esTalla = false) {
   nuevaVarianteProdId.value  = productoId
