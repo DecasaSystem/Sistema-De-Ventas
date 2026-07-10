@@ -241,6 +241,50 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
+      <!-- Barra de meta mensual -->
+      <div v-if="stats.meta_mes?.meta" class="bg-white rounded-xl shadow-sm p-4">
+        <div class="flex items-center justify-between mb-1">
+          <p class="text-sm font-semibold text-gray-700">Meta mensual · {{ stats.meta_mes.mes }}</p>
+          <span
+            :class="[
+              'text-xs font-bold px-2 py-0.5 rounded-full',
+              stats.meta_mes.cumplida
+                ? 'bg-green-100 text-green-700'
+                : stats.meta_mes.pct >= 80
+                  ? 'bg-blue-100 text-blue-700'
+                  : stats.meta_mes.pct >= 50
+                    ? 'bg-yellow-100 text-yellow-700'
+                    : 'bg-gray-100 text-gray-500'
+            ]"
+          >{{ stats.meta_mes.pct }}%</span>
+        </div>
+        <div class="h-3 bg-gray-100 rounded-full overflow-hidden mb-2">
+          <div
+            class="h-full rounded-full transition-all duration-700"
+            :class="[
+              stats.meta_mes.cumplida
+                ? 'bg-green-500'
+                : stats.meta_mes.pct >= 80
+                  ? 'bg-blue-500'
+                  : stats.meta_mes.pct >= 50
+                    ? 'bg-yellow-400'
+                    : 'bg-gray-300'
+            ]"
+            :style="{ width: `${Math.min(stats.meta_mes.pct, 100)}%` }"
+          />
+        </div>
+        <div class="flex items-center justify-between text-xs text-gray-500">
+          <span>Tienda: <span class="font-semibold text-gray-700">{{ cop(stats.meta_mes.total_tienda) }}</span></span>
+          <span>Meta: <span class="font-semibold text-gray-700">{{ cop(stats.meta_mes.meta) }}</span></span>
+        </div>
+        <p v-if="stats.meta_mes.cumplida" class="mt-2 text-xs font-semibold text-green-600">
+          ✓ ¡Meta alcanzada! La comisión del mes está activa.
+        </p>
+        <p v-else class="mt-2 text-xs text-gray-400">
+          Faltan <span class="font-semibold text-gray-600">{{ cop(stats.meta_mes.meta - stats.meta_mes.total_tienda) }}</span> para activar comisiones
+        </p>
+      </div>
+
       <!-- Comparativa equipo -->
       <div v-if="stats.comparativa_equipo" class="bg-white rounded-xl shadow-sm p-4">
         <p class="text-sm font-semibold text-gray-700 mb-3">Comparativa con el equipo</p>
