@@ -194,7 +194,8 @@ class ComisionController extends Controller
 
         $mes          = Carbon::parse($orden->created_at)->format('Y-m');
         $fechaVenta   = Carbon::parse($orden->created_at)->toDateString();
-        $fechaDisp    = Carbon::parse($orden->created_at)->addMonth()->toDateString();
+        // Disponible el último día del mes siguiente (ej: ventas julio → 31 agosto)
+        $fechaDisp    = Carbon::parse($orden->created_at)->addMonth()->endOfMonth()->toDateString();
 
         $esCompartida  = (bool) $orden->es_compartida;
         $covendedorId  = $orden->covendedor_id;
