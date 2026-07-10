@@ -8,7 +8,7 @@ class MetaTienda extends Model
 {
     protected $table = 'metas_tienda';
 
-    protected $fillable = ['tienda_id', 'mes', 'meta'];
+    protected $fillable = ['tienda_id', 'mes', 'meta', 'divisor_asesores'];
 
     protected function casts(): array
     {

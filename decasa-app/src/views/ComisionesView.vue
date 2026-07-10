@@ -34,6 +34,7 @@ const mostrarMetas = ref(false)
 const recalculando = ref(false)
 const guardandoMeta = ref(null)
 const metaEdits    = ref({}) // tienda_id → valor string en edición
+const divisorEdits = ref({}) // tienda_id → divisor int
 
 // ── Carga ──────────────────────────────────────────────────────────────────────
 async function cargar() {
@@ -62,7 +63,8 @@ async function cargar() {
 async function cargarMetas() {
   const { data } = await api.get('/comisiones/metas', { params: { mes: mesActual.value } })
   metas.value = data
-  metaEdits.value = Object.fromEntries(data.map(m => [m.tienda_id, m.meta != null ? String(m.meta) : '']))
+  metaEdits.value    = Object.fromEntries(data.map(m => [m.tienda_id, m.meta != null ? String(m.meta) : '']))
+  divisorEdits.value = Object.fromEntries(data.map(m => [m.tienda_id, m.divisor_asesores ?? 1]))
 }
 
 async function recalcular() {
@@ -99,7 +101,12 @@ async function guardarMeta(tiendaId) {
   if (isNaN(val) || val < 0) { toast.error('Valor inválido'); return }
   guardandoMeta.value = tiendaId
   try {
-    await api.post('/comisiones/metas', { tienda_id: tiendaId, mes: mesActual.value, meta: val })
+    await api.post('/comisiones/metas', {
+      tienda_id:        tiendaId,
+      mes:              mesActual.value,
+      meta:             val,
+      divisor_asesores: parseInt(divisorEdits.value[tiendaId] ?? 1),
+    })
     toast.success('Meta guardada')
     await cargarMetas()
   } catch {
@@ -197,20 +204,37 @@ onMounted(cargar)
           class="text-xs border border-gray-200 rounded-lg px-2 py-1 focus:ring-2 focus:ring-green-500 focus:border-transparent"
         />
       </div>
-      <div class="space-y-2">
-        <div v-for="m in metas" :key="m.tienda_id" class="flex items-center gap-2">
-          <span class="text-xs text-gray-600 flex-1 truncate">{{ m.nombre }}</span>
-          <input
-            type="number"
-            v-model="metaEdits[m.tienda_id]"
-            placeholder="0"
-            class="w-36 text-xs text-right border border-gray-200 rounded-lg px-2 py-1 focus:ring-2 focus:ring-green-500 focus:border-transparent"
-          />
-          <button
-            @click="guardarMeta(m.tienda_id)"
-            :disabled="guardandoMeta === m.tienda_id"
-            class="text-xs font-semibold text-green-700 bg-green-50 border border-green-200 rounded-lg px-2 py-1 hover:bg-green-100 disabled:opacity-50"
-          >{{ guardandoMeta === m.tienda_id ? '…' : 'OK' }}</button>
+      <div class="space-y-3">
+        <div v-for="m in metas" :key="m.tienda_id" class="border border-gray-100 rounded-xl p-3">
+          <p class="text-xs font-semibold text-gray-700 mb-2 truncate">{{ m.nombre }}</p>
+          <div class="flex items-center gap-2">
+            <div class="flex-1">
+              <p class="text-[10px] text-gray-400 mb-0.5">Meta mensual</p>
+              <input
+                type="number"
+                v-model="metaEdits[m.tienda_id]"
+                placeholder="0"
+                class="w-full text-xs text-right border border-gray-200 rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-green-500 focus:border-transparent"
+              />
+            </div>
+            <div class="w-20">
+              <p class="text-[10px] text-gray-400 mb-0.5">÷ Asesores</p>
+              <input
+                type="number"
+                v-model="divisorEdits[m.tienda_id]"
+                min="1"
+                max="20"
+                class="w-full text-xs text-center border border-gray-200 rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-green-500 focus:border-transparent"
+              />
+            </div>
+            <div class="pt-4">
+              <button
+                @click="guardarMeta(m.tienda_id)"
+                :disabled="guardandoMeta === m.tienda_id"
+                class="text-xs font-semibold text-green-700 bg-green-50 border border-green-200 rounded-lg px-2.5 py-1.5 hover:bg-green-100 disabled:opacity-50"
+              >{{ guardandoMeta === m.tienda_id ? '…' : 'OK' }}</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -369,10 +393,10 @@ onMounted(cargar)
             <div class="flex items-center gap-1.5">
               <CheckCircleIcon v-if="c.meta_cumplida" class="w-4 h-4 text-green-500" />
               <XCircleIcon v-else class="w-4 h-4 text-red-400" />
-              <span :class="c.meta_cumplida ? 'text-green-700' : 'text-gray-500'">Meta del mes alcanzada</span>
+              <span :class="c.meta_cumplida ? 'text-green-700' : 'text-gray-500'">Meta tienda alcanzada</span>
             </div>
             <span class="text-gray-400 font-medium">
-              {{ cop(c.total_mes) }} / {{ c.meta_tienda > 0 ? cop(c.meta_tienda) : 'Sin meta' }}
+              {{ cop(c.total_tienda_mes) }} / {{ c.meta_tienda > 0 ? cop(c.meta_tienda) : 'Sin meta' }}
             </span>
           </div>
 
@@ -389,11 +413,15 @@ onMounted(cargar)
           <!-- Cálculo -->
           <div v-if="c.meta_tienda > 0" class="mt-2 pt-2 border-t border-gray-100 text-xs text-gray-500 space-y-0.5">
             <p class="font-semibold text-gray-600 mb-1">Cálculo</p>
-            <p>Ventas del mes: {{ cop(c.total_mes) }}</p>
-            <p>Meta: {{ cop(c.meta_tienda) }}</p>
-            <p>Base neta (sin IVA): {{ cop(Math.max(0, (c.total_mes - c.meta_tienda) / 1.19)) }}</p>
-            <p class="font-semibold text-green-700">Comisión mes (5%): {{ cop(Math.max(0, (c.total_mes - c.meta_tienda) / 1.19 * 0.05)) }}</p>
-            <p>Proporción esta orden: {{ c.total_mes > 0 ? Math.round(c.valor_orden / c.total_mes * 100) : 0 }}%</p>
+            <p>Ventas tienda mes: {{ cop(c.total_tienda_mes) }}</p>
+            <p>Meta tienda: − {{ cop(c.meta_tienda) }}</p>
+            <p>Base bruta: {{ cop(Math.max(0, c.total_tienda_mes - c.meta_tienda)) }}</p>
+            <p>Sin IVA (÷1.19): {{ cop(Math.max(0, (c.total_tienda_mes - c.meta_tienda) / 1.19)) }}</p>
+            <p>Pool 5%: {{ cop(c.comision_pool) }}</p>
+            <p v-if="c.divisor_asesores > 1">÷ {{ c.divisor_asesores }} asesores: {{ cop(c.comision_asesor) }}</p>
+            <p class="font-semibold text-green-700 border-t border-gray-100 pt-0.5 mt-0.5">Comisión asesor: {{ cop(c.comision_asesor) }}</p>
+            <p>Ventas propias mes: {{ cop(c.total_vendedor_mes) }} ({{ c.total_vendedor_mes > 0 ? Math.round(c.valor_orden / c.total_vendedor_mes * 100) : 0 }}% esta orden)</p>
+            <p class="font-bold text-green-700">Comisión esta orden: {{ cop(c.monto_comision) }}</p>
           </div>
 
           <div class="pt-1 text-xs text-gray-400">

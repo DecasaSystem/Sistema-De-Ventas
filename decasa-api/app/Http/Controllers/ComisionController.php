@@ -19,8 +19,8 @@ class ComisionController extends Controller
     {
         $usuario    = $request->user();
         $vendedorId = $request->query('vendedor_id');
-        $mes        = $request->query('mes'); // 'YYYY-MM'
-        $estado     = $request->query('estado'); // pendiente | lista | pagada
+        $mes        = $request->query('mes');
+        $estado     = $request->query('estado');
 
         if (! $usuario->acceso_comisiones) {
             return response()->json(['error' => 'Sin acceso'], 403);
@@ -35,33 +35,15 @@ class ComisionController extends Controller
 
         $comisiones = $query->get();
 
-        // Cargar metas y totales mensuales para cálculo de comisión
-        $metas = MetaTienda::all()->keyBy(fn($m) => $m->tienda_id . '_' . $m->mes);
-
-        $totalesMes = DB::table('comisiones')
-            ->selectRaw('vendedor_id, tienda_id, mes_venta, SUM(valor_orden) as total')
-            ->where('estado', '!=', 'pendiente') // se excluirán las que no hayan confirmado... en realidad todas entran
-            ->groupBy('vendedor_id', 'tienda_id', 'mes_venta')
-            ->get()
-            ->keyBy(fn($r) => $r->vendedor_id . '_' . $r->tienda_id . '_' . $r->mes_venta);
-
-        // Re-calcular usando todos los registros (incluye las que se filtrarán)
-        $totalesMes = DB::table('comisiones')
-            ->selectRaw('vendedor_id, tienda_id, mes_venta, SUM(valor_orden) as total')
-            ->groupBy('vendedor_id', 'tienda_id', 'mes_venta')
-            ->get()
-            ->keyBy(fn($r) => $r->vendedor_id . '_' . $r->tienda_id . '_' . $r->mes_venta);
-
+        [$metas, $totalesTienda, $totalesVendedor] = $this->cargarTotales();
         $hoy = Carbon::today();
 
-        $result = $comisiones->map(function ($c) use ($metas, $totalesMes, $hoy) {
-            return $this->enriquecer($c, $metas, $totalesMes, $hoy);
-        });
+        $result = $comisiones->map(fn($c) => $this->enriquecer($c, $metas, $totalesTienda, $totalesVendedor, $hoy));
 
         return response()->json($result);
     }
 
-    // GET /api/comisiones/vendedores — lista de vendedores con resumen
+    // GET /api/comisiones/vendedores
     public function vendedores(Request $request)
     {
         $usuario = $request->user();
@@ -119,7 +101,7 @@ class ComisionController extends Controller
         return response()->json($comision->fresh('pagadaPor:id,nombre'));
     }
 
-    // GET /api/comisiones/metas — metas actuales por tienda
+    // GET /api/comisiones/metas
     public function getMetas(Request $request)
     {
         $usuario = $request->user();
@@ -132,14 +114,15 @@ class ComisionController extends Controller
         $metas   = MetaTienda::where('mes', $mes)->get()->keyBy('tienda_id');
 
         return response()->json($tiendas->map(fn($t) => [
-            'tienda_id' => $t->id,
-            'nombre'    => $t->nombre,
-            'mes'       => $mes,
-            'meta'      => isset($metas[$t->id]) ? (float) $metas[$t->id]->meta : null,
+            'tienda_id'        => $t->id,
+            'nombre'           => $t->nombre,
+            'mes'              => $mes,
+            'meta'             => isset($metas[$t->id]) ? (float) $metas[$t->id]->meta : null,
+            'divisor_asesores' => isset($metas[$t->id]) ? (int) $metas[$t->id]->divisor_asesores : 1,
         ]));
     }
 
-    // POST /api/comisiones/metas — guardar/actualizar meta de una tienda en un mes
+    // POST /api/comisiones/metas
     public function setMeta(Request $request)
     {
         $usuario = $request->user();
@@ -148,20 +131,24 @@ class ComisionController extends Controller
         }
 
         $data = $request->validate([
-            'tienda_id' => 'required|integer|exists:tiendas,id',
-            'mes'       => 'required|string|regex:/^\d{4}-\d{2}$/',
-            'meta'      => 'required|numeric|min:0',
+            'tienda_id'        => 'required|integer|exists:tiendas,id',
+            'mes'              => 'required|string|regex:/^\d{4}-\d{2}$/',
+            'meta'             => 'required|numeric|min:0',
+            'divisor_asesores' => 'sometimes|integer|min:1|max:20',
         ]);
 
         $meta = MetaTienda::updateOrCreate(
             ['tienda_id' => $data['tienda_id'], 'mes' => $data['mes']],
-            ['meta'      => $data['meta']]
+            [
+                'meta'             => $data['meta'],
+                'divisor_asesores' => $data['divisor_asesores'] ?? 1,
+            ]
         );
 
         return response()->json($meta);
     }
 
-    // POST /api/comisiones/recalcular — recalcula estados y envía notificaciones
+    // POST /api/comisiones/recalcular
     public function recalcular(Request $request)
     {
         $usuario = $request->user();
@@ -169,40 +156,33 @@ class ComisionController extends Controller
             return response()->json(['error' => 'Sin acceso'], 403);
         }
 
-        $metas = MetaTienda::all()->keyBy(fn($m) => $m->tienda_id . '_' . $m->mes);
-
-        $totalesMes = DB::table('comisiones')
-            ->selectRaw('vendedor_id, tienda_id, mes_venta, SUM(valor_orden) as total')
-            ->groupBy('vendedor_id', 'tienda_id', 'mes_venta')
-            ->get()
-            ->keyBy(fn($r) => $r->vendedor_id . '_' . $r->tienda_id . '_' . $r->mes_venta);
-
-        $hoy        = Carbon::today();
+        [$metas, $totalesTienda, $totalesVendedor] = $this->cargarTotales();
+        $hoy          = Carbon::today();
         $actualizadas = 0;
         $notificadas  = 0;
 
-        Comision::with('orden.pagos')->where('estado', '!=', 'pagada')->chunk(100, function ($chunk) use ($metas, $totalesMes, $hoy, &$actualizadas, &$notificadas) {
-            foreach ($chunk as $c) {
-                $enriquecida = $this->enriquecer($c, $metas, $totalesMes, $hoy);
-                $nuevoEstado = $enriquecida['estado_calculado'];
+        Comision::with('orden.pagos')->where('estado', '!=', 'pagada')
+            ->chunk(100, function ($chunk) use ($metas, $totalesTienda, $totalesVendedor, $hoy, &$actualizadas, &$notificadas) {
+                foreach ($chunk as $c) {
+                    $enriquecida = $this->enriquecer($c, $metas, $totalesTienda, $totalesVendedor, $hoy);
+                    $nuevoEstado = $enriquecida['estado_calculado'];
 
-                $cambios = ['monto_comision' => $enriquecida['monto_comision']];
+                    $cambios = ['monto_comision' => $enriquecida['monto_comision']];
 
-                if ($nuevoEstado !== $c->estado) {
-                    $cambios['estado'] = $nuevoEstado;
-                    $actualizadas++;
+                    if ($nuevoEstado !== $c->estado) {
+                        $cambios['estado'] = $nuevoEstado;
+                        $actualizadas++;
+                    }
+
+                    if ($nuevoEstado === 'lista' && ! $c->notificado_lista) {
+                        $cambios['notificado_lista'] = true;
+                        $this->notificarComisionLista($c, $enriquecida);
+                        $notificadas++;
+                    }
+
+                    $c->update($cambios);
                 }
-
-                // Notificar la primera vez que pasa a 'lista'
-                if ($nuevoEstado === 'lista' && ! $c->notificado_lista) {
-                    $cambios['notificado_lista'] = true;
-                    $this->notificarComisionLista($c, $enriquecida);
-                    $notificadas++;
-                }
-
-                $c->update($cambios);
-            }
-        });
+            });
 
         return response()->json(['actualizadas' => $actualizadas, 'notificadas' => $notificadas]);
     }
@@ -228,17 +208,60 @@ class ComisionController extends Controller
 
     // ── Helpers ──────────────────────────────────────────────────────────────────
 
-    private function enriquecer(Comision $c, $metas, $totalesMes, Carbon $hoy): array
+    /**
+     * Carga las tres tablas de lookup necesarias para el cálculo:
+     * - metas       : keyed por "tienda_id_mes"
+     * - totalesTienda: total de ventas de TODA la tienda por mes (pool de comisión)
+     * - totalesVendedor: total de ventas por vendedor+tienda+mes (para distribución proporcional)
+     */
+    private function cargarTotales(): array
     {
-        $metaKey  = $c->tienda_id . '_' . $c->mes_venta;
-        $meta     = isset($metas[$metaKey]) ? (float) $metas[$metaKey]->meta : 0;
+        $metas = MetaTienda::all()->keyBy(fn($m) => $m->tienda_id . '_' . $m->mes);
 
-        $totalKey = $c->vendedor_id . '_' . $c->tienda_id . '_' . $c->mes_venta;
-        $totalMes = isset($totalesMes[$totalKey]) ? (float) $totalesMes[$totalKey]->total : (float) $c->valor_orden;
+        $totalesTienda = DB::table('comisiones')
+            ->selectRaw('tienda_id, mes_venta, SUM(valor_orden) as total')
+            ->groupBy('tienda_id', 'mes_venta')
+            ->get()
+            ->keyBy(fn($r) => $r->tienda_id . '_' . $r->mes_venta);
 
-        $metaCumplida  = $meta > 0 && $totalMes >= $meta;
-        $comisionMes   = $metaCumplida ? ($totalMes - $meta) / 1.19 * 0.05 : 0;
-        $montoComision = ($totalMes > 0 && $comisionMes > 0) ? round($comisionMes * ((float) $c->valor_orden / $totalMes)) : 0;
+        $totalesVendedor = DB::table('comisiones')
+            ->selectRaw('vendedor_id, tienda_id, mes_venta, SUM(valor_orden) as total')
+            ->groupBy('vendedor_id', 'tienda_id', 'mes_venta')
+            ->get()
+            ->keyBy(fn($r) => $r->vendedor_id . '_' . $r->tienda_id . '_' . $r->mes_venta);
+
+        return [$metas, $totalesTienda, $totalesVendedor];
+    }
+
+    private function enriquecer(Comision $c, $metas, $totalesTienda, $totalesVendedor, Carbon $hoy): array
+    {
+        $metaKey = $c->tienda_id . '_' . $c->mes_venta;
+        $meta    = isset($metas[$metaKey]) ? (float) $metas[$metaKey]->meta    : 0;
+        $divisor = isset($metas[$metaKey]) ? (int)   $metas[$metaKey]->divisor_asesores : 1;
+
+        // Total de ventas de toda la tienda en el mes (pool de comisión)
+        $tiendaKey   = $c->tienda_id . '_' . $c->mes_venta;
+        $totalTienda = isset($totalesTienda[$tiendaKey]) ? (float) $totalesTienda[$tiendaKey]->total : 0;
+
+        // Total de ventas del vendedor en esa tienda ese mes (para distribución proporcional)
+        $vendedorKey   = $c->vendedor_id . '_' . $c->tienda_id . '_' . $c->mes_venta;
+        $totalVendedor = isset($totalesVendedor[$vendedorKey])
+            ? (float) $totalesVendedor[$vendedorKey]->total
+            : (float) $c->valor_orden;
+
+        // La meta se compara contra el total de la tienda (no del vendedor)
+        $metaCumplida = $meta > 0 && $totalTienda >= $meta;
+
+        // Pool de comisión de la tienda = (ventas_tienda - meta) / 1.19 × 5%
+        $comisionPool = $metaCumplida ? ($totalTienda - $meta) / 1.19 * 0.05 : 0;
+
+        // Comisión de cada asesor = pool / divisor
+        $comisionAsesor = $divisor > 0 ? $comisionPool / $divisor : $comisionPool;
+
+        // La comisión de esta orden es proporcional a su valor dentro del total del vendedor
+        $montoComision = ($totalVendedor > 0 && $comisionAsesor > 0)
+            ? round($comisionAsesor * ((float) $c->valor_orden / $totalVendedor))
+            : 0;
 
         $pagado    = $c->orden?->pagos?->sum('monto') ?? 0;
         $req50     = $pagado >= ((float) $c->valor_orden * 0.5);
@@ -251,14 +274,18 @@ class ComisionController extends Controller
             $estadoCalculado = 'lista';
         }
 
-        $fechaDisp    = Carbon::parse($c->fecha_disponible);
-        $diasRestantes = $hoy->diffInDays($fechaDisp, false); // positivo = queda tiempo, negativo = atrasada
-        $atrasada     = $estadoCalculado === 'lista' && $diasRestantes < 0;
+        $fechaDisp     = Carbon::parse($c->fecha_disponible);
+        $diasRestantes = $hoy->diffInDays($fechaDisp, false);
+        $atrasada      = $estadoCalculado === 'lista' && $diasRestantes < 0;
 
         return array_merge($c->toArray(), [
             'monto_comision'   => $montoComision,
-            'total_mes'        => $totalMes,
+            'total_tienda_mes' => $totalTienda,
+            'total_vendedor_mes' => $totalVendedor,
             'meta_tienda'      => $meta,
+            'divisor_asesores' => $divisor,
+            'comision_pool'    => round($comisionPool),
+            'comision_asesor'  => round($comisionAsesor),
             'meta_cumplida'    => $metaCumplida,
             'req_50_pct'       => $req50,
             'req_mes_vencido'  => $reqVencio,
@@ -269,7 +296,6 @@ class ComisionController extends Controller
             'vendedor_nombre'  => $c->vendedor?->nombre,
             'tienda_nombre'    => $c->tienda?->nombre,
             'orden_numero'     => $c->orden?->numero_orden,
-            'orden_cliente'    => null, // cargado por la relación orden->cliente si se necesita
         ]);
     }
 
