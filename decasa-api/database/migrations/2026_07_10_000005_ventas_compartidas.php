@@ -15,19 +15,26 @@ return new class extends Migration
             $table->foreign('covendedor_id')->references('id')->on('usuarios')->nullOnDelete();
         });
 
-        // Comisiones: cambiar unique(orden_id) → unique(orden_id, vendedor_id)
-        // para permitir dos registros por orden compartida (uno por cada vendedor)
+        // Paso 1: agregar el índice compuesto ANTES de eliminar el simple,
+        // para que MySQL nunca quede sin índice de soporte para la FK de orden_id.
+        Schema::table('comisiones', function (Blueprint $table) {
+            $table->unique(['orden_id', 'vendedor_id']);
+        });
+
+        // Paso 2: ahora sí se puede eliminar el índice único simple
         Schema::table('comisiones', function (Blueprint $table) {
             $table->dropUnique(['orden_id']);
-            $table->unique(['orden_id', 'vendedor_id']);
         });
     }
 
     public function down(): void
     {
         Schema::table('comisiones', function (Blueprint $table) {
-            $table->dropUnique(['orden_id', 'vendedor_id']);
             $table->unique(['orden_id']);
+        });
+
+        Schema::table('comisiones', function (Blueprint $table) {
+            $table->dropUnique(['orden_id', 'vendedor_id']);
         });
 
         Schema::table('ordenes', function (Blueprint $table) {
