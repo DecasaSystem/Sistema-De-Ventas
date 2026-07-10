@@ -120,10 +120,14 @@ class ComisionController extends Controller
         $tiendas = Tienda::where('activa', true)->get();
         $metas   = MetaTienda::where('mes', $mes)->get()->keyBy('tienda_id');
 
-        $asesoresAsignados = TiendaAsesor::with('vendedor:id,nombre')
-            ->where('mes', $mes)
-            ->get()
-            ->groupBy('tienda_id');
+        try {
+            $asesoresAsignados = TiendaAsesor::with('vendedor:id,nombre')
+                ->where('mes', $mes)
+                ->get()
+                ->groupBy('tienda_id');
+        } catch (\Exception $e) {
+            $asesoresAsignados = collect([]);
+        }
 
         return response()->json($tiendas->map(function ($t) use ($metas, $asesoresAsignados, $mes) {
             $asesores = isset($asesoresAsignados[$t->id])
@@ -212,16 +216,20 @@ class ComisionController extends Controller
 
         $mes = $request->query('mes', Carbon::now()->format('Y-m'));
 
-        $asignados = TiendaAsesor::with(['vendedor:id,nombre', 'tienda:id,nombre'])
-            ->where('mes', $mes)
-            ->get()
-            ->map(fn($a) => [
-                'id'              => $a->id,
-                'tienda_id'       => $a->tienda_id,
-                'tienda_nombre'   => $a->tienda?->nombre,
-                'vendedor_id'     => $a->vendedor_id,
-                'vendedor_nombre' => $a->vendedor?->nombre,
-            ]);
+        try {
+            $asignados = TiendaAsesor::with(['vendedor:id,nombre', 'tienda:id,nombre'])
+                ->where('mes', $mes)
+                ->get()
+                ->map(fn($a) => [
+                    'id'              => $a->id,
+                    'tienda_id'       => $a->tienda_id,
+                    'tienda_nombre'   => $a->tienda?->nombre,
+                    'vendedor_id'     => $a->vendedor_id,
+                    'vendedor_nombre' => $a->vendedor?->nombre,
+                ]);
+        } catch (\Exception $e) {
+            $asignados = collect([]);
+        }
 
         return response()->json($asignados);
     }
