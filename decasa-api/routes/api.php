@@ -204,6 +204,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/notificaciones/todas',     [NotificacionController::class, 'eliminarTodas']);
     Route::delete('/notificaciones/{id}',      [NotificacionController::class, 'eliminar']);
 
+    // Lista de asesores activos (para co-vendedor en ventas compartidas)
+    Route::get('/asesores', [UsuarioController::class, 'asesores']);
+
     // Usuarios (solo supervisor)
     Route::middleware('role:supervisor')->group(function () {
         Route::get('/usuarios',                      [UsuarioController::class, 'index']);

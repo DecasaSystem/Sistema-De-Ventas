@@ -192,18 +192,44 @@ class ComisionController extends Controller
     {
         if (! $orden->vendedor_id || ! $orden->tienda_id) return;
 
+        $mes          = Carbon::parse($orden->created_at)->format('Y-m');
+        $fechaVenta   = Carbon::parse($orden->created_at)->toDateString();
+        $fechaDisp    = Carbon::parse($orden->created_at)->addMonth()->toDateString();
+
+        $esCompartida  = (bool) $orden->es_compartida;
+        $covendedorId  = $orden->covendedor_id;
+        $valorPrincipal = $esCompartida ? round((float) $orden->valor_total / 2) : (float) $orden->valor_total;
+
+        // Registro del vendedor principal
         Comision::firstOrCreate(
-            ['orden_id' => $orden->id],
+            ['orden_id' => $orden->id, 'vendedor_id' => $orden->vendedor_id],
             [
-                'vendedor_id'      => $orden->vendedor_id,
                 'tienda_id'        => $orden->tienda_id,
-                'mes_venta'        => Carbon::parse($orden->created_at)->format('Y-m'),
-                'valor_orden'      => $orden->valor_total,
-                'fecha_venta'      => Carbon::parse($orden->created_at)->toDateString(),
-                'fecha_disponible' => Carbon::parse($orden->created_at)->addMonth()->toDateString(),
+                'mes_venta'        => $mes,
+                'valor_orden'      => $valorPrincipal,
+                'fecha_venta'      => $fechaVenta,
+                'fecha_disponible' => $fechaDisp,
                 'estado'           => 'pendiente',
             ]
         );
+
+        // Registro del co-vendedor si la venta es compartida
+        if ($esCompartida && $covendedorId) {
+            $covendedor = Usuario::find($covendedorId);
+            if ($covendedor && $covendedor->tienda_default_id) {
+                Comision::firstOrCreate(
+                    ['orden_id' => $orden->id, 'vendedor_id' => $covendedorId],
+                    [
+                        'tienda_id'        => $covendedor->tienda_default_id,
+                        'mes_venta'        => $mes,
+                        'valor_orden'      => $valorPrincipal,
+                        'fecha_venta'      => $fechaVenta,
+                        'fecha_disponible' => $fechaDisp,
+                        'estado'           => 'pendiente',
+                    ]
+                );
+            }
+        }
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────────

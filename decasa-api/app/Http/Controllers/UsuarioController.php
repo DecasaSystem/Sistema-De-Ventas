@@ -230,4 +230,25 @@ class UsuarioController extends Controller
 
         return response()->json(['message' => 'Contraseña actualizada.']);
     }
+
+    // GET /api/asesores — lista liviana de vendedores/supervisores activos (para co-vendedor)
+    public function asesores(Request $request)
+    {
+        $yo = $request->user();
+
+        return response()->json(
+            Usuario::whereIn('rol', ['vendedor', 'supervisor'])
+                ->where('activo', true)
+                ->where('id', '!=', $yo->id)
+                ->with('tiendaDefault:id,nombre')
+                ->select('id', 'nombre', 'tienda_default_id')
+                ->orderBy('nombre')
+                ->get()
+                ->map(fn($u) => [
+                    'id'     => $u->id,
+                    'nombre' => $u->nombre,
+                    'tienda' => $u->tiendaDefault?->nombre ?? '—',
+                ])
+        );
+    }
 }

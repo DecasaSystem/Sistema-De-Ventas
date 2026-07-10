@@ -859,6 +859,13 @@ onMounted(cargarOrden)
           <span class="text-gray-500">Vendedor</span>
           <span class="font-medium text-gray-800">{{ orden.vendedor?.nombre }}</span>
         </div>
+        <div v-if="orden.es_compartida && orden.covendedor" class="flex justify-between">
+          <span class="text-gray-500">Co-vendedor</span>
+          <span class="font-medium text-indigo-700 flex items-center gap-1">
+            <span class="inline-block w-2 h-2 rounded-full bg-indigo-400"></span>
+            {{ orden.covendedor.nombre }} <span class="text-xs font-normal text-gray-400">(compartida)</span>
+          </span>
+        </div>
         <div class="flex justify-between">
           <span class="text-gray-500">Canal</span>
           <span class="font-medium text-gray-800 capitalize">{{ orden.canal }}</span>

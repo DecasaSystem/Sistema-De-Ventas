@@ -20,6 +20,8 @@ class Orden extends Model
         'valor_total',
         'anticipo_pct',
         'notas',
+        'es_compartida',
+        'covendedor_id',
         'factura_foto_url',
         'firma_url',
         'anexo_foto_url',
@@ -34,6 +36,7 @@ class Orden extends Model
         return [
             'valor_total'      => 'decimal:2',
             'anticipo_pct'     => 'decimal:2',
+            'es_compartida'    => 'boolean',
             'listo_entrega_at' => 'datetime',
         ];
     }
@@ -46,6 +49,11 @@ class Orden extends Model
     public function vendedor()
     {
         return $this->belongsTo(Usuario::class, 'vendedor_id');
+    }
+
+    public function covendedor()
+    {
+        return $this->belongsTo(Usuario::class, 'covendedor_id');
     }
 
     public function tienda()

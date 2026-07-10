@@ -1053,6 +1053,10 @@ const anticipo_monto       = ref(0)
 const anticipo_metodo      = ref('efectivo')
 const anticipo_referencia  = ref('')
 const notas                = ref('')
+const esCompartida         = ref(false)
+const covendedorId         = ref(null)
+const vendedoresLista      = ref([])
+const cargandoVendedores   = ref(false)
 const submitting           = ref(false)
 const modoGuardarBorrador  = ref(false)
 const cooldown             = ref(0)   // segundos restantes antes de poder reintentar
@@ -1147,6 +1151,18 @@ const hayItemsCotizar = computed(() =>
   items.value.some(i => i._cotizarPrecio)
 )
 
+watch(esCompartida, async (val) => {
+  if (val && !vendedoresLista.value.length) {
+    cargandoVendedores.value = true
+    try {
+      const { data } = await api.get('/asesores')
+      vendedoresLista.value = data
+    } catch { vendedoresLista.value = [] }
+    finally { cargandoVendedores.value = false }
+  }
+  if (!val) covendedorId.value = null
+})
+
 async function irAPaso3() {
   anticipo_monto.value = minimoAnticipo.value
   step.value = 3
@@ -1176,6 +1192,11 @@ async function submit() {
 
   if (hayItemsCotizar.value && !cotizarReceptorId.value) {
     toast.error('Selecciona a quién enviar la consulta de costo antes de continuar.')
+    return
+  }
+
+  if (esCompartida.value && !covendedorId.value) {
+    toast.error('Selecciona el co-vendedor para la venta compartida.')
     return
   }
 
@@ -1264,6 +1285,8 @@ async function submit() {
       anticipo_referencia:  anticipo_referencia.value || undefined,
       guardar_borrador:     modoGuardarBorrador.value || undefined,
       notas:                notas.value || undefined,
+      es_compartida:        esCompartida.value || undefined,
+      covendedor_id:        (esCompartida.value && covendedorId.value) ? covendedorId.value : undefined,
       factura_foto_url:     facturaFotoUrl.value  || undefined,
       firma_url:            firmaUrl.value        || undefined,
       anexo_foto_url:       anexoFotoUrl.value    || undefined,
@@ -2877,6 +2900,59 @@ function removeFacturaFoto() {
             Podrás registrar el anticipo desde el detalle de la orden cuando el cliente acepte.
           </p>
         </div>
+      </div>
+
+      <!-- Venta compartida -->
+      <div class="bg-white rounded-xl shadow-sm p-4 space-y-3">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <UserGroupIcon class="w-5 h-5 text-indigo-500" />
+            <span class="text-sm font-semibold text-gray-700">Venta compartida</span>
+          </div>
+          <button
+            type="button"
+            @click="esCompartida = !esCompartida"
+            :class="['relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
+              esCompartida ? 'bg-indigo-600' : 'bg-gray-200']"
+          >
+            <span
+              :class="['inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                esCompartida ? 'translate-x-6' : 'translate-x-1']"
+            />
+          </button>
+        </div>
+
+        <p v-if="!esCompartida" class="text-xs text-gray-400">
+          Activa si otro asesor de diferente tienda participó en esta venta. El valor se divide 50/50 para ambas metas.
+        </p>
+
+        <template v-if="esCompartida">
+          <p class="text-xs text-indigo-700 bg-indigo-50 rounded-lg px-3 py-2">
+            Cada vendedor suma <strong>${{ Math.round(valorTotal / 2).toLocaleString('es-CO') }}</strong> a su meta mensual.
+          </p>
+
+          <div v-if="cargandoVendedores" class="text-xs text-gray-400 text-center py-2">Cargando asesores...</div>
+
+          <template v-else>
+            <label class="label">Co-vendedor <span class="text-red-500">*</span></label>
+            <div class="grid gap-2 max-h-48 overflow-y-auto">
+              <button
+                v-for="v in vendedoresLista"
+                :key="v.id"
+                type="button"
+                @click="covendedorId = v.id"
+                :class="['flex items-center justify-between px-3 py-2 rounded-lg border text-sm transition-colors',
+                  covendedorId === v.id
+                    ? 'border-indigo-500 bg-indigo-50 text-indigo-800 font-semibold'
+                    : 'border-gray-200 bg-white text-gray-700 hover:border-indigo-300']"
+              >
+                <span>{{ v.nombre }}</span>
+                <span class="text-xs text-gray-400">{{ v.tienda }}</span>
+              </button>
+              <p v-if="!vendedoresLista.length" class="text-xs text-gray-400 text-center py-2">No hay otros asesores activos.</p>
+            </div>
+          </template>
+        </template>
       </div>
 
       <!-- Notas -->
