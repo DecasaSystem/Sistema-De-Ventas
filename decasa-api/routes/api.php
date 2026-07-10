@@ -352,12 +352,16 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Comisiones
     Route::prefix('comisiones')->group(function () {
-        Route::get('/',                    [ComisionController::class, 'index']);
-        Route::get('/vendedores',          [ComisionController::class, 'vendedores']);
-        Route::get('/metas',               [ComisionController::class, 'getMetas']);
-        Route::post('/metas',              [ComisionController::class, 'setMeta'])->middleware('role:supervisor');
-        Route::post('/recalcular',         [ComisionController::class, 'recalcular'])->middleware('role:supervisor');
-        Route::post('/{id}/pagar',         [ComisionController::class, 'marcarPagada'])->middleware('role:supervisor');
+        Route::get('/',                          [ComisionController::class, 'index']);
+        Route::get('/vendedores',                [ComisionController::class, 'vendedores']);
+        Route::get('/resumen',                   [ComisionController::class, 'resumen']);
+        Route::get('/metas',                     [ComisionController::class, 'getMetas']);
+        Route::get('/asesores-asignados',        [ComisionController::class, 'getAsesoresAsignados']);
+        Route::post('/metas',                    [ComisionController::class, 'setMeta'])->middleware('role:supervisor');
+        Route::post('/recalcular',               [ComisionController::class, 'recalcular'])->middleware('role:supervisor');
+        Route::post('/asesores-asignados',       [ComisionController::class, 'addAsesor'])->middleware('role:supervisor');
+        Route::delete('/asesores-asignados/{id}',[ComisionController::class, 'removeAsesor'])->middleware('role:supervisor')->whereNumber('id');
+        Route::post('/{id}/pagar',               [ComisionController::class, 'marcarPagada'])->middleware('role:supervisor');
     });
 
     // Redes (módulo WhatsApp centralizado)

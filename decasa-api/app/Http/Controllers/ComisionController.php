@@ -6,6 +6,7 @@ use App\Models\Comision;
 use App\Models\MetaTienda;
 use App\Models\Orden;
 use App\Models\Tienda;
+use App\Models\TiendaAsesor;
 use App\Models\Usuario;
 use App\Services\NotificacionService;
 use Carbon\Carbon;
@@ -119,13 +120,172 @@ class ComisionController extends Controller
         $tiendas = Tienda::where('activa', true)->get();
         $metas   = MetaTienda::where('mes', $mes)->get()->keyBy('tienda_id');
 
-        return response()->json($tiendas->map(fn($t) => [
-            'tienda_id'        => $t->id,
-            'nombre'           => $t->nombre,
-            'mes'              => $mes,
-            'meta'             => isset($metas[$t->id]) ? (float) $metas[$t->id]->meta : null,
-            'divisor_asesores' => isset($metas[$t->id]) ? (int) $metas[$t->id]->divisor_asesores : 1,
-        ]));
+        $asesoresAsignados = TiendaAsesor::with('vendedor:id,nombre')
+            ->where('mes', $mes)
+            ->get()
+            ->groupBy('tienda_id');
+
+        return response()->json($tiendas->map(function ($t) use ($metas, $asesoresAsignados, $mes) {
+            $asesores = isset($asesoresAsignados[$t->id])
+                ? $asesoresAsignados[$t->id]->map(fn($a) => [
+                    'id'          => $a->id,
+                    'vendedor_id' => $a->vendedor_id,
+                    'nombre'      => $a->vendedor?->nombre ?? '—',
+                ])->values()
+                : collect([]);
+
+            // Divisor = count of assigned asesores if any; otherwise DB value (default 1)
+            $divisor = $asesores->isNotEmpty()
+                ? $asesores->count()
+                : (isset($metas[$t->id]) ? (int) $metas[$t->id]->divisor_asesores : 1);
+
+            return [
+                'tienda_id'        => $t->id,
+                'nombre'           => $t->nombre,
+                'mes'              => $mes,
+                'meta'             => isset($metas[$t->id]) ? (float) $metas[$t->id]->meta : null,
+                'divisor_asesores' => $divisor,
+                'asesores'         => $asesores,
+            ];
+        }));
+    }
+
+    // GET /api/comisiones/resumen?mes=YYYY-MM
+    public function resumen(Request $request)
+    {
+        $usuario = $request->user();
+        if (! $usuario->acceso_comisiones) {
+            return response()->json(['error' => 'Sin acceso'], 403);
+        }
+
+        $mes = $request->query('mes', Carbon::now()->format('Y-m'));
+
+        $comisiones = Comision::with(['orden.pagos', 'vendedor:id,nombre', 'tienda:id,nombre'])
+            ->where('mes_venta', $mes)
+            ->get();
+
+        if ($comisiones->isEmpty()) {
+            return response()->json([]);
+        }
+
+        [$metas, $totalesTienda, $totalesVendedor] = $this->cargarTotales();
+        $hoy = Carbon::today();
+
+        $enriquecidas = $comisiones->map(fn($c) => $this->enriquecer($c, $metas, $totalesTienda, $totalesVendedor, $hoy));
+
+        $grouped = $enriquecidas->groupBy('vendedor_id')->map(function ($items) {
+            $first = $items->first();
+            return [
+                'vendedor_id'     => (int) $first['vendedor_id'],
+                'vendedor_nombre' => $first['vendedor_nombre'],
+                'tienda_id'       => (int) $first['tienda_id'],
+                'tienda_nombre'   => $first['tienda_nombre'],
+                'total_ordenes'   => $items->count(),
+                'total_ventas'    => $items->sum(fn($i) => (float) $i['valor_orden']),
+                'comision_total'  => $items->sum(fn($i) => (float) $i['monto_comision']),
+                'comision_asesor' => (float) $first['comision_asesor'],
+                'pendientes'      => $items->where('estado_calculado', 'pendiente')->count(),
+                'listas'          => $items->where('estado_calculado', 'lista')->count(),
+                'pagadas'         => $items->where('estado_calculado', 'pagada')->count(),
+                'ordenes'         => $items->map(fn($i) => [
+                    'id'             => $i['id'],
+                    'orden_id'       => $i['orden_id'],
+                    'orden_numero'   => $i['orden_numero'],
+                    'valor_orden'    => (float) $i['valor_orden'],
+                    'monto_comision' => (float) $i['monto_comision'],
+                    'estado'         => $i['estado_calculado'],
+                    'fecha_venta'    => $i['fecha_venta'],
+                ])->values(),
+            ];
+        })->sortByDesc('comision_total')->values();
+
+        return response()->json($grouped);
+    }
+
+    // GET /api/comisiones/asesores-asignados?mes=YYYY-MM
+    public function getAsesoresAsignados(Request $request)
+    {
+        $usuario = $request->user();
+        if (! $usuario->acceso_comisiones) {
+            return response()->json(['error' => 'Sin acceso'], 403);
+        }
+
+        $mes = $request->query('mes', Carbon::now()->format('Y-m'));
+
+        $asignados = TiendaAsesor::with(['vendedor:id,nombre', 'tienda:id,nombre'])
+            ->where('mes', $mes)
+            ->get()
+            ->map(fn($a) => [
+                'id'              => $a->id,
+                'tienda_id'       => $a->tienda_id,
+                'tienda_nombre'   => $a->tienda?->nombre,
+                'vendedor_id'     => $a->vendedor_id,
+                'vendedor_nombre' => $a->vendedor?->nombre,
+            ]);
+
+        return response()->json($asignados);
+    }
+
+    // POST /api/comisiones/asesores-asignados
+    public function addAsesor(Request $request)
+    {
+        $usuario = $request->user();
+        if (! $usuario->acceso_comisiones) {
+            return response()->json(['error' => 'Sin acceso'], 403);
+        }
+
+        $data = $request->validate([
+            'tienda_id'   => 'required|integer|exists:tiendas,id',
+            'mes'         => 'required|string|regex:/^\d{4}-\d{2}$/',
+            'vendedor_id' => 'required|integer|exists:usuarios,id',
+        ]);
+
+        $asesor = TiendaAsesor::firstOrCreate([
+            'tienda_id'   => $data['tienda_id'],
+            'mes'         => $data['mes'],
+            'vendedor_id' => $data['vendedor_id'],
+        ]);
+
+        $count = TiendaAsesor::where('tienda_id', $data['tienda_id'])
+            ->where('mes', $data['mes'])
+            ->count();
+
+        // Only update divisor if a meta record already exists (avoid creating rows without meta)
+        MetaTienda::where('tienda_id', $data['tienda_id'])
+            ->where('mes', $data['mes'])
+            ->update(['divisor_asesores' => $count]);
+
+        $asesor->load('vendedor:id,nombre');
+
+        return response()->json([
+            'id'              => $asesor->id,
+            'tienda_id'       => $asesor->tienda_id,
+            'vendedor_id'     => $asesor->vendedor_id,
+            'vendedor_nombre' => $asesor->vendedor?->nombre,
+            'divisor'         => $count,
+        ], 201);
+    }
+
+    // DELETE /api/comisiones/asesores-asignados/{id}
+    public function removeAsesor(Request $request, int $id)
+    {
+        $usuario = $request->user();
+        if (! $usuario->acceso_comisiones) {
+            return response()->json(['error' => 'Sin acceso'], 403);
+        }
+
+        $asesor   = TiendaAsesor::findOrFail($id);
+        $tiendaId = $asesor->tienda_id;
+        $mes      = $asesor->mes;
+        $asesor->delete();
+
+        $count   = TiendaAsesor::where('tienda_id', $tiendaId)->where('mes', $mes)->count();
+        $divisor = max(1, $count);
+        // Only update if a meta record exists (don't create rows without meta)
+        MetaTienda::where('tienda_id', $tiendaId)->where('mes', $mes)
+            ->update(['divisor_asesores' => $divisor]);
+
+        return response()->json(['divisor' => $divisor]);
     }
 
     // POST /api/comisiones/metas
