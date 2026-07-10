@@ -20,6 +20,7 @@ const form = ref({
   es_tapicero: false,
   notif_asignar_fecha: true,
   acceso_redes: false,
+  acceso_comisiones: false,
   recarga_telas: false,
   tienda_default_id: '',
 })
@@ -72,6 +73,7 @@ async function submit() {
       es_tapicero: form.value.es_tapicero,
       notif_asignar_fecha: form.value.notif_asignar_fecha,
       acceso_redes: form.value.acceso_redes,
+      acceso_comisiones: form.value.rol === 'supervisor' ? form.value.acceso_comisiones : false,
       recarga_telas: form.value.recarga_telas,
       tienda_default_id: requiereTienda.value ? form.value.tienda_default_id : null,
     })
@@ -264,6 +266,20 @@ async function submit() {
         <div>
           <label for="acceso_redes" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a módulo de redes</label>
           <p class="text-xs text-gray-500 mt-0.5">Podrá acceder al módulo de redes sociales y seguimiento digital.</p>
+        </div>
+      </div>
+
+      <!-- Acceso comisiones (solo supervisor) -->
+      <div v-if="form.rol === 'supervisor'" class="flex items-start gap-3 py-2">
+        <input
+          id="acceso_comisiones"
+          type="checkbox"
+          v-model="form.acceso_comisiones"
+          class="mt-0.5 rounded border-gray-300 text-green-600 focus:ring-green-500"
+        />
+        <div>
+          <label for="acceso_comisiones" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a módulo de comisiones</label>
+          <p class="text-xs text-gray-500 mt-0.5">Podrá ver, gestionar y marcar como pagadas las comisiones de los vendedores.</p>
         </div>
       </div>
 

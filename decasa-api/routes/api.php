@@ -37,6 +37,7 @@ use App\Http\Controllers\InventarioTelaController;
 use App\Http\Controllers\TipoVarianteController;
 use App\Http\Controllers\ProductoVarianteConfigController;
 use App\Http\Controllers\CajaController;
+use App\Http\Controllers\ComisionController;
 use Illuminate\Support\Facades\Route;
 
 // ── Auth (público) ────────────────────────────────────────────────────────────
@@ -344,6 +345,16 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/configuracion/costos/cargos/{cargo}',    [ConfiguracionCostosController::class, 'eliminarCargo']);
         Route::post('/configuracion/costos/procesos',            [ConfiguracionCostosController::class, 'crearProceso']);
         Route::delete('/configuracion/costos/procesos/{id}',     [ConfiguracionCostosController::class, 'eliminarProceso']);
+    });
+
+    // Comisiones
+    Route::prefix('comisiones')->group(function () {
+        Route::get('/',                    [ComisionController::class, 'index']);
+        Route::get('/vendedores',          [ComisionController::class, 'vendedores']);
+        Route::get('/metas',               [ComisionController::class, 'getMetas']);
+        Route::post('/metas',              [ComisionController::class, 'setMeta'])->middleware('role:supervisor');
+        Route::post('/recalcular',         [ComisionController::class, 'recalcular'])->middleware('role:supervisor');
+        Route::post('/{id}/pagar',         [ComisionController::class, 'marcarPagada'])->middleware('role:supervisor');
     });
 
     // Redes (módulo WhatsApp centralizado)

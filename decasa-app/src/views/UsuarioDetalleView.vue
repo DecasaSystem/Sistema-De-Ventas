@@ -34,7 +34,7 @@ const nuevaPassword = ref('')
 const confirmacionPassword = ref('')
 
 // Edit form
-const editForm = ref({ nombre: '', email: '', rol: '', facturacion: false, es_tapicero: false, notif_asignar_fecha: true, acceso_redes: false, recarga_telas: false, tienda_default_id: '' })
+const editForm = ref({ nombre: '', email: '', rol: '', facturacion: false, es_tapicero: false, notif_asignar_fecha: true, acceso_redes: false, acceso_comisiones: false, recarga_telas: false, tienda_default_id: '' })
 const rolesSinTienda = ['conductor', 'ebanista', 'despachador', 'costurero']
 
 const ROL_LABELS = {
@@ -113,6 +113,7 @@ function openEditModal() {
     es_tapicero: usuario.value.es_tapicero ?? false,
     notif_asignar_fecha: usuario.value.notif_asignar_fecha ?? true,
     acceso_redes: usuario.value.acceso_redes ?? false,
+    acceso_comisiones: usuario.value.acceso_comisiones ?? false,
     recarga_telas: usuario.value.recarga_telas ?? false,
     tienda_default_id: usuario.value.tienda_default_id,
   }
@@ -141,6 +142,7 @@ async function submitEdit() {
       es_tapicero: editForm.value.rol === 'supervisor' ? editForm.value.es_tapicero : false,
       notif_asignar_fecha: editForm.value.rol === 'supervisor' ? editForm.value.notif_asignar_fecha : false,
       acceso_redes: ['vendedor', 'supervisor'].includes(editForm.value.rol) ? editForm.value.acceso_redes : false,
+      acceso_comisiones: editForm.value.rol === 'supervisor' ? editForm.value.acceso_comisiones : false,
       recarga_telas: ['vendedor', 'supervisor'].includes(editForm.value.rol) ? editForm.value.recarga_telas : false,
       tienda_default_id: sinTienda ? null : editForm.value.tienda_default_id,
     })
@@ -478,6 +480,18 @@ onMounted(async () => {
               <div>
                 <label for="edit-acceso-redes" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a módulo de redes</label>
                 <p class="text-xs text-gray-500 mt-0.5">Podrá acceder al módulo de redes sociales y seguimiento digital.</p>
+              </div>
+            </div>
+            <div v-if="editForm.rol === 'supervisor'" class="flex items-start gap-3 py-1">
+              <input
+                id="edit-acceso-comisiones"
+                type="checkbox"
+                v-model="editForm.acceso_comisiones"
+                class="mt-0.5 rounded border-gray-300 text-green-600 focus:ring-green-500"
+              />
+              <div>
+                <label for="edit-acceso-comisiones" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a módulo de comisiones</label>
+                <p class="text-xs text-gray-500 mt-0.5">Podrá ver, gestionar y marcar como pagadas las comisiones de los vendedores.</p>
               </div>
             </div>
             <div v-if="['vendedor', 'supervisor'].includes(editForm.rol)" class="flex items-start gap-3 py-1">

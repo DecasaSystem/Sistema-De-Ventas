@@ -12,6 +12,7 @@ use App\Models\Usuario;
 use App\Models\InventarioMovimiento;
 use App\Models\InventarioVariante;
 use App\Models\InventarioVarianteCombinacion;
+use App\Models\Comision;
 use App\Models\Orden;
 use App\Models\OrdenItem;
 use App\Models\Produccion;
@@ -505,6 +506,7 @@ class OrdenController extends Controller
         if (! $guardarBorrador) {
             $this->asignarNumeroOrden($orden);
             $ordenCargada->numero_orden = $orden->numero_orden;
+            ComisionController::crearParaOrden($orden);
         }
 
         // Enviar cotización por email solo en órdenes confirmadas (no borradores — el frontend llama reenviarCotizacion por separado)
@@ -1104,6 +1106,7 @@ class OrdenController extends Controller
         // Asignar número de orden secuencial al confirmar el borrador
         $this->asignarNumeroOrden($orden);
         $ordenFresh->numero_orden = $orden->numero_orden;
+        ComisionController::crearParaOrden($orden);
 
         // Notify supervisors of the now-confirmed order
         $supervisores = Usuario::where('rol', 'supervisor')

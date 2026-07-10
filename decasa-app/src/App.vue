@@ -50,6 +50,7 @@ import {
   ChatBubbleLeftRightIcon,
   ArrowPathIcon,
   CurrencyDollarIcon,
+  ReceiptPercentIcon,
   BuildingOffice2Icon,
   SwatchIcon,
   Cog6ToothIcon,
@@ -192,6 +193,9 @@ const navItems = computed(() => {
     if (auth.tieneAccesoRedes) {
       items.push({ name: 'redes', label: 'Redes', icon: ChatBubbleLeftRightIcon, badge: redesPendientes.value })
     }
+    if (auth.tieneAccesoComisiones) {
+      items.push({ name: 'comisiones', label: 'Comisiones', icon: ReceiptPercentIcon })
+    }
     items.push({ name: 'telas', label: 'Telas', icon: SwatchIcon })
     return items
   }
@@ -317,6 +321,8 @@ async function abrirNotificacion(n) {
     router.push({ name: 'citas' })
   } else if (datos.conversacion_id || n.tipo === 'redes') {
     router.push({ name: 'redes' })
+  } else if (datos.comision_id || n.tipo === 'comisiones') {
+    router.push({ name: 'comisiones' })
   }
 }
 
@@ -343,6 +349,7 @@ function tipoIcono(tipo) {
     orden_editada:      PencilSquareIcon,
     abono_registrado:   BanknotesIcon,
     redes:              ChatBubbleLeftRightIcon,
+    comisiones:         ReceiptPercentIcon,
     cita_recordatorio:          CalendarDaysIcon,
     despacho_asignado:          TruckIcon,
     ruta_atrasada:              ExclamationTriangleIcon,

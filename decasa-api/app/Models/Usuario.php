@@ -23,6 +23,7 @@ class Usuario extends Authenticatable
         'es_tapicero',
         'notif_asignar_fecha',
         'acceso_redes',
+        'acceso_comisiones',
         'recarga_telas',
         'tienda_default_id',
         'activo',
@@ -41,6 +42,7 @@ class Usuario extends Authenticatable
             'es_tapicero'         => 'boolean',
             'notif_asignar_fecha' => 'boolean',
             'acceso_redes'        => 'boolean',
+            'acceso_comisiones'   => 'boolean',
             'recarga_telas'       => 'boolean',
         ];
     }
@@ -63,5 +65,10 @@ class Usuario extends Authenticatable
     public function movimientos()
     {
         return $this->hasMany(InventarioMovimiento::class, 'usuario_id');
+    }
+
+    public function comisiones()
+    {
+        return $this->hasMany(\App\Models\Comision::class, 'vendedor_id');
     }
 }

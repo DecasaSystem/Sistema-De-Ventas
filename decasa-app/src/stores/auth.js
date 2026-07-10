@@ -81,6 +81,7 @@ export const useAuthStore = defineStore('auth', () => {
       es_tapicero:       data.es_tapicero       ?? false,
       facturacion:       data.facturacion       ?? false,
       acceso_redes:      data.acceso_redes      ?? false,
+      acceso_comisiones: data.acceso_comisiones ?? false,
       recarga_telas:     data.recarga_telas     ?? false,
       tienda_default_id: data.tienda_default_id ?? null,
       firma_url:         data.firma_url         ?? null,
@@ -103,8 +104,9 @@ export const useAuthStore = defineStore('auth', () => {
   const isCosturero        = computed(() => usuario.value?.rol === 'costurero')
   const tieneAccesoPasos   = computed(() => isEbanista.value || isTapicero.value || isDespachador.value)
   const isFacturador       = computed(() => usuario.value?.rol === 'vendedor' && !!usuario.value?.facturacion)
-  const tieneAccesoRedes   = computed(() => !!usuario.value?.acceso_redes)
-  const puedeRecargarTelas = computed(() => isSupervisor.value || (!!usuario.value?.recarga_telas && ['vendedor', 'supervisor'].includes(usuario.value?.rol)))
+  const tieneAccesoRedes      = computed(() => !!usuario.value?.acceso_redes)
+  const tieneAccesoComisiones = computed(() => !!usuario.value?.acceso_comisiones)
+  const puedeRecargarTelas    = computed(() => isSupervisor.value || (!!usuario.value?.recarga_telas && ['vendedor', 'supervisor'].includes(usuario.value?.rol)))
 
   // Dual-profile getters
   const tienePerfilAlternativo = computed(() => _perfiles.value.length > 1)
@@ -217,7 +219,7 @@ export const useAuthStore = defineStore('auth', () => {
   return {
     token, usuario,
     isAuthenticated, isSupervisor, isEbanista, isTapicero, isDespachador, isCosturero,
-    tieneAccesoPasos, isFacturador, tieneAccesoRedes, puedeRecargarTelas,
+    tieneAccesoPasos, isFacturador, tieneAccesoRedes, tieneAccesoComisiones, puedeRecargarTelas,
     tienePerfilAlternativo, perfilAlternativo, perfilActivoIdx,
     login, fetchMe, setFirma, setEmail, logout, clearSession,
     loginPerfilAlternativo, cambiarPerfil, eliminarPerfilAlternativo,
