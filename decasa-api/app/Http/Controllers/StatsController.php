@@ -625,7 +625,35 @@ class StatsController extends Controller
 
         $data = $this->perfilPor('vendedor_id', $vendedorId, $desde, $hasta);
         $data['vendedor'] = $vendedor;
-        $data['periodo'] = ['desde' => $desde, 'hasta' => $hasta];
+        $data['periodo']  = ['desde' => $desde, 'hasta' => $hasta];
+
+        // Meta mensual de la tienda del vendedor (siempre mes actual, independiente del período)
+        $mesActual  = Carbon::now()->format('Y-m');
+        $metaReg    = $vendedor->tienda_id
+            ? DB::table('metas_tienda')
+                ->where('tienda_id', $vendedor->tienda_id)
+                ->where('mes', $mesActual)
+                ->first()
+            : null;
+
+        $totalTiendaMes = $vendedor->tienda_id
+            ? (float) DB::table('comisiones')
+                ->where('tienda_id', $vendedor->tienda_id)
+                ->where('mes_venta', $mesActual)
+                ->sum('valor_orden')
+            : 0;
+
+        $meta = $metaReg ? (float) $metaReg->meta : null;
+        $pct  = ($meta && $meta > 0) ? min(100, round($totalTiendaMes / $meta * 100, 1)) : null;
+
+        $data['meta_mes'] = [
+            'mes'          => $mesActual,
+            'meta'         => $meta,
+            'total_tienda' => $totalTiendaMes,
+            'pct'          => $pct,
+            'cumplida'     => $pct !== null && $pct >= 100,
+        ];
+
         return $data;
     }
 }
