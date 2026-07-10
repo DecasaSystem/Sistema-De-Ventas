@@ -83,19 +83,25 @@ class ComisionController extends Controller
             return response()->json(['error' => 'Sin acceso'], 403);
         }
 
-        $comision = Comision::findOrFail($id);
+        $comision = Comision::with('orden.pagos')->findOrFail($id);
 
         if ($comision->estado === 'pagada') {
             return response()->json(['error' => 'Ya está pagada.'], 409);
         }
-        if ($comision->estado !== 'lista') {
-            return response()->json(['error' => 'La comisión no está lista para pagar.'], 422);
+
+        // Calcular estado real en el momento del pago (no depender del campo guardado en BD)
+        [$metas, $totalesTienda, $totalesVendedor] = $this->cargarTotales();
+        $enriquecida = $this->enriquecer($comision, $metas, $totalesTienda, $totalesVendedor, Carbon::today());
+
+        if ($enriquecida['estado_calculado'] !== 'lista') {
+            return response()->json(['error' => 'La comisión no está lista para pagar aún.'], 422);
         }
 
         $comision->update([
-            'estado'     => 'pagada',
-            'fecha_pago' => now(),
-            'pagada_por' => $usuario->id,
+            'estado'          => 'pagada',
+            'monto_comision'  => $enriquecida['monto_comision'],
+            'fecha_pago'      => now(),
+            'pagada_por'      => $usuario->id,
         ]);
 
         return response()->json($comision->fresh('pagadaPor:id,nombre'));
