@@ -361,6 +361,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/recalcular',               [ComisionController::class, 'recalcular'])->middleware('role:supervisor');
         Route::post('/asesores-asignados',       [ComisionController::class, 'addAsesor'])->middleware('role:supervisor');
         Route::delete('/asesores-asignados/{id}',[ComisionController::class, 'removeAsesor'])->middleware('role:supervisor')->whereNumber('id');
+        Route::post('/pagar-listas',             [ComisionController::class, 'pagarListas'])->middleware('role:supervisor');
         Route::post('/{id}/pagar',               [ComisionController::class, 'marcarPagada'])->middleware('role:supervisor');
     });
 

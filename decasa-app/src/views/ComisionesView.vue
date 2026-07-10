@@ -33,6 +33,7 @@ const mesActual    = ref(new Date().toISOString().slice(0, 7))
 const expandidos   = ref(new Set())
 const expandidosRes = ref(new Set())
 const pagando      = ref(null)
+const pagandoListas = ref(null) // vendedor_id en proceso
 const mostrarMetas = ref(false)
 const recalculando = ref(false)
 const guardandoMeta = ref(null)
@@ -120,6 +121,26 @@ async function pagar(id) {
     toast.error(e.response?.data?.error || 'Error al pagar')
   } finally {
     pagando.value = null
+  }
+}
+
+function totalListasVendedor(r) {
+  return r.ordenes.filter(o => o.estado === 'lista').reduce((s, o) => s + o.monto_comision, 0)
+}
+
+async function pagarTodasListas(r) {
+  const total = totalListasVendedor(r)
+  if (!confirm(`¿Marcar ${r.listas} comisión${r.listas > 1 ? 'es' : ''} de ${r.vendedor_nombre} como pagadas?\nTotal: ${cop(total)}`)) return
+  pagandoListas.value = r.vendedor_id
+  try {
+    const { data } = await api.post('/comisiones/pagar-listas', { vendedor_id: r.vendedor_id, mes: mesActual.value })
+    toast.success(`${data.pagadas} comisión${data.pagadas !== 1 ? 'es' : ''} marcada${data.pagadas !== 1 ? 's' : ''} como pagada${data.pagadas !== 1 ? 's' : ''}`)
+    await cargar()
+    await cargarResumen()
+  } catch (e) {
+    toast.error(e.response?.data?.error || 'Error al pagar')
+  } finally {
+    pagandoListas.value = null
   }
 }
 
@@ -602,6 +623,19 @@ onMounted(async () => {
                   <ChevronDownIcon v-else class="w-4 h-4" />
                 </button>
               </div>
+
+              <!-- Botón pagar todas las listas -->
+              <button
+                v-if="r.listas > 0"
+                @click="pagarTodasListas(r)"
+                :disabled="pagandoListas === r.vendedor_id"
+                class="mt-3 w-full flex items-center justify-between bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded-xl px-4 py-2.5 transition-colors"
+              >
+                <span class="text-xs font-semibold">
+                  {{ pagandoListas === r.vendedor_id ? 'Pagando…' : `Pagar ${r.listas} comisión${r.listas > 1 ? 'es' : ''} listas` }}
+                </span>
+                <span class="text-sm font-bold">{{ cop(totalListasVendedor(r)) }}</span>
+              </button>
             </div>
 
             <!-- Detalle órdenes -->

@@ -322,6 +322,44 @@ class ComisionController extends Controller
         return response()->json($meta);
     }
 
+    // POST /api/comisiones/pagar-listas
+    public function pagarListas(Request $request)
+    {
+        $usuario = $request->user();
+        if (! $usuario->acceso_comisiones) {
+            return response()->json(['error' => 'Sin acceso'], 403);
+        }
+
+        $data = $request->validate([
+            'vendedor_id' => 'required|integer|exists:usuarios,id',
+            'mes'         => 'required|string|regex:/^\d{4}-\d{2}$/',
+        ]);
+
+        [$metas, $totalesTienda, $totalesVendedor] = $this->cargarTotales();
+        $hoy     = Carbon::today();
+        $pagadas = 0;
+
+        Comision::with('orden.pagos')
+            ->where('vendedor_id', $data['vendedor_id'])
+            ->where('mes_venta', $data['mes'])
+            ->where('estado', '!=', 'pagada')
+            ->get()
+            ->each(function ($c) use ($metas, $totalesTienda, $totalesVendedor, $hoy, $usuario, &$pagadas) {
+                $e = $this->enriquecer($c, $metas, $totalesTienda, $totalesVendedor, $hoy);
+                if ($e['estado_calculado'] === 'lista') {
+                    $c->update([
+                        'estado'         => 'pagada',
+                        'monto_comision' => $e['monto_comision'],
+                        'fecha_pago'     => now(),
+                        'pagada_por'     => $usuario->id,
+                    ]);
+                    $pagadas++;
+                }
+            });
+
+        return response()->json(['pagadas' => $pagadas]);
+    }
+
     // POST /api/comisiones/recalcular
     public function recalcular(Request $request)
     {
