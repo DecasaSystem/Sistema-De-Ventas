@@ -31,6 +31,7 @@ import {
   BuildingOffice2Icon,
   SwatchIcon,
   BanknotesIcon,
+  ReceiptPercentIcon,
 } from '@heroicons/vue/24/outline'
 
 const auth         = useAuthStore()
@@ -106,12 +107,16 @@ const accesos = computed(() => {
 
 const accesosAdmin = computed(() => {
   if (!auth.isSupervisor) return []
-  return [
-    { label: 'Despacho',     icon: TruckIcon,      to: { name: 'despacho'  }, badge: despacho.ordenesPendientes },
-    { label: 'Trabajadores', icon: UsersIcon,       to: { name: 'usuarios'  } },
-    { label: 'Reportes',     icon: ChartBarIcon,    to: { name: 'reportes'  } },
-    { label: 'Costos',       icon: CalculatorIcon,  to: { name: 'costos'    } },
+  const items = [
+    { label: 'Despacho',     icon: TruckIcon,             to: { name: 'despacho'   }, badge: despacho.ordenesPendientes },
+    { label: 'Trabajadores', icon: UsersIcon,              to: { name: 'usuarios'   } },
+    { label: 'Reportes',     icon: ChartBarIcon,           to: { name: 'reportes'   } },
+    { label: 'Costos',       icon: CalculatorIcon,         to: { name: 'costos'     } },
   ]
+  if (auth.tieneAccesoComisiones) {
+    items.push({ label: 'Comisiones', icon: ReceiptPercentIcon, to: { name: 'comisiones' } })
+  }
+  return items
 })
 </script>
 
