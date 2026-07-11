@@ -18,6 +18,7 @@ import {
   WrenchScrewdriverIcon,
   ClipboardDocumentCheckIcon,
   ChartBarIcon,
+  ChartPieIcon,
   PresentationChartLineIcon,
   TruckIcon,
   DocumentCurrencyDollarIcon,
@@ -78,7 +79,7 @@ const accesos = computed(() => {
     { label: 'Órdenes',      icon: ClipboardDocumentListIcon, to: { name: 'ordenes'     } },
     { label: 'Clientes',     icon: UserGroupIcon,             to: { name: 'clientes'    } },
     { label: 'Inventario',   icon: ArchiveBoxIcon,            to: { name: 'inventario'  }, badge: surtidos.pendientesCount },
-    ...((auth.puedeRecargarTelas || auth.isCosturero || auth.usuario?.rol === 'vendedor') ? [{ label: 'Telas', icon: SwatchIcon, to: { name: 'telas' } }] : []),
+    ...((auth.puedeRecargarTelas || auth.isCosturero || auth.usuario?.rol === 'vendedor' || auth.isSupervisor) ? [{ label: 'Telas', icon: SwatchIcon, to: { name: 'telas' } }] : []),
     ...(!auth.isSupervisor ? [{ label: 'Fábrica',  icon: BuildingOffice2Icon, to: { name: 'reserva' } }] : []),
     ...(!auth.isSupervisor ? [{ label: 'Traslado', icon: ArrowPathIcon,       to: { name: 'surtir'  } }] : []),
     ...(auth.tieneAccesoRedes ? [{ label: 'Redes', icon: ChatBubbleLeftRightIcon, to: { name: 'redes' } }] : []),
@@ -113,6 +114,9 @@ const accesosAdmin = computed(() => {
     { label: 'Reportes',     icon: ChartBarIcon,           to: { name: 'reportes'   } },
     { label: 'Costos',       icon: CalculatorIcon,         to: { name: 'costos'     } },
   ]
+  if (auth.tieneAccesoRedes) {
+    items.push({ label: 'Métricas', icon: ChartPieIcon, to: { name: 'metricas-redes' } })
+  }
   if (auth.tieneAccesoComisiones) {
     items.push({ label: 'Comisiones', icon: ReceiptPercentIcon, to: { name: 'comisiones' } })
   }
