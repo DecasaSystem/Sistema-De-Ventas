@@ -29,6 +29,7 @@ const routes = [
   { path: '/facturacion', name: 'facturacion', component: () => import('@/views/FacturacionView.vue'), meta: { requiresAuth: true, requiresFacturador: true } },
   { path: '/reserva', name: 'reserva', component: () => import('@/views/ReservaView.vue'), meta: { requiresAuth: true, requiresReserva: true } },
   { path: '/redes',       name: 'redes',       component: () => import('@/views/RedesView.vue'),       meta: { requiresAuth: true, requiresRedes: true } },
+  { path: '/redes/metricas', name: 'metricas-redes', component: () => import('@/views/MetricasRedesView.vue'), meta: { requiresAuth: true, requiresSupervisor: true } },
   { path: '/comisiones',  name: 'comisiones',  component: () => import('@/views/ComisionesView.vue'),  meta: { requiresAuth: true, requiresComisiones: true } },
   { path: '/citas',  name: 'citas',  component: () => import('@/views/CitasView.vue'),  meta: { requiresAuth: true } },
   { path: '/consultas-costo', name: 'consultas', component: () => import('@/views/ConsultasView.vue'), meta: { requiresAuth: true, requiresConsultas: true } },

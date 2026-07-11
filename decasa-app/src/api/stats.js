@@ -11,3 +11,4 @@ export const getStatsVendedor   = (id, params) => api.get(`/stats/vendedor/${id}
 export const getStatsCategorias = (params) => api.get('/stats/categorias', { params })
 export const getInteresados        = (params) => api.get('/reportes/interesados', { params })
 export const getStatsConductores   = (params) => api.get('/stats/conductores', { params })
+export const getMetricasRedes      = (params) => api.get('/redes/metricas', { params })

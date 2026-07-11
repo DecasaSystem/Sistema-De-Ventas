@@ -370,6 +370,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/redes/conversaciones/{id}/tomar',           [RedesController::class, 'tomar']);
     Route::post('/redes/conversaciones/{id}/terminar',        [RedesController::class, 'terminar']);
     Route::delete('/redes/conversaciones/terminadas',         [RedesController::class, 'limpiarTerminadas'])->middleware('role:supervisor');
+    Route::get('/redes/metricas',                             [RedesController::class, 'metricas'])->middleware('role:supervisor');
 
     // Citas
     Route::get('/citas',          [CitaController::class, 'index']);

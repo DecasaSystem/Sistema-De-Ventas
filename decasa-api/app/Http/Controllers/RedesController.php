@@ -280,4 +280,96 @@ class RedesController extends Controller
 
         return response()->json($conv->fresh('tomadaPor:id,nombre'));
     }
+
+    // GET /api/redes/metricas — panel de métricas de los agentes de IA (WhatsApp + Instagram).
+    // Base cross-canal: conversaciones_wa (propiedad de Laravel, tiene fuente/estado/tomada_por).
+    // Embudo conversacional del bot de Instagram: ig_eventos (propiedad del agente IG).
+    public function metricas(Request $request)
+    {
+        [$desde, $hasta] = $this->rangoMetricas($request);
+        $rango = [$desde . ' 00:00:00', $hasta . ' 23:59:59'];
+
+        $base  = ConversacionWa::whereBetween('created_at', $rango);
+        $total = (clone $base)->count();
+
+        $porFuente = (clone $base)->selectRaw('fuente, COUNT(*) as n')->groupBy('fuente')->pluck('n', 'fuente');
+        $porTipo   = (clone $base)->selectRaw('tipo, COUNT(*) as n')->groupBy('tipo')->pluck('n', 'tipo');
+        $porEstado = (clone $base)->selectRaw('estado, COUNT(*) as n')->groupBy('estado')->pluck('n', 'estado');
+
+        // Tiempo promedio de respuesta del equipo: de creada a tomada, en minutos.
+        $tiempoRespuesta = (clone $base)->whereNotNull('tomada_at')
+            ->selectRaw('AVG(TIMESTAMPDIFF(MINUTE, created_at, tomada_at)) as m')->value('m');
+
+        $porVendedor = DB::table('conversaciones_wa as c')
+            ->leftJoin('usuarios as u', 'u.id', '=', 'c.tomada_por')
+            ->whereBetween('c.created_at', $rango)
+            ->whereNotNull('c.tomada_por')
+            ->selectRaw("COALESCE(u.nombre, 'Sin asignar') as vendedor, COUNT(*) as n")
+            ->groupBy('vendedor')->orderByDesc('n')->limit(15)->get();
+
+        // Serie diaria para el gráfico de tendencia.
+        $serie = (clone $base)->selectRaw('DATE(created_at) as dia, COUNT(*) as n')
+            ->groupBy('dia')->orderBy('dia')->get();
+
+        // Embudo del bot de Instagram. La tabla ig_eventos la crea el agente IG; si aún no
+        // existe (o está vacía) se omite esta sección sin romper el resto del panel.
+        $instagram = null;
+        $igTop = [];
+        try {
+            $ev = DB::table('ig_eventos')->whereBetween('created_at', $rango)
+                ->selectRaw('tipo, COUNT(*) as n')->groupBy('tipo')->pluck('n', 'tipo');
+            $conv = (int) ($ev['conversacion'] ?? 0);
+            $ped  = (int) ($ev['pedido'] ?? 0);
+            $instagram = [
+                'conversaciones'   => $conv,
+                'busquedas'        => (int) ($ev['busqueda'] ?? 0),
+                'productos_vistos' => (int) ($ev['producto_visto'] ?? 0),
+                'transferencias'   => (int) ($ev['transferencia'] ?? 0),
+                'citas'            => (int) ($ev['cita'] ?? 0),
+                'pedidos'          => $ped,
+                'sin_resolver'     => (int) ($ev['sin_resolver'] ?? 0),
+                'tasa_conversion'  => $conv ? round($ped / $conv * 100, 1) : 0,
+            ];
+            $igTop = DB::table('ig_eventos')->whereBetween('created_at', $rango)
+                ->where('tipo', 'producto_visto')->whereNotNull('detalle')
+                ->selectRaw('detalle as nombre, COUNT(*) as veces')
+                ->groupBy('detalle')->orderByDesc('veces')->limit(8)->get();
+        } catch (\Throwable $e) {
+            \Log::info('[metricas] ig_eventos no disponible: ' . $e->getMessage());
+        }
+
+        return response()->json([
+            'desde'                   => $desde,
+            'hasta'                   => $hasta,
+            'total'                   => $total,
+            'por_fuente'              => $porFuente,
+            'por_tipo'                => $porTipo,
+            'por_estado'              => $porEstado,
+            'tiempo_respuesta_min'    => $tiempoRespuesta !== null ? round($tiempoRespuesta, 1) : null,
+            'por_vendedor'            => $porVendedor,
+            'serie'                   => $serie,
+            'instagram'               => $instagram,
+            'instagram_top_productos' => $igTop,
+        ]);
+    }
+
+    private function rangoMetricas(Request $r): array
+    {
+        $hoy = Carbon::now('America/Bogota');
+        switch ($r->query('periodo')) {
+            case 'hoy':
+                return [$hoy->toDateString(), $hoy->toDateString()];
+            case 'semana':
+                return [$hoy->copy()->startOfWeek()->toDateString(), $hoy->toDateString()];
+            case 'mes_anterior':
+                return [$hoy->copy()->subMonth()->startOfMonth()->toDateString(), $hoy->copy()->subMonth()->endOfMonth()->toDateString()];
+            case 'anio':
+                return [$hoy->copy()->startOfYear()->toDateString(), $hoy->toDateString()];
+            default: // 'mes' o rango personalizado
+                return [
+                    $r->query('desde', $hoy->copy()->startOfMonth()->toDateString()),
+                    $r->query('hasta', $hoy->toDateString()),
+                ];
+        }
+    }
 }
