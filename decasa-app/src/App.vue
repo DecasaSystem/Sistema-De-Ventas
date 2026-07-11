@@ -25,6 +25,7 @@ import {
   ArchiveBoxIcon,
   WrenchScrewdriverIcon,
   ChartBarIcon,
+  ChartPieIcon,
   PresentationChartLineIcon,
   ArrowRightStartOnRectangleIcon,
   BellIcon,
@@ -192,7 +193,7 @@ const navItems = computed(() => {
     }
     if (auth.tieneAccesoRedes) {
       items.push({ name: 'redes', label: 'Redes', icon: ChatBubbleLeftRightIcon, badge: redesPendientes.value })
-      items.push({ name: 'metricas-redes', label: 'Métricas', icon: PresentationChartLineIcon })
+      items.push({ name: 'metricas-redes', label: 'Métricas', icon: ChartPieIcon })
     }
     if (auth.tieneAccesoComisiones) {
       items.push({ name: 'comisiones', label: 'Comisiones', icon: ReceiptPercentIcon })
