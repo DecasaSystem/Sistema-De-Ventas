@@ -4,6 +4,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
 import { useRouter } from 'vue-router'
 import api from '@/api'
+import RedesHerramientas from '@/components/RedesHerramientas.vue'
 import {
   ChatBubbleLeftRightIcon,
   PhoneIcon,
@@ -18,6 +19,8 @@ import {
   MapPinIcon,
   TrashIcon,
 } from '@heroicons/vue/24/outline'
+
+const mostrarHerramientas = ref(false)
 
 const auth   = useAuthStore()
 const toast  = useToast()
@@ -249,10 +252,20 @@ onUnmounted(() => {
 
 <template>
   <div class="max-w-lg mx-auto px-4 py-4">
-    <h1 class="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-      <ChatBubbleLeftRightIcon class="w-6 h-6 text-blue-600" />
-      Redes
-    </h1>
+    <div class="flex items-center justify-between mb-4">
+      <h1 class="text-xl font-bold text-gray-800 flex items-center gap-2">
+        <ChatBubbleLeftRightIcon class="w-6 h-6 text-blue-600" />
+        Redes
+      </h1>
+      <button
+        @click="mostrarHerramientas = true"
+        class="flex items-center gap-1.5 text-xs font-semibold text-blue-600 border border-blue-200 bg-blue-50 hover:bg-blue-100 rounded-lg px-3 py-1.5 transition-colors"
+      >
+        🧰 Herramientas
+      </button>
+    </div>
+
+    <RedesHerramientas v-if="mostrarHerramientas" @close="mostrarHerramientas = false" />
 
     <!-- Tabs -->
     <div class="flex rounded-xl bg-gray-100 p-1 mb-4 gap-1">

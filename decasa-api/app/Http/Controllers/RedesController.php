@@ -353,6 +353,19 @@ class RedesController extends Controller
         ]);
     }
 
+    // GET /api/redes/catalogos — enlaces de catálogos (PDF) para el panel de
+    // herramientas del asesor. Viven en la tabla configuracion (clave catalogo_*),
+    // compartida con los agentes de IA.
+    public function catalogos()
+    {
+        $rows = DB::table('configuracion')->where('clave', 'like', 'catalogo_%')->get(['clave', 'valor']);
+        $out = [];
+        foreach ($rows as $r) {
+            $out[str_replace('catalogo_', '', $r->clave)] = $r->valor;
+        }
+        return response()->json($out);
+    }
+
     private function rangoMetricas(Request $r): array
     {
         $hoy = Carbon::now('America/Bogota');
