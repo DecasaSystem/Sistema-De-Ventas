@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
 import { useDespachoStore } from '@/stores/despacho'
@@ -8,6 +8,7 @@ import { usePasosStore } from '@/stores/pasos'
 import { useConsultasStore } from '@/stores/consultas'
 import { useDespachoProduccionStore } from '@/stores/despachoProduccion'
 import { useNotificacionesStore } from '@/stores/notificaciones'
+import RedesHerramientas from '@/components/RedesHerramientas.vue'
 import {
   PlusIcon,
   ClipboardDocumentListIcon,
@@ -43,6 +44,10 @@ const pasos        = usePasosStore()
 const consultas    = useConsultasStore()
 const despachoProd = useDespachoProduccionStore()
 const notif        = useNotificacionesStore()
+
+// Panel de herramientas (direcciones, horarios, catálogos…). Disponible para TODOS
+// los usuarios desde el inicio, no solo los del módulo Redes.
+const mostrarHerramientas = ref(false)
 
 const abonosNoLeidos = computed(() =>
   notif.items.filter(n => !n.leida && n.tipo === 'abono_registrado').length
@@ -174,6 +179,17 @@ const accesosAdmin = computed(() => {
           {{ a.label }}
         </button>
       </template>
+
+      <!-- Herramientas: disponible para TODOS los usuarios -->
+      <button
+        @click="mostrarHerramientas = true"
+        class="bg-white rounded-xl shadow-sm p-4 flex flex-col items-center gap-2 text-sm font-medium text-gray-700 hover:bg-blue-50 transition-colors"
+      >
+        <WrenchScrewdriverIcon class="w-8 h-8" />
+        Herramientas
+      </button>
     </div>
+
+    <RedesHerramientas v-if="mostrarHerramientas" @close="mostrarHerramientas = false" />
   </div>
 </template>
