@@ -1053,9 +1053,19 @@ const anticipo_monto        = ref(0)
 const anticipo_metodo       = ref('efectivo')
 const anticipo_referencia   = ref('')
 const pagoSplit             = ref(false)
+const anticipo_monto1_input = ref(0)
 const anticipo_monto2       = ref(0)
 const anticipo_metodo2      = ref('transferencia')
 const anticipo_referencia2  = ref('')
+
+function togglePagoSplit() {
+  pagoSplit.value = !pagoSplit.value
+  if (pagoSplit.value) {
+    anticipo_monto1_input.value = anticipo_monto.value
+    anticipo_monto2.value       = 0
+    anticipo_metodo2.value      = anticipo_metodo.value === 'efectivo' ? 'transferencia' : 'efectivo'
+  }
+}
 const notas                = ref('')
 const esCompartida         = ref(false)
 const covendedorId         = ref(null)
@@ -1145,10 +1155,6 @@ const anticipoPctActual = computed(() => {
   return Math.round((anticipo_monto.value / valorTotal.value) * 100)
 })
 
-// Primer monto en pago combinado = total - segundo monto
-const anticipo_monto1 = computed(() =>
-  pagoSplit.value ? Math.max(0, anticipo_monto.value - (anticipo_monto2.value || 0)) : anticipo_monto.value
-)
 
 // ── Cotización de costo durante la creación ───────────────────────────────────
 const cotizarReceptorId   = ref(null)
@@ -1289,13 +1295,13 @@ async function submit() {
       canal:                canal.value,
       tipo:                 tipoOrden.value,
       anticipo_pct:         anticipo_pct.value,
-      anticipo_monto:       (modoGuardarBorrador.value || hayItemsCotizar.value) ? 0 : anticipo_monto.value,
+      anticipo_monto:       (modoGuardarBorrador.value || hayItemsCotizar.value) ? 0 : (pagoSplit.value ? (anticipo_monto1_input.value + anticipo_monto2.value) : anticipo_monto.value),
       anticipo_metodo:      anticipo_metodo.value,
       anticipo_referencia:  pagoSplit.value ? undefined : (anticipo_referencia.value || undefined),
-      ...(pagoSplit.value && !(modoGuardarBorrador.value || hayItemsCotizar.value) && anticipo_monto.value > 0 ? {
+      ...(pagoSplit.value && !(modoGuardarBorrador.value || hayItemsCotizar.value) && (anticipo_monto1_input.value + anticipo_monto2.value) > 0 ? {
         anticipo_pagos: [
-          { monto: anticipo_monto1.value, metodo: anticipo_metodo.value, referencia: anticipo_referencia.value || undefined },
-          { monto: anticipo_monto2.value,  metodo: anticipo_metodo2.value,  referencia: anticipo_referencia2.value || undefined },
+          { monto: anticipo_monto1_input.value, metodo: anticipo_metodo.value,  referencia: anticipo_referencia.value  || undefined },
+          { monto: anticipo_monto2.value,        metodo: anticipo_metodo2.value, referencia: anticipo_referencia2.value || undefined },
         ].filter(p => p.monto > 0)
       } : {}),
       guardar_borrador:     modoGuardarBorrador.value || undefined,
@@ -2868,89 +2874,98 @@ function removeFacturaFoto() {
           </div>
         </div>
 
-        <div>
-          <label class="label">Monto anticipo</label>
-          <input
-            v-model.number="anticipo_monto"
-            type="number"
-            min="0"
-            class="input"
-          />
-          <p v-if="valorTotal > 0 && anticipo_monto > 0" class="mt-1 text-xs text-gray-400">
-            = {{ anticipoPctActual }}% del total
-          </p>
-          <p v-else-if="anticipo_monto === 0" class="mt-1 text-xs text-amber-500">
-            Sin anticipo — la orden queda pendiente de pago
-          </p>
-        </div>
-
-        <div>
-          <label class="label">Método de pago</label>
-          <div class="flex gap-2 flex-wrap">
-            <button
-              v-for="m in metodosOpts"
-              :key="m.value"
-              @click="anticipo_metodo = m.value"
-              :class="['px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors',
-                anticipo_metodo === m.value
-                  ? 'bg-blue-600 text-white border-blue-600'
-                  : 'bg-white text-gray-700 border-gray-300']"
-            >{{ m.label }}</button>
+        <!-- Modo pago simple (un solo método) -->
+        <template v-if="!pagoSplit">
+          <div>
+            <label class="label">Monto anticipo</label>
+            <input v-model.number="anticipo_monto" type="number" min="0" class="input" />
+            <p v-if="valorTotal > 0 && anticipo_monto > 0" class="mt-1 text-xs text-gray-400">
+              = {{ anticipoPctActual }}% del total
+            </p>
+            <p v-else-if="anticipo_monto === 0" class="mt-1 text-xs text-amber-500">
+              Sin anticipo — la orden queda pendiente de pago
+            </p>
           </div>
-        </div>
+          <div>
+            <label class="label">Método de pago</label>
+            <div class="flex gap-2 flex-wrap">
+              <button v-for="m in metodosOpts" :key="m.value" @click="anticipo_metodo = m.value"
+                :class="['px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors',
+                  anticipo_metodo === m.value ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300']">
+                {{ m.label }}
+              </button>
+            </div>
+          </div>
+          <div v-if="anticipo_metodo !== 'efectivo'">
+            <label class="label">Referencia / número transacción</label>
+            <input v-model="anticipo_referencia" class="input" placeholder="Opcional" />
+          </div>
+        </template>
 
-        <div v-if="anticipo_metodo !== 'efectivo' && !pagoSplit">
-          <label class="label">Referencia / número transacción</label>
-          <input v-model="anticipo_referencia" class="input" placeholder="Opcional" />
-        </div>
-
-        <!-- Toggle pago combinado -->
-        <div v-if="anticipo_monto > 0" class="flex items-center justify-between pt-1">
+        <!-- Toggle pago en dos métodos -->
+        <div v-if="anticipo_monto > 0 || pagoSplit" class="flex items-center justify-between pt-1">
           <span class="text-sm text-gray-600">Pago en dos métodos</span>
-          <button
-            type="button"
-            @click="pagoSplit = !pagoSplit; anticipo_monto2 = 0"
-            :class="['relative inline-flex h-6 w-11 items-center rounded-full transition-colors', pagoSplit ? 'bg-blue-600' : 'bg-gray-200']"
-          >
+          <button type="button" @click="togglePagoSplit"
+            :class="['relative inline-flex h-6 w-11 items-center rounded-full transition-colors', pagoSplit ? 'bg-blue-600' : 'bg-gray-200']">
             <span :class="['inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform', pagoSplit ? 'translate-x-6' : 'translate-x-1']" />
           </button>
         </div>
 
-        <!-- Segundo método de pago -->
-        <template v-if="pagoSplit && anticipo_monto > 0">
-          <div class="bg-blue-50 rounded-xl p-3 space-y-2.5">
-            <p class="text-xs font-semibold text-blue-700">Primer pago: <span class="font-bold">${{ (anticipo_monto1).toLocaleString('es-CO') }}</span> en {{ metodosOpts.find(m => m.value === anticipo_metodo)?.label }}</p>
+        <!-- Modo pago dividido (dos métodos independientes) -->
+        <template v-if="pagoSplit">
+          <!-- Primer pago -->
+          <div class="border border-blue-200 rounded-xl p-3 space-y-2.5 bg-blue-50/40">
+            <p class="text-xs font-semibold text-blue-700">Primer pago</p>
+            <div>
+              <label class="label">Monto</label>
+              <input v-model.number="anticipo_monto1_input" type="number" min="0" class="input" placeholder="0" />
+            </div>
+            <div>
+              <label class="label">Método</label>
+              <div class="flex gap-2 flex-wrap">
+                <button v-for="m in metodosOpts" :key="m.value" @click="anticipo_metodo = m.value"
+                  :class="['px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors',
+                    anticipo_metodo === m.value ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300']">
+                  {{ m.label }}
+                </button>
+              </div>
+            </div>
             <div v-if="anticipo_metodo !== 'efectivo'">
-              <input v-model="anticipo_referencia" class="input text-xs" placeholder="Referencia primer pago (opcional)" />
+              <label class="label">Referencia</label>
+              <input v-model="anticipo_referencia" class="input" placeholder="Opcional" />
             </div>
           </div>
-          <div class="space-y-2">
-            <label class="label">Segundo monto</label>
-            <input
-              v-model.number="anticipo_monto2"
-              type="number"
-              min="0"
-              :max="anticipo_monto"
-              class="input"
-              placeholder="0"
-            />
-            <p v-if="anticipo_monto2 > anticipo_monto" class="text-xs text-red-500">El segundo monto no puede superar el total del anticipo</p>
-          </div>
-          <div>
-            <label class="label">Método segundo pago</label>
-            <div class="flex gap-2 flex-wrap">
-              <button
-                v-for="m in metodosOpts"
-                :key="m.value"
-                @click="anticipo_metodo2 = m.value"
-                :class="['px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors',
-                  anticipo_metodo2 === m.value ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300']"
-              >{{ m.label }}</button>
+
+          <!-- Segundo pago -->
+          <div class="border border-gray-200 rounded-xl p-3 space-y-2.5">
+            <p class="text-xs font-semibold text-gray-600">Segundo pago</p>
+            <div>
+              <label class="label">Monto</label>
+              <input v-model.number="anticipo_monto2" type="number" min="0" class="input" placeholder="0" />
+            </div>
+            <div>
+              <label class="label">Método</label>
+              <div class="flex gap-2 flex-wrap">
+                <button v-for="m in metodosOpts" :key="m.value" @click="anticipo_metodo2 = m.value"
+                  :class="['px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors',
+                    anticipo_metodo2 === m.value ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300']">
+                  {{ m.label }}
+                </button>
+              </div>
+            </div>
+            <div v-if="anticipo_metodo2 !== 'efectivo'">
+              <label class="label">Referencia</label>
+              <input v-model="anticipo_referencia2" class="input" placeholder="Opcional" />
             </div>
           </div>
-          <div v-if="anticipo_metodo2 !== 'efectivo'">
-            <label class="label">Referencia segundo pago</label>
-            <input v-model="anticipo_referencia2" class="input" placeholder="Opcional" />
+
+          <!-- Total validación -->
+          <div :class="['flex items-center justify-between text-xs rounded-lg px-3 py-2',
+            anticipo_monto1_input + anticipo_monto2 === anticipo_monto ? 'bg-green-50 text-green-700' : 'bg-gray-50 text-gray-500']">
+            <span>Total anticipo: ${{ (anticipo_monto1_input + anticipo_monto2).toLocaleString('es-CO') }}</span>
+            <span v-if="valorTotal > 0 && (anticipo_monto1_input + anticipo_monto2) > 0">
+              = {{ Math.round(((anticipo_monto1_input + anticipo_monto2) / valorTotal) * 100) }}% del total
+            </span>
           </div>
         </template>
       </template>
