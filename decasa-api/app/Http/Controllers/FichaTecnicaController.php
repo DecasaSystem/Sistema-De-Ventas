@@ -29,7 +29,7 @@ class FichaTecnicaController extends Controller
         $fichas = $query
             ->orderBy('categoria')
             ->orderBy('nombre')
-            ->get(['id', 'nombre', 'categoria', 'costo_materiales', 'costo_mano_obra', 'costo_total']);
+            ->get(['id', 'nombre', 'categoria', 'costo_materiales', 'costo_mano_obra', 'costo_total', 'foto_url']);
 
         $categorias = FichaTecnica::distinct()->orderBy('categoria')->pluck('categoria');
 
@@ -51,6 +51,7 @@ class FichaTecnicaController extends Controller
         $data = $request->validate([
             'nombre'                  => 'required|string|max:255',
             'categoria'               => 'required|string|max:255',
+            'foto_url'                => 'nullable|string|max:500',
             'items'                   => 'required|array|min:1',
             'items.*.seccion'         => 'nullable|string',
             'items.*.descripcion'     => 'required|string',
@@ -68,6 +69,7 @@ class FichaTecnicaController extends Controller
         $ficha = FichaTecnica::create([
             'nombre'           => $data['nombre'],
             'categoria'        => $data['categoria'],
+            'foto_url'         => $data['foto_url'] ?? null,
             'costo_materiales' => $costoMateriales,
             'costo_mano_obra'  => $costoManoObra,
             'costo_total'      => $costoMateriales + $costoManoObra,
@@ -114,6 +116,7 @@ class FichaTecnicaController extends Controller
     {
         $data = $request->validate([
             'nombre'                  => 'sometimes|string|max:255',
+            'foto_url'                => 'sometimes|nullable|string|max:500',
             'items'                   => 'required|array',
             'items.*.id'              => 'required|integer',
             'items.*.cantidad'        => 'required|numeric|min:0',
@@ -121,9 +124,10 @@ class FichaTecnicaController extends Controller
             'items.*.subtotal'        => 'required|numeric|min:0',
         ]);
 
-        if (!empty($data['nombre'])) {
-            $fichaTecnica->update(['nombre' => strtoupper(trim($data['nombre']))]);
-        }
+        $camposActualizar = [];
+        if (!empty($data['nombre'])) $camposActualizar['nombre'] = strtoupper(trim($data['nombre']));
+        if (array_key_exists('foto_url', $data)) $camposActualizar['foto_url'] = $data['foto_url'];
+        if (!empty($camposActualizar)) $fichaTecnica->update($camposActualizar);
 
         foreach ($data['items'] as $itemData) {
             FichaTecnicaItem::where('id', $itemData['id'])

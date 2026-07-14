@@ -21,7 +21,9 @@ import {
   TrashIcon,
   ArrowDownTrayIcon,
   ArrowsRightLeftIcon,
+  PhotoIcon,
 } from '@heroicons/vue/24/outline'
+import { comprimirImagen } from '@/utils/comprimirImagen'
 
 // ── TAB activo ────────────────────────────────────────────────────────────────
 const tab = ref('productos') // 'productos' | 'materiales' | 'tarifas'
@@ -76,10 +78,12 @@ const guardando      = ref(false)
 const hayCambios     = ref(false)
 
 async function verDetalle(id) {
-  loadingDetalle.value = true
-  fichaDetalle.value   = null
-  modoEdicion.value    = false
-  hayCambios.value     = false
+  loadingDetalle.value      = true
+  fichaDetalle.value        = null
+  modoEdicion.value         = false
+  hayCambios.value          = false
+  fotoDetalleFile.value     = null
+  fotoDetalleCleared.value  = false
   try {
     const res = await getFicha(id)
     const data = res.data
@@ -99,9 +103,11 @@ async function verDetalle(id) {
 
 function cerrarDetalle() {
   if (hayCambios.value && !confirm('Hay cambios sin guardar. ¿Cerrar de todas formas?')) return
-  fichaDetalle.value = null
-  modoEdicion.value  = false
-  hayCambios.value   = false
+  fichaDetalle.value       = null
+  modoEdicion.value        = false
+  hayCambios.value         = false
+  fotoDetalleFile.value    = null
+  fotoDetalleCleared.value = false
 }
 
 function onCampoChange(item) {
@@ -122,6 +128,19 @@ function recalcularTotalesDetalle() {
 async function guardarCambios() {
   guardando.value = true
   try {
+    let fotoUrl = undefined
+    if (fotoDetalleFile.value) {
+      subiendoFotoDetalle.value = true
+      const fd = new FormData()
+      fd.append('foto', await comprimirImagen(fotoDetalleFile.value), 'foto.jpg')
+      const { data: up } = await api.post('/upload/foto', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      fotoUrl = up.url
+      fichaDetalle.value.foto_url   = fotoUrl
+      fotoDetalleFile.value         = null
+      subiendoFotoDetalle.value     = false
+    } else if (fotoDetalleCleared.value) {
+      fotoUrl = null
+    }
     await actualizarItems(
       fichaDetalle.value.id,
       fichaDetalle.value.items.map(i => ({
@@ -131,15 +150,18 @@ async function guardarCambios() {
         subtotal:        parseFloat(i.subtotal),
       })),
       fichaDetalle.value.nombre,
+      fotoUrl,
     )
-    hayCambios.value  = false
-    modoEdicion.value = false
+    fotoDetalleCleared.value = false
+    hayCambios.value         = false
+    modoEdicion.value        = false
     const idx = fichas.value.findIndex(f => f.id === fichaDetalle.value.id)
     if (idx !== -1) {
       fichas.value[idx].nombre           = fichaDetalle.value.nombre
       fichas.value[idx].costo_materiales = fichaDetalle.value.costo_materiales
       fichas.value[idx].costo_mano_obra  = fichaDetalle.value.costo_mano_obra
       fichas.value[idx].costo_total      = fichaDetalle.value.costo_total
+      if (fotoUrl !== undefined) fichas.value[idx].foto_url = fotoUrl
     }
   } finally {
     guardando.value = false
@@ -169,14 +191,40 @@ const seccionesConCosto = computed(() => {
 const esMultiVariante = computed(() => secciones.value.length > 1)
 
 // ── Nuevo producto ────────────────────────────────────────────────────────────
-const mostrarFormNuevo = ref(false)
-const creando          = ref(false)
+const mostrarFormNuevo    = ref(false)
+const creando             = ref(false)
 let _tempId = 0
 
-const formNuevo = ref({ nombre: '', categoria: '', materiales: [], manoObra: [] })
+const formNuevo           = ref({ nombre: '', categoria: '', foto_url: '', materiales: [], manoObra: [] })
+const fotoNuevoFile       = ref(null)
+const fotoNuevoUrl        = ref('')
+const subiendoFotoNuevo   = ref(false)
+
+const fotoDetalleFile     = ref(null)
+const fotoDetalleCleared  = ref(false)
+const subiendoFotoDetalle = ref(false)
+const bocetoFicha         = ref('')
+
+function onFotoNuevoChange(e) {
+  const file = e.target.files?.[0]
+  if (!file) return
+  fotoNuevoFile.value = file
+  fotoNuevoUrl.value  = URL.createObjectURL(file)
+}
+
+function onFotoDetalleChange(e) {
+  const file = e.target.files?.[0]
+  if (!file) return
+  fotoDetalleFile.value         = file
+  fichaDetalle.value.foto_url   = URL.createObjectURL(file)
+  fotoDetalleCleared.value      = false
+  hayCambios.value              = true
+}
 
 function abrirFormNuevo() {
-  formNuevo.value = { nombre: '', categoria: '', materiales: [nuevoItemMaterial()], manoObra: [] }
+  formNuevo.value      = { nombre: '', categoria: '', foto_url: '', materiales: [nuevoItemMaterial()], manoObra: [] }
+  fotoNuevoFile.value  = null
+  fotoNuevoUrl.value   = ''
   mostrarFormNuevo.value = true
 }
 
@@ -217,7 +265,20 @@ async function guardarNuevo() {
 
   creando.value = true
   try {
-    const res = await crearFicha({ nombre: formNuevo.value.nombre, categoria: formNuevo.value.categoria, items })
+    if (fotoNuevoFile.value) {
+      subiendoFotoNuevo.value = true
+      const fd = new FormData()
+      fd.append('foto', await comprimirImagen(fotoNuevoFile.value), 'foto.jpg')
+      const { data: up } = await api.post('/upload/foto', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      formNuevo.value.foto_url = up.url
+      subiendoFotoNuevo.value = false
+    }
+    const res = await crearFicha({
+      nombre:    formNuevo.value.nombre,
+      categoria: formNuevo.value.categoria,
+      foto_url:  formNuevo.value.foto_url || undefined,
+      items,
+    })
     mostrarFormNuevo.value = false
     await cargar()
     verDetalle(res.data.id)
@@ -781,11 +842,15 @@ onMounted(() => {
             <div class="bg-white rounded-xl shadow-sm divide-y divide-gray-100 overflow-hidden">
               <button v-for="ficha in grupo" :key="ficha.id" @click="verDetalle(ficha.id)"
                 class="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 text-left">
-                <div class="flex-1 min-w-0 mr-3">
-                  <p class="text-sm font-medium text-gray-800 truncate">{{ ficha.nombre }}</p>
-                  <div class="flex gap-3 mt-0.5">
-                    <span class="text-xs text-gray-400">Mat: <span class="text-gray-600">{{ formatPeso(ficha.costo_materiales) }}</span></span>
-                    <span class="text-xs text-gray-400">M.O: <span class="text-gray-600">{{ formatPeso(ficha.costo_mano_obra) }}</span></span>
+                <div class="flex items-center gap-3 flex-1 min-w-0 mr-3">
+                  <img v-if="ficha.foto_url" :src="ficha.foto_url" :alt="ficha.nombre"
+                    class="w-10 h-10 rounded-lg object-cover flex-shrink-0 border border-gray-100" />
+                  <div class="flex-1 min-w-0">
+                    <p class="text-sm font-medium text-gray-800 truncate">{{ ficha.nombre }}</p>
+                    <div class="flex gap-3 mt-0.5">
+                      <span class="text-xs text-gray-400">Mat: <span class="text-gray-600">{{ formatPeso(ficha.costo_materiales) }}</span></span>
+                      <span class="text-xs text-gray-400">M.O: <span class="text-gray-600">{{ formatPeso(ficha.costo_mano_obra) }}</span></span>
+                    </div>
                   </div>
                 </div>
                 <div class="flex items-center gap-2">
@@ -1114,6 +1179,26 @@ onMounted(() => {
               </div>
             </div>
           </div>
+          <!-- Foto del producto -->
+          <div v-if="fichaDetalle.foto_url || modoEdicion" class="px-4 py-3 border-b border-gray-100 flex items-center gap-3">
+            <img v-if="fichaDetalle.foto_url" :src="fichaDetalle.foto_url" :alt="fichaDetalle.nombre"
+              class="w-20 h-20 rounded-xl object-cover border border-gray-200 flex-shrink-0 cursor-pointer"
+              @click="!modoEdicion && (bocetoFicha = fichaDetalle.foto_url)" />
+            <div v-else-if="modoEdicion" class="w-20 h-20 rounded-xl bg-gray-100 flex items-center justify-center flex-shrink-0">
+              <PhotoIcon class="w-8 h-8 text-gray-300" />
+            </div>
+            <div v-if="modoEdicion" class="flex flex-col gap-2">
+              <label class="flex items-center gap-1.5 text-xs text-blue-600 font-medium cursor-pointer border border-blue-200 rounded-lg px-3 py-2 hover:bg-blue-50">
+                <PhotoIcon class="w-4 h-4" />
+                {{ fotoDetalleFile ? 'Cambiar' : (fichaDetalle.foto_url ? 'Cambiar foto' : 'Agregar foto') }}
+                <input type="file" accept="image/*" class="hidden" @change="onFotoDetalleChange" />
+              </label>
+              <button v-if="fichaDetalle.foto_url" @click="fichaDetalle.foto_url = null; fotoDetalleFile = null; fotoDetalleCleared = true; hayCambios = true"
+                class="text-xs text-red-400 text-left">Quitar foto</button>
+            </div>
+            <p v-else-if="fichaDetalle.foto_url" class="text-xs text-gray-400">Toca la foto para ampliar</p>
+          </div>
+
           <div v-if="modoEdicion" class="mx-4 mt-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">
             Cambia cantidad o valor unitario — el subtotal y el total se recalculan automáticamente.
           </div>
@@ -1383,6 +1468,26 @@ onMounted(() => {
                 class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               <datalist id="lista-categorias"><option v-for="cat in categorias" :key="cat" :value="cat" /></datalist>
             </div>
+            <!-- Foto opcional -->
+            <div>
+              <label class="block text-xs font-medium text-gray-600 mb-1">Foto del producto <span class="text-gray-400 font-normal">(opcional)</span></label>
+              <div class="flex items-center gap-3">
+                <img v-if="fotoNuevoUrl" :src="fotoNuevoUrl" alt="Vista previa"
+                  class="w-16 h-16 rounded-lg object-cover border border-gray-200 flex-shrink-0" />
+                <div v-else class="w-16 h-16 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+                  <PhotoIcon class="w-7 h-7 text-gray-300" />
+                </div>
+                <div class="flex flex-col gap-2">
+                  <label class="flex items-center gap-1.5 text-xs text-blue-600 font-medium cursor-pointer border border-blue-200 rounded-lg px-3 py-2 hover:bg-blue-50">
+                    <PhotoIcon class="w-4 h-4" />
+                    {{ fotoNuevoFile ? 'Cambiar' : 'Subir foto' }}
+                    <input type="file" accept="image/*" class="hidden" @change="onFotoNuevoChange" />
+                  </label>
+                  <button v-if="fotoNuevoUrl" @click="fotoNuevoUrl = ''; fotoNuevoFile = null; formNuevo.foto_url = ''"
+                    class="text-xs text-red-400 text-left">Quitar foto</button>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div class="grid grid-cols-3 mx-4 mt-4 rounded-xl overflow-hidden border border-gray-200">
@@ -1569,6 +1674,12 @@ onMounted(() => {
             </button>
           </div>
         </div>
+      </div>
+
+      <!-- Lightbox foto ficha técnica -->
+      <div v-if="bocetoFicha" class="fixed inset-0 z-[100] flex items-center justify-center bg-black/80" @click="bocetoFicha = ''">
+        <img :src="bocetoFicha" class="max-w-full max-h-full object-contain rounded-lg" @click.stop />
+        <button @click="bocetoFicha = ''" class="absolute top-4 right-4 p-2 bg-white/10 rounded-full"><XMarkIcon class="w-6 h-6 text-white" /></button>
       </div>
 
     </Teleport>
