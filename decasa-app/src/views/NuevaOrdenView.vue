@@ -2854,7 +2854,7 @@ function removeFacturaFoto() {
 
       <!-- Anticipo — oculto cuando hay ítems con cotización pendiente -->
       <template v-if="!hayItemsCotizar">
-        <div>
+        <div v-if="!pagoSplit">
           <label class="label">Anticipo rápido</label>
           <div class="flex gap-2 flex-wrap">
             <button
