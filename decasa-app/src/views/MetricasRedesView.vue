@@ -28,12 +28,20 @@ async function cargar() {
   try {
     const { data: d } = await getMetricasRedes({ periodo: periodo.value })
     data.value = d
-    await nextTick()
-    dibujarGrafico()
   } catch (e) {
     error.value = e?.response?.data?.error || 'No se pudieron cargar las métricas.'
   } finally {
     loading.value = false
+  }
+  // Dibujar DESPUÉS de que loading sea false: el <canvas> vive dentro del bloque
+  // v-else-if="data", que no está en el DOM mientras loading es true. Si se dibuja
+  // antes, canvas.value es null y la gráfica queda en blanco.
+  await nextTick()
+  if (data.value?.serie?.length) {
+    dibujarGrafico()
+  } else if (chart) {
+    chart.destroy()
+    chart = null
   }
 }
 
@@ -129,7 +137,8 @@ onBeforeUnmount(() => { if (chart) chart.destroy() })
       <!-- Tendencia diaria -->
       <div class="bg-white rounded-xl shadow-sm p-4">
         <p class="text-sm font-semibold text-gray-700 mb-2">Solicitudes por día</p>
-        <div class="h-48"><canvas ref="canvas"></canvas></div>
+        <div v-if="data.serie?.length" class="h-48"><canvas ref="canvas"></canvas></div>
+        <p v-else class="text-sm text-gray-400 text-center py-10">Sin datos en este período.</p>
       </div>
 
       <!-- Por tipo -->
