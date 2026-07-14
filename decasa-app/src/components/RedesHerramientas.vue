@@ -34,7 +34,6 @@ const NOMBRES_CAT = {
   sofas: 'Sofás', sofas_modulares: 'Sofás modulares', sofas_camas: 'Sofá camas',
   camas: 'Camas', colchones: 'Colchones', cajoneros_bifes: 'Cajoneros / Bifés',
   escritorios: 'Escritorios',
-  descuento_sofas: '🔻 Descuento sofás', descuento_comedores: '🔻 Descuento comedores',
 }
 
 const catalogos = ref([])
@@ -44,6 +43,9 @@ onMounted(async () => {
   try {
     const { data } = await api.get('/redes/catalogos')
     catalogos.value = Object.entries(data)
+      // La promoción del 20% venció: no mostramos catálogos de descuento aunque
+      // quedara alguno en la configuración.
+      .filter(([key]) => !key.startsWith('descuento'))
       .map(([key, url]) => ({ key, url, nombre: NOMBRES_CAT[key] || key }))
       .sort((a, b) => a.nombre.localeCompare(b.nombre))
   } catch {
