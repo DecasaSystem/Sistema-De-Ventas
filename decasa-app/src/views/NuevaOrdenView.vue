@@ -1054,15 +1054,15 @@ const anticipo_metodo       = ref('efectivo')
 const anticipo_referencia   = ref('')
 const pagoSplit             = ref(false)
 const anticipo_monto1_input = ref(0)
-const anticipo_monto2       = ref(0)
 const anticipo_metodo2      = ref('transferencia')
 const anticipo_referencia2  = ref('')
 
 function togglePagoSplit() {
   pagoSplit.value = !pagoSplit.value
   if (pagoSplit.value) {
-    anticipo_monto1_input.value = anticipo_monto.value
-    anticipo_monto2.value       = 0
+    // Pre-llenar con la mitad del anticipo para que el usuario solo ajuste
+    const mitad = Math.floor(anticipo_monto.value / 2)
+    anticipo_monto1_input.value = mitad
     anticipo_metodo2.value      = anticipo_metodo.value === 'efectivo' ? 'transferencia' : 'efectivo'
   }
 }
@@ -1295,13 +1295,13 @@ async function submit() {
       canal:                canal.value,
       tipo:                 tipoOrden.value,
       anticipo_pct:         anticipo_pct.value,
-      anticipo_monto:       (modoGuardarBorrador.value || hayItemsCotizar.value) ? 0 : (pagoSplit.value ? (anticipo_monto1_input.value + anticipo_monto2.value) : anticipo_monto.value),
+      anticipo_monto:       (modoGuardarBorrador.value || hayItemsCotizar.value) ? 0 : anticipo_monto.value,
       anticipo_metodo:      anticipo_metodo.value,
       anticipo_referencia:  pagoSplit.value ? undefined : (anticipo_referencia.value || undefined),
-      ...(pagoSplit.value && !(modoGuardarBorrador.value || hayItemsCotizar.value) && (anticipo_monto1_input.value + anticipo_monto2.value) > 0 ? {
+      ...(pagoSplit.value && !(modoGuardarBorrador.value || hayItemsCotizar.value) && anticipo_monto.value > 0 ? {
         anticipo_pagos: [
-          { monto: anticipo_monto1_input.value, metodo: anticipo_metodo.value,  referencia: anticipo_referencia.value  || undefined },
-          { monto: anticipo_monto2.value,        metodo: anticipo_metodo2.value, referencia: anticipo_referencia2.value || undefined },
+          { monto: anticipo_monto1_input.value,                                                      metodo: anticipo_metodo.value,  referencia: anticipo_referencia.value  || undefined },
+          { monto: Math.max(0, anticipo_monto.value - anticipo_monto1_input.value), metodo: anticipo_metodo2.value, referencia: anticipo_referencia2.value || undefined },
         ].filter(p => p.monto > 0)
       } : {}),
       guardar_borrador:     modoGuardarBorrador.value || undefined,
@@ -2911,14 +2911,21 @@ function removeFacturaFoto() {
           </button>
         </div>
 
-        <!-- Modo pago dividido (dos métodos independientes) -->
+        <!-- Modo pago dividido: divide el anticipo entre dos métodos -->
         <template v-if="pagoSplit">
-          <!-- Primer pago -->
+          <!-- Encabezado: total fijo a dividir -->
+          <div class="bg-gray-50 rounded-xl px-3 py-2.5 flex items-center justify-between">
+            <span class="text-xs text-gray-500">Total anticipo a dividir</span>
+            <span class="text-sm font-bold text-gray-800">${{ anticipo_monto.toLocaleString('es-CO') }}</span>
+          </div>
+
+          <!-- Primer pago: monto editable -->
           <div class="border border-blue-200 rounded-xl p-3 space-y-2.5 bg-blue-50/40">
             <p class="text-xs font-semibold text-blue-700">Primer pago</p>
             <div>
               <label class="label">Monto</label>
-              <input v-model.number="anticipo_monto1_input" type="number" min="0" class="input" placeholder="0" />
+              <input v-model.number="anticipo_monto1_input" type="number" min="0" :max="anticipo_monto" class="input" placeholder="0" />
+              <p v-if="anticipo_monto1_input > anticipo_monto" class="text-xs text-red-500 mt-1">No puede superar el total</p>
             </div>
             <div>
               <label class="label">Método</label>
@@ -2936,12 +2943,11 @@ function removeFacturaFoto() {
             </div>
           </div>
 
-          <!-- Segundo pago -->
+          <!-- Segundo pago: monto calculado automáticamente -->
           <div class="border border-gray-200 rounded-xl p-3 space-y-2.5">
-            <p class="text-xs font-semibold text-gray-600">Segundo pago</p>
-            <div>
-              <label class="label">Monto</label>
-              <input v-model.number="anticipo_monto2" type="number" min="0" class="input" placeholder="0" />
+            <div class="flex items-center justify-between">
+              <p class="text-xs font-semibold text-gray-600">Segundo pago</p>
+              <span class="text-sm font-bold text-gray-700">${{ Math.max(0, anticipo_monto - anticipo_monto1_input).toLocaleString('es-CO') }}</span>
             </div>
             <div>
               <label class="label">Método</label>
@@ -2957,15 +2963,6 @@ function removeFacturaFoto() {
               <label class="label">Referencia</label>
               <input v-model="anticipo_referencia2" class="input" placeholder="Opcional" />
             </div>
-          </div>
-
-          <!-- Total validación -->
-          <div :class="['flex items-center justify-between text-xs rounded-lg px-3 py-2',
-            anticipo_monto1_input + anticipo_monto2 === anticipo_monto ? 'bg-green-50 text-green-700' : 'bg-gray-50 text-gray-500']">
-            <span>Total anticipo: ${{ (anticipo_monto1_input + anticipo_monto2).toLocaleString('es-CO') }}</span>
-            <span v-if="valorTotal > 0 && (anticipo_monto1_input + anticipo_monto2) > 0">
-              = {{ Math.round(((anticipo_monto1_input + anticipo_monto2) / valorTotal) * 100) }}% del total
-            </span>
           </div>
         </template>
       </template>

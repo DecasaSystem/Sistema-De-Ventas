@@ -122,15 +122,13 @@ const borradorForm = ref({
 })
 const borradorPagoSplit    = ref(false)
 const borradorMonto1Input  = ref(0)
-const borradorMonto2       = ref(0)
 const borradorMetodo2      = ref('transferencia')
 const borradorRef2         = ref('')
 
 function toggleBorradorPagoSplit() {
   borradorPagoSplit.value = !borradorPagoSplit.value
   if (borradorPagoSplit.value) {
-    borradorMonto1Input.value = borradorForm.value.anticipo_monto
-    borradorMonto2.value      = 0
+    borradorMonto1Input.value = Math.floor(borradorForm.value.anticipo_monto / 2)
     borradorMetodo2.value     = borradorForm.value.anticipo_metodo === 'efectivo' ? 'transferencia' : 'efectivo'
   }
 }
@@ -280,13 +278,13 @@ async function completarBorrador() {
 
     const { data } = await completarBorradorApi(orden.value.id, {
       firma_url:           borradorFirmaUrl.value || undefined,
-      anticipo_monto:      borradorPagoSplit.value ? (borradorMonto1Input.value + borradorMonto2.value) : borradorForm.value.anticipo_monto,
+      anticipo_monto:      borradorForm.value.anticipo_monto,
       anticipo_metodo:     borradorForm.value.anticipo_metodo,
       anticipo_referencia: borradorPagoSplit.value ? undefined : (borradorForm.value.anticipo_referencia || undefined),
-      ...(borradorPagoSplit.value && (borradorMonto1Input.value + borradorMonto2.value) > 0 ? {
+      ...(borradorPagoSplit.value && borradorForm.value.anticipo_monto > 0 ? {
         anticipo_pagos: [
-          { monto: borradorMonto1Input.value, metodo: borradorForm.value.anticipo_metodo, referencia: borradorForm.value.anticipo_referencia || undefined },
-          { monto: borradorMonto2.value,       metodo: borradorMetodo2.value,              referencia: borradorRef2.value || undefined },
+          { monto: borradorMonto1Input.value,                                                                   metodo: borradorForm.value.anticipo_metodo, referencia: borradorForm.value.anticipo_referencia || undefined },
+          { monto: Math.max(0, borradorForm.value.anticipo_monto - borradorMonto1Input.value), metodo: borradorMetodo2.value,              referencia: borradorRef2.value || undefined },
         ].filter(p => p.monto > 0)
       } : {}),
       notas:               borradorForm.value.notas || undefined,
@@ -609,15 +607,13 @@ const refPagoConfirmar        = ref('')
 const confirmando             = ref(false)
 const confirmarPagoSplit      = ref(false)
 const confirmarMonto1Input    = ref(0)
-const confirmarMonto2         = ref(0)
 const confirmarMetodo2        = ref('transferencia')
 const confirmarRef2           = ref('')
 
 function toggleConfirmarPagoSplit() {
   confirmarPagoSplit.value = !confirmarPagoSplit.value
   if (confirmarPagoSplit.value) {
-    confirmarMonto1Input.value = anticipoConfirmar.value
-    confirmarMonto2.value      = 0
+    confirmarMonto1Input.value = Math.floor(anticipoConfirmar.value / 2)
     confirmarMetodo2.value     = metodoPagoConfirmar.value === 'efectivo' ? 'transferencia' : 'efectivo'
   }
 }
@@ -691,13 +687,13 @@ async function doConfirmarCotizacion() {
     await confirmarCotizacion(orden.value.id, {
       firma_url:           firmaConfirmarUrl.value,
       anexo_foto_url:      anexoConfirmarUrl.value || undefined,
-      anticipo_monto:      confirmarPagoSplit.value ? (confirmarMonto1Input.value + confirmarMonto2.value) : anticipoConfirmar.value,
+      anticipo_monto:      anticipoConfirmar.value,
       anticipo_metodo:     metodoPagoConfirmar.value,
       anticipo_referencia: confirmarPagoSplit.value ? undefined : (refPagoConfirmar.value || undefined),
-      ...(confirmarPagoSplit.value && (confirmarMonto1Input.value + confirmarMonto2.value) > 0 ? {
+      ...(confirmarPagoSplit.value && anticipoConfirmar.value > 0 ? {
         anticipo_pagos: [
-          { monto: confirmarMonto1Input.value, metodo: metodoPagoConfirmar.value, referencia: refPagoConfirmar.value   || undefined },
-          { monto: confirmarMonto2.value,       metodo: confirmarMetodo2.value,    referencia: confirmarRef2.value     || undefined },
+          { monto: confirmarMonto1Input.value,                                                                metodo: metodoPagoConfirmar.value, referencia: refPagoConfirmar.value || undefined },
+          { monto: Math.max(0, anticipoConfirmar.value - confirmarMonto1Input.value), metodo: confirmarMetodo2.value,    referencia: confirmarRef2.value    || undefined },
         ].filter(p => p.monto > 0)
       } : {}),
     })
@@ -1794,10 +1790,15 @@ onMounted(cargarOrden)
               </button>
             </div>
             <template v-if="confirmarPagoSplit">
-              <!-- Primer pago -->
+              <!-- Total a dividir -->
+              <div class="bg-gray-50 rounded-xl px-3 py-2 flex items-center justify-between">
+                <span class="text-xs text-gray-500">Total anticipo a dividir</span>
+                <span class="text-sm font-bold text-gray-800">${{ anticipoConfirmar.toLocaleString('es-CO') }}</span>
+              </div>
+              <!-- Primer pago: monto editable -->
               <div class="border border-green-200 rounded-xl p-3 space-y-2 bg-green-50/40">
                 <p class="text-xs font-semibold text-green-700">Primer pago</p>
-                <input v-model.number="confirmarMonto1Input" type="number" min="0"
+                <input v-model.number="confirmarMonto1Input" type="number" min="0" :max="anticipoConfirmar"
                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" placeholder="0" />
                 <div class="flex gap-2 flex-wrap">
                   <button v-for="m in metodosOpts" :key="m.value" @click="metodoPagoConfirmar = m.value"
@@ -1809,11 +1810,12 @@ onMounted(cargarOrden)
                 <input v-if="metodoPagoConfirmar !== 'efectivo'" v-model="refPagoConfirmar" type="text" placeholder="Referencia (opcional)"
                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" />
               </div>
-              <!-- Segundo pago -->
+              <!-- Segundo pago: monto calculado -->
               <div class="border border-gray-200 rounded-xl p-3 space-y-2">
-                <p class="text-xs font-semibold text-gray-600">Segundo pago</p>
-                <input v-model.number="confirmarMonto2" type="number" min="0"
-                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" placeholder="0" />
+                <div class="flex items-center justify-between">
+                  <p class="text-xs font-semibold text-gray-600">Segundo pago</p>
+                  <span class="text-sm font-bold text-gray-700">${{ Math.max(0, anticipoConfirmar - confirmarMonto1Input).toLocaleString('es-CO') }}</span>
+                </div>
                 <div class="flex gap-2 flex-wrap">
                   <button v-for="m in metodosOpts" :key="m.value" @click="confirmarMetodo2 = m.value"
                     :class="['px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors',
@@ -1824,10 +1826,6 @@ onMounted(cargarOrden)
                 <input v-if="confirmarMetodo2 !== 'efectivo'" v-model="confirmarRef2" type="text" placeholder="Referencia (opcional)"
                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" />
               </div>
-              <!-- Total -->
-              <p class="text-xs text-gray-500 text-right">
-                Total anticipo: <span class="font-semibold text-gray-700">${{ (confirmarMonto1Input + confirmarMonto2).toLocaleString('es-CO') }}</span>
-              </p>
             </template>
           </div>
 
@@ -2011,10 +2009,15 @@ onMounted(cargarOrden)
               </button>
             </div>
             <template v-if="borradorPagoSplit">
-              <!-- Primer pago -->
+              <!-- Total a dividir -->
+              <div class="bg-gray-50 rounded-xl px-3 py-2 flex items-center justify-between">
+                <span class="text-xs text-gray-500">Total anticipo a dividir</span>
+                <span class="text-sm font-bold text-gray-800">${{ borradorForm.anticipo_monto.toLocaleString('es-CO') }}</span>
+              </div>
+              <!-- Primer pago: monto editable -->
               <div class="border border-blue-200 rounded-xl p-3 space-y-2 bg-blue-50/40">
                 <p class="text-xs font-semibold text-blue-700">Primer pago</p>
-                <input v-model.number="borradorMonto1Input" type="number" min="0" placeholder="0"
+                <input v-model.number="borradorMonto1Input" type="number" min="0" :max="borradorForm.anticipo_monto" placeholder="0"
                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" />
                 <select v-model="borradorForm.anticipo_metodo"
                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400">
@@ -2027,11 +2030,12 @@ onMounted(cargarOrden)
                   type="text" placeholder="Referencia (opcional)"
                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" />
               </div>
-              <!-- Segundo pago -->
+              <!-- Segundo pago: monto calculado -->
               <div class="border border-gray-200 rounded-xl p-3 space-y-2">
-                <p class="text-xs font-semibold text-gray-600">Segundo pago</p>
-                <input v-model.number="borradorMonto2" type="number" min="0" placeholder="0"
-                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" />
+                <div class="flex items-center justify-between">
+                  <p class="text-xs font-semibold text-gray-600">Segundo pago</p>
+                  <span class="text-sm font-bold text-gray-700">${{ Math.max(0, borradorForm.anticipo_monto - borradorMonto1Input).toLocaleString('es-CO') }}</span>
+                </div>
                 <select v-model="borradorMetodo2"
                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400">
                   <option value="efectivo">Efectivo</option>
@@ -2042,10 +2046,6 @@ onMounted(cargarOrden)
                 <input v-if="borradorMetodo2 !== 'efectivo'" v-model="borradorRef2" type="text" placeholder="Referencia (opcional)"
                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" />
               </div>
-              <!-- Total -->
-              <p class="text-xs text-gray-500 text-right">
-                Total anticipo: <span class="font-semibold text-gray-700">${{ (borradorMonto1Input + borradorMonto2).toLocaleString('es-CO') }}</span>
-              </p>
             </template>
           </template>
 
