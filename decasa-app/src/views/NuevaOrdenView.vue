@@ -1048,10 +1048,14 @@ function aplicarPrecio(item, precio) {
 }
 
 // ── Paso 3: Pago ──────────────────────────────────────────────────────────────
-const anticipo_pct         = ref(50)
-const anticipo_monto       = ref(0)
-const anticipo_metodo      = ref('efectivo')
-const anticipo_referencia  = ref('')
+const anticipo_pct          = ref(50)
+const anticipo_monto        = ref(0)
+const anticipo_metodo       = ref('efectivo')
+const anticipo_referencia   = ref('')
+const pagoSplit             = ref(false)
+const anticipo_monto2       = ref(0)
+const anticipo_metodo2      = ref('transferencia')
+const anticipo_referencia2  = ref('')
 const notas                = ref('')
 const esCompartida         = ref(false)
 const covendedorId         = ref(null)
@@ -1140,6 +1144,11 @@ const anticipoPctActual = computed(() => {
   if (!valorTotal.value || !anticipo_monto.value) return 0
   return Math.round((anticipo_monto.value / valorTotal.value) * 100)
 })
+
+// Primer monto en pago combinado = total - segundo monto
+const anticipo_monto1 = computed(() =>
+  pagoSplit.value ? Math.max(0, anticipo_monto.value - (anticipo_monto2.value || 0)) : anticipo_monto.value
+)
 
 // ── Cotización de costo durante la creación ───────────────────────────────────
 const cotizarReceptorId   = ref(null)
@@ -1282,7 +1291,13 @@ async function submit() {
       anticipo_pct:         anticipo_pct.value,
       anticipo_monto:       (modoGuardarBorrador.value || hayItemsCotizar.value) ? 0 : anticipo_monto.value,
       anticipo_metodo:      anticipo_metodo.value,
-      anticipo_referencia:  anticipo_referencia.value || undefined,
+      anticipo_referencia:  pagoSplit.value ? undefined : (anticipo_referencia.value || undefined),
+      ...(pagoSplit.value && !(modoGuardarBorrador.value || hayItemsCotizar.value) && anticipo_monto.value > 0 ? {
+        anticipo_pagos: [
+          { monto: anticipo_monto1.value, metodo: anticipo_metodo.value, referencia: anticipo_referencia.value || undefined },
+          { monto: anticipo_monto2.value,  metodo: anticipo_metodo2.value,  referencia: anticipo_referencia2.value || undefined },
+        ].filter(p => p.monto > 0)
+      } : {}),
       guardar_borrador:     modoGuardarBorrador.value || undefined,
       notas:                notas.value || undefined,
       es_compartida:        esCompartida.value || undefined,
@@ -2884,10 +2899,60 @@ function removeFacturaFoto() {
           </div>
         </div>
 
-        <div v-if="anticipo_metodo !== 'efectivo'">
+        <div v-if="anticipo_metodo !== 'efectivo' && !pagoSplit">
           <label class="label">Referencia / número transacción</label>
           <input v-model="anticipo_referencia" class="input" placeholder="Opcional" />
         </div>
+
+        <!-- Toggle pago combinado -->
+        <div v-if="anticipo_monto > 0" class="flex items-center justify-between pt-1">
+          <span class="text-sm text-gray-600">Pago en dos métodos</span>
+          <button
+            type="button"
+            @click="pagoSplit = !pagoSplit; anticipo_monto2 = 0"
+            :class="['relative inline-flex h-6 w-11 items-center rounded-full transition-colors', pagoSplit ? 'bg-blue-600' : 'bg-gray-200']"
+          >
+            <span :class="['inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform', pagoSplit ? 'translate-x-6' : 'translate-x-1']" />
+          </button>
+        </div>
+
+        <!-- Segundo método de pago -->
+        <template v-if="pagoSplit && anticipo_monto > 0">
+          <div class="bg-blue-50 rounded-xl p-3 space-y-2.5">
+            <p class="text-xs font-semibold text-blue-700">Primer pago: <span class="font-bold">${{ (anticipo_monto1).toLocaleString('es-CO') }}</span> en {{ metodosOpts.find(m => m.value === anticipo_metodo)?.label }}</p>
+            <div v-if="anticipo_metodo !== 'efectivo'">
+              <input v-model="anticipo_referencia" class="input text-xs" placeholder="Referencia primer pago (opcional)" />
+            </div>
+          </div>
+          <div class="space-y-2">
+            <label class="label">Segundo monto</label>
+            <input
+              v-model.number="anticipo_monto2"
+              type="number"
+              min="0"
+              :max="anticipo_monto"
+              class="input"
+              placeholder="0"
+            />
+            <p v-if="anticipo_monto2 > anticipo_monto" class="text-xs text-red-500">El segundo monto no puede superar el total del anticipo</p>
+          </div>
+          <div>
+            <label class="label">Método segundo pago</label>
+            <div class="flex gap-2 flex-wrap">
+              <button
+                v-for="m in metodosOpts"
+                :key="m.value"
+                @click="anticipo_metodo2 = m.value"
+                :class="['px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors',
+                  anticipo_metodo2 === m.value ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300']"
+              >{{ m.label }}</button>
+            </div>
+          </div>
+          <div v-if="anticipo_metodo2 !== 'efectivo'">
+            <label class="label">Referencia segundo pago</label>
+            <input v-model="anticipo_referencia2" class="input" placeholder="Opcional" />
+          </div>
+        </template>
       </template>
 
       <!-- Aviso anticipo cuando hay cotización pendiente -->

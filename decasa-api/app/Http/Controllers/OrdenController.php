@@ -134,10 +134,14 @@ class OrdenController extends Controller
             'departamento_envio'                 => 'nullable|string|max:100',
             'ciudad_envio'                       => 'nullable|string|max:100',
             'direccion_envio'                    => 'nullable|string|max:300',
-            'anticipo_monto'                     => 'required|numeric|min:0',
-            'anticipo_metodo'                    => 'nullable|in:efectivo,transferencia,tarjeta,otro',
-            'anticipo_referencia'                => 'nullable|string|max:100',
-            'guardar_borrador'                   => 'nullable|boolean',
+            'anticipo_monto'                       => 'required|numeric|min:0',
+            'anticipo_metodo'                      => 'nullable|in:efectivo,transferencia,tarjeta,otro',
+            'anticipo_referencia'                  => 'nullable|string|max:100',
+            'anticipo_pagos'                       => 'nullable|array|min:1',
+            'anticipo_pagos.*.monto'               => 'required_with:anticipo_pagos|numeric|min:0.01',
+            'anticipo_pagos.*.metodo'              => 'required_with:anticipo_pagos|in:efectivo,transferencia,tarjeta,otro',
+            'anticipo_pagos.*.referencia'          => 'nullable|string|max:100',
+            'guardar_borrador'                     => 'nullable|boolean',
             'es_compartida'                      => 'nullable|boolean',
             'covendedor_id'                      => 'nullable|integer|exists:usuarios,id',
             'items'                              => 'required|array|min:1',
@@ -352,13 +356,16 @@ class OrdenController extends Controller
 
             // --- 4. Registrar anticipo solo en órdenes confirmadas (no borradores) ---
             if (! $guardarBorrador && $data['anticipo_monto'] > 0) {
-                $orden->pagos()->create([
-                    'vendedor_id' => $request->user()->id,
-                    'tipo'        => 'anticipo',
-                    'monto'       => $data['anticipo_monto'],
-                    'metodo'      => $data['anticipo_metodo'],
-                    'referencia'  => $data['anticipo_referencia'] ?? null,
-                ]);
+                $uid = $request->user()->id;
+                if (!empty($data['anticipo_pagos'])) {
+                    foreach ($data['anticipo_pagos'] as $p) {
+                        if (($p['monto'] ?? 0) > 0) {
+                            $orden->pagos()->create(['vendedor_id' => $uid, 'tipo' => 'anticipo', 'monto' => $p['monto'], 'metodo' => $p['metodo'], 'referencia' => $p['referencia'] ?? null]);
+                        }
+                    }
+                } else {
+                    $orden->pagos()->create(['vendedor_id' => $uid, 'tipo' => 'anticipo', 'monto' => $data['anticipo_monto'], 'metodo' => $data['anticipo_metodo'], 'referencia' => $data['anticipo_referencia'] ?? null]);
+                }
             }
 
             return $orden;
@@ -619,9 +626,13 @@ class OrdenController extends Controller
             'firma_url'          => 'required|string|max:500',
             'factura_foto_url'   => 'nullable|string|max:500',
             'anexo_foto_url'     => ($esPresencial ? 'required' : 'nullable') . '|string|max:500',
-            'anticipo_monto'     => 'required|numeric|min:0',
-            'anticipo_metodo'    => 'required|in:efectivo,transferencia,tarjeta,otro',
-            'anticipo_referencia' => 'nullable|string|max:100',
+            'anticipo_monto'              => 'required|numeric|min:0',
+            'anticipo_metodo'             => 'required|in:efectivo,transferencia,tarjeta,otro',
+            'anticipo_referencia'         => 'nullable|string|max:100',
+            'anticipo_pagos'              => 'nullable|array|min:1',
+            'anticipo_pagos.*.monto'      => 'required_with:anticipo_pagos|numeric|min:0.01',
+            'anticipo_pagos.*.metodo'     => 'required_with:anticipo_pagos|in:efectivo,transferencia,tarjeta,otro',
+            'anticipo_pagos.*.referencia' => 'nullable|string|max:100',
         ]);
 
         DB::transaction(function () use ($orden, $data, $usuario) {
@@ -633,13 +644,15 @@ class OrdenController extends Controller
             ]);
 
             if ($data['anticipo_monto'] > 0) {
-                $orden->pagos()->create([
-                    'vendedor_id' => $usuario->id,
-                    'tipo'        => 'anticipo',
-                    'monto'       => $data['anticipo_monto'],
-                    'metodo'      => $data['anticipo_metodo'],
-                    'referencia'  => $data['anticipo_referencia'] ?? null,
-                ]);
+                if (!empty($data['anticipo_pagos'])) {
+                    foreach ($data['anticipo_pagos'] as $p) {
+                        if (($p['monto'] ?? 0) > 0) {
+                            $orden->pagos()->create(['vendedor_id' => $usuario->id, 'tipo' => 'anticipo', 'monto' => $p['monto'], 'metodo' => $p['metodo'], 'referencia' => $p['referencia'] ?? null]);
+                        }
+                    }
+                } else {
+                    $orden->pagos()->create(['vendedor_id' => $usuario->id, 'tipo' => 'anticipo', 'monto' => $data['anticipo_monto'], 'metodo' => $data['anticipo_metodo'], 'referencia' => $data['anticipo_referencia'] ?? null]);
+                }
             }
         });
 
@@ -1042,10 +1055,14 @@ class OrdenController extends Controller
 
         $data = $request->validate([
             'firma_url'           => 'required|string|max:500',
-            'anticipo_monto'      => 'required|numeric|min:0',
-            'anticipo_metodo'     => 'nullable|in:efectivo,transferencia,tarjeta,otro',
-            'anticipo_referencia' => 'nullable|string|max:100',
-            'notas'               => 'nullable|string|max:1000',
+            'anticipo_monto'              => 'required|numeric|min:0',
+            'anticipo_metodo'             => 'nullable|in:efectivo,transferencia,tarjeta,otro',
+            'anticipo_referencia'         => 'nullable|string|max:100',
+            'anticipo_pagos'              => 'nullable|array|min:1',
+            'anticipo_pagos.*.monto'      => 'required_with:anticipo_pagos|numeric|min:0.01',
+            'anticipo_pagos.*.metodo'     => 'required_with:anticipo_pagos|in:efectivo,transferencia,tarjeta,otro',
+            'anticipo_pagos.*.referencia' => 'nullable|string|max:100',
+            'notas'                       => 'nullable|string|max:1000',
             'factura_foto_url'    => 'required|string|max:500',
             'anexo_foto_url'      => ($esPresencial ? 'required' : 'nullable') . '|string|max:500',
             'departamento_envio'  => 'required|string|max:100',
@@ -1086,13 +1103,15 @@ class OrdenController extends Controller
             }
 
             if (($data['anticipo_monto'] ?? 0) > 0) {
-                $orden->pagos()->create([
-                    'vendedor_id' => $usuario->id,
-                    'tipo'        => 'anticipo',
-                    'monto'       => $data['anticipo_monto'],
-                    'metodo'      => $data['anticipo_metodo'] ?? 'efectivo',
-                    'referencia'  => $data['anticipo_referencia'] ?? null,
-                ]);
+                if (!empty($data['anticipo_pagos'])) {
+                    foreach ($data['anticipo_pagos'] as $p) {
+                        if (($p['monto'] ?? 0) > 0) {
+                            $orden->pagos()->create(['vendedor_id' => $usuario->id, 'tipo' => 'anticipo', 'monto' => $p['monto'], 'metodo' => $p['metodo'], 'referencia' => $p['referencia'] ?? null]);
+                        }
+                    }
+                } else {
+                    $orden->pagos()->create(['vendedor_id' => $usuario->id, 'tipo' => 'anticipo', 'monto' => $data['anticipo_monto'], 'metodo' => $data['anticipo_metodo'] ?? 'efectivo', 'referencia' => $data['anticipo_referencia'] ?? null]);
+                }
             }
         });
 

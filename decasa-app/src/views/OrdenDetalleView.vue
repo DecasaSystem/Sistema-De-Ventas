@@ -120,6 +120,13 @@ const borradorForm = ref({
   ciudad_envio:        '',
   direccion_envio:     '',
 })
+const borradorPagoSplit  = ref(false)
+const borradorMonto2     = ref(0)
+const borradorMetodo2    = ref('transferencia')
+const borradorRef2       = ref('')
+const borradorMonto1     = computed(() =>
+  borradorPagoSplit.value ? Math.max(0, borradorForm.value.anticipo_monto - (borradorMonto2.value || 0)) : borradorForm.value.anticipo_monto
+)
 
 // Archivos del modal completar
 const borradorComprobanteFile    = ref(null)
@@ -268,7 +275,13 @@ async function completarBorrador() {
       firma_url:           borradorFirmaUrl.value || undefined,
       anticipo_monto:      borradorForm.value.anticipo_monto,
       anticipo_metodo:     borradorForm.value.anticipo_metodo,
-      anticipo_referencia: borradorForm.value.anticipo_referencia || undefined,
+      anticipo_referencia: borradorPagoSplit.value ? undefined : (borradorForm.value.anticipo_referencia || undefined),
+      ...(borradorPagoSplit.value && borradorForm.value.anticipo_monto > 0 ? {
+        anticipo_pagos: [
+          { monto: borradorMonto1.value, metodo: borradorForm.value.anticipo_metodo, referencia: borradorForm.value.anticipo_referencia || undefined },
+          { monto: borradorMonto2.value, metodo: borradorMetodo2.value, referencia: borradorRef2.value || undefined },
+        ].filter(p => p.monto > 0)
+      } : {}),
       notas:               borradorForm.value.notas || undefined,
       factura_foto_url:    borradorComprobanteUrl.value || undefined,
       anexo_foto_url:      borradorAnexoUrl.value || undefined,
@@ -587,6 +600,13 @@ const anticipoConfirmar       = ref(0)
 const metodoPagoConfirmar     = ref('efectivo')
 const refPagoConfirmar        = ref('')
 const confirmando             = ref(false)
+const confirmarPagoSplit      = ref(false)
+const confirmarMonto2         = ref(0)
+const confirmarMetodo2        = ref('transferencia')
+const confirmarRef2           = ref('')
+const confirmarMonto1         = computed(() =>
+  confirmarPagoSplit.value ? Math.max(0, anticipoConfirmar.value - (confirmarMonto2.value || 0)) : anticipoConfirmar.value
+)
 
 watch(firmaConfirmarBlob, () => { firmaConfirmarUrl.value = '' })
 
@@ -659,7 +679,13 @@ async function doConfirmarCotizacion() {
       anexo_foto_url:      anexoConfirmarUrl.value || undefined,
       anticipo_monto:      anticipoConfirmar.value,
       anticipo_metodo:     metodoPagoConfirmar.value,
-      anticipo_referencia: refPagoConfirmar.value || undefined,
+      anticipo_referencia: confirmarPagoSplit.value ? undefined : (refPagoConfirmar.value || undefined),
+      ...(confirmarPagoSplit.value && anticipoConfirmar.value > 0 ? {
+        anticipo_pagos: [
+          { monto: confirmarMonto1.value, metodo: metodoPagoConfirmar.value, referencia: refPagoConfirmar.value || undefined },
+          { monto: confirmarMonto2.value,  metodo: confirmarMetodo2.value,  referencia: confirmarRef2.value || undefined },
+        ].filter(p => p.monto > 0)
+      } : {}),
     })
 
     toast.success('Cotización confirmada. Orden en pendiente de anticipo.')
@@ -1150,7 +1176,15 @@ onMounted(cargarOrden)
           :key="idx"
           class="border-b border-gray-100 last:border-0 pb-3 last:pb-0"
         >
-          <div class="flex justify-between items-start">
+          <div class="flex justify-between items-start gap-3">
+            <!-- Foto del producto -->
+            <img
+              v-if="item.producto?.foto_url"
+              :src="item.producto.foto_url"
+              :alt="item.producto?.nombre ?? 'Producto'"
+              class="w-16 h-16 rounded-lg object-cover flex-shrink-0 border border-gray-100 cursor-pointer"
+              @click="bocetoModal = item.producto.foto_url"
+            />
             <div class="flex-1 min-w-0">
               <p class="font-medium text-sm text-gray-800">{{ item.producto?.nombre ?? item.nombre_custom ?? 'Producto personalizado' }}</p>
               <p class="text-xs text-gray-400">{{ item.producto?.categoria ?? item.categoria_custom ?? 'personalizado' }}</p>
@@ -1731,12 +1765,40 @@ onMounted(cargarOrden)
               >{{ m.label }}</button>
             </div>
             <input
-              v-if="metodoPagoConfirmar !== 'efectivo'"
+              v-if="metodoPagoConfirmar !== 'efectivo' && !confirmarPagoSplit"
               v-model="refPagoConfirmar"
               type="text"
               placeholder="Referencia / número transacción"
               class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
             />
+            <!-- Toggle pago combinado confirmar -->
+            <div v-if="anticipoConfirmar > 0" class="flex items-center justify-between mt-1">
+              <span class="text-xs text-gray-500">Pago en dos métodos</span>
+              <button type="button" @click="confirmarPagoSplit = !confirmarPagoSplit; confirmarMonto2 = 0"
+                :class="['relative inline-flex h-6 w-11 items-center rounded-full transition-colors', confirmarPagoSplit ? 'bg-green-600' : 'bg-gray-200']">
+                <span :class="['inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform', confirmarPagoSplit ? 'translate-x-6' : 'translate-x-1']" />
+              </button>
+            </div>
+            <template v-if="confirmarPagoSplit && anticipoConfirmar > 0">
+              <div class="bg-green-50 rounded-xl p-3 space-y-2 text-xs text-green-700">
+                <p class="font-semibold">Primer pago: <span class="font-bold">${{ confirmarMonto1.toLocaleString('es-CO') }}</span> en {{ { efectivo: 'Efectivo', transferencia: 'Transferencia', tarjeta: 'Tarjeta', otro: 'Otro' }[metodoPagoConfirmar] }}</p>
+                <div v-if="metodoPagoConfirmar !== 'efectivo'">
+                  <input v-model="refPagoConfirmar" class="w-full rounded-lg border border-green-200 px-2 py-1.5 text-xs text-gray-700 focus:outline-none" placeholder="Ref. primer pago (opcional)" />
+                </div>
+              </div>
+              <input v-model.number="confirmarMonto2" type="number" min="0" :max="anticipoConfirmar"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
+                placeholder="Monto segundo pago" />
+              <div class="flex gap-2 flex-wrap">
+                <button v-for="m in metodosOpts" :key="m.value" @click="confirmarMetodo2 = m.value"
+                  :class="['px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors',
+                    confirmarMetodo2 === m.value ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-700 border-gray-300']"
+                >{{ m.label }}</button>
+              </div>
+              <input v-if="confirmarMetodo2 !== 'efectivo'" v-model="confirmarRef2" type="text"
+                placeholder="Ref. segundo pago (opcional)"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" />
+            </template>
           </div>
 
           <div class="flex gap-3">
@@ -1901,7 +1963,7 @@ onMounted(cargarOrden)
                 <option value="otro">Otro</option>
               </select>
             </div>
-            <div v-if="borradorForm.anticipo_metodo !== 'efectivo'" class="space-y-1">
+            <div v-if="borradorForm.anticipo_metodo !== 'efectivo' && !borradorPagoSplit" class="space-y-1">
               <label class="block text-xs font-semibold text-gray-600 uppercase">Referencia (opcional)</label>
               <input
                 v-model="borradorForm.anticipo_referencia"
@@ -1910,6 +1972,41 @@ onMounted(cargarOrden)
                 class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
               />
             </div>
+            <!-- Toggle pago combinado -->
+            <div v-if="borradorForm.anticipo_monto > 0" class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-gray-600 uppercase">Pago en dos métodos</span>
+              <button type="button" @click="borradorPagoSplit = !borradorPagoSplit; borradorMonto2 = 0"
+                :class="['relative inline-flex h-6 w-11 items-center rounded-full transition-colors', borradorPagoSplit ? 'bg-blue-600' : 'bg-gray-200']">
+                <span :class="['inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform', borradorPagoSplit ? 'translate-x-6' : 'translate-x-1']" />
+              </button>
+            </div>
+            <template v-if="borradorPagoSplit && borradorForm.anticipo_monto > 0">
+              <div class="bg-blue-50 rounded-xl p-3 space-y-2 text-xs text-blue-700">
+                <p class="font-semibold">Primer pago: <span class="font-bold">${{ borradorMonto1.toLocaleString('es-CO') }}</span> en {{ { efectivo: 'Efectivo', transferencia: 'Transferencia', tarjeta: 'Tarjeta', otro: 'Otro' }[borradorForm.anticipo_metodo] }}</p>
+                <div v-if="borradorForm.anticipo_metodo !== 'efectivo'">
+                  <input v-model="borradorForm.anticipo_referencia" class="w-full rounded-lg border border-blue-200 px-2 py-1.5 text-xs text-gray-700 focus:outline-none" placeholder="Ref. primer pago (opcional)" />
+                </div>
+              </div>
+              <div class="space-y-1">
+                <label class="block text-xs font-semibold text-gray-600 uppercase">Segundo monto</label>
+                <input v-model.number="borradorMonto2" type="number" min="0" :max="borradorForm.anticipo_monto"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" placeholder="0" />
+              </div>
+              <div class="space-y-1">
+                <label class="block text-xs font-semibold text-gray-600 uppercase">Método segundo pago</label>
+                <select v-model="borradorMetodo2" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400">
+                  <option value="efectivo">Efectivo</option>
+                  <option value="transferencia">Transferencia</option>
+                  <option value="tarjeta">Tarjeta</option>
+                  <option value="otro">Otro</option>
+                </select>
+              </div>
+              <div v-if="borradorMetodo2 !== 'efectivo'" class="space-y-1">
+                <label class="block text-xs font-semibold text-gray-600 uppercase">Referencia segundo pago</label>
+                <input v-model="borradorRef2" type="text" placeholder="Nro. transacción"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" />
+              </div>
+            </template>
           </template>
 
           <div v-if="borradorTieneItemsCotiz" class="text-xs text-gray-500 bg-gray-50 rounded-lg p-3">
