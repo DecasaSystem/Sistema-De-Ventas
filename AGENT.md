@@ -419,6 +419,58 @@ resultado; se pueden limpiar en un pase posterior.
 
 ---
 
+### FASE 7 — Llevar el motor determinístico al CHAT de la IA ✅ IMPLEMENTADA
+
+**Motivo:** hay **dos** flujos que cotizan costos y hasta la Fase 6 solo uno estaba blindado.
+
+| Flujo | Ruta | Estado antes de Fase 7 |
+|---|---|---|
+| Cotizador de Nueva Orden | `POST /calcular-precio-item` → `calcularPrecioItem()` | ✅ motor determinístico completo (Fases 1–6) |
+| **Chat de la IA** | `POST /agent/chat` → `chat()` → tools | ⚠️ el modelo **redacta los números** en texto |
+
+El chat ya se beneficiaba de la Fase 2 (materiales limpios) y Fase 3 (fichas de referencia por
+similitud), porque sus tools `calcular_costo_medidas` / `calcular_costo_personalizado` llaman a
+`fichasReferenciaPorContexto()`. Pero esos tools devuelven **datos de referencia** y es el LLM quien
+arma el precio → en el chat el desglose podía **no cuadrar**, no había SanityChecker ni few-shot.
+Como las consultas de costo también se hacen por el chat, tiene que ser igual de preciso.
+
+**Trabajo**
+1. Nuevo tool `cotizar_fabricacion` que internamente llama a `calcularPrecioItem()` — el mismo motor
+   determinístico (BomBuilder → CostoCalculator → SanityChecker → few-shot). Devuelve el resultado
+   ya calculado: `precio_fabricacion`, `precio_sugerido_venta`, desgloses, `requiere_revision`.
+2. `ejecutarTool()` mapea el nuevo tool a `calcularPrecioItem()`.
+3. Se retiran de la definición de tools `calcular_costo_medidas` y `calcular_costo_personalizado`
+   (sus métodos privados siguen existiendo porque `calcularPrecioItem` los usa internamente).
+   `obtener_ficha_tecnica` se mantiene: para un producto de catálogo exacto ya devuelve el costo
+   real de la ficha (determinístico, no lo redacta el modelo).
+4. System prompt del chat: al pedir costo de fabricación de algo personalizado → usar
+   `cotizar_fabricacion` y **presentar sus números tal cual**, incluyendo el aviso cuando
+   `requiere_revision` sea true. Prohibido recalcular o inventar cifras.
+
+**Aceptación**
+- Preguntar en el chat "¿cuánto cuesta fabricar [mueble personalizado]?" da un desglose que **cuadra
+  exacto** y con precios de la BD, igual que Nueva Orden.
+- Un estimado dudoso responde "requiere revisión del ebanista" en vez de un número con falsa confianza.
+
+**Resultado medido** (prueba `cotizador:test-chat`, ya borrada): al preguntar en el chat *"¿cuánto
+cuesta fabricar una cama sencilla de 1.40 en flor morado con dos cajones?"*:
+- El chat pasó por el motor determinístico (registró un `estimado_ia`, categoría `camas`).
+- Desglose: mano de obra $136.154 + materiales $844.688 = **$980.842, cuadra exacto**.
+- Precio de venta sugerido = $980.842 × 2.0 = **$1.961.684** (respeta el factor de la Fase 6).
+- Incluyó el aviso `⚠️ CONSULTAR: colchón no especificado` que generó el BomBuilder.
+- Presentó los números tal cual, sin recalcular.
+
+**Costo:** el tool hace una llamada extra a OpenAI dentro del loop del chat (la del BomBuilder). Más
+latencia, pero correcto. Aceptable para consultas de a una.
+
+**Ahora ambos flujos comparten el mismo motor** — el chat y Nueva Orden dan el mismo costo para el
+mismo mueble. `obtener_ficha_tecnica` se mantiene aparte para productos de catálogo exactos (ya era
+determinístico). Los métodos `handleCalcularCostoPorMedidas` / `handleCalcularCostoPersonalizado`
+siguen existiendo como privados porque `calcularPrecioItem` los usa internamente; solo se retiraron
+como tools expuestos al modelo.
+
+---
+
 ## 4. Riesgos y decisiones abiertas
 
 - ~~**Margen de venta real** — bloquea la Fase 6.~~ **Resuelto:** el negocio solo quiere el costo de

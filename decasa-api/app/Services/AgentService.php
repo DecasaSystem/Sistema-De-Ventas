@@ -74,18 +74,18 @@ class AgentService
             [
                 'type' => 'function',
                 'function' => [
-                    'name' => 'calcular_costo_personalizado',
-                    'description' => 'Estima el costo de fabricación de un producto personalizado. Usa fichas técnicas similares como referencia mostrando sus materiales y cantidades reales. Úsala cuando el producto no existe en el catálogo. Llámala de inmediato con lo que el usuario haya descrito — no esperes a tener medidas.',
+                    'name' => 'cotizar_fabricacion',
+                    'description' => 'Calcula el COSTO DE FABRICACIÓN de un mueble personalizado (que no existe tal cual en el catálogo) usando el motor de cotización oficial: arma la receta de materiales y mano de obra y calcula el costo con precios reales de la base de datos. Devuelve un desglose exacto que SIEMPRE cuadra, más un precio de venta sugerido. Si el estimado no es confiable, devuelve requiere_revision=true. Úsala para "¿cuánto vale fabricar X?", "¿cuánto costaría una cama con escritorio?", muebles con medidas o descripciones personalizadas. Llámala de inmediato con lo que el usuario describa — si faltan medidas, ella usa estimados típicos. NO recalcules ni inventes números: presenta EXACTAMENTE los que devuelve.',
                     'parameters' => [
                         'type' => 'object',
                         'properties' => [
-                            'descripcion_producto' => ['type' => 'string', 'description' => 'Descripción del mueble a fabricar'],
-                            'categoria'            => ['type' => 'string', 'description' => 'Categoría: comedor, sala, alcoba, etc.'],
+                            'descripcion_producto' => ['type' => 'string', 'description' => 'Descripción del mueble a fabricar, con todo lo que el usuario haya dicho (materiales, características, estilo)'],
+                            'categoria'            => ['type' => 'string', 'description' => 'Categoría: comedor, sala, alcoba, cama, sofa, escritorio, etc.'],
                             'num_puestos'          => ['type' => 'integer', 'description' => 'Número de puestos o módulos (opcional)'],
                             'largo_cm'             => ['type' => 'number', 'description' => 'Largo en centímetros (opcional)'],
                             'ancho_cm'             => ['type' => 'number', 'description' => 'Ancho en centímetros (opcional)'],
                             'alto_cm'              => ['type' => 'number', 'description' => 'Alto en centímetros (opcional)'],
-                            'materiales_cliente'   => ['type' => 'string', 'description' => 'Materiales específicos que el cliente quiere usar (opcional)'],
+                            'materiales_cliente'   => ['type' => 'string', 'description' => 'Materiales o requisitos específicos que el cliente quiere (opcional)'],
                         ],
                         'required' => ['descripcion_producto', 'categoria'],
                     ],
@@ -389,26 +389,6 @@ class AgentService
                             'nombre_tienda' => ['type' => 'string',  'description' => 'Nombre parcial de la tienda (opcional)'],
                             'categoria'     => ['type' => 'string',  'description' => 'Filtrar por categoría de producto (opcional)'],
                         ],
-                    ],
-                ],
-            ],
-            [
-                'type' => 'function',
-                'function' => [
-                    'name' => 'calcular_costo_medidas',
-                    'description' => 'Estima el costo de fabricación de un mueble usando sus medidas reales y las tarifas de mano de obra por proceso (tapizado, esqueletería, laca, etc.). Úsalo cuando el usuario dé dimensiones en cm, describa un producto personalizado, o suba una foto/boceto de un mueble nuevo.',
-                    'parameters' => [
-                        'type'       => 'object',
-                        'properties' => [
-                            'tipo_producto' => ['type' => 'string',  'description' => 'Tipo de mueble: silla, sofa, comedor, cama, mesa, cajonero, etc.'],
-                            'descripcion'   => ['type' => 'string',  'description' => 'Descripción del mueble: materiales visibles, estilo, características especiales'],
-                            'categoria'     => ['type' => 'string',  'description' => 'Categoría BD: comedores, sofas, camas, sillas_comedor, etc. (opcional)'],
-                            'largo_cm'      => ['type' => 'number',  'description' => 'Largo en centímetros (opcional)'],
-                            'ancho_cm'      => ['type' => 'number',  'description' => 'Ancho en centímetros (opcional)'],
-                            'alto_cm'       => ['type' => 'number',  'description' => 'Alto en centímetros (opcional)'],
-                            'num_puestos'   => ['type' => 'integer', 'description' => 'Número de puestos o módulos (sofás, comedores, etc.)'],
-                        ],
-                        'required' => ['tipo_producto', 'descripcion'],
                     ],
                 ],
             ],
@@ -2281,6 +2261,43 @@ class AgentService
         ]);
     }
 
+    /**
+     * Tool del chat: cotiza un mueble personalizado con el MISMO motor determinístico que Nueva
+     * Orden (BomBuilder → CostoCalculator → SanityChecker → few-shot). Devuelve números ya
+     * calculados; el modelo solo los presenta (ver AGENT.md, Fase 7).
+     */
+    private function handleCotizarFabricacion(array $args, Usuario $usuario): array
+    {
+        $descripcion = trim($args['descripcion_producto'] ?? '');
+        $categoria   = trim($args['categoria'] ?? '');
+
+        // El nombre ya lleva la descripción completa; no se pasa 'descripcion' aparte para
+        // que calcularPrecioItem no la concatene dos veces en el contexto y el embedding.
+        $r = $this->calcularPrecioItem([
+            'nombre'            => $descripcion ?: $categoria,
+            'categoria'         => $categoria,
+            'notas_adicionales' => $args['materiales_cliente'] ?? null,
+            'largo_cm'          => $args['largo_cm'] ?? null,
+            'ancho_cm'          => $args['ancho_cm'] ?? null,
+            'alto_cm'           => $args['alto_cm']  ?? null,
+            'num_puestos'       => $args['num_puestos'] ?? null,
+        ], $usuario);
+
+        // Devolver solo lo que el modelo debe presentar (sin el BOM crudo ni ids internos)
+        return [
+            'costo_fabricacion'    => $r['precio_fabricacion'] ?? 0,
+            'precio_venta_sugerido'=> $r['precio_sugerido_venta'] ?? 0,
+            'costo_materiales'     => $r['costo_materiales'] ?? 0,
+            'costo_mano_obra'      => $r['costo_mano_obra'] ?? 0,
+            'desglose_materiales'  => $r['desglose_materiales'] ?? [],
+            'desglose_mano_obra'   => $r['desglose_mano_obra'] ?? [],
+            'requiere_revision'    => $r['requiere_revision'] ?? false,
+            'revision_motivos'     => $r['revision_motivos'] ?? [],
+            'notas'                => $r['notas'] ?? '',
+            'instruccion'          => 'Presenta EXACTAMENTE estos números, sin recalcular. Si requiere_revision es true, dilo claramente y sugiere enviar una consulta de costo al ebanista en vez de dar el precio como definitivo.',
+        ];
+    }
+
     // ─── Dispatcher de tool calls ─────────────────────────────────────────────
 
     private function ejecutarTool(string $toolName, array $args, Usuario $usuario): array
@@ -2288,8 +2305,7 @@ class AgentService
         return match ($toolName) {
             'obtener_ficha_tecnica'        => $this->handleObtenerFichaTecnica($args),
             'buscar_fichas_por_categoria'  => $this->handleBuscarFichasPorCategoria($args),
-            'calcular_costo_personalizado' => $this->handleCalcularCostoPersonalizado($args),
-            'calcular_costo_medidas'       => $this->handleCalcularCostoPorMedidas($args),
+            'cotizar_fabricacion'          => $this->handleCotizarFabricacion($args, $usuario),
             'consultar_inventario'         => $this->handleConsultarInventario($args, $usuario),
             'productos_mas_vendidos'       => $this->handleProductosMasVendidos($args, $usuario),
             'ventas_por_categoria'         => $this->handleVentasPorCategoria($args, $usuario),
@@ -2722,16 +2738,18 @@ Materiales:
 **Costo materiales: [valor]** | **Mano de obra: [valor]** | **Total: [valor]**"
 Si obtener_ficha_tecnica devuelve encontrado: false con sugerencias NO VACÍAS → muestra las sugerencias y PREGUNTA: "¿Te refieres a alguno de estos productos? [lista]. Si no es ninguno, puedo calcular el costo de uno nuevo." NO estimes hasta que el usuario confirme que no es ninguna sugerencia.
 Solo si sugerencias está vacía pasa al paso 2.
-2. El usuario da medidas, sube foto/boceto o describe un mueble personalizado sin nombre de catálogo → calcular_costo_medidas. Llámala de inmediato sin pedir medidas. Si faltan medidas usa estimados típicos (cama: 200×160cm, escritorio: 120×60cm) y aclara que son estimados.
-3. Sin nombre, sin medidas, sin imagen → calcular_costo_personalizado. Usa items_referencia de fichas similares para mostrar el desglose real de materiales y mano de obra. Al terminar SIEMPRE agrega: "Para mayor precisión puedes indicarme las medidas (largo, ancho, alto en cm) y/o los materiales que prefiere usar."
+2. El mueble es PERSONALIZADO (no está en el catálogo): el usuario da medidas, describe algo a la medida, un híbrido (cama+escritorio), o sube foto/boceto → llama cotizar_fabricacion con la descripción y lo que sepas (categoría, medidas, materiales). Llámala de inmediato; si faltan medidas ella usa estimados típicos. Esta herramienta hace el cálculo oficial con precios reales de la base de datos.
 
-Flujo con imagen: 1) Identifica el tipo de mueble y materiales visibles. 2) Llama calcular_costo_medidas con lo que ves. 3) Calcula MATERIALES = cantidades × precios catálogo. MANO DE OBRA = horas_por_pieza × incentivo_hora. 4) Presenta el resultado así (sin LaTeX, sin fracciones, texto plano):
+REGLA CRÍTICA DE COTIZACIÓN: cuando uses cotizar_fabricacion, NUNCA recalcules ni cambies los números. Presenta EXACTAMENTE el costo_fabricacion, los desgloses y el precio_venta_sugerido que devuelve. Formato (sin LaTeX, texto plano):
 "**Mano de obra**
-· Carpintero – estructura: 3.1 h × $14.423/h = $44.711
-· Lacador – pintura: 2.0 h × $14.423/h = $28.846
-**Materiales estimados: $143.800**
-**Total aprox: $288.000** (puede variar ±20%)"
-5) Si el resultado viene de estimación (no de ficha real), termina con: "Para un estimado más exacto dime las medidas (largo, ancho, alto en cm)." Nunca pidas medidas ANTES de calcular. NUNCA uses LaTeX (\frac, \times, \text, paréntesis \( \)).
+· [cada línea de desglose_mano_obra tal cual]
+**Materiales**
+· [cada línea de desglose_materiales tal cual]
+**Costo de fabricación: $[costo_fabricacion]**
+**Precio de venta sugerido: $[precio_venta_sugerido]** (referencia — el supervisor define el precio final)"
+Si requiere_revision es true → NO des el costo como definitivo. Di: "⚠️ Este estimado necesita revisión de un ebanista antes de usarlo como precio" y lista revision_motivos. Sugiere enviar una consulta de costo.
+Muestra también las líneas de `notas` que empiecen con ⚠️ (elementos a consultar).
+NUNCA uses LaTeX (\frac, \times, \text, paréntesis \( \)).
 
 INTERESADOS / DEMANDA — usa consultar_interesados ante preguntas como: "¿qué es lo que más preguntan?", "¿qué categorías demanda la gente?", "¿cuántos interesados tenemos?", "¿qué se pregunta en tienda X?", "¿qué deberíamos fabricar según la gente que visita?".
 - Si el usuario menciona una tienda → pasa nombre_tienda con el nombre parcial.
