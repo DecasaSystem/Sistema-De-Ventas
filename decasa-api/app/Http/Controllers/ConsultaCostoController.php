@@ -289,6 +289,25 @@ class ConsultaCostoController extends Controller
                     continue;
                 }
                 $item->ordenItem->update(['precio_unitario' => $item->precio_final]);
+
+                // Bucle de aprendizaje: el precio_base del ebanista es el COSTO real de
+                // fabricación, comparable con el precio_ia del estimado. Se enlaza con el
+                // estimado de la IA para que futuros muebles parecidos aprendan de esta
+                // corrección (AGENT.md, Fase 5). Best-effort: no debe romper el envío.
+                try {
+                    $costoHumano = (int) round((float) $item->precio_base);
+                    if ($costoHumano > 0) {
+                        app(\App\Services\Costos\FewShotProvider::class)->registrarCorreccion(
+                            $item->ordenItem->nombre_custom,
+                            $item->ordenItem->categoria_custom,
+                            $costoHumano,
+                            $item->ordenItem->id,
+                            $consulta->asignado_a_id,
+                        );
+                    }
+                } catch (\Throwable $e) {
+                    \Log::warning('enviar: registrarCorreccion falló', ['err' => $e->getMessage()]);
+                }
             }
 
             $orden = $consulta->orden;

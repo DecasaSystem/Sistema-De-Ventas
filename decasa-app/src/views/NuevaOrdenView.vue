@@ -2667,6 +2667,13 @@ function removeFacturaFoto() {
 
               <!-- Resultado -->
               <div v-else-if="item._precioCalc?.precio_fabricacion" class="bg-white rounded-lg border border-purple-100 p-3 space-y-2">
+                <!-- El estimado no es plausible frente al catálogo: no se presenta como precio en firme -->
+                <div v-if="item._precioCalc.requiere_revision" class="bg-red-50 border border-red-300 rounded-lg p-2.5 space-y-1">
+                  <p class="text-xs font-semibold text-red-800">Estimado poco confiable — requiere revisión de un ebanista</p>
+                  <p v-for="m in (item._precioCalc.revision_motivos ?? [])" :key="m" class="text-xs text-red-700">{{ m }}</p>
+                  <p class="text-xs text-red-600 italic">Envía una consulta de costo antes de confirmar este precio con el cliente.</p>
+                </div>
+
                 <div class="flex justify-between items-center text-sm">
                   <span class="text-gray-500">Costo fabricación</span>
                   <span class="font-semibold text-gray-800">${{ (item._precioCalc.precio_fabricacion ?? 0).toLocaleString('es-CO') }}</span>
