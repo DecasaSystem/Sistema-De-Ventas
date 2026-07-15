@@ -3,7 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { getFichas, getFicha, crearFicha, getMaterialesSugeridos, actualizarItems, reimportarFichas } from '@/api/fichas'
 import api from '@/api'
 import { getMateriales, crearMaterial, actualizarMaterial, importarMateriales } from '@/api/materiales'
-import { getCostos, guardarCostos, crearCargo, eliminarCargo, crearProceso, eliminarProceso } from '@/api/configuracion'
+import { getCostos, guardarCostos, guardarFactorVenta, crearCargo, eliminarCargo, crearProceso, eliminarProceso } from '@/api/configuracion'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
@@ -581,6 +581,8 @@ function exportarMaterialesExcel() {
 
 const salarios       = ref([])
 const procesos       = ref([])
+const factorVenta    = ref('2.0')   // costo × factor = precio de venta sugerido
+const guardandoFactor = ref(false)
 const loadingTarifas = ref(false)
 const guardandoTar   = ref(false)
 const tarifasDirty   = ref(false)
@@ -680,8 +682,23 @@ async function cargarTarifas() {
       _tarifaHora: String(s.tarifa_hora || 0),
     }))
     procesos.value = res.data.procesos.map(p => ({ ...p, _horas: String(Math.round((p.dias_por_unidad ?? 0) * 8 * 100) / 100) }))
+    if (res.data.factor_venta_sugerido) factorVenta.value = String(res.data.factor_venta_sugerido)
   } finally {
     loadingTarifas.value = false
+  }
+}
+
+async function guardarFactor() {
+  const f = parseFloat(factorVenta.value)
+  if (!(f >= 1 && f <= 10)) { alert('El factor debe estar entre 1 y 10.'); return }
+  guardandoFactor.value = true
+  try {
+    const res = await guardarFactorVenta(f)
+    factorVenta.value = String(res.data.factor_venta_sugerido)
+  } catch (e) {
+    alert(e.response?.data?.message ?? 'No se pudo guardar el factor.')
+  } finally {
+    guardandoFactor.value = false
   }
 }
 
@@ -926,6 +943,30 @@ onMounted(() => {
     <template v-if="tab === 'tarifas'">
       <div v-if="loadingTarifas" class="flex justify-center py-16"><div class="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>
       <div v-else class="px-4 pt-4 space-y-6 pb-8">
+
+        <!-- Factor de venta sugerido -->
+        <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+          <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Precio de venta sugerido</h2>
+          <p class="text-xs text-gray-500 mb-3">
+            El cotizador calcula el <strong>costo de fabricación</strong>. Como referencia, sugiere un precio de venta
+            multiplicando ese costo por este factor. El supervisor decide el precio final.
+          </p>
+          <div class="flex items-end gap-3">
+            <div>
+              <label class="block text-xs text-gray-500 mb-1">Costo &times; factor</label>
+              <input v-model="factorVenta" type="number" step="0.1" min="1" max="10"
+                class="w-24 border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <div class="text-xs text-gray-500 pb-2">
+              Ej: costo $1.000.000 &rarr; sugiere
+              <strong class="text-emerald-700">${{ Math.round(1000000 * (parseFloat(factorVenta) || 0)).toLocaleString('es-CO') }}</strong>
+            </div>
+            <button @click="guardarFactor" :disabled="guardandoFactor"
+              class="ml-auto bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
+              {{ guardandoFactor ? 'Guardando…' : 'Guardar' }}
+            </button>
+          </div>
+        </div>
 
         <!-- Salarios por cargo -->
         <div>

@@ -2518,15 +2518,10 @@ class AgentService
                 . $refTexto;
         }
 
-        // Multiplicador de venta según la confianza del cálculo.
-        // TODO: son placeholders — mover a la tabla `configuracion` cuando el negocio
-        // defina el margen real de Decasa (ver AGENT.md, Fase 6).
-        $multiplicador = match ($toolUsado) {
-            'ficha_tecnica'       => 2.2,
-            'costo_medidas'       => 2.4,
-            'costo_personalizado' => 2.6,
-            default               => 2.2,
-        };
+        // Factor para SUGERIR un precio de venta a partir del costo de fabricación.
+        // El supervisor decide el precio final; esto es solo una referencia. El factor vive
+        // en `configuracion` para poder ajustarlo sin tocar código (ver AGENT.md, Fase 6).
+        $multiplicador = $this->factorVentaSugerido();
 
         // Regla de venta: retapizado y ajustes de altura son servicios sobre un mueble
         // que YA existe — el cliente paga el producto de catálogo + el costo del servicio,
@@ -2853,6 +2848,20 @@ EOT;
     private function hoy(): string
     {
         return Carbon::now()->locale('es')->isoFormat('dddd D [de] MMMM [de] YYYY');
+    }
+
+    /**
+     * Factor con el que se sugiere un precio de venta a partir del costo de fabricación.
+     * Ajustable desde `configuracion` (clave `factor_venta_sugerido`); por defecto ×2.0.
+     */
+    public const FACTOR_VENTA_DEFAULT = 2.0;
+
+    private function factorVentaSugerido(): float
+    {
+        $valor  = DB::table('configuracion')->where('clave', 'factor_venta_sugerido')->value('valor');
+        $factor = is_numeric($valor) ? (float) $valor : self::FACTOR_VENTA_DEFAULT;
+
+        return $factor > 0 ? $factor : self::FACTOR_VENTA_DEFAULT;
     }
 
     // ─── Cotizador de precio para restauración de muebles ───────────────────────

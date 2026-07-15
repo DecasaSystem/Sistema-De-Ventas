@@ -28,9 +28,32 @@ class ConfiguracionCostosController extends Controller
             ]);
 
         return response()->json([
-            'salarios' => $salarios,
-            'procesos' => $procesos,
+            'salarios'              => $salarios,
+            'procesos'              => $procesos,
+            'factor_venta_sugerido' => $this->factorVentaSugerido(),
         ]);
+    }
+
+    /** Factor con el que se sugiere el precio de venta (costo × factor). Default ×2.0. */
+    private function factorVentaSugerido(): float
+    {
+        $valor = DB::table('configuracion')->where('clave', 'factor_venta_sugerido')->value('valor');
+        return is_numeric($valor) && (float) $valor > 0 ? (float) $valor : 2.0;
+    }
+
+    /** PUT /configuracion/costos/factor-venta — ajusta el factor de sugerencia de venta. */
+    public function guardarFactorVenta(Request $request)
+    {
+        $data = $request->validate([
+            'factor_venta_sugerido' => 'required|numeric|min:1|max:10',
+        ]);
+
+        DB::table('configuracion')->updateOrInsert(
+            ['clave' => 'factor_venta_sugerido'],
+            ['valor' => (string) $data['factor_venta_sugerido'], 'updated_at' => now()],
+        );
+
+        return response()->json(['factor_venta_sugerido' => (float) $data['factor_venta_sugerido']]);
     }
 
     public function guardar(Request $request)

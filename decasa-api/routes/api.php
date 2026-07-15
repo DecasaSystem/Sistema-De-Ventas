@@ -344,6 +344,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('role:supervisor,ebanista')->group(function () {
         Route::get('/configuracion/costos',                      [ConfiguracionCostosController::class, 'index']);
         Route::put('/configuracion/costos',                      [ConfiguracionCostosController::class, 'guardar']);
+        Route::put('/configuracion/costos/factor-venta',         [ConfiguracionCostosController::class, 'guardarFactorVenta']);
         Route::post('/configuracion/costos/cargos',              [ConfiguracionCostosController::class, 'crearCargo']);
         Route::delete('/configuracion/costos/cargos/{cargo}',    [ConfiguracionCostosController::class, 'eliminarCargo']);
         Route::post('/configuracion/costos/procesos',            [ConfiguracionCostosController::class, 'crearProceso']);

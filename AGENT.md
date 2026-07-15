@@ -390,29 +390,46 @@ o una tarjeta en Reportes cuando haya casos acumulados.
 
 ---
 
-### FASE 6 — Calibración de constantes
+### FASE 6 — Precio de venta sugerido configurable ✅ IMPLEMENTADA
 
-**Objetivo:** reemplazar los números inventados por números derivados de los datos.
+**Reenfoque (decisión del negocio):** el jefe aclaró que el sistema **solo** debe dar el **costo de
+fabricación** — la ganancia la pone el supervisor a mano. Pero sí quiere que, **como referencia**, se
+le **sugiera** un precio de venta. Así que la fase dejó de ser "calibrar el margen real" (que ya no
+aplica: no hay margen que el sistema deba clavar) y pasó a: mostrar el costo real + sugerir una venta
+con un factor **configurable**.
 
 **Trabajo**
-1. Con 306 fichas, **derivar** la relación real tamaño↔costo por categoría (regresión simple sobre
-   medidas/puestos vs `costo_total`) y reemplazar el array `ESCALA` y el `× 0.70`.
-2. **Multiplicadores de venta (2.2 / 2.4 / 2.6): requieren decisión del usuario** — son placeholder,
-   nadie ha definido el margen real de Decasa. Cuando esté definido, moverlos a la tabla
-   `configuracion` (ya existe) en lugar de tenerlos hardcodeados en `:2531`.
+1. Se eliminaron los multiplicadores inventados `2.2 / 2.4 / 2.6` (uno distinto por tipo de cálculo).
+2. Un único **factor de venta sugerido**, guardado en `configuracion` (`factor_venta_sugerido`),
+   default **×2.0** (definido por el negocio). `precio_sugerido_venta = precio_fabricacion × factor`.
+3. Ajustable desde la app: `PUT /configuracion/costos/factor-venta` + input en la pantalla de
+   Costos → pestaña Tarifas ("Precio de venta sugerido"), sin tocar código.
+4. El **costo de fabricación no se infla**: el supervisor lo quiere real. El requisito "que nunca
+   deje en pérdidas" queda cubierto de facto — sugerir vender al **doble** del costo deja un colchón
+   enorme aunque el costo estimado quede algo corto — y el SanityChecker (Fase 4) avisa si el costo
+   se ve anormalmente bajo.
 
-**Bloqueante:** el margen real lo tiene que definir el negocio.
+**Resultado medido** (`cotizador:test-factor`, ya borrado): mismo mueble, `factor=2.0` → venta =
+costo × 2.00; `factor=2.5` → venta = costo × 2.50. El precio sugerido sigue el factor configurable.
+
+**Nota:** ya NO se derivan por regresión el array `ESCALA` ni el `× 0.70`. Esas constantes vivían en
+el escalado por puestos del código viejo; el flujo nuevo (BOM por diferencias contra fichas reales)
+no las usa para el precio que ve el usuario. Quedan en métodos heredados sin efecto sobre el
+resultado; se pueden limpiar en un pase posterior.
 
 ---
 
 ## 4. Riesgos y decisiones abiertas
 
-- **Margen de venta real** — bloquea la Fase 6. Pendiente del usuario.
+- ~~**Margen de venta real** — bloquea la Fase 6.~~ **Resuelto:** el negocio solo quiere el costo de
+  fabricación + una sugerencia de venta ×2.0 configurable. Ver Fase 6.
 - **Costo por token**: pasar fichas completas como contexto sube el prompt. Mitigable con el
   retriever (Fase 3) que manda 3–5 fichas en vez de un volcado.
 - **No borrar materiales duplicados** — el 99% de match de las fichas depende de los nombres
   actuales. Solo marcar (`activo`, `equivalente_a_id`).
 - **Compatibilidad del front**: el contrato de `/calcular-precio-item` no cambia en ninguna fase.
+- **Rate limit de OpenAI**: el tier actual es estrecho; el benchmark espacia las llamadas y
+  `BomBuilder` reintenta con backoff. En uso real (cotizaciones de a una) no se toca el límite.
 
 ## 5. Orden recomendado
 
