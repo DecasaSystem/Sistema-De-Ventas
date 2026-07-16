@@ -476,6 +476,14 @@ determinístico). Los métodos `handleCalcularCostoPorMedidas` / `handleCalcular
 siguen existiendo como privados porque `calcularPrecioItem` los usa internamente; solo se retiraron
 como tools expuestos al modelo.
 
+**Imágenes en el chat (corregido):** antes, en el chat el modelo veía la foto pero al cotizar le
+pasaba al motor solo una descripción en texto — el `BomBuilder` no recibía la imagen y se perdía el
+detalle (contar cajones, proporciones). Ahora `chat()` captura la última imagen del usuario
+(`extraerUltimoBoceto()`) y `handleCotizarFabricacion` la propaga como `boceto_url` a
+`calcularPrecioItem` → `BomBuilder` (a `detail:high`), igual que en Nueva Orden. Verificado con
+`cotizador:test-boceto` (captura la imagen correcta, incluso si la foto y la pregunta van en mensajes
+separados). En ambos flujos la receta ahora "ve" la foto.
+
 ---
 
 ## 4. Riesgos y decisiones abiertas

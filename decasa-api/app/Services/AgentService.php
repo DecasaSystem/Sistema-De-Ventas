@@ -22,6 +22,9 @@ class AgentService
         private FewShotProvider $fewShot,
     ) {}
 
+    /** Imagen (data URL) del último mensaje del usuario en el chat, para pasarla al cotizador. */
+    private ?string $bocetoChat = null;
+
     // ─── Multiplicadores de escala por sección ────────────────────────────────
     private const ESCALA = [
         'TAPICERIA'       => 1.00,
@@ -2273,6 +2276,7 @@ class AgentService
 
         // El nombre ya lleva la descripción completa; no se pasa 'descripcion' aparte para
         // que calcularPrecioItem no la concatene dos veces en el contexto y el embedding.
+        // Si el usuario envió una foto en el chat, se pasa al motor para que la receta la vea.
         $r = $this->calcularPrecioItem([
             'nombre'            => $descripcion ?: $categoria,
             'categoria'         => $categoria,
@@ -2281,6 +2285,7 @@ class AgentService
             'ancho_cm'          => $args['ancho_cm'] ?? null,
             'alto_cm'           => $args['alto_cm']  ?? null,
             'num_puestos'       => $args['num_puestos'] ?? null,
+            'boceto_url'        => $this->bocetoChat,
         ], $usuario);
 
         // Devolver solo lo que el modelo debe presentar (sin el BOM crudo ni ids internos)
@@ -2807,6 +2812,11 @@ RESTRICCIONES POR ROL — aplican automáticamente en el backend:
 REGLAS: Dinero en formato COP ($ 1.200.000). No inventes datos. Muestra productos cuando una orden los tiene.
 EOT;
 
+        // Imagen más reciente que envió el usuario: se propaga al motor de cotización cuando
+        // el modelo llame a cotizar_fabricacion, para que la receta también "vea" la foto
+        // (no solo la descripción textual). Ver AGENT.md, Fase 7.
+        $this->bocetoChat = $this->extraerUltimoBoceto($messages);
+
         // Convertir mensajes: si alguno trae imagen, usar formato vision de OpenAI
         $mensajesFormateados = array_map(function (array $msg) {
             if (!empty($msg['image'])) {
@@ -2861,6 +2871,15 @@ EOT;
         }
 
         return 'Lo siento, no pude completar la consulta. Por favor intenta con una pregunta más específica.';
+    }
+
+    /** Última imagen (data URL) que envió el usuario en la conversación, o null si no hay. */
+    private function extraerUltimoBoceto(array $messages): ?string
+    {
+        foreach (array_reverse($messages) as $m) {
+            if (!empty($m['image'])) return $m['image'];
+        }
+        return null;
     }
 
     private function hoy(): string
