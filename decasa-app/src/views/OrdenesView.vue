@@ -99,6 +99,13 @@ function clearFilters() {
   setupObserver()
 }
 
+function seleccionarTienda(id) {
+  filtros.value.tienda_id = id
+  currentPage.value = 1
+  fetchOrdenes(1, false)
+  setupObserver()
+}
+
 function buscar() {
   currentPage.value = 1
   fetchOrdenes(1, false)
@@ -190,6 +197,34 @@ onUnmounted(() => {
         placeholder="Buscar por cliente..."
         class="w-full rounded-lg border border-gray-300 pl-10 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
       />
+    </div>
+
+    <!-- Filtro rápido por tienda -->
+    <div v-if="tiendas.length" class="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+      <button
+        @click="seleccionarTienda('')"
+        :class="[
+          'shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors',
+          filtros.tienda_id === ''
+            ? 'bg-blue-600 text-white border-blue-600'
+            : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'
+        ]"
+      >
+        Todas
+      </button>
+      <button
+        v-for="t in tiendas"
+        :key="t.id"
+        @click="seleccionarTienda(t.id)"
+        :class="[
+          'shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors',
+          filtros.tienda_id === t.id
+            ? 'bg-blue-600 text-white border-blue-600'
+            : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'
+        ]"
+      >
+        {{ t.nombre }}
+      </button>
     </div>
 
     <!-- Panel de filtros -->
