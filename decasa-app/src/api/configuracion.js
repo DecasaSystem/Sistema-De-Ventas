@@ -7,3 +7,4 @@ export const eliminarCargo   = (cargo) => api.delete(`/configuracion/costos/carg
 export const guardarFactorVenta = (factor) => api.put('/configuracion/costos/factor-venta', { factor_venta_sugerido: factor })
 export const crearProceso    = (data)  => api.post('/configuracion/costos/procesos', data)
 export const eliminarProceso = (id)    => api.delete(`/configuracion/costos/procesos/${id}`)
+export const getPrecisionCotizador = () => api.get('/cotizador/precision')

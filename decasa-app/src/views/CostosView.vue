@@ -3,7 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { getFichas, getFicha, crearFicha, getMaterialesSugeridos, actualizarItems, reimportarFichas } from '@/api/fichas'
 import api from '@/api'
 import { getMateriales, crearMaterial, actualizarMaterial, importarMateriales } from '@/api/materiales'
-import { getCostos, guardarCostos, guardarFactorVenta, crearCargo, eliminarCargo, crearProceso, eliminarProceso } from '@/api/configuracion'
+import { getCostos, guardarCostos, guardarFactorVenta, crearCargo, eliminarCargo, crearProceso, eliminarProceso, getPrecisionCotizador } from '@/api/configuracion'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
@@ -583,6 +583,36 @@ const salarios       = ref([])
 const procesos       = ref([])
 const factorVenta    = ref('2.0')   // costo × factor = precio de venta sugerido
 const guardandoFactor = ref(false)
+const precision       = ref(null)    // panel de precisión del cotizador
+const loadingPrecision = ref(false)
+const precisionCargada = ref(false)
+
+async function cargarPrecision() {
+  if (precisionCargada.value) return
+  loadingPrecision.value = true
+  try {
+    const res = await getPrecisionCotizador()
+    precision.value = res.data
+    precisionCargada.value = true
+  } catch {
+    precision.value = null
+  } finally {
+    loadingPrecision.value = false
+  }
+}
+
+// negativo = la IA subestima (riesgo); rojo. positivo = sobreestima; ámbar. cerca de 0 = verde.
+function colorSesgo(v) {
+  const n = Math.abs(v)
+  if (n <= 8) return 'text-emerald-600'
+  if (v < 0)  return 'text-red-600'
+  return 'text-amber-600'
+}
+function colorError(v) {
+  if (v <= 10) return 'text-emerald-600'
+  if (v <= 25) return 'text-amber-600'
+  return 'text-red-600'
+}
 const loadingTarifas = ref(false)
 const guardandoTar   = ref(false)
 const tarifasDirty   = ref(false)
@@ -826,6 +856,10 @@ onMounted(() => {
           @click="tab = 'tarifas'"
           :class="['flex-1 py-2 text-sm font-medium transition-colors border-b-2', tab === 'tarifas' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500']"
         >Tarifas</button>
+        <button
+          @click="tab = 'precision'; cargarPrecision()"
+          :class="['flex-1 py-2 text-sm font-medium transition-colors border-b-2', tab === 'precision' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500']"
+        >Precisión IA</button>
       </div>
     </div>
 
@@ -1155,6 +1189,103 @@ onMounted(() => {
         </div>
 
       </div>
+    </template>
+
+    <!-- ════════════════════════════════════════════════════════════════════════ -->
+    <!-- TAB PRECISIÓN IA                                                          -->
+    <!-- ════════════════════════════════════════════════════════════════════════ -->
+    <template v-if="tab === 'precision'">
+      <div v-if="loadingPrecision" class="flex justify-center py-16"><div class="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>
+
+      <div v-else-if="precision" class="px-4 pt-4 space-y-5 pb-8">
+
+        <p class="text-xs text-gray-500">
+          Compara el costo que estimó la IA con el que fijó el ebanista al responder consultas de costo.
+          Es la señal de qué tan confiable es el cotizador y si está mejorando.
+        </p>
+
+        <!-- Estado vacío -->
+        <div v-if="!precision.hay_datos" class="bg-gray-50 border border-gray-200 rounded-xl p-6 text-center">
+          <p class="text-sm text-gray-500">{{ precision.mensaje }}</p>
+        </div>
+
+        <template v-else>
+          <!-- Resumen global -->
+          <div class="grid grid-cols-3 gap-3">
+            <div class="bg-white border border-gray-200 rounded-xl p-3 text-center">
+              <div class="text-2xl font-bold text-gray-800">{{ precision.total_casos }}</div>
+              <div class="text-xs text-gray-500 mt-0.5">casos corregidos</div>
+            </div>
+            <div class="bg-white border border-gray-200 rounded-xl p-3 text-center">
+              <div class="text-2xl font-bold" :class="colorError(precision.global.error_medio_abs)">{{ precision.global.error_medio_abs }}%</div>
+              <div class="text-xs text-gray-500 mt-0.5">error promedio</div>
+            </div>
+            <div class="bg-white border border-gray-200 rounded-xl p-3 text-center">
+              <div class="text-2xl font-bold text-gray-800">{{ precision.global.dentro_10pct_ratio }}%</div>
+              <div class="text-xs text-gray-500 mt-0.5">dentro de ±10%</div>
+            </div>
+          </div>
+
+          <!-- Sesgo global -->
+          <div class="bg-white border border-gray-200 rounded-xl p-3 flex items-center justify-between">
+            <div>
+              <div class="text-xs text-gray-500">Tendencia del estimado</div>
+              <div class="text-sm font-semibold" :class="colorSesgo(precision.global.sesgo_medio)">
+                {{ precision.global.sesgo_medio > 0 ? 'Sobreestima' : precision.global.sesgo_medio < 0 ? 'Subestima' : 'Neutral' }}
+                {{ precision.global.sesgo_medio > 0 ? '+' : '' }}{{ precision.global.sesgo_medio }}% en promedio
+              </div>
+            </div>
+            <div class="text-xs text-right max-w-[45%]" :class="precision.global.sesgo_medio < -8 ? 'text-red-500' : 'text-gray-400'">
+              {{ precision.global.sesgo_medio < -8
+                  ? 'La IA tiende a quedar por debajo del costo real — ojo con vender a pérdida.'
+                  : 'Cuanto más cerca de 0%, más confiable.' }}
+            </div>
+          </div>
+
+          <!-- Por categoría -->
+          <div>
+            <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Por categoría</h2>
+            <div class="bg-white border border-gray-200 rounded-xl overflow-hidden">
+              <div class="grid grid-cols-[1fr_auto_auto_auto] gap-2 px-3 py-2 text-[11px] font-semibold text-gray-400 uppercase border-b border-gray-100">
+                <span>Categoría</span><span class="text-right">Casos</span><span class="text-right">Error</span><span class="text-right">Sesgo</span>
+              </div>
+              <div v-for="c in precision.por_categoria" :key="c.categoria"
+                class="grid grid-cols-[1fr_auto_auto_auto] gap-2 px-3 py-2 text-sm border-b border-gray-50 last:border-0">
+                <span class="text-gray-700 truncate">{{ c.categoria }}</span>
+                <span class="text-right text-gray-500">{{ c.n }}</span>
+                <span class="text-right font-medium" :class="colorError(c.error_medio_abs)">{{ c.error_medio_abs }}%</span>
+                <span class="text-right font-medium" :class="colorSesgo(c.sesgo_medio)">{{ c.sesgo_medio > 0 ? '+' : '' }}{{ c.sesgo_medio }}%</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Casos recientes -->
+          <div>
+            <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Correcciones recientes</h2>
+            <div class="space-y-2">
+              <div v-for="(r, i) in precision.recientes" :key="i" class="bg-white border border-gray-200 rounded-xl p-3">
+                <div class="flex items-start justify-between gap-2">
+                  <div class="min-w-0">
+                    <div class="text-sm text-gray-700 truncate">{{ r.mueble }}</div>
+                    <div class="text-xs text-gray-400">{{ r.categoria }}</div>
+                  </div>
+                  <div class="text-right flex-shrink-0">
+                    <div class="text-xs font-semibold" :class="colorError(Math.abs(r.error_pct))">
+                      {{ r.error_pct > 0 ? '+' : '' }}{{ r.error_pct }}%
+                    </div>
+                  </div>
+                </div>
+                <div class="flex items-center gap-3 mt-1.5 text-xs">
+                  <span class="text-gray-400">IA: <span class="text-gray-600">${{ r.precio_ia.toLocaleString('es-CO') }}</span></span>
+                  <span class="text-gray-400">Real: <span class="text-gray-700 font-medium">${{ r.precio_real.toLocaleString('es-CO') }}</span></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <div v-else class="px-4 py-16 text-center text-sm text-gray-400">No se pudo cargar el panel de precisión.</div>
     </template>
 
     <!-- ════════════════════════════════════════════════════════════════════════ -->

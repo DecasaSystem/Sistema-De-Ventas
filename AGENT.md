@@ -384,9 +384,16 @@ la categoría filtra el grueso y el embedding ordena dentro.
 **Todo el aprendizaje es best-effort:** si falla el registro o la captura (API de embeddings caída,
 etc.), la cotización y el envío de la consulta se completan igual — nunca rompen el flujo del usuario.
 
-**Pendiente (no bloqueante):** el panel de supervisor con `error_pct` por categoría. Los datos ya se
-capturan; falta la vista. Se puede añadir como un tool del agente (`consultar_precision_cotizador`)
-o una tarjeta en Reportes cuando haya casos acumulados.
+**Panel de precisión ✅ IMPLEMENTADO.** `GET /cotizador/precision`
+(`PrecisionCotizadorController`, solo supervisor/ebanista) + pestaña **"Precisión IA"** en
+`CostosView`. Compara `precio_ia` vs `precio_humano` de `estimados_ia` corregidos y muestra:
+- **Global**: nº de casos, error medio absoluto, sesgo medio (negativo = la IA subestima → riesgo de
+  vender a pérdida, se resalta en rojo) y % dentro de ±10%.
+- **Por categoría**: mismas métricas, para ver dónde falla más el cotizador.
+- **Correcciones recientes**: mueble, estimado IA, precio real del ebanista y desviación.
+
+Estado vacío explicado (aún no hay correcciones). Verificado con datos sembrados: global, agregación
+por categoría y recientes cuadran; el estado sin datos responde `hay_datos:false`.
 
 ---
 

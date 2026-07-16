@@ -28,6 +28,7 @@ use App\Http\Controllers\AgentController;
 use App\Http\Controllers\ConsultaCostoController;
 use App\Http\Controllers\PrecioItemController;
 use App\Http\Controllers\ConfiguracionCostosController;
+use App\Http\Controllers\PrecisionCotizadorController;
 use App\Http\Controllers\FacturacionController;
 use App\Http\Controllers\PushSubscriptionController;
 use App\Http\Controllers\ReservaController;
@@ -349,6 +350,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/configuracion/costos/cargos/{cargo}',    [ConfiguracionCostosController::class, 'eliminarCargo']);
         Route::post('/configuracion/costos/procesos',            [ConfiguracionCostosController::class, 'crearProceso']);
         Route::delete('/configuracion/costos/procesos/{id}',     [ConfiguracionCostosController::class, 'eliminarProceso']);
+
+        Route::get('/cotizador/precision',                       [PrecisionCotizadorController::class, 'index']);
     });
 
     // Comisiones
