@@ -826,9 +826,11 @@ onMounted(async () => {
               <div class="flex items-center gap-1.5">
                 <CheckCircleIcon v-if="c.meta_cumplida" class="w-4 h-4 text-green-500" />
                 <XCircleIcon v-else class="w-4 h-4 text-red-400" />
-                <span :class="c.meta_cumplida ? 'text-green-700' : 'text-gray-500'">Meta tienda alcanzada</span>
+                <span :class="c.meta_cumplida ? 'text-green-700' : 'text-gray-500'">
+                  {{ c.periodicidad === 'trimestral' ? `Trimestre ${c.trimestre} en positivo` : 'Meta tienda alcanzada' }}
+                </span>
               </div>
-              <span class="text-gray-400 font-medium">
+              <span v-if="c.periodicidad !== 'trimestral'" class="text-gray-400 font-medium">
                 {{ cop(c.total_tienda_mes) }} / {{ c.meta_tienda > 0 ? cop(c.meta_tienda) : 'Sin meta' }}
               </span>
             </div>
@@ -836,11 +838,24 @@ onMounted(async () => {
               <div class="flex items-center gap-1.5">
                 <CheckCircleIcon v-if="c.req_mes_vencido" class="w-4 h-4 text-green-500" />
                 <XCircleIcon v-else class="w-4 h-4 text-red-400" />
-                <span :class="c.req_mes_vencido ? 'text-green-700' : 'text-gray-500'">1 mes desde la venta</span>
+                <span :class="c.req_mes_vencido ? 'text-green-700' : 'text-gray-500'">
+                  {{ c.periodicidad === 'trimestral' ? 'Pago trimestral' : 'Pago mensual' }}
+                </span>
               </div>
               <span class="text-gray-400 font-medium">Disponible {{ fmtFecha(c.fecha_disponible) }}</span>
             </div>
-            <div v-if="c.meta_tienda > 0" class="mt-2 pt-2 border-t border-gray-100 text-xs text-gray-500 space-y-0.5">
+
+            <div v-if="c.periodicidad === 'trimestral'" class="mt-2 pt-2 border-t border-gray-100 text-xs text-gray-500 space-y-0.5">
+              <p class="font-semibold text-gray-600 mb-1">Cálculo (trimestre {{ c.trimestre }})</p>
+              <p v-if="c.deficit_inicial > 0" class="text-red-500">Déficit arrastrado del trimestre anterior: − {{ cop(c.deficit_inicial) }}</p>
+              <p>Pool trimestral (después de déficit): {{ cop(c.comision_pool) }}</p>
+              <p v-if="c.divisor_asesores > 1">÷ {{ c.divisor_asesores }} asesores: {{ cop(c.comision_asesor) }}</p>
+              <p class="font-semibold text-green-700 border-t border-gray-100 pt-0.5 mt-0.5">Comisión asesor: {{ cop(c.comision_asesor) }}</p>
+              <p>Ventas propias mes: {{ cop(c.total_vendedor_mes) }} ({{ c.total_vendedor_mes > 0 ? Math.round(c.valor_orden / c.total_vendedor_mes * 100) : 0 }}% esta orden)</p>
+              <p class="font-bold text-green-700">Comisión esta orden: {{ cop(c.monto_comision) }}</p>
+              <p v-if="c.deficit_final > 0" class="text-red-500 font-semibold">Queda debiendo {{ cop(c.deficit_final) }} para el próximo trimestre</p>
+            </div>
+            <div v-else-if="c.meta_tienda > 0" class="mt-2 pt-2 border-t border-gray-100 text-xs text-gray-500 space-y-0.5">
               <p class="font-semibold text-gray-600 mb-1">Cálculo</p>
               <p>Ventas tienda mes: {{ cop(c.total_tienda_mes) }}</p>
               <p>Meta tienda: − {{ cop(c.meta_tienda) }}</p>

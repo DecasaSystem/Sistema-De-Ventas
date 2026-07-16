@@ -37,9 +37,10 @@ class ComisionController extends Controller
         $comisiones = $query->get();
 
         [$metas, $totalesTienda, $totalesVendedor] = $this->cargarTotales();
+        $poolsTrimestrales = $this->cargarPoolsTrimestrales($metas, $totalesTienda);
         $hoy = Carbon::today();
 
-        $result = $comisiones->map(fn($c) => $this->enriquecer($c, $metas, $totalesTienda, $totalesVendedor, $hoy));
+        $result = $comisiones->map(fn($c) => $this->enriquecer($c, $metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, $hoy));
 
         return response()->json($result);
     }
@@ -92,7 +93,8 @@ class ComisionController extends Controller
 
         // Calcular estado real en el momento del pago (no depender del campo guardado en BD)
         [$metas, $totalesTienda, $totalesVendedor] = $this->cargarTotales();
-        $enriquecida = $this->enriquecer($comision, $metas, $totalesTienda, $totalesVendedor, Carbon::today());
+        $poolsTrimestrales = $this->cargarPoolsTrimestrales($metas, $totalesTienda);
+        $enriquecida = $this->enriquecer($comision, $metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, Carbon::today());
 
         if ($enriquecida['estado_calculado'] !== 'lista') {
             return response()->json(['error' => 'La comisión no está lista para pagar aún.'], 422);
@@ -173,9 +175,10 @@ class ComisionController extends Controller
         }
 
         [$metas, $totalesTienda, $totalesVendedor] = $this->cargarTotales();
+        $poolsTrimestrales = $this->cargarPoolsTrimestrales($metas, $totalesTienda);
         $hoy = Carbon::today();
 
-        $enriquecidas = $comisiones->map(fn($c) => $this->enriquecer($c, $metas, $totalesTienda, $totalesVendedor, $hoy));
+        $enriquecidas = $comisiones->map(fn($c) => $this->enriquecer($c, $metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, $hoy));
 
         $grouped = $enriquecidas->groupBy('vendedor_id')->map(function ($items) {
             $first = $items->first();
@@ -336,6 +339,7 @@ class ComisionController extends Controller
         ]);
 
         [$metas, $totalesTienda, $totalesVendedor] = $this->cargarTotales();
+        $poolsTrimestrales = $this->cargarPoolsTrimestrales($metas, $totalesTienda);
         $hoy     = Carbon::today();
         $pagadas = 0;
 
@@ -344,8 +348,8 @@ class ComisionController extends Controller
             ->where('mes_venta', $data['mes'])
             ->where('estado', '!=', 'pagada')
             ->get()
-            ->each(function ($c) use ($metas, $totalesTienda, $totalesVendedor, $hoy, $usuario, &$pagadas) {
-                $e = $this->enriquecer($c, $metas, $totalesTienda, $totalesVendedor, $hoy);
+            ->each(function ($c) use ($metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, $hoy, $usuario, &$pagadas) {
+                $e = $this->enriquecer($c, $metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, $hoy);
                 if ($e['estado_calculado'] === 'lista') {
                     $c->update([
                         'estado'         => 'pagada',
@@ -369,14 +373,15 @@ class ComisionController extends Controller
         }
 
         [$metas, $totalesTienda, $totalesVendedor] = $this->cargarTotales();
+        $poolsTrimestrales = $this->cargarPoolsTrimestrales($metas, $totalesTienda);
         $hoy          = Carbon::today();
         $actualizadas = 0;
         $notificadas  = 0;
 
         Comision::with('orden.pagos')->where('estado', '!=', 'pagada')
-            ->chunk(100, function ($chunk) use ($metas, $totalesTienda, $totalesVendedor, $hoy, &$actualizadas, &$notificadas) {
+            ->chunk(100, function ($chunk) use ($metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, $hoy, &$actualizadas, &$notificadas) {
                 foreach ($chunk as $c) {
-                    $enriquecida = $this->enriquecer($c, $metas, $totalesTienda, $totalesVendedor, $hoy);
+                    $enriquecida = $this->enriquecer($c, $metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, $hoy);
                     $nuevoEstado = $enriquecida['estado_calculado'];
 
                     $cambios = ['monto_comision' => $enriquecida['monto_comision']];
@@ -405,9 +410,8 @@ class ComisionController extends Controller
         if (! $orden->vendedor_id || ! $orden->tienda_id) return;
 
         $mes          = Carbon::parse($orden->created_at)->format('Y-m');
-        $fechaVenta   = Carbon::parse($orden->created_at)->toDateString();
-        // Disponible el último día del mes siguiente (ej: ventas julio → 31 agosto)
-        $fechaDisp    = Carbon::parse($orden->created_at)->addMonth()->endOfMonth()->toDateString();
+        $fechaVenta   = Carbon::parse($orden->created_at);
+        $fechaVentaStr = $fechaVenta->toDateString();
 
         $esCompartida  = (bool) $orden->es_compartida;
         $covendedorId  = $orden->covendedor_id;
@@ -420,8 +424,8 @@ class ComisionController extends Controller
                 'tienda_id'        => $orden->tienda_id,
                 'mes_venta'        => $mes,
                 'valor_orden'      => $valorPrincipal,
-                'fecha_venta'      => $fechaVenta,
-                'fecha_disponible' => $fechaDisp,
+                'fecha_venta'      => $fechaVentaStr,
+                'fecha_disponible' => self::calcularFechaDisponible($fechaVenta, $orden->tienda_id),
                 'estado'           => 'pendiente',
             ]
         );
@@ -436,8 +440,8 @@ class ComisionController extends Controller
                         'tienda_id'        => $covendedor->tienda_default_id,
                         'mes_venta'        => $mes,
                         'valor_orden'      => $valorPrincipal,
-                        'fecha_venta'      => $fechaVenta,
-                        'fecha_disponible' => $fechaDisp,
+                        'fecha_venta'      => $fechaVentaStr,
+                        'fecha_disponible' => self::calcularFechaDisponible($fechaVenta, $covendedor->tienda_default_id),
                         'estado'           => 'pendiente',
                     ]
                 );
@@ -446,6 +450,137 @@ class ComisionController extends Controller
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────────
+
+    // Tiendas de Pereira: la comisión se paga trimestral en vez de mensual.
+    // (mismo agrupamiento usado en OrdenController::GRUPOS_SECUENCIA)
+    private const TIENDAS_TRIMESTRALES = ['Decasa Unicentro Pereira', 'Decasa Circunvalar'];
+
+    // El arrastre de déficit entre trimestres solo cuenta desde este trimestre en adelante
+    // (no se recalculan retroactivamente trimestres anteriores ya cerrados/pagados).
+    private const TRIMESTRE_BASE = '2026-Q3';
+
+    private static function esTiendaTrimestral(?string $tiendaNombre): bool
+    {
+        return in_array($tiendaNombre, self::TIENDAS_TRIMESTRALES, true);
+    }
+
+    private static function trimestreDeMes(string $mesVenta): string
+    {
+        [$anio, $mes] = explode('-', $mesVenta);
+        $q = intdiv((int) $mes - 1, 3) + 1;
+        return $anio . '-Q' . $q;
+    }
+
+    private static function trimestreSiguiente(string $trimestre): string
+    {
+        [$anio, $q] = explode('-Q', $trimestre);
+        $anio = (int) $anio; $q = (int) $q;
+        return $q === 4 ? ($anio + 1) . '-Q1' : $anio . '-Q' . ($q + 1);
+    }
+
+    private static function mesesDeTrimestre(string $trimestre): array
+    {
+        [$anio, $q] = explode('-Q', $trimestre);
+        $anio = (int) $anio; $q = (int) $q;
+        $mesInicio = ($q - 1) * 3 + 1;
+        return [
+            sprintf('%s-%02d', $anio, $mesInicio),
+            sprintf('%s-%02d', $anio, $mesInicio + 1),
+            sprintf('%s-%02d', $anio, $mesInicio + 2),
+        ];
+    }
+
+    /**
+     * Diferencial de ventas vs meta sumado en los 3 meses del trimestre
+     * (puede ser negativo). No incluye arrastre de déficit.
+     */
+    private function diferencialTrimestre(int $tiendaId, string $trimestre, $metas, $totalesTienda): float
+    {
+        $diferencial = 0.0;
+        foreach (self::mesesDeTrimestre($trimestre) as $mes) {
+            $key    = $tiendaId . '_' . $mes;
+            $meta   = isset($metas[$key]) ? (float) $metas[$key]->meta : 0;
+            $ventas = isset($totalesTienda[$key]) ? (float) $totalesTienda[$key]->total : 0;
+            $diferencial += ($ventas - $meta);
+        }
+        return $diferencial;
+    }
+
+    /**
+     * Resuelve el pool de comisión trimestral de una tienda de Pereira, encadenando
+     * el déficit no cubierto de un trimestre hacia el siguiente:
+     * - poolBruto  = Σ(ventas_mes − meta_mes) de los 3 meses / 1.19 × 5%
+     * - poolNeto   = poolBruto − deficit arrastrado del trimestre anterior
+     * - Si poolNeto >= 0: se paga poolNeto y el déficit se limpia.
+     * - Si poolNeto <  0: no se paga nada este trimestre y el faltante pasa al siguiente.
+     * Devuelve un mapa "tiendaId_trimestre" => [pool_bruto, pool_pagado, deficit_inicial, deficit_final]
+     * para todos los trimestres entre la línea base y el trimestre actual.
+     */
+    private function cargarPoolsTrimestrales($metas, $totalesTienda): array
+    {
+        $tiendaIds = DB::table('tiendas')->whereIn('nombre', self::TIENDAS_TRIMESTRALES)->pluck('id');
+        $trimestreActual = self::trimestreDeMes(Carbon::now()->format('Y-m'));
+
+        $pools = [];
+
+        foreach ($tiendaIds as $tiendaId) {
+            $trimestre     = self::TRIMESTRE_BASE;
+            $deficitPrevio = 0.0;
+
+            while (true) {
+                $diferencial = $this->diferencialTrimestre((int) $tiendaId, $trimestre, $metas, $totalesTienda);
+                $poolBruto   = $diferencial / 1.19 * 0.05;
+                $poolNeto    = $poolBruto - $deficitPrevio;
+                $poolPagado  = max(0, $poolNeto);
+                $deficitFinal = $poolNeto < 0 ? abs($poolNeto) : 0.0;
+
+                DB::table('tienda_trimestres')->updateOrInsert(
+                    ['tienda_id' => $tiendaId, 'trimestre' => $trimestre],
+                    [
+                        'deficit_inicial' => $deficitPrevio,
+                        'pool_bruto'      => $poolBruto,
+                        'pool_pagado'     => $poolPagado,
+                        'deficit_final'   => $deficitFinal,
+                        'created_at'      => now(),
+                        'updated_at'      => now(),
+                    ]
+                );
+
+                $pools[$tiendaId . '_' . $trimestre] = [
+                    'pool_bruto'      => $poolBruto,
+                    'pool_pagado'     => $poolPagado,
+                    'deficit_inicial' => $deficitPrevio,
+                    'deficit_final'   => $deficitFinal,
+                ];
+
+                if ($trimestre === $trimestreActual) break;
+                $deficitPrevio = $deficitFinal;
+                $trimestre     = self::trimestreSiguiente($trimestre);
+            }
+        }
+
+        return $pools;
+    }
+
+    /**
+     * Fecha en que la comisión queda disponible para pago:
+     * - Tiendas mensuales: día 20 del mes siguiente a la venta.
+     * - Tiendas trimestrales (Pereira): día 20 del mes siguiente al cierre
+     *   del trimestre calendario (mar/jun/sep/dic) en que cae la venta.
+     */
+    private static function calcularFechaDisponible(Carbon $fechaVenta, int $tiendaId): string
+    {
+        $tiendaNombre = DB::table('tiendas')->where('id', $tiendaId)->value('nombre');
+
+        if (self::esTiendaTrimestral($tiendaNombre)) {
+            $mesCierre = intdiv($fechaVenta->month - 1, 3) * 3 + 3; // 3, 6, 9 o 12
+            return Carbon::create($fechaVenta->year, $mesCierre, 1)
+                ->addMonth()->day(20)->toDateString();
+        }
+
+        return Carbon::create($fechaVenta->year, $fechaVenta->month, 1)
+            ->addMonth()->day(20)->toDateString();
+    }
 
     /**
      * Carga las tres tablas de lookup necesarias para el cálculo:
@@ -472,7 +607,7 @@ class ComisionController extends Controller
         return [$metas, $totalesTienda, $totalesVendedor];
     }
 
-    private function enriquecer(Comision $c, $metas, $totalesTienda, $totalesVendedor, Carbon $hoy): array
+    private function enriquecer(Comision $c, $metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, Carbon $hoy): array
     {
         $metaKey = $c->tienda_id . '_' . $c->mes_venta;
         $meta    = isset($metas[$metaKey]) ? (float) $metas[$metaKey]->meta    : 0;
@@ -488,11 +623,33 @@ class ComisionController extends Controller
             ? (float) $totalesVendedor[$vendedorKey]->total
             : (float) $c->valor_orden;
 
-        // La meta se compara contra el total de la tienda (no del vendedor)
-        $metaCumplida = $meta > 0 && $totalTienda >= $meta;
+        $esTrimestral   = self::esTiendaTrimestral($c->tienda?->nombre);
+        $deficitInicial = 0.0;
+        $deficitFinal   = 0.0;
 
-        // Pool de comisión de la tienda = (ventas_tienda - meta) / 1.19 × 5%
-        $comisionPool = $metaCumplida ? ($totalTienda - $meta) / 1.19 * 0.05 : 0;
+        if ($esTrimestral) {
+            $trimestre = self::trimestreDeMes($c->mes_venta);
+            $infoPool  = $poolsTrimestrales[$c->tienda_id . '_' . $trimestre] ?? null;
+
+            if ($infoPool) {
+                // Trimestre dentro de la línea base: pool con arrastre de déficit.
+                $comisionPool   = $infoPool['pool_pagado'];
+                $metaCumplida   = $infoPool['pool_bruto'] > 0;
+                $deficitInicial = $infoPool['deficit_inicial'];
+                $deficitFinal   = $infoPool['deficit_final'];
+            } else {
+                // Trimestre anterior a la línea base: sin arrastre, se floorea en 0.
+                $diferencial  = $this->diferencialTrimestre($c->tienda_id, $trimestre, $metas, $totalesTienda);
+                $comisionPool = max(0, $diferencial / 1.19 * 0.05);
+                $metaCumplida = $diferencial > 0;
+            }
+        } else {
+            // La meta se compara contra el total de la tienda (no del vendedor)
+            $metaCumplida = $meta > 0 && $totalTienda >= $meta;
+
+            // Pool de comisión de la tienda = (ventas_tienda - meta) / 1.19 × 5%
+            $comisionPool = $metaCumplida ? ($totalTienda - $meta) / 1.19 * 0.05 : 0;
+        }
 
         // Comisión de cada asesor = pool / divisor
         $comisionAsesor = $divisor > 0 ? $comisionPool / $divisor : $comisionPool;
@@ -506,10 +663,12 @@ class ComisionController extends Controller
         $req50     = $pagado >= ((float) $c->valor_orden * 0.5);
         $reqVencio = $hoy->gte(Carbon::parse($c->fecha_disponible));
 
+        // En tiendas trimestrales el déficit ya quedó neteado en $comisionPool
+        // (puede resultar en $0 sin que eso deba dejar la orden pendiente para siempre).
         $estadoCalculado = 'pendiente';
         if ($c->estado === 'pagada') {
             $estadoCalculado = 'pagada';
-        } elseif ($req50 && $metaCumplida && $reqVencio) {
+        } elseif ($req50 && $reqVencio && ($esTrimestral || $metaCumplida)) {
             $estadoCalculado = 'lista';
         }
 
@@ -528,6 +687,10 @@ class ComisionController extends Controller
             'meta_cumplida'    => $metaCumplida,
             'req_50_pct'       => $req50,
             'req_mes_vencido'  => $reqVencio,
+            'periodicidad'     => $esTrimestral ? 'trimestral' : 'mensual',
+            'trimestre'        => $esTrimestral ? self::trimestreDeMes($c->mes_venta) : null,
+            'deficit_inicial'  => round($deficitInicial),
+            'deficit_final'    => round($deficitFinal),
             'pct_pagado'       => $c->valor_orden > 0 ? round($pagado / (float) $c->valor_orden * 100) : 0,
             'atrasada'         => $atrasada,
             'dias_restantes'   => (int) $diasRestantes,

@@ -526,7 +526,7 @@ onMounted(async () => {
               <div class="flex justify-between items-start gap-2">
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center gap-2 mb-1">
-                    <span class="font-semibold text-sm text-gray-800">#{{ o.id }}</span>
+                    <span class="font-semibold text-sm text-gray-800">#{{ o.numero_orden ?? o.id }}</span>
                     <BadgeEstado :estado="o.estado" />
                   </div>
                   <p class="text-xs text-gray-400">{{ o.tienda?.nombre }} · {{ o.vendedor?.nombre }}</p>

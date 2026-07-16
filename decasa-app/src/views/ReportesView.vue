@@ -517,9 +517,19 @@ onBeforeUnmount(() => {
         <!-- KPI cards -->
         <div v-if="panel" class="grid grid-cols-2 gap-3">
           <div class="bg-white rounded-xl shadow-sm p-4 col-span-2">
-            <p class="text-xs text-gray-400 mb-1">Ingresos totales</p>
-            <p class="text-2xl font-bold text-blue-600">{{ cop(panel.ingresos_totales) }}</p>
-            <p :class="['text-xs mt-1', varColor(panel.comparativa?.variacion_pct)]">
+            <p class="text-xs text-gray-400 mb-1">Total vendido</p>
+            <p class="text-2xl font-bold text-green-600">{{ cop(panel.total_vendido) }}</p>
+            <div class="flex items-center justify-between mt-2 pt-2 border-t border-gray-100">
+              <div>
+                <p class="text-[11px] text-gray-400">Cobrado</p>
+                <p class="text-sm font-semibold text-blue-600">{{ cop(panel.ingresos_totales) }}</p>
+              </div>
+              <div class="text-right">
+                <p class="text-[11px] text-gray-400">Cartera</p>
+                <p class="text-sm font-semibold text-red-500">{{ cop(panel.cartera_pendiente) }}</p>
+              </div>
+            </div>
+            <p :class="['text-xs mt-2', varColor(panel.comparativa?.variacion_pct)]">
               {{ varLabel(panel.comparativa?.variacion_pct) }}
             </p>
           </div>

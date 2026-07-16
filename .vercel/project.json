@@ -1,1 +1,16 @@
-{"projectId":"prj_nTbKgjgRL9bjTZnQYFFUpAdyXTu6","orgId":"team_05SMQlYfVQxICo84BoVzm6dF","projectName":"sistema-de-ventas"}
+{
+  "projectId": "prj_nTbKgjgRL9bjTZnQYFFUpAdyXTu6",
+  "orgId": "team_05SMQlYfVQxICo84BoVzm6dF",
+  "projectName": "sistema-de-ventas",
+  "settings": {
+    "createdAt": 1778696990918,
+    "framework": "vite",
+    "devCommand": null,
+    "installCommand": null,
+    "buildCommand": null,
+    "outputDirectory": null,
+    "rootDirectory": "decasa-app",
+    "directoryListing": false,
+    "nodeVersion": "24.x"
+  }
+}

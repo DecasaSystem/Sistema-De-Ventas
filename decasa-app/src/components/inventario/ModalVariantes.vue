@@ -1,8 +1,8 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import {
   XMarkIcon, PlusIcon, TrashIcon,
-  ChevronDownIcon, ChevronRightIcon,
+  ChevronDownIcon, ChevronRightIcon, MagnifyingGlassIcon,
 } from '@heroicons/vue/24/outline'
 import api from '@/api'
 import { useToast } from '@/composables/useToast'
@@ -13,6 +13,29 @@ const toast = useToast()
 const tipos      = ref([])
 const loadingTipos = ref(true)
 const tipoAbierto  = ref(null)
+
+// ── Búsqueda ──────────────────────────────────────────────────────────────────
+const busqueda = ref('')
+
+function normalizar(txt) {
+  return (txt ?? '').toString().normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+}
+
+function opcionesFiltradas(tipo) {
+  const q = normalizar(busqueda.value.trim())
+  if (!q || normalizar(tipo.nombre).includes(q)) return tipo.opciones
+  return tipo.opciones.filter(op => normalizar(op.nombre).includes(q))
+}
+
+const tiposFiltrados = computed(() => {
+  const q = normalizar(busqueda.value.trim())
+  if (!q) return tipos.value
+  return tipos.value.filter(tipo => normalizar(tipo.nombre).includes(q) || opcionesFiltradas(tipo).length)
+})
+
+function estaAbierto(tipo) {
+  return tipoAbierto.value === tipo.id || !!busqueda.value.trim()
+}
 
 async function cargarTipos() {
   loadingTipos.value = true
@@ -188,6 +211,23 @@ async function eliminarOpcion(tipo, opcion) {
           <div>
             <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Tipos existentes</p>
 
+            <div v-if="!loadingTipos && tipos.length" class="relative mb-3">
+              <MagnifyingGlassIcon class="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                v-model="busqueda"
+                type="text"
+                placeholder="Buscar tipo u opción…"
+                class="w-full border border-gray-300 rounded-lg pl-9 pr-8 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              />
+              <button
+                v-if="busqueda"
+                @click="busqueda = ''"
+                class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500"
+              >
+                <XMarkIcon class="w-4 h-4" />
+              </button>
+            </div>
+
             <div v-if="loadingTipos" class="space-y-2">
               <div v-for="i in 3" :key="i" class="h-10 bg-gray-100 rounded-lg animate-pulse" />
             </div>
@@ -196,13 +236,17 @@ async function eliminarOpcion(tipo, opcion) {
               No hay tipos creados aún.
             </div>
 
+            <div v-else-if="!tiposFiltrados.length" class="text-sm text-gray-400 text-center py-4">
+              Sin resultados para "{{ busqueda }}".
+            </div>
+
             <div v-else class="space-y-2">
-              <div v-for="tipo in tipos" :key="tipo.id" class="border border-gray-200 rounded-xl overflow-hidden">
+              <div v-for="tipo in tiposFiltrados" :key="tipo.id" class="border border-gray-200 rounded-xl overflow-hidden">
 
                 <!-- Cabecera del tipo -->
                 <div class="flex items-center gap-2 px-4 py-2.5 bg-gray-50">
                   <button @click="tipoAbierto = tipoAbierto === tipo.id ? null : tipo.id" class="flex-1 flex items-center gap-2 text-left">
-                    <component :is="tipoAbierto === tipo.id ? ChevronDownIcon : ChevronRightIcon" class="w-4 h-4 text-gray-400 shrink-0" />
+                    <component :is="estaAbierto(tipo) ? ChevronDownIcon : ChevronRightIcon" class="w-4 h-4 text-gray-400 shrink-0" />
                     <span class="text-sm font-semibold text-gray-800">{{ tipo.nombre }}</span>
                     <span :class="['text-xs px-2 py-0.5 rounded-full font-medium',
                       tipo.afecta_precio ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500']">
@@ -216,12 +260,12 @@ async function eliminarOpcion(tipo, opcion) {
                 </div>
 
                 <!-- Cuerpo: opciones -->
-                <div v-if="tipoAbierto === tipo.id" class="px-4 pb-4 pt-3 space-y-3">
+                <div v-if="estaAbierto(tipo)" class="px-4 pb-4 pt-3 space-y-3">
 
                   <!-- Opciones existentes -->
-                  <div v-if="tipo.opciones.length" class="flex flex-wrap gap-1.5">
+                  <div v-if="opcionesFiltradas(tipo).length" class="flex flex-wrap gap-1.5">
                     <span
-                      v-for="op in tipo.opciones"
+                      v-for="op in opcionesFiltradas(tipo)"
                       :key="op.id"
                       class="flex items-center gap-1 text-xs bg-white border border-gray-200 rounded-full px-2.5 py-1"
                     >
@@ -231,6 +275,7 @@ async function eliminarOpcion(tipo, opcion) {
                       </button>
                     </span>
                   </div>
+                  <p v-else-if="busqueda.trim()" class="text-xs text-gray-400">Sin opciones que coincidan con la búsqueda.</p>
                   <p v-else class="text-xs text-gray-400">Sin opciones aún.</p>
 
                   <!-- Chip input para agregar opciones -->

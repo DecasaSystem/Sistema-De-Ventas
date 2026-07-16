@@ -1,0 +1,232 @@
+MÓDULO DE COMISIONES — EXPLICACIÓN COMPLETA
+=============================================
+(Para revisión: cómo se calculan, cuándo quedan disponibles y cómo se pagan
+las comisiones de los asesores de venta)
+
+
+1. ¿CUÁNDO SE CREA UNA COMISIÓN?
+---------------------------------
+Cada vez que se confirma una orden de venta (no aplica a borradores), el
+sistema crea automáticamente un registro de comisión asociado a esa orden,
+con:
+  - El vendedor que hizo la venta.
+  - La tienda de esa venta.
+  - El mes de venta (mes en que se confirmó la orden).
+  - El valor de la orden.
+  - La fecha en que esa comisión queda "disponible" para poder pagarse
+    (ver punto 3).
+
+Si la venta es COMPARTIDA (dos vendedores), el valor de la orden se divide
+entre 2 y se crea un registro de comisión para cada uno, cada uno con la
+tienda que le corresponde a cada vendedor.
+
+
+2. CÁLCULO DEL MONTO DE LA COMISIÓN (fórmula base)
+----------------------------------------------------
+La comisión NO es un simple porcentaje de cada venta. Se calcula sobre el
+EXCEDENTE que le queda a la tienda una vez cumple su meta de ventas:
+
+    Pool de comisión de la tienda = (Ventas de la tienda − Meta) ÷ 1.19 × 5%
+
+  - "Ventas de la tienda" = suma de todas las órdenes vendidas en esa tienda
+    en el periodo (mes o trimestre, según el caso — ver punto 4).
+  - "÷ 1.19" quita el IVA del excedente (los precios de venta incluyen IVA).
+  - "× 5%" es el porcentaje de comisión sobre ese excedente sin IVA.
+  - Si la tienda NO alcanza la meta, el pool de comisión de ese periodo es
+    $0 (no hay excedente que repartir).
+
+Ejemplo:
+    Meta de la tienda:        $40.000.000
+    Ventas reales del mes:    $45.000.000
+    Excedente:                $5.000.000
+    Sin IVA (÷1.19):          $4.201.681
+    Pool de comisión (×5%):   $210.084
+
+Ese "pool" es el total a repartir entre TODOS los asesores de esa tienda
+ese periodo, no el de un solo vendedor.
+
+2.1 Reparto entre asesores de la misma tienda
+    Si a una tienda se le asignan varios asesores en un mismo mes/trimestre,
+    el pool se divide en partes iguales entre ellos:
+
+        Comisión por asesor = Pool de la tienda ÷ Número de asesores asignados
+
+2.2 Reparto proporcional entre las órdenes de un mismo asesor
+    ¿Por qué hace falta este paso? Porque la comisión calculada en 2.1
+    ($210.084 en el ejemplo) es UN SOLO monto para TODO el asesor en el
+    mes/trimestre, pero el asesor normalmente vendió varias órdenes, no
+    una sola. Hay que "repartir" ese monto entre sus órdenes para saber
+    cuánto le corresponde a cada una. El reparto se hace a prorrata: la
+    orden más grande se lleva una porción más grande de esa comisión.
+
+        % que representa esta orden = Valor de esta orden
+                                        ÷ Ventas totales del asesor en el periodo
+
+        Comisión de esta orden = Comisión del asesor × ese %
+
+Ejemplo (continuando el anterior, con 1 solo asesor en la tienda, que en
+el periodo vendió 2 órdenes):
+
+    Comisión total del asesor (de 2.1):     $210.084
+    Ventas totales del asesor en el mes:    $30.000.000
+        - Orden A vale:                     $6.000.000
+        - Orden B vale:                     $24.000.000
+        (6.000.000 + 24.000.000 = 30.000.000 → coincide con el total)
+
+    Porcentaje de la Orden A dentro de las ventas del asesor:
+        $6.000.000 ÷ $30.000.000 = 0,20  →  20%
+
+    Comisión que le toca a la Orden A:
+        $210.084 × 20% = $42.017
+
+    Porcentaje de la Orden B dentro de las ventas del asesor:
+        $24.000.000 ÷ $30.000.000 = 0,80  →  80%
+
+    Comisión que le toca a la Orden B:
+        $210.084 × 80% = $168.067
+
+    Comprobación: $42.017 + $168.067 = $210.084 (la suma de las dos
+    órdenes da exactamente la comisión total del asesor — no se pierde
+    ni se inventa dinero, solo se reparte).
+
+    En otras palabras: si el asesor solo tuviera 1 orden en el periodo,
+    esa orden se llevaría el 100% de su comisión ($210.084 completos).
+    Como tiene 2, cada una se lleva su parte según qué tan grande fue
+    comparada con el total que vendió ese asesor.
+
+
+3. ¿CUÁNDO QUEDA "LISTA" UNA COMISIÓN PARA PAGARSE?
+-----------------------------------------------------
+Una comisión pasa de "pendiente" a "lista para pagar" solo cuando se
+cumplen TODAS estas condiciones:
+
+  a) La orden ya está pagada al menos en un 50% por el cliente.
+  b) La tienda cumplió su meta del periodo (mes o trimestre — con la
+     excepción de Pereira explicada en el punto 5).
+  c) Ya pasó la fecha de disponibilidad de esa comisión (punto 4).
+
+Solo cuando un supervisor marca la comisión como "pagada" se congela el
+monto definitivo (antes de pagarla, el sistema recalcula todo constantemente
+por si cambian las ventas del mes/trimestre).
+
+
+4. FECHA DE DISPONIBILIDAD (¿CUÁNDO SE PAGA?)
+-------------------------------------------------
+Aquí es donde el módulo distingue dos grupos de tiendas:
+
+4.1 Tiendas MENSUALES (todas menos Pereira)
+    La comisión de una venta queda disponible para pago el día 20 del mes
+    SIGUIENTE al mes de la venta.
+
+    Ejemplo: venta de julio → disponible el 20 de agosto.
+
+4.2 Tiendas TRIMESTRALES (Decasa Unicentro Pereira y Decasa Circunvalar)
+    Estas dos tiendas pagan cada 3 meses (trimestre calendario), no cada
+    mes. Los trimestres son fijos: Ene-Mar, Abr-Jun, Jul-Sep, Oct-Dic.
+
+    La comisión de una venta queda disponible el día 20 del mes siguiente
+    al CIERRE del trimestre en que cayó la venta.
+
+    Ejemplo: venta de agosto (cae en el trimestre Jul-Sep) → el trimestre
+    cierra en septiembre → disponible el 20 de octubre.
+
+
+5. CASO ESPECIAL: DÉFICIT ACUMULADO EN PEREIRA
+--------------------------------------------------
+Motivo: en Unicentro y Circunvalar la meta se evalúa cada 3 meses en
+conjunto, no mes a mes. Como el periodo es más largo, puede pasar que un
+mes de los tres no cumpla la meta. En vez de perder toda la comisión del
+trimestre por un solo mes flojo, o de ignorar el mes flojo por completo,
+el sistema hace un NETEO de los 3 meses: los meses buenos compensan a los
+meses malos dentro del mismo trimestre, y si aun así queda faltando algo,
+esa deuda se resta del trimestre SIGUIENTE (no se pierde ni se perdona).
+
+5.1 Cómo se calcula el neto del trimestre
+
+    Para cada uno de los 3 meses del trimestre se calcula:
+
+        Diferencial del mes = Ventas reales del mes − Meta del mes
+
+    (este valor puede ser negativo si no se cumplió la meta ese mes)
+
+    Se SUMAN los 3 diferenciales del trimestre:
+
+        Diferencial del trimestre = Diferencial mes 1 + Diferencial mes 2
+                                     + Diferencial mes 3
+
+    Y sobre esa suma (ya neteada) se aplica la misma fórmula de siempre:
+
+        Pool bruto del trimestre = Diferencial del trimestre ÷ 1.19 × 5%
+
+    Ejemplo (el mismo que se usó para definir esta regla):
+        Mes 1: Ventas $45.000.000 − Meta $40.000.000 = +$5.000.000
+        Mes 2: Ventas $38.000.000 − Meta $40.000.000 = −$2.000.000
+        Mes 3: Ventas $42.000.000 − Meta $40.000.000 = +$2.000.000
+        -----------------------------------------------------------
+        Diferencial del trimestre = +$5.000.000
+        Pool bruto = $5.000.000 ÷ 1.19 × 5% = $210.084
+
+    Es decir: el mes malo (−$2.000.000) SÍ resta dentro del cálculo del
+    trimestre, pero como los otros dos meses lo compensan de sobra, el
+    trimestre completo sigue dando comisión positiva.
+
+5.2 Qué pasa si el trimestre completo queda en negativo (déficit)
+
+    Si después de sumar los 3 meses el resultado sigue siendo negativo,
+    quiere decir que ese trimestre no generó comisión. Ese faltante —ya
+    convertido a pesos de comisión (después de quitar el IVA y aplicar el
+    5%)— se guarda como una DEUDA que se resta del pool bruto del
+    trimestre SIGUIENTE, antes de calcular la comisión a pagar de ese
+    siguiente trimestre.
+
+        Pool neto del trimestre = Pool bruto del trimestre
+                                   − Deuda arrastrada del trimestre anterior
+
+        Si Pool neto ≥ 0 → se paga ese monto y la deuda queda en $0.
+        Si Pool neto <  0 → no se paga nada ese trimestre, y el valor
+                             absoluto de ese negativo pasa como nueva deuda
+                             al trimestre que sigue.
+
+    Ejemplo encadenado:
+        Trimestre Q1: Pool bruto = −$2.000.000 ÷ 1.19 × 5% = −$84.034
+            → No se paga nada. D
+            euda que pasa a Q2: $84.034
+
+        Trimestre Q2: Pool bruto = +$3.000.000 ÷ 1.19 × 5% = +$126.050
+            Pool neto = $126.050 − $84.034 = $42.017
+            → Se paga $42.017 en Q2. Deuda queda en $0.
+
+    La deuda se sigue arrastrando trimestre tras trimestre, indefinidamente,
+    hasta que un trimestre con excedente suficiente la termine de cubrir.
+
+5.3 Desde cuándo se empieza a contar esta deuda
+
+    Este seguimiento de deuda arranca desde el trimestre actual en curso
+    (julio-septiembre 2026) hacia adelante. No se recalculan ni se cobran
+    deudas de trimestres anteriores a este cambio.
+
+5.4 ¿Puede una orden de Pereira quedar "lista" con comisión de $0?
+
+    Sí. Si el trimestre de esa venta terminó en déficit (todo se lo comió
+    la deuda arrastrada), la orden igual puede marcarse como resuelta una
+    vez pasa su fecha de disponibilidad y está pagada ≥50% por el cliente
+    — simplemente su comisión final es $0. No se queda "pendiente" para
+    siempre esperando una meta que ya no se puede cumplir retroactivamente.
+
+
+6. RESUMEN DE LO QUE CAMBIÓ Y LO QUE NO CAMBIÓ
+--------------------------------------------------
+NO cambia para el resto de tiendas (todas menos Pereira):
+  - Se sigue evaluando mes a mes.
+  - Si no cumplen la meta ese mes, el pool de ese mes es $0 (sin arrastre,
+    sin deuda, sin neteo). Como en la práctica estas tiendas siempre
+    cumplen su meta, este caso casi no se presenta.
+  - Se paga el día 20 del mes siguiente a la venta.
+
+SÍ cambia solo para Decasa Unicentro Pereira y Decasa Circunvalar:
+  - La meta se evalúa sumando los 3 meses del trimestre (neteo), en vez
+    de mes a mes.
+  - Se paga el día 20 del mes siguiente al cierre del trimestre (cada 3
+    meses), no cada mes.
+  - Si un trimestre completo queda en déficit, esa deuda se resta del
+    trimestre siguiente hasta saldarse.
