@@ -515,7 +515,7 @@ class OrdenController extends Controller
 
         // Asignar número de orden secuencial solo a órdenes confirmadas (no borradores)
         if (! $guardarBorrador) {
-            $this->asignarNumeroOrden($orden);
+            self::asignarNumeroOrden($orden);
             $ordenCargada->numero_orden = $orden->numero_orden;
             ComisionController::crearParaOrden($orden);
         }
@@ -1186,7 +1186,7 @@ class OrdenController extends Controller
         $ordenFresh->saldo_pendiente = $ordenFresh->saldoPendiente();
 
         // Asignar número de orden secuencial al confirmar el borrador
-        $this->asignarNumeroOrden($orden);
+        self::asignarNumeroOrden($orden);
         $ordenFresh->numero_orden = $orden->numero_orden;
         ComisionController::crearParaOrden($orden);
 
@@ -1663,7 +1663,7 @@ class OrdenController extends Controller
         'armenia' => ['Decasa Norte', 'Decasa Vía El Edén', 'Decasa Vía Jardines', 'Bodega Fábrica', 'Tienda Virtual'],
     ];
 
-    private function asignarNumeroOrden(Orden $orden): void
+    public static function asignarNumeroOrden(Orden $orden): void
     {
         $tiendaNombre = DB::table('tiendas')->where('id', $orden->tienda_id)->value('nombre');
 

@@ -110,6 +110,8 @@ class RestauracionController extends Controller
                 ]);
             }
 
+            OrdenController::asignarNumeroOrden($orden);
+
             return $orden;
         });
 
