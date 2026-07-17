@@ -82,7 +82,7 @@ function fmtFecha(iso) {
 }
 
 const estadoLabel = {
-  pendiente_anticipo: 'Pendiente de pago',
+  pendiente_anticipo: 'Por iniciar producción',
   en_produccion:      'En producción',
   listo_entrega:      'Listo para entrega',
   entregado:          'Entregado',

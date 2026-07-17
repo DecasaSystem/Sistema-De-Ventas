@@ -74,7 +74,7 @@ const nuevoEstado = ref('')
 
 const estadosLabel = {
   pendiente_cotizacion: 'Pendiente cotización',
-  pendiente_anticipo: 'Pendiente de pago',
+  pendiente_anticipo: 'Por iniciar producción',
   en_produccion: 'En producción',
   listo_entrega: 'Listo entrega',
   entregado: 'Entregado',
