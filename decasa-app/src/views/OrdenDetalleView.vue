@@ -407,17 +407,25 @@ function onOrdenEditada(ordenActualizada) {
   orden.value = ordenActualizada
 }
 
+// Etiquetas legibles para claves de specs_personalizacion que no vienen de un
+// campo con `label` propio (ej. objetos guardados antes de tener template).
+const ETIQUETAS_SPEC = {
+  marca: 'Marca', tela: 'Tela', color: 'Color', medidas: 'Medidas',
+  acabado: 'Acabado', descripcion: 'Descripción', notas: 'Notas',
+  material: 'Material', color_material: 'Color/acabado',
+  largo_cm: 'Largo', ancho_cm: 'Ancho', alto_cm: 'Alto',
+}
+
 function formatCambioVal(val) {
   if (val === null || val === undefined || val === '') return '—'
   if (typeof val === 'object') {
-    const parts = []
-    if (val.marca)       parts.push(val.marca)
-    if (val.tela)        parts.push(val.tela)
-    if (val.color)       parts.push(val.color)
-    if (val.medidas)     parts.push(val.medidas)
-    if (val.acabado)     parts.push(val.acabado)
-    if (val.descripcion) parts.push(val.descripcion)
-    return parts.length ? parts.join(' · ') : JSON.stringify(val)
+    const parts = Object.entries(val)
+      .filter(([, v]) => v !== null && v !== undefined && v !== '')
+      .map(([k, v]) => {
+        const label = ETIQUETAS_SPEC[k] ?? k
+        return `${label}: ${v}`
+      })
+    return parts.length ? parts.join(' · ') : '—'
   }
   if (typeof val === 'number') return new Intl.NumberFormat('es-CO').format(val)
   return String(val)

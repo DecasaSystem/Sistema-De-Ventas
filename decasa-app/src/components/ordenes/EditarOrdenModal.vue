@@ -4,8 +4,8 @@ import { editarOrden, editarPago, buscarProductos, getTiendas } from '@/api/orde
 import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
 import { TELAS_CATALOGO, marcasOrdenadas, tiposTelaDeM, coloresDeTela } from '@/data/telasCatalogo'
-import ComboInput from '@/components/common/ComboInput.vue'
-import { XMarkIcon, SparklesIcon, MagnifyingGlassIcon, SwatchIcon, TrashIcon, PlusIcon } from '@heroicons/vue/24/outline'
+import { SPECS_TEMPLATES, resolverCategoria } from '@/constants/specsConfig'
+import { XMarkIcon, SparklesIcon, MagnifyingGlassIcon, TrashIcon, PlusIcon } from '@heroicons/vue/24/outline'
 import api from '@/api'
 
 const props = defineProps({
@@ -124,6 +124,13 @@ function precioEfectivo(item) {
   return Math.round(base * (1 - pct / 100))
 }
 
+// ── Especificaciones por categoría (mismos templates que al crear la orden) ──
+function getTemplate(item) {
+  const cat = item.producto_categoria || item.categoria_custom
+  const key = resolverCategoria(cat)
+  return SPECS_TEMPLATES[key] ?? SPECS_TEMPLATES['generico']
+}
+
 // product search per item
 const buscando  = ref({})
 const resultados = ref({})
@@ -131,7 +138,6 @@ const query = ref({})
 
 watch(() => props.show, (v) => {
   if (!v) return
-  mostrarStockTela.value = {}
   cargarTelas()
   notas.value          = props.orden.notas ?? ''
   canal.value          = props.orden.canal ?? ''
@@ -154,36 +160,38 @@ watch(() => props.show, (v) => {
   itemsNuevos.value    = []
   nuevoItem.value      = { producto_id: null, producto_nombre: '', cantidad: 1, precio_unitario: '' }
   nuevoQuery.value     = ''
-  items.value = (props.orden.items ?? []).map(item => ({
-    id: item.id,
-    es_personalizado: item.es_personalizado,
-    producto_id: item.producto?.id ?? item.producto_id,
-    producto_nombre: item.producto?.nombre ?? '',
-    cantidad: item.cantidad,
-    precio_unitario: item.precio_unitario,
-    _descuento_pct: 0,
-    fecha_entrega_prom: item.fecha_entrega_prom
-      ? String(item.fecha_entrega_prom).substring(0, 10)
-      : '',
-    _produccion: item.produccion ?? null,
-    specs: {
-      marca:       item.specs_personalizacion?.marca       ?? '',
-      tela:        item.specs_personalizacion?.tela        ?? '',
-      color:       item.specs_personalizacion?.color       ?? '',
-      medidas:     item.specs_personalizacion?.medidas     ?? '',
-      acabado:     item.specs_personalizacion?.acabado     ?? '',
-      descripcion: item.specs_personalizacion?.descripcion ?? '',
-    },
-  }))
+  items.value = (props.orden.items ?? []).map(item => {
+    // Se preserva TAL CUAL el objeto de specs original (sea cual sea su
+    // categoría/esquema) para no perder campos que este formulario no conoce.
+    const specsRaw = { ...(item.specs_personalizacion || {}) }
+    const notasPrevias = specsRaw.notas || ''
+    delete specsRaw.notas
+    return {
+      id: item.id,
+      es_personalizado: item.es_personalizado,
+      producto_id: item.producto?.id ?? item.producto_id,
+      producto_nombre: item.producto?.nombre ?? '',
+      producto_categoria: item.producto?.categoria ?? null,
+      categoria_custom: item.categoria_custom ?? null,
+      cantidad: item.cantidad,
+      precio_unitario: item.precio_unitario,
+      _descuento_pct: 0,
+      fecha_entrega_prom: item.fecha_entrega_prom
+        ? String(item.fecha_entrega_prom).substring(0, 10)
+        : '',
+      _produccion: item.produccion ?? null,
+      specs: specsRaw,
+      specs_notas: notasPrevias,
+      _telaSelections: {},
+    }
+  })
   query.value = {}
   resultados.value = {}
   buscando.value = {}
 })
 
 // ── Inventario de telas ──────────────────────────────────────────────────────
-const telaMetrosMap    = ref({})  // "marca|tipo|color" → metros_libres
-const telasConStock    = ref([])  // [{ marca, tipo, color, metros_libres }]
-const mostrarStockTela = ref({})  // { itemId: bool } para expandir el panel
+const telaMetrosMap = ref({})  // "marca|tipo|color" → metros_libres
 
 async function cargarTelas() {
   try {
@@ -193,60 +201,38 @@ async function cargarTelas() {
       map[`${t.marca}|${t.tipo}|${t.color}`] = t.metros_libres
     }
     telaMetrosMap.value = map
-    telasConStock.value = data
-      .filter(t => t.metros_libres > 0)
-      .sort((a, b) => b.metros_libres - a.metros_libres)
   } catch {}
 }
 
-function metrosLibresItem(item) {
-  if (!item.specs.marca || !item.specs.tela || !item.specs.color) return null
-  const m = telaMetrosMap.value[`${item.specs.marca}|${item.specs.tela}|${item.specs.color}`]
-  return m ?? null
+function tieneStock(marca, tipo, color) {
+  return (telaMetrosMap.value[`${marca}|${tipo}|${color}`] ?? 0) > 0
+}
+function marcasConStock() {
+  return marcasOrdenadas.value.filter(m =>
+    Object.keys(TELAS_CATALOGO[m] ?? {}).some(tipo =>
+      (TELAS_CATALOGO[m][tipo] ?? []).some(color => tieneStock(m, tipo, color))
+    )
+  )
+}
+function tiposConStock(marca) {
+  return tiposTelaDeM(marca).filter(tipo =>
+    (TELAS_CATALOGO[marca]?.[tipo] ?? []).some(color => tieneStock(marca, tipo, color))
+  )
+}
+function coloresConStock(marca, tipo) {
+  return coloresDeTela(marca, tipo).filter(color => tieneStock(marca, tipo, color))
 }
 
-function telasDisponiblesParaItem(item) {
-  // Filtrar por marca si está seleccionada
-  return item.specs.marca
-    ? telasConStock.value.filter(t => t.marca === item.specs.marca)
-    : telasConStock.value
+// ── Selección de tela nueva por campo (marca → tipo → color) ────────────────
+function getTelaSelection(item, key) {
+  if (!item._telaSelections[key]) item._telaSelections[key] = { marca: '', tipo: '', color: '' }
+  return item._telaSelections[key]
 }
-
-function seleccionarTelaStock(item, tela) {
-  item.specs.marca = tela.marca
-  item.specs.tela  = tela.tipo
-  item.specs.color = tela.color
-  mostrarStockTela.value[item.id] = false
+function telaResumidaCampo(item, key) {
+  const s = item._telaSelections?.[key]
+  if (!s?.marca || !s?.tipo || !s?.color) return ''
+  return [s.marca, s.tipo, s.color].join(' · ')
 }
-
-function colorMetros(m) {
-  if (m <= 0)  return 'bg-red-100 text-red-700'
-  if (m <= 3)  return 'bg-orange-100 text-orange-700'
-  if (m <= 8)  return 'bg-yellow-100 text-yellow-700'
-  return 'bg-green-100 text-green-700'
-}
-
-// ── Tela cascade ────────────────────────────────────────────────────────────
-const _todosTipos = (() => {
-  const s = new Set()
-  Object.values(TELAS_CATALOGO).forEach(m => Object.keys(m).forEach(t => s.add(t)))
-  return [...s].sort()
-})()
-
-function tiposParaItem(item) {
-  return item.specs.marca ? tiposTelaDeM(item.specs.marca) : _todosTipos
-}
-function coloresParaItem(item) {
-  if (item.specs.marca && item.specs.tela) return coloresDeTela(item.specs.marca, item.specs.tela)
-  if (item.specs.tela) {
-    const s = new Set()
-    Object.values(TELAS_CATALOGO).forEach(m => (m[item.specs.tela] ?? []).forEach(c => s.add(c)))
-    return [...s].sort()
-  }
-  return []
-}
-function onMarcaChange(item, v) { item.specs.marca = v; item.specs.tela = ''; item.specs.color = '' }
-function onTelaChange(item, v)  { item.specs.tela = v;  item.specs.color = '' }
 
 // ── Búsqueda de producto ─────────────────────────────────────────────────────
 let debounceTimer = null
@@ -320,14 +306,13 @@ async function guardar() {
             fecha_entrega_prom: item.fecha_entrega_prom || null,
           }
           if (item.es_personalizado) {
-            out.specs_personalizacion = {
-              marca:       item.specs.marca,
-              tela:        item.specs.tela,
-              color:       item.specs.color,
-              medidas:     item.specs.medidas,
-              acabado:     item.specs.acabado,
-              descripcion: item.specs.descripcion,
+            const s = { ...item.specs }
+            for (const key of Object.keys(item._telaSelections ?? {})) {
+              const tela = telaResumidaCampo(item, key)
+              if (tela) s[key] = tela
             }
+            if (item.specs_notas) s.notas = item.specs_notas
+            out.specs_personalizacion = s
           } else {
             out.cantidad    = parseInt(item.cantidad)
             out.producto_id = item.producto_id
@@ -646,116 +631,80 @@ async function guardar() {
                 </div>
               </template>
 
-              <!-- Personalizado: specs -->
+              <!-- Personalizado: specs (según categoría del producto) -->
               <template v-else>
                 <div class="space-y-3 pt-1 border-t border-purple-100">
-                  <p class="text-xs font-medium text-purple-600">Especificaciones de personalización</p>
+                  <p class="text-xs font-medium text-purple-600">Especificaciones — {{ getTemplate(item).titulo }}</p>
 
-                  <!-- Panel: telas con stock disponible -->
-                  <div class="rounded-xl border border-green-200 bg-green-50 overflow-hidden">
-                    <button
-                      type="button"
-                      class="w-full flex items-center justify-between px-3 py-2.5 text-left"
-                      @click="mostrarStockTela[item.id] = !mostrarStockTela[item.id]"
-                    >
-                      <span class="flex items-center gap-2 text-xs font-semibold text-green-800">
-                        <SwatchIcon class="w-4 h-4" />
-                        Telas con stock disponible
-                        <span class="bg-green-200 text-green-900 text-[10px] px-1.5 py-0.5 rounded-full font-bold">
-                          {{ telasDisponiblesParaItem(item).length }}
-                        </span>
-                      </span>
-                      <span class="text-green-600 text-xs">{{ mostrarStockTela[item.id] ? '▲' : '▼' }}</span>
-                    </button>
+                  <div class="grid grid-cols-2 gap-3">
+                    <template v-for="campo in getTemplate(item).campos" :key="campo.key">
+                      <div :class="campo.type === 'text' || campo.useVariantes ? 'col-span-2' : ''">
+                        <label class="block text-xs font-medium text-gray-600 mb-1">
+                          {{ campo.label }}{{ campo.unit ? ' (' + campo.unit + ')' : '' }}
+                        </label>
 
-                    <div v-if="mostrarStockTela[item.id]" class="border-t border-green-200 max-h-52 overflow-y-auto divide-y divide-green-100">
-                      <div
-                        v-if="!telasDisponiblesParaItem(item).length"
-                        class="px-3 py-3 text-xs text-green-700 text-center"
-                      >
-                        Sin telas con stock{{ item.specs.marca ? ' para ' + item.specs.marca : '' }}
+                        <!-- Tela: cascada Marca → Tipo → Color (solo telas con stock) -->
+                        <template v-if="campo.useVariantes">
+                          <p v-if="item.specs[campo.key]" class="text-xs text-gray-500 mb-1">
+                            Actual: <span class="font-medium text-gray-700">{{ item.specs[campo.key] }}</span>
+                          </p>
+                          <select
+                            v-model="getTelaSelection(item, campo.key).marca"
+                            @change="getTelaSelection(item, campo.key).tipo = ''; getTelaSelection(item, campo.key).color = ''"
+                            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          >
+                            <option value="">— sin cambio —</option>
+                            <option v-for="m in marcasConStock()" :key="m" :value="m">{{ m }}</option>
+                          </select>
+                          <select
+                            v-if="getTelaSelection(item, campo.key).marca"
+                            v-model="getTelaSelection(item, campo.key).tipo"
+                            @change="getTelaSelection(item, campo.key).color = ''"
+                            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm mt-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          >
+                            <option value="">— tipo de tela —</option>
+                            <option v-for="t in tiposConStock(getTelaSelection(item, campo.key).marca)" :key="t" :value="t">{{ t }}</option>
+                          </select>
+                          <select
+                            v-if="getTelaSelection(item, campo.key).tipo"
+                            v-model="getTelaSelection(item, campo.key).color"
+                            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm mt-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          >
+                            <option value="">— color —</option>
+                            <option v-for="c in coloresConStock(getTelaSelection(item, campo.key).marca, getTelaSelection(item, campo.key).tipo)" :key="c" :value="c">{{ c }}</option>
+                          </select>
+                          <p v-if="telaResumidaCampo(item, campo.key)" class="text-xs text-purple-600 font-medium mt-1">
+                            Nueva selección: {{ telaResumidaCampo(item, campo.key) }}
+                          </p>
+                        </template>
+
+                        <!-- Select normal -->
+                        <select
+                          v-else-if="campo.type === 'select'"
+                          v-model="item.specs[campo.key]"
+                          class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="">— seleccionar —</option>
+                          <option v-for="opt in campo.options" :key="opt" :value="opt">{{ opt }}</option>
+                        </select>
+
+                        <!-- Text / Number -->
+                        <input
+                          v-else
+                          v-model="item.specs[campo.key]"
+                          :type="campo.type"
+                          :placeholder="campo.placeholder"
+                          :min="campo.type === 'number' ? 1 : undefined"
+                          class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
                       </div>
-                      <button
-                        v-for="t in telasDisponiblesParaItem(item)"
-                        :key="`${t.marca}|${t.tipo}|${t.color}`"
-                        type="button"
-                        @click="seleccionarTelaStock(item, t)"
-                        class="w-full flex items-center justify-between px-3 py-2.5 hover:bg-green-100 transition-colors text-left"
-                      >
-                        <div class="min-w-0 flex-1">
-                          <p class="text-xs font-semibold text-gray-800">{{ t.marca }} — {{ t.tipo }}</p>
-                          <p class="text-[11px] text-gray-500">{{ t.color }}</p>
-                        </div>
-                        <span :class="['ml-2 flex-shrink-0 text-[11px] font-bold px-2 py-0.5 rounded-full', colorMetros(t.metros_libres)]">
-                          {{ t.metros_libres }}m libres
-                        </span>
-                      </button>
-                    </div>
+                    </template>
                   </div>
 
-                  <!-- Metros disponibles para selección actual -->
-                  <div
-                    v-if="metrosLibresItem(item) !== null"
-                    :class="['rounded-lg px-3 py-2 text-xs font-semibold flex items-center gap-2', colorMetros(metrosLibresItem(item))]"
-                  >
-                    <SwatchIcon class="w-3.5 h-3.5 flex-shrink-0" />
-                    Selección actual: {{ metrosLibresItem(item) }}m libres disponibles
-                    <span v-if="metrosLibresItem(item) <= 0" class="font-normal">(sin stock)</span>
-                  </div>
-
-                  <div class="grid grid-cols-2 gap-3">
-                    <div>
-                      <label class="block text-xs font-medium text-gray-600 mb-1">Marca de tela</label>
-                      <ComboInput
-                        :model-value="item.specs.marca"
-                        :options="marcasOrdenadas"
-                        placeholder="Marca..."
-                        @update:model-value="v => onMarcaChange(item, v)"
-                      />
-                    </div>
-                    <div>
-                      <label class="block text-xs font-medium text-gray-600 mb-1">Tipo de tela</label>
-                      <ComboInput
-                        :model-value="item.specs.tela"
-                        :options="tiposParaItem(item)"
-                        placeholder="Tipo..."
-                        @update:model-value="v => onTelaChange(item, v)"
-                      />
-                    </div>
-                  </div>
                   <div>
-                    <label class="block text-xs font-medium text-gray-600 mb-1">Color</label>
-                    <ComboInput
-                      :model-value="item.specs.color"
-                      :options="coloresParaItem(item)"
-                      placeholder="Color..."
-                      @update:model-value="v => item.specs.color = v"
-                    />
-                  </div>
-                  <div class="grid grid-cols-2 gap-3">
-                    <div>
-                      <label class="block text-xs font-medium text-gray-600 mb-1">Medidas</label>
-                      <input
-                        v-model="item.specs.medidas"
-                        type="text"
-                        placeholder="ej. 2m x 1.5m"
-                        class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                    <div>
-                      <label class="block text-xs font-medium text-gray-600 mb-1">Acabado</label>
-                      <input
-                        v-model="item.specs.acabado"
-                        type="text"
-                        placeholder="ej. madera nogal"
-                        class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label class="block text-xs font-medium text-gray-600 mb-1">Descripción adicional</label>
+                    <label class="block text-xs font-medium text-gray-600 mb-1">Notas adicionales</label>
                     <textarea
-                      v-model="item.specs.descripcion"
+                      v-model="item.specs_notas"
                       rows="2"
                       placeholder="Detalles adicionales de personalización..."
                       class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
