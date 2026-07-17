@@ -12,6 +12,7 @@ import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
+import ComboInput from '@/components/common/ComboInput.vue'
 import api from '@/api'
 
 const toast      = useToast()
@@ -788,12 +789,12 @@ onMounted(async () => {
           <!-- Marca -->
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">Marca fabricante *</label>
-            <select v-model="formVariante.marca" @change="formVariante.marca_tela = ''; formVariante.nombre_color = ''"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500">
-              <option value="">Seleccionar...</option>
-              <option v-for="m in marcasOrdenadas" :key="m" :value="m">{{ m }}</option>
-              <option value="Otro">Otro (manual)</option>
-            </select>
+            <ComboInput
+              :model-value="formVariante.marca"
+              :options="[...marcasOrdenadas, 'Otro']"
+              placeholder="Buscar marca..."
+              @update:model-value="v => { formVariante.marca = v; formVariante.marca_tela = ''; formVariante.nombre_color = '' }"
+            />
             <input v-if="formVariante.marca === 'Otro'" v-model="formVariante.marcaManual"
               class="mt-1.5 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" placeholder="Nombre de la marca..." />
           </div>
@@ -801,12 +802,13 @@ onMounted(async () => {
           <!-- Tipo tela -->
           <div v-if="formVariante.marca">
             <label class="block text-sm font-medium text-gray-700 mb-1">Tipo de tela *</label>
-            <select v-if="tiposTelaOpciones.length" v-model="formVariante.marca_tela" @change="formVariante.nombre_color = ''"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500">
-              <option value="">Seleccionar...</option>
-              <option v-for="t in tiposTelaOpciones" :key="t" :value="t">{{ t }}</option>
-              <option value="Otro">Otro (manual)</option>
-            </select>
+            <ComboInput
+              v-if="tiposTelaOpciones.length"
+              :model-value="formVariante.marca_tela"
+              :options="[...tiposTelaOpciones, 'Otro']"
+              placeholder="Buscar tipo de tela..."
+              @update:model-value="v => { formVariante.marca_tela = v; formVariante.nombre_color = '' }"
+            />
             <input v-else v-model="formVariante.telaManual"
               class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" placeholder="Nombre de la tela..." />
             <input v-if="formVariante.marca_tela === 'Otro'" v-model="formVariante.telaManual"
@@ -816,12 +818,13 @@ onMounted(async () => {
           <!-- Color -->
           <div v-if="formVariante.marca && (formVariante.marca_tela || formVariante.marca === 'Otro')">
             <label class="block text-sm font-medium text-gray-700 mb-1">Color *</label>
-            <select v-if="coloresOpciones.length" v-model="formVariante.nombre_color"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500">
-              <option value="">Seleccionar...</option>
-              <option v-for="c in coloresOpciones" :key="c" :value="c">{{ c }}</option>
-              <option value="Otro">Otro (manual)</option>
-            </select>
+            <ComboInput
+              v-if="coloresOpciones.length"
+              :model-value="formVariante.nombre_color"
+              :options="[...coloresOpciones, 'Otro']"
+              placeholder="Buscar color..."
+              @update:model-value="v => formVariante.nombre_color = v"
+            />
             <input v-else v-model="formVariante.colorManual"
               class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" placeholder="Nombre del color..." />
             <input v-if="formVariante.nombre_color === 'Otro'" v-model="formVariante.colorManual"
