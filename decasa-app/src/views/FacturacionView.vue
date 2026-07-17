@@ -82,16 +82,16 @@ function fmtFecha(iso) {
 }
 
 const estadoLabel = {
-  pending_anticipo: 'Anticipo pendiente',
-  en_produccion:    'En producción',
-  listo_entrega:    'Listo para entrega',
-  entregado:        'Entregado',
+  pendiente_anticipo: 'Pendiente de pago',
+  en_produccion:      'En producción',
+  listo_entrega:      'Listo para entrega',
+  entregado:          'Entregado',
 }
 const estadoColor = {
-  pending_anticipo: 'bg-yellow-100 text-yellow-700',
-  en_produccion:    'bg-blue-100 text-blue-700',
-  listo_entrega:    'bg-purple-100 text-purple-700',
-  entregado:        'bg-green-100 text-green-700',
+  pendiente_anticipo: 'bg-yellow-100 text-yellow-700',
+  en_produccion:      'bg-blue-100 text-blue-700',
+  listo_entrega:      'bg-purple-100 text-purple-700',
+  entregado:          'bg-green-100 text-green-700',
 }
 
 let debounceTimer = null
