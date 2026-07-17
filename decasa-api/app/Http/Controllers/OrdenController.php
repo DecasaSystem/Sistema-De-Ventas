@@ -1660,6 +1660,7 @@ class OrdenController extends Controller
     // Tiendas que comparten secuencia de numeración por grupo
     private const GRUPOS_SECUENCIA = [
         'pereira' => ['Decasa Unicentro Pereira', 'Decasa Circunvalar'],
+        'armenia' => ['Decasa Norte', 'Decasa Vía El Edén', 'Decasa Vía Jardines', 'Bodega Fábrica', 'Tienda Virtual'],
     ];
 
     private function asignarNumeroOrden(Orden $orden): void
