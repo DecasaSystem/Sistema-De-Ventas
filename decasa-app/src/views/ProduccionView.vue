@@ -16,6 +16,7 @@ import { useToast } from '@/composables/useToast'
 import { getTiendas } from '@/api/ordenes'
 import { useRealtime } from '@/composables/useRealtime'
 import EmptyState from '@/components/common/EmptyState.vue'
+import { SPECS_TEMPLATES, resolverCategoria } from '@/constants/specsConfig'
 
 const auth   = useAuthStore()
 const router = useRouter()
@@ -88,10 +89,19 @@ const estadosOpts = [
   { value: 'cancelado',            label: 'Cancelado' },
 ]
 
-function telaResumen(item) {
-  const s = item?.specs_personalizacion
-  if (!s) return ''
-  return [s.marca || s.variante_marca, s.tela, s.color || s.variante_color].filter(Boolean).join(' · ')
+function specsResumen(item) {
+  const specs = item?.specs_personalizacion
+  if (!specs) return ''
+  const cat      = item.producto?.categoria || item.categoria_custom
+  const template = SPECS_TEMPLATES[resolverCategoria(cat)] ?? SPECS_TEMPLATES['generico']
+  const partes   = []
+  for (const campo of template.campos) {
+    const val = specs[campo.key]
+    if (val === null || val === undefined || val === '') continue
+    partes.push(`${campo.label}: ${val}${campo.unit ? ' ' + campo.unit : ''}`)
+  }
+  if (specs.notas) partes.push(`Notas: ${specs.notas}`)
+  return partes.join(' · ')
 }
 
 function pasoActualLabel(p) {
@@ -384,7 +394,7 @@ onUnmounted(() => {
             <div class="flex-1 min-w-0">
               <p class="font-medium text-sm text-gray-800 truncate">{{ p.orden_item?.producto?.nombre || p.orden_item?.nombre_custom }}</p>
               <p class="text-xs text-gray-400">{{ p.orden_item?.producto?.categoria || p.orden_item?.categoria_custom }}</p>
-              <p v-if="telaResumen(p.orden_item)" class="text-xs text-indigo-600 mt-0.5">{{ telaResumen(p.orden_item) }}</p>
+              <p v-if="specsResumen(p.orden_item)" class="text-xs text-indigo-600 mt-0.5 truncate">{{ specsResumen(p.orden_item) }}</p>
             </div>
             <span
               :class="['inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium flex-shrink-0 ml-2', badgeInfo(p).cls]"

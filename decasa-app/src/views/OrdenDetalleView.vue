@@ -18,6 +18,7 @@ import FirmaCanvas from '@/components/FirmaCanvas.vue'
 import DireccionColombia from '@/components/DireccionColombia.vue'
 import { comprimirImagen } from '@/utils/comprimirImagen'
 import { PhotoIcon } from '@heroicons/vue/24/outline'
+import { SPECS_TEMPLATES, resolverCategoria } from '@/constants/specsConfig'
 
 const route = useRoute()
 const router = useRouter()
@@ -414,6 +415,7 @@ const ETIQUETAS_SPEC = {
   acabado: 'Acabado', descripcion: 'Descripción', notas: 'Notas',
   material: 'Material', color_material: 'Color/acabado',
   largo_cm: 'Largo', ancho_cm: 'Ancho', alto_cm: 'Alto',
+  variante_marca: 'Marca', variante_color: 'Color',
 }
 
 function formatCambioVal(val) {
@@ -429,6 +431,33 @@ function formatCambioVal(val) {
   }
   if (typeof val === 'number') return new Intl.NumberFormat('es-CO').format(val)
   return String(val)
+}
+
+// Lista de specs a mostrar en la tarjeta del ítem, según el template de su
+// categoría (mismo que usa NuevaOrdenView al crear) — no un esquema fijo.
+function specsResumen(item) {
+  const specs = item?.specs_personalizacion
+  if (!specs) return []
+  const cat      = item.producto?.categoria || item.categoria_custom
+  const template = SPECS_TEMPLATES[resolverCategoria(cat)] ?? SPECS_TEMPLATES['generico']
+  const vistos   = new Set()
+  const partes   = []
+
+  for (const campo of template.campos) {
+    const val = specs[campo.key]
+    if (val === null || val === undefined || val === '') continue
+    vistos.add(campo.key)
+    partes.push({ label: campo.label, value: val, unit: campo.unit || '' })
+  }
+  // Campos guardados que no están en el template de esta categoría
+  // (ej. specs de una variante distinta, o guardadas antes de tener template).
+  for (const [key, val] of Object.entries(specs)) {
+    if (vistos.has(key) || key === 'notas') continue
+    if (val === null || val === undefined || val === '') continue
+    partes.push({ label: ETIQUETAS_SPEC[key] ?? key, value: val, unit: '' })
+  }
+  if (specs.notas) partes.push({ label: 'Notas', value: specs.notas, unit: '' })
+  return partes
 }
 
 async function descargarPdf() {
@@ -1211,16 +1240,12 @@ onMounted(cargarOrden)
                 <SparklesIcon class="w-3.5 h-3.5" /> Personalizado
               </p>
               <div
-                v-if="item.specs_personalizacion && (item.specs_personalizacion.marca || item.specs_personalizacion.tela || item.specs_personalizacion.color || item.specs_personalizacion.variante_marca || item.specs_personalizacion.variante_color)"
+                v-if="specsResumen(item).length"
                 :class="['mt-1 rounded-lg px-2 py-1.5 text-xs text-gray-600 space-y-0.5', item.es_personalizado ? 'bg-purple-50' : 'bg-gray-50']"
               >
-                <p v-if="item.specs_personalizacion.marca || item.specs_personalizacion.variante_marca || item.specs_personalizacion.tela || item.specs_personalizacion.color || item.specs_personalizacion.variante_color">
-                  <span v-if="item.specs_personalizacion.marca || item.specs_personalizacion.variante_marca">{{ item.specs_personalizacion.marca || item.specs_personalizacion.variante_marca }}</span><span v-if="item.specs_personalizacion.tela"> · {{ item.specs_personalizacion.tela }}</span><span v-if="item.specs_personalizacion.color || item.specs_personalizacion.variante_color"> · {{ item.specs_personalizacion.color || item.specs_personalizacion.variante_color }}</span>
+                <p v-for="(s, si) in specsResumen(item)" :key="si" class="whitespace-pre-wrap">
+                  <span class="text-gray-400">{{ s.label }}:</span> {{ s.value }}<span v-if="s.unit"> {{ s.unit }}</span>
                 </p>
-                <p v-if="item.specs_personalizacion.medidas || item.specs_personalizacion.acabado">
-                  <span v-if="item.specs_personalizacion.medidas">{{ item.specs_personalizacion.medidas }}</span><span v-if="item.specs_personalizacion.acabado"> · {{ item.specs_personalizacion.acabado }}</span>
-                </p>
-                <p v-if="item.specs_personalizacion.descripcion" class="whitespace-pre-wrap">{{ item.specs_personalizacion.descripcion }}</p>
               </div>
               <div v-if="item.boceto_url || item.boceto_fotos?.length" class="mt-2 space-y-1.5">
                 <p class="text-xs text-gray-400">Boceto / Fotos</p>
