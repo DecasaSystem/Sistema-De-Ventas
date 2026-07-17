@@ -21,7 +21,7 @@
                 <h2 style="font-size: 18px; font-weight: bold; margin: 0;">Orden #{{ $orden->numero_orden ?? $orden->id }}</h2>
                 @php
                     $estadoLabel = [
-                        'pendiente_anticipo' => 'Por Iniciar Producción',
+                        'pendiente_anticipo' => 'En Espera',
                         'en_produccion'      => 'En Producción',
                         'listo_entrega'      => 'Listo Entrega',
                         'entregado'          => 'Entregado',
