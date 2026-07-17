@@ -205,19 +205,24 @@ const canalesopts = [
 
 const tiendaVirtualId = computed(() => tiendas.value.find(t => t.nombre === 'Tienda Virtual')?.id ?? null)
 
-// Al cambiar canal: si es virtual → asignar Tienda Virtual automáticamente
+// Al cambiar canal por uno digital (whatsapp/ig/fb/...) se asigna Tienda
+// Virtual SOLO si el usuario no tiene una tienda propia asignada — un
+// vendedor de una tienda real (ej. Circunvalar) sigue contando para su
+// tienda aunque venda por WhatsApp; si no, la venta y su numeración
+// quedaban mal atribuidas a Tienda Virtual.
 watch(canal, (nuevoCanal) => {
   const virtualId = tiendaVirtualId.value
-  if (nuevoCanal !== 'fisica' && virtualId) {
-    tiendaId.value = virtualId
-  } else if (nuevoCanal === 'fisica') {
-    tiendaId.value = auth.usuario?.tienda_default_id ?? (tiendas.value.find(t => !t.es_fabrica && t.nombre !== 'Tienda Virtual')?.id ?? '')
+  const propiaId  = auth.usuario?.tienda_default_id ?? null
+  if (nuevoCanal !== 'fisica') {
+    tiendaId.value = propiaId ?? virtualId ?? tiendaId.value
+  } else {
+    tiendaId.value = propiaId ?? (tiendas.value.find(t => !t.es_fabrica && t.nombre !== 'Tienda Virtual')?.id ?? '')
   }
 })
 
 // Si las tiendas cargan después de que el usuario ya cambió el canal
 watch(tiendaVirtualId, (id) => {
-  if (id && canal.value !== 'fisica') tiendaId.value = id
+  if (id && canal.value !== 'fisica' && !auth.usuario?.tienda_default_id) tiendaId.value = id
 })
 
 function paso1Valido() {
