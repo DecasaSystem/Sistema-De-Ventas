@@ -447,16 +447,18 @@ function specsResumen(item) {
     const val = specs[campo.key]
     if (val === null || val === undefined || val === '') continue
     vistos.add(campo.key)
-    partes.push({ label: campo.label, value: val, unit: campo.unit || '' })
+    // Sin unidad: el valor guardado no siempre está en la unidad del template
+    // (a veces se digita en metros aunque el campo se llame "_cm").
+    partes.push({ label: campo.label, value: val })
   }
   // Campos guardados que no están en el template de esta categoría
   // (ej. specs de una variante distinta, o guardadas antes de tener template).
   for (const [key, val] of Object.entries(specs)) {
     if (vistos.has(key) || key === 'notas') continue
     if (val === null || val === undefined || val === '') continue
-    partes.push({ label: ETIQUETAS_SPEC[key] ?? key, value: val, unit: '' })
+    partes.push({ label: ETIQUETAS_SPEC[key] ?? key, value: val })
   }
-  if (specs.notas) partes.push({ label: 'Notas', value: specs.notas, unit: '' })
+  if (specs.notas) partes.push({ label: 'Notas', value: specs.notas })
   return partes
 }
 
@@ -1244,7 +1246,7 @@ onMounted(cargarOrden)
                 :class="['mt-1 rounded-lg px-2 py-1.5 text-xs text-gray-600 space-y-0.5', item.es_personalizado ? 'bg-purple-50' : 'bg-gray-50']"
               >
                 <p v-for="(s, si) in specsResumen(item)" :key="si" class="whitespace-pre-wrap">
-                  <span class="text-gray-400">{{ s.label }}:</span> {{ s.value }}<span v-if="s.unit"> {{ s.unit }}</span>
+                  <span class="text-gray-400">{{ s.label }}:</span> {{ s.value }}
                 </p>
               </div>
               <div v-if="item.boceto_url || item.boceto_fotos?.length" class="mt-2 space-y-1.5">

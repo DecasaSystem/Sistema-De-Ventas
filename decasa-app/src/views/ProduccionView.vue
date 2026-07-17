@@ -98,7 +98,9 @@ function specsResumen(item) {
   for (const campo of template.campos) {
     const val = specs[campo.key]
     if (val === null || val === undefined || val === '') continue
-    partes.push(`${campo.label}: ${val}${campo.unit ? ' ' + campo.unit : ''}`)
+    // Sin unidad: el valor guardado no siempre está en la unidad del template
+    // (a veces se digita en metros aunque el campo se llame "_cm").
+    partes.push(`${campo.label}: ${val}`)
   }
   if (specs.notas) partes.push(`Notas: ${specs.notas}`)
   return partes.join(' · ')
