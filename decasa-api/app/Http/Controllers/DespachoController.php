@@ -399,7 +399,7 @@ class DespachoController extends Controller
                 $orden = Orden::lockForUpdate()->findOrFail($item['orden_id']);
 
                 if ($orden->estado !== 'listo_entrega') {
-                    abort(422, "La orden #{$orden->id} no está en estado listo_entrega.");
+                    abort(422, "La orden #{$orden->numero_orden} no está en estado listo_entrega.");
                 }
 
                 $yaAsignada = DespachoItem::where('orden_id', $item['orden_id'])
@@ -407,7 +407,7 @@ class DespachoController extends Controller
                     ->exists();
 
                 if ($yaAsignada) {
-                    abort(422, "La orden #{$orden->id} ya está en un despacho activo.");
+                    abort(422, "La orden #{$orden->numero_orden} ya está en un despacho activo.");
                 }
 
                 DespachoItem::create([
@@ -812,7 +812,7 @@ class DespachoController extends Controller
         NotificacionService::crear(
             'entregado',
             'Orden entregada por conductor',
-            "Orden #{$item->orden_id} de {$item->orden->cliente->nombre} fue entregada por {$item->despacho->conductor->nombre}",
+            "Orden #{$item->orden->numero_orden} de {$item->orden->cliente->nombre} fue entregada por {$item->despacho->conductor->nombre}",
             ['orden_id' => $item->orden_id],
         );
 
@@ -825,7 +825,7 @@ class DespachoController extends Controller
             NotificacionService::crear(
                 'facturar',
                 'Orden pendiente de facturación',
-                "Orden #{$item->orden_id} de {$item->orden->cliente->nombre} fue entregada — pendiente de facturación",
+                "Orden #{$item->orden->numero_orden} de {$item->orden->cliente->nombre} fue entregada — pendiente de facturación",
                 ['orden_id' => $item->orden_id],
                 $vendedor->id,
             );

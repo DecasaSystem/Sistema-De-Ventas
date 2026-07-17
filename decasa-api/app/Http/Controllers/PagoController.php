@@ -105,7 +105,7 @@ class PagoController extends Controller
             foreach ($facturadores as $facturador) {
                 NotificacionService::crear(
                     tipo:      'abono_registrado',
-                    titulo:    "Pago registrado – Orden #{$orden->id}",
+                    titulo:    "Pago registrado – Orden #{$orden->numero_orden}",
                     mensaje:   "{$usuario->nombre} registró un {$tipoPagoLabel} de {$montoFormateado} en la orden de {$clienteNombre}.",
                     datos:     ['orden_id' => $orden->id],
                     usuarioId: $facturador->id,

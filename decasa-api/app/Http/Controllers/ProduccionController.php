@@ -622,6 +622,7 @@ class ProduccionController extends Controller
         $clienteNombre  = $produccion->ordenItem->orden->cliente->nombre ?? '';
         $tiendaNombre   = $produccion->ordenItem->orden->tienda->nombre ?? '';
         $ordenId        = $produccion->ordenItem->orden->id;
+        $numeroOrden    = $produccion->ordenItem->orden->numero_orden ?? $ordenId;
         $vendedorId     = $produccion->ordenItem->orden->vendedor_id;
 
         if ($data['estado'] === 'retrasado') {
@@ -636,7 +637,7 @@ class ProduccionController extends Controller
             );
         } elseif ($data['estado'] === 'entregado') {
             NotificacionService::crear('entregado', 'Producto entregado',
-                "Orden #{$ordenId} — {$productoNombre} · {$clienteNombre}",
+                "Orden #{$numeroOrden} — {$productoNombre} · {$clienteNombre}",
                 ['produccion_id' => $produccion->id, 'orden_id' => $ordenId],
             );
             NotificacionService::crear('entregado', 'Tu pedido fue entregado',
