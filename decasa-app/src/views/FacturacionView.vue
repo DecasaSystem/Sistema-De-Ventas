@@ -200,7 +200,7 @@ onMounted(() => cargar())
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2 flex-wrap">
               <span class="font-semibold text-gray-800 truncate">{{ o.cliente_nombre }}</span>
-              <span class="text-xs text-gray-400 font-mono shrink-0">#{{ o.id }}</span>
+              <span class="text-xs text-gray-400 font-mono shrink-0">#{{ o.numero_orden ?? o.id }}</span>
             </div>
             <p class="text-xs text-gray-500 mt-0.5">{{ o.vendedor_nombre }} · {{ o.tienda_nombre }}</p>
             <span

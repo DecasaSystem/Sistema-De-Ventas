@@ -303,7 +303,7 @@ watch(() => consulta.value?.estado, (estado) => {
     <div class="flex items-center gap-3">
       <button @click="router.back()" class="text-blue-600 text-sm font-medium">← Atrás</button>
       <h2 class="text-lg font-bold text-gray-800 flex-1">
-        Cotización — Orden #{{ consulta?.orden_id ?? '...' }}
+        Cotización — Orden #{{ consulta?.orden?.numero_orden ?? consulta?.orden_id ?? '...' }}
       </h2>
       <span
         v-if="consulta"

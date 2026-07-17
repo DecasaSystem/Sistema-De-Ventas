@@ -33,6 +33,7 @@ class FacturacionController extends Controller
             ->whereRaw($tienePago)
             ->selectRaw("
                 ordenes.id,
+                ordenes.numero_orden,
                 ordenes.estado,
                 ordenes.valor_total,
                 ordenes.created_at,
@@ -53,7 +54,8 @@ class FacturacionController extends Controller
             $query->where(function ($q) use ($term, $sinHash) {
                 $q->whereRaw('LOWER(clientes.nombre) LIKE ?', [$term]);
                 if (is_numeric($sinHash)) {
-                    $q->orWhere('ordenes.id', (int) $sinHash);
+                    $q->orWhere('ordenes.id', (int) $sinHash)
+                      ->orWhere('ordenes.numero_orden', $sinHash);
                 }
             });
         }

@@ -866,7 +866,7 @@ onBeforeUnmount(() => {
             <div class="flex justify-between items-start mb-1">
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-2 mb-0.5">
-                  <p class="font-semibold text-sm text-gray-800">Orden #{{ r.orden_id }}</p>
+                  <p class="font-semibold text-sm text-gray-800">Orden #{{ r.numero_orden ?? r.orden_id }}</p>
                   <span class="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full">{{ r.items_count }} item{{ r.items_count !== 1 ? 's' : '' }}</span>
                 </div>
                 <p class="text-xs text-gray-600">{{ r.cliente }} · {{ r.vendedor }}</p>

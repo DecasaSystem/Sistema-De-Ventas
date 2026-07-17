@@ -37,7 +37,7 @@ export function useDespachoSocket() {
       window.Echo.channel('supervisor')
         .stopListening('.orden.entregada')
         .listen('.orden.entregada', (data) => {
-          toast.success(`Orden #${data.orden_id} de ${data.cliente_nombre} fue entregada por ${data.conductor_nombre}`)
+          toast.success(`Orden #${data.numero_orden ?? data.orden_id} de ${data.cliente_nombre} fue entregada por ${data.conductor_nombre}`)
         })
       subs.push('supervisor')
     }

@@ -709,7 +709,7 @@ class StatsController extends Controller
         else             $recientesBase->where("o.$columna", $valor);
 
         $ordenesRecientes = $recientesBase
-            ->selectRaw('o.id, c.nombre AS cliente, o.estado, o.valor_total, COALESCE(v.saldo_pendiente, o.valor_total) AS saldo_pendiente, o.created_at, o.es_compartida')
+            ->selectRaw('o.id, o.numero_orden, c.nombre AS cliente, o.estado, o.valor_total, COALESCE(v.saldo_pendiente, o.valor_total) AS saldo_pendiente, o.created_at, o.es_compartida')
             ->orderByDesc('o.created_at')->limit(5)->get();
 
         // Canales

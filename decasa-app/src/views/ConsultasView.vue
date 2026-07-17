@@ -144,7 +144,7 @@ onMounted(cargar)
         >
           <div class="flex items-start justify-between gap-2">
             <div>
-              <p class="font-semibold text-sm text-gray-800">Orden #{{ c.orden_id }}</p>
+              <p class="font-semibold text-sm text-gray-800">Orden #{{ c.orden?.numero_orden ?? c.orden_id }}</p>
               <p class="text-xs text-gray-400">{{ formatFecha(c.created_at) }}</p>
             </div>
             <span :class="['inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full flex-shrink-0', c.estado === 'pendiente' ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700']">
@@ -219,7 +219,7 @@ onMounted(cargar)
           <!-- Estado + orden -->
           <div class="flex items-start justify-between gap-2">
             <div>
-              <p class="font-semibold text-sm text-gray-800">Orden #{{ c.orden_id }}</p>
+              <p class="font-semibold text-sm text-gray-800">Orden #{{ c.orden?.numero_orden ?? c.orden_id }}</p>
               <p class="text-xs text-gray-400">{{ formatFecha(c.created_at) }}</p>
             </div>
             <span :class="['inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full flex-shrink-0', c.estado === 'pendiente' ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700']">

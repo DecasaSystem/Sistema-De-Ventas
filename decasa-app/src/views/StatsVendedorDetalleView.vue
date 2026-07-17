@@ -341,7 +341,7 @@ onBeforeUnmount(() => {
           >
             <div class="min-w-0">
               <p class="text-sm font-medium text-gray-800 truncate">{{ o.cliente }}</p>
-              <p class="text-xs text-gray-400">#{{ o.id }}</p>
+              <p class="text-xs text-gray-400">#{{ o.numero_orden ?? o.id }}</p>
             </div>
             <div class="flex items-center gap-2 ml-2 flex-shrink-0">
               <BadgeEstado :estado="o.estado" />

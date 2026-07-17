@@ -12,9 +12,10 @@ class OrdenEntregada implements ShouldBroadcastNow
     use Dispatchable, SerializesModels;
 
     public function __construct(
-        public int    $ordenId,
-        public string $clienteNombre,
-        public string $conductorNombre,
+        public int     $ordenId,
+        public string  $clienteNombre,
+        public string  $conductorNombre,
+        public ?string $numeroOrden = null,
     ) {}
 
     public function broadcastOn(): array
@@ -26,6 +27,7 @@ class OrdenEntregada implements ShouldBroadcastNow
     {
         return [
             'orden_id'         => $this->ordenId,
+            'numero_orden'     => $this->numeroOrden,
             'cliente_nombre'   => $this->clienteNombre,
             'conductor_nombre' => $this->conductorNombre,
         ];
