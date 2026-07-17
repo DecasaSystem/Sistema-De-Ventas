@@ -157,20 +157,45 @@
     </div>
 
     <!-- Detalles de Personalización -->
-    @php $itemsPersonalizados = $orden->items->where('es_personalizado', true); @endphp
+    @php
+        $itemsPersonalizados = $orden->items->where('es_personalizado', true);
+        // Etiquetas legibles para claves conocidas de specs_personalizacion (mismas que
+        // usa el detalle web); cualquier clave nueva que no esté aquí se muestra con su
+        // nombre formateado en vez de ocultarse.
+        $etiquetasSpec = [
+            'marca' => 'Marca', 'tela' => 'Tela', 'color' => 'Color', 'medidas' => 'Medidas',
+            'acabado' => 'Acabado', 'descripcion' => 'Descripción', 'notas' => 'Notas',
+            'material' => 'Material', 'color_material' => 'Color/acabado',
+            'largo_cm' => 'Largo', 'ancho_cm' => 'Ancho', 'alto_cm' => 'Alto',
+            'variante_marca' => 'Marca', 'variante_color' => 'Color',
+        ];
+    @endphp
     @if($itemsPersonalizados->isNotEmpty())
     <div style="margin-bottom: 20px; border: 1px solid #ede9fe; border-radius: 8px; padding: 16px; background-color: #faf5ff;">
         <p style="font-size: 10px; font-weight: bold; color: #7c3aed; text-transform: uppercase; margin: 0 0 12px 0;">Detalles de Personalizacion</p>
         @foreach($itemsPersonalizados as $item)
-            @php $specs = $item->specs_personalizacion ?? []; @endphp
+            @php
+                $specs = $item->specs_personalizacion ?? [];
+                $notas = $specs['notas'] ?? null;
+                unset($specs['notas']);
+            @endphp
             <div style="margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #ede9fe;">
                 <p style="font-size: 11px; font-weight: bold; color: #374151; margin: 0 0 6px 0;">
                     {{ $item->producto->nombre ?? $item->nombre_custom ?? 'Producto personalizado' }}
                     <span style="color: #7c3aed; font-weight: normal; font-size: 10px;">(ítem personalizado)</span>
                 </p>
-                @if(!empty($specs['descripcion']))
-                    <p style="font-size: 10px; font-weight: bold; color: #6b7280; margin: 0 0 2px 0;">Especificaciones / Medidas:</p>
-                    <p style="font-size: 11px; color: #374151; margin: 0 0 8px 0; white-space: pre-wrap;">{{ $specs['descripcion'] }}</p>
+                @if(!empty(array_filter($specs, fn($v) => $v !== null && $v !== '')))
+                    <p style="font-size: 10px; font-weight: bold; color: #6b7280; margin: 0 0 2px 0;">Especificaciones:</p>
+                    <p style="font-size: 11px; color: #374151; margin: 0 0 8px 0;">
+                        @foreach($specs as $key => $val)
+                            @continue($val === null || $val === '')
+                            <strong>{{ $etiquetasSpec[$key] ?? ucfirst(str_replace('_', ' ', $key)) }}:</strong> {{ $val }}@if(!$loop->last) &nbsp;·&nbsp; @endif
+                        @endforeach
+                    </p>
+                @endif
+                @if(!empty($notas))
+                    <p style="font-size: 10px; font-weight: bold; color: #6b7280; margin: 0 0 2px 0;">Notas del vendedor:</p>
+                    <p style="font-size: 11px; color: #374151; margin: 0 0 8px 0; white-space: pre-wrap;">{{ $notas }}</p>
                 @endif
                 @if(!empty($bocetosBase64[$item->id]))
                     <p style="font-size: 10px; font-weight: bold; color: #6b7280; margin: 0 0 4px 0;">Boceto del vendedor:</p>
