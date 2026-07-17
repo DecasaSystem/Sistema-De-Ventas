@@ -1079,6 +1079,7 @@ const vendedoresLista      = ref([])
 const cargandoVendedores   = ref(false)
 const submitting           = ref(false)
 const modoGuardarBorrador  = ref(false)
+const enviarPdfAlGuardarBorrador = ref(false) // true solo si se usó "Guardar borrador y enviar PDF"
 const cooldown             = ref(0)   // segundos restantes antes de poder reintentar
 let   cooldownTimer        = null
 
@@ -1365,13 +1366,17 @@ async function submit() {
     if (data?.orden_id) {
       router.push({ name: 'orden-detalle', params: { id: data.orden_id } })
     } else if (modoGuardarBorrador.value && data?.id) {
-      const emailCliente = clienteSeleccionado.value?.email
-      if (emailCliente) {
-        try {
-          await api.post(`/ordenes/${data.id}/reenviar-cotizacion`, { email: emailCliente })
-          toast.success('Borrador guardado y cotización enviada por email.')
-        } catch {
-          toast.success('Borrador guardado. Comparte el PDF desde el detalle de la orden.')
+      if (enviarPdfAlGuardarBorrador.value) {
+        const emailCliente = clienteSeleccionado.value?.email
+        if (emailCliente) {
+          try {
+            await api.post(`/ordenes/${data.id}/reenviar-cotizacion`, { email: emailCliente })
+            toast.success('Borrador guardado y cotización enviada por email.')
+          } catch {
+            toast.success('Borrador guardado. Comparte el PDF desde el detalle de la orden.')
+          }
+        } else {
+          toast.success('Borrador guardado.')
         }
       } else {
         toast.success('Borrador guardado.')
@@ -1402,16 +1407,18 @@ async function submit() {
     submitting.value = false
     subiendoFactura.value = false
     modoGuardarBorrador.value = false
+    enviarPdfAlGuardarBorrador.value = false
   }
 }
 
-async function submitBorrador() {
+async function submitBorrador(enviarPdf = false) {
   if (submitting.value) return
   if (!items.value.length) {
     toast.error('Agrega al menos un producto antes de guardar el borrador.')
     return
   }
   modoGuardarBorrador.value = true
+  enviarPdfAlGuardarBorrador.value = enviarPdf
   await submit()
 }
 
@@ -1423,7 +1430,7 @@ async function iniciarBorradorConEnvio() {
   }
   const tieneContacto = clienteSeleccionado.value?.email || clienteSeleccionado.value?.telefono
   if (tieneContacto) {
-    await submitBorrador()
+    await submitBorrador(true)
     return
   }
   borradorEmailInput.value = ''
@@ -1446,7 +1453,7 @@ async function guardarContactoYBorrador() {
     await updateCliente(clienteSeleccionado.value.id, patch)
     clienteSeleccionado.value = { ...clienteSeleccionado.value, ...patch }
     borradorNecesitaContacto.value = false
-    await submitBorrador()
+    await submitBorrador(true)
   } catch {
     toast.error('No se pudo guardar el contacto del cliente.')
   } finally {
@@ -2746,7 +2753,7 @@ function removeFacturaFoto() {
 
       <div class="flex gap-2">
         <button
-          @click="submitBorrador"
+          @click="submitBorrador(false)"
           :disabled="items.length === 0 || submitting"
           class="btn-secondary flex-1"
         >{{ submitting && modoGuardarBorrador ? 'Guardando...' : 'Guardar borrador' }}</button>
@@ -3214,7 +3221,7 @@ function removeFacturaFoto() {
 
        <button
          v-if="!clienteRequiereCompletar"
-         @click="submitBorrador"
+         @click="submitBorrador(false)"
          :disabled="submitting || cooldown > 0"
          class="btn-secondary w-full py-3 flex items-center justify-center gap-2"
        >
