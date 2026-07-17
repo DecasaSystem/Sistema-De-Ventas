@@ -112,6 +112,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // Pagos
     Route::get('/ordenes/{id}/pagos',  [PagoController::class, 'index']);
     Route::post('/ordenes/{id}/pagos', [PagoController::class, 'store']);
+    Route::patch('/pagos/{id}', [PagoController::class, 'update']);
     Route::post('/pagos/{id}/tomar-facturacion', [PagoController::class, 'tomarFacturacion']);
     Route::post('/pagos/{id}/marcar-facturada',  [PagoController::class, 'marcarFacturada']);
 

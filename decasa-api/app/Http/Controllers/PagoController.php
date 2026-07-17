@@ -122,6 +122,77 @@ class PagoController extends Controller
     }
 
     /**
+     * PATCH /api/pagos/{id}
+     * Corrige un pago ya registrado (monto/método/referencia), p. ej. cuando
+     * el anticipo se digitó mal. Queda auditado en orden_ediciones.
+     */
+    public function update(Request $request, int $id)
+    {
+        $usuario = $request->user();
+        $pago    = Pago::with('orden')->findOrFail($id);
+        $orden   = $pago->orden;
+
+        if (in_array($usuario->rol, ['vendedor', 'ebanista']) && $orden->vendedor_id !== $usuario->id) {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+
+        if (! in_array($orden->estado, ['borrador', 'pendiente_anticipo', 'en_produccion'])) {
+            return response()->json([
+                'message' => 'No se puede editar un pago de una orden en estado "' . $orden->estado . '".',
+            ], 422);
+        }
+
+        $data = $request->validate([
+            'monto'      => 'required|numeric|min:0.01',
+            'metodo'     => 'nullable|in:efectivo,transferencia,tarjeta,otro',
+            'referencia' => 'nullable|string|max:100',
+        ]);
+
+        $otrosPagos = $orden->pagos()->where('id', '!=', $pago->id)->sum('monto');
+        if ($otrosPagos + $data['monto'] > (float) $orden->valor_total + 0.01) {
+            return response()->json([
+                'message' => "El monto ({$data['monto']}) sumado a los demás pagos supera el total de la orden (" . round((float) $orden->valor_total, 2) . ").",
+                'errors'  => ['monto' => ['No puede superar el valor total de la orden.']],
+            ], 422);
+        }
+
+        $tipoLabel = $pago->tipo === 'anticipo' ? 'Anticipo' : ucfirst($pago->tipo);
+        $cambios   = [];
+
+        if ((float) $data['monto'] !== (float) $pago->monto) {
+            $cambios[] = ['campo' => "pago_{$pago->id}_monto", 'label' => "{$tipoLabel} — monto", 'antes' => (float) $pago->monto, 'despues' => (float) $data['monto']];
+        }
+        if (array_key_exists('metodo', $data) && $data['metodo'] !== $pago->metodo) {
+            $cambios[] = ['campo' => "pago_{$pago->id}_metodo", 'label' => "{$tipoLabel} — método", 'antes' => $pago->metodo, 'despues' => $data['metodo']];
+        }
+        if (array_key_exists('referencia', $data) && $data['referencia'] !== $pago->referencia) {
+            $cambios[] = ['campo' => "pago_{$pago->id}_referencia", 'label' => "{$tipoLabel} — referencia", 'antes' => $pago->referencia, 'despues' => $data['referencia']];
+        }
+
+        if (! empty($cambios)) {
+            DB::transaction(function () use ($pago, $data, $orden, $usuario, $cambios) {
+                $pago->update([
+                    'monto'      => $data['monto'],
+                    'metodo'     => $data['metodo'] ?? $pago->metodo,
+                    'referencia' => array_key_exists('referencia', $data) ? $data['referencia'] : $pago->referencia,
+                ]);
+
+                \App\Models\OrdenEdicion::create([
+                    'orden_id'   => $orden->id,
+                    'usuario_id' => $usuario->id,
+                    'cambios'    => $cambios,
+                ]);
+            });
+        }
+
+        return response()->json([
+            'pago'            => $pago->fresh(),
+            'total_pagado'    => $orden->totalPagado(),
+            'saldo_pendiente' => $orden->saldoPendiente(),
+        ]);
+    }
+
+    /**
      * POST /api/pagos/{id}/tomar-facturacion
      * Reclama atómicamente la facturación de un pago (el primero en clickear gana).
      */

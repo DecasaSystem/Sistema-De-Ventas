@@ -725,6 +725,11 @@ class OrdenController extends Controller
             'departamento_envio'            => 'sometimes|nullable|string|max:100',
             'ciudad_envio'                  => 'sometimes|nullable|string|max:100',
             'direccion_envio'               => 'sometimes|nullable|string|max:300',
+            'anticipo_pct'                  => 'sometimes|nullable|numeric|min:1|max:100',
+            'vendedor_id'                   => 'sometimes|nullable|integer|exists:usuarios,id',
+            'tienda_id'                     => 'sometimes|nullable|integer|exists:tiendas,id',
+            'covendedor_id'                 => 'sometimes|nullable|integer|exists:usuarios,id',
+            'es_compartida'                 => 'sometimes|boolean',
             'items'                         => 'sometimes|nullable|array',
             'items.*.id'                    => 'required_with:items|integer|exists:orden_items,id',
             'items.*.specs_personalizacion' => 'sometimes|nullable|array',
@@ -753,9 +758,25 @@ class OrdenController extends Controller
             ], 422);
         }
 
+        $camposReasignacion = ['vendedor_id', 'tienda_id', 'covendedor_id', 'es_compartida'];
+        $reasignando        = collect($camposReasignacion)->contains(fn ($c) => array_key_exists($c, $data));
+
+        if ($reasignando) {
+            if ($usuario->rol !== 'supervisor') {
+                return response()->json(['message' => 'Solo un supervisor puede reasignar vendedor/tienda.'], 403);
+            }
+
+            $comisionLiquidada = Comision::where('orden_id', $orden->id)
+                ->whereIn('estado', ['lista', 'pagada'])
+                ->exists();
+            if ($comisionLiquidada) {
+                return response()->json(['message' => 'No se puede reasignar: la comisión de esta orden ya está lista o pagada.'], 422);
+            }
+        }
+
         $cambios = [];
 
-        DB::transaction(function () use ($data, $orden, $usuario, &$cambios) {
+        DB::transaction(function () use ($data, $orden, $usuario, &$cambios, $reasignando) {
             $updateOrden = [];
 
             // ── Cambios a nivel de orden ──────────────────────────────────────
@@ -778,6 +799,36 @@ class OrdenController extends Controller
             if (array_key_exists('direccion_envio', $data) && $data['direccion_envio'] !== $orden->direccion_envio) {
                 $cambios[] = ['campo' => 'direccion_envio', 'label' => 'Dirección de envío', 'antes' => $orden->direccion_envio, 'despues' => $data['direccion_envio']];
                 $updateOrden['direccion_envio'] = $data['direccion_envio'];
+            }
+            if (array_key_exists('anticipo_pct', $data) && (float) $data['anticipo_pct'] !== (float) $orden->anticipo_pct) {
+                $cambios[] = ['campo' => 'anticipo_pct', 'label' => '% de anticipo sugerido', 'antes' => (float) $orden->anticipo_pct, 'despues' => (float) $data['anticipo_pct']];
+                $updateOrden['anticipo_pct'] = $data['anticipo_pct'];
+            }
+
+            // ── Reasignación de vendedor/tienda (solo supervisor) ──────────────
+            if ($reasignando) {
+                if (array_key_exists('vendedor_id', $data) && (int) $data['vendedor_id'] !== (int) $orden->vendedor_id) {
+                    $nombreAntes  = Usuario::find($orden->vendedor_id)?->nombre ?? $orden->vendedor_id;
+                    $nombreDespues = Usuario::find($data['vendedor_id'])?->nombre ?? $data['vendedor_id'];
+                    $cambios[]    = ['campo' => 'vendedor_id', 'label' => 'Vendedor', 'antes' => $nombreAntes, 'despues' => $nombreDespues];
+                    $updateOrden['vendedor_id'] = $data['vendedor_id'];
+                }
+                if (array_key_exists('tienda_id', $data) && (int) $data['tienda_id'] !== (int) $orden->tienda_id) {
+                    $nombreAntes  = Tienda::find($orden->tienda_id)?->nombre ?? $orden->tienda_id;
+                    $nombreDespues = Tienda::find($data['tienda_id'])?->nombre ?? $data['tienda_id'];
+                    $cambios[]    = ['campo' => 'tienda_id', 'label' => 'Tienda', 'antes' => $nombreAntes, 'despues' => $nombreDespues];
+                    $updateOrden['tienda_id'] = $data['tienda_id'];
+                }
+                if (array_key_exists('covendedor_id', $data) && (int) $data['covendedor_id'] !== (int) $orden->covendedor_id) {
+                    $nombreAntes  = $orden->covendedor_id ? (Usuario::find($orden->covendedor_id)?->nombre ?? $orden->covendedor_id) : null;
+                    $nombreDespues = $data['covendedor_id'] ? (Usuario::find($data['covendedor_id'])?->nombre ?? $data['covendedor_id']) : null;
+                    $cambios[]    = ['campo' => 'covendedor_id', 'label' => 'Co-vendedor', 'antes' => $nombreAntes, 'despues' => $nombreDespues];
+                    $updateOrden['covendedor_id'] = $data['covendedor_id'];
+                }
+                if (array_key_exists('es_compartida', $data) && (bool) $data['es_compartida'] !== (bool) $orden->es_compartida) {
+                    $cambios[] = ['campo' => 'es_compartida', 'label' => 'Venta compartida', 'antes' => (bool) $orden->es_compartida, 'despues' => (bool) $data['es_compartida']];
+                    $updateOrden['es_compartida'] = $data['es_compartida'];
+                }
             }
 
             // ── Cambios a nivel de ítems ──────────────────────────────────────
@@ -996,6 +1047,13 @@ class OrdenController extends Controller
 
             if (! empty($updateOrden)) {
                 $orden->update($updateOrden);
+            }
+
+            $tocoAsignacion = collect(['vendedor_id', 'tienda_id', 'covendedor_id', 'es_compartida'])
+                ->contains(fn ($c) => array_key_exists($c, $updateOrden));
+            if ($reasignando && $tocoAsignacion) {
+                Comision::where('orden_id', $orden->id)->delete();
+                ComisionController::crearParaOrden($orden->fresh());
             }
 
             if (! empty($cambios)) {

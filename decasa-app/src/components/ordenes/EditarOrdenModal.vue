@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
-import { editarOrden, buscarProductos } from '@/api/ordenes'
+import { editarOrden, editarPago, buscarProductos, getTiendas } from '@/api/ordenes'
 import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
 import { TELAS_CATALOGO, marcasOrdenadas, tiposTelaDeM, coloresDeTela } from '@/data/telasCatalogo'
@@ -14,15 +14,48 @@ const props = defineProps({
 })
 const emit = defineEmits(['close', 'guardado'])
 const toast = useToast()
+const auth  = useAuthStore()
 
 const notas          = ref('')
 const canal          = ref('')
 const direccionEnvio = ref('')
 const ciudadEnvio    = ref('')
+const anticipoPct    = ref('')
 const items          = ref([])
 const itemsEliminar  = ref([])   // IDs de ítems existentes a borrar
 const itemsNuevos    = ref([])   // Ítems nuevos a agregar
 const guardando      = ref(false)
+
+// ── Anticipo ─────────────────────────────────────────────────────────────────
+const pagoAnticipo       = ref(null)   // pago tipo='anticipo' de la orden, si existe
+const anticipoMonto      = ref('')
+const anticipoMetodo     = ref('efectivo')
+const anticipoReferencia = ref('')
+
+// ── Reasignación (solo supervisor) ──────────────────────────────────────────
+const esSupervisor  = computed(() => auth.usuario?.rol === 'supervisor')
+const vendedorId    = ref(null)
+const tiendaId      = ref(null)
+const covendedorId  = ref(null)
+const esCompartida  = ref(false)
+const tiendasLista    = ref([])
+const vendedoresLista = ref([])
+
+const opcionesVendedor = computed(() => {
+  const list = [...vendedoresLista.value]
+  const actual = props.orden.vendedor
+  if (actual && !list.some(v => v.id === actual.id)) list.unshift({ id: actual.id, nombre: actual.nombre })
+  return list
+})
+
+async function cargarListasSupervisor() {
+  if (tiendasLista.value.length) return
+  try {
+    const [tiendasRes, asesoresRes] = await Promise.all([getTiendas(), api.get('/asesores')])
+    tiendasLista.value    = tiendasRes.data
+    vendedoresLista.value = asesoresRes.data
+  } catch {}
+}
 
 // ── Totales en tiempo real ───────────────────────────────────────────────────
 const totalEstimado = computed(() => {
@@ -91,8 +124,6 @@ function precioEfectivo(item) {
   return Math.round(base * (1 - pct / 100))
 }
 
-const auth       = useAuthStore()
-
 // product search per item
 const buscando  = ref({})
 const resultados = ref({})
@@ -106,6 +137,19 @@ watch(() => props.show, (v) => {
   canal.value          = props.orden.canal ?? ''
   direccionEnvio.value = props.orden.direccion_envio ?? ''
   ciudadEnvio.value    = props.orden.ciudad_envio ?? ''
+  anticipoPct.value    = props.orden.anticipo_pct ?? ''
+
+  pagoAnticipo.value       = (props.orden.pagos ?? []).find(p => p.tipo === 'anticipo') ?? null
+  anticipoMonto.value      = pagoAnticipo.value?.monto ?? ''
+  anticipoMetodo.value     = pagoAnticipo.value?.metodo ?? 'efectivo'
+  anticipoReferencia.value = pagoAnticipo.value?.referencia ?? ''
+
+  vendedorId.value   = props.orden.vendedor_id ?? null
+  tiendaId.value     = props.orden.tienda_id ?? null
+  covendedorId.value = props.orden.covendedor_id ?? null
+  esCompartida.value = !!props.orden.es_compartida
+  if (esSupervisor.value) cargarListasSupervisor()
+
   itemsEliminar.value  = []
   itemsNuevos.value    = []
   nuevoItem.value      = { producto_id: null, producto_nombre: '', cantidad: 1, precio_unitario: '' }
@@ -233,13 +277,40 @@ async function guardar() {
     toast.error('Completa todos los campos de los ítems nuevos antes de guardar.')
     return
   }
+  if (pagoAnticipo.value) {
+    const montoNum = parseFloat(anticipoMonto.value)
+    if (!montoNum || montoNum <= 0) {
+      toast.error('El monto del anticipo debe ser mayor a 0.')
+      return
+    }
+  }
+
   guardando.value = true
   try {
+    // Si el anticipo cambió, se corrige primero para que la orden quede
+    // con los pagos ya actualizados al recargarse.
+    if (pagoAnticipo.value) {
+      const montoNum = parseFloat(anticipoMonto.value)
+      const cambioAnticipo =
+        montoNum !== parseFloat(pagoAnticipo.value.monto) ||
+        anticipoMetodo.value !== pagoAnticipo.value.metodo ||
+        (anticipoReferencia.value || null) !== (pagoAnticipo.value.referencia || null)
+
+      if (cambioAnticipo) {
+        await editarPago(pagoAnticipo.value.id, {
+          monto:      montoNum,
+          metodo:     anticipoMetodo.value,
+          referencia: anticipoReferencia.value || null,
+        })
+      }
+    }
+
     const payload = {
       notas:           notas.value,
       canal:           canal.value,
       direccion_envio: direccionEnvio.value || null,
       ciudad_envio:    ciudadEnvio.value    || null,
+      anticipo_pct:    anticipoPct.value !== '' && anticipoPct.value !== null ? Number(anticipoPct.value) : undefined,
       items: items.value
         .filter(item => !itemsEliminar.value.includes(item.id))
         .map(item => {
@@ -272,6 +343,14 @@ async function guardar() {
           }))
         : undefined,
     }
+
+    if (esSupervisor.value) {
+      if (vendedorId.value !== (props.orden.vendedor_id ?? null)) payload.vendedor_id = vendedorId.value
+      if (tiendaId.value !== (props.orden.tienda_id ?? null)) payload.tienda_id = tiendaId.value
+      if (covendedorId.value !== (props.orden.covendedor_id ?? null)) payload.covendedor_id = covendedorId.value
+      if (esCompartida.value !== !!props.orden.es_compartida) payload.es_compartida = esCompartida.value
+    }
+
     const { data } = await editarOrden(props.orden.id, payload)
     toast.success('Orden actualizada correctamente.')
     emit('guardado', data)
@@ -348,6 +427,92 @@ async function guardar() {
                   placeholder="Ciudad..."
                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-600 mb-1">% de anticipo sugerido</label>
+                <input
+                  v-model="anticipoPct"
+                  type="number"
+                  min="1"
+                  max="100"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            <!-- Anticipo -->
+            <div v-if="pagoAnticipo" class="space-y-3 border border-amber-200 bg-amber-50 rounded-xl p-4">
+              <p class="text-xs font-semibold text-amber-700 uppercase">Anticipo</p>
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-xs font-medium text-gray-600 mb-1">Monto</label>
+                  <input
+                    v-model="anticipoMonto"
+                    type="number"
+                    min="0"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-gray-600 mb-1">Método</label>
+                  <select
+                    v-model="anticipoMetodo"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="efectivo">Efectivo</option>
+                    <option value="transferencia">Transferencia</option>
+                    <option value="tarjeta">Tarjeta</option>
+                    <option value="otro">Otro</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-600 mb-1">Referencia</label>
+                <input
+                  v-model="anticipoReferencia"
+                  type="text"
+                  placeholder="N.° de referencia o comprobante..."
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <p class="text-[11px] text-amber-700">Corrige aquí si el anticipo se registró mal. El cambio queda en el historial de la orden.</p>
+            </div>
+
+            <!-- Reasignación (solo supervisor) -->
+            <div v-if="esSupervisor" class="space-y-3 border border-blue-200 bg-blue-50 rounded-xl p-4">
+              <p class="text-xs font-semibold text-blue-700 uppercase">Reasignar</p>
+              <p class="text-[11px] text-blue-700">Cambiar el vendedor o la tienda afecta el cálculo de comisiones de esta orden.</p>
+              <div>
+                <label class="block text-xs font-medium text-gray-600 mb-1">Vendedor</label>
+                <select
+                  v-model.number="vendedorId"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option v-for="v in opcionesVendedor" :key="v.id" :value="v.id">{{ v.nombre }}</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-600 mb-1">Tienda</label>
+                <select
+                  v-model.number="tiendaId"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option v-for="t in tiendasLista" :key="t.id" :value="t.id">{{ t.nombre }}</option>
+                </select>
+              </div>
+              <label class="flex items-center gap-2 text-xs text-gray-600">
+                <input type="checkbox" v-model="esCompartida" />
+                Venta compartida
+              </label>
+              <div v-if="esCompartida">
+                <label class="block text-xs font-medium text-gray-600 mb-1">Co-vendedor</label>
+                <select
+                  v-model.number="covendedorId"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option :value="null">Sin co-vendedor</option>
+                  <option v-for="v in opcionesVendedor" :key="v.id" :value="v.id">{{ v.nombre }}</option>
+                </select>
               </div>
             </div>
 
