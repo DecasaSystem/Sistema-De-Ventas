@@ -17,6 +17,7 @@ import { getReceptores, crearConsulta } from '@/api/consultas'
 import FirmaCanvas from '@/components/FirmaCanvas.vue'
 import BocetoCanvas from '@/components/BocetoCanvas.vue'
 import DireccionColombia from '@/components/DireccionColombia.vue'
+import ComboInput from '@/components/common/ComboInput.vue'
 
 const router = useRouter()
 const auth   = useAuthStore()
@@ -2104,30 +2105,28 @@ function removeFacturaFoto() {
           <div v-if="restauracionItem._retapizar" class="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
             <p class="text-xs font-semibold text-amber-800">Selecciona la tela <span class="text-red-500">*</span></p>
 
-            <select
-              v-model="getTelaSelection(restauracionItem, 'tela').marca"
-              @change="getTelaSelection(restauracionItem, 'tela').tipo = ''; getTelaSelection(restauracionItem, 'tela').color = ''"
-              class="input text-sm"
-            >
-              <option value="">— elige la marca —</option>
-              <option v-for="m in marcasConStock()" :key="m" :value="m">{{ m }}</option>
-            </select>
+            <ComboInput
+              :model-value="getTelaSelection(restauracionItem, 'tela').marca"
+              :options="marcasConStock()"
+              placeholder="Buscar marca de tela..."
+              @update:model-value="v => { getTelaSelection(restauracionItem, 'tela').marca = v; getTelaSelection(restauracionItem, 'tela').tipo = ''; getTelaSelection(restauracionItem, 'tela').color = '' }"
+            />
 
             <template v-if="getTelaSelection(restauracionItem, 'tela').marca">
-              <select
-                v-model="getTelaSelection(restauracionItem, 'tela').tipo"
-                @change="getTelaSelection(restauracionItem, 'tela').color = ''"
-                class="input text-sm"
-              >
-                <option value="">— tipo de tela —</option>
-                <option v-for="t in tiposConStock(getTelaSelection(restauracionItem, 'tela').marca)" :key="t" :value="t">{{ t }}</option>
-              </select>
+              <ComboInput
+                :model-value="getTelaSelection(restauracionItem, 'tela').tipo"
+                :options="tiposConStock(getTelaSelection(restauracionItem, 'tela').marca)"
+                placeholder="Buscar tipo de tela..."
+                @update:model-value="v => { getTelaSelection(restauracionItem, 'tela').tipo = v; getTelaSelection(restauracionItem, 'tela').color = '' }"
+              />
 
               <template v-if="getTelaSelection(restauracionItem, 'tela').tipo">
-                <select v-model="getTelaSelection(restauracionItem, 'tela').color" class="input text-sm">
-                  <option value="">— color —</option>
-                  <option v-for="c in coloresConStock(getTelaSelection(restauracionItem, 'tela').marca, getTelaSelection(restauracionItem, 'tela').tipo)" :key="c" :value="c">{{ c }}</option>
-                </select>
+                <ComboInput
+                  :model-value="getTelaSelection(restauracionItem, 'tela').color"
+                  :options="coloresConStock(getTelaSelection(restauracionItem, 'tela').marca, getTelaSelection(restauracionItem, 'tela').tipo)"
+                  placeholder="Buscar color..."
+                  @update:model-value="v => getTelaSelection(restauracionItem, 'tela').color = v"
+                />
               </template>
             </template>
 
@@ -2339,31 +2338,29 @@ function removeFacturaFoto() {
             <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
               <p class="text-xs font-semibold text-amber-800">Selecciona el tapizado <span class="text-red-500">*</span></p>
 
-              <!-- Cascada Marca → Tipo → Color (solo muestra telas con metros disponibles) -->
-              <select
-                v-model="getTelaSelection(item, 'tela').marca"
-                @change="getTelaSelection(item, 'tela').tipo = ''; getTelaSelection(item, 'tela').color = ''"
-                class="input text-sm"
-              >
-                <option value="">— elige la marca de tela —</option>
-                <option v-for="m in marcasConStock()" :key="m" :value="m">{{ m }}</option>
-              </select>
+              <!-- Cascada Marca → Tipo → Color (busca por texto; solo telas con metros disponibles) -->
+              <ComboInput
+                :model-value="getTelaSelection(item, 'tela').marca"
+                :options="marcasConStock()"
+                placeholder="Buscar marca de tela..."
+                @update:model-value="v => { getTelaSelection(item, 'tela').marca = v; getTelaSelection(item, 'tela').tipo = ''; getTelaSelection(item, 'tela').color = '' }"
+              />
 
               <template v-if="getTelaSelection(item, 'tela').marca && getTelaSelection(item, 'tela').marca !== 'Otro'">
-                <select
-                  v-model="getTelaSelection(item, 'tela').tipo"
-                  @change="getTelaSelection(item, 'tela').color = ''"
-                  class="input text-sm"
-                >
-                  <option value="">— tipo de tela —</option>
-                  <option v-for="t in tiposConStock(getTelaSelection(item, 'tela').marca)" :key="t" :value="t">{{ t }}</option>
-                </select>
+                <ComboInput
+                  :model-value="getTelaSelection(item, 'tela').tipo"
+                  :options="tiposConStock(getTelaSelection(item, 'tela').marca)"
+                  placeholder="Buscar tipo de tela..."
+                  @update:model-value="v => { getTelaSelection(item, 'tela').tipo = v; getTelaSelection(item, 'tela').color = '' }"
+                />
 
                 <template v-if="getTelaSelection(item, 'tela').tipo">
-                  <select v-model="getTelaSelection(item, 'tela').color" class="input text-sm">
-                    <option value="">— color —</option>
-                    <option v-for="c in coloresConStock(getTelaSelection(item, 'tela').marca, getTelaSelection(item, 'tela').tipo)" :key="c" :value="c">{{ c }}</option>
-                  </select>
+                  <ComboInput
+                    :model-value="getTelaSelection(item, 'tela').color"
+                    :options="coloresConStock(getTelaSelection(item, 'tela').marca, getTelaSelection(item, 'tela').tipo)"
+                    placeholder="Buscar color..."
+                    @update:model-value="v => getTelaSelection(item, 'tela').color = v"
+                  />
                 </template>
               </template>
 
@@ -2392,32 +2389,30 @@ function removeFacturaFoto() {
                 <label class="text-xs text-gray-500">Nueva tela <span class="text-gray-300">— opcional</span></label>
 
                 <!-- 1. Marca -->
-                <select
-                  v-model="getTelaSelection(item, 'tela').marca"
-                  @change="getTelaSelection(item, 'tela').tipo = ''; getTelaSelection(item, 'tela').color = ''"
-                  class="input text-sm"
-                >
-                  <option value="">— sin cambio de tela —</option>
-                  <option v-for="m in marcasConStock()" :key="m" :value="m">{{ m }}</option>
-                </select>
+                <ComboInput
+                  :model-value="getTelaSelection(item, 'tela').marca"
+                  :options="marcasConStock()"
+                  placeholder="Buscar marca de tela..."
+                  @update:model-value="v => { getTelaSelection(item, 'tela').marca = v; getTelaSelection(item, 'tela').tipo = ''; getTelaSelection(item, 'tela').color = '' }"
+                />
 
                 <!-- 2. Tipo de tela (cuando hay marca) -->
                 <template v-if="getTelaSelection(item, 'tela').marca">
-                  <select
-                    v-model="getTelaSelection(item, 'tela').tipo"
-                    @change="getTelaSelection(item, 'tela').color = ''"
-                    class="input text-sm"
-                  >
-                    <option value="">— tipo de tela —</option>
-                    <option v-for="t in tiposConStock(getTelaSelection(item, 'tela').marca)" :key="t" :value="t">{{ t }}</option>
-                  </select>
+                  <ComboInput
+                    :model-value="getTelaSelection(item, 'tela').tipo"
+                    :options="tiposConStock(getTelaSelection(item, 'tela').marca)"
+                    placeholder="Buscar tipo de tela..."
+                    @update:model-value="v => { getTelaSelection(item, 'tela').tipo = v; getTelaSelection(item, 'tela').color = '' }"
+                  />
 
                   <!-- 3. Color (cuando hay tipo) -->
                   <template v-if="getTelaSelection(item, 'tela').tipo">
-                    <select v-model="getTelaSelection(item, 'tela').color" class="input text-sm">
-                      <option value="">— color —</option>
-                      <option v-for="c in coloresConStock(getTelaSelection(item, 'tela').marca, getTelaSelection(item, 'tela').tipo)" :key="c" :value="c">{{ c }}</option>
-                    </select>
+                    <ComboInput
+                      :model-value="getTelaSelection(item, 'tela').color"
+                      :options="coloresConStock(getTelaSelection(item, 'tela').marca, getTelaSelection(item, 'tela').tipo)"
+                      placeholder="Buscar color..."
+                      @update:model-value="v => getTelaSelection(item, 'tela').color = v"
+                    />
                   </template>
                 </template>
 
@@ -2470,28 +2465,26 @@ function removeFacturaFoto() {
                     </label>
                     <!-- Tela: cascada Marca → Tipo → Color (solo telas con metros disponibles) -->
                     <template v-if="campo.useVariantes">
-                      <select
-                        v-model="getTelaSelection(item, campo.key).marca"
-                        @change="getTelaSelection(item, campo.key).tipo = ''; getTelaSelection(item, campo.key).color = ''"
-                        class="input text-sm"
-                      >
-                        <option value="">— seleccionar marca —</option>
-                        <option v-for="m in marcasConStock()" :key="m" :value="m">{{ m }}</option>
-                      </select>
+                      <ComboInput
+                        :model-value="getTelaSelection(item, campo.key).marca"
+                        :options="marcasConStock()"
+                        placeholder="Buscar marca..."
+                        @update:model-value="v => { getTelaSelection(item, campo.key).marca = v; getTelaSelection(item, campo.key).tipo = ''; getTelaSelection(item, campo.key).color = '' }"
+                      />
                       <template v-if="getTelaSelection(item, campo.key).marca">
-                        <select
-                          v-model="getTelaSelection(item, campo.key).tipo"
-                          @change="getTelaSelection(item, campo.key).color = ''"
-                          class="input text-sm mt-1"
-                        >
-                          <option value="">— tipo de tela —</option>
-                          <option v-for="t in tiposConStock(getTelaSelection(item, campo.key).marca)" :key="t" :value="t">{{ t }}</option>
-                        </select>
+                        <ComboInput
+                          :model-value="getTelaSelection(item, campo.key).tipo"
+                          :options="tiposConStock(getTelaSelection(item, campo.key).marca)"
+                          placeholder="Buscar tipo de tela..."
+                          @update:model-value="v => { getTelaSelection(item, campo.key).tipo = v; getTelaSelection(item, campo.key).color = '' }"
+                        />
                         <template v-if="getTelaSelection(item, campo.key).tipo">
-                          <select v-model="getTelaSelection(item, campo.key).color" class="input text-sm mt-1">
-                            <option value="">— color —</option>
-                            <option v-for="c in coloresConStock(getTelaSelection(item, campo.key).marca, getTelaSelection(item, campo.key).tipo)" :key="c" :value="c">{{ c }}</option>
-                          </select>
+                          <ComboInput
+                            :model-value="getTelaSelection(item, campo.key).color"
+                            :options="coloresConStock(getTelaSelection(item, campo.key).marca, getTelaSelection(item, campo.key).tipo)"
+                            placeholder="Buscar color..."
+                            @update:model-value="v => getTelaSelection(item, campo.key).color = v"
+                          />
                         </template>
                       </template>
                       <p v-if="telaResumidaCampo(item, campo.key)" class="text-xs text-purple-600 font-medium mt-1">
