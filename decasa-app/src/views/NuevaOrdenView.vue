@@ -3485,7 +3485,7 @@ function removeFacturaFoto() {
   border: 1px solid #d1d5db;
   padding: 0.5rem 0.75rem;
   font-size: 0.875rem;
-  background: white;
+  background-color: white;
 }
 .input:focus {
   outline: none;
