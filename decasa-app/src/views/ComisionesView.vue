@@ -16,7 +16,9 @@ import {
   PlusIcon,
   XMarkIcon,
   ChartBarIcon,
+  ArrowDownTrayIcon,
 } from '@heroicons/vue/24/outline'
+import { exportarExcel } from '@/utils/exportarExcel'
 
 const router = useRouter()
 const toast  = useToast()
@@ -313,6 +315,81 @@ function resumenEstadoLabel(r) {
   return { text: 'Pendiente', color: 'text-orange-600', bg: 'bg-orange-50' }
 }
 
+// ── Exportación a Excel ──────────────────────────────────────────────────────
+const ESTADO_LABEL = { pendiente: 'Pendiente', lista: 'Lista', pagada: 'Pagada' }
+
+// Fecha 'YYYY-MM-DD' → 'DD/MM/YYYY' (sin desfase de zona horaria)
+function fechaExcel(f) {
+  if (!f) return ''
+  const [y, m, d] = String(f).slice(0, 10).split('-')
+  return (d && m && y) ? `${d}/${m}/${y}` : String(f)
+}
+
+// Exporta el detalle completo de comisiones (todos los estados) tal como está
+// cargado en la vista, respetando el filtro de vendedor si hay uno activo.
+function exportarDetalleExcel() {
+  const lista = (vistaTab.value === 'vendedor' && vendedorSel.value)
+    ? comisiones.value.filter(c => c.vendedor_id === vendedorSel.value)
+    : comisiones.value
+
+  if (!lista.length) {
+    toast.error('No hay comisiones para exportar.')
+    return
+  }
+
+  const filas = lista.map(c => ({
+    'Vendedor':          c.vendedor_nombre ?? '',
+    'Tienda':            c.tienda_nombre ?? '',
+    'Orden N°':          c.orden_numero ?? '',
+    'Estado':            ESTADO_LABEL[c.estado_calculado ?? c.estado] ?? (c.estado_calculado ?? c.estado ?? ''),
+    'Atrasada':          c.atrasada ? 'Sí' : 'No',
+    'Comisión':          Number(c.monto_comision) || 0,
+    'Valor orden':       Number(c.valor_orden) || 0,
+    '% pagado orden':    Number(c.pct_pagado) || 0,
+    'Periodicidad':      c.periodicidad === 'trimestral' ? 'Trimestral' : 'Mensual',
+    'Fecha venta':       fechaExcel(c.fecha_venta),
+    'Mes venta':         c.mes_venta ?? '',
+    'Fecha disponible':  fechaExcel(c.fecha_disponible),
+    'Fecha pago':        fechaExcel(c.fecha_pago),
+    'Pagada por':        c.pagada_por?.nombre ?? '',
+  }))
+
+  exportarExcel(filas, { nombreArchivo: 'comisiones_detalle', hoja: 'Comisiones' })
+}
+
+// Exporta el resumen del mes seleccionado (una fila por vendedor + totales).
+function exportarResumenExcel() {
+  if (!resumenData.value.length) {
+    toast.error('No hay resumen para exportar.')
+    return
+  }
+
+  const filas = resumenData.value.map(r => ({
+    'Vendedor':       r.vendedor_nombre ?? '',
+    'Tienda':         r.tienda_nombre ?? '',
+    'Órdenes':        Number(r.total_ordenes) || 0,
+    'Ventas del mes': Number(r.total_ventas) || 0,
+    'Comisión total': Number(r.comision_total) || 0,
+    'Pendientes':     Number(r.pendientes) || 0,
+    'Listas':         Number(r.listas) || 0,
+    'Pagadas':        Number(r.pagadas) || 0,
+  }))
+
+  // Fila de totales
+  filas.push({
+    'Vendedor':       'TOTAL',
+    'Tienda':         '',
+    'Órdenes':        totalGeneral.value.ordenes,
+    'Ventas del mes': totalGeneral.value.ventas,
+    'Comisión total': totalGeneral.value.comision,
+    'Pendientes':     totalGeneral.value.pendientes,
+    'Listas':         totalGeneral.value.listas,
+    'Pagadas':        totalGeneral.value.pagadas,
+  })
+
+  exportarExcel(filas, { nombreArchivo: `comisiones_resumen_${mesActual.value}`, hoja: 'Resumen' })
+}
+
 onMounted(async () => {
   await cargar()
   await cargarTodosVendedores()
@@ -329,6 +406,15 @@ onMounted(async () => {
         Comisiones
       </h1>
       <div class="flex gap-2">
+        <button
+          v-if="vistaTab !== 'resumen' && comisiones.length"
+          @click="exportarDetalleExcel"
+          title="Descargar Excel (detalle de comisiones)"
+          class="flex items-center gap-1 text-xs font-semibold text-white bg-green-600 rounded-lg px-2.5 py-1.5 hover:bg-green-700"
+        >
+          <ArrowDownTrayIcon class="w-3.5 h-3.5" />
+          Excel
+        </button>
         <button
           @click="mostrarMetas = !mostrarMetas; mostrarMetas && cargarTodosVendedores()"
           class="flex items-center gap-1 text-xs font-semibold text-gray-600 border border-gray-200 bg-white rounded-lg px-2.5 py-1.5 hover:bg-gray-50"
@@ -460,14 +546,25 @@ onMounted(async () => {
     <!-- ── VISTA RESUMEN ────────────────────────────────────────────────────── -->
     <template v-if="vistaTab === 'resumen'">
       <!-- Selector mes -->
-      <div class="flex items-center justify-between mb-3">
+      <div class="flex items-center justify-between mb-3 gap-2">
         <p class="text-xs font-semibold text-gray-600">Mes de análisis</p>
-        <input
-          type="month"
-          v-model="mesActual"
-          @change="cargarResumen"
-          class="text-xs border border-gray-200 rounded-lg px-2 py-1 focus:ring-2 focus:ring-green-500 focus:border-transparent"
-        />
+        <div class="flex items-center gap-2">
+          <button
+            v-if="resumenData.length"
+            @click="exportarResumenExcel"
+            title="Descargar Excel (resumen del mes)"
+            class="flex items-center gap-1 text-xs font-semibold text-white bg-green-600 rounded-lg px-2.5 py-1 hover:bg-green-700"
+          >
+            <ArrowDownTrayIcon class="w-3.5 h-3.5" />
+            Excel
+          </button>
+          <input
+            type="month"
+            v-model="mesActual"
+            @change="cargarResumen"
+            class="text-xs border border-gray-200 rounded-lg px-2 py-1 focus:ring-2 focus:ring-green-500 focus:border-transparent"
+          />
+        </div>
       </div>
 
       <div v-if="cargandoRes" class="flex justify-center py-12">
