@@ -12,7 +12,9 @@ import {
   XMarkIcon,
   TrashIcon,
   ChevronDownIcon,
+  ArrowDownTrayIcon,
 } from '@heroicons/vue/24/outline'
+import { exportarExcel } from '@/utils/exportarExcel'
 
 const auth = useAuthStore()
 
@@ -248,6 +250,26 @@ function tipoIcono(tipo) {
   }[tipo] ?? BanknotesIcon
 }
 
+function fechaCompleta(iso) {
+  if (!iso) return ''
+  return new Date(iso).toLocaleString('es-CO', {
+    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  })
+}
+
+function exportarExcelCaja() {
+  const filas = movimientos.value.map(m => ({
+    'Fecha':       fechaCompleta(m.fecha),
+    'Tipo':        tipoLabel(m.tipo),
+    'Concepto':    m.concepto ?? '',
+    'Método':      m.metodo ?? '',
+    'Monto':       (m.tipo === 'egreso' ? -1 : 1) * (Number(m.monto) || 0),
+    'Registrado por': m.usuario ?? '',
+    'Descripción': m.descripcion ?? '',
+  }))
+  exportarExcel(filas, { nombreArchivo: 'caja_movimientos', hoja: 'Movimientos' })
+}
+
 const balancePositivo = computed(() => balance.value.balance >= 0)
 </script>
 
@@ -330,7 +352,18 @@ const balancePositivo = computed(() => balance.value.balance >= 0)
       <div>
         <div class="flex items-center justify-between mb-2">
           <h2 class="text-sm font-semibold text-gray-600">Movimientos recientes</h2>
-          <span class="text-xs text-gray-400">{{ movimientos.length }} entradas</span>
+          <div class="flex items-center gap-3">
+            <button
+              v-if="movimientos.length"
+              @click="exportarExcelCaja"
+              title="Descargar Excel"
+              class="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-green-600 text-white text-xs font-semibold hover:bg-green-700 transition-colors"
+            >
+              <ArrowDownTrayIcon class="w-3.5 h-3.5" />
+              Excel
+            </button>
+            <span class="text-xs text-gray-400">{{ movimientos.length }} entradas</span>
+          </div>
         </div>
 
         <div v-if="cargandoMovs" class="text-center py-6 text-gray-400 text-sm">Cargando...</div>

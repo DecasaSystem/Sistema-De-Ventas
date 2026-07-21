@@ -17,7 +17,9 @@ import {
   ChevronDownIcon,
   ChevronUpIcon,
   ArrowRightIcon,
+  ArrowDownTrayIcon,
 } from '@heroicons/vue/24/outline'
+import { exportarExcel } from '@/utils/exportarExcel'
 import { getInventario, addStock, removeStock, getVariantes, crearVariante, addStockVariante, getMovimientos } from '@/api/inventario'
 import SurtidosPendientesPanel from '@/components/inventario/SurtidosPendientesPanel.vue'
 import ModalVariantes from '@/components/inventario/ModalVariantes.vue'
@@ -69,6 +71,7 @@ const currentPage = ref(1)
 const lastPage = ref(1)
 const tieneMas = ref(false)
 const loadingMore = ref(false)
+const exportando = ref(false)
 const mostrarGestionar = ref(false)
 const itemGestionar = ref(null)
 const mostrarAgregarStock = ref(false)
@@ -488,6 +491,48 @@ function loadMore() {
   if (loadingMore.value || !tieneMas.value) return
   loadingMore.value = true
   cargarInventario(false)
+}
+
+// Trae TODAS las páginas de la tienda/filtro actual y las exporta a Excel.
+async function exportarExcelInventario() {
+  if (!tiendaId.value || exportando.value) return
+  exportando.value = true
+  try {
+    let page = 1
+    let lastP = 1
+    const todos = []
+    do {
+      const { data } = await getInventario(tiendaId.value, busqueda.value.trim(), page, categoriaFiltro.value)
+      todos.push(...(data.data ?? []))
+      lastP = data.last_page ?? 1
+      page++
+    } while (page <= lastP)
+
+    if (!todos.length) {
+      toast.error('No hay productos para exportar con los filtros actuales.')
+      return
+    }
+
+    const filas = todos.map(it => ({
+      'Producto':   it.producto?.nombre ?? '',
+      'Categoría':  it.producto?.categoria ?? '',
+      'Disponible': Number(it.cantidad_disponible) || 0,
+      'Reservado':  Number(it.cantidad_reservada) || 0,
+      'Libre':      Number(it.stock_libre) || 0,
+      ...(esVistaGlobal.value ? {} : { 'Mínimo': Number(it.stock_minimo) || 0 }),
+      'Precio':     Number(it.producto?.precio_base) || 0,
+    }))
+
+    const nombreTienda = esVistaGlobal.value
+      ? 'todas'
+      : (tiendas.value.find(t => t.id == tiendaId.value)?.nombre ?? 'tienda')
+        .toLowerCase().replace(/\s+/g, '_')
+    exportarExcel(filas, { nombreArchivo: `inventario_${nombreTienda}`, hoja: 'Inventario' })
+  } catch (e) {
+    toast.error('No se pudo generar el Excel. Intenta de nuevo.')
+  } finally {
+    exportando.value = false
+  }
 }
 
 function setupObserver() {
@@ -1251,6 +1296,16 @@ onMounted(async () => {
     <!-- Header -->
     <div class="flex items-center gap-2">
       <h2 class="text-lg font-bold text-gray-800 flex-1">Inventario</h2>
+      <button
+        v-if="tiendaId && inventario.length"
+        @click="exportarExcelInventario"
+        :disabled="exportando"
+        title="Descargar Excel (todo el inventario del filtro actual)"
+        class="flex items-center gap-1.5 bg-green-600 text-white text-sm font-semibold px-3 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
+      >
+        <ArrowDownTrayIcon class="w-4 h-4" />
+        {{ exportando ? '...' : 'Excel' }}
+      </button>
       <button
         v-if="auth.isSupervisor"
         @click="mostrarVariantes = true"

@@ -1,21 +1,25 @@
 ﻿<script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
-import { MagnifyingGlassIcon, Cog6ToothIcon } from '@heroicons/vue/24/outline'
+import { MagnifyingGlassIcon, Cog6ToothIcon, ArrowDownTrayIcon } from '@heroicons/vue/24/outline'
 import { XMarkIcon } from '@heroicons/vue/24/solid'
 import { getOrdenes, getTiendas } from '@/api/ordenes'
 import { useRealtime } from '@/composables/useRealtime'
+import { useToast } from '@/composables/useToast'
+import { exportarExcel } from '@/utils/exportarExcel'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 
 const router = useRouter()
+const toast = useToast()
 
 const ordenes = ref([])
 const loading = ref(true)
 const loadingMore = ref(false)
 const hasMore = ref(true)
 const currentPage = ref(1)
+const exportando = ref(false)
 
 const showFilters = ref(false)
 const tiendas = ref([])
@@ -117,6 +121,54 @@ async function loadMore() {
   await fetchOrdenes(currentPage.value + 1, true)
 }
 
+const estadoLabel = (estado) => estadosOpts.find(e => e.value === estado)?.label ?? estado
+
+// Trae TODAS las páginas que coincidan con los filtros actuales y las exporta.
+async function exportarExcelOrdenes() {
+  if (exportando.value) return
+  exportando.value = true
+  try {
+    const baseParams = {}
+    if (filtros.value.estado)    baseParams.estado    = filtros.value.estado
+    if (filtros.value.tienda_id) baseParams.tienda_id = filtros.value.tienda_id
+    if (filtros.value.desde)     baseParams.desde     = filtros.value.desde
+    if (filtros.value.hasta)     baseParams.hasta     = filtros.value.hasta
+    if (busqueda.value)          baseParams.search    = busqueda.value
+
+    let page = 1
+    let lastPage = 1
+    const todas = []
+    do {
+      const { data } = await getOrdenes({ ...baseParams, page })
+      todas.push(...(data.data ?? []))
+      lastPage = data.last_page ?? 1
+      page++
+    } while (page <= lastPage)
+
+    if (!todas.length) {
+      toast.error('No hay órdenes para exportar con los filtros actuales.')
+      return
+    }
+
+    const filas = todas.map(o => ({
+      'N° orden':         o.numero_orden ?? o.id,
+      'Estado':           estadoLabel(o.estado),
+      'Tipo':             o.tipo === 'restauracion' ? 'Restauración' : 'Venta',
+      'Cliente':          o.cliente?.nombre ?? '',
+      'Tienda':           o.tienda?.nombre ?? '',
+      'Fecha':            o.created_at ? new Date(o.created_at).toLocaleDateString('es-CO') : '',
+      'Valor total':      Number(o.valor_total) || 0,
+      'Saldo pendiente':  Number(o.saldo_pendiente) || 0,
+      'Atrasado':         o.atrasado ? 'Sí' : 'No',
+    }))
+    exportarExcel(filas, { nombreArchivo: 'ordenes_decasa', hoja: 'Órdenes' })
+  } catch (e) {
+    toast.error('No se pudo generar el Excel. Intenta de nuevo.')
+  } finally {
+    exportando.value = false
+  }
+}
+
 function setupObserver() {
   if (observer) observer.disconnect()
 
@@ -178,6 +230,15 @@ onUnmounted(() => {
     <!-- Header -->
     <div class="flex items-center gap-2">
       <h2 class="text-lg font-bold text-gray-800 flex-1">Órdenes</h2>
+      <button
+        @click="exportarExcelOrdenes"
+        :disabled="exportando"
+        title="Descargar Excel (todas las órdenes del filtro actual)"
+        class="text-sm text-white font-medium px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-700 disabled:opacity-50 transition-colors"
+      >
+        <ArrowDownTrayIcon class="w-4 h-4 inline-block mr-1" />
+        {{ exportando ? 'Generando...' : 'Excel' }}
+      </button>
       <button
         @click="showFilters = !showFilters"
         class="text-sm text-blue-600 font-medium px-3 py-1.5 rounded-lg border border-blue-200 hover:bg-blue-50 transition-colors"

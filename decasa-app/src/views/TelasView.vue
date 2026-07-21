@@ -1,10 +1,11 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { MagnifyingGlassIcon, PlusIcon, MinusIcon } from '@heroicons/vue/24/outline'
+import { MagnifyingGlassIcon, PlusIcon, MinusIcon, ArrowDownTrayIcon } from '@heroicons/vue/24/outline'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
 import api from '@/api'
 import { TELAS_CATALOGO } from '@/data/telasCatalogo'
+import { exportarExcel } from '@/utils/exportarExcel'
 
 const auth  = useAuthStore()
 const toast = useToast()
@@ -166,6 +167,18 @@ function colorBadge(metros) {
   return 'bg-green-100 text-green-700'
 }
 
+function exportarExcelTelas() {
+  const filas = telasFiltradas.value.map(t => ({
+    'Marca / Proveedor':   t.marca ?? '',
+    'Tipo':                t.tipo ?? '',
+    'Referencia':          t.referencia ?? '',
+    'Color':               t.color ?? '',
+    'Textura':             t.textura ?? '',
+    'Metros disponibles':  Number(t.metros_libres ?? 0),
+  }))
+  exportarExcel(filas, { nombreArchivo: 'telas_decasa', hoja: 'Telas' })
+}
+
 onMounted(cargar)
 </script>
 
@@ -176,6 +189,15 @@ onMounted(cargar)
       <h2 class="text-lg font-bold text-gray-800">Inventario de telas</h2>
       <div class="flex items-center gap-3">
         <span class="text-xs text-gray-400">{{ telasFiltradas.length }} / {{ telas.length }}</span>
+        <button
+          v-if="telasFiltradas.length"
+          @click="exportarExcelTelas"
+          title="Descargar Excel"
+          class="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-semibold hover:bg-green-700 transition-colors"
+        >
+          <ArrowDownTrayIcon class="w-3.5 h-3.5" />
+          Excel
+        </button>
         <button
           v-if="puedeRecargar"
           @click="abrirCrear"
