@@ -311,7 +311,8 @@ async function completarBorrador() {
 
 const puedeRegistrarPago = computed(() => {
   if (!orden.value) return false
-  if (['entregado', 'cancelado', 'borrador'].includes(orden.value.estado)) return false
+  // 'entregado' se permite para cobrar el saldo residual de una venta directa.
+  if (['cancelado', 'borrador'].includes(orden.value.estado)) return false
   if (orden.value.saldo_pendiente <= 0) return false
   if (auth.isEbanista && Number(orden.value.vendedor_id) !== Number(auth.usuario?.id)) return false
   return true

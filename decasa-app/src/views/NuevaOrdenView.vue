@@ -1079,6 +1079,7 @@ const vendedoresLista      = ref([])
 const cargandoVendedores   = ref(false)
 const submitting           = ref(false)
 const modoGuardarBorrador  = ref(false)
+const entregaInmediata     = ref(false)  // venta directa: el cliente se lleva los productos ya
 const enviarPdfAlGuardarBorrador = ref(false) // true solo si se usó "Guardar borrador y enviar PDF"
 const cooldown             = ref(0)   // segundos restantes antes de poder reintentar
 let   cooldownTimer        = null
@@ -1183,6 +1184,15 @@ const cargandoReceptores  = ref(false)
 const hayItemsCotizar = computed(() =>
   items.value.some(i => i._cotizarPrecio)
 )
+
+// Venta directa solo aplica si todos los ítems son de inventario (nada
+// personalizado, diseño especial ni para fabricar).
+const puedeEntregaInmediata = computed(() =>
+  items.value.length > 0 && items.value.every(i => !i.es_personalizado)
+)
+
+// Si el carrito deja de ser 100% inventario, se apaga la venta directa.
+watch(puedeEntregaInmediata, (ok) => { if (!ok) entregaInmediata.value = false })
 
 watch(esCompartida, async (val) => {
   if (val && !vendedoresLista.value.length) {
@@ -1323,6 +1333,7 @@ async function submit() {
         ].filter(p => p.monto > 0)
       } : {}),
       guardar_borrador:     modoGuardarBorrador.value || undefined,
+      entrega_inmediata:    (entregaInmediata.value && puedeEntregaInmediata.value) || undefined,
       notas:                notas.value || undefined,
       es_compartida:        esCompartida.value || undefined,
       covendedor_id:        (esCompartida.value && covendedorId.value) ? covendedorId.value : undefined,
@@ -2897,6 +2908,25 @@ function removeFacturaFoto() {
         </div>
       </div>
 
+      <!-- Entrega inmediata (venta directa) — solo si todo es de inventario -->
+      <div v-if="puedeEntregaInmediata" class="rounded-xl border p-3"
+        :class="entregaInmediata ? 'border-green-300 bg-green-50' : 'border-gray-200 bg-white'">
+        <label class="flex items-center gap-2.5 cursor-pointer select-none">
+          <div
+            @click="entregaInmediata = !entregaInmediata"
+            :class="['w-10 h-5 rounded-full transition-colors relative flex-shrink-0', entregaInmediata ? 'bg-green-600' : 'bg-gray-300']"
+          >
+            <div :class="['absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform', entregaInmediata ? 'translate-x-5' : 'translate-x-0.5']" />
+          </div>
+          <span class="text-sm font-medium text-gray-700 flex items-center gap-1">
+            🛍️ Entrega inmediata — el cliente se lleva los productos ahora
+          </span>
+        </label>
+        <p v-if="entregaInmediata" class="text-xs text-green-700 mt-1.5 ml-[52px]">
+          La orden se marcará como <strong>entregada</strong> y se descontará el inventario de una. No pasa por supervisor ni despacho. Si el cliente no paga todo, el saldo queda pendiente y lo cobras luego desde el detalle.
+        </p>
+      </div>
+
       <!-- Anticipo — oculto cuando hay ítems con cotización pendiente -->
       <template v-if="!hayItemsCotizar">
         <div v-if="!pagoSplit">
@@ -3249,7 +3279,7 @@ function removeFacturaFoto() {
          class="btn-primary w-full text-base py-3 flex items-center justify-center gap-2"
        >
          <ArrowPathOutlineIcon v-if="submitting && !modoGuardarBorrador" class="w-5 h-5 animate-spin" />
-         {{ subiendoFactura ? 'Subiendo foto...' : (submitting && !modoGuardarBorrador) ? 'Guardando...' : cooldown > 0 ? `Reintentar en ${cooldown}s...` : 'Crear orden' }}
+         {{ subiendoFactura ? 'Subiendo foto...' : (submitting && !modoGuardarBorrador) ? 'Guardando...' : cooldown > 0 ? `Reintentar en ${cooldown}s...` : (entregaInmediata && puedeEntregaInmediata) ? 'Registrar venta directa (entregada)' : 'Crear orden' }}
        </button>
 
        <button

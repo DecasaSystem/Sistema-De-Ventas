@@ -49,9 +49,15 @@ class PagoController extends Controller
             return response()->json(['message' => 'No autorizado.'], 403);
         }
 
-        $estadosQueAceptanPago = ['pendiente_anticipo', 'en_produccion', 'listo_entrega', 'en_camino'];
+        // 'entregado' se acepta para poder cobrar el saldo residual de una venta
+        // directa (el cliente se llevó el producto pagando solo una parte). El guard
+        // de sobrepago más abajo impide registrar pagos si ya no hay saldo.
+        $estadosQueAceptanPago = ['pendiente_anticipo', 'en_produccion', 'listo_entrega', 'en_camino', 'entregado'];
         if (! in_array($orden->estado, $estadosQueAceptanPago)) {
             return response()->json(['message' => 'No se pueden registrar pagos en una orden con estado "' . $orden->estado . '".'], 422);
+        }
+        if ($orden->estado === 'entregado' && $orden->saldoPendiente() <= 0.01) {
+            return response()->json(['message' => 'Esta orden ya está pagada por completo.'], 422);
         }
 
         $data = $request->validate([

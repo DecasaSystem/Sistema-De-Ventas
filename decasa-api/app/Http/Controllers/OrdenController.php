@@ -142,6 +142,7 @@ class OrdenController extends Controller
             'anticipo_pagos.*.metodo'              => 'required_with:anticipo_pagos|in:efectivo,transferencia,tarjeta,otro',
             'anticipo_pagos.*.referencia'          => 'nullable|string|max:100',
             'guardar_borrador'                     => 'nullable|boolean',
+            'entrega_inmediata'                    => 'nullable|boolean',
             'es_compartida'                      => 'nullable|boolean',
             'covendedor_id'                      => 'nullable|integer|exists:usuarios,id',
             'items'                              => 'required|array|min:1',
@@ -172,6 +173,21 @@ class OrdenController extends Controller
         $guardarBorrador = $request->boolean('guardar_borrador', false);
         $tiendaId        = $data['tienda_id'];
         $anticupoPct     = $data['anticipo_pct'] ?? 50;
+
+        // Venta directa: el cliente paga (total o parcial) y se lleva los productos en
+        // el acto. La orden nace 'entregado', descuenta stock de una y no pasa por
+        // supervisor ni despacho. Solo válida para productos de inventario.
+        $entregaInmediata = ! $guardarBorrador && $request->boolean('entrega_inmediata', false);
+        if ($entregaInmediata) {
+            $tienePersonalizados = collect($data['items'])->contains(
+                fn($i) => ($i['es_personalizado'] ?? false) || empty($i['producto_id'])
+            );
+            if ($tienePersonalizados) {
+                return response()->json([
+                    'message' => 'La entrega inmediata solo aplica a productos de inventario. Quita los ítems personalizados, de diseño especial o para fabricar.',
+                ], 422);
+            }
+        }
 
         // Calcular valor total server-side
         $valorTotal = collect($data['items'])->sum(
@@ -210,7 +226,7 @@ class OrdenController extends Controller
             ], 409);
         }
 
-        $orden = DB::transaction(function () use ($data, $tiendaId, $anticupoPct, $valorTotal, $request, $tieneItemsCotizacionPendiente, $guardarBorrador) {
+        $orden = DB::transaction(function () use ($data, $tiendaId, $anticupoPct, $valorTotal, $request, $tieneItemsCotizacionPendiente, $guardarBorrador, $entregaInmediata) {
 
             // --- 1. Verificar stock para items no personalizados (con bloqueo) ---
             foreach ($data['items'] as $item) {
@@ -254,7 +270,12 @@ class OrdenController extends Controller
                 'tienda_id'         => $tiendaId,
                 'canal'             => $data['canal'],
                 'tipo'              => $data['tipo'] ?? 'venta',
-                'estado'            => $guardarBorrador ? 'borrador' : ($tieneItemsCotizacionPendiente ? 'pendiente_cotizacion' : 'pendiente_anticipo'),
+                'estado'            => $guardarBorrador
+                    ? 'borrador'
+                    : ($entregaInmediata
+                        ? 'entregado'
+                        : ($tieneItemsCotizacionPendiente ? 'pendiente_cotizacion' : 'pendiente_anticipo')),
+                'listo_entrega_at'  => $entregaInmediata ? now() : null,
                 'valor_total'       => $valorTotal,
                 'anticipo_pct'      => $anticupoPct,
                 'notas'             => $data['notas'] ?? null,
@@ -319,6 +340,36 @@ class OrdenController extends Controller
                             'estado'           => 'pendiente',
                         ]);
                     }
+                } elseif ($entregaInmediata) {
+                    // Venta directa: el producto sale ya → descontar stock disponible
+                    // (sin reservar, porque el cliente se lo lleva en el acto).
+                    if ($varianteId) {
+                        InventarioVariante::where('variante_id', $varianteId)
+                            ->where('tienda_id', $origenTiendaId)
+                            ->decrement('cantidad_disponible', $itemData['cantidad']);
+                        if ($comboConfigId) {
+                            InventarioVarianteCombinacion::where('variante_id', $varianteId)
+                                ->where('config_id', $comboConfigId)
+                                ->where('tienda_id', $origenTiendaId)
+                                ->decrement('cantidad_disponible', $itemData['cantidad']);
+                        }
+                        Inventario::where('producto_id', $itemData['producto_id'])
+                            ->where('tienda_id', $origenTiendaId)
+                            ->decrement('cantidad_disponible', $itemData['cantidad']);
+                    } else {
+                        Inventario::where('producto_id', $itemData['producto_id'])
+                            ->where('tienda_id', $origenTiendaId)
+                            ->decrement('cantidad_disponible', $itemData['cantidad']);
+                    }
+
+                    InventarioMovimiento::create([
+                        'producto_id' => $itemData['producto_id'],
+                        'tienda_id'   => $origenTiendaId,
+                        'tipo'        => 'salida',
+                        'cantidad'    => $itemData['cantidad'],
+                        'motivo'      => "Venta directa orden #{$orden->id}",
+                        'usuario_id'  => $request->user()->id,
+                    ]);
                 } else {
                     // Reservar stock en la tienda de origen (puede ser otra tienda)
                     $varianteMarca = $specsExtra['variante_marca'] ?? '';
