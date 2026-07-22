@@ -1,5 +1,5 @@
 ﻿<script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { MagnifyingGlassIcon, Cog6ToothIcon, ArrowDownTrayIcon } from '@heroicons/vue/24/outline'
 import { XMarkIcon } from '@heroicons/vue/24/solid'
@@ -116,6 +116,14 @@ function buscar() {
   setupObserver()
 }
 
+// Búsqueda en vivo: espera a que el usuario deje de escribir (debounce) para
+// no disparar una petición por cada tecla.
+let searchTimer = null
+watch(busqueda, () => {
+  clearTimeout(searchTimer)
+  searchTimer = setTimeout(buscar, 350)
+})
+
 async function loadMore() {
   if (loadingMore.value || !hasMore.value) return
   await fetchOrdenes(currentPage.value + 1, true)
@@ -222,6 +230,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (observer) observer.disconnect()
+  clearTimeout(searchTimer)
 })
 </script>
 
