@@ -255,7 +255,7 @@ onUnmounted(() => {
       <input
         v-model="busqueda"
         @keyup.enter="buscar"
-        placeholder="Buscar por cliente..."
+        placeholder="Buscar por cliente o N° de orden..."
         class="w-full rounded-lg border border-gray-300 pl-10 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
       />
     </div>

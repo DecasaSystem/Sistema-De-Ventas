@@ -69,8 +69,15 @@ class OrdenController extends Controller
             $query->whereDate('created_at', '<=', $v);
         }
         if ($search = $request->query('search')) {
-            $term = '%' . mb_strtolower($search) . '%';
-            $query->whereHas('cliente', fn($q) => $q->whereRaw('LOWER(nombre) LIKE ?', [$term]));
+            $limpio = ltrim(trim($search), '#');           // permite escribir "#123"
+            $term   = '%' . mb_strtolower($limpio) . '%';
+            $query->where(function ($q) use ($term, $limpio) {
+                $q->whereHas('cliente', fn($c) => $c->whereRaw('LOWER(nombre) LIKE ?', [$term]))
+                  ->orWhereRaw('LOWER(numero_orden) LIKE ?', [$term]);
+                if (is_numeric($limpio)) {
+                    $q->orWhere('id', (int) $limpio);
+                }
+            });
         }
 
         $ordenes = $query->orderByDesc('created_at')->paginate(20);
