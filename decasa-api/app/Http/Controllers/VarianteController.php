@@ -295,6 +295,63 @@ class VarianteController extends Controller
     }
 
     /**
+     * GET /api/productos/{productoId}/variantes/{varianteId}/uso
+     *
+     * Resume dónde se usa una variante (stock por tienda, combos y órdenes) para
+     * advertir antes de desactivarla.
+     */
+    public function uso(int $productoId, int $varianteId)
+    {
+        $variante = ProductoVariante::where('producto_id', $productoId)->findOrFail($varianteId);
+
+        $stock = InventarioVariante::where('inventario_variantes.variante_id', $varianteId)
+            ->join('tiendas', 'tiendas.id', '=', 'inventario_variantes.tienda_id')
+            ->where('inventario_variantes.cantidad_disponible', '>', 0)
+            ->orderBy('tiendas.nombre')
+            ->get(['tiendas.nombre as tienda', 'inventario_variantes.cantidad_disponible as cantidad']);
+
+        $stockTotal = (int) InventarioVariante::where('variante_id', $varianteId)->sum('cantidad_disponible');
+
+        $combos = (int) DB::table('inventario_variante_combinaciones')
+            ->where('variante_id', $varianteId)
+            ->where('cantidad_disponible', '>', 0)
+            ->count();
+
+        $ordenesCount = (int) DB::table('orden_items')->where('variante_id', $varianteId)->distinct('orden_id')->count('orden_id');
+
+        $ordenes = DB::table('orden_items')
+            ->join('ordenes', 'ordenes.id', '=', 'orden_items.orden_id')
+            ->where('orden_items.variante_id', $varianteId)
+            ->orderByDesc('ordenes.id')
+            ->limit(30)
+            ->get(['ordenes.id', 'ordenes.numero_orden', 'ordenes.estado']);
+
+        return response()->json([
+            'variante'      => $variante,
+            'stock_total'   => $stockTotal,
+            'stock'         => $stock,
+            'combos'        => $combos,
+            'ordenes_count' => $ordenesCount,
+            'ordenes'       => $ordenes,
+        ]);
+    }
+
+    /**
+     * DELETE /api/productos/{productoId}/variantes/{varianteId}
+     *
+     * Desactiva la variante (soft-delete): la oculta del inventario y del selector
+     * de órdenes, pero la conserva para no romper el historial de órdenes que la
+     * usan. Se puede recrear con el mismo tela+color para reactivarla.
+     */
+    public function destroy(int $productoId, int $varianteId)
+    {
+        $variante = ProductoVariante::where('producto_id', $productoId)->findOrFail($varianteId);
+        $variante->update(['activo' => false]);
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
      * POST /api/inventario/variantes/entrada
      *
      * Agrega stock a una variante en una tienda específica.

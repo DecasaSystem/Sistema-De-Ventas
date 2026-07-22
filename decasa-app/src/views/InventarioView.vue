@@ -20,7 +20,7 @@ import {
   ArrowDownTrayIcon,
 } from '@heroicons/vue/24/outline'
 import { exportarExcel } from '@/utils/exportarExcel'
-import { getInventario, addStock, removeStock, getVariantes, crearVariante, addStockVariante, getMovimientos } from '@/api/inventario'
+import { getInventario, addStock, removeStock, getVariantes, crearVariante, addStockVariante, getMovimientos, getVarianteUso, eliminarVariante } from '@/api/inventario'
 import SurtidosPendientesPanel from '@/components/inventario/SurtidosPendientesPanel.vue'
 import ModalVariantes from '@/components/inventario/ModalVariantes.vue'
 import { getTrasladosPendientes, aceptarTraslado, rechazarTraslado } from '@/api/traslados'
@@ -900,6 +900,49 @@ const varianteStockCantidad  = ref(1)
 const varianteStockMotivo    = ref('')
 const varianteStockLoading   = ref(false)
 const varianteStockError     = ref('')
+
+// ── Eliminar (desactivar) variante ────────────────────────────────────────────
+const mostrarEliminarVariante = ref(false)
+const eliminarVarianteUso     = ref(null)   // { stock_total, stock, combos, ordenes_count, ordenes }
+const eliminarVarianteCargando = ref(false) // cargando el resumen de uso
+const eliminarVarianteLoading  = ref(false) // ejecutando el borrado
+
+async function abrirEliminarVariante() {
+  const v   = varianteStockItem.value?.variante
+  const pid = varianteStockItem.value?.item?.producto_id
+  if (!v || !pid) return
+  mostrarEliminarVariante.value  = true
+  eliminarVarianteUso.value      = null
+  eliminarVarianteCargando.value = true
+  try {
+    const { data } = await getVarianteUso(pid, v.id)
+    eliminarVarianteUso.value = data
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudo cargar el uso de la variante.')
+    mostrarEliminarVariante.value = false
+  } finally {
+    eliminarVarianteCargando.value = false
+  }
+}
+
+async function confirmarEliminarVariante() {
+  const v   = varianteStockItem.value?.variante
+  const pid = varianteStockItem.value?.item?.producto_id
+  if (!v || !pid) return
+  eliminarVarianteLoading.value = true
+  try {
+    await eliminarVariante(pid, v.id)
+    toast.success('Variante eliminada.')
+    mostrarEliminarVariante.value = false
+    mostrarStockVariante.value    = false
+    const { data } = await getVariantes(pid, esVistaGlobal.value ? null : tiendaId.value)
+    variantesData.value[pid] = data
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'Error al eliminar la variante.')
+  } finally {
+    eliminarVarianteLoading.value = false
+  }
+}
 
 const mostrarNuevaVariante  = ref(false)
 const varianteProdId        = ref(null)
@@ -2553,7 +2596,79 @@ onMounted(async () => {
               :class="['w-full text-white rounded-lg py-2.5 text-sm font-semibold disabled:opacity-50', varianteStockModo === 'agregar' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700']">
               {{ varianteStockLoading ? 'Guardando...' : varianteStockModo === 'agregar' ? 'Agregar stock' : 'Quitar stock' }}
             </button>
+
+            <!-- Eliminar variante (solo variantes base, no combinaciones) -->
+            <button
+              v-if="auth.isSupervisor && !varianteStockItem?.variante?._config_id"
+              @click="abrirEliminarVariante"
+              class="w-full text-xs text-red-500 font-medium hover:text-red-700 pt-1"
+            >
+              Eliminar esta variante
+            </button>
           </div>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- Modal: Confirmar eliminación de variante (con advertencia de uso) -->
+    <Transition name="fade">
+      <div v-if="mostrarEliminarVariante" class="fixed inset-0 z-[70] flex items-end sm:items-center justify-center" @click.self="mostrarEliminarVariante = false">
+        <div class="absolute inset-0 bg-black/40" />
+        <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-4 max-h-[88vh] overflow-y-auto">
+          <div class="flex items-center justify-between">
+            <h3 class="text-base font-bold text-gray-800">Eliminar variante</h3>
+            <button @click="mostrarEliminarVariante = false" class="text-gray-400 text-2xl leading-none">&times;</button>
+          </div>
+          <p class="text-sm text-gray-600 -mt-1">
+            {{ [varianteStockItem?.variante?.marca, varianteStockItem?.variante?.marca_tela, varianteStockItem?.variante?.nombre_color, varianteStockItem?.variante?.medida].filter(Boolean).join(' · ') }}
+          </p>
+
+          <div v-if="eliminarVarianteCargando" class="text-xs text-gray-400 py-4 text-center">Revisando dónde se usa...</div>
+
+          <template v-else-if="eliminarVarianteUso">
+            <!-- Advertencia de uso -->
+            <div class="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-2 text-xs">
+              <p class="font-semibold text-amber-800 flex items-center gap-1">⚠️ Esta variante está en uso:</p>
+              <div class="flex justify-between text-amber-900">
+                <span>Stock total</span>
+                <span class="font-bold">{{ eliminarVarianteUso.stock_total }} unidad(es)</span>
+              </div>
+              <div v-if="eliminarVarianteUso.stock?.length" class="pl-2 space-y-0.5 text-amber-700">
+                <div v-for="(s, si) in eliminarVarianteUso.stock" :key="si" class="flex justify-between">
+                  <span>{{ s.tienda }}</span><span>{{ s.cantidad }}</span>
+                </div>
+              </div>
+              <div class="flex justify-between text-amber-900">
+                <span>Combinaciones (tela × variante)</span>
+                <span class="font-bold">{{ eliminarVarianteUso.combos }}</span>
+              </div>
+              <div class="flex justify-between text-amber-900">
+                <span>Órdenes que la usan</span>
+                <span class="font-bold">{{ eliminarVarianteUso.ordenes_count }}</span>
+              </div>
+              <div v-if="eliminarVarianteUso.ordenes?.length" class="pl-2 flex flex-wrap gap-1 pt-0.5">
+                <span v-for="o in eliminarVarianteUso.ordenes" :key="o.id"
+                  class="bg-white border border-amber-300 text-amber-800 px-1.5 py-0.5 rounded-full">
+                  #{{ o.numero_orden ?? o.id }}
+                </span>
+              </div>
+            </div>
+
+            <p class="text-xs text-gray-500">
+              La variante se <strong>ocultará</strong> del inventario y del selector de órdenes, pero se conserva para no afectar el historial. Podrás recrearla con el mismo tela+color para recuperarla.
+            </p>
+
+            <div class="flex gap-2">
+              <button @click="mostrarEliminarVariante = false"
+                class="flex-1 rounded-lg border border-gray-300 py-2.5 text-sm font-semibold text-gray-600 hover:bg-gray-50">
+                Cancelar
+              </button>
+              <button @click="confirmarEliminarVariante" :disabled="eliminarVarianteLoading"
+                class="flex-1 rounded-lg bg-red-600 text-white py-2.5 text-sm font-semibold hover:bg-red-700 disabled:opacity-50">
+                {{ eliminarVarianteLoading ? 'Eliminando...' : 'Eliminar de todos modos' }}
+              </button>
+            </div>
+          </template>
         </div>
       </div>
     </Transition>

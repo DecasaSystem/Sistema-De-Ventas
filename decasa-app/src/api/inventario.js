@@ -12,6 +12,12 @@ export const getVariantes = (productoId, tiendaId) =>
 export const crearVariante  = (productoId, data) =>
   api.post(`/productos/${productoId}/variantes`, data)
 
+export const getVarianteUso = (productoId, varianteId) =>
+  api.get(`/productos/${productoId}/variantes/${varianteId}/uso`)
+
+export const eliminarVariante = (productoId, varianteId) =>
+  api.delete(`/productos/${productoId}/variantes/${varianteId}`)
+
 export const addStockVariante = (data) => api.post('/inventario/variantes/entrada', data)
 
 export const getMovimientos = (productoId, tiendaId = null) =>

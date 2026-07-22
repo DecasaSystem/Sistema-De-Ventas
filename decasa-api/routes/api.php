@@ -159,8 +159,10 @@ Route::middleware('auth:sanctum')->group(function () {
     // Variantes de producto (tela/color)
     Route::get('/variantes/telas',           [VarianteController::class, 'telas']);
     Route::get('/productos/{id}/variantes',  [VarianteController::class, 'index']);
+    Route::get('/productos/{id}/variantes/{varianteId}/uso', [VarianteController::class, 'uso'])->whereNumber(['id', 'varianteId']);
     Route::middleware('role:supervisor,vendedor')->group(function () {
         Route::post('/productos/{id}/variantes', [VarianteController::class, 'store']);
+        Route::delete('/productos/{id}/variantes/{varianteId}', [VarianteController::class, 'destroy'])->whereNumber(['id', 'varianteId']);
     });
 
     // Inventario de telas físicas (metros)
