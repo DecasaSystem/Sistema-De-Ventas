@@ -119,8 +119,16 @@
                         <td style="padding: 8px; text-align: center; color: #6b7280; font-size: 10px;">{{ $idx + 1 }}</td>
                         <td style="padding: 8px;">
                             {{ $item->producto->nombre ?? $item->nombre_custom ?? 'Producto personalizado' }}
-                            @if($item->es_personalizado)
-                                <span style="display: inline-block; padding: 1px 6px; background-color: #ede9fe; color: #7c3aed; font-size: 9px; border-radius: 8px; margin-left: 4px;">Personalizado</span>
+                            @php
+                                $tipoBadge = match($item->tipo_item) {
+                                    'personalizado'   => ['Personalizado',   '#ede9fe', '#7c3aed'],
+                                    'diseno_especial' => ['Diseño especial', '#e0e7ff', '#4f46e5'],
+                                    'fabricar'        => ['Para fabricar',    '#fef3c7', '#d97706'],
+                                    default           => null,
+                                };
+                            @endphp
+                            @if($tipoBadge)
+                                <span style="display: inline-block; padding: 1px 6px; background-color: {{ $tipoBadge[1] }}; color: {{ $tipoBadge[2] }}; font-size: 9px; border-radius: 8px; margin-left: 4px;">{{ $tipoBadge[0] }}</span>
                             @endif
                             @php
                                 $specs = $item->specs_personalizacion ?? [];

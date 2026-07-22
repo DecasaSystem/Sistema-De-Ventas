@@ -153,6 +153,7 @@ class OrdenController extends Controller
             'items.*.cantidad'                   => 'required|integer|min:1',
             'items.*.precio_unitario'            => 'required|numeric|min:0',
             'items.*.es_personalizado'           => 'nullable|boolean',
+            'items.*.fabricar_pedido'            => 'nullable|boolean',
             'items.*.usa_stock_tienda'           => 'nullable|boolean',
             'items.*.specs_personalizacion'      => 'nullable|array',
             'items.*.boceto_url'                 => 'nullable|string|max:500',
@@ -297,6 +298,7 @@ class OrdenController extends Controller
                     'cantidad'              => $itemData['cantidad'],
                     'precio_unitario'       => $itemData['precio_unitario'],
                     'es_personalizado'      => $esPersonalizado || $esProductoCustom,
+                    'fabricar_pedido'       => (bool) ($itemData['fabricar_pedido'] ?? false) && ! $esProductoCustom,
                     'specs_personalizacion' => $specsExtra,
                     'boceto_url'            => isset($itemData['boceto_urls'])
                         ? (array_values(array_filter($itemData['boceto_urls']))[0] ?? null)

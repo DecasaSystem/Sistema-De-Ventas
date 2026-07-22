@@ -13,7 +13,7 @@ import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import RegistroPagoModal from '@/components/ordenes/RegistroPagoModal.vue'
 import EditarOrdenModal from '@/components/ordenes/EditarOrdenModal.vue'
 import { SparklesIcon, XMarkIcon } from '@heroicons/vue/24/solid'
-import { DocumentIcon, EnvelopeIcon, ChatBubbleLeftEllipsisIcon, ArrowDownTrayIcon, CalendarIcon, BuildingOffice2Icon, TruckIcon, PencilSquareIcon, ClockIcon, CheckBadgeIcon, LockClosedIcon, WrenchScrewdriverIcon, CheckCircleIcon, UserGroupIcon, CurrencyDollarIcon, BanknotesIcon, ExclamationTriangleIcon } from '@heroicons/vue/24/outline'
+import { DocumentIcon, EnvelopeIcon, ChatBubbleLeftEllipsisIcon, ArrowDownTrayIcon, CalendarIcon, BuildingOffice2Icon, TruckIcon, PencilSquareIcon, ClockIcon, CheckBadgeIcon, LockClosedIcon, WrenchScrewdriverIcon, CheckCircleIcon, UserGroupIcon, CurrencyDollarIcon, BanknotesIcon, ExclamationTriangleIcon, SwatchIcon } from '@heroicons/vue/24/outline'
 import FirmaCanvas from '@/components/FirmaCanvas.vue'
 import DireccionColombia from '@/components/DireccionColombia.vue'
 import { comprimirImagen } from '@/utils/comprimirImagen'
@@ -1250,8 +1250,14 @@ onMounted(cargarOrden)
               <p v-if="origenInventario(item)" class="text-xs text-emerald-600 mt-1 flex items-center gap-1">
                 <BuildingOffice2Icon class="w-3.5 h-3.5" /> Inventario {{ origenInventario(item) }}
               </p>
-              <p v-if="item.es_personalizado" class="text-xs text-purple-600 mt-1 flex items-center gap-1">
+              <p v-if="item.tipo_item === 'personalizado'" class="text-xs text-purple-600 mt-1 flex items-center gap-1">
                 <SparklesIcon class="w-3.5 h-3.5" /> Personalizado
+              </p>
+              <p v-else-if="item.tipo_item === 'diseno_especial'" class="text-xs text-indigo-600 mt-1 flex items-center gap-1">
+                <SwatchIcon class="w-3.5 h-3.5" /> Diseño especial
+              </p>
+              <p v-else-if="item.tipo_item === 'fabricar'" class="text-xs text-amber-600 mt-1 flex items-center gap-1">
+                <WrenchScrewdriverIcon class="w-3.5 h-3.5" /> Para fabricar
               </p>
               <div
                 v-if="specsResumen(item).length"

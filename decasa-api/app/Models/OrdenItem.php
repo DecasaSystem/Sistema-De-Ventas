@@ -10,6 +10,8 @@ class OrdenItem extends Model
 
     public $timestamps = false;
 
+    protected $appends = ['tipo_item'];
+
     protected $fillable = [
         'orden_id',
         'producto_id',
@@ -21,6 +23,7 @@ class OrdenItem extends Model
         'cantidad',
         'precio_unitario',
         'es_personalizado',
+        'fabricar_pedido',
         'usa_stock_tienda',
         'specs_personalizacion',
         'boceto_url',
@@ -33,11 +36,27 @@ class OrdenItem extends Model
         return [
             'precio_unitario'       => 'decimal:2',
             'es_personalizado'      => 'boolean',
+            'fabricar_pedido'       => 'boolean',
             'usa_stock_tienda'      => 'boolean',
             'specs_personalizacion' => 'array',
             'boceto_fotos'          => 'array',
             'fecha_entrega_prom'    => 'date',
         ];
+    }
+
+    /**
+     * Clasifica el ítem para mostrarlo distinto en la orden:
+     *   catalogo        → producto de inventario (sale de stock)
+     *   diseno_especial → producto que no existe en catálogo (a fabricar desde cero)
+     *   fabricar        → producto del catálogo sin stock, mandado a producción
+     *   personalizado   → producto existente al que se le cambian detalles
+     */
+    public function getTipoItemAttribute(): string
+    {
+        if (! $this->es_personalizado)   return 'catalogo';
+        if ($this->producto_id === null) return 'diseno_especial';
+        if ($this->fabricar_pedido)      return 'fabricar';
+        return 'personalizado';
     }
 
     public function getBocetosListAttribute(): array

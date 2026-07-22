@@ -12,7 +12,7 @@ import { TELAS_CATALOGO, marcasOrdenadas, tiposTelaDeM, coloresDeTela } from '@/
 import { cloudinaryOpt } from '@/utils/cloudinary'
 import { comprimirImagen } from '@/utils/comprimirImagen'
 import { ArrowPathIcon, SparklesIcon, XMarkIcon } from '@heroicons/vue/24/solid'
-import { ArrowPathIcon as ArrowPathOutlineIcon, PhotoIcon, UserGroupIcon, ArrowPathIcon as ConvertIcon, ExclamationTriangleIcon, PencilIcon, MapPinIcon, SwatchIcon, CurrencyDollarIcon, PlusIcon } from '@heroicons/vue/24/outline'
+import { ArrowPathIcon as ArrowPathOutlineIcon, PhotoIcon, UserGroupIcon, ArrowPathIcon as ConvertIcon, ExclamationTriangleIcon, PencilIcon, MapPinIcon, SwatchIcon, CurrencyDollarIcon, PlusIcon, GiftIcon } from '@heroicons/vue/24/outline'
 import { getReceptores, crearConsulta } from '@/api/consultas'
 import FirmaCanvas from '@/components/FirmaCanvas.vue'
 import BocetoCanvas from '@/components/BocetoCanvas.vue'
@@ -1136,10 +1136,21 @@ const metodosOpts = [
 ]
 
 function precioEfectivo(item) {
+  if (item._regalo) return 0
   const base = item.precio_unitario ?? 0
   const pct  = item._descuento_pct ?? 0
   if (!pct) return base
   return Math.round(base * (1 - pct / 100))
+}
+
+// Marca/desmarca un ítem como regalo (cortesía). Un regalo vale $0 pero igual
+// descuenta inventario si es un producto de stock (se entrega una unidad real).
+function toggleRegalo(item) {
+  item._regalo = !item._regalo
+  if (item._regalo) {
+    item._cotizarPrecio = false
+    item._descuento_pct = 0
+  }
 }
 
 const valorTotal = computed(() =>
@@ -1206,7 +1217,7 @@ async function submit() {
     return
   }
 
-  const sinPrecio = items.value.filter(i => i.es_personalizado && !i.precio_unitario && !i._cotizarPrecio)
+  const sinPrecio = items.value.filter(i => i.es_personalizado && !i.precio_unitario && !i._cotizarPrecio && !i._regalo)
   if (sinPrecio.length) {
     toast.error(`${sinPrecio.length} producto(s) sin precio. Usa el cotizador IA, ingresa el precio manualmente, o activa "Consultar precio".`)
     return
@@ -1331,6 +1342,7 @@ async function submit() {
         cantidad:                i.cantidad,
         precio_unitario:         i._cotizarPrecio ? 0 : precioEfectivo(i),
         es_personalizado:        i.es_personalizado,
+        fabricar_pedido:         i._fabricar_pedido || undefined,
         fecha_entrega_prometida: i.fecha_entrega_prometida || undefined,
         specs_personalizacion:   i.es_personalizado
           ? (() => {
@@ -2249,7 +2261,11 @@ function removeFacturaFoto() {
               <div class="flex flex-wrap items-center gap-1 mt-0.5">
                 <span v-if="item._fabricar_pedido"
                   class="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full text-xs font-semibold">
-                  🔨 Bajo pedido
+                  🔨 Para fabricar
+                </span>
+                <span v-else-if="item.producto_id === null && item.es_personalizado"
+                  class="bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full text-xs font-semibold">
+                  ✏️ Diseño especial
                 </span>
                 <span v-if="item.variante_label"
                   class="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full text-xs font-medium">
@@ -2259,7 +2275,7 @@ function removeFacturaFoto() {
                   class="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-medium text-xs">
                   <MapPinIcon class="w-3.5 h-3.5 inline-block mr-0.5 -mt-0.5" />{{ item.tienda_origen }}
                 </span>
-                <span v-if="!item._fabricar_pedido && !item.variante_label && !item.tienda_origen" class="text-xs text-gray-400">
+                <span v-if="!item._fabricar_pedido && !(item.producto_id === null && item.es_personalizado) && !item.variante_label && !item.tienda_origen" class="text-xs text-gray-400">
                   {{ item.categoria }}
                 </span>
               </div>
@@ -2279,7 +2295,11 @@ function removeFacturaFoto() {
             </div>
             <div>
               <label class="text-xs text-gray-500">Precio unitario</label>
-              <div v-if="item.es_personalizado && item._cotizarPrecio" class="flex items-center gap-2 h-9 px-3 bg-violet-50 border border-violet-300 rounded-lg">
+              <div v-if="item._regalo" class="flex items-center gap-2 h-9 px-3 bg-pink-50 border border-pink-300 rounded-lg">
+                <GiftIcon class="w-4 h-4 text-pink-500 flex-shrink-0" />
+                <span class="text-xs text-pink-700 font-medium">Regalo · $0</span>
+              </div>
+              <div v-else-if="item.es_personalizado && item._cotizarPrecio" class="flex items-center gap-2 h-9 px-3 bg-violet-50 border border-violet-300 rounded-lg">
                 <CurrencyDollarIcon class="w-4 h-4 text-violet-500 flex-shrink-0" />
                 <span class="text-xs text-violet-700 font-medium">Por definir</span>
               </div>
@@ -2292,8 +2312,21 @@ function removeFacturaFoto() {
             </div>
           </div>
 
+          <!-- Regalo / cortesía — cualquier ítem se puede obsequiar -->
+          <label class="flex items-center gap-2.5 cursor-pointer select-none">
+            <div
+              @click="toggleRegalo(item)"
+              :class="['w-10 h-5 rounded-full transition-colors relative flex-shrink-0', item._regalo ? 'bg-pink-500' : 'bg-gray-300']"
+            >
+              <div :class="['absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform', item._regalo ? 'translate-x-5' : 'translate-x-0.5']" />
+            </div>
+            <span class="text-xs text-gray-600 flex items-center gap-1">
+              <GiftIcon class="w-3.5 h-3.5 text-pink-500" /> Regalo / cortesía (precio $0)
+            </span>
+          </label>
+
           <!-- Descuento — disponible para cualquier ítem con precio definido -->
-          <div v-if="!item._cotizarPrecio" class="flex items-center gap-2">
+          <div v-if="!item._cotizarPrecio && !item._regalo" class="flex items-center gap-2">
             <label class="text-xs text-gray-500 flex-shrink-0">Descuento</label>
             <div class="flex items-center gap-1 flex-1">
               <input
@@ -2314,7 +2347,7 @@ function removeFacturaFoto() {
 
           <!-- Toggle consultar precio — para cualquier ítem personalizado -->
           <label
-            v-if="item.es_personalizado"
+            v-if="item.es_personalizado && !item._regalo"
             class="flex items-center gap-2.5 cursor-pointer select-none mt-0.5"
           >
             <div
@@ -2329,7 +2362,7 @@ function removeFacturaFoto() {
           </label>
 
           <!-- Advertencia precio vacío — solo si no está en modo cotizar -->
-          <p v-if="item.es_personalizado && !item._fabricar_pedido && !item.precio_unitario && !item._cotizarPrecio" class="text-xs text-amber-600 mt-0.5">
+          <p v-if="item.es_personalizado && !item._fabricar_pedido && !item.precio_unitario && !item._cotizarPrecio && !item._regalo" class="text-xs text-amber-600 mt-0.5">
             Sin precio — usa el cotizador IA o ingrésalo manualmente
           </p>
 
