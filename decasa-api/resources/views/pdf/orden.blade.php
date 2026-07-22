@@ -193,9 +193,16 @@
                 unset($specs['notas']);
             @endphp
             <div style="margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #ede9fe;">
+                @php
+                    $tipoTexto = match($item->tipo_item) {
+                        'diseno_especial' => 'diseño especial',
+                        'fabricar'        => 'para fabricar',
+                        default           => 'ítem personalizado',
+                    };
+                @endphp
                 <p style="font-size: 11px; font-weight: bold; color: #374151; margin: 0 0 6px 0;">
                     {{ $item->producto->nombre ?? $item->nombre_custom ?? 'Producto personalizado' }}
-                    <span style="color: #7c3aed; font-weight: normal; font-size: 10px;">(ítem personalizado)</span>
+                    <span style="color: #7c3aed; font-weight: normal; font-size: 10px;">({{ $tipoTexto }})</span>
                 </p>
                 @if(!empty(array_filter($specs, fn($v) => $v !== null && $v !== '')))
                     <p style="font-size: 10px; font-weight: bold; color: #6b7280; margin: 0 0 2px 0;">Especificaciones:</p>
