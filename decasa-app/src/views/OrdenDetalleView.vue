@@ -462,6 +462,15 @@ function specsResumen(item) {
   return partes
 }
 
+// Nombre de la tienda de la que se descuenta el stock de un ítem de inventario.
+// Se muestra como "Inventario {tienda}" (ej. "Inventario Decasa Vía Edén").
+// Aplica a productos de catálogo y a personalizados que se llevan una unidad
+// física de la tienda (usa_stock_tienda). Los personalizados a producción no.
+function origenInventario(item) {
+  if (item.es_personalizado && !item.usa_stock_tienda) return null
+  return item.tienda_origen?.nombre ?? orden.value?.tienda?.nombre ?? null
+}
+
 async function descargarPdf() {
   try {
     const response = await descargarPdfOrden(orden.value.id)
@@ -1238,6 +1247,9 @@ onMounted(cargarOrden)
               <p class="font-medium text-sm text-gray-800">{{ item.producto?.nombre ?? item.nombre_custom ?? 'Producto personalizado' }}</p>
               <p class="text-xs text-gray-400">{{ item.producto?.categoria ?? item.categoria_custom ?? 'personalizado' }}</p>
               <p class="text-xs text-gray-500 mt-0.5">Cantidad: {{ item.cantidad }}</p>
+              <p v-if="origenInventario(item)" class="text-xs text-emerald-600 mt-1 flex items-center gap-1">
+                <BuildingOffice2Icon class="w-3.5 h-3.5" /> Inventario {{ origenInventario(item) }}
+              </p>
               <p v-if="item.es_personalizado" class="text-xs text-purple-600 mt-1 flex items-center gap-1">
                 <SparklesIcon class="w-3.5 h-3.5" /> Personalizado
               </p>

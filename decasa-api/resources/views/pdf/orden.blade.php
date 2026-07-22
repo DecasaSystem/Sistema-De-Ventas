@@ -133,8 +133,13 @@
                             @if(!empty($specs['descripcion']))
                                 <br><span style="font-size: 9px; color: #6b7280;">{{ $specs['descripcion'] }}</span>
                             @endif
-                            @if($item->tienda_origen_id)
-                                <br><span style="font-size: 9px; color: #d97706;">Otra tienda</span>
+                            @php
+                                $origenInventario = (!$item->es_personalizado || $item->usa_stock_tienda)
+                                    ? ($item->tiendaOrigen->nombre ?? $orden->tienda->nombre ?? null)
+                                    : null;
+                            @endphp
+                            @if($origenInventario)
+                                <br><span style="font-size: 9px; color: #059669;">Inventario {{ $origenInventario }}</span>
                             @endif
                         </td>
                         <td style="padding: 8px; text-align: center;">{{ $item->cantidad }}</td>

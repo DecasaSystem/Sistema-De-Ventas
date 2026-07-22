@@ -153,6 +153,7 @@ class OrdenController extends Controller
             'items.*.cantidad'                   => 'required|integer|min:1',
             'items.*.precio_unitario'            => 'required|numeric|min:0',
             'items.*.es_personalizado'           => 'nullable|boolean',
+            'items.*.usa_stock_tienda'           => 'nullable|boolean',
             'items.*.specs_personalizacion'      => 'nullable|array',
             'items.*.boceto_url'                 => 'nullable|string|max:500',
             'items.*.boceto_urls'                => 'nullable|array|max:10',
@@ -376,6 +377,7 @@ class OrdenController extends Controller
             'vendedor:id,nombre',
             'tienda:id,nombre',
             'items.producto:id,nombre,categoria,foto_url',
+            'items.tiendaOrigen:id,nombre',
             'items.produccion',
             'pagos',
         ]);
@@ -581,6 +583,7 @@ class OrdenController extends Controller
             'tienda:id,nombre',
             'covendedor:id,nombre',
             'items.producto:id,nombre,categoria,precio_base,personalizable,foto_url,medidas,material',
+            'items.tiendaOrigen:id,nombre',
             'items.produccion.pasos.completadoPor:id,nombre',
             'items.produccion.despachador:id,nombre',
             'pagos.facturacionTomadaPor:id,nombre',
@@ -1072,6 +1075,7 @@ class OrdenController extends Controller
             'vendedor:id,nombre',
             'tienda:id,nombre',
             'items.producto:id,nombre,categoria,precio_base,personalizable,foto_url,medidas,material',
+            'items.tiendaOrigen:id,nombre',
             'items.produccion',
             'pagos',
             'ediciones.usuario:id,nombre',
@@ -1180,6 +1184,7 @@ class OrdenController extends Controller
             'vendedor:id,nombre',
             'tienda:id,nombre',
             'items.producto:id,nombre,categoria,foto_url',
+            'items.tiendaOrigen:id,nombre',
             'items.produccion',
             'pagos',
         ]);
@@ -1568,6 +1573,7 @@ class OrdenController extends Controller
             'tienda:id,nombre',
             'vendedor:id,nombre,firma_url',
             'items.producto:id,nombre,categoria',
+            'items.tiendaOrigen:id,nombre',
             'pagos',
         ])->findOrFail($id);
 

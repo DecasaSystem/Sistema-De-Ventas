@@ -21,6 +21,7 @@ class OrdenItem extends Model
         'cantidad',
         'precio_unitario',
         'es_personalizado',
+        'usa_stock_tienda',
         'specs_personalizacion',
         'boceto_url',
         'boceto_fotos',
@@ -32,6 +33,7 @@ class OrdenItem extends Model
         return [
             'precio_unitario'       => 'decimal:2',
             'es_personalizado'      => 'boolean',
+            'usa_stock_tienda'      => 'boolean',
             'specs_personalizacion' => 'array',
             'boceto_fotos'          => 'array',
             'fecha_entrega_prom'    => 'date',
