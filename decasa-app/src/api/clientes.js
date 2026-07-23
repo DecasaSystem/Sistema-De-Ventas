@@ -6,6 +6,7 @@ export const getClienteOrdenes = (id, params = {}) => api.get(`/clientes/${id}/o
 export const createCliente = (data) => api.post('/clientes', data)
 export const updateCliente = (id, data) => api.put(`/clientes/${id}`, data)
 export const eliminarCliente = (id) => api.delete(`/clientes/${id}`)
+export const verificarDuplicadoCliente = (params) => api.get('/clientes/verificar-duplicado', { params })
 
 export async function exportarClientes({ tipo = '', search = '' } = {}) {
   const params = new URLSearchParams()

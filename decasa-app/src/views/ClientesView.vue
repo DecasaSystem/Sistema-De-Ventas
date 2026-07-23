@@ -1,5 +1,5 @@
 ﻿<script setup>
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   MagnifyingGlassIcon,
@@ -10,7 +10,7 @@ import {
   UserGroupIcon,
   ArrowDownTrayIcon,
 } from '@heroicons/vue/24/outline'
-import { getClientes, createCliente, updateCliente, exportarClientes } from '@/api/clientes'
+import { getClientes, createCliente, updateCliente, exportarClientes, verificarDuplicadoCliente } from '@/api/clientes'
 import EmptyState from '@/components/common/EmptyState.vue'
 import { useAuthStore } from '@/stores/auth'
 import api from '@/api'
@@ -57,6 +57,27 @@ const nuevo = ref({
   tienda_id: '',
   categorias_interes: [],
   notas_interes: '',
+})
+
+// ── Advertencia de posible cliente duplicado ────────────────────────────────
+const posiblesDuplicados = ref([])
+const verificandoDup     = ref(false)
+let dupTimer = null
+watch(() => [nuevo.value.nombre, nuevo.value.telefono, nuevo.value.email], () => {
+  clearTimeout(dupTimer)
+  const n = (nuevo.value.nombre || '').trim()
+  const t = (nuevo.value.telefono || '').replace(/\D/g, '')
+  const e = (nuevo.value.email || '').trim()
+  // Solo vale la pena consultar si hay email, o nombre + teléfono
+  if (!e && !(n && t)) { posiblesDuplicados.value = []; return }
+  dupTimer = setTimeout(async () => {
+    verificandoDup.value = true
+    try {
+      const { data } = await verificarDuplicadoCliente({ nombre: n, telefono: t, email: e })
+      posiblesDuplicados.value = data ?? []
+    } catch { posiblesDuplicados.value = [] }
+    finally { verificandoDup.value = false }
+  }, 400)
 })
 
 const canalesOpts = [
@@ -144,6 +165,7 @@ function goToCliente(id) {
 
 function abrirCrear() {
   formError.value = ''
+  posiblesDuplicados.value = []
   nuevo.value = {
     nombre: '',
     cedula: '',
@@ -357,6 +379,27 @@ onUnmounted(() => {
             <label class="block text-xs font-medium text-gray-500 mb-1">Email</label>
             <input v-model="nuevo.email" type="email" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="correo@ejemplo.com" />
           </div>
+
+          <!-- Aviso: posible cliente duplicado -->
+          <div v-if="posiblesDuplicados.length" class="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 space-y-1.5">
+            <p class="text-xs font-semibold text-amber-800 flex items-center gap-1">
+              ⚠️ Es posible que este cliente ya exista:
+            </p>
+            <button
+              v-for="c in posiblesDuplicados"
+              :key="c.id"
+              type="button"
+              @click="goToCliente(c.id)"
+              class="w-full text-left bg-white border border-amber-200 rounded-lg px-2.5 py-1.5 hover:bg-amber-100/50 transition-colors"
+            >
+              <p class="text-sm font-medium text-gray-800">{{ c.nombre }}</p>
+              <p class="text-xs text-gray-500">
+                {{ [c.telefono, c.email].filter(Boolean).join(' · ') || 'sin contacto' }}
+              </p>
+            </button>
+            <p class="text-[11px] text-amber-700">Revisa si es el mismo. Si de verdad es otro, puedes crearlo igual.</p>
+          </div>
+
           <div>
             <label class="block text-xs font-medium text-gray-500 mb-1">Dirección</label>
             <input v-model="nuevo.direccion" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Dirección" />

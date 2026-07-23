@@ -130,6 +130,40 @@ class ClienteController extends Controller
     }
 
     /**
+     * GET /api/clientes/verificar-duplicado?nombre=&telefono=&email=
+     *
+     * Advertencia suave: devuelve posibles clientes que ya existen para que el
+     * vendedor confirme antes de crear un duplicado. Coincide si el email es
+     * igual, o si el nombre Y el teléfono son iguales.
+     */
+    public function verificarDuplicado(Request $request)
+    {
+        $nombre   = mb_strtolower(trim((string) $request->query('nombre', '')));
+        $telefono = preg_replace('/\D/', '', (string) $request->query('telefono', ''));
+        $email    = mb_strtolower(trim((string) $request->query('email', '')));
+
+        if ($nombre === '' && $email === '' && $telefono === '') {
+            return response()->json([]);
+        }
+
+        $candidatos = Cliente::query()
+            ->when($nombre !== '',   fn ($q) => $q->orWhereRaw('LOWER(nombre) = ?', [$nombre]))
+            ->when($email !== '',    fn ($q) => $q->orWhereRaw('LOWER(email) = ?', [$email]))
+            ->when($telefono !== '', fn ($q) => $q->orWhere('telefono', 'like', '%' . $telefono . '%'))
+            ->limit(80)
+            ->get(['id', 'nombre', 'telefono', 'email', 'cedula', 'tipo']);
+
+        $matches = $candidatos->filter(function ($c) use ($nombre, $telefono, $email) {
+            $mismoEmail  = $email !== '' && mb_strtolower((string) $c->email) === $email;
+            $mismoNombre = $nombre !== '' && mb_strtolower((string) $c->nombre) === $nombre;
+            $mismoTel    = $telefono !== '' && preg_replace('/\D/', '', (string) $c->telefono) === $telefono;
+            return $mismoEmail || ($mismoNombre && $mismoTel);
+        })->take(5)->values();
+
+        return response()->json($matches);
+    }
+
+    /**
      * DELETE /api/clientes/{id}  (solo supervisor)
      *
      * Elimina un cliente. Se bloquea si tiene órdenes registradas para no

@@ -89,6 +89,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/clientes',               [ClienteController::class, 'index']);
     Route::post('/clientes',              [ClienteController::class, 'store']);
     Route::get('/clientes/exportar',      [ClienteController::class, 'exportar']);
+    Route::get('/clientes/verificar-duplicado', [ClienteController::class, 'verificarDuplicado']);
     Route::get('/clientes/{id}',          [ClienteController::class, 'show']);
     Route::put('/clientes/{id}',          [ClienteController::class, 'update']);
     Route::delete('/clientes/{id}',       [ClienteController::class, 'destroy'])->middleware('role:supervisor');
