@@ -134,6 +134,7 @@ class OrdenController extends Controller
             'canal'                         => 'required|in:fisica,whatsapp,instagram,facebook,pagina,red_social,otro',
             'tipo'                          => 'nullable|in:venta,restauracion',
             'anticipo_pct'                  => 'nullable|numeric|min:1|max:100',
+            'descuento_total'               => 'nullable|numeric|min:0',
             'notas'                              => 'nullable|string|max:1000',
             'factura_foto_url'                   => 'nullable|string|max:500',
             'firma_url'                          => 'nullable|string|max:500',
@@ -196,10 +197,12 @@ class OrdenController extends Controller
             }
         }
 
-        // Calcular valor total server-side
-        $valorTotal = collect($data['items'])->sum(
+        // Calcular valor total server-side (subtotal de ítems menos descuento global)
+        $subtotalItems = collect($data['items'])->sum(
             fn ($i) => $i['cantidad'] * $i['precio_unitario']
         );
+        $descuentoTotal = min((float) ($data['descuento_total'] ?? 0), $subtotalItems);
+        $valorTotal     = $subtotalItems - $descuentoTotal;
 
         // Detectar si hay ítems personalizados sin precio (cotización pendiente)
         $tieneItemsCotizacionPendiente = collect($data['items'])->contains(
@@ -233,7 +236,7 @@ class OrdenController extends Controller
             ], 409);
         }
 
-        $orden = DB::transaction(function () use ($data, $tiendaId, $anticupoPct, $valorTotal, $request, $tieneItemsCotizacionPendiente, $guardarBorrador, $entregaInmediata) {
+        $orden = DB::transaction(function () use ($data, $tiendaId, $anticupoPct, $valorTotal, $descuentoTotal, $request, $tieneItemsCotizacionPendiente, $guardarBorrador, $entregaInmediata) {
 
             // --- 1. Verificar stock para items no personalizados (con bloqueo) ---
             foreach ($data['items'] as $item) {
@@ -284,6 +287,7 @@ class OrdenController extends Controller
                         : ($tieneItemsCotizacionPendiente ? 'pendiente_cotizacion' : 'pendiente_anticipo')),
                 'listo_entrega_at'  => $entregaInmediata ? now() : null,
                 'valor_total'       => $valorTotal,
+                'descuento_total'   => $descuentoTotal,
                 'anticipo_pct'      => $anticupoPct,
                 'notas'             => $data['notas'] ?? null,
                 'es_compartida'     => $data['es_compartida'] ?? false,
@@ -791,6 +795,7 @@ class OrdenController extends Controller
             'ciudad_envio'                  => 'sometimes|nullable|string|max:100',
             'direccion_envio'               => 'sometimes|nullable|string|max:300',
             'anticipo_pct'                  => 'sometimes|nullable|numeric|min:1|max:100',
+            'descuento_total'               => 'sometimes|nullable|numeric|min:0',
             'vendedor_id'                   => 'sometimes|nullable|integer|exists:usuarios,id',
             'tienda_id'                     => 'sometimes|nullable|integer|exists:tiendas,id',
             'covendedor_id'                 => 'sometimes|nullable|integer|exists:usuarios,id',
@@ -1136,9 +1141,18 @@ class OrdenController extends Controller
                 $orden->load('items');
             }
 
-            // Recalcular valor total
+            // Recalcular valor total (subtotal de ítems menos descuento global)
             $orden->refresh()->load('items');
-            $nuevoTotal = $orden->items->sum(fn ($i) => $i->cantidad * $i->precio_unitario);
+            $subtotal  = $orden->items->sum(fn ($i) => $i->cantidad * $i->precio_unitario);
+            $descuento = array_key_exists('descuento_total', $data) && $data['descuento_total'] !== null
+                ? min((float) $data['descuento_total'], $subtotal)
+                : min((float) $orden->descuento_total, $subtotal);
+            $nuevoTotal = $subtotal - $descuento;
+
+            if ((float) $descuento !== (float) $orden->descuento_total) {
+                $cambios[]                      = ['campo' => 'descuento_total', 'label' => 'Descuento al total', 'antes' => (float) $orden->descuento_total, 'despues' => (float) $descuento];
+                $updateOrden['descuento_total'] = $descuento;
+            }
             if ((float) $nuevoTotal !== (float) $orden->valor_total) {
                 $cambios[]            = ['campo' => 'valor_total', 'label' => 'Total de la orden', 'antes' => (float) $orden->valor_total, 'despues' => (float) $nuevoTotal];
                 $updateOrden['valor_total'] = $nuevoTotal;

@@ -59,7 +59,8 @@ async function cargarListasSupervisor() {
 }
 
 // ── Totales en tiempo real ───────────────────────────────────────────────────
-const totalEstimado = computed(() => {
+const descuentoTotalEdit = ref(0)   // descuento global al total (monto)
+const subtotalEstimado = computed(() => {
   const existentes = items.value
     .filter(i => !itemsEliminar.value.includes(i.id))
     .reduce((s, i) => s + precioEfectivo(i) * (i.cantidad || 1), 0)
@@ -67,6 +68,9 @@ const totalEstimado = computed(() => {
     .reduce((s, i) => s + (parseFloat(i.precio_unitario) || 0) * (parseInt(i.cantidad) || 1), 0)
   return existentes + nuevos
 })
+const totalEstimado = computed(() =>
+  Math.max(0, subtotalEstimado.value - (Number(descuentoTotalEdit.value) || 0))
+)
 
 // ── Eliminar ítem existente ──────────────────────────────────────────────────
 function marcarEliminar(item) {
@@ -261,6 +265,7 @@ watch(() => props.show, (v) => {
   direccionEnvio.value = props.orden.direccion_envio ?? ''
   ciudadEnvio.value    = props.orden.ciudad_envio ?? ''
   anticipoPct.value    = props.orden.anticipo_pct ?? ''
+  descuentoTotalEdit.value = Number(props.orden.descuento_total) || 0
 
   pagoAnticipo.value       = (props.orden.pagos ?? []).find(p => p.tipo === 'anticipo') ?? null
   anticipoMonto.value      = pagoAnticipo.value?.monto ?? ''
@@ -439,6 +444,7 @@ async function guardar() {
       direccion_envio: direccionEnvio.value || null,
       ciudad_envio:    ciudadEnvio.value    || null,
       anticipo_pct:    anticipoPct.value !== '' && anticipoPct.value !== null ? Number(anticipoPct.value) : undefined,
+      descuento_total: Number(descuentoTotalEdit.value) || 0,
       items: items.value
         .filter(item => !itemsEliminar.value.includes(item.id))
         .map(item => {
@@ -1051,9 +1057,27 @@ async function guardar() {
 
           <!-- Footer -->
           <div class="sticky bottom-0 bg-white border-t border-gray-100 px-5 py-4 space-y-3">
+            <!-- Descuento al total -->
+            <div class="flex items-center gap-2 text-sm">
+              <span class="text-gray-500 flex-shrink-0">Descuento al total</span>
+              <div class="flex items-center gap-1 ml-auto">
+                <button
+                  v-for="p in [5, 10]" :key="p" type="button"
+                  @click="descuentoTotalEdit = Math.round(subtotalEstimado * p / 100)"
+                  class="px-2 py-1 rounded-lg text-xs font-semibold border border-gray-300 text-gray-600 hover:border-blue-400"
+                >{{ p }}%</button>
+                <span class="text-xs text-gray-400">$</span>
+                <input
+                  v-model.number="descuentoTotalEdit"
+                  type="number" min="0" :max="subtotalEstimado"
+                  placeholder="0"
+                  class="w-24 rounded-lg border border-gray-300 px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
             <!-- Total estimado -->
             <div class="flex items-center justify-between text-sm">
-              <span class="text-gray-500">Total estimado</span>
+              <span class="text-gray-500">Total estimado <span v-if="descuentoTotalEdit > 0" class="text-green-600 font-normal">(subtotal ${{ subtotalEstimado.toLocaleString('es-CO') }})</span></span>
               <span class="font-bold text-gray-900">${{ totalEstimado.toLocaleString('es-CO') }}</span>
             </div>
             <div class="flex gap-3">

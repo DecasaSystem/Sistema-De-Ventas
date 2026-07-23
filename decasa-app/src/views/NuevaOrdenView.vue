@@ -1154,8 +1154,13 @@ function toggleRegalo(item) {
   }
 }
 
-const valorTotal = computed(() =>
+const subtotalItems = computed(() =>
   items.value.reduce((s, i) => i._cotizarPrecio ? s : s + i.cantidad * precioEfectivo(i), 0)
+)
+// Descuento global al total de la orden (monto en COP), aparte del descuento por ítem.
+const descuentoTotal = ref(0)
+const valorTotal = computed(() =>
+  Math.max(0, subtotalItems.value - (Number(descuentoTotal.value) || 0))
 )
 
 const minimoAnticipo = computed(() =>
@@ -1334,6 +1339,7 @@ async function submit() {
       } : {}),
       guardar_borrador:     modoGuardarBorrador.value || undefined,
       entrega_inmediata:    (entregaInmediata.value && puedeEntregaInmediata.value) || undefined,
+      descuento_total:      Number(descuentoTotal.value) > 0 ? Number(descuentoTotal.value) : undefined,
       notas:                notas.value || undefined,
       es_compartida:        esCompartida.value || undefined,
       covendedor_id:        (esCompartida.value && covendedorId.value) ? covendedorId.value : undefined,
@@ -2784,6 +2790,34 @@ function removeFacturaFoto() {
             Subtotal: <strong class="text-gray-800">
               ${{ (item.cantidad * item.precio_unitario).toLocaleString('es-CO') }}
             </strong>
+          </p>
+        </div>
+
+        <!-- Descuento al total de la orden -->
+        <div class="space-y-2">
+          <div class="flex justify-between items-center text-sm">
+            <span class="text-gray-500">Subtotal</span>
+            <span class="font-medium text-gray-700">${{ subtotalItems.toLocaleString('es-CO') }}</span>
+          </div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="text-sm text-gray-500 flex-shrink-0">Descuento al total</span>
+            <div class="flex items-center gap-1 ml-auto">
+              <button
+                v-for="p in [5, 10]" :key="p" type="button"
+                @click="descuentoTotal = Math.round(subtotalItems * p / 100)"
+                class="px-2 py-1 rounded-lg text-xs font-semibold border border-gray-300 text-gray-600 hover:border-blue-400"
+              >{{ p }}%</button>
+              <span class="text-xs text-gray-400">$</span>
+              <input
+                v-model.number="descuentoTotal"
+                type="number" min="0" :max="subtotalItems"
+                placeholder="0"
+                class="w-24 input text-sm text-right"
+              />
+            </div>
+          </div>
+          <p v-if="descuentoTotal > 0" class="text-xs text-green-700 text-right">
+            − ${{ Number(descuentoTotal).toLocaleString('es-CO') }} de descuento
           </p>
         </div>
 

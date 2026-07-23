@@ -160,6 +160,18 @@
                 @endforeach
             </tbody>
             <tfoot>
+                @if($orden->descuento_total > 0)
+                <tr>
+                    <td colspan="4" style="padding: 6px 8px; text-align: right; font-size: 11px; color: #6b7280;">Subtotal:</td>
+                    <td style="padding: 6px 8px; text-align: right; font-size: 11px; color: #6b7280;">$ {{ number_format($orden->valor_total + $orden->descuento_total, 2) }}</td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td colspan="4" style="padding: 6px 8px; text-align: right; font-size: 11px; color: #059669;">Descuento:</td>
+                    <td style="padding: 6px 8px; text-align: right; font-size: 11px; color: #059669;">− $ {{ number_format($orden->descuento_total, 2) }}</td>
+                    <td></td>
+                </tr>
+                @endif
                 <tr style="background-color: #eff6ff;">
                     <td colspan="4" style="padding: 8px; text-align: right; font-weight: bold;">TOTAL:</td>
                     <td style="padding: 8px; text-align: right; font-weight: bold; font-size: 13px; color: #2563eb;">$ {{ number_format($orden->valor_total, 2) }}</td>

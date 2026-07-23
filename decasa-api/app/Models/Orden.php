@@ -18,6 +18,7 @@ class Orden extends Model
         'numero_orden',
         'grupo_secuencia',
         'valor_total',
+        'descuento_total',
         'anticipo_pct',
         'notas',
         'es_compartida',
@@ -35,6 +36,7 @@ class Orden extends Model
     {
         return [
             'valor_total'      => 'decimal:2',
+            'descuento_total'  => 'decimal:2',
             'anticipo_pct'     => 'decimal:2',
             'es_compartida'    => 'boolean',
             'listo_entrega_at' => 'datetime',

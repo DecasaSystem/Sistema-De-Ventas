@@ -1204,6 +1204,10 @@ onMounted(cargarOrden)
       <!-- Progreso de pago -->
       <div class="bg-white rounded-xl shadow-sm p-4 space-y-3">
         <p class="text-xs font-semibold text-gray-500 uppercase">Pago</p>
+        <div v-if="Number(orden.descuento_total) > 0" class="flex justify-between text-sm">
+          <span class="text-gray-500">Descuento al total</span>
+          <span class="font-medium text-green-600">− <MoneyDisplay :amount="orden.descuento_total" /></span>
+        </div>
         <div class="flex justify-between text-sm">
           <span class="text-gray-500">Total</span>
           <MoneyDisplay :amount="orden.valor_total" bold />
