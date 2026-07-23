@@ -16,14 +16,35 @@ import {
   PencilSquareIcon,
   XMarkIcon,
   CheckIcon,
+  TrashIcon,
 } from '@heroicons/vue/24/outline'
-import { getCliente, getClienteOrdenes, updateCliente } from '@/api/clientes'
+import { getCliente, getClienteOrdenes, updateCliente, eliminarCliente } from '@/api/clientes'
+import { useAuthStore } from '@/stores/auth'
+import { useToast } from '@/composables/useToast'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 
 const route = useRoute()
 const router = useRouter()
+const auth   = useAuthStore()
+const toast  = useToast()
+
+const eliminando = ref(false)
+async function eliminarClienteActual() {
+  if (!cliente.value) return
+  if (!confirm(`¿Eliminar a "${cliente.value.nombre}"? Esta acción no se puede deshacer.`)) return
+  eliminando.value = true
+  try {
+    await eliminarCliente(cliente.value.id)
+    toast.success('Cliente eliminado.')
+    router.back()
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudo eliminar el cliente.')
+  } finally {
+    eliminando.value = false
+  }
+}
 
 const cliente = ref(null)
 const ordenes = ref([])
@@ -239,6 +260,16 @@ onMounted(async () => {
       >
         <PencilSquareIcon class="w-3.5 h-3.5" />
         Editar
+      </button>
+      <button
+        v-if="cliente && !editando && auth.isSupervisor"
+        @click="eliminarClienteActual"
+        :disabled="eliminando"
+        class="flex items-center gap-1.5 text-xs text-red-600 border border-red-200 rounded-lg px-2.5 py-1.5 hover:bg-red-50 disabled:opacity-50 transition-colors"
+        title="Eliminar cliente"
+      >
+        <TrashIcon class="w-3.5 h-3.5" />
+        {{ eliminando ? '...' : 'Eliminar' }}
       </button>
     </div>
 

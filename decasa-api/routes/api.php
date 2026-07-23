@@ -91,6 +91,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/clientes/exportar',      [ClienteController::class, 'exportar']);
     Route::get('/clientes/{id}',          [ClienteController::class, 'show']);
     Route::put('/clientes/{id}',          [ClienteController::class, 'update']);
+    Route::delete('/clientes/{id}',       [ClienteController::class, 'destroy'])->middleware('role:supervisor');
     Route::get('/clientes/{id}/ordenes',  [ClienteController::class, 'ordenes']);
 
     // Órdenes

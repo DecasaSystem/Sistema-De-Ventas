@@ -130,6 +130,28 @@ class ClienteController extends Controller
     }
 
     /**
+     * DELETE /api/clientes/{id}  (solo supervisor)
+     *
+     * Elimina un cliente. Se bloquea si tiene órdenes registradas para no
+     * romper el historial (no hay borrado suave en esta tabla).
+     */
+    public function destroy(int $id)
+    {
+        $cliente = Cliente::findOrFail($id);
+
+        $numOrdenes = $cliente->ordenes()->count();
+        if ($numOrdenes > 0) {
+            return response()->json([
+                'message' => "No se puede eliminar a \"{$cliente->nombre}\" porque tiene {$numOrdenes} orden(es) registrada(s).",
+            ], 422);
+        }
+
+        $cliente->delete();
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
      * GET /api/clientes/exportar?tipo=oficial|interesado|&search=
      */
     public function exportar(Request $request)
