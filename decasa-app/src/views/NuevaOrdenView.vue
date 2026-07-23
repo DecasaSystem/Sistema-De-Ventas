@@ -18,6 +18,7 @@ import FirmaCanvas from '@/components/FirmaCanvas.vue'
 import BocetoCanvas from '@/components/BocetoCanvas.vue'
 import DireccionColombia from '@/components/DireccionColombia.vue'
 import ComboInput from '@/components/common/ComboInput.vue'
+import { useTelaFotos } from '@/composables/useTelaFotos'
 
 const router = useRouter()
 const auth   = useAuthStore()
@@ -65,6 +66,13 @@ function tiposConStock(marca) {
 }
 function coloresConStock(marca, tipo) {
   return coloresDeTela(marca, tipo).filter(color => tieneStock(marca, tipo, color))
+}
+
+// Fotos de tela (cargadas una sola vez, cacheadas y optimizadas)
+const { cargarFotosTela, fotosPorColor } = useTelaFotos()
+cargarFotosTela()
+function imgsColor(marca, tipo) {
+  return fotosPorColor(marca, tipo, coloresConStock(marca, tipo))
 }
 
 // ── Paso 1: Cliente ───────────────────────────────────────────────────────────
@@ -2168,6 +2176,7 @@ function removeFacturaFoto() {
                 <ComboInput
                   :model-value="getTelaSelection(restauracionItem, 'tela').color"
                   :options="coloresConStock(getTelaSelection(restauracionItem, 'tela').marca, getTelaSelection(restauracionItem, 'tela').tipo)"
+                  :images="imgsColor(getTelaSelection(restauracionItem, 'tela').marca, getTelaSelection(restauracionItem, 'tela').tipo)"
                   placeholder="Buscar color..."
                   @update:model-value="v => getTelaSelection(restauracionItem, 'tela').color = v"
                 />
@@ -2423,6 +2432,7 @@ function removeFacturaFoto() {
                   <ComboInput
                     :model-value="getTelaSelection(item, 'tela').color"
                     :options="coloresConStock(getTelaSelection(item, 'tela').marca, getTelaSelection(item, 'tela').tipo)"
+                    :images="imgsColor(getTelaSelection(item, 'tela').marca, getTelaSelection(item, 'tela').tipo)"
                     placeholder="Buscar color..."
                     @update:model-value="v => getTelaSelection(item, 'tela').color = v"
                   />
@@ -2475,6 +2485,7 @@ function removeFacturaFoto() {
                     <ComboInput
                       :model-value="getTelaSelection(item, 'tela').color"
                       :options="coloresConStock(getTelaSelection(item, 'tela').marca, getTelaSelection(item, 'tela').tipo)"
+                      :images="imgsColor(getTelaSelection(item, 'tela').marca, getTelaSelection(item, 'tela').tipo)"
                       placeholder="Buscar color..."
                       @update:model-value="v => getTelaSelection(item, 'tela').color = v"
                     />
@@ -2547,6 +2558,7 @@ function removeFacturaFoto() {
                           <ComboInput
                             :model-value="getTelaSelection(item, campo.key).color"
                             :options="coloresConStock(getTelaSelection(item, campo.key).marca, getTelaSelection(item, campo.key).tipo)"
+                            :images="imgsColor(getTelaSelection(item, campo.key).marca, getTelaSelection(item, campo.key).tipo)"
                             placeholder="Buscar color..."
                             @update:model-value="v => getTelaSelection(item, campo.key).color = v"
                           />

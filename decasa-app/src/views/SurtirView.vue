@@ -26,10 +26,15 @@ import { getVariantes } from '@/api/inventario'
 import api from '@/api'
 import { useToast } from '@/composables/useToast'
 import ComboInput from '@/components/common/ComboInput.vue'
+import { useTelaFotos } from '@/composables/useTelaFotos'
 import { TELAS_CATALOGO, marcasOrdenadas, tiposTelaDeM, coloresDeTela } from '@/data/telasCatalogo'
 
 const toast = useToast()
 const auth  = useAuthStore()
+
+// Fotos de tela (cargadas una sola vez, cacheadas y optimizadas)
+const { cargarFotosTela, fotosPorColor } = useTelaFotos()
+cargarFotosTela()
 
 function thumbUrl(url, size = 80) {
   if (!url || !url.includes('cloudinary.com')) return url
@@ -1101,6 +1106,7 @@ onMounted(async () => {
                   <ComboInput
                     :model-value="item.especificaciones.color"
                     :options="coloresParaEsp(item.especificaciones)"
+                    :images="fotosPorColor(item.especificaciones.marca, item.especificaciones.tela, coloresParaEsp(item.especificaciones))"
                     :placeholder="coloresParaEsp(item.especificaciones).length ? 'Selecciona o escribe un color…' : 'Ej: Marfil, Beige…'"
                     class="mt-0.5"
                     @update:model-value="v => item.especificaciones.color = v"

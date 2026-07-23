@@ -13,11 +13,16 @@ import { useAuthStore } from '@/stores/auth'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ComboInput from '@/components/common/ComboInput.vue'
+import { useTelaFotos } from '@/composables/useTelaFotos'
 import api from '@/api'
 
 const toast      = useToast()
 const auth       = useAuthStore()
 const soloLectura = computed(() => !auth.isSupervisor)
+
+// Fotos de tela (cargadas una sola vez, cacheadas y optimizadas)
+const { cargarFotosTela, fotosPorColor } = useTelaFotos()
+cargarFotosTela()
 
 const fabricaId             = ref(null)
 const inventario            = ref([])
@@ -822,6 +827,7 @@ onMounted(async () => {
               v-if="coloresOpciones.length"
               :model-value="formVariante.nombre_color"
               :options="[...coloresOpciones, 'Otro']"
+              :images="fotosPorColor(formVariante.marca, formVariante.marca_tela, coloresOpciones)"
               placeholder="Buscar color..."
               @update:model-value="v => formVariante.nombre_color = v"
             />

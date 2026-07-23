@@ -18,9 +18,14 @@ import {
 import { getRestauraciones, createRestauracion } from '@/api/restauraciones'
 import { getClientes } from '@/api/clientes'
 import { useToast } from '@/composables/useToast'
+import { useTelaFotos } from '@/composables/useTelaFotos'
 
 const auth  = useAuthStore()
 const toast = useToast()
+
+// Fotos de tela (cargadas una sola vez, cacheadas y optimizadas)
+const { cargarFotosTela, fotoDeTela } = useTelaFotos()
+cargarFotosTela()
 
 // ── Telas ─────────────────────────────────────────────────────────────────────
 const telaMetrosMap = ref({})
@@ -533,9 +538,14 @@ onMounted(async () => {
                         </template>
                       </template>
 
-                      <p v-if="telaResumidaCampo(item, 'tela')" class="text-xs font-semibold text-amber-700">
-                        ✓ {{ telaResumidaCampo(item, 'tela') }}
-                      </p>
+                      <div v-if="telaResumidaCampo(item, 'tela')" class="flex items-center gap-2">
+                        <img
+                          v-if="fotoDeTela(getTelaSelection(item, 'tela').marca, getTelaSelection(item, 'tela').tipo, getTelaSelection(item, 'tela').color)"
+                          :src="fotoDeTela(getTelaSelection(item, 'tela').marca, getTelaSelection(item, 'tela').tipo, getTelaSelection(item, 'tela').color)"
+                          class="w-9 h-9 rounded-lg object-cover border border-amber-200"
+                        />
+                        <p class="text-xs font-semibold text-amber-700">✓ {{ telaResumidaCampo(item, 'tela') }}</p>
+                      </div>
                       <p v-else-if="Object.keys(telaMetrosMap).length && !marcasConStock().length" class="text-xs text-red-600 italic">
                         No hay telas disponibles en este momento.
                       </p>

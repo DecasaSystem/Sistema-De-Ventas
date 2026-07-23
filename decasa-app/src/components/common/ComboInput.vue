@@ -6,7 +6,11 @@ const props = defineProps({
   options:     { type: Array,   default: () => [] },
   placeholder: { type: String,  default: '' },
   disabled:    { type: Boolean, default: false },
+  // Mapa opcional { opcion: url_foto } para mostrar un thumbnail junto a cada opción.
+  images:      { type: Object,  default: () => ({}) },
 })
+
+const imagenActual = computed(() => props.images?.[props.modelValue] || '')
 
 const emit = defineEmits(['update:modelValue'])
 
@@ -65,6 +69,11 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll, { capture: 
 
 <template>
   <div class="relative">
+    <img
+      v-if="imagenActual"
+      :src="imagenActual"
+      class="absolute left-1 top-1/2 -translate-y-1/2 w-6 h-6 rounded object-cover border border-gray-200 pointer-events-none"
+    />
     <input
       ref="inputRef"
       :value="local"
@@ -74,7 +83,7 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll, { capture: 
       :placeholder="placeholder"
       :disabled="disabled"
       autocomplete="off"
-      class="w-full rounded border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-400"
+      :class="['w-full rounded border border-gray-300 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-400', imagenActual ? 'pl-9 pr-2' : 'px-2']"
     />
 
     <Teleport to="body">
@@ -88,9 +97,10 @@ onBeforeUnmount(() => window.removeEventListener('scroll', onScroll, { capture: 
           :key="opt"
           type="button"
           @mousedown.prevent="seleccionar(opt)"
-          class="w-full text-left px-3 py-1.5 text-xs hover:bg-blue-50 transition-colors"
+          class="w-full text-left px-3 py-1.5 text-xs hover:bg-blue-50 transition-colors flex items-center gap-2"
         >
-          {{ opt }}
+          <img v-if="images?.[opt]" :src="images[opt]" class="w-7 h-7 rounded object-cover border border-gray-200 flex-shrink-0" />
+          <span>{{ opt }}</span>
         </button>
       </div>
     </Teleport>

@@ -26,6 +26,7 @@ import ModalVariantes from '@/components/inventario/ModalVariantes.vue'
 import { getTrasladosPendientes, aceptarTraslado, rechazarTraslado } from '@/api/traslados'
 import { useRealtime } from '@/composables/useRealtime'
 import { TELAS_CATALOGO, marcasOrdenadas, tiposTelaDeM, coloresDeTela } from '@/data/telasCatalogo'
+import { useTelaFotos } from '@/composables/useTelaFotos'
 import { cloudinaryOpt } from '@/utils/cloudinary'
 import { useToast } from '@/composables/useToast'
 import { getTiendas } from '@/api/ordenes'
@@ -37,6 +38,10 @@ import { comprimirImagen } from '@/utils/comprimirImagen'
 const router = useRouter()
 const route = useRoute()
 const auth = useAuthStore()
+
+// Fotos de tela (cargadas una sola vez, cacheadas y optimizadas)
+const { cargarFotosTela, fotoDeTela } = useTelaFotos()
+cargarFotosTela()
 
 const CATEGORY_LABELS = {
   'cajoneros':       'Cajoneros',
@@ -2937,8 +2942,13 @@ onMounted(async () => {
                 </select>
               </div>
 
-              <div v-if="marcaFinal && telaFinal && colorFinal" class="bg-blue-50 rounded-lg px-3 py-2 text-xs text-blue-700 font-medium">
-                Variante: {{ marcaFinal }} · {{ telaFinal }} · {{ colorFinal }}
+              <div v-if="marcaFinal && telaFinal && colorFinal" class="bg-blue-50 rounded-lg px-3 py-2 text-xs text-blue-700 font-medium flex items-center gap-2">
+                <img
+                  v-if="fotoDeTela(marcaFinal, telaFinal, colorFinal)"
+                  :src="fotoDeTela(marcaFinal, telaFinal, colorFinal)"
+                  class="w-9 h-9 rounded-lg object-cover border border-blue-200"
+                />
+                <span>Variante: {{ marcaFinal }} · {{ telaFinal }} · {{ colorFinal }}</span>
               </div>
             </template>
 
