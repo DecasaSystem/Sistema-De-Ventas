@@ -804,11 +804,18 @@ class OrdenController extends Controller
             'items.*.producto_id'           => 'sometimes|nullable|exists:productos,id',
             'items_eliminar'                => 'sometimes|nullable|array',
             'items_eliminar.*'              => 'integer|exists:orden_items,id',
-            'items_nuevos'                  => 'sometimes|nullable|array',
-            'items_nuevos.*.producto_id'    => 'required_with:items_nuevos|integer|exists:productos,id',
-            'items_nuevos.*.cantidad'       => 'required_with:items_nuevos|integer|min:1',
-            'items_nuevos.*.precio_unitario'=> 'required_with:items_nuevos|numeric|min:0',
-            'items_nuevos.*.fecha_entrega_prom' => 'sometimes|nullable|date',
+            'items_nuevos'                       => 'sometimes|nullable|array',
+            'items_nuevos.*.producto_id'         => 'nullable|integer|exists:productos,id',
+            'items_nuevos.*.nombre_custom'       => 'required_without:items_nuevos.*.producto_id|nullable|string|max:200',
+            'items_nuevos.*.categoria_custom'    => 'nullable|string|max:100',
+            'items_nuevos.*.cantidad'            => 'required_with:items_nuevos|integer|min:1',
+            'items_nuevos.*.precio_unitario'     => 'required_with:items_nuevos|numeric|min:0',
+            'items_nuevos.*.es_personalizado'    => 'nullable|boolean',
+            'items_nuevos.*.fabricar_pedido'     => 'nullable|boolean',
+            'items_nuevos.*.specs_personalizacion' => 'nullable|array',
+            'items_nuevos.*.boceto_urls'         => 'nullable|array|max:10',
+            'items_nuevos.*.boceto_urls.*'       => 'nullable|string|max:500',
+            'items_nuevos.*.fecha_entrega_prom'  => 'sometimes|nullable|date',
         ]);
 
         $orden = Orden::with(['items', 'items.producto:id,nombre'])->findOrFail($id);
@@ -1056,46 +1063,72 @@ class OrdenController extends Controller
             // ── Agregar ítems nuevos ──────────────────────────────────────────
             if (! empty($data['items_nuevos'])) {
                 foreach ($data['items_nuevos'] as $nuevoData) {
-                    $productoId = (int) $nuevoData['producto_id'];
-                    $cantidad   = (int) $nuevoData['cantidad'];
-                    $precio     = (float) $nuevoData['precio_unitario'];
-                    $origenId   = (int) $orden->tienda_id;
+                    $esCustom        = empty($nuevoData['producto_id']);                 // diseño especial (fuera de catálogo)
+                    $esPersonalizado = (bool) ($nuevoData['es_personalizado'] ?? false) || $esCustom;
+                    $fabricarPedido  = (bool) ($nuevoData['fabricar_pedido'] ?? false) && ! $esCustom;
+                    $productoId      = $esCustom ? null : (int) $nuevoData['producto_id'];
+                    $cantidad        = (int) $nuevoData['cantidad'];
+                    $precio          = (float) $nuevoData['precio_unitario'];
+                    $origenId        = (int) $orden->tienda_id;
 
-                    // Verificar stock disponible
-                    $inv        = Inventario::where('producto_id', $productoId)->where('tienda_id', $origenId)->lockForUpdate()->first();
-                    $stockLibre = $inv ? ($inv->cantidad_disponible - $inv->cantidad_reservada) : 0;
-                    if ($stockLibre < $cantidad) {
-                        $nomProd = Producto::find($productoId)?->nombre ?? "Producto #{$productoId}";
-                        abort(422, "Stock insuficiente para \"{$nomProd}\". Libre: {$stockLibre}, necesario: {$cantidad}.");
+                    $bocetos = array_values(array_filter($nuevoData['boceto_urls'] ?? []));
+
+                    // Solo los ítems de stock verifican y reservan inventario.
+                    if (! $esPersonalizado) {
+                        $inv        = Inventario::where('producto_id', $productoId)->where('tienda_id', $origenId)->lockForUpdate()->first();
+                        $stockLibre = $inv ? ($inv->cantidad_disponible - $inv->cantidad_reservada) : 0;
+                        if ($stockLibre < $cantidad) {
+                            $nomProd = Producto::find($productoId)?->nombre ?? "Producto #{$productoId}";
+                            abort(422, "Stock insuficiente para \"{$nomProd}\". Libre: {$stockLibre}, necesario: {$cantidad}.");
+                        }
                     }
 
                     $nuevoItem = OrdenItem::create([
-                        'orden_id'           => $orden->id,
-                        'producto_id'        => $productoId,
-                        'cantidad'           => $cantidad,
-                        'precio_unitario'    => $precio,
-                        'es_personalizado'   => false,
-                        'tienda_origen_id'   => $origenId,
-                        'fecha_entrega_prom' => $nuevoData['fecha_entrega_prom'] ?? null,
+                        'orden_id'              => $orden->id,
+                        'producto_id'           => $productoId,
+                        'nombre_custom'         => $esCustom ? ($nuevoData['nombre_custom'] ?? null) : null,
+                        'categoria_custom'      => $esCustom ? ($nuevoData['categoria_custom'] ?? null) : null,
+                        'cantidad'              => $cantidad,
+                        'precio_unitario'       => $precio,
+                        'es_personalizado'      => $esPersonalizado,
+                        'fabricar_pedido'       => $fabricarPedido,
+                        'tienda_origen_id'      => $esPersonalizado ? null : $origenId,
+                        'specs_personalizacion' => $nuevoData['specs_personalizacion'] ?? null,
+                        'boceto_url'            => $bocetos[0] ?? null,
+                        'boceto_fotos'          => count($bocetos) > 1 ? $bocetos : null,
+                        'fecha_entrega_prom'    => $nuevoData['fecha_entrega_prom'] ?? null,
                     ]);
 
-                    Inventario::where('producto_id', $productoId)->where('tienda_id', $origenId)
-                        ->increment('cantidad_reservada', $cantidad);
-                    InventarioMovimiento::create([
-                        'producto_id' => $productoId,
-                        'tienda_id'   => $origenId,
-                        'tipo'        => 'reserva',
-                        'cantidad'    => $cantidad,
-                        'motivo'      => "Edición orden #{$orden->id} — ítem agregado",
-                        'usuario_id'  => $usuario->id,
-                    ]);
+                    if ($esPersonalizado) {
+                        // Ítem a producción: crear su registro (supervisor asigna fecha después).
+                        Produccion::create([
+                            'orden_item_id'    => $nuevoItem->id,
+                            'fecha_inicio'     => now()->toDateString(),
+                            'fecha_compromiso' => null,
+                            'estado'           => 'pendiente',
+                        ]);
+                    } else {
+                        Inventario::where('producto_id', $productoId)->where('tienda_id', $origenId)
+                            ->increment('cantidad_reservada', $cantidad);
+                        InventarioMovimiento::create([
+                            'producto_id' => $productoId,
+                            'tienda_id'   => $origenId,
+                            'tipo'        => 'reserva',
+                            'cantidad'    => $cantidad,
+                            'motivo'      => "Edición orden #{$orden->id} — ítem agregado",
+                            'usuario_id'  => $usuario->id,
+                        ]);
+                    }
 
-                    $nomProd   = Producto::find($productoId)?->nombre ?? "Producto #{$productoId}";
+                    $nomProd   = $esCustom
+                        ? ($nuevoData['nombre_custom'] ?? 'Diseño especial')
+                        : (Producto::find($productoId)?->nombre ?? "Producto #{$productoId}");
+                    $tipoTxt   = $esCustom ? ' (diseño especial)' : ($fabricarPedido ? ' (para fabricar)' : ($esPersonalizado ? ' (personalizado)' : ''));
                     $cambios[] = [
                         'campo'   => "item_nuevo_{$nuevoItem->id}",
                         'label'   => 'Ítem agregado',
                         'antes'   => null,
-                        'despues' => "{$nomProd} × {$cantidad} @ $" . number_format($precio, 0, ',', '.'),
+                        'despues' => "{$nomProd}{$tipoTxt} × {$cantidad} @ $" . number_format($precio, 0, ',', '.'),
                     ];
                 }
 

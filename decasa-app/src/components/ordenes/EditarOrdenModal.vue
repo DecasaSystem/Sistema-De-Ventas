@@ -5,7 +5,8 @@ import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
 import { TELAS_CATALOGO, marcasOrdenadas, tiposTelaDeM, coloresDeTela } from '@/data/telasCatalogo'
 import { SPECS_TEMPLATES, resolverCategoria } from '@/constants/specsConfig'
-import { XMarkIcon, SparklesIcon, MagnifyingGlassIcon, TrashIcon, PlusIcon } from '@heroicons/vue/24/outline'
+import { XMarkIcon, SparklesIcon, MagnifyingGlassIcon, TrashIcon, PlusIcon, PhotoIcon, WrenchScrewdriverIcon } from '@heroicons/vue/24/outline'
+import { comprimirImagen } from '@/utils/comprimirImagen'
 import api from '@/api'
 
 const props = defineProps({
@@ -84,7 +85,27 @@ function desmarcarEliminar(itemId) {
 const nuevoQuery      = ref('')
 const nuevoResultados = ref([])
 const nuevoBuscando   = ref(false)
-const nuevoItem       = ref({ producto_id: null, producto_nombre: '', cantidad: 1, precio_unitario: '' })
+function nuevoItemVacio() {
+  return {
+    producto_id: null, producto_nombre: '', producto_categoria: null, personalizable: false,
+    es_custom: false, nombre_custom: '', categoria_custom: '',
+    modo: 'stock',              // 'stock' | 'personalizado' | 'fabricar' (para productos de catálogo)
+    cantidad: 1, precio_unitario: '',
+    specs: {}, specs_notas: '', _telaSelections: {},
+    boceto_urls: [], _subiendo: false,
+  }
+}
+const nuevoItem       = ref(nuevoItemVacio())
+
+// Template de specs según la categoría del ítem nuevo (mismo criterio que al crear).
+const nuevoTemplate = computed(() => {
+  const cat = nuevoItem.value.es_custom ? nuevoItem.value.categoria_custom : nuevoItem.value.producto_categoria
+  return SPECS_TEMPLATES[resolverCategoria(cat)] ?? SPECS_TEMPLATES['generico']
+})
+// ¿El ítem nuevo va a producción? (personalizado, para fabricar o diseño especial)
+const nuevoEsProduccion = computed(() =>
+  nuevoItem.value.es_custom || nuevoItem.value.modo === 'personalizado' || nuevoItem.value.modo === 'fabricar'
+)
 
 let nuevoDebounce = null
 async function onBuscarNuevo(term) {
@@ -101,16 +122,85 @@ async function onBuscarNuevo(term) {
   }, 300)
 }
 function seleccionarNuevo(prod) {
-  nuevoItem.value.producto_id    = prod.id
-  nuevoItem.value.producto_nombre = prod.nombre
-  nuevoItem.value.precio_unitario = prod.precio_base ?? ''
+  nuevoItem.value.producto_id        = prod.id
+  nuevoItem.value.producto_nombre    = prod.nombre
+  nuevoItem.value.producto_categoria = prod.categoria ?? null
+  nuevoItem.value.personalizable     = !!prod.personalizable
+  nuevoItem.value.precio_unitario    = prod.precio_base ?? ''
+  nuevoItem.value.es_custom          = false
+  nuevoItem.value.modo               = 'stock'
   nuevoQuery.value     = ''
   nuevoResultados.value = []
 }
+function iniciarDisenoEspecial() {
+  nuevoItem.value = nuevoItemVacio()
+  nuevoItem.value.es_custom = true
+  nuevoQuery.value = ''
+  nuevoResultados.value = []
+}
+
+// Consolida la tela elegida por campo del ítem nuevo (fase posterior: picker visual)
+function telaResumidaNuevo(key) {
+  const s = nuevoItem.value._telaSelections?.[key]
+  if (!s?.marca || !s?.tipo || !s?.color) return ''
+  return [s.marca, s.tipo, s.color].join(' · ')
+}
+
+async function onNuevaFoto(e) {
+  const files = Array.from(e.target.files || [])
+  if (!files.length) return
+  nuevoItem.value._subiendo = true
+  try {
+    const token = localStorage.getItem('token')
+    for (const file of files) {
+      const fd = new FormData()
+      fd.append('foto', await comprimirImagen(file), 'boceto.jpg')
+      fd.append('folder', 'bocetos')
+      const res  = await fetch('/api/upload/foto', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd })
+      const data = await res.json()
+      if (data.url) nuevoItem.value.boceto_urls.push(data.url)
+    }
+  } catch { toast.error('No se pudo subir la foto.') }
+  finally { nuevoItem.value._subiendo = false; e.target.value = '' }
+}
+function quitarNuevaFoto(i) {
+  nuevoItem.value.boceto_urls.splice(i, 1)
+}
+
 function agregarNuevo() {
-  if (!nuevoItem.value.producto_id || !nuevoItem.value.precio_unitario) return
-  itemsNuevos.value.push({ ...nuevoItem.value })
-  nuevoItem.value = { producto_id: null, producto_nombre: '', cantidad: 1, precio_unitario: '' }
+  const n = nuevoItem.value
+  if (n.es_custom) {
+    if (!n.nombre_custom.trim()) { toast.error('Ponle un nombre al diseño especial.'); return }
+  } else if (!n.producto_id) {
+    toast.error('Selecciona un producto.'); return
+  }
+  if (n.precio_unitario === '' || n.precio_unitario === null || Number(n.precio_unitario) < 0) {
+    toast.error('Ingresa el precio del ítem.'); return
+  }
+
+  // Consolidar specs (campos del template + telas elegidas + notas)
+  const specs = { ...n.specs }
+  for (const key of Object.keys(n._telaSelections ?? {})) {
+    const tela = telaResumidaNuevo(key)
+    if (tela) specs[key] = tela
+  }
+  if (n.specs_notas) specs.notas = n.specs_notas
+
+  const esPersonalizado = n.es_custom || n.modo === 'personalizado' || n.modo === 'fabricar'
+  itemsNuevos.value.push({
+    producto_id:      n.es_custom ? null : n.producto_id,
+    nombre_custom:    n.es_custom ? n.nombre_custom.trim() : null,
+    categoria_custom: n.es_custom ? (n.categoria_custom || null) : null,
+    producto_nombre:  n.es_custom ? n.nombre_custom.trim() : n.producto_nombre,
+    cantidad:         parseInt(n.cantidad) || 1,
+    precio_unitario:  parseFloat(n.precio_unitario),
+    es_personalizado: esPersonalizado,
+    fabricar_pedido:  !n.es_custom && n.modo === 'fabricar',
+    specs_personalizacion: Object.keys(specs).length ? specs : null,
+    boceto_urls:      [...n.boceto_urls],
+    _tipo:            n.es_custom ? 'Diseño especial' : (n.modo === 'fabricar' ? 'Para fabricar' : (n.modo === 'personalizado' ? 'Personalizado' : 'Stock')),
+  })
+  nuevoItem.value = nuevoItemVacio()
   nuevoQuery.value = ''
 }
 function quitarNuevo(idx) {
@@ -257,9 +347,32 @@ function seleccionarProducto(item, producto) {
   resultados.value[item.id] = []
 }
 
+// Reemplazar un ítem de stock por su versión personalizada / diseño especial:
+// marca el viejo para eliminar y precarga el constructor de ítem nuevo con el
+// mismo producto en modo personalizado (o como diseño especial si no es de catálogo).
+function reemplazarPorPersonalizado(item) {
+  marcarEliminar(item)
+  if (!itemsEliminar.value.includes(item.id)) return  // no se pudo (ya en producción)
+  nuevoItem.value = nuevoItemVacio()
+  if (item.producto_id) {
+    nuevoItem.value.producto_id        = item.producto_id
+    nuevoItem.value.producto_nombre    = item.producto_nombre
+    nuevoItem.value.producto_categoria = item.producto_categoria
+    nuevoItem.value.personalizable     = true
+    nuevoItem.value.modo               = 'personalizado'
+    nuevoItem.value.precio_unitario    = item.precio_unitario
+  } else {
+    nuevoItem.value.es_custom       = true
+    nuevoItem.value.nombre_custom   = item.producto_nombre
+    nuevoItem.value.categoria_custom = item.categoria_custom || ''
+    nuevoItem.value.precio_unitario = item.precio_unitario
+  }
+  toast.success('Ítem marcado para reemplazo. Ajusta la personalización en "Agregar producto" y agrégalo.')
+}
+
 // ── Guardar ──────────────────────────────────────────────────────────────────
 async function guardar() {
-  if (itemsNuevos.value.some(i => !i.producto_id || !i.precio_unitario)) {
+  if (itemsNuevos.value.some(i => (!i.producto_id && !i.nombre_custom) || i.precio_unitario === '' || i.precio_unitario == null)) {
     toast.error('Completa todos los campos de los ítems nuevos antes de guardar.')
     return
   }
@@ -322,9 +435,15 @@ async function guardar() {
       items_eliminar: itemsEliminar.value.length ? itemsEliminar.value : undefined,
       items_nuevos: itemsNuevos.value.length
         ? itemsNuevos.value.map(i => ({
-            producto_id:     i.producto_id,
-            cantidad:        parseInt(i.cantidad) || 1,
-            precio_unitario: parseFloat(i.precio_unitario),
+            producto_id:      i.producto_id ?? undefined,
+            nombre_custom:    i.nombre_custom ?? undefined,
+            categoria_custom: i.categoria_custom ?? undefined,
+            cantidad:         parseInt(i.cantidad) || 1,
+            precio_unitario:  parseFloat(i.precio_unitario),
+            es_personalizado: i.es_personalizado || undefined,
+            fabricar_pedido:  i.fabricar_pedido || undefined,
+            specs_personalizacion: i.specs_personalizacion ?? undefined,
+            boceto_urls:      i.boceto_urls?.length ? i.boceto_urls : undefined,
           }))
         : undefined,
     }
@@ -629,6 +748,15 @@ async function guardar() {
                   </div>
                   <p v-if="buscando[item.id]" class="text-xs text-gray-400 mt-1">Buscando...</p>
                 </div>
+
+                <!-- Reemplazar por personalizado / diseño especial -->
+                <button
+                  type="button"
+                  @click="reemplazarPorPersonalizado(item)"
+                  class="w-full text-xs text-purple-600 font-medium flex items-center justify-center gap-1 py-1.5 border border-purple-200 rounded-lg hover:bg-purple-50"
+                >
+                  <SparklesIcon class="w-3.5 h-3.5" /> Reemplazar por personalizado
+                </button>
               </template>
 
               <!-- Personalizado: specs (según categoría del producto) -->
@@ -725,47 +853,130 @@ async function guardar() {
               <!-- Ítems nuevos ya agregados -->
               <div v-for="(ni, idx) in itemsNuevos" :key="idx" class="flex items-center gap-2 bg-white border border-blue-200 rounded-lg px-3 py-2">
                 <div class="flex-1 min-w-0">
-                  <p class="text-sm font-medium text-gray-800 truncate">{{ ni.producto_nombre }}</p>
-                  <p class="text-xs text-gray-500">× {{ ni.cantidad }} — ${{ Number(ni.precio_unitario).toLocaleString('es-CO') }}</p>
+                  <p class="text-sm font-medium text-gray-800 truncate">
+                    {{ ni.producto_nombre }}
+                    <span v-if="ni._tipo && ni._tipo !== 'Stock'" class="ml-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+                      :class="{
+                        'bg-purple-100 text-purple-700': ni._tipo === 'Personalizado',
+                        'bg-indigo-100 text-indigo-700': ni._tipo === 'Diseño especial',
+                        'bg-amber-100 text-amber-700':   ni._tipo === 'Para fabricar',
+                      }">{{ ni._tipo }}</span>
+                  </p>
+                  <p class="text-xs text-gray-500">
+                    × {{ ni.cantidad }} — ${{ Number(ni.precio_unitario).toLocaleString('es-CO') }}
+                    <span v-if="ni.boceto_urls?.length" class="text-gray-400"> · {{ ni.boceto_urls.length }} foto(s)</span>
+                  </p>
                 </div>
                 <button type="button" @click="quitarNuevo(idx)" class="p-1 text-red-400 hover:text-red-600 flex-shrink-0">
                   <XMarkIcon class="w-4 h-4" />
                 </button>
               </div>
 
-              <!-- Buscador de producto nuevo -->
-              <div class="relative">
-                <div class="flex items-center gap-2 bg-white border border-gray-300 rounded-lg px-3 py-2">
-                  <MagnifyingGlassIcon class="w-4 h-4 text-gray-400 flex-shrink-0" />
-                  <input
-                    :value="nuevoQuery"
-                    @input="onBuscarNuevo($event.target.value)"
-                    type="text"
-                    placeholder="Buscar producto para agregar..."
-                    class="flex-1 text-sm outline-none bg-transparent"
-                  />
-                  <span v-if="nuevoBuscando" class="text-xs text-gray-400">Buscando...</span>
-                </div>
-                <div
-                  v-if="nuevoResultados.length"
-                  class="absolute z-20 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-44 overflow-y-auto"
-                >
-                  <button
-                    v-for="prod in nuevoResultados"
-                    :key="prod.id"
-                    type="button"
-                    @mousedown.prevent="seleccionarNuevo(prod)"
-                    class="w-full text-left px-4 py-2.5 hover:bg-blue-50 transition-colors border-b border-gray-50 last:border-0"
+              <!-- Paso 1: buscar producto o crear diseño especial -->
+              <template v-if="!nuevoItem.producto_id && !nuevoItem.es_custom">
+                <div class="relative">
+                  <div class="flex items-center gap-2 bg-white border border-gray-300 rounded-lg px-3 py-2">
+                    <MagnifyingGlassIcon class="w-4 h-4 text-gray-400 flex-shrink-0" />
+                    <input
+                      :value="nuevoQuery"
+                      @input="onBuscarNuevo($event.target.value)"
+                      type="text"
+                      placeholder="Buscar producto del catálogo..."
+                      class="flex-1 text-sm outline-none bg-transparent"
+                    />
+                    <span v-if="nuevoBuscando" class="text-xs text-gray-400">Buscando...</span>
+                  </div>
+                  <div
+                    v-if="nuevoResultados.length"
+                    class="absolute z-20 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-44 overflow-y-auto"
                   >
-                    <p class="text-sm font-medium text-gray-800">{{ prod.nombre }}</p>
-                    <p class="text-xs text-gray-400">{{ prod.categoria }}</p>
+                    <button
+                      v-for="prod in nuevoResultados"
+                      :key="prod.id"
+                      type="button"
+                      @mousedown.prevent="seleccionarNuevo(prod)"
+                      class="w-full text-left px-4 py-2.5 hover:bg-blue-50 transition-colors border-b border-gray-50 last:border-0"
+                    >
+                      <p class="text-sm font-medium text-gray-800">{{ prod.nombre }}</p>
+                      <p class="text-xs text-gray-400">{{ prod.categoria }}</p>
+                    </button>
+                  </div>
+                </div>
+                <button type="button" @click="iniciarDisenoEspecial"
+                  class="w-full text-xs text-indigo-600 font-medium flex items-center justify-center gap-1 py-1.5 border border-indigo-200 rounded-lg hover:bg-indigo-50">
+                  <SparklesIcon class="w-3.5 h-3.5" /> Crear diseño especial (fuera de catálogo)
+                </button>
+              </template>
+
+              <!-- Paso 2: constructor del ítem -->
+              <div v-else class="space-y-2.5">
+                <div class="flex items-center justify-between">
+                  <p class="text-xs font-semibold text-blue-700 truncate">
+                    {{ nuevoItem.es_custom ? 'Diseño especial' : nuevoItem.producto_nombre }}
+                  </p>
+                  <button type="button" @click="nuevoItem = nuevoItemVacio()" class="text-[11px] text-gray-400 underline">Cambiar</button>
+                </div>
+
+                <!-- Diseño especial: nombre + categoría -->
+                <template v-if="nuevoItem.es_custom">
+                  <input v-model="nuevoItem.nombre_custom" type="text" placeholder="Nombre del producto especial"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <input v-model="nuevoItem.categoria_custom" type="text" placeholder="Categoría (ej: sofá, mesa, cama...)"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </template>
+
+                <!-- Catálogo: modo stock / personalizar / fabricar -->
+                <div v-else class="flex gap-1.5 flex-wrap">
+                  <button type="button" @click="nuevoItem.modo = 'stock'"
+                    :class="['px-2.5 py-1.5 rounded-lg text-xs font-semibold border', nuevoItem.modo === 'stock' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300']">
+                    Stock
+                  </button>
+                  <button v-if="nuevoItem.personalizable" type="button" @click="nuevoItem.modo = 'personalizado'"
+                    :class="['px-2.5 py-1.5 rounded-lg text-xs font-semibold border flex items-center gap-1', nuevoItem.modo === 'personalizado' ? 'bg-purple-600 text-white border-purple-600' : 'bg-white text-purple-600 border-purple-300']">
+                    <SparklesIcon class="w-3 h-3" /> Personalizar
+                  </button>
+                  <button type="button" @click="nuevoItem.modo = 'fabricar'"
+                    :class="['px-2.5 py-1.5 rounded-lg text-xs font-semibold border flex items-center gap-1', nuevoItem.modo === 'fabricar' ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-amber-600 border-amber-300']">
+                    <WrenchScrewdriverIcon class="w-3 h-3" /> Para fabricar
                   </button>
                 </div>
-              </div>
 
-              <!-- Campos cantidad + precio del nuevo ítem -->
-              <div v-if="nuevoItem.producto_id" class="space-y-2">
-                <p class="text-xs font-semibold text-blue-700 truncate">{{ nuevoItem.producto_nombre }}</p>
+                <!-- Specs + fotos (si va a producción) -->
+                <template v-if="nuevoEsProduccion">
+                  <div class="space-y-1.5 bg-white rounded-lg border border-gray-200 p-2.5">
+                    <p class="text-[11px] font-semibold text-gray-500 uppercase">Especificaciones</p>
+                    <div v-for="campo in nuevoTemplate.campos" :key="campo.key">
+                      <label class="block text-[11px] text-gray-500 mb-0.5">{{ campo.label }}</label>
+                      <input v-model="nuevoItem.specs[campo.key]" type="text"
+                        class="w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                    <div>
+                      <label class="block text-[11px] text-gray-500 mb-0.5">Notas / detalles</label>
+                      <textarea v-model="nuevoItem.specs_notas" rows="2"
+                        class="w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+                    </div>
+                  </div>
+
+                  <!-- Fotos / bocetos -->
+                  <div class="space-y-1.5">
+                    <div class="flex flex-wrap gap-1.5">
+                      <div v-for="(url, fi) in nuevoItem.boceto_urls" :key="fi" class="relative w-14 h-14">
+                        <img :src="url" class="w-full h-full rounded-lg object-cover border border-gray-200" />
+                        <button type="button" @click="quitarNuevaFoto(fi)"
+                          class="absolute -top-1.5 -right-1.5 bg-white rounded-full shadow p-0.5 text-red-500">
+                          <XMarkIcon class="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      <label class="w-14 h-14 rounded-lg border-2 border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:border-blue-400 text-gray-400">
+                        <PhotoIcon class="w-5 h-5" />
+                        <input type="file" accept="image/*" multiple class="hidden" @change="onNuevaFoto" />
+                      </label>
+                    </div>
+                    <p v-if="nuevoItem._subiendo" class="text-[11px] text-gray-400">Subiendo foto...</p>
+                  </div>
+                </template>
+
+                <!-- Cantidad + precio -->
                 <div class="flex gap-2">
                   <div class="flex-1">
                     <label class="block text-xs text-gray-500 mb-1">Cantidad</label>
@@ -776,10 +987,11 @@ async function guardar() {
                     <input v-model="nuevoItem.precio_unitario" type="number" min="0" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                   </div>
                 </div>
+
                 <button
                   type="button"
                   @click="agregarNuevo"
-                  :disabled="!nuevoItem.precio_unitario"
+                  :disabled="nuevoItem._subiendo"
                   class="w-full py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-40 transition-colors flex items-center justify-center gap-1.5"
                 >
                   <PlusIcon class="w-4 h-4" /> Agregar ítem
