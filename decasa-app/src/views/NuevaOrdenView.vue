@@ -2547,11 +2547,14 @@ function removeFacturaFoto() {
                         {{ campo.label }}: {{ telaResumidaCampo(item, campo.key) }}
                       </p>
                     </template>
-                    <!-- Select normal -->
-                    <select v-else-if="campo.type === 'select'" v-model="item.specs[campo.key]" class="input text-sm">
-                      <option value="">— seleccionar —</option>
-                      <option v-for="opt in campo.options" :key="opt" :value="opt">{{ opt }}</option>
-                    </select>
+                    <!-- Select con opción de valor libre (elige o escribe el tuyo) -->
+                    <ComboInput
+                      v-else-if="campo.type === 'select'"
+                      :model-value="item.specs[campo.key] ?? ''"
+                      :options="campo.options ?? []"
+                      :placeholder="campo.placeholder || 'Elige o escribe...'"
+                      @update:model-value="v => item.specs[campo.key] = v"
+                    />
                     <!-- Text / Number -->
                     <input
                       v-else
