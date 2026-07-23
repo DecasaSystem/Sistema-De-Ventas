@@ -1537,18 +1537,18 @@ onMounted(cargarOrden)
       <div class="bg-white rounded-xl shadow-sm p-4 space-y-3">
         <p class="text-xs font-semibold text-gray-500 uppercase">Compartir cotización</p>
 
-        <!-- Aviso: fechas pendientes -->
+        <!-- Aviso informativo: fechas pendientes (ya no bloquea el envío) -->
         <div
           v-if="!todasFechasAsignadas && orden.estado !== 'pendiente_cotizacion'"
           class="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5"
         >
           <CalendarIcon class="w-4 h-4 mt-0.5 text-amber-500 flex-shrink-0" />
           <p class="text-xs text-amber-700 leading-snug">
-            El supervisor debe asignar las fechas de entrega antes de compartir la cotización con el cliente.
+            Aún no se han asignado las fechas de entrega. Puedes enviar la cotización igual; el PDF mostrará las fechas pendientes.
           </p>
         </div>
 
-        <template v-if="todasFechasAsignadas">
+        <template v-if="!['pendiente_cotizacion', 'borrador'].includes(orden.estado)">
           <div class="flex gap-2">
             <!-- WhatsApp -->
             <button
