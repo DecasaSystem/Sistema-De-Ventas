@@ -806,6 +806,7 @@ class OrdenController extends Controller
             'items_eliminar.*'              => 'integer|exists:orden_items,id',
             'items_nuevos'                       => 'sometimes|nullable|array',
             'items_nuevos.*.producto_id'         => 'nullable|integer|exists:productos,id',
+            'items_nuevos.*.tienda_origen_id'    => 'nullable|integer|exists:tiendas,id',
             'items_nuevos.*.nombre_custom'       => 'required_without:items_nuevos.*.producto_id|nullable|string|max:200',
             'items_nuevos.*.categoria_custom'    => 'nullable|string|max:100',
             'items_nuevos.*.cantidad'            => 'required_with:items_nuevos|integer|min:1',
@@ -1069,7 +1070,7 @@ class OrdenController extends Controller
                     $productoId      = $esCustom ? null : (int) $nuevoData['producto_id'];
                     $cantidad        = (int) $nuevoData['cantidad'];
                     $precio          = (float) $nuevoData['precio_unitario'];
-                    $origenId        = (int) $orden->tienda_id;
+                    $origenId        = (int) ($nuevoData['tienda_origen_id'] ?? $orden->tienda_id);
 
                     $bocetos = array_values(array_filter($nuevoData['boceto_urls'] ?? []));
 
@@ -1092,7 +1093,7 @@ class OrdenController extends Controller
                         'precio_unitario'       => $precio,
                         'es_personalizado'      => $esPersonalizado,
                         'fabricar_pedido'       => $fabricarPedido,
-                        'tienda_origen_id'      => $esPersonalizado ? null : $origenId,
+                        'tienda_origen_id'      => $esPersonalizado ? null : ($origenId !== (int) $orden->tienda_id ? $origenId : null),
                         'specs_personalizacion' => $nuevoData['specs_personalizacion'] ?? null,
                         'boceto_url'            => $bocetos[0] ?? null,
                         'boceto_fotos'          => count($bocetos) > 1 ? $bocetos : null,

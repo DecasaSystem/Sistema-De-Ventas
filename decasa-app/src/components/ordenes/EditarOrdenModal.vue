@@ -90,12 +90,28 @@ function nuevoItemVacio() {
     producto_id: null, producto_nombre: '', producto_categoria: null, personalizable: false,
     es_custom: false, nombre_custom: '', categoria_custom: '',
     modo: 'stock',              // 'stock' | 'personalizado' | 'fabricar' (para productos de catálogo)
-    cantidad: 1, precio_unitario: '',
+    cantidad: 1, precio_unitario: '', stock_libre: null,
     specs: {}, specs_notas: '', _telaSelections: {},
     boceto_urls: [], _subiendo: false,
   }
 }
-const nuevoItem       = ref(nuevoItemVacio())
+const nuevoItem        = ref(nuevoItemVacio())
+const nuevoTiendaOrigen = ref(null)   // tienda de la que sale el stock del ítem nuevo
+
+async function cargarTiendas() {
+  if (tiendasLista.value.length) return
+  try { const { data } = await getTiendas(); tiendasLista.value = data } catch {}
+}
+
+// Al cambiar la tienda origen, refrescar el stock del producto seleccionado.
+async function refrescarStockNuevo() {
+  if (!nuevoItem.value.producto_id || !nuevoTiendaOrigen.value) return
+  try {
+    const { data } = await api.get(`/productos/${nuevoItem.value.producto_id}`, { params: { tienda_id: nuevoTiendaOrigen.value } })
+    nuevoItem.value.stock_libre = (data.stock_disponible ?? 0) - (data.stock_reservado ?? 0)
+  } catch {}
+}
+watch(nuevoTiendaOrigen, refrescarStockNuevo)
 
 // Template de specs según la categoría del ítem nuevo (mismo criterio que al crear).
 const nuevoTemplate = computed(() => {
@@ -115,7 +131,7 @@ async function onBuscarNuevo(term) {
   nuevoDebounce = setTimeout(async () => {
     nuevoBuscando.value = true
     try {
-      const { data } = await buscarProductos(term)
+      const { data } = await buscarProductos(term, nuevoTiendaOrigen.value)
       nuevoResultados.value = Array.isArray(data) ? data : (data.data ?? [])
     } catch { nuevoResultados.value = [] }
     finally { nuevoBuscando.value = false }
@@ -127,6 +143,7 @@ function seleccionarNuevo(prod) {
   nuevoItem.value.producto_categoria = prod.categoria ?? null
   nuevoItem.value.personalizable     = !!prod.personalizable
   nuevoItem.value.precio_unitario    = prod.precio_base ?? ''
+  nuevoItem.value.stock_libre        = (prod.stock_disponible ?? 0) - (prod.stock_reservado ?? 0)
   nuevoItem.value.es_custom          = false
   nuevoItem.value.modo               = 'stock'
   nuevoQuery.value     = ''
@@ -187,6 +204,14 @@ function agregarNuevo() {
   if (n.specs_notas) specs.notas = n.specs_notas
 
   const esPersonalizado = n.es_custom || n.modo === 'personalizado' || n.modo === 'fabricar'
+
+  // Validar stock solo para ítems de stock (no producción)
+  if (!esPersonalizado && n.stock_libre != null && (parseInt(n.cantidad) || 1) > n.stock_libre) {
+    toast.error(`Stock insuficiente: hay ${n.stock_libre} disponible(s) en la tienda seleccionada.`)
+    return
+  }
+
+  const otraTienda = !esPersonalizado && nuevoTiendaOrigen.value && nuevoTiendaOrigen.value !== props.orden.tienda_id
   itemsNuevos.value.push({
     producto_id:      n.es_custom ? null : n.producto_id,
     nombre_custom:    n.es_custom ? n.nombre_custom.trim() : null,
@@ -196,6 +221,8 @@ function agregarNuevo() {
     precio_unitario:  parseFloat(n.precio_unitario),
     es_personalizado: esPersonalizado,
     fabricar_pedido:  !n.es_custom && n.modo === 'fabricar',
+    tienda_origen_id: otraTienda ? nuevoTiendaOrigen.value : null,
+    tienda_origen_nombre: otraTienda ? (tiendasLista.value.find(t => t.id === nuevoTiendaOrigen.value)?.nombre ?? '') : null,
     specs_personalizacion: Object.keys(specs).length ? specs : null,
     boceto_urls:      [...n.boceto_urls],
     _tipo:            n.es_custom ? 'Diseño especial' : (n.modo === 'fabricar' ? 'Para fabricar' : (n.modo === 'personalizado' ? 'Personalizado' : 'Stock')),
@@ -248,7 +275,9 @@ watch(() => props.show, (v) => {
 
   itemsEliminar.value  = []
   itemsNuevos.value    = []
-  nuevoItem.value      = { producto_id: null, producto_nombre: '', cantidad: 1, precio_unitario: '' }
+  nuevoItem.value      = nuevoItemVacio()
+  nuevoTiendaOrigen.value = props.orden.tienda_id ?? null
+  cargarTiendas()
   nuevoQuery.value     = ''
   items.value = (props.orden.items ?? []).map(item => {
     // Se preserva TAL CUAL el objeto de specs original (sea cual sea su
@@ -438,6 +467,7 @@ async function guardar() {
             producto_id:      i.producto_id ?? undefined,
             nombre_custom:    i.nombre_custom ?? undefined,
             categoria_custom: i.categoria_custom ?? undefined,
+            tienda_origen_id: i.tienda_origen_id ?? undefined,
             cantidad:         parseInt(i.cantidad) || 1,
             precio_unitario:  parseFloat(i.precio_unitario),
             es_personalizado: i.es_personalizado || undefined,
@@ -850,6 +880,17 @@ async function guardar() {
                 <PlusIcon class="w-3.5 h-3.5" /> Agregar producto a la orden
               </p>
 
+              <!-- Tienda de la que se busca/saca el stock -->
+              <div v-if="tiendasLista.length">
+                <label class="block text-[11px] text-gray-500 mb-1">Buscar / sacar stock de</label>
+                <select v-model.number="nuevoTiendaOrigen"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <option v-for="t in tiendasLista" :key="t.id" :value="t.id">
+                    {{ t.id === orden.tienda_id ? t.nombre + ' (tienda de la orden)' : t.nombre }}
+                  </option>
+                </select>
+              </div>
+
               <!-- Ítems nuevos ya agregados -->
               <div v-for="(ni, idx) in itemsNuevos" :key="idx" class="flex items-center gap-2 bg-white border border-blue-200 rounded-lg px-3 py-2">
                 <div class="flex-1 min-w-0">
@@ -864,6 +905,7 @@ async function guardar() {
                   </p>
                   <p class="text-xs text-gray-500">
                     × {{ ni.cantidad }} — ${{ Number(ni.precio_unitario).toLocaleString('es-CO') }}
+                    <span v-if="ni.tienda_origen_nombre" class="text-amber-600"> · desde {{ ni.tienda_origen_nombre }}</span>
                     <span v-if="ni.boceto_urls?.length" class="text-gray-400"> · {{ ni.boceto_urls.length }} foto(s)</span>
                   </p>
                 </div>
@@ -940,6 +982,13 @@ async function guardar() {
                     <WrenchScrewdriverIcon class="w-3 h-3" /> Para fabricar
                   </button>
                 </div>
+
+                <!-- Stock disponible (solo modo stock) -->
+                <p v-if="!nuevoItem.es_custom && nuevoItem.modo === 'stock' && nuevoItem.stock_libre != null"
+                  class="text-xs" :class="nuevoItem.stock_libre > 0 ? 'text-green-700' : 'text-red-600'">
+                  Stock disponible: <strong>{{ nuevoItem.stock_libre }}</strong>
+                  <span v-if="nuevoItem.stock_libre <= 0"> — sin stock aquí; usa "Para fabricar" o elige otra tienda arriba.</span>
+                </p>
 
                 <!-- Specs + fotos (si va a producción) -->
                 <template v-if="nuevoEsProduccion">
