@@ -383,21 +383,31 @@ onUnmounted(() => {
           <!-- Aviso: posible cliente duplicado -->
           <div v-if="posiblesDuplicados.length" class="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 space-y-1.5">
             <p class="text-xs font-semibold text-amber-800 flex items-center gap-1">
-              ⚠️ Es posible que este cliente ya exista:
+              ⚠️ Es posible que este cliente ya exista ({{ posiblesDuplicados.length }}):
             </p>
-            <button
+            <div
               v-for="c in posiblesDuplicados"
               :key="c.id"
-              type="button"
-              @click="goToCliente(c.id)"
-              class="w-full text-left bg-white border border-amber-200 rounded-lg px-2.5 py-1.5 hover:bg-amber-100/50 transition-colors"
+              class="flex items-center gap-2 bg-white border border-amber-200 rounded-lg px-2.5 py-1.5"
             >
-              <p class="text-sm font-medium text-gray-800">{{ c.nombre }}</p>
-              <p class="text-xs text-gray-500">
-                {{ [c.telefono, c.email].filter(Boolean).join(' · ') || 'sin contacto' }}
-              </p>
-            </button>
-            <p class="text-[11px] text-amber-700">Revisa si es el mismo. Si de verdad es otro, puedes crearlo igual.</p>
+              <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium text-gray-800 truncate">
+                  {{ c.nombre }}
+                  <span v-if="c.tipo === 'interesado'" class="text-[10px] font-semibold px-1 py-0.5 rounded bg-amber-100 text-amber-700">Interesado</span>
+                </p>
+                <p class="text-xs text-gray-500 truncate">
+                  {{ [c.cedula ? 'CC ' + c.cedula : null, c.telefono, c.email].filter(Boolean).join(' · ') || 'sin datos de contacto' }}
+                </p>
+              </div>
+              <button
+                type="button"
+                @click="goToCliente(c.id)"
+                class="flex-shrink-0 text-xs font-semibold text-blue-600 border border-blue-200 rounded-lg px-2.5 py-1 hover:bg-blue-50"
+              >
+                Ver ficha →
+              </button>
+            </div>
+            <p class="text-[11px] text-amber-700">Si es el mismo, abre su ficha. Si de verdad es otro cliente, puedes crearlo igual.</p>
           </div>
 
           <div>
