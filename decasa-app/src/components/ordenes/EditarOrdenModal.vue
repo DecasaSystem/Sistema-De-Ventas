@@ -1076,7 +1076,7 @@ async function guardar() {
                 >{{ p }}%</button>
                 <input
                   v-model.number="descuentoPctEdit"
-                  type="number" min="0" max="100"
+                  type="number" min="0" max="100" step="0.1"
                   placeholder="0"
                   class="w-16 rounded-lg border border-gray-300 px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />

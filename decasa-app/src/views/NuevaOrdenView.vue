@@ -2813,7 +2813,7 @@ function removeFacturaFoto() {
               >{{ p }}%</button>
               <input
                 v-model.number="descuentoPct"
-                type="number" min="0" max="100"
+                type="number" min="0" max="100" step="0.1"
                 placeholder="0"
                 class="w-16 input text-sm text-right"
               />
