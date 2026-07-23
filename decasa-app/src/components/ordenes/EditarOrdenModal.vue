@@ -59,7 +59,7 @@ async function cargarListasSupervisor() {
 }
 
 // ── Totales en tiempo real ───────────────────────────────────────────────────
-const descuentoTotalEdit = ref(0)   // descuento global al total (monto)
+const descuentoPctEdit = ref(0)   // descuento global al total, en %
 const subtotalEstimado = computed(() => {
   const existentes = items.value
     .filter(i => !itemsEliminar.value.includes(i.id))
@@ -68,8 +68,11 @@ const subtotalEstimado = computed(() => {
     .reduce((s, i) => s + (parseFloat(i.precio_unitario) || 0) * (parseInt(i.cantidad) || 1), 0)
   return existentes + nuevos
 })
+const descuentoTotalEdit = computed(() =>
+  Math.round(subtotalEstimado.value * (Number(descuentoPctEdit.value) || 0) / 100)
+)
 const totalEstimado = computed(() =>
-  Math.max(0, subtotalEstimado.value - (Number(descuentoTotalEdit.value) || 0))
+  Math.max(0, subtotalEstimado.value - descuentoTotalEdit.value)
 )
 
 // ── Eliminar ítem existente ──────────────────────────────────────────────────
@@ -265,7 +268,11 @@ watch(() => props.show, (v) => {
   direccionEnvio.value = props.orden.direccion_envio ?? ''
   ciudadEnvio.value    = props.orden.ciudad_envio ?? ''
   anticipoPct.value    = props.orden.anticipo_pct ?? ''
-  descuentoTotalEdit.value = Number(props.orden.descuento_total) || 0
+  // Derivar el % de descuento desde el monto guardado (subtotal = total + descuento)
+  {
+    const sub = Number(props.orden.valor_total || 0) + Number(props.orden.descuento_total || 0)
+    descuentoPctEdit.value = sub > 0 ? Math.round((Number(props.orden.descuento_total || 0) / sub) * 1000) / 10 : 0
+  }
 
   pagoAnticipo.value       = (props.orden.pagos ?? []).find(p => p.tipo === 'anticipo') ?? null
   anticipoMonto.value      = pagoAnticipo.value?.monto ?? ''
@@ -1063,21 +1070,22 @@ async function guardar() {
               <div class="flex items-center gap-1 ml-auto">
                 <button
                   v-for="p in [5, 10]" :key="p" type="button"
-                  @click="descuentoTotalEdit = Math.round(subtotalEstimado * p / 100)"
-                  class="px-2 py-1 rounded-lg text-xs font-semibold border border-gray-300 text-gray-600 hover:border-blue-400"
+                  @click="descuentoPctEdit = p"
+                  class="px-2 py-1 rounded-lg text-xs font-semibold border transition-colors"
+                  :class="descuentoPctEdit === p ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600 hover:border-blue-400'"
                 >{{ p }}%</button>
-                <span class="text-xs text-gray-400">$</span>
                 <input
-                  v-model.number="descuentoTotalEdit"
-                  type="number" min="0" :max="subtotalEstimado"
+                  v-model.number="descuentoPctEdit"
+                  type="number" min="0" max="100"
                   placeholder="0"
-                  class="w-24 rounded-lg border border-gray-300 px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  class="w-16 rounded-lg border border-gray-300 px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+                <span class="text-xs text-gray-400">%</span>
               </div>
             </div>
             <!-- Total estimado -->
             <div class="flex items-center justify-between text-sm">
-              <span class="text-gray-500">Total estimado <span v-if="descuentoTotalEdit > 0" class="text-green-600 font-normal">(subtotal ${{ subtotalEstimado.toLocaleString('es-CO') }})</span></span>
+              <span class="text-gray-500">Total estimado <span v-if="descuentoTotalEdit > 0" class="text-green-600 font-normal">(− ${{ descuentoTotalEdit.toLocaleString('es-CO') }})</span></span>
               <span class="font-bold text-gray-900">${{ totalEstimado.toLocaleString('es-CO') }}</span>
             </div>
             <div class="flex gap-3">

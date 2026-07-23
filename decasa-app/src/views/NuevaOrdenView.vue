@@ -1157,10 +1157,13 @@ function toggleRegalo(item) {
 const subtotalItems = computed(() =>
   items.value.reduce((s, i) => i._cotizarPrecio ? s : s + i.cantidad * precioEfectivo(i), 0)
 )
-// Descuento global al total de la orden (monto en COP), aparte del descuento por ítem.
-const descuentoTotal = ref(0)
+// Descuento global al total de la orden, en % (aparte del descuento por ítem).
+const descuentoPct = ref(0)
+const descuentoTotal = computed(() =>
+  Math.round(subtotalItems.value * (Number(descuentoPct.value) || 0) / 100)
+)
 const valorTotal = computed(() =>
-  Math.max(0, subtotalItems.value - (Number(descuentoTotal.value) || 0))
+  Math.max(0, subtotalItems.value - descuentoTotal.value)
 )
 
 const minimoAnticipo = computed(() =>
@@ -2804,16 +2807,17 @@ function removeFacturaFoto() {
             <div class="flex items-center gap-1 ml-auto">
               <button
                 v-for="p in [5, 10]" :key="p" type="button"
-                @click="descuentoTotal = Math.round(subtotalItems * p / 100)"
-                class="px-2 py-1 rounded-lg text-xs font-semibold border border-gray-300 text-gray-600 hover:border-blue-400"
+                @click="descuentoPct = p"
+                class="px-2 py-1 rounded-lg text-xs font-semibold border transition-colors"
+                :class="descuentoPct === p ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600 hover:border-blue-400'"
               >{{ p }}%</button>
-              <span class="text-xs text-gray-400">$</span>
               <input
-                v-model.number="descuentoTotal"
-                type="number" min="0" :max="subtotalItems"
+                v-model.number="descuentoPct"
+                type="number" min="0" max="100"
                 placeholder="0"
-                class="w-24 input text-sm text-right"
+                class="w-16 input text-sm text-right"
               />
+              <span class="text-xs text-gray-400">%</span>
             </div>
           </div>
           <p v-if="descuentoTotal > 0" class="text-xs text-green-700 text-right">
