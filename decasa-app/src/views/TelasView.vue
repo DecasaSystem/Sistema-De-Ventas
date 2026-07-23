@@ -1,14 +1,59 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { MagnifyingGlassIcon, PlusIcon, MinusIcon, ArrowDownTrayIcon } from '@heroicons/vue/24/outline'
+import { MagnifyingGlassIcon, PlusIcon, MinusIcon, ArrowDownTrayIcon, PhotoIcon, XMarkIcon } from '@heroicons/vue/24/outline'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
 import api from '@/api'
+import { comprimirImagen } from '@/utils/comprimirImagen'
 import { TELAS_CATALOGO } from '@/data/telasCatalogo'
 import { exportarExcel } from '@/utils/exportarExcel'
 
 const auth  = useAuthStore()
 const toast = useToast()
+
+// ── Foto de la tela ───────────────────────────────────────────────────────────
+const subiendoFotoCrear = ref(false)
+const fotoModal = ref('')   // url de la foto ampliada
+
+async function subirFotoTela(file) {
+  const fd = new FormData()
+  fd.append('foto', await comprimirImagen(file), 'tela.jpg')
+  fd.append('folder', 'telas')
+  const { data } = await api.post('/upload/foto', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+  return data.url
+}
+
+async function onFotoCrear(e) {
+  const file = e.target.files[0]
+  if (!file) return
+  subiendoFotoCrear.value = true
+  try {
+    crearForm.value.foto_url = await subirFotoTela(file)
+  } catch {
+    toast.error('No se pudo subir la foto.')
+  } finally {
+    subiendoFotoCrear.value = false
+    e.target.value = ''
+  }
+}
+
+const subiendoFotoTela = ref(null)   // id de la tela cuya foto se está subiendo
+async function onFotoTelaExistente(tela, e) {
+  const file = e.target.files[0]
+  if (!file) return
+  subiendoFotoTela.value = tela.id
+  try {
+    const url = await subirFotoTela(file)
+    await api.patch(`/catalogo-telas/${tela.id}`, { foto_url: url })
+    tela.foto_url = url
+    toast.success('Foto actualizada.')
+  } catch {
+    toast.error('No se pudo guardar la foto.')
+  } finally {
+    subiendoFotoTela.value = null
+    e.target.value = ''
+  }
+}
 
 const telas          = ref([])
 const proveedores    = ref([])
@@ -27,7 +72,7 @@ const modalError     = ref('')
 const showCrear  = ref(false)
 const creando    = ref(false)
 const crearError = ref('')
-const crearForm  = ref({ marca: '', marcaNueva: '', tipo: '', color: '', referencia: '', textura: '', metros: '' })
+const crearForm  = ref({ marca: '', marcaNueva: '', tipo: '', color: '', referencia: '', textura: '', metros: '', foto_url: '' })
 
 const puedeRecargar  = computed(() => auth.puedeRecargarTelas)
 const puedeDescontar = computed(() => auth.isCosturero || auth.isSupervisor)
@@ -67,7 +112,7 @@ async function cargar() {
 }
 
 function abrirCrear() {
-  crearForm.value = { marca: '', marcaNueva: '', tipo: '', color: '', referencia: '', textura: '', metros: '' }
+  crearForm.value = { marca: '', marcaNueva: '', tipo: '', color: '', referencia: '', textura: '', metros: '', foto_url: '' }
   crearError.value = ''
   showCrear.value = true
 }
@@ -89,6 +134,7 @@ async function crearTela() {
       color:            crearForm.value.color.trim(),
       referencia:       crearForm.value.referencia.trim() || undefined,
       textura:          crearForm.value.textura.trim() || undefined,
+      foto_url:         crearForm.value.foto_url || undefined,
       metros_iniciales: parseFloat(crearForm.value.metros) || 0,
     }
     const { data } = await api.post('/catalogo-telas', payload)
@@ -263,6 +309,13 @@ onMounted(cargar)
       >
         <!-- Title row -->
         <div class="flex items-start justify-between gap-2">
+          <!-- Foto de la tela -->
+          <img
+            v-if="tela.foto_url"
+            :src="tela.foto_url"
+            @click="fotoModal = tela.foto_url"
+            class="w-12 h-12 rounded-lg object-cover border border-gray-200 flex-shrink-0 cursor-pointer"
+          />
           <div class="flex-1 min-w-0">
             <!-- Si tiene referencia (del Excel): mostrarla como título principal -->
             <template v-if="tela.referencia">
@@ -287,7 +340,15 @@ onMounted(cargar)
         </div>
 
         <!-- Actions -->
-        <div v-if="puedeRecargar || puedeDescontar" class="flex gap-2 mt-3">
+        <div v-if="puedeRecargar || puedeDescontar || auth.isSupervisor" class="flex gap-2 mt-3">
+          <label
+            v-if="auth.isSupervisor"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 text-xs font-semibold hover:bg-blue-100 transition-colors cursor-pointer"
+          >
+            <PhotoIcon class="w-3.5 h-3.5" />
+            {{ subiendoFotoTela === tela.id ? 'Subiendo...' : (tela.foto_url ? 'Cambiar foto' : 'Agregar foto') }}
+            <input type="file" accept="image/*" class="hidden" @change="e => onFotoTelaExistente(tela, e)" />
+          </label>
           <button
             v-if="puedeRecargar"
             @click="abrirRecargar(tela)"
@@ -377,6 +438,25 @@ onMounted(cargar)
                 class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="Ej: Lisa, Bordada..."
               />
+            </div>
+
+            <!-- Foto de la tela -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Foto de la tela (opcional)</label>
+              <div class="flex items-center gap-3">
+                <div v-if="crearForm.foto_url" class="relative w-16 h-16 flex-shrink-0">
+                  <img :src="crearForm.foto_url" class="w-full h-full rounded-lg object-cover border border-gray-200" />
+                  <button type="button" @click="crearForm.foto_url = ''"
+                    class="absolute -top-1.5 -right-1.5 bg-white rounded-full shadow p-0.5 text-red-500">
+                    <XMarkIcon class="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <label class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-dashed border-gray-300 text-sm text-gray-500 cursor-pointer hover:border-blue-400 hover:text-blue-600">
+                  <PhotoIcon class="w-4 h-4" />
+                  {{ subiendoFotoCrear ? 'Subiendo...' : (crearForm.foto_url ? 'Cambiar foto' : 'Subir foto') }}
+                  <input type="file" accept="image/*" class="hidden" @change="onFotoCrear" />
+                </label>
+              </div>
             </div>
 
             <!-- Metros iniciales -->
@@ -474,8 +554,20 @@ onMounted(cargar)
         </div>
       </div>
     </Transition>
+
+    <!-- Visor de foto de tela -->
+    <Transition name="fade">
+      <div v-if="fotoModal" class="fixed inset-0 z-[60] flex items-center justify-center p-4" @click="fotoModal = ''">
+        <div class="absolute inset-0 bg-black/80" />
+        <img :src="fotoModal" class="relative max-w-full max-h-[85vh] rounded-lg object-contain" />
+        <button @click="fotoModal = ''" class="absolute top-4 right-4 text-white/80 hover:text-white">
+          <XMarkIcon class="w-7 h-7" />
+        </button>
+      </div>
+    </Transition>
   </div>
 </template>
+
 
 <style scoped>
 .fade-enter-active,

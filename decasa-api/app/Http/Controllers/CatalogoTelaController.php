@@ -45,6 +45,7 @@ class CatalogoTelaController extends Controller
             'color'           => 'required|string|max:100',
             'referencia'      => 'nullable|string|max:200',
             'textura'         => 'nullable|string|max:100',
+            'foto_url'        => 'nullable|string|max:500',
             'metros_iniciales'=> 'nullable|numeric|min:0',
         ]);
 
@@ -54,11 +55,16 @@ class CatalogoTelaController extends Controller
                 'activo'     => true,
                 'referencia' => isset($data['referencia']) ? trim($data['referencia']) : null,
                 'textura'    => isset($data['textura'])    ? trim($data['textura'])    : null,
+                'foto_url'   => $data['foto_url'] ?? null,
             ]
         );
 
         if (!$tela->activo) {
             $tela->update(['activo' => true]);
+        }
+        // Si ya existía sin foto y ahora se envía una, guardarla.
+        if (!empty($data['foto_url']) && $tela->foto_url !== $data['foto_url']) {
+            $tela->update(['foto_url' => $data['foto_url']]);
         }
 
         $metros = (float) ($data['metros_iniciales'] ?? 0);
@@ -76,10 +82,29 @@ class CatalogoTelaController extends Controller
             'color'              => $tela->color,
             'referencia'         => $tela->referencia,
             'textura'            => $tela->textura,
+            'foto_url'           => $tela->foto_url,
             'metros_disponibles' => (float) $tela->metros_disponibles,
             'metros_reservados'  => (float) $tela->metros_reservados,
             'metros_libres'      => round((float) $tela->metros_disponibles - (float) $tela->metros_reservados, 2),
         ], 201);
+    }
+
+    /**
+     * PATCH /catalogo-telas/{id}
+     * Actualiza la foto (u otros datos) de una tela existente.
+     */
+    public function update(Request $request, int $id)
+    {
+        $data = $request->validate([
+            'foto_url'   => 'sometimes|nullable|string|max:500',
+            'referencia' => 'sometimes|nullable|string|max:200',
+            'textura'    => 'sometimes|nullable|string|max:100',
+        ]);
+
+        $tela = CatalogoTela::findOrFail($id);
+        $tela->update($data);
+
+        return response()->json(['ok' => true, 'foto_url' => $tela->foto_url]);
     }
 
     /**

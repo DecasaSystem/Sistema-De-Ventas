@@ -31,7 +31,7 @@ class InventarioTelaController extends Controller
         }
 
         $telas = $query->orderBy('marca')->orderBy('tipo')->orderBy('color')
-            ->get(['id', 'marca', 'tipo', 'color', 'referencia', 'textura', 'metros_disponibles', 'metros_reservados'])
+            ->get(['id', 'marca', 'tipo', 'color', 'referencia', 'textura', 'foto_url', 'metros_disponibles', 'metros_reservados'])
             ->map(fn ($t) => $this->format($t));
 
         return response()->json($telas);
@@ -156,6 +156,7 @@ class InventarioTelaController extends Controller
             'color'              => $t->color,
             'referencia'         => $t->referencia ?? null,
             'textura'            => $t->textura ?? null,
+            'foto_url'           => $t->foto_url ?? null,
             'metros_disponibles' => (float) $t->metros_disponibles,
             'metros_reservados'  => (float) $t->metros_reservados,
             'metros_libres'      => round((float) $t->metros_disponibles - (float) $t->metros_reservados, 2),

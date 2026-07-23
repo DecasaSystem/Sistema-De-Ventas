@@ -181,6 +181,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('role:supervisor')->group(function () {
         Route::post('/catalogo-telas',              [CatalogoTelaController::class, 'store']);
         Route::post('/catalogo-telas/batch',        [CatalogoTelaController::class, 'storeBatch']);
+        Route::patch('/catalogo-telas/{id}',        [CatalogoTelaController::class, 'update'])->whereNumber('id');
         Route::delete('/catalogo-telas/{id}',       [CatalogoTelaController::class, 'destroy'])->whereNumber('id');
     });
 
