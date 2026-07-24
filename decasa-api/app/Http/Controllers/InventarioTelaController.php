@@ -111,7 +111,7 @@ class InventarioTelaController extends Controller
             NotificacionService::crear(
                 'tela_recargada',
                 'Tela recargada',
-                "Se agregaron {$data['metros']} m de {$nombre}." . ($data['nota'] ? " Nota: {$data['nota']}" : ''),
+                "Se agregaron {$data['metros']} m de {$nombre}." . (!empty($data['nota']) ? " Nota: {$data['nota']}" : ''),
                 ['catalogo_id' => $cat->id, 'nombre' => $nombre],
                 $uid
             );
