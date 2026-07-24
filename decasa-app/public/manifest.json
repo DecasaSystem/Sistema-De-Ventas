@@ -1,12 +1,12 @@
 {
-  "name": "Decasa — Gestión de Ventas",
-  "short_name": "Decasa",
-  "description": "Sistema de gestión de ventas e inventario para Decasa",
+  "name": "Bidad — Gestión de Ventas",
+  "short_name": "Bidad",
+  "description": "Bidad — sistema de gestión de ventas e inventario",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "theme_color": "#2563eb",
-  "background_color": "#2563eb",
+  "theme_color": "#ffffff",
+  "background_color": "#ffffff",
   "lang": "es",
   "icons": [
     {
@@ -20,6 +20,12 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
+    },
+    {
+      "src": "/logo_512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ],
   "categories": ["business", "productivity"]
