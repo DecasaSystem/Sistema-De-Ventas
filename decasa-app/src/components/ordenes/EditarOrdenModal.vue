@@ -109,8 +109,14 @@ function nuevoItemVacio() {
 const nuevoVariantes        = ref([])
 const nuevoCargandoVariantes = ref(false)
 
+// Variantes configurables (combos): grupos de opciones con precio y stock propio
+const nuevoVCGrupos = ref([])
+const nuevoVCSelec  = ref({})   // { tipo_variante_id: { opcion_nombre, tipo_nombre, precio_adicional, stock } }
+
 async function cargarVariantesNuevo() {
   nuevoVariantes.value = []
+  nuevoVCGrupos.value  = []
+  nuevoVCSelec.value   = {}
   nuevoItem.value.variante_id = null
   nuevoItem.value.variante_label = ''
   if (!nuevoItem.value.producto_id) return
@@ -118,11 +124,48 @@ async function cargarVariantesNuevo() {
   try {
     const { data } = await getVariantes(nuevoItem.value.producto_id, nuevoTiendaOrigen.value)
     nuevoVariantes.value = (data ?? []).filter(v => !v.medida) // tela/color (no tallas)
+    // Si no hay variantes simples, buscar variantes configurables (combos)
+    if (!nuevoVariantes.value.length) {
+      const { data: vc } = await api.get(`/productos/${nuevoItem.value.producto_id}/variante-configs`, {
+        params: { tienda_id: nuevoTiendaOrigen.value },
+      }).catch(() => ({ data: [] }))
+      nuevoVCGrupos.value = (vc ?? []).filter(g => g.items?.some(i => (i.stock_disponible ?? 0) > 0))
+    }
   } catch {
     nuevoVariantes.value = []
+    nuevoVCGrupos.value  = []
   } finally {
     nuevoCargandoVariantes.value = false
   }
+}
+
+// ¿Ya se eligió una opción en cada grupo de combo?
+const nuevoVCCompleto = computed(() =>
+  nuevoVCGrupos.value.length > 0 && nuevoVCGrupos.value.every(g => nuevoVCSelec.value[g.tipo_variante_id])
+)
+
+function elegirOpcionVC(grupo, item) {
+  nuevoVCSelec.value = {
+    ...nuevoVCSelec.value,
+    [grupo.tipo_variante_id]: {
+      opcion_nombre: item.opcion_nombre,
+      tipo_nombre: grupo.tipo?.nombre ?? '',
+      precio_adicional: Number(item.precio_adicional ?? 0),
+      stock: Number(item.stock_disponible ?? 0),
+    },
+  }
+  aplicarVCaItem()
+}
+
+// Vuelca la selección de combos al ítem nuevo (label, precio y stock).
+function aplicarVCaItem() {
+  const sels = Object.values(nuevoVCSelec.value)
+  if (!sels.length) return
+  nuevoItem.value.variante_label = sels.map(s => `${s.tipo_nombre}: ${s.opcion_nombre}`).join(' / ')
+  const adic = sels.reduce((sum, s) => sum + (s.precio_adicional || 0), 0)
+  if (adic > 0) nuevoItem.value.precio_unitario = adic
+  // Stock disponible = el menor stock entre las opciones elegidas
+  nuevoItem.value.stock_libre = Math.min(...sels.map(s => s.stock ?? 0))
 }
 
 function elegirVarianteNuevo(v) {
@@ -255,6 +298,10 @@ function agregarNuevo() {
   // Si el producto tiene variantes y es de stock, obliga a elegir una
   if (!esPersonalizado && nuevoVariantes.value.length && !n.variante_id) {
     toast.error('Este producto tiene variantes (tela/color). Elige una antes de agregar.')
+    return
+  }
+  if (!esPersonalizado && nuevoVCGrupos.value.length && !nuevoVCCompleto.value) {
+    toast.error('Este producto tiene variantes. Elige una opción de cada grupo.')
     return
   }
 
@@ -1068,10 +1115,33 @@ async function guardar() {
                   </div>
                 </div>
 
+                <!-- Variantes configurables (combos) — grupos de opciones -->
+                <div v-if="!nuevoItem.es_custom && nuevoItem.modo === 'stock' && nuevoVCGrupos.length" class="space-y-2">
+                  <div v-for="g in nuevoVCGrupos" :key="g.tipo_variante_id">
+                    <label class="block text-[11px] text-gray-500 mb-1">
+                      {{ g.tipo?.nombre }} <span class="text-red-500">*</span>
+                    </label>
+                    <div class="flex flex-wrap gap-1.5">
+                      <button
+                        v-for="op in g.items" :key="op.id" type="button"
+                        @click="elegirOpcionVC(g, op)"
+                        :class="['px-2.5 py-1 rounded-full text-xs font-medium border transition-colors',
+                          nuevoVCSelec[g.tipo_variante_id]?.opcion_nombre === op.opcion_nombre
+                            ? 'bg-purple-600 text-white border-purple-600'
+                            : ((op.stock_disponible ?? 0) > 0 ? 'bg-white text-gray-700 border-gray-300 hover:border-purple-400' : 'bg-gray-50 text-gray-400 border-gray-200')]"
+                      >
+                        {{ op.opcion_nombre }}
+                        <span v-if="op.precio_adicional > 0" class="text-emerald-600">+${{ Number(op.precio_adicional).toLocaleString('es-CO') }}</span>
+                        <span class="ml-1 font-bold">{{ op.stock_disponible ?? 0 }}</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
                 <!-- Stock disponible (solo modo stock) -->
-                <p v-if="!nuevoItem.es_custom && nuevoItem.modo === 'stock' && nuevoItem.stock_libre != null"
+                <p v-if="!nuevoItem.es_custom && nuevoItem.modo === 'stock' && nuevoItem.stock_libre != null && !(nuevoVCGrupos.length && !nuevoVCCompleto)"
                   class="text-xs" :class="nuevoItem.stock_libre > 0 ? 'text-green-700' : 'text-red-600'">
-                  {{ nuevoItem.variante_id ? 'Stock de la variante' : 'Stock disponible' }}: <strong>{{ nuevoItem.stock_libre }}</strong>
+                  {{ (nuevoItem.variante_id || nuevoVCGrupos.length) ? 'Stock de la variante' : 'Stock disponible' }}: <strong>{{ nuevoItem.stock_libre }}</strong>
                   <span v-if="nuevoItem.stock_libre <= 0"> — sin stock aquí; usa "Para fabricar" o elige otra tienda arriba.</span>
                 </p>
 
