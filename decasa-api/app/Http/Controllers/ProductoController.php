@@ -100,6 +100,47 @@ class ProductoController extends Controller
     }
 
     /**
+     * GET /api/productos/sugerencias?q=term
+     *
+     * "¿Quizás quisiste decir…?" — productos parecidos por similitud cuando la
+     * búsqueda exacta no encontró nada. Usa similar_text sobre el nombre + bonus
+     * por palabras compartidas.
+     */
+    public function sugerencias(Request $request)
+    {
+        $q = trim((string) $request->query('q', ''));
+        if (mb_strlen($q) < 2) return response()->json([]);
+
+        $qLower    = mb_strtolower($q);
+        $palabras  = array_filter(preg_split('/\s+/', $qLower), fn ($w) => mb_strlen($w) >= 3);
+
+        $productos = Producto::where('activo', true)->get(['id', 'nombre', 'categoria']);
+
+        $scored = $productos->map(function ($p) use ($qLower, $palabras) {
+            $nombre = mb_strtolower($p->nombre ?? '');
+            $cat    = mb_strtolower($p->categoria ?? '');
+
+            similar_text($qLower, $nombre, $pctNombre);
+            similar_text($qLower, $cat,    $pctCat);
+
+            $bonus = 0;
+            foreach ($palabras as $w) {
+                if (str_contains($nombre, $w)) $bonus += 25;
+                elseif (str_contains($cat, $w)) $bonus += 10;
+            }
+
+            return ['p' => $p, 'score' => max($pctNombre, $pctCat * 0.5) + $bonus];
+        })
+        ->filter(fn ($x) => $x['score'] >= 34)
+        ->sortByDesc('score')
+        ->take(5)
+        ->map(fn ($x) => ['id' => $x['p']->id, 'nombre' => $x['p']->nombre, 'categoria' => $x['p']->categoria])
+        ->values();
+
+        return response()->json($scored);
+    }
+
+    /**
      * POST /api/productos
      *
      * Crea un nuevo producto y sus registros de inventario (en 0) para las

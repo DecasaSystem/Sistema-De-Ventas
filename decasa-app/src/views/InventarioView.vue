@@ -490,6 +490,22 @@ async function cargarInventario(reset = false) {
       cargarVCConfigsCard(i)
     })
   })
+  // "¿Quizás quisiste decir?" cuando la búsqueda no encontró nada
+  if (reset) {
+    sugerenciasInv.value = []
+    if (inventario.value.length === 0 && busqueda.value.trim()) {
+      try {
+        const { data } = await api.get('/productos/sugerencias', { params: { q: busqueda.value.trim() } })
+        sugerenciasInv.value = data ?? []
+      } catch { sugerenciasInv.value = [] }
+    }
+  }
+}
+
+const sugerenciasInv = ref([])
+function usarSugerenciaInv(s) {
+  busqueda.value = s.nombre
+  cargarInventario(true)
 }
 
 function loadMore() {
@@ -1608,10 +1624,24 @@ onMounted(async () => {
     <AppSpinner v-if="tiendaId && loading" />
 
     <!-- Empty -->
-    <EmptyState
-      v-else-if="tiendaId && inventario.length === 0"
-      :message="esVistaGlobal ? 'No hay productos en ninguna tienda.' : 'No hay productos en esta tienda.'"
-    />
+    <div v-else-if="tiendaId && inventario.length === 0">
+      <EmptyState
+        :message="busqueda.trim() ? `No se encontró “${busqueda.trim()}”.` : (esVistaGlobal ? 'No hay productos en ninguna tienda.' : 'No hay productos en esta tienda.')"
+      />
+      <!-- ¿Quizás quisiste decir? -->
+      <div v-if="sugerenciasInv.length" class="max-w-sm mx-auto mt-2 space-y-1.5 px-4">
+        <p class="text-xs font-medium text-gray-500 text-center">¿Quizás quisiste decir?</p>
+        <button
+          v-for="s in sugerenciasInv" :key="s.id"
+          type="button"
+          @click="usarSugerenciaInv(s)"
+          class="w-full text-left bg-white border border-gray-200 rounded-lg px-3 py-2 hover:border-blue-400 hover:bg-blue-50/50 transition-colors"
+        >
+          <span class="text-sm font-medium text-gray-800">{{ s.nombre }}</span>
+          <span v-if="s.categoria" class="text-xs text-gray-400"> · {{ s.categoria }}</span>
+        </button>
+      </div>
+    </div>
 
     <!-- Lista -->
     <template v-else>

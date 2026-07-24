@@ -1,4 +1,4 @@
-const CACHE_NAME = 'decasa-v10'
+const CACHE_NAME = 'decasa-v11'
 
 // ── Push notifications ────────────────────────────────────────────────────────
 self.addEventListener('push', (event) => {

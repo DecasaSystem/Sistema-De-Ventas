@@ -248,6 +248,12 @@ function cambiarTipo(tipo) {
 // ── Paso 2: Productos / Carrito ───────────────────────────────────────────────
 const productoQuery = ref('')
 const productoResultados = ref([])
+const sugerencias        = ref([])   // "¿quizás quisiste decir?" cuando no hay resultados
+
+function usarSugerencia(s) {
+  productoQuery.value = s.nombre
+  buscarProducto()
+}
 const buscandoProducto = ref(false)
 const items = ref([])
 const tiendaBusqueda = ref(auth.usuario?.tienda_default_id ?? '')
@@ -519,6 +525,13 @@ async function buscarProducto() {
     })
     productoResultados.value = data
     busquedaHecha.value = true
+    sugerencias.value = []
+    if (!data.length) {
+      try {
+        const { data: sug } = await api.get('/productos/sugerencias', { params: { q: productoQuery.value } })
+        sugerencias.value = sug ?? []
+      } catch { sugerencias.value = [] }
+    }
     // Cargar badge de fábrica solo cuando NO se está buscando ya en fábrica
     if (fabricaId.value && data.length && tiendaBusqueda.value != fabricaId.value) {
       const ids = data.map(p => p.id)
@@ -1928,6 +1941,21 @@ function removeFacturaFoto() {
         class="bg-gray-50 border border-dashed border-gray-300 rounded-xl p-4 text-center space-y-2.5"
       >
         <p class="text-sm text-gray-500">No se encontró <strong class="text-gray-700">"{{ productoQuery }}"</strong> en el catálogo.</p>
+
+        <!-- ¿Quizás quisiste decir? -->
+        <div v-if="sugerencias.length" class="space-y-1.5 text-left pt-1">
+          <p class="text-xs font-medium text-gray-500">¿Quizás quisiste decir?</p>
+          <button
+            v-for="s in sugerencias" :key="s.id"
+            type="button"
+            @click="usarSugerencia(s)"
+            class="w-full text-left bg-white border border-gray-200 rounded-lg px-3 py-1.5 hover:border-blue-400 hover:bg-blue-50/50 transition-colors"
+          >
+            <span class="text-sm font-medium text-gray-800">{{ s.nombre }}</span>
+            <span v-if="s.categoria" class="text-xs text-gray-400"> · {{ s.categoria }}</span>
+          </button>
+        </div>
+
         <button
           @click="abrirCrearProducto"
           class="text-sm font-semibold text-green-700 border border-green-300 bg-green-50 px-4 py-2 rounded-lg hover:bg-green-100 transition-colors"
