@@ -158,8 +158,9 @@ watch(nuevoTiendaOrigen, refrescarStockNuevo)
 
 // Template de specs según la categoría del ítem nuevo (mismo criterio que al crear).
 const nuevoTemplate = computed(() => {
-  const cat = nuevoItem.value.es_custom ? nuevoItem.value.categoria_custom : nuevoItem.value.producto_categoria
-  return SPECS_TEMPLATES[resolverCategoria(cat)] ?? SPECS_TEMPLATES['generico']
+  const nombre = nuevoItem.value.es_custom ? nuevoItem.value.nombre_custom : nuevoItem.value.producto_nombre
+  const cat    = nuevoItem.value.es_custom ? nuevoItem.value.categoria_custom : nuevoItem.value.producto_categoria
+  return SPECS_TEMPLATES[resolverCategoria(nombre, cat)] ?? SPECS_TEMPLATES['generico']
 })
 // ¿El ítem nuevo va a producción? (personalizado, para fabricar o diseño especial)
 const nuevoEsProduccion = computed(() =>
@@ -297,8 +298,9 @@ function precioEfectivo(item) {
 
 // ── Especificaciones por categoría (mismos templates que al crear la orden) ──
 function getTemplate(item) {
-  const cat = item.producto_categoria || item.categoria_custom
-  const key = resolverCategoria(cat)
+  const nombre = item.producto_nombre || item.nombre_custom
+  const cat    = item.producto_categoria || item.categoria_custom
+  const key = resolverCategoria(nombre, cat)
   return SPECS_TEMPLATES[key] ?? SPECS_TEMPLATES['generico']
 }
 

@@ -1,21 +1,34 @@
-// Normaliza categoría (texto libre o clave BD) a una clave de template
-export function resolverCategoria(cat) {
-  if (!cat) return null
-  const c = cat.toLowerCase().trim()
-  if (c.includes('modular'))                                                    return 'sofas_modulares'
-  if (c.includes('sofa cama') || c.includes('sofá cama') || c === 'sofa_camas') return 'sofa_camas'
-  if (c.includes('sofa') || c.includes('sofá') || c === 'sofas')               return 'sofas'
-  if (c.includes('colchon') || c.includes('colchón') || c === 'colchones')     return 'colchones'
-  if (c.includes('cama'))                                                       return 'camas'
-  if (c.includes('comedor') && !c.includes('silla'))                           return 'comedores'
-  if (c.includes('silla') && (c.includes('comedor') || c === 'sillas_comedor')) return 'sillas_comedor'
-  if (c.includes('silla') && (c.includes('barra')   || c === 'sillas_barra'))  return 'sillas_barra'
-  if (c.includes('silla'))                                                      return 'sillas_aux'
-  if (c.includes('escritorio'))                                                 return 'escritorios'
-  if (c === 'mesas_noche' || c.includes('noche'))                              return 'mesas_noche'
-  if (c === 'mesas_tv'    || c.includes(' tv'))                                return 'mesas_tv'
-  if (c.includes('mesa') || c.includes('auxiliar'))                            return 'mesas'
-  if (c.includes('cajon') || c.includes('cajón') || c.includes('zapatero'))   return 'cajoneros'
+// Normaliza categoría a una clave de template. Acepta uno o varios textos
+// (ej. nombre + categoría) y los combina, quitando tildes, para reconocer mejor.
+// Ej: resolverCategoria('Silla de comedor tapizada', 'comedor') → 'sillas_comedor'
+export function resolverCategoria(...textos) {
+  const c = textos
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')   // quita tildes
+    .trim()
+  if (!c) return null
+
+  // ── Sillas primero: una silla es silla aunque diga "de comedor", "de barra"… ──
+  if (/\bsilla|butaca|poltrona\b/.test(c) || c.includes('sillas')) {
+    if (c.includes('barra') || c.includes('taburete') || c.includes('bar'))     return 'sillas_barra'
+    if (c.includes('comedor') || c.includes('mesa'))                            return 'sillas_comedor'
+    return 'sillas_aux'
+  }
+  if (c.includes('taburete'))                                                    return 'sillas_barra'
+
+  if (c.includes('modular'))                                                     return 'sofas_modulares'
+  if (c.includes('sofa cama') || c.includes('sofacama'))                         return 'sofa_camas'
+  if (c.includes('sofa') || c.includes('sillon') || c.includes('seccional'))     return 'sofas'
+  if (c.includes('colchon'))                                                     return 'colchones'
+  if (c.includes('cama') || c.includes('cabecero') || c.includes('cabecera'))    return 'camas'
+  if (c.includes('comedor'))                                                     return 'comedores'   // mesa de comedor (ya se descartaron sillas)
+  if (c.includes('escritorio'))                                                  return 'escritorios'
+  if (c.includes('noche') || c.includes('nochero') || c.includes('nochera'))     return 'mesas_noche'
+  if (c.includes(' tv') || c.includes('televi') || c.includes('rack'))           return 'mesas_tv'
+  if (c.includes('mesa') || c.includes('auxiliar') || c.includes('consola') || c.includes('centro')) return 'mesas'
+  if (c.includes('cajon') || c.includes('zapatero') || c.includes('comoda') || c.includes('gavetero')) return 'cajoneros'
   return null
 }
 

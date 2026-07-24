@@ -439,8 +439,9 @@ function formatCambioVal(val) {
 function specsResumen(item) {
   const specs = item?.specs_personalizacion
   if (!specs) return []
+  const nombre   = item.producto?.nombre || item.nombre_custom
   const cat      = item.producto?.categoria || item.categoria_custom
-  const template = SPECS_TEMPLATES[resolverCategoria(cat)] ?? SPECS_TEMPLATES['generico']
+  const template = SPECS_TEMPLATES[resolverCategoria(nombre, cat)] ?? SPECS_TEMPLATES['generico']
   const vistos   = new Set()
   const partes   = []
 

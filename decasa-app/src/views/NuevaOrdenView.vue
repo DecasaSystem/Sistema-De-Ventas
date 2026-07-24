@@ -997,8 +997,12 @@ function telaResumidaCampo(item, key) {
 
 
 // ── Cotizador de precio con IA ────────────────────────────────────────────────
-function getTemplate(cat) {
-  const key = resolverCategoria(cat)
+function getTemplate(item) {
+  // Acepta un string (categoría) o el ítem completo; combina nombre + categoría
+  // para reconocer mejor (ej. "Silla de comedor" no se confunde con mesa).
+  const nombre    = typeof item === 'string' ? item : (item?.nombre ?? item?.nombre_custom)
+  const categoria = typeof item === 'string' ? ''   : (item?.categoria ?? item?.categoria_custom)
+  const key = resolverCategoria(nombre, categoria)
   return SPECS_TEMPLATES[key] ?? SPECS_TEMPLATES['generico']
 }
 
@@ -1027,7 +1031,7 @@ async function calcularPrecioIA(item) {
       item._precioCalc = data
     } else {
       // Producto personalizado — lógica estándar
-      const template = getTemplate(item.categoria)
+      const template = getTemplate(item)
       const specsResueltos = { ...item.specs }
       for (const key of Object.keys(item._telaSelections ?? {})) {
         const tela = telaResumidaCampo(item, key)
@@ -1039,7 +1043,7 @@ async function calcularPrecioIA(item) {
       const { data } = await api.post('/calcular-precio-item', {
         producto_id:       item.producto_id ?? null,
         nombre:            item.nombre,
-        categoria:         resolverCategoria(item.categoria) || item.categoria || '',
+        categoria:         resolverCategoria(item.nombre, item.categoria) || item.categoria || '',
         descripcion:       specDesc,
         notas_adicionales: item.specs_notas || null,
         precio_referencia: item._precioReferencia ? Number(item._precioReferencia) : null,
@@ -2531,10 +2535,10 @@ function removeFacturaFoto() {
           <template v-else-if="item.es_personalizado && !item.producto_id && tipoOrden !== 'restauracion'">
             <div class="space-y-2">
               <p class="text-xs font-semibold text-purple-700">
-                Especificaciones — {{ getTemplate(item.categoria).titulo }}
+                Especificaciones — {{ getTemplate(item).titulo }}
               </p>
               <div class="grid grid-cols-2 gap-2">
-                <template v-for="campo in getTemplate(item.categoria).campos" :key="campo.key">
+                <template v-for="campo in getTemplate(item).campos" :key="campo.key">
                   <div :class="campo.type === 'text' || campo.useVariantes ? 'col-span-2' : ''">
                     <label class="text-xs text-gray-500">
                       {{ campo.label }}{{ campo.unit ? ' (' + campo.unit + ')' : '' }}
