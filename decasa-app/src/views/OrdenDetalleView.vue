@@ -1517,23 +1517,25 @@ onMounted(cargarOrden)
           <ClockIcon class="w-3.5 h-3.5" />
           Historial de ediciones ({{ orden.ediciones.length }})
         </p>
-        <div
-          v-for="edicion in orden.ediciones"
-          :key="edicion.id"
-          class="border-b border-gray-100 last:border-0 pb-3 last:pb-0"
-        >
-          <div class="flex justify-between items-center mb-1.5">
-            <span class="text-xs font-semibold text-gray-700">{{ edicion.usuario?.nombre }}</span>
-            <span class="text-[11px] text-gray-400">{{ formatDateTime(edicion.created_at) }}</span>
+        <div class="max-h-72 overflow-y-auto space-y-3 pr-1 -mr-1">
+          <div
+            v-for="edicion in orden.ediciones"
+            :key="edicion.id"
+            class="border-b border-gray-100 last:border-0 pb-3 last:pb-0"
+          >
+            <div class="flex justify-between items-center mb-1.5">
+              <span class="text-xs font-semibold text-gray-700">{{ edicion.usuario?.nombre }}</span>
+              <span class="text-[11px] text-gray-400">{{ formatDateTime(edicion.created_at) }}</span>
+            </div>
+            <ul class="space-y-1">
+              <li v-for="cambio in edicion.cambios" :key="cambio.campo" class="text-xs text-gray-600 leading-snug">
+                <span class="font-medium">{{ cambio.label }}:</span>
+                <span class="text-red-500 line-through ml-1">{{ formatCambioVal(cambio.antes) }}</span>
+                <span class="mx-1 text-gray-400">→</span>
+                <span class="text-green-600">{{ formatCambioVal(cambio.despues) }}</span>
+              </li>
+            </ul>
           </div>
-          <ul class="space-y-1">
-            <li v-for="cambio in edicion.cambios" :key="cambio.campo" class="text-xs text-gray-600 leading-snug">
-              <span class="font-medium">{{ cambio.label }}:</span>
-              <span class="text-red-500 line-through ml-1">{{ formatCambioVal(cambio.antes) }}</span>
-              <span class="mx-1 text-gray-400">→</span>
-              <span class="text-green-600">{{ formatCambioVal(cambio.despues) }}</span>
-            </li>
-          </ul>
         </div>
       </div>
 
