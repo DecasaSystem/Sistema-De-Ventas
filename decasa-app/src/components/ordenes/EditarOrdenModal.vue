@@ -123,13 +123,15 @@ async function cargarVariantesNuevo() {
   nuevoCargandoVariantes.value = true
   try {
     const { data } = await getVariantes(nuevoItem.value.producto_id, nuevoTiendaOrigen.value)
-    nuevoVariantes.value = (data ?? []).filter(v => !v.medida) // tela/color (no tallas)
+    // Solo cuentan como variantes simples las de tela/color (no tallas ni configs)
+    nuevoVariantes.value = (data ?? []).filter(v => !v.medida && (v.marca_tela || v.nombre_color))
     // Si no hay variantes simples, buscar variantes configurables (combos)
     if (!nuevoVariantes.value.length) {
       const { data: vc } = await api.get(`/productos/${nuevoItem.value.producto_id}/variante-configs`, {
         params: { tienda_id: nuevoTiendaOrigen.value },
       }).catch(() => ({ data: [] }))
-      nuevoVCGrupos.value = (vc ?? []).filter(g => g.items?.some(i => (i.stock_disponible ?? 0) > 0))
+      // Mostrar todos los grupos con opciones (el stock puede estar a nivel base)
+      nuevoVCGrupos.value = (vc ?? []).filter(g => g.items?.length)
     }
   } catch {
     nuevoVariantes.value = []
@@ -157,15 +159,14 @@ function elegirOpcionVC(grupo, item) {
   aplicarVCaItem()
 }
 
-// Vuelca la selección de combos al ítem nuevo (label, precio y stock).
+// Vuelca la selección de combos al ítem nuevo (label y precio). El stock del
+// ítem queda en el stock base del producto (igual que Nueva Orden).
 function aplicarVCaItem() {
   const sels = Object.values(nuevoVCSelec.value)
   if (!sels.length) return
   nuevoItem.value.variante_label = sels.map(s => `${s.tipo_nombre}: ${s.opcion_nombre}`).join(' / ')
   const adic = sels.reduce((sum, s) => sum + (s.precio_adicional || 0), 0)
   if (adic > 0) nuevoItem.value.precio_unitario = adic
-  // Stock disponible = el menor stock entre las opciones elegidas
-  nuevoItem.value.stock_libre = Math.min(...sels.map(s => s.stock ?? 0))
 }
 
 function elegirVarianteNuevo(v) {
