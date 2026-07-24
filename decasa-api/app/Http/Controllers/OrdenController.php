@@ -1068,6 +1068,7 @@ class OrdenController extends Controller
             }
 
             // ── Agregar ítems nuevos ──────────────────────────────────────────
+            $origenesExternosEdit = [];   // [tienda_origen_id => ["Nombre (cant)", ...]]
             if (! empty($data['items_nuevos'])) {
                 foreach ($data['items_nuevos'] as $nuevoData) {
                     $esCustom        = empty($nuevoData['producto_id']);                 // diseño especial (fuera de catálogo)
@@ -1140,6 +1141,12 @@ class OrdenController extends Controller
                         ]);
                         event(new InventarioActualizado((int) $origenId, (int) $productoId, 'reserva'));
                         $this->notificarSiSinStock((int) $productoId, (int) $origenId);
+
+                        // Si el stock sale de otra tienda, registrar para avisarle
+                        if ($origenId !== (int) $orden->tienda_id) {
+                            $nomOrigen = Producto::find($productoId)?->nombre ?? "Producto #{$productoId}";
+                            $origenesExternosEdit[$origenId][] = "{$nomOrigen} ({$cantidad})";
+                        }
                     }
 
                     $nomProd   = $esCustom
@@ -1155,6 +1162,24 @@ class OrdenController extends Controller
                 }
 
                 $orden->load('items');
+            }
+
+            // Avisar a la(s) tienda(s) de la que se sacó stock al agregar ítems
+            foreach ($origenesExternosEdit as $origenId => $lista) {
+                $resumen = implode(', ', $lista);
+                $vendedoresOrigen = Usuario::where('tienda_default_id', $origenId)
+                    ->where('rol', 'vendedor')
+                    ->where('activo', true)
+                    ->pluck('id');
+                foreach ($vendedoresOrigen as $vendedorId) {
+                    NotificacionService::crear(
+                        'venta_otra_tienda',
+                        'Stock tomado de tu tienda',
+                        "Orden #" . ($orden->numero_orden ?? $orden->id) . " (edición): {$resumen}",
+                        ['orden_id' => $orden->id, 'tienda_id' => (int) $origenId],
+                        $vendedorId,
+                    );
+                }
             }
 
             // Recalcular valor total (subtotal de ítems menos descuento global)

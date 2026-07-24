@@ -1,7 +1,7 @@
 {
-  "name": "Bidad — Gestión de Ventas",
-  "short_name": "Bidad",
-  "description": "Bidad — sistema de gestión de ventas e inventario",
+  "name": "SODEGE — Gestión de Ventas",
+  "short_name": "SODEGE",
+  "description": "SODEGE — sistema de gestión de ventas e inventario",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait",

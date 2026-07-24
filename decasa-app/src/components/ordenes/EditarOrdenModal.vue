@@ -146,6 +146,15 @@ const nuevoVCCompleto = computed(() =>
   nuevoVCGrupos.value.length > 0 && nuevoVCGrupos.value.every(g => nuevoVCSelec.value[g.tipo_variante_id])
 )
 
+// No se puede agregar un producto de stock sin stock disponible (usar "Para fabricar").
+const nuevoSinStock = computed(() =>
+  !nuevoItem.value.es_custom &&
+  nuevoItem.value.modo === 'stock' &&
+  !!nuevoItem.value.producto_id &&
+  nuevoItem.value.stock_libre != null &&
+  nuevoItem.value.stock_libre <= 0
+)
+
 function elegirOpcionVC(grupo, item) {
   nuevoVCSelec.value = {
     ...nuevoVCSelec.value,
@@ -1193,10 +1202,13 @@ async function guardar() {
                   </div>
                 </div>
 
+                <p v-if="nuevoSinStock" class="text-xs text-red-600 text-center">
+                  Sin stock disponible — no se puede agregar. Usa "Para fabricar" o elige otra tienda.
+                </p>
                 <button
                   type="button"
                   @click="agregarNuevo"
-                  :disabled="nuevoItem._subiendo"
+                  :disabled="nuevoItem._subiendo || nuevoSinStock"
                   class="w-full py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-40 transition-colors flex items-center justify-center gap-1.5"
                 >
                   <PlusIcon class="w-4 h-4" /> Agregar ítem

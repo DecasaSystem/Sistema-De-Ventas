@@ -13,7 +13,7 @@ const { canInstall, instalar, descartar } = usePwaInstall()
     >
       <ArrowDownTrayIcon class="w-6 h-6 flex-shrink-0" />
       <p class="flex-1 text-sm font-medium leading-snug">
-        Instala Bidad en tu pantalla de inicio
+        Instala SODEGE en tu pantalla de inicio
       </p>
       <button
         @click="instalar"

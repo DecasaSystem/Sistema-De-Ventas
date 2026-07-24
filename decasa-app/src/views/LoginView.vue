@@ -30,8 +30,8 @@ async function submit() {
   <div class="min-h-screen bg-gray-50 flex items-center justify-center px-4">
     <div class="w-full max-w-sm">
       <div class="mb-8 text-center">
-        <img src="/bidad_logo.png" alt="Bidad" class="w-20 h-20 mx-auto mb-3 object-contain" />
-        <h1 class="text-3xl font-bold text-gray-900">Bidad</h1>
+        <img src="/sodege_logo.png" alt="SODEGE" class="h-24 w-auto mx-auto mb-3 object-contain" />
+        <h1 class="text-3xl font-bold text-gray-900">SODEGE</h1>
         <p class="mt-1 text-sm text-gray-500">Sistema de ventas</p>
       </div>
 

@@ -385,8 +385,8 @@ function formatFecha(iso) {
     <!-- Top bar -->
     <header v-if="showNav" class="sticky top-0 z-10 bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
       <div class="flex items-center gap-2">
-        <img src="/bidad_logo.png" alt="Bidad" class="w-8 h-8 object-contain" />
-        <span class="font-bold text-blue-600 text-lg">Bidad</span>
+        <img src="/sodege_logo.png" alt="SODEGE" class="h-8 w-auto object-contain" />
+        <span class="font-bold text-blue-600 text-lg">SODEGE</span>
       </div>
       <div class="flex items-center gap-2">
         <!-- Chip de perfil activo / cambio rápido -->
