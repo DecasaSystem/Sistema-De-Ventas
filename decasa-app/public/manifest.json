@@ -1,5 +1,5 @@
 {
-  "name": "SODEGE — Gestión de Ventas",
+  "name": "SODEGE",
   "short_name": "SODEGE",
   "description": "SODEGE — sistema de gestión de ventas e inventario",
   "start_url": "/",
@@ -20,12 +20,6 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
-    },
-    {
-      "src": "/logo_512x512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "maskable"
     }
   ],
   "categories": ["business", "productivity"]
