@@ -811,6 +811,7 @@ class OrdenController extends Controller
             'items_eliminar.*'              => 'integer|exists:orden_items,id',
             'items_nuevos'                       => 'sometimes|nullable|array',
             'items_nuevos.*.producto_id'         => 'nullable|integer|exists:productos,id',
+            'items_nuevos.*.variante_id'         => 'nullable|integer|exists:producto_variantes,id',
             'items_nuevos.*.tienda_origen_id'    => 'nullable|integer|exists:tiendas,id',
             'items_nuevos.*.nombre_custom'       => 'required_without:items_nuevos.*.producto_id|nullable|string|max:200',
             'items_nuevos.*.categoria_custom'    => 'nullable|string|max:100',
@@ -1073,6 +1074,7 @@ class OrdenController extends Controller
                     $esPersonalizado = (bool) ($nuevoData['es_personalizado'] ?? false) || $esCustom;
                     $fabricarPedido  = (bool) ($nuevoData['fabricar_pedido'] ?? false) && ! $esCustom;
                     $productoId      = $esCustom ? null : (int) $nuevoData['producto_id'];
+                    $varianteId      = $esCustom ? null : ($nuevoData['variante_id'] ?? null);
                     $cantidad        = (int) $nuevoData['cantidad'];
                     $precio          = (float) $nuevoData['precio_unitario'];
                     $origenId        = (int) ($nuevoData['tienda_origen_id'] ?? $orden->tienda_id);
@@ -1081,8 +1083,13 @@ class OrdenController extends Controller
 
                     // Solo los ítems de stock verifican y reservan inventario.
                     if (! $esPersonalizado) {
-                        $inv        = Inventario::where('producto_id', $productoId)->where('tienda_id', $origenId)->lockForUpdate()->first();
-                        $stockLibre = $inv ? ($inv->cantidad_disponible - $inv->cantidad_reservada) : 0;
+                        if ($varianteId) {
+                            $invV       = InventarioVariante::where('variante_id', $varianteId)->where('tienda_id', $origenId)->lockForUpdate()->first();
+                            $stockLibre = $invV ? ($invV->cantidad_disponible - $invV->cantidad_reservada) : 0;
+                        } else {
+                            $inv        = Inventario::where('producto_id', $productoId)->where('tienda_id', $origenId)->lockForUpdate()->first();
+                            $stockLibre = $inv ? ($inv->cantidad_disponible - $inv->cantidad_reservada) : 0;
+                        }
                         if ($stockLibre < $cantidad) {
                             $nomProd = Producto::find($productoId)?->nombre ?? "Producto #{$productoId}";
                             abort(422, "Stock insuficiente para \"{$nomProd}\". Libre: {$stockLibre}, necesario: {$cantidad}.");
@@ -1092,6 +1099,7 @@ class OrdenController extends Controller
                     $nuevoItem = OrdenItem::create([
                         'orden_id'              => $orden->id,
                         'producto_id'           => $productoId,
+                        'variante_id'           => $varianteId,
                         'nombre_custom'         => $esCustom ? ($nuevoData['nombre_custom'] ?? null) : null,
                         'categoria_custom'      => $esCustom ? ($nuevoData['categoria_custom'] ?? null) : null,
                         'cantidad'              => $cantidad,
@@ -1114,16 +1122,24 @@ class OrdenController extends Controller
                             'estado'           => 'pendiente',
                         ]);
                     } else {
+                        // Reservar variante (si aplica) + stock base, notificar a la tienda.
+                        if ($varianteId) {
+                            InventarioVariante::where('variante_id', $varianteId)->where('tienda_id', $origenId)
+                                ->increment('cantidad_reservada', $cantidad);
+                        }
                         Inventario::where('producto_id', $productoId)->where('tienda_id', $origenId)
                             ->increment('cantidad_reservada', $cantidad);
                         InventarioMovimiento::create([
                             'producto_id' => $productoId,
                             'tienda_id'   => $origenId,
+                            'variante_id' => $varianteId,
                             'tipo'        => 'reserva',
                             'cantidad'    => $cantidad,
                             'motivo'      => "Edición orden #{$orden->id} — ítem agregado",
                             'usuario_id'  => $usuario->id,
                         ]);
+                        event(new InventarioActualizado((int) $origenId, (int) $productoId, 'reserva'));
+                        $this->notificarSiSinStock((int) $productoId, (int) $origenId);
                     }
 
                     $nomProd   = $esCustom

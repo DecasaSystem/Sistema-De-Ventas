@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { editarOrden, editarPago, buscarProductos, getTiendas } from '@/api/ordenes'
+import { getVariantes } from '@/api/inventario'
 import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
 import { TELAS_CATALOGO, marcasOrdenadas, tiposTelaDeM, coloresDeTela } from '@/data/telasCatalogo'
@@ -97,10 +98,43 @@ function nuevoItemVacio() {
     producto_id: null, producto_nombre: '', producto_categoria: null, personalizable: false,
     es_custom: false, nombre_custom: '', categoria_custom: '',
     modo: 'stock',              // 'stock' | 'personalizado' | 'fabricar' (para productos de catálogo)
+    variante_id: null, variante_label: '',
     cantidad: 1, precio_unitario: '', stock_libre: null,
     specs: {}, specs_notas: '', _telaSelections: {},
     boceto_urls: [], _subiendo: false,
   }
+}
+
+// Variantes (tela/color) del producto seleccionado para el ítem nuevo
+const nuevoVariantes        = ref([])
+const nuevoCargandoVariantes = ref(false)
+
+async function cargarVariantesNuevo() {
+  nuevoVariantes.value = []
+  nuevoItem.value.variante_id = null
+  nuevoItem.value.variante_label = ''
+  if (!nuevoItem.value.producto_id) return
+  nuevoCargandoVariantes.value = true
+  try {
+    const { data } = await getVariantes(nuevoItem.value.producto_id, nuevoTiendaOrigen.value)
+    nuevoVariantes.value = (data ?? []).filter(v => !v.medida) // tela/color (no tallas)
+  } catch {
+    nuevoVariantes.value = []
+  } finally {
+    nuevoCargandoVariantes.value = false
+  }
+}
+
+function elegirVarianteNuevo(v) {
+  if (!v) {
+    nuevoItem.value.variante_id = null
+    nuevoItem.value.variante_label = ''
+    return
+  }
+  nuevoItem.value.variante_id = v.id
+  nuevoItem.value.variante_label = [v.marca, v.marca_tela, v.nombre_color].filter(Boolean).join(' · ')
+  nuevoItem.value.stock_libre = v.stock_libre ?? 0
+  if (v.precio_variante != null) nuevoItem.value.precio_unitario = v.precio_variante
 }
 const nuevoItem        = ref(nuevoItemVacio())
 const nuevoTiendaOrigen = ref(null)   // tienda de la que sale el stock del ítem nuevo
@@ -117,6 +151,8 @@ async function refrescarStockNuevo() {
     const { data } = await api.get(`/productos/${nuevoItem.value.producto_id}`, { params: { tienda_id: nuevoTiendaOrigen.value } })
     nuevoItem.value.stock_libre = (data.stock_disponible ?? 0) - (data.stock_reservado ?? 0)
   } catch {}
+  // Las variantes y su stock dependen de la tienda → recargar
+  await cargarVariantesNuevo()
 }
 watch(nuevoTiendaOrigen, refrescarStockNuevo)
 
@@ -153,8 +189,11 @@ function seleccionarNuevo(prod) {
   nuevoItem.value.stock_libre        = (prod.stock_disponible ?? 0) - (prod.stock_reservado ?? 0)
   nuevoItem.value.es_custom          = false
   nuevoItem.value.modo               = 'stock'
+  nuevoItem.value.variante_id        = null
+  nuevoItem.value.variante_label     = ''
   nuevoQuery.value     = ''
   nuevoResultados.value = []
+  cargarVariantesNuevo()
 }
 function iniciarDisenoEspecial() {
   nuevoItem.value = nuevoItemVacio()
@@ -212,6 +251,12 @@ function agregarNuevo() {
 
   const esPersonalizado = n.es_custom || n.modo === 'personalizado' || n.modo === 'fabricar'
 
+  // Si el producto tiene variantes y es de stock, obliga a elegir una
+  if (!esPersonalizado && nuevoVariantes.value.length && !n.variante_id) {
+    toast.error('Este producto tiene variantes (tela/color). Elige una antes de agregar.')
+    return
+  }
+
   // Validar stock solo para ítems de stock (no producción)
   if (!esPersonalizado && n.stock_libre != null && (parseInt(n.cantidad) || 1) > n.stock_libre) {
     toast.error(`Stock insuficiente: hay ${n.stock_libre} disponible(s) en la tienda seleccionada.`)
@@ -221,6 +266,8 @@ function agregarNuevo() {
   const otraTienda = !esPersonalizado && nuevoTiendaOrigen.value && nuevoTiendaOrigen.value !== props.orden.tienda_id
   itemsNuevos.value.push({
     producto_id:      n.es_custom ? null : n.producto_id,
+    variante_id:      !esPersonalizado ? (n.variante_id || null) : null,
+    variante_label:   !esPersonalizado ? (n.variante_label || '') : '',
     nombre_custom:    n.es_custom ? n.nombre_custom.trim() : null,
     categoria_custom: n.es_custom ? (n.categoria_custom || null) : null,
     producto_nombre:  n.es_custom ? n.nombre_custom.trim() : n.producto_nombre,
@@ -478,6 +525,7 @@ async function guardar() {
       items_nuevos: itemsNuevos.value.length
         ? itemsNuevos.value.map(i => ({
             producto_id:      i.producto_id ?? undefined,
+            variante_id:      i.variante_id ?? undefined,
             nombre_custom:    i.nombre_custom ?? undefined,
             categoria_custom: i.categoria_custom ?? undefined,
             tienda_origen_id: i.tienda_origen_id ?? undefined,
@@ -916,6 +964,7 @@ async function guardar() {
                         'bg-amber-100 text-amber-700':   ni._tipo === 'Para fabricar',
                       }">{{ ni._tipo }}</span>
                   </p>
+                  <p v-if="ni.variante_label" class="text-[11px] text-purple-600">{{ ni.variante_label }}</p>
                   <p class="text-xs text-gray-500">
                     × {{ ni.cantidad }} — ${{ Number(ni.precio_unitario).toLocaleString('es-CO') }}
                     <span v-if="ni.tienda_origen_nombre" class="text-amber-600"> · desde {{ ni.tienda_origen_nombre }}</span>
@@ -996,10 +1045,31 @@ async function guardar() {
                   </button>
                 </div>
 
+                <!-- Variantes (tela/color) del producto — solo modo stock -->
+                <div v-if="!nuevoItem.es_custom && nuevoItem.modo === 'stock' && (nuevoVariantes.length || nuevoCargandoVariantes)">
+                  <label class="block text-[11px] text-gray-500 mb-1">
+                    Variante (tela/color) <span class="text-red-500">*</span>
+                    <span v-if="nuevoCargandoVariantes" class="text-gray-400">· cargando...</span>
+                  </label>
+                  <div class="flex flex-wrap gap-1.5">
+                    <button
+                      v-for="v in nuevoVariantes" :key="v.id" type="button"
+                      @click="elegirVarianteNuevo(v)"
+                      :class="['px-2.5 py-1 rounded-full text-xs font-medium border transition-colors',
+                        nuevoItem.variante_id === v.id
+                          ? 'bg-purple-600 text-white border-purple-600'
+                          : (v.stock_libre > 0 ? 'bg-white text-gray-700 border-gray-300 hover:border-purple-400' : 'bg-gray-50 text-gray-400 border-gray-200')]"
+                    >
+                      {{ [v.marca_tela, v.nombre_color].filter(Boolean).join(' · ') }}
+                      <span class="ml-1 font-bold">{{ v.stock_libre ?? 0 }}</span>
+                    </button>
+                  </div>
+                </div>
+
                 <!-- Stock disponible (solo modo stock) -->
                 <p v-if="!nuevoItem.es_custom && nuevoItem.modo === 'stock' && nuevoItem.stock_libre != null"
                   class="text-xs" :class="nuevoItem.stock_libre > 0 ? 'text-green-700' : 'text-red-600'">
-                  Stock disponible: <strong>{{ nuevoItem.stock_libre }}</strong>
+                  {{ nuevoItem.variante_id ? 'Stock de la variante' : 'Stock disponible' }}: <strong>{{ nuevoItem.stock_libre }}</strong>
                   <span v-if="nuevoItem.stock_libre <= 0"> — sin stock aquí; usa "Para fabricar" o elige otra tienda arriba.</span>
                 </p>
 
