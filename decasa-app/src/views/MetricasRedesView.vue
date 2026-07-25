@@ -193,6 +193,47 @@ onBeforeUnmount(() => { if (chart) chart.destroy() })
         </div>
       </div>
 
+      <!-- Embudo del bot de WhatsApp -->
+      <div v-if="data.whatsapp" class="bg-white rounded-xl shadow-sm p-4">
+        <p class="text-sm font-semibold text-gray-700 mb-3">Bot de WhatsApp (Elena)</p>
+        <div class="grid grid-cols-3 gap-3 text-center">
+          <div>
+            <p class="text-lg font-bold text-gray-800">{{ data.whatsapp.conversaciones }}</p>
+            <p class="text-[11px] text-gray-400">Conversaciones</p>
+          </div>
+          <div>
+            <p class="text-lg font-bold text-gray-800">{{ data.whatsapp.productos_vistos }}</p>
+            <p class="text-[11px] text-gray-400">Productos vistos</p>
+          </div>
+          <div>
+            <p class="text-lg font-bold text-gray-800">{{ data.whatsapp.busquedas }}</p>
+            <p class="text-[11px] text-gray-400">Búsquedas</p>
+          </div>
+          <div>
+            <p class="text-lg font-bold text-blue-600">{{ data.whatsapp.transferencias }}</p>
+            <p class="text-[11px] text-gray-400">A asesor</p>
+          </div>
+          <div>
+            <p class="text-lg font-bold text-green-600">{{ data.whatsapp.pedidos }}</p>
+            <p class="text-[11px] text-gray-400">Pedidos</p>
+          </div>
+          <div>
+            <p class="text-lg font-bold text-emerald-600">{{ data.whatsapp.tasa_conversion }}%</p>
+            <p class="text-[11px] text-gray-400">Conversión</p>
+          </div>
+        </div>
+
+        <div v-if="data.whatsapp_top_productos?.length" class="mt-4 pt-3 border-t border-gray-100">
+          <p class="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Más consultados</p>
+          <div class="space-y-1">
+            <div v-for="p in data.whatsapp_top_productos" :key="p.nombre" class="flex items-center justify-between text-sm">
+              <span class="text-gray-600 truncate pr-2">{{ p.nombre }}</span>
+              <span class="font-semibold text-gray-800 whitespace-nowrap">{{ p.veces }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Por vendedor -->
       <div v-if="data.por_vendedor?.length" class="bg-white rounded-xl shadow-sm p-4">
         <p class="text-sm font-semibold text-gray-700 mb-2">Atendidas por vendedor</p>

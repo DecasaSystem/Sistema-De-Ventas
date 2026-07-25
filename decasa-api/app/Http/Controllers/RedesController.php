@@ -338,6 +338,33 @@ class RedesController extends Controller
             \Log::info('[metricas] ig_eventos no disponible: ' . $e->getMessage());
         }
 
+        // Embudo del bot de WhatsApp. La tabla wa_eventos la crea el agente de WhatsApp;
+        // si aún no existe (o está vacía) se omite esta sección sin romper el panel.
+        $whatsapp = null;
+        $waTop = [];
+        try {
+            $evW = DB::table('wa_eventos')->whereBetween('created_at', $rango)
+                ->selectRaw('tipo, COUNT(*) as n')->groupBy('tipo')->pluck('n', 'tipo');
+            $convW = (int) ($evW['conversacion'] ?? 0);
+            $pedW  = (int) ($evW['pedido'] ?? 0);
+            $whatsapp = [
+                'conversaciones'   => $convW,
+                'busquedas'        => (int) ($evW['busqueda'] ?? 0),
+                'productos_vistos' => (int) ($evW['producto_visto'] ?? 0),
+                'transferencias'   => (int) ($evW['transferencia'] ?? 0),
+                'citas'            => (int) ($evW['cita'] ?? 0),
+                'pedidos'          => $pedW,
+                'sin_resolver'     => (int) ($evW['sin_resolver'] ?? 0),
+                'tasa_conversion'  => $convW ? round($pedW / $convW * 100, 1) : 0,
+            ];
+            $waTop = DB::table('wa_eventos')->whereBetween('created_at', $rango)
+                ->where('tipo', 'producto_visto')->whereNotNull('detalle')
+                ->selectRaw('detalle as nombre, COUNT(*) as veces')
+                ->groupBy('detalle')->orderByDesc('veces')->limit(8)->get();
+        } catch (\Throwable $e) {
+            \Log::info('[metricas] wa_eventos no disponible: ' . $e->getMessage());
+        }
+
         return response()->json([
             'desde'                   => $desde,
             'hasta'                   => $hasta,
@@ -350,6 +377,8 @@ class RedesController extends Controller
             'serie'                   => $serie,
             'instagram'               => $instagram,
             'instagram_top_productos' => $igTop,
+            'whatsapp'                => $whatsapp,
+            'whatsapp_top_productos'  => $waTop,
         ]);
     }
 
