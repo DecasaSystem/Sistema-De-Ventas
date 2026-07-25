@@ -1,0 +1,8 @@
+# Vercel CLI — contiene VERCEL_OIDC_TOKEN y credenciales del proyecto.
+# Se crea al ejecutar `vercel --prod` desde la raiz del repo.
+.vercel/
+
+# Scripts locales de diagnostico contra la base de datos.
+# Llevan credenciales de produccion en texto plano: nunca deben subirse.
+dbcheck.mjs
+decasa-app/dbcheck.mjs
