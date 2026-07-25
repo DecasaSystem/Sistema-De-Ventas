@@ -111,9 +111,9 @@ onMounted(cargar)
     <template v-if="tabPrincipal === 'mias'">
       <p class="text-xs text-gray-500">
         {{ auth.isEbanista || auth.isTapicero
-          ? 'Cotizaciones asignadas a ti para calcular'
+          ? 'Consultas de costo asignadas a ti para calcular'
           : auth.isSupervisor ? 'Consultas en las que participas'
-          : 'Cotizaciones que has solicitado para tus órdenes' }}
+          : 'Consultas de costo que has solicitado para tus órdenes' }}
       </p>
 
       <div class="flex gap-1 bg-gray-100 rounded-xl p-1">

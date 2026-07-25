@@ -303,7 +303,7 @@ watch(() => consulta.value?.estado, (estado) => {
     <div class="flex items-center gap-3">
       <button @click="router.back()" class="text-blue-600 text-sm font-medium">← Atrás</button>
       <h2 class="text-lg font-bold text-gray-800 flex-1">
-        Cotización — Orden #{{ consulta?.orden?.numero_orden ?? consulta?.orden_id ?? '...' }}
+        Consulta de costo — Orden #{{ consulta?.orden?.numero_orden ?? consulta?.orden_id ?? '...' }}
       </h2>
       <span
         v-if="consulta"
@@ -688,7 +688,7 @@ watch(() => consulta.value?.estado, (estado) => {
         <div class="flex items-start gap-2">
           <CheckCircleIcon class="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
           <div>
-            <p class="font-semibold">Cotización respondida</p>
+            <p class="font-semibold">Consulta de costo respondida</p>
             <p class="text-xs text-green-600 mt-0.5">
               Los precios fueron calculados. Ve a la orden para confirmar si el cliente acepta y registrar el anticipo.
             </p>

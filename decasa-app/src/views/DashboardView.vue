@@ -66,7 +66,7 @@ const accesos = computed(() => {
       { label: 'Órdenes',      icon: ClipboardDocumentListIcon,  to: { name: 'ordenes'     } },
       { label: 'Clientes',     icon: UserGroupIcon,              to: { name: 'clientes'    } },
       { label: 'Mis pasos',    icon: ClipboardDocumentCheckIcon, to: { name: 'mis-pasos'   }, badge: pasos.pendientesCount },
-      { label: 'Cotizaciones', icon: CurrencyDollarIcon,         to: { name: 'consultas'   }, badge: consultas.pendientesCount },
+      { label: 'Consultar costo', icon: CurrencyDollarIcon,      to: { name: 'consultas'   }, badge: consultas.pendientesCount },
       { label: 'Costos',       icon: CalculatorIcon,             to: { name: 'costos'      } },
       { label: 'Telas',        icon: SwatchIcon,                 to: { name: 'telas'       } },
       { label: 'Caja',         icon: BanknotesIcon,              to: { name: 'caja'        } },
@@ -101,7 +101,7 @@ const accesos = computed(() => {
     }
   }
 
-  items.push({ label: 'Cotizaciones', icon: CurrencyDollarIcon,         to: { name: 'consultas'  }, badge: consultas.pendientesCount })
+  items.push({ label: 'Consultar costo', icon: CurrencyDollarIcon,      to: { name: 'consultas'  }, badge: consultas.pendientesCount })
   items.push({ label: auth.isSupervisor ? 'Mis estadísticas' : 'Estadísticas', icon: PresentationChartLineIcon, to: { name: 'mis-stats' } })
 
   if (auth.isFacturador) {

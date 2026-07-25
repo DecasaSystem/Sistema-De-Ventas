@@ -73,7 +73,7 @@ const transicionesValidas = {
 const nuevoEstado = ref('')
 
 const estadosLabel = {
-  pendiente_cotizacion: 'Pendiente cotización',
+  pendiente_cotizacion: 'Pendiente costo',
   pendiente_anticipo: 'En espera',
   en_produccion: 'En producción',
   listo_entrega: 'Listo entrega',
@@ -985,7 +985,7 @@ onMounted(cargarOrden)
       <div v-if="tienePersonalizados" class="bg-white rounded-xl shadow-sm p-4 space-y-3">
         <p class="text-xs font-semibold text-gray-500 uppercase flex items-center gap-1.5">
           <CurrencyDollarIcon class="w-3.5 h-3.5" />
-          Cotización de costo
+          Consulta de costo
         </p>
 
         <!-- Cargando consulta -->
@@ -1010,7 +1010,7 @@ onMounted(cargarOrden)
           </div>
           <div class="flex-1 min-w-0">
             <p class="text-sm font-semibold text-gray-800">
-              {{ consultaActiva.estado === 'pendiente' ? 'Cotización pendiente' : 'Precio recibido' }}
+              {{ consultaActiva.estado === 'pendiente' ? 'Consulta pendiente' : 'Precio recibido' }}
             </p>
             <p class="text-xs text-gray-400">
               Asignada a {{ consultaActiva.asignado_a?.nombre ?? '—' }}
@@ -1151,7 +1151,7 @@ onMounted(cargarOrden)
 
         <!-- Sin consulta -->
         <div v-else-if="!cargandoConsulta">
-          <p class="text-xs text-gray-400">No se solicitó cotización de costo para esta orden.</p>
+          <p class="text-xs text-gray-400">No se solicitó consulta de costo para esta orden.</p>
         </div>
       </div>
 
@@ -1913,7 +1913,7 @@ onMounted(cargarOrden)
         <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-4">
           <h3 class="text-lg font-bold text-gray-800 flex items-center gap-2">
             <CurrencyDollarIcon class="w-5 h-5 text-violet-600" />
-            Solicitar cotización
+            Solicitar consulta de costo
           </h3>
           <p class="text-sm text-gray-600">
             Selecciona a quién le envías la consulta de costo para los ítems personalizados de esta orden.

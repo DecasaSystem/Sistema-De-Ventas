@@ -185,7 +185,7 @@ const navItems = computed(() => {
       { name: 'despacho',   label: 'Despacho',     icon: TruckIcon, badge: despacho.ordenesPendientes },
       { name: 'inventario', label: 'Inventario',   icon: ArchiveBoxIcon },
       { name: 'reportes',   label: 'Reportes',     icon: ChartBarIcon },
-      { name: 'consultas',  label: 'Cotizaciones', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
+      { name: 'consultas',  label: 'Consultar costo', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
     ]
     if (auth.isTapicero) {
       items.unshift({ name: 'mis-pasos', label: 'Mis pasos', icon: ClipboardDocumentCheckIcon, badge: pasos.pendientesCount })
@@ -215,7 +215,7 @@ const navItems = computed(() => {
       { name: 'dashboard',   label: 'Inicio',       icon: HomeIcon },
       { name: 'mis-pasos',   label: 'Mis pasos',    icon: WrenchScrewdriverIcon, badge: pasos.pendientesCount },
       { name: 'ordenes',     label: 'Órdenes',      icon: ClipboardDocumentListIcon },
-      { name: 'consultas',   label: 'Cotizaciones', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
+      { name: 'consultas',   label: 'Consultar costo', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
       { name: 'costos',      label: 'Costos',       icon: CalculatorIcon },
       { name: 'telas',       label: 'Telas',        icon: SwatchIcon },
       { name: 'clientes',    label: 'Clientes',     icon: UserGroupIcon },
@@ -226,7 +226,7 @@ const navItems = computed(() => {
   if (auth.usuario?.rol === 'supervisor' && auth.usuario?.es_tapicero) {
     return [
       { name: 'mis-pasos',  label: 'Mis pasos',   icon: WrenchScrewdriverIcon, badge: pasos.pendientesCount },
-      { name: 'consultas',  label: 'Cotizaciones', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
+      { name: 'consultas',  label: 'Consultar costo', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
       { name: 'costos',     label: 'Costos',       icon: CalculatorIcon },
     ]
   }
@@ -242,7 +242,7 @@ const navItems = computed(() => {
       { name: 'facturacion',  label: 'Facturación',  icon: DocumentCurrencyDollarIcon, badge: abonosNoLeidos.value },
       { name: 'ordenes',      label: 'Órdenes',      icon: ClipboardDocumentListIcon },
       { name: 'clientes',     label: 'Clientes',     icon: UserGroupIcon },
-      { name: 'consultas',    label: 'Cotizaciones', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
+      { name: 'consultas',    label: 'Consultar costo', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
       { name: 'inventario',   label: 'Inventario',   icon: ArchiveBoxIcon, badge: surtidos.pendientesCount },
       { name: 'reserva',      label: 'Fábrica',      icon: BuildingOffice2Icon },
       ...(auth.tieneAccesoRedes ? [{ name: 'redes', label: 'Redes', icon: ChatBubbleLeftRightIcon, badge: redesPendientes.value }] : []),
@@ -255,7 +255,7 @@ const navItems = computed(() => {
     { name: 'dashboard',  label: 'Inicio',       icon: HomeIcon },
     { name: 'ordenes',    label: 'Órdenes',      icon: ClipboardDocumentListIcon },
     { name: 'clientes',   label: 'Clientes',     icon: UserGroupIcon },
-    { name: 'consultas',  label: 'Cotizaciones', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
+    { name: 'consultas',  label: 'Consultar costo', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
     { name: 'inventario', label: 'Inventario',   icon: ArchiveBoxIcon, badge: surtidos.pendientesCount },
     { name: 'reserva',    label: 'Fábrica',      icon: BuildingOffice2Icon },
     { name: 'surtir',     label: 'Traslado',     icon: ArrowPathIcon },

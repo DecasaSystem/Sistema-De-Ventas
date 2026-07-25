@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\DB;
 class LimpiarDatosCommand extends Command
 {
     protected $signature   = 'decasa:limpiar-datos {--force : Saltar confirmación interactiva}';
-    protected $description = 'Elimina órdenes, producción y cotizaciones. Conserva clientes, usuarios, productos, tiendas, telas e inventario.';
+    protected $description = 'Elimina órdenes, producción y consultas de costo. Conserva clientes, usuarios, productos, tiendas, telas e inventario.';
 
     public function handle(): int
     {
@@ -16,7 +16,7 @@ class LimpiarDatosCommand extends Command
             $this->warn('⚠  Esta acción eliminará PERMANENTEMENTE:');
             $this->line('   • Órdenes y sus ítems, pagos, ediciones');
             $this->line('   • Producción y pasos');
-            $this->line('   • Cotizaciones y mensajes');
+            $this->line('   • Consultas de costo y mensajes');
             $this->line('   • Despachos, traslados, surtidos');
             $this->line('   • Citas y conversaciones WhatsApp');
             $this->line('   • Notificaciones e historial de movimientos de inventario');

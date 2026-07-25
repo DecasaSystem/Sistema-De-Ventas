@@ -327,7 +327,7 @@ class ConsultaCostoController extends Controller
 
         NotificacionService::crear(
             'consulta_costo_respondida',
-            'Precio de cotización listo',
+            'Precio de consulta de costo listo',
             "Orden #" . ($consulta->orden->numero_orden ?? $consulta->orden_id) . " — {$clienteNombre}: precio calculado para {$totalItems} ítem(s)",
             ['consulta_id' => $consulta->id, 'orden_id' => $consulta->orden_id],
             $consulta->solicitado_por_id,
@@ -484,7 +484,7 @@ class ConsultaCostoController extends Controller
 
         NotificacionService::crear(
             'consulta_costo_mensaje',
-            'Nuevo mensaje en cotización',
+            'Nuevo mensaje en consulta de costo',
             "{$usuario->nombre}: " . mb_strimwidth($data['mensaje'], 0, 80, '…'),
             ['consulta_id' => $id, 'orden_id' => $consulta->orden_id],
             $destinatarioId,

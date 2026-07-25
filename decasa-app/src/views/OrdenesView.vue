@@ -35,7 +35,7 @@ const filtros = ref({
 const estadosOpts = [
   { value: '', label: 'Todos' },
   { value: 'borrador', label: 'Borrador' },
-  { value: 'pendiente_cotizacion', label: 'Pendiente cotización' },
+  { value: 'pendiente_cotizacion', label: 'Pendiente costo' },
   { value: 'pendiente_anticipo', label: 'En espera' },
   { value: 'en_produccion', label: 'En producción' },
   { value: 'listo_entrega', label: 'Listo entrega' },
