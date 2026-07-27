@@ -6,3 +6,6 @@
 # Llevan credenciales de produccion en texto plano: nunca deben subirse.
 dbcheck.mjs
 decasa-app/dbcheck.mjs
+
+# Cache de fuentes que DomPDF genera al crear un PDF. Se regenera solo.
+decasa-api/storage/fonts/
