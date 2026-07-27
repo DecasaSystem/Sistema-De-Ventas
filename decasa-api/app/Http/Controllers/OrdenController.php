@@ -73,6 +73,13 @@ class OrdenController extends Controller
         if ($v = $request->query('hasta')) {
             $query->whereDate('created_at', '<=', $v);
         }
+        // Apartado de órdenes de cortesía: ?serie=FB2 solo esas, ?serie=normales
+        // solo las que llevan consecutivo corriente.
+        if ($v = $request->query('serie')) {
+            $v === 'normales'
+                ? $query->whereNull('serie')
+                : $query->where('serie', strtoupper($v));
+        }
         if ($search = $request->query('search')) {
             $limpio = ltrim(trim($search), '#');           // permite escribir "#123"
             $term   = '%' . mb_strtolower($limpio) . '%';

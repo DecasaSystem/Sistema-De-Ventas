@@ -30,7 +30,21 @@ const filtros = ref({
   tienda_id: '',
   desde: '',
   hasta: '',
+  serie: '',          // '' todas · 'normales' · 'FB2' cortesías
 })
+
+// Apartado de órdenes: las de cortesía llevan serie propia y no consecutivo normal
+const APARTADOS = [
+  { value: '',         label: 'Todas'    },
+  { value: 'normales', label: 'Normales' },
+  { value: 'FB2',      label: 'Cortesía FB2' },
+]
+
+function seleccionarApartado(serie) {
+  filtros.value.serie = serie
+  currentPage.value = 1
+  fetchOrdenes(1)
+}
 
 const estadosOpts = [
   { value: '', label: 'Todos' },
@@ -67,6 +81,7 @@ async function fetchOrdenes(page = 1, append = false) {
     if (filtros.value.tienda_id) params.tienda_id = filtros.value.tienda_id
     if (filtros.value.desde) params.desde = filtros.value.desde
     if (filtros.value.hasta) params.hasta = filtros.value.hasta
+    if (filtros.value.serie) params.serie = filtros.value.serie
     if (busqueda.value) params.search = busqueda.value
 
     const { data } = await getOrdenes(params)
@@ -95,7 +110,7 @@ function applyFilters() {
 }
 
 function clearFilters() {
-  filtros.value = { estado: '', tienda_id: '', desde: '', hasta: '' }
+  filtros.value = { estado: '', tienda_id: '', desde: '', hasta: '', serie: '' }
   busqueda.value = ''
   showFilters.value = false
   currentPage.value = 1
@@ -141,6 +156,7 @@ async function exportarExcelOrdenes() {
     if (filtros.value.tienda_id) baseParams.tienda_id = filtros.value.tienda_id
     if (filtros.value.desde)     baseParams.desde     = filtros.value.desde
     if (filtros.value.hasta)     baseParams.hasta     = filtros.value.hasta
+    if (filtros.value.serie)     baseParams.serie     = filtros.value.serie
     if (busqueda.value)          baseParams.search    = busqueda.value
 
     let page = 1
@@ -268,6 +284,24 @@ onUnmounted(() => {
         class="w-full rounded-lg border border-gray-300 pl-10 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
       />
     </div>
+
+    <!-- Apartados: normales vs órdenes de cortesía -->
+    <div class="flex gap-1 bg-gray-100 rounded-xl p-1">
+      <button
+        v-for="a in APARTADOS"
+        :key="a.value"
+        @click="seleccionarApartado(a.value)"
+        :class="['flex-1 py-1.5 text-sm font-medium rounded-lg transition-colors',
+          filtros.serie === a.value
+            ? (a.value === 'FB2' ? 'bg-white shadow-sm text-amber-700' : 'bg-white shadow-sm text-gray-800')
+            : 'text-gray-500']"
+      >{{ a.label }}</button>
+    </div>
+
+    <p v-if="filtros.serie === 'FB2'" class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+      Órdenes de cortesía para allegados de los dueños. Llevan numeración FB2-N propia,
+      no gastan consecutivo de orden y sí generan comisión.
+    </p>
 
     <!-- Filtro rápido por tienda -->
     <div v-if="tiendas.length" class="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
