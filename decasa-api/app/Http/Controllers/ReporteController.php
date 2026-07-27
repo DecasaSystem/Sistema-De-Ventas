@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Exports\ReporteExport;
+use App\Models\Orden;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Maatwebsite\Excel\Facades\Excel;
@@ -172,7 +173,7 @@ class ReporteController extends Controller
         $tiendaId = $request->query('tienda_id');
 
         $filas = DB::table('ordenes as o')
-            ->where('o.estado', '!=', 'cancelado')
+            ->whereNotIn('o.estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES))
             ->whereBetween('o.created_at', [$desde . ' 00:00:00', $hasta . ' 23:59:59'])
             ->when($tiendaId, fn($q) => $q->where('o.tienda_id', $tiendaId))
             ->selectRaw('
@@ -214,7 +215,7 @@ class ReporteController extends Controller
         $general = DB::table('orden_items as oi')
             ->leftJoin('productos as p', 'p.id', '=', 'oi.producto_id')
             ->join('ordenes as o',   'o.id', '=', 'oi.orden_id')
-            ->where('o.estado', '!=', 'cancelado')
+            ->whereNotIn('o.estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES))
             ->whereBetween('o.created_at', [$desde . ' 00:00:00', $hasta . ' 23:59:59'])
             ->selectRaw('
                 p.id               AS producto_id,
@@ -232,7 +233,7 @@ class ReporteController extends Controller
             ->leftJoin('productos as p', 'p.id', '=', 'oi.producto_id')
             ->join('ordenes as o',   'o.id', '=', 'oi.orden_id')
             ->join('tiendas as t',   't.id', '=', 'o.tienda_id')
-            ->where('o.estado', '!=', 'cancelado')
+            ->whereNotIn('o.estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES))
             ->whereBetween('o.created_at', [$desde . ' 00:00:00', $hasta . ' 23:59:59'])
             ->selectRaw('
                 o.tienda_id,
@@ -283,7 +284,7 @@ class ReporteController extends Controller
         $general = DB::table('orden_items as oi')
             ->leftJoin('productos as p', 'p.id', '=', 'oi.producto_id')
             ->join('ordenes as o',   'o.id', '=', 'oi.orden_id')
-            ->where('o.estado', '!=', 'cancelado')
+            ->whereNotIn('o.estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES))
             ->whereBetween('o.created_at', [$desde . ' 00:00:00', $hasta . ' 23:59:59'])
             ->selectRaw('"TOP GENERAL" AS seccion,
                 COALESCE(p.nombre, oi.nombre_custom, "Producto personalizado") AS nombre,
@@ -299,7 +300,7 @@ class ReporteController extends Controller
             ->leftJoin('productos as p', 'p.id', '=', 'oi.producto_id')
             ->join('ordenes as o',   'o.id', '=', 'oi.orden_id')
             ->join('tiendas as t',   't.id', '=', 'o.tienda_id')
-            ->where('o.estado', '!=', 'cancelado')
+            ->whereNotIn('o.estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES))
             ->whereBetween('o.created_at', [$desde . ' 00:00:00', $hasta . ' 23:59:59'])
             ->selectRaw('t.nombre AS seccion, t.id AS tienda_id,
                 COALESCE(p.nombre, oi.nombre_custom, "Producto personalizado") AS nombre,
@@ -410,7 +411,7 @@ class ReporteController extends Controller
         return DB::table('orden_items as oi')
             ->leftJoin('productos as p', 'p.id', '=', 'oi.producto_id')
             ->join('ordenes as o', 'o.id', '=', 'oi.orden_id')
-            ->where('o.estado', '!=', 'cancelado')
+            ->whereNotIn('o.estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES))
             ->whereBetween('o.created_at', [$desde . ' 00:00:00', $hasta . ' 23:59:59'])
             ->when($tiendaId, fn($q) => $q->where('o.tienda_id', $tiendaId))
             ->selectRaw('
@@ -436,7 +437,7 @@ class ReporteController extends Controller
             ->join('usuarios as u',  'u.id',  '=', 'o.vendedor_id')
             ->join('tiendas as t',   't.id',  '=', 'o.tienda_id')
             ->leftJoin('pagos as p', 'p.orden_id', '=', 'o.id')
-            ->whereNotIn('o.estado', ['entregado', 'cancelado'])
+            ->whereNotIn('o.estado', array_merge(['entregado', 'cancelado'], Orden::ESTADOS_NO_COMERCIALES))
             ->when($tiendaId, fn($q) => $q->where('o.tienda_id', $tiendaId))
             ->selectRaw('
                 o.id            AS orden_id,
@@ -468,7 +469,7 @@ class ReporteController extends Controller
             ->join('tiendas as t',          't.id',            '=', 'o.tienda_id')
             ->leftJoin('orden_items as oi', 'oi.orden_id',     '=', 'o.id')
             ->leftJoin('produccion as pr',  'pr.orden_item_id','=', 'oi.id')
-            ->whereNotIn('o.estado', ['entregado', 'cancelado', 'borrador'])
+            ->whereNotIn('o.estado', array_merge(['entregado', 'cancelado'], Orden::ESTADOS_NO_COMERCIALES))
             ->when($vendedorId, fn($q) => $q->where('o.vendedor_id', $vendedorId))
             ->groupBy('o.id', 'o.numero_orden', 'c.nombre', 'c.telefono', 'u.nombre', 't.nombre', 'o.estado', 'o.created_at')
             ->havingRaw('
@@ -604,7 +605,7 @@ class ReporteController extends Controller
             ->leftJoin('productos as p', 'p.id', '=', 'oi.producto_id')
             ->join('ordenes as o',   'o.id', '=', 'oi.orden_id')
             ->join('tiendas as t',   't.id', '=', 'o.tienda_id')
-            ->where('o.estado', '!=', 'cancelado')
+            ->whereNotIn('o.estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES))
             ->whereBetween('o.created_at', [$desde . ' 00:00:00', $hasta . ' 23:59:59'])
             ->when($tiendaId, fn($q) => $q->where('o.tienda_id', $tiendaId))
             ->when($vendedorId, fn($q) => $q->where('o.vendedor_id', $vendedorId))
@@ -643,7 +644,7 @@ class ReporteController extends Controller
             ->join('usuarios as u',  'u.id',  '=', 'o.vendedor_id')
             ->join('tiendas as t',   't.id',  '=', 'o.tienda_id')
             ->leftJoin('pagos as p', 'p.orden_id', '=', 'o.id')
-            ->whereNotIn('o.estado', ['entregado', 'cancelado'])
+            ->whereNotIn('o.estado', array_merge(['entregado', 'cancelado'], Orden::ESTADOS_NO_COMERCIALES))
             ->when($tiendaId, fn($q) => $q->where('o.tienda_id', $tiendaId))
             ->when($vendedorId, fn($q) => $q->where('o.vendedor_id', $vendedorId))
             ->selectRaw('

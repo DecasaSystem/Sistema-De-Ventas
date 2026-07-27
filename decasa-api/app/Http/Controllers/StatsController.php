@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Orden;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
@@ -53,8 +54,11 @@ class StatsController extends Controller
         if ($vendedorId) $ingresosQ->where('o.vendedor_id', $vendedorId);
         $ingresos = (float) $ingresosQ->sum('p.monto');
 
-        // Conteos de órdenes creadas en el período
-        $ordenesQ = DB::table('ordenes')->whereBetween('created_at', $rango);
+        // Conteos de órdenes creadas en el período (sin cotizaciones ni borradores:
+        // todavía no son ventas)
+        $ordenesQ = DB::table('ordenes')
+            ->whereBetween('created_at', $rango)
+            ->whereNotIn('estado', Orden::ESTADOS_NO_COMERCIALES);
         if ($tiendaId)   $ordenesQ->where('tienda_id',   $tiendaId);
         if ($vendedorId) $ordenesQ->where('vendedor_id', $vendedorId);
         $ord = $ordenesQ->selectRaw('
@@ -70,7 +74,7 @@ class StatsController extends Controller
         $carteraQ = DB::table('v_saldo_ordenes as v')
             ->join('ordenes as o', 'o.id', '=', 'v.orden_id')
             ->where('v.saldo_pendiente', '>', 0)
-            ->whereNotIn('o.estado', ['entregado', 'cancelado']);
+            ->whereNotIn('o.estado', array_merge(['entregado', 'cancelado'], Orden::ESTADOS_NO_COMERCIALES));
         if ($tiendaId)   $carteraQ->where('o.tienda_id',   $tiendaId);
         if ($vendedorId) $carteraQ->where('o.vendedor_id', $vendedorId);
         $cartera = (float) $carteraQ->sum('v.saldo_pendiente');
@@ -144,6 +148,7 @@ class StatsController extends Controller
         // Valor de órdenes creadas por período
         $ordenesQ = DB::table('ordenes')
             ->whereBetween('created_at', $rango)
+            ->whereNotIn('estado', Orden::ESTADOS_NO_COMERCIALES)
             ->selectRaw("DATE_FORMAT(created_at, '{$fmtMysql}') AS periodo, SUM(valor_total) AS total")
             ->groupBy('periodo')->orderBy('periodo');
         if ($tiendaId)   $ordenesQ->where('tienda_id',   $tiendaId);
@@ -185,7 +190,7 @@ class StatsController extends Controller
             ->join('ordenes as o', 'o.id', '=', 'oi.orden_id')
             ->join('productos as p', 'p.id', '=', 'oi.producto_id')
             ->whereBetween('o.created_at', [$f['desde'] . ' 00:00:00', $f['hasta'] . ' 23:59:59'])
-            ->whereNotIn('o.estado', ['cancelado'])
+            ->whereNotIn('o.estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES))
             ->selectRaw("
                 COALESCE(p.categoria, 'Sin categoría')     AS categoria,
                 SUM(oi.cantidad)                           AS cantidad,
@@ -218,7 +223,7 @@ class StatsController extends Controller
             ->join('ordenes as o', 'o.id', '=', 'oi.orden_id')
             ->join('productos as p', 'p.id', '=', 'oi.producto_id')
             ->whereBetween('o.created_at', [$f['desde'] . ' 00:00:00', $f['hasta'] . ' 23:59:59'])
-            ->whereNotIn('o.estado', ['cancelado'])
+            ->whereNotIn('o.estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES))
             ->selectRaw('
                 p.id       AS producto_id,
                 p.nombre,
@@ -255,7 +260,7 @@ class StatsController extends Controller
             ->join('usuarios as u', 'u.id',  '=', 'o.vendedor_id')
             ->join('tiendas as t',  't.id',  '=', 'o.tienda_id')
             ->where('v.saldo_pendiente', '>', 0)
-            ->whereNotIn('o.estado', ['entregado', 'cancelado'])
+            ->whereNotIn('o.estado', array_merge(['entregado', 'cancelado'], Orden::ESTADOS_NO_COMERCIALES))
             ->selectRaw('
                 o.id                                            AS orden_id,
                 o.estado,
@@ -314,6 +319,7 @@ class StatsController extends Controller
             $carteraPpal = (float) DB::table('v_saldo_ordenes as vs')
                 ->join('ordenes as o', 'o.id', '=', 'vs.orden_id')
                 ->where('o.tienda_id', $t->id)->whereBetween('o.created_at', $rangoCreacion)
+                ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES)
                 ->selectRaw('SUM(CASE WHEN o.es_compartida = 1 THEN vs.saldo_pendiente / 2 ELSE vs.saldo_pendiente END) as total')
                 ->value('total') ?? 0;
 
@@ -322,6 +328,7 @@ class StatsController extends Controller
                 ->join('usuarios as u', 'u.id', '=', 'o.covendedor_id')
                 ->where('u.tienda_default_id', $t->id)->where('o.es_compartida', true)
                 ->whereBetween('o.created_at', $rangoCreacion)
+                ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES)
                 ->selectRaw('SUM(vs.saldo_pendiente / 2) as total')
                 ->value('total') ?? 0;
 
@@ -330,6 +337,7 @@ class StatsController extends Controller
             // Órdenes: propias + compartidas donde es co-tienda
             $ordPpal = DB::table('ordenes')->where('tienda_id', $t->id)
                 ->whereBetween('created_at', $rango)
+                ->whereNotIn('estado', Orden::ESTADOS_NO_COMERCIALES)
                 ->selectRaw('COUNT(*) AS total, SUM(estado = "entregado") AS entregadas')
                 ->first();
 
@@ -337,6 +345,7 @@ class StatsController extends Controller
                 ->join('usuarios as u', 'u.id', '=', 'o.covendedor_id')
                 ->where('u.tienda_default_id', $t->id)->where('o.es_compartida', true)
                 ->whereBetween('o.created_at', $rango)
+                ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES)
                 ->selectRaw('COUNT(*) AS total, SUM(o.estado = "entregado") AS entregadas')
                 ->first();
 
@@ -421,6 +430,7 @@ class StatsController extends Controller
                       });
                 })
                 ->whereBetween('created_at', $rango)
+                ->whereNotIn('estado', Orden::ESTADOS_NO_COMERCIALES)
                 ->selectRaw('COUNT(*) AS total, SUM(estado="entregado") AS entregadas, SUM(estado="cancelado") AS canceladas')
                 ->first();
 
@@ -435,7 +445,7 @@ class StatsController extends Controller
                       });
                 })
                 ->where('vs.saldo_pendiente', '>', 0)
-                ->whereNotIn('o.estado', ['entregado', 'cancelado'])
+                ->whereNotIn('o.estado', array_merge(['entregado', 'cancelado'], Orden::ESTADOS_NO_COMERCIALES))
                 ->selectRaw('SUM(CASE WHEN o.es_compartida = 1 THEN vs.saldo_pendiente / 2 ELSE vs.saldo_pendiente END) as total')
                 ->value('total') ?? 0;
 
@@ -658,6 +668,7 @@ class StatsController extends Controller
             : DB::table('ordenes')->where($columna, $valor);
 
         $ord = $ordBase->whereBetween('created_at', $rango)
+            ->whereNotIn('estado', Orden::ESTADOS_NO_COMERCIALES)
             ->selectRaw('
                 COUNT(*)                                        AS total,
                 SUM(estado = "entregado")                       AS entregadas,
@@ -673,7 +684,7 @@ class StatsController extends Controller
                 ->join('ordenes as o', 'o.id', '=', 'v.orden_id')
                 ->where($whereVendedorO)
                 ->where('v.saldo_pendiente', '>', 0)
-                ->whereNotIn('o.estado', ['entregado', 'cancelado'])
+                ->whereNotIn('o.estado', array_merge(['entregado', 'cancelado'], Orden::ESTADOS_NO_COMERCIALES))
                 ->selectRaw('SUM(CASE WHEN o.es_compartida = 1 THEN v.saldo_pendiente / 2 ELSE v.saldo_pendiente END) as total')
                 ->value('total') ?? 0;
         } else {
@@ -681,7 +692,7 @@ class StatsController extends Controller
                 ->join('ordenes as o', 'o.id', '=', 'v.orden_id')
                 ->where("o.$columna", $valor)
                 ->where('v.saldo_pendiente', '>', 0)
-                ->whereNotIn('o.estado', ['entregado', 'cancelado'])
+                ->whereNotIn('o.estado', array_merge(['entregado', 'cancelado'], Orden::ESTADOS_NO_COMERCIALES))
                 ->sum('v.saldo_pendiente');
         }
 
@@ -690,7 +701,7 @@ class StatsController extends Controller
             ->join('ordenes as o',   'o.id',  '=', 'oi.orden_id')
             ->join('productos as p', 'p.id',  '=', 'oi.producto_id')
             ->whereBetween('o.created_at', $rango)
-            ->whereNotIn('o.estado', ['cancelado']);
+            ->whereNotIn('o.estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES));
 
         if ($esVendedor) $topBase->where($whereVendedorO);
         else             $topBase->where("o.$columna", $valor);
@@ -703,7 +714,8 @@ class StatsController extends Controller
         // Órdenes recientes
         $recientesBase = DB::table('ordenes as o')
             ->join('clientes as c', 'c.id', '=', 'o.cliente_id')
-            ->leftJoin('v_saldo_ordenes as v', 'v.orden_id', '=', 'o.id');
+            ->leftJoin('v_saldo_ordenes as v', 'v.orden_id', '=', 'o.id')
+            ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES);
 
         if ($esVendedor) $recientesBase->where($whereVendedorO);
         else             $recientesBase->where("o.$columna", $valor);
@@ -713,7 +725,9 @@ class StatsController extends Controller
             ->orderByDesc('o.created_at')->limit(5)->get();
 
         // Canales
-        $canalesBase = DB::table('ordenes')->whereBetween('created_at', $rango);
+        $canalesBase = DB::table('ordenes')
+            ->whereBetween('created_at', $rango)
+            ->whereNotIn('estado', Orden::ESTADOS_NO_COMERCIALES);
         if ($esVendedor) $canalesBase->where($whereVendedor);
         else             $canalesBase->where($columna, $valor);
 

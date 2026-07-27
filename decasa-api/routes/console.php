@@ -2,6 +2,7 @@
 
 use App\Jobs\AlertarRetrasoProduccion;
 use App\Jobs\AlertarRutasAtrasadas;
+use App\Jobs\AvisarCotizacionesPorVencer;
 use App\Jobs\RecordatoriosCitas;
 use Illuminate\Support\Facades\Schedule;
 
@@ -26,6 +27,12 @@ Schedule::job(new RecordatoriosCitas())
     ->dailyAt('08:00')
     ->timezone('America/Bogota')
     ->name('recordatorios-citas')
+    ->withoutOverlapping();
+
+Schedule::job(new AvisarCotizacionesPorVencer())
+    ->dailyAt('08:30')
+    ->timezone('America/Bogota')
+    ->name('avisar-cotizaciones-por-vencer')
     ->withoutOverlapping();
 
 // ── Comando manual (útil en desarrollo y soporte) ─────────────────────────────

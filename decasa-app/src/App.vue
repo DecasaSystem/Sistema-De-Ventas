@@ -47,6 +47,7 @@ import {
   CalculatorIcon,
   BanknotesIcon,
   DocumentCurrencyDollarIcon,
+  DocumentTextIcon,
   ChatBubbleLeftRightIcon,
   ArrowPathIcon,
   CurrencyDollarIcon,
@@ -185,6 +186,7 @@ const navItems = computed(() => {
       { name: 'despacho',   label: 'Despacho',     icon: TruckIcon, badge: despacho.ordenesPendientes },
       { name: 'inventario', label: 'Inventario',   icon: ArchiveBoxIcon },
       { name: 'reportes',   label: 'Reportes',     icon: ChartBarIcon },
+      { name: 'cotizaciones', label: 'Cotizaciones',   icon: DocumentTextIcon },
       { name: 'consultas',  label: 'Consultar costo', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
     ]
     if (auth.isTapicero) {
@@ -242,6 +244,7 @@ const navItems = computed(() => {
       { name: 'facturacion',  label: 'Facturación',  icon: DocumentCurrencyDollarIcon, badge: abonosNoLeidos.value },
       { name: 'ordenes',      label: 'Órdenes',      icon: ClipboardDocumentListIcon },
       { name: 'clientes',     label: 'Clientes',     icon: UserGroupIcon },
+      { name: 'cotizaciones', label: 'Cotizaciones', icon: DocumentTextIcon },
       { name: 'consultas',    label: 'Consultar costo', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
       { name: 'inventario',   label: 'Inventario',   icon: ArchiveBoxIcon, badge: surtidos.pendientesCount },
       { name: 'reserva',      label: 'Fábrica',      icon: BuildingOffice2Icon },
@@ -255,6 +258,7 @@ const navItems = computed(() => {
     { name: 'dashboard',  label: 'Inicio',       icon: HomeIcon },
     { name: 'ordenes',    label: 'Órdenes',      icon: ClipboardDocumentListIcon },
     { name: 'clientes',   label: 'Clientes',     icon: UserGroupIcon },
+    { name: 'cotizaciones', label: 'Cotizaciones', icon: DocumentTextIcon },
     { name: 'consultas',  label: 'Consultar costo', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
     { name: 'inventario', label: 'Inventario',   icon: ArchiveBoxIcon, badge: surtidos.pendientesCount },
     { name: 'reserva',    label: 'Fábrica',      icon: BuildingOffice2Icon },

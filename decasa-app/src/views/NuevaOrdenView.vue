@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
 import api from '@/api'
@@ -21,8 +21,20 @@ import ComboInput from '@/components/common/ComboInput.vue'
 import { useTelaFotos } from '@/composables/useTelaFotos'
 
 const router = useRouter()
+const route  = useRoute()
 const auth   = useAuthStore()
 const toast  = useToast()
+
+// ── Modo cotización ───────────────────────────────────────────────────────────
+// El cliente solo pregunta cuánto le sale: no hay firma, anticipo, anexo ni
+// comprobante, el cliente es opcional y no se toca inventario.
+const modoCotizacion = computed(() => route.query.modo === 'cotizacion')
+
+// Contacto suelto cuando no se elige un cliente formal
+const contactoNombre   = ref('')
+const contactoTelefono = ref('')
+const contactoEmail    = ref('')
+const diasVigencia     = ref(15)
 
 // ── Pasos ─────────────────────────────────────────────────────────────────────
 const step = ref(1)
@@ -234,6 +246,8 @@ watch(tiendaVirtualId, (id) => {
 })
 
 function paso1Valido() {
+  // En una cotización el cliente es opcional: puede que solo esté preguntando.
+  if (modoCotizacion.value) return tiendaId.value && canal.value
   return clienteSeleccionado.value && tiendaId.value && canal.value
 }
 
@@ -1468,6 +1482,92 @@ async function submit() {
   }
 }
 
+/**
+ * Guardar como cotización: no reserva stock, no pide firma ni anticipo y el
+ * cliente puede quedar en blanco. Reusa el mismo carrito y los mismos ítems.
+ */
+async function submitCotizacion() {
+  if (submitting.value) return
+
+  if (!items.value.length) {
+    toast.error('Agrega al menos un producto antes de guardar la cotización.')
+    return
+  }
+
+  const sinPrecio = items.value.filter(i => !precioEfectivo(i) && !i._regalo)
+  if (sinPrecio.length) {
+    toast.error(`${sinPrecio.length} ítem(s) sin precio. Una cotización necesita todos los precios definidos.`)
+    return
+  }
+
+  submitting.value = true
+  try {
+    // Bocetos pendientes de subir (mismo tratamiento que en una orden)
+    for (const item of items.value) {
+      if (!item.es_personalizado) continue
+      for (let fi = 0; fi < item.boceto_blobs.length; fi++) {
+        if (item.boceto_blobs[fi] && !item.boceto_urls[fi]) {
+          const fd = new FormData()
+          fd.append('foto', await comprimirImagen(item.boceto_blobs[fi]), fi === 0 ? 'boceto.jpg' : `boceto_${fi}.jpg`)
+          fd.append('folder', 'bocetos')
+          const { data: uploadData } = await api.post('/upload/foto', fd, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+          })
+          item.boceto_urls[fi] = uploadData.url
+        }
+      }
+    }
+
+    const payload = {
+      cliente_id:        clienteSeleccionado.value?.id || undefined,
+      contacto_nombre:   clienteSeleccionado.value ? undefined : (contactoNombre.value.trim()   || undefined),
+      contacto_telefono: clienteSeleccionado.value ? undefined : (contactoTelefono.value.trim() || undefined),
+      contacto_email:    clienteSeleccionado.value ? undefined : (contactoEmail.value.trim()    || undefined),
+      tienda_id:         tiendaId.value,
+      canal:             canal.value,
+      notas:             notas.value || undefined,
+      descuento_total:   Number(descuentoTotal.value) > 0 ? Number(descuentoTotal.value) : undefined,
+      dias_vigencia:     Number(diasVigencia.value) || undefined,
+      items: items.value.map((i) => ({
+        producto_id:           i.producto_id || undefined,
+        nombre_custom:         i.nombre_custom || undefined,
+        categoria_custom:      i.categoria_custom || undefined,
+        variante_id:           i.variante_id || undefined,
+        combo_config_id:       i._config_id || undefined,
+        tienda_origen_id:      i.tienda_origen_id || undefined,
+        cantidad:              i.cantidad,
+        precio_unitario:       precioEfectivo(i),
+        es_personalizado:      i.es_personalizado,
+        fabricar_pedido:       i._fabricar_pedido || undefined,
+        specs_personalizacion: i.es_personalizado
+          ? (() => {
+              const s = { ...i.specs }
+              for (const key of Object.keys(i._telaSelections ?? {})) {
+                const tela = telaResumidaCampo(i, key)
+                if (tela) s[key] = tela
+              }
+              if (i.specs_notas) s.notas = i.specs_notas
+              return Object.keys(s).length ? s : undefined
+            })()
+          : undefined,
+        boceto_urls: i.es_personalizado && i.boceto_urls.some(Boolean)
+          ? i.boceto_urls.filter(Boolean)
+          : undefined,
+      })),
+    }
+
+    const { data } = await api.post('/cotizaciones', payload)
+    toast.success(`Cotización ${data.cotizacion_ref ?? ''} creada.`)
+    router.push({ name: 'cotizacion-detalle', params: { id: data.id } })
+  } catch (e) {
+    const errores = e.response?.data?.errors
+    const detalle = errores ? ' · ' + Object.entries(errores).map(([k, v]) => `${k}: ${v[0]}`).join(', ') : ''
+    toast.error((e.response?.data?.message ?? 'Error al crear la cotización') + detalle)
+  } finally {
+    submitting.value = false
+  }
+}
+
 async function submitBorrador(enviarPdf = false) {
   if (submitting.value) return
   if (!items.value.length) {
@@ -1543,7 +1643,9 @@ function removeFacturaFoto() {
         @click="step--"
         class="text-blue-600 text-sm font-medium"
       >← Atrás</button>
-      <h2 class="text-lg font-bold text-gray-800 flex-1">Nueva Orden</h2>
+      <h2 class="text-lg font-bold text-gray-800 flex-1">
+        {{ modoCotizacion ? 'Nueva cotización' : 'Nueva Orden' }}
+      </h2>
       <span class="text-xs text-gray-400">{{ step }}/3</span>
     </div>
 
@@ -1551,13 +1653,22 @@ function removeFacturaFoto() {
     <div class="flex gap-1">
       <div v-for="n in 3" :key="n"
         :class="['h-1 flex-1 rounded-full transition-colors',
-          n <= step ? 'bg-blue-600' : 'bg-gray-200']"
+          n <= step ? (modoCotizacion ? 'bg-violet-600' : 'bg-blue-600') : 'bg-gray-200']"
       />
     </div>
 
-    <!-- Firma del vendedor requerida -->
+    <!-- Aviso de modo cotización -->
+    <div v-if="modoCotizacion" class="bg-violet-50 border border-violet-200 rounded-xl p-3">
+      <p class="text-sm font-semibold text-violet-800">Cotización — no compromete inventario</p>
+      <p class="text-xs text-violet-600 mt-0.5">
+        No se pide firma, anticipo ni comprobante, y los datos del cliente son opcionales.
+        Al final descargas el PDF para enviárselo.
+      </p>
+    </div>
+
+    <!-- Firma del vendedor requerida (no aplica a cotizaciones) -->
     <div
-      v-if="!auth.usuario?.firma_url"
+      v-if="!auth.usuario?.firma_url && !modoCotizacion"
       class="bg-amber-50 border border-amber-300 rounded-xl p-4 flex flex-col gap-3"
     >
       <div class="flex items-start gap-3">
@@ -1632,7 +1743,10 @@ function removeFacturaFoto() {
 
       <!-- Búsqueda de cliente -->
       <div>
-        <label class="label">Cliente</label>
+        <label class="label">
+          Cliente
+          <span v-if="modoCotizacion" class="text-gray-400 font-normal">(opcional)</span>
+        </label>
         <div class="flex gap-2">
           <input
             v-model="clienteQuery"
@@ -1710,11 +1824,39 @@ function removeFacturaFoto() {
           </div>
 
           <!-- Aviso suave: datos se completarán en el paso de pago -->
-          <div v-if="clienteRequiereCompletar" class="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 flex items-center gap-2">
+          <div v-if="clienteRequiereCompletar && !modoCotizacion" class="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 flex items-center gap-2">
             <ExclamationTriangleIcon class="w-4 h-4 text-amber-500 flex-shrink-0" />
             <p class="text-xs text-amber-700">Los datos del cliente se completarán al finalizar la venta.</p>
           </div>
         </div>
+      </div>
+
+      <!-- Contacto suelto: solo cotización y solo si no eligió cliente formal -->
+      <div v-if="modoCotizacion && !clienteSeleccionado" class="bg-violet-50 border border-violet-200 rounded-xl p-3 space-y-2">
+        <p class="text-xs font-semibold text-violet-800">¿A nombre de quién va? (opcional)</p>
+        <p class="text-xs text-violet-600">
+          Si el cliente no quiere dar sus datos, deja todo en blanco. Si te da el teléfono o el correo,
+          anótalo aquí para hacerle seguimiento — no se crea un cliente en el sistema.
+        </p>
+        <input v-model="contactoNombre"   placeholder="Nombre o referencia (ej. Sr. Pérez)" class="input" />
+        <div class="grid grid-cols-2 gap-2">
+          <input v-model="contactoTelefono" placeholder="Teléfono" class="input" />
+          <input v-model="contactoEmail"    placeholder="Correo" type="email" class="input" />
+        </div>
+      </div>
+
+      <!-- Vigencia -->
+      <div v-if="modoCotizacion">
+        <label class="label">Validez de la cotización</label>
+        <select v-model.number="diasVigencia" class="input">
+          <option :value="8">8 días</option>
+          <option :value="15">15 días</option>
+          <option :value="30">30 días</option>
+          <option :value="60">60 días</option>
+        </select>
+        <p class="text-xs text-gray-500 mt-1">
+          Aparece en el PDF. Después de esa fecha los precios quedan sujetos a cambio.
+        </p>
       </div>
 
       <!-- Formulario nuevo cliente -->
@@ -2880,7 +3022,19 @@ function removeFacturaFoto() {
         {{ tipoOrden === 'restauracion' ? 'Agrega los muebles arriba.' : 'Busca y agrega productos al carrito.' }}
       </div>
 
-      <div class="flex gap-2">
+      <!-- Cotización: se guarda aquí mismo, no hay paso de pago -->
+      <div v-if="modoCotizacion" class="space-y-2">
+        <button
+          @click="submitCotizacion"
+          :disabled="items.length === 0 || submitting"
+          class="w-full py-3 bg-violet-600 hover:bg-violet-700 text-white rounded-xl font-semibold disabled:opacity-50 transition-colors"
+        >{{ submitting ? 'Guardando...' : 'Guardar cotización' }}</button>
+        <p class="text-xs text-center text-gray-500">
+          Después podrás descargar el PDF y enviárselo al cliente.
+        </p>
+      </div>
+
+      <div v-else class="flex gap-2">
         <button
           @click="submitBorrador(false)"
           :disabled="items.length === 0 || submitting"
@@ -2903,7 +3057,7 @@ function removeFacturaFoto() {
         <p class="text-xs font-semibold text-gray-500 uppercase mb-2">Resumen</p>
         <div class="flex justify-between text-sm">
           <span class="text-gray-600">Cliente</span>
-          <span class="font-medium text-gray-800">{{ clienteSeleccionado.nombre }}</span>
+          <span class="font-medium text-gray-800">{{ clienteSeleccionado?.nombre ?? '—' }}</span>
         </div>
         <div class="flex justify-between text-sm">
           <span class="text-gray-600">Tienda</span>

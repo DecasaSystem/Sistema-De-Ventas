@@ -23,6 +23,7 @@ import {
   PresentationChartLineIcon,
   TruckIcon,
   DocumentCurrencyDollarIcon,
+  DocumentTextIcon,
   CalculatorIcon,
   ChatBubbleLeftRightIcon,
   CalendarDaysIcon,
@@ -101,6 +102,7 @@ const accesos = computed(() => {
     }
   }
 
+  items.push({ label: 'Cotizaciones', icon: DocumentTextIcon,           to: { name: 'cotizaciones' } })
   items.push({ label: 'Consultar costo', icon: CurrencyDollarIcon,      to: { name: 'consultas'  }, badge: consultas.pendientesCount })
   items.push({ label: auth.isSupervisor ? 'Mis estadísticas' : 'Estadísticas', icon: PresentationChartLineIcon, to: { name: 'mis-stats' } })
 

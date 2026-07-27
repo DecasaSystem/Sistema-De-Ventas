@@ -19,6 +19,7 @@ use App\Models\Produccion;
 use App\Models\Producto;
 use App\Models\ProductoVariante;
 use App\Models\Tienda;
+use App\Support\ConvierteImagenesPdf;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -26,6 +27,8 @@ use Illuminate\Support\Facades\Mail;
 
 class OrdenController extends Controller
 {
+    use ConvierteImagenesPdf;
+
     /**
      * GET /api/ordenes
      * Vendedor: solo las suyas. Supervisor: todas.
@@ -40,7 +43,9 @@ class OrdenController extends Controller
             'tienda:id,nombre',
             'vendedor:id,nombre',
             'items.produccion.pasoActual',
-        ])->withSum('pagos', 'monto');
+        ])->withSum('pagos', 'monto')
+            // Las cotizaciones tienen su propio módulo: no se mezclan con órdenes.
+            ->where('estado', '!=', 'cotizacion');
 
         if ($usuario->rol === 'vendedor') {
             if ($usuario->facturacion) {
@@ -1759,31 +1764,6 @@ class OrdenController extends Controller
         return $pdf->download('orden-' . $orden->id . '.pdf');
     }
 
-    private function urlToBase64(?string $url): ?string
-    {
-        if (! $url) return null;
-
-        // Solo permitir URLs de dominios de almacenamiento confiables
-        $dominiosPermitidos = ['res.cloudinary.com', 'cloudinary.com', 'amazonaws.com', 's3.'];
-        $host = parse_url($url, PHP_URL_HOST) ?? '';
-        $esPermitida = collect($dominiosPermitidos)->contains(fn($d) => str_contains($host, $d));
-
-        if (! $esPermitida) {
-            \Log::warning('urlToBase64: URL de dominio no permitido', ['url' => $url]);
-            return null;
-        }
-
-        try {
-            $bytes = file_get_contents($url, false, stream_context_create([
-                'http' => ['timeout' => 5],
-                'ssl'  => ['verify_peer' => true],
-            ]));
-            return $bytes ? 'data:image/png;base64,' . base64_encode($bytes) : null;
-        } catch (\Throwable) {
-            return null;
-        }
-    }
-
     private function notificarSiSinStock(int $productoId, int $tiendaId): void
     {
         $inv = Inventario::with('producto:id,nombre', 'tienda:id,nombre')
@@ -1820,17 +1800,29 @@ class OrdenController extends Controller
         'armenia' => ['Decasa Norte', 'Decasa Vía El Edén', 'Decasa Vía Jardines', 'Bodega Fábrica', 'Tienda Virtual'],
     ];
 
-    public static function asignarNumeroOrden(Orden $orden): void
+    /**
+     * Grupo de numeración al que pertenece una tienda ('armenia', 'pereira' o
+     * null si no está en ninguno). Lo usa también CotizacionController para
+     * numerar las COT-N por grupo.
+     */
+    public static function grupoDeTienda(?int $tiendaId): ?string
     {
-        $tiendaNombre = DB::table('tiendas')->where('id', $orden->tienda_id)->value('nombre');
+        if (! $tiendaId) return null;
 
-        $grupo = null;
+        $tiendaNombre = DB::table('tiendas')->where('id', $tiendaId)->value('nombre');
+
         foreach (self::GRUPOS_SECUENCIA as $key => $nombres) {
             if (in_array($tiendaNombre, $nombres, true)) {
-                $grupo = $key;
-                break;
+                return $key;
             }
         }
+
+        return null;
+    }
+
+    public static function asignarNumeroOrden(Orden $orden): void
+    {
+        $grupo = self::grupoDeTienda($orden->tienda_id);
 
         DB::transaction(function () use ($orden, $grupo) {
             if ($grupo) {
@@ -1858,18 +1850,4 @@ class OrdenController extends Controller
         });
     }
 
-    private function avifToPngBase64(string $path): ?string
-    {
-        if (! file_exists($path)) return null;
-        try {
-            $img = imagecreatefromavif($path);
-            ob_start();
-            imagepng($img);
-            $data = ob_get_clean();
-            imagedestroy($img);
-            return 'data:image/png;base64,' . base64_encode($data);
-        } catch (\Throwable) {
-            return null;
-        }
-    }
 }

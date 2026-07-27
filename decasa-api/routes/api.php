@@ -26,6 +26,7 @@ use App\Http\Controllers\MaterialController;
 use App\Http\Controllers\CamionController;
 use App\Http\Controllers\AgentController;
 use App\Http\Controllers\ConsultaCostoController;
+use App\Http\Controllers\CotizacionController;
 use App\Http\Controllers\PrecioItemController;
 use App\Http\Controllers\ConfiguracionCostosController;
 use App\Http\Controllers\PrecisionCotizadorController;
@@ -107,6 +108,16 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/ordenes/{id}/pdf',                     [OrdenController::class, 'pdf']);
     Route::post('/ordenes/{id}/reenviar-cotizacion',    [OrdenController::class, 'reenviarCotizacion']);
     Route::patch('/ordenes/{id}/fechas-entrega',        [OrdenController::class, 'asignarFechas']);
+
+    // Cotizaciones — propuestas de precio; no reservan stock ni generan comisión
+    Route::get('/cotizaciones',            [CotizacionController::class, 'index']);
+    Route::post('/cotizaciones',           [CotizacionController::class, 'store'])->middleware('throttle:30,1');
+    Route::get('/cotizaciones/{id}',       [CotizacionController::class, 'show'])->whereNumber('id');
+    Route::get('/cotizaciones/{id}/pdf',   [CotizacionController::class, 'pdf'])->whereNumber('id');
+    Route::patch('/cotizaciones/{id}/estado', [CotizacionController::class, 'cambiarEstado'])->whereNumber('id');
+    Route::post('/cotizaciones/{id}/verificar', [CotizacionController::class, 'verificar'])->whereNumber('id');
+    Route::post('/cotizaciones/{id}/convertir', [CotizacionController::class, 'convertir'])->whereNumber('id');
+    Route::delete('/cotizaciones/{id}',    [CotizacionController::class, 'destroy'])->whereNumber('id');
 
     // Restauraciones
     Route::get('/restauraciones',  [RestauracionController::class, 'index']);

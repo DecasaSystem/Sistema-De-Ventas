@@ -409,6 +409,9 @@ class ComisionController extends Controller
     {
         if (! $orden->vendedor_id || ! $orden->tienda_id) return;
 
+        // Una cotización o un borrador todavía no son venta: no generan comisión.
+        if (in_array($orden->estado, Orden::ESTADOS_NO_COMERCIALES, true)) return;
+
         $mes          = Carbon::parse($orden->created_at)->format('Y-m');
         $fechaVenta   = Carbon::parse($orden->created_at);
         $fechaVentaStr = $fechaVenta->toDateString();
