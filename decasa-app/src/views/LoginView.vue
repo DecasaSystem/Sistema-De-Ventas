@@ -32,7 +32,7 @@ async function submit() {
       <div class="mb-8 text-center">
         <img src="/sodege_logo.png" alt="SODEGE" class="h-24 w-auto mx-auto mb-3 object-contain" />
         <h1 class="text-3xl font-bold text-gray-900">SODEGE</h1>
-        <p class="mt-1 text-sm text-gray-500">Sistema de ventas</p>
+        <p class="mt-1 text-sm text-gray-500">Solucion De Gestion Empresarial</p>
       </div>
 
       <form @submit.prevent="submit" class="bg-white rounded-2xl shadow p-6 space-y-4">
