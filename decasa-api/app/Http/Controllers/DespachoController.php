@@ -806,7 +806,7 @@ class DespachoController extends Controller
             $item->orden_id,
             $item->orden->cliente->nombre,
             $item->despacho->conductor->nombre,
-            $item->orden->numero_orden,
+            $item->orden->referencia,
         ));
 
         NotificacionService::crear(

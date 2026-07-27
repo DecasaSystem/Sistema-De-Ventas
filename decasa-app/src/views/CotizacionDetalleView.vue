@@ -102,6 +102,8 @@ const form = ref({
   anticipo_monto:   0,
   anticipo_metodo:  'efectivo',
   anticipo_referencia: '',
+  es_fb2:           false,
+  motivo_serie:     '',
 })
 
 const necesitaCliente = computed(() => !cotizacion.value?.cliente_id)
@@ -151,6 +153,8 @@ async function hacerConversion() {
       anticipo_metodo: form.value.anticipo_metodo,
       anticipo_referencia: form.value.anticipo_referencia || undefined,
       aceptar_cambios_precio: true,   // ya se mostraron las diferencias arriba
+      es_fb2:         form.value.es_fb2 || undefined,
+      motivo_serie:   form.value.es_fb2 ? (form.value.motivo_serie.trim() || undefined) : undefined,
       ...(necesitaCliente.value
         ? { cliente_nuevo: {
             nombre:   form.value.cliente_nombre.trim(),
@@ -462,6 +466,25 @@ onMounted(cargar)
                 <input v-model="form.cliente_cedula" placeholder="Cédula / NIT" class="input text-sm" />
                 <input v-model="form.cliente_email"  placeholder="Correo" type="email" class="input text-sm" />
               </div>
+            </div>
+
+            <!-- Cortesía -->
+            <div :class="['rounded-lg border p-2.5', form.es_fb2 ? 'bg-amber-50 border-amber-300' : 'border-gray-200']">
+              <label class="flex items-start gap-2 cursor-pointer">
+                <input type="checkbox" v-model="form.es_fb2" class="mt-0.5 w-4 h-4 accent-amber-600" />
+                <span class="min-w-0">
+                  <span class="text-xs font-semibold text-gray-800">Orden de cortesía (FB2)</span>
+                  <span class="block text-xs text-gray-500">
+                    Llevará numeración FB2-N en vez de número de orden.
+                  </span>
+                </span>
+              </label>
+              <input
+                v-if="form.es_fb2"
+                v-model="form.motivo_serie"
+                placeholder="Motivo (opcional)"
+                class="input text-sm mt-2"
+              />
             </div>
 
             <!-- Anticipo -->

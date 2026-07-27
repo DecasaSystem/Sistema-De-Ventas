@@ -366,6 +366,10 @@ class CotizacionController extends Controller
 
             // El vendedor confirma que vio las advertencias de precio.
             'aceptar_cambios_precio' => 'nullable|boolean',
+
+            // Cortesía: se cotizó a un allegado de los dueños y la orden nace FB2.
+            'es_fb2'       => 'nullable|boolean',
+            'motivo_serie' => 'nullable|string|max:300',
         ]);
 
         if ($cotizacion->esta_vencida && ! $request->boolean('aceptar_cambios_precio')) {
@@ -384,7 +388,9 @@ class CotizacionController extends Controller
             ], 409);
         }
 
-        $orden = DB::transaction(function () use ($cotizacion, $data, $usuario) {
+        $esFb2 = $request->boolean('es_fb2', false);
+
+        $orden = DB::transaction(function () use ($cotizacion, $data, $usuario, $esFb2) {
             // 1. Cliente formal
             $clienteId = $data['cliente_id'] ?? $cotizacion->cliente_id;
             if (! $clienteId && ! empty($data['cliente_nuevo'])) {
@@ -470,6 +476,10 @@ class CotizacionController extends Controller
                 'direccion_envio'    => $data['direccion_envio']    ?? null,
                 'notas'              => $data['notas'] ?? $cotizacion->notas,
                 'anticipo_pct'       => $data['anticipo_pct'] ?? 50,
+                // Si se marcó cortesía, la orden nace con serie FB2 y el número
+                // se asigna abajo junto con el resto de la numeración.
+                'serie'              => $esFb2 ? Orden::SERIE_FB2 : null,
+                'motivo_serie'       => $esFb2 ? ($data['motivo_serie'] ?? null) : null,
             ]);
 
             // 5. Anticipo

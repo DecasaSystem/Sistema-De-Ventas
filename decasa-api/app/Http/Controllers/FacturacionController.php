@@ -34,6 +34,8 @@ class FacturacionController extends Controller
             ->selectRaw("
                 ordenes.id,
                 ordenes.numero_orden,
+                ordenes.serie,
+                ordenes.serie_numero,
                 ordenes.estado,
                 ordenes.valor_total,
                 ordenes.created_at,
@@ -51,11 +53,21 @@ class FacturacionController extends Controller
             $raw   = trim($search);
             $sinHash = ltrim($raw, '#');          // quitar # si el usuario escribe "#3"
             $term  = '%' . mb_strtolower($raw) . '%';
-            $query->where(function ($q) use ($term, $sinHash) {
+            // "FB2-3": las órdenes de cortesía no tienen numero_orden
+            $serieNum = null;
+            if (preg_match('/^([a-zA-Z][a-zA-Z0-9]{1,9})[\s\-]+(\d+)$/', $sinHash, $m)) {
+                $serieNum = ['serie' => strtoupper($m[1]), 'numero' => (int) $m[2]];
+            }
+
+            $query->where(function ($q) use ($term, $sinHash, $serieNum) {
                 $q->whereRaw('LOWER(clientes.nombre) LIKE ?', [$term]);
                 if (is_numeric($sinHash)) {
                     $q->orWhere('ordenes.id', (int) $sinHash)
                       ->orWhere('ordenes.numero_orden', $sinHash);
+                }
+                if ($serieNum) {
+                    $q->orWhere(fn($q2) => $q2->where('ordenes.serie', $serieNum['serie'])
+                                              ->where('ordenes.serie_numero', $serieNum['numero']));
                 }
             });
         }
