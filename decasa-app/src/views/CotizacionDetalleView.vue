@@ -468,12 +468,12 @@ onMounted(cargar)
               </div>
             </div>
 
-            <!-- Cortesía -->
+            <!-- Descuento especial -->
             <div :class="['rounded-lg border p-2.5', form.es_fb2 ? 'bg-amber-50 border-amber-300' : 'border-gray-200']">
               <label class="flex items-start gap-2 cursor-pointer">
                 <input type="checkbox" v-model="form.es_fb2" class="mt-0.5 w-4 h-4 accent-amber-600" />
                 <span class="min-w-0">
-                  <span class="text-xs font-semibold text-gray-800">Orden de cortesía (FB2)</span>
+                  <span class="text-xs font-semibold text-gray-800">Orden con descuento especial (FB2)</span>
                   <span class="block text-xs text-gray-500">
                     Llevará numeración FB2-N en vez de número de orden.
                   </span>

@@ -765,9 +765,9 @@ onMounted(async () => {
                       class="font-semibold text-blue-600 hover:text-blue-800 truncate"
                     >{{ o.orden_referencia ?? ('#' + o.orden_numero) }}</button>
                     <span
-                      v-if="o.es_cortesia"
+                      v-if="o.es_descuento_especial"
                       class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 shrink-0"
-                    >Cortesía</span>
+                    >Descuento</span>
                     <span class="text-gray-400 truncate">{{ fmtFecha(o.fecha_venta) }}</span>
                   </div>
                   <div class="text-right shrink-0 ml-2">

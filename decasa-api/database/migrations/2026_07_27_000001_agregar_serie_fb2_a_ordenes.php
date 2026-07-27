@@ -6,8 +6,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Órdenes de serie especial (FB2): ventas de cortesía a allegados de los dueños,
- * con descuento y privilegios. No llevan consecutivo normal de orden sino su
+ * Órdenes de serie especial (FB2): ventas con descuento especial autorizado.
+ * No llevan consecutivo normal de orden sino su
  * propia serie (FB2-1, FB2-2...), pero por lo demás son ventas reales: descuentan
  * inventario, generan comisión y cuentan en estadísticas.
  *
@@ -34,7 +34,7 @@ return new class extends Migration
             DB::statement('CREATE INDEX idx_ordenes_serie ON ordenes (serie, serie_numero)');
         }
 
-        // Consecutivo único para toda la empresa: las cortesías son transversales
+        // Consecutivo único para toda la empresa: estas órdenes son transversales
         // a las tiendas y son pocas, así que no se separan por grupo.
         DB::statement("
             INSERT INTO orden_secuencias (grupo, ultimo_numero)

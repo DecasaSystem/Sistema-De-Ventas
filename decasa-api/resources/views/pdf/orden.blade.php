@@ -19,8 +19,8 @@
             </td>
             <td style="text-align: right; vertical-align: middle;">
                 <h2 style="font-size: 18px; font-weight: bold; margin: 0;">Orden {{ $orden->referencia }}</h2>
-                @if($orden->es_cortesia)
-                    <p style="font-size: 10px; color: #92400e; margin: 2px 0 0 0; font-weight: bold;">Orden de cortesía</p>
+                @if($orden->es_descuento_especial)
+                    <p style="font-size: 10px; color: #92400e; margin: 2px 0 0 0; font-weight: bold;">Descuento especial</p>
                 @endif
                 @php
                     $estadoLabel = [

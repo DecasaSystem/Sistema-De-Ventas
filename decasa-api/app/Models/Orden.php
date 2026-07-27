@@ -65,7 +65,7 @@ class Orden extends Model
 
     // ── Series especiales ────────────────────────────────────────────────────
 
-    /** Serie de cortesía para allegados de los dueños. */
+    /** Serie de órdenes con descuento especial. */
     public const SERIE_FB2 = 'FB2';
 
     /**
@@ -85,7 +85,7 @@ class Orden extends Model
         return '#' . ($this->numero_orden ?? $this->id);
     }
 
-    public function getEsCortesiaAttribute(): bool
+    public function getEsDescuentoEspecialAttribute(): bool
     {
         return $this->serie === self::SERIE_FB2;
     }

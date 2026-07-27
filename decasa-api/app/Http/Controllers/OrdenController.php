@@ -73,7 +73,7 @@ class OrdenController extends Controller
         if ($v = $request->query('hasta')) {
             $query->whereDate('created_at', '<=', $v);
         }
-        // Apartado de órdenes de cortesía: ?serie=FB2 solo esas, ?serie=normales
+        // Apartado de órdenes con descuento especial: ?serie=FB2 solo esas, ?serie=normales
         // solo las que llevan consecutivo corriente.
         if ($v = $request->query('serie')) {
             $v === 'normales'
@@ -174,7 +174,7 @@ class OrdenController extends Controller
             'anticipo_pagos.*.referencia'          => 'nullable|string|max:100',
             'guardar_borrador'                     => 'nullable|boolean',
             'entrega_inmediata'                    => 'nullable|boolean',
-            // Orden de cortesía (serie FB2): numeración propia, sigue contando
+            // Orden con descuento especial (serie FB2): numeración propia, sigue contando
             // como venta y generando comisión.
             'es_fb2'                               => 'nullable|boolean',
             'motivo_serie'                         => 'nullable|string|max:300',

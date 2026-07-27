@@ -30,14 +30,14 @@ const filtros = ref({
   tienda_id: '',
   desde: '',
   hasta: '',
-  serie: '',          // '' todas · 'normales' · 'FB2' cortesías
+  serie: '',          // '' todas · 'normales' · 'FB2' descuentos especiales
 })
 
-// Apartado de órdenes: las de cortesía llevan serie propia y no consecutivo normal
+// Apartado de órdenes: las de descuento especial llevan serie propia, no consecutivo normal
 const APARTADOS = [
   { value: '',         label: 'Todas'    },
   { value: 'normales', label: 'Normales' },
-  { value: 'FB2',      label: 'Cortesía FB2' },
+  { value: 'FB2',      label: 'Descuento FB2' },
 ]
 
 function seleccionarApartado(serie) {
@@ -285,7 +285,7 @@ onUnmounted(() => {
       />
     </div>
 
-    <!-- Apartados: normales vs órdenes de cortesía -->
+    <!-- Apartados: normales vs órdenes con descuento especial -->
     <div class="flex gap-1 bg-gray-100 rounded-xl p-1">
       <button
         v-for="a in APARTADOS"
@@ -299,8 +299,8 @@ onUnmounted(() => {
     </div>
 
     <p v-if="filtros.serie === 'FB2'" class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-      Órdenes de cortesía para allegados de los dueños. Llevan numeración FB2-N propia,
-      no gastan consecutivo de orden y sí generan comisión.
+      Órdenes con descuento especial. Llevan numeración FB2-N propia, no gastan
+      consecutivo de orden y sí generan comisión.
     </p>
 
     <!-- Filtro rápido por tienda -->
@@ -414,7 +414,7 @@ onUnmounted(() => {
                 <span
                   v-if="o.serie"
                   class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700"
-                >Cortesía</span>
+                >Descuento</span>
                 <BadgeEstado :estado="o.estado" />
                 <span
                   v-if="o.atrasado"
