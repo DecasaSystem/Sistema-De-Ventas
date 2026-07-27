@@ -23,6 +23,9 @@ class Orden extends Model
         'tipo',
         'estado',
         'numero_orden',
+        'serie',
+        'serie_numero',
+        'motivo_serie',
         'grupo_secuencia',
         'cotizacion_estado',
         'cotizacion_numero',
@@ -58,7 +61,34 @@ class Orden extends Model
         ];
     }
 
-    protected $appends = ['esta_vencida', 'cotizacion_ref', 'contacto_display'];
+    protected $appends = ['esta_vencida', 'cotizacion_ref', 'contacto_display', 'referencia'];
+
+    // ── Series especiales ────────────────────────────────────────────────────
+
+    /** Serie de cortesía para allegados de los dueños. */
+    public const SERIE_FB2 = 'FB2';
+
+    /**
+     * Cómo se nombra esta orden donde sea que se muestre: "FB2-3" si es de
+     * serie especial, "#4261" si es una orden normal. Evita que las FB2
+     * aparezcan como "#" vacío por no tener numero_orden.
+     */
+    public function getReferenciaAttribute(): string
+    {
+        if ($this->serie && $this->serie_numero) {
+            return $this->serie . '-' . $this->serie_numero;
+        }
+        if ($this->cotizacion_numero && $this->estado === 'cotizacion') {
+            return 'COT-' . $this->cotizacion_numero;
+        }
+
+        return '#' . ($this->numero_orden ?? $this->id);
+    }
+
+    public function getEsCortesiaAttribute(): bool
+    {
+        return $this->serie === self::SERIE_FB2;
+    }
 
     // ── Cotizaciones ─────────────────────────────────────────────────────────
 

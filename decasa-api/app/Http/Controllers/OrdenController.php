@@ -76,11 +76,22 @@ class OrdenController extends Controller
         if ($search = $request->query('search')) {
             $limpio = ltrim(trim($search), '#');           // permite escribir "#123"
             $term   = '%' . mb_strtolower($limpio) . '%';
-            $query->where(function ($q) use ($term, $limpio) {
+            // "FB2-3" o "fb2 3": buscar en la serie especial. La serie puede
+            // llevar dígitos (FB2), por eso el separador es obligatorio.
+            $serieNum = null;
+            if (preg_match('/^([a-zA-Z][a-zA-Z0-9]{1,9})[\s\-]+(\d+)$/', $limpio, $m)) {
+                $serieNum = ['serie' => strtoupper($m[1]), 'numero' => (int) $m[2]];
+            }
+
+            $query->where(function ($q) use ($term, $limpio, $serieNum) {
                 $q->whereHas('cliente', fn($c) => $c->whereRaw('LOWER(nombre) LIKE ?', [$term]))
                   ->orWhereRaw('LOWER(numero_orden) LIKE ?', [$term]);
                 if (is_numeric($limpio)) {
                     $q->orWhere('id', (int) $limpio);
+                }
+                if ($serieNum) {
+                    $q->orWhere(fn($q2) => $q2->where('serie', $serieNum['serie'])
+                                              ->where('serie_numero', $serieNum['numero']));
                 }
             });
         }
@@ -156,6 +167,10 @@ class OrdenController extends Controller
             'anticipo_pagos.*.referencia'          => 'nullable|string|max:100',
             'guardar_borrador'                     => 'nullable|boolean',
             'entrega_inmediata'                    => 'nullable|boolean',
+            // Orden de cortesía (serie FB2): numeración propia, sigue contando
+            // como venta y generando comisión.
+            'es_fb2'                               => 'nullable|boolean',
+            'motivo_serie'                         => 'nullable|string|max:300',
             'es_compartida'                      => 'nullable|boolean',
             'covendedor_id'                      => 'nullable|integer|exists:usuarios,id',
             'items'                              => 'required|array|min:1',
@@ -186,6 +201,7 @@ class OrdenController extends Controller
         $guardarBorrador = $request->boolean('guardar_borrador', false);
         $tiendaId        = $data['tienda_id'];
         $anticupoPct     = $data['anticipo_pct'] ?? 50;
+        $esFb2           = $request->boolean('es_fb2', false);
 
         // Venta directa: el cliente paga (total o parcial) y se lleva los productos en
         // el acto. La orden nace 'entregado', descuenta stock de una y no pasa por
@@ -241,7 +257,7 @@ class OrdenController extends Controller
             ], 409);
         }
 
-        $orden = DB::transaction(function () use ($data, $tiendaId, $anticupoPct, $valorTotal, $descuentoTotal, $request, $tieneItemsCotizacionPendiente, $guardarBorrador, $entregaInmediata) {
+        $orden = DB::transaction(function () use ($data, $tiendaId, $anticupoPct, $valorTotal, $descuentoTotal, $request, $tieneItemsCotizacionPendiente, $guardarBorrador, $entregaInmediata, $esFb2) {
 
             // --- 1. Verificar stock para items no personalizados (con bloqueo) ---
             foreach ($data['items'] as $item) {
@@ -303,6 +319,9 @@ class OrdenController extends Controller
                 'departamento_envio' => $data['departamento_envio'] ?? null,
                 'ciudad_envio'       => $data['ciudad_envio'] ?? null,
                 'direccion_envio'    => $data['direccion_envio'] ?? null,
+                // Serie especial: el número FB2-N se asigna al confirmar la orden
+                'serie'              => $esFb2 ? Orden::SERIE_FB2 : null,
+                'motivo_serie'       => $esFb2 ? ($data['motivo_serie'] ?? null) : null,
             ]);
 
             // --- 3. Crear items, reservar stock y crear producción ---
@@ -483,7 +502,7 @@ class OrdenController extends Controller
                 NotificacionService::crear(
                     'venta_nueva',
                     'Nueva venta registrada',
-                    "Orden #{$orden->numero_orden} — {$ordenCargada->cliente->nombre} · $" . number_format($valorTotal, 0, ',', '.') . " COP",
+                    "Orden {$orden->referencia} — {$ordenCargada->cliente->nombre} · $" . number_format($valorTotal, 0, ',', '.') . " COP",
                     ['orden_id' => $orden->id, 'tienda_id' => (int) $tiendaId, 'valor_total' => $valorTotal],
                     $sup->id,
                 );
@@ -492,7 +511,7 @@ class OrdenController extends Controller
                     NotificacionService::crear(
                         'asignar_fecha',
                         'Asignar fecha de entrega',
-                        "Orden #{$orden->numero_orden} de {$ordenCargada->cliente->nombre} necesita fecha de entrega",
+                        "Orden {$orden->referencia} de {$ordenCargada->cliente->nombre} necesita fecha de entrega",
                         ['orden_id' => $orden->id],
                         $sup->id,
                     );
@@ -509,7 +528,7 @@ class OrdenController extends Controller
                 foreach ($facturadores as $facturador) {
                     NotificacionService::crear(
                         tipo:      'abono_registrado',
-                        titulo:    "Pago registrado – Orden #{$orden->numero_orden}",
+                        titulo:    "Pago registrado – Orden {$orden->referencia}",
                         mensaje:   "{$request->user()->nombre} registró un anticipo de {$montoFormateado} en la orden de {$ordenCargada->cliente->nombre}.",
                         datos:     ['orden_id' => $orden->id],
                         usuarioId: $facturador->id,
@@ -554,7 +573,7 @@ class OrdenController extends Controller
                     NotificacionService::crear(
                         'reserva_fabrica',
                         'Producto tomado de reserva',
-                        "Orden #{$orden->numero_orden}: {$resumen}",
+                        "Orden {$orden->referencia}: {$resumen}",
                         ['orden_id' => $orden->id],
                         $sup->id,
                     );
@@ -581,7 +600,7 @@ class OrdenController extends Controller
                     NotificacionService::crear(
                         'venta_otra_tienda',
                         'Venta desde otra tienda',
-                        "Orden #{$orden->numero_orden} - {$productosStr}",
+                        "Orden {$orden->referencia} - {$productosStr}",
                         [
                             'orden_id'  => $orden->id,
                             'tienda_id' => $origenId,
@@ -743,7 +762,7 @@ class OrdenController extends Controller
             NotificacionService::crear(
                 'venta_nueva',
                 'Cotización aceptada — orden confirmada',
-                "Orden #{$orden->numero_orden} — {$clienteNombre} confirmó el precio",
+                "Orden {$orden->referencia} — {$clienteNombre} confirmó el precio",
                 ['orden_id' => $orden->id, 'tienda_id' => (int) $tiendaId],
                 $sup->id,
             );
@@ -752,7 +771,7 @@ class OrdenController extends Controller
                 NotificacionService::crear(
                     'asignar_fecha',
                     'Asignar fecha de entrega',
-                    "Orden #{$orden->numero_orden} de {$clienteNombre} necesita fecha de entrega",
+                    "Orden {$orden->referencia} de {$clienteNombre} necesita fecha de entrega",
                     ['orden_id' => $orden->id],
                     $sup->id,
                 );
@@ -770,7 +789,7 @@ class OrdenController extends Controller
             foreach ($facturadores as $facturador) {
                 NotificacionService::crear(
                     'abono_registrado',
-                    "Pago registrado – Orden #{$orden->numero_orden}",
+                    "Pago registrado – Orden {$orden->referencia}",
                     "{$usuario->nombre} registró un anticipo de {$montoFormateado} en la orden de {$clienteNombre}.",
                     ['orden_id' => $orden->id],
                     $facturador->id,
@@ -1180,7 +1199,7 @@ class OrdenController extends Controller
                     NotificacionService::crear(
                         'venta_otra_tienda',
                         'Stock tomado de tu tienda',
-                        "Orden #" . ($orden->numero_orden ?? $orden->id) . " (edición): {$resumen}",
+                        "Orden {$orden->referencia} (edición): {$resumen}",
                         ['orden_id' => $orden->id, 'tienda_id' => (int) $origenId],
                         $vendedorId,
                     );
@@ -1242,7 +1261,7 @@ class OrdenController extends Controller
             NotificacionService::crear(
                 'orden_editada',
                 'Orden editada',
-                "Orden #" . ($orden->numero_orden ?? $orden->id) . " ({$ordenFresh->cliente->nombre}) fue editada por {$usuario->nombre}",
+                "Orden {$orden->referencia} ({$ordenFresh->cliente->nombre}) fue editada por {$usuario->nombre}",
                 ['orden_id' => $orden->id],
             );
         }
@@ -1365,7 +1384,7 @@ class OrdenController extends Controller
             NotificacionService::crear(
                 'venta_nueva',
                 'Nueva venta registrada',
-                "Orden #{$orden->numero_orden} — {$ordenFresh->cliente->nombre} · $" . number_format($orden->valor_total, 0, ',', '.') . " COP",
+                "Orden {$orden->referencia} — {$ordenFresh->cliente->nombre} · $" . number_format($orden->valor_total, 0, ',', '.') . " COP",
                 ['orden_id' => $orden->id, 'tienda_id' => (int) $orden->tienda_id, 'valor_total' => $orden->valor_total],
                 $sup->id,
             );
@@ -1374,7 +1393,7 @@ class OrdenController extends Controller
                 NotificacionService::crear(
                     'asignar_fecha',
                     'Asignar fecha de entrega',
-                    "Orden #{$orden->numero_orden} de {$ordenFresh->cliente->nombre} necesita fecha de entrega",
+                    "Orden {$orden->referencia} de {$ordenFresh->cliente->nombre} necesita fecha de entrega",
                     ['orden_id' => $orden->id],
                     $sup->id,
                 );
@@ -1568,7 +1587,7 @@ class OrdenController extends Controller
                 NotificacionService::crear(
                     'listo_entrega',
                     'Orden lista para entrega',
-                    "Orden #{$orden->numero_orden} — {$ordenFresh->cliente->nombre} está lista para despachar",
+                    "Orden {$orden->referencia} — {$ordenFresh->cliente->nombre} está lista para despachar",
                     ['orden_id' => $orden->id, 'tienda_id' => (int) $orden->tienda_id],
                     $sup->id,
                 );
@@ -1578,7 +1597,7 @@ class OrdenController extends Controller
             NotificacionService::crear(
                 'listo_entrega',
                 'Tu pedido está listo para entrega',
-                "Orden #{$orden->numero_orden} — {$ordenFresh->cliente->nombre} está lista para ser despachada",
+                "Orden {$orden->referencia} — {$ordenFresh->cliente->nombre} está lista para ser despachada",
                 ['orden_id' => $orden->id],
                 $orden->vendedor_id,
             );
@@ -1594,7 +1613,7 @@ class OrdenController extends Controller
                 NotificacionService::crear(
                     'entregado',
                     'Orden entregada',
-                    "Orden #{$orden->numero_orden} entregada a {$ordenFresh->cliente->nombre}",
+                    "Orden {$orden->referencia} entregada a {$ordenFresh->cliente->nombre}",
                     ['orden_id' => $orden->id, 'tienda_id' => (int) $orden->tienda_id],
                     $sup->id,
                 );
@@ -1603,7 +1622,7 @@ class OrdenController extends Controller
             NotificacionService::crear(
                 'entregado',
                 'Tu orden fue entregada',
-                "Orden #{$orden->numero_orden} — {$ordenFresh->cliente->nombre} recibió su pedido",
+                "Orden {$orden->referencia} — {$ordenFresh->cliente->nombre} recibió su pedido",
                 ['orden_id' => $orden->id],
                 $orden->vendedor_id,
             );
@@ -1613,7 +1632,7 @@ class OrdenController extends Controller
             NotificacionService::crear(
                 'en_produccion',
                 'Tu pedido entró en producción',
-                "Orden #{$orden->numero_orden} — {$ordenFresh->cliente->nombre} está en producción",
+                "Orden {$orden->referencia} — {$ordenFresh->cliente->nombre} está en producción",
                 ['orden_id' => $orden->id],
                 $orden->vendedor_id,
             );
@@ -1623,7 +1642,7 @@ class OrdenController extends Controller
             NotificacionService::crear(
                 'cancelado',
                 'Tu orden fue cancelada',
-                "Orden #{$orden->numero_orden} — {$ordenFresh->cliente->nombre} fue cancelada",
+                "Orden {$orden->referencia} — {$ordenFresh->cliente->nombre} fue cancelada",
                 ['orden_id' => $orden->id],
                 $orden->vendedor_id,
             );
@@ -1637,7 +1656,7 @@ class OrdenController extends Controller
                     NotificacionService::crear(
                         'cancelado',
                         'Cotización cancelada',
-                        "La orden #{$orden->numero_orden} de {$ordenFresh->cliente->nombre} fue cancelada. La consulta de costo ya no aplica.",
+                        "La orden {$orden->referencia} de {$ordenFresh->cliente->nombre} fue cancelada. La consulta de costo ya no aplica.",
                         ['consulta_id' => $consulta->id, 'orden_id' => $orden->id],
                         $consulta->asignado_a_id,
                     );
@@ -1707,7 +1726,7 @@ class OrdenController extends Controller
         NotificacionService::crear(
             'fecha_asignada',
             'Fecha de entrega asignada',
-            "La orden #{$orden->numero_orden} de {$orden->cliente->nombre} ya tiene fecha de entrega",
+            "La orden {$orden->referencia} de {$orden->cliente->nombre} ya tiene fecha de entrega",
             ['orden_id' => $orden->id],
             $orden->vendedor_id,
         );
@@ -1820,8 +1839,47 @@ class OrdenController extends Controller
         return null;
     }
 
+    /**
+     * Numera una orden de serie especial (FB2-1, FB2-2...). Consecutivo propio
+     * y global: no consume el número de orden normal, igual que se hacía a mano.
+     */
+    public static function asignarNumeroSerie(Orden $orden, string $serie = Orden::SERIE_FB2): void
+    {
+        $clave = strtolower($serie);
+
+        DB::transaction(function () use ($orden, $serie, $clave) {
+            $actual = DB::table('orden_secuencias')
+                ->where('grupo', $clave)
+                ->lockForUpdate()
+                ->value('ultimo_numero');
+
+            if ($actual === null) {
+                DB::table('orden_secuencias')->insert(['grupo' => $clave, 'ultimo_numero' => 0]);
+                $actual = 0;
+            }
+
+            $siguiente = $actual + 1;
+
+            DB::table('orden_secuencias')
+                ->where('grupo', $clave)
+                ->update(['ultimo_numero' => $siguiente]);
+
+            $orden->update([
+                'serie'        => $serie,
+                'serie_numero' => $siguiente,
+                'numero_orden' => null,   // no gasta consecutivo normal
+            ]);
+        });
+    }
+
     public static function asignarNumeroOrden(Orden $orden): void
     {
+        // Las órdenes de serie especial llevan su propia numeración.
+        if ($orden->serie) {
+            self::asignarNumeroSerie($orden, $orden->serie);
+            return;
+        }
+
         $grupo = self::grupoDeTienda($orden->tienda_id);
 
         DB::transaction(function () use ($orden, $grupo) {

@@ -523,7 +523,7 @@ function whatsappLink() {
   const mensaje = [
     `Hola ${o.cliente?.nombre} 👋`,
     ``,
-    `Aquí tienes el resumen de tu pedido en *Decasa* (Orden #${o.numero_orden ?? o.id}):`,
+    `Aquí tienes el resumen de tu pedido en *SODEGE* (Orden ${o.referencia ?? '#' + (o.numero_orden ?? o.id)}):`,
     ``,
     `🛋️ *Productos:*`,
     productos,
@@ -894,7 +894,7 @@ onMounted(cargarOrden)
     <div class="flex items-center gap-3">
       <button @click="router.back()" class="text-blue-600 text-sm font-medium">← Atrás</button>
       <h2 class="text-lg font-bold text-gray-800 flex-1">
-        Orden #{{ orden?.numero_orden ?? orden?.id ?? '...' }}
+        Orden {{ orden?.referencia ?? '...' }}
       </h2>
       <button
         v-if="orden && puedeEditar"

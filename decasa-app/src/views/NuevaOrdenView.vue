@@ -30,6 +30,12 @@ const toast  = useToast()
 // comprobante, el cliente es opcional y no se toca inventario.
 const modoCotizacion = computed(() => route.query.modo === 'cotizacion')
 
+// ── Orden de cortesía (serie FB2) ─────────────────────────────────────────────
+// Venta a allegados de los dueños: numeración propia FB2-N, no gasta consecutivo
+// normal, pero cuenta como venta y genera comisión igual que cualquier otra.
+const esFb2       = ref(false)
+const motivoSerie = ref('')
+
 // Contacto suelto cuando no se elige un cliente formal
 const contactoNombre   = ref('')
 const contactoTelefono = ref('')
@@ -1380,6 +1386,8 @@ async function submit() {
         ].filter(p => p.monto > 0)
       } : {}),
       guardar_borrador:     modoGuardarBorrador.value || undefined,
+      es_fb2:               esFb2.value || undefined,
+      motivo_serie:         esFb2.value ? (motivoSerie.value.trim() || undefined) : undefined,
       entrega_inmediata:    (entregaInmediata.value && puedeEntregaInmediata.value) || undefined,
       descuento_total:      Number(descuentoTotal.value) > 0 ? Number(descuentoTotal.value) : undefined,
       notas:                notas.value || undefined,
@@ -3070,6 +3078,31 @@ function removeFacturaFoto() {
         <div class="flex justify-between text-sm font-bold border-t border-gray-100 pt-2 mt-2">
           <span>Total</span>
           <span class="text-blue-700">${{ valorTotal.toLocaleString('es-CO') }}</span>
+        </div>
+      </div>
+
+      <!-- Orden de cortesía (FB2) -->
+      <div :class="['rounded-xl border p-4 space-y-2', esFb2 ? 'bg-amber-50 border-amber-300' : 'bg-white border-gray-200']">
+        <label class="flex items-start gap-2.5 cursor-pointer">
+          <input type="checkbox" v-model="esFb2" class="mt-0.5 w-4 h-4 accent-amber-600" />
+          <span class="min-w-0">
+            <span class="text-sm font-semibold text-gray-800">Orden de cortesía (FB2)</span>
+            <span class="block text-xs text-gray-500 mt-0.5">
+              Para allegados de los dueños. Lleva numeración propia FB2-N en vez de número de
+              orden, pero descuenta inventario, cuenta como venta y genera comisión igual.
+            </span>
+          </span>
+        </label>
+
+        <div v-if="esFb2" class="space-y-1.5 pl-6">
+          <input
+            v-model="motivoSerie"
+            placeholder="Motivo o a quién se le hace (opcional)"
+            class="input text-sm"
+          />
+          <p class="text-xs text-amber-700">
+            Queda registrado que la creaste tú. El descuento se aplica arriba, en el carrito.
+          </p>
         </div>
       </div>
 

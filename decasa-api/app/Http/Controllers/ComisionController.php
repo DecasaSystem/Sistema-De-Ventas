@@ -198,6 +198,8 @@ class ComisionController extends Controller
                     'id'             => $i['id'],
                     'orden_id'       => $i['orden_id'],
                     'orden_numero'   => $i['orden_numero'],
+                    'orden_referencia' => $i['orden_referencia'] ?? null,
+                    'es_cortesia'    => $i['es_cortesia'] ?? false,
                     'valor_orden'    => (float) $i['valor_orden'],
                     'monto_comision' => (float) $i['monto_comision'],
                     'estado'         => $i['estado_calculado'],
@@ -701,6 +703,10 @@ class ComisionController extends Controller
             'vendedor_nombre'  => $c->vendedor?->nombre,
             'tienda_nombre'    => $c->tienda?->nombre,
             'orden_numero'     => $c->orden?->numero_orden,
+            // Referencia visible: "#4261" o "FB2-3" en las órdenes de cortesía,
+            // que no tienen numero_orden.
+            'orden_referencia' => $c->orden?->referencia,
+            'es_cortesia'      => (bool) $c->orden?->es_cortesia,
         ]);
     }
 
@@ -712,7 +718,7 @@ class ComisionController extends Controller
             ->get();
 
         $titulo  = 'Comisión lista para pagar';
-        $mensaje = "La comisión de {$data['vendedor_nombre']} por la orden #{$data['orden_numero']} está lista.";
+        $mensaje = "La comisión de {$data['vendedor_nombre']} por la orden {$data['orden_referencia']} está lista.";
 
         foreach ($supervisores as $sup) {
             NotificacionService::crear('comisiones', $titulo, $mensaje, ['comision_id' => $c->id], $sup->id);

@@ -159,7 +159,7 @@ async function exportarExcelOrdenes() {
     }
 
     const filas = todas.map(o => ({
-      'N° orden':         o.numero_orden ?? o.id,
+      'N° orden':         o.referencia ?? o.numero_orden ?? o.id,
       'Estado':           estadoLabel(o.estado),
       'Tipo':             o.tipo === 'restauracion' ? 'Restauración' : 'Venta',
       'Cliente':          o.cliente?.nombre ?? '',
@@ -376,7 +376,11 @@ onUnmounted(() => {
           <div class="flex justify-between items-start gap-2">
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-2 mb-1 flex-wrap">
-                <span class="font-semibold text-sm text-gray-800">#{{ o.numero_orden ?? o.id }}</span>
+                <span class="font-semibold text-sm text-gray-800">{{ o.referencia ?? ('#' + (o.numero_orden ?? o.id)) }}</span>
+                <span
+                  v-if="o.serie"
+                  class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700"
+                >Cortesía</span>
                 <BadgeEstado :estado="o.estado" />
                 <span
                   v-if="o.atrasado"

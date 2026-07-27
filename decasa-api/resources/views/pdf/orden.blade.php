@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Orden #{{ $orden->numero_orden ?? $orden->id }}</title>
+    <title>Orden {{ $orden->referencia }}</title>
 </head>
 <body style="font-family: 'Helvetica', Arial, sans-serif; font-size: 12px; color: #333; margin: 0; padding: 20px;">
 
@@ -18,7 +18,10 @@
                 @endif
             </td>
             <td style="text-align: right; vertical-align: middle;">
-                <h2 style="font-size: 18px; font-weight: bold; margin: 0;">Orden #{{ $orden->numero_orden ?? $orden->id }}</h2>
+                <h2 style="font-size: 18px; font-weight: bold; margin: 0;">Orden {{ $orden->referencia }}</h2>
+                @if($orden->es_cortesia)
+                    <p style="font-size: 10px; color: #92400e; margin: 2px 0 0 0; font-weight: bold;">Orden de cortesía</p>
+                @endif
                 @php
                     $estadoLabel = [
                         'pendiente_anticipo' => 'En Espera',

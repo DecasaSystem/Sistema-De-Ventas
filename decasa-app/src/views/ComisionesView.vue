@@ -340,7 +340,7 @@ function exportarDetalleExcel() {
   const filas = lista.map(c => ({
     'Vendedor':          c.vendedor_nombre ?? '',
     'Tienda':            c.tienda_nombre ?? '',
-    'Orden N°':          c.orden_numero ?? '',
+    'Orden N°':          c.orden_referencia ?? c.orden_numero ?? '',
     'Estado':            ESTADO_LABEL[c.estado_calculado ?? c.estado] ?? (c.estado_calculado ?? c.estado ?? ''),
     'Atrasada':          c.atrasada ? 'Sí' : 'No',
     'Comisión':          Number(c.monto_comision) || 0,
@@ -763,7 +763,11 @@ onMounted(async () => {
                     <button
                       @click="router.push({ name: 'orden-detalle', params: { id: o.orden_id } })"
                       class="font-semibold text-blue-600 hover:text-blue-800 truncate"
-                    >#{{ o.orden_numero }}</button>
+                    >{{ o.orden_referencia ?? ('#' + o.orden_numero) }}</button>
+                    <span
+                      v-if="o.es_cortesia"
+                      class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 shrink-0"
+                    >Cortesía</span>
                     <span class="text-gray-400 truncate">{{ fmtFecha(o.fecha_venta) }}</span>
                   </div>
                   <div class="text-right shrink-0 ml-2">
@@ -862,7 +866,9 @@ onMounted(async () => {
               <div class="flex-1 min-w-0">
                 <p class="font-semibold text-gray-800 text-sm truncate">{{ c.vendedor_nombre }}</p>
                 <div class="flex items-center gap-1.5 mt-0.5">
-                  <p class="text-xs text-gray-400">{{ c.tienda_nombre }} · Orden #{{ c.orden_numero }}</p>
+                  <p class="text-xs text-gray-400">
+                    {{ c.tienda_nombre }} · Orden {{ c.orden_referencia ?? ('#' + c.orden_numero) }}
+                  </p>
                   <button
                     v-if="c.orden_id"
                     @click="router.push({ name: 'orden-detalle', params: { id: c.orden_id } })"

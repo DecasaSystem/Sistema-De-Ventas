@@ -517,7 +517,7 @@ class CotizacionController extends Controller
             NotificacionService::crear(
                 'venta_nueva',
                 'Cotización convertida en venta',
-                "Orden #{$ordenFresh->numero_orden} — " . ($ordenFresh->cliente->nombre ?? 'Cliente')
+                "Orden {$ordenFresh->referencia} — " . ($ordenFresh->cliente->nombre ?? 'Cliente')
                     . ' · $' . number_format($ordenFresh->valor_total, 0, ',', '.') . ' COP',
                 ['orden_id' => $orden->id, 'tienda_id' => (int) $orden->tienda_id],
                 $sup->id,
