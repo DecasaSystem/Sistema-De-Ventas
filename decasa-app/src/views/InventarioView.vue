@@ -2684,7 +2684,7 @@ onMounted(async () => {
               <div v-if="eliminarVarianteUso.ordenes?.length" class="pl-2 flex flex-wrap gap-1 pt-0.5">
                 <span v-for="o in eliminarVarianteUso.ordenes" :key="o.id"
                   class="bg-white border border-amber-300 text-amber-800 px-1.5 py-0.5 rounded-full">
-                  #{{ o.numero_orden ?? o.id }}
+                  {{ o.serie ? `${o.serie}-${o.serie_numero}` : `#${o.numero_orden ?? o.id}` }}
                 </span>
               </div>
             </div>

@@ -471,7 +471,7 @@ class ReporteController extends Controller
             ->leftJoin('produccion as pr',  'pr.orden_item_id','=', 'oi.id')
             ->whereNotIn('o.estado', array_merge(['entregado', 'cancelado'], Orden::ESTADOS_NO_COMERCIALES))
             ->when($vendedorId, fn($q) => $q->where('o.vendedor_id', $vendedorId))
-            ->groupBy('o.id', 'o.numero_orden', 'c.nombre', 'c.telefono', 'u.nombre', 't.nombre', 'o.estado', 'o.created_at')
+            ->groupBy('o.id', 'o.numero_orden', 'o.serie', 'o.serie_numero', 'c.nombre', 'c.telefono', 'u.nombre', 't.nombre', 'o.estado', 'o.created_at')
             ->havingRaw('
                 (MIN(pr.fecha_compromiso) IS NOT NULL AND MIN(pr.fecha_compromiso) < CURDATE())
                 OR MAX(pr.estado = "retrasado") = 1
@@ -482,6 +482,8 @@ class ReporteController extends Controller
             ->selectRaw('
                 o.id                  AS orden_id,
                 o.numero_orden,
+                o.serie,
+                o.serie_numero,
                 c.nombre              AS cliente,
                 c.telefono,
                 u.nombre              AS vendedor,

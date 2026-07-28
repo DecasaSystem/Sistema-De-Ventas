@@ -324,7 +324,7 @@ class VarianteController extends Controller
             ->where('orden_items.variante_id', $varianteId)
             ->orderByDesc('ordenes.id')
             ->limit(30)
-            ->get(['ordenes.id', 'ordenes.numero_orden', 'ordenes.estado']);
+            ->get(['ordenes.id', 'ordenes.numero_orden', 'ordenes.serie', 'ordenes.serie_numero', 'ordenes.estado']);
 
         return response()->json([
             'variante'      => $variante,

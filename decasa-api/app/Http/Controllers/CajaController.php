@@ -87,7 +87,11 @@ class CajaController extends Controller
 
     private function movimientosPorUsuario(int $userId, int $limite): \Illuminate\Support\Collection
     {
-        $pagos = Pago::with(['vendedor:id,nombre'])
+        $pagos = Pago::with([
+                'vendedor:id,nombre',
+                // Para mostrar "#4261" o "FB2-1" en vez del id interno de la tabla
+                'orden:id,numero_orden,serie,serie_numero,cotizacion_numero,estado',
+            ])
             ->where('vendedor_id', $userId)
             ->where('metodo', 'efectivo')
             ->latest()->limit($limite)->get()
@@ -95,7 +99,7 @@ class CajaController extends Controller
                 'id'              => 'pago_' . $p->id,
                 'tipo'            => 'ingreso_venta',
                 'monto'           => (float) $p->monto,
-                'concepto'        => 'Venta efectivo #' . $p->orden_id,
+                'concepto'        => 'Venta efectivo ' . ($p->orden?->referencia ?? '#' . $p->orden_id),
                 'descripcion'     => $p->notas,
                 'comprobante_url' => null,
                 'usuario'         => $p->vendedor?->nombre,
@@ -142,7 +146,11 @@ class CajaController extends Controller
             return response()->json([]);
         }
 
-        $pagos = Pago::with(['vendedor:id,nombre'])
+        $pagos = Pago::with([
+                'vendedor:id,nombre',
+                // Para mostrar "#4261" o "FB2-1" en vez del id interno de la tabla
+                'orden:id,numero_orden,serie,serie_numero,cotizacion_numero,estado',
+            ])
             ->whereHas('orden', fn($q) => $q->where('tienda_id', $tiendaId))
             ->where('metodo', 'efectivo')
             ->latest()
@@ -152,7 +160,7 @@ class CajaController extends Controller
                 'id'              => 'pago_' . $p->id,
                 'tipo'            => 'ingreso_venta',
                 'monto'           => (float) $p->monto,
-                'concepto'        => 'Venta efectivo #' . $p->orden_id,
+                'concepto'        => 'Venta efectivo ' . ($p->orden?->referencia ?? '#' . $p->orden_id),
                 'descripcion'     => $p->notas,
                 'comprobante_url' => null,
                 'usuario'         => $p->vendedor?->nombre,
