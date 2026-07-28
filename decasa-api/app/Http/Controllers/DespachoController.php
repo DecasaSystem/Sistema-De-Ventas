@@ -14,6 +14,7 @@ use App\Models\Orden;
 use App\Models\Pago;
 use App\Models\Produccion;
 use App\Models\Usuario;
+use App\Services\DescuentoCondicionadoService;
 use App\Services\NotificacionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -636,6 +637,23 @@ class DespachoController extends Controller
         $item->orden->total_pagado    = $item->orden->totalPagado();
         $item->orden->saldo_pendiente = $item->orden->saldoPendiente();
 
+        // Descuento que se pierde si el cliente paga con tarjeta: el conductor
+        // necesita saber cuánto tendría que cobrar en ese caso y por qué, para
+        // poder explicárselo al cliente en el momento.
+        $orden = $item->orden;
+        if ($orden->tieneDescuentoCondicionadoVivo()) {
+            $item->descuento_condicionado = [
+                'monto'               => (float) $orden->descuento_condicionado,
+                'pct'                 => (float) $orden->descuento_condicionado_pct,
+                'valor_actual'        => (float) $orden->valor_total,
+                'valor_sin_descuento' => $orden->valorSinDescuentoCondicionado(),
+                'saldo_actual'        => round($orden->saldoPendiente(), 2),
+                'saldo_sin_descuento' => round($orden->valorSinDescuentoCondicionado() - $orden->totalPagado(), 2),
+                'metodos_que_lo_conservan' => Orden::METODOS_CON_DESCUENTO,
+                'explicacion'         => DescuentoCondicionadoService::explicacion($orden),
+            ];
+        }
+
         return response()->json($item);
     }
 
@@ -666,6 +684,37 @@ class DespachoController extends Controller
             'foto_pago'     => $requierePago ? 'required|image|max:10240' : 'nullable|image|max:10240',
             'foto_anexo'    => 'nullable|image|max:10240',
         ]);
+
+        // ── Descuento condicionado al medio de pago ──────────────────────────
+        // Si el cliente paga con tarjeta pierde el descuento por efectivo o
+        // transferencia: hay que quitarlo ANTES de validar el monto, porque el
+        // saldo a cobrar sube y con el saldo viejo se rechazaría el pago correcto.
+        $orden = $item->orden;
+        $pierdeDescuento = $requierePago
+            && $orden->tieneDescuentoCondicionadoVivo()
+            && Orden::metodoPierdeDescuento($data['metodo']);
+
+        if ($pierdeDescuento) {
+            $saldoExigido = round($orden->valorSinDescuentoCondicionado() - $orden->totalPagado(), 2);
+
+            // Con tarjeta no se puede cobrar menos: el descuento ya no aplica.
+            if ($data['monto'] < $saldoExigido - 0.01) {
+                return response()->json([
+                    'message' => 'Al pagar con ' . $data['metodo'] . ' el descuento no aplica: debes cobrar '
+                        . '$' . number_format($saldoExigido, 0, ',', '.') . '.',
+                    'descuento_condicionado' => [
+                        'monto'               => (float) $orden->descuento_condicionado,
+                        'saldo_sin_descuento' => $saldoExigido,
+                        'explicacion'         => DescuentoCondicionadoService::explicacion($orden),
+                    ],
+                ], 422);
+            }
+
+            DescuentoCondicionadoService::quitar($orden, $usuario, $data['metodo']);
+            $orden->refresh();
+            $item->setRelation('orden', $orden);
+            $saldoPendiente = $orden->saldoPendiente();
+        }
 
         if ($requierePago && $data['monto'] > $saldoPendiente + 0.01) {
             return response()->json([

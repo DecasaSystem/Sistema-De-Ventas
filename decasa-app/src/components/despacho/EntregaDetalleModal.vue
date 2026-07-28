@@ -51,6 +51,30 @@ const fotoProductoPreview = ref(null)
 const fotoPagoPreview     = ref(null)
 const fotoAnexoPreview    = ref(null)
 
+// ── Descuento que se pierde al pagar con tarjeta ──────────────────────────────
+// Viene del backend cuando la orden tiene descuento por pago en efectivo o
+// transferencia. Si el conductor elige tarjeta, el cliente pierde el descuento
+// y el monto a cobrar sube: se fija y no se puede bajar.
+const descuentoCond = computed(() => item.value?.descuento_condicionado ?? null)
+
+const pierdeDescuento = computed(() => {
+  if (!descuentoCond.value) return false
+  return !descuentoCond.value.metodos_que_lo_conservan.includes(metodo.value)
+})
+
+const montoACobrar = computed(() =>
+  pierdeDescuento.value
+    ? Number(descuentoCond.value.saldo_sin_descuento)
+    : Number(item.value?.orden?.saldo_pendiente ?? 0)
+)
+
+// Al cambiar el método el monto se recalcula solo: con tarjeta queda bloqueado
+// en el total sin descuento para que no se cobre de menos.
+watch([metodo, descuentoCond], () => {
+  if (esEntregado.value) return
+  monto.value = montoACobrar.value
+})
+
 const puedeEntregar = computed(() => {
   if (!fotoProductoPreview.value) return false
   if (tieneSaldo.value) return !!fotoPagoPreview.value && monto.value > 0
@@ -202,7 +226,7 @@ async function guardarPagoYEntregar() {
                 Total: <MoneyDisplay :amount="item.orden?.valor_total" :bold="true" />
               </span>
               <span v-if="!esEntregado && tieneSaldo" class="text-orange-600 font-semibold">
-                Cobra: <MoneyDisplay :amount="item.orden?.saldo_pendiente" />
+                Cobra: <MoneyDisplay :amount="montoACobrar" />
               </span>
               <span v-else-if="!esEntregado" class="text-green-600 text-xs font-semibold">✓ Ya pagado</span>
             </div>
@@ -308,16 +332,6 @@ async function guardarPagoYEntregar() {
                 </h4>
                 <div class="space-y-3">
                   <div>
-                    <label class="text-xs text-gray-500">Monto cobrado</label>
-                    <input
-                      v-model.number="monto"
-                      type="number"
-                      step="0.01"
-                      min="1"
-                      class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                    />
-                  </div>
-                  <div>
                     <label class="text-xs text-gray-500">Método de pago</label>
                     <select v-model="metodo" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
                       <option value="efectivo">Efectivo</option>
@@ -325,6 +339,44 @@ async function guardarPagoYEntregar() {
                       <option value="tarjeta">Tarjeta</option>
                       <option value="otro">Otro</option>
                     </select>
+                  </div>
+
+                  <!-- El descuento no aplica con este medio de pago -->
+                  <div v-if="pierdeDescuento" class="bg-amber-50 border-2 border-amber-300 rounded-xl p-3 space-y-2">
+                    <p class="text-sm font-bold text-amber-900">
+                      Este pedido sube a <MoneyDisplay :amount="descuentoCond.valor_sin_descuento" />
+                    </p>
+                    <p class="text-sm text-amber-900 leading-snug">
+                      {{ descuentoCond.explicacion }}
+                    </p>
+                    <div class="bg-white rounded-lg px-3 py-2">
+                      <p class="text-xs text-gray-500">Debes cobrar</p>
+                      <p class="text-lg font-bold text-amber-900">
+                        <MoneyDisplay :amount="descuentoCond.saldo_sin_descuento" />
+                      </p>
+                    </div>
+                    <p class="text-xs text-amber-700">
+                      Muéstrale esta nota al cliente si pregunta por qué cambió el valor.
+                      Si prefiere pagar en efectivo o transferencia, conserva el descuento.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label class="text-xs text-gray-500">Monto cobrado</label>
+                    <input
+                      v-model.number="monto"
+                      type="number"
+                      step="0.01"
+                      min="1"
+                      :readonly="pierdeDescuento"
+                      :class="['w-full border rounded-lg px-3 py-2 text-sm outline-none',
+                        pierdeDescuento
+                          ? 'border-amber-300 bg-amber-50 font-bold text-amber-900 cursor-not-allowed'
+                          : 'border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500']"
+                    />
+                    <p v-if="pierdeDescuento" class="text-xs text-amber-700 mt-1">
+                      No se puede cobrar menos: el descuento no aplica con este medio de pago.
+                    </p>
                   </div>
                   <div>
                     <label class="text-xs text-gray-500">Referencia (opcional)</label>

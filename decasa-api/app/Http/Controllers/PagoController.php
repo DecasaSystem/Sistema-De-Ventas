@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Orden;
 use App\Models\Pago;
 use App\Models\Usuario;
+use App\Services\DescuentoCondicionadoService;
 use App\Services\NotificacionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -50,14 +51,14 @@ class PagoController extends Controller
         }
 
         // 'entregado' se acepta para poder cobrar el saldo residual de una venta
-        // directa (el cliente se llevó el producto pagando solo una parte). El guard
-        // de sobrepago más abajo impide registrar pagos si ya no hay saldo.
+        // directa (el cliente se llevÃ³ el producto pagando solo una parte). El guard
+        // de sobrepago mÃ¡s abajo impide registrar pagos si ya no hay saldo.
         $estadosQueAceptanPago = ['pendiente_anticipo', 'en_produccion', 'listo_entrega', 'en_camino', 'entregado'];
         if (! in_array($orden->estado, $estadosQueAceptanPago)) {
             return response()->json(['message' => 'No se pueden registrar pagos en una orden con estado "' . $orden->estado . '".'], 422);
         }
         if ($orden->estado === 'entregado' && $orden->saldoPendiente() <= 0.01) {
-            return response()->json(['message' => 'Esta orden ya está pagada por completo.'], 422);
+            return response()->json(['message' => 'Esta orden ya estÃ¡ pagada por completo.'], 422);
         }
 
         $data = $request->validate([
@@ -66,15 +67,15 @@ class PagoController extends Controller
             'referencia'      => 'nullable|string|max:100',
             'notas'           => 'nullable|string|max:500',
             'comprobante_url' => 'required|string|max:500',
-            // El vendedor confirma que ya le avisó al cliente que sube el total
+            // El vendedor confirma que ya le avisÃ³ al cliente que sube el total
             'aceptar_perdida_descuento' => 'nullable|boolean',
         ]);
 
-        // ── Descuento condicionado al medio de pago ──────────────────────────
+        // â”€â”€ Descuento condicionado al medio de pago â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         // Si el cliente saca la tarjeta, el descuento por pagar en efectivo o
         // transferencia se pierde completo y el total sube. Hay que avisar ANTES
         // de cobrar, y revertir ANTES de validar el monto contra el saldo: si no,
-        // se rechazaría un pago que con el total nuevo sí es válido.
+        // se rechazarÃ­a un pago que con el total nuevo sÃ­ es vÃ¡lido.
         $pierdeDescuento = $orden->tieneDescuentoCondicionadoVivo()
             && Orden::metodoPierdeDescuento($data['metodo']);
 
@@ -96,7 +97,7 @@ class PagoController extends Controller
         }
 
         if ($pierdeDescuento) {
-            $this->revertirDescuentoCondicionado($orden, $usuario, $data['metodo']);
+            DescuentoCondicionadoService::quitar($orden, $usuario, $data['metodo']);
             $orden->refresh();
         }
 
@@ -122,7 +123,7 @@ class PagoController extends Controller
             'comprobante_url' => $data['comprobante_url'],
         ]);
 
-        // Si saldo queda en cero y la orden está lista para entregar → entregado
+        // Si saldo queda en cero y la orden estÃ¡ lista para entregar â†’ entregado
         $nuevoSaldo = $orden->saldoPendiente();
         if ($nuevoSaldo <= 0 && $orden->estado === 'listo_entrega') {
             $orden->update(['estado' => 'entregado']);
@@ -143,8 +144,8 @@ class PagoController extends Controller
             foreach ($facturadores as $facturador) {
                 NotificacionService::crear(
                     tipo:      'abono_registrado',
-                    titulo:    "Pago registrado – Orden #{$orden->numero_orden}",
-                    mensaje:   "{$usuario->nombre} registró un {$tipoPagoLabel} de {$montoFormateado} en la orden de {$clienteNombre}.",
+                    titulo:    "Pago registrado â€“ Orden #{$orden->numero_orden}",
+                    mensaje:   "{$usuario->nombre} registrÃ³ un {$tipoPagoLabel} de {$montoFormateado} en la orden de {$clienteNombre}.",
                     datos:     ['orden_id' => $orden->id],
                     usuarioId: $facturador->id,
                 );
@@ -162,8 +163,8 @@ class PagoController extends Controller
 
     /**
      * POST /api/ordenes/{id}/verificar-pago
-     * Consulta previa: dice si cobrar con ese método hace perder el descuento
-     * y con qué cifras queda la orden. No modifica nada.
+     * Consulta previa: dice si cobrar con ese mÃ©todo hace perder el descuento
+     * y con quÃ© cifras queda la orden. No modifica nada.
      */
     public function verificarPago(Request $request, int $id)
     {
@@ -195,70 +196,9 @@ class PagoController extends Controller
     }
 
     /**
-     * Quita el descuento condicionado: sube el valor de la orden, ajusta la
-     * comisión al valor nuevo, deja constancia en el historial y avisa.
-     *
-     * No se borra el descuento, se marca revertido: así queda el rastro de que
-     * existió y de cuándo se perdió.
-     */
-    private function revertirDescuentoCondicionado(Orden $orden, Usuario $usuario, string $metodo): void
-    {
-        $descuento  = (float) $orden->descuento_condicionado;
-        $valorAntes = (float) $orden->valor_total;
-        $valorNuevo = $valorAntes + $descuento;
-
-        DB::transaction(function () use ($orden, $usuario, $metodo, $descuento, $valorAntes, $valorNuevo) {
-            $orden->update([
-                'valor_total' => $valorNuevo,
-                'descuento_condicionado_revertido_at' => now(),
-            ]);
-
-            // La comisión sigue al valor real de la venta. En ventas compartidas
-            // cada vendedor tiene la mitad, igual que al crearla.
-            $esCompartida = (bool) $orden->es_compartida;
-            DB::table('comisiones')
-                ->where('orden_id', $orden->id)
-                ->update(['valor_orden' => $esCompartida ? round($valorNuevo / 2) : $valorNuevo]);
-
-            DB::table('orden_ediciones')->insert([
-                'orden_id'   => $orden->id,
-                'usuario_id' => $usuario->id,
-                'cambios'    => json_encode([[
-                    'campo'   => 'descuento_condicionado',
-                    'label'   => "Descuento por pago en efectivo/transferencia perdido (pago con {$metodo})",
-                    'antes'   => $valorAntes,
-                    'despues' => $valorNuevo,
-                ]], JSON_UNESCAPED_UNICODE),
-                'created_at' => now(),
-            ]);
-        });
-
-        $montoFmt   = '$ ' . number_format($descuento, 0, ',', '.');
-        $nuevoFmt   = '$ ' . number_format($valorNuevo, 0, ',', '.');
-        $orden->loadMissing('cliente');
-        $clienteNombre = $orden->cliente?->nombre ?? 'cliente';
-
-        $destinatarios = Usuario::where('activo', true)
-            ->where('id', '!=', $usuario->id)
-            ->where(fn($q) => $q->where('rol', 'supervisor')->orWhere('facturacion', true))
-            ->get();
-
-        foreach ($destinatarios as $d) {
-            NotificacionService::crear(
-                tipo:      'descuento_revertido',
-                titulo:    'Descuento perdido por pago con ' . $metodo,
-                mensaje:   "Orden {$orden->referencia} de {$clienteNombre}: se perdió {$montoFmt} de descuento. "
-                         . "El total quedó en {$nuevoFmt}.",
-                datos:     ['orden_id' => $orden->id],
-                usuarioId: $d->id,
-            );
-        }
-    }
-
-    /**
      * PATCH /api/pagos/{id}
-     * Corrige un pago ya registrado (monto/método/referencia), p. ej. cuando
-     * el anticipo se digitó mal. Queda auditado en orden_ediciones.
+     * Corrige un pago ya registrado (monto/mÃ©todo/referencia), p. ej. cuando
+     * el anticipo se digitÃ³ mal. Queda auditado en orden_ediciones.
      */
     public function update(Request $request, int $id)
     {
@@ -285,7 +225,7 @@ class PagoController extends Controller
         $otrosPagos = $orden->pagos()->where('id', '!=', $pago->id)->sum('monto');
         if ($otrosPagos + $data['monto'] > (float) $orden->valor_total + 0.01) {
             return response()->json([
-                'message' => "El monto ({$data['monto']}) sumado a los demás pagos supera el total de la orden (" . round((float) $orden->valor_total, 2) . ").",
+                'message' => "El monto ({$data['monto']}) sumado a los demÃ¡s pagos supera el total de la orden (" . round((float) $orden->valor_total, 2) . ").",
                 'errors'  => ['monto' => ['No puede superar el valor total de la orden.']],
             ], 422);
         }
@@ -294,13 +234,13 @@ class PagoController extends Controller
         $cambios   = [];
 
         if ((float) $data['monto'] !== (float) $pago->monto) {
-            $cambios[] = ['campo' => "pago_{$pago->id}_monto", 'label' => "{$tipoLabel} — monto", 'antes' => (float) $pago->monto, 'despues' => (float) $data['monto']];
+            $cambios[] = ['campo' => "pago_{$pago->id}_monto", 'label' => "{$tipoLabel} â€” monto", 'antes' => (float) $pago->monto, 'despues' => (float) $data['monto']];
         }
         if (array_key_exists('metodo', $data) && $data['metodo'] !== $pago->metodo) {
-            $cambios[] = ['campo' => "pago_{$pago->id}_metodo", 'label' => "{$tipoLabel} — método", 'antes' => $pago->metodo, 'despues' => $data['metodo']];
+            $cambios[] = ['campo' => "pago_{$pago->id}_metodo", 'label' => "{$tipoLabel} â€” mÃ©todo", 'antes' => $pago->metodo, 'despues' => $data['metodo']];
         }
         if (array_key_exists('referencia', $data) && $data['referencia'] !== $pago->referencia) {
-            $cambios[] = ['campo' => "pago_{$pago->id}_referencia", 'label' => "{$tipoLabel} — referencia", 'antes' => $pago->referencia, 'despues' => $data['referencia']];
+            $cambios[] = ['campo' => "pago_{$pago->id}_referencia", 'label' => "{$tipoLabel} â€” referencia", 'antes' => $pago->referencia, 'despues' => $data['referencia']];
         }
 
         if (! empty($cambios)) {
@@ -328,7 +268,7 @@ class PagoController extends Controller
 
     /**
      * POST /api/pagos/{id}/tomar-facturacion
-     * Reclama atómicamente la facturación de un pago (el primero en clickear gana).
+     * Reclama atÃ³micamente la facturaciÃ³n de un pago (el primero en clickear gana).
      */
     public function tomarFacturacion(Request $request, int $id)
     {
@@ -338,7 +278,7 @@ class PagoController extends Controller
             return response()->json(['message' => 'No autorizado.'], 403);
         }
 
-        // Actualización atómica: solo si nadie lo tomó todavía
+        // ActualizaciÃ³n atÃ³mica: solo si nadie lo tomÃ³ todavÃ­a
         $updated = DB::table('pagos')
             ->where('id', $id)
             ->whereNull('facturacion_tomada_por')
@@ -354,7 +294,7 @@ class PagoController extends Controller
 
     /**
      * POST /api/pagos/{id}/marcar-facturada
-     * Marca el pago como facturado (solo quien lo tomó puede hacerlo).
+     * Marca el pago como facturado (solo quien lo tomÃ³ puede hacerlo).
      */
     public function marcarFacturada(Request $request, int $id)
     {
@@ -367,7 +307,7 @@ class PagoController extends Controller
         $pago = Pago::findOrFail($id);
 
         if ((int) $pago->facturacion_tomada_por !== (int) $usuario->id) {
-            return response()->json(['message' => 'Solo quien tomó la facturación puede marcarla como hecha.'], 403);
+            return response()->json(['message' => 'Solo quien tomÃ³ la facturaciÃ³n puede marcarla como hecha.'], 403);
         }
 
         $pago->facturacion_hecha_at = now();
