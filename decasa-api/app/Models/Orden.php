@@ -36,6 +36,9 @@ class Orden extends Model
         'contacto_email',
         'valor_total',
         'descuento_total',
+        'descuento_condicionado',
+        'descuento_condicionado_pct',
+        'descuento_condicionado_revertido_at',
         'anticipo_pct',
         'notas',
         'es_compartida',
@@ -54,6 +57,9 @@ class Orden extends Model
         return [
             'valor_total'      => 'decimal:2',
             'descuento_total'  => 'decimal:2',
+            'descuento_condicionado' => 'decimal:2',
+            'descuento_condicionado_pct' => 'decimal:2',
+            'descuento_condicionado_revertido_at' => 'datetime',
             'anticipo_pct'     => 'decimal:2',
             'es_compartida'    => 'boolean',
             'listo_entrega_at' => 'datetime',
@@ -62,6 +68,36 @@ class Orden extends Model
     }
 
     protected $appends = ['esta_vencida', 'cotizacion_ref', 'contacto_display', 'referencia'];
+
+    // ── Descuento condicionado al medio de pago ──────────────────────────────
+
+    /** Medios de pago que conservan el descuento. Tarjeta y "otro" no lo dan. */
+    public const METODOS_CON_DESCUENTO = ['efectivo', 'transferencia'];
+
+    /**
+     * ¿La orden todavía tiene descuento condicionado que se pueda perder?
+     */
+    public function tieneDescuentoCondicionadoVivo(): bool
+    {
+        return (float) $this->descuento_condicionado > 0
+            && $this->descuento_condicionado_revertido_at === null;
+    }
+
+    /**
+     * Un medio de pago hace perder el descuento si no es efectivo ni transferencia.
+     */
+    public static function metodoPierdeDescuento(?string $metodo): bool
+    {
+        return $metodo !== null && ! in_array($metodo, self::METODOS_CON_DESCUENTO, true);
+    }
+
+    /**
+     * Cuánto costaría la orden si se pierde el descuento condicionado.
+     */
+    public function valorSinDescuentoCondicionado(): float
+    {
+        return (float) $this->valor_total + (float) $this->descuento_condicionado;
+    }
 
     // ── Series especiales ────────────────────────────────────────────────────
 

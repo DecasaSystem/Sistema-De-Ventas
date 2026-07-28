@@ -35,6 +35,38 @@ const comprobanteFile    = ref(null)
 const comprobanteUrl     = ref('')
 const comprobantePreview = ref('')
 
+// ── Descuento condicionado al medio de pago ───────────────────────────────────
+// Algunas órdenes tienen descuento por pagar en efectivo o transferencia. Si el
+// cliente saca la tarjeta se pierde y el total sube: hay que avisarle antes de
+// cobrar, no después.
+const avisoDescuento = ref(null)
+const verificando    = ref(false)
+
+async function verificarMetodo() {
+  avisoDescuento.value = null
+  if (!props.ordenId) return
+
+  verificando.value = true
+  try {
+    const { data } = await api.post(`/ordenes/${props.ordenId}/verificar-pago`, { metodo: metodo.value })
+    if (data.pierde_descuento) {
+      avisoDescuento.value = data
+      // Si venía con el saldo viejo, subirlo al nuevo: cobrar de menos aquí
+      // dejaría un saldo pendiente que nadie notaría.
+      if (Math.abs(Number(monto.value) - saldoPendienteN.value) < 0.01) {
+        monto.value = Number(data.saldo_sin_descuento)
+      }
+    }
+  } catch {
+    // Si la consulta falla no se bloquea el cobro: el backend vuelve a validar
+    // y responde 409 si hace falta.
+  } finally {
+    verificando.value = false
+  }
+}
+
+watch(metodo, verificarMetodo)
+
 watch(() => props.show, (val) => {
   if (val) {
     monto.value            = saldoPendienteN.value
@@ -42,12 +74,17 @@ watch(() => props.show, (val) => {
     referencia.value       = ''
     notas.value            = ''
     error.value            = ''
+    avisoDescuento.value   = null
     comprobanteFile.value  = null
     comprobanteUrl.value   = ''
     if (comprobantePreview.value) URL.revokeObjectURL(comprobantePreview.value)
     comprobantePreview.value = ''
   }
 })
+
+function money(v) {
+  return '$' + Number(v ?? 0).toLocaleString('es-CO')
+}
 
 function onComprobanteChange(e) {
   const file = e.target.files[0]
@@ -77,8 +114,13 @@ async function submit() {
     error.value = 'Ingresa un monto válido.'
     return
   }
-  if (monto.value > saldoPendienteN.value + 0.01) {
-    error.value = `El monto no puede superar el saldo pendiente ($${saldoPendienteN.value.toLocaleString('es-CO')}).`
+  // Con el descuento perdido el saldo sube, así que el tope es el saldo nuevo.
+  const topeSaldo = avisoDescuento.value
+    ? Number(avisoDescuento.value.saldo_sin_descuento)
+    : saldoPendienteN.value
+
+  if (monto.value > topeSaldo + 0.01) {
+    error.value = `El monto no puede superar el saldo pendiente ($${topeSaldo.toLocaleString('es-CO')}).`
     return
   }
   if (!comprobanteFile.value && !comprobanteUrl.value) {
@@ -103,6 +145,8 @@ async function submit() {
       referencia:       referencia.value || undefined,
       notas:            notas.value || undefined,
       comprobante_url:  comprobanteUrl.value,
+      // El vendedor ya vio el aviso y le informó al cliente
+      aceptar_perdida_descuento: avisoDescuento.value ? true : undefined,
     })
     emit('pago-registrado')
     emit('close')
@@ -160,6 +204,42 @@ async function submit() {
                 metodo === m.value ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300']"
             >{{ m.label }}</button>
           </div>
+        </div>
+
+        <!-- Aviso: este método hace perder el descuento -->
+        <div v-if="verificando" class="text-xs text-gray-400">Revisando el descuento...</div>
+
+        <div
+          v-else-if="avisoDescuento"
+          class="bg-amber-50 border border-amber-300 rounded-xl p-3 space-y-2"
+        >
+          <p class="text-sm font-semibold text-amber-900">
+            Se pierde el descuento de {{ money(avisoDescuento.descuento) }}
+          </p>
+          <p class="text-xs text-amber-800">
+            Esta orden tenía {{ avisoDescuento.pct }}% de descuento por pagar en efectivo o
+            transferencia. Al cobrar con {{ metodo }}, el descuento se pierde completo.
+          </p>
+
+          <div class="bg-white rounded-lg p-2.5 space-y-1 text-xs">
+            <div class="flex justify-between">
+              <span class="text-gray-500">Total de la orden</span>
+              <span class="text-gray-400 line-through">{{ money(avisoDescuento.valor_actual) }}</span>
+            </div>
+            <div class="flex justify-between font-semibold">
+              <span class="text-gray-700">Total nuevo</span>
+              <span class="text-amber-900">{{ money(avisoDescuento.valor_sin_descuento) }}</span>
+            </div>
+            <div class="flex justify-between border-t border-gray-100 pt-1 mt-1 font-bold">
+              <span class="text-gray-700">Saldo a cobrar</span>
+              <span class="text-amber-900">{{ money(avisoDescuento.saldo_sin_descuento) }}</span>
+            </div>
+          </div>
+
+          <p class="text-xs text-amber-700">
+            Avísale al cliente antes de continuar. Al registrar el pago queda constancia y se
+            notifica a supervisión.
+          </p>
         </div>
 
         <!-- Referencia -->

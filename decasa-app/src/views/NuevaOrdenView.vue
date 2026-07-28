@@ -1207,8 +1207,21 @@ const descuentoPct = ref(0)
 const descuentoTotal = computed(() =>
   Math.round(subtotalItems.value * (Number(descuentoPct.value) || 0) / 100)
 )
-const valorTotal = computed(() =>
+// Descuento condicionado: solo vale si paga en efectivo o transferencia. Se
+// calcula sobre la base ya rebajada por el descuento comercial, igual que en el
+// backend, que es quien manda el cálculo final.
+const descuentoCondicionadoPct = ref(0)
+
+const baseCondicionado = computed(() =>
   Math.max(0, subtotalItems.value - descuentoTotal.value)
+)
+
+const descuentoCondicionado = computed(() =>
+  Math.round(baseCondicionado.value * (Number(descuentoCondicionadoPct.value) || 0) / 100)
+)
+
+const valorTotal = computed(() =>
+  Math.max(0, baseCondicionado.value - descuentoCondicionado.value)
 )
 
 const minimoAnticipo = computed(() =>
@@ -1388,6 +1401,9 @@ async function submit() {
       guardar_borrador:     modoGuardarBorrador.value || undefined,
       es_fb2:               esFb2.value || undefined,
       motivo_serie:         esFb2.value ? (motivoSerie.value.trim() || undefined) : undefined,
+      descuento_condicionado_pct: Number(descuentoCondicionadoPct.value) > 0
+        ? Number(descuentoCondicionadoPct.value)
+        : undefined,
       entrega_inmediata:    (entregaInmediata.value && puedeEntregaInmediata.value) || undefined,
       descuento_total:      Number(descuentoTotal.value) > 0 ? Number(descuentoTotal.value) : undefined,
       notas:                notas.value || undefined,
@@ -3017,6 +3033,35 @@ function removeFacturaFoto() {
           <p v-if="descuentoTotal > 0" class="text-xs text-green-700 text-right">
             − ${{ Number(descuentoTotal).toLocaleString('es-CO') }} de descuento
           </p>
+
+          <!-- Descuento condicionado al medio de pago -->
+          <div class="border-t border-gray-100 pt-2 mt-1 space-y-1.5">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="text-sm text-gray-500 flex-shrink-0">Descuento por efectivo/transferencia</span>
+              <div class="flex items-center gap-1 ml-auto">
+                <button
+                  v-for="p in [5, 10]" :key="'c' + p" type="button"
+                  @click="descuentoCondicionadoPct = p"
+                  class="px-2 py-1 rounded-lg text-xs font-semibold border transition-colors"
+                  :class="descuentoCondicionadoPct === p ? 'bg-amber-600 text-white border-amber-600' : 'border-gray-300 text-gray-600 hover:border-amber-400'"
+                >{{ p }}%</button>
+                <input
+                  v-model.number="descuentoCondicionadoPct"
+                  type="number" min="0" max="100" step="0.1"
+                  placeholder="0"
+                  class="w-16 input text-sm text-right"
+                />
+                <span class="text-xs text-gray-400">%</span>
+              </div>
+            </div>
+            <p v-if="descuentoCondicionado > 0" class="text-xs text-amber-700 text-right">
+              − ${{ Number(descuentoCondicionado).toLocaleString('es-CO') }} · se pierde si paga con tarjeta
+            </p>
+            <p v-if="descuentoCondicionado > 0" class="text-xs text-gray-500">
+              Solo aplica si paga <strong>todo</strong> en efectivo o transferencia. Si al entregar
+              paga cualquier parte con tarjeta, el sistema avisa y el total vuelve a subir.
+            </p>
+          </div>
         </div>
 
         <!-- Total -->

@@ -66,7 +66,39 @@ class PagoController extends Controller
             'referencia'      => 'nullable|string|max:100',
             'notas'           => 'nullable|string|max:500',
             'comprobante_url' => 'required|string|max:500',
+            // El vendedor confirma que ya le avisó al cliente que sube el total
+            'aceptar_perdida_descuento' => 'nullable|boolean',
         ]);
+
+        // ── Descuento condicionado al medio de pago ──────────────────────────
+        // Si el cliente saca la tarjeta, el descuento por pagar en efectivo o
+        // transferencia se pierde completo y el total sube. Hay que avisar ANTES
+        // de cobrar, y revertir ANTES de validar el monto contra el saldo: si no,
+        // se rechazaría un pago que con el total nuevo sí es válido.
+        $pierdeDescuento = $orden->tieneDescuentoCondicionadoVivo()
+            && Orden::metodoPierdeDescuento($data['metodo']);
+
+        if ($pierdeDescuento && ! $request->boolean('aceptar_perdida_descuento')) {
+            $valorNuevo = $orden->valorSinDescuentoCondicionado();
+
+            return response()->json([
+                'message' => 'Esta orden tiene un descuento por pago en efectivo o transferencia. Al pagar con '
+                    . $data['metodo'] . ' el descuento se pierde y el total sube.',
+                'descuento_en_riesgo' => [
+                    'descuento'        => (float) $orden->descuento_condicionado,
+                    'pct'              => (float) $orden->descuento_condicionado_pct,
+                    'valor_actual'     => (float) $orden->valor_total,
+                    'valor_sin_descuento' => $valorNuevo,
+                    'saldo_actual'     => round($orden->saldoPendiente(), 2),
+                    'saldo_sin_descuento' => round($valorNuevo - $orden->totalPagado(), 2),
+                ],
+            ], 409);
+        }
+
+        if ($pierdeDescuento) {
+            $this->revertirDescuentoCondicionado($orden, $usuario, $data['metodo']);
+            $orden->refresh();
+        }
 
         $saldoPendiente = $orden->saldoPendiente();
 
@@ -124,7 +156,103 @@ class PagoController extends Controller
             'total_pagado'   => $orden->totalPagado(),
             'saldo_pendiente'=> $orden->saldoPendiente(),
             'estado_orden'   => $orden->fresh()->estado,
+            'descuento_revertido' => $pierdeDescuento,
         ], 201);
+    }
+
+    /**
+     * POST /api/ordenes/{id}/verificar-pago
+     * Consulta previa: dice si cobrar con ese método hace perder el descuento
+     * y con qué cifras queda la orden. No modifica nada.
+     */
+    public function verificarPago(Request $request, int $id)
+    {
+        $usuario = $request->user();
+        $orden   = Orden::findOrFail($id);
+
+        if (in_array($usuario->rol, ['vendedor', 'ebanista']) && $orden->vendedor_id !== $usuario->id) {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+
+        $data = $request->validate([
+            'metodo' => 'required|in:efectivo,transferencia,tarjeta,otro',
+        ]);
+
+        $pierde = $orden->tieneDescuentoCondicionadoVivo()
+            && Orden::metodoPierdeDescuento($data['metodo']);
+
+        $valorNuevo = $orden->valorSinDescuentoCondicionado();
+
+        return response()->json([
+            'pierde_descuento'    => $pierde,
+            'descuento'           => (float) $orden->descuento_condicionado,
+            'pct'                 => (float) $orden->descuento_condicionado_pct,
+            'valor_actual'        => (float) $orden->valor_total,
+            'valor_sin_descuento' => $valorNuevo,
+            'saldo_actual'        => round($orden->saldoPendiente(), 2),
+            'saldo_sin_descuento' => round($valorNuevo - $orden->totalPagado(), 2),
+        ]);
+    }
+
+    /**
+     * Quita el descuento condicionado: sube el valor de la orden, ajusta la
+     * comisión al valor nuevo, deja constancia en el historial y avisa.
+     *
+     * No se borra el descuento, se marca revertido: así queda el rastro de que
+     * existió y de cuándo se perdió.
+     */
+    private function revertirDescuentoCondicionado(Orden $orden, Usuario $usuario, string $metodo): void
+    {
+        $descuento  = (float) $orden->descuento_condicionado;
+        $valorAntes = (float) $orden->valor_total;
+        $valorNuevo = $valorAntes + $descuento;
+
+        DB::transaction(function () use ($orden, $usuario, $metodo, $descuento, $valorAntes, $valorNuevo) {
+            $orden->update([
+                'valor_total' => $valorNuevo,
+                'descuento_condicionado_revertido_at' => now(),
+            ]);
+
+            // La comisión sigue al valor real de la venta. En ventas compartidas
+            // cada vendedor tiene la mitad, igual que al crearla.
+            $esCompartida = (bool) $orden->es_compartida;
+            DB::table('comisiones')
+                ->where('orden_id', $orden->id)
+                ->update(['valor_orden' => $esCompartida ? round($valorNuevo / 2) : $valorNuevo]);
+
+            DB::table('orden_ediciones')->insert([
+                'orden_id'   => $orden->id,
+                'usuario_id' => $usuario->id,
+                'cambios'    => json_encode([[
+                    'campo'   => 'descuento_condicionado',
+                    'label'   => "Descuento por pago en efectivo/transferencia perdido (pago con {$metodo})",
+                    'antes'   => $valorAntes,
+                    'despues' => $valorNuevo,
+                ]], JSON_UNESCAPED_UNICODE),
+                'created_at' => now(),
+            ]);
+        });
+
+        $montoFmt   = '$ ' . number_format($descuento, 0, ',', '.');
+        $nuevoFmt   = '$ ' . number_format($valorNuevo, 0, ',', '.');
+        $orden->loadMissing('cliente');
+        $clienteNombre = $orden->cliente?->nombre ?? 'cliente';
+
+        $destinatarios = Usuario::where('activo', true)
+            ->where('id', '!=', $usuario->id)
+            ->where(fn($q) => $q->where('rol', 'supervisor')->orWhere('facturacion', true))
+            ->get();
+
+        foreach ($destinatarios as $d) {
+            NotificacionService::crear(
+                tipo:      'descuento_revertido',
+                titulo:    'Descuento perdido por pago con ' . $metodo,
+                mensaje:   "Orden {$orden->referencia} de {$clienteNombre}: se perdió {$montoFmt} de descuento. "
+                         . "El total quedó en {$nuevoFmt}.",
+                datos:     ['orden_id' => $orden->id],
+                usuarioId: $d->id,
+            );
+        }
     }
 
     /**

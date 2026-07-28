@@ -1230,6 +1230,31 @@ onMounted(cargarOrden)
           />
         </div>
         <p class="text-xs text-gray-400 text-right">{{ porcentajePagado }}% pagado</p>
+
+        <!-- Descuento que depende del medio de pago -->
+        <div
+          v-if="Number(orden.descuento_condicionado) > 0 && !orden.descuento_condicionado_revertido_at"
+          class="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2"
+        >
+          <p class="text-xs font-semibold text-amber-900">
+            Incluye {{ orden.descuento_condicionado_pct }}% de descuento por pago en efectivo o transferencia
+          </p>
+          <p class="text-xs text-amber-700 mt-0.5">
+            Si el cliente paga cualquier parte con tarjeta se pierden
+            <strong><MoneyDisplay :amount="orden.descuento_condicionado" /></strong>
+            y el total sube. El sistema avisa al momento de cobrar.
+          </p>
+        </div>
+
+        <div
+          v-else-if="orden.descuento_condicionado_revertido_at"
+          class="bg-gray-100 border border-gray-200 rounded-lg px-3 py-2"
+        >
+          <p class="text-xs text-gray-600">
+            El descuento por pago en efectivo se perdió al cobrar con otro medio de pago.
+            El total ya está actualizado.
+          </p>
+        </div>
       </div>
 
       <!-- Ítems -->

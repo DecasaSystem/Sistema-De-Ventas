@@ -178,6 +178,8 @@ class OrdenController extends Controller
             // como venta y generando comisión.
             'es_fb2'                               => 'nullable|boolean',
             'motivo_serie'                         => 'nullable|string|max:300',
+            // Descuento que solo vale si paga en efectivo o transferencia
+            'descuento_condicionado_pct'           => 'nullable|numeric|min:0|max:100',
             'es_compartida'                      => 'nullable|boolean',
             'covendedor_id'                      => 'nullable|integer|exists:usuarios,id',
             'items'                              => 'required|array|min:1',
@@ -230,7 +232,27 @@ class OrdenController extends Controller
             fn ($i) => $i['cantidad'] * $i['precio_unitario']
         );
         $descuentoTotal = min((float) ($data['descuento_total'] ?? 0), $subtotalItems);
-        $valorTotal     = $subtotalItems - $descuentoTotal;
+        $baseCondicionado = $subtotalItems - $descuentoTotal;
+
+        // Descuento por pagar en efectivo o transferencia. Se calcula sobre la base
+        // ya rebajada para no descontar dos veces sobre lo mismo.
+        //
+        // Si algún método del anticipo inicial no es efectivo ni transferencia,
+        // el descuento no se otorga desde el principio: la condición ya está
+        // incumplida y no tiene sentido darlo para quitarlo en el mismo acto.
+        $pctCondicionado = (float) ($data['descuento_condicionado_pct'] ?? 0);
+        $metodosAnticipo = ! empty($data['anticipo_pagos'])
+            ? array_column($data['anticipo_pagos'], 'metodo')
+            : (($data['anticipo_monto'] ?? 0) > 0 ? [$data['anticipo_metodo'] ?? 'efectivo'] : []);
+
+        $anticipoPierdeDescuento = collect($metodosAnticipo)
+            ->contains(fn($m) => Orden::metodoPierdeDescuento($m));
+
+        $descuentoCondicionado = ($pctCondicionado > 0 && ! $anticipoPierdeDescuento)
+            ? round($baseCondicionado * $pctCondicionado / 100, 2)
+            : 0.0;
+
+        $valorTotal = $baseCondicionado - $descuentoCondicionado;
 
         // Detectar si hay ítems personalizados sin precio (cotización pendiente)
         $tieneItemsCotizacionPendiente = collect($data['items'])->contains(
@@ -264,7 +286,7 @@ class OrdenController extends Controller
             ], 409);
         }
 
-        $orden = DB::transaction(function () use ($data, $tiendaId, $anticupoPct, $valorTotal, $descuentoTotal, $request, $tieneItemsCotizacionPendiente, $guardarBorrador, $entregaInmediata, $esFb2) {
+        $orden = DB::transaction(function () use ($data, $tiendaId, $anticupoPct, $valorTotal, $descuentoTotal, $request, $tieneItemsCotizacionPendiente, $guardarBorrador, $entregaInmediata, $esFb2, $descuentoCondicionado, $pctCondicionado) {
 
             // --- 1. Verificar stock para items no personalizados (con bloqueo) ---
             foreach ($data['items'] as $item) {
@@ -316,6 +338,8 @@ class OrdenController extends Controller
                 'listo_entrega_at'  => $entregaInmediata ? now() : null,
                 'valor_total'       => $valorTotal,
                 'descuento_total'   => $descuentoTotal,
+                'descuento_condicionado'     => $descuentoCondicionado,
+                'descuento_condicionado_pct' => $descuentoCondicionado > 0 ? $pctCondicionado : null,
                 'anticipo_pct'      => $anticupoPct,
                 'notas'             => $data['notas'] ?? null,
                 'es_compartida'     => $data['es_compartida'] ?? false,

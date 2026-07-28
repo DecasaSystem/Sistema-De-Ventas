@@ -126,6 +126,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // Pagos
     Route::get('/ordenes/{id}/pagos',  [PagoController::class, 'index']);
     Route::post('/ordenes/{id}/pagos', [PagoController::class, 'store']);
+    // Avisa si cobrar con ese método hace perder el descuento condicionado
+    Route::post('/ordenes/{id}/verificar-pago', [PagoController::class, 'verificarPago']);
     Route::patch('/pagos/{id}', [PagoController::class, 'update']);
     Route::post('/pagos/{id}/tomar-facturacion', [PagoController::class, 'tomarFacturacion']);
     Route::post('/pagos/{id}/marcar-facturada',  [PagoController::class, 'marcarFacturada']);
