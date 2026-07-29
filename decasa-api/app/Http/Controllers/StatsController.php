@@ -726,7 +726,7 @@ class StatsController extends Controller
         else             $recientesBase->where("o.$columna", $valor);
 
         $ordenesRecientes = $recientesBase
-            // serie/serie_numero: las FB2 no tienen numero_orden y sin esto se
+            // serie/serie_numero: las FV2 no tienen numero_orden y sin esto se
             // mostrarían con el id interno de la tabla.
             ->selectRaw('o.id, o.numero_orden, o.serie, o.serie_numero, c.nombre AS cliente, o.estado, o.valor_total, COALESCE(v.saldo_pendiente, o.valor_total) AS saldo_pendiente, o.created_at, o.es_compartida')
             ->orderByDesc('o.created_at')->limit(5)->get();

@@ -703,7 +703,7 @@ class ComisionController extends Controller
             'vendedor_nombre'  => $c->vendedor?->nombre,
             'tienda_nombre'    => $c->tienda?->nombre,
             'orden_numero'     => $c->orden?->numero_orden,
-            // Referencia visible: "#4261" o "FB2-3" en las órdenes con descuento
+            // Referencia visible: "#4261" o "FV2-3" en las órdenes con descuento
             // especial, que no tienen numero_orden.
             'orden_referencia' => $c->orden?->referencia,
             'es_descuento_especial' => (bool) $c->orden?->es_descuento_especial,

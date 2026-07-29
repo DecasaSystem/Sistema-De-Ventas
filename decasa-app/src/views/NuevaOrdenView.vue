@@ -30,10 +30,10 @@ const toast  = useToast()
 // comprobante, el cliente es opcional y no se toca inventario.
 const modoCotizacion = computed(() => route.query.modo === 'cotizacion')
 
-// ── Orden con descuento especial (serie FB2) ─────────────────────────────────────────────
-// Venta a allegados de los dueños: numeración propia FB2-N, no gasta consecutivo
+// ── Orden con descuento especial (serie FV2) ─────────────────────────────────────────────
+// Venta a allegados de los dueños: numeración propia FV2-N, no gasta consecutivo
 // normal, pero cuenta como venta y genera comisión igual que cualquier otra.
-const esFb2       = ref(false)
+const esFv2       = ref(false)
 const motivoSerie = ref('')
 
 // Contacto suelto cuando no se elige un cliente formal
@@ -1399,8 +1399,8 @@ async function submit() {
         ].filter(p => p.monto > 0)
       } : {}),
       guardar_borrador:     modoGuardarBorrador.value || undefined,
-      es_fb2:               esFb2.value || undefined,
-      motivo_serie:         esFb2.value ? (motivoSerie.value.trim() || undefined) : undefined,
+      es_fv2:               esFv2.value || undefined,
+      motivo_serie:         esFv2.value ? (motivoSerie.value.trim() || undefined) : undefined,
       descuento_condicionado_pct: Number(descuentoCondicionadoPct.value) > 0
         ? Number(descuentoCondicionadoPct.value)
         : undefined,
@@ -3126,20 +3126,20 @@ function removeFacturaFoto() {
         </div>
       </div>
 
-      <!-- Orden con descuento especial (FB2) -->
-      <div :class="['rounded-xl border p-4 space-y-2', esFb2 ? 'bg-amber-50 border-amber-300' : 'bg-white border-gray-200']">
+      <!-- Orden con descuento especial (FV2) -->
+      <div :class="['rounded-xl border p-4 space-y-2', esFv2 ? 'bg-amber-50 border-amber-300' : 'bg-white border-gray-200']">
         <label class="flex items-start gap-2.5 cursor-pointer">
-          <input type="checkbox" v-model="esFb2" class="mt-0.5 w-4 h-4 accent-amber-600" />
+          <input type="checkbox" v-model="esFv2" class="mt-0.5 w-4 h-4 accent-amber-600" />
           <span class="min-w-0">
-            <span class="text-sm font-semibold text-gray-800">Orden con descuento especial (FB2)</span>
+            <span class="text-sm font-semibold text-gray-800">Orden con descuento especial (FV2)</span>
             <span class="block text-xs text-gray-500 mt-0.5">
-              Lleva numeración propia FB2-N en vez de número de orden, pero es una venta normal:
+              Lleva numeración propia FV2-N en vez de número de orden, pero es una venta normal:
               descuenta inventario, cuenta en las estadísticas y genera comisión igual.
             </span>
           </span>
         </label>
 
-        <div v-if="esFb2" class="space-y-1.5 pl-6">
+        <div v-if="esFv2" class="space-y-1.5 pl-6">
           <input
             v-model="motivoSerie"
             placeholder="Motivo o a quién se le hace (opcional)"

@@ -53,7 +53,7 @@ class FacturacionController extends Controller
             $raw   = trim($search);
             $sinHash = ltrim($raw, '#');          // quitar # si el usuario escribe "#3"
             $term  = '%' . mb_strtolower($raw) . '%';
-            // "FB2-3": las órdenes con descuento especial no tienen numero_orden
+            // "FV2-3": las órdenes con descuento especial no tienen numero_orden
             $serieNum = null;
             if (preg_match('/^([a-zA-Z][a-zA-Z0-9]{1,9})[\s\-]+(\d+)$/', $sinHash, $m)) {
                 $serieNum = ['serie' => strtoupper($m[1]), 'numero' => (int) $m[2]];

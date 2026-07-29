@@ -73,7 +73,7 @@ class OrdenController extends Controller
         if ($v = $request->query('hasta')) {
             $query->whereDate('created_at', '<=', $v);
         }
-        // Apartado de órdenes con descuento especial: ?serie=FB2 solo esas, ?serie=normales
+        // Apartado de órdenes con descuento especial: ?serie=FV2 solo esas, ?serie=normales
         // solo las que llevan consecutivo corriente.
         if ($v = $request->query('serie')) {
             $v === 'normales'
@@ -83,8 +83,8 @@ class OrdenController extends Controller
         if ($search = $request->query('search')) {
             $limpio = ltrim(trim($search), '#');           // permite escribir "#123"
             $term   = '%' . mb_strtolower($limpio) . '%';
-            // "FB2-3" o "fb2 3": buscar en la serie especial. La serie puede
-            // llevar dígitos (FB2), por eso el separador es obligatorio.
+            // "FV2-3" o "fv2 3": buscar en la serie especial. La serie puede
+            // llevar dígitos (FV2), por eso el separador es obligatorio.
             $serieNum = null;
             if (preg_match('/^([a-zA-Z][a-zA-Z0-9]{1,9})[\s\-]+(\d+)$/', $limpio, $m)) {
                 $serieNum = ['serie' => strtoupper($m[1]), 'numero' => (int) $m[2]];
@@ -174,9 +174,9 @@ class OrdenController extends Controller
             'anticipo_pagos.*.referencia'          => 'nullable|string|max:100',
             'guardar_borrador'                     => 'nullable|boolean',
             'entrega_inmediata'                    => 'nullable|boolean',
-            // Orden con descuento especial (serie FB2): numeración propia, sigue contando
+            // Orden con descuento especial (serie FV2): numeración propia, sigue contando
             // como venta y generando comisión.
-            'es_fb2'                               => 'nullable|boolean',
+            'es_fv2'                               => 'nullable|boolean',
             'motivo_serie'                         => 'nullable|string|max:300',
             // Descuento que solo vale si paga en efectivo o transferencia
             'descuento_condicionado_pct'           => 'nullable|numeric|min:0|max:100',
@@ -210,7 +210,7 @@ class OrdenController extends Controller
         $guardarBorrador = $request->boolean('guardar_borrador', false);
         $tiendaId        = $data['tienda_id'];
         $anticupoPct     = $data['anticipo_pct'] ?? 50;
-        $esFb2           = $request->boolean('es_fb2', false);
+        $esFv2           = $request->boolean('es_fv2', false);
 
         // Venta directa: el cliente paga (total o parcial) y se lleva los productos en
         // el acto. La orden nace 'entregado', descuenta stock de una y no pasa por
@@ -286,7 +286,7 @@ class OrdenController extends Controller
             ], 409);
         }
 
-        $orden = DB::transaction(function () use ($data, $tiendaId, $anticupoPct, $valorTotal, $descuentoTotal, $request, $tieneItemsCotizacionPendiente, $guardarBorrador, $entregaInmediata, $esFb2, $descuentoCondicionado, $pctCondicionado) {
+        $orden = DB::transaction(function () use ($data, $tiendaId, $anticupoPct, $valorTotal, $descuentoTotal, $request, $tieneItemsCotizacionPendiente, $guardarBorrador, $entregaInmediata, $esFv2, $descuentoCondicionado, $pctCondicionado) {
 
             // --- 1. Verificar stock para items no personalizados (con bloqueo) ---
             foreach ($data['items'] as $item) {
@@ -350,9 +350,9 @@ class OrdenController extends Controller
                 'departamento_envio' => $data['departamento_envio'] ?? null,
                 'ciudad_envio'       => $data['ciudad_envio'] ?? null,
                 'direccion_envio'    => $data['direccion_envio'] ?? null,
-                // Serie especial: el número FB2-N se asigna al confirmar la orden
-                'serie'              => $esFb2 ? Orden::SERIE_FB2 : null,
-                'motivo_serie'       => $esFb2 ? ($data['motivo_serie'] ?? null) : null,
+                // Serie especial: el número FV2-N se asigna al confirmar la orden
+                'serie'              => $esFv2 ? Orden::SERIE_FV2 : null,
+                'motivo_serie'       => $esFv2 ? ($data['motivo_serie'] ?? null) : null,
             ]);
 
             // --- 3. Crear items, reservar stock y crear producción ---
@@ -1871,10 +1871,10 @@ class OrdenController extends Controller
     }
 
     /**
-     * Numera una orden de serie especial (FB2-1, FB2-2...). Consecutivo propio
+     * Numera una orden de serie especial (FV2-1, FV2-2...). Consecutivo propio
      * y global: no consume el número de orden normal, igual que se hacía a mano.
      */
-    public static function asignarNumeroSerie(Orden $orden, string $serie = Orden::SERIE_FB2): void
+    public static function asignarNumeroSerie(Orden $orden, string $serie = Orden::SERIE_FV2): void
     {
         $clave = strtolower($serie);
 

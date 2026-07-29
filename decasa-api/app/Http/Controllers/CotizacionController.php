@@ -367,8 +367,8 @@ class CotizacionController extends Controller
             // El vendedor confirma que vio las advertencias de precio.
             'aceptar_cambios_precio' => 'nullable|boolean',
 
-            // Descuento especial: la orden nace con serie FB2.
-            'es_fb2'       => 'nullable|boolean',
+            // Descuento especial: la orden nace con serie FV2.
+            'es_fv2'       => 'nullable|boolean',
             'motivo_serie' => 'nullable|string|max:300',
         ]);
 
@@ -388,9 +388,9 @@ class CotizacionController extends Controller
             ], 409);
         }
 
-        $esFb2 = $request->boolean('es_fb2', false);
+        $esFv2 = $request->boolean('es_fv2', false);
 
-        $orden = DB::transaction(function () use ($cotizacion, $data, $usuario, $esFb2) {
+        $orden = DB::transaction(function () use ($cotizacion, $data, $usuario, $esFv2) {
             // 1. Cliente formal
             $clienteId = $data['cliente_id'] ?? $cotizacion->cliente_id;
             if (! $clienteId && ! empty($data['cliente_nuevo'])) {
@@ -476,10 +476,10 @@ class CotizacionController extends Controller
                 'direccion_envio'    => $data['direccion_envio']    ?? null,
                 'notas'              => $data['notas'] ?? $cotizacion->notas,
                 'anticipo_pct'       => $data['anticipo_pct'] ?? 50,
-                // Si se marcó descuento especial, la orden nace con serie FB2 y el número
+                // Si se marcó descuento especial, la orden nace con serie FV2 y el número
                 // se asigna abajo junto con el resto de la numeración.
-                'serie'              => $esFb2 ? Orden::SERIE_FB2 : null,
-                'motivo_serie'       => $esFb2 ? ($data['motivo_serie'] ?? null) : null,
+                'serie'              => $esFv2 ? Orden::SERIE_FV2 : null,
+                'motivo_serie'       => $esFv2 ? ($data['motivo_serie'] ?? null) : null,
             ]);
 
             // 5. Anticipo

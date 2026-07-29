@@ -89,7 +89,7 @@ class CajaController extends Controller
     {
         $pagos = Pago::with([
                 'vendedor:id,nombre',
-                // Para mostrar "#4261" o "FB2-1" en vez del id interno de la tabla
+                // Para mostrar "#4261" o "FV2-1" en vez del id interno de la tabla
                 'orden:id,numero_orden,serie,serie_numero,cotizacion_numero,estado',
             ])
             ->where('vendedor_id', $userId)
@@ -148,7 +148,7 @@ class CajaController extends Controller
 
         $pagos = Pago::with([
                 'vendedor:id,nombre',
-                // Para mostrar "#4261" o "FB2-1" en vez del id interno de la tabla
+                // Para mostrar "#4261" o "FV2-1" en vez del id interno de la tabla
                 'orden:id,numero_orden,serie,serie_numero,cotizacion_numero,estado',
             ])
             // El efectivo entra a la caja de donde se recibió, que puede no ser

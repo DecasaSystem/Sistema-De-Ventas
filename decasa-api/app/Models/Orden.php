@@ -102,11 +102,11 @@ class Orden extends Model
     // ── Series especiales ────────────────────────────────────────────────────
 
     /** Serie de órdenes con descuento especial. */
-    public const SERIE_FB2 = 'FB2';
+    public const SERIE_FV2 = 'FV2';
 
     /**
-     * Cómo se nombra esta orden donde sea que se muestre: "FB2-3" si es de
-     * serie especial, "#4261" si es una orden normal. Evita que las FB2
+     * Cómo se nombra esta orden donde sea que se muestre: "FV2-3" si es de
+     * serie especial, "#4261" si es una orden normal. Evita que las FV2
      * aparezcan como "#" vacío por no tener numero_orden.
      */
     public function getReferenciaAttribute(): string
@@ -123,7 +123,7 @@ class Orden extends Model
 
     public function getEsDescuentoEspecialAttribute(): bool
     {
-        return $this->serie === self::SERIE_FB2;
+        return $this->serie === self::SERIE_FV2;
     }
 
     // ── Cotizaciones ─────────────────────────────────────────────────────────

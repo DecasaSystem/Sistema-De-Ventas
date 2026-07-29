@@ -37,7 +37,7 @@ export function useDespachoSocket() {
       window.Echo.channel('supervisor')
         .stopListening('.orden.entregada')
         .listen('.orden.entregada', (data) => {
-          // numero_orden llega ya formateado ("#4261" o "FB2-3"): las órdenes de
+          // numero_orden llega ya formateado ("#4261" o "FV2-3"): las órdenes de
           // cortesía no tienen consecutivo normal.
           toast.success(`Orden ${data.numero_orden ?? '#' + data.orden_id} de ${data.cliente_nombre} fue entregada por ${data.conductor_nombre}`)
         })
