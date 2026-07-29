@@ -3,7 +3,8 @@ import { ref, computed, watch, onUnmounted } from 'vue'
 import { detalleEntrega, registrarPagoEntrega, marcarEntregado } from '@/api/despacho'
 import { useToast } from '@/composables/useToast'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
-import { CheckCircleIcon, MapPinIcon, ClockIcon } from '@heroicons/vue/24/outline'
+import FirmaCanvas from '@/components/FirmaCanvas.vue'
+import { CheckCircleIcon, MapPinIcon, ClockIcon, ExclamationTriangleIcon } from '@heroicons/vue/24/outline'
 
 function compressImage(file, maxWidth = 1280, quality = 0.75) {
   return new Promise((resolve) => {
@@ -51,6 +52,29 @@ const fotoProductoPreview = ref(null)
 const fotoPagoPreview     = ref(null)
 const fotoAnexoPreview    = ref(null)
 
+// ── Acta de satisfacción ─────────────────────────────────────────────────────
+// Quien recibe firma que el producto llegó y en qué estado. No siempre es el
+// cliente: puede ser un familiar, la empleada o el portero, por eso se pide
+// nombre y cédula de quien efectivamente está firmando.
+const firmaBlob      = ref(null)
+const recibidoNombre = ref('')
+const recibidoCedula = ref('')
+const conforme       = ref(true)
+const observaciones  = ref('')
+const fotoNovedad        = ref(null)
+const fotoNovedadPreview = ref(null)
+const noHayQuienFirme = ref(false)
+const motivoSinFirma  = ref('')
+
+const actaCompleta = computed(() => {
+  if (noHayQuienFirme.value) return motivoSinFirma.value.trim().length > 0
+  if (!firmaBlob.value) return false
+  if (!recibidoNombre.value.trim()) return false
+  // "Con novedad" sin decir cuál no sirve de nada cuando llegue el reclamo
+  if (!conforme.value && !observaciones.value.trim()) return false
+  return true
+})
+
 // ── Descuento que se pierde al pagar con tarjeta ──────────────────────────────
 // Viene del backend cuando la orden tiene descuento por pago en efectivo o
 // transferencia. Si el conductor elige tarjeta, el cliente pierde el descuento
@@ -77,8 +101,9 @@ watch([metodo, descuentoCond], () => {
 
 const puedeEntregar = computed(() => {
   if (!fotoProductoPreview.value) return false
+  if (!actaCompleta.value) return false
   if (tieneSaldo.value) return !!fotoPagoPreview.value && monto.value > 0
-  return true  // sin saldo: solo se necesita foto del producto
+  return true  // sin saldo: foto del producto y acta firmada
 })
 
 const mensajeBoton = computed(() => {
@@ -86,6 +111,12 @@ const mensajeBoton = computed(() => {
   if (tieneSaldo.value) {
     if (!fotoPagoPreview.value) return 'Sube la foto del comprobante de pago'
     if (!(monto.value > 0))     return 'Ingresa el monto cobrado'
+  }
+  if (noHayQuienFirme.value && !motivoSinFirma.value.trim()) return 'Explica por qué nadie pudo firmar'
+  if (!noHayQuienFirme.value) {
+    if (!recibidoNombre.value.trim()) return 'Escribe el nombre de quien recibe'
+    if (!firmaBlob.value)             return 'Falta la firma de quien recibe'
+    if (!conforme.value && !observaciones.value.trim()) return 'Describe la novedad del producto'
   }
   return null
 })
@@ -115,6 +146,10 @@ async function cargar(id) {
     item.value = data
     if (!esEntregado.value) {
       monto.value = data.orden?.saldo_pendiente || 0
+      // Se precarga el cliente: en la mayoría de entregas recibe él mismo, y si
+      // no, el conductor lo cambia por quien esté firmando.
+      recibidoNombre.value = data.orden?.cliente?.nombre ?? ''
+      recibidoCedula.value = data.orden?.cliente?.cedula ?? ''
     }
   } catch {} finally {
     cargando.value = false
@@ -153,6 +188,14 @@ async function onFotoAnexo(e) {
   fotoAnexoPreview.value = _createPreviewUrl(blob)
 }
 
+async function onFotoNovedad(e) {
+  const file = e.target.files[0]
+  if (!file) return
+  const blob = await compressImage(file)
+  fotoNovedad.value = blob
+  fotoNovedadPreview.value = _createPreviewUrl(blob)
+}
+
 async function guardarPagoYEntregar() {
   if (!puedeEntregar.value) return
   registrando.value = true
@@ -169,6 +212,20 @@ async function guardarPagoYEntregar() {
       fd.append('monto', '0')
     }
     if (fotoAnexo.value) fd.append('foto_anexo', fotoAnexo.value, 'foto_anexo.jpg')
+
+    // ── Acta de satisfacción ────────────────────────────────────────────────
+    if (noHayQuienFirme.value) {
+      fd.append('firma_omitida_motivo', motivoSinFirma.value.trim())
+    } else {
+      fd.append('firma_recibido', firmaBlob.value, 'firma_recibido.png')
+      fd.append('recibido_por_nombre', recibidoNombre.value.trim())
+      if (recibidoCedula.value.trim()) fd.append('recibido_por_cedula', recibidoCedula.value.trim())
+      fd.append('conforme', conforme.value ? '1' : '0')
+      if (!conforme.value) {
+        fd.append('observaciones_entrega', observaciones.value.trim())
+        if (fotoNovedad.value) fd.append('foto_novedad', fotoNovedad.value, 'foto_novedad.jpg')
+      }
+    }
 
     await registrarPagoEntrega(props.despachoItemId, fd)
     await marcarEntregado(props.despachoItemId)
@@ -427,6 +484,113 @@ async function guardarPagoYEntregar() {
               <a :href="item.orden.anexo_foto_url" target="_blank">
                 <img :src="item.orden.anexo_foto_url" class="w-full h-28 object-cover rounded-xl border border-gray-100" />
               </a>
+            </div>
+
+            <!-- ═══════════ ACTA DE SATISFACCIÓN ═══════════ -->
+            <div class="border-t-2 border-emerald-100 pt-4 space-y-3">
+              <div>
+                <h4 class="text-sm font-bold text-gray-800">
+                  Acta de satisfacción <span class="text-red-500">*</span>
+                </h4>
+                <p class="text-xs text-gray-500">
+                  El cliente firma que recibió el producto y en qué estado llegó.
+                </p>
+              </div>
+
+              <template v-if="!noHayQuienFirme">
+                <!-- Quién recibe -->
+                <div class="space-y-2">
+                  <div>
+                    <label class="text-xs text-gray-500">Nombre de quien recibe <span class="text-red-500">*</span></label>
+                    <input
+                      v-model="recibidoNombre"
+                      placeholder="Nombre completo"
+                      class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+                    />
+                    <p class="text-[11px] text-gray-400 mt-0.5">
+                      Si no recibe el cliente sino otra persona, escribe su nombre.
+                    </p>
+                  </div>
+                  <div>
+                    <label class="text-xs text-gray-500">Cédula</label>
+                    <input
+                      v-model="recibidoCedula"
+                      inputmode="numeric"
+                      placeholder="Número de cédula"
+                      class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+                    />
+                  </div>
+                </div>
+
+                <!-- ¿Cómo llegó? -->
+                <div>
+                  <label class="text-xs text-gray-500 block mb-1">¿Cómo llegó el producto?</label>
+                  <div class="grid grid-cols-2 gap-2">
+                    <button
+                      type="button" @click="conforme = true"
+                      :class="['py-2.5 rounded-xl text-sm font-semibold border-2 transition-colors',
+                        conforme ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-300']"
+                    >Llegó bien</button>
+                    <button
+                      type="button" @click="conforme = false"
+                      :class="['py-2.5 rounded-xl text-sm font-semibold border-2 transition-colors',
+                        !conforme ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-gray-600 border-gray-300']"
+                    >Con novedad</button>
+                  </div>
+                </div>
+
+                <!-- Novedad -->
+                <div v-if="!conforme" class="bg-amber-50 border border-amber-300 rounded-xl p-3 space-y-2">
+                  <p class="text-xs font-semibold text-amber-900 flex items-center gap-1">
+                    <ExclamationTriangleIcon class="w-4 h-4" />
+                    ¿Qué pasó con el producto? <span class="text-red-500">*</span>
+                  </p>
+                  <textarea
+                    v-model="observaciones"
+                    rows="2"
+                    placeholder="Ej. la mesa llegó rayada en una esquina"
+                    class="w-full border border-amber-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-500 outline-none"
+                  />
+                  <label class="block border-2 border-dashed border-amber-300 rounded-xl p-2 text-center cursor-pointer">
+                    <input type="file" accept="image/*" capture="environment" class="hidden" @change="onFotoNovedad" />
+                    <img v-if="fotoNovedadPreview" :src="fotoNovedadPreview" class="w-full h-24 object-cover rounded-lg" />
+                    <span v-else class="text-xs text-amber-700">📷 Foto de la novedad (opcional)</span>
+                  </label>
+                  <p class="text-[11px] text-amber-700">
+                    Se avisa a supervisión apenas registres la entrega.
+                  </p>
+                </div>
+
+                <!-- Firma -->
+                <div>
+                  <label class="text-xs text-gray-500 block mb-1">
+                    Firma de quien recibe <span class="text-red-500">*</span>
+                  </label>
+                  <FirmaCanvas v-model="firmaBlob" />
+                </div>
+              </template>
+
+              <!-- Nadie pudo firmar -->
+              <div v-else class="bg-gray-50 border border-gray-300 rounded-xl p-3 space-y-2">
+                <p class="text-xs font-semibold text-gray-700">¿Por qué no se pudo firmar?</p>
+                <textarea
+                  v-model="motivoSinFirma"
+                  rows="2"
+                  placeholder="Ej. se dejó con el vigilante del edificio, el cliente no estaba"
+                  class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-gray-400 outline-none"
+                />
+                <p class="text-[11px] text-gray-500">
+                  Queda registrado en la orden. Úsalo solo si de verdad no hay quien firme.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                @click="noHayQuienFirme = !noHayQuienFirme"
+                class="text-xs text-gray-500 underline"
+              >
+                {{ noHayQuienFirme ? '← Volver a la firma' : 'No hay quien firme' }}
+              </button>
             </div>
 
             <button

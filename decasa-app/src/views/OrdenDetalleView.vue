@@ -3,7 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
-import { getOrden, updateEstado, descargarPdfOrden, reenviarCotizacion, asignarFechasEntrega, confirmarCotizacion, completarBorrador as completarBorradorApi } from '@/api/ordenes'
+import { getOrden, updateEstado, descargarPdfOrden, descargarActaEntrega, reenviarCotizacion, asignarFechasEntrega, confirmarCotizacion, completarBorrador as completarBorradorApi } from '@/api/ordenes'
 import { updateCliente } from '@/api/clientes'
 import { despachoPorOrden } from '@/api/despacho'
 import { tomarFacturacion, marcarFacturada } from '@/api/pagos'
@@ -492,6 +492,18 @@ async function descargarPdf() {
     setTimeout(() => window.URL.revokeObjectURL(url), 5000)
   } catch (e) {
     error.value = 'Error al descargar el PDF.'
+  }
+}
+
+async function descargarActa() {
+  try {
+    const response = await descargarActaEntrega(orden.value.id)
+    const blob = new Blob([response.data], { type: 'application/pdf' })
+    const url = window.URL.createObjectURL(blob)
+    window.open(url, '_blank')
+    setTimeout(() => window.URL.revokeObjectURL(url), 5000)
+  } catch (e) {
+    toast.error('No se pudo descargar el acta de entrega.')
   }
 }
 
@@ -1459,6 +1471,68 @@ onMounted(cargarOrden)
           <div v-if="despachoEntrega.entregado_at" class="flex items-center justify-between text-sm">
             <span class="text-gray-500">Entregado el</span>
             <span class="font-medium text-gray-800">{{ formatDateTime(despachoEntrega.entregado_at) }}</span>
+          </div>
+
+          <!-- ═══════════ ACTA DE SATISFACCIÓN ═══════════ -->
+          <div
+            v-if="despachoEntrega.firma_recibido_url || despachoEntrega.firma_omitida_motivo"
+            class="pt-3 border-t border-gray-100 space-y-2"
+          >
+            <div class="flex items-center justify-between">
+              <p class="text-xs font-semibold text-gray-500 uppercase">Acta de satisfacción</p>
+              <button
+                v-if="despachoEntrega.firma_recibido_url"
+                @click="descargarActa"
+                class="text-xs text-blue-600 font-medium flex items-center gap-1"
+              >
+                <ArrowDownTrayIcon class="w-3.5 h-3.5" />
+                PDF
+              </button>
+            </div>
+
+            <!-- Cómo llegó -->
+            <div
+              v-if="despachoEntrega.conforme === false"
+              class="bg-amber-50 border border-amber-300 rounded-lg p-3 space-y-1.5"
+            >
+              <p class="text-sm font-semibold text-amber-900 flex items-center gap-1.5">
+                <ExclamationTriangleIcon class="w-4 h-4 flex-shrink-0" />
+                Recibido con novedad
+              </p>
+              <p class="text-sm text-amber-800">{{ despachoEntrega.observaciones_entrega }}</p>
+              <img
+                v-if="despachoEntrega.foto_novedad_url"
+                :src="despachoEntrega.foto_novedad_url"
+                class="w-full h-32 object-cover rounded-lg border border-amber-200 cursor-pointer"
+                @click="verFactura = despachoEntrega.foto_novedad_url"
+              />
+            </div>
+            <p v-else-if="despachoEntrega.conforme" class="text-sm text-green-700 flex items-center gap-1.5">
+              <CheckCircleIcon class="w-4 h-4 flex-shrink-0" />
+              El cliente recibió conforme
+            </p>
+
+            <!-- Quién firmó -->
+            <div v-if="despachoEntrega.firma_recibido_url" class="flex items-start gap-3">
+              <img
+                :src="despachoEntrega.firma_recibido_url"
+                class="h-16 w-32 object-contain bg-white rounded-lg border border-gray-200 cursor-pointer flex-shrink-0"
+                @click="verFactura = despachoEntrega.firma_recibido_url"
+              />
+              <div class="min-w-0 text-sm">
+                <p class="font-medium text-gray-800 truncate">{{ despachoEntrega.recibido_por_nombre }}</p>
+                <p v-if="despachoEntrega.recibido_por_cedula" class="text-xs text-gray-500">
+                  C.C. {{ despachoEntrega.recibido_por_cedula }}
+                </p>
+                <p class="text-xs text-gray-400">Recibió y firmó</p>
+              </div>
+            </div>
+
+            <!-- No hubo quien firmara -->
+            <div v-else class="bg-gray-100 border border-gray-200 rounded-lg p-2.5">
+              <p class="text-xs font-semibold text-gray-700">Se entregó sin firma</p>
+              <p class="text-xs text-gray-600 mt-0.5">{{ despachoEntrega.firma_omitida_motivo }}</p>
+            </div>
           </div>
         </template>
       </div>

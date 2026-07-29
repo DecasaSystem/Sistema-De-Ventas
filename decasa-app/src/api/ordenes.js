@@ -7,6 +7,9 @@ export const getPagos = (id) => api.get(`/ordenes/${id}/pagos`)
 export const registrarPago = (id, data) => api.post(`/ordenes/${id}/pagos`, data)
 export const editarPago = (pagoId, data) => api.patch(`/pagos/${pagoId}`, data)
 export const descargarPdfOrden = (id) => api.get(`/ordenes/${id}/pdf`, { responseType: 'blob' })
+
+/** Acta de satisfacción firmada por quien recibió la entrega. */
+export const descargarActaEntrega = (id) => api.get(`/ordenes/${id}/acta-entrega`, { responseType: 'blob' })
 export const reenviarCotizacion = (id, email = null) =>
   api.post(`/ordenes/${id}/reenviar-cotizacion`, email ? { email } : {})
 export const asignarFechasEntrega = (id, items) =>

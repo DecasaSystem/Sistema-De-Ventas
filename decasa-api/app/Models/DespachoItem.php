@@ -18,13 +18,28 @@ class DespachoItem extends Model
         'foto_producto',
         'foto_pago',
         'entregado_at',
+        // Acta de satisfacción firmada por quien recibe
+        'firma_recibido_url',
+        'recibido_por_nombre',
+        'recibido_por_cedula',
+        'conforme',
+        'observaciones_entrega',
+        'foto_novedad_url',
+        'firma_omitida_motivo',
     ];
 
     protected function casts(): array
     {
         return [
             'entregado_at' => 'datetime',
+            'conforme'     => 'boolean',
         ];
+    }
+
+    /** ¿La entrega quedó respaldada con firma o con un motivo de por qué no? */
+    public function tieneActa(): bool
+    {
+        return $this->firma_recibido_url !== null || $this->firma_omitida_motivo !== null;
     }
 
     public function despacho()

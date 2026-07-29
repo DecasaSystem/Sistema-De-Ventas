@@ -106,6 +106,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/ordenes/{id}/confirmar-cotizacion',   [OrdenController::class, 'confirmarCotizacion']);
     Route::post('/ordenes/{id}/completar-borrador',     [OrdenController::class, 'completarBorrador']);
     Route::get('/ordenes/{id}/pdf',                     [OrdenController::class, 'pdf']);
+    // Acta de satisfacción firmada por quien recibió la entrega
+    Route::get('/ordenes/{id}/acta-entrega',            [DespachoController::class, 'actaEntrega'])->whereNumber('id');
     Route::post('/ordenes/{id}/reenviar-cotizacion',    [OrdenController::class, 'reenviarCotizacion']);
     Route::patch('/ordenes/{id}/fechas-entrega',        [OrdenController::class, 'asignarFechas']);
 

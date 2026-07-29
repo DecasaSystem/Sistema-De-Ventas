@@ -16,12 +16,16 @@ use App\Models\Produccion;
 use App\Models\Usuario;
 use App\Services\DescuentoCondicionadoService;
 use App\Services\NotificacionService;
+use App\Support\ConvierteImagenesPdf;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 
 class DespachoController extends Controller
 {
+    use ConvierteImagenesPdf;
+
     /**
      * GET /api/despacho/cola
      * Órdenes en listo_entrega SIN asignar a ninguna ruta/despacho activo.
@@ -683,7 +687,43 @@ class DespachoController extends Controller
             'foto_producto' => 'required|image|max:10240',
             'foto_pago'     => $requierePago ? 'required|image|max:10240' : 'nullable|image|max:10240',
             'foto_anexo'    => 'nullable|image|max:10240',
+
+            // ── Acta de satisfacción ─────────────────────────────────────────
+            // La firma es obligatoria salvo que se explique por qué no se pudo
+            // conseguir: sin eso, el acta no respalda nada.
+            'firma_recibido'       => 'nullable|image|max:10240',
+            'firma_omitida_motivo' => 'nullable|string|max:300',
+            'recibido_por_nombre'  => 'nullable|string|max:150',
+            'recibido_por_cedula'  => 'nullable|string|max:40',
+            'conforme'             => 'nullable|boolean',
+            'observaciones_entrega'=> 'nullable|string|max:500',
+            'foto_novedad'         => 'nullable|image|max:10240',
         ]);
+
+        $conforme = $request->has('conforme') ? $request->boolean('conforme') : null;
+
+        if (! $request->hasFile('firma_recibido') && empty($data['firma_omitida_motivo'])) {
+            return response()->json([
+                'message' => 'Falta la firma de quien recibe. Si no hay quien firme, indica el motivo.',
+                'errors'  => ['firma_recibido' => ['Se requiere la firma o el motivo por el que no se pudo obtener.']],
+            ], 422);
+        }
+
+        if ($request->hasFile('firma_recibido') && empty($data['recibido_por_nombre'])) {
+            return response()->json([
+                'message' => 'Falta el nombre de quien recibe.',
+                'errors'  => ['recibido_por_nombre' => ['Indica quién está recibiendo.']],
+            ], 422);
+        }
+
+        // Si llegó con novedad hay que decir cuál: "con novedad" a secas no sirve
+        // de nada cuando el reclamo llegue después.
+        if ($conforme === false && empty($data['observaciones_entrega'])) {
+            return response()->json([
+                'message' => 'Describe la novedad con la que llegó el producto.',
+                'errors'  => ['observaciones_entrega' => ['Explica qué pasó con el producto.']],
+            ], 422);
+        }
 
         // ── Descuento condicionado al medio de pago ──────────────────────────
         // Si el cliente paga con tarjeta pierde el descuento por efectivo o
@@ -729,11 +769,26 @@ class DespachoController extends Controller
         $fotoAnexo    = $request->hasFile('foto_anexo')
             ? $this->subirCloudinary($request->file('foto_anexo'))
             : null;
+        $firmaRecibido = $request->hasFile('firma_recibido')
+            ? $this->subirCloudinary($request->file('firma_recibido'))
+            : null;
+        $fotoNovedad   = $request->hasFile('foto_novedad')
+            ? $this->subirCloudinary($request->file('foto_novedad'))
+            : null;
 
-        DB::transaction(function () use ($item, $data, $usuario, $fotoProducto, $fotoPago, $fotoAnexo, $requierePago) {
+        DB::transaction(function () use ($item, $data, $usuario, $fotoProducto, $fotoPago, $fotoAnexo, $requierePago, $firmaRecibido, $fotoNovedad, $conforme) {
             $item->update([
                 'foto_producto' => $fotoProducto,
                 'foto_pago'     => $fotoPago,
+
+                // Acta de satisfacción
+                'firma_recibido_url'    => $firmaRecibido,
+                'recibido_por_nombre'   => $data['recibido_por_nombre'] ?? null,
+                'recibido_por_cedula'   => $data['recibido_por_cedula'] ?? null,
+                'conforme'              => $conforme,
+                'observaciones_entrega' => $data['observaciones_entrega'] ?? null,
+                'foto_novedad_url'      => $fotoNovedad,
+                'firma_omitida_motivo'  => $firmaRecibido ? null : ($data['firma_omitida_motivo'] ?? null),
             ]);
 
             if ($fotoAnexo) {
@@ -756,7 +811,70 @@ class DespachoController extends Controller
         $item->orden->total_pagado    = $item->orden->totalPagado();
         $item->orden->saldo_pendiente = $item->orden->saldoPendiente();
 
+        // Una novedad en la entrega no puede quedarse solo en el acta: hay que
+        // enterarse el mismo día, no cuando el cliente reclame.
+        if ($conforme === false) {
+            $cliente = $item->orden->cliente?->nombre ?? 'cliente';
+
+            foreach (Usuario::where('activo', true)
+                ->where('id', '!=', $usuario->id)
+                ->where(fn($q) => $q->where('rol', 'supervisor')->orWhere('facturacion', true))
+                ->get() as $d
+            ) {
+                NotificacionService::crear(
+                    tipo:      'entrega_con_novedad',
+                    titulo:    'Entrega recibida con novedad',
+                    mensaje:   "Orden {$item->orden->referencia} de {$cliente}: "
+                             . ($data['observaciones_entrega'] ?? 'el cliente reportó un problema')
+                             . " (entregó {$usuario->nombre})",
+                    datos:     ['orden_id' => $item->orden_id, 'despacho_item_id' => $item->id],
+                    usuarioId: $d->id,
+                );
+            }
+        }
+
         return response()->json($item);
+    }
+
+    /**
+     * GET /api/ordenes/{ordenId}/acta-entrega
+     * PDF del acta de satisfacción firmada por quien recibió.
+     */
+    public function actaEntrega(Request $request, int $ordenId)
+    {
+        $usuario = $request->user();
+
+        $item = DespachoItem::with([
+            'despacho.conductor:id,nombre',
+            'orden.cliente:id,nombre,telefono,cedula',
+            'orden.tienda:id,nombre',
+            'orden.items.producto:id,nombre',
+        ])
+            ->where('orden_id', $ordenId)
+            ->whereNotNull('firma_recibido_url')
+            ->latest('entregado_at')
+            ->first();
+
+        if (! $item) {
+            return response()->json(['message' => 'Esta orden no tiene acta de entrega firmada.'], 404);
+        }
+
+        $orden = $item->orden;
+
+        if (in_array($usuario->rol, ['vendedor', 'ebanista'], true)
+            && $orden->vendedor_id !== $usuario->id
+            && ! $usuario->facturacion
+        ) {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+
+        $firmaBase64 = $this->urlToBase64($item->firma_recibido_url);
+        $logoBase64  = $this->avifToPngBase64(public_path('img/logo.avif'));
+
+        $pdf = Pdf::loadView('pdf.acta_entrega', compact('orden', 'item', 'firmaBase64', 'logoBase64'));
+        $pdf->setPaper('letter');
+
+        return $pdf->download('acta-' . strtolower(str_replace('#', '', $orden->referencia)) . '.pdf');
     }
 
     /**
