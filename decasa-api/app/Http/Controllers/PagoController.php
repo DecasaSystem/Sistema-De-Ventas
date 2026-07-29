@@ -214,17 +214,30 @@ class PagoController extends Controller
             return response()->json(['message' => 'No autorizado.'], 403);
         }
 
-        if (! in_array($orden->estado, ['borrador', 'pendiente_anticipo', 'en_produccion'])) {
-            return response()->json([
-                'message' => 'No se puede editar un pago de una orden en estado "' . $orden->estado . '".',
-            ], 422);
-        }
+        // Corregir el MEDIO de pago se permite siempre: si un pago quedó marcado
+        // como efectivo cuando en realidad fue transferencia, hay que poder
+        // arreglarlo aunque la orden ya se haya entregado. Bloquearlo obligaba a
+        // sacar la plata de la caja con un egreso inventado, y ahí es donde se
+        // descuadra por unos pesos.
+        //
+        // El MONTO sí sigue restringido: cambiarlo en una orden entregada le
+        // dejaría un saldo pendiente a algo que ya se cerró.
+        $puedeCambiarMonto = in_array($orden->estado, ['borrador', 'pendiente_anticipo', 'en_produccion'], true);
 
         $data = $request->validate([
             'monto'      => 'required|numeric|min:0.01',
             'metodo'     => 'nullable|in:efectivo,transferencia,tarjeta,otro',
             'referencia' => 'nullable|string|max:100',
         ]);
+
+        $montoCambia = (float) $data['monto'] !== (float) $pago->monto;
+
+        if ($montoCambia && ! $puedeCambiarMonto) {
+            return response()->json([
+                'message' => 'En una orden "' . $orden->estado . '" solo se puede corregir el medio de pago, no el monto.',
+                'errors'  => ['monto' => ['El monto no se puede cambiar en este estado.']],
+            ], 422);
+        }
 
         $otrosPagos = $orden->pagos()->where('id', '!=', $pago->id)->sum('monto');
         if ($otrosPagos + $data['monto'] > (float) $orden->valor_total + 0.01) {

@@ -3,7 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
-import { getOrden, updateEstado, descargarPdfOrden, descargarActaEntrega, reenviarCotizacion, asignarFechasEntrega, confirmarCotizacion, completarBorrador as completarBorradorApi } from '@/api/ordenes'
+import { getOrden, updateEstado, descargarPdfOrden, descargarActaEntrega, reenviarCotizacion, asignarFechasEntrega, confirmarCotizacion, editarPago, completarBorrador as completarBorradorApi } from '@/api/ordenes'
 import { updateCliente } from '@/api/clientes'
 import { despachoPorOrden } from '@/api/despacho'
 import { tomarFacturacion, marcarFacturada } from '@/api/pagos'
@@ -86,6 +86,44 @@ const porcentajePagado = computed(() => {
   if (!orden.value || !orden.value.valor_total) return 0
   return Math.min(100, Math.round((orden.value.total_pagado / orden.value.valor_total) * 100))
 })
+
+// ── Corregir el medio de un pago ─────────────────────────────────────────────
+// Si un pago quedó como efectivo cuando fue transferencia, la caja de la tienda
+// muestra plata que no está. Se puede arreglar en cualquier estado de la orden
+// porque cambiar el medio no mueve montos ni saldos.
+const puedeCorregirMedio = computed(() =>
+  auth.isSupervisor || auth.isFacturador
+)
+
+const pagoCorrigiendo = ref(null)
+const medioNuevo      = ref('efectivo')
+const referenciaNueva = ref('')
+const guardandoMedio  = ref(false)
+
+function abrirCorregirMedio(pago) {
+  pagoCorrigiendo.value = pago
+  medioNuevo.value      = pago.metodo ?? 'efectivo'
+  referenciaNueva.value = pago.referencia ?? ''
+}
+
+async function guardarMedio() {
+  if (!pagoCorrigiendo.value) return
+  guardandoMedio.value = true
+  try {
+    await editarPago(pagoCorrigiendo.value.id, {
+      monto:      Number(pagoCorrigiendo.value.monto),   // igual: solo cambia el medio
+      metodo:     medioNuevo.value,
+      referencia: referenciaNueva.value || null,
+    })
+    toast.success('Medio de pago corregido. La caja se ajusta sola.')
+    pagoCorrigiendo.value = null
+    await cargarOrden()
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudo corregir el medio de pago.')
+  } finally {
+    guardandoMedio.value = false
+  }
+}
 
 // Subtotal antes de descuentos: se reconstruye sumándolos de vuelta, porque lo
 // que se guarda es el monto rebajado.
@@ -1553,8 +1591,14 @@ onMounted(cargarOrden)
               <p class="text-sm font-medium text-gray-800">
                 {{ tipoPagoLabel[pago.tipo] ?? pago.tipo }}
               </p>
-              <p class="text-xs text-gray-400 capitalize">{{ pago.metodo }}
+              <p class="text-xs text-gray-400 capitalize">
+                {{ pago.metodo }}
                 <span v-if="pago.referencia">· {{ pago.referencia }}</span>
+                <button
+                  v-if="puedeCorregirMedio"
+                  @click="abrirCorregirMedio(pago)"
+                  class="ml-1.5 text-blue-600 normal-case hover:underline"
+                >corregir medio</button>
               </p>
               <p v-if="pago.notas" class="text-xs text-gray-400">{{ pago.notas }}</p>
               <a
@@ -1837,6 +1881,50 @@ onMounted(cargarOrden)
         </div>
       </div>
     </template>
+
+    <!-- Modal: corregir el medio de un pago -->
+    <Transition name="fade">
+      <div v-if="pagoCorrigiendo" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="pagoCorrigiendo = null">
+        <div class="absolute inset-0 bg-black/40" />
+        <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-3">
+          <h3 class="text-lg font-bold text-gray-800">Corregir medio de pago</h3>
+          <p class="text-sm text-gray-500">
+            {{ tipoPagoLabel[pagoCorrigiendo.tipo] ?? pagoCorrigiendo.tipo }} de
+            <strong><MoneyDisplay :amount="pagoCorrigiendo.monto" /></strong>.
+            El monto no cambia, solo cómo se pagó.
+          </p>
+
+          <div>
+            <label class="text-xs text-gray-500">Se pagó con</label>
+            <select v-model="medioNuevo" class="input">
+              <option value="efectivo">Efectivo</option>
+              <option value="transferencia">Transferencia</option>
+              <option value="tarjeta">Tarjeta / datáfono</option>
+              <option value="otro">Otro</option>
+            </select>
+          </div>
+
+          <div v-if="medioNuevo !== 'efectivo'">
+            <label class="text-xs text-gray-500">Referencia (opcional)</label>
+            <input v-model="referenciaNueva" class="input" placeholder="Número de transacción" />
+          </div>
+
+          <p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            Al guardar, la caja de la tienda se ajusta sola: si dejas de ser efectivo, esa
+            plata sale del saldo de caja. No necesitas registrar ningún egreso.
+          </p>
+
+          <div class="flex gap-2">
+            <button @click="pagoCorrigiendo = null" class="btn-secondary flex-1">Cancelar</button>
+            <button
+              @click="guardarMedio"
+              :disabled="guardandoMedio"
+              class="btn-primary flex-1 disabled:opacity-50"
+            >{{ guardandoMedio ? 'Guardando...' : 'Guardar' }}</button>
+          </div>
+        </div>
+      </div>
+    </Transition>
 
     <!-- Modal de pago -->
     <RegistroPagoModal
