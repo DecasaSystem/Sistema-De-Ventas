@@ -91,9 +91,26 @@ const porcentajePagado = computed(() => {
 // Si un pago quedó como efectivo cuando fue transferencia, la caja de la tienda
 // muestra plata que no está. Se puede arreglar en cualquier estado de la orden
 // porque cambiar el medio no mueve montos ni saldos.
-const puedeCorregirMedio = computed(() =>
-  auth.isSupervisor || auth.isFacturador
-)
+// El vendedor puede corregir sus propios pagos: equivocarse al elegir el medio
+// es normal y no debe depender de que un supervisor esté disponible. Lo que no
+// se puede es negarlo después: cada cambio queda firmado con nombre y hora.
+const puedeCorregirMedio = computed(() => {
+  if (!orden.value) return false
+  if (auth.isSupervisor || auth.isFacturador) return true
+  return Number(orden.value.vendedor_id) === Number(auth.usuario?.id)
+})
+
+/** Si este pago ya fue corregido, quién lo hizo y cuándo. */
+function correccionDe(pago) {
+  const ediciones = orden.value?.ediciones ?? []
+  for (const e of ediciones) {
+    const cambio = (e.cambios ?? []).find(c => c.campo === `pago_${pago.id}_metodo`)
+    if (cambio) {
+      return { usuario: e.usuario?.nombre ?? 'alguien', fecha: e.created_at, ...cambio }
+    }
+  }
+  return null
+}
 
 const pagoCorrigiendo = ref(null)
 const medioNuevo      = ref('efectivo')
@@ -1600,6 +1617,16 @@ onMounted(cargarOrden)
                   class="ml-1.5 text-blue-600 normal-case hover:underline"
                 >corregir medio</button>
               </p>
+
+              <!-- Sello del cambio: va pegado al pago, no escondido al final -->
+              <p
+                v-if="correccionDe(pago)"
+                class="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 mt-1 inline-block"
+              >
+                Corregido de <strong>{{ correccionDe(pago).antes }}</strong> a
+                <strong>{{ correccionDe(pago).despues }}</strong>
+                por {{ correccionDe(pago).usuario }} · {{ formatDateTime(correccionDe(pago).fecha) }}
+              </p>
               <p v-if="pago.notas" class="text-xs text-gray-400">{{ pago.notas }}</p>
               <a
                 v-if="pago.comprobante_url"
@@ -1910,8 +1937,13 @@ onMounted(cargarOrden)
           </div>
 
           <p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-            Al guardar, la caja de la tienda se ajusta sola: si dejas de ser efectivo, esa
+            Al guardar, la caja de la tienda se ajusta sola: si deja de ser efectivo, esa
             plata sale del saldo de caja. No necesitas registrar ningún egreso.
+          </p>
+
+          <p class="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+            El cambio queda firmado con tu nombre y la hora, visible en la orden.
+            No se puede borrar.
           </p>
 
           <div class="flex gap-2">
