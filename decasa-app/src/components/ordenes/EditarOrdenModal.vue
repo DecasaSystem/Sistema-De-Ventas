@@ -6,6 +6,7 @@ import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
 import { TELAS_CATALOGO, marcasOrdenadas, tiposTelaDeM, coloresDeTela } from '@/data/telasCatalogo'
 import { SPECS_TEMPLATES, resolverCategoria } from '@/constants/specsConfig'
+import { pctDeMonto, montoDePct, formatPct } from '@/utils/descuentos'
 import { XMarkIcon, SparklesIcon, MagnifyingGlassIcon, TrashIcon, PlusIcon, PhotoIcon, WrenchScrewdriverIcon } from '@heroicons/vue/24/outline'
 import { comprimirImagen } from '@/utils/comprimirImagen'
 import api from '@/api'
@@ -60,7 +61,13 @@ async function cargarListasSupervisor() {
 }
 
 // ── Totales en tiempo real ───────────────────────────────────────────────────
-const descuentoPctEdit = ref(0)   // descuento global al total, en %
+// El descuento se guarda en pesos, así que aquí se edita en pesos. Antes se
+// derivaba el % del monto, se redondeaba a un decimal y se recalculaba el monto
+// desde ese %: un descuento de $100.000 sobre $1.350.000 se convertía en
+// $99.900 con solo abrir el modal y guardar.
+const descuentoModoEdit  = ref('monto')   // 'monto' | 'pct'
+const descuentoInputEdit = ref(0)
+
 const subtotalEstimado = computed(() => {
   const existentes = items.value
     .filter(i => !itemsEliminar.value.includes(i.id))
@@ -69,9 +76,16 @@ const subtotalEstimado = computed(() => {
     .reduce((s, i) => s + (parseFloat(i.precio_unitario) || 0) * (parseInt(i.cantidad) || 1), 0)
   return existentes + nuevos
 })
-const descuentoTotalEdit = computed(() =>
-  Math.round(subtotalEstimado.value * (Number(descuentoPctEdit.value) || 0) / 100)
-)
+
+const descuentoTotalEdit = computed(() => {
+  const v = Number(descuentoInputEdit.value) || 0
+  const bruto = descuentoModoEdit.value === 'pct'
+    ? montoDePct(v, subtotalEstimado.value)
+    : Math.round(v)
+  return Math.min(Math.max(0, bruto), subtotalEstimado.value)
+})
+
+const descuentoPctEdit = computed(() => pctDeMonto(descuentoTotalEdit.value, subtotalEstimado.value))
 const totalEstimado = computed(() =>
   Math.max(0, subtotalEstimado.value - descuentoTotalEdit.value)
 )
@@ -346,11 +360,25 @@ function quitarNuevo(idx) {
   itemsNuevos.value.splice(idx, 1)
 }
 
+/** Precio unitario con el descuento del ítem, en pesos o en %. */
 function precioEfectivo(item) {
-  const base = item.precio_unitario ?? 0
-  const pct  = item._descuento_pct ?? 0
-  if (!pct) return base
-  return Math.round(base * (1 - pct / 100))
+  const base  = item.precio_unitario ?? 0
+  const valor = Number(item._descuento_valor) || 0
+  if (!valor) return base
+
+  const rebaja = (item._descuento_modo ?? 'monto') === 'pct'
+    ? Math.round(base * valor / 100)
+    : Math.round(valor)
+
+  return Math.max(0, base - rebaja)
+}
+
+function descuentoItemMonto(item) {
+  return Math.max(0, (item.precio_unitario ?? 0) - precioEfectivo(item))
+}
+
+function descuentoItemPct(item) {
+  return pctDeMonto(descuentoItemMonto(item), item.precio_unitario ?? 0)
 }
 
 // ── Especificaciones por categoría (mismos templates que al crear la orden) ──
@@ -374,11 +402,10 @@ watch(() => props.show, (v) => {
   direccionEnvio.value = props.orden.direccion_envio ?? ''
   ciudadEnvio.value    = props.orden.ciudad_envio ?? ''
   anticipoPct.value    = props.orden.anticipo_pct ?? ''
-  // Derivar el % de descuento desde el monto guardado (subtotal = total + descuento)
-  {
-    const sub = Number(props.orden.valor_total || 0) + Number(props.orden.descuento_total || 0)
-    descuentoPctEdit.value = sub > 0 ? Math.round((Number(props.orden.descuento_total || 0) / sub) * 1000) / 10 : 0
-  }
+  // El descuento se carga en pesos, tal como está guardado. Derivarlo a % y
+  // recalcularlo desde ahí perdía dinero en cada edición.
+  descuentoModoEdit.value  = 'monto'
+  descuentoInputEdit.value = Number(props.orden.descuento_total || 0)
 
   pagoAnticipo.value       = (props.orden.pagos ?? []).find(p => p.tipo === 'anticipo') ?? null
   anticipoMonto.value      = pagoAnticipo.value?.monto ?? ''
@@ -412,7 +439,8 @@ watch(() => props.show, (v) => {
       categoria_custom: item.categoria_custom ?? null,
       cantidad: item.cantidad,
       precio_unitario: item.precio_unitario,
-      _descuento_pct: 0,
+      _descuento_modo: 'monto',
+      _descuento_valor: 0,
       fecha_entrega_prom: item.fecha_entrega_prom
         ? String(item.fecha_entrega_prom).substring(0, 10)
         : '',
@@ -831,23 +859,35 @@ async function guardar() {
                 </div>
               </div>
 
-              <!-- Descuento -->
-              <div class="flex items-center gap-2">
-                <label class="text-xs text-gray-500 flex-shrink-0">Descuento</label>
-                <div class="flex items-center gap-1 flex-1">
-                  <input
-                    v-model.number="item._descuento_pct"
-                    type="number"
-                    min="0"
-                    max="99"
-                    step="1"
-                    placeholder="0"
-                    class="w-20 rounded-lg border border-gray-300 px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  <span class="text-xs text-gray-400">%</span>
+              <!-- Descuento — en pesos o en % -->
+              <div class="flex items-center gap-2 flex-wrap">
+                <label class="text-xs text-gray-500 flex-shrink-0">Descuento c/u</label>
+
+                <div class="flex items-center gap-1">
+                  <button
+                    v-for="m in [{ v: 'monto', t: '$' }, { v: 'pct', t: '%' }]"
+                    :key="'im' + m.v" type="button"
+                    @click="item._descuento_modo = m.v"
+                    :class="['w-7 h-7 rounded-lg text-xs font-bold border transition-colors',
+                      (item._descuento_modo ?? 'monto') === m.v
+                        ? 'bg-gray-700 text-white border-gray-700'
+                        : 'bg-white text-gray-500 border-gray-300']"
+                  >{{ m.t }}</button>
                 </div>
-                <div v-if="item._descuento_pct > 0" class="text-xs text-green-700 bg-green-50 px-2 py-1 rounded-lg font-medium flex-shrink-0">
+
+                <input
+                  v-model.number="item._descuento_valor"
+                  type="number"
+                  min="0"
+                  :max="(item._descuento_modo ?? 'monto') === 'pct' ? 99 : item.precio_unitario"
+                  step="1"
+                  placeholder="0"
+                  class="w-24 rounded-lg border border-gray-300 px-3 py-2 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+
+                <div v-if="descuentoItemMonto(item) > 0" class="text-xs text-green-700 bg-green-50 px-2 py-1 rounded-lg font-medium flex-shrink-0">
                   {{ new Intl.NumberFormat('es-CO').format(precioEfectivo(item)) }} c/u
+                  <span class="text-green-600">· −{{ formatPct(descuentoItemPct(item)) }}%</span>
                 </div>
               </div>
 
@@ -1224,23 +1264,37 @@ async function guardar() {
               <span class="text-gray-500 flex-shrink-0">Descuento al total</span>
               <div class="flex items-center gap-1 ml-auto">
                 <button
-                  v-for="p in [5, 10]" :key="p" type="button"
-                  @click="descuentoPctEdit = p"
-                  class="px-2 py-1 rounded-lg text-xs font-semibold border transition-colors"
-                  :class="descuentoPctEdit === p ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600 hover:border-blue-400'"
-                >{{ p }}%</button>
+                  v-for="m in [{ v: 'monto', t: '$' }, { v: 'pct', t: '%' }]"
+                  :key="'em' + m.v" type="button"
+                  @click="descuentoModoEdit = m.v; descuentoInputEdit = 0"
+                  :class="['w-8 h-8 rounded-lg text-sm font-bold border transition-colors',
+                    descuentoModoEdit === m.v
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-gray-500 border-gray-300']"
+                >{{ m.t }}</button>
+
+                <template v-if="descuentoModoEdit === 'pct'">
+                  <button
+                    v-for="p in [5, 10]" :key="'ep' + p" type="button"
+                    @click="descuentoInputEdit = p"
+                    class="px-2 py-1 rounded-lg text-xs font-semibold border transition-colors"
+                    :class="descuentoInputEdit === p ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600 hover:border-blue-400'"
+                  >{{ p }}%</button>
+                </template>
+
                 <input
-                  v-model.number="descuentoPctEdit"
-                  type="number" min="0" max="100" step="0.1"
+                  v-model.number="descuentoInputEdit"
+                  type="number" min="0" :step="descuentoModoEdit === 'pct' ? 0.1 : 1000"
                   placeholder="0"
-                  class="w-16 rounded-lg border border-gray-300 px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  :class="['rounded-lg border border-gray-300 px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-500',
+                    descuentoModoEdit === 'pct' ? 'w-16' : 'w-28']"
                 />
-                <span class="text-xs text-gray-400">%</span>
+                <span class="text-xs text-gray-400">{{ descuentoModoEdit === 'pct' ? '%' : '$' }}</span>
               </div>
             </div>
             <!-- Total estimado -->
             <div class="flex items-center justify-between text-sm">
-              <span class="text-gray-500">Total estimado <span v-if="descuentoTotalEdit > 0" class="text-green-600 font-normal">(− ${{ descuentoTotalEdit.toLocaleString('es-CO') }})</span></span>
+              <span class="text-gray-500">Total estimado <span v-if="descuentoTotalEdit > 0" class="text-green-600 font-normal">(− ${{ descuentoTotalEdit.toLocaleString('es-CO') }} · {{ formatPct(descuentoPctEdit) }}%)</span></span>
               <span class="font-bold text-gray-900">${{ totalEstimado.toLocaleString('es-CO') }}</span>
             </div>
             <div class="flex gap-3">

@@ -11,6 +11,7 @@ import { SPECS_TEMPLATES, resolverCategoria, camposParaModo, specsToDescripcion,
 import { TELAS_CATALOGO, marcasOrdenadas, tiposTelaDeM, coloresDeTela } from '@/data/telasCatalogo'
 import { cloudinaryOpt } from '@/utils/cloudinary'
 import { comprimirImagen } from '@/utils/comprimirImagen'
+import { pctDeMonto, montoDePct, formatPct } from '@/utils/descuentos'
 import { ArrowPathIcon, SparklesIcon, XMarkIcon } from '@heroicons/vue/24/solid'
 import { ArrowPathIcon as ArrowPathOutlineIcon, PhotoIcon, UserGroupIcon, ArrowPathIcon as ConvertIcon, ExclamationTriangleIcon, PencilIcon, MapPinIcon, SwatchIcon, CurrencyDollarIcon, PlusIcon, GiftIcon } from '@heroicons/vue/24/outline'
 import { getReceptores, crearConsulta } from '@/api/consultas'
@@ -707,7 +708,8 @@ function _pushItemFabrica(producto, variante) {
     boceto_previews: [],
     _fabricar_pedido:    false,
     _cotizarPrecio:      false,
-    _descuento_pct:      0,
+    _descuento_modo:     'monto',
+    _descuento_valor:    0,
     _mostrarCalculadora: false,
     _calculandoPrecio:   false,
     _precioCalc:         null,
@@ -734,7 +736,7 @@ function _pushItemVC(producto, varianteLabel, precioAdicional) {
     es_personalizado: false, specs: {}, specs_notas: '',
     tienda_origen: esOtraTienda ? nombreTiendaBusqueda() : null,
     fecha_entrega_prometida: null, boceto_blobs: [], boceto_urls: [], boceto_previews: [],
-    _fabricar_pedido: false, _cotizarPrecio: false, _descuento_pct: 0,
+    _fabricar_pedido: false, _cotizarPrecio: false, _descuento_modo: 'monto', _descuento_valor: 0,
     _mostrarCalculadora: false, _calculandoPrecio: false, _precioCalc: null, _precioReferencia: null, _telaSelections: {},
   })
   productoResultados.value = []
@@ -755,7 +757,7 @@ function _pushItemFabricaVC(producto, varianteLabel, precioAdicional) {
     es_personalizado: false, specs: {}, specs_notas: '',
     tienda_origen: 'Fábrica',
     fecha_entrega_prometida: null, boceto_blobs: [], boceto_urls: [], boceto_previews: [],
-    _fabricar_pedido: false, _cotizarPrecio: false, _descuento_pct: 0,
+    _fabricar_pedido: false, _cotizarPrecio: false, _descuento_modo: 'monto', _descuento_valor: 0,
     _mostrarCalculadora: false, _calculandoPrecio: false, _precioCalc: null, _precioReferencia: null, _telaSelections: {},
   })
   productoResultados.value = []
@@ -873,7 +875,8 @@ function _pushItem(producto, variante) {
     boceto_previews: [],
     _fabricar_pedido:    false,
     _cotizarPrecio:      false,
-    _descuento_pct:      0,
+    _descuento_modo:     'monto',
+    _descuento_valor:    0,
     _mostrarCalculadora: false,
     _calculandoPrecio:   false,
     _precioCalc:         null,
@@ -1181,12 +1184,32 @@ const metodosOpts = [
   { value: 'otro',          label: 'Otro' },
 ]
 
+/**
+ * Precio unitario ya con el descuento del ítem aplicado. El descuento se puede
+ * escribir en pesos (por unidad) o en porcentaje; el resultado nunca baja de 0.
+ */
 function precioEfectivo(item) {
   if (item._regalo) return 0
-  const base = item.precio_unitario ?? 0
-  const pct  = item._descuento_pct ?? 0
-  if (!pct) return base
-  return Math.round(base * (1 - pct / 100))
+  const base  = item.precio_unitario ?? 0
+  const valor = Number(item._descuento_valor) || 0
+  if (!valor) return base
+
+  const rebaja = (item._descuento_modo ?? 'monto') === 'pct'
+    ? Math.round(base * valor / 100)
+    : Math.round(valor)
+
+  return Math.max(0, base - rebaja)
+}
+
+/** Cuánto se le rebajó a una unidad de este ítem, en pesos. */
+function descuentoItemMonto(item) {
+  if (item._regalo) return 0
+  return Math.max(0, (item.precio_unitario ?? 0) - precioEfectivo(item))
+}
+
+/** El % que representa ese descuento, para mostrarlo al lado. */
+function descuentoItemPct(item) {
+  return pctDeMonto(descuentoItemMonto(item), item.precio_unitario ?? 0)
 }
 
 // Marca/desmarca un ítem como regalo (cortesía). Un regalo vale $0 pero igual
@@ -1195,29 +1218,49 @@ function toggleRegalo(item) {
   item._regalo = !item._regalo
   if (item._regalo) {
     item._cotizarPrecio = false
-    item._descuento_pct = 0
+    item._descuento_valor = 0
   }
 }
 
 const subtotalItems = computed(() =>
   items.value.reduce((s, i) => i._cotizarPrecio ? s : s + i.cantidad * precioEfectivo(i), 0)
 )
-// Descuento global al total de la orden, en % (aparte del descuento por ítem).
-const descuentoPct = ref(0)
-const descuentoTotal = computed(() =>
-  Math.round(subtotalItems.value * (Number(descuentoPct.value) || 0) / 100)
-)
+// ── Descuento global al total ────────────────────────────────────────────────
+// Se puede escribir en pesos o en porcentaje: el vendedor negocia "te descuento
+// cien mil", no "te descuento 7,4%". Lo que se guarda siempre es el monto.
+const descuentoModo  = ref('monto')   // 'monto' | 'pct'
+const descuentoInput = ref(0)
+
+const descuentoTotal = computed(() => {
+  const v = Number(descuentoInput.value) || 0
+  const bruto = descuentoModo.value === 'pct'
+    ? montoDePct(v, subtotalItems.value)
+    : Math.round(v)
+  return Math.min(Math.max(0, bruto), subtotalItems.value)
+})
+
+const descuentoPct = computed(() => pctDeMonto(descuentoTotal.value, subtotalItems.value))
+
 // Descuento condicionado: solo vale si paga en efectivo o transferencia. Se
 // calcula sobre la base ya rebajada por el descuento comercial, igual que en el
 // backend, que es quien manda el cálculo final.
-const descuentoCondicionadoPct = ref(0)
+const descuentoCondModo  = ref('monto')
+const descuentoCondInput = ref(0)
 
 const baseCondicionado = computed(() =>
   Math.max(0, subtotalItems.value - descuentoTotal.value)
 )
 
-const descuentoCondicionado = computed(() =>
-  Math.round(baseCondicionado.value * (Number(descuentoCondicionadoPct.value) || 0) / 100)
+const descuentoCondicionado = computed(() => {
+  const v = Number(descuentoCondInput.value) || 0
+  const bruto = descuentoCondModo.value === 'pct'
+    ? montoDePct(v, baseCondicionado.value)
+    : Math.round(v)
+  return Math.min(Math.max(0, bruto), baseCondicionado.value)
+})
+
+const descuentoCondicionadoPct = computed(() =>
+  pctDeMonto(descuentoCondicionado.value, baseCondicionado.value)
 )
 
 const valorTotal = computed(() =>
@@ -1401,8 +1444,10 @@ async function submit() {
       guardar_borrador:     modoGuardarBorrador.value || undefined,
       es_fv2:               esFv2.value || undefined,
       motivo_serie:         esFv2.value ? (motivoSerie.value.trim() || undefined) : undefined,
-      descuento_condicionado_pct: Number(descuentoCondicionadoPct.value) > 0
-        ? Number(descuentoCondicionadoPct.value)
+      // Se manda el monto, no el %: si el vendedor escribió "100.000" el backend
+      // debe guardar esos 100.000 exactos, no recalcularlos desde un % redondeado.
+      descuento_condicionado_monto: Number(descuentoCondicionado.value) > 0
+        ? Number(descuentoCondicionado.value)
         : undefined,
       entrega_inmediata:    (entregaInmediata.value && puedeEntregaInmediata.value) || undefined,
       descuento_total:      Number(descuentoTotal.value) > 0 ? Number(descuentoTotal.value) : undefined,
@@ -2552,23 +2597,35 @@ function removeFacturaFoto() {
             </span>
           </label>
 
-          <!-- Descuento — disponible para cualquier ítem con precio definido -->
-          <div v-if="!item._cotizarPrecio && !item._regalo" class="flex items-center gap-2">
-            <label class="text-xs text-gray-500 flex-shrink-0">Descuento</label>
-            <div class="flex items-center gap-1 flex-1">
-              <input
-                v-model.number="item._descuento_pct"
-                type="number"
-                min="0"
-                max="99"
-                step="1"
-                placeholder="0"
-                class="w-20 input text-sm text-center"
-              />
-              <span class="text-xs text-gray-400">%</span>
+          <!-- Descuento — en pesos o en %, lo que le resulte natural al vendedor -->
+          <div v-if="!item._cotizarPrecio && !item._regalo" class="flex items-center gap-2 flex-wrap">
+            <label class="text-xs text-gray-500 flex-shrink-0">Descuento c/u</label>
+
+            <div class="flex items-center gap-1">
+              <button
+                v-for="m in [{ v: 'monto', t: '$' }, { v: 'pct', t: '%' }]"
+                :key="m.v" type="button"
+                @click="item._descuento_modo = m.v"
+                :class="['w-7 h-7 rounded-lg text-xs font-bold border transition-colors',
+                  (item._descuento_modo ?? 'monto') === m.v
+                    ? 'bg-gray-700 text-white border-gray-700'
+                    : 'bg-white text-gray-500 border-gray-300']"
+              >{{ m.t }}</button>
             </div>
-            <div v-if="item._descuento_pct > 0" class="text-xs text-green-700 bg-green-50 px-2 py-1 rounded-lg font-medium flex-shrink-0">
+
+            <input
+              v-model.number="item._descuento_valor"
+              type="number"
+              min="0"
+              :max="(item._descuento_modo ?? 'monto') === 'pct' ? 99 : item.precio_unitario"
+              step="1"
+              placeholder="0"
+              class="w-24 input text-sm text-right"
+            />
+
+            <div v-if="descuentoItemMonto(item) > 0" class="text-xs text-green-700 bg-green-50 px-2 py-1 rounded-lg font-medium flex-shrink-0">
               {{ new Intl.NumberFormat('es-CO').format(precioEfectivo(item)) }} c/u
+              <span class="text-green-600">· −{{ formatPct(descuentoItemPct(item)) }}%</span>
             </div>
           </div>
 
@@ -3015,23 +3072,38 @@ function removeFacturaFoto() {
           <div class="flex items-center gap-2 flex-wrap">
             <span class="text-sm text-gray-500 flex-shrink-0">Descuento al total</span>
             <div class="flex items-center gap-1 ml-auto">
+              <!-- Unidad: en pesos es como se negocia, el % queda de alternativa -->
               <button
-                v-for="p in [5, 10]" :key="p" type="button"
-                @click="descuentoPct = p"
-                class="px-2 py-1 rounded-lg text-xs font-semibold border transition-colors"
-                :class="descuentoPct === p ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600 hover:border-blue-400'"
-              >{{ p }}%</button>
+                v-for="m in [{ v: 'monto', t: '$' }, { v: 'pct', t: '%' }]"
+                :key="m.v" type="button"
+                @click="descuentoModo = m.v; descuentoInput = 0"
+                :class="['w-8 h-8 rounded-lg text-sm font-bold border transition-colors',
+                  descuentoModo === m.v
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-white text-gray-500 border-gray-300 hover:border-blue-400']"
+              >{{ m.t }}</button>
+
+              <template v-if="descuentoModo === 'pct'">
+                <button
+                  v-for="p in [5, 10]" :key="'p' + p" type="button"
+                  @click="descuentoInput = p"
+                  class="px-2 py-1 rounded-lg text-xs font-semibold border transition-colors"
+                  :class="descuentoInput === p ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600 hover:border-blue-400'"
+                >{{ p }}%</button>
+              </template>
+
               <input
-                v-model.number="descuentoPct"
-                type="number" min="0" max="100" step="0.1"
+                v-model.number="descuentoInput"
+                type="number" min="0" :step="descuentoModo === 'pct' ? 0.1 : 1000"
                 placeholder="0"
-                class="w-16 input text-sm text-right"
+                :class="['input text-sm text-right', descuentoModo === 'pct' ? 'w-16' : 'w-28']"
               />
-              <span class="text-xs text-gray-400">%</span>
+              <span class="text-xs text-gray-400">{{ descuentoModo === 'pct' ? '%' : '$' }}</span>
             </div>
           </div>
           <p v-if="descuentoTotal > 0" class="text-xs text-green-700 text-right">
-            − ${{ Number(descuentoTotal).toLocaleString('es-CO') }} de descuento
+            − ${{ Number(descuentoTotal).toLocaleString('es-CO') }}
+            <span class="text-green-600">({{ formatPct(descuentoPct) }}% del subtotal)</span>
           </p>
 
           <!-- Descuento condicionado al medio de pago -->
@@ -3040,22 +3112,37 @@ function removeFacturaFoto() {
               <span class="text-sm text-gray-500 flex-shrink-0">Descuento por efectivo/transferencia</span>
               <div class="flex items-center gap-1 ml-auto">
                 <button
-                  v-for="p in [5, 10]" :key="'c' + p" type="button"
-                  @click="descuentoCondicionadoPct = p"
-                  class="px-2 py-1 rounded-lg text-xs font-semibold border transition-colors"
-                  :class="descuentoCondicionadoPct === p ? 'bg-amber-600 text-white border-amber-600' : 'border-gray-300 text-gray-600 hover:border-amber-400'"
-                >{{ p }}%</button>
+                  v-for="m in [{ v: 'monto', t: '$' }, { v: 'pct', t: '%' }]"
+                  :key="'cm' + m.v" type="button"
+                  @click="descuentoCondModo = m.v; descuentoCondInput = 0"
+                  :class="['w-8 h-8 rounded-lg text-sm font-bold border transition-colors',
+                    descuentoCondModo === m.v
+                      ? 'bg-amber-600 text-white border-amber-600'
+                      : 'bg-white text-gray-500 border-gray-300 hover:border-amber-400']"
+                >{{ m.t }}</button>
+
+                <template v-if="descuentoCondModo === 'pct'">
+                  <button
+                    v-for="p in [5, 10]" :key="'c' + p" type="button"
+                    @click="descuentoCondInput = p"
+                    class="px-2 py-1 rounded-lg text-xs font-semibold border transition-colors"
+                    :class="descuentoCondInput === p ? 'bg-amber-600 text-white border-amber-600' : 'border-gray-300 text-gray-600 hover:border-amber-400'"
+                  >{{ p }}%</button>
+                </template>
+
                 <input
-                  v-model.number="descuentoCondicionadoPct"
-                  type="number" min="0" max="100" step="0.1"
+                  v-model.number="descuentoCondInput"
+                  type="number" min="0" :step="descuentoCondModo === 'pct' ? 0.1 : 1000"
                   placeholder="0"
-                  class="w-16 input text-sm text-right"
+                  :class="['input text-sm text-right', descuentoCondModo === 'pct' ? 'w-16' : 'w-28']"
                 />
-                <span class="text-xs text-gray-400">%</span>
+                <span class="text-xs text-gray-400">{{ descuentoCondModo === 'pct' ? '%' : '$' }}</span>
               </div>
             </div>
             <p v-if="descuentoCondicionado > 0" class="text-xs text-amber-700 text-right">
-              − ${{ Number(descuentoCondicionado).toLocaleString('es-CO') }} · se pierde si paga con tarjeta
+              − ${{ Number(descuentoCondicionado).toLocaleString('es-CO') }}
+              <span class="text-amber-600">({{ formatPct(descuentoCondicionadoPct) }}%)</span>
+              · se pierde si paga con tarjeta
             </p>
             <p v-if="descuentoCondicionado > 0" class="text-xs text-gray-500">
               Solo aplica si paga <strong>todo</strong> en efectivo o transferencia. Si al entregar

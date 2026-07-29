@@ -163,15 +163,41 @@
                 @endforeach
             </tbody>
             <tfoot>
-                @if($orden->descuento_total > 0)
+                @php
+                    // El monto es la fuente de verdad; el % se deriva solo para
+                    // que el cliente vea a cuánto equivale la rebaja.
+                    $subtotalBruto = $orden->subtotalBruto();
+                    $pctTexto = function ($monto) use ($subtotalBruto) {
+                        if ($subtotalBruto <= 0 || $monto <= 0) return '';
+                        $pct = round($monto / $subtotalBruto * 100, 1);
+                        return rtrim(rtrim(number_format($pct, 1, ',', '.'), '0'), ',');
+                    };
+                @endphp
+
+                @if($orden->descuento_total > 0 || $orden->descuento_condicionado > 0)
                 <tr>
                     <td colspan="4" style="padding: 6px 8px; text-align: right; font-size: 11px; color: #6b7280;">Subtotal:</td>
-                    <td style="padding: 6px 8px; text-align: right; font-size: 11px; color: #6b7280;">$ {{ number_format($orden->valor_total + $orden->descuento_total, 2) }}</td>
+                    <td style="padding: 6px 8px; text-align: right; font-size: 11px; color: #6b7280;">$ {{ number_format($subtotalBruto, 2) }}</td>
                     <td></td>
                 </tr>
+                @endif
+
+                @if($orden->descuento_total > 0)
                 <tr>
-                    <td colspan="4" style="padding: 6px 8px; text-align: right; font-size: 11px; color: #059669;">Descuento:</td>
+                    <td colspan="4" style="padding: 6px 8px; text-align: right; font-size: 11px; color: #059669;">
+                        Descuento ({{ $pctTexto($orden->descuento_total) }}%):
+                    </td>
                     <td style="padding: 6px 8px; text-align: right; font-size: 11px; color: #059669;">− $ {{ number_format($orden->descuento_total, 2) }}</td>
+                    <td></td>
+                </tr>
+                @endif
+
+                @if($orden->descuento_condicionado > 0 && ! $orden->descuento_condicionado_revertido_at)
+                <tr>
+                    <td colspan="4" style="padding: 6px 8px; text-align: right; font-size: 11px; color: #059669;">
+                        Descuento por pago en efectivo o transferencia ({{ $pctTexto($orden->descuento_condicionado) }}%):
+                    </td>
+                    <td style="padding: 6px 8px; text-align: right; font-size: 11px; color: #059669;">− $ {{ number_format($orden->descuento_condicionado, 2) }}</td>
                     <td></td>
                 </tr>
                 @endif

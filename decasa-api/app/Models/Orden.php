@@ -69,6 +69,29 @@ class Orden extends Model
 
     protected $appends = ['esta_vencida', 'cotizacion_ref', 'contacto_display', 'referencia'];
 
+    // ── Descuentos ───────────────────────────────────────────────────────────
+
+    /**
+     * Subtotal antes de cualquier descuento. El monto es la fuente de verdad,
+     * así que el subtotal se reconstruye sumándolos de vuelta.
+     */
+    public function subtotalBruto(): float
+    {
+        return (float) $this->valor_total
+            + (float) $this->descuento_total
+            + (float) $this->descuento_condicionado;
+    }
+
+    /**
+     * Porcentaje que representa el descuento comercial. Es informativo: el monto
+     * manda, y recalcular desde este % daría una cifra ligeramente distinta.
+     */
+    public function getDescuentoPctAttribute(): float
+    {
+        $base = $this->subtotalBruto();
+        return $base > 0 ? round((float) $this->descuento_total / $base * 100, 1) : 0.0;
+    }
+
     // ── Descuento condicionado al medio de pago ──────────────────────────────
 
     /** Medios de pago que conservan el descuento. Tarjeta y "otro" no lo dan. */

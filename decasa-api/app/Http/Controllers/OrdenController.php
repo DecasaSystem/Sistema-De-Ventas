@@ -178,8 +178,11 @@ class OrdenController extends Controller
             // como venta y generando comisión.
             'es_fv2'                               => 'nullable|boolean',
             'motivo_serie'                         => 'nullable|string|max:300',
-            // Descuento que solo vale si paga en efectivo o transferencia
+            // Descuento que solo vale si paga en efectivo o transferencia. Se
+            // acepta en pesos o en %; el monto tiene prioridad porque es lo que
+            // el vendedor escribió y no debe recalcularse desde un % redondeado.
             'descuento_condicionado_pct'           => 'nullable|numeric|min:0|max:100',
+            'descuento_condicionado_monto'         => 'nullable|numeric|min:0',
             'es_compartida'                      => 'nullable|boolean',
             'covendedor_id'                      => 'nullable|integer|exists:usuarios,id',
             'items'                              => 'required|array|min:1',
@@ -240,7 +243,13 @@ class OrdenController extends Controller
         // Si algún método del anticipo inicial no es efectivo ni transferencia,
         // el descuento no se otorga desde el principio: la condición ya está
         // incumplida y no tiene sentido darlo para quitarlo en el mismo acto.
-        $pctCondicionado = (float) ($data['descuento_condicionado_pct'] ?? 0);
+        $montoCondicionadoPedido = isset($data['descuento_condicionado_monto'])
+            ? (float) $data['descuento_condicionado_monto']
+            : null;
+        $pctCondicionado = $montoCondicionadoPedido !== null
+            ? ($baseCondicionado > 0 ? $montoCondicionadoPedido / $baseCondicionado * 100 : 0)
+            : (float) ($data['descuento_condicionado_pct'] ?? 0);
+
         $metodosAnticipo = ! empty($data['anticipo_pagos'])
             ? array_column($data['anticipo_pagos'], 'metodo')
             : (($data['anticipo_monto'] ?? 0) > 0 ? [$data['anticipo_metodo'] ?? 'efectivo'] : []);
@@ -248,9 +257,16 @@ class OrdenController extends Controller
         $anticipoPierdeDescuento = collect($metodosAnticipo)
             ->contains(fn($m) => Orden::metodoPierdeDescuento($m));
 
-        $descuentoCondicionado = ($pctCondicionado > 0 && ! $anticipoPierdeDescuento)
-            ? round($baseCondicionado * $pctCondicionado / 100, 2)
-            : 0.0;
+        // Si vino el monto se respeta tal cual; si vino el %, se calcula. Nunca
+        // se recalcula un monto recibido a partir de su % derivado: perdería pesos.
+        $descuentoCondicionado = 0.0;
+        if (! $anticipoPierdeDescuento) {
+            $descuentoCondicionado = $montoCondicionadoPedido !== null
+                ? round($montoCondicionadoPedido, 2)
+                : round($baseCondicionado * $pctCondicionado / 100, 2);
+
+            $descuentoCondicionado = max(0.0, min($descuentoCondicionado, $baseCondicionado));
+        }
 
         $valorTotal = $baseCondicionado - $descuentoCondicionado;
 

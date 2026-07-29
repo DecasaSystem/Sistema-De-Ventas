@@ -17,6 +17,7 @@ import { DocumentIcon, EnvelopeIcon, ChatBubbleLeftEllipsisIcon, ArrowDownTrayIc
 import FirmaCanvas from '@/components/FirmaCanvas.vue'
 import DireccionColombia from '@/components/DireccionColombia.vue'
 import { comprimirImagen } from '@/utils/comprimirImagen'
+import { pctDeMonto, formatPct } from '@/utils/descuentos'
 import { PhotoIcon } from '@heroicons/vue/24/outline'
 import { SPECS_TEMPLATES, resolverCategoria } from '@/constants/specsConfig'
 
@@ -84,6 +85,15 @@ const estadosLabel = {
 const porcentajePagado = computed(() => {
   if (!orden.value || !orden.value.valor_total) return 0
   return Math.min(100, Math.round((orden.value.total_pagado / orden.value.valor_total) * 100))
+})
+
+// Subtotal antes de descuentos: se reconstruye sumándolos de vuelta, porque lo
+// que se guarda es el monto rebajado.
+const subtotalBruto = computed(() => {
+  if (!orden.value) return 0
+  return Number(orden.value.valor_total || 0)
+    + Number(orden.value.descuento_total || 0)
+    + Number(orden.value.descuento_condicionado || 0)
 })
 
 const puedeCambiarEstado = computed(() => {
@@ -1206,8 +1216,21 @@ onMounted(cargarOrden)
       <div class="bg-white rounded-xl shadow-sm p-4 space-y-3">
         <p class="text-xs font-semibold text-gray-500 uppercase">Pago</p>
         <div v-if="Number(orden.descuento_total) > 0" class="flex justify-between text-sm">
-          <span class="text-gray-500">Descuento al total</span>
+          <span class="text-gray-500">
+            Descuento al total
+            <span class="text-gray-400">({{ formatPct(pctDeMonto(orden.descuento_total, subtotalBruto)) }}%)</span>
+          </span>
           <span class="font-medium text-green-600">− <MoneyDisplay :amount="orden.descuento_total" /></span>
+        </div>
+        <div
+          v-if="Number(orden.descuento_condicionado) > 0 && !orden.descuento_condicionado_revertido_at"
+          class="flex justify-between text-sm"
+        >
+          <span class="text-gray-500">
+            Descuento por efectivo/transferencia
+            <span class="text-gray-400">({{ formatPct(pctDeMonto(orden.descuento_condicionado, subtotalBruto)) }}%)</span>
+          </span>
+          <span class="font-medium text-green-600">− <MoneyDisplay :amount="orden.descuento_condicionado" /></span>
         </div>
         <div class="flex justify-between text-sm">
           <span class="text-gray-500">Total</span>
