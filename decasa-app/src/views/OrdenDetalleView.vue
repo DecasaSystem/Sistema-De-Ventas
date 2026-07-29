@@ -1748,6 +1748,8 @@ onMounted(cargarOrden)
       :orden-id="orden.id"
       :valor-total="Number(orden.valor_total)"
       :saldo-pendiente="Number(orden.saldo_pendiente)"
+      :tienda-orden-id="orden.tienda_id"
+      :tienda-orden-nombre="orden.tienda?.nombre ?? ''"
       @close="showPagoModal = false"
       @pago-registrado="onPagoRegistrado"
     />

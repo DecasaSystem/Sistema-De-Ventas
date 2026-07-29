@@ -151,7 +151,12 @@ class CajaController extends Controller
                 // Para mostrar "#4261" o "FB2-1" en vez del id interno de la tabla
                 'orden:id,numero_orden,serie,serie_numero,cotizacion_numero,estado',
             ])
-            ->whereHas('orden', fn($q) => $q->where('tienda_id', $tiendaId))
+            // El efectivo entra a la caja de donde se recibió, que puede no ser
+            // la tienda de la orden: el cliente a veces abona en otra sede.
+            // Los pagos viejos sin tienda caen a la de su orden, como antes.
+            ->where(fn($q) => $q->where('tienda_id', $tiendaId)
+                ->orWhere(fn($q2) => $q2->whereNull('tienda_id')
+                    ->whereHas('orden', fn($q3) => $q3->where('tienda_id', $tiendaId))))
             ->where('metodo', 'efectivo')
             ->latest()
             ->limit($limite)

@@ -1,6 +1,6 @@
 <script setup>
-import { ref, watch, computed } from 'vue'
-import { registrarPago } from '@/api/ordenes'
+import { ref, watch, computed, onMounted } from 'vue'
+import { registrarPago, getTiendas } from '@/api/ordenes'
 import api from '@/api'
 import { comprimirImagen } from '@/utils/comprimirImagen'
 import { PhotoIcon, XMarkIcon } from '@heroicons/vue/24/outline'
@@ -10,6 +10,9 @@ const props = defineProps({
   ordenId: { type: [Number, String], required: true },
   valorTotal: { type: [Number, String], required: true },
   saldoPendiente: { type: [Number, String], required: true },
+  // Tienda de la orden: es la que viene marcada por defecto
+  tiendaOrdenId: { type: [Number, String], default: null },
+  tiendaOrdenNombre: { type: String, default: '' },
 })
 
 const valorTotalN     = computed(() => Number(props.valorTotal))
@@ -28,6 +31,25 @@ const monto         = ref(0)
 const metodo        = ref('efectivo')
 const referencia    = ref('')
 const notas         = ref('')
+
+// ── Tienda donde se recibe el dinero ─────────────────────────────────────────
+// El cliente puede abonar en una sede distinta a la que hizo la venta; el
+// efectivo entra a la caja de donde abona, no a la de la orden.
+const tiendas  = ref([])
+const tiendaId = ref(null)
+
+const esOtraTienda = computed(() =>
+  tiendaId.value && props.tiendaOrdenId && Number(tiendaId.value) !== Number(props.tiendaOrdenId)
+)
+
+onMounted(async () => {
+  try {
+    const { data } = await getTiendas()
+    tiendas.value = Array.isArray(data) ? data : []
+  } catch {
+    tiendas.value = []
+  }
+})
 const loading       = ref(false)
 const error         = ref('')
 
@@ -75,6 +97,7 @@ watch(() => props.show, (val) => {
     notas.value            = ''
     error.value            = ''
     avisoDescuento.value   = null
+    tiendaId.value         = props.tiendaOrdenId
     comprobanteFile.value  = null
     comprobanteUrl.value   = ''
     if (comprobantePreview.value) URL.revokeObjectURL(comprobantePreview.value)
@@ -145,6 +168,7 @@ async function submit() {
       referencia:       referencia.value || undefined,
       notas:            notas.value || undefined,
       comprobante_url:  comprobanteUrl.value,
+      tienda_id:        tiendaId.value || undefined,
       // El vendedor ya vio el aviso y le informó al cliente
       aceptar_perdida_descuento: avisoDescuento.value ? true : undefined,
     })
@@ -204,6 +228,29 @@ async function submit() {
                 metodo === m.value ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300']"
             >{{ m.label }}</button>
           </div>
+        </div>
+
+        <!-- Tienda donde se recibe el dinero -->
+        <div v-if="tiendas.length">
+          <label class="block text-sm font-medium text-gray-700 mb-1">
+            ¿En qué tienda se recibe el pago?
+          </label>
+          <select
+            v-model="tiendaId"
+            class="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            :class="esOtraTienda ? 'border-amber-400 bg-amber-50' : 'border-gray-300'"
+          >
+            <option v-for="t in tiendas" :key="t.id" :value="t.id">
+              {{ t.nombre }}{{ Number(t.id) === Number(tiendaOrdenId) ? ' (tienda de la orden)' : '' }}
+            </option>
+          </select>
+          <p v-if="esOtraTienda" class="text-xs text-amber-700 mt-1">
+            El dinero entra a la caja de esta tienda, no a la de
+            {{ tiendaOrdenNombre || 'la orden' }}. La venta sigue siendo del mismo vendedor.
+          </p>
+          <p v-else class="text-xs text-gray-500 mt-1">
+            Cámbiala si el cliente está abonando en otra sede.
+          </p>
         </div>
 
         <!-- Aviso: este método hace perder el descuento -->

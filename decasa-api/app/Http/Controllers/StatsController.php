@@ -50,7 +50,9 @@ class StatsController extends Controller
         $ingresosQ = DB::table('pagos as p')
             ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
             ->whereBetween('p.created_at', $rango);
-        if ($tiendaId)   $ingresosQ->where('o.tienda_id',   $tiendaId);
+        // El ingreso se le acredita a la tienda que recibió el dinero, que puede
+        // no ser la de la orden. Los pagos viejos sin tienda caen a la de su orden.
+        if ($tiendaId)   $ingresosQ->whereRaw('COALESCE(p.tienda_id, o.tienda_id) = ?', [$tiendaId]);
         if ($vendedorId) $ingresosQ->where('o.vendedor_id', $vendedorId);
         $ingresos = (float) $ingresosQ->sum('p.monto');
 
@@ -298,10 +300,12 @@ class StatsController extends Controller
         $resultado = $tiendas->map(function ($t) use ($rango, $desde, $hasta, $mesActual) {
             $rangoCreacion = [$desde . ' 00:00:00', $hasta . ' 23:59:59'];
 
-            // Ingresos: órdenes propias (compartidas → mitad) + órdenes donde co-vendedor pertenece a esta tienda (mitad)
+            // Ingresos: el dinero se le acredita a la tienda que lo recibió, que
+            // puede no ser la de la orden (el cliente abona en otra sede).
             $ingresosPpal = (float) DB::table('pagos as p')
                 ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
-                ->where('o.tienda_id', $t->id)->whereBetween('p.created_at', $rango)
+                ->whereRaw('COALESCE(p.tienda_id, o.tienda_id) = ?', [$t->id])
+                ->whereBetween('p.created_at', $rango)
                 ->selectRaw('SUM(CASE WHEN o.es_compartida = 1 THEN p.monto / 2 ELSE p.monto END) as total')
                 ->value('total') ?? 0;
 
@@ -355,7 +359,8 @@ class StatsController extends Controller
             $top = DB::table('pagos as p')
                 ->join('ordenes as o',  'o.id',  '=', 'p.orden_id')
                 ->join('usuarios as u', 'u.id',  '=', 'o.vendedor_id')
-                ->where('o.tienda_id', $t->id)->whereBetween('p.created_at', $rango)
+                ->whereRaw('COALESCE(p.tienda_id, o.tienda_id) = ?', [$t->id])
+                ->whereBetween('p.created_at', $rango)
                 ->selectRaw('u.id, u.nombre, SUM(CASE WHEN o.es_compartida = 1 THEN p.monto / 2 ELSE p.monto END) AS ingresos')
                 ->groupBy('u.id', 'u.nombre')->orderByDesc('ingresos')
                 ->first();
