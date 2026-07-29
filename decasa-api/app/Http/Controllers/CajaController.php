@@ -25,6 +25,24 @@ class CajaController extends Controller
         return auth()->user()?->rol === 'ebanista';
     }
 
+    /**
+     * Pagos en efectivo que entraron a la caja de una tienda.
+     *
+     * Manda la tienda donde se recibió el dinero, no la de la orden: el cliente
+     * puede abonar en otra sede. Los pagos anteriores a que existiera ese campo
+     * caen a la tienda de su orden, que es lo que se asumía entonces.
+     *
+     * Va en un solo sitio a propósito: el saldo, la lista de movimientos y el
+     * resumen por tienda deben filtrar igual o el total no cuadra con el detalle.
+     */
+    private function efectivoDeTienda(int $tiendaId)
+    {
+        return Pago::where('metodo', 'efectivo')
+            ->where(fn($q) => $q->where('tienda_id', $tiendaId)
+                ->orWhere(fn($q2) => $q2->whereNull('tienda_id')
+                    ->whereHas('orden', fn($q3) => $q3->where('tienda_id', $tiendaId))));
+    }
+
     private function balancePorUsuario(int $userId): array
     {
         $ingresoVentas = Pago::where('vendedor_id', $userId)->where('metodo', 'efectivo')->sum('monto');
@@ -64,9 +82,7 @@ class CajaController extends Controller
             ]);
         }
 
-        $ingresoVentas = Pago::whereHas('orden', fn($q) => $q->where('tienda_id', $tiendaId))
-            ->where('metodo', 'efectivo')
-            ->sum('monto');
+        $ingresoVentas = $this->efectivoDeTienda($tiendaId)->sum('monto');
 
         $ingresoManual = CajaMovimiento::where('tienda_id', $tiendaId)
             ->where('tipo', 'ingreso_manual')
@@ -146,18 +162,12 @@ class CajaController extends Controller
             return response()->json([]);
         }
 
-        $pagos = Pago::with([
+        $pagos = $this->efectivoDeTienda($tiendaId)
+            ->with([
                 'vendedor:id,nombre',
                 // Para mostrar "#4261" o "FV2-1" en vez del id interno de la tabla
                 'orden:id,numero_orden,serie,serie_numero,cotizacion_numero,estado',
             ])
-            // El efectivo entra a la caja de donde se recibió, que puede no ser
-            // la tienda de la orden: el cliente a veces abona en otra sede.
-            // Los pagos viejos sin tienda caen a la de su orden, como antes.
-            ->where(fn($q) => $q->where('tienda_id', $tiendaId)
-                ->orWhere(fn($q2) => $q2->whereNull('tienda_id')
-                    ->whereHas('orden', fn($q3) => $q3->where('tienda_id', $tiendaId))))
-            ->where('metodo', 'efectivo')
             ->latest()
             ->limit($limite)
             ->get()
@@ -248,9 +258,7 @@ class CajaController extends Controller
         $tiendas = Tienda::where('activa', true)->get();
 
         $resumen = $tiendas->map(function ($tienda) {
-            $ingresoVentas = Pago::whereHas('orden', fn($q) => $q->where('tienda_id', $tienda->id))
-                ->where('metodo', 'efectivo')
-                ->sum('monto');
+            $ingresoVentas = $this->efectivoDeTienda($tienda->id)->sum('monto');
 
             $ingresoManual = CajaMovimiento::where('tienda_id', $tienda->id)
                 ->where('tipo', 'ingreso_manual')
