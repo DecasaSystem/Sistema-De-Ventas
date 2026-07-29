@@ -1785,7 +1785,10 @@ function removeFacturaFoto() {
       <!-- Tienda -->
       <div>
         <label class="label">Tienda</label>
-        <select v-if="auth.isSupervisor || auth.isEbanista" v-model="tiendaId" class="input">
+        <!-- El ebanista trabaja en la fábrica: su sede es fija, como la de
+             cualquier vendedor. Antes elegía entre todas las tiendas y una
+             equivocación le sumaba la venta a una sede donde no está. -->
+        <select v-if="auth.isSupervisor" v-model="tiendaId" class="input">
           <option value="">Seleccionar...</option>
           <option v-for="t in tiendas" :key="t.id" :value="t.id">{{ t.nombre }}</option>
         </select>

@@ -40,7 +40,11 @@ class CajaController extends Controller
         return Pago::where('metodo', 'efectivo')
             ->where(fn($q) => $q->where('tienda_id', $tiendaId)
                 ->orWhere(fn($q2) => $q2->whereNull('tienda_id')
-                    ->whereHas('orden', fn($q3) => $q3->where('tienda_id', $tiendaId))));
+                    ->whereHas('orden', fn($q3) => $q3->where('tienda_id', $tiendaId))))
+            // El ebanista responde por su propio dinero y lo ve en su caja
+            // personal. Contarlo también en la caja de la fábrica mostraría la
+            // misma plata en dos lugares.
+            ->whereDoesntHave('vendedor', fn($q) => $q->where('rol', 'ebanista'));
     }
 
     private function balancePorUsuario(int $userId): array
@@ -271,6 +275,9 @@ class CajaController extends Controller
             return [
                 'tienda_id'      => $tienda->id,
                 'tienda_nombre'  => $tienda->nombre,
+                // La fábrica no es una sede de venta al público: se marca para
+                // poder distinguirla al comparar tiendas.
+                'es_fabrica'     => (bool) $tienda->es_fabrica,
                 'balance'        => (float) ($ingresoVentas + $ingresoManual - $egresos),
                 'ingreso_ventas' => (float) $ingresoVentas,
                 'ingreso_manual' => (float) $ingresoManual,

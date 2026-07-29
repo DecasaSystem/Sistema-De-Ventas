@@ -374,6 +374,9 @@ class StatsController extends Controller
                 'tienda_id'          => $t->id,
                 'nombre'             => $t->nombre,
                 'ciudad'             => $t->ciudad,
+                // La fábrica vende, pero no es una sede al público: se marca
+                // para no compararla de tú a tú con las tiendas.
+                'es_fabrica'         => (bool) $t->es_fabrica,
                 'ingresos'           => $ingresos,
                 'cartera_pendiente'  => $cartera,
                 'total_vendido'      => $ingresos + $cartera,
