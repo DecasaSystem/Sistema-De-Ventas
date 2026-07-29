@@ -50,12 +50,22 @@ const recomCargandoPag   = ref({})    // { tienda_id: bool }
 const recomVisible       = ref(false)
 const PER_PAGE           = 10
 
+// Productos sin stock y sin rotación: no se listan porque son catálogo que esa
+// tienda no maneja, pero se informa cuántos son.
+const sinRotacion  = ref(0)
+const ventanaDias  = ref(90)
+const horizonteDias = ref(30)
+
 async function cargarRecomendaciones() {
   cargandoRecom.value = true
   try {
     const { data } = await getRecomendaciones({ per_page: PER_PAGE, page: 1 })
-    recomendaciones.value = data.map(t => markRaw(t))
-    data.forEach(t => {
+    const tiendas = data.tiendas ?? []
+    recomendaciones.value = tiendas.map(t => markRaw(t))
+    sinRotacion.value   = data.sin_rotacion ?? 0
+    ventanaDias.value   = data.ventana_dias ?? 90
+    horizonteDias.value = data.horizonte_dias ?? 30
+    tiendas.forEach(t => {
       recomPaginas.value[t.tienda_id] = 1
     })
   } catch {} finally {
@@ -67,7 +77,7 @@ async function cambiarPaginaRecom(tiendaId, nuevaPag) {
   recomCargandoPag.value[tiendaId] = true
   try {
     const { data } = await getRecomendaciones({ per_page: PER_PAGE, page: nuevaPag })
-    const tienda = data.find(t => t.tienda_id === tiendaId)
+    const tienda = (data.tiendas ?? []).find(t => t.tienda_id === tiendaId)
     if (tienda) {
       const idx = recomendaciones.value.findIndex(t => t.tienda_id === tiendaId)
       if (idx !== -1) recomendaciones.value[idx] = markRaw(tienda)
@@ -76,6 +86,16 @@ async function cambiarPaginaRecom(tiendaId, nuevaPag) {
   } catch {} finally {
     recomCargandoPag.value[tiendaId] = false
   }
+}
+
+const MOTIVO_INFO = {
+  perdiendo_venta: { texto: 'Perdiendo venta', cls: 'bg-red-100 text-red-700' },
+  por_agotarse:    { texto: 'Por agotarse',    cls: 'bg-amber-100 text-amber-700' },
+  bajo_minimo:     { texto: 'Bajo el mínimo',  cls: 'bg-gray-100 text-gray-600' },
+}
+
+function motivoInfo(m) {
+  return MOTIVO_INFO[m] ?? { texto: m, cls: 'bg-gray-100 text-gray-600' }
 }
 
 function agregarDesdeRecom(prod) {
@@ -817,13 +837,23 @@ onMounted(async () => {
             <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
           </div>
 
-          <!-- Sin alertas -->
-          <div v-else-if="recomendaciones.length === 0" class="text-center py-8 text-sm text-gray-400">
-            Todas las tiendas tienen stock suficiente
-          </div>
+          <template v-else>
+            <!-- Qué se está listando y por qué -->
+            <p class="px-4 py-2 text-xs text-gray-500 bg-gray-50 border-b border-gray-100">
+              Productos que <strong>se venden</strong> y no alcanzan para los próximos
+              {{ horizonteDias }} días, según lo vendido en {{ ventanaDias }} días.
+              <span v-if="sinRotacion" class="block mt-0.5 text-gray-400">
+                No se listan {{ sinRotacion.toLocaleString('es-CO') }} productos sin stock y sin rotación en su tienda.
+              </span>
+            </p>
 
-          <!-- Lista de tiendas -->
-          <div v-else class="divide-y divide-gray-100">
+            <!-- Sin alertas -->
+            <div v-if="recomendaciones.length === 0" class="text-center py-8 text-sm text-gray-400">
+              Ninguna tienda está en riesgo de quedarse sin lo que vende
+            </div>
+
+            <!-- Lista de tiendas -->
+            <div v-else class="divide-y divide-gray-100">
             <div v-for="tienda in recomendaciones" :key="tienda.tienda_id">
 
               <!-- Cabecera de tienda -->
@@ -833,9 +863,10 @@ onMounted(async () => {
               >
                 <div class="flex items-center gap-2 flex-wrap">
                   <span class="text-sm font-semibold text-gray-700">{{ tienda.tienda_nombre }}</span>
-                  <span v-if="tienda.sin_stock"   class="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-semibold">{{ tienda.sin_stock }} sin stock</span>
-                  <span v-if="tienda.bajo_stock"  class="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-semibold">{{ tienda.bajo_stock }} bajo stock</span>
-                  <span v-if="tienda.top_ventas"  class="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full font-semibold">{{ tienda.top_ventas }} alta rotación</span>
+                  <span v-if="tienda.perdiendo_venta" class="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full font-semibold">{{ tienda.perdiendo_venta }} perdiendo venta</span>
+                  <span v-if="tienda.por_agotarse"    class="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-semibold">{{ tienda.por_agotarse }} por agotarse</span>
+                  <span v-if="tienda.bajo_minimo"     class="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-full font-semibold">{{ tienda.bajo_minimo }} bajo el mínimo</span>
+                  <span v-if="tienda.unidades_faltantes" class="text-[10px] text-gray-500">faltan {{ tienda.unidades_faltantes }} uds</span>
                 </div>
                 <component :is="recomAbiertas[tienda.tienda_id] ? ChevronUpIcon : ChevronDownIcon" class="w-4 h-4 text-gray-400 flex-shrink-0 ml-2" />
               </button>
@@ -864,15 +895,25 @@ onMounted(async () => {
                         </div>
                       </div>
 
+                      <!-- Cuánto llevar y por qué -->
+                      <p class="text-xs font-bold text-gray-800">
+                        Llevar {{ prod.faltante }}
+                        <span class="font-normal text-gray-400">
+                          · quedan {{ prod.stock_libre }}
+                        </span>
+                      </p>
+                      <p v-if="prod.ventas_periodo || prod.intentos_fallidos" class="text-[10px] text-gray-500 leading-tight">
+                        <template v-if="prod.ventas_periodo">Vendió {{ prod.ventas_periodo }} en {{ ventanaDias }} días</template>
+                        <template v-if="prod.intentos_fallidos">
+                          <template v-if="prod.ventas_periodo"> · </template>
+                          <span class="text-red-600 font-semibold">{{ prod.intentos_fallidos }} venta(s) no se pudieron hacer</span>
+                        </template>
+                      </p>
+
                       <div class="flex items-center justify-between gap-1">
                         <!-- Badge motivo -->
-                        <span :class="[
-                          'text-[10px] font-semibold px-1.5 py-0.5 rounded-full truncate',
-                          prod.motivo === 'sin_stock'   ? 'bg-red-100 text-red-600' :
-                          prod.motivo === 'bajo_stock'  ? 'bg-amber-100 text-amber-700' :
-                                                          'bg-blue-100 text-blue-600'
-                        ]">
-                          {{ prod.motivo === 'sin_stock' ? 'Sin stock' : prod.motivo === 'bajo_stock' ? `${prod.stock_actual} en stock` : `${prod.ventas_mes} vtas/mes` }}
+                        <span :class="['text-[10px] font-semibold px-1.5 py-0.5 rounded-full truncate', motivoInfo(prod.motivo).cls]">
+                          {{ motivoInfo(prod.motivo).texto }}
                         </span>
 
                         <!-- Botón agregar -->
@@ -912,7 +953,8 @@ onMounted(async () => {
               </div>
 
             </div>
-          </div>
+            </div>
+          </template>
         </div>
       </Transition>
     </div>
