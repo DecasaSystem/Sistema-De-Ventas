@@ -22,13 +22,17 @@ class AvisoFacturacion
         'valor_total',
         'descuento_total',
         'descuento_condicionado',
+        // Cambia cuánto se le pide al cliente por adelantado: facturación
+        // cuadra contra eso aunque el precio final no se mueva.
+        'anticipo_pct',
     ];
 
-    /** Prefijos de campos por ítem/pago que sí mueven el total. */
+    /** Campos por ítem/pago que sí mueven el total. */
     private const PATRONES_DE_DINERO = [
         '/^pago_\d+_(monto|metodo)$/',
-        '/^item_\d+_(precio|cantidad|producto)$/',
-        '/^item_(nuevo|eliminado)/',
+        // Los ítems se numeran: "item_57_eliminado", "item_nuevo_57".
+        '/^item_\d+_(precio|cantidad|producto|eliminado)$/',
+        '/^item_nuevo_\d+$/',
     ];
 
     public static function esCambioDeDinero(array $cambio): bool

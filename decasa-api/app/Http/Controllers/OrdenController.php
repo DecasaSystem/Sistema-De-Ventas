@@ -1096,7 +1096,10 @@ class OrdenController extends Controller
                     ->get();
 
                 foreach ($itemsAEliminar as $item) {
-                    $nombreProd = $item->producto?->nombre ?? "Ítem #{$item->id}";
+                    // Un personalizado no tiene producto de catálogo: sin el
+                    // nombre_custom el historial decía "Ítem #161", que no le
+                    // dice nada a quien lee el aviso.
+                    $nombreProd = $item->producto?->nombre ?? $item->nombre_custom ?? "Ítem #{$item->id}";
                     $origenId   = $item->tienda_origen_id ?? $orden->tienda_id;
 
                     // Bloquear si la producción ya avanzó
