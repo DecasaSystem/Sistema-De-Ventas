@@ -83,7 +83,10 @@ class AvisoProduccion
         $mensaje = "Orden {$orden->referencia} de {$cliente}: {$detalle}. Lo editó {$autor->nombre}."
             . ($urgente ? ' Revisa antes de seguir armando.' : '');
 
-        foreach (self::destinatarios($autor->id) as $d) {
+        // Los tapiceros son supervisores y ya reciben "Orden editada" por cada
+        // edición. Mandarles también esta por un cambio de dirección sería el
+        // mismo aviso dos veces; solo se les suma cuando les cambia el trabajo.
+        foreach (self::destinatarios($autor->id, incluirTapiceros: $urgente) as $d) {
             NotificacionService::crear(
                 tipo:      'orden_editada',
                 titulo:    $titulo,
@@ -135,10 +138,22 @@ class AvisoProduccion
         }
     }
 
-    private static function destinatarios(?int $excluirUsuarioId = null): \Illuminate\Support\Collection
+    /**
+     * Quién arma los muebles: el ebanista y los tapiceros.
+     *
+     * Los tapiceros tienen rol supervisor con la bandera es_tapicero, así que ya
+     * les llega el aviso genérico de "Orden editada". Por eso solo se les suma
+     * este cuando el cambio es del taller —si no, verían lo mismo dos veces—.
+     */
+    private static function destinatarios(?int $excluirUsuarioId = null, bool $incluirTapiceros = true): \Illuminate\Support\Collection
     {
-        return Usuario::where('rol', 'ebanista')
-            ->where('activo', true)
+        return Usuario::where('activo', true)
+            ->where(function ($q) use ($incluirTapiceros) {
+                $q->where('rol', 'ebanista');
+                if ($incluirTapiceros) {
+                    $q->orWhere(fn($t) => $t->where('rol', 'supervisor')->where('es_tapicero', true));
+                }
+            })
             ->when($excluirUsuarioId, fn($q) => $q->where('id', '!=', $excluirUsuarioId))
             ->get();
     }
