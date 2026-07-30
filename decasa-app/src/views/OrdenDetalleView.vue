@@ -215,13 +215,9 @@ function toggleBorradorPagoSplit() {
 const borradorSpecs = ref({})   // { [itemId]: { campo: valor } }
 const borradorTelas = ref({})   // { [itemId]: { campo: { marca, tipo, color } } }
 
-/** Selección de tela de un campo, creada al vuelo la primera vez que se toca. */
+/** Selección de tela de un campo (se preparan todas al abrir el modal). */
 function telaDe(itemId, key) {
-  if (!borradorTelas.value[itemId]) borradorTelas.value[itemId] = {}
-  if (!borradorTelas.value[itemId][key]) {
-    borradorTelas.value[itemId][key] = { marca: '', tipo: '', color: '' }
-  }
-  return borradorTelas.value[itemId][key]
+  return borradorTelas.value[itemId]?.[key] ?? { marca: '', tipo: '', color: '' }
 }
 
 function telaResumida(itemId, key) {
@@ -337,7 +333,18 @@ watch(showCompletarBorradorModal, (open) => {
     borradorSpecs.value = Object.fromEntries(
       borradorItemsSinSpecs.value.map(i => [i.id, {}])
     )
-    borradorTelas.value = {}
+    // Las selecciones de tela se crean aquí, no durante el render: crearlas al
+    // vuelo dentro del template obliga a Vue a re-renderizar en mitad del pintado.
+    borradorTelas.value = Object.fromEntries(
+      borradorItemsSinSpecs.value.map(i => [
+        i.id,
+        Object.fromEntries(
+          templateDeItem(i).campos
+            .filter(c => c.useVariantes)
+            .map(c => [c.key, { marca: '', tipo: '', color: '' }])
+        ),
+      ])
+    )
     borradorFormCliente.value = {
       nombre:    orden.value?.cliente?.nombre    || '',
       cedula:    orden.value?.cliente?.cedula    || '',
