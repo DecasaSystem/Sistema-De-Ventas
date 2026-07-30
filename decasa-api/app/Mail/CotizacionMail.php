@@ -46,14 +46,9 @@ class CotizacionMail extends Mailable
             $firmaCliente  = $this->urlToBase64($orden->firma_url);
             $firmaVendedor = $this->urlToBase64($orden->vendedor?->firma_url);
             $logoBase64    = $this->avifToPngBase64(public_path('img/logo.avif'));
-            $bocetosBase64 = [];
-            foreach ($orden->items as $item) {
-                if ($item->es_personalizado && $item->boceto_url) {
-                    $bocetosBase64[$item->id] = $this->urlToBase64($item->boceto_url);
-                }
-            }
 
-            $pdf = Pdf::loadView('pdf.orden', compact('orden', 'firmaCliente', 'firmaVendedor', 'logoBase64', 'bocetosBase64'));
+            // Sin bocetos: mismo PDF de una hoja que se imprime en la tienda.
+            $pdf = Pdf::loadView('pdf.orden', compact('orden', 'firmaCliente', 'firmaVendedor', 'logoBase64'));
             $pdf->setPaper('letter');
 
             $num = $orden->numero_orden ?? $this->ordenId;

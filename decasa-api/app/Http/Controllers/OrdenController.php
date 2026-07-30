@@ -1890,15 +1890,10 @@ class OrdenController extends Controller
         // Logo: leer AVIF y convertir a PNG base64 para DomPDF
         $logoBase64 = $this->avifToPngBase64(public_path('img/logo.avif'));
 
-        // Bocetos de ítems personalizados: convertir URLs a base64
-        $bocetosBase64 = [];
-        foreach ($orden->items as $item) {
-            if ($item->es_personalizado && $item->boceto_url) {
-                $bocetosBase64[$item->id] = $this->urlToBase64($item->boceto_url);
-            }
-        }
-
-        $pdf = Pdf::loadView('pdf.orden', compact('orden', 'firmaCliente', 'firmaVendedor', 'logoBase64', 'bocetosBase64'));
+        // Los bocetos ya no van en el PDF: la orden se imprime y cada boceto
+        // se llevaba media hoja. Se consultan en el detalle de la orden, que es
+        // donde además se ven a tamaño completo.
+        $pdf = Pdf::loadView('pdf.orden', compact('orden', 'firmaCliente', 'firmaVendedor', 'logoBase64'));
         $pdf->setPaper('letter');
 
         return $pdf->download('orden-' . $orden->id . '.pdf');
