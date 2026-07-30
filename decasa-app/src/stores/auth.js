@@ -104,6 +104,9 @@ export const useAuthStore = defineStore('auth', () => {
   const isCosturero        = computed(() => usuario.value?.rol === 'costurero')
   const tieneAccesoPasos   = computed(() => isEbanista.value || isTapicero.value || isDespachador.value)
   const isFacturador       = computed(() => usuario.value?.rol === 'vendedor' && !!usuario.value?.facturacion)
+  // Vende por su cuenta: no pertenece a ninguna tienda y lleva caja propia.
+  const isIndependiente    = computed(() => !!usuario.value?.independiente)
+  const llevaCajaPropia    = computed(() => isIndependiente.value || isEbanista.value)
   const tieneAccesoRedes      = computed(() => !!usuario.value?.acceso_redes)
   const tieneAccesoComisiones = computed(() => !!usuario.value?.acceso_comisiones)
   const puedeRecargarTelas    = computed(() => isSupervisor.value || (!!usuario.value?.recarga_telas && ['vendedor', 'supervisor'].includes(usuario.value?.rol)))
@@ -219,6 +222,7 @@ export const useAuthStore = defineStore('auth', () => {
   return {
     token, usuario,
     isAuthenticated, isSupervisor, isEbanista, isTapicero, isDespachador, isCosturero,
+    isIndependiente, llevaCajaPropia,
     tieneAccesoPasos, isFacturador, tieneAccesoRedes, tieneAccesoComisiones, puedeRecargarTelas,
     tienePerfilAlternativo, perfilAlternativo, perfilActivoIdx,
     login, fetchMe, setFirma, setEmail, logout, clearSession,

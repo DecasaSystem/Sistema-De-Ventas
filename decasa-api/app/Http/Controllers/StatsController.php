@@ -287,17 +287,38 @@ class StatsController extends Controller
 
     // ─── GET /api/stats/tiendas  (solo supervisor) ────────────────────────────
 
+    /**
+     * Ids de quienes venden por su cuenta: independientes y el ebanista.
+     *
+     * Sus ventas no son de ninguna tienda —cada uno lleva su caja— así que se
+     * descuentan de los números de las tiendas y se listan en su propia fila.
+     */
+    private function idsPorSuCuenta(): array
+    {
+        static $ids = null;
+        if ($ids === null) {
+            $ids = DB::table('usuarios')
+                ->where(fn($q) => $q->where('independiente', true)->orWhere('rol', 'ebanista'))
+                ->pluck('id')->all();
+        }
+        return $ids;
+    }
+
     public function tiendas(Request $request)
     {
         $f     = $this->parseFechas($request);
         $desde = $f['desde']; $hasta = $f['hasta'];
         $rango = [$desde . ' 00:00:00', $hasta . ' 23:59:59'];
 
-        $tiendas = DB::table('tiendas')->where('activa', true)->get();
+        // La sede de los independientes no es una tienda: sus ventas van en la
+        // fila de cada vendedor, no en una sede.
+        $tiendas = DB::table('tiendas')->where('activa', true)
+            ->where('es_independientes', false)->get();
 
         $mesActual = Carbon::now()->format('Y-m');
+        $porSuCuenta = $this->idsPorSuCuenta();
 
-        $resultado = $tiendas->map(function ($t) use ($rango, $desde, $hasta, $mesActual) {
+        $resultado = $tiendas->map(function ($t) use ($rango, $desde, $hasta, $mesActual, $porSuCuenta) {
             $rangoCreacion = [$desde . ' 00:00:00', $hasta . ' 23:59:59'];
 
             // Ingresos: el dinero se le acredita a la tienda que lo recibió, que
@@ -306,6 +327,8 @@ class StatsController extends Controller
                 ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
                 ->whereRaw('COALESCE(p.tienda_id, o.tienda_id) = ?', [$t->id])
                 ->whereBetween('p.created_at', $rango)
+                // Lo que vende quien va por su cuenta no es de esta tienda
+                ->when($porSuCuenta, fn($q) => $q->whereNotIn('o.vendedor_id', $porSuCuenta))
                 ->selectRaw('SUM(CASE WHEN o.es_compartida = 1 THEN p.monto / 2 ELSE p.monto END) as total')
                 ->value('total') ?? 0;
 
@@ -314,6 +337,7 @@ class StatsController extends Controller
                 ->join('usuarios as u', 'u.id', '=', 'o.covendedor_id')
                 ->where('u.tienda_default_id', $t->id)->where('o.es_compartida', true)
                 ->whereBetween('p.created_at', $rango)
+                ->when($porSuCuenta, fn($q) => $q->whereNotIn('o.vendedor_id', $porSuCuenta))
                 ->selectRaw('SUM(p.monto / 2) as total')
                 ->value('total') ?? 0;
 
@@ -324,6 +348,7 @@ class StatsController extends Controller
                 ->join('ordenes as o', 'o.id', '=', 'vs.orden_id')
                 ->where('o.tienda_id', $t->id)->whereBetween('o.created_at', $rangoCreacion)
                 ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES)
+                ->when($porSuCuenta, fn($q) => $q->whereNotIn('o.vendedor_id', $porSuCuenta))
                 ->selectRaw('SUM(CASE WHEN o.es_compartida = 1 THEN vs.saldo_pendiente / 2 ELSE vs.saldo_pendiente END) as total')
                 ->value('total') ?? 0;
 
@@ -333,6 +358,7 @@ class StatsController extends Controller
                 ->where('u.tienda_default_id', $t->id)->where('o.es_compartida', true)
                 ->whereBetween('o.created_at', $rangoCreacion)
                 ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES)
+                ->when($porSuCuenta, fn($q) => $q->whereNotIn('o.vendedor_id', $porSuCuenta))
                 ->selectRaw('SUM(vs.saldo_pendiente / 2) as total')
                 ->value('total') ?? 0;
 
@@ -342,6 +368,7 @@ class StatsController extends Controller
             $ordPpal = DB::table('ordenes')->where('tienda_id', $t->id)
                 ->whereBetween('created_at', $rango)
                 ->whereNotIn('estado', Orden::ESTADOS_NO_COMERCIALES)
+                ->when($porSuCuenta, fn($q) => $q->whereNotIn('vendedor_id', $porSuCuenta))
                 ->selectRaw('COUNT(*) AS total, SUM(estado = "entregado") AS entregadas')
                 ->first();
 
@@ -350,6 +377,7 @@ class StatsController extends Controller
                 ->where('u.tienda_default_id', $t->id)->where('o.es_compartida', true)
                 ->whereBetween('o.created_at', $rango)
                 ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES)
+                ->when($porSuCuenta, fn($q) => $q->whereNotIn('o.vendedor_id', $porSuCuenta))
                 ->selectRaw('COUNT(*) AS total, SUM(o.estado = "entregado") AS entregadas')
                 ->first();
 
@@ -361,6 +389,7 @@ class StatsController extends Controller
                 ->join('usuarios as u', 'u.id',  '=', 'o.vendedor_id')
                 ->whereRaw('COALESCE(p.tienda_id, o.tienda_id) = ?', [$t->id])
                 ->whereBetween('p.created_at', $rango)
+                ->when($porSuCuenta, fn($q) => $q->whereNotIn('o.vendedor_id', $porSuCuenta))
                 ->selectRaw('u.id, u.nombre, SUM(CASE WHEN o.es_compartida = 1 THEN p.monto / 2 ELSE p.monto END) AS ingresos')
                 ->groupBy('u.id', 'u.nombre')->orderByDesc('ingresos')
                 ->first();
@@ -372,11 +401,13 @@ class StatsController extends Controller
 
             return [
                 'tienda_id'          => $t->id,
+                'usuario_id'         => null,
                 'nombre'             => $t->nombre,
                 'ciudad'             => $t->ciudad,
                 // La fábrica vende, pero no es una sede al público: se marca
                 // para no compararla de tú a tú con las tiendas.
                 'es_fabrica'         => (bool) $t->es_fabrica,
+                'es_independiente'   => false,
                 'ingresos'           => $ingresos,
                 'cartera_pendiente'  => $cartera,
                 'total_vendido'      => $ingresos + $cartera,
@@ -398,7 +429,63 @@ class StatsController extends Controller
             ];
         });
 
-        return response()->json($resultado);
+        return response()->json($resultado->concat($this->filasPorSuCuenta($rango, $desde, $hasta))->values());
+    }
+
+    /**
+     * Una fila por cada vendedor que va por su cuenta, con la misma forma que
+     * la de una tienda para poder ordenarlos y compararlos en la misma tabla.
+     */
+    private function filasPorSuCuenta(array $rango, string $desde, string $hasta): \Illuminate\Support\Collection
+    {
+        $rangoCreacion = [$desde . ' 00:00:00', $hasta . ' 23:59:59'];
+
+        return DB::table('usuarios')
+            ->where('activo', true)
+            ->where(fn($q) => $q->where('independiente', true)->orWhere('rol', 'ebanista'))
+            ->orderBy('nombre')
+            ->get()
+            ->map(function ($u) use ($rango, $rangoCreacion) {
+                $ingresos = (float) DB::table('pagos as p')
+                    ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
+                    ->where('o.vendedor_id', $u->id)
+                    ->whereBetween('p.created_at', $rango)
+                    ->sum('p.monto');
+
+                $cartera = (float) DB::table('v_saldo_ordenes as vs')
+                    ->join('ordenes as o', 'o.id', '=', 'vs.orden_id')
+                    ->where('o.vendedor_id', $u->id)
+                    ->whereBetween('o.created_at', $rangoCreacion)
+                    ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES)
+                    ->sum('vs.saldo_pendiente');
+
+                $ord = DB::table('ordenes')
+                    ->where('vendedor_id', $u->id)
+                    ->whereBetween('created_at', $rango)
+                    ->whereNotIn('estado', Orden::ESTADOS_NO_COMERCIALES)
+                    ->selectRaw('COUNT(*) AS total, SUM(estado = "entregado") AS entregadas')
+                    ->first();
+
+                $entregadas = (int) ($ord->entregadas ?? 0);
+
+                return [
+                    'tienda_id'          => null,
+                    'usuario_id'         => $u->id,
+                    'nombre'             => $u->nombre,
+                    'ciudad'             => null,
+                    'es_fabrica'         => false,
+                    // Vende por su cuenta: su plata no entra a ninguna tienda.
+                    'es_independiente'   => true,
+                    'ingresos'           => $ingresos,
+                    'cartera_pendiente'  => $cartera,
+                    'total_vendido'      => $ingresos + $cartera,
+                    'ordenes_totales'    => (int) ($ord->total ?? 0),
+                    'ordenes_entregadas' => $entregadas,
+                    'ticket_promedio'    => $entregadas > 0 ? round($ingresos / $entregadas) : 0,
+                    'vendedor_destacado' => null,
+                    'meta_mes' => ['mes' => null, 'meta' => null, 'total_tienda' => 0, 'pct' => null, 'cumplida' => false],
+                ];
+            });
     }
 
     // ─── GET /api/stats/vendedores  (solo supervisor) ─────────────────────────

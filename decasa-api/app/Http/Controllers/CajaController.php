@@ -20,9 +20,22 @@ class CajaController extends Controller
         return $user->tienda_default_id ? (int) $user->tienda_default_id : null;
     }
 
-    private function esEbanista(): bool
+    /**
+     * ¿Este usuario lleva caja propia en vez de la de una tienda?
+     *
+     * Son los que venden por su cuenta: los vendedores independientes y el
+     * ebanista desde la fábrica. Su efectivo es suyo y responden por él.
+     */
+    private function llevaCajaPropia(): bool
     {
-        return auth()->user()?->rol === 'ebanista';
+        $u = auth()->user();
+        return (bool) ($u?->independiente) || $u?->rol === 'ebanista';
+    }
+
+    /** Filtro reutilizable: pagos de quien lleva caja propia. */
+    private static function esDeCajaPropia($q)
+    {
+        return $q->where('independiente', true)->orWhere('rol', 'ebanista');
     }
 
     /**
@@ -41,10 +54,10 @@ class CajaController extends Controller
             ->where(fn($q) => $q->where('tienda_id', $tiendaId)
                 ->orWhere(fn($q2) => $q2->whereNull('tienda_id')
                     ->whereHas('orden', fn($q3) => $q3->where('tienda_id', $tiendaId))))
-            // El ebanista responde por su propio dinero y lo ve en su caja
-            // personal. Contarlo también en la caja de la fábrica mostraría la
-            // misma plata en dos lugares.
-            ->whereDoesntHave('vendedor', fn($q) => $q->where('rol', 'ebanista'));
+            // Quien lleva caja propia responde por su dinero y lo ve ahí.
+            // Contarlo también en la caja de una tienda mostraría la misma
+            // plata en dos lugares.
+            ->whereDoesntHave('vendedor', fn($q) => self::esDeCajaPropia($q));
     }
 
     private function balancePorUsuario(int $userId): array
@@ -66,7 +79,7 @@ class CajaController extends Controller
     {
         $user = auth()->user();
 
-        if ($this->esEbanista()) {
+        if ($this->llevaCajaPropia()) {
             return response()->json($this->balancePorUsuario($user->id));
         }
 
@@ -152,7 +165,7 @@ class CajaController extends Controller
         $user   = auth()->user();
         $limite = min((int) $request->input('limite', 60), 200);
 
-        if ($this->esEbanista()) {
+        if ($this->llevaCajaPropia()) {
             return response()->json($this->movimientosPorUsuario($user->id, $limite));
         }
 
@@ -225,11 +238,11 @@ class CajaController extends Controller
             'tienda_id'       => 'nullable|integer|exists:tiendas,id',
         ]);
 
-        $tiendaId = $this->esEbanista()
+        $tiendaId = $this->llevaCajaPropia()
             ? (auth()->user()->tienda_default_id ?? null)
             : $this->tiendaId($request);
 
-        if (! $this->esEbanista() && ! $tiendaId) {
+        if (! $this->llevaCajaPropia() && ! $tiendaId) {
             return response()->json(['message' => 'Usuario sin tienda asignada.'], 422);
         }
 
@@ -259,7 +272,9 @@ class CajaController extends Controller
 
     public function resumenTiendas()
     {
-        $tiendas = Tienda::where('activa', true)->get();
+        // La sede de los independientes no es una caja: su plata está en la
+        // caja personal de cada uno, que se lista aparte más abajo.
+        $tiendas = Tienda::where('activa', true)->where('es_independientes', false)->get();
 
         $resumen = $tiendas->map(function ($tienda) {
             $ingresoVentas = $this->efectivoDeTienda($tienda->id)->sum('monto');
@@ -274,10 +289,12 @@ class CajaController extends Controller
 
             return [
                 'tienda_id'      => $tienda->id,
+                'usuario_id'     => null,
                 'tienda_nombre'  => $tienda->nombre,
                 // La fábrica no es una sede de venta al público: se marca para
                 // poder distinguirla al comparar tiendas.
                 'es_fabrica'     => (bool) $tienda->es_fabrica,
+                'es_independiente' => false,
                 'balance'        => (float) ($ingresoVentas + $ingresoManual - $egresos),
                 'ingreso_ventas' => (float) $ingresoVentas,
                 'ingreso_manual' => (float) $ingresoManual,
@@ -285,6 +302,27 @@ class CajaController extends Controller
             ];
         });
 
-        return response()->json($resumen);
+        // Una fila por cada quien lleva caja propia: su plata no está en
+        // ninguna tienda, pero tiene que poder compararse igual que las demás.
+        $propias = \App\Models\Usuario::where('activo', true)
+            ->where(fn($q) => self::esDeCajaPropia($q))
+            ->orderBy('nombre')
+            ->get()
+            ->map(function ($u) {
+                $b = $this->balancePorUsuario($u->id);
+                return [
+                    'tienda_id'      => null,
+                    'usuario_id'     => $u->id,
+                    'tienda_nombre'  => $u->nombre,
+                    'es_fabrica'     => false,
+                    'es_independiente' => true,
+                    'balance'        => $b['balance'],
+                    'ingreso_ventas' => $b['ingreso_ventas'],
+                    'ingreso_manual' => $b['ingreso_manual'],
+                    'egresos'        => $b['egresos'],
+                ];
+            });
+
+        return response()->json($resumen->concat($propias)->values());
     }
 }

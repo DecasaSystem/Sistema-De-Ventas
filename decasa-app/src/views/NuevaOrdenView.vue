@@ -252,7 +252,19 @@ function usarSugerencia(s) {
 }
 const buscandoProducto = ref(false)
 const items = ref([])
-const tiendaBusqueda = ref(auth.usuario?.tienda_default_id ?? '')
+// De qué tienda sale el producto. Un independiente no tiene stock propio: su
+// sede es solo administrativa, así que siempre saca de una tienda real.
+const tiendaBusqueda = ref(auth.isIndependiente ? '' : (auth.usuario?.tienda_default_id ?? ''))
+
+/** Tiendas de las que se puede sacar producto (la sede administrativa no). */
+const tiendasConStock = computed(() => tiendas.value.filter(t => !t.es_independientes))
+
+// Cuando cargan las tiendas, al independiente se le preselecciona una real
+watch(tiendasConStock, (lista) => {
+  if (auth.isIndependiente && ! tiendaBusqueda.value && lista.length) {
+    tiendaBusqueda.value = lista.find(t => !t.es_fabrica && t.nombre !== 'Tienda Virtual')?.id ?? lista[0].id
+  }
+}, { immediate: true })
 
 // Formulario para restauraciones
 const restauracionItem = ref({ nombre_mueble: '', descripcion_trabajo: '', cantidad: 1, precio_unitario: 0, foto_blob: null, foto_preview: null, _retapizar: false, _telaSelections: {} })
@@ -2020,13 +2032,16 @@ function removeFacturaFoto() {
       <div>
         <label class="label">Buscar en</label>
         <select v-model="tiendaBusqueda" @change="productoResultados = []; fabricaStock = {}" class="input text-sm">
-          <option v-for="t in tiendas" :key="t.id" :value="t.id">
+          <option v-for="t in tiendasConStock" :key="t.id" :value="t.id">
             {{ t.nombre }}{{ t.id == tiendaId ? ' (tu tienda)' : '' }}
           </option>
           <option v-if="fabricaId" :value="fabricaId">Bodega Fábrica (Reserva)</option>
         </select>
         <p v-if="tiendaBusqueda == fabricaId" class="mt-1 text-xs text-purple-600 font-medium">
           Consultando reserva de fábrica — los productos se toman directamente de fábrica al cliente
+        </p>
+        <p v-else-if="auth.isIndependiente" class="mt-1 text-xs text-amber-600 font-medium">
+          El producto sale de esta tienda, pero la venta es tuya: no se le suma a ella.
         </p>
         <p v-else-if="tiendaBusqueda && tiendaBusqueda != tiendaId" class="mt-1 text-xs text-amber-600 font-medium">
           Consultando stock de otra tienda — la orden se registra en {{ tiendas.find(t => t.id == tiendaId)?.nombre }}

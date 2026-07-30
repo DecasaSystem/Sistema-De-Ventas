@@ -8,14 +8,25 @@ class Tienda extends Model
 {
     const UPDATED_AT = null;
 
-    protected $fillable = ['nombre', 'ciudad', 'direccion', 'telefono', 'activa', 'es_fabrica'];
+    protected $fillable = ['nombre', 'ciudad', 'direccion', 'telefono', 'activa', 'es_fabrica', 'es_independientes'];
 
     protected function casts(): array
     {
         return [
-            'activa'     => 'boolean',
-            'es_fabrica' => 'boolean',
+            'activa'            => 'boolean',
+            'es_fabrica'        => 'boolean',
+            'es_independientes' => 'boolean',
         ];
+    }
+
+    /**
+     * Sede a la que cuelgan las órdenes de los vendedores independientes. No es
+     * un punto de venta: no aparece en rankings de tiendas ni tiene caja propia,
+     * existe porque toda orden necesita una tienda.
+     */
+    public static function sedeIndependientes(): ?self
+    {
+        return static::where('es_independientes', true)->first();
     }
 
     public function usuarios()

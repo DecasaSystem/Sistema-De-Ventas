@@ -34,8 +34,14 @@ const nuevaPassword = ref('')
 const confirmacionPassword = ref('')
 
 // Edit form
-const editForm = ref({ nombre: '', email: '', rol: '', facturacion: false, es_tapicero: false, notif_asignar_fecha: true, acceso_redes: false, acceso_comisiones: false, recarga_telas: false, tienda_default_id: '' })
+const editForm = ref({ nombre: '', email: '', rol: '', facturacion: false, es_tapicero: false, independiente: false, notif_asignar_fecha: true, acceso_redes: false, acceso_comisiones: false, recarga_telas: false, tienda_default_id: '' })
 const rolesSinTienda = ['conductor', 'ebanista', 'despachador', 'costurero']
+
+// Solo un vendedor puede ir por su cuenta, y entonces no pertenece a ninguna tienda.
+const editEsIndependiente = computed(() => editForm.value.rol === 'vendedor' && editForm.value.independiente)
+const editRequiereTienda  = computed(() =>
+  !rolesSinTienda.includes(editForm.value.rol) && !editEsIndependiente.value
+)
 
 const ROL_LABELS = {
   supervisor:  'Supervisor',
@@ -111,6 +117,7 @@ function openEditModal() {
     rol: usuario.value.rol,
     facturacion: usuario.value.facturacion ?? false,
     es_tapicero: usuario.value.es_tapicero ?? false,
+    independiente: usuario.value.independiente ?? false,
     notif_asignar_fecha: usuario.value.notif_asignar_fecha ?? true,
     acceso_redes: usuario.value.acceso_redes ?? false,
     acceso_comisiones: usuario.value.acceso_comisiones ?? false,
@@ -133,18 +140,18 @@ async function submitEdit() {
   }
   editLoading.value = true
   try {
-    const sinTienda = rolesSinTienda.includes(editForm.value.rol)
     await updateUsuario(usuario.value.id, {
       nombre: editForm.value.nombre.trim(),
       email: editForm.value.email.trim(),
       rol: editForm.value.rol,
       facturacion: editForm.value.rol === 'vendedor' ? editForm.value.facturacion : false,
       es_tapicero: editForm.value.rol === 'supervisor' ? editForm.value.es_tapicero : false,
+      independiente: editEsIndependiente.value,
       notif_asignar_fecha: editForm.value.rol === 'supervisor' ? editForm.value.notif_asignar_fecha : false,
       acceso_redes: ['vendedor', 'supervisor'].includes(editForm.value.rol) ? editForm.value.acceso_redes : false,
       acceso_comisiones: editForm.value.rol === 'supervisor' ? editForm.value.acceso_comisiones : false,
       recarga_telas: ['vendedor', 'supervisor'].includes(editForm.value.rol) ? editForm.value.recarga_telas : false,
-      tienda_default_id: sinTienda ? null : editForm.value.tienda_default_id,
+      tienda_default_id: editRequiereTienda.value ? editForm.value.tienda_default_id : null,
     })
     showEditModal.value = false
     await cargarUsuario()
@@ -218,6 +225,16 @@ onMounted(async () => {
             <p class="font-medium text-gray-800">{{ usuario.email }}</p>
           </div>
         </div>
+        <div v-if="usuario.independiente" class="flex items-center gap-3">
+          <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
+            <span class="text-sm">🧭</span>
+          </div>
+          <div>
+            <p class="text-xs text-gray-400">Vinculación</p>
+            <p class="font-medium text-amber-700">Vendedor independiente</p>
+            <p class="text-xs text-gray-500">No pertenece a ninguna tienda · lleva su propia caja</p>
+          </div>
+        </div>
         <div v-if="usuario.facturacion && usuario.rol === 'vendedor'" class="flex items-center gap-3">
           <BanknotesIcon class="w-5 h-5 text-green-500 flex-shrink-0" />
           <div>
@@ -263,7 +280,7 @@ onMounted(async () => {
             <p class="font-medium text-pink-700">Puede recargar telas</p>
           </div>
         </div>
-        <div v-if="usuario.tienda_default && !rolesSinTienda.includes(usuario.rol)" class="flex items-center gap-3">
+        <div v-if="usuario.tienda_default && !usuario.independiente && !rolesSinTienda.includes(usuario.rol)" class="flex items-center gap-3">
           <MapPinIcon class="w-5 h-5 text-gray-400 flex-shrink-0" />
           <div>
             <p class="text-xs text-gray-400">Tienda predeterminada</p>
@@ -432,6 +449,21 @@ onMounted(async () => {
                 <option value="costurero">Costurero</option>
               </select>
             </div>
+            <div v-if="editForm.rol === 'vendedor'" class="flex items-start gap-3 py-2 px-3 bg-amber-50 border border-amber-200 rounded-xl">
+              <input
+                id="edit-independiente"
+                type="checkbox"
+                v-model="editForm.independiente"
+                class="mt-0.5 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+              />
+              <div>
+                <label for="edit-independiente" class="text-sm font-medium text-gray-800 cursor-pointer">Vendedor independiente</label>
+                <p class="text-xs text-gray-600 mt-0.5">
+                  No pertenece a ninguna tienda. Su plata va a su propia caja, no a la de una tienda,
+                  y aparece con su nombre en las estadísticas.
+                </p>
+              </div>
+            </div>
             <div v-if="editForm.rol === 'vendedor'" class="flex items-start gap-3 py-1">
               <input
                 id="edit-facturacion"
@@ -506,13 +538,16 @@ onMounted(async () => {
                 <p class="text-xs text-gray-500 mt-0.5">Tendrá acceso al módulo de telas para agregar metros cuando llegue nueva mercancía.</p>
               </div>
             </div>
-            <div v-if="!rolesSinTienda.includes(editForm.rol)">
+            <div v-if="editRequiereTienda">
               <label class="block text-sm font-medium text-gray-700 mb-1">Tienda</label>
               <select v-model="editForm.tienda_default_id" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                 <option value="">Seleccionar...</option>
                 <option v-for="t in tiendas" :key="t.id" :value="t.id">{{ t.nombre }}</option>
               </select>
             </div>
+            <p v-else-if="editEsIndependiente" class="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
+              No se elige tienda: al ser independiente no pertenece a ninguna.
+            </p>
             <p v-if="actionError" class="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{{ actionError }}</p>
           </div>
 

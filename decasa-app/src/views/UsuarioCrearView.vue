@@ -18,6 +18,7 @@ const form = ref({
   rol: 'vendedor',
   facturacion: false,
   es_tapicero: false,
+  independiente: false,
   notif_asignar_fecha: true,
   acceso_redes: false,
   acceso_comisiones: false,
@@ -31,7 +32,13 @@ const mostrarPass    = ref(false)
 const mostrarConfirm = ref(false)
 
 const rolesSinTienda = ['conductor', 'ebanista', 'despachador', 'costurero']
-const requiereTienda = computed(() => !rolesSinTienda.includes(form.value.rol))
+// Un independiente no pertenece a ninguna tienda: vende por su cuenta y saca
+// producto de las que haya, así que tampoco elige una.
+const puedeSerIndependiente = computed(() => form.value.rol === 'vendedor')
+const esIndependiente = computed(() => puedeSerIndependiente.value && form.value.independiente)
+const requiereTienda = computed(() =>
+  !rolesSinTienda.includes(form.value.rol) && !esIndependiente.value
+)
 
 function errMsg(e) {
   if (!e) return ''
@@ -71,6 +78,7 @@ async function submit() {
       rol: form.value.rol,
       facturacion: form.value.facturacion,
       es_tapicero: form.value.es_tapicero,
+      independiente: esIndependiente.value,
       notif_asignar_fecha: form.value.notif_asignar_fecha,
       acceso_redes: form.value.acceso_redes,
       acceso_comisiones: form.value.rol === 'supervisor' ? form.value.acceso_comisiones : false,
@@ -213,6 +221,24 @@ async function submit() {
         </span>
       </div>
 
+      <!-- Vendedor independiente -->
+      <div v-if="puedeSerIndependiente" class="flex items-start gap-3 py-2 px-3 bg-amber-50 border border-amber-200 rounded-xl">
+        <input
+          id="independiente"
+          type="checkbox"
+          v-model="form.independiente"
+          class="mt-0.5 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+        />
+        <div>
+          <label for="independiente" class="text-sm font-medium text-gray-800 cursor-pointer">Vendedor independiente</label>
+          <p class="text-xs text-gray-600 mt-0.5">
+            Trabaja por su cuenta: <strong>no pertenece a ninguna tienda</strong>. Saca producto de las que
+            haya, pero su plata no entra a la caja de ninguna — lleva su propia caja y aparece con su nombre
+            en las estadísticas. Sus ventas sí suman al total de la empresa.
+          </p>
+        </div>
+      </div>
+
       <!-- Facturación (solo vendedores) -->
       <div v-if="form.rol === 'vendedor'" class="flex items-start gap-3 py-2">
         <input
@@ -310,6 +336,9 @@ async function submit() {
         </select>
         <p v-if="errores.tienda_default_id" class="text-xs text-red-600 mt-1">{{ errMsg(errores.tienda_default_id) }}</p>
       </div>
+      <p v-else-if="esIndependiente" class="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
+        No se elige tienda: al ser independiente no pertenece a ninguna.
+      </p>
 
       <!-- Error general -->
       <p v-if="error" class="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{{ error }}</p>

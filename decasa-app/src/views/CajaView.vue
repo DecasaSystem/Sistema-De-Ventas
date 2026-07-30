@@ -37,12 +37,21 @@ function buildParams() {
 
 async function cargarTiendas() {
   if (!auth.isSupervisor) return
-  const [tRes, uRes] = await Promise.all([
+  const [tRes, ebRes, vendRes] = await Promise.all([
     api.get('/tiendas'),
     api.get('/usuarios', { params: { rol: 'ebanista' } }),
+    api.get('/usuarios', { params: { rol: 'vendedor' } }),
   ])
-  tiendas.value   = tRes.data.filter(t => !t.es_fabrica)
-  ebanistas.value = (uRes.data.data ?? []).filter(u => u.activo)
+  // Ni la fábrica ni la sede de independientes son cajas de tienda: su plata
+  // está en la caja personal de cada quien, que se lista aparte.
+  tiendas.value = tRes.data.filter(t => !t.es_fabrica && !t.es_independientes)
+
+  // "Cajas propias": el ebanista y los vendedores independientes
+  ebanistas.value = [
+    ...(ebRes.data.data ?? []),
+    ...(vendRes.data.data ?? []).filter(u => u.independiente),
+  ].filter(u => u.activo)
+
   if (!seleccion.value) {
     if (tiendas.value.length)   seleccion.value = 't:' + tiendas.value[0].id
     else if (ebanistas.value.length) seleccion.value = 'e:' + ebanistas.value[0].id
@@ -291,7 +300,7 @@ const balancePositivo = computed(() => balance.value.balance >= 0)
           <optgroup v-if="tiendas.length" label="Tiendas">
             <option v-for="t in tiendas" :key="'t:'+t.id" :value="'t:'+t.id">{{ t.nombre }}</option>
           </optgroup>
-          <optgroup v-if="ebanistas.length" label="Ebanistas">
+          <optgroup v-if="ebanistas.length" label="Cajas propias">
             <option v-for="e in ebanistas" :key="'e:'+e.id" :value="'e:'+e.id">{{ e.nombre }}</option>
           </optgroup>
         </select>

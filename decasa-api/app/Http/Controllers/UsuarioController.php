@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Tienda;
 use App\Models\Usuario;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -9,6 +10,28 @@ use Illuminate\Validation\Rule;
 
 class UsuarioController extends Controller
 {
+    /** Un solo sitio que define qué se devuelve de un usuario. */
+    private function comoJson(Usuario $u): array
+    {
+        return [
+            'id'                  => $u->id,
+            'nombre'              => $u->nombre,
+            'email'               => $u->email,
+            'rol'                 => $u->rol,
+            'facturacion'         => (bool) $u->facturacion,
+            'es_tapicero'         => (bool) $u->es_tapicero,
+            'independiente'       => (bool) $u->independiente,
+            'notif_asignar_fecha' => (bool) $u->notif_asignar_fecha,
+            'acceso_redes'        => (bool) $u->acceso_redes,
+            'acceso_comisiones'   => (bool) $u->acceso_comisiones,
+            'recarga_telas'       => (bool) $u->recarga_telas,
+            'tienda_default_id'   => $u->tienda_default_id,
+            'tienda_default'      => $u->relationLoaded('tiendaDefault') ? $u->tiendaDefault : null,
+            'activo'              => (bool) $u->activo,
+            'created_at'          => $u->created_at,
+        ];
+    }
+
     public function index(Request $request)
     {
         $query = Usuario::with('tiendaDefault:id,nombre,ciudad');
@@ -25,44 +48,16 @@ class UsuarioController extends Controller
             });
         }
 
-        return response()->json($query->orderBy('nombre')->paginate(20)->through(function ($u) {
-            return [
-                'id'                  => $u->id,
-                'nombre'              => $u->nombre,
-                'email'               => $u->email,
-                'rol'                 => $u->rol,
-                'facturacion'         => $u->facturacion,
-                'es_tapicero'         => (bool) $u->es_tapicero,
-                'notif_asignar_fecha' => (bool) $u->notif_asignar_fecha,
-                'acceso_redes'        => (bool) $u->acceso_redes,
-                'recarga_telas'       => (bool) $u->recarga_telas,
-                'tienda_default_id'   => $u->tienda_default_id,
-                'tienda_default'      => $u->tiendaDefault,
-                'activo'              => $u->activo,
-            ];
-        }));
+        return response()->json(
+            $query->orderBy('nombre')->paginate(20)->through(fn($u) => $this->comoJson($u))
+        );
     }
 
     public function show($id)
     {
         $usuario = Usuario::with('tiendaDefault:id,nombre,ciudad')->findOrFail($id);
 
-        return response()->json([
-            'id'                  => $usuario->id,
-            'nombre'              => $usuario->nombre,
-            'email'               => $usuario->email,
-            'rol'                 => $usuario->rol,
-            'facturacion'         => $usuario->facturacion,
-            'es_tapicero'         => (bool) $usuario->es_tapicero,
-            'notif_asignar_fecha' => (bool) $usuario->notif_asignar_fecha,
-            'acceso_redes'        => (bool) $usuario->acceso_redes,
-            'acceso_comisiones'   => (bool) $usuario->acceso_comisiones,
-            'recarga_telas'       => (bool) $usuario->recarga_telas,
-            'tienda_default_id'   => $usuario->tienda_default_id,
-            'tienda_default'      => $usuario->tiendaDefault,
-            'activo'              => $usuario->activo,
-            'created_at'          => $usuario->created_at,
-        ]);
+        return response()->json($this->comoJson($usuario));
     }
 
     public function store(Request $request)
@@ -76,12 +71,16 @@ class UsuarioController extends Controller
             'rol'                 => ['required', Rule::in(['vendedor', 'supervisor', 'conductor', 'ebanista', 'despachador', 'costurero'])],
             'facturacion'         => 'boolean',
             'es_tapicero'         => 'boolean',
+            // Vendedor por su cuenta: no pertenece a ninguna tienda
+            'independiente'       => 'boolean',
             'notif_asignar_fecha' => 'boolean',
             'acceso_redes'        => 'boolean',
             'acceso_comisiones'   => 'boolean',
             'recarga_telas'       => 'boolean',
             'tienda_default_id' => [
-                Rule::requiredIf(fn () => ! in_array($request->rol, $rolesProduccion)),
+                // Un independiente no elige tienda: se le asigna la sede propia.
+                Rule::requiredIf(fn () => ! in_array($request->rol, $rolesProduccion)
+                    && ! $request->boolean('independiente')),
                 'nullable',
                 'exists:tiendas,id',
             ],
@@ -105,6 +104,10 @@ class UsuarioController extends Controller
         $puedeAccesoRedes = in_array($data['rol'], ['vendedor', 'supervisor']);
         $puedeRecargaTelas = in_array($data['rol'], ['vendedor', 'supervisor']);
 
+        // Solo un vendedor puede ir por su cuenta: un supervisor o un conductor
+        // independiente no significa nada.
+        $independiente = ($data['rol'] === 'vendedor') && $request->boolean('independiente');
+
         $usuario = Usuario::create([
             'nombre'              => $data['nombre'],
             'email'               => $data['email'],
@@ -112,28 +115,18 @@ class UsuarioController extends Controller
             'rol'                 => $data['rol'],
             'facturacion'         => ($data['rol'] === 'vendedor') && $request->boolean('facturacion'),
             'es_tapicero'         => $esSupervisor && $request->boolean('es_tapicero'),
+            'independiente'       => $independiente,
             'notif_asignar_fecha' => $esSupervisor && $request->boolean('notif_asignar_fecha'),
             'acceso_redes'        => $puedeAccesoRedes && $request->boolean('acceso_redes'),
             'acceso_comisiones'   => $esSupervisor && $request->boolean('acceso_comisiones'),
             'recarga_telas'       => $puedeRecargaTelas && $request->boolean('recarga_telas'),
-            'tienda_default_id'   => $data['tienda_default_id'] ?? null,
+            'tienda_default_id'   => $independiente
+                ? Tienda::sedeIndependientes()?->id
+                : ($data['tienda_default_id'] ?? null),
             'activo'              => true,
         ]);
 
-        return response()->json([
-            'id'                  => $usuario->id,
-            'nombre'              => $usuario->nombre,
-            'email'               => $usuario->email,
-            'rol'                 => $usuario->rol,
-            'facturacion'         => $usuario->facturacion,
-            'es_tapicero'         => (bool) $usuario->es_tapicero,
-            'notif_asignar_fecha' => (bool) $usuario->notif_asignar_fecha,
-            'acceso_redes'        => (bool) $usuario->acceso_redes,
-            'acceso_comisiones'   => (bool) $usuario->acceso_comisiones,
-            'recarga_telas'       => (bool) $usuario->recarga_telas,
-            'tienda_default_id'   => $usuario->tienda_default_id,
-            'activo'              => $usuario->activo,
-        ], 201);
+        return response()->json($this->comoJson($usuario), 201);
     }
 
     public function update(Request $request, $id)
@@ -147,6 +140,7 @@ class UsuarioController extends Controller
             'rol'                 => ['sometimes', Rule::in(['vendedor', 'supervisor', 'conductor', 'ebanista', 'despachador', 'costurero'])],
             'facturacion'         => 'nullable|boolean',
             'es_tapicero'         => 'nullable|boolean',
+            'independiente'       => 'nullable|boolean',
             'notif_asignar_fecha' => 'nullable|boolean',
             'acceso_redes'        => 'nullable|boolean',
             'acceso_comisiones'   => 'nullable|boolean',
@@ -181,28 +175,30 @@ class UsuarioController extends Controller
             $data['recarga_telas'] = in_array($rolFinal, ['vendedor', 'supervisor']) && $request->boolean('recarga_telas');
         }
 
+        if ($request->has('independiente')) {
+            $data['independiente'] = ($rolFinal === 'vendedor') && $request->boolean('independiente');
+        }
+
         if (isset($data['rol']) && in_array($data['rol'], $rolesProduccion)) {
             $data['tienda_default_id'] = null;
+        }
+
+        // Al volverlo independiente pasa a la sede propia: deja de pertenecer a
+        // una tienda. Al dejar de serlo hay que volver a asignarle una.
+        $independienteFinal = $data['independiente'] ?? (bool) $usuario->independiente;
+        if ($independienteFinal) {
+            $data['tienda_default_id'] = Tienda::sedeIndependientes()?->id;
+        } elseif ($usuario->independiente && ! $independienteFinal && empty($data['tienda_default_id'])) {
+            return response()->json([
+                'message' => 'Si deja de ser independiente hay que asignarle una tienda.',
+                'errors'  => ['tienda_default_id' => ['Elige la tienda a la que queda asignado.']],
+            ], 422);
         }
 
         $usuario->update($data);
         $usuario->load('tiendaDefault:id,nombre,ciudad');
 
-        return response()->json([
-            'id'                  => $usuario->id,
-            'nombre'              => $usuario->nombre,
-            'email'               => $usuario->email,
-            'rol'                 => $usuario->rol,
-            'facturacion'         => $usuario->facturacion,
-            'es_tapicero'         => (bool) $usuario->es_tapicero,
-            'notif_asignar_fecha' => (bool) $usuario->notif_asignar_fecha,
-            'acceso_redes'        => (bool) $usuario->acceso_redes,
-            'acceso_comisiones'   => (bool) $usuario->acceso_comisiones,
-            'recarga_telas'       => (bool) $usuario->recarga_telas,
-            'tienda_default_id'   => $usuario->tienda_default_id,
-            'tienda_default'      => $usuario->tiendaDefault,
-            'activo'              => $usuario->activo,
-        ]);
+        return response()->json($this->comoJson($usuario));
     }
 
     public function toggleActivo($id)
