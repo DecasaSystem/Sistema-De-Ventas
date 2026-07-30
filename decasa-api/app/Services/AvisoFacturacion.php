@@ -46,23 +46,17 @@ class AvisoFacturacion
     }
 
     /**
-     * Quién debe enterarse. Si no hay ningún facturador activo el aviso NO se
-     * pierde: se manda a supervisión, porque una notificación de plata que no
-     * llega a nadie es peor que una de más.
+     * Quién debe enterarse: facturación Y supervisión, siempre.
+     *
+     * No es redundancia. Hoy la bandera de facturación la tiene una sola
+     * persona; si ese día no entra al programa, el aviso de que cambió la plata
+     * no lo lee nadie y el descuadre aparece cuando se cierra la caja. Una
+     * notificación de dinero que no llega a nadie es peor que una de más.
      */
     public static function destinatarios(?int $excluirUsuarioId = null): \Illuminate\Support\Collection
     {
-        $facturadores = Usuario::where('facturacion', true)
-            ->where('activo', true)
-            ->when($excluirUsuarioId, fn($q) => $q->where('id', '!=', $excluirUsuarioId))
-            ->get();
-
-        if ($facturadores->isNotEmpty()) {
-            return $facturadores;
-        }
-
-        return Usuario::where('rol', 'supervisor')
-            ->where('activo', true)
+        return Usuario::where('activo', true)
+            ->where(fn($q) => $q->where('facturacion', true)->orWhere('rol', 'supervisor'))
             ->when($excluirUsuarioId, fn($q) => $q->where('id', '!=', $excluirUsuarioId))
             ->get();
     }
