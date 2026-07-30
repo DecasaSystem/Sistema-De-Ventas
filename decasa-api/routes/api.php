@@ -102,6 +102,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/ordenes',             [OrdenController::class, 'store'])->middleware('throttle:20,1');
     Route::get('/ordenes/{id}',                         [OrdenController::class, 'show']);
     Route::patch('/ordenes/{id}',                       [OrdenController::class, 'update']);
+    // Solo borradores: una orden confirmada se cancela, no se borra
+    Route::delete('/ordenes/{id}',                      [OrdenController::class, 'destroy'])->whereNumber('id');
     Route::patch('/ordenes/{id}/estado',                [OrdenController::class, 'updateEstado']);
     Route::post('/ordenes/{id}/confirmar-cotizacion',   [OrdenController::class, 'confirmarCotizacion']);
     Route::post('/ordenes/{id}/completar-borrador',     [OrdenController::class, 'completarBorrador']);

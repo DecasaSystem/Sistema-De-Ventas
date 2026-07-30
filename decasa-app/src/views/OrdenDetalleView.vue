@@ -3,7 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
-import { getOrden, updateEstado, descargarPdfOrden, descargarActaEntrega, reenviarCotizacion, asignarFechasEntrega, confirmarCotizacion, editarPago, completarBorrador as completarBorradorApi } from '@/api/ordenes'
+import { getOrden, updateEstado, descargarPdfOrden, descargarActaEntrega, reenviarCotizacion, asignarFechasEntrega, confirmarCotizacion, editarPago, completarBorrador as completarBorradorApi, eliminarBorrador as eliminarBorradorApi } from '@/api/ordenes'
 import { updateCliente } from '@/api/clientes'
 import { despachoPorOrden } from '@/api/despacho'
 import { tomarFacturacion, marcarFacturada } from '@/api/pagos'
@@ -165,6 +165,15 @@ const tienePersonalizados = computed(() =>
 
 const esBorrador = computed(() => orden.value?.estado === 'borrador')
 
+/** Borrador que se canceló: sin consecutivo, sin serie y sin un peso cobrado. */
+const esBorradorCancelado = computed(() =>
+  orden.value?.estado === 'cancelado'
+  && !orden.value?.numero_orden
+  && !orden.value?.serie
+  && !orden.value?.cotizacion_numero
+  && !(orden.value?.pagos ?? []).length
+)
+
 // ── Completar borrador ────────────────────────────────────────────────────────
 const showCompletarBorradorModal = ref(false)
 const completandoBorrador        = ref(false)
@@ -198,6 +207,49 @@ function toggleBorradorPagoSplit() {
     borradorMetodo2.value     = borradorForm.value.anticipo_metodo === 'efectivo' ? 'transferencia' : 'efectivo'
   }
 }
+
+// ── Especificaciones que faltan en los personalizados ────────────────────────
+// Se pueden empezar a vender sin medidas, pero al completar hay que darlas: si
+// no, el ebanista recibe una orden de producción de un mueble que no sabe hacer.
+const borradorSpecs = ref({})   // { [itemId]: { campo: valor } }
+
+function templateDeItem(item) {
+  const key = resolverCategoria(
+    item.producto?.nombre ?? item.nombre_custom,
+    item.producto?.categoria ?? item.categoria_custom,
+  )
+  return SPECS_TEMPLATES[key] ?? SPECS_TEMPLATES['generico']
+}
+
+function specsVacias(item) {
+  const s = item.specs_personalizacion
+  if (!s) return true
+  return !Object.values(s).some(v => v !== null && v !== '' && !(Array.isArray(v) && !v.length))
+}
+
+/** Personalizados del borrador que todavía no tienen ninguna especificación. */
+const borradorItemsSinSpecs = computed(() =>
+  (orden.value?.items ?? []).filter(i => i.es_personalizado && specsVacias(i))
+)
+
+/** Al menos un campo lleno por ítem: es lo mínimo que el backend acepta. */
+const borradorSpecsCompletas = computed(() =>
+  borradorItemsSinSpecs.value.every(i =>
+    Object.values(borradorSpecs.value[i.id] ?? {}).some(v => v !== null && String(v).trim() !== '')
+  )
+)
+
+const borradorEspecificacionesPayload = computed(() =>
+  borradorItemsSinSpecs.value.map(i => {
+    const crudo = borradorSpecs.value[i.id] ?? {}
+    const specs = {}
+    for (const [k, v] of Object.entries(crudo)) {
+      if (k === 'notas') continue
+      if (v !== null && String(v).trim() !== '') specs[k] = String(v).trim()
+    }
+    return { item_id: i.id, specs, notas: (crudo.notas || '').trim() || undefined }
+  })
+)
 
 // Archivos del modal completar
 const borradorComprobanteFile    = ref(null)
@@ -257,6 +309,9 @@ watch(showCompletarBorradorModal, (open) => {
     borradorAnexoUrl.value           = orden.value?.anexo_foto_url     ?? ''
     borradorAnexoPreview.value       = ''
     borradorClienteErr.value         = ''
+    borradorSpecs.value = Object.fromEntries(
+      borradorItemsSinSpecs.value.map(i => [i.id, {}])
+    )
     borradorFormCliente.value = {
       nombre:    orden.value?.cliente?.nombre    || '',
       cedula:    orden.value?.cliente?.cedula    || '',
@@ -359,6 +414,9 @@ async function completarBorrador() {
       departamento_envio:  borradorForm.value.departamento_envio || undefined,
       ciudad_envio:        borradorForm.value.ciudad_envio || undefined,
       direccion_envio:     borradorForm.value.direccion_envio || undefined,
+      especificaciones:    borradorEspecificacionesPayload.value.length
+        ? borradorEspecificacionesPayload.value
+        : undefined,
     })
     orden.value = data
     showCompletarBorradorModal.value = false
@@ -461,9 +519,23 @@ async function cambiarEstado() {
   }
 }
 
-async function cancelarBorrador() {
-  nuevoEstado.value = 'cancelado'
-  await cambiarEstado()
+// Un borrador no se cancela: se descarta. Nunca fue una venta, así que dejarlo
+// como "cancelado" en la lista solo ensucia. El backend libera lo reservado.
+const descartandoBorrador = ref(false)
+const showDescartarBorrador = ref(false)
+
+async function descartarBorrador() {
+  descartandoBorrador.value = true
+  try {
+    await eliminarBorradorApi(orden.value.id)
+    showDescartarBorrador.value = false
+    toast.success('Borrador descartado. Los productos volvieron al inventario.')
+    router.push({ name: 'ordenes' })
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudo descartar el borrador')
+  } finally {
+    descartandoBorrador.value = false
+  }
 }
 
 function onPagoRegistrado() {
@@ -1830,14 +1902,31 @@ onMounted(cargarOrden)
           </button>
           <button
             v-if="auth.isSupervisor || Number(orden.vendedor_id) === Number(auth.usuario?.id)"
-            @click="cancelarBorrador"
-            :disabled="changingEstado"
-            class="w-full border border-red-300 text-red-600 rounded-xl py-2.5 text-sm font-medium hover:bg-red-50 transition-colors"
+            @click="showDescartarBorrador = true"
+            :disabled="descartandoBorrador"
+            class="w-full border border-red-300 text-red-600 rounded-xl py-2.5 text-sm font-medium hover:bg-red-50 disabled:opacity-50 transition-colors"
           >
-            Cancelar borrador
+            Descartar borrador
           </button>
         </div>
       </template>
+
+      <!-- Borrador que quedó cancelado: tampoco fue una venta, se puede descartar -->
+      <div
+        v-if="esBorradorCancelado && (auth.isSupervisor || Number(orden.vendedor_id) === Number(auth.usuario?.id))"
+        class="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 space-y-2"
+      >
+        <p class="text-xs text-gray-600">
+          Este borrador se canceló sin llegar a ser una venta: no tiene número de orden ni pagos.
+        </p>
+        <button
+          @click="showDescartarBorrador = true"
+          :disabled="descartandoBorrador"
+          class="w-full border border-red-300 text-red-600 rounded-lg py-2 text-sm font-medium hover:bg-red-50 disabled:opacity-50 transition-colors"
+        >
+          Descartar de la lista
+        </button>
+      </div>
 
       <!-- Aviso: orden en despacho -->
       <div
@@ -2260,6 +2349,69 @@ onMounted(cargarOrden)
             </button>
           </div>
 
+          <!-- Especificaciones que quedaron sin llenar al guardar el borrador -->
+          <div v-if="borradorItemsSinSpecs.length" class="bg-purple-50 border border-purple-300 rounded-xl p-4 space-y-4">
+            <div class="flex items-start gap-2">
+              <WrenchScrewdriverIcon class="w-4 h-4 text-purple-600 mt-0.5 shrink-0" />
+              <div>
+                <p class="text-sm font-semibold text-purple-800">
+                  {{ borradorItemsSinSpecs.length === 1 ? 'Falta especificar un producto' : `Faltan especificar ${borradorItemsSinSpecs.length} productos` }}
+                </p>
+                <p class="text-xs text-purple-700">
+                  Sin medidas ni acabado el ebanista no puede fabricarlo. Llena al menos lo que ya sepas.
+                </p>
+              </div>
+            </div>
+
+            <div v-for="item in borradorItemsSinSpecs" :key="item.id" class="bg-white rounded-lg border border-purple-200 p-3 space-y-3">
+              <p class="text-xs font-semibold text-gray-800">
+                {{ item.producto?.nombre ?? item.nombre_custom }}
+                <span class="text-gray-400 font-normal">· {{ templateDeItem(item).titulo }}</span>
+              </p>
+
+              <div class="grid grid-cols-2 gap-3">
+                <div
+                  v-for="campo in templateDeItem(item).campos"
+                  :key="campo.key"
+                  :class="campo.type === 'text' ? 'col-span-2' : ''"
+                >
+                  <label class="block text-[11px] font-medium text-gray-500 mb-0.5">
+                    {{ campo.label }}{{ campo.unit ? ' (' + campo.unit + ')' : '' }}
+                  </label>
+                  <select
+                    v-if="campo.type === 'select'"
+                    v-model="borradorSpecs[item.id][campo.key]"
+                    class="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+                  >
+                    <option value="">— elegir —</option>
+                    <option v-for="opt in campo.options" :key="opt" :value="opt">{{ opt }}</option>
+                  </select>
+                  <input
+                    v-else
+                    v-model="borradorSpecs[item.id][campo.key]"
+                    :type="campo.type"
+                    :placeholder="campo.placeholder"
+                    class="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-[11px] font-medium text-gray-500 mb-0.5">Notas para el taller</label>
+                <textarea
+                  v-model="borradorSpecs[item.id].notas"
+                  rows="2"
+                  placeholder="ej: esquinas redondeadas, sin botones en el respaldo"
+                  class="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-purple-400"
+                />
+              </div>
+            </div>
+
+            <p v-if="!borradorSpecsCompletas" class="text-xs text-purple-700 font-medium">
+              Llena al menos un dato de cada producto para poder confirmar.
+            </p>
+          </div>
+
           <!-- Firma del cliente -->
           <div class="space-y-2">
             <label class="block text-xs font-semibold text-gray-600 uppercase">Firma del cliente <span class="text-red-500">*</span></label>
@@ -2418,6 +2570,7 @@ onMounted(cargarOrden)
               @click="completarBorrador"
               :disabled="completandoBorrador || subiendoComprobante || subiendoAnexo ||
                 borradorClienteRequiereCompletar ||
+                !borradorSpecsCompletas ||
                 (!borradorFirmaBlob && !borradorFirmaUrl) ||
                 (!borradorTieneItemsCotiz && !borradorComprobanteFile && !borradorComprobanteUrl) ||
                 !borradorForm.departamento_envio ||
@@ -2483,6 +2636,36 @@ onMounted(cargarOrden)
               alt="Foto"
               class="w-full object-contain max-h-96"
             />
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- Confirmación: descartar borrador -->
+    <Transition name="fade">
+      <div v-if="showDescartarBorrador" class="fixed inset-0 z-[70] flex items-center justify-center p-6">
+        <div class="absolute inset-0 bg-black/50" @click="showDescartarBorrador = false" />
+        <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5 space-y-4">
+          <div class="flex items-start gap-3">
+            <ExclamationTriangleIcon class="w-6 h-6 text-red-500 shrink-0" />
+            <div>
+              <p class="text-sm font-bold text-gray-900">¿Descartar este borrador?</p>
+              <p class="text-xs text-gray-600 mt-1">
+                Se borra por completo y los productos apartados vuelven al inventario. No se puede recuperar.
+              </p>
+            </div>
+          </div>
+          <div class="flex gap-3">
+            <button @click="showDescartarBorrador = false" class="flex-1 bg-gray-100 text-gray-700 rounded-lg py-2.5 text-sm font-semibold">
+              No, dejarlo
+            </button>
+            <button
+              @click="descartarBorrador"
+              :disabled="descartandoBorrador"
+              class="flex-1 bg-red-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-red-700 disabled:opacity-50 transition-colors"
+            >
+              {{ descartandoBorrador ? 'Descartando...' : 'Sí, descartar' }}
+            </button>
           </div>
         </div>
       </div>

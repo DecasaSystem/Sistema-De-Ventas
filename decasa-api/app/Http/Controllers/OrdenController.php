@@ -1352,7 +1352,55 @@ class OrdenController extends Controller
             'departamento_envio'  => 'required|string|max:100',
             'ciudad_envio'        => 'required|string|max:100',
             'direccion_envio'     => 'required|string|max:300',
+
+            // Especificaciones que faltaban al guardar el borrador. Se pueden
+            // enviar aquí para no obligar a pasar por el modal de edición.
+            'especificaciones'                => 'nullable|array',
+            'especificaciones.*.item_id'      => 'required_with:especificaciones|integer|exists:orden_items,id',
+            'especificaciones.*.specs'        => 'nullable|array',
+            'especificaciones.*.notas'        => 'nullable|string|max:1000',
         ]);
+
+        // Guardar lo que llegue antes de validar, para que la comprobación mire
+        // el estado final del ítem y no el que tenía al abrir el modal.
+        foreach ($data['especificaciones'] ?? [] as $esp) {
+            $item = $orden->items->firstWhere('id', $esp['item_id']);
+            if (! $item) continue;
+
+            $specs = array_filter($esp['specs'] ?? [], fn($v) => $v !== null && $v !== '');
+            if (! empty($esp['notas'])) $specs['notas'] = $esp['notas'];
+
+            if (! empty($specs)) {
+                $item->update([
+                    'specs_personalizacion' => array_merge($item->specs_personalizacion ?? [], $specs),
+                ]);
+            }
+        }
+        $orden->load('items.produccion');
+
+        // Un personalizado sin especificaciones no se puede fabricar: al
+        // completar el borrador se crean las órdenes de producción, y el ebanista
+        // recibiría un mueble del que no sabe medidas ni acabado.
+        $sinEspecificar = $orden->items
+            ->filter(fn($i) => $i->es_personalizado)
+            ->filter(fn($i) => empty(array_filter(
+                $i->specs_personalizacion ?? [],
+                fn($v) => $v !== null && $v !== '' && $v !== []
+            )))
+            ->map(fn($i) => [
+                'item_id' => $i->id,
+                'nombre'  => $i->producto->nombre ?? $i->nombre_custom ?? 'Producto personalizado',
+            ])
+            ->values();
+
+        if ($sinEspecificar->isNotEmpty()) {
+            return response()->json([
+                'message' => $sinEspecificar->count() === 1
+                    ? 'Falta especificar "' . $sinEspecificar[0]['nombre'] . '": sin medidas ni acabado no se puede fabricar.'
+                    : $sinEspecificar->count() . ' productos personalizados no tienen especificaciones. Sin eso no se pueden fabricar.',
+                'items_sin_especificar' => $sinEspecificar,
+            ], 422);
+        }
 
         $tieneItemsCotizacion = $orden->items->contains(
             fn($i) => $i->es_personalizado && $i->precio_unitario == 0
@@ -1865,6 +1913,87 @@ class OrdenController extends Controller
         'pereira' => ['Decasa Unicentro Pereira', 'Decasa Circunvalar'],
         'armenia' => ['Decasa Norte', 'Decasa Vía El Edén', 'Decasa Vía Jardines', 'Bodega Fábrica', 'Tienda Virtual'],
     ];
+
+    /**
+     * DELETE /api/ordenes/{id}
+     *
+     * Solo borradores. Un borrador nunca fue una venta —no tiene consecutivo, no
+     * generó comisión ni producción—, así que no hay nada que conservar: dejarlo
+     * cancelado en la lista es basura. Se libera el inventario que tenía apartado.
+     *
+     * También borra los borradores que ya quedaron cancelados antes de que
+     * existiera este endpoint: son los que ensucian la lista de órdenes.
+     */
+    public function destroy(Request $request, int $id)
+    {
+        $usuario = $request->user();
+        $orden   = Orden::with('items')->findOrFail($id);
+
+        // Un borrador cancelado nunca fue venta: sin consecutivo, sin serie y sin
+        // un peso cobrado. Con cualquiera de esas tres cosas sí hubo operación.
+        $borradorCancelado = $orden->estado === 'cancelado'
+            && $orden->numero_orden === null
+            && $orden->serie === null
+            && $orden->cotizacion_numero === null
+            && $orden->pagos()->count() === 0;
+
+        if ($orden->estado !== 'borrador' && ! $borradorCancelado) {
+            return response()->json([
+                'message' => 'Solo se pueden eliminar borradores. Una orden confirmada se cancela, no se borra.',
+            ], 422);
+        }
+
+        if ($usuario->rol !== 'supervisor' && $orden->vendedor_id !== $usuario->id) {
+            return response()->json(['message' => 'Solo puedes eliminar tus propios borradores.'], 403);
+        }
+
+        DB::transaction(function () use ($orden, $usuario, $borradorCancelado) {
+            // Devolver al stock lo que el borrador tenía apartado. Si ya estaba
+            // cancelado la reserva se liberó en ese momento: hacerlo otra vez
+            // dejaría el cantidad_reservada en negativo.
+            foreach ($borradorCancelado ? [] : $orden->items as $item) {
+                if ($item->es_personalizado || ! $item->producto_id) continue;
+
+                $origenId = $item->tienda_origen_id ?? $orden->tienda_id;
+
+                if ($item->variante_id) {
+                    InventarioVariante::where('variante_id', $item->variante_id)
+                        ->where('tienda_id', $origenId)
+                        ->decrement('cantidad_reservada', $item->cantidad);
+
+                    if ($item->combo_config_id) {
+                        InventarioVarianteCombinacion::where('variante_id', $item->variante_id)
+                            ->where('config_id', $item->combo_config_id)
+                            ->where('tienda_id', $origenId)
+                            ->decrement('cantidad_reservada', $item->cantidad);
+                    }
+                }
+
+                Inventario::where('producto_id', $item->producto_id)
+                    ->where('tienda_id', $origenId)
+                    ->decrement('cantidad_reservada', $item->cantidad);
+
+                InventarioMovimiento::create([
+                    'producto_id' => $item->producto_id,
+                    'tienda_id'   => $origenId,
+                    'tipo'        => 'liberacion',
+                    'cantidad'    => $item->cantidad,
+                    'motivo'      => "Borrador eliminado (orden interna #{$orden->id})",
+                    'usuario_id'  => $usuario->id,
+                ]);
+            }
+
+            $itemIds = $orden->items->pluck('id');
+            Produccion::whereIn('orden_item_id', $itemIds)->delete();
+            DB::table('consultas_costo')->where('orden_id', $orden->id)->delete();
+            DB::table('orden_ediciones')->where('orden_id', $orden->id)->delete();
+            $orden->pagos()->delete();
+            OrdenItem::whereIn('id', $itemIds)->delete();
+            $orden->delete();
+        });
+
+        return response()->json(['message' => 'Borrador eliminado.']);
+    }
 
     /**
      * Grupo de numeración al que pertenece una tienda ('armenia', 'pereira' o

@@ -140,6 +140,11 @@ class Orden extends Model
         if ($this->cotizacion_numero && $this->estado === 'cotizacion') {
             return 'COT-' . $this->cotizacion_numero;
         }
+        // Un borrador todavía no tiene consecutivo: el número se asigna al
+        // completarlo. Mostrar el id de la tabla no le dice nada a nadie.
+        if ($this->numero_orden === null && $this->estado === 'borrador') {
+            return 'Borrador';
+        }
 
         return '#' . ($this->numero_orden ?? $this->id);
     }
