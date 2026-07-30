@@ -1321,6 +1321,11 @@ class OrdenController extends Controller
                 $cambios,
                 'edición de la orden',
             );
+
+            // El taller trabaja con las medidas del día que arrancó: si le
+            // cambian la tela o el tamaño y nadie se lo dice, sigue armando lo
+            // viejo. Solo para órdenes que tenga en producción ahora mismo.
+            \App\Services\AvisoProduccion::ordenEditada($ordenFresh, $usuario, $cambios);
         }
 
         return response()->json($ordenFresh);
@@ -1654,6 +1659,10 @@ class OrdenController extends Controller
 
             // Cancelar registros de producción activos al cancelar la orden
             if ($estadoNuevo === 'cancelado' && $estadoAnterior !== 'cancelado') {
+                // Avisar al taller ANTES de cancelarlas: después ya no se ve que
+                // había trabajo vivo, y es justo lo que hay que decirle.
+                \App\Services\AvisoProduccion::ordenCancelada($orden, $usuario);
+
                 \App\Models\Produccion::whereHas('ordenItem', fn($q) => $q->where('orden_id', $orden->id))
                     ->whereNotIn('estado', ['cancelado', 'completado'])
                     ->update(['estado' => 'cancelado']);
