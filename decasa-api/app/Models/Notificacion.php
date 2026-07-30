@@ -8,10 +8,11 @@ class Notificacion extends Model
 {
     protected $table = 'notificaciones';
 
-    protected $fillable = ['usuario_id', 'tipo', 'titulo', 'mensaje', 'leida', 'datos'];
+    protected $fillable = ['usuario_id', 'tipo', 'titulo', 'mensaje', 'leida', 'urgente', 'datos'];
 
     protected $casts = [
-        'leida' => 'boolean',
-        'datos' => 'array',
+        'leida'   => 'boolean',
+        'urgente' => 'boolean',
+        'datos'   => 'array',
     ];
 }

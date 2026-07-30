@@ -92,9 +92,12 @@ class DescuentoCondicionadoService
                 tipo:      'descuento_revertido',
                 titulo:    'Descuento retirado por pago con ' . $metodo,
                 mensaje:   "Orden {$orden->referencia} de {$cliente}: se retiró {$montoFmt} de descuento "
-                         . "({$usuario->nombre}). El total quedó en {$nuevoFmt}.",
+                         . "({$usuario->nombre}). El total quedó en {$nuevoFmt}. "
+                         . 'Saldo pendiente: $' . number_format($orden->saldoPendiente(), 0, ',', '.') . '.',
                 datos:     ['orden_id' => $orden->id],
                 usuarioId: $d->id,
+                // Sube el total de una orden ya vendida: es plata, va marcado.
+                urgente:   true,
             );
         }
     }

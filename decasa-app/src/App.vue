@@ -159,6 +159,17 @@ const abonosNoLeidos = computed(() =>
   notif.items.filter(n => !n.leida && n.tipo === 'abono_registrado').length
 )
 
+// Las urgentes son cambios de plata: van primero y en rojo, para que no queden
+// enterradas debajo de veinte avisos de "asignar fecha de entrega".
+const urgentesNoLeidas = computed(() =>
+  notif.items.filter(n => !n.leida && n.urgente).length
+)
+const notificacionesOrdenadas = computed(() => {
+  const pendientes = notif.items.filter(n => n.urgente && !n.leida)
+  const resto      = notif.items.filter(n => !(n.urgente && !n.leida))
+  return [...pendientes, ...resto]
+})
+
 // Badge de conversaciones WA pendientes (carga inicial + actualización por WebSocket)
 const redesPendientes = ref(0)
 function cargarRedesPendientes() {
@@ -352,6 +363,8 @@ function tipoIcono(tipo) {
     paso_produccion:    WrenchScrewdriverIcon,
     orden_editada:      PencilSquareIcon,
     abono_registrado:   BanknotesIcon,
+    cambio_dinero:      BanknotesIcon,
+    descuento_revertido: ReceiptPercentIcon,
     redes:              ChatBubbleLeftRightIcon,
     comisiones:         ReceiptPercentIcon,
     cita_recordatorio:          CalendarDaysIcon,
@@ -425,7 +438,8 @@ function formatFecha(iso) {
         <!-- Campana de notificaciones -->
         <div v-if="auth.isAuthenticated" class="relative">
           <button @click="abrirNotif = !abrirNotif" class="relative p-1">
-            <BellIcon class="w-6 h-6 text-gray-600" />
+            <!-- Con algo urgente sin leer la campana misma se pone roja y late -->
+            <BellIcon :class="['w-6 h-6', urgentesNoLeidas > 0 ? 'text-red-600 animate-pulse' : 'text-gray-600']" />
             <span
               v-if="notif.noLeidas > 0"
               class="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[16px] h-4 flex items-center justify-center px-0.5"
@@ -468,11 +482,13 @@ function formatFecha(iso) {
               </div>
 
               <div
-                v-for="n in notif.items"
+                v-for="n in notificacionesOrdenadas"
                 :key="n.id"
                 :class="[
-                  'flex items-start border-b border-gray-50 transition-colors',
-                  !n.leida ? 'bg-blue-50' : 'hover:bg-gray-50',
+                  'flex items-start border-b transition-colors',
+                  n.urgente && !n.leida
+                    ? 'bg-red-50 border-red-100'
+                    : (!n.leida ? 'bg-blue-50 border-gray-50' : 'border-gray-50 hover:bg-gray-50'),
                 ]"
               >
                 <button
@@ -480,13 +496,25 @@ function formatFecha(iso) {
                   class="flex-1 text-left px-4 py-3"
                 >
                   <div class="flex gap-2 items-start">
-                    <component :is="tipoIcono(n.tipo)" class="w-4 h-4 mt-0.5 text-gray-600 flex-shrink-0" />
+                    <component
+                      :is="tipoIcono(n.tipo)"
+                      :class="['w-4 h-4 mt-0.5 flex-shrink-0', n.urgente && !n.leida ? 'text-red-600' : 'text-gray-600']"
+                    />
                     <div class="flex-1 min-w-0 overflow-hidden">
-                      <p class="text-sm font-medium text-gray-800 leading-tight break-words">{{ n.titulo }}</p>
+                      <p class="text-sm font-medium text-gray-800 leading-tight break-words">
+                        <span
+                          v-if="n.urgente && !n.leida"
+                          class="inline-block bg-red-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded mr-1 align-middle"
+                        >URGENTE</span>
+                        {{ n.titulo }}
+                      </p>
                       <p class="text-xs text-gray-500 leading-snug mt-0.5 break-words">{{ n.mensaje }}</p>
                       <p class="text-[11px] text-gray-400 mt-1">{{ formatFecha(n.created_at) }}</p>
                     </div>
-                    <span v-if="!n.leida" class="w-2 h-2 bg-blue-500 rounded-full mt-1 flex-shrink-0" />
+                    <span
+                      v-if="!n.leida"
+                      :class="['w-2 h-2 rounded-full mt-1 flex-shrink-0', n.urgente ? 'bg-red-500' : 'bg-blue-500']"
+                    />
                   </div>
                 </button>
                 <button

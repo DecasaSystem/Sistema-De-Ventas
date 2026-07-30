@@ -15,6 +15,7 @@ class NotificacionService
         string $mensaje,
         array  $datos = [],
         ?int   $usuarioId = null,
+        bool   $urgente = false,
     ): Notificacion {
         if ($usuarioId === null) {
             $supervisores = Usuario::where('rol', 'supervisor')
@@ -23,12 +24,12 @@ class NotificacionService
 
             $last = null;
             foreach ($supervisores as $sup) {
-                $last = self::crearParaUsuario($tipo, $titulo, $mensaje, $datos, $sup->id);
+                $last = self::crearParaUsuario($tipo, $titulo, $mensaje, $datos, $sup->id, $urgente);
             }
-            return $last ?? self::crearParaUsuario($tipo, $titulo, $mensaje, $datos, null);
+            return $last ?? self::crearParaUsuario($tipo, $titulo, $mensaje, $datos, null, $urgente);
         }
 
-        return self::crearParaUsuario($tipo, $titulo, $mensaje, $datos, $usuarioId);
+        return self::crearParaUsuario($tipo, $titulo, $mensaje, $datos, $usuarioId, $urgente);
     }
 
     private static function crearParaUsuario(
@@ -37,12 +38,14 @@ class NotificacionService
         string $mensaje,
         array  $datos,
         ?int   $usuarioId,
+        bool   $urgente = false,
     ): Notificacion {
         $n = Notificacion::create([
             'usuario_id' => $usuarioId,
             'tipo'       => $tipo,
             'titulo'     => $titulo,
             'mensaje'    => $mensaje,
+            'urgente'    => $urgente,
             'datos'      => $datos ?: null,
         ]);
 

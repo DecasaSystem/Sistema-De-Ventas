@@ -1311,6 +1311,16 @@ class OrdenController extends Controller
                 "Orden {$orden->referencia} ({$ordenFresh->cliente->nombre}) fue editada por {$usuario->nombre}",
                 ['orden_id' => $orden->id],
             );
+
+            // Si la edición tocó plata (precios, cantidades, descuento o total),
+            // facturación necesita saberlo aparte: el aviso de arriba no dice
+            // qué cambió y se pierde entre las ediciones de dirección o notas.
+            \App\Services\AvisoFacturacion::cambioDeDinero(
+                $ordenFresh,
+                $usuario,
+                $cambios,
+                'edición de la orden',
+            );
         }
 
         return response()->json($ordenFresh);
@@ -1756,6 +1766,10 @@ class OrdenController extends Controller
                         $consulta->asignado_a_id,
                     );
                 });
+
+            // Una orden cancelada que ya recibió plata deja un dinero sin destino:
+            // facturación tiene que decidir si se devuelve o queda a favor.
+            \App\Services\AvisoFacturacion::ordenCanceladaConPagos($ordenFresh, $usuario);
         }
 
         // Notificar inventario cuando se entrega o cancela

@@ -274,6 +274,15 @@ class PagoController extends Controller
                     'cambios'    => $cambios,
                 ]);
             });
+
+            // Facturación tiene que enterarse ya: corregir un anticipo o el medio
+            // de pago le cambia lo que tiene que cuadrar y lo que va a la caja.
+            \App\Services\AvisoFacturacion::cambioDeDinero(
+                $orden->fresh(),
+                $usuario,
+                $cambios,
+                'corrección de un pago ya registrado',
+            );
         }
 
         return response()->json([
