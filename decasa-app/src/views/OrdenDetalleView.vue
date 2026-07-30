@@ -16,6 +16,7 @@ import { SparklesIcon, XMarkIcon } from '@heroicons/vue/24/solid'
 import { DocumentIcon, EnvelopeIcon, ChatBubbleLeftEllipsisIcon, ArrowDownTrayIcon, CalendarIcon, BuildingOffice2Icon, TruckIcon, PencilSquareIcon, ClockIcon, CheckBadgeIcon, LockClosedIcon, WrenchScrewdriverIcon, CheckCircleIcon, UserGroupIcon, CurrencyDollarIcon, BanknotesIcon, ExclamationTriangleIcon, SwatchIcon } from '@heroicons/vue/24/outline'
 import FirmaCanvas from '@/components/FirmaCanvas.vue'
 import DireccionColombia from '@/components/DireccionColombia.vue'
+import TelaPicker from '@/components/ordenes/TelaPicker.vue'
 import { comprimirImagen } from '@/utils/comprimirImagen'
 import { pctDeMonto, formatPct } from '@/utils/descuentos'
 import { PhotoIcon } from '@heroicons/vue/24/outline'
@@ -212,6 +213,21 @@ function toggleBorradorPagoSplit() {
 // Se pueden empezar a vender sin medidas, pero al completar hay que darlas: si
 // no, el ebanista recibe una orden de producción de un mueble que no sabe hacer.
 const borradorSpecs = ref({})   // { [itemId]: { campo: valor } }
+const borradorTelas = ref({})   // { [itemId]: { campo: { marca, tipo, color } } }
+
+/** Selección de tela de un campo, creada al vuelo la primera vez que se toca. */
+function telaDe(itemId, key) {
+  if (!borradorTelas.value[itemId]) borradorTelas.value[itemId] = {}
+  if (!borradorTelas.value[itemId][key]) {
+    borradorTelas.value[itemId][key] = { marca: '', tipo: '', color: '' }
+  }
+  return borradorTelas.value[itemId][key]
+}
+
+function telaResumida(itemId, key) {
+  const s = borradorTelas.value[itemId]?.[key]
+  return s?.marca && s?.tipo && s?.color ? [s.marca, s.tipo, s.color].join(' · ') : ''
+}
 
 function templateDeItem(item) {
   const key = resolverCategoria(
@@ -232,23 +248,32 @@ const borradorItemsSinSpecs = computed(() =>
   (orden.value?.items ?? []).filter(i => i.es_personalizado && specsVacias(i))
 )
 
+/** Specs de un ítem ya consolidadas: los campos escritos más las telas elegidas. */
+function specsDeItem(itemId) {
+  const crudo = borradorSpecs.value[itemId] ?? {}
+  const specs = {}
+  for (const [k, v] of Object.entries(crudo)) {
+    if (k === 'notas') continue
+    if (v !== null && String(v).trim() !== '') specs[k] = String(v).trim()
+  }
+  for (const key of Object.keys(borradorTelas.value[itemId] ?? {})) {
+    const tela = telaResumida(itemId, key)
+    if (tela) specs[key] = tela
+  }
+  return specs
+}
+
 /** Al menos un campo lleno por ítem: es lo mínimo que el backend acepta. */
 const borradorSpecsCompletas = computed(() =>
-  borradorItemsSinSpecs.value.every(i =>
-    Object.values(borradorSpecs.value[i.id] ?? {}).some(v => v !== null && String(v).trim() !== '')
-  )
+  borradorItemsSinSpecs.value.every(i => Object.keys(specsDeItem(i.id)).length > 0)
 )
 
 const borradorEspecificacionesPayload = computed(() =>
-  borradorItemsSinSpecs.value.map(i => {
-    const crudo = borradorSpecs.value[i.id] ?? {}
-    const specs = {}
-    for (const [k, v] of Object.entries(crudo)) {
-      if (k === 'notas') continue
-      if (v !== null && String(v).trim() !== '') specs[k] = String(v).trim()
-    }
-    return { item_id: i.id, specs, notas: (crudo.notas || '').trim() || undefined }
-  })
+  borradorItemsSinSpecs.value.map(i => ({
+    item_id: i.id,
+    specs:   specsDeItem(i.id),
+    notas:   (borradorSpecs.value[i.id]?.notas || '').trim() || undefined,
+  }))
 )
 
 // Archivos del modal completar
@@ -312,6 +337,7 @@ watch(showCompletarBorradorModal, (open) => {
     borradorSpecs.value = Object.fromEntries(
       borradorItemsSinSpecs.value.map(i => [i.id, {}])
     )
+    borradorTelas.value = {}
     borradorFormCliente.value = {
       nombre:    orden.value?.cliente?.nombre    || '',
       cedula:    orden.value?.cliente?.cedula    || '',
@@ -2378,8 +2404,13 @@ onMounted(cargarOrden)
                   <label class="block text-[11px] font-medium text-gray-500 mb-0.5">
                     {{ campo.label }}{{ campo.unit ? ' (' + campo.unit + ')' : '' }}
                   </label>
+                  <TelaPicker
+                    v-if="campo.useVariantes"
+                    :seleccion="telaDe(item.id, campo.key)"
+                    :etiqueta="campo.label"
+                  />
                   <select
-                    v-if="campo.type === 'select'"
+                    v-else-if="campo.type === 'select'"
                     v-model="borradorSpecs[item.id][campo.key]"
                     class="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
                   >

@@ -4,8 +4,9 @@ import { editarOrden, editarPago, buscarProductos, getTiendas } from '@/api/orde
 import { getVariantes } from '@/api/inventario'
 import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
-import { TELAS_CATALOGO, marcasOrdenadas, tiposTelaDeM, coloresDeTela } from '@/data/telasCatalogo'
 import { SPECS_TEMPLATES, resolverCategoria } from '@/constants/specsConfig'
+import { useTelas } from '@/composables/useTelas'
+import TelaPicker from '@/components/ordenes/TelaPicker.vue'
 import { pctDeMonto, montoDePct, formatPct } from '@/utils/descuentos'
 import { XMarkIcon, SparklesIcon, MagnifyingGlassIcon, TrashIcon, PlusIcon, PhotoIcon, WrenchScrewdriverIcon } from '@heroicons/vue/24/outline'
 import { comprimirImagen } from '@/utils/comprimirImagen'
@@ -455,38 +456,8 @@ watch(() => props.show, (v) => {
   buscando.value = {}
 })
 
-// ── Inventario de telas ──────────────────────────────────────────────────────
-const telaMetrosMap = ref({})  // "marca|tipo|color" → metros_libres
-
-async function cargarTelas() {
-  try {
-    const { data } = await api.get('/inventario-telas')
-    const map = {}
-    for (const t of data) {
-      map[`${t.marca}|${t.tipo}|${t.color}`] = t.metros_libres
-    }
-    telaMetrosMap.value = map
-  } catch {}
-}
-
-function tieneStock(marca, tipo, color) {
-  return (telaMetrosMap.value[`${marca}|${tipo}|${color}`] ?? 0) > 0
-}
-function marcasConStock() {
-  return marcasOrdenadas.value.filter(m =>
-    Object.keys(TELAS_CATALOGO[m] ?? {}).some(tipo =>
-      (TELAS_CATALOGO[m][tipo] ?? []).some(color => tieneStock(m, tipo, color))
-    )
-  )
-}
-function tiposConStock(marca) {
-  return tiposTelaDeM(marca).filter(tipo =>
-    (TELAS_CATALOGO[marca]?.[tipo] ?? []).some(color => tieneStock(marca, tipo, color))
-  )
-}
-function coloresConStock(marca, tipo) {
-  return coloresDeTela(marca, tipo).filter(color => tieneStock(marca, tipo, color))
-}
+// ── Inventario de telas (compartido con nueva orden y completar borrador) ────
+const { cargarTelas } = useTelas()
 
 // ── Selección de tela nueva por campo (marca → tipo → color) ────────────────
 function getTelaSelection(item, key) {
@@ -961,40 +932,13 @@ async function guardar() {
                           {{ campo.label }}{{ campo.unit ? ' (' + campo.unit + ')' : '' }}
                         </label>
 
-                        <!-- Tela: cascada Marca → Tipo → Color (solo telas con stock) -->
-                        <template v-if="campo.useVariantes">
-                          <p v-if="item.specs[campo.key]" class="text-xs text-gray-500 mb-1">
-                            Actual: <span class="font-medium text-gray-700">{{ item.specs[campo.key] }}</span>
-                          </p>
-                          <select
-                            v-model="getTelaSelection(item, campo.key).marca"
-                            @change="getTelaSelection(item, campo.key).tipo = ''; getTelaSelection(item, campo.key).color = ''"
-                            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          >
-                            <option value="">— sin cambio —</option>
-                            <option v-for="m in marcasConStock()" :key="m" :value="m">{{ m }}</option>
-                          </select>
-                          <select
-                            v-if="getTelaSelection(item, campo.key).marca"
-                            v-model="getTelaSelection(item, campo.key).tipo"
-                            @change="getTelaSelection(item, campo.key).color = ''"
-                            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm mt-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          >
-                            <option value="">— tipo de tela —</option>
-                            <option v-for="t in tiposConStock(getTelaSelection(item, campo.key).marca)" :key="t" :value="t">{{ t }}</option>
-                          </select>
-                          <select
-                            v-if="getTelaSelection(item, campo.key).tipo"
-                            v-model="getTelaSelection(item, campo.key).color"
-                            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm mt-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          >
-                            <option value="">— color —</option>
-                            <option v-for="c in coloresConStock(getTelaSelection(item, campo.key).marca, getTelaSelection(item, campo.key).tipo)" :key="c" :value="c">{{ c }}</option>
-                          </select>
-                          <p v-if="telaResumidaCampo(item, campo.key)" class="text-xs text-purple-600 font-medium mt-1">
-                            Nueva selección: {{ telaResumidaCampo(item, campo.key) }}
-                          </p>
-                        </template>
+                        <!-- Tela: mismo selector que en nueva orden y al completar -->
+                        <TelaPicker
+                          v-if="campo.useVariantes"
+                          :seleccion="getTelaSelection(item, campo.key)"
+                          :actual="item.specs[campo.key] || ''"
+                          etiqueta="Nueva selección"
+                        />
 
                         <!-- Select normal -->
                         <select
@@ -1201,7 +1145,12 @@ async function guardar() {
                     <p class="text-[11px] font-semibold text-gray-500 uppercase">Especificaciones</p>
                     <div v-for="campo in nuevoTemplate.campos" :key="campo.key">
                       <label class="block text-[11px] text-gray-500 mb-0.5">{{ campo.label }}</label>
-                      <input v-model="nuevoItem.specs[campo.key]" type="text"
+                      <TelaPicker
+                        v-if="campo.useVariantes"
+                        :seleccion="getTelaSelection(nuevoItem, campo.key)"
+                        :etiqueta="campo.label"
+                      />
+                      <input v-else v-model="nuevoItem.specs[campo.key]" type="text"
                         class="w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                     </div>
                     <div>
