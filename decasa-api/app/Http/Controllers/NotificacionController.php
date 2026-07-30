@@ -22,7 +22,10 @@ class NotificacionController extends Controller
         $n = Notificacion::findOrFail($id);
         $u = $request->user();
 
-        if ($u->rol !== 'supervisor' && $n->usuario_id !== $u->id) {
+        // Solo el dueño. El supervisor podía marcar como leída la de cualquiera,
+        // y eso deja al otro sin ver un aviso pendiente sin haberlo abierto
+        // nunca —justo lo que no puede pasar con un aviso de plata—.
+        if ($n->usuario_id !== $u->id) {
             abort(403);
         }
 
