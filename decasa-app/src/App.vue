@@ -327,7 +327,9 @@ async function abrirNotificacion(n) {
     } else {
       router.push({ name: 'orden-detalle', params: { id: datos.orden_id } })
     }
-  } else if (datos.surtido_id) {
+  } else if (n.tipo === 'stock_agotado' || datos.surtido_id) {
+    // El aviso de "se vendió el último" no llevaba a ningún lado: se tocaba y
+    // no pasaba nada. Va a surtir, que es donde se decide qué mandar.
     router.push({ name: auth.isSupervisor ? 'surtir' : 'inventario' })
   } else if (datos.traslado_id) {
     // Validador (traslado_pendiente) → inventario; iniciador (aceptado/rechazado) → surtir
@@ -365,6 +367,7 @@ function tipoIcono(tipo) {
     abono_registrado:   BanknotesIcon,
     cambio_dinero:      BanknotesIcon,
     descuento_revertido: ReceiptPercentIcon,
+    stock_agotado:      ArchiveBoxArrowDownIcon,
     redes:              ChatBubbleLeftRightIcon,
     comisiones:         ReceiptPercentIcon,
     cita_recordatorio:          CalendarDaysIcon,

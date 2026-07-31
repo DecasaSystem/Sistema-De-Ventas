@@ -34,7 +34,7 @@ const nuevaPassword = ref('')
 const confirmacionPassword = ref('')
 
 // Edit form
-const editForm = ref({ nombre: '', email: '', rol: '', facturacion: false, es_tapicero: false, independiente: false, notif_asignar_fecha: true, acceso_redes: false, acceso_comisiones: false, recarga_telas: false, tienda_default_id: '' })
+const editForm = ref({ nombre: '', email: '', rol: '', facturacion: false, es_tapicero: false, independiente: false, notif_asignar_fecha: true, notif_stock: false, acceso_redes: false, acceso_comisiones: false, recarga_telas: false, tienda_default_id: '' })
 const rolesSinTienda = ['conductor', 'ebanista', 'despachador', 'costurero']
 
 // Solo un vendedor puede ir por su cuenta, y entonces no pertenece a ninguna tienda.
@@ -119,6 +119,7 @@ function openEditModal() {
     es_tapicero: usuario.value.es_tapicero ?? false,
     independiente: usuario.value.independiente ?? false,
     notif_asignar_fecha: usuario.value.notif_asignar_fecha ?? true,
+    notif_stock: usuario.value.notif_stock ?? false,
     acceso_redes: usuario.value.acceso_redes ?? false,
     acceso_comisiones: usuario.value.acceso_comisiones ?? false,
     recarga_telas: usuario.value.recarga_telas ?? false,
@@ -148,6 +149,7 @@ async function submitEdit() {
       es_tapicero: editForm.value.rol === 'supervisor' ? editForm.value.es_tapicero : false,
       independiente: editEsIndependiente.value,
       notif_asignar_fecha: editForm.value.rol === 'supervisor' ? editForm.value.notif_asignar_fecha : false,
+      notif_stock: editForm.value.rol === 'supervisor' ? editForm.value.notif_stock : false,
       acceso_redes: ['vendedor', 'supervisor'].includes(editForm.value.rol) ? editForm.value.acceso_redes : false,
       acceso_comisiones: editForm.value.rol === 'supervisor' ? editForm.value.acceso_comisiones : false,
       recarga_telas: ['vendedor', 'supervisor'].includes(editForm.value.rol) ? editForm.value.recarga_telas : false,
@@ -259,6 +261,17 @@ onMounted(async () => {
             <p class="text-xs text-gray-400">Notif. asignación de fecha</p>
             <p class="font-medium" :class="usuario.notif_asignar_fecha ? 'text-gray-800' : 'text-gray-400'">
               {{ usuario.notif_asignar_fecha ? 'Habilitada' : 'Deshabilitada' }}
+            </p>
+          </div>
+        </div>
+        <div v-if="usuario.rol === 'supervisor'" class="flex items-center gap-3">
+          <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
+            <span class="text-sm">{{ usuario.notif_stock ? '📦' : '🔕' }}</span>
+          </div>
+          <div>
+            <p class="text-xs text-gray-400">Avisos de producto agotado</p>
+            <p class="font-medium" :class="usuario.notif_stock ? 'text-gray-800' : 'text-gray-400'">
+              {{ usuario.notif_stock ? 'Habilitados — es quien surte' : 'Deshabilitados' }}
             </p>
           </div>
         </div>
@@ -499,6 +512,18 @@ onMounted(async () => {
                 <div>
                   <label for="edit-notif-fecha" class="text-sm font-medium text-gray-700 cursor-pointer">Recibe notificaciones de asignación de fecha</label>
                   <p class="text-xs text-gray-500 mt-0.5">Recibirá una alerta cada vez que se cree una orden nueva para asignar fecha de entrega.</p>
+                </div>
+              </div>
+              <div class="flex items-start gap-3 py-1">
+                <input
+                  id="edit-notif-stock"
+                  type="checkbox"
+                  v-model="editForm.notif_stock"
+                  class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <div>
+                  <label for="edit-notif-stock" class="text-sm font-medium text-gray-700 cursor-pointer">Recibe avisos de producto agotado</label>
+                  <p class="text-xs text-gray-500 mt-0.5">Para quien surte: le llega cuando se vende la última unidad de un producto en una tienda.</p>
                 </div>
               </div>
             </template>

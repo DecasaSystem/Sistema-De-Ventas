@@ -1931,12 +1931,23 @@ class OrdenController extends Controller
         $nombre   = $inv->producto?->nombre ?? "Producto #{$productoId}";
         $tiendaNm = $inv->tienda?->nombre   ?? "Tienda #{$tiendaId}";
 
-        NotificacionService::crear(
-            'stock_agotado',
-            'Se vendió el último',
-            "Se vendió la última unidad de \"$nombre\" en $tiendaNm. Hay que reponer.",
-            ['producto_id' => $productoId, 'tienda_id' => $tiendaId],
-        );
+        // Es un aviso para quien surte, no para toda la supervisión: se activa
+        // a mano por persona. Si nadie lo tiene marcado, cae a supervisión para
+        // que la alerta no se pierda en silencio.
+        $destinatarios = Usuario::where('activo', true)->where('notif_stock', true)->get();
+        if ($destinatarios->isEmpty()) {
+            $destinatarios = Usuario::where('activo', true)->where('rol', 'supervisor')->get();
+        }
+
+        foreach ($destinatarios as $d) {
+            NotificacionService::crear(
+                tipo:      'stock_agotado',
+                titulo:    'Se vendió el último',
+                mensaje:   "Se vendió la última unidad de \"$nombre\" en $tiendaNm. Hay que reponer.",
+                datos:     ['producto_id' => $productoId, 'tienda_id' => $tiendaId],
+                usuarioId: $d->id,
+            );
+        }
     }
 
     // Tiendas que comparten secuencia de numeración por grupo

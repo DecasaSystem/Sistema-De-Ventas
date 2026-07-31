@@ -22,6 +22,7 @@ class UsuarioController extends Controller
             'es_tapicero'         => (bool) $u->es_tapicero,
             'independiente'       => (bool) $u->independiente,
             'notif_asignar_fecha' => (bool) $u->notif_asignar_fecha,
+            'notif_stock'         => (bool) $u->notif_stock,
             'acceso_redes'        => (bool) $u->acceso_redes,
             'acceso_comisiones'   => (bool) $u->acceso_comisiones,
             'recarga_telas'       => (bool) $u->recarga_telas,
@@ -74,6 +75,7 @@ class UsuarioController extends Controller
             // Vendedor por su cuenta: no pertenece a ninguna tienda
             'independiente'       => 'boolean',
             'notif_asignar_fecha' => 'boolean',
+            'notif_stock'         => 'boolean',
             'acceso_redes'        => 'boolean',
             'acceso_comisiones'   => 'boolean',
             'recarga_telas'       => 'boolean',
@@ -117,6 +119,7 @@ class UsuarioController extends Controller
             'es_tapicero'         => $esSupervisor && $request->boolean('es_tapicero'),
             'independiente'       => $independiente,
             'notif_asignar_fecha' => $esSupervisor && $request->boolean('notif_asignar_fecha'),
+            'notif_stock'         => $esSupervisor && $request->boolean('notif_stock'),
             'acceso_redes'        => $puedeAccesoRedes && $request->boolean('acceso_redes'),
             'acceso_comisiones'   => $esSupervisor && $request->boolean('acceso_comisiones'),
             'recarga_telas'       => $puedeRecargaTelas && $request->boolean('recarga_telas'),
@@ -142,6 +145,7 @@ class UsuarioController extends Controller
             'es_tapicero'         => 'nullable|boolean',
             'independiente'       => 'nullable|boolean',
             'notif_asignar_fecha' => 'nullable|boolean',
+            'notif_stock'         => 'nullable|boolean',
             'acceso_redes'        => 'nullable|boolean',
             'acceso_comisiones'   => 'nullable|boolean',
             'recarga_telas'       => 'nullable|boolean',
@@ -161,6 +165,9 @@ class UsuarioController extends Controller
         }
         if ($request->has('notif_asignar_fecha')) {
             $data['notif_asignar_fecha'] = ($rolFinal === 'supervisor') && $request->boolean('notif_asignar_fecha');
+        }
+        if ($request->has('notif_stock')) {
+            $data['notif_stock'] = ($rolFinal === 'supervisor') && $request->boolean('notif_stock');
         }
         if ($request->has('facturacion')) {
             $data['facturacion'] = ($rolFinal === 'vendedor') && $request->boolean('facturacion');

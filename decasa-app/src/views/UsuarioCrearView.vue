@@ -20,6 +20,7 @@ const form = ref({
   es_tapicero: false,
   independiente: false,
   notif_asignar_fecha: true,
+  notif_stock: false,
   acceso_redes: false,
   acceso_comisiones: false,
   recarga_telas: false,
@@ -80,6 +81,7 @@ async function submit() {
       es_tapicero: form.value.es_tapicero,
       independiente: esIndependiente.value,
       notif_asignar_fecha: form.value.notif_asignar_fecha,
+      notif_stock: form.value.rol === 'supervisor' ? form.value.notif_stock : false,
       acceso_redes: form.value.acceso_redes,
       acceso_comisiones: form.value.rol === 'supervisor' ? form.value.acceso_comisiones : false,
       recarga_telas: form.value.recarga_telas,
@@ -277,6 +279,18 @@ async function submit() {
           <div>
             <label for="notif_asignar_fecha" class="text-sm font-medium text-gray-700 cursor-pointer">Recibe notificaciones de asignación de fecha</label>
             <p class="text-xs text-gray-500 mt-0.5">Recibirá una alerta cada vez que se cree una orden nueva para asignarle la fecha de entrega.</p>
+          </div>
+        </div>
+        <div class="flex items-start gap-3 py-2">
+          <input
+            id="notif_stock"
+            type="checkbox"
+            v-model="form.notif_stock"
+            class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <div>
+            <label for="notif_stock" class="text-sm font-medium text-gray-700 cursor-pointer">Recibe avisos de producto agotado</label>
+            <p class="text-xs text-gray-500 mt-0.5">Para quien surte: le llega cuando se vende la última unidad de un producto en una tienda, para saber qué mandar.</p>
           </div>
         </div>
       </template>
