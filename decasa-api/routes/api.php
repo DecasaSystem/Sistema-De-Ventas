@@ -375,6 +375,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/configuracion/costos/procesos',            [ConfiguracionCostosController::class, 'crearProceso']);
         Route::delete('/configuracion/costos/procesos/{id}',     [ConfiguracionCostosController::class, 'eliminarProceso']);
 
+        
         Route::get('/cotizador/precision',                       [PrecisionCotizadorController::class, 'index']);
     });
 

@@ -957,6 +957,18 @@ class DespachoController extends Controller
                     'motivo'      => "Entrega orden #{$orden->id} — conductor",
                     'usuario_id'  => $item->despacho->conductor_id,
                 ]);
+
+                // Aquí es donde el producto sale de verdad del inventario. Este
+                // camino —el del conductor— nunca avisaba, y es por el que pasa
+                // casi toda la mercancía: el aviso de "se vendió el último" no
+                // llegaba nunca.
+                if (! $ordenItem->es_personalizado && $ordenItem->producto_id) {
+                    OrdenController::notificarSiSeAcabo(
+                        (int) $ordenItem->producto_id,
+                        (int) $origenId,
+                        (int) $ordenItem->cantidad,
+                    );
+                }
             }
 
             $completados = DespachoItem::where('despacho_id', $item->despacho_id)

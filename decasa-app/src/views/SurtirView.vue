@@ -902,12 +902,8 @@ onMounted(async () => {
                           · quedan {{ prod.stock_libre }}
                         </span>
                       </p>
-                      <p v-if="prod.ventas_periodo || prod.intentos_fallidos" class="text-[10px] text-gray-500 leading-tight">
-                        <template v-if="prod.ventas_periodo">Vendió {{ prod.ventas_periodo }} en {{ ventanaDias }} días</template>
-                        <template v-if="prod.intentos_fallidos">
-                          <template v-if="prod.ventas_periodo"> · </template>
-                          <span class="text-red-600 font-semibold">{{ prod.intentos_fallidos }} venta(s) no se pudieron hacer</span>
-                        </template>
+                      <p v-if="prod.ventas_periodo" class="text-[10px] text-gray-500 leading-tight">
+                        Vendió {{ prod.ventas_periodo }} en {{ ventanaDias }} días
                       </p>
 
                       <div class="flex items-center justify-between gap-1">

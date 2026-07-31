@@ -592,8 +592,9 @@ class OrdenController extends Controller
         foreach ($data['items'] as $itemData) {
             if (! ($itemData['es_personalizado'] ?? false) && ! empty($itemData['producto_id'])) {
                 $origenTiendaId = $itemData['tienda_origen_id'] ?? $tiendaId;
+                // Apartar producto no es venderlo: el aviso de "se acabó" sale
+                // cuando el producto sale del inventario, al entregarlo.
                 event(new InventarioActualizado((int) $origenTiendaId, (int) $itemData['producto_id'], 'reserva'));
-                $this->notificarSiSinStock((int) $itemData['producto_id'], (int) $origenTiendaId);
 
                 if ($fabricaId && (int) $origenTiendaId === (int) $fabricaId) {
                     $itemsFabrica[] = $itemData;
@@ -1214,7 +1215,6 @@ class OrdenController extends Controller
                             'usuario_id'  => $usuario->id,
                         ]);
                         event(new InventarioActualizado((int) $origenId, (int) $productoId, 'reserva'));
-                        $this->notificarSiSinStock((int) $productoId, (int) $origenId);
 
                         // Si el stock sale de otra tienda, registrar para avisarle
                         if ($origenId !== (int) $orden->tienda_id) {
@@ -1793,12 +1793,14 @@ class OrdenController extends Controller
             }
         }
 
-        // Verificar stock agotado al entregar
+        // Al entregar, el producto sale del inventario: si era el último, avisar
         if ($estadoNuevo === 'entregado') {
             foreach ($orden->items->where('es_personalizado', false) as $item) {
-                $this->notificarSiSinStock(
+                if (! $item->producto_id) continue;
+                self::notificarSiSeAcabo(
                     (int) $item->producto_id,
                     (int) ($item->tienda_origen_id ?? $orden->tienda_id),
+                    (int) $item->cantidad,
                 );
             }
         }
@@ -1899,7 +1901,18 @@ class OrdenController extends Controller
         return $pdf->download('orden-' . $orden->id . '.pdf');
     }
 
-    private function notificarSiSinStock(int $productoId, int $tiendaId): void
+    /**
+     * Avisa cuando se vendió la última unidad de un producto en una tienda.
+     *
+     * Solo al VENDERSE de verdad —cuando sale del inventario, no cuando se
+     * aparta—, y solo en el momento en que cruza a cero. Antes también avisaba
+     * al reservar la última libre, y como eso pasa en cada venta buena, la
+     * misma alerta llegaba una y otra vez a los seis supervisores.
+     *
+     * @param int $cantidadVendida Unidades que acaban de salir, para saber si
+     *                             el producto venía con stock y se acabó ahora.
+     */
+    public static function notificarSiSeAcabo(int $productoId, int $tiendaId, int $cantidadVendida = 1): void
     {
         $inv = Inventario::with('producto:id,nombre', 'tienda:id,nombre')
             ->where('producto_id', $productoId)
@@ -1908,25 +1921,22 @@ class OrdenController extends Controller
 
         if (! $inv) return;
 
-        $libre    = $inv->cantidad_disponible - $inv->cantidad_reservada;
+        $quedan = (int) $inv->cantidad_disponible;
+        if ($quedan > 0) return;
+
+        // Ya estaba en cero antes de esta venta: no se acabó ahora, y avisar
+        // otra vez es el ruido que hacía inservible la alerta.
+        if ($quedan + $cantidadVendida <= 0) return;
+
         $nombre   = $inv->producto?->nombre ?? "Producto #{$productoId}";
         $tiendaNm = $inv->tienda?->nombre   ?? "Tienda #{$tiendaId}";
 
-        if ($inv->cantidad_disponible <= 0) {
-            NotificacionService::crear(
-                'stock_agotado',
-                'Stock agotado',
-                "\"$nombre\" se quedó sin stock en $tiendaNm.",
-                ['producto_id' => $productoId, 'tienda_id' => $tiendaId],
-            );
-        } elseif ($libre <= 0) {
-            NotificacionService::crear(
-                'sin_stock_libre',
-                'Sin unidades disponibles para venta',
-                "\"$nombre\" no tiene unidades libres en $tiendaNm — todo el stock está reservado.",
-                ['producto_id' => $productoId, 'tienda_id' => $tiendaId],
-            );
-        }
+        NotificacionService::crear(
+            'stock_agotado',
+            'Se vendió el último',
+            "Se vendió la última unidad de \"$nombre\" en $tiendaNm. Hay que reponer.",
+            ['producto_id' => $productoId, 'tienda_id' => $tiendaId],
+        );
     }
 
     // Tiendas que comparten secuencia de numeración por grupo

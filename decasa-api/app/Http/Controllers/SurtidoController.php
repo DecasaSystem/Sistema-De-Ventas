@@ -600,21 +600,11 @@ class SurtidoController extends Controller
             ->get()
             ->keyBy(fn($r) => "{$r->tienda_id}_{$r->producto_id}");
 
-        // ── Demanda insatisfecha: intentos de vender algo que no había ───────
-        // No aparece en las ventas justamente porque no se pudo vender, pero es
-        // la señal más directa de que falta producto.
-        $intentos = DB::table('notificaciones')
-            ->where('tipo', 'sin_stock_libre')
-            ->where('created_at', '>=', $desde)
-            ->selectRaw("
-                JSON_UNQUOTE(JSON_EXTRACT(datos, '$.tienda_id'))   AS tienda_id,
-                JSON_UNQUOTE(JSON_EXTRACT(datos, '$.producto_id')) AS producto_id,
-                COUNT(*) AS veces
-            ")
-            ->groupBy('tienda_id', 'producto_id')
-            ->get()
-            ->filter(fn($r) => $r->tienda_id !== null && $r->producto_id !== null)
-            ->keyBy(fn($r) => "{$r->tienda_id}_{$r->producto_id}");
+        // Antes se sumaba aquí una "demanda insatisfecha" contando las
+        // notificaciones de sin_stock_libre. Estaba mal por dos lados: esa
+        // alerta salía DESPUÉS de una venta buena —así que contaba dos veces la
+        // misma venta— y dependía de un tipo de notificación que ya no se crea.
+        // La demanda son las ventas; el stock dice si hay que reponer.
 
         // ── Inventario de todo lo que tiene demanda o mínimo configurado ─────
         $inventario = DB::table('inventario as inv')
@@ -641,10 +631,8 @@ class SurtidoController extends Controller
 
         foreach ($inventario as $key => $inv) {
             $vendidas = (int) ($ventas->get($key)->unidades ?? 0);
-            $fallidos = (int) ($intentos->get($key)->veces ?? 0);
 
-            // Cada intento fallido cuenta como al menos una unidad que se quiso vender
-            $demandaTotal  = $vendidas + $fallidos;
+            $demandaTotal  = $vendidas;
             $demandaDiaria = $demandaTotal / max($VENTANA_DIAS, 1);
             $necesarioMes  = (int) ceil($demandaDiaria * $HORIZONTE_DIAS);
 
@@ -689,7 +677,6 @@ class SurtidoController extends Controller
                 'stock_libre'      => $stockLibre,
                 'stock_minimo'     => $minimo,
                 'ventas_periodo'   => $vendidas,
-                'intentos_fallidos'=> $fallidos,
                 'demanda_diaria'   => round($demandaDiaria, 2),
                 'cobertura_dias'   => $cobertura,
                 'faltante'         => $faltante,   // lo que hay que llevar
