@@ -378,10 +378,6 @@ function descuentoItemMonto(item) {
   return Math.max(0, (item.precio_unitario ?? 0) - precioEfectivo(item))
 }
 
-function descuentoItemPct(item) {
-  return pctDeMonto(descuentoItemMonto(item), item.precio_unitario ?? 0)
-}
-
 /** Pesos con separador de miles, sin decimales: 1.020.000 */
 function pesos(v) {
   return new Intl.NumberFormat('es-CO').format(Math.round(Number(v) || 0))
@@ -861,30 +857,16 @@ async function guardar() {
                   class="w-24 rounded-lg border border-gray-300 px-3 py-2 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
 
-              </div>
-
-              <!-- En cuánto estaba y en cuánto queda, sin tener que ir al total -->
-              <div
-                v-if="descuentoItemMonto(item) > 0"
-                class="bg-green-50 border border-green-200 rounded-lg px-2.5 py-1.5 space-y-0.5"
-              >
-                <p class="text-xs flex flex-wrap items-baseline gap-x-1.5">
+                <!-- En cuánto estaba y en cuánto queda: lo justo para confirmar
+                     que el descuento entró bien -->
+                <div
+                  v-if="descuentoItemMonto(item) > 0"
+                  class="text-xs bg-green-50 px-2 py-1 rounded-lg flex items-baseline gap-1.5 flex-shrink-0"
+                >
                   <span class="text-gray-400 line-through">${{ pesos(item.precio_unitario) }}</span>
                   <span class="text-gray-400">→</span>
-                  <span class="text-green-700 font-bold text-sm">${{ pesos(precioEfectivo(item)) }}</span>
-                  <span class="text-gray-500">c/u</span>
-                </p>
-                <p class="text-[11px] text-green-700">
-                  Le rebajas <strong>${{ pesos(descuentoItemMonto(item)) }}</strong> por unidad
-                  <span class="text-green-600">(−{{ formatPct(descuentoItemPct(item)) }}%)</span>
-                </p>
-                <p v-if="item.cantidad > 1" class="text-[11px] text-gray-600 pt-0.5 border-t border-green-200">
-                  {{ item.cantidad }} unidades:
-                  <span class="text-gray-400 line-through">${{ pesos(item.precio_unitario * item.cantidad) }}</span>
-                  →
-                  <strong class="text-gray-800">${{ pesos(precioEfectivo(item) * item.cantidad) }}</strong>
-                  <span class="text-green-700">· ahorra ${{ pesos(descuentoItemMonto(item) * item.cantidad) }}</span>
-                </p>
+                  <span class="text-green-700 font-bold">${{ pesos(precioEfectivo(item)) }}</span>
+                </div>
               </div>
 
               <!-- No personalizado: producto + cantidad -->
