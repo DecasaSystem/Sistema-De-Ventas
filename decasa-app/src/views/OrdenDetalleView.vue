@@ -1073,7 +1073,7 @@ onMounted(cargarOrden)
 <template>
   <div class="p-4 max-w-2xl mx-auto space-y-4 pb-8">
     <!-- Header -->
-    <div class="flex items-center gap-3">
+    <div class="flex flex-wrap items-center gap-3">
       <button @click="router.back()" class="text-blue-600 text-sm font-medium">← Atrás</button>
       <h2 class="text-lg font-bold text-gray-800 flex-1">
         Orden {{ orden?.referencia ?? '...' }}

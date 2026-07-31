@@ -1357,32 +1357,35 @@ onMounted(async () => {
 
 <template>
   <div class="p-4 max-w-2xl mx-auto space-y-3 pb-8">
-    <!-- Header -->
-    <div class="flex items-center gap-2">
-      <h2 class="text-lg font-bold text-gray-800 flex-1">Inventario</h2>
+    <!-- Header — en móvil los botones bajan a su propia línea en vez de
+         desbordar la pantalla hacia la derecha -->
+    <div class="flex flex-wrap items-center gap-2">
+      <!-- En móvil ocupa la línea entera y empuja los botones abajo; desde sm
+           comparte línea con ellos como antes -->
+      <h2 class="text-lg font-bold text-gray-800 w-full sm:w-auto sm:flex-1">Inventario</h2>
       <button
         v-if="tiendaId && inventario.length"
         @click="exportarExcelInventario"
         :disabled="exportando"
         title="Descargar Excel (todo el inventario del filtro actual)"
-        class="flex items-center gap-1.5 bg-green-600 text-white text-sm font-semibold px-3 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
+        class="flex-shrink-0 flex items-center gap-1.5 bg-green-600 text-white text-sm font-semibold px-3 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors whitespace-nowrap"
       >
-        <ArrowDownTrayIcon class="w-4 h-4" />
+        <ArrowDownTrayIcon class="w-4 h-4 flex-shrink-0" />
         {{ exportando ? '...' : 'Excel' }}
       </button>
       <button
         v-if="auth.isSupervisor"
         @click="mostrarVariantes = true"
-        class="flex items-center gap-1.5 bg-white border border-gray-300 text-gray-700 text-sm font-semibold px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors"
+        class="flex-shrink-0 flex items-center gap-1.5 bg-white border border-gray-300 text-gray-700 text-sm font-semibold px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors whitespace-nowrap"
       >
-        <PlusIcon class="w-4 h-4" />
+        <PlusIcon class="w-4 h-4 flex-shrink-0" />
         Variantes
       </button>
       <button
         @click="abrirAgregarProducto"
-        class="flex items-center gap-1.5 bg-blue-600 text-white text-sm font-semibold px-3 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+        class="flex-shrink-0 flex items-center gap-1.5 bg-blue-600 text-white text-sm font-semibold px-3 py-2 rounded-lg hover:bg-blue-700 transition-colors whitespace-nowrap"
       >
-        <PlusIcon class="w-4 h-4" />
+        <PlusIcon class="w-4 h-4 flex-shrink-0" />
         Producto
       </button>
     </div>

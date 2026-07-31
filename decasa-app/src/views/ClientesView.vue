@@ -229,7 +229,7 @@ onUnmounted(() => {
 <template>
   <div class="p-4 max-w-2xl mx-auto space-y-3 pb-8">
     <!-- Header -->
-    <div class="flex items-center gap-2">
+    <div class="flex flex-wrap items-center gap-2">
       <h2 class="text-lg font-bold text-gray-800 flex-1">Clientes</h2>
       <button
         @click="exportar"
