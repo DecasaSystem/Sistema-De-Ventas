@@ -1423,6 +1423,26 @@ onMounted(async () => {
       />
     </div>
 
+    <!-- ¿Quizás quisiste decir? — pegado al buscador.
+         Estaba al final del estado vacío, debajo de la ilustración, y en un
+         celular quedaba fuera de pantalla: nadie lo veía. -->
+    <div v-if="tiendaId && sugerenciasInv.length" class="space-y-1.5">
+      <p class="text-xs font-medium text-gray-500">
+        No se encontró “{{ busqueda.trim() }}”. ¿Quizás quisiste decir?
+      </p>
+      <div class="flex flex-col gap-1.5">
+        <button
+          v-for="s in sugerenciasInv" :key="s.id"
+          type="button"
+          @click="usarSugerenciaInv(s)"
+          class="w-full text-left bg-white border border-gray-200 rounded-lg px-3 py-2 hover:border-blue-400 hover:bg-blue-50/50 transition-colors"
+        >
+          <span class="text-sm font-medium text-gray-800">{{ s.nombre }}</span>
+          <span v-if="s.categoria" class="text-xs text-gray-400"> · {{ s.categoria }}</span>
+        </button>
+      </div>
+    </div>
+
     <!-- Filtro por categoría -->
     <div v-if="tiendaId && categoriasDisponibles.length" class="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
       <button
@@ -1634,24 +1654,11 @@ onMounted(async () => {
     <!-- Loading -->
     <AppSpinner v-if="tiendaId && loading" />
 
-    <!-- Empty -->
+    <!-- Empty — las sugerencias van arriba, pegadas al buscador -->
     <div v-else-if="tiendaId && inventario.length === 0">
       <EmptyState
         :message="busqueda.trim() ? `No se encontró “${busqueda.trim()}”.` : (esVistaGlobal ? 'No hay productos en ninguna tienda.' : 'No hay productos en esta tienda.')"
       />
-      <!-- ¿Quizás quisiste decir? -->
-      <div v-if="sugerenciasInv.length" class="max-w-sm mx-auto mt-2 space-y-1.5 px-4">
-        <p class="text-xs font-medium text-gray-500 text-center">¿Quizás quisiste decir?</p>
-        <button
-          v-for="s in sugerenciasInv" :key="s.id"
-          type="button"
-          @click="usarSugerenciaInv(s)"
-          class="w-full text-left bg-white border border-gray-200 rounded-lg px-3 py-2 hover:border-blue-400 hover:bg-blue-50/50 transition-colors"
-        >
-          <span class="text-sm font-medium text-gray-800">{{ s.nombre }}</span>
-          <span v-if="s.categoria" class="text-xs text-gray-400"> · {{ s.categoria }}</span>
-        </button>
-      </div>
     </div>
 
     <!-- Lista -->
