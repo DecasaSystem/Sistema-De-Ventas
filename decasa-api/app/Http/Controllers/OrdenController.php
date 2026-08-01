@@ -530,10 +530,15 @@ class OrdenController extends Controller
             // Broadcasting failure never blocks the response
         }
 
-        // Asignar número de orden secuencial (antes de armar notificaciones/mensajes,
-        // para que muestren el numero_orden real y no el id interno) solo a órdenes
-        // confirmadas (no borradores).
-        if (! $guardarBorrador) {
+        // El consecutivo se gasta cuando la venta es de verdad.
+        //
+        // Un borrador no lo toma, y una orden que está esperando el precio del
+        // taller tampoco: si el cliente no acepta, ese número quedaría quemado
+        // para siempre. Se le asigna al confirmar que aceptó
+        // (confirmarCotizacion), y ahí mismo nace la comisión.
+        $esperandoPrecio = $estadoFinal === 'pendiente_cotizacion';
+
+        if (! $guardarBorrador && ! $esperandoPrecio) {
             self::asignarNumeroOrden($orden);
             $ordenCargada->numero_orden = $orden->numero_orden;
             ComisionController::crearParaOrden($orden);
@@ -797,6 +802,15 @@ class OrdenController extends Controller
             }
         });
 
+        // Aquí sí es una venta: el cliente aceptó el precio. Ahora toma el
+        // consecutivo y nace la comisión. Mientras esperaba el precio no tenía
+        // número, para no quemar uno si el cliente decía que no.
+        if (! $orden->numero_orden) {
+            self::asignarNumeroOrden($orden);
+            ComisionController::crearParaOrden($orden->fresh());
+        }
+
+        $orden->refresh();
         $orden->loadMissing(['cliente:id,nombre', 'tienda:id,nombre']);
         $clienteNombre = $orden->cliente->nombre ?? '';
         $tiendaId      = $orden->tienda_id;
@@ -1478,10 +1492,14 @@ class OrdenController extends Controller
         $ordenFresh->total_pagado    = $ordenFresh->totalPagado();
         $ordenFresh->saldo_pendiente = $ordenFresh->saldoPendiente();
 
-        // Asignar número de orden secuencial al confirmar el borrador
-        self::asignarNumeroOrden($orden);
-        $ordenFresh->numero_orden = $orden->numero_orden;
-        ComisionController::crearParaOrden($orden);
+        // El consecutivo se gasta al confirmar el borrador, salvo que quede
+        // esperando el precio del taller: ahí todavía puede no cerrarse, y el
+        // número se asigna cuando el cliente acepte (confirmarCotizacion).
+        if ($ordenFresh->estado !== 'pendiente_cotizacion') {
+            self::asignarNumeroOrden($orden);
+            $ordenFresh->numero_orden = $orden->numero_orden;
+            ComisionController::crearParaOrden($orden);
+        }
 
         // Notify supervisors of the now-confirmed order
         $supervisores = Usuario::where('rol', 'supervisor')

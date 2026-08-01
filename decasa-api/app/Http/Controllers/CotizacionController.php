@@ -512,9 +512,13 @@ class CotizacionController extends Controller
             return $cotizacion;
         });
 
-        // Número de orden real y comisión: solo ahora que es una venta.
-        OrdenController::asignarNumeroOrden($orden);
-        ComisionController::crearParaOrden($orden->fresh());
+        // Número de orden real y comisión: solo ahora que es una venta. Si
+        // quedó esperando el precio de algún ítem todavía puede no cerrarse, y
+        // el número se asigna cuando el cliente acepte (confirmarCotizacion).
+        if ($orden->fresh()->estado !== 'pendiente_cotizacion') {
+            OrdenController::asignarNumeroOrden($orden);
+            ComisionController::crearParaOrden($orden->fresh());
+        }
 
         $ordenFresh = $orden->fresh()->load([
             'cliente:id,nombre,cedula,telefono',
