@@ -156,7 +156,11 @@ class OrdenController extends Controller
             'tienda_id'                     => 'required|exists:tiendas,id',
             'canal'                         => 'required|in:fisica,whatsapp,instagram,facebook,pagina,red_social,otro',
             'tipo'                          => 'nullable|in:venta,restauracion',
-            'anticipo_pct'                  => 'nullable|numeric|min:1|max:100',
+            // 0 es válido: el formulario ofrece "$0 — sin anticipo" y la orden
+            // queda pendiente de pago. Con min:1 esa opción devolvía un error de
+            // validación en inglés sobre un campo que el vendedor no ve, y la
+            // conclusión era "solo me deja crear la orden con el 50%".
+            'anticipo_pct'                  => 'nullable|numeric|min:0|max:100',
             'descuento_total'               => 'nullable|numeric|min:0',
             'notas'                              => 'nullable|string|max:1000',
             'factura_foto_url'                   => 'nullable|string|max:500',
@@ -880,7 +884,8 @@ class OrdenController extends Controller
             'departamento_envio'            => 'sometimes|nullable|string|max:100',
             'ciudad_envio'                  => 'sometimes|nullable|string|max:100',
             'direccion_envio'               => 'sometimes|nullable|string|max:300',
-            'anticipo_pct'                  => 'sometimes|nullable|numeric|min:1|max:100',
+            // 0 es válido, igual que al crear: una orden puede quedar sin anticipo
+            'anticipo_pct'                  => 'sometimes|nullable|numeric|min:0|max:100',
             'descuento_total'               => 'sometimes|nullable|numeric|min:0',
             'vendedor_id'                   => 'sometimes|nullable|integer|exists:usuarios,id',
             'tienda_id'                     => 'sometimes|nullable|integer|exists:tiendas,id',
