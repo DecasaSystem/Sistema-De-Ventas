@@ -294,6 +294,12 @@ const navSecundarios = computed(() => {
 })
 const masActivo      = computed(() => navSecundarios.value.some(i => i.name === route.name))
 
+// Pendientes que quedaron escondidos dentro de "Más". Sin esto, un badge de
+// consultas o de redes no se veía hasta abrir el menú.
+const pendientesEnMas = computed(() =>
+  navSecundarios.value.reduce((s, i) => s + (Number(i.badge) || 0), 0)
+)
+
 function irA(name) {
   abrirMas.value = false
   router.push({ name })
@@ -554,48 +560,51 @@ function formatFecha(iso) {
     <!-- ── Bottom tab bar ───────────────────────────────────────────────────── -->
     <nav v-if="showNav" class="fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 z-10">
 
-      <!-- Menú "Más" para supervisor (panel sobre el nav) -->
+      <!-- Menú "Más" (panel sobre el nav).
+           En rejilla de 4 por fila: antes iban todos en una sola fila y con
+           seis o siete ítems quedaban a 50px, donde "Consultar costo" no cabe. -->
       <Transition name="slide-up">
         <div
           v-if="abrirMas && navSecundarios.length"
-          class="flex border-b border-gray-100 bg-white"
+          class="grid grid-cols-4 sm:grid-cols-6 border-b border-gray-100 bg-white"
         >
           <button
             v-for="item in navSecundarios"
             :key="item.name"
             @click="irA(item.name)"
             :class="[
-              'flex-1 flex flex-col items-center py-3 text-xs gap-0.5 transition-colors',
+              'min-w-0 flex flex-col items-center justify-start py-3 px-1 gap-1 transition-colors',
               route.name === item.name ? 'text-blue-600 font-semibold' : 'text-gray-500',
             ]"
           >
-          <div class="relative">
-            <component :is="item.icon" class="w-6 h-6" />
-            <span
-              v-if="item.badge > 0"
-              class="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[16px] h-4 flex items-center justify-center px-0.5"
-            >
-              {{ item.badge > 9 ? '9+' : item.badge }}
-            </span>
-          </div>
-          {{ item.label }}
+            <div class="relative flex-shrink-0">
+              <component :is="item.icon" class="w-6 h-6" />
+              <span
+                v-if="item.badge > 0"
+                class="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[16px] h-4 flex items-center justify-center px-0.5"
+              >
+                {{ item.badge > 9 ? '9+' : item.badge }}
+              </span>
+            </div>
+            <span class="w-full text-[10px] leading-tight text-center line-clamp-2">{{ item.label }}</span>
           </button>
         </div>
       </Transition>
 
-      <!-- Fila principal -->
-      <div class="flex">
+      <!-- Fila principal. Los botones se reparten el ancho por igual y la
+           etiqueta se parte en dos líneas antes que desbordar el botón. -->
+      <div class="flex items-stretch">
         <!-- Ítems primarios -->
         <button
           v-for="item in navPrimarios"
           :key="item.name"
           @click="irA(item.name)"
           :class="[
-            'flex-1 flex flex-col items-center py-2 text-xs gap-0.5 transition-colors',
+            'flex-1 min-w-0 flex flex-col items-center justify-start py-2 px-0.5 gap-1 transition-colors',
             route.name === item.name ? 'text-blue-600 font-semibold' : 'text-gray-500',
           ]"
         >
-          <div class="relative">
+          <div class="relative flex-shrink-0">
             <component :is="item.icon" class="w-6 h-6" />
             <span
               v-if="item.badge > 0"
@@ -604,22 +613,29 @@ function formatFecha(iso) {
               {{ item.badge > 9 ? '9+' : item.badge }}
             </span>
           </div>
-          {{ item.label }}
+          <span class="w-full text-[10px] leading-tight text-center line-clamp-2">{{ item.label }}</span>
         </button>
 
-        <!-- Botón "Más" — solo supervisor -->
+        <!-- Botón "Más" -->
         <button
           v-if="navSecundarios.length"
           @click="abrirMas = !abrirMas"
           :class="[
-            'flex-1 flex flex-col items-center py-2 text-xs gap-0.5 transition-colors',
+            'flex-1 min-w-0 flex flex-col items-center justify-start py-2 px-0.5 gap-1 transition-colors',
             masActivo || abrirMas ? 'text-blue-600 font-semibold' : 'text-gray-500',
           ]"
         >
-          <div class="relative">
+          <div class="relative flex-shrink-0">
             <EllipsisHorizontalIcon class="w-6 h-6" />
+            <!-- Que se note si algo pendiente quedó escondido aquí dentro -->
+            <span
+              v-if="pendientesEnMas > 0"
+              class="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[16px] h-4 flex items-center justify-center px-0.5"
+            >
+              {{ pendientesEnMas > 9 ? '9+' : pendientesEnMas }}
+            </span>
           </div>
-          Más
+          <span class="w-full text-[10px] leading-tight text-center">Más</span>
         </button>
       </div>
     </nav>
