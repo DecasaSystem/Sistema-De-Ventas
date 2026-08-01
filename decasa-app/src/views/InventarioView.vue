@@ -431,6 +431,14 @@ async function crearProducto() {
 }
 
 const esVistaGlobal   = computed(() => tiendaId.value === 'todas')
+
+/**
+ * Nombre de tienda para una etiqueta pequeña: "Decasa Unicentro Pereira" no
+ * cabe. Se quita el "Decasa" que llevan todas y no distingue nada.
+ */
+function nombreCorto(nombre) {
+  return (nombre ?? '').replace(/^Decasa\s+/i, '').trim() || nombre
+}
 const puedeGestionar  = computed(() =>
   auth.isSupervisor || String(tiendaId.value) === String(auth.usuario?.tienda_default_id)
 )
@@ -1719,6 +1727,32 @@ onMounted(async () => {
             <div v-if="!esVistaGlobal" class="bg-gray-50 rounded-lg p-1.5">
               <p class="text-lg font-bold text-gray-600">{{ item.stock_minimo }}</p>
               <p class="text-xs text-gray-400">Mínimo</p>
+            </div>
+          </div>
+
+          <!-- Cuánto hay en cada tienda: el total solo no dice de dónde traerlo -->
+          <div v-if="esVistaGlobal && item.por_tienda?.length" class="mt-2 space-y-1">
+            <p class="text-xs text-gray-400">En cada tienda</p>
+            <div class="flex flex-wrap gap-1.5">
+              <span
+                v-for="t in item.por_tienda"
+                :key="t.tienda_id"
+                :class="[
+                  'inline-flex items-baseline gap-1 px-2 py-1 rounded-lg text-xs border',
+                  t.stock_libre > 0
+                    ? 'bg-green-50 border-green-200 text-green-800'
+                    : 'bg-gray-50 border-gray-200 text-gray-400',
+                ]"
+                :title="t.cantidad_reservada > 0
+                  ? `${t.cantidad_disponible} en bodega · ${t.cantidad_reservada} apartado(s)`
+                  : `${t.cantidad_disponible} disponible(s)`"
+              >
+                <span class="font-semibold">{{ nombreCorto(t.tienda_nombre) }}</span>
+                <span class="font-bold">{{ t.stock_libre }}</span>
+                <span v-if="t.cantidad_reservada > 0" class="text-[10px] opacity-70">
+                  (+{{ t.cantidad_reservada }} apartado{{ t.cantidad_reservada === 1 ? '' : 's' }})
+                </span>
+              </span>
             </div>
           </div>
 

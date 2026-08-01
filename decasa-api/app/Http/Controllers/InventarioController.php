@@ -150,9 +150,19 @@ class InventarioController extends Controller
             $query->orderBy('productos.nombre');
         }
 
-        return response()->json($query
-            ->paginate(20)
-            ->through(function ($inv) {
+        $pagina = $query->paginate(20);
+
+        // Cuánto hay en CADA tienda, no solo el total. Antes solo se decía en
+        // cuántas tiendas está, que no sirve para saber de dónde traerlo.
+        //
+        // Se resuelve en una sola consulta para los 20 productos de la página:
+        // preguntarlo producto por producto serían 20 viajes a la base.
+        $desglose = $this->stockPorTienda(
+            collect($pagina->items())->pluck('producto_id')->all()
+        );
+
+        return response()->json($pagina
+            ->through(function ($inv) use ($desglose) {
                 $disp = (int) $inv->cantidad_disponible;
                 $res  = (int) $inv->cantidad_reservada;
                 return (object) [
@@ -164,6 +174,7 @@ class InventarioController extends Controller
                     'stock_minimo'        => 0,
                     'bajo_stock'          => false,
                     'tiendas_count'       => (int) $inv->tiendas_count,
+                    'por_tienda'          => $desglose[$inv->producto_id] ?? [],
                     'producto'            => (object) [
                         'id'             => $inv->producto_id,
                         'nombre'         => $inv->nombre,
@@ -180,6 +191,51 @@ class InventarioController extends Controller
                     ],
                 ];
             }));
+    }
+
+    /**
+     * Stock de cada producto tienda por tienda: [producto_id => [ {tienda...} ]].
+     *
+     * Ordenado de mayor a menor stock libre, que es el orden en que le sirve a
+     * quien busca de dónde sacar el producto.
+     */
+    private function stockPorTienda(array $productoIds): array
+    {
+        if (empty($productoIds)) return [];
+
+        return DB::table('inventario as inv')
+            ->join('tiendas as t', 't.id', '=', 'inv.tienda_id')
+            ->whereIn('inv.producto_id', $productoIds)
+            ->where('t.activa', true)
+            // Solo donde hay algo. Casi todo producto tiene fila en las seis
+            // tiendas, así que listar los ceros llenaría la tarjeta de ruido
+            // justo cuando lo que se busca es de dónde traerlo.
+            ->where(fn($q) => $q->where('inv.cantidad_disponible', '>', 0)
+                                ->orWhere('inv.cantidad_reservada', '>', 0))
+            ->select(
+                'inv.producto_id',
+                'inv.tienda_id',
+                't.nombre as tienda_nombre',
+                't.es_fabrica',
+                'inv.cantidad_disponible',
+                'inv.cantidad_reservada',
+            )
+            ->get()
+            ->map(fn($r) => [
+                'producto_id'         => (int) $r->producto_id,
+                'tienda_id'           => (int) $r->tienda_id,
+                'tienda_nombre'       => $r->tienda_nombre,
+                'es_fabrica'          => (bool) $r->es_fabrica,
+                'cantidad_disponible' => (int) $r->cantidad_disponible,
+                'cantidad_reservada'  => (int) $r->cantidad_reservada,
+                'stock_libre'         => (int) $r->cantidad_disponible - (int) $r->cantidad_reservada,
+            ])
+            ->groupBy('producto_id')
+            ->map(fn($filas) => $filas
+                ->sortByDesc('stock_libre')
+                ->values()
+                ->all())
+            ->all();
     }
 
     /**
