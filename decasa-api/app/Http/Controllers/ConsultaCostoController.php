@@ -355,7 +355,9 @@ class ConsultaCostoController extends Controller
             return response()->json(['message' => 'Solo se pueden ajustar precios de consultas respondidas.'], 422);
         }
 
-        if (! in_array($consulta->orden->estado, ['pendiente_cotizacion', 'pendiente_anticipo'])) {
+        // 'cotizacion' incluido: una cotización es una propuesta, el precio se
+        // puede mover las veces que haga falta mientras el cliente no compre.
+        if (! in_array($consulta->orden->estado, ['cotizacion', 'pendiente_cotizacion', 'pendiente_anticipo'])) {
             return response()->json(['message' => 'La orden ya no permite ajuste de precios.'], 422);
         }
 

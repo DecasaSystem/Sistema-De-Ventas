@@ -11,10 +11,11 @@ import {
   enviarCotizacionEmail,
 } from '@/api/cotizaciones'
 import { urlWhatsapp, tieneWhatsapp } from '@/utils/whatsapp'
+import { getReceptores, crearConsulta, getConsultas } from '@/api/consultas'
 import {
   DocumentArrowDownIcon, PaperAirplaneIcon, CheckCircleIcon,
   XCircleIcon, TrashIcon, ExclamationTriangleIcon, ClockIcon,
-  EnvelopeIcon, ChatBubbleLeftRightIcon,
+  EnvelopeIcon, ChatBubbleLeftRightIcon, CurrencyDollarIcon,
 } from '@heroicons/vue/24/outline'
 
 const route  = useRoute()
@@ -29,15 +30,73 @@ const esActiva = computed(() =>
   ['abierta', 'enviada'].includes(cotizacion.value?.cotizacion_estado)
 )
 
+// ── Consulta de costo ────────────────────────────────────────────────────────
+// Lo que va sin precio se le pregunta a un supervisor o al ebanista. Cuando
+// responde, ese precio entra directo en la cotización y en el PDF: aquí no hay
+// nada que el cliente tenga que aceptar todavía.
+const consulta = ref(null)
+
+async function cargarConsulta() {
+  try {
+    const { data } = await getConsultas()
+    consulta.value = (data ?? []).find(c => c.orden_id === Number(route.params.id)) ?? null
+  } catch {
+    consulta.value = null
+  }
+}
+
 async function cargar() {
   loading.value = true
   try {
     const { data } = await getCotizacion(route.params.id)
     cotizacion.value = data
+    await cargarConsulta()
   } catch {
     toast.error('No se pudo cargar la cotización.')
   } finally {
     loading.value = false
+  }
+}
+
+/** Ítems que todavía no tienen precio: son los que hay que preguntar. */
+const itemsSinPrecio = computed(() =>
+  (cotizacion.value?.items ?? []).filter(i => i.es_personalizado && !Number(i.precio_unitario))
+)
+
+const receptores        = ref([])
+const showPedirCosto    = ref(false)
+const receptorId        = ref(null)
+const notasCosto        = ref('')
+const pidiendoCosto     = ref(false)
+
+async function abrirPedirCosto() {
+  if (!receptores.value.length) {
+    try {
+      const { data } = await getReceptores()
+      receptores.value = data
+    } catch { receptores.value = [] }
+  }
+  receptorId.value = null
+  notasCosto.value = ''
+  showPedirCosto.value = true
+}
+
+async function pedirCosto() {
+  if (!receptorId.value) return
+  pidiendoCosto.value = true
+  try {
+    await crearConsulta({
+      orden_id:          cotizacion.value.id,
+      asignado_a_id:     receptorId.value,
+      notas_adicionales: notasCosto.value.trim() || null,
+    })
+    toast.success('Consulta de costo enviada.')
+    showPedirCosto.value = false
+    await cargar()
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudo enviar la consulta.')
+  } finally {
+    pidiendoCosto.value = false
   }
 }
 
@@ -407,6 +466,59 @@ onMounted(cargar)
         </div>
       </div>
 
+      <!-- Consulta de costo: lo que va sin precio -->
+      <div
+        v-if="itemsSinPrecio.length || consulta"
+        class="bg-violet-50 border border-violet-200 rounded-2xl p-3 space-y-2"
+      >
+        <div class="flex items-center gap-2">
+          <CurrencyDollarIcon class="w-4 h-4 text-violet-600" />
+          <p class="text-sm font-semibold text-violet-800">Costo de lo personalizado</p>
+        </div>
+
+        <!-- Ya se preguntó y falta la respuesta -->
+        <template v-if="consulta?.estado === 'pendiente'">
+          <p class="text-xs text-violet-700">
+            Se le preguntó a <strong>{{ consulta.asignado_a?.nombre ?? 'el cotizador' }}</strong>.
+            Cuando responda, el precio queda aquí y en el PDF.
+          </p>
+          <div class="flex flex-wrap gap-1.5">
+            <span
+              v-for="i in itemsSinPrecio" :key="i.id"
+              class="text-xs bg-white text-violet-700 px-2 py-0.5 rounded-full border border-violet-200 font-medium"
+            >{{ i.producto?.nombre ?? i.nombre_custom }}</span>
+          </div>
+        </template>
+
+        <!-- Ya respondió -->
+        <template v-else-if="consulta?.estado === 'respondida' && !itemsSinPrecio.length">
+          <p class="text-xs text-green-700">
+            <strong>{{ consulta.asignado_a?.nombre ?? 'El cotizador' }}</strong> ya respondió: los precios
+            están puestos en la cotización y salen en el PDF.
+          </p>
+        </template>
+
+        <!-- Falta preguntar -->
+        <template v-else-if="itemsSinPrecio.length">
+          <p class="text-xs text-violet-700">
+            {{ itemsSinPrecio.length }} ítem(s) van sin precio. Pregúntale el costo a quien lo sepa
+            y el valor entra solo en la cotización.
+          </p>
+          <div class="flex flex-wrap gap-1.5">
+            <span
+              v-for="i in itemsSinPrecio" :key="i.id"
+              class="text-xs bg-white text-violet-700 px-2 py-0.5 rounded-full border border-violet-200 font-medium"
+            >{{ i.producto?.nombre ?? i.nombre_custom }}</span>
+          </div>
+          <button
+            @click="abrirPedirCosto"
+            class="w-full py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-xl font-semibold text-sm transition-colors"
+          >
+            Preguntar el costo
+          </button>
+        </template>
+      </div>
+
       <!-- Enviársela al cliente — por donde la haya dejado -->
       <div class="bg-white rounded-2xl border border-gray-200 p-3 space-y-2">
         <p class="text-xs font-semibold text-gray-500 uppercase">Enviar al cliente</p>
@@ -660,6 +772,58 @@ onMounted(cargar)
               >{{ convirtiendo ? 'Convirtiendo...' : 'Crear orden' }}</button>
             </div>
           </template>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- ¿A quién le preguntamos el costo? -->
+    <Transition name="fade">
+      <div v-if="showPedirCosto" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="showPedirCosto = false">
+        <div class="absolute inset-0 bg-black/40" @click="showPedirCosto = false" />
+        <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-3 max-h-[85vh] overflow-y-auto">
+          <p class="text-base font-bold text-gray-800">¿A quién le preguntas el costo?</p>
+          <p class="text-xs text-gray-500">
+            Le llega la lista de lo personalizado con sus especificaciones. Cuando responda, el precio
+            queda en la cotización y sale en el PDF.
+          </p>
+
+          <div class="space-y-2">
+            <label
+              v-for="r in receptores"
+              :key="r.id"
+              :class="[
+                'flex items-center gap-3 rounded-xl border p-3 cursor-pointer transition-colors',
+                receptorId === r.id ? 'border-violet-500 bg-violet-50' : 'border-gray-200 hover:border-violet-300'
+              ]"
+            >
+              <input type="radio" :value="r.id" v-model="receptorId" class="accent-violet-600" />
+              <div>
+                <p class="text-sm font-semibold text-gray-800">{{ r.nombre }}</p>
+                <p class="text-xs text-gray-400 capitalize">{{ r.rol }}</p>
+              </div>
+            </label>
+            <p v-if="!receptores.length" class="text-xs text-gray-400">No hay supervisores ni ebanistas activos.</p>
+          </div>
+
+          <textarea
+            v-model="notasCosto"
+            rows="2"
+            placeholder="Notas para el cotizador (opcional)"
+            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-violet-400"
+          />
+
+          <div class="flex gap-3">
+            <button @click="showPedirCosto = false" class="flex-1 bg-gray-100 text-gray-700 rounded-lg py-2.5 text-sm font-semibold">
+              Cancelar
+            </button>
+            <button
+              @click="pedirCosto"
+              :disabled="!receptorId || pidiendoCosto"
+              class="flex-1 bg-violet-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-violet-700 disabled:opacity-40 transition-colors"
+            >
+              {{ pidiendoCosto ? 'Enviando...' : 'Preguntar' }}
+            </button>
+          </div>
         </div>
       </div>
     </Transition>

@@ -1302,18 +1302,28 @@ watch(esCompartida, async (val) => {
   if (!val) covendedorId.value = null
 })
 
+async function cargarReceptoresCotizar() {
+  if (receptoresCotizar.value.length) return
+  cargandoReceptores.value = true
+  try {
+    const { data } = await getReceptores()
+    receptoresCotizar.value = data
+  } catch { receptoresCotizar.value = [] }
+  finally { cargandoReceptores.value = false }
+}
+
 async function irAPaso3() {
   anticipo_monto.value = minimoAnticipo.value
   step.value = 3
-  if (hayItemsCotizar.value && !receptoresCotizar.value.length) {
-    cargandoReceptores.value = true
-    try {
-      const { data } = await getReceptores()
-      receptoresCotizar.value = data
-    } catch { receptoresCotizar.value = [] }
-    finally { cargandoReceptores.value = false }
-  }
+  if (hayItemsCotizar.value) await cargarReceptoresCotizar()
 }
+
+// En una cotización se guarda desde el paso 2 y nunca se pasa al 3, que es
+// donde vivía el bloque de consulta de costo. Por eso una cotización no podía
+// preguntar el precio: los receptores se cargan aquí en cuanto hacen falta.
+watch(hayItemsCotizar, (hay) => {
+  if (hay && modoCotizacion.value) cargarReceptoresCotizar()
+}, { immediate: true })
 
 async function submit() {
   if (submitting.value || subiendoFactura.value || cooldown.value > 0) return
@@ -1613,7 +1623,25 @@ async function submitCotizacion() {
     }
 
     const { data } = await api.post('/cotizaciones', payload)
-    toast.success(`Cotización ${data.cotizacion_ref ?? ''} creada.`)
+
+    // Preguntar el costo de lo que va sin precio. En una cotización el precio
+    // que responda el taller entra directo al documento: no hay nada que el
+    // cliente tenga que aceptar todavía.
+    if (hayItemsCotizar.value && cotizarReceptorId.value && data?.id) {
+      try {
+        await crearConsulta({
+          orden_id:          data.id,
+          asignado_a_id:     cotizarReceptorId.value,
+          notas_adicionales: cotizarNotas.value.trim() || null,
+        })
+        toast.success(`Cotización ${data.cotizacion_ref ?? ''} creada · consulta de costo enviada.`)
+      } catch {
+        toast.success(`Cotización ${data.cotizacion_ref ?? ''} creada. La consulta de costo se puede pedir desde el detalle.`)
+      }
+    } else {
+      toast.success(`Cotización ${data.cotizacion_ref ?? ''} creada.`)
+    }
+
     router.push({ name: 'cotizacion-detalle', params: { id: data.id } })
   } catch (e) {
     const errores = e.response?.data?.errors
@@ -3057,12 +3085,72 @@ function removeFacturaFoto() {
 
       <!-- Cotización: se guarda aquí mismo, no hay paso de pago -->
       <div v-if="modoCotizacion" class="space-y-2">
+        <!-- Preguntar el costo de lo que va sin precio. En una cotización el
+             precio que responda el taller entra directo al documento. -->
+        <div v-if="hayItemsCotizar" class="bg-violet-50 border border-violet-200 rounded-xl p-4 space-y-3 text-left">
+          <div class="flex items-center gap-2">
+            <CurrencyDollarIcon class="w-4 h-4 text-violet-600" />
+            <p class="text-sm font-semibold text-violet-800">¿A quién le preguntas el costo?</p>
+          </div>
+
+          <div class="space-y-1">
+            <p class="text-xs text-violet-600">Va sin precio:</p>
+            <div class="flex flex-wrap gap-1.5">
+              <span
+                v-for="item in items.filter(i => i._cotizarPrecio)"
+                :key="item.nombre"
+                class="inline-flex items-center gap-1 text-xs bg-white text-violet-700 px-2 py-0.5 rounded-full border border-violet-200 font-medium"
+              >
+                {{ item.nombre }}
+              </span>
+            </div>
+          </div>
+
+          <div class="space-y-1.5">
+            <div v-if="cargandoReceptores" class="text-xs text-gray-400">Cargando...</div>
+            <div v-else class="space-y-2">
+              <label
+                v-for="r in receptoresCotizar"
+                :key="r.id"
+                :class="[
+                  'flex items-center gap-3 rounded-xl border p-3 cursor-pointer transition-colors bg-white',
+                  cotizarReceptorId === r.id ? 'border-violet-500 bg-violet-50' : 'border-gray-200 hover:border-violet-300'
+                ]"
+              >
+                <input type="radio" :value="r.id" v-model="cotizarReceptorId" class="accent-violet-600" />
+                <div>
+                  <p class="text-sm font-semibold text-gray-800">{{ r.nombre }}</p>
+                  <p class="text-xs text-gray-400 capitalize">{{ r.rol }}</p>
+                </div>
+              </label>
+              <p v-if="!receptoresCotizar.length" class="text-xs text-gray-400">No hay supervisores ni ebanistas activos.</p>
+            </div>
+          </div>
+
+          <div class="space-y-1">
+            <label class="block text-xs font-semibold text-gray-700">Notas para el cotizador (opcional)</label>
+            <textarea
+              v-model="cotizarNotas"
+              rows="2"
+              placeholder="Materiales específicos, urgencia, referencias..."
+              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-violet-400 resize-none"
+            />
+          </div>
+
+          <p class="text-xs text-violet-700">
+            Cuando responda, ese precio queda en la cotización y en el PDF. Se puede ajustar después.
+          </p>
+        </div>
+
         <button
           @click="submitCotizacion"
-          :disabled="items.length === 0 || submitting"
+          :disabled="items.length === 0 || submitting || (hayItemsCotizar && !cotizarReceptorId)"
           class="w-full py-3 bg-violet-600 hover:bg-violet-700 text-white rounded-xl font-semibold disabled:opacity-50 transition-colors"
-        >{{ submitting ? 'Guardando...' : 'Guardar cotización' }}</button>
-        <p class="text-xs text-center text-gray-500">
+        >{{ submitting ? 'Guardando...' : (hayItemsCotizar ? 'Guardar y preguntar el costo' : 'Guardar cotización') }}</button>
+        <p v-if="hayItemsCotizar && !cotizarReceptorId" class="text-xs text-center text-violet-600">
+          Elige a quién le preguntas el costo.
+        </p>
+        <p v-else class="text-xs text-center text-gray-500">
           Después podrás descargar el PDF y enviárselo al cliente.
         </p>
       </div>
