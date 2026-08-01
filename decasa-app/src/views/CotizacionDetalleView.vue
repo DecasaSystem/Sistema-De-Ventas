@@ -8,10 +8,13 @@ import FirmaCanvas from '@/components/FirmaCanvas.vue'
 import {
   getCotizacion, cambiarEstadoCotizacion, eliminarCotizacion,
   verificarCotizacion, convertirCotizacion, descargarPdfCotizacion,
+  enviarCotizacionEmail,
 } from '@/api/cotizaciones'
+import { urlWhatsapp, tieneWhatsapp } from '@/utils/whatsapp'
 import {
   DocumentArrowDownIcon, PaperAirplaneIcon, CheckCircleIcon,
   XCircleIcon, TrashIcon, ExclamationTriangleIcon, ClockIcon,
+  EnvelopeIcon, ChatBubbleLeftRightIcon,
 } from '@heroicons/vue/24/outline'
 
 const route  = useRoute()
@@ -47,6 +50,82 @@ async function descargarPdf() {
     setTimeout(() => window.URL.revokeObjectURL(url), 5000)
   } catch {
     toast.error('Error al descargar el PDF.')
+  }
+}
+
+// ── Enviarla al cliente: por correo o por WhatsApp ──────────────────────────
+// El correo es opcional en todo el módulo, así que casi siempre solo hay
+// teléfono. Se ofrecen los dos caminos y se usa el que el cliente haya dejado.
+const emailDestino  = computed(() =>
+  cotizacion.value?.cliente?.email || cotizacion.value?.contacto_email || ''
+)
+const telefonoDestino = computed(() =>
+  cotizacion.value?.cliente?.telefono || cotizacion.value?.contacto_telefono || ''
+)
+const puedeWhatsapp = computed(() => tieneWhatsapp(telefonoDestino.value))
+
+const mostrarEmailManual = ref(false)
+const emailManual        = ref('')
+const enviandoEmail      = ref(false)
+
+/** El mensaje que va escrito al abrir WhatsApp. */
+const mensajeWhatsapp = computed(() => {
+  const c = cotizacion.value
+  if (!c) return ''
+
+  const pesos = v => '$' + new Intl.NumberFormat('es-CO').format(Math.round(Number(v) || 0))
+  const lineas = (c.items ?? []).map(i => {
+    const nombre = i.producto?.nombre ?? i.nombre_custom ?? 'Producto'
+    return `• ${nombre} x${i.cantidad} — ${pesos(i.cantidad * i.precio_unitario)}`
+  })
+
+  const partes = [
+    `Hola! Te comparto la cotización ${c.cotizacion_ref ?? ''} de Decasa.`,
+    '',
+    ...lineas,
+    '',
+    `Total: ${pesos(c.valor_total)}`,
+  ]
+
+  if (c.cotizacion_valida_hasta) {
+    const f = new Date(c.cotizacion_valida_hasta).toLocaleDateString('es-CO')
+    partes.push(`Válida hasta el ${f}.`)
+  }
+  partes.push('', 'Cualquier duda me escribes.')
+
+  return partes.join('\n')
+})
+
+function abrirWhatsapp() {
+  const url = urlWhatsapp(telefonoDestino.value, mensajeWhatsapp.value)
+  if (!url) {
+    toast.error('El teléfono no sirve para WhatsApp.')
+    return
+  }
+  window.open(url, '_blank', 'noopener')
+  // Mandarla es lo que la vuelve "enviada": ya salió para el cliente
+  if (cotizacion.value?.cotizacion_estado === 'abierta') marcar('enviada')
+}
+
+async function enviarPorEmail() {
+  const destino = emailManual.value.trim() || emailDestino.value
+  if (!destino) {
+    mostrarEmailManual.value = true
+    return
+  }
+  enviandoEmail.value = true
+  try {
+    const { data } = await enviarCotizacionEmail(cotizacion.value.id, emailManual.value.trim() || undefined)
+    toast.success(data.message ?? 'Cotización enviada.')
+    mostrarEmailManual.value = false
+    emailManual.value = ''
+    await cargar()
+    if (cotizacion.value?.cotizacion_estado === 'abierta') marcar('enviada')
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudo enviar el correo.')
+    if (e.response?.status === 422) mostrarEmailManual.value = true
+  } finally {
+    enviandoEmail.value = false
   }
 }
 
@@ -326,6 +405,65 @@ onMounted(cargar)
           <span>Total</span>
           <span class="text-violet-700">{{ formatMoney(cotizacion.valor_total) }}</span>
         </div>
+      </div>
+
+      <!-- Enviársela al cliente — por donde la haya dejado -->
+      <div class="bg-white rounded-2xl border border-gray-200 p-3 space-y-2">
+        <p class="text-xs font-semibold text-gray-500 uppercase">Enviar al cliente</p>
+
+        <div class="grid grid-cols-2 gap-2">
+          <button
+            @click="abrirWhatsapp"
+            :disabled="!puedeWhatsapp"
+            :title="puedeWhatsapp ? 'Abre WhatsApp con el mensaje escrito' : 'No hay un teléfono al que escribirle'"
+            class="py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-xl font-semibold text-sm flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            <ChatBubbleLeftRightIcon class="w-4 h-4" />
+            WhatsApp
+          </button>
+          <button
+            @click="enviarPorEmail"
+            :disabled="enviandoEmail"
+            class="py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-sm flex items-center justify-center gap-1.5 disabled:opacity-50 transition-colors"
+          >
+            <EnvelopeIcon class="w-4 h-4" />
+            {{ enviandoEmail ? 'Enviando...' : 'Correo' }}
+          </button>
+        </div>
+
+        <p v-if="puedeWhatsapp || emailDestino" class="text-[11px] text-gray-500">
+          <template v-if="puedeWhatsapp">WhatsApp a {{ telefonoDestino }}</template>
+          <template v-if="puedeWhatsapp && emailDestino"> · </template>
+          <template v-if="emailDestino">Correo a {{ emailDestino }}</template>
+        </p>
+        <p v-else class="text-[11px] text-amber-600">
+          El cliente no dejó teléfono ni correo. Escribe uno abajo o descarga el PDF y mándalo tú.
+        </p>
+
+        <!-- Correo a mano: cuando no hay uno guardado o el vendedor quiere otro -->
+        <div v-if="mostrarEmailManual || !emailDestino" class="flex gap-2">
+          <input
+            v-model="emailManual"
+            type="email"
+            placeholder="correo@ejemplo.com"
+            class="flex-1 min-w-0 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            @keyup.enter="enviarPorEmail"
+          />
+          <button
+            @click="enviarPorEmail"
+            :disabled="enviandoEmail || !emailManual.trim()"
+            class="flex-shrink-0 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold disabled:opacity-40"
+          >
+            Enviar
+          </button>
+        </div>
+        <button
+          v-else-if="emailDestino"
+          @click="mostrarEmailManual = true"
+          class="text-[11px] text-blue-600 font-medium"
+        >
+          Enviar a otro correo
+        </button>
       </div>
 
       <!-- Acciones -->

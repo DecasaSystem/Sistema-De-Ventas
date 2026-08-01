@@ -12,11 +12,13 @@ use App\Models\OrdenItem;
 use App\Models\Produccion;
 use App\Models\ProductoVariante;
 use App\Models\Usuario;
+use App\Mail\CotizacionEnviadaMail;
 use App\Services\NotificacionService;
 use App\Support\ConvierteImagenesPdf;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 
 /**
  * Cotizaciones: propuestas de precio para clientes que todavía no compran.
@@ -565,6 +567,62 @@ class CotizacionController extends Controller
         $nombre = strtolower($cotizacion->cotizacion_ref ?? ('cotizacion-' . $cotizacion->id));
 
         return $pdf->download($nombre . '.pdf');
+    }
+
+    /**
+     * POST /api/cotizaciones/{id}/enviar
+     *
+     * Manda la cotización al cliente por correo. El correo es opcional en todo
+     * el módulo —mucha gente solo deja el teléfono—, así que se puede escribir
+     * uno en el momento; si tampoco hay, queda WhatsApp, que no pasa por aquí.
+     */
+    public function enviar(Request $request, int $id)
+    {
+        ini_set('memory_limit', '512M');
+        set_time_limit(120);
+
+        $cotizacion = Orden::cotizaciones()
+            ->with('cliente:id,nombre,email')
+            ->findOrFail($id);
+
+        if (! $this->puedeVer($request->user(), $cotizacion)) {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+
+        $data = $request->validate([
+            'email' => 'nullable|email|max:150',
+        ]);
+
+        $email = $data['email']
+            ?? $cotizacion->cliente?->email
+            ?? $cotizacion->contacto_email;
+
+        if (! $email) {
+            return response()->json([
+                'message' => 'No hay correo al que enviarla. Escribe uno, o mándala por WhatsApp.',
+                'errors'  => ['email' => ['Hace falta un correo.']],
+            ], 422);
+        }
+
+        try {
+            Mail::to($email)->send(new CotizacionEnviadaMail($cotizacion->id));
+        } catch (\Throwable $e) {
+            try {
+                \Log::error('CotizacionController::enviar: fallo', [
+                    'cotizacion_id' => $cotizacion->id,
+                    'error'         => $e->getMessage(),
+                ]);
+            } catch (\Throwable) {}
+            return response()->json(['message' => 'No se pudo enviar el correo: ' . $e->getMessage()], 502);
+        }
+
+        // Si el cliente no tenía correo guardado y el vendedor escribió uno, se
+        // guarda: la próxima vez ya no hay que volver a pedirlo.
+        if (! $cotizacion->contacto_email && ! $cotizacion->cliente?->email) {
+            $cotizacion->update(['contacto_email' => $email]);
+        }
+
+        return response()->json(['message' => "Cotización enviada a {$email}."]);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

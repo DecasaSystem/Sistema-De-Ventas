@@ -117,6 +117,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/cotizaciones/{id}',       [CotizacionController::class, 'show'])->whereNumber('id');
     Route::get('/cotizaciones/{id}/pdf',   [CotizacionController::class, 'pdf'])->whereNumber('id');
     Route::patch('/cotizaciones/{id}/estado', [CotizacionController::class, 'cambiarEstado'])->whereNumber('id');
+    Route::post('/cotizaciones/{id}/enviar',    [CotizacionController::class, 'enviar'])->whereNumber('id');
     Route::post('/cotizaciones/{id}/verificar', [CotizacionController::class, 'verificar'])->whereNumber('id');
     Route::post('/cotizaciones/{id}/convertir', [CotizacionController::class, 'convertir'])->whereNumber('id');
     Route::delete('/cotizaciones/{id}',    [CotizacionController::class, 'destroy'])->whereNumber('id');

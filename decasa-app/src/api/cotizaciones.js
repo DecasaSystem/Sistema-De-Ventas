@@ -24,3 +24,7 @@ export const convertirCotizacion = (id, data) =>
 
 export const descargarPdfCotizacion = (id) =>
   api.get(`/cotizaciones/${id}/pdf`, { responseType: 'blob' })
+
+/** Manda la cotización por correo, con el PDF adjunto. */
+export const enviarCotizacionEmail = (id, email) =>
+  api.post(`/cotizaciones/${id}/enviar`, email ? { email } : {})
