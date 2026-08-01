@@ -316,8 +316,12 @@ async function abrirNotificacion(n) {
   notif.leer(n.id)
   abrirNotif.value = false
   const datos = n.datos ?? {}
+  // Si el precio ya quedó puesto en una cotización, lo que sigue es mandársela
+  // al cliente: se abre la cotización, no el detalle de la consulta.
+  if (datos.es_cotizacion && datos.orden_id) {
+    router.push({ name: 'cotizacion-detalle', params: { id: datos.orden_id } })
   // Notificaciones de consultas de costo — van al detalle de la consulta
-  if (datos.consulta_id) {
+  } else if (datos.consulta_id) {
     router.push({ name: 'consulta-detalle', params: { id: datos.consulta_id } })
   } else if (n.tipo === 'ruta_atrasada') {
     router.push({ name: 'despacho' })

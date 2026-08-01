@@ -321,16 +321,31 @@ class ConsultaCostoController extends Controller
             ]);
         });
 
-        // Notificar al vendedor
-        $clienteNombre = $consulta->orden->cliente->nombre ?? '';
-        $totalItems    = $consulta->items->count();
+        // Avisarle a quien preguntó. El texto cambia según qué preguntó: en una
+        // cotización el precio ya quedó puesto y lo único que falta es
+        // mandársela al cliente; en una orden hay que revisarla.
+        $orden      = $consulta->orden->fresh();
+        $esCotiz    = $orden->estado === 'cotizacion';
+        $paraQuien  = $orden->cliente?->nombre ?: $orden->contacto_nombre;
+        $deQuien    = $paraQuien ? " de {$paraQuien}" : '';
+        $totalItems = $consulta->items->count();
+        $total      = '$' . number_format((float) $orden->valor_total, 0, ',', '.');
+        $ref        = $orden->referencia ?? '#' . $consulta->orden_id;
+        $quien      = $usuario->nombre;
 
         NotificacionService::crear(
-            'consulta_costo_respondida',
-            'Precio de consulta de costo listo',
-            "Orden " . ($consulta->orden->referencia ?? '#' . $consulta->orden_id) . " — {$clienteNombre}: precio calculado para {$totalItems} ítem(s)",
-            ['consulta_id' => $consulta->id, 'orden_id' => $consulta->orden_id],
-            $consulta->solicitado_por_id,
+            tipo:      'consulta_costo_respondida',
+            titulo:    $esCotiz ? 'Ya tienes el precio de tu cotización' : 'Precio de consulta de costo listo',
+            mensaje:   $esCotiz
+                ? "{$quien} le puso precio a {$totalItems} ítem(s) de la cotización {$ref}{$deQuien}. "
+                    . "Queda en {$total} y ya sale así en el PDF: puedes enviársela al cliente."
+                : "{$quien} calculó el precio de {$totalItems} ítem(s) en la orden {$ref}{$deQuien}. Total: {$total}.",
+            datos:     [
+                'consulta_id' => $consulta->id,
+                'orden_id'    => $consulta->orden_id,
+                'es_cotizacion' => $esCotiz,
+            ],
+            usuarioId: $consulta->solicitado_por_id,
         );
 
         return response()->json(['message' => 'Precios enviados al vendedor.']);
