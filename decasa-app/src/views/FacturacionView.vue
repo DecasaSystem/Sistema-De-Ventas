@@ -1,4 +1,5 @@
 ﻿<script setup>
+import IconoS from '@/components/common/IconoS.vue'
 import { ref, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '@/api'
@@ -116,7 +117,8 @@ onMounted(() => cargar())
           :disabled="cargando"
           class="p-2 rounded-lg text-gray-500 hover:bg-gray-100 disabled:opacity-40 transition-colors"
         >
-          <ArrowPathIcon class="w-5 h-5" :class="{ 'animate-spin': cargando }" />
+          <IconoS v-if="cargando" class="w-5 h-5" />
+          <ArrowPathIcon v-else class="w-5 h-5" />
         </button>
         <button
           @click="mostrarFiltros = !mostrarFiltros"

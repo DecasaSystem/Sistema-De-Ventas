@@ -1,4 +1,5 @@
 ﻿<script setup>
+import IconoS from '@/components/common/IconoS.vue'
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { MagnifyingGlassIcon, Cog6ToothIcon, ArrowDownTrayIcon } from '@heroicons/vue/24/outline'
@@ -450,7 +451,7 @@ onUnmounted(() => {
 
       <!-- Sentinel para scroll infinito -->
       <div ref="sentinel" class="py-4 text-center">
-        <div v-if="loadingMore" class="text-sm text-gray-400">Cargando más...</div>
+        <div v-if="loadingMore" class="flex items-center gap-2 text-sm text-gray-400"><IconoS class="w-4 h-4" />Cargando más...</div>
         <div v-else-if="!hasMore" class="text-xs text-gray-300">No hay más órdenes.</div>
       </div>
     </template>

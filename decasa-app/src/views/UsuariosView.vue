@@ -1,4 +1,5 @@
 ﻿<script setup>
+import IconoS from '@/components/common/IconoS.vue'
 import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import {
@@ -243,7 +244,7 @@ onBeforeUnmount(() => {
 
     <!-- Sentinel infinite scroll -->
     <div ref="sentinel" class="py-4 text-center">
-      <div v-if="cargandoMas" class="text-sm text-gray-400">Cargando más...</div>
+      <div v-if="cargandoMas" class="flex items-center gap-2 text-sm text-gray-400"><IconoS class="w-4 h-4" />Cargando más...</div>
       <div v-else-if="!tieneMas && usuarios.length > 0" class="text-xs text-gray-300">
         Mostrando {{ usuarios.length }} trabajadores
       </div>

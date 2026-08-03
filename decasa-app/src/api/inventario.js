@@ -6,8 +6,11 @@ export const getInventario  = (tiendaId, search = '', page = 1, categoria = '') 
 export const addStock    = (data) => api.post('/inventario/entrada', data)
 export const removeStock = (data) => api.post('/inventario/salida',  data)
 
-export const getVariantes = (productoId, tiendaId) =>
-  api.get(`/productos/${productoId}/variantes`, { params: { tienda_id: tiendaId } })
+// `silencioso` para cuando se pide una por cada tarjeta ya pintada: cada tarjeta
+// muestra su propio aviso, y encender además la S global hacía que la pantalla
+// pareciera cargar dos veces seguidas.
+export const getVariantes = (productoId, tiendaId, silencioso = false) =>
+  api.get(`/productos/${productoId}/variantes`, { params: { tienda_id: tiendaId }, silencioso })
 
 export const crearVariante  = (productoId, data) =>
   api.post(`/productos/${productoId}/variantes`, data)

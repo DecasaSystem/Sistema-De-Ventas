@@ -1,4 +1,5 @@
 ﻿<script setup>
+import IconoS from '@/components/common/IconoS.vue'
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
@@ -911,7 +912,8 @@ async function cargarVCConfigsCard(item) {
   vcConfigsCardCargando.value[pid] = true
   try {
     const params = tiendaId.value && tiendaId.value !== 'todas' ? { tienda_id: tiendaId.value } : {}
-    const { data } = await api.get(`/productos/${pid}/variante-configs`, { params })
+    // silencioso: igual que cargarVariantes, es relleno de una tarjeta ya visible
+    const { data } = await api.get(`/productos/${pid}/variante-configs`, { params, silencioso: true })
     vcConfigsCard.value[pid] = data.filter(g => g.items.length > 0)
   } finally {
     vcConfigsCardCargando.value[pid] = false
@@ -1011,7 +1013,9 @@ async function cargarVariantes(item) {
   if (variantesData.value[pid] !== undefined) return
   varianteCargando.value[pid] = true
   try {
-    const { data } = await getVariantes(pid, esVistaGlobal.value ? null : tiendaId.value)
+    // silencioso: se pide una por tarjeta ya pintada; la tarjeta avisa por su
+    // cuenta con varianteCargando y no hay que encender la S global otra vez.
+    const { data } = await getVariantes(pid, esVistaGlobal.value ? null : tiendaId.value, true)
     variantesData.value[pid] = data
   } finally {
     varianteCargando.value[pid] = false
@@ -1856,7 +1860,7 @@ onMounted(async () => {
 
       <!-- Sentinel scroll infinito -->
       <div ref="sentinel" class="py-4 text-center">
-        <div v-if="loadingMore" class="text-sm text-gray-400">Cargando más...</div>
+        <div v-if="loadingMore" class="flex items-center gap-2 text-sm text-gray-400"><IconoS class="w-4 h-4" />Cargando más...</div>
         <div v-else-if="!tieneMas && inventario.length > 0" class="text-xs text-gray-300">
           Mostrando {{ inventario.length }} productos
         </div>

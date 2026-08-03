@@ -1,4 +1,5 @@
 ﻿<script setup>
+import IconoS from '@/components/common/IconoS.vue'
 import { ref, computed, onMounted, nextTick } from 'vue'
 import {
   MagnifyingGlassIcon, PlusIcon, ArchiveBoxIcon,
@@ -184,7 +185,8 @@ async function cargarVariantes(item) {
   if (variantesReserva.value[pid] !== undefined) return
   varianteCargando.value[pid] = true
   try {
-    const { data } = await getVariantes(pid, fabricaId.value)
+    // silencioso: relleno de una tarjeta ya pintada, avisa por su cuenta
+    const { data } = await getVariantes(pid, fabricaId.value, true)
     variantesReserva.value[pid] = data
   } finally {
     varianteCargando.value[pid] = false
@@ -197,7 +199,8 @@ async function cargarVarConfigsReserva(item) {
   vcConfigsCargando.value[pid] = true
   try {
     const params = fabricaId.value ? { tienda_id: fabricaId.value } : {}
-    const { data } = await api.get(`/productos/${pid}/variante-configs`, { params })
+    // silencioso: igual que cargarVariantes, es relleno de tarjeta
+    const { data } = await api.get(`/productos/${pid}/variante-configs`, { params, silencioso: true })
     varianteConfigsReserva.value[pid] = data.filter(g => g.items.length > 0)
   } catch {
     varianteConfigsReserva.value[pid] = []
@@ -675,7 +678,7 @@ onMounted(async () => {
       </ul>
 
       <div ref="sentinel" class="py-4 text-center">
-        <div v-if="loadingMore" class="text-sm text-gray-400">Cargando más...</div>
+        <div v-if="loadingMore" class="flex items-center gap-2 text-sm text-gray-400"><IconoS class="w-4 h-4" />Cargando más...</div>
         <div v-else-if="!tieneMas && inventario.length > 0" class="text-xs text-gray-300">{{ inventario.length }} productos</div>
       </div>
     </template>

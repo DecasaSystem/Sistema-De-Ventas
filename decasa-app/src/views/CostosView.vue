@@ -821,7 +821,8 @@ onMounted(() => {
         <h1 class="text-lg font-bold text-gray-800">Costos de producción</h1>
         <div class="flex items-center gap-2">
           <button v-if="tab === 'productos' && auth.isSupervisor" @click="reimportar" :disabled="reimportando" class="p-1.5 text-gray-400 hover:text-gray-600 disabled:opacity-40">
-            <ArrowPathIcon class="w-4 h-4" :class="{ 'animate-spin': reimportando }" />
+            <IconoS v-if="reimportando" class="w-4 h-4" />
+            <ArrowPathIcon v-else class="w-4 h-4" />
           </button>
           <button v-if="tab === 'productos'" @click="abrirFormNuevo"
             class="flex items-center gap-1 text-xs bg-blue-600 text-white rounded-lg px-3 py-1.5 font-medium hover:bg-blue-700">
