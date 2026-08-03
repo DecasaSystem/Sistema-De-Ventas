@@ -1511,7 +1511,7 @@ onMounted(async () => {
               :key="item.id"
               class="flex items-center gap-3 bg-white rounded-lg px-3 py-2"
             >
-              <img v-if="item.producto?.foto_url" :src="item.producto.foto_url" class="w-9 h-9 rounded-lg object-cover flex-shrink-0" />
+              <img v-if="item.producto?.foto_url" :src="cloudinaryOpt(item.producto.foto_url, 96)" class="w-9 h-9 rounded-lg object-cover flex-shrink-0" />
               <div class="w-9 h-9 rounded-lg bg-gray-100 flex-shrink-0" v-else />
               <div class="flex-1 min-w-0">
                 <p class="text-sm font-medium text-gray-800 truncate">{{ item.producto?.nombre }}</p>
@@ -1563,7 +1563,7 @@ onMounted(async () => {
               :key="item.id"
               class="flex items-center gap-3 bg-gray-50 rounded-lg px-3 py-2"
             >
-              <img v-if="item.producto?.foto_url" :src="item.producto.foto_url" class="w-9 h-9 rounded-lg object-cover flex-shrink-0" />
+              <img v-if="item.producto?.foto_url" :src="cloudinaryOpt(item.producto.foto_url, 96)" class="w-9 h-9 rounded-lg object-cover flex-shrink-0" />
               <div class="w-9 h-9 rounded-lg bg-gray-100 flex-shrink-0" v-else />
               <div class="flex-1 min-w-0">
                 <p class="text-sm font-medium text-gray-800 truncate">{{ item.producto?.nombre }}</p>
@@ -2228,7 +2228,7 @@ onMounted(async () => {
                 class="w-full flex items-center gap-3 border-2 border-dashed border-gray-300 rounded-xl px-4 py-3 hover:border-blue-400 hover:bg-blue-50 transition-colors cursor-pointer"
               >
                 <div class="w-9 h-9 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0 flex items-center justify-center">
-                  <img v-if="itemGestionar?.producto?.foto_url" :src="itemGestionar.producto.foto_url" class="w-full h-full object-cover" />
+                  <img v-if="itemGestionar?.producto?.foto_url" :src="cloudinaryOpt(itemGestionar.producto.foto_url, 800)" class="w-full h-full object-cover" />
                   <PhotoIcon v-else class="w-5 h-5 text-gray-300" />
                 </div>
                 <div class="text-left">
@@ -2267,7 +2267,7 @@ onMounted(async () => {
                 class="w-full flex items-center gap-3 border-2 border-dashed border-gray-300 rounded-xl px-4 py-3 hover:border-blue-400 hover:bg-blue-50 transition-colors cursor-pointer"
               >
                 <div class="w-9 h-9 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0 flex items-center justify-center">
-                  <img v-if="itemGestionar?.producto?.foto_url_2" :src="itemGestionar.producto.foto_url_2" class="w-full h-full object-cover" />
+                  <img v-if="itemGestionar?.producto?.foto_url_2" :src="cloudinaryOpt(itemGestionar.producto.foto_url_2, 800)" class="w-full h-full object-cover" />
                   <PhotoIcon v-else class="w-5 h-5 text-gray-300" />
                 </div>
                 <div class="text-left">

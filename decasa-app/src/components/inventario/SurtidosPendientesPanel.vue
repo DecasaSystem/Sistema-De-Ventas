@@ -1,4 +1,5 @@
 <script setup>
+import { cloudinaryOpt } from '@/utils/cloudinary'
 import { ref, onMounted } from 'vue'
 import { useSurtidosStore } from '@/stores/surtidos'
 import { aceptarSurtido, rechazarSurtido } from '@/api/surtidos'
@@ -141,7 +142,7 @@ function fmtEspecificaciones(esp) {
           >
             <img
               v-if="item.producto?.foto_url"
-              :src="item.producto.foto_url"
+              :src="cloudinaryOpt(item.producto.foto_url, 96)"
               class="w-9 h-9 rounded-lg object-cover flex-shrink-0"
             />
             <div class="w-9 h-9 rounded-lg bg-gray-100 flex-shrink-0" v-else />
@@ -199,7 +200,7 @@ function fmtEspecificaciones(esp) {
             :key="item.id"
             class="flex items-center gap-3 bg-gray-50 rounded-lg px-3 py-2"
           >
-            <img v-if="item.producto?.foto_url" :src="item.producto.foto_url" class="w-9 h-9 rounded-lg object-cover flex-shrink-0" />
+            <img v-if="item.producto?.foto_url" :src="cloudinaryOpt(item.producto.foto_url, 96)" class="w-9 h-9 rounded-lg object-cover flex-shrink-0" />
             <div class="w-9 h-9 rounded-lg bg-gray-100 flex-shrink-0" v-else />
             <div class="flex-1 min-w-0">
               <p class="text-sm font-medium text-gray-800 truncate">{{ item.producto?.nombre }}</p>

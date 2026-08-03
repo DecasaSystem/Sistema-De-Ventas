@@ -1,4 +1,5 @@
 <script setup>
+import { cloudinaryOpt } from '@/utils/cloudinary'
 import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
@@ -357,7 +358,7 @@ watch(() => consulta.value?.estado, (estado) => {
         <div class="flex items-start gap-3">
           <img
             v-if="item.orden_item?.producto?.foto_url"
-            :src="item.orden_item.producto.foto_url"
+            :src="cloudinaryOpt(item.orden_item.producto.foto_url, 200)"
             class="w-16 h-16 rounded-xl object-cover border border-gray-100 flex-shrink-0"
           />
           <div v-else class="w-16 h-16 rounded-xl bg-violet-50 flex-shrink-0 flex items-center justify-center">

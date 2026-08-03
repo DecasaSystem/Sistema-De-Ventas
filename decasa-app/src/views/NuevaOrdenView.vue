@@ -3904,7 +3904,7 @@ function removeFacturaFoto() {
         </button>
         <div class="bg-white rounded-2xl overflow-hidden shadow-2xl">
           <img
-            :src="fotoProducto?.foto_url"
+            :src="cloudinaryOpt(fotoProducto?.foto_url, 800)"
             :alt="fotoProducto?.nombre"
             class="w-full object-contain max-h-72"
           />

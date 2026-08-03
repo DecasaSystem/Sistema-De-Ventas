@@ -1,4 +1,5 @@
 <script setup>
+import { cloudinaryOpt } from '@/utils/cloudinary'
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
@@ -223,7 +224,7 @@ onMounted(async () => {
             <!-- Foto del producto -->
             <img
               v-if="paso.produccion?.orden_item?.producto?.foto_url"
-              :src="paso.produccion.orden_item.producto.foto_url"
+              :src="cloudinaryOpt(paso.produccion.orden_item.producto.foto_url, 200)"
               :alt="paso.produccion.orden_item.producto.nombre"
               class="w-16 h-16 rounded-xl object-cover flex-shrink-0 border border-gray-100"
             />
@@ -365,7 +366,7 @@ onMounted(async () => {
           <div class="flex items-start gap-3">
             <img
               v-if="paso.produccion?.orden_item?.producto?.foto_url"
-              :src="paso.produccion.orden_item.producto.foto_url"
+              :src="cloudinaryOpt(paso.produccion.orden_item.producto.foto_url, 200)"
               :alt="paso.produccion.orden_item.producto.nombre"
               class="w-16 h-16 rounded-xl object-cover flex-shrink-0 border border-gray-100"
             />

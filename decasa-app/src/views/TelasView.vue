@@ -1,4 +1,5 @@
 <script setup>
+import { cloudinaryOpt } from '@/utils/cloudinary'
 import { ref, computed, onMounted } from 'vue'
 import { MagnifyingGlassIcon, PlusIcon, MinusIcon, ArrowDownTrayIcon, PhotoIcon, XMarkIcon } from '@heroicons/vue/24/outline'
 import { useAuthStore } from '@/stores/auth'
@@ -312,7 +313,7 @@ onMounted(cargar)
           <!-- Foto de la tela -->
           <img
             v-if="tela.foto_url"
-            :src="tela.foto_url"
+            :src="cloudinaryOpt(tela.foto_url, 96)"
             @click="fotoModal = tela.foto_url"
             class="w-12 h-12 rounded-lg object-cover border border-gray-200 flex-shrink-0 cursor-pointer"
           />
@@ -445,7 +446,7 @@ onMounted(cargar)
               <label class="block text-sm font-medium text-gray-700 mb-1">Foto de la tela (opcional)</label>
               <div class="flex items-center gap-3">
                 <div v-if="crearForm.foto_url" class="relative w-16 h-16 flex-shrink-0">
-                  <img :src="crearForm.foto_url" class="w-full h-full rounded-lg object-cover border border-gray-200" />
+                  <img :src="cloudinaryOpt(crearForm.foto_url, 800)" class="w-full h-full rounded-lg object-cover border border-gray-200" />
                   <button type="button" @click="crearForm.foto_url = ''"
                     class="absolute -top-1.5 -right-1.5 bg-white rounded-full shadow p-0.5 text-red-500">
                     <XMarkIcon class="w-3.5 h-3.5" />

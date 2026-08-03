@@ -1,4 +1,5 @@
 <script setup>
+import { cloudinaryOpt } from '@/utils/cloudinary'
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useDespachoStore } from '@/stores/despacho'
@@ -1126,13 +1127,13 @@ onBeforeUnmount(() => {
                   <div v-if="item.foto_producto || item.foto_pago" class="flex gap-2 mt-2 ml-7" @click.stop>
                     <img
                       v-if="item.foto_producto"
-                      :src="fotoUrl(item.foto_producto)"
+                      :src="cloudinaryOpt(fotoUrl(item.foto_producto), 200)"
                       class="w-16 h-16 object-cover rounded-lg border border-gray-200 cursor-pointer"
                       @click="verFactura = item.foto_producto"
                     />
                     <img
                       v-if="item.foto_pago"
-                      :src="fotoUrl(item.foto_pago)"
+                      :src="cloudinaryOpt(fotoUrl(item.foto_pago), 200)"
                       class="w-16 h-16 object-cover rounded-lg border border-gray-200 cursor-pointer"
                       @click="verFactura = item.foto_pago"
                     />
@@ -1243,13 +1244,13 @@ onBeforeUnmount(() => {
                     <div v-if="item.foto_producto || item.foto_pago" class="flex gap-2 mt-2 ml-7" @click.stop>
                       <img
                         v-if="item.foto_producto"
-                        :src="fotoUrl(item.foto_producto)"
+                        :src="cloudinaryOpt(fotoUrl(item.foto_producto), 200)"
                         class="w-16 h-16 object-cover rounded-lg border border-gray-200 cursor-pointer"
                         @click="verFactura = item.foto_producto"
                       />
                       <img
                         v-if="item.foto_pago"
-                        :src="fotoUrl(item.foto_pago)"
+                        :src="cloudinaryOpt(fotoUrl(item.foto_pago), 200)"
                         class="w-16 h-16 object-cover rounded-lg border border-gray-200 cursor-pointer"
                         @click="verFactura = item.foto_pago"
                       />

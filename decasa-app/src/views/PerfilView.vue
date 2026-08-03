@@ -1,4 +1,5 @@
 <script setup>
+import { cloudinaryOpt } from '@/utils/cloudinary'
 import { ref, computed } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useAppearanceStore } from '@/stores/appearance'
@@ -294,7 +295,7 @@ function rolLabel(rol) {
       <div v-if="auth.usuario?.firma_url && !cambiandoFirma">
         <div class="bg-gray-50 border border-gray-200 rounded-lg p-3 inline-block">
           <img
-            :src="auth.usuario.firma_url"
+            :src="cloudinaryOpt(auth.usuario.firma_url, 200)"
             alt="Mi firma"
             class="h-20 max-w-xs object-contain"
           />

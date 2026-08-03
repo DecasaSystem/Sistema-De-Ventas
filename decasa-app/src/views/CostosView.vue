@@ -1,4 +1,5 @@
 <script setup>
+import { cloudinaryOpt } from '@/utils/cloudinary'
 import { ref, computed, onMounted } from 'vue'
 import { getFichas, getFicha, crearFicha, getMaterialesSugeridos, actualizarItems, reimportarFichas } from '@/api/fichas'
 import api from '@/api'
@@ -894,7 +895,7 @@ onMounted(() => {
               <button v-for="ficha in grupo" :key="ficha.id" @click="verDetalle(ficha.id)"
                 class="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 text-left">
                 <div class="flex items-center gap-3 flex-1 min-w-0 mr-3">
-                  <img v-if="ficha.foto_url" :src="ficha.foto_url" :alt="ficha.nombre"
+                  <img v-if="ficha.foto_url" :src="cloudinaryOpt(ficha.foto_url, 96)" :alt="ficha.nombre"
                     class="w-10 h-10 rounded-lg object-cover flex-shrink-0 border border-gray-100" />
                   <div class="flex-1 min-w-0">
                     <p class="text-sm font-medium text-gray-800 truncate">{{ ficha.nombre }}</p>
@@ -1353,7 +1354,7 @@ onMounted(() => {
           </div>
           <!-- Foto del producto -->
           <div v-if="fichaDetalle.foto_url || modoEdicion" class="px-4 py-3 border-b border-gray-100 flex items-center gap-3">
-            <img v-if="fichaDetalle.foto_url" :src="fichaDetalle.foto_url" :alt="fichaDetalle.nombre"
+            <img v-if="fichaDetalle.foto_url" :src="cloudinaryOpt(fichaDetalle.foto_url, 200)" :alt="fichaDetalle.nombre"
               class="w-20 h-20 rounded-xl object-cover border border-gray-200 flex-shrink-0 cursor-pointer"
               @click="!modoEdicion && (bocetoFicha = fichaDetalle.foto_url)" />
             <div v-else-if="modoEdicion" class="w-20 h-20 rounded-xl bg-gray-100 flex items-center justify-center flex-shrink-0">
@@ -1850,7 +1851,7 @@ onMounted(() => {
 
       <!-- Lightbox foto ficha técnica -->
       <div v-if="bocetoFicha" class="fixed inset-0 z-[100] flex items-center justify-center bg-black/80" @click="bocetoFicha = ''">
-        <img :src="bocetoFicha" class="max-w-full max-h-full object-contain rounded-lg" @click.stop />
+        <img :src="cloudinaryOpt(bocetoFicha, 1200)" class="max-w-full max-h-full object-contain rounded-lg" @click.stop />
         <button @click="bocetoFicha = ''" class="absolute top-4 right-4 p-2 bg-white/10 rounded-full"><XMarkIcon class="w-6 h-6 text-white" /></button>
       </div>
 

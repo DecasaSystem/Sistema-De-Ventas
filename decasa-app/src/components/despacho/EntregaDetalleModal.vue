@@ -1,4 +1,5 @@
 <script setup>
+import { cloudinaryOpt } from '@/utils/cloudinary'
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { detalleEntrega, registrarPagoEntrega, marcarEntregado } from '@/api/despacho'
 import { useToast } from '@/composables/useToast'
@@ -307,7 +308,7 @@ async function guardarPagoYEntregar() {
               <div v-for="p in item.orden.items" :key="p.id" class="flex items-center gap-3">
                 <img
                   v-if="p.producto?.foto_url"
-                  :src="p.producto.foto_url"
+                  :src="cloudinaryOpt(p.producto.foto_url, 96)"
                   :alt="p.producto.nombre"
                   class="w-12 h-12 rounded-lg object-cover border border-gray-100 flex-shrink-0"
                 />
@@ -346,13 +347,13 @@ async function guardarPagoYEntregar() {
                 <div v-if="item.foto_producto">
                   <p class="text-xs text-gray-500 mb-1">Producto</p>
                   <a :href="item.foto_producto" target="_blank">
-                    <img :src="item.foto_producto" class="w-full h-28 object-cover rounded-xl border border-gray-100" />
+                    <img :src="cloudinaryOpt(item.foto_producto, 600)" class="w-full h-28 object-cover rounded-xl border border-gray-100" />
                   </a>
                 </div>
                 <div v-if="item.foto_pago">
                   <p class="text-xs text-gray-500 mb-1">Comprobante</p>
                   <a :href="item.foto_pago" target="_blank">
-                    <img :src="item.foto_pago" class="w-full h-28 object-cover rounded-xl border border-gray-100" />
+                    <img :src="cloudinaryOpt(item.foto_pago, 600)" class="w-full h-28 object-cover rounded-xl border border-gray-100" />
                   </a>
                 </div>
               </div>
@@ -482,7 +483,7 @@ async function guardarPagoYEntregar() {
             <div v-else class="border-t border-gray-100 pt-4">
               <h4 class="text-sm font-semibold text-gray-700 mb-2">Anexo firmado</h4>
               <a :href="item.orden.anexo_foto_url" target="_blank">
-                <img :src="item.orden.anexo_foto_url" class="w-full h-28 object-cover rounded-xl border border-gray-100" />
+                <img :src="cloudinaryOpt(item.orden.anexo_foto_url, 600)" class="w-full h-28 object-cover rounded-xl border border-gray-100" />
               </a>
             </div>
 

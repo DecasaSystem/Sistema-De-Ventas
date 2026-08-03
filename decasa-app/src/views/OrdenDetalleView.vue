@@ -1,4 +1,5 @@
 <script setup>
+import { cloudinaryOpt } from '@/utils/cloudinary'
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
@@ -1352,7 +1353,7 @@ onMounted(cargarOrden)
           </a>
         </div>
         <img
-          :src="orden.factura_foto_url"
+          :src="cloudinaryOpt(orden.factura_foto_url, 800)"
           alt="Comprobante"
           class="w-full rounded-lg border border-gray-200 object-contain max-h-72 cursor-pointer"
           @click="verFactura = orden.factura_foto_url"
@@ -1377,7 +1378,7 @@ onMounted(cargarOrden)
           </a>
         </div>
         <img
-          :src="orden.anexo_foto_url"
+          :src="cloudinaryOpt(orden.anexo_foto_url, 800)"
           alt="Anexo firmado"
           class="w-full rounded-lg border border-gray-200 object-contain max-h-72 cursor-pointer"
           @click="verFactura = orden.anexo_foto_url"
@@ -1464,7 +1465,7 @@ onMounted(cargarOrden)
             <!-- Foto del producto -->
             <img
               v-if="item.producto?.foto_url"
-              :src="item.producto.foto_url"
+              :src="cloudinaryOpt(item.producto.foto_url, 200)"
               :alt="item.producto?.nombre ?? 'Producto'"
               class="w-16 h-16 rounded-lg object-cover flex-shrink-0 border border-gray-100 cursor-pointer"
               @click="bocetoModal = item.producto.foto_url"
@@ -1609,7 +1610,7 @@ onMounted(cargarOrden)
             <div v-if="despachoEntrega.foto_producto">
               <p class="text-xs text-gray-500 mb-1">Producto entregado</p>
               <img
-                :src="despachoEntrega.foto_producto"
+                :src="cloudinaryOpt(despachoEntrega.foto_producto, 600)"
                 class="w-full h-32 object-cover rounded-lg border border-gray-200 cursor-pointer"
                 @click="verFactura = despachoEntrega.foto_producto"
               />
@@ -1617,7 +1618,7 @@ onMounted(cargarOrden)
             <div v-if="despachoEntrega.foto_pago">
               <p class="text-xs text-gray-500 mb-1">Comprobante de pago</p>
               <img
-                :src="despachoEntrega.foto_pago"
+                :src="cloudinaryOpt(despachoEntrega.foto_pago, 600)"
                 class="w-full h-32 object-cover rounded-lg border border-gray-200 cursor-pointer"
                 @click="verFactura = despachoEntrega.foto_pago"
               />
@@ -1662,7 +1663,7 @@ onMounted(cargarOrden)
               <p class="text-sm text-amber-800">{{ despachoEntrega.observaciones_entrega }}</p>
               <img
                 v-if="despachoEntrega.foto_novedad_url"
-                :src="despachoEntrega.foto_novedad_url"
+                :src="cloudinaryOpt(despachoEntrega.foto_novedad_url, 600)"
                 class="w-full h-32 object-cover rounded-lg border border-amber-200 cursor-pointer"
                 @click="verFactura = despachoEntrega.foto_novedad_url"
               />
@@ -1675,7 +1676,7 @@ onMounted(cargarOrden)
             <!-- Quién firmó -->
             <div v-if="despachoEntrega.firma_recibido_url" class="flex items-start gap-3">
               <img
-                :src="despachoEntrega.firma_recibido_url"
+                :src="cloudinaryOpt(despachoEntrega.firma_recibido_url, 200)"
                 class="h-16 w-32 object-contain bg-white rounded-lg border border-gray-200 cursor-pointer flex-shrink-0"
                 @click="verFactura = despachoEntrega.firma_recibido_url"
               />
@@ -2640,7 +2641,7 @@ onMounted(cargarOrden)
             <XMarkIcon class="w-5 h-5 text-gray-700" />
           </button>
           <div class="bg-white rounded-2xl overflow-hidden shadow-2xl p-2">
-            <img :src="bocetoModal" alt="Boceto" class="w-full object-contain max-h-[70vh] rounded-xl" />
+            <img :src="cloudinaryOpt(bocetoModal, 1200)" alt="Boceto" class="w-full object-contain max-h-[70vh] rounded-xl" />
             <button
               @click="descargarBoceto(bocetoModal)"
               class="mt-2 w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl py-2 text-sm font-semibold transition-colors"

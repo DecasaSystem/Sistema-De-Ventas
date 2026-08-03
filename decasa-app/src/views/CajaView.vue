@@ -1,4 +1,5 @@
 <script setup>
+import { cloudinaryOpt } from '@/utils/cloudinary'
 import { ref, computed, reactive, onMounted, watch } from 'vue'
 import api from '@/api'
 import { getBalance, getMovimientos, registrarMovimiento, eliminarMovimiento } from '@/api/caja'
@@ -459,7 +460,7 @@ const balancePositivo = computed(() => balance.value.balance >= 0)
                   <p class="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Comprobante</p>
                   <a :href="mov.comprobante_url" target="_blank" class="block">
                     <img
-                      :src="mov.comprobante_url"
+                      :src="cloudinaryOpt(mov.comprobante_url, 700)"
                       class="w-full rounded-xl object-contain max-h-64 border border-gray-200 bg-gray-50"
                       alt="Comprobante"
                     />
@@ -574,7 +575,7 @@ const balancePositivo = computed(() => balance.value.balance >= 0)
                 <div v-else-if="egresoForm.comprobante_url">
                   <div class="relative">
                     <img
-                      :src="egresoForm.comprobante_url"
+                      :src="cloudinaryOpt(egresoForm.comprobante_url, 800)"
                       class="w-full rounded-xl object-contain max-h-52 border border-gray-200 bg-gray-50"
                       alt="Vista previa del comprobante"
                     />
