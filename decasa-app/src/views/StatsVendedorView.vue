@@ -73,7 +73,12 @@ function resuelveFechas() {
   return { desde: desde.toISOString().split('T')[0], hasta: hoy.toISOString().split('T')[0] }
 }
 
+// Armar el Excel tarda; sin aviso el botón parece muerto.
+const exportando = ref(false)
+
 async function exportar() {
+  if (exportando.value) return
+  exportando.value = true
   const f = resuelveFechas()
   const params = new URLSearchParams({
     tipo: 'ventas',
@@ -94,6 +99,8 @@ async function exportar() {
     window.URL.revokeObjectURL(url)
   } catch (e) {
     console.error('Error al exportar:', e)
+  } finally {
+    exportando.value = false
   }
 }
 
@@ -228,7 +235,11 @@ onBeforeUnmount(() => {
           {{ stats.vendedor.nombre }} · {{ stats.vendedor.tienda }}
         </p>
       </div>
-      <button @click="exportar" class="text-xs text-blue-600 font-medium hover:underline whitespace-nowrap">Exportar</button>
+      <button
+        @click="exportar"
+        :disabled="exportando"
+        class="text-xs text-blue-600 font-medium hover:underline disabled:opacity-50 disabled:no-underline whitespace-nowrap"
+      >{{ exportando ? 'Exportando...' : 'Exportar' }}</button>
     </div>
 
     <!-- Selector período -->

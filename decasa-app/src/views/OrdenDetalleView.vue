@@ -11,6 +11,7 @@ import { tomarFacturacion, marcarFacturada } from '@/api/pagos'
 import { getReceptores, crearConsulta, getConsultas, ajustarPrecio as ajustarPrecioApi } from '@/api/consultas'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
+import SpinnerBoton from '@/components/common/SpinnerBoton.vue'
 import RegistroPagoModal from '@/components/ordenes/RegistroPagoModal.vue'
 import EditarOrdenModal from '@/components/ordenes/EditarOrdenModal.vue'
 import { SparklesIcon, XMarkIcon } from '@heroicons/vue/24/solid'
@@ -644,7 +645,14 @@ function origenInventario(item) {
   return item.tienda_origen?.nombre ?? orden.value?.tienda?.nombre ?? null
 }
 
+// El PDF lo arma el servidor y puede tardar varios segundos. Sin aviso, el
+// usuario vuelve a tocar y se generan dos.
+const descargandoPdf  = ref(false)
+const descargandoActa = ref(false)
+
 async function descargarPdf() {
+  if (descargandoPdf.value) return
+  descargandoPdf.value = true
   try {
     const response = await descargarPdfOrden(orden.value.id)
     const blob = new Blob([response.data], { type: 'application/pdf' })
@@ -653,10 +661,14 @@ async function descargarPdf() {
     setTimeout(() => window.URL.revokeObjectURL(url), 5000)
   } catch (e) {
     error.value = 'Error al descargar el PDF.'
+  } finally {
+    descargandoPdf.value = false
   }
 }
 
 async function descargarActa() {
+  if (descargandoActa.value) return
+  descargandoActa.value = true
   try {
     const response = await descargarActaEntrega(orden.value.id)
     const blob = new Blob([response.data], { type: 'application/pdf' })
@@ -665,6 +677,8 @@ async function descargarActa() {
     setTimeout(() => window.URL.revokeObjectURL(url), 5000)
   } catch (e) {
     toast.error('No se pudo descargar el acta de entrega.')
+  } finally {
+    descargandoActa.value = false
   }
 }
 
@@ -1091,11 +1105,13 @@ onMounted(cargarOrden)
       <button
         v-if="orden"
         @click="descargarPdf"
-        class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
+        :disabled="descargandoPdf"
+        class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 disabled:opacity-60 transition-colors"
         title="Descargar PDF"
       >
-        <DocumentIcon class="w-4 h-4" />
-        PDF
+        <SpinnerBoton v-if="descargandoPdf" class="w-4 h-4" />
+        <DocumentIcon v-else class="w-4 h-4" />
+        {{ descargandoPdf ? 'Generando...' : 'PDF' }}
       </button>
       <BadgeEstado v-if="orden" :estado="orden.estado" />
       <span
@@ -1644,10 +1660,12 @@ onMounted(cargarOrden)
               <button
                 v-if="despachoEntrega.firma_recibido_url"
                 @click="descargarActa"
-                class="text-xs text-blue-600 font-medium flex items-center gap-1"
+                :disabled="descargandoActa"
+                class="text-xs text-blue-600 font-medium flex items-center gap-1 disabled:opacity-60"
               >
-                <ArrowDownTrayIcon class="w-3.5 h-3.5" />
-                PDF
+                <SpinnerBoton v-if="descargandoActa" class="w-3.5 h-3.5" />
+                <ArrowDownTrayIcon v-else class="w-3.5 h-3.5" />
+                {{ descargandoActa ? 'Generando...' : 'PDF' }}
               </button>
             </div>
 

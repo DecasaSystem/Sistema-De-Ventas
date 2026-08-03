@@ -11,8 +11,10 @@ import { usePasosStore } from '@/stores/pasos'
 import { useDespachoProduccionStore } from '@/stores/despachoProduccion'
 import { useConsultasStore } from '@/stores/consultas'
 import { useSurtidosSocket } from '@/composables/useSurtidosSocket'
+import { useCargaGlobal } from '@/composables/useCargaGlobal'
 import { registrarPush, cancelarPush } from '@/composables/usePushNotifications'
 import { cargarCatalogoDB } from '@/data/telasCatalogo'
+import CargandoS from '@/components/common/CargandoS.vue'
 import ScrollToTop from '@/components/common/ScrollToTop.vue'
 import ToastContainer from '@/components/common/ToastContainer.vue'
 import AppInstallPrompt from '@/components/common/AppInstallPrompt.vue'
@@ -77,6 +79,11 @@ const navCargando   = ref(false)
 
 router.beforeEach(() => { navCargando.value = true })
 router.afterEach(()  => { navCargando.value = false })
+
+// Barra de progreso mientras haya peticiones al backend en vuelo. Cubre de una
+// vez todos los botones que no avisan que están trabajando.
+const { cargando: cargandoRed } = useCargaGlobal()
+const mostrarBarra = computed(() => navCargando.value || cargandoRed.value)
 
 function onSwMessage(e) {
   if (e.data?.type === 'push-click') {
@@ -174,7 +181,8 @@ const notificacionesOrdenadas = computed(() => {
 const redesPendientes = ref(0)
 function cargarRedesPendientes() {
   if (!auth.isAuthenticated || !auth.tieneAccesoRedes) return
-  api.get('/redes/conversaciones?estado=pendiente').then(r => {
+  // Refresco de badge en segundo plano: no debe encender la barra de carga.
+  api.get('/redes/conversaciones?estado=pendiente', { silencioso: true }).then(r => {
     redesPendientes.value = r.data.length
   }).catch(() => {})
 }
@@ -404,13 +412,8 @@ function formatFecha(iso) {
 
 <template>
   <div class="flex flex-col min-h-screen bg-gray-50">
-    <!-- Barra de progreso de navegación -->
-    <div
-      v-if="navCargando"
-      class="fixed top-0 inset-x-0 z-[200] h-0.5 bg-blue-200 overflow-hidden"
-    >
-      <div class="h-full bg-blue-500 animate-nav-bar" />
-    </div>
+    <!-- Cargando: cambio de pantalla o petición al backend en curso -->
+    <CargandoS v-if="mostrarBarra" />
 
     <!-- Top bar -->
     <header v-if="showNav" class="sticky top-0 z-10 bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
@@ -688,14 +691,5 @@ function formatFecha(iso) {
 .page-enter-from,
 .page-leave-to {
   opacity: 0;
-}
-
-@keyframes nav-bar-slide {
-  0%   { transform: translateX(-100%); }
-  60%  { transform: translateX(-10%); }
-  100% { transform: translateX(0%); }
-}
-.animate-nav-bar {
-  animation: nav-bar-slide 1.5s ease-out forwards;
 }
 </style>

@@ -12,6 +12,7 @@ import ColaCamionesModal from '@/components/despacho/ColaCamionesModal.vue'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
+import SpinnerBoton from '@/components/common/SpinnerBoton.vue'
 
 const router   = useRouter()
 const despacho = useDespachoStore()
@@ -248,6 +249,11 @@ const cargandoRutas    = ref(false)
 const mostrarFormRuta  = ref(false)
 const formRuta         = ref({ nombre_ruta: '', fecha_despacho: '', instrucciones: '' })
 const creandoRuta      = ref(false)
+// Guardan el id de lo que se está procesando, no un booleano: con varias rutas
+// en pantalla hay que saber en cuál poner el spinner.
+const borrandoRutaId   = ref(null)
+const quitandoItemId   = ref(null)
+const agregandoOrdenId = ref(null)
 const editandoRuta     = ref(null)   // { id, nombre_ruta, fecha_despacho, instrucciones }
 const guardandoRuta    = ref(false)
 
@@ -305,6 +311,8 @@ async function guardarEditRuta() {
 
 async function borrarRuta(ruta) {
   if (!confirm(`¿Eliminar la ruta "${ruta.nombre_ruta || 'sin nombre'}"? Las órdenes volverán a la cola.`)) return
+  if (borrandoRutaId.value) return
+  borrandoRutaId.value = ruta.id
   try {
     await apiEliminarRuta(ruta.id)
     rutas.value = rutas.value.filter(r => r.id !== ruta.id)
@@ -312,6 +320,8 @@ async function borrarRuta(ruta) {
     toast.success('Ruta eliminada')
   } catch (e) {
     toast.error(e.response?.data?.message || 'Error al eliminar')
+  } finally {
+    borrandoRutaId.value = null
   }
 }
 
@@ -344,18 +354,27 @@ function colaDisponible(ruta) {
 }
 
 async function agregarOrden(ruta, orden) {
+  if (agregandoOrdenId.value) return
+  agregandoOrdenId.value = orden.id
   try {
     const { data } = await agregarOrdenARuta(ruta.id, { orden_id: orden.id })
     ruta.items = [...(ruta.items ?? []), data]
     // quitar de la cola local
     despacho.quitarDeCola(orden.id)
+    // El panel se cierra al confirmar, no al hacer clic: así el spinner de la
+    // fila se alcanza a ver y si falla la lista sigue ahí para reintentar.
+    rutaAgregando.value = null
     toast.success('Orden agregada a la ruta')
   } catch (e) {
     toast.error(e.response?.data?.message || 'Error al agregar orden')
+  } finally {
+    agregandoOrdenId.value = null
   }
 }
 
 async function quitarOrden(ruta, item) {
+  if (quitandoItemId.value) return
+  quitandoItemId.value = item.id
   try {
     await quitarOrdenDeRuta(ruta.id, item.id)
     ruta.items = ruta.items.filter(i => i.id !== item.id)
@@ -366,6 +385,8 @@ async function quitarOrden(ruta, item) {
     toast.success('Orden devuelta a la cola')
   } catch (e) {
     toast.error(e.response?.data?.message || 'Error al quitar orden')
+  } finally {
+    quitandoItemId.value = null
   }
 }
 
@@ -660,8 +681,14 @@ onBeforeUnmount(() => {
                 <button @click.stop="abrirEditRuta(ruta)" class="p-1.5 rounded-lg hover:bg-white/20 transition-colors" title="Editar fecha / nombre">
                   <PencilSquareIcon class="w-4 h-4 text-blue-200" />
                 </button>
-                <button @click.stop="borrarRuta(ruta)" class="p-1.5 rounded-lg hover:bg-white/20 transition-colors" title="Eliminar ruta">
-                  <TrashIcon class="w-4 h-4 text-red-300" />
+                <button
+                  @click.stop="borrarRuta(ruta)"
+                  :disabled="borrandoRutaId === ruta.id"
+                  class="p-1.5 rounded-lg hover:bg-white/20 transition-colors disabled:opacity-60"
+                  title="Eliminar ruta"
+                >
+                  <SpinnerBoton v-if="borrandoRutaId === ruta.id" class="w-4 h-4 text-red-300" />
+                  <TrashIcon v-else class="w-4 h-4 text-red-300" />
                 </button>
               </div>
             </div>
@@ -736,8 +763,13 @@ onBeforeUnmount(() => {
             <div class="flex items-center gap-1 flex-shrink-0">
               <button @click="subirOrden(ruta, idx)" :disabled="idx === 0" class="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-blue-600 hover:bg-blue-50 disabled:opacity-30 transition-all text-sm font-bold">↑</button>
               <button @click="bajarOrden(ruta, idx)" :disabled="idx >= ruta.items.length - 1" class="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-blue-600 hover:bg-blue-50 disabled:opacity-30 transition-all text-sm font-bold">↓</button>
-              <button @click="quitarOrden(ruta, item)" class="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all">
-                <XMarkIcon class="w-3.5 h-3.5" />
+              <button
+                @click="quitarOrden(ruta, item)"
+                :disabled="quitandoItemId === item.id"
+                class="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 disabled:opacity-40 transition-all"
+              >
+                <SpinnerBoton v-if="quitandoItemId === item.id" class="w-3.5 h-3.5" />
+                <XMarkIcon v-else class="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
@@ -757,10 +789,14 @@ onBeforeUnmount(() => {
           <button
             v-for="orden in colaDisponible(ruta)"
             :key="orden.id"
-            @click="agregarOrden(ruta, orden); rutaAgregando = null"
-            class="w-full text-left px-3 py-2 rounded-lg border border-gray-200 bg-white hover:border-blue-400 hover:bg-blue-50 transition-all"
+            @click="agregarOrden(ruta, orden)"
+            :disabled="agregandoOrdenId !== null"
+            class="w-full text-left px-3 py-2 rounded-lg border border-gray-200 bg-white hover:border-blue-400 hover:bg-blue-50 disabled:opacity-50 disabled:hover:border-gray-200 disabled:hover:bg-white transition-all"
           >
-            <p class="text-sm font-medium text-gray-800">{{ orden.cliente?.nombre }}</p>
+            <p class="text-sm font-medium text-gray-800 flex items-center gap-1.5">
+              <SpinnerBoton v-if="agregandoOrdenId === orden.id" class="w-3.5 h-3.5 text-blue-600" />
+              {{ orden.cliente?.nombre }}
+            </p>
             <p class="text-xs text-gray-400 truncate">{{ orden.cliente?.direccion }}</p>
             <p class="text-xs text-orange-600 font-medium">Cobra: ${{ fmtDinero(orden.saldo_pendiente) }}</p>
           </button>

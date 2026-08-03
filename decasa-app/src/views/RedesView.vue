@@ -5,6 +5,7 @@ import { useToast } from '@/composables/useToast'
 import { useRouter } from 'vue-router'
 import api from '@/api'
 import RedesHerramientas from '@/components/RedesHerramientas.vue'
+import SpinnerBoton from '@/components/common/SpinnerBoton.vue'
 import {
   ChatBubbleLeftRightIcon,
   PhoneIcon,
@@ -30,6 +31,7 @@ const tab     = ref('pendiente') // pendiente | tomada | terminada
 const cargando = ref(true)
 const error    = ref('')
 const tomando  = ref(null) // id de la conversación que se está tomando
+const terminando = ref(null) // id de la que se está cerrando
 
 const filtrados = computed(() => {
   if (tab.value === 'mias') {
@@ -44,11 +46,13 @@ const badges = computed(() => ({
   terminada: items.value.filter(c => c.estado === 'terminada').length,
 }))
 
-async function cargar() {
-  cargando.value = true
+// `silencioso` lo usa el sondeo de respaldo: refresca sin encender la barra de
+// carga global ni vaciar la lista, para no parpadear cada 12 segundos.
+async function cargar(silencioso = false) {
+  if (!silencioso) cargando.value = true
   error.value = ''
   try {
-    const { data } = await api.get('/redes/conversaciones')
+    const { data } = await api.get('/redes/conversaciones', { silencioso })
     items.value = data
   } catch (e) {
     error.value = 'Error cargando conversaciones'
@@ -86,11 +90,15 @@ async function tomar(id) {
 
 async function terminar(id) {
   if (!confirm('¿Marcar esta conversación como terminada?')) return
+  if (terminando.value === id) return
+  terminando.value = id
   try {
     const { data } = await api.post(`/redes/conversaciones/${id}/terminar`)
     actualizarItem(data)
   } catch (e) {
     alert(e.response?.data?.error || 'Error al terminar')
+  } finally {
+    terminando.value = null
   }
 }
 
@@ -224,7 +232,7 @@ let pollInterval = null
 function iniciarPolling() {
   // Refresca cada 12 segundos si no hay WebSocket activo
   pollInterval = setInterval(() => {
-    if (!document.hidden) cargar()
+    if (!document.hidden) cargar(true)
   }, 12000)
 }
 
@@ -446,10 +454,12 @@ onUnmounted(() => {
             <button
               v-if="conv.estado === 'tomada' && (conv.tomada_por?.id === auth.usuario?.id || auth.isSupervisor)"
               @click="terminar(conv.id)"
-              class="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white text-xs font-semibold rounded-lg hover:bg-green-700 transition-colors"
+              :disabled="terminando === conv.id"
+              class="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white text-xs font-semibold rounded-lg hover:bg-green-700 disabled:bg-green-400 transition-colors"
             >
-              <CheckCircleIcon class="w-3.5 h-3.5" />
-              Terminar
+              <SpinnerBoton v-if="terminando === conv.id" class="w-3.5 h-3.5" />
+              <CheckCircleIcon v-else class="w-3.5 h-3.5" />
+              {{ terminando === conv.id ? 'Cerrando...' : 'Terminar' }}
             </button>
 
             <!-- Estado tomada por otro (solo vendedores que no la tomaron) -->

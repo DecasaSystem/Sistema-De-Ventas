@@ -5,6 +5,7 @@ import { useToast } from '@/composables/useToast'
 import api from '@/api'
 import { comprimirImagen } from '@/utils/comprimirImagen'
 import FirmaCanvas from '@/components/FirmaCanvas.vue'
+import SpinnerBoton from '@/components/common/SpinnerBoton.vue'
 import {
   getCotizacion, cambiarEstadoCotizacion, eliminarCotizacion,
   verificarCotizacion, convertirCotizacion, descargarPdfCotizacion,
@@ -100,7 +101,14 @@ async function pedirCosto() {
   }
 }
 
+// El PDF lo arma el servidor y tarda; eliminar navega a otra pantalla. En los
+// dos casos el usuario se queda mirando un botón que no reacciona.
+const descargandoPdf = ref(false)
+const borrando       = ref(false)
+
 async function descargarPdf() {
+  if (descargandoPdf.value) return
+  descargandoPdf.value = true
   try {
     const response = await descargarPdfCotizacion(cotizacion.value.id)
     const blob = new Blob([response.data], { type: 'application/pdf' })
@@ -109,6 +117,8 @@ async function descargarPdf() {
     setTimeout(() => window.URL.revokeObjectURL(url), 5000)
   } catch {
     toast.error('Error al descargar el PDF.')
+  } finally {
+    descargandoPdf.value = false
   }
 }
 
@@ -317,12 +327,15 @@ async function hacerConversion() {
 
 async function borrar() {
   if (!confirm('¿Eliminar esta cotización? No afecta inventario ni ventas.')) return
+  if (borrando.value) return
+  borrando.value = true
   try {
     await eliminarCotizacion(cotizacion.value.id)
     toast.success('Cotización eliminada.')
     router.push({ name: 'cotizaciones' })
   } catch (e) {
     toast.error(e.response?.data?.message ?? 'No se pudo eliminar.')
+    borrando.value = false
   }
 }
 
@@ -582,10 +595,12 @@ onMounted(cargar)
       <div class="space-y-2">
         <button
           @click="descargarPdf"
-          class="w-full py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl font-semibold text-sm flex items-center justify-center gap-1.5 transition-colors"
+          :disabled="descargandoPdf"
+          class="w-full py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white rounded-xl font-semibold text-sm flex items-center justify-center gap-1.5 transition-colors"
         >
-          <DocumentArrowDownIcon class="w-4 h-4" />
-          Descargar PDF para el cliente
+          <SpinnerBoton v-if="descargandoPdf" class="w-4 h-4" />
+          <DocumentArrowDownIcon v-else class="w-4 h-4" />
+          {{ descargandoPdf ? 'Generando PDF...' : 'Descargar PDF para el cliente' }}
         </button>
 
         <template v-if="esActiva">
@@ -619,10 +634,12 @@ onMounted(cargar)
         <button
           v-if="cotizacion.cotizacion_estado !== 'convertida'"
           @click="borrar"
-          class="w-full py-2 text-red-500 text-sm font-medium flex items-center justify-center gap-1.5"
+          :disabled="borrando"
+          class="w-full py-2 text-red-500 text-sm font-medium flex items-center justify-center gap-1.5 disabled:opacity-50"
         >
-          <TrashIcon class="w-4 h-4" />
-          Eliminar
+          <SpinnerBoton v-if="borrando" class="w-4 h-4" />
+          <TrashIcon v-else class="w-4 h-4" />
+          {{ borrando ? 'Eliminando...' : 'Eliminar' }}
         </button>
       </div>
     </template>

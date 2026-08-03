@@ -11,6 +11,7 @@ import {
 import api from '@/api'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
+import SpinnerBoton from '@/components/common/SpinnerBoton.vue'
 import { useAuthStore } from '@/stores/auth'
 import { StarIcon } from '@heroicons/vue/24/solid'
 
@@ -185,7 +186,11 @@ async function cargarInteresados() {
   }
 }
 
+const exportandoResumen = ref(false)
+
 async function exportarResumenMensual() {
+  if (exportandoResumen.value) return
+  exportandoResumen.value = true
   try {
     const res = await api.get('/reportes/resumen-mensual/exportar', { responseType: 'blob' })
     const url = window.URL.createObjectURL(new Blob([res.data]))
@@ -196,7 +201,11 @@ async function exportarResumenMensual() {
     a.click()
     a.remove()
     window.URL.revokeObjectURL(url)
-  } catch (e) { console.error('Error al exportar resumen mensual:', e) }
+  } catch (e) {
+    console.error('Error al exportar resumen mensual:', e)
+  } finally {
+    exportandoResumen.value = false
+  }
 }
 
 // ── Canvas refs + instancias ──────────────────────────────────────────────────
@@ -426,7 +435,14 @@ function resuelveFechas() {
   return { desde: desde.toISOString().split('T')[0], hasta: hoy.toISOString().split('T')[0] }
 }
 
+// Guarda qué reporte se está exportando: hay cinco botones "Exportar" en la
+// pantalla y el aviso tiene que salir solo en el que se tocó. Armar el Excel
+// tarda, y sin señal la gente lo toca tres veces.
+const exportandoTipo = ref(null)
+
 async function exportar(tipo) {
+  if (exportandoTipo.value) return
+  exportandoTipo.value = tipo
   const f = resuelveFechas()
   const params = new URLSearchParams({
     tipo,
@@ -448,6 +464,8 @@ async function exportar(tipo) {
     window.URL.revokeObjectURL(url)
   } catch (e) {
     console.error('Error al exportar:', e)
+  } finally {
+    exportandoTipo.value = null
   }
 }
 
@@ -563,7 +581,11 @@ onBeforeUnmount(() => {
         <div class="bg-white rounded-xl shadow-sm p-4">
           <div class="flex items-center justify-between mb-3">
             <p class="text-sm font-semibold text-gray-700">Tendencia del período</p>
-            <button @click="exportar('ventas')" class="text-xs text-blue-600 font-medium hover:underline">Exportar</button>
+            <button
+              @click="exportar('ventas')"
+              :disabled="exportandoTipo !== null"
+              class="text-xs text-blue-600 font-medium hover:underline disabled:opacity-50 disabled:no-underline"
+            >{{ exportandoTipo === 'ventas' ? 'Exportando...' : 'Exportar' }}</button>
           </div>
           <div class="h-52">
             <canvas ref="lineCanvas"></canvas>
@@ -600,7 +622,11 @@ onBeforeUnmount(() => {
         <div class="bg-white rounded-xl shadow-sm overflow-hidden">
           <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
             <p class="text-sm font-semibold text-gray-700">Ranking de ventas</p>
-            <button @click="exportar('vendedores')" class="text-xs text-blue-600 font-medium hover:underline">Exportar</button>
+            <button
+              @click="exportar('vendedores')"
+              :disabled="exportandoTipo !== null"
+              class="text-xs text-blue-600 font-medium hover:underline disabled:opacity-50 disabled:no-underline"
+            >{{ exportandoTipo === 'vendedores' ? 'Exportando...' : 'Exportar' }}</button>
           </div>
           <div class="overflow-x-auto">
             <table class="w-full text-sm">
@@ -795,7 +821,11 @@ onBeforeUnmount(() => {
               <template v-else-if="categoriaFiltro">Top productos — {{ categoriaFiltro }}</template>
               <template v-else>Top 10 productos</template>
             </p>
-            <button @click="exportar('productos-top')" class="text-xs text-blue-600 font-medium hover:underline">Exportar</button>
+            <button
+              @click="exportar('productos-top')"
+              :disabled="exportandoTipo !== null"
+              class="text-xs text-blue-600 font-medium hover:underline disabled:opacity-50 disabled:no-underline"
+            >{{ exportandoTipo === 'productos-top' ? 'Exportando...' : 'Exportar' }}</button>
           </div>
           <ul class="divide-y divide-gray-100">
             <li v-for="(p, i) in productos" :key="p.producto_id"
@@ -816,7 +846,11 @@ onBeforeUnmount(() => {
       <div v-show="tabActivo === 'cartera'" class="space-y-3">
         <div class="flex items-center justify-between">
           <p class="text-sm text-gray-500">{{ cartera.length }} orden{{ cartera.length !== 1 ? 'es' : '' }} con saldo pendiente</p>
-          <button @click="exportar('pendientes')" class="text-xs text-blue-600 font-medium hover:underline">Exportar</button>
+          <button
+              @click="exportar('pendientes')"
+              :disabled="exportandoTipo !== null"
+              class="text-xs text-blue-600 font-medium hover:underline disabled:opacity-50 disabled:no-underline"
+            >{{ exportandoTipo === 'pendientes' ? 'Exportando...' : 'Exportar' }}</button>
         </div>
         <ul class="space-y-2">
           <li v-for="o in cartera" :key="o.orden_id"
@@ -857,7 +891,11 @@ onBeforeUnmount(() => {
       <div v-show="tabActivo === 'produccion'" class="space-y-3">
         <div class="flex items-center justify-between">
           <p class="text-sm text-gray-500">{{ retrasos.length }} orden{{ retrasos.length !== 1 ? 'es' : '' }} atrasada{{ retrasos.length !== 1 ? 's' : '' }}</p>
-          <button @click="exportar('retrasos')" class="text-xs text-blue-600 font-medium hover:underline">Exportar</button>
+          <button
+              @click="exportar('retrasos')"
+              :disabled="exportandoTipo !== null"
+              class="text-xs text-blue-600 font-medium hover:underline disabled:opacity-50 disabled:no-underline"
+            >{{ exportandoTipo === 'retrasos' ? 'Exportando...' : 'Exportar' }}</button>
         </div>
         <ul class="space-y-2">
           <li v-for="r in retrasos" :key="r.orden_id"
@@ -1141,12 +1179,14 @@ onBeforeUnmount(() => {
             </div>
             <button
               @click="exportarResumenMensual"
-              class="flex items-center gap-1.5 bg-blue-600 text-white text-xs font-semibold px-3 py-2 rounded-lg hover:bg-blue-700 transition-colors flex-shrink-0"
+              :disabled="exportandoResumen"
+              class="flex items-center gap-1.5 bg-blue-600 text-white text-xs font-semibold px-3 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-60 transition-colors flex-shrink-0"
             >
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <SpinnerBoton v-if="exportandoResumen" class="w-4 h-4" />
+              <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
               </svg>
-              Exportar Excel
+              {{ exportandoResumen ? 'Exportando...' : 'Exportar Excel' }}
             </button>
           </div>
 
