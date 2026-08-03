@@ -1,4 +1,5 @@
 ﻿<script setup>
+import IconoS from '@/components/common/IconoS.vue'
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
@@ -365,7 +366,7 @@ onMounted(async () => {
             :disabled="convirtiendo"
             class="w-full bg-amber-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-amber-700 disabled:opacity-50 flex items-center justify-center gap-2 transition-colors"
           >
-            <ArrowPathIcon v-if="convirtiendo" class="w-4 h-4 animate-spin" />
+            <IconoS v-if="convirtiendo" class="w-4 h-4" />
             {{ convirtiendo ? 'Convirtiendo...' : 'Confirmar conversión a oficial' }}
           </button>
         </div>
@@ -499,7 +500,7 @@ onMounted(async () => {
             :disabled="guardando"
             class="flex-1 bg-blue-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2 transition-colors"
           >
-            <ArrowPathIcon v-if="guardando" class="w-4 h-4 animate-spin" />
+            <IconoS v-if="guardando" class="w-4 h-4" />
             <CheckIcon v-else class="w-4 h-4" />
             {{ guardando ? 'Guardando...' : 'Guardar cambios' }}
           </button>

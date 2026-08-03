@@ -1,4 +1,5 @@
 <script setup>
+import IconoS from '@/components/common/IconoS.vue'
 import { cloudinaryOpt } from '@/utils/cloudinary'
 import { ref, computed, onMounted } from 'vue'
 import { getFichas, getFicha, crearFicha, getMaterialesSugeridos, actualizarItems, reimportarFichas } from '@/api/fichas'
@@ -836,7 +837,7 @@ onMounted(() => {
           </button>
           <button v-if="tab === 'tarifas'" @click="guardarTarifas" :disabled="guardandoTar || !tarifasDirty"
             class="flex items-center gap-1 text-xs bg-blue-600 text-white rounded-lg px-3 py-1.5 font-medium hover:bg-blue-700 disabled:opacity-40">
-            <ArrowPathIcon v-if="guardandoTar" class="w-3.5 h-3.5 animate-spin" />
+            <IconoS v-if="guardandoTar" class="w-3.5 h-3.5" />
             <CheckIcon v-else class="w-3.5 h-3.5" />
             {{ guardandoTar ? 'Guardando...' : 'Guardar' }}
           </button>
@@ -884,7 +885,7 @@ onMounted(() => {
       </div>
 
       <div class="px-4 pt-4">
-        <div v-if="loading" class="flex justify-center py-16"><div class="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>
+        <div v-if="loading" class="flex justify-center py-16"><IconoS class="w-8 h-8 text-blue-500" /></div>
         <div v-else-if="fichas.length === 0" class="text-center py-16 text-gray-400">
           <CubeIcon class="w-12 h-12 mx-auto mb-2 opacity-40" /><p class="text-sm">No se encontraron productos</p>
         </div>
@@ -935,7 +936,7 @@ onMounted(() => {
         <button @click="afectados = null" class="ml-2 text-green-500 font-bold">×</button>
       </div>
 
-      <div v-if="loadingMat" class="flex justify-center py-16"><div class="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>
+      <div v-if="loadingMat" class="flex justify-center py-16"><IconoS class="w-8 h-8 text-blue-500" /></div>
 
       <div v-else class="px-4 pt-3">
         <div class="bg-white rounded-xl shadow-sm divide-y divide-gray-100 overflow-hidden">
@@ -976,7 +977,7 @@ onMounted(() => {
     <!-- TAB TARIFAS                                                               -->
     <!-- ════════════════════════════════════════════════════════════════════════ -->
     <template v-if="tab === 'tarifas'">
-      <div v-if="loadingTarifas" class="flex justify-center py-16"><div class="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>
+      <div v-if="loadingTarifas" class="flex justify-center py-16"><IconoS class="w-8 h-8 text-blue-500" /></div>
       <div v-else class="px-4 pt-4 space-y-6 pb-8">
 
         <!-- Factor de venta sugerido -->
@@ -1196,7 +1197,7 @@ onMounted(() => {
     <!-- TAB PRECISIÓN IA                                                          -->
     <!-- ════════════════════════════════════════════════════════════════════════ -->
     <template v-if="tab === 'precision'">
-      <div v-if="loadingPrecision" class="flex justify-center py-16"><div class="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>
+      <div v-if="loadingPrecision" class="flex justify-center py-16"><IconoS class="w-8 h-8 text-blue-500" /></div>
 
       <div v-else-if="precision" class="px-4 pt-4 space-y-5 pb-8">
 
@@ -1316,14 +1317,14 @@ onMounted(() => {
               <button @click="guardarCambios" :disabled="guardando || !hayCambios"
                 class="flex items-center gap-1 text-xs bg-blue-600 text-white rounded-lg px-3 py-1.5 font-medium disabled:opacity-50">
                 <CheckIcon v-if="!guardando" class="w-3.5 h-3.5" />
-                <ArrowPathIcon v-else class="w-3.5 h-3.5 animate-spin" />
+                <IconoS v-else class="w-3.5 h-3.5" />
                 {{ guardando ? 'Guardando...' : 'Guardar' }}
               </button>
             </template>
           </template>
         </div>
 
-        <div v-if="loadingDetalle" class="flex justify-center py-16"><div class="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>
+        <div v-if="loadingDetalle" class="flex justify-center py-16"><IconoS class="w-8 h-8 text-blue-500" /></div>
         <div v-else-if="fichaDetalle" class="flex-1 overflow-y-auto pb-8">
           <!-- Ficha con una sola sección: mostrar totales combinados -->
           <div v-if="!esMultiVariante" class="grid grid-cols-3 border-b border-gray-100">
@@ -1459,7 +1460,7 @@ onMounted(() => {
 
         <div class="flex-1 overflow-y-auto">
           <div v-if="pickerCargando" class="flex justify-center py-10">
-            <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+            <IconoS class="w-6 h-6 text-blue-500" />
           </div>
           <div v-else-if="!pickerResultados.length" class="text-center py-10 text-sm text-gray-400">Sin resultados</div>
           <ul v-else class="divide-y divide-gray-100">
@@ -1495,7 +1496,7 @@ onMounted(() => {
         <div class="flex-1 overflow-y-auto pb-8">
           <!-- Usos -->
           <div class="px-4 pt-4">
-            <div v-if="elimMatUsoLoad" class="flex justify-center py-6"><div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"/></div>
+            <div v-if="elimMatUsoLoad" class="flex justify-center py-6"><IconoS class="w-6 h-6 text-blue-500"/></div>
             <template v-else>
               <!-- Sin usos: eliminar directo -->
               <div v-if="!elimMatUsos.length" class="bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-sm text-green-700">
@@ -1624,7 +1625,7 @@ onMounted(() => {
           <button @click="guardarNuevo" :disabled="creando"
             class="flex items-center gap-1 text-xs bg-blue-600 text-white rounded-lg px-3 py-1.5 font-medium disabled:opacity-50">
             <CheckIcon v-if="!creando" class="w-3.5 h-3.5" />
-            <ArrowPathIcon v-else class="w-3.5 h-3.5 animate-spin" />
+            <IconoS v-else class="w-3.5 h-3.5" />
             {{ creando ? 'Creando...' : 'Crear' }}
           </button>
         </div>
@@ -1807,7 +1808,7 @@ onMounted(() => {
             <button @click="materialEditando = null" class="flex-1 py-2 text-sm text-gray-600 border border-gray-300 rounded-xl hover:bg-gray-50">Cancelar</button>
             <button @click="guardarMaterial" :disabled="guardandoMat"
               class="flex-1 py-2 text-sm font-medium text-white bg-blue-600 rounded-xl disabled:opacity-50 hover:bg-blue-700 flex items-center justify-center gap-1">
-              <ArrowPathIcon v-if="guardandoMat" class="w-4 h-4 animate-spin" />
+              <IconoS v-if="guardandoMat" class="w-4 h-4" />
               {{ guardandoMat ? 'Guardando...' : 'Guardar y propagar' }}
             </button>
           </div>
@@ -1842,7 +1843,7 @@ onMounted(() => {
             <button @click="mostrarFormMat = false" class="flex-1 py-2 text-sm text-gray-600 border border-gray-300 rounded-xl hover:bg-gray-50">Cancelar</button>
             <button @click="guardarNuevoMaterial" :disabled="guardandoMat"
               class="flex-1 py-2 text-sm font-medium text-white bg-blue-600 rounded-xl disabled:opacity-50 flex items-center justify-center gap-1">
-              <ArrowPathIcon v-if="guardandoMat" class="w-4 h-4 animate-spin" />
+              <IconoS v-if="guardandoMat" class="w-4 h-4" />
               {{ guardandoMat ? 'Guardando...' : 'Crear' }}
             </button>
           </div>

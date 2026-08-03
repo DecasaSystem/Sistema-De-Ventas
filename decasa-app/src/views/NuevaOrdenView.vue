@@ -1,4 +1,5 @@
 <script setup>
+import IconoS from '@/components/common/IconoS.vue'
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
@@ -2448,7 +2449,7 @@ function removeFacturaFoto() {
                 :disabled="restauracionCalc.calculando || !restauracionItem.nombre_mueble.trim()"
                 class="w-full btn-primary text-xs py-2 disabled:opacity-50 flex items-center justify-center gap-1.5"
               >
-                <ArrowPathIcon v-if="restauracionCalc.calculando" class="w-3.5 h-3.5 animate-spin" />
+                <IconoS v-if="restauracionCalc.calculando" class="w-3.5 h-3.5" />
                 <SparklesIcon  v-else class="w-3.5 h-3.5" />
                 {{ restauracionCalc.calculando ? 'Calculando...' : 'Calcular precio' }}
               </button>
@@ -2904,7 +2905,7 @@ function removeFacturaFoto() {
                 :disabled="item._calculandoPrecio"
                 class="w-full btn-primary text-xs py-2 disabled:opacity-50 flex items-center justify-center gap-1.5"
               >
-                <ArrowPathIcon v-if="item._calculandoPrecio" class="w-3.5 h-3.5 animate-spin" />
+                <IconoS v-if="item._calculandoPrecio" class="w-3.5 h-3.5" />
                 <SparklesIcon  v-else class="w-3.5 h-3.5" />
                 {{ item._calculandoPrecio ? 'Calculando...' : 'Calcular precio' }}
               </button>
@@ -3253,7 +3254,7 @@ function removeFacturaFoto() {
             :disabled="submitting"
             class="mt-1 w-full py-2 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-1.5"
           >
-            <ArrowPathOutlineIcon v-if="submitting && modoGuardarBorrador" class="w-4 h-4 animate-spin" />
+            <IconoS v-if="submitting && modoGuardarBorrador" class="w-4 h-4" />
             {{ submitting && modoGuardarBorrador ? 'Guardando...' : 'Guardar borrador y enviar PDF' }}
           </button>
         </div>
@@ -3287,7 +3288,7 @@ function removeFacturaFoto() {
             :disabled="guardandoCompletarCliente"
             class="w-full py-2 bg-amber-500 text-white text-xs font-semibold rounded-lg hover:bg-amber-600 disabled:opacity-50 transition-colors flex items-center justify-center gap-1.5"
           >
-            <ArrowPathIcon v-if="guardandoCompletarCliente" class="w-3.5 h-3.5 animate-spin" />
+            <IconoS v-if="guardandoCompletarCliente" class="w-3.5 h-3.5" />
             {{ guardandoCompletarCliente ? 'Guardando...' : 'Guardar y continuar' }}
           </button>
         </div>
@@ -3663,7 +3664,7 @@ function removeFacturaFoto() {
          :disabled="submitting || subiendoFactura || cooldown > 0 || clienteRequiereCompletar || (!hayItemsCotizar && !firmaBlob) || !facturaFotoFile"
          class="btn-primary w-full text-base py-3 flex items-center justify-center gap-2"
        >
-         <ArrowPathOutlineIcon v-if="submitting && !modoGuardarBorrador" class="w-5 h-5 animate-spin" />
+         <IconoS v-if="submitting && !modoGuardarBorrador" class="w-5 h-5" />
          {{ subiendoFactura ? 'Subiendo foto...' : (submitting && !modoGuardarBorrador) ? 'Guardando...' : cooldown > 0 ? `Reintentar en ${cooldown}s...` : (entregaInmediata && puedeEntregaInmediata) ? 'Registrar venta directa (entregada)' : 'Crear orden' }}
        </button>
 
@@ -3673,7 +3674,7 @@ function removeFacturaFoto() {
          :disabled="submitting || cooldown > 0"
          class="btn-secondary w-full py-3 flex items-center justify-center gap-2"
        >
-         <ArrowPathOutlineIcon v-if="submitting && modoGuardarBorrador" class="w-5 h-5 animate-spin" />
+         <IconoS v-if="submitting && modoGuardarBorrador" class="w-5 h-5" />
          {{ (submitting && modoGuardarBorrador) ? 'Guardando borrador...' : 'Guardar como borrador' }}
        </button>
     </template>

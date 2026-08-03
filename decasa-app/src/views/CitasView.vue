@@ -1,4 +1,5 @@
 ﻿<script setup>
+import IconoS from '@/components/common/IconoS.vue'
 import { ref, computed, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
@@ -352,7 +353,7 @@ onMounted(cargar)
 
     <!-- Estado carga -->
     <div v-if="cargando" class="flex justify-center py-12">
-      <div class="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      <IconoS class="w-8 h-8 text-blue-500" />
     </div>
     <div v-else-if="citasMostradas.length === 0" class="text-center py-14">
       <CalendarDaysIcon class="w-12 h-12 text-gray-300 mx-auto mb-2" />

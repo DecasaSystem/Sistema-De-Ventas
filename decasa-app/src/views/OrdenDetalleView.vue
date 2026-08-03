@@ -1,4 +1,5 @@
 <script setup>
+import IconoS from '@/components/common/IconoS.vue'
 import { cloudinaryOpt } from '@/utils/cloudinary'
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -11,7 +12,6 @@ import { tomarFacturacion, marcarFacturada } from '@/api/pagos'
 import { getReceptores, crearConsulta, getConsultas, ajustarPrecio as ajustarPrecioApi } from '@/api/consultas'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
-import SpinnerBoton from '@/components/common/SpinnerBoton.vue'
 import RegistroPagoModal from '@/components/ordenes/RegistroPagoModal.vue'
 import EditarOrdenModal from '@/components/ordenes/EditarOrdenModal.vue'
 import { SparklesIcon, XMarkIcon } from '@heroicons/vue/24/solid'
@@ -1109,7 +1109,7 @@ onMounted(cargarOrden)
         class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 disabled:opacity-60 transition-colors"
         title="Descargar PDF"
       >
-        <SpinnerBoton v-if="descargandoPdf" class="w-4 h-4" />
+        <IconoS v-if="descargandoPdf" class="w-4 h-4" />
         <DocumentIcon v-else class="w-4 h-4" />
         {{ descargandoPdf ? 'Generando...' : 'PDF' }}
       </button>
@@ -1663,7 +1663,7 @@ onMounted(cargarOrden)
                 :disabled="descargandoActa"
                 class="text-xs text-blue-600 font-medium flex items-center gap-1 disabled:opacity-60"
               >
-                <SpinnerBoton v-if="descargandoActa" class="w-3.5 h-3.5" />
+                <IconoS v-if="descargandoActa" class="w-3.5 h-3.5" />
                 <ArrowDownTrayIcon v-else class="w-3.5 h-3.5" />
                 {{ descargandoActa ? 'Generando...' : 'PDF' }}
               </button>

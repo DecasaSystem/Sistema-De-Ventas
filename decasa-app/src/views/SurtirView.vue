@@ -1,4 +1,5 @@
 <script setup>
+import IconoS from '@/components/common/IconoS.vue'
 import { ref, computed, watch, onMounted, markRaw } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import {
@@ -824,7 +825,7 @@ onMounted(async () => {
           >
             {{ recomendaciones.length }} tienda(s)
           </span>
-          <span v-if="cargandoRecom" class="w-3.5 h-3.5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin inline-block" />
+          <IconoS v-if="cargandoRecom" class="w-3.5 h-3.5 text-blue-400 inline-block" />
         </div>
         <component :is="recomVisible ? ChevronUpIcon : ChevronDownIcon" class="w-4 h-4 text-gray-400 flex-shrink-0" />
       </button>
@@ -834,7 +835,7 @@ onMounted(async () => {
 
           <!-- Cargando -->
           <div v-if="cargandoRecom" class="flex justify-center py-8">
-            <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+            <IconoS class="w-6 h-6 text-blue-500" />
           </div>
 
           <template v-else>
@@ -876,7 +877,7 @@ onMounted(async () => {
 
                 <!-- Cargando página -->
                 <div v-if="recomCargandoPag[tienda.tienda_id]" class="flex justify-center py-5">
-                  <div class="w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                  <IconoS class="w-5 h-5 text-blue-400" />
                 </div>
 
                 <div v-else>
@@ -1012,7 +1013,7 @@ onMounted(async () => {
           />
           <!-- Spinner búsqueda -->
           <div v-if="buscandoProd" class="absolute right-3 top-1/2 -translate-y-1/2">
-            <div class="w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+            <IconoS class="w-4 h-4 text-blue-400" />
           </div>
           <!-- X para limpiar -->
           <button
@@ -1307,7 +1308,7 @@ onMounted(async () => {
         <p class="text-xs text-gray-500">Selecciona el vendedor de cada tienda que confirmará que los productos llegaron correctamente.</p>
 
         <div v-if="cargandoVendedores" class="text-center py-8">
-          <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto" />
+          <IconoS class="w-6 h-6 text-blue-500 mx-auto" />
         </div>
 
         <div v-else class="space-y-3">
@@ -1477,7 +1478,7 @@ onMounted(async () => {
         <!-- Stock disponible -->
         <template v-if="tOrigenId">
           <div v-if="tCargandoStock" class="flex justify-center py-6">
-            <div class="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+            <IconoS class="w-5 h-5 text-blue-500" />
           </div>
 
           <template v-else>
@@ -1600,7 +1601,7 @@ onMounted(async () => {
         <p class="text-xs text-gray-500">Selecciona el vendedor de la tienda destino que validará que los productos llegaron.</p>
 
         <div v-if="tCargandoValidador" class="flex justify-center py-6">
-          <div class="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          <IconoS class="w-5 h-5 text-blue-500" />
         </div>
 
         <div v-else class="bg-white rounded-xl border border-gray-200 shadow-sm divide-y divide-gray-100">
@@ -1738,7 +1739,7 @@ onMounted(async () => {
     <!-- ═══════════════ TAB: HISTORIAL TRASLADOS ═══════════════ -->
     <template v-else-if="tabActivo === 'historial-traslados'">
       <div v-if="tCargandoHist" class="flex justify-center py-10">
-        <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+        <IconoS class="w-6 h-6 text-blue-500" />
       </div>
       <div v-else-if="tHistorial.length === 0" class="text-center py-10 text-sm text-gray-400">
         No hay traslados registrados.
@@ -1792,7 +1793,7 @@ onMounted(async () => {
     <!-- ═══════════════ TAB: HISTORIAL SURTIDOS ═══════════════ -->
     <template v-else-if="tabActivo === 'historial'">
       <div v-if="cargandoHist" class="flex justify-center py-10">
-        <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+        <IconoS class="w-6 h-6 text-blue-500" />
       </div>
 
       <div v-else-if="historial.length === 0" class="text-center py-10 text-sm text-gray-400">
@@ -1890,7 +1891,7 @@ onMounted(async () => {
 
         <div class="flex-1 overflow-y-auto px-4 py-3 space-y-4">
           <div v-if="vcPickerCargando" class="flex justify-center py-8">
-            <div class="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+            <IconoS class="w-6 h-6 text-indigo-500" />
           </div>
 
           <div v-else-if="vcPickerGrupos.length === 0" class="text-center py-8 text-sm text-gray-400">
@@ -1991,7 +1992,7 @@ onMounted(async () => {
 
           <!-- Cargando -->
           <div v-if="cargandoVariantesFab" class="flex justify-center py-8">
-            <div class="w-6 h-6 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
+            <IconoS class="w-6 h-6 text-purple-500" />
           </div>
 
           <!-- Sin variantes con stock -->

@@ -80,10 +80,13 @@ const navCargando   = ref(false)
 router.beforeEach(() => { navCargando.value = true })
 router.afterEach(()  => { navCargando.value = false })
 
-// Barra de progreso mientras haya peticiones al backend en vuelo. Cubre de una
-// vez todos los botones que no avisan que están trabajando.
-const { cargando: cargandoRed } = useCargaGlobal()
-const mostrarBarra = computed(() => navCargando.value || cargandoRed.value)
+// La S centrada mientras haya peticiones en vuelo. Cubre los botones que no
+// avisan por su cuenta. `cargandoRed` ya viene en false si la pantalla está
+// mostrando su propia S, así que nunca se ven dos.
+const { cargando: cargandoRed, hayCargaLocal } = useCargaGlobal()
+const mostrarCarga = computed(() =>
+  (navCargando.value || cargandoRed.value) && !hayCargaLocal.value
+)
 
 function onSwMessage(e) {
   if (e.data?.type === 'push-click') {
@@ -413,7 +416,7 @@ function formatFecha(iso) {
 <template>
   <div class="flex flex-col min-h-screen bg-gray-50">
     <!-- Cargando: cambio de pantalla o petición al backend en curso -->
-    <CargandoS v-if="mostrarBarra" />
+    <CargandoS v-if="mostrarCarga" />
 
     <!-- Top bar -->
     <header v-if="showNav" class="sticky top-0 z-10 bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">

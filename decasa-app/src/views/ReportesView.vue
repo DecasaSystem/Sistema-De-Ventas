@@ -1,4 +1,5 @@
 ﻿<script setup>
+import IconoS from '@/components/common/IconoS.vue'
 import { ref, onMounted, onBeforeUnmount, nextTick, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Chart } from 'chart.js/auto'
@@ -11,7 +12,6 @@ import {
 import api from '@/api'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
-import SpinnerBoton from '@/components/common/SpinnerBoton.vue'
 import { useAuthStore } from '@/stores/auth'
 import { StarIcon } from '@heroicons/vue/24/solid'
 
@@ -929,7 +929,7 @@ onBeforeUnmount(() => {
       <div v-show="tabActivo === 'canales' && auth.isSupervisor" class="space-y-4">
 
         <div v-if="cargandoCanales" class="flex justify-center py-10">
-          <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          <IconoS class="w-6 h-6 text-blue-500" />
         </div>
 
         <template v-else-if="canalesData">
@@ -1004,7 +1004,7 @@ onBeforeUnmount(() => {
       <div v-show="tabActivo === 'conductores' && auth.isSupervisor" class="space-y-3">
 
         <div v-if="cargandoConductores" class="flex justify-center py-10">
-          <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          <IconoS class="w-6 h-6 text-blue-500" />
         </div>
 
         <template v-else-if="conductores">
@@ -1059,7 +1059,7 @@ onBeforeUnmount(() => {
       <div v-show="tabActivo === 'interesados'" class="space-y-4">
 
         <div v-if="cargandoInteresados" class="flex justify-center py-10">
-          <div class="w-6 h-6 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+          <IconoS class="w-6 h-6 text-amber-500" />
         </div>
 
         <template v-else-if="interesados">
@@ -1166,7 +1166,7 @@ onBeforeUnmount(() => {
 
         <!-- Loading -->
         <div v-if="cargandoResumen" class="flex justify-center py-10">
-          <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          <IconoS class="w-6 h-6 text-blue-500" />
         </div>
 
         <template v-else-if="resumenMensual">
@@ -1182,7 +1182,7 @@ onBeforeUnmount(() => {
               :disabled="exportandoResumen"
               class="flex items-center gap-1.5 bg-blue-600 text-white text-xs font-semibold px-3 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-60 transition-colors flex-shrink-0"
             >
-              <SpinnerBoton v-if="exportandoResumen" class="w-4 h-4" />
+              <IconoS v-if="exportandoResumen" class="w-4 h-4" />
               <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
               </svg>

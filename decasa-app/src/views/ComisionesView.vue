@@ -1,4 +1,5 @@
 <script setup>
+import IconoS from '@/components/common/IconoS.vue'
 import { ref, computed, onMounted } from 'vue'
 import { useToast } from '@/composables/useToast'
 import { useRouter } from 'vue-router'
@@ -568,7 +569,7 @@ onMounted(async () => {
       </div>
 
       <div v-if="cargandoRes" class="flex justify-center py-12">
-        <div class="w-8 h-8 border-2 border-green-500 border-t-transparent rounded-full animate-spin" />
+        <IconoS class="w-8 h-8 text-green-500" />
       </div>
 
       <div v-else-if="resumenData.length === 0" class="text-center py-14">
@@ -842,7 +843,7 @@ onMounted(async () => {
 
       <!-- Cargando -->
       <div v-if="cargando" class="flex justify-center py-12">
-        <div class="w-8 h-8 border-2 border-green-500 border-t-transparent rounded-full animate-spin" />
+        <IconoS class="w-8 h-8 text-green-500" />
       </div>
 
       <!-- Vacío -->

@@ -42,9 +42,24 @@ export function terminarPeticion() {
   }
 }
 
+// Cuántas "S" locales hay pintadas ahora mismo (las de AppSpinner y las que
+// cada pantalla pone en su propio panel). Si ya hay una, el indicador global
+// se calla: la idea es que nunca se vean dos cargas al tiempo.
+const localesActivos = ref(0)
+
+export function registrarCargaLocal() {
+  localesActivos.value++
+}
+
+export function quitarCargaLocal() {
+  localesActivos.value = Math.max(0, localesActivos.value - 1)
+}
+
 export function useCargaGlobal() {
+  const hayCargaLocal = computed(() => localesActivos.value > 0)
   return {
-    cargando: computed(() => visible.value),
+    cargando: computed(() => visible.value && !hayCargaLocal.value),
+    hayCargaLocal,
     peticionesEnVuelo: computed(() => enVuelo.value),
   }
 }

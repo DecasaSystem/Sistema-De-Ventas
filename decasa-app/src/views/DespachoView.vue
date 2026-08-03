@@ -1,4 +1,5 @@
 <script setup>
+import IconoS from '@/components/common/IconoS.vue'
 import { cloudinaryOpt } from '@/utils/cloudinary'
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
@@ -12,7 +13,6 @@ import ColaCamionesModal from '@/components/despacho/ColaCamionesModal.vue'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
-import SpinnerBoton from '@/components/common/SpinnerBoton.vue'
 
 const router   = useRouter()
 const despacho = useDespachoStore()
@@ -687,7 +687,7 @@ onBeforeUnmount(() => {
                   class="p-1.5 rounded-lg hover:bg-white/20 transition-colors disabled:opacity-60"
                   title="Eliminar ruta"
                 >
-                  <SpinnerBoton v-if="borrandoRutaId === ruta.id" class="w-4 h-4 text-red-300" />
+                  <IconoS v-if="borrandoRutaId === ruta.id" class="w-4 h-4 text-red-300" />
                   <TrashIcon v-else class="w-4 h-4 text-red-300" />
                 </button>
               </div>
@@ -768,7 +768,7 @@ onBeforeUnmount(() => {
                 :disabled="quitandoItemId === item.id"
                 class="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 disabled:opacity-40 transition-all"
               >
-                <SpinnerBoton v-if="quitandoItemId === item.id" class="w-3.5 h-3.5" />
+                <IconoS v-if="quitandoItemId === item.id" class="w-3.5 h-3.5" />
                 <XMarkIcon v-else class="w-3.5 h-3.5" />
               </button>
             </div>
@@ -794,7 +794,7 @@ onBeforeUnmount(() => {
             class="w-full text-left px-3 py-2 rounded-lg border border-gray-200 bg-white hover:border-blue-400 hover:bg-blue-50 disabled:opacity-50 disabled:hover:border-gray-200 disabled:hover:bg-white transition-all"
           >
             <p class="text-sm font-medium text-gray-800 flex items-center gap-1.5">
-              <SpinnerBoton v-if="agregandoOrdenId === orden.id" class="w-3.5 h-3.5 text-blue-600" />
+              <IconoS v-if="agregandoOrdenId === orden.id" class="w-3.5 h-3.5 text-blue-600" />
               {{ orden.cliente?.nombre }}
             </p>
             <p class="text-xs text-gray-400 truncate">{{ orden.cliente?.direccion }}</p>
@@ -1046,7 +1046,7 @@ onBeforeUnmount(() => {
       </div>
 
       <div v-if="cargandoAsignados" class="flex justify-center py-8">
-        <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+        <IconoS class="w-6 h-6 text-blue-500" />
       </div>
 
       <template v-else-if="asignadosFiltrados.length === 0">

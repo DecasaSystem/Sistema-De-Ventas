@@ -1,4 +1,5 @@
 ﻿<script setup>
+import IconoS from '@/components/common/IconoS.vue'
 import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { Chart } from 'chart.js/auto'
 import api from '@/api'
@@ -151,7 +152,7 @@ onBeforeUnmount(() => { barChart?.destroy() })
 
     <!-- Loading -->
     <div v-if="loading" class="flex justify-center py-10">
-      <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      <IconoS class="w-6 h-6 text-blue-500" />
     </div>
 
     <template v-else-if="stats">

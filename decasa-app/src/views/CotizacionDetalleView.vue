@@ -1,11 +1,11 @@
 <script setup>
+import IconoS from '@/components/common/IconoS.vue'
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useToast } from '@/composables/useToast'
 import api from '@/api'
 import { comprimirImagen } from '@/utils/comprimirImagen'
 import FirmaCanvas from '@/components/FirmaCanvas.vue'
-import SpinnerBoton from '@/components/common/SpinnerBoton.vue'
 import {
   getCotizacion, cambiarEstadoCotizacion, eliminarCotizacion,
   verificarCotizacion, convertirCotizacion, descargarPdfCotizacion,
@@ -598,7 +598,7 @@ onMounted(cargar)
           :disabled="descargandoPdf"
           class="w-full py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white rounded-xl font-semibold text-sm flex items-center justify-center gap-1.5 transition-colors"
         >
-          <SpinnerBoton v-if="descargandoPdf" class="w-4 h-4" />
+          <IconoS v-if="descargandoPdf" class="w-4 h-4" />
           <DocumentArrowDownIcon v-else class="w-4 h-4" />
           {{ descargandoPdf ? 'Generando PDF...' : 'Descargar PDF para el cliente' }}
         </button>
@@ -637,7 +637,7 @@ onMounted(cargar)
           :disabled="borrando"
           class="w-full py-2 text-red-500 text-sm font-medium flex items-center justify-center gap-1.5 disabled:opacity-50"
         >
-          <SpinnerBoton v-if="borrando" class="w-4 h-4" />
+          <IconoS v-if="borrando" class="w-4 h-4" />
           <TrashIcon v-else class="w-4 h-4" />
           {{ borrando ? 'Eliminando...' : 'Eliminar' }}
         </button>

@@ -1,11 +1,11 @@
 ﻿<script setup>
+import IconoS from '@/components/common/IconoS.vue'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
 import { useRouter } from 'vue-router'
 import api from '@/api'
 import RedesHerramientas from '@/components/RedesHerramientas.vue'
-import SpinnerBoton from '@/components/common/SpinnerBoton.vue'
 import {
   ChatBubbleLeftRightIcon,
   PhoneIcon,
@@ -315,7 +315,7 @@ onUnmounted(() => {
 
     <!-- Estado -->
     <div v-if="cargando" class="flex justify-center py-12">
-      <div class="w-8 h-8 border-2 border-green-500 border-t-transparent rounded-full animate-spin" />
+      <IconoS class="w-8 h-8 text-green-500" />
     </div>
     <div v-else-if="error" class="text-center py-10 text-red-500 text-sm">{{ error }}</div>
     <div v-else-if="filtrados.length === 0" class="text-center py-14">
@@ -443,10 +443,7 @@ onUnmounted(() => {
                   : 'bg-blue-600 hover:bg-blue-700'
               ]"
             >
-              <svg v-if="tomando === conv.id" class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
-              </svg>
+              <IconoS v-if="tomando === conv.id" class="w-3.5 h-3.5" />
               {{ tomando === conv.id ? 'Tomando...' : 'Tomar' }}
             </button>
 
@@ -457,7 +454,7 @@ onUnmounted(() => {
               :disabled="terminando === conv.id"
               class="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white text-xs font-semibold rounded-lg hover:bg-green-700 disabled:bg-green-400 transition-colors"
             >
-              <SpinnerBoton v-if="terminando === conv.id" class="w-3.5 h-3.5" />
+              <IconoS v-if="terminando === conv.id" class="w-3.5 h-3.5" />
               <CheckCircleIcon v-else class="w-3.5 h-3.5" />
               {{ terminando === conv.id ? 'Cerrando...' : 'Terminar' }}
             </button>

@@ -1,4 +1,5 @@
 <script setup>
+import IconoS from '@/components/common/IconoS.vue'
 import { cloudinaryOpt } from '@/utils/cloudinary'
 import { ref, computed, reactive, onMounted, watch } from 'vue'
 import api from '@/api'
@@ -567,7 +568,7 @@ const balancePositivo = computed(() => balance.value.balance >= 0)
                   v-else-if="subiendo"
                   class="flex items-center justify-center gap-2 border border-dashed border-blue-300 rounded-lg px-3 py-4 bg-blue-50"
                 >
-                  <div class="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                  <IconoS class="w-4 h-4 text-blue-500" />
                   <span class="text-sm text-blue-600 font-medium">Subiendo foto...</span>
                 </div>
 
