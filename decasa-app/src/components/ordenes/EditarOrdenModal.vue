@@ -8,7 +8,7 @@ import { SPECS_TEMPLATES, resolverCategoria } from '@/constants/specsConfig'
 import { useTelas } from '@/composables/useTelas'
 import TelaPicker from '@/components/ordenes/TelaPicker.vue'
 import { pctDeMonto, montoDePct, formatPct } from '@/utils/descuentos'
-import { XMarkIcon, SparklesIcon, MagnifyingGlassIcon, TrashIcon, PlusIcon, PhotoIcon, WrenchScrewdriverIcon } from '@heroicons/vue/24/outline'
+import { XMarkIcon, SparklesIcon, MagnifyingGlassIcon, TrashIcon, PlusIcon, PhotoIcon, WrenchScrewdriverIcon, GiftIcon } from '@heroicons/vue/24/outline'
 import { comprimirImagen } from '@/utils/comprimirImagen'
 import { cloudinaryOpt } from '@/utils/cloudinary'
 import IconoS from '@/components/common/IconoS.vue'
@@ -159,6 +159,8 @@ function nuevoItemVacio() {
     // esta marca, que lo separa de un "diseño especial" y lo hace aparecer en
     // el módulo de Restauración.
     es_restauracion: false, descripcion_trabajo: '',
+    // Obsequio: el ítem vale $0 pero igual sale del inventario
+    _regalo: false,
     modo: 'stock',              // 'stock' | 'personalizado' | 'fabricar' (para productos de catálogo)
     variante_id: null, variante_label: '',
     cantidad: 1, precio_unitario: '', stock_libre: null,
@@ -316,6 +318,23 @@ function iniciarDisenoEspecial() {
   nuevoItem.value.es_custom = true
   nuevoQuery.value = ''
   nuevoResultados.value = []
+}
+
+/**
+ * Obsequiar el ítem que se está agregando: queda en $0.
+ *
+ * Se guarda el precio que tenía para devolvérselo si lo desmarcan; si no,
+ * marcar y desmarcar por error dejaba el producto en cero sin que se notara.
+ */
+function toggleRegaloNuevo() {
+  const n = nuevoItem.value
+  n._regalo = !n._regalo
+  if (n._regalo) {
+    n._precioAntesRegalo = n.precio_unitario
+    n.precio_unitario    = 0
+  } else {
+    n.precio_unitario = n._precioAntesRegalo ?? ''
+  }
 }
 
 function iniciarRestauracion() {
@@ -483,6 +502,7 @@ function agregarNuevo() {
     tienda_origen_nombre: otraTienda ? (tiendasLista.value.find(t => t.id === nuevoTiendaOrigen.value)?.nombre ?? '') : null,
     specs_personalizacion: Object.keys(specs).length ? specs : null,
     boceto_urls:      [...n.boceto_urls],
+    _regalo:          !!n._regalo,
     _tipo:            n.es_restauracion ? 'Restauración'
                       : n.es_custom ? 'Diseño especial'
                       : (n.modo === 'fabricar' ? 'Para fabricar'
@@ -1340,7 +1360,9 @@ async function guardar() {
                   </p>
                   <p v-if="ni.variante_label" class="text-[11px] text-purple-600">{{ ni.variante_label }}</p>
                   <p class="text-xs text-gray-500">
-                    × {{ ni.cantidad }} — ${{ Number(ni.precio_unitario).toLocaleString('es-CO') }}
+                    × {{ ni.cantidad }} —
+                    <span v-if="ni._regalo" class="text-pink-600 font-semibold">Obsequio</span>
+                    <span v-else>${{ Number(ni.precio_unitario).toLocaleString('es-CO') }}</span>
                     <span v-if="ni.tienda_origen_nombre" class="text-amber-600"> · desde {{ ni.tienda_origen_nombre }}</span>
                     <span v-if="ni.boceto_urls?.length" class="text-gray-400"> · {{ ni.boceto_urls.length }} foto(s)</span>
                   </p>
@@ -1535,9 +1557,33 @@ async function guardar() {
                   </div>
                   <div class="flex-1">
                     <label class="block text-xs text-gray-500 mb-1">Precio unitario</label>
-                    <input v-model="nuevoItem.precio_unitario" type="number" min="0" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    <div v-if="nuevoItem._regalo" class="flex items-center gap-1.5 h-[38px] px-3 bg-pink-50 border border-pink-300 rounded-lg">
+                      <GiftIcon class="w-4 h-4 text-pink-600 flex-shrink-0" />
+                      <span class="text-sm font-semibold text-pink-700">Obsequio · $0</span>
+                    </div>
+                    <input
+                      v-else
+                      v-model="nuevoItem.precio_unitario"
+                      type="number" min="0"
+                      class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
                   </div>
                 </div>
+
+                <!-- Obsequio. Vale $0 pero descuenta inventario igual: se
+                     entrega una unidad de verdad. -->
+                <label class="flex items-center gap-2 cursor-pointer select-none">
+                  <button
+                    type="button"
+                    @click="toggleRegaloNuevo"
+                    :class="['w-10 h-5 rounded-full transition-colors relative flex-shrink-0', nuevoItem._regalo ? 'bg-pink-500' : 'bg-gray-300']"
+                  >
+                    <div :class="['absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform', nuevoItem._regalo ? 'translate-x-5' : 'translate-x-0.5']" />
+                  </button>
+                  <span class="text-sm text-gray-600 flex items-center gap-1">
+                    <GiftIcon class="w-4 h-4 text-pink-500" /> Obsequiar
+                  </span>
+                </label>
 
                 <p v-if="nuevoSinStock" class="text-xs text-red-600 text-center">
                   Sin stock disponible — no se puede agregar. Usa "Para fabricar" o elige otra tienda.
