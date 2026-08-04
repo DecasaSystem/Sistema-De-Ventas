@@ -10,6 +10,8 @@ import TelaPicker from '@/components/ordenes/TelaPicker.vue'
 import { pctDeMonto, montoDePct, formatPct } from '@/utils/descuentos'
 import { XMarkIcon, SparklesIcon, MagnifyingGlassIcon, TrashIcon, PlusIcon, PhotoIcon, WrenchScrewdriverIcon } from '@heroicons/vue/24/outline'
 import { comprimirImagen } from '@/utils/comprimirImagen'
+import { cloudinaryOpt } from '@/utils/cloudinary'
+import IconoS from '@/components/common/IconoS.vue'
 import api from '@/api'
 
 const props = defineProps({
@@ -331,22 +333,72 @@ function telaResumidaNuevo(key) {
   return [s.marca, s.tipo, s.color].join(' · ')
 }
 
+/** Sube un archivo y devuelve su URL, o null si falló. */
+async function subirFoto(file, carpeta) {
+  const token = localStorage.getItem('token')
+  const fd = new FormData()
+  fd.append('foto', await comprimirImagen(file), 'foto.jpg')
+  fd.append('folder', carpeta)
+  const res  = await fetch('/api/upload/foto', {
+    method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
+  })
+  const data = await res.json()
+  return data.url ?? null
+}
+
 async function onNuevaFoto(e) {
   const files = Array.from(e.target.files || [])
   if (!files.length) return
   nuevoItem.value._subiendo = true
   try {
-    const token = localStorage.getItem('token')
     for (const file of files) {
-      const fd = new FormData()
-      fd.append('foto', await comprimirImagen(file), 'boceto.jpg')
-      fd.append('folder', 'bocetos')
-      const res  = await fetch('/api/upload/foto', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd })
-      const data = await res.json()
-      if (data.url) nuevoItem.value.boceto_urls.push(data.url)
+      const url = await subirFoto(file, 'bocetos')
+      if (url) nuevoItem.value.boceto_urls.push(url)
     }
   } catch { toast.error('No se pudo subir la foto.') }
   finally { nuevoItem.value._subiendo = false; e.target.value = '' }
+}
+
+// ── Bocetos de un ítem que ya existe ────────────────────────────────────────
+async function onBocetoItem(e, item) {
+  const files = Array.from(e.target.files || [])
+  if (!files.length) return
+  if (item.boceto_urls.length + files.length > 10) {
+    toast.error('Máximo 10 fotos por ítem.')
+    e.target.value = ''
+    return
+  }
+  item._subiendoBoceto = true
+  try {
+    for (const file of files) {
+      const url = await subirFoto(file, 'bocetos')
+      if (url) item.boceto_urls.push(url)
+    }
+  } catch { toast.error('No se pudo subir la foto.') }
+  finally { item._subiendoBoceto = false; e.target.value = '' }
+}
+
+function quitarBocetoItem(item, i) {
+  item.boceto_urls.splice(i, 1)
+}
+
+// ── Fotos de la orden (factura y anexo) ─────────────────────────────────────
+const facturaFotoUrl = ref('')
+const anexoFotoUrl   = ref('')
+const subiendoOrden  = ref('')   // 'factura' | 'anexo' | ''
+
+async function onFotoOrden(e, cual) {
+  const file = (e.target.files || [])[0]
+  if (!file) return
+  subiendoOrden.value = cual
+  try {
+    const url = await subirFoto(file, cual === 'factura' ? 'facturas' : 'anexos')
+    if (url) {
+      if (cual === 'factura') facturaFotoUrl.value = url
+      else                    anexoFotoUrl.value   = url
+    }
+  } catch { toast.error('No se pudo subir la foto.') }
+  finally { subiendoOrden.value = ''; e.target.value = '' }
 }
 function quitarNuevaFoto(i) {
   nuevoItem.value.boceto_urls.splice(i, 1)
@@ -461,6 +513,8 @@ watch(() => props.show, (v) => {
   if (!v) return
   cargarTelas()
   notas.value          = props.orden.notas ?? ''
+  facturaFotoUrl.value = props.orden.factura_foto_url ?? ''
+  anexoFotoUrl.value   = props.orden.anexo_foto_url ?? ''
   fechaSugeridaVendedor.value = props.orden.fecha_sugerida_vendedor
     ? String(props.orden.fecha_sugerida_vendedor).substring(0, 10)
     : ''
@@ -517,6 +571,10 @@ watch(() => props.show, (v) => {
       specs: specsRaw,
       specs_notas: notasPrevias,
       _telaSelections: {},
+      // Copia propia: se edita aquí y solo se manda al guardar
+      boceto_urls: [...(item.bocetos_list ?? [])],
+      _bocetosOriginales: [...(item.bocetos_list ?? [])],
+      _subiendoBoceto: false,
     }
   })
   query.value = {}
@@ -627,6 +685,11 @@ async function guardar() {
       descuento_total: Number(descuentoTotalEdit.value) || 0,
       descuento_condicionado_monto: Number(descCondEdit.value) || 0,
       fecha_sugerida_vendedor: fechaSugeridaVendedor.value || null,
+      // null explícito para poder QUITAR una foto, no solo reemplazarla
+      ...(facturaFotoUrl.value !== (props.orden.factura_foto_url ?? '')
+          ? { factura_foto_url: facturaFotoUrl.value || null } : {}),
+      ...(anexoFotoUrl.value !== (props.orden.anexo_foto_url ?? '')
+          ? { anexo_foto_url: anexoFotoUrl.value || null } : {}),
       items: items.value
         .filter(item => !itemsEliminar.value.includes(item.id))
         .map(item => {
@@ -643,6 +706,14 @@ async function guardar() {
             }
             if (item.specs_notas) s.notas = item.specs_notas
             out.specs_personalizacion = s
+
+            // Solo si de verdad cambiaron: mandarlos siempre ensuciaría el
+            // historial de ediciones con un "bocetos" en cada guardado.
+            const antes = item._bocetosOriginales ?? []
+            const ahora = item.boceto_urls ?? []
+            if (JSON.stringify(antes) !== JSON.stringify(ahora)) {
+              out.boceto_urls = ahora
+            }
           } else {
             out.cantidad    = parseInt(item.cantidad)
             out.producto_id = item.producto_id
@@ -736,6 +807,47 @@ async function guardar() {
                   Lo que se le dijo al cliente. No es la fecha de entrega — esa se asigna por ítem.
                 </p>
               </div>
+              <!-- Fotos de la orden -->
+              <div class="grid grid-cols-2 gap-3">
+                <div v-for="f in [
+                    { k: 'factura', url: facturaFotoUrl, label: 'Foto de la factura' },
+                    { k: 'anexo',   url: anexoFotoUrl,   label: 'Foto anexa' },
+                  ]" :key="f.k">
+                  <label class="block text-xs font-medium text-gray-600 mb-1">{{ f.label }}</label>
+
+                  <div v-if="f.url" class="relative">
+                    <a :href="f.url" target="_blank" rel="noopener">
+                      <img :src="cloudinaryOpt(f.url, 400)" class="w-full h-24 object-cover rounded-lg border border-gray-200" />
+                    </a>
+                    <button
+                      type="button"
+                      @click="f.k === 'factura' ? facturaFotoUrl = '' : anexoFotoUrl = ''"
+                      class="absolute -top-1.5 -right-1.5 bg-white rounded-full shadow p-0.5 text-red-500 hover:text-red-700"
+                      title="Quitar"
+                    >
+                      <XMarkIcon class="w-3.5 h-3.5" />
+                    </button>
+                    <label class="mt-1 block text-[11px] text-blue-600 cursor-pointer hover:underline text-center">
+                      Reemplazar
+                      <input type="file" accept="image/*" class="hidden" @change="onFotoOrden($event, f.k)" />
+                    </label>
+                  </div>
+
+                  <label
+                    v-else
+                    class="h-24 flex flex-col items-center justify-center gap-1 border-2 border-dashed border-gray-300 rounded-lg text-gray-400 cursor-pointer hover:border-blue-400 hover:text-blue-500 transition-colors"
+                  >
+                    <PhotoIcon class="w-5 h-5" />
+                    <span class="text-[11px]">Subir</span>
+                    <input type="file" accept="image/*" class="hidden" @change="onFotoOrden($event, f.k)" />
+                  </label>
+
+                  <p v-if="subiendoOrden === f.k" class="text-[11px] text-gray-400 mt-1 flex items-center gap-1.5">
+                    <IconoS class="w-3 h-3" /> Subiendo...
+                  </p>
+                </div>
+              </div>
+
               <div>
                 <label class="block text-xs font-medium text-gray-600 mb-1">Notas</label>
                 <textarea
@@ -1059,6 +1171,44 @@ async function guardar() {
                       placeholder="Detalles adicionales de personalización..."
                       class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                     />
+                  </div>
+
+                  <!-- Bocetos del ítem: los que ve el taller -->
+                  <div>
+                    <label class="block text-xs font-medium text-gray-600 mb-1">
+                      Bocetos y fotos
+                      <span class="font-normal text-gray-400">({{ item.boceto_urls.length }}/10)</span>
+                    </label>
+                    <div class="flex flex-wrap gap-2">
+                      <div v-for="(url, bi) in item.boceto_urls" :key="bi" class="relative w-16 h-16">
+                        <a :href="url" target="_blank" rel="noopener">
+                          <img :src="cloudinaryOpt(url, 200)" class="w-16 h-16 object-cover rounded-lg border border-gray-200" />
+                        </a>
+                        <button
+                          type="button"
+                          @click="quitarBocetoItem(item, bi)"
+                          class="absolute -top-1.5 -right-1.5 bg-white rounded-full shadow p-0.5 text-red-500 hover:text-red-700"
+                          title="Quitar"
+                        >
+                          <XMarkIcon class="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      <label
+                        v-if="item.boceto_urls.length < 10"
+                        class="w-16 h-16 flex flex-col items-center justify-center gap-0.5 border-2 border-dashed border-gray-300 rounded-lg text-gray-400 cursor-pointer hover:border-blue-400 hover:text-blue-500 transition-colors"
+                      >
+                        <PhotoIcon class="w-5 h-5" />
+                        <span class="text-[10px]">Agregar</span>
+                        <input type="file" accept="image/*" multiple class="hidden" @change="onBocetoItem($event, item)" />
+                      </label>
+                    </div>
+                    <p v-if="item._subiendoBoceto" class="text-[11px] text-gray-400 mt-1 flex items-center gap-1.5">
+                      <IconoS class="w-3 h-3" /> Subiendo...
+                    </p>
+                    <p v-else-if="!item.boceto_urls.length" class="text-[11px] text-gray-400 mt-1">
+                      Sin bocetos. El taller trabaja con lo que haya aquí y con las especificaciones.
+                    </p>
                   </div>
                 </div>
               </template>

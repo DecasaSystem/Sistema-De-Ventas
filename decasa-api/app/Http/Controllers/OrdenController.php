@@ -887,6 +887,9 @@ class OrdenController extends Controller
         $data = $request->validate([
             'notas'                         => 'sometimes|nullable|string|max:1000',
             'fecha_sugerida_vendedor'       => 'sometimes|nullable|date',
+            // Fotos de la orden: se pueden reemplazar o quitar al editar
+            'factura_foto_url'              => 'sometimes|nullable|string|max:500',
+            'anexo_foto_url'                => 'sometimes|nullable|string|max:500',
             'canal'                         => 'sometimes|nullable|in:fisica,whatsapp,instagram,facebook,pagina,red_social,otro',
             'departamento_envio'            => 'sometimes|nullable|string|max:100',
             'ciudad_envio'                  => 'sometimes|nullable|string|max:100',
@@ -906,6 +909,10 @@ class OrdenController extends Controller
             'items.*.fecha_entrega_prom'    => 'sometimes|nullable|date',
             'items.*.cantidad'              => 'sometimes|nullable|integer|min:1',
             'items.*.producto_id'           => 'sometimes|nullable|exists:productos,id',
+            // Bocetos de un ítem que ya existe: la lista que se manda reemplaza
+            // a la que había. Antes solo se podían poner al crear el ítem.
+            'items.*.boceto_urls'           => 'sometimes|nullable|array|max:10',
+            'items.*.boceto_urls.*'         => 'nullable|string|max:500',
             'items_eliminar'                => 'sometimes|nullable|array',
             'items_eliminar.*'              => 'integer|exists:orden_items,id',
             'items_nuevos'                       => 'sometimes|nullable|array',
@@ -967,6 +974,25 @@ class OrdenController extends Controller
                     $updateOrden['fecha_sugerida_vendedor'] = $nuevaSug;
                 }
             }
+            // Fotos de la orden. Se guarda que cambiaron, no la URL entera: en
+            // el historial una dirección de Cloudinary no le dice nada a nadie.
+            foreach ([
+                'factura_foto_url' => 'Foto de la factura',
+                'anexo_foto_url'   => 'Foto anexa',
+            ] as $campo => $label) {
+                if (! array_key_exists($campo, $data)) continue;
+                $nueva = $data[$campo] ?: null;
+                if ($nueva === $orden->$campo) continue;
+
+                $cambios[] = [
+                    'campo'   => $campo,
+                    'label'   => $label,
+                    'antes'   => $orden->$campo ? 'tenía foto' : 'sin foto',
+                    'despues' => $nueva ? ($orden->$campo ? 'se reemplazó' : 'se agregó') : 'se quitó',
+                ];
+                $updateOrden[$campo] = $nueva;
+            }
+
             if (array_key_exists('notas', $data) && $data['notas'] !== $orden->notas) {
                 $cambios[] = ['campo' => 'notas', 'label' => 'Notas', 'antes' => $orden->notas, 'despues' => $data['notas']];
                 $updateOrden['notas'] = $data['notas'];
@@ -1058,6 +1084,27 @@ class OrdenController extends Controller
                         if (json_encode($antes) !== json_encode($despues)) {
                             $cambios[]                          = ['campo' => "item_{$item->id}_specs", 'label' => "{$nombreProd} — especificaciones", 'antes' => $antes, 'despues' => $despues];
                             $updateItem['specs_personalizacion'] = $despues;
+                        }
+                    }
+
+                    // Bocetos del ítem. La lista que llega reemplaza a la que
+                    // había: quitar una foto es mandar la lista sin ella.
+                    // Se guarda igual que al crear — la primera en boceto_url y
+                    // el resto en boceto_fotos — para que todo lo que ya lee
+                    // esos campos (PDF, taller, detalle) siga funcionando.
+                    if ($item->es_personalizado && array_key_exists('boceto_urls', $itemData)) {
+                        $nuevos = array_values(array_filter($itemData['boceto_urls'] ?? []));
+                        $antes  = $item->bocetos_list;
+
+                        if ($nuevos !== $antes) {
+                            $cambios[] = [
+                                'campo'   => "item_{$item->id}_bocetos",
+                                'label'   => "{$nombreProd} — bocetos",
+                                'antes'   => count($antes) . ' foto(s)',
+                                'despues' => count($nuevos) . ' foto(s)',
+                            ];
+                            $updateItem['boceto_url']   = $nuevos[0] ?? null;
+                            $updateItem['boceto_fotos'] = count($nuevos) > 1 ? $nuevos : null;
                         }
                     }
 

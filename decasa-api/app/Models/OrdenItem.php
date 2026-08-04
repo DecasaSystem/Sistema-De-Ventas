@@ -10,7 +10,10 @@ class OrdenItem extends Model
 
     public $timestamps = false;
 
-    protected $appends = ['tipo_item'];
+    // bocetos_list junta boceto_url y boceto_fotos en una sola lista; se expone
+    // para que la pantalla de editar pueda mostrarlos y reemplazarlos sin tener
+    // que rearmar esa mezcla por su cuenta.
+    protected $appends = ['tipo_item', 'bocetos_list'];
 
     protected $fillable = [
         'orden_id',
