@@ -1305,12 +1305,21 @@ const subtotalItems = computed(() =>
 const descuentoModo  = ref('monto')   // 'monto' | 'pct'
 const descuentoInput = ref(0)
 
+/**
+ * Un porcentaje por encima de 100 no significa nada, y sin tope se cuela un
+ * error caro: escribir "90000" pensando en $90.000 mientras el campo está en %
+ * daba 90.000% → se recortaba a 100% y la orden quedaba en $0 sin avisar.
+ */
+function pctValido(v) {
+  return Math.min(Math.max(0, Number(v) || 0), 100)
+}
+
 const descuentoTotal = computed(() => {
   const v = Number(descuentoInput.value) || 0
   const bruto = descuentoModo.value === 'pct'
-    ? montoDePct(v, subtotalItems.value)
-    : Math.round(v)
-  return Math.min(Math.max(0, bruto), subtotalItems.value)
+    ? montoDePct(pctValido(v), subtotalItems.value)
+    : Math.round(Math.max(0, v))
+  return Math.min(bruto, subtotalItems.value)
 })
 
 const descuentoPct = computed(() => pctDeMonto(descuentoTotal.value, subtotalItems.value))
@@ -1328,10 +1337,30 @@ const baseCondicionado = computed(() =>
 const descuentoCondicionado = computed(() => {
   const v = Number(descuentoCondInput.value) || 0
   const bruto = descuentoCondModo.value === 'pct'
-    ? montoDePct(v, baseCondicionado.value)
-    : Math.round(v)
-  return Math.min(Math.max(0, bruto), baseCondicionado.value)
+    ? montoDePct(pctValido(v), baseCondicionado.value)
+    : Math.round(Math.max(0, v))
+  return Math.min(bruto, baseCondicionado.value)
 })
+
+/**
+ * Se escribió más descuento del que cabe: el monto se recortó. Antes se
+ * recortaba en silencio y el vendedor no se enteraba de que el total quedó en
+ * cero hasta ver la orden guardada.
+ */
+const descuentoRecortado = computed(() => {
+  const v = Number(descuentoCondInput.value) || 0
+  if (baseCondicionado.value <= 0) return false
+  // Se mira el valor CRUDO, antes de toparlo: 90000 en % ya viene recortado a
+  // 100 y sin esto pasaría por un descuento normal.
+  return descuentoCondModo.value === 'pct'
+    ? v > 100
+    : Math.round(v) > baseCondicionado.value
+})
+
+/** El total quedaría en cero: casi siempre es un error de digitación. */
+const totalEnCero = computed(() =>
+  subtotalItems.value > 0 && valorTotal.value === 0
+)
 
 const descuentoCondicionadoPct = computed(() =>
   pctDeMonto(descuentoCondicionado.value, baseCondicionado.value)
@@ -3151,7 +3180,9 @@ function removeFacturaFoto() {
 
               <input
                 v-model.number="descuentoInput"
-                type="number" min="0" :step="descuentoModo === 'pct' ? 0.1 : 1000"
+                type="number" min="0"
+                :max="descuentoModo === 'pct' ? 100 : null"
+                :step="descuentoModo === 'pct' ? 0.1 : 1000"
                 placeholder="0"
                 :class="['input text-sm text-right', descuentoModo === 'pct' ? 'w-16' : 'w-28']"
               />
@@ -3189,7 +3220,9 @@ function removeFacturaFoto() {
 
                 <input
                   v-model.number="descuentoCondInput"
-                  type="number" min="0" :step="descuentoCondModo === 'pct' ? 0.1 : 1000"
+                  type="number" min="0"
+                  :max="descuentoCondModo === 'pct' ? 100 : null"
+                  :step="descuentoCondModo === 'pct' ? 0.1 : 1000"
                   placeholder="0"
                   :class="['input text-sm text-right', descuentoCondModo === 'pct' ? 'w-16' : 'w-28']"
                 />
@@ -3201,6 +3234,24 @@ function removeFacturaFoto() {
               <span class="text-amber-600">({{ formatPct(descuentoCondicionadoPct) }}%)</span>
               · se pierde si paga con tarjeta
             </p>
+
+            <!-- Se escribió más de lo que cabe. Antes se recortaba callado y la
+                 orden quedaba en $0 sin que nadie se diera cuenta. -->
+            <div v-if="descuentoRecortado || totalEnCero"
+              class="bg-red-50 border border-red-300 rounded-lg px-3 py-2 flex items-start gap-2">
+              <ExclamationTriangleIcon class="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+              <div class="text-xs text-red-700 leading-snug">
+                <p v-if="totalEnCero" class="font-semibold">El total queda en $0.</p>
+                <p v-else class="font-semibold">El descuento no cabe y se recortó.</p>
+                <p v-if="descuentoCondModo === 'pct'">
+                  El campo está en <strong>%</strong>. Si querías descontar pesos,
+                  cambia a <strong>$</strong> — escribir 90000 en % es 90.000 por ciento.
+                </p>
+                <p v-else>
+                  Máximo ${{ Number(baseCondicionado).toLocaleString('es-CO') }}.
+                </p>
+              </div>
+            </div>
             <p v-if="descuentoCondicionado > 0" class="text-xs text-gray-500">
               Solo aplica si paga <strong>todo</strong> en efectivo o transferencia. Si al entregar
               paga cualquier parte con tarjeta, el sistema avisa y el total vuelve a subir.
