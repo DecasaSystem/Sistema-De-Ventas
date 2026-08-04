@@ -337,6 +337,13 @@ function toggleRegaloNuevo() {
   }
 }
 
+/** Obsequiar (o dejar de obsequiar) un ítem que ya está en la orden. */
+function toggleRegaloItem(item) {
+  item._regalo = !item._regalo
+  // Un obsequio ya vale $0: un descuento encima no significa nada
+  if (item._regalo) item._descuento_valor = 0
+}
+
 function iniciarRestauracion() {
   nuevoItem.value = nuevoItemVacio()
   nuevoItem.value.es_custom        = true
@@ -517,6 +524,9 @@ function quitarNuevo(idx) {
 
 /** Precio unitario con el descuento del ítem, en pesos o en %. */
 function precioEfectivo(item) {
+  // Un obsequio vale $0 pase lo que pase con el descuento
+  if (item._regalo) return 0
+
   const base  = item.precio_unitario ?? 0
   const valor = Number(item._descuento_valor) || 0
   if (!valor) return base
@@ -605,6 +615,12 @@ watch(() => props.show, (v) => {
       precio_unitario: item.precio_unitario,
       _descuento_modo: 'monto',
       _descuento_valor: 0,
+      // "Obsequio" no se guarda en la base: es un ítem en $0. Al abrir se
+      // deduce del precio, que es la única señal que hay. Se excluyen las
+      // órdenes que esperan precio, donde el 0 significa "todavía sin cotizar",
+      // no cortesía.
+      _regalo: Number(item.precio_unitario) === 0
+               && props.orden.estado !== 'pendiente_cotizacion',
       fecha_entrega_prom: item.fecha_entrega_prom
         ? String(item.fecha_entrega_prom).substring(0, 10)
         : '',
@@ -1137,8 +1153,26 @@ async function guardar() {
                 </div>
               </div>
 
-              <!-- Descuento — en pesos o en % -->
-              <div class="flex items-center gap-2 flex-wrap">
+              <!-- Obsequiar este ítem. Queda en $0 pero se entrega igual, así
+                   que sigue descontando del inventario. -->
+              <label class="flex items-center gap-2 cursor-pointer select-none">
+                <button
+                  type="button"
+                  @click="toggleRegaloItem(item)"
+                  :class="['w-10 h-5 rounded-full transition-colors relative flex-shrink-0', item._regalo ? 'bg-pink-500' : 'bg-gray-300']"
+                >
+                  <div :class="['absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform', item._regalo ? 'translate-x-5' : 'translate-x-0.5']" />
+                </button>
+                <span class="text-sm text-gray-600 flex items-center gap-1">
+                  <GiftIcon class="w-4 h-4 text-pink-500" /> Obsequiar
+                </span>
+                <span v-if="item._regalo" class="text-xs font-semibold text-pink-700 bg-pink-50 border border-pink-200 rounded-full px-2 py-0.5">
+                  $0 · se entrega igual
+                </span>
+              </label>
+
+              <!-- Descuento — en pesos o en %. No aplica a un obsequio. -->
+              <div v-if="!item._regalo" class="flex items-center gap-2 flex-wrap">
                 <label class="text-xs text-gray-500 flex-shrink-0">Descuento c/u</label>
 
                 <div class="flex items-center gap-1">
