@@ -103,6 +103,11 @@ export const useAuthStore = defineStore('auth', () => {
   const isDespachador      = computed(() => usuario.value?.rol === 'despachador')
   const isCosturero        = computed(() => usuario.value?.rol === 'costurero')
   const tieneAccesoPasos   = computed(() => isEbanista.value || isTapicero.value || isDespachador.value)
+
+  // El despacho de producción lo hacen dos personas: el despachador y la
+  // encargada de tapicería. Ella ya podía por el backend (esas rutas admiten
+  // supervisor) pero la pantalla no se la mostraba.
+  const tieneAccesoDespachoProd = computed(() => isDespachador.value || isTapicero.value)
   const isFacturador       = computed(() => usuario.value?.rol === 'vendedor' && !!usuario.value?.facturacion)
   // Vende por su cuenta: no pertenece a ninguna tienda y lleva caja propia.
   const isIndependiente    = computed(() => !!usuario.value?.independiente)
@@ -223,7 +228,8 @@ export const useAuthStore = defineStore('auth', () => {
     token, usuario,
     isAuthenticated, isSupervisor, isEbanista, isTapicero, isDespachador, isCosturero,
     isIndependiente, llevaCajaPropia,
-    tieneAccesoPasos, isFacturador, tieneAccesoRedes, tieneAccesoComisiones, puedeRecargarTelas,
+    tieneAccesoPasos, tieneAccesoDespachoProd,
+    isFacturador, tieneAccesoRedes, tieneAccesoComisiones, puedeRecargarTelas,
     tienePerfilAlternativo, perfilAlternativo, perfilActivoIdx,
     login, fetchMe, setFirma, setEmail, logout, clearSession,
     loginPerfilAlternativo, cambiarPerfil, eliminarPerfilAlternativo,

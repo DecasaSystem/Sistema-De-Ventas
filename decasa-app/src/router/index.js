@@ -67,7 +67,7 @@ router.beforeEach((to) => {
   if (to.meta.requiresSurtir && !auth.isSupervisor && auth.usuario?.rol !== 'vendedor') return { name: 'dashboard' }
   if (to.meta.requiresCostos && !auth.isSupervisor && auth.usuario?.rol !== 'ebanista') return { name: 'dashboard' }
   if (to.meta.requiresConductor && auth.usuario?.rol !== 'conductor') return { name: 'dashboard' }
-  if (to.meta.requiresDespachador && auth.usuario?.rol !== 'despachador') return { name: 'dashboard' }
+  if (to.meta.requiresDespachador && !auth.tieneAccesoDespachoProd) return { name: 'dashboard' }
   if (to.meta.requiresProduccionWorker && !auth.tieneAccesoPasos) return { name: 'dashboard' }
   if (to.meta.requiresFacturador && !auth.isFacturador) return { name: 'dashboard' }
   if (to.meta.requiresRedes       && !auth.tieneAccesoRedes)       return { name: 'dashboard' }

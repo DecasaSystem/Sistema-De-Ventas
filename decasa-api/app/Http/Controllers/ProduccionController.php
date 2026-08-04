@@ -658,7 +658,14 @@ class ProduccionController extends Controller
     {
         $usuario = $request->user();
 
-        if ($usuario->rol !== 'despachador') {
+        // El despacho de producción lo hacen dos personas: el despachador y la
+        // encargada de tapicería. El resto de este módulo ya aceptaba a ambos
+        // (las rutas van con role:despachador,supervisor); solo el historial se
+        // había quedado pidiendo el rol exacto.
+        $puedeVer = $usuario->rol === 'despachador'
+            || ($usuario->rol === 'supervisor' && $usuario->es_tapicero);
+
+        if (! $puedeVer) {
             return response()->json(['message' => 'Sin acceso.'], 403);
         }
 

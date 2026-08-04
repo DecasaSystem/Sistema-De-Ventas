@@ -129,7 +129,7 @@ watch(() => auth.isAuthenticated, (isAuth) => {
   if (auth.isSupervisor || auth.isEbanista || auth.usuario?.rol === 'vendedor') {
     consultasStore.cargar()
   }
-  if (auth.usuario?.rol === 'despachador') {
+  if (auth.tieneAccesoDespachoProd) {
     despachoProd.cargar()
   }
 }, { immediate: true })
@@ -152,7 +152,7 @@ watch(() => auth.usuario?.id, (id, oldId) => {
       if (n.tipo === 'paso_produccion' && auth.tieneAccesoPasos) {
         pasos.cargar()
       }
-      if (n.tipo === 'paso_produccion' && auth.isDespachador) {
+      if (n.tipo === 'paso_produccion' && auth.tieneAccesoDespachoProd) {
         despachoProd.cargar()
       }
       if (['consulta_costo_nueva', 'consulta_costo_respondida', 'consulta_costo_mensaje'].includes(n.tipo)) {
@@ -218,6 +218,8 @@ const navItems = computed(() => {
     ]
     if (auth.isTapicero) {
       items.unshift({ name: 'mis-pasos', label: 'Mis pasos', icon: ClipboardDocumentCheckIcon, badge: pasos.pendientesCount })
+      // El despacho de producción lo hacen entre el despachador y ella
+      items.unshift({ name: 'despacho-produccion', label: 'Despacho prod.', icon: ArchiveBoxArrowDownIcon, badge: despachoProd.pendientesCount })
     }
     if (auth.tieneAccesoRedes) {
       items.push({ name: 'redes', label: 'Redes', icon: ChatBubbleLeftRightIcon, badge: redesPendientes.value })
