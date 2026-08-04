@@ -615,6 +615,43 @@ function formatCambioVal(val) {
   return String(val)
 }
 
+/** ¿El cambio es entre dos objetos de especificaciones? */
+function esCambioDeObjeto(cambio) {
+  const esObj = v => v && typeof v === 'object' && !Array.isArray(v)
+  return esObj(cambio.antes) || esObj(cambio.despues)
+}
+
+/**
+ * De un cambio de especificaciones saca SOLO los campos que cambiaron.
+ *
+ * Antes se pintaba el objeto completo de los dos lados: corregir una palabra
+ * en las notas mostraba el párrafo entero repetido, y no había forma de ver
+ * qué se había tocado.
+ */
+function detalleCambio(cambio) {
+  if (!esCambioDeObjeto(cambio)) return []
+
+  const antes   = cambio.antes   ?? {}
+  const despues = cambio.despues ?? {}
+  const vacio   = v => v === null || v === undefined || v === ''
+  const texto   = v => (vacio(v) ? '—' : String(v))
+
+  return [...new Set([...Object.keys(antes), ...Object.keys(despues)])]
+    .filter(k => texto(antes[k]) !== texto(despues[k]))
+    .map(k => {
+      const a = texto(antes[k])
+      const d = texto(despues[k])
+      return {
+        label: ETIQUETAS_SPEC[k] ?? k,
+        antes: a,
+        despues: d,
+        // Los textos largos (notas) van uno debajo del otro; en la misma línea
+        // no se alcanza a leer dónde está la diferencia.
+        largo: a.length > 45 || d.length > 45,
+      }
+    })
+}
+
 // Lista de specs a mostrar en la tarjeta del ítem, según el template de su
 // categoría (mismo que usa NuevaOrdenView al crear) — no un esquema fijo.
 function specsResumen(item) {
@@ -1876,12 +1913,36 @@ onMounted(cargarOrden)
               <span class="text-xs font-semibold text-gray-700">{{ edicion.usuario?.nombre }}</span>
               <span class="text-[11px] text-gray-400">{{ formatDateTime(edicion.created_at) }}</span>
             </div>
-            <ul class="space-y-1">
+            <ul class="space-y-1.5">
               <li v-for="cambio in edicion.cambios" :key="cambio.campo" class="text-xs text-gray-600 leading-snug">
-                <span class="font-medium">{{ cambio.label }}:</span>
-                <span class="text-red-500 line-through ml-1">{{ formatCambioVal(cambio.antes) }}</span>
-                <span class="mx-1 text-gray-400">→</span>
-                <span class="text-green-600">{{ formatCambioVal(cambio.despues) }}</span>
+                <span class="font-medium">{{ cambio.label }}</span>
+
+                <!-- Specs: solo los campos que de verdad cambiaron. Antes se
+                     volcaba el objeto entero de los dos lados, así que por
+                     corregir una palabra salía un párrafo repetido dos veces. -->
+                <ul v-if="detalleCambio(cambio).length" class="mt-0.5 ml-2 space-y-1">
+                  <li v-for="d in detalleCambio(cambio)" :key="d.label">
+                    <span class="text-gray-500">{{ d.label }}:</span>
+                    <template v-if="d.largo">
+                      <p class="text-red-500 line-through break-words">{{ d.antes }}</p>
+                      <p class="text-green-700 break-words">{{ d.despues }}</p>
+                    </template>
+                    <template v-else>
+                      <span class="text-red-500 line-through ml-1">{{ d.antes }}</span>
+                      <span class="mx-1 text-gray-400">→</span>
+                      <span class="text-green-700">{{ d.despues }}</span>
+                    </template>
+                  </li>
+                </ul>
+
+                <!-- Valor suelto (precio, notas, fecha…) -->
+                <template v-else-if="!esCambioDeObjeto(cambio)">
+                  <span class="text-red-500 line-through ml-1">{{ formatCambioVal(cambio.antes) }}</span>
+                  <span class="mx-1 text-gray-400">→</span>
+                  <span class="text-green-700">{{ formatCambioVal(cambio.despues) }}</span>
+                </template>
+
+                <span v-else class="text-gray-400 ml-1">— sin cambios visibles</span>
               </li>
             </ul>
           </div>

@@ -1101,7 +1101,21 @@ class OrdenController extends Controller
                     if ($item->es_personalizado && array_key_exists('specs_personalizacion', $itemData)) {
                         $antes   = $item->specs_personalizacion;
                         $despues = $itemData['specs_personalizacion'];
-                        if (json_encode($antes) !== json_encode($despues)) {
+
+                        // Se comparan normalizadas: sin campos vacíos y con las
+                        // claves ordenadas. Si no, guardar sin tocar nada dejaba
+                        // una edición igualita en el historial solo porque un
+                        // campo pasó de null a "" o cambió el orden de las claves.
+                        $normalizar = function ($specs) {
+                            $s = collect((array) $specs)
+                                ->reject(fn ($v) => $v === null || $v === '' || $v === [])
+                                ->map(fn ($v) => is_scalar($v) ? trim((string) $v) : $v)
+                                ->all();
+                            ksort($s);
+                            return $s;
+                        };
+
+                        if ($normalizar($antes) !== $normalizar($despues)) {
                             $cambios[]                          = ['campo' => "item_{$item->id}_specs", 'label' => "{$nombreProd} — especificaciones", 'antes' => $antes, 'despues' => $despues];
                             $updateItem['specs_personalizacion'] = $despues;
                         }
