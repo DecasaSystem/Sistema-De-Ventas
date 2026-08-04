@@ -750,7 +750,10 @@ class StatsController extends Controller
             ->where('d.conductor_id', $conductor->id)
             ->where('di.estado', 'entregado')
             ->whereBetween('di.entregado_at', $rango)
-            ->selectRaw("DATE(di.entregado_at) AS dia, COUNT(*) AS total")
+            // El día se saca en hora de Colombia: las etiquetas del gráfico se
+            // arman con ese calendario, y agrupando en UTC una entrega de la
+            // tarde caía en la clave del día siguiente y no calzaba con ninguna.
+            ->selectRaw("DATE(CONVERT_TZ(di.entregado_at, '+00:00', '-05:00')) AS dia, COUNT(*) AS total")
             ->groupBy('dia')->orderBy('dia')
             ->get()->keyBy('dia');
 
@@ -836,15 +839,34 @@ class StatsController extends Controller
                 SUM(estado = "cancelado")                       AS canceladas
             ')->first();
 
-        $entregadas = (int) ($ord->entregadas ?? 0);
+        $entregadas     = (int) ($ord->entregadas ?? 0);
+        $ordenesCreadas = (int) ($ord->total ?? 0);
 
-        // Cartera
+        // Lo vendido en el período: el valor de las órdenes hechas dentro de él.
+        // Antes se devolvía "ingresos + cartera" con la cartera sin filtro de
+        // fecha, así que a cada persona se le sumaba toda la deuda que venía
+        // arrastrando de meses anteriores y sus ventas salían infladas.
+        $vendidoBase = $esVendedor
+            ? DB::table('ordenes')->where($whereVendedor)
+            : DB::table('ordenes')->where($columna, $valor);
+
+        $totalVendido = (float) $vendidoBase
+            ->whereBetween('created_at', $rango)
+            ->whereNotIn('estado', Orden::ESTADOS_NO_COMERCIALES)
+            ->selectRaw($esVendedor
+                ? 'SUM(CASE WHEN es_compartida = 1 THEN valor_total / 2 ELSE valor_total END) as total'
+                : 'SUM(valor_total) as total')
+            ->value('total') ?? 0;
+
+        // Cartera: saldo vivo de hoy, a propósito sin filtro de fecha. Incluye
+        // las entregadas que todavía deben — el mueble salió pero la plata se
+        // sigue debiendo, y dejarlas fuera escondía deuda real.
         if ($esVendedor) {
             $cartera = (float) DB::table('v_saldo_ordenes as v')
                 ->join('ordenes as o', 'o.id', '=', 'v.orden_id')
                 ->where($whereVendedorO)
                 ->where('v.saldo_pendiente', '>', 0)
-                ->whereNotIn('o.estado', array_merge(['entregado', 'cancelado'], Orden::ESTADOS_NO_COMERCIALES))
+                ->whereNotIn('o.estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES))
                 ->selectRaw('SUM(CASE WHEN o.es_compartida = 1 THEN v.saldo_pendiente / 2 ELSE v.saldo_pendiente END) as total')
                 ->value('total') ?? 0;
         } else {
@@ -852,7 +874,7 @@ class StatsController extends Controller
                 ->join('ordenes as o', 'o.id', '=', 'v.orden_id')
                 ->where("o.$columna", $valor)
                 ->where('v.saldo_pendiente', '>', 0)
-                ->whereNotIn('o.estado', array_merge(['entregado', 'cancelado'], Orden::ESTADOS_NO_COMERCIALES))
+                ->whereNotIn('o.estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES))
                 ->sum('v.saldo_pendiente');
         }
 
@@ -896,13 +918,15 @@ class StatsController extends Controller
         $canales = $canalesBase->selectRaw('canal, COUNT(*) AS total')->groupBy('canal')->get();
 
         return [
-            'dinero_vendido'     => $ingresos,
-            'total_vendido'      => $ingresos + $cartera,
-            'ordenes_creadas'    => (int) ($ord->total      ?? 0),
+            'dinero_vendido'     => $ingresos,   // en realidad es lo COBRADO en el período
+            'total_vendido'      => $totalVendido,
+            'ordenes_creadas'    => $ordenesCreadas,
             'ordenes_entregadas' => $entregadas,
             'ordenes_pendientes' => (int) ($ord->pendientes ?? 0),
             'ordenes_canceladas' => (int) ($ord->canceladas ?? 0),
-            'ticket_promedio'    => $entregadas > 0 ? round($ingresos / $entregadas) : 0,
+            // Cuánto vale una venta suya en promedio. Antes era
+            // cobrado/entregadas, que marcaba $0 mientras no hubiera entregas.
+            'ticket_promedio'    => $ordenesCreadas > 0 ? round($totalVendido / $ordenesCreadas) : 0,
             'cartera_pendiente'  => $cartera,
             'top_productos'      => $topProductos,
             'ordenes_recientes'  => $ordenesRecientes,

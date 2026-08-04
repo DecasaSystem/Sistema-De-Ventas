@@ -213,7 +213,9 @@ onBeforeUnmount(() => {
         <div class="col-span-2 bg-green-50 border border-green-200 rounded-xl shadow-sm p-4">
           <p class="text-xs text-green-700 font-semibold mb-1 uppercase tracking-wide">Total vendido</p>
           <p class="text-2xl font-bold text-green-700 leading-tight">{{ cop(stats.total_vendido) }}</p>
-          <p class="text-xs text-green-600 mt-1">Cobrado {{ cop(stats.dinero_vendido) }} · Pendiente {{ cop(stats.cartera_pendiente) }}</p>
+          <p class="text-xs text-green-600 mt-1">
+            {{ stats.ordenes_creadas }} orden{{ stats.ordenes_creadas === 1 ? '' : 'es' }} en el período
+          </p>
         </div>
         <div class="bg-white rounded-xl shadow-sm p-4">
           <p class="text-xs text-gray-400 mb-1">Dinero cobrado</p>
