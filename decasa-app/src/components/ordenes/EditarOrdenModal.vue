@@ -12,6 +12,7 @@ import { XMarkIcon, SparklesIcon, MagnifyingGlassIcon, TrashIcon, PlusIcon, Phot
 import { comprimirImagen } from '@/utils/comprimirImagen'
 import { cloudinaryOpt } from '@/utils/cloudinary'
 import IconoS from '@/components/common/IconoS.vue'
+import FirmaCanvas from '@/components/FirmaCanvas.vue'
 import api from '@/api'
 
 const props = defineProps({
@@ -387,6 +388,26 @@ const facturaFotoUrl = ref('')
 const anexoFotoUrl   = ref('')
 const subiendoOrden  = ref('')   // 'factura' | 'anexo' | ''
 
+// ── Firma del cliente ───────────────────────────────────────────────────────
+// Se vuelve a tomar en el momento, como al crear la orden; no se sube un
+// archivo. Es la constancia de que el cliente aceptó, así que solo se
+// reemplaza cuando quedó mal — nunca se borra.
+const cambiandoFirma = ref(false)
+const firmaBlob      = ref(null)
+const firmaNuevaUrl  = ref('')
+
+function abrirCambioFirma() {
+  cambiandoFirma.value = true
+  firmaBlob.value      = null
+  firmaNuevaUrl.value  = ''
+}
+
+function cancelarCambioFirma() {
+  cambiandoFirma.value = false
+  firmaBlob.value      = null
+  firmaNuevaUrl.value  = ''
+}
+
 async function onFotoOrden(e, cual) {
   const file = (e.target.files || [])[0]
   if (!file) return
@@ -655,6 +676,34 @@ async function guardar() {
       return
     }
   }
+  if (cambiandoFirma.value && !firmaBlob.value) {
+    toast.error('Falta que el cliente firme, o cancela el cambio de firma.')
+    return
+  }
+
+  // La firma se dibuja en el momento y se sube recién aquí, al guardar.
+  // Va sin comprimir: es un PNG con fondo transparente y pasarlo por el
+  // compresor a JPEG le mete fondo negro y le come el trazo.
+  if (firmaBlob.value) {
+    try {
+      const token = localStorage.getItem('token')
+      const fd = new FormData()
+      fd.append('foto', firmaBlob.value, 'firma.png')
+      fd.append('folder', 'firmas')
+      const res  = await fetch('/api/upload/foto', {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
+      })
+      const data = await res.json()
+      firmaNuevaUrl.value = data.url ?? ''
+    } catch {
+      toast.error('No se pudo guardar la firma.')
+      return
+    }
+    if (!firmaNuevaUrl.value) {
+      toast.error('No se pudo guardar la firma.')
+      return
+    }
+  }
 
   guardando.value = true
   try {
@@ -690,6 +739,7 @@ async function guardar() {
           ? { factura_foto_url: facturaFotoUrl.value || null } : {}),
       ...(anexoFotoUrl.value !== (props.orden.anexo_foto_url ?? '')
           ? { anexo_foto_url: anexoFotoUrl.value || null } : {}),
+      ...(firmaNuevaUrl.value ? { firma_url: firmaNuevaUrl.value } : {}),
       items: items.value
         .filter(item => !itemsEliminar.value.includes(item.id))
         .map(item => {
@@ -845,6 +895,49 @@ async function guardar() {
                   <p v-if="subiendoOrden === f.k" class="text-[11px] text-gray-400 mt-1 flex items-center gap-1.5">
                     <IconoS class="w-3 h-3" /> Subiendo...
                   </p>
+                </div>
+              </div>
+
+              <!-- Firma del cliente -->
+              <div>
+                <label class="block text-xs font-medium text-gray-600 mb-1">Firma del cliente</label>
+
+                <template v-if="!cambiandoFirma">
+                  <div v-if="props.orden.firma_url" class="flex items-center gap-3">
+                    <a :href="props.orden.firma_url" target="_blank" rel="noopener" class="flex-shrink-0">
+                      <img
+                        :src="cloudinaryOpt(props.orden.firma_url, 300)"
+                        class="h-16 w-32 object-contain rounded-lg border border-gray-200 bg-white"
+                      />
+                    </a>
+                    <button
+                      type="button"
+                      @click="abrirCambioFirma"
+                      class="text-xs font-semibold text-blue-600 hover:underline"
+                    >Volver a firmar</button>
+                  </div>
+                  <div v-else class="flex items-center gap-3">
+                    <p class="text-xs text-amber-600">Esta orden no tiene firma.</p>
+                    <button
+                      type="button"
+                      @click="abrirCambioFirma"
+                      class="text-xs font-semibold text-blue-600 hover:underline"
+                    >Tomar firma</button>
+                  </div>
+                </template>
+
+                <div v-else class="space-y-2">
+                  <p class="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                    La firma es la constancia de que el cliente aceptó la orden.
+                    Debe firmar él, no se puede dejar en blanco, y el cambio queda
+                    registrado con tu nombre.
+                  </p>
+                  <FirmaCanvas v-model="firmaBlob" />
+                  <button
+                    type="button"
+                    @click="cancelarCambioFirma"
+                    class="text-xs text-gray-500 hover:underline"
+                  >Cancelar y dejar la firma anterior</button>
                 </div>
               </div>
 

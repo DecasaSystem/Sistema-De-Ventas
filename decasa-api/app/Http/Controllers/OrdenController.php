@@ -890,6 +890,9 @@ class OrdenController extends Controller
             // Fotos de la orden: se pueden reemplazar o quitar al editar
             'factura_foto_url'              => 'sometimes|nullable|string|max:500',
             'anexo_foto_url'                => 'sometimes|nullable|string|max:500',
+            // La firma es la constancia de que el cliente aceptó: se puede
+            // reemplazar (firmó torcido, se cortó el trazo) pero no borrar.
+            'firma_url'                     => 'sometimes|string|max:500',
             'canal'                         => 'sometimes|nullable|in:fisica,whatsapp,instagram,facebook,pagina,red_social,otro',
             'departamento_envio'            => 'sometimes|nullable|string|max:100',
             'ciudad_envio'                  => 'sometimes|nullable|string|max:100',
@@ -991,6 +994,23 @@ class OrdenController extends Controller
                     'despues' => $nueva ? ($orden->$campo ? 'se reemplazó' : 'se agregó') : 'se quitó',
                 ];
                 $updateOrden[$campo] = $nueva;
+            }
+
+            // La firma va aparte de las otras fotos: no es un adjunto sino la
+            // prueba de que el cliente aceptó la orden. Se deja reemplazar
+            // porque a veces sale cortada o firma quien no era, pero nunca
+            // vaciar — una orden sin firma no debería existir — y el cambio
+            // queda anotado con nombre y hora en el historial.
+            if (array_key_exists('firma_url', $data) && $data['firma_url']) {
+                if ($data['firma_url'] !== $orden->firma_url) {
+                    $cambios[] = [
+                        'campo'   => 'firma_url',
+                        'label'   => 'Firma del cliente',
+                        'antes'   => $orden->firma_url ? 'firmada' : 'sin firma',
+                        'despues' => 'se volvió a tomar',
+                    ];
+                    $updateOrden['firma_url'] = $data['firma_url'];
+                }
             }
 
             if (array_key_exists('notas', $data) && $data['notas'] !== $orden->notas) {
