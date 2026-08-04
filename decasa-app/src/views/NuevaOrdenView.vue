@@ -15,7 +15,7 @@ import { cloudinaryOpt } from '@/utils/cloudinary'
 import { comprimirImagen } from '@/utils/comprimirImagen'
 import { pctDeMonto, montoDePct, formatPct } from '@/utils/descuentos'
 import { ArrowPathIcon, SparklesIcon, XMarkIcon } from '@heroicons/vue/24/solid'
-import { ArrowPathIcon as ArrowPathOutlineIcon, PhotoIcon, UserGroupIcon, ArrowPathIcon as ConvertIcon, ExclamationTriangleIcon, PencilIcon, MapPinIcon, SwatchIcon, CurrencyDollarIcon, PlusIcon, GiftIcon } from '@heroicons/vue/24/outline'
+import { ArrowPathIcon as ArrowPathOutlineIcon, PhotoIcon, UserGroupIcon, ArrowPathIcon as ConvertIcon, ExclamationTriangleIcon, PencilIcon, MapPinIcon, SwatchIcon, CurrencyDollarIcon, PlusIcon, GiftIcon, ChevronDownIcon } from '@heroicons/vue/24/outline'
 import { getReceptores, crearConsulta } from '@/api/consultas'
 import FirmaCanvas from '@/components/FirmaCanvas.vue'
 import BocetoCanvas from '@/components/BocetoCanvas.vue'
@@ -235,12 +235,17 @@ function paso1Valido() {
 }
 
 // ── Tipo de orden ─────────────────────────────────────────────────────────────
-const tipoOrden = ref('venta')
+// Ya no se elige: se deduce del carrito. Una orden es 'restauracion' solo si
+// TODO lo que lleva son muebles del cliente; si además hay algo de catálogo es
+// una venta que incluye restauración. El módulo de Restauración no depende de
+// esta etiqueta — busca por los ítems marcados.
+const mostrarFormRestauracion = ref(false)
 
-function cambiarTipo(tipo) {
-  tipoOrden.value = tipo
-  items.value = []
-}
+const tipoOrden = computed(() =>
+  items.value.length && items.value.every(i => i._es_restauracion)
+    ? 'restauracion'
+    : 'venta'
+)
 
 // ── Paso 2: Productos / Carrito ───────────────────────────────────────────────
 const productoQuery = ref('')
@@ -345,6 +350,7 @@ function agregarItemRestauracion() {
     cantidad: f.cantidad,
     precio_unitario: f.precio_unitario,
     es_personalizado: true,
+    _es_restauracion: true,   // mueble que trae el cliente, no sale de inventario
     specs: specsBase,
     specs_notas: '',
     tienda_origen: null,
@@ -1044,7 +1050,7 @@ async function calcularPrecioIA(item) {
     }
 
     // Restauración: parámetros específicos del servicio
-    if (tipoOrden.value === 'restauracion') {
+    if (item._es_restauracion) {
       const { data } = await api.post('/calcular-precio-item', {
         es_restauracion: true,
         nombre:    item.nombre,
@@ -1469,6 +1475,7 @@ async function submit() {
         precio_unitario:         i._cotizarPrecio ? 0 : precioEfectivo(i),
         es_personalizado:        i.es_personalizado,
         fabricar_pedido:         i._fabricar_pedido || undefined,
+        es_restauracion:         i._es_restauracion || undefined,
         fecha_entrega_prometida: i.fecha_entrega_prometida || undefined,
         specs_personalizacion:   i.es_personalizado
           ? (() => {
@@ -1774,29 +1781,9 @@ function removeFacturaFoto() {
     <!-- ═══════════════════════════════════════════════════════ PASO 1 ══ -->
     <template v-if="step === 1">
 
-      <!-- Tipo de orden -->
-      <div>
-        <label class="label">Tipo de orden</label>
-        <div class="flex gap-2">
-          <button
-            @click="cambiarTipo('venta')"
-            :class="['flex-1 py-2 rounded-xl text-sm font-medium border transition-colors',
-              tipoOrden === 'venta'
-                ? 'bg-blue-600 text-white border-blue-600'
-                : 'bg-white text-gray-700 border-gray-300']"
-          >Venta</button>
-          <button
-            @click="cambiarTipo('restauracion')"
-            :class="['flex-1 py-2 rounded-xl text-sm font-medium border transition-colors',
-              tipoOrden === 'restauracion'
-                ? 'bg-indigo-600 text-white border-indigo-600'
-                : 'bg-white text-gray-700 border-gray-300']"
-          >Restauración</button>
-        </div>
-        <p v-if="tipoOrden === 'restauracion'" class="text-xs text-indigo-600 mt-1.5">
-          Para muebles que trae el cliente (tapizado, laca, lijado…). No descuenta inventario y va directo a producción.
-        </p>
-      </div>
+      <!-- Ya no se elige "tipo de orden": en el paso 2 se agrega lo que sea,
+           productos del catálogo y muebles del cliente para restaurar, en el
+           mismo carrito. Antes había que hacer dos órdenes separadas. -->
 
       <!-- Tienda -->
       <div>
@@ -2054,8 +2041,8 @@ function removeFacturaFoto() {
     <!-- ═══════════════════════════════════════════════════════ PASO 2 ══ -->
     <template v-else-if="step === 2">
 
-      <!-- ── Modo venta: búsqueda de catálogo ── -->
-      <template v-if="tipoOrden === 'venta'">
+      <!-- ── Catálogo ── -->
+      <template>
 
       <!-- Selector tienda de búsqueda -->
       <div>
@@ -2354,12 +2341,29 @@ function removeFacturaFoto() {
         </div>
       </div>
 
-      </template><!-- fin modo venta -->
+      </template><!-- fin catálogo -->
 
-      <!-- ── Modo restauración: agregar mueble simple ── -->
-      <template v-else>
+      <!-- ── Restauración: mueble que trae el cliente ──
+           Va plegado. Se abre solo si el cliente además trae algo para
+           restaurar, sin sacar del carrito lo que ya se agregó del catálogo. -->
+      <button
+        type="button"
+        @click="mostrarFormRestauracion = !mostrarFormRestauracion"
+        :class="['w-full flex items-center justify-between gap-2 rounded-xl border px-4 py-3 text-sm font-medium transition-colors',
+          mostrarFormRestauracion
+            ? 'bg-indigo-600 text-white border-indigo-600'
+            : 'bg-white text-indigo-700 border-indigo-200 hover:border-indigo-400']"
+      >
+        <span>🛠️ ¿Trae un mueble para restaurar?</span>
+        <ChevronDownIcon :class="['w-4 h-4 transition-transform', mostrarFormRestauracion ? 'rotate-180' : '']" />
+      </button>
+
+      <template v-if="mostrarFormRestauracion">
         <div class="bg-indigo-50 border border-indigo-200 rounded-xl p-4 space-y-3">
-          <p class="text-sm font-semibold text-indigo-800">Agregar mueble</p>
+          <p class="text-sm font-semibold text-indigo-800">Agregar mueble a restaurar</p>
+          <p class="text-xs text-indigo-600 -mt-1">
+            Mueble que trae el cliente (tapizado, laca, lijado…). No descuenta inventario y va directo a producción.
+          </p>
           <input
             v-model="restauracionItem.nombre_mueble"
             class="input text-sm"
@@ -2654,7 +2658,7 @@ function removeFacturaFoto() {
           </p>
 
           <!-- Personalizado flag — oculto para fabricar bajo pedido -->
-          <label v-if="tipoOrden !== 'restauracion' && !item._fabricar_pedido" :class="['flex items-center gap-2 text-sm text-gray-600', item.producto_id === null ? 'opacity-60 cursor-default' : 'cursor-pointer']">
+          <label v-if="!item._es_restauracion && !item._fabricar_pedido" :class="['flex items-center gap-2 text-sm text-gray-600', item.producto_id === null ? 'opacity-60 cursor-default' : 'cursor-pointer']">
             <input
               type="checkbox"
               :checked="item.es_personalizado"
@@ -2728,7 +2732,7 @@ function removeFacturaFoto() {
           </template>
 
           <!-- ── Personalización de producto NUEVO (sin catálogo): form completo ── -->
-          <template v-else-if="item.es_personalizado && !item.producto_id && tipoOrden !== 'restauracion'">
+          <template v-else-if="item.es_personalizado && !item.producto_id && !item._es_restauracion">
             <div class="space-y-2">
               <p class="text-xs font-semibold text-purple-700">
                 Especificaciones — {{ getTemplate(item).titulo }}
@@ -2773,7 +2777,7 @@ function removeFacturaFoto() {
           <template v-if="item.es_personalizado">
 
             <!-- Modo venta: boceto + fotos adicionales -->
-            <div v-if="tipoOrden !== 'restauracion'" class="space-y-1.5">
+            <div v-if="!item._es_restauracion" class="space-y-1.5">
               <p class="text-xs font-medium text-purple-700">
                 Boceto / Fotos
                 <span class="text-gray-400 font-normal">(opcional)</span>
@@ -2865,7 +2869,7 @@ function removeFacturaFoto() {
               type="button"
               @click="item._mostrarCalculadora = !item._mostrarCalculadora"
               :class="['flex items-center gap-1.5 text-xs font-medium transition-colors',
-                tipoOrden === 'restauracion'
+                item._es_restauracion
                   ? 'text-indigo-600 hover:text-indigo-800'
                   : 'text-purple-600 hover:text-purple-800']"
             >
@@ -2875,18 +2879,18 @@ function removeFacturaFoto() {
 
             <div v-if="item._mostrarCalculadora"
               :class="['mt-2 rounded-xl p-3 space-y-3 border',
-                tipoOrden === 'restauracion'
+                item._es_restauracion
                   ? 'bg-indigo-50 border-indigo-200'
                   : 'bg-purple-50 border-purple-200']"
             >
               <p class="text-xs text-gray-500">
-                {{ tipoOrden === 'restauracion'
+                {{ item._es_restauracion
                   ? 'La IA estima el costo de restauración basada en el trabajo, la foto y las tarifas configuradas.'
                   : 'El cotizador usa las especificaciones y medidas que ingresaste arriba.' }}
               </p>
 
               <!-- Precio de referencia — para productos únicos o complejos -->
-              <div v-if="tipoOrden !== 'restauracion'">
+              <div v-if="!item._es_restauracion">
                 <label class="block text-xs font-medium text-gray-500 mb-1">
                   Precio de referencia <span class="font-normal text-gray-400">(opcional — si sabes cuánto costó uno similar)</span>
                 </label>
@@ -2968,7 +2972,7 @@ function removeFacturaFoto() {
 
                 <div class="grid grid-cols-2 gap-2 pt-1">
                   <button type="button" @click="aplicarPrecio(item, item._precioCalc.precio_fabricacion)" class="btn-secondary text-xs py-1.5">
-                    {{ tipoOrden === 'restauracion' ? 'Usar costo' : 'Usar fabricación' }}
+                    {{ item._es_restauracion ? 'Usar costo' : 'Usar fabricación' }}
                   </button>
                   <button type="button" @click="aplicarPrecio(item, item._precioCalc.precio_sugerido_venta)" class="btn-primary text-xs py-1.5">
                     Usar sugerido
@@ -3081,7 +3085,7 @@ function removeFacturaFoto() {
       </div>
 
       <div v-else class="text-center py-6 text-gray-400 text-sm">
-        {{ tipoOrden === 'restauracion' ? 'Agrega los muebles arriba.' : 'Busca y agrega productos al carrito.' }}
+        Busca productos del catálogo, o agrega un mueble para restaurar.
       </div>
 
       <!-- Cotización: se guarda aquí mismo, no hay paso de pago -->

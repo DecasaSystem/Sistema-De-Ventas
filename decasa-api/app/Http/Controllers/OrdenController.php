@@ -199,6 +199,7 @@ class OrdenController extends Controller
             'items.*.precio_unitario'            => 'required|numeric|min:0',
             'items.*.es_personalizado'           => 'nullable|boolean',
             'items.*.fabricar_pedido'            => 'nullable|boolean',
+            'items.*.es_restauracion'            => 'nullable|boolean',
             'items.*.usa_stock_tienda'           => 'nullable|boolean',
             'items.*.specs_personalizacion'      => 'nullable|array',
             'items.*.boceto_url'                 => 'nullable|string|max:500',
@@ -406,6 +407,7 @@ class OrdenController extends Controller
                     'precio_unitario'       => $itemData['precio_unitario'],
                     'es_personalizado'      => $esPersonalizado || $esProductoCustom,
                     'fabricar_pedido'       => (bool) ($itemData['fabricar_pedido'] ?? false) && ! $esProductoCustom,
+                    'es_restauracion'       => (bool) ($itemData['es_restauracion'] ?? false),
                     'specs_personalizacion' => $specsExtra,
                     'boceto_url'            => isset($itemData['boceto_urls'])
                         ? (array_values(array_filter($itemData['boceto_urls']))[0] ?? null)
@@ -910,6 +912,7 @@ class OrdenController extends Controller
             'items_nuevos.*.precio_unitario'     => 'required_with:items_nuevos|numeric|min:0',
             'items_nuevos.*.es_personalizado'    => 'nullable|boolean',
             'items_nuevos.*.fabricar_pedido'     => 'nullable|boolean',
+            'items_nuevos.*.es_restauracion'     => 'nullable|boolean',
             'items_nuevos.*.specs_personalizacion' => 'nullable|array',
             'items_nuevos.*.boceto_urls'         => 'nullable|array|max:10',
             'items_nuevos.*.boceto_urls.*'       => 'nullable|string|max:500',
@@ -1201,6 +1204,7 @@ class OrdenController extends Controller
                         'precio_unitario'       => $precio,
                         'es_personalizado'      => $esPersonalizado,
                         'fabricar_pedido'       => $fabricarPedido,
+                        'es_restauracion'       => (bool) ($nuevoData['es_restauracion'] ?? false),
                         'tienda_origen_id'      => $esPersonalizado ? null : ($origenId !== (int) $orden->tienda_id ? $origenId : null),
                         'specs_personalizacion' => $nuevoData['specs_personalizacion'] ?? null,
                         'boceto_url'            => $bocetos[0] ?? null,

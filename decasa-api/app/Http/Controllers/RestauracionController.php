@@ -26,7 +26,14 @@ class RestauracionController extends Controller
             'items.produccion.pasos',
             'items.produccion.pasoActual',
         ])
-        ->where('tipo', 'restauracion')
+        // Por ítem, no por la etiqueta de la orden: una orden puede traer un
+        // mueble a restaurar y además un comedor de catálogo, y tiene que
+        // aparecer aquí igual. Se mantiene el filtro por `tipo` para las
+        // órdenes viejas del módulo propio de restauración.
+        ->where(function ($q) {
+            $q->whereHas('items', fn($i) => $i->where('es_restauracion', true))
+              ->orWhere('tipo', 'restauracion');
+        })
         ->withSum('pagos', 'monto');
 
         if ($usuario->rol === 'vendedor') {
@@ -100,6 +107,7 @@ class RestauracionController extends Controller
                     'cantidad'              => $itemData['cantidad'],
                     'precio_unitario'       => $itemData['precio_unitario'],
                     'es_personalizado'      => true,
+                    'es_restauracion'       => true,
                     'specs_personalizacion' => $specs,
                 ]);
 

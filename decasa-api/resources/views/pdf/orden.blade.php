@@ -131,6 +131,7 @@
                             @php
                                 $tipoBadge = match($item->tipo_item) {
                                     'personalizado'   => ['Personalizado',   '#ede9fe', '#7c3aed'],
+                                    'restauracion'    => ['Restauración',    '#e0e7ff', '#4338ca'],
                                     'diseno_especial' => ['Diseño especial', '#e0e7ff', '#4f46e5'],
                                     'fabricar'        => ['Para fabricar',    '#fef3c7', '#d97706'],
                                     default           => null,
@@ -248,6 +249,7 @@
                 $notas = $specs['notas'] ?? null;
                 unset($specs['notas']);
                 $tipoTexto = match($item->tipo_item) {
+                    'restauracion'    => 'restauración',
                     'diseno_especial' => 'diseño especial',
                     'fabricar'        => 'para fabricar',
                     default           => 'ítem personalizado',

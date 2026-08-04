@@ -97,6 +97,7 @@
                             @php
                                 $tipoBadge = match($item->tipo_item) {
                                     'personalizado'   => ['Personalizado',   '#ede9fe', '#7c3aed'],
+                                    'restauracion'    => ['Restauración',    '#e0e7ff', '#4338ca'],
                                     'diseno_especial' => ['Diseño especial', '#e0e7ff', '#4f46e5'],
                                     'fabricar'        => ['Para fabricar',    '#fef3c7', '#d97706'],
                                     default           => null,

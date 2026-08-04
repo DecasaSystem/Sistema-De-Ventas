@@ -24,6 +24,7 @@ class OrdenItem extends Model
         'precio_unitario',
         'es_personalizado',
         'fabricar_pedido',
+        'es_restauracion',
         'usa_stock_tienda',
         'specs_personalizacion',
         'boceto_url',
@@ -37,6 +38,7 @@ class OrdenItem extends Model
             'precio_unitario'       => 'decimal:2',
             'es_personalizado'      => 'boolean',
             'fabricar_pedido'       => 'boolean',
+            'es_restauracion'       => 'boolean',
             'usa_stock_tienda'      => 'boolean',
             'specs_personalizacion' => 'array',
             'boceto_fotos'          => 'array',
@@ -53,6 +55,9 @@ class OrdenItem extends Model
      */
     public function getTipoItemAttribute(): string
     {
+        // Va antes que 'diseno_especial': una restauración también es un
+        // personalizado sin producto_id, y sin esta marca se confundirían.
+        if ($this->es_restauracion)      return 'restauracion';
         if (! $this->es_personalizado)   return 'catalogo';
         if ($this->producto_id === null) return 'diseno_especial';
         if ($this->fabricar_pedido)      return 'fabricar';
