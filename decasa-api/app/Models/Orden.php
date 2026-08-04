@@ -41,6 +41,7 @@ class Orden extends Model
         'descuento_condicionado_revertido_at',
         'anticipo_pct',
         'notas',
+        'fecha_sugerida_vendedor',
         'es_compartida',
         'covendedor_id',
         'factura_foto_url',
@@ -64,6 +65,7 @@ class Orden extends Model
             'es_compartida'    => 'boolean',
             'listo_entrega_at' => 'datetime',
             'cotizacion_valida_hasta' => 'date',
+            'fecha_sugerida_vendedor' => 'date',
         ];
     }
 

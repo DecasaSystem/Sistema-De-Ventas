@@ -21,6 +21,8 @@ const toast = useToast()
 const auth  = useAuthStore()
 
 const notas          = ref('')
+// Fecha que se le prometio al cliente; referencia para quien asigna la entrega
+const fechaSugeridaVendedor = ref('')
 const canal          = ref('')
 const direccionEnvio = ref('')
 const ciudadEnvio    = ref('')
@@ -459,6 +461,9 @@ watch(() => props.show, (v) => {
   if (!v) return
   cargarTelas()
   notas.value          = props.orden.notas ?? ''
+  fechaSugeridaVendedor.value = props.orden.fecha_sugerida_vendedor
+    ? String(props.orden.fecha_sugerida_vendedor).substring(0, 10)
+    : ''
   canal.value          = props.orden.canal ?? ''
   direccionEnvio.value = props.orden.direccion_envio ?? ''
   ciudadEnvio.value    = props.orden.ciudad_envio ?? ''
@@ -621,6 +626,7 @@ async function guardar() {
       anticipo_pct:    anticipoPct.value !== '' && anticipoPct.value !== null ? Number(anticipoPct.value) : undefined,
       descuento_total: Number(descuentoTotalEdit.value) || 0,
       descuento_condicionado_monto: Number(descCondEdit.value) || 0,
+      fecha_sugerida_vendedor: fechaSugeridaVendedor.value || null,
       items: items.value
         .filter(item => !itemsEliminar.value.includes(item.id))
         .map(item => {
@@ -718,6 +724,17 @@ async function guardar() {
                   <option value="red_social">Red social</option>
                   <option value="otro">Otro</option>
                 </select>
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-600 mb-1">Fecha prometida al cliente</label>
+                <input
+                  v-model="fechaSugeridaVendedor"
+                  type="date"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <p class="text-[11px] text-gray-500 mt-1">
+                  Lo que se le dijo al cliente. No es la fecha de entrega — esa se asigna por ítem.
+                </p>
               </div>
               <div>
                 <label class="block text-xs font-medium text-gray-600 mb-1">Notas</label>

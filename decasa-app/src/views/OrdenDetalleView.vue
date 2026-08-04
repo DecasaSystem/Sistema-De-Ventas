@@ -43,6 +43,15 @@ const emailManual = ref('')
 const mostrarEmailManual = ref(false)
 
 const fechasEdicion = ref({})
+
+/** Copia la fecha que el vendedor prometió a todos los ítems de la orden. */
+function usarFechaSugerida() {
+  const f = String(orden.value?.fecha_sugerida_vendedor ?? '').substring(0, 10)
+  if (!f) return
+  for (const item of orden.value?.items ?? []) {
+    fechasEdicion.value[item.id] = f
+  }
+}
 const guardandoFechas = ref(false)
 
 const despachoEntrega = ref(null)
@@ -1534,6 +1543,10 @@ onMounted(cargarOrden)
               </div>
               <p v-if="item.fecha_entrega_prom" class="text-xs text-gray-500 mt-0.5">
                 Entrega estimada: {{ formatFecha(item.fecha_entrega_prom) }}
+                <span
+                  v-if="orden.fecha_sugerida_vendedor && String(item.fecha_entrega_prom).substring(0,10) !== String(orden.fecha_sugerida_vendedor).substring(0,10)"
+                  class="text-amber-600"
+                >· se le prometió el {{ formatFecha(orden.fecha_sugerida_vendedor) }}</span>
               </p>
             </div>
             <div class="text-right ml-3">
@@ -1808,6 +1821,24 @@ onMounted(cargarOrden)
       <!-- Asignar fechas de entrega (solo después de que el cliente acepte el precio) -->
       <div v-if="auth.isSupervisor && !todasFechasAsignadas && orden.estado !== 'pendiente_cotizacion'" class="bg-white rounded-xl shadow-sm p-4 space-y-3">
         <p class="text-xs font-semibold text-gray-500 uppercase">Asignar fechas de entrega</p>
+
+        <!-- Lo que el vendedor le prometió al cliente. Sin esto la fecha se
+             ponía a ciegas y a veces quedaba un mes más lejos de lo hablado. -->
+        <div v-if="orden.fecha_sugerida_vendedor" class="bg-blue-50 border border-blue-200 rounded-lg p-3 space-y-2">
+          <p class="text-xs text-blue-900">
+            <span class="font-semibold">{{ orden.vendedor?.nombre ?? 'El vendedor' }}</span>
+            le prometió al cliente el
+            <span class="font-semibold">{{ formatFecha(orden.fecha_sugerida_vendedor) }}</span>.
+          </p>
+          <button
+            type="button"
+            @click="usarFechaSugerida"
+            class="w-full text-xs font-semibold py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+          >
+            Usar esa fecha {{ orden.items.length > 1 ? 'en todos los ítems' : '' }}
+          </button>
+        </div>
+
         <div
           v-for="item in orden.items"
           :key="item.id"

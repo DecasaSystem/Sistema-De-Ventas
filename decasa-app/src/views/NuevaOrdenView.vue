@@ -1195,6 +1195,9 @@ function togglePagoSplit() {
   }
 }
 const notas                = ref('')
+// Fecha que el vendedor le prometió al cliente. Referencia para el supervisor,
+// que es quien pone la fecha de entrega real de cada ítem.
+const fechaSugeridaVendedor = ref('')
 const esCompartida         = ref(false)
 const covendedorId         = ref(null)
 const vendedoresLista      = ref([])
@@ -1565,6 +1568,7 @@ async function submit() {
       entrega_inmediata:    (entregaInmediata.value && puedeEntregaInmediata.value) || undefined,
       descuento_total:      Number(descuentoTotal.value) > 0 ? Number(descuentoTotal.value) : undefined,
       notas:                notas.value || undefined,
+      fecha_sugerida_vendedor: fechaSugeridaVendedor.value || undefined,
       es_compartida:        esCompartida.value || undefined,
       covendedor_id:        (esCompartida.value && covendedorId.value) ? covendedorId.value : undefined,
       factura_foto_url:     facturaFotoUrl.value  || undefined,
@@ -3677,6 +3681,22 @@ function removeFacturaFoto() {
             </div>
           </template>
         </template>
+      </div>
+
+      <!-- Fecha que se le prometió al cliente.
+           No es la fecha de entrega — esa la asigna el supervisor por ítem.
+           Sirve para que sepa qué se habló acá y no la ponga un mes después. -->
+      <div>
+        <label class="label">¿Qué fecha le prometiste al cliente? (opcional)</label>
+        <input
+          v-model="fechaSugeridaVendedor"
+          type="date"
+          :min="hoy"
+          class="input"
+        />
+        <p class="text-xs text-gray-500 mt-1">
+          Le aparece a quien asigna las fechas de entrega, para que no quede muy lejos de lo que le dijiste.
+        </p>
       </div>
 
       <!-- Notas -->

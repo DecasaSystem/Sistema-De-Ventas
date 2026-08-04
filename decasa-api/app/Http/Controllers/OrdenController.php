@@ -162,6 +162,7 @@ class OrdenController extends Controller
             // conclusión era "solo me deja crear la orden con el 50%".
             'anticipo_pct'                  => 'nullable|numeric|min:0|max:100',
             'descuento_total'               => 'nullable|numeric|min:0',
+            'fecha_sugerida_vendedor'       => 'nullable|date',
             'notas'                              => 'nullable|string|max:1000',
             'factura_foto_url'                   => 'nullable|string|max:500',
             'firma_url'                          => 'nullable|string|max:500',
@@ -363,6 +364,9 @@ class OrdenController extends Controller
                 'descuento_condicionado_pct' => $descuentoCondicionado > 0 ? $pctCondicionado : null,
                 'anticipo_pct'      => $anticupoPct,
                 'notas'             => $data['notas'] ?? null,
+                // Lo que el vendedor le prometió al cliente. Es referencia para
+                // quien asigna la fecha real, no la fecha de entrega.
+                'fecha_sugerida_vendedor' => $data['fecha_sugerida_vendedor'] ?? null,
                 'es_compartida'     => $data['es_compartida'] ?? false,
                 'covendedor_id'     => ($data['es_compartida'] ?? false) ? ($data['covendedor_id'] ?? null) : null,
                 'factura_foto_url'  => $data['factura_foto_url'] ?? null,
@@ -882,6 +886,7 @@ class OrdenController extends Controller
 
         $data = $request->validate([
             'notas'                         => 'sometimes|nullable|string|max:1000',
+            'fecha_sugerida_vendedor'       => 'sometimes|nullable|date',
             'canal'                         => 'sometimes|nullable|in:fisica,whatsapp,instagram,facebook,pagina,red_social,otro',
             'departamento_envio'            => 'sometimes|nullable|string|max:100',
             'ciudad_envio'                  => 'sometimes|nullable|string|max:100',
@@ -954,6 +959,14 @@ class OrdenController extends Controller
             $updateOrden = [];
 
             // ── Cambios a nivel de orden ──────────────────────────────────────
+            if (array_key_exists('fecha_sugerida_vendedor', $data)) {
+                $nuevaSug  = $data['fecha_sugerida_vendedor'] ? substr((string) $data['fecha_sugerida_vendedor'], 0, 10) : null;
+                $actualSug = $orden->fecha_sugerida_vendedor?->toDateString();
+                if ($nuevaSug !== $actualSug) {
+                    $cambios[] = ['campo' => 'fecha_sugerida_vendedor', 'label' => 'Fecha prometida al cliente', 'antes' => $actualSug, 'despues' => $nuevaSug];
+                    $updateOrden['fecha_sugerida_vendedor'] = $nuevaSug;
+                }
+            }
             if (array_key_exists('notas', $data) && $data['notas'] !== $orden->notas) {
                 $cambios[] = ['campo' => 'notas', 'label' => 'Notas', 'antes' => $orden->notas, 'despues' => $data['notas']];
                 $updateOrden['notas'] = $data['notas'];
