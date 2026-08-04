@@ -1341,6 +1341,11 @@ class OrdenController extends Controller
             if ($reasignando && $tocoAsignacion) {
                 Comision::where('orden_id', $orden->id)->delete();
                 ComisionController::crearParaOrden($orden->fresh());
+            } elseif (array_key_exists('valor_total', $updateOrden)) {
+                // Si cambió el precio, la comisión tiene que seguirlo. Antes se
+                // quedaba con el valor del día que se creó la orden y no había
+                // forma de corregirla, ni siquiera desde "Recalcular".
+                ComisionController::sincronizarValorOrden($orden->fresh());
             }
 
             if (! empty($cambios)) {

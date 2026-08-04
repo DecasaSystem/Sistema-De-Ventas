@@ -374,6 +374,16 @@ class ComisionController extends Controller
             return response()->json(['error' => 'Sin acceso'], 403);
         }
 
+        // Primero poner al día el valor de las órdenes que cambiaron de precio
+        // después de creadas; si no, se recalcula sobre cifras viejas. Va antes
+        // de cargarTotales() porque esos totales salen de valor_orden.
+        $revaluadas = 0;
+        Comision::with('orden')->where('estado', '!=', 'pagada')
+            ->get()->pluck('orden')->filter()->unique('id')
+            ->each(function ($orden) use (&$revaluadas) {
+                $revaluadas += self::sincronizarValorOrden($orden);
+            });
+
         [$metas, $totalesTienda, $totalesVendedor] = $this->cargarTotales();
         $poolsTrimestrales = $this->cargarPoolsTrimestrales($metas, $totalesTienda);
         $hoy          = Carbon::today();
@@ -403,7 +413,41 @@ class ComisionController extends Controller
                 }
             });
 
-        return response()->json(['actualizadas' => $actualizadas, 'notificadas' => $notificadas]);
+        return response()->json([
+            'actualizadas' => $actualizadas,
+            'notificadas'  => $notificadas,
+            'revaluadas'   => $revaluadas,
+        ]);
+    }
+
+    /**
+     * Pone al día el valor sobre el que se comisiona cuando la orden cambió de
+     * precio después de creada.
+     *
+     * `comisiones.valor_orden` es una foto del momento en que se creó la orden.
+     * Si luego se corrige un precio, se aplica un descuento o se agrega un ítem,
+     * la foto queda vieja y la comisión se calcula sobre una cifra que ya no
+     * existe. Pasó con la #4276: nació en $0 por un descuento mal escrito, y
+     * aunque el total se corrigió a $1.750.000, la comisión seguía en cero.
+     *
+     * No se tocan las ya pagadas: eso ya se liquidó y se cerró.
+     *
+     * @return int cuántas comisiones quedaron actualizadas
+     */
+    public static function sincronizarValorOrden(Orden $orden): int
+    {
+        $valor = $orden->es_compartida
+            ? round((float) $orden->valor_total / 2)
+            : (float) $orden->valor_total;
+
+        $cambiadas = 0;
+        foreach (Comision::where('orden_id', $orden->id)->where('estado', '!=', 'pagada')->get() as $c) {
+            if (abs((float) $c->valor_orden - $valor) < 0.01) continue;
+            $c->update(['valor_orden' => $valor]);
+            $cambiadas++;
+        }
+
+        return $cambiadas;
     }
 
     // Llamar desde OrdenController al confirmar una orden
@@ -414,8 +458,11 @@ class ComisionController extends Controller
         // Una cotización o un borrador todavía no son venta: no generan comisión.
         if (in_array($orden->estado, Orden::ESTADOS_NO_COMERCIALES, true)) return;
 
-        $mes          = Carbon::parse($orden->created_at)->format('Y-m');
-        $fechaVenta   = Carbon::parse($orden->created_at);
+        // En hora de Colombia, no en el reloj UTC del servidor: una venta del 31
+        // después de las 7 p.m. se registraría en el mes siguiente y la comisión
+        // caería en el período equivocado.
+        $fechaVenta    = Carbon::parse($orden->created_at)->setTimezone(StatsController::TZ_NEGOCIO);
+        $mes           = $fechaVenta->format('Y-m');
         $fechaVentaStr = $fechaVenta->toDateString();
 
         $esCompartida  = (bool) $orden->es_compartida;
