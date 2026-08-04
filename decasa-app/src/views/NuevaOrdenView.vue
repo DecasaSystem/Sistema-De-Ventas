@@ -163,6 +163,31 @@ function toggleCatInteresNuevo(cat) {
   idx === -1 ? arr.push(cat) : arr.splice(idx, 1)
 }
 
+/**
+ * Abre el formulario de cliente nuevo, aprovechando lo que ya se haya escrito
+ * en el buscador. Si son puros números es un teléfono o una cédula, no un
+ * nombre: se coloca en el campo que corresponde en vez de dejarlo de nombre.
+ */
+function abrirNuevoCliente() {
+  const escrito = clienteQuery.value.trim()
+  const soloDigitos = escrito.replace(/\D/g, '')
+
+  if (escrito && soloDigitos.length === escrito.length && soloDigitos.length >= 6) {
+    // Los celulares en Colombia son 10 dígitos y empiezan por 3. Una cédula
+    // también puede tener 10, así que el primer dígito es lo que los separa.
+    if (soloDigitos.length === 10 && soloDigitos.startsWith('3')) {
+      nuevoCliente.value.telefono = soloDigitos
+    } else {
+      nuevoCliente.value.cedula = soloDigitos
+    }
+  } else if (escrito) {
+    nuevoCliente.value.nombre = escrito
+  }
+
+  clienteResultados.value = []
+  modoNuevoCliente.value  = true
+}
+
 function nuevoClienteValido() {
   const c = nuevoCliente.value
   if (c.tipo === 'interesado') return true  // todo opcional para interesado
@@ -1856,6 +1881,19 @@ function removeFacturaFoto() {
           >Cambiar</button>
         </div>
 
+        <!-- Crear sin tener que buscar primero. Antes solo salía al final de
+             los resultados o en el "No encontrado", así que para un cliente
+             nuevo había que buscarlo a propósito sabiendo que no estaba. -->
+        <button
+          v-if="!clienteSeleccionado && !modoNuevoCliente"
+          type="button"
+          @click="abrirNuevoCliente"
+          class="mt-2 w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-green-300 text-green-700 text-sm font-medium hover:bg-green-50 transition-colors"
+        >
+          <PlusIcon class="w-4 h-4" />
+          Nuevo cliente
+        </button>
+
         <!-- Resultados -->
         <ul v-if="clienteResultados.length" class="mt-1 bg-white rounded-xl shadow border border-gray-100 overflow-hidden">
           <li
@@ -1878,7 +1916,7 @@ function removeFacturaFoto() {
           </li>
           <!-- Siempre ofrecer crear nuevo al fondo, aunque haya resultados -->
           <li
-            @click="modoNuevoCliente = true; nuevoCliente.nombre = clienteQuery; clienteResultados = []"
+            @click="abrirNuevoCliente"
             class="px-4 py-2.5 border-t border-gray-100 hover:bg-green-50 cursor-pointer flex items-center gap-2 text-green-700"
           >
             <PlusIcon class="w-4 h-4 flex-shrink-0" />
@@ -1892,7 +1930,7 @@ function removeFacturaFoto() {
           class="mt-2 text-sm text-gray-500"
         >
           No encontrado.
-          <button @click="modoNuevoCliente = true" class="text-blue-600 font-medium ml-1">Crear nuevo</button>
+          <button @click="abrirNuevoCliente" class="text-blue-600 font-medium ml-1">Crear nuevo</button>
         </div>
 
         <!-- Cliente seleccionado -->
