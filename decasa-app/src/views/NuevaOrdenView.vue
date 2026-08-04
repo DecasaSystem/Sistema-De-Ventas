@@ -564,6 +564,11 @@ function stockLibre(p) {
   return (p.stock_disponible ?? 0) - (p.stock_reservado ?? 0)
 }
 
+/** ¿Se puede llevar ya, sea de la tienda o de la reserva de fábrica? */
+function hayDisponible(p) {
+  return stockLibre(p) > 0 || (p.es_tapizado && fabricaStock.value[p.id] > 0)
+}
+
 function nombreTiendaBusqueda() {
   return tiendas.value.find(t => t.id == tiendaBusqueda.value)?.nombre ?? ''
 }
@@ -883,6 +888,13 @@ function _pushItem(producto, variante) {
 
 // Mandar a fabricar un producto del catálogo que no tiene stock
 function fabricarBajoPedido(producto) {
+  // Se puede mandar a fabricar aunque haya stock (el de la tienda es exhibición,
+  // lo quieren en otro acabado...). Se avisa para que nadie se extrañe después
+  // de que el inventario no bajó.
+  if (hayDisponible(producto)) {
+    toast.info('Se manda a fabricar: no se descuenta el stock de la tienda.')
+  }
+
   const existe = items.value.find(i => i.producto_id === producto.id && i._fabricar_pedido)
   if (existe) { existe.cantidad++; return }
 
@@ -2128,27 +2140,35 @@ function removeFacturaFoto() {
               </span>
             </div>
 
-            <!-- Botones de acción -->
-            <div class="flex items-center gap-1.5 flex-wrap">
-              <!-- Agregar: solo si hay stock en tienda O (tapizado con stock en reserva de fábrica) -->
+            <!-- Botones de acción.
+                 Fabricar y Personalizar salen SIEMPRE, haya stock o no: a veces
+                 se manda a fabricar aunque el producto esté en tienda (el del
+                 local es exhibición, lo quieren en otro acabado, etc.).
+                 Cuando hay stock van en versión suave para que "+ Agregar"
+                 siga siendo lo obvio y nadie mande a producción por error. -->
+            <div class="flex items-center gap-1.5 flex-wrap justify-end">
               <button
-                v-if="stockLibre(p) > 0 || (p.es_tapizado && fabricaStock[p.id] > 0)"
+                v-if="hayDisponible(p)"
                 @click="agregarItem(p)"
                 class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors"
               >{{ p.tiene_tallas ? 'Seleccionar talla' : '+ Agregar' }}</button>
 
-              <!-- Sin stock en tienda ni en fábrica → Fabricar y Personalizar -->
-              <template v-if="stockLibre(p) <= 0 && !(p.es_tapizado && fabricaStock[p.id] > 0)">
-                <button
-                  @click="fabricarBajoPedido(p)"
-                  class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-orange-500 text-white hover:bg-orange-600 transition-colors"
-                >Fabricar</button>
-                <button
-                  v-if="p.personalizable"
-                  @click="agregarPersonalizado(p)"
-                  class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-purple-100 text-purple-700 hover:bg-purple-200 transition-colors"
-                >Personalizar</button>
-              </template>
+              <button
+                @click="fabricarBajoPedido(p)"
+                :class="['text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors',
+                  hayDisponible(p)
+                    ? 'border border-orange-300 text-orange-600 hover:bg-orange-50'
+                    : 'bg-orange-500 text-white hover:bg-orange-600']"
+              >Fabricar</button>
+
+              <button
+                v-if="p.personalizable"
+                @click="agregarPersonalizado(p)"
+                :class="['text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors',
+                  hayDisponible(p)
+                    ? 'border border-purple-300 text-purple-600 hover:bg-purple-50'
+                    : 'bg-purple-100 text-purple-700 hover:bg-purple-200']"
+              >Personalizar</button>
             </div>
           </div>
         </li>
