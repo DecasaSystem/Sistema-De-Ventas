@@ -78,17 +78,55 @@ const subtotalEstimado = computed(() => {
   return existentes + nuevos
 })
 
+/** Un porcentaje por encima de 100 no significa nada. Sin tope, escribir 90000
+ *  pensando en pesos mientras el campo está en % dejaba el total en $0. */
+function pctValido(v) {
+  return Math.min(Math.max(0, Number(v) || 0), 100)
+}
+
 const descuentoTotalEdit = computed(() => {
   const v = Number(descuentoInputEdit.value) || 0
   const bruto = descuentoModoEdit.value === 'pct'
-    ? montoDePct(v, subtotalEstimado.value)
-    : Math.round(v)
-  return Math.min(Math.max(0, bruto), subtotalEstimado.value)
+    ? montoDePct(pctValido(v), subtotalEstimado.value)
+    : Math.round(Math.max(0, v))
+  return Math.min(bruto, subtotalEstimado.value)
 })
 
 const descuentoPctEdit = computed(() => pctDeMonto(descuentoTotalEdit.value, subtotalEstimado.value))
-const totalEstimado = computed(() =>
+
+// ── Descuento por efectivo/transferencia ────────────────────────────────────
+// No se podía editar, y peor: al guardar cualquier cambio el backend rehacía el
+// total sin tenerlo en cuenta, así que se perdía solo y el precio le subía al
+// cliente. Ya no.
+const descCondModoEdit  = ref('monto')
+const descCondInputEdit = ref(0)
+
+const baseCondEdit = computed(() =>
   Math.max(0, subtotalEstimado.value - descuentoTotalEdit.value)
+)
+
+const descCondEdit = computed(() => {
+  const v = Number(descCondInputEdit.value) || 0
+  const bruto = descCondModoEdit.value === 'pct'
+    ? montoDePct(pctValido(v), baseCondEdit.value)
+    : Math.round(Math.max(0, v))
+  return Math.min(bruto, baseCondEdit.value)
+})
+
+const descCondPctEdit = computed(() => pctDeMonto(descCondEdit.value, baseCondEdit.value))
+
+/** Ya se perdió por haber pagado con tarjeta: no se vuelve a ofrecer. */
+const condicionadoRevertido = computed(() =>
+  !!props.orden?.descuento_condicionado_revertido_at
+)
+
+const totalEstimado = computed(() =>
+  Math.max(0, baseCondEdit.value - descCondEdit.value)
+)
+
+/** El total quedaría en cero: casi siempre es una digitación mal puesta. */
+const totalEditEnCero = computed(() =>
+  subtotalEstimado.value > 0 && totalEstimado.value === 0
 )
 
 // ── Eliminar ítem existente ──────────────────────────────────────────────────
@@ -430,6 +468,9 @@ watch(() => props.show, (v) => {
   descuentoModoEdit.value  = 'monto'
   descuentoInputEdit.value = Number(props.orden.descuento_total || 0)
 
+  descCondModoEdit.value  = 'monto'
+  descCondInputEdit.value = Number(props.orden.descuento_condicionado || 0)
+
   pagoAnticipo.value       = (props.orden.pagos ?? []).find(p => p.tipo === 'anticipo') ?? null
   anticipoMonto.value      = pagoAnticipo.value?.monto ?? ''
   anticipoMetodo.value     = pagoAnticipo.value?.metodo ?? 'efectivo'
@@ -579,6 +620,7 @@ async function guardar() {
       ciudad_envio:    ciudadEnvio.value    || null,
       anticipo_pct:    anticipoPct.value !== '' && anticipoPct.value !== null ? Number(anticipoPct.value) : undefined,
       descuento_total: Number(descuentoTotalEdit.value) || 0,
+      descuento_condicionado_monto: Number(descCondEdit.value) || 0,
       items: items.value
         .filter(item => !itemsEliminar.value.includes(item.id))
         .map(item => {
@@ -1279,7 +1321,9 @@ async function guardar() {
 
                 <input
                   v-model.number="descuentoInputEdit"
-                  type="number" min="0" :step="descuentoModoEdit === 'pct' ? 0.1 : 1000"
+                  type="number" min="0"
+                  :max="descuentoModoEdit === 'pct' ? 100 : null"
+                  :step="descuentoModoEdit === 'pct' ? 0.1 : 1000"
                   placeholder="0"
                   :class="['rounded-lg border border-gray-300 px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-500',
                     descuentoModoEdit === 'pct' ? 'w-16' : 'w-28']"
@@ -1287,9 +1331,49 @@ async function guardar() {
                 <span class="text-xs text-gray-400">{{ descuentoModoEdit === 'pct' ? '%' : '$' }}</span>
               </div>
             </div>
+
+            <!-- Descuento por efectivo/transferencia -->
+            <div v-if="!condicionadoRevertido" class="flex items-center gap-2 text-sm">
+              <span class="text-gray-500 flex-shrink-0">Desc. efectivo/transferencia</span>
+              <div class="flex items-center gap-1 ml-auto">
+                <button
+                  v-for="m in [{ v: 'monto', t: '$' }, { v: 'pct', t: '%' }]"
+                  :key="'ec' + m.v" type="button"
+                  @click="descCondModoEdit = m.v; descCondInputEdit = 0"
+                  :class="['w-8 h-8 rounded-lg text-sm font-bold border transition-colors',
+                    descCondModoEdit === m.v
+                      ? 'bg-amber-600 text-white border-amber-600'
+                      : 'bg-white text-gray-500 border-gray-300']"
+                >{{ m.t }}</button>
+                <input
+                  v-model.number="descCondInputEdit"
+                  type="number" min="0"
+                  :max="descCondModoEdit === 'pct' ? 100 : null"
+                  :step="descCondModoEdit === 'pct' ? 0.1 : 1000"
+                  placeholder="0"
+                  :class="['rounded-lg border border-gray-300 px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-amber-500',
+                    descCondModoEdit === 'pct' ? 'w-16' : 'w-28']"
+                />
+                <span class="text-xs text-gray-400">{{ descCondModoEdit === 'pct' ? '%' : '$' }}</span>
+              </div>
+            </div>
+            <p v-else class="text-xs text-gray-400">
+              El descuento por efectivo/transferencia ya se perdió (se pagó con tarjeta).
+            </p>
+
+            <div v-if="totalEditEnCero" class="bg-red-50 border border-red-300 rounded-lg px-3 py-2 text-xs text-red-700 leading-snug">
+              <p class="font-semibold">El total queda en $0.</p>
+              <p v-if="descCondModoEdit === 'pct' || descuentoModoEdit === 'pct'">
+                Revisa si el campo está en <strong>%</strong>: escribir 90000 ahí son 90.000 por ciento.
+              </p>
+            </div>
             <!-- Total estimado -->
             <div class="flex items-center justify-between text-sm">
-              <span class="text-gray-500">Total estimado <span v-if="descuentoTotalEdit > 0" class="text-green-600 font-normal">(− ${{ descuentoTotalEdit.toLocaleString('es-CO') }} · {{ formatPct(descuentoPctEdit) }}%)</span></span>
+              <span class="text-gray-500">
+                Total estimado
+                <span v-if="descuentoTotalEdit > 0" class="text-green-600 font-normal">(− ${{ descuentoTotalEdit.toLocaleString('es-CO') }} · {{ formatPct(descuentoPctEdit) }}%)</span>
+                <span v-if="descCondEdit > 0" class="text-amber-600 font-normal">(− ${{ descCondEdit.toLocaleString('es-CO') }} · {{ formatPct(descCondPctEdit) }}% efectivo)</span>
+              </span>
               <span class="font-bold text-gray-900">${{ totalEstimado.toLocaleString('es-CO') }}</span>
             </div>
             <div class="flex gap-3">

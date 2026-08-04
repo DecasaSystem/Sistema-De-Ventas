@@ -889,6 +889,7 @@ class OrdenController extends Controller
             // 0 es válido, igual que al crear: una orden puede quedar sin anticipo
             'anticipo_pct'                  => 'sometimes|nullable|numeric|min:0|max:100',
             'descuento_total'               => 'sometimes|nullable|numeric|min:0',
+            'descuento_condicionado_monto'  => 'sometimes|nullable|numeric|min:0',
             'vendedor_id'                   => 'sometimes|nullable|integer|exists:usuarios,id',
             'tienda_id'                     => 'sometimes|nullable|integer|exists:tiendas,id',
             'covendedor_id'                 => 'sometimes|nullable|integer|exists:usuarios,id',
@@ -1279,17 +1280,39 @@ class OrdenController extends Controller
                 }
             }
 
-            // Recalcular valor total (subtotal de ítems menos descuento global)
+            // Recalcular valor total: subtotal de ítems, menos el descuento
+            // comercial, menos el condicionado (efectivo/transferencia).
+            //
+            // El condicionado se había quedado fuera de esta cuenta: editar
+            // cualquier cosa de una orden que lo tuviera se lo borraba del
+            // total en silencio y el precio le subía al cliente.
             $orden->refresh()->load('items');
             $subtotal  = $orden->items->sum(fn ($i) => $i->cantidad * $i->precio_unitario);
             $descuento = array_key_exists('descuento_total', $data) && $data['descuento_total'] !== null
                 ? min((float) $data['descuento_total'], $subtotal)
                 : min((float) $orden->descuento_total, $subtotal);
-            $nuevoTotal = $subtotal - $descuento;
+
+            $baseCondicionado = max(0, $subtotal - $descuento);
+
+            // Si ya se perdió por pagar con tarjeta, no se resucita al editar.
+            $condicionadoVigente = $orden->descuento_condicionado_revertido_at === null;
+            $condicionado = array_key_exists('descuento_condicionado_monto', $data) && $data['descuento_condicionado_monto'] !== null
+                ? (float) $data['descuento_condicionado_monto']
+                : (float) $orden->descuento_condicionado;
+            $condicionado = $condicionadoVigente ? min(max(0.0, $condicionado), $baseCondicionado) : 0.0;
+
+            $nuevoTotal = $baseCondicionado - $condicionado;
 
             if ((float) $descuento !== (float) $orden->descuento_total) {
                 $cambios[]                      = ['campo' => 'descuento_total', 'label' => 'Descuento al total', 'antes' => (float) $orden->descuento_total, 'despues' => (float) $descuento];
                 $updateOrden['descuento_total'] = $descuento;
+            }
+            if ($condicionado !== (float) $orden->descuento_condicionado) {
+                $cambios[] = ['campo' => 'descuento_condicionado', 'label' => 'Descuento por efectivo/transferencia', 'antes' => (float) $orden->descuento_condicionado, 'despues' => $condicionado];
+                $updateOrden['descuento_condicionado']     = $condicionado;
+                $updateOrden['descuento_condicionado_pct'] = $condicionado > 0 && $baseCondicionado > 0
+                    ? round($condicionado / $baseCondicionado * 100, 2)
+                    : null;
             }
             if ((float) $nuevoTotal !== (float) $orden->valor_total) {
                 $cambios[]            = ['campo' => 'valor_total', 'label' => 'Total de la orden', 'antes' => (float) $orden->valor_total, 'despues' => (float) $nuevoTotal];
