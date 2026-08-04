@@ -60,6 +60,22 @@ class CajaController extends Controller
             ->whereDoesntHave('vendedor', fn($q) => self::esDeCajaPropia($q));
     }
 
+    /**
+     * Movimientos manuales de la caja de una tienda.
+     *
+     * Deja por fuera a quien lleva caja propia: su sede está guardada en el
+     * movimiento porque la columna no admite nulos, pero su plata es suya y ya
+     * se cuenta en su caja. Sin este filtro el mismo egreso salía dos veces —
+     * de la caja de Henry y de la de Bodega Fábrica, por ejemplo.
+     *
+     * Es el mismo criterio que usa efectivoDeTienda() con los pagos.
+     */
+    private static function movimientosDeTienda(int $tiendaId)
+    {
+        return CajaMovimiento::where('tienda_id', $tiendaId)
+            ->whereDoesntHave('usuario', fn($q) => self::esDeCajaPropia($q));
+    }
+
     private function balancePorUsuario(int $userId): array
     {
         $ingresoVentas = Pago::where('vendedor_id', $userId)->where('metodo', 'efectivo')->sum('monto');
@@ -101,11 +117,11 @@ class CajaController extends Controller
 
         $ingresoVentas = $this->efectivoDeTienda($tiendaId)->sum('monto');
 
-        $ingresoManual = CajaMovimiento::where('tienda_id', $tiendaId)
+        $ingresoManual = self::movimientosDeTienda($tiendaId)
             ->where('tipo', 'ingreso_manual')
             ->sum('monto');
 
-        $egresos = CajaMovimiento::where('tienda_id', $tiendaId)
+        $egresos = self::movimientosDeTienda($tiendaId)
             ->where('tipo', 'egreso')
             ->sum('monto');
 
@@ -201,8 +217,8 @@ class CajaController extends Controller
                 'tipo_pago'       => $p->tipo,
             ]);
 
-        $manuales = CajaMovimiento::with('usuario:id,nombre')
-            ->where('tienda_id', $tiendaId)
+        // Mismo filtro que el saldo: la lista y el total tienen que cuadrar.
+        $manuales = self::movimientosDeTienda($tiendaId)->with('usuario:id,nombre')
             ->latest()
             ->limit($limite)
             ->get()
@@ -238,6 +254,10 @@ class CajaController extends Controller
             'tienda_id'       => 'nullable|integer|exists:tiendas,id',
         ]);
 
+        // La columna tienda_id no admite nulos, así que a quien lleva caja
+        // propia se le sigue guardando su sede. Lo que evita el doble conteo es
+        // que las consultas de la caja de tienda excluyen a esas personas
+        // (ver movimientosDeTienda), igual que ya se hacía con los pagos.
         $tiendaId = $this->llevaCajaPropia()
             ? (auth()->user()->tienda_default_id ?? null)
             : $this->tiendaId($request);
@@ -279,11 +299,11 @@ class CajaController extends Controller
         $resumen = $tiendas->map(function ($tienda) {
             $ingresoVentas = $this->efectivoDeTienda($tienda->id)->sum('monto');
 
-            $ingresoManual = CajaMovimiento::where('tienda_id', $tienda->id)
+            $ingresoManual = self::movimientosDeTienda($tienda->id)
                 ->where('tipo', 'ingreso_manual')
                 ->sum('monto');
 
-            $egresos = CajaMovimiento::where('tienda_id', $tienda->id)
+            $egresos = self::movimientosDeTienda($tienda->id)
                 ->where('tipo', 'egreso')
                 ->sum('monto');
 
