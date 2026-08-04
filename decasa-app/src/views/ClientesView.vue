@@ -63,17 +63,21 @@ const nuevo = ref({
 const posiblesDuplicados = ref([])
 const verificandoDup     = ref(false)
 let dupTimer = null
-watch(() => [nuevo.value.nombre, nuevo.value.telefono, nuevo.value.email], () => {
+watch(() => [nuevo.value.nombre, nuevo.value.cedula, nuevo.value.telefono, nuevo.value.email], () => {
   clearTimeout(dupTimer)
   const n = (nuevo.value.nombre || '').trim()
+  const c = (nuevo.value.cedula || '').replace(/\D/g, '')
   const t = (nuevo.value.telefono || '').replace(/\D/g, '')
   const e = (nuevo.value.email || '').trim()
-  // Solo vale la pena consultar si hay email, o nombre + teléfono
-  if (!e && !(n && t)) { posiblesDuplicados.value = []; return }
+  // La cédula y el teléfono ya identifican por sí solos; el nombre no
+  if (c.length < 5 && t.length < 7 && !e.includes('@') && n.length < 6) {
+    posiblesDuplicados.value = []
+    return
+  }
   dupTimer = setTimeout(async () => {
     verificandoDup.value = true
     try {
-      const { data } = await verificarDuplicadoCliente({ nombre: n, telefono: t, email: e })
+      const { data } = await verificarDuplicadoCliente({ nombre: n, cedula: c, telefono: t, email: e })
       posiblesDuplicados.value = data ?? []
     } catch { posiblesDuplicados.value = [] }
     finally { verificandoDup.value = false }

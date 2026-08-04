@@ -80,6 +80,49 @@ const nuevoCliente = ref({ nombre: '', cedula: '', telefono: '', email: '', dire
 const creandoCliente = ref(false)
 const errCliente = ref('')
 
+// ── Aviso de cliente repetido ────────────────────────────────────────────────
+// Mientras se llena el formulario se consulta si ya existe alguien con la misma
+// cédula, teléfono, correo o nombre exacto. Sirve para no terminar con el mismo
+// cliente dos veces, y sobre todo para no chocar al guardar: la cédula es única
+// en la base y el error salía recién al darle a crear.
+const posiblesDuplicados = ref([])
+let dupTimer = null
+
+watch(
+  () => [nuevoCliente.value.nombre, nuevoCliente.value.cedula,
+         nuevoCliente.value.telefono, nuevoCliente.value.email],
+  ([nombre, cedula, telefono, email]) => {
+    clearTimeout(dupTimer)
+    const params = {
+      nombre:   (nombre   || '').trim(),
+      cedula:   (cedula   || '').replace(/\D/g, ''),
+      telefono: (telefono || '').replace(/\D/g, ''),
+      email:    (email    || '').trim(),
+    }
+    // Un nombre a medio escribir no dice nada; los identificadores sí
+    const vale = params.cedula.length >= 5 || params.telefono.length >= 7 ||
+                 params.email.includes('@') || params.nombre.length >= 6
+    if (!vale) { posiblesDuplicados.value = []; return }
+
+    dupTimer = setTimeout(async () => {
+      try {
+        const { data } = await api.get('/clientes/verificar-duplicado', {
+          params, silencioso: true,   // no debe encender la S: se escribe mientras tanto
+        })
+        posiblesDuplicados.value = data ?? []
+      } catch { posiblesDuplicados.value = [] }
+    }, 400)
+  }
+)
+
+/** Usar el cliente que ya existía en vez de crear uno repetido. */
+function usarClienteExistente(c) {
+  seleccionarCliente(c)
+  modoNuevoCliente.value  = false
+  posiblesDuplicados.value = []
+  nuevoCliente.value = { nombre: '', cedula: '', telefono: '', email: '', direccion: '', tipo: 'oficial', categorias_interes: [], notas_interes: '' }
+}
+
 // Completar datos de interesado antes de continuar
 const formCompletarCliente = ref({ nombre: '', cedula: '', telefono: '', email: '', direccion: '' })
 const guardandoCompletarCliente = ref(false)
@@ -1987,6 +2030,37 @@ function removeFacturaFoto() {
       <!-- Formulario nuevo cliente -->
       <div v-if="modoNuevoCliente" class="bg-gray-50 rounded-xl p-4 space-y-3">
         <p class="text-sm font-semibold text-gray-700">Nuevo cliente</p>
+
+        <!-- Ya existe alguien con estos datos -->
+        <div v-if="posiblesDuplicados.length" class="bg-amber-50 border border-amber-300 rounded-xl p-3 space-y-2">
+          <p class="text-xs font-semibold text-amber-800 flex items-center gap-1.5">
+            <ExclamationTriangleIcon class="w-4 h-4 flex-shrink-0" />
+            {{ posiblesDuplicados.length === 1 ? 'Ya existe un cliente con estos datos' : 'Ya existen clientes con estos datos' }}
+          </p>
+          <div
+            v-for="c in posiblesDuplicados"
+            :key="c.id"
+            class="bg-white border border-amber-200 rounded-lg px-3 py-2 flex items-center justify-between gap-2"
+          >
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-medium text-gray-800 truncate">{{ c.nombre }}</p>
+              <p class="text-xs text-gray-500 truncate">
+                <span v-if="c.cedula">CC {{ c.cedula }}</span>
+                <span v-if="c.cedula && c.telefono"> · </span>
+                <span v-if="c.telefono">{{ c.telefono }}</span>
+              </p>
+              <p class="text-[11px] text-amber-700">Tiene {{ c.motivo }}</p>
+            </div>
+            <button
+              type="button"
+              @click="usarClienteExistente(c)"
+              class="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-amber-600 text-white hover:bg-amber-700 transition-colors flex-shrink-0"
+            >Usar este</button>
+          </div>
+          <p class="text-[11px] text-amber-700">
+            Si de verdad es otra persona, sigue llenando y créalo — solo la cédula no se puede repetir.
+          </p>
+        </div>
 
         <!-- Tipo -->
         <div>

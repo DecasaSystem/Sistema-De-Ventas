@@ -139,26 +139,50 @@ class ClienteController extends Controller
     public function verificarDuplicado(Request $request)
     {
         $nombre   = mb_strtolower(trim((string) $request->query('nombre', '')));
+        $cedula   = preg_replace('/\D/', '', (string) $request->query('cedula', ''));
         $telefono = preg_replace('/\D/', '', (string) $request->query('telefono', ''));
         $email    = mb_strtolower(trim((string) $request->query('email', '')));
 
-        if ($nombre === '' && $email === '' && $telefono === '') {
+        if ($nombre === '' && $cedula === '' && $email === '' && $telefono === '') {
             return response()->json([]);
         }
 
         $candidatos = Cliente::query()
-            ->when($nombre !== '',   fn ($q) => $q->orWhereRaw('LOWER(nombre) = ?', [$nombre]))
-            ->when($email !== '',    fn ($q) => $q->orWhereRaw('LOWER(email) = ?', [$email]))
-            ->when($telefono !== '', fn ($q) => $q->orWhere('telefono', 'like', '%' . $telefono . '%'))
+            ->where(function ($q) use ($nombre, $cedula, $telefono, $email) {
+                if ($nombre !== '')   $q->orWhereRaw('LOWER(nombre) = ?', [$nombre]);
+                if ($email !== '')    $q->orWhereRaw('LOWER(email) = ?', [$email]);
+                // La comparación fina se hace abajo sobre solo los dígitos: en la
+                // base hay teléfonos guardados con espacios, guiones y prefijos.
+                if ($cedula !== '')   $q->orWhere('cedula', 'like', '%' . $cedula . '%');
+                if ($telefono !== '') $q->orWhere('telefono', 'like', '%' . $telefono . '%');
+            })
             ->limit(80)
-            ->get(['id', 'nombre', 'telefono', 'email', 'cedula', 'tipo']);
+            ->get(['id', 'nombre', 'telefono', 'email', 'cedula', 'tipo', 'direccion']);
 
-        $matches = $candidatos->filter(function ($c) use ($nombre, $telefono, $email) {
-            $mismoEmail  = $email !== '' && mb_strtolower((string) $c->email) === $email;
-            $mismoNombre = $nombre !== '' && mb_strtolower((string) $c->nombre) === $nombre;
-            $mismoTel    = $telefono !== '' && preg_replace('/\D/', '', (string) $c->telefono) === $telefono;
-            return $mismoEmail || ($mismoNombre && $mismoTel);
-        })->take(5)->values();
+        $soloDigitos = fn ($v) => preg_replace('/\D/', '', (string) $v);
+
+        $matches = $candidatos->map(function ($c) use ($nombre, $cedula, $telefono, $email, $soloDigitos) {
+            // Se avisa solo por coincidencias obvias: el mismo documento, el
+            // mismo teléfono, el mismo correo o exactamente el mismo nombre.
+            // Nada de parecidos, para no llenar de falsas alarmas.
+            $motivos = [];
+            if ($cedula !== ''   && $soloDigitos($c->cedula)   === $cedula)   $motivos[] = 'la misma cédula';
+            if ($telefono !== '' && $soloDigitos($c->telefono) === $telefono) $motivos[] = 'el mismo teléfono';
+            if ($email !== ''    && mb_strtolower((string) $c->email) === $email) $motivos[] = 'el mismo correo';
+            if ($nombre !== ''   && mb_strtolower((string) $c->nombre) === $nombre) $motivos[] = 'el mismo nombre';
+
+            if (! $motivos) return null;
+
+            $c->motivo = implode(' y ', $motivos);
+            // La cédula es el dato que el guardado rechaza, así que esos van primero
+            $c->peso = in_array('la misma cédula', $motivos, true) ? 3
+                     : (count(array_intersect($motivos, ['el mismo teléfono', 'el mismo correo'])) ? 2 : 1);
+            return $c;
+        })
+        ->filter()
+        ->sortByDesc('peso')
+        ->take(5)
+        ->values();
 
         return response()->json($matches);
     }
