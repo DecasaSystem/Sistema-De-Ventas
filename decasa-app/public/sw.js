@@ -1,4 +1,6 @@
-const CACHE_NAME = 'decasa-v15'
+// Subir este número en cada cambio del service worker: al activarse borra los
+// caches con otro nombre, y así no queda nada de la versión anterior.
+const CACHE_NAME = 'decasa-v16'
 
 // ── Push notifications ────────────────────────────────────────────────────────
 self.addEventListener('push', (event) => {
@@ -71,7 +73,22 @@ function esCacheableValida(request, response) {
   return true
 }
 
-// Fetch: network-first para /api, stale-while-revalidate para todo lo demás
+/**
+ * ¿Es el HTML de la app (no un archivo con hash en el nombre)?
+ *
+ * Importa la diferencia: los .js y .css llevan el hash en el nombre, así que
+ * una vez publicados nunca cambian y se pueden servir del cache sin miedo. El
+ * HTML no: es el que dice CUÁLES archivos cargar. Sirviéndolo del cache, tras
+ * un despliegue la gente seguía viendo la versión anterior y tenía que recargar
+ * dos veces para que apareciera lo nuevo.
+ */
+function esElHtml(request) {
+  const { pathname } = new URL(request.url)
+  return request.mode === 'navigate' || pathname === '/' || pathname === '/index.html'
+}
+
+// Fetch: network-first para /api y para el HTML; stale-while-revalidate para
+// los archivos con hash, que no cambian.
 self.addEventListener('fetch', (event) => {
   const { request } = event
   const url = new URL(request.url)
@@ -89,7 +106,13 @@ self.addEventListener('fetch', (event) => {
         })
         .catch(() => null)
 
-      if (cached) {
+      // El HTML se pide siempre a la red primero. Solo se cae al cache si no
+      // hay conexión, que es para lo que sirve tenerlo guardado.
+      if (esElHtml(request)) {
+        const res = await networkPromise
+        if (res) return res
+        if (cached) return cached
+      } else if (cached) {
         networkPromise.catch(() => {})
         return cached
       }
