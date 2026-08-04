@@ -12,7 +12,11 @@ export function useSurtidosSocket() {
   function conectar() {
     if (!window.Echo) return
 
-    if (auth.usuario?.rol === 'vendedor') {
+    // El canal va por id de usuario, no por rol: quien valida un surtido lo
+    // elige el supervisor y puede ser cualquiera. Antes solo se suscribía el
+    // rol 'vendedor', así que a un facturador validador no le llegaba el aviso
+    // en el momento ni se le actualizaba el contador.
+    if (auth.usuario?.id) {
       const canal = `vendedor.${auth.usuario.id}`
       window.Echo.channel(canal)
         .stopListening('.surtido.enviado')

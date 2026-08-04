@@ -117,9 +117,12 @@ watch(() => auth.isAuthenticated, (isAuth) => {
   if (auth.usuario?.rol === 'conductor') {
     despacho.cargarMisEntregas()
   }
-  if (auth.usuario?.rol === 'vendedor') {
-    surtidos.cargarPendientes()
-  }
+  // Validar un surtido no depende del rol: el supervisor elige a quién se lo
+  // manda, y puede ser un facturador o él mismo. El endpoint ya devuelve solo
+  // lo que a uno le toca validar, así que se carga para todos. Antes solo se
+  // pedía para el rol 'vendedor' y los demás no veían ni el contador: se
+  // enteraban únicamente por la notificación.
+  surtidos.cargarPendientes()
   if (auth.tieneAccesoPasos) {
     pasos.cargar()
   }
@@ -206,7 +209,9 @@ const navItems = computed(() => {
       { name: 'ordenes',    label: 'Órdenes',      icon: ClipboardDocumentListIcon },
       { name: 'produccion', label: 'Producción',   icon: WrenchScrewdriverIcon },
       { name: 'despacho',   label: 'Despacho',     icon: TruckIcon, badge: despacho.ordenesPendientes },
-      { name: 'inventario', label: 'Inventario',   icon: ArchiveBoxIcon },
+      // Lleva el contador igual que los demás: el supervisor también puede
+      // quedar como validador de un surtido y necesita verlo sin abrir el menú.
+      { name: 'inventario', label: 'Inventario',   icon: ArchiveBoxIcon, badge: surtidos.pendientesCount },
       { name: 'reportes',   label: 'Reportes',     icon: ChartBarIcon },
       { name: 'cotizaciones', label: 'Cotizaciones',   icon: DocumentTextIcon },
       { name: 'consultas',  label: 'Consultar costo', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
@@ -348,7 +353,11 @@ async function abrirNotificacion(n) {
     } else {
       router.push({ name: 'orden-detalle', params: { id: datos.orden_id } })
     }
-  } else if (n.tipo === 'stock_agotado' || datos.surtido_id) {
+  } else if (datos.surtido_id) {
+    // Un surtido por validar se acepta en Inventario, sea quien sea. Antes al
+    // supervisor lo mandaba a Surtir, donde no hay nada que aceptar.
+    router.push({ name: 'inventario' })
+  } else if (n.tipo === 'stock_agotado') {
     // El aviso de "se vendió el último" no llevaba a ningún lado: se tocaba y
     // no pasaba nada. Va a surtir, que es donde se decide qué mandar.
     router.push({ name: auth.isSupervisor ? 'surtir' : 'inventario' })

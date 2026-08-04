@@ -1475,8 +1475,10 @@ onMounted(async () => {
       </button>
     </div>
 
-    <!-- Panel de surtidos pendientes (solo vendedor) -->
-    <SurtidosPendientesPanel v-if="!auth.isSupervisor" @aceptado="cargarInventario(true)" />
+    <!-- Surtidos que a uno le toca validar. Se muestra a cualquiera: el panel
+         solo aparece si de verdad hay pendientes suyos, y el supervisor también
+         puede quedar como validador — antes no tenía dónde aceptarlos. -->
+    <SurtidosPendientesPanel @aceptado="cargarInventario(true)" />
 
     <!-- Panel de traslados pendientes de validación (solo vendedor validador) -->
     <div v-if="trasladosPend.length > 0" class="space-y-3">
