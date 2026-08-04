@@ -2042,7 +2042,6 @@ function removeFacturaFoto() {
     <template v-else-if="step === 2">
 
       <!-- ── Catálogo ── -->
-      <template>
 
       <!-- Selector tienda de búsqueda -->
       <div>
@@ -2341,7 +2340,7 @@ function removeFacturaFoto() {
         </div>
       </div>
 
-      </template><!-- fin catálogo -->
+      <!-- fin catálogo -->
 
       <!-- ── Restauración: mueble que trae el cliente ──
            Va plegado. Se abre solo si el cliente además trae algo para
