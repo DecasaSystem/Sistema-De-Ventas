@@ -112,6 +112,10 @@ function nuevoItemVacio() {
   return {
     producto_id: null, producto_nombre: '', producto_categoria: null, personalizable: false,
     es_custom: false, nombre_custom: '', categoria_custom: '',
+    // Mueble que trae el cliente: es un ítem fuera de catálogo (es_custom) más
+    // esta marca, que lo separa de un "diseño especial" y lo hace aparecer en
+    // el módulo de Restauración.
+    es_restauracion: false, descripcion_trabajo: '',
     modo: 'stock',              // 'stock' | 'personalizado' | 'fabricar' (para productos de catálogo)
     variante_id: null, variante_label: '',
     cantidad: 1, precio_unitario: '', stock_libre: null,
@@ -271,6 +275,15 @@ function iniciarDisenoEspecial() {
   nuevoResultados.value = []
 }
 
+function iniciarRestauracion() {
+  nuevoItem.value = nuevoItemVacio()
+  nuevoItem.value.es_custom        = true
+  nuevoItem.value.es_restauracion  = true
+  nuevoItem.value.categoria_custom = 'Restauración'
+  nuevoQuery.value = ''
+  nuevoResultados.value = []
+}
+
 // Consolida la tela elegida por campo del ítem nuevo (fase posterior: picker visual)
 function telaResumidaNuevo(key) {
   const s = nuevoItem.value._telaSelections?.[key]
@@ -317,6 +330,10 @@ function agregarNuevo() {
     if (tela) specs[key] = tela
   }
   if (n.specs_notas) specs.notas = n.specs_notas
+  // El trabajo a realizar es lo que el taller necesita leer de una restauración
+  if (n.es_restauracion && n.descripcion_trabajo.trim()) {
+    specs.descripcion_trabajo = n.descripcion_trabajo.trim()
+  }
 
   const esPersonalizado = n.es_custom || n.modo === 'personalizado' || n.modo === 'fabricar'
 
@@ -348,11 +365,15 @@ function agregarNuevo() {
     precio_unitario:  parseFloat(n.precio_unitario),
     es_personalizado: esPersonalizado,
     fabricar_pedido:  !n.es_custom && n.modo === 'fabricar',
+    es_restauracion:  !!n.es_restauracion,
     tienda_origen_id: otraTienda ? nuevoTiendaOrigen.value : null,
     tienda_origen_nombre: otraTienda ? (tiendasLista.value.find(t => t.id === nuevoTiendaOrigen.value)?.nombre ?? '') : null,
     specs_personalizacion: Object.keys(specs).length ? specs : null,
     boceto_urls:      [...n.boceto_urls],
-    _tipo:            n.es_custom ? 'Diseño especial' : (n.modo === 'fabricar' ? 'Para fabricar' : (n.modo === 'personalizado' ? 'Personalizado' : 'Stock')),
+    _tipo:            n.es_restauracion ? 'Restauración'
+                      : n.es_custom ? 'Diseño especial'
+                      : (n.modo === 'fabricar' ? 'Para fabricar'
+                      : (n.modo === 'personalizado' ? 'Personalizado' : 'Stock')),
   })
   nuevoItem.value = nuevoItemVacio()
   nuevoQuery.value = ''
@@ -592,6 +613,7 @@ async function guardar() {
             precio_unitario:  parseFloat(i.precio_unitario),
             es_personalizado: i.es_personalizado || undefined,
             fabricar_pedido:  i.fabricar_pedido || undefined,
+            es_restauracion:  i.es_restauracion || undefined,
             specs_personalizacion: i.specs_personalizacion ?? undefined,
             boceto_urls:      i.boceto_urls?.length ? i.boceto_urls : undefined,
           }))
@@ -1060,19 +1082,36 @@ async function guardar() {
                   class="w-full text-xs text-indigo-600 font-medium flex items-center justify-center gap-1 py-1.5 border border-indigo-200 rounded-lg hover:bg-indigo-50">
                   <SparklesIcon class="w-3.5 h-3.5" /> Crear diseño especial (fuera de catálogo)
                 </button>
+                <button type="button" @click="iniciarRestauracion"
+                  class="w-full text-xs text-indigo-700 font-medium flex items-center justify-center gap-1 py-1.5 border border-indigo-200 rounded-lg hover:bg-indigo-50">
+                  🛠️ Mueble del cliente para restaurar
+                </button>
               </template>
 
               <!-- Paso 2: constructor del ítem -->
               <div v-else class="space-y-2.5">
                 <div class="flex items-center justify-between">
                   <p class="text-xs font-semibold text-blue-700 truncate">
-                    {{ nuevoItem.es_custom ? 'Diseño especial' : nuevoItem.producto_nombre }}
+                    {{ nuevoItem.es_restauracion ? '🛠️ Mueble a restaurar'
+                       : nuevoItem.es_custom ? 'Diseño especial'
+                       : nuevoItem.producto_nombre }}
                   </p>
                   <button type="button" @click="nuevoItem = nuevoItemVacio()" class="text-[11px] text-gray-400 underline">Cambiar</button>
                 </div>
 
+                <!-- Mueble a restaurar: nombre + trabajo a realizar -->
+                <template v-if="nuevoItem.es_restauracion">
+                  <p class="text-[11px] text-indigo-600 -mb-1">
+                    Lo trae el cliente. No descuenta inventario y va directo a producción.
+                  </p>
+                  <input v-model="nuevoItem.nombre_custom" type="text" placeholder="Mueble (ej: Sofá 3 puestos, Silla comedor...)"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  <input v-model="nuevoItem.descripcion_trabajo" type="text" placeholder="Trabajo a realizar (ej: Tapizado + laca)"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                </template>
+
                 <!-- Diseño especial: nombre + categoría -->
-                <template v-if="nuevoItem.es_custom">
+                <template v-else-if="nuevoItem.es_custom">
                   <input v-model="nuevoItem.nombre_custom" type="text" placeholder="Nombre del producto especial"
                     class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                   <input v-model="nuevoItem.categoria_custom" type="text" placeholder="Categoría (ej: sofá, mesa, cama...)"
