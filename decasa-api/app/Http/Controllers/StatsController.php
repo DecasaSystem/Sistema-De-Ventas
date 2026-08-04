@@ -11,24 +11,44 @@ class StatsController extends Controller
 {
     // ─── Helper: parsear período ──────────────────────────────────────────────
 
+    /**
+     * La app guarda los timestamps en UTC, pero el negocio vive en Colombia
+     * (UTC−5). Sin esto, todo lo vendido después de las 7 de la noche caía en
+     * el día siguiente, el reporte de "Hoy" se vaciaba a esa hora, y una venta
+     * del 31 a las 8 p.m. se contaba en el mes entrante.
+     *
+     * Se recibe el día tal como lo entiende la gente y se devuelve el rango en
+     * UTC, que es como está la base.
+     */
+    public const TZ_NEGOCIO = 'America/Bogota';
+
+    private function rangoUtc(string $desde, string $hasta): array
+    {
+        return [
+            Carbon::parse($desde, self::TZ_NEGOCIO)->startOfDay()->setTimezone('UTC')->toDateTimeString(),
+            Carbon::parse($hasta, self::TZ_NEGOCIO)->endOfDay()->setTimezone('UTC')->toDateTimeString(),
+        ];
+    }
+
     private function parseFechas(Request $r): array
     {
         $periodo = $r->query('periodo');
-        $hoy     = Carbon::now()->toDateString();
+        // El "hoy" del negocio, no el del reloj UTC del servidor
+        $hoy     = Carbon::now(self::TZ_NEGOCIO)->toDateString();
 
         switch ($periodo) {
             case 'hoy':
                 $desde = $hoy; $hasta = $hoy; break;
             case 'semana':
-                $desde = Carbon::now()->startOfWeek()->toDateString(); $hasta = $hoy; break;
+                $desde = Carbon::now(self::TZ_NEGOCIO)->startOfWeek()->toDateString(); $hasta = $hoy; break;
             case 'mes_anterior':
-                $desde = Carbon::now()->subMonth()->startOfMonth()->toDateString();
-                $hasta = Carbon::now()->subMonth()->endOfMonth()->toDateString();
+                $desde = Carbon::now(self::TZ_NEGOCIO)->subMonth()->startOfMonth()->toDateString();
+                $hasta = Carbon::now(self::TZ_NEGOCIO)->subMonth()->endOfMonth()->toDateString();
                 break;
             case 'anio':
-                $desde = Carbon::now()->startOfYear()->toDateString(); $hasta = $hoy; break;
+                $desde = Carbon::now(self::TZ_NEGOCIO)->startOfYear()->toDateString(); $hasta = $hoy; break;
             default:
-                $desde = $r->query('desde', Carbon::now()->startOfMonth()->toDateString());
+                $desde = $r->query('desde', Carbon::now(self::TZ_NEGOCIO)->startOfMonth()->toDateString());
                 $hasta = $r->query('hasta', $hoy);
         }
 
@@ -44,7 +64,7 @@ class StatsController extends Controller
 
     private function kpis(string $desde, string $hasta, ?string $tiendaId, ?int $vendedorId): array
     {
-        $rango = [$desde . ' 00:00:00', $hasta . ' 23:59:59'];
+        $rango = $this->rangoUtc($desde, $hasta);
 
         // Ingresos reales cobrados en el período
         $ingresosQ = DB::table('pagos as p')
@@ -71,24 +91,44 @@ class StatsController extends Controller
         ')->first();
 
         $entregadas = (int) ($ord->entregadas ?? 0);
+        $ordenesTotales = (int) ($ord->total ?? 0);
 
-        // Cartera pendiente (órdenes activas con saldo > 0, sin filtro de fecha)
+        // Lo vendido en el período: el valor de las órdenes hechas dentro de él.
+        //
+        // Antes se calculaba como "ingresos + cartera", pero la cartera no
+        // llevaba filtro de fecha: era toda la deuda histórica. Al mes de 4 días
+        // eso daba $56.543.534 cuando lo vendido eran $18.340.000 — tres veces
+        // más, porque venía arrastrando lo que se debía de meses anteriores.
+        $vendidoQ = DB::table('ordenes')
+            ->whereBetween('created_at', $rango)
+            ->whereNotIn('estado', Orden::ESTADOS_NO_COMERCIALES);
+        if ($tiendaId)   $vendidoQ->where('tienda_id',   $tiendaId);
+        if ($vendedorId) $vendidoQ->where('vendedor_id', $vendedorId);
+        $totalVendido = (float) $vendidoQ->sum('valor_total');
+
+        // Cartera pendiente: saldo vivo de hoy, sin filtro de fecha a propósito
+        // (es un saldo, no un movimiento del período). Incluye las entregadas
+        // que todavía deben: el mueble ya salió pero la plata sigue debiéndose,
+        // y dejarlas fuera escondía deuda real del reporte.
         $carteraQ = DB::table('v_saldo_ordenes as v')
             ->join('ordenes as o', 'o.id', '=', 'v.orden_id')
             ->where('v.saldo_pendiente', '>', 0)
-            ->whereNotIn('o.estado', array_merge(['entregado', 'cancelado'], Orden::ESTADOS_NO_COMERCIALES));
+            ->whereNotIn('o.estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES));
         if ($tiendaId)   $carteraQ->where('o.tienda_id',   $tiendaId);
         if ($vendedorId) $carteraQ->where('o.vendedor_id', $vendedorId);
         $cartera = (float) $carteraQ->sum('v.saldo_pendiente');
 
         return [
             'ingresos_totales'   => $ingresos,
-            'total_vendido'      => $ingresos + $cartera,
-            'ordenes_totales'    => (int) ($ord->total      ?? 0),
+            'total_vendido'      => $totalVendido,
+            'ordenes_totales'    => $ordenesTotales,
             'ordenes_entregadas' => $entregadas,
             'ordenes_pendientes' => (int) ($ord->pendientes ?? 0),
             'ordenes_canceladas' => (int) ($ord->canceladas ?? 0),
-            'ticket_promedio'    => $entregadas > 0 ? round($ingresos / $entregadas) : 0,
+            // Cuánto vale una venta en promedio. Antes era ingresos/entregadas,
+            // que daba $0 mientras no hubiera entregas en el período aunque se
+            // hubiera vendido de sobra.
+            'ticket_promedio'    => $ordenesTotales > 0 ? round($totalVendido / $ordenesTotales) : 0,
             'cartera_pendiente'  => $cartera,
         ];
     }
@@ -132,17 +172,22 @@ class StatsController extends Controller
 
         $desde = $f['desde'];
         $hasta = $f['hasta'];
-        $rango = [$desde . ' 00:00:00', $hasta . ' 23:59:59'];
+        $rango = $this->rangoUtc($desde, $hasta);
 
         // Formato MySQL y Carbon según agrupación
         $fmtMysql  = $agrupado === 'mes' ? '%Y-%m' : '%Y-%m-%d';
         $fmtCarbon = $agrupado === 'mes' ? 'Y-m'   : 'Y-m-d';
 
+        // Al agrupar hay que pasar la marca de tiempo a hora de Colombia, o una
+        // venta de las 8 de la noche aparece en la barra del día siguiente.
+        // Colombia no tiene horario de verano, así que el -5 fijo es exacto.
+        $aHoraLocal = "CONVERT_TZ(%s, '+00:00', '-05:00')";
+
         // Dinero cobrado por período
         $cobradoQ = DB::table('pagos as p')
             ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
             ->whereBetween('p.created_at', $rango)
-            ->selectRaw("DATE_FORMAT(p.created_at, '{$fmtMysql}') AS periodo, SUM(p.monto) AS total")
+            ->selectRaw("DATE_FORMAT(" . sprintf($aHoraLocal, 'p.created_at') . ", '{$fmtMysql}') AS periodo, SUM(p.monto) AS total")
             ->groupBy('periodo')->orderBy('periodo');
         if ($tiendaId)   $cobradoQ->where('o.tienda_id',   $tiendaId);
         if ($vendedorId) $cobradoQ->where('o.vendedor_id', $vendedorId);
@@ -151,7 +196,7 @@ class StatsController extends Controller
         $ordenesQ = DB::table('ordenes')
             ->whereBetween('created_at', $rango)
             ->whereNotIn('estado', Orden::ESTADOS_NO_COMERCIALES)
-            ->selectRaw("DATE_FORMAT(created_at, '{$fmtMysql}') AS periodo, SUM(valor_total) AS total")
+            ->selectRaw("DATE_FORMAT(" . sprintf($aHoraLocal, 'created_at') . ", '{$fmtMysql}') AS periodo, SUM(valor_total) AS total")
             ->groupBy('periodo')->orderBy('periodo');
         if ($tiendaId)   $ordenesQ->where('tienda_id',   $tiendaId);
         if ($vendedorId) $ordenesQ->where('vendedor_id', $vendedorId);
@@ -191,7 +236,7 @@ class StatsController extends Controller
         $q = DB::table('orden_items as oi')
             ->join('ordenes as o', 'o.id', '=', 'oi.orden_id')
             ->join('productos as p', 'p.id', '=', 'oi.producto_id')
-            ->whereBetween('o.created_at', [$f['desde'] . ' 00:00:00', $f['hasta'] . ' 23:59:59'])
+            ->whereBetween('o.created_at', $this->rangoUtc($f['desde'], $f['hasta']))
             ->whereNotIn('o.estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES))
             ->selectRaw("
                 COALESCE(p.categoria, 'Sin categoría')     AS categoria,
@@ -224,7 +269,7 @@ class StatsController extends Controller
         $q = DB::table('orden_items as oi')
             ->join('ordenes as o', 'o.id', '=', 'oi.orden_id')
             ->join('productos as p', 'p.id', '=', 'oi.producto_id')
-            ->whereBetween('o.created_at', [$f['desde'] . ' 00:00:00', $f['hasta'] . ' 23:59:59'])
+            ->whereBetween('o.created_at', $this->rangoUtc($f['desde'], $f['hasta']))
             ->whereNotIn('o.estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES))
             ->selectRaw('
                 p.id       AS producto_id,
@@ -262,7 +307,10 @@ class StatsController extends Controller
             ->join('usuarios as u', 'u.id',  '=', 'o.vendedor_id')
             ->join('tiendas as t',  't.id',  '=', 'o.tienda_id')
             ->where('v.saldo_pendiente', '>', 0)
-            ->whereNotIn('o.estado', array_merge(['entregado', 'cancelado'], Orden::ESTADOS_NO_COMERCIALES))
+            // Se incluyen las entregadas que todavía deben: el mueble ya salió
+            // pero la plata sigue debiéndose, y dejarlas fuera escondía deuda
+            // real. La cartera es lo que falta por cobrar, entregado o no.
+            ->whereNotIn('o.estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES))
             ->selectRaw('
                 o.id                                            AS orden_id,
                 o.estado,
@@ -308,18 +356,18 @@ class StatsController extends Controller
     {
         $f     = $this->parseFechas($request);
         $desde = $f['desde']; $hasta = $f['hasta'];
-        $rango = [$desde . ' 00:00:00', $hasta . ' 23:59:59'];
+        $rango = $this->rangoUtc($desde, $hasta);
 
         // La sede de los independientes no es una tienda: sus ventas van en la
         // fila de cada vendedor, no en una sede.
         $tiendas = DB::table('tiendas')->where('activa', true)
             ->where('es_independientes', false)->get();
 
-        $mesActual = Carbon::now()->format('Y-m');
+        $mesActual = Carbon::now(self::TZ_NEGOCIO)->format('Y-m');
         $porSuCuenta = $this->idsPorSuCuenta();
 
         $resultado = $tiendas->map(function ($t) use ($rango, $desde, $hasta, $mesActual, $porSuCuenta) {
-            $rangoCreacion = [$desde . ' 00:00:00', $hasta . ' 23:59:59'];
+            $rangoCreacion = $this->rangoUtc($desde, $hasta);
 
             // Ingresos: el dinero se le acredita a la tienda que lo recibió, que
             // puede no ser la de la orden (el cliente abona en otra sede).
@@ -438,7 +486,7 @@ class StatsController extends Controller
      */
     private function filasPorSuCuenta(array $rango, string $desde, string $hasta): \Illuminate\Support\Collection
     {
-        $rangoCreacion = [$desde . ' 00:00:00', $hasta . ' 23:59:59'];
+        $rangoCreacion = $this->rangoUtc($desde, $hasta);
 
         return DB::table('usuarios')
             ->where('activo', true)
@@ -494,7 +542,7 @@ class StatsController extends Controller
     {
         $f        = $this->parseFechas($request);
         $tiendaId = $request->query('tienda_id');
-        $rango    = [$f['desde'] . ' 00:00:00', $f['hasta'] . ' 23:59:59'];
+        $rango    = $this->rangoUtc($f['desde'], $f['hasta']);
 
         $vendedores = DB::table('usuarios as u')
             ->leftJoin('tiendas as t', 't.id', '=', 'u.tienda_default_id')
@@ -529,7 +577,24 @@ class StatsController extends Controller
                 ->selectRaw('COUNT(*) AS total, SUM(estado="entregado") AS entregadas, SUM(estado="cancelado") AS canceladas')
                 ->first();
 
-            $entregadas = (int) ($ord->entregadas ?? 0);
+            $entregadas     = (int) ($ord->entregadas ?? 0);
+            $ordenesTotales = (int) ($ord->total ?? 0);
+
+            // Lo vendido en el período. Igual que en el panel: antes era
+            // "ingresos + cartera" con la cartera sin filtro de fecha, así que
+            // a cada vendedor se le sumaba toda la deuda que arrastraba de
+            // meses anteriores y sus ventas del mes salían infladas.
+            $totalVendido = (float) DB::table('ordenes')
+                ->where(function ($q) use ($v) {
+                    $q->where('vendedor_id', $v->id)
+                      ->orWhere(function ($q2) use ($v) {
+                          $q2->where('covendedor_id', $v->id)->where('es_compartida', true);
+                      });
+                })
+                ->whereBetween('created_at', $rango)
+                ->whereNotIn('estado', Orden::ESTADOS_NO_COMERCIALES)
+                ->selectRaw('SUM(CASE WHEN es_compartida = 1 THEN valor_total / 2 ELSE valor_total END) as total')
+                ->value('total') ?? 0;
 
             $cartera = (float) DB::table('v_saldo_ordenes as vs')
                 ->join('ordenes as o', 'o.id', '=', 'vs.orden_id')
@@ -540,7 +605,7 @@ class StatsController extends Controller
                       });
                 })
                 ->where('vs.saldo_pendiente', '>', 0)
-                ->whereNotIn('o.estado', array_merge(['entregado', 'cancelado'], Orden::ESTADOS_NO_COMERCIALES))
+                ->whereNotIn('o.estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES))
                 ->selectRaw('SUM(CASE WHEN o.es_compartida = 1 THEN vs.saldo_pendiente / 2 ELSE vs.saldo_pendiente END) as total')
                 ->value('total') ?? 0;
 
@@ -551,11 +616,11 @@ class StatsController extends Controller
                 'tienda'             => $v->tienda,
                 'tienda_id'          => $v->tienda_id,
                 'ingresos'           => $ingresos,
-                'total_vendido'      => $ingresos + $cartera,
-                'ordenes_totales'    => (int) ($ord->total     ?? 0),
+                'total_vendido'      => $totalVendido,
+                'ordenes_totales'    => $ordenesTotales,
                 'ordenes_entregadas' => $entregadas,
                 'ordenes_canceladas' => (int) ($ord->canceladas ?? 0),
-                'ticket_promedio'    => $entregadas > 0 ? round($ingresos / $entregadas) : 0,
+                'ticket_promedio'    => $ordenesTotales > 0 ? round($totalVendido / $ordenesTotales) : 0,
                 'cartera_pendiente'  => $cartera,
             ];
         })->sortByDesc('ingresos')->values();
@@ -584,7 +649,7 @@ class StatsController extends Controller
 
         // Si supervisor, añadir comparativa vs promedio del equipo
         if ($user->rol === 'supervisor') {
-            $rango       = [$f['desde'] . ' 00:00:00', $f['hasta'] . ' 23:59:59'];
+            $rango       = $this->rangoUtc($f['desde'], $f['hasta']);
             $totalEquipo = (float) DB::table('pagos as p')
                 ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
                 ->whereBetween('p.created_at', $rango)->sum('p.monto');
@@ -608,7 +673,7 @@ class StatsController extends Controller
     public function conductores(Request $request)
     {
         $f     = $this->parseFechas($request);
-        $rango = [$f['desde'] . ' 00:00:00', $f['hasta'] . ' 23:59:59'];
+        $rango = $this->rangoUtc($f['desde'], $f['hasta']);
 
         $conductores = DB::table('usuarios')
             ->where('rol', 'conductor')->where('activo', true)
@@ -656,7 +721,7 @@ class StatsController extends Controller
     {
         $f         = $this->parseFechas($request);
         $conductor = $request->user();
-        $rango     = [$f['desde'] . ' 00:00:00', $f['hasta'] . ' 23:59:59'];
+        $rango     = $this->rangoUtc($f['desde'], $f['hasta']);
 
         $entregas = DB::table('despacho_items as di')
             ->join('despachos as d', 'd.id', '=', 'di.despacho_id')
@@ -725,7 +790,7 @@ class StatsController extends Controller
 
     private function perfilPor(string $columna, int $valor, string $desde, string $hasta): array
     {
-        $rango      = [$desde . ' 00:00:00', $hasta . ' 23:59:59'];
+        $rango      = $this->rangoUtc($desde, $hasta);
         $esVendedor = $columna === 'vendedor_id';
 
         // Closure reutilizable: filtra órdenes del vendedor (principal + co-vendedor)
@@ -860,7 +925,7 @@ class StatsController extends Controller
         $data['periodo']  = ['desde' => $desde, 'hasta' => $hasta];
 
         // Meta mensual de la tienda del vendedor (siempre mes actual, independiente del período)
-        $mesActual  = Carbon::now()->format('Y-m');
+        $mesActual  = Carbon::now(self::TZ_NEGOCIO)->format('Y-m');
         $metaReg    = $vendedor->tienda_id
             ? DB::table('metas_tienda')
                 ->where('tienda_id', $vendedor->tienda_id)
