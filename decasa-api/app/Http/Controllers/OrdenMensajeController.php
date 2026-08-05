@@ -34,6 +34,32 @@ class OrdenMensajeController extends Controller
             || $u->id === $orden->covendedor_id;
     }
 
+    /**
+     * A quién se le puede preguntar en esta orden.
+     *
+     * Los supervisores, más el vendedor que la hizo (y su covendedor): la
+     * conversación también la puede arrancar un supervisor, y a quien le tiene
+     * que preguntar es justamente a quien hizo la venta. Se excluye uno mismo,
+     * que mencionarse para notificarse solo no tiene sentido.
+     */
+    private function destinatarios(Usuario $usuario, Orden $orden)
+    {
+        $idsOrden = array_filter([$orden->vendedor_id, $orden->covendedor_id]);
+
+        return Usuario::where('activo', true)
+            ->where('id', '!=', $usuario->id)
+            ->where(fn ($q) => $q->where('rol', 'supervisor')->orWhereIn('id', $idsOrden ?: [0]))
+            ->orderBy('nombre')
+            ->get(['id', 'nombre', 'rol'])
+            ->map(fn ($u) => [
+                'id'     => $u->id,
+                'nombre' => $u->nombre,
+                // Para que el supervisor distinga de un vistazo a quién le
+                // está preguntando entre siete nombres iguales
+                'es_de_la_orden' => in_array($u->id, $idsOrden, true),
+            ]);
+    }
+
     /** GET /api/ordenes/{id}/mensajes */
     public function index(Request $request, int $id)
     {
@@ -54,13 +80,7 @@ class OrdenMensajeController extends Controller
             'mensajes' => $mensajes,
             'abierto'  => ! in_array($orden->estado, self::ESTADOS_CERRADOS, true),
             'estado'   => $orden->estado,
-            // A quién se le puede preguntar. Se excluye uno mismo: no tiene
-            // sentido mencionarse para que le llegue su propia notificación.
-            'destinatarios' => Usuario::where('rol', 'supervisor')
-                ->where('activo', true)
-                ->where('id', '!=', $usuario->id)
-                ->orderBy('nombre')
-                ->get(['id', 'nombre']),
+            'destinatarios' => $this->destinatarios($usuario, $orden),
         ]);
     }
 
@@ -80,8 +100,11 @@ class OrdenMensajeController extends Controller
             ], 422);
         }
 
+        // Se puede mandar solo una foto, sin escribir nada: a veces la duda se
+        // resuelve mostrando y no hay más que decir.
         $data = $request->validate([
-            'mensaje'         => 'required|string|max:2000',
+            'mensaje'         => 'required_without:imagen_url|nullable|string|max:2000',
+            'imagen_url'      => 'nullable|string|max:500',
             'mencionados'     => 'nullable|array|max:5',
             'mencionados.*'   => 'integer|exists:usuarios,id',
         ]);
@@ -94,7 +117,8 @@ class OrdenMensajeController extends Controller
         $msg = OrdenMensaje::create([
             'orden_id'    => $id,
             'usuario_id'  => $usuario->id,
-            'mensaje'     => trim($data['mensaje']),
+            'mensaje'     => trim($data['mensaje'] ?? ''),
+            'imagen_url'  => $data['imagen_url'] ?? null,
             'mencionados' => $mencionados ?: null,
         ]);
 
@@ -113,7 +137,9 @@ class OrdenMensajeController extends Controller
             NotificacionService::crear(
                 'orden_mensaje',
                 "Te preguntaron en la orden {$ref}",
-                "{$usuario->nombre}: " . \Illuminate\Support\Str::limit($msg->mensaje, 120),
+                "{$usuario->nombre}: " . ($msg->mensaje !== ''
+                    ? \Illuminate\Support\Str::limit($msg->mensaje, 120)
+                    : 'te mandó una foto'),
                 ['orden_id' => $id],
                 (int) $uid,
             );
@@ -127,6 +153,7 @@ class OrdenMensajeController extends Controller
         return [
             'id'          => $m->id,
             'mensaje'     => $m->mensaje,
+            'imagen_url'  => $m->imagen_url,
             'mencionados' => $m->mencionados ?? [],
             'created_at'  => $m->created_at,
             'usuario'     => [

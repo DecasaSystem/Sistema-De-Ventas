@@ -4,8 +4,11 @@ import api from '@/api'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
 import IconoS from '@/components/common/IconoS.vue'
+import { comprimirImagen } from '@/utils/comprimirImagen'
+import { cloudinaryOpt } from '@/utils/cloudinary'
 import {
   ChatBubbleLeftRightIcon, PaperAirplaneIcon, AtSymbolIcon, LockClosedIcon,
+  PhotoIcon, XMarkIcon,
 } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -26,7 +29,44 @@ const mencionados   = ref([])          // ids de a quién se le pregunta
 const mostrarMenciones = ref(false)
 const hilo          = ref(null)
 
+// Foto adjunta: se sube al elegirla y se manda con el mensaje
+const imagenUrl     = ref('')
+const imagenPreview = ref('')
+const subiendo      = ref(false)
+
 const puedeEscribir = computed(() => abierto.value && !enviando.value)
+const hayAlgoQueEnviar = computed(() => !!texto.value.trim() || !!imagenUrl.value)
+
+async function onFoto(e) {
+  const file = (e.target.files || [])[0]
+  if (!file) return
+  subiendo.value = true
+  imagenPreview.value = URL.createObjectURL(file)
+  try {
+    const token = localStorage.getItem('token')
+    const fd = new FormData()
+    fd.append('foto', await comprimirImagen(file), 'chat.jpg')
+    fd.append('folder', 'chat-ordenes')
+    const res  = await fetch('/api/upload/foto', {
+      method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
+    })
+    const data = await res.json()
+    if (!data.url) throw new Error()
+    imagenUrl.value = data.url
+  } catch {
+    toast.error('No se pudo subir la foto.')
+    quitarFoto()
+  } finally {
+    subiendo.value = false
+    e.target.value = ''
+  }
+}
+
+function quitarFoto() {
+  if (imagenPreview.value) URL.revokeObjectURL(imagenPreview.value)
+  imagenUrl.value = ''
+  imagenPreview.value = ''
+}
 
 /** Los mensajes en los que a mí me preguntaron: van resaltados. */
 function meMencionaron(m) {
@@ -73,16 +113,18 @@ async function cargar() {
 
 async function enviar() {
   const t = texto.value.trim()
-  if (!t || enviando.value) return
+  if ((!t && !imagenUrl.value) || enviando.value || subiendo.value) return
   enviando.value = true
   try {
     const { data } = await api.post(`/ordenes/${props.ordenId}/mensajes`, {
-      mensaje: t,
+      mensaje: t || undefined,
+      imagen_url: imagenUrl.value || undefined,
       mencionados: mencionados.value.length ? mencionados.value : undefined,
     })
     // Se agrega de una: el eco del WebSocket puede tardar y se siente lento
     if (!mensajes.value.some(m => m.id === data.id)) mensajes.value.push(data)
     texto.value = ''
+    quitarFoto()
     mencionados.value = []
     mostrarMenciones.value = false
     await alFinal()
@@ -191,7 +233,22 @@ function iniciales(nombre) {
               <AtSymbolIcon class="w-3 h-3" />
               {{ nombresMencionados(m).join(', ') }}
             </p>
-            {{ m.mensaje }}
+
+            <a
+              v-if="m.imagen_url"
+              :href="m.imagen_url"
+              target="_blank"
+              rel="noopener"
+              class="block mb-1"
+            >
+              <img
+                :src="cloudinaryOpt(m.imagen_url, 500)"
+                class="rounded-lg max-h-52 w-auto object-cover border"
+                :class="esMio(m) ? 'border-blue-400' : 'border-gray-200'"
+              />
+            </a>
+
+            <p v-if="m.mensaje" class="whitespace-pre-line">{{ m.mensaje }}</p>
           </div>
         </div>
       </div>
@@ -210,8 +267,13 @@ function iniciales(nombre) {
             :class="['text-xs px-2.5 py-1 rounded-full border transition-colors',
               mencionados.includes(d.id)
                 ? 'bg-amber-500 text-white border-amber-500'
-                : 'bg-white text-gray-600 border-gray-300 hover:border-amber-400']"
-          >{{ d.nombre }}</button>
+                : d.es_de_la_orden
+                  ? 'bg-white text-blue-700 border-blue-300 hover:border-amber-400 font-medium'
+                  : 'bg-white text-gray-600 border-gray-300 hover:border-amber-400']"
+          >
+            {{ d.nombre }}
+            <span v-if="d.es_de_la_orden" class="opacity-70">· hizo la venta</span>
+          </button>
         </div>
 
         <p v-if="mencionados.length" class="text-[11px] text-amber-700">
@@ -220,7 +282,30 @@ function iniciales(nombre) {
           Los demás lo ven igual y pueden responder.
         </p>
 
+        <!-- Foto adjunta antes de mandarla -->
+        <div v-if="imagenPreview" class="relative inline-block">
+          <img :src="imagenPreview" class="h-20 rounded-lg border border-gray-200 object-cover" />
+          <button
+            type="button"
+            @click="quitarFoto"
+            class="absolute -top-1.5 -right-1.5 bg-white rounded-full shadow p-0.5 text-red-500 hover:text-red-700"
+          >
+            <XMarkIcon class="w-3.5 h-3.5" />
+          </button>
+          <div v-if="subiendo" class="absolute inset-0 bg-white/70 rounded-lg flex items-center justify-center">
+            <IconoS class="w-5 h-5 text-blue-500" />
+          </div>
+        </div>
+
         <div class="flex items-end gap-2">
+          <label
+            class="h-9 w-9 rounded-lg border border-gray-300 bg-white text-gray-500 flex items-center justify-center flex-shrink-0 cursor-pointer hover:border-blue-400 hover:text-blue-500 transition-colors"
+            title="Mandar una foto"
+          >
+            <PhotoIcon class="w-4 h-4" />
+            <input type="file" accept="image/*" class="hidden" @change="onFoto" />
+          </label>
+
           <button
             type="button"
             @click="mostrarMenciones = !mostrarMenciones"
@@ -244,7 +329,7 @@ function iniciales(nombre) {
           <button
             type="button"
             @click="enviar"
-            :disabled="!texto.trim() || !puedeEscribir"
+            :disabled="!hayAlgoQueEnviar || !puedeEscribir || subiendo"
             class="h-9 w-9 rounded-lg bg-blue-600 text-white flex items-center justify-center flex-shrink-0 hover:bg-blue-700 disabled:opacity-40 transition-colors"
           >
             <IconoS v-if="enviando" class="w-4 h-4" />
