@@ -1756,6 +1756,120 @@ class OrdenController extends Controller
      *   → entregado : descuenta cantidad_disponible y libera cantidad_reservada
      *   → cancelado : solo libera cantidad_reservada
      */
+    /**
+     * PATCH /api/ordenes/{id}/revertir-entrega
+     *
+     * Deshace una entrega marcada por error y devuelve el producto al
+     * inventario. Es la salida para cuando el vendedor puso "se lo lleva" sin
+     * que el cliente se lo llevara, o el supervisor la cerró equivocado.
+     *
+     * No sirve para las que entregó un conductor: esas tienen acta firmada,
+     * fotos y quién recibió. Deshacer eso a mano dejaría el acta contradiciendo
+     * al sistema, así que se manda a Despacho.
+     */
+    public function revertirEntrega(Request $request, int $id)
+    {
+        $usuario = $request->user();
+
+        if ($usuario->rol !== 'supervisor') {
+            return response()->json(['message' => 'Solo el supervisor puede revertir una entrega.'], 403);
+        }
+
+        $orden = Orden::with('items')->findOrFail($id);
+
+        if ($orden->estado !== 'entregado') {
+            return response()->json([
+                'message' => 'Esta orden no está marcada como entregada.',
+            ], 422);
+        }
+
+        $porConductor = DB::table('despacho_items')->where('orden_id', $id)->exists();
+        if ($porConductor) {
+            return response()->json([
+                'message' => 'Esta entrega la hizo un conductor y tiene acta firmada. Se corrige desde el módulo de Despacho.',
+            ], 422);
+        }
+
+        $data = $request->validate([
+            'motivo' => 'required|string|min:3|max:300',
+        ]);
+
+        DB::transaction(function () use ($orden, $usuario, $data) {
+            // El producto vuelve al inventario, y queda reservado para esta
+            // orden: sigue viva y comprometida, no disponible para vender otra vez.
+            foreach ($orden->items->where('es_personalizado', false) as $item) {
+                if (! $item->producto_id) continue;
+                $origenId = $item->tienda_origen_id ?? $orden->tienda_id;
+                $cant     = (int) $item->cantidad;
+
+                if ($item->variante_id) {
+                    InventarioVariante::where('variante_id', $item->variante_id)
+                        ->where('tienda_id', $origenId)
+                        ->update([
+                            'cantidad_disponible' => DB::raw("cantidad_disponible + {$cant}"),
+                            'cantidad_reservada'  => DB::raw("cantidad_reservada + {$cant}"),
+                        ]);
+                    if ($item->combo_config_id) {
+                        InventarioVarianteCombinacion::where('variante_id', $item->variante_id)
+                            ->where('config_id', $item->combo_config_id)
+                            ->where('tienda_id', $origenId)
+                            ->update([
+                                'cantidad_disponible' => DB::raw("cantidad_disponible + {$cant}"),
+                                'cantidad_reservada'  => DB::raw("cantidad_reservada + {$cant}"),
+                            ]);
+                    }
+                }
+
+                Inventario::where('producto_id', $item->producto_id)
+                    ->where('tienda_id', $origenId)
+                    ->update([
+                        'cantidad_disponible' => DB::raw("cantidad_disponible + {$cant}"),
+                        'cantidad_reservada'  => DB::raw("cantidad_reservada + {$cant}"),
+                    ]);
+
+                InventarioMovimiento::create([
+                    'producto_id' => $item->producto_id,
+                    'tienda_id'   => $origenId,
+                    'tipo'        => 'entrada',
+                    'cantidad'    => $cant,
+                    'motivo'      => "Entrega revertida orden #{$orden->id}: {$data['motivo']}",
+                    'usuario_id'  => $usuario->id,
+                ]);
+
+                event(new InventarioActualizado((int) $origenId, (int) $item->producto_id, 'entrada'));
+            }
+
+            $orden->update([
+                'estado'           => 'pendiente_anticipo',
+                'listo_entrega_at' => null,
+            ]);
+
+            \App\Models\OrdenEdicion::create([
+                'orden_id'   => $orden->id,
+                'usuario_id' => $usuario->id,
+                'cambios'    => [[
+                    'campo'   => 'estado',
+                    'label'   => 'Entrega revertida',
+                    'antes'   => 'entregado',
+                    'despues' => 'pendiente_anticipo — ' . $data['motivo'],
+                ]],
+            ]);
+        });
+
+        // Que el vendedor se entere: su orden volvió a estar viva
+        if ($orden->vendedor_id && $orden->vendedor_id !== $usuario->id) {
+            NotificacionService::crear(
+                'orden_editada',
+                'Se revirtió una entrega',
+                "{$usuario->nombre} devolvió la orden {$orden->referencia} a \"en espera\". Motivo: {$data['motivo']}",
+                ['orden_id' => $orden->id],
+                $orden->vendedor_id,
+            );
+        }
+
+        return response()->json($orden->fresh());
+    }
+
     public function updateEstado(Request $request, int $id)
     {
         $usuario = $request->user();

@@ -5,7 +5,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
-import { getOrden, updateEstado, descargarPdfOrden, descargarActaEntrega, reenviarCotizacion, asignarFechasEntrega, confirmarCotizacion, editarPago, completarBorrador as completarBorradorApi, eliminarBorrador as eliminarBorradorApi } from '@/api/ordenes'
+import { getOrden, updateEstado, revertirEntrega, descargarPdfOrden, descargarActaEntrega, reenviarCotizacion, asignarFechasEntrega, confirmarCotizacion, editarPago, completarBorrador as completarBorradorApi, eliminarBorrador as eliminarBorradorApi } from '@/api/ordenes'
 import { updateCliente } from '@/api/clientes'
 import { despachoPorOrden } from '@/api/despacho'
 import { tomarFacturacion, marcarFacturada } from '@/api/pagos'
@@ -556,6 +556,32 @@ async function cargarDespachoEntrega(ordenId) {
     despachoEntrega.value = null
   } finally {
     cargandoDespacho.value = false
+  }
+}
+
+// ── Revertir una entrega marcada por error ──────────────────────────────────
+// Devuelve el producto al inventario. No aplica a las que entregó un conductor:
+// esas tienen acta firmada y se corrigen desde Despacho.
+const revirtiendo   = ref(false)
+const motivoRevertir = ref('')
+const showRevertir  = ref(false)
+
+async function doRevertirEntrega() {
+  if (motivoRevertir.value.trim().length < 3) {
+    toast.error('Escribe por qué se revierte.')
+    return
+  }
+  revirtiendo.value = true
+  try {
+    await revertirEntrega(orden.value.id, motivoRevertir.value.trim())
+    showRevertir.value = false
+    motivoRevertir.value = ''
+    await cargarOrden()
+    toast.success('Entrega revertida. El producto volvió al inventario.')
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudo revertir la entrega.')
+  } finally {
+    revirtiendo.value = false
   }
 }
 
@@ -2146,6 +2172,43 @@ onMounted(cargarOrden)
           <div>
             <p class="text-sm font-semibold text-purple-800">Estado gestionado desde Producción</p>
             <p class="text-xs text-purple-600 mt-0.5">Esta orden tiene ítems personalizados. El estado se actualiza automáticamente al cambiar el avance en el módulo de Producción.</p>
+          </div>
+        </div>
+
+        <!-- Deshacer una entrega marcada por error -->
+        <div v-if="auth.isSupervisor && orden.estado === 'entregado'" class="space-y-2">
+          <button
+            v-if="!showRevertir"
+            @click="showRevertir = true"
+            class="text-xs text-gray-500 hover:text-red-600 hover:underline transition-colors"
+          >¿Se marcó entregada por error? Revertir</button>
+
+          <div v-else class="bg-red-50 border border-red-200 rounded-xl p-3 space-y-2">
+            <p class="text-xs text-red-800 font-semibold">Revertir la entrega</p>
+            <p class="text-[11px] text-red-700 leading-snug">
+              El producto vuelve al inventario, reservado para esta orden, y la orden
+              regresa a «en espera». Queda registrado con tu nombre.
+            </p>
+            <input
+              v-model="motivoRevertir"
+              type="text"
+              placeholder="¿Por qué se revierte?"
+              class="w-full rounded-lg border border-red-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+            />
+            <div class="flex gap-2">
+              <button
+                @click="showRevertir = false; motivoRevertir = ''"
+                class="flex-1 py-2 rounded-lg border border-gray-300 text-xs font-semibold text-gray-600"
+              >Cancelar</button>
+              <button
+                @click="doRevertirEntrega"
+                :disabled="revirtiendo || motivoRevertir.trim().length < 3"
+                class="flex-1 py-2 rounded-lg bg-red-600 text-white text-xs font-semibold hover:bg-red-700 disabled:opacity-40 flex items-center justify-center gap-1.5"
+              >
+                <IconoS v-if="revirtiendo" class="w-3.5 h-3.5" />
+                Revertir entrega
+              </button>
+            </div>
           </div>
         </div>
 

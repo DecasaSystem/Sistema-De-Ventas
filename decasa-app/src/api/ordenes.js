@@ -26,3 +26,8 @@ export const getTiendas = () => api.get('/tiendas')
 // cada quien arma el suyo y no ve el de los demás.
 export const fijarOrden  = (id) => api.post(`/ordenes/${id}/fijar`)
 export const quitarFijada = (id) => api.delete(`/ordenes/${id}/fijar`)
+
+// Deshace una entrega marcada por error y devuelve el producto al inventario.
+// Solo supervisor, y no aplica a las que entregó un conductor (tienen acta).
+export const revertirEntrega = (id, motivo) =>
+  api.patch(`/ordenes/${id}/revertir-entrega`, { motivo })
