@@ -17,6 +17,7 @@ use App\Models\Usuario;
 use App\Services\DescuentoCondicionadoService;
 use App\Services\NotificacionService;
 use App\Support\ConvierteImagenesPdf;
+use App\Support\StockVariantes;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -949,6 +950,11 @@ class DespachoController extends Controller
                             'cantidad_reservada'  => DB::raw("cantidad_reservada - {$ordenItem->cantidad}"),
                         ]);
                 }
+                // Bajó el stock base: el reparto por tela/medida tiene que
+                // seguir cabiendo dentro de lo que quedó.
+                StockVariantes::cuadrar(
+                    (int) $ordenItem->producto_id, (int) $origenId, "Entrega orden #{$orden->id}"
+                );
                 InventarioMovimiento::create([
                     'producto_id' => $ordenItem->producto_id,
                     'tienda_id'   => $origenId,

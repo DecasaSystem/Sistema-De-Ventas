@@ -8,6 +8,7 @@ use App\Models\InventarioMovimiento;
 use App\Models\Traslado;
 use App\Models\TrasladoItem;
 use App\Services\NotificacionService;
+use App\Support\StockVariantes;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -159,6 +160,13 @@ class TrasladoController extends Controller
                         );
                         $invDest->increment('cantidad_disponible', $item['cantidad']);
 
+                        // Salio stock de la tienda origen: el reparto por
+                        // tela/medida de alla tiene que seguir cabiendo.
+                        StockVariantes::cuadrar(
+                            (int) $item['producto_id'], (int) $data['tienda_origen_id'],
+                            'Traslado a otra tienda'
+                        );
+
                         InventarioMovimiento::create([
                             'producto_id' => $item['producto_id'],
                             'tienda_id'   => $data['tienda_origen_id'],
@@ -302,6 +310,12 @@ class TrasladoController extends Controller
                         ['cantidad_disponible' => 0, 'cantidad_reservada' => 0, 'stock_minimo' => 1]
                     );
                     $invDest->increment('cantidad_disponible', $cantAceptada);
+
+                    // Salio stock de la tienda origen: ver arriba.
+                    StockVariantes::cuadrar(
+                        (int) $item->producto_id, (int) $traslado->tienda_origen_id,
+                        "Traslado aceptado #{$traslado->id}"
+                    );
 
                     InventarioMovimiento::create([
                         'producto_id' => $item->producto_id,

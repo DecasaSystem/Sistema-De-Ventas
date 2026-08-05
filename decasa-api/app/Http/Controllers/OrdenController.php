@@ -20,6 +20,7 @@ use App\Models\Producto;
 use App\Models\ProductoVariante;
 use App\Models\Tienda;
 use App\Support\ConvierteImagenesPdf;
+use App\Support\StockVariantes;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -468,6 +469,15 @@ class OrdenController extends Controller
                             ->where('tienda_id', $origenTiendaId)
                             ->decrement('cantidad_disponible', $itemData['cantidad']);
                     }
+
+                    // Bajó el stock base: el reparto por tela/medida tiene que
+                    // seguir cabiendo dentro de lo que quedó. Sin esto, vender
+                    // sin elegir variante dejaba unidades marcadas de un color
+                    // que ya no existe en la tienda.
+                    StockVariantes::cuadrar(
+                        (int) $itemData['producto_id'], (int) $origenTiendaId,
+                        "Venta directa orden #{$orden->id}"
+                    );
 
                     InventarioMovimiento::create([
                         'producto_id' => $itemData['producto_id'],
@@ -1966,6 +1976,10 @@ class OrdenController extends Controller
                                 'cantidad_reservada'  => DB::raw("cantidad_reservada - {$item->cantidad}"),
                             ]);
                     }
+                    // Bajó el stock base: el reparto tiene que seguir cabiendo.
+                    StockVariantes::cuadrar(
+                        (int) $item->producto_id, (int) $origenId, "Entrega orden #{$orden->id}"
+                    );
                     InventarioMovimiento::create([
                         'producto_id' => $item->producto_id,
                         'tienda_id'   => $origenId,
