@@ -128,6 +128,12 @@
                         <td style="padding: 4px 5px; text-align: center; color: #6b7280; font-size: 9px;">{{ $idx + 1 }}</td>
                         <td style="padding: 4px 5px;">
                             {{ $item->producto->nombre ?? $item->nombre_custom ?? 'Producto personalizado' }}
+                            {{-- La variante va en rojo y pegada al nombre: el nombre solo
+                                 no basta para despachar, hay varias telas del mismo mueble
+                                 y sin esto se manda el que no es. --}}
+                            @if($item->variante_texto)
+                                <br><span style="font-size: 9px; font-weight: bold; color: #dc2626;">{{ $item->variante_texto }}</span>
+                            @endif
                             @php
                                 $tipoBadge = match($item->tipo_item) {
                                     'personalizado'   => ['Personalizado',   '#ede9fe', '#7c3aed'],
@@ -260,6 +266,9 @@
                     {{ $item->producto->nombre ?? $item->nombre_custom ?? 'Producto personalizado' }}
                     <span style="color: #7c3aed; font-weight: normal; font-size: 9px;">({{ $tipoTexto }})</span>
                 </p>
+                @if($item->variante_texto)
+                    <p style="font-size: 10px; font-weight: bold; color: #dc2626; margin: 0 0 2px 0;">{{ $item->variante_texto }}</p>
+                @endif
                 @if(!empty(array_filter($specs, fn($v) => $v !== null && $v !== '')))
                     <p style="font-size: 10px; color: #374151; margin: 0 0 2px 0;">
                         @foreach($specs as $key => $val)

@@ -578,6 +578,7 @@ class DespachoController extends Controller
             'orden.cliente:id,nombre,telefono,direccion',
             'orden.tienda:id,nombre',
             'orden.items.producto:id,nombre,foto_url',
+            'orden.items.variante', 'orden.items.comboConfig.tipo', 'orden.items.comboConfig.opcion',
             'orden.pagos:id,orden_id,monto',
         ])->whereHas('despacho', function ($q) use ($usuario) {
             $q->where('conductor_id', $usuario->id)
@@ -611,6 +612,7 @@ class DespachoController extends Controller
             'orden.cliente:id,nombre,telefono,direccion',
             'orden.tienda:id,nombre',
             'orden.items.producto:id,nombre,foto_url',
+            'orden.items.variante', 'orden.items.comboConfig.tipo', 'orden.items.comboConfig.opcion',
         ])->whereHas('despacho', function ($q) use ($usuario) {
             $q->where('conductor_id', $usuario->id);
         })->where('estado', 'entregado')
@@ -632,6 +634,7 @@ class DespachoController extends Controller
             'orden.cliente:id,nombre,telefono,direccion',
             'orden.tienda:id,nombre',
             'orden.items.producto:id,nombre,foto_url',
+            'orden.items.variante', 'orden.items.comboConfig.tipo', 'orden.items.comboConfig.opcion',
             'orden.pagos:id,orden_id,monto,metodo,referencia,created_at',
         ])->findOrFail($despachoItemId);
 
@@ -850,6 +853,7 @@ class DespachoController extends Controller
             'orden.cliente:id,nombre,telefono,cedula',
             'orden.tienda:id,nombre',
             'orden.items.producto:id,nombre',
+            'orden.items.variante', 'orden.items.comboConfig.tipo', 'orden.items.comboConfig.opcion',
         ])
             ->where('orden_id', $ordenId)
             ->whereNotNull('firma_recibido_url')

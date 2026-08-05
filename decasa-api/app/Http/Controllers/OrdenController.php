@@ -547,6 +547,7 @@ class OrdenController extends Controller
             'vendedor:id,nombre',
             'tienda:id,nombre',
             'items.producto:id,nombre,categoria,foto_url',
+            'items.variante', 'items.comboConfig.tipo', 'items.comboConfig.opcion',
             'items.tiendaOrigen:id,nombre',
             'items.produccion',
             'pagos',
@@ -759,6 +760,7 @@ class OrdenController extends Controller
             'tienda:id,nombre',
             'covendedor:id,nombre',
             'items.producto:id,nombre,categoria,precio_base,personalizable,foto_url,medidas,material',
+            'items.variante', 'items.comboConfig.tipo', 'items.comboConfig.opcion',
             'items.tiendaOrigen:id,nombre',
             'items.produccion.pasos.completadoPor:id,nombre',
             'items.produccion.despachador:id,nombre',
@@ -1518,6 +1520,7 @@ class OrdenController extends Controller
             'vendedor:id,nombre',
             'tienda:id,nombre',
             'items.producto:id,nombre,categoria,precio_base,personalizable,foto_url,medidas,material',
+            'items.variante', 'items.comboConfig.tipo', 'items.comboConfig.opcion',
             'items.tiendaOrigen:id,nombre',
             'items.produccion',
             'pagos',
@@ -1597,7 +1600,28 @@ class OrdenController extends Controller
             'especificaciones.*.item_id'      => 'required_with:especificaciones|integer|exists:orden_items,id',
             'especificaciones.*.specs'        => 'nullable|array',
             'especificaciones.*.notas'        => 'nullable|string|max:1000',
+
+            // Se deciden aquí porque es aquí donde surten efecto: unas líneas
+            // más abajo se gasta el consecutivo y nace la comisión. Si el
+            // vendedor no las marcó al guardar el borrador, este es el último
+            // momento para hacerlo — después, el número ya está quemado.
+            'es_fv2'         => 'nullable|boolean',
+            'motivo_serie'   => 'nullable|string|max:300',
+            'es_compartida'  => 'nullable|boolean',
+            'covendedor_id'  => 'nullable|exists:usuarios,id',
         ]);
+
+        // Una venta compartida sin con quién no es compartida.
+        if ($request->boolean('es_compartida') && ! ($data['covendedor_id'] ?? null)) {
+            return response()->json([
+                'message' => 'Elige con quién se comparte la venta.',
+            ], 422);
+        }
+        if (($data['covendedor_id'] ?? null) == $orden->vendedor_id) {
+            return response()->json([
+                'message' => 'El co-vendedor no puede ser el mismo vendedor de la orden.',
+            ], 422);
+        }
 
         // Guardar lo que llegue antes de validar, para que la comprobación mire
         // el estado final del ítem y no el que tenía al abrir el modal.
@@ -1646,8 +1670,23 @@ class OrdenController extends Controller
 
         // No se fuerza un mínimo — el vendedor puede poner cualquier monto ≥ 0
 
-        DB::transaction(function () use ($orden, $data, $tieneItemsCotizacion, $usuario) {
+        DB::transaction(function () use ($orden, $data, $tieneItemsCotizacion, $usuario, $request) {
             $nuevoEstado = $tieneItemsCotizacion ? 'pendiente_cotizacion' : 'pendiente_anticipo';
+
+            // Solo se tocan si vienen en la petición: un borrador que ya se
+            // guardó como FV2 o compartido no debe perderlo porque el modal
+            // no mandara el campo.
+            $extra = [];
+            if ($request->has('es_fv2')) {
+                $esFv2 = $request->boolean('es_fv2');
+                $extra['serie']        = $esFv2 ? Orden::SERIE_FV2 : null;
+                $extra['motivo_serie'] = $esFv2 ? ($data['motivo_serie'] ?? null) : null;
+            }
+            if ($request->has('es_compartida')) {
+                $comp = $request->boolean('es_compartida');
+                $extra['es_compartida'] = $comp;
+                $extra['covendedor_id'] = $comp ? ($data['covendedor_id'] ?? null) : null;
+            }
 
             $orden->update([
                 'estado'             => $nuevoEstado,
@@ -1658,6 +1697,7 @@ class OrdenController extends Controller
                 'departamento_envio' => $data['departamento_envio'] ?? $orden->departamento_envio,
                 'ciudad_envio'       => $data['ciudad_envio']       ?? $orden->ciudad_envio,
                 'direccion_envio'    => $data['direccion_envio']    ?? $orden->direccion_envio,
+                ...$extra,
             ]);
 
             // Crear registros de producción para los items personalizados del borrador
@@ -1690,6 +1730,7 @@ class OrdenController extends Controller
             'vendedor:id,nombre',
             'tienda:id,nombre',
             'items.producto:id,nombre,categoria,foto_url',
+            'items.variante', 'items.comboConfig.tipo', 'items.comboConfig.opcion',
             'items.tiendaOrigen:id,nombre',
             'items.produccion',
             'pagos',
@@ -2227,6 +2268,7 @@ class OrdenController extends Controller
             'tienda:id,nombre',
             'vendedor:id,nombre,firma_url',
             'items.producto:id,nombre,categoria',
+            'items.variante', 'items.comboConfig.tipo', 'items.comboConfig.opcion',
             'items.tiendaOrigen:id,nombre',
             'pagos',
         ])->findOrFail($id);

@@ -6,6 +6,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
 import { getOrden, updateEstado, revertirEntrega, descargarPdfOrden, descargarActaEntrega, reenviarCotizacion, asignarFechasEntrega, confirmarCotizacion, editarPago, completarBorrador as completarBorradorApi, eliminarBorrador as eliminarBorradorApi } from '@/api/ordenes'
+import api from '@/api'
 import { updateCliente } from '@/api/clientes'
 import { despachoPorOrden } from '@/api/despacho'
 import { tomarFacturacion, marcarFacturada } from '@/api/pagos'
@@ -195,6 +196,29 @@ const esBorradorCancelado = computed(() =>
 // ── Completar borrador ────────────────────────────────────────────────────────
 const showCompletarBorradorModal = ref(false)
 const completandoBorrador        = ref(false)
+
+// FV2 y venta compartida se deciden aquí, no solo al crear el borrador: es en
+// este momento cuando se gasta el consecutivo y nace la comisión. Si el
+// vendedor no las marcó antes, este es el último momento para hacerlo.
+const borradorEsFv2         = ref(false)
+const borradorMotivoSerie   = ref('')
+const borradorEsCompartida  = ref(false)
+const borradorCovendedorId  = ref(null)
+const borradorVendedores    = ref([])
+const cargandoBorradorVend  = ref(false)
+
+watch(borradorEsCompartida, async (val) => {
+  if (val && !borradorVendedores.value.length) {
+    cargandoBorradorVend.value = true
+    try {
+      const { data } = await api.get('/asesores')
+      // Uno no comparte consigo mismo.
+      borradorVendedores.value = (data ?? []).filter(v => v.id !== orden.value?.vendedor_id)
+    } catch { borradorVendedores.value = [] }
+    finally { cargandoBorradorVend.value = false }
+  }
+  if (!val) borradorCovendedorId.value = null
+})
 const borradorFirmaBlob          = ref(null)
 const borradorFirmaUrl           = ref('')
 const borradorAnticipoPct        = computed(() => orden.value?.anticipo_pct ?? 50)
@@ -347,6 +371,11 @@ watch(showCompletarBorradorModal, (open) => {
     borradorAnexoUrl.value           = orden.value?.anexo_foto_url     ?? ''
     borradorAnexoPreview.value       = ''
     borradorClienteErr.value         = ''
+    // Si el borrador ya se guardó como FV2 o compartido, llega marcado
+    borradorEsFv2.value        = !!orden.value?.serie
+    borradorMotivoSerie.value  = orden.value?.motivo_serie ?? ''
+    borradorEsCompartida.value = !!orden.value?.es_compartida
+    borradorCovendedorId.value = orden.value?.covendedor_id ?? null
     borradorSpecs.value = Object.fromEntries(
       borradorItemsSinSpecs.value.map(i => [i.id, {}])
     )
@@ -467,6 +496,12 @@ async function completarBorrador() {
       especificaciones:    borradorEspecificacionesPayload.value.length
         ? borradorEspecificacionesPayload.value
         : undefined,
+      // Van siempre, incluso en false: es la última oportunidad de quitarlas
+      // antes de que el número quede asignado.
+      es_fv2:              borradorEsFv2.value,
+      motivo_serie:        borradorEsFv2.value ? (borradorMotivoSerie.value.trim() || undefined) : undefined,
+      es_compartida:       borradorEsCompartida.value,
+      covendedor_id:       borradorEsCompartida.value ? borradorCovendedorId.value : undefined,
     })
     orden.value = data
     showCompletarBorradorModal.value = false
@@ -1581,6 +1616,11 @@ onMounted(cargarOrden)
             />
             <div class="flex-1 min-w-0">
               <p class="font-medium text-sm text-gray-800">{{ item.producto?.nombre ?? item.nombre_custom ?? 'Producto personalizado' }}</p>
+              <!-- La variante, pegada al nombre y en rojo: del mismo mueble hay
+                   varias telas y el nombre solo no alcanza para saber cuál sacar. -->
+              <p v-if="item.variante_texto" class="text-sm font-bold text-red-600 leading-tight">
+                {{ item.variante_texto }}
+              </p>
               <p class="text-xs text-gray-400">{{ item.producto?.categoria ?? item.categoria_custom ?? 'personalizado' }}</p>
               <p class="text-xs text-gray-500 mt-0.5">Cantidad: {{ item.cantidad }}</p>
               <p v-if="origenInventario(item)" class="text-xs text-emerald-600 mt-1 flex items-center gap-1">
@@ -1656,6 +1696,7 @@ onMounted(cargarOrden)
         >
           <p class="text-sm font-semibold text-gray-700">
             {{ item.producto?.nombre ?? item.nombre_custom ?? 'Ítem personalizado' }}
+            <span v-if="item.variante_texto" class="text-red-600 font-bold">— {{ item.variante_texto }}</span>
           </p>
 
           <!-- Pasos -->
@@ -2797,6 +2838,64 @@ onMounted(cargarOrden)
             </label>
           </div>
 
+          <!-- Orden con descuento especial (FV2) -->
+          <div :class="['rounded-xl border p-3 space-y-2', borradorEsFv2 ? 'bg-amber-50 border-amber-300' : 'bg-white border-gray-200']">
+            <label class="flex items-start gap-2.5 cursor-pointer">
+              <input type="checkbox" v-model="borradorEsFv2" class="mt-0.5 w-4 h-4 accent-amber-600" />
+              <span class="min-w-0">
+                <span class="text-sm font-semibold text-gray-800">Orden con descuento especial (FV2)</span>
+                <span class="block text-xs text-gray-500 mt-0.5">
+                  Lleva numeración propia FV2-N en vez de número de orden, pero es una venta normal:
+                  descuenta inventario, cuenta en las estadísticas y genera comisión igual.
+                </span>
+              </span>
+            </label>
+            <div v-if="borradorEsFv2" class="pl-6">
+              <label class="block text-xs font-medium text-gray-600 mb-1">Motivo (opcional)</label>
+              <input
+                v-model="borradorMotivoSerie"
+                type="text"
+                placeholder="Ej: familiar de los dueños"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+              />
+            </div>
+            <p v-else-if="orden?.serie" class="text-xs text-amber-700 pl-6">
+              Este borrador se guardó como FV2. Si lo desmarcas, tomará número de orden normal.
+            </p>
+          </div>
+
+          <!-- Venta compartida -->
+          <div :class="['rounded-xl border p-3 space-y-2', borradorEsCompartida ? 'bg-indigo-50 border-indigo-300' : 'bg-white border-gray-200']">
+            <label class="flex items-start gap-2.5 cursor-pointer">
+              <input type="checkbox" v-model="borradorEsCompartida" class="mt-0.5 w-4 h-4 accent-indigo-600" />
+              <span class="min-w-0">
+                <span class="text-sm font-semibold text-gray-800">Venta compartida</span>
+                <span class="block text-xs text-gray-500 mt-0.5">
+                  La comisión se reparte con otro asesor. Se decide ahora: al confirmar queda registrada.
+                </span>
+              </span>
+            </label>
+            <div v-if="borradorEsCompartida" class="pl-6 space-y-1.5">
+              <p v-if="cargandoBorradorVend" class="text-xs text-gray-400 py-1">Cargando asesores...</p>
+              <template v-else>
+                <button
+                  v-for="v in borradorVendedores"
+                  :key="v.id"
+                  type="button"
+                  @click="borradorCovendedorId = v.id"
+                  :class="['w-full flex items-center justify-between px-3 py-2 rounded-lg border text-sm transition-colors',
+                    borradorCovendedorId === v.id
+                      ? 'border-indigo-500 bg-indigo-50 text-indigo-800 font-semibold'
+                      : 'border-gray-200 bg-white text-gray-700 hover:border-indigo-300']"
+                >
+                  <span>{{ v.nombre }}</span>
+                </button>
+                <p v-if="!borradorVendedores.length" class="text-xs text-gray-400 py-1">No hay otros asesores activos.</p>
+                <p v-if="!borradorCovendedorId" class="text-xs text-red-500">Elige con quién se comparte.</p>
+              </template>
+            </div>
+          </div>
+
           <!-- Notas -->
           <div class="space-y-1">
             <label class="block text-xs font-semibold text-gray-600 uppercase">Notas (opcional)</label>
@@ -2817,6 +2916,7 @@ onMounted(cargarOrden)
                 !borradorForm.departamento_envio ||
                 !borradorForm.ciudad_envio ||
                 !borradorForm.direccion_envio ||
+                (borradorEsCompartida && !borradorCovendedorId) ||
                 (orden?.canal === 'fisica' && !borradorAnexoFile && !borradorAnexoUrl)"
               class="flex-1 bg-green-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-green-700 disabled:opacity-40 transition-colors"
             >

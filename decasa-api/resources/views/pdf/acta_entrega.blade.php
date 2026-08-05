@@ -74,6 +74,11 @@
                         <td style="padding: 7px; text-align: center; color: #6b7280;">{{ $idx + 1 }}</td>
                         <td style="padding: 7px;">
                             {{ $it->producto->nombre ?? $it->nombre_custom ?? 'Producto personalizado' }}
+                            {{-- Es el papel que lleva el que entrega: si no dice la
+                                 tela, se la juega a adivinar cuál se lleva. --}}
+                            @if($it->variante_texto)
+                                <br><span style="font-weight: bold; color: #dc2626;">{{ $it->variante_texto }}</span>
+                            @endif
                         </td>
                         <td style="padding: 7px; text-align: center;">{{ $it->cantidad }}</td>
                     </tr>
