@@ -1451,6 +1451,17 @@ class OrdenController extends Controller
                 ComisionController::sincronizarValorOrden($orden->fresh());
             }
 
+            // Al salir de "esperando precio" la orden se vuelve una venta de
+            // verdad, y ahí es cuando toma el consecutivo y nace la comisión —
+            // igual que en confirmarCotizacion. Sin esto quedaba sin número.
+            if (! empty($cerrarConsultas)) {
+                $ordenParaNumerar = $orden->fresh();
+                if (! $ordenParaNumerar->numero_orden && ! $ordenParaNumerar->serie) {
+                    self::asignarNumeroOrden($ordenParaNumerar);
+                    ComisionController::crearParaOrden($ordenParaNumerar->fresh());
+                }
+            }
+
             // Ya no hay nada que cotizar: se le quita de la lista al supervisor
             // en vez de dejarle una consulta viva que nadie va a responder.
             if (! empty($cerrarConsultas)) {
