@@ -2,6 +2,8 @@
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
+import { MapPinIcon } from '@heroicons/vue/24/outline'
+import { MapPinIcon as MapPinSolid } from '@heroicons/vue/24/solid'
 import {
   MagnifyingGlassIcon,
   FunnelIcon,
@@ -13,7 +15,7 @@ import {
 } from '@heroicons/vue/24/outline'
 import { getProduccion, updateProduccion } from '@/api/produccion'
 import { useToast } from '@/composables/useToast'
-import { getTiendas } from '@/api/ordenes'
+import { getTiendas, fijarOrden, quitarFijada } from '@/api/ordenes'
 import { useRealtime } from '@/composables/useRealtime'
 import EmptyState from '@/components/common/EmptyState.vue'
 import { SPECS_TEMPLATES, resolverCategoria } from '@/constants/specsConfig'
@@ -155,6 +157,26 @@ async function loadTiendas() {
     const { data } = await getTiendas()
     tiendas.value = data
   } catch {}
+}
+
+/**
+ * Fijar la ORDEN de este paso, no el paso: en el taller uno dice "esta orden
+ * primero" y asi suben juntas todas sus piezas. Se vuelve a pedir la lista
+ * porque viene paginada y la fijada puede estar en otra pagina.
+ */
+async function toggleFijada(p) {
+  const ordenId = p.orden_item?.orden?.id
+  if (!ordenId) return
+  const antes = !!p.fijada
+  p.fijada = !antes
+  try {
+    if (antes) await quitarFijada(ordenId)
+    else       await fijarOrden(ordenId)
+    await fetchProduccion(1, false)
+  } catch {
+    p.fijada = antes
+    toast.error('No se pudo cambiar la fijacion.')
+  }
 }
 
 async function fetchProduccion(page = 1, append = false) {
@@ -388,13 +410,25 @@ onUnmounted(() => {
         <li
           v-for="p in producciones"
           :key="p.id"
-          class="bg-white rounded-xl shadow-sm p-4 space-y-2 cursor-pointer active:scale-[0.99] transition-transform"
+          :class="['rounded-xl shadow-sm p-4 space-y-2 cursor-pointer active:scale-[0.99] transition-transform',
+            p.fijada ? 'bg-amber-50 border-l-4 border-amber-400' : 'bg-white']"
           @click="p.orden_item?.orden?.id && router.push({ name: 'orden-detalle', params: { id: p.orden_item.orden.id } })"
         >
           <!-- Producto + badge de estado -->
           <div class="flex justify-between items-start">
             <div class="flex-1 min-w-0">
-              <p class="font-medium text-sm text-gray-800 truncate">{{ p.orden_item?.producto?.nombre || p.orden_item?.nombre_custom }}</p>
+              <p class="font-medium text-sm text-gray-800 truncate flex items-center gap-1.5">
+                <button
+                  type="button"
+                  @click.stop="toggleFijada(p)"
+                  :class="['flex-shrink-0 transition-colors', p.fijada ? 'text-amber-500' : 'text-gray-300 hover:text-amber-400']"
+                  :title="p.fijada ? 'Quitar de arriba' : 'Fijar arriba'"
+                >
+                  <MapPinSolid v-if="p.fijada" class="w-4 h-4" />
+                  <MapPinIcon v-else class="w-4 h-4" />
+                </button>
+                {{ p.orden_item?.producto?.nombre || p.orden_item?.nombre_custom }}
+              </p>
               <p class="text-xs text-gray-400">{{ p.orden_item?.producto?.categoria || p.orden_item?.categoria_custom }}</p>
               <p v-if="specsResumen(p.orden_item)" class="text-xs text-indigo-600 mt-0.5 truncate">{{ specsResumen(p.orden_item) }}</p>
             </div>

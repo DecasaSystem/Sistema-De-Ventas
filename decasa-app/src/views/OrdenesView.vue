@@ -2,9 +2,9 @@
 import IconoS from '@/components/common/IconoS.vue'
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { MagnifyingGlassIcon, Cog6ToothIcon, ArrowDownTrayIcon } from '@heroicons/vue/24/outline'
-import { XMarkIcon } from '@heroicons/vue/24/solid'
-import { getOrdenes, getTiendas } from '@/api/ordenes'
+import { MagnifyingGlassIcon, Cog6ToothIcon, ArrowDownTrayIcon, MapPinIcon } from '@heroicons/vue/24/outline'
+import { XMarkIcon, MapPinIcon as MapPinSolid } from '@heroicons/vue/24/solid'
+import { getOrdenes, getTiendas, fijarOrden, quitarFijada } from '@/api/ordenes'
 import { useRealtime } from '@/composables/useRealtime'
 import { useToast } from '@/composables/useToast'
 import { exportarExcel } from '@/utils/exportarExcel'
@@ -208,6 +208,25 @@ function setupObserver() {
   })
 }
 
+/**
+ * Fijar o soltar una orden. Se pinta de una y se reordena al confirmar: en
+ * la lista paginada una fijada puede venir de otra pagina, asi que hay que
+ * volver a pedirla para que suba de verdad.
+ */
+async function toggleFijada(o) {
+  const antes = !!o.fijada
+  o.fijada = !antes
+  try {
+    if (antes) await quitarFijada(o.id)
+    else       await fijarOrden(o.id)
+    currentPage.value = 1
+    await fetchOrdenes(1, false)
+  } catch {
+    o.fijada = antes
+    toast.error('No se pudo cambiar la fijacion.')
+  }
+}
+
 function goToDetalle(id) {
   router.push({ name: 'orden-detalle', params: { id } })
 }
@@ -406,11 +425,23 @@ onUnmounted(() => {
           v-for="o in ordenes"
           :key="o.id"
           @click="goToDetalle(o.id)"
-          class="bg-white rounded-xl shadow-sm p-4 cursor-pointer hover:bg-blue-50 transition-colors active:bg-blue-100"
+          :class="['rounded-xl shadow-sm p-4 cursor-pointer transition-colors active:bg-blue-100',
+            o.fijada
+              ? 'bg-amber-50 border-l-4 border-amber-400 hover:bg-amber-100/70'
+              : 'bg-white hover:bg-blue-50']"
         >
           <div class="flex justify-between items-start gap-2">
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-2 mb-1 flex-wrap">
+                <button
+                  type="button"
+                  @click.stop="toggleFijada(o)"
+                  :class="['flex-shrink-0 transition-colors', o.fijada ? 'text-amber-500' : 'text-gray-300 hover:text-amber-400']"
+                  :title="o.fijada ? 'Quitar de arriba' : 'Fijar arriba'"
+                >
+                  <MapPinSolid v-if="o.fijada" class="w-4 h-4" />
+                  <MapPinIcon v-else class="w-4 h-4" />
+                </button>
                 <span class="font-semibold text-sm text-gray-800">{{ o.referencia ?? ('#' + (o.numero_orden ?? o.id)) }}</span>
                 <span
                   v-if="o.serie"

@@ -8,6 +8,7 @@ use App\Http\Controllers\InventarioController;
 use App\Http\Controllers\NotificacionController;
 use App\Http\Controllers\OrdenController;
 use App\Http\Controllers\OrdenMensajeController;
+use App\Http\Controllers\OrdenFijadaController;
 use App\Http\Controllers\PagoController;
 use App\Http\Controllers\ProduccionController;
 use App\Http\Controllers\ProductoController;
@@ -114,6 +115,10 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Chat de la orden: dudas entre el vendedor y los supervisores
     Route::get('/ordenes/{id}/mensajes',  [OrdenMensajeController::class, 'index'])->whereNumber('id');
+
+    // Fijar una orden para tenerla de primeras (marcador personal)
+    Route::post('/ordenes/{id}/fijar',   [OrdenFijadaController::class, 'fijar'])->whereNumber('id');
+    Route::delete('/ordenes/{id}/fijar', [OrdenFijadaController::class, 'quitar'])->whereNumber('id');
     Route::post('/ordenes/{id}/mensajes', [OrdenMensajeController::class, 'store'])->whereNumber('id');
 
     // Cotizaciones — propuestas de precio; no reservan stock ni generan comisión

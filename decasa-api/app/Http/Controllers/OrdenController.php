@@ -103,11 +103,26 @@ class OrdenController extends Controller
             });
         }
 
-        $ordenes = $query->orderByDesc('created_at')->paginate(20);
+        // Las que uno fijó van de primeras. El orden se arma en la consulta y no
+        // al pintar, porque la lista viene paginada: si se ordenara después,
+        // una orden fijada que cayó en la página 3 nunca subiría.
+        $uid = $request->user()->id;
+        $ordenes = $query
+            ->addSelect([
+                'fijada' => DB::table('orden_fijadas')
+                    ->selectRaw('1')
+                    ->whereColumn('orden_fijadas.orden_id', 'ordenes.id')
+                    ->where('orden_fijadas.usuario_id', $uid)
+                    ->limit(1),
+            ])
+            ->orderByRaw('(SELECT 1 FROM orden_fijadas f WHERE f.orden_id = ordenes.id AND f.usuario_id = ?) IS NOT NULL DESC', [$uid])
+            ->orderByDesc('created_at')
+            ->paginate(20);
 
         $hoy = now()->startOfDay();
 
         $ordenes->getCollection()->transform(function ($o) use ($hoy) {
+            $o->fijada          = (bool) $o->fijada;
             $o->total_pagado    = (float) ($o->pagos_sum_monto ?? 0);
             $o->saldo_pendiente = (float) $o->valor_total - $o->total_pagado;
 

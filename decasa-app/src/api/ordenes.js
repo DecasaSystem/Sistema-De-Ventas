@@ -21,3 +21,8 @@ export const eliminarBorrador = (id) => api.delete(`/ordenes/${id}`)
 export const buscarProductos = (search = '', tiendaId = null) =>
   api.get('/productos', { params: { search, ...(tiendaId ? { tienda_id: tiendaId } : {}) } })
 export const getTiendas = () => api.get('/tiendas')
+
+// Fijar una orden para tenerla de primeras. Es un marcador personal:
+// cada quien arma el suyo y no ve el de los demás.
+export const fijarOrden  = (id) => api.post(`/ordenes/${id}/fijar`)
+export const quitarFijada = (id) => api.delete(`/ordenes/${id}/fijar`)

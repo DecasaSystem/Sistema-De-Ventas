@@ -49,11 +49,25 @@ class ProduccionController extends Controller
             });
         }
 
+        // Lo que uno fijó va de primeras, por encima del orden por estado. Se
+        // fija la ORDEN, no el paso: en el taller uno dice "esta orden primero"
+        // y así todas sus piezas suben juntas.
+        $fijada = "(SELECT 1 FROM orden_fijadas f
+                    JOIN orden_items oi ON oi.id = produccion.orden_item_id
+                    WHERE f.orden_id = oi.orden_id AND f.usuario_id = ?) IS NOT NULL";
+
         $producciones = $query
+            ->addSelect(['*', DB::raw("($fijada) AS fijada")])
+            ->addBinding($usuario->id, 'select')
+            ->orderByRaw("$fijada DESC", [$usuario->id])
             ->orderByRaw("FIELD(estado, 'pendiente', 'retrasado', 'en_proceso', 'pendiente_despachador', 'listo', 'entregado')")
             ->orderBy('fecha_compromiso')
             ->paginate(20)
-            ->through(fn($p) => $this->conDiasRestantes($p));
+            ->through(function ($p) {
+                $p = $this->conDiasRestantes($p);
+                $p->fijada = (bool) $p->fijada;
+                return $p;
+            });
 
         return response()->json($producciones);
     }
