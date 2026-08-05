@@ -941,7 +941,11 @@ class OrdenController extends Controller
             return response()->json(['message' => 'No autorizado.'], 403);
         }
 
-        if (! in_array($orden->estado, ['borrador', 'pendiente_anticipo', 'en_produccion'])) {
+        // 'pendiente_cotizacion' se permite a propósito: es la salida cuando se
+        // dejó activada la consulta de costo sin querer. El vendedor le pone el
+        // precio él mismo y la orden sigue su curso, en vez de quedarse trabada
+        // esperando a un supervisor que no tiene nada que cotizar.
+        if (! in_array($orden->estado, ['borrador', 'pendiente_anticipo', 'en_produccion', 'pendiente_cotizacion'])) {
             return response()->json([
                 'message' => 'No se puede editar una orden en estado "' . $orden->estado . '".',
             ], 422);
@@ -1413,6 +1417,24 @@ class OrdenController extends Controller
                 $updateOrden['valor_total'] = $nuevoTotal;
             }
 
+            // Si la orden estaba esperando cotización y ya ningún ítem quedó sin
+            // precio, se destraba sola: no hay nada que cotizar. Pasa cuando el
+            // vendedor le pone el precio él mismo desde editar.
+            if ($orden->estado === 'pendiente_cotizacion') {
+                $orden->refresh()->load('items');
+                $faltaPrecio = $orden->items->contains(
+                    fn ($i) => $i->es_personalizado && (float) $i->precio_unitario == 0.0
+                );
+                if (! $faltaPrecio) {
+                    $updateOrden['estado'] = 'pendiente_anticipo';
+                    $cambios[] = [
+                        'campo' => 'estado', 'label' => 'Estado de la orden',
+                        'antes' => 'pendiente_cotizacion', 'despues' => 'pendiente_anticipo',
+                    ];
+                    $cerrarConsultas = true;
+                }
+            }
+
             if (! empty($updateOrden)) {
                 $orden->update($updateOrden);
             }
@@ -1427,6 +1449,23 @@ class OrdenController extends Controller
                 // quedaba con el valor del día que se creó la orden y no había
                 // forma de corregirla, ni siquiera desde "Recalcular".
                 ComisionController::sincronizarValorOrden($orden->fresh());
+            }
+
+            // Ya no hay nada que cotizar: se le quita de la lista al supervisor
+            // en vez de dejarle una consulta viva que nadie va a responder.
+            if (! empty($cerrarConsultas)) {
+                \App\Models\ConsultaCosto::where('orden_id', $orden->id)
+                    ->where('estado', 'pendiente')
+                    ->each(function ($consulta) use ($orden, $usuario) {
+                        $consulta->update(['estado' => 'respondida', 'respondido_at' => now()]);
+                        NotificacionService::crear(
+                            'consulta_costo_respondida',
+                            'Ya no hace falta cotizar',
+                            "{$usuario->nombre} le puso el precio a la orden {$orden->referencia}. La consulta de costo ya no aplica.",
+                            ['consulta_id' => $consulta->id, 'orden_id' => $orden->id],
+                            $consulta->asignado_a_id,
+                        );
+                    });
             }
 
             if (! empty($cambios)) {
