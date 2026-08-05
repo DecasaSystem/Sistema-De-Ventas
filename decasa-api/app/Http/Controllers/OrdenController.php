@@ -1784,15 +1784,31 @@ class OrdenController extends Controller
             return response()->json($orden, 200);
         }
 
-        // Transiciones válidas (despacho controla listo_entrega y en_camino)
+        // Transiciones válidas (despacho controla listo_entrega y en_camino).
+        //
+        // 'entregado' directo es para cuando el cliente se llevó el producto de
+        // la tienda al pagar y no se marcó entrega inmediata al hacer la orden.
+        // No pasa por despacho porque no hubo transporte: nadie lo llevó.
+        // Descuenta inventario igual que una entrega normal.
         $transiciones = [
             'borrador'              => ['cancelado'],
             'pendiente_cotizacion'  => ['cancelado'],
-            'pendiente_anticipo'    => ['en_produccion', 'listo_entrega', 'cancelado'],
-            'en_produccion'         => ['listo_entrega', 'cancelado'],
+            'pendiente_anticipo'    => ['en_produccion', 'listo_entrega', 'entregado', 'cancelado'],
+            'en_produccion'         => ['listo_entrega', 'entregado', 'cancelado'],
+            // Despacho las maneja; de todos modos se bloquean más arriba
+            'listo_entrega'         => [],
+            'en_camino'             => [],
+            // Estados finales: de aquí no se sale
+            'entregado'             => [],
+            'cancelado'             => [],
         ];
-        $permitidos = $transiciones[$estadoAnterior] ?? [];
-        if (!empty($permitidos) && !in_array($estadoNuevo, $permitidos)) {
+
+        // Se mira si la clave existe, no si la lista trae algo: una lista vacía
+        // significa "de este estado no se sale", no "vale cualquier cosa". Con
+        // la comprobación anterior una orden CANCELADA se podía marcar como
+        // entregada, y eso descuenta inventario que ya se había liberado.
+        $permitidos = $transiciones[$estadoAnterior] ?? null;
+        if ($permitidos !== null && !in_array($estadoNuevo, $permitidos, true)) {
             return response()->json([
                 'message' => "No se puede pasar de \"{$estadoAnterior}\" a \"{$estadoNuevo}\".",
             ], 422);

@@ -75,11 +75,14 @@ const todasFechasAsignadas = computed(() =>
   (orden.value?.items?.length ?? 0) > 0 && (orden.value?.items?.every(i => i.fecha_entrega_prom) ?? false)
 )
 
+// 'entregado' directo: el cliente se llevó el producto de la tienda al pagar y
+// no se marcó entrega inmediata al hacer la orden. No pasa por despacho porque
+// nadie lo transportó, pero descuenta inventario igual.
 const transicionesValidas = {
   borrador: ['cancelado'],
   pendiente_cotizacion: ['cancelado'],
-  pendiente_anticipo: ['en_produccion', 'listo_entrega', 'cancelado'],
-  en_produccion: ['listo_entrega', 'cancelado'],
+  pendiente_anticipo: ['en_produccion', 'listo_entrega', 'entregado', 'cancelado'],
+  en_produccion: ['listo_entrega', 'entregado', 'cancelado'],
   listo_entrega: [],
   en_camino: [],
   entregado: [],
@@ -494,11 +497,14 @@ const opcionesNuevoEstado = computed(() => {
     .filter((e) => {
       if (e === 'en_produccion' && !tienePersonalizados.value) return false
       if (e === 'listo_entrega' && tienePersonalizados.value && orden.value.estado === 'pendiente_anticipo') return false
+      // Una pieza que todavía se está fabricando no se pudo haber llevado
+      if (e === 'entregado' && tienePersonalizados.value) return false
       return true
     })
     .map((e) => ({
       value: e,
-      label: estadosLabel[e] ?? e,
+      // Se aclara porque no es la entrega normal: aquí no hubo transporte
+      label: e === 'entregado' ? 'Entregado — se lo llevó de la tienda' : (estadosLabel[e] ?? e),
     }))
 })
 
@@ -555,6 +561,18 @@ async function cargarDespachoEntrega(ordenId) {
 
 async function cambiarEstado() {
   if (!nuevoEstado.value) return
+
+  // Marcar entregado descuenta inventario y cierra la orden. Si además queda
+  // saldo, significa que se lo llevaron debiendo: vale confirmarlo.
+  if (nuevoEstado.value === 'entregado') {
+    const saldo = Number(orden.value?.saldo_pendiente) || 0
+    const aviso = saldo > 0
+      ? `Esta orden queda con un saldo de $${saldo.toLocaleString('es-CO')}.\n\n`
+        + '¿El cliente ya se llevó el producto? Se descuenta del inventario y la orden se cierra.'
+      : '¿El cliente ya se llevó el producto? Se descuenta del inventario y la orden se cierra.'
+    if (!confirm(aviso)) return
+  }
+
   changingEstado.value = true
   try {
     await updateEstado(orden.value.id, nuevoEstado.value)
