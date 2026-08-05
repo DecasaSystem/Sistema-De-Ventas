@@ -130,22 +130,61 @@ class OrdenMensajeController extends Controller
             event(new OrdenMensajeEnviado($payload, $id));
         } catch (\Throwable) {}
 
-        // Notificación SOLO a los mencionados: los demás ven el hilo si entran,
-        // pero no se les interrumpe por una conversación que no les toca.
-        $ref = $orden->referencia;
-        foreach ($mencionados as $uid) {
-            NotificacionService::crear(
-                'orden_mensaje',
-                "Te preguntaron en la orden {$ref}",
-                "{$usuario->nombre}: " . ($msg->mensaje !== ''
-                    ? \Illuminate\Support\Str::limit($msg->mensaje, 120)
-                    : 'te mandó una foto'),
-                ['orden_id' => $id],
-                (int) $uid,
-            );
-        }
+        $this->notificar($orden, $usuario, $msg, $mencionados);
 
         return response()->json($payload, 201);
+    }
+
+    /**
+     * A quién se le avisa de un mensaje nuevo.
+     *
+     * No basta con los mencionados. Un chat donde solo se entera el que fue
+     * arrobado no funciona: el vendedor preguntaba @Admin, Admin respondía sin
+     * arrobar a nadie, y el vendedor no se enteraba nunca de la respuesta.
+     *
+     * Entonces se avisa a:
+     *   - los mencionados en ESTE mensaje (aviso directo: "te preguntaron"),
+     *   - quien ya escribió antes en el hilo — se metió en la conversación,
+     *   - el vendedor de la orden y su covendedor, que son los dueños del tema
+     *     aunque todavía no hayan escrito.
+     *
+     * Menos el que escribe, claro. Y los supervisores que nunca han entrado
+     * siguen sin ser molestados: ven el hilo si abren la orden.
+     */
+    private function notificar(Orden $orden, Usuario $autor, OrdenMensaje $msg, array $mencionados): void
+    {
+        $yaEscribieron = OrdenMensaje::where('orden_id', $orden->id)
+            ->where('id', '!=', $msg->id)
+            ->pluck('usuario_id')->all();
+
+        $deLaOrden = array_filter([$orden->vendedor_id, $orden->covendedor_id]);
+
+        $destinos = collect($mencionados)
+            ->merge($yaEscribieron)
+            ->merge($deLaOrden)
+            ->map(fn ($x) => (int) $x)
+            ->unique()
+            ->reject(fn ($uid) => $uid === $autor->id)
+            ->values();
+
+        $ref     = $orden->referencia;
+        $resumen = $msg->mensaje !== ''
+            ? \Illuminate\Support\Str::limit($msg->mensaje, 120)
+            : 'te mandó una foto';
+
+        foreach ($destinos as $uid) {
+            $preguntado = in_array($uid, $mencionados, true);
+
+            NotificacionService::crear(
+                'orden_mensaje',
+                $preguntado
+                    ? "Te preguntaron en la orden {$ref}"
+                    : "Mensaje nuevo en la orden {$ref}",
+                "{$autor->nombre}: {$resumen}",
+                ['orden_id' => $orden->id],
+                $uid,
+            );
+        }
     }
 
     private function formato(OrdenMensaje $m): array
