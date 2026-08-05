@@ -11,6 +11,112 @@ use Illuminate\Support\Facades\DB;
 class InventarioController extends Controller
 {
     /**
+     * GET /api/inventario/desglose-variantes?tienda_id=1|todas
+     *
+     * De las unidades que hay de un producto, cuántas tienen ya asignado un
+     * tapizado o una medida concreta. No es una tabla paralela al inventario:
+     * es un desglose de PARTE del mismo total, así que la suma de las
+     * variantes nunca debería pasarse del total del producto. Lo que sobra son
+     * unidades que existen pero a las que nadie les ha dicho todavía de qué
+     * tela o medida son.
+     *
+     * Los dos desgloses (tapizado y medida) son ejes distintos del mismo
+     * stock: no se suman entre sí. Por eso cada fila trae su 'tipo' y quien
+     * los presente debe cerrarlos por separado.
+     */
+    public function desgloseVariantes(Request $request)
+    {
+        $request->validate(['tienda_id' => 'required']);
+        $tiendaId = $request->query('tienda_id');
+        $todas    = $tiendaId === 'todas';
+
+        if (! $todas) {
+            $request->validate(['tienda_id' => 'exists:tiendas,id']);
+            $tid = (int) $tiendaId;
+        }
+
+        // Por tapizado/color (producto_variantes)
+        $porTapizado = DB::table('inventario_variantes as iv')
+            ->join('producto_variantes as pv', 'pv.id', '=', 'iv.variante_id')
+            ->join('productos as p', 'p.id', '=', 'pv.producto_id')
+            ->where('p.activo', true)
+            ->when(! $todas, fn ($q) => $q->where('iv.tienda_id', $tid))
+            ->groupBy('pv.producto_id', 'p.nombre', 'p.categoria', 'pv.id',
+                      'pv.marca', 'pv.marca_tela', 'pv.nombre_color', 'pv.medida')
+            ->select(
+                'pv.producto_id',
+                'p.nombre as producto',
+                'p.categoria',
+                'pv.marca', 'pv.marca_tela', 'pv.nombre_color', 'pv.medida',
+                DB::raw('SUM(iv.cantidad_disponible) as disponible'),
+                DB::raw('SUM(iv.cantidad_reservada) as reservado'),
+            )
+            ->get()
+            ->map(fn ($r) => [
+                'producto_id' => (int) $r->producto_id,
+                'producto'    => $r->producto,
+                'categoria'   => $r->categoria,
+                'tipo'        => 'Tapizado',
+                'variante'    => trim(implode(' · ', array_filter([
+                    $r->marca, $r->marca_tela, $r->nombre_color, $r->medida,
+                ]))) ?: 'Sin nombre',
+                'disponible'  => (int) $r->disponible,
+                'reservado'   => (int) $r->reservado,
+            ]);
+
+        // Por medida/talla u otro tipo configurable (producto_variante_configs)
+        $porConfig = DB::table('inventario_variante_configs as ivc')
+            ->join('producto_variante_configs as pvc', 'pvc.id', '=', 'ivc.config_id')
+            ->join('tipos_variante as tv', 'tv.id', '=', 'pvc.tipo_variante_id')
+            ->join('tipo_variante_opciones as tvo', 'tvo.id', '=', 'pvc.opcion_id')
+            ->join('productos as p', 'p.id', '=', 'pvc.producto_id')
+            ->where('p.activo', true)
+            ->when(! $todas, fn ($q) => $q->where('ivc.tienda_id', $tid))
+            ->groupBy('pvc.producto_id', 'p.nombre', 'p.categoria', 'tv.nombre', 'tvo.nombre')
+            ->select(
+                'pvc.producto_id',
+                'p.nombre as producto',
+                'p.categoria',
+                'tv.nombre as tipo',
+                'tvo.nombre as opcion',
+                DB::raw('SUM(ivc.cantidad_disponible) as disponible'),
+                DB::raw('SUM(ivc.cantidad_reservada) as reservado'),
+            )
+            ->get()
+            ->map(fn ($r) => [
+                'producto_id' => (int) $r->producto_id,
+                'producto'    => $r->producto,
+                'categoria'   => $r->categoria,
+                'tipo'        => $r->tipo,
+                'variante'    => $r->opcion,
+                'disponible'  => (int) $r->disponible,
+                'reservado'   => (int) $r->reservado,
+            ]);
+
+        // El total del producto, para poder decir cuánto queda sin asignar
+        $ids = $porTapizado->pluck('producto_id')
+            ->merge($porConfig->pluck('producto_id'))->unique()->values();
+
+        $totales = $ids->isEmpty() ? collect() : DB::table('inventario')
+            ->whereIn('producto_id', $ids)
+            ->when(! $todas, fn ($q) => $q->where('tienda_id', $tid))
+            ->groupBy('producto_id')
+            ->select('producto_id',
+                DB::raw('SUM(cantidad_disponible) as disponible'),
+                DB::raw('SUM(cantidad_reservada) as reservado'))
+            ->get()
+            ->keyBy('producto_id');
+
+        return response()->json([
+            'filas'   => $porTapizado->concat($porConfig)->values(),
+            'totales' => $ids->mapWithKeys(fn ($id) => [$id => [
+                'disponible' => (int) ($totales[$id]->disponible ?? 0),
+                'reservado'  => (int) ($totales[$id]->reservado  ?? 0),
+            ]]),
+        ]);
+    }
+
+    /**
      * GET /api/inventario?tienda_id=1&search=sofa
      * GET /api/inventario?tienda_id=todas&search=sofa
      *

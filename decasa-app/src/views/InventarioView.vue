@@ -21,7 +21,7 @@ import {
   ArrowDownTrayIcon,
 } from '@heroicons/vue/24/outline'
 import { exportarExcelHojas } from '@/utils/exportarExcel'
-import { getInventario, addStock, removeStock, getVariantes, crearVariante, addStockVariante, getMovimientos, getVarianteUso, eliminarVariante } from '@/api/inventario'
+import { getInventario, getDesgloseVariantes, addStock, removeStock, getVariantes, crearVariante, addStockVariante, getMovimientos, getVarianteUso, eliminarVariante } from '@/api/inventario'
 import SurtidosPendientesPanel from '@/components/inventario/SurtidosPendientesPanel.vue'
 import ModalVariantes from '@/components/inventario/ModalVariantes.vue'
 import { getTrasladosPendientes, aceptarTraslado, rechazarTraslado } from '@/api/traslados'
@@ -523,6 +523,89 @@ function loadMore() {
   cargarInventario(false)
 }
 
+/**
+ * Desglose de cuántas unidades tienen ya asignado un tapizado o una medida.
+ *
+ * No es un inventario paralelo: reparte parte del mismo total del producto, y
+ * lo que sobra son unidades que existen pero sin tela/medida decidida. Por eso
+ * cada bloque cierra con "sin asignar" en vez de sumar aparte.
+ *
+ * Tapizado y medida son ejes distintos del mismo stock, así que se cierran por
+ * separado: sumarlos entre sí contaría dos veces las mismas unidades.
+ */
+async function hojasDeVariantes(tienda) {
+  try {
+    const { data } = await getDesgloseVariantes(tienda)
+    const filas   = data?.filas ?? []
+    const totales = data?.totales ?? {}
+    if (!filas.length) return { variantes: [], descuadres: [] }
+
+    const variantes  = []
+    const descuadres = []
+
+    // Agrupar por producto y, dentro, por tipo de variante
+    const porProducto = new Map()
+    for (const f of filas) {
+      if (!porProducto.has(f.producto_id)) porProducto.set(f.producto_id, new Map())
+      const tipos = porProducto.get(f.producto_id)
+      if (!tipos.has(f.tipo)) tipos.set(f.tipo, [])
+      tipos.get(f.tipo).push(f)
+    }
+
+    const productos = [...porProducto.entries()].sort((a, b) => {
+      const na = filas.find(f => f.producto_id === a[0])?.producto ?? ''
+      const nb = filas.find(f => f.producto_id === b[0])?.producto ?? ''
+      return na.localeCompare(nb, 'es')
+    })
+
+    for (const [pid, tipos] of productos) {
+      const ej    = filas.find(f => f.producto_id === pid)
+      const total = Number(totales[pid]?.disponible) || 0
+
+      for (const [tipo, lista] of tipos) {
+        const asignado = lista.reduce((s, f) => s + (Number(f.disponible) || 0), 0)
+
+        for (const f of [...lista].sort((a, b) => b.disponible - a.disponible)) {
+          variantes.push({
+            'Producto':   f.producto,
+            'Categoría':  f.categoria ?? '',
+            'Tipo':       tipo,
+            'Variante':   f.variante,
+            'Disponible': Number(f.disponible) || 0,
+            'Reservado':  Number(f.reservado) || 0,
+          })
+        }
+
+        // El renglón que cierra el bloque. Si sale negativo, hay más unidades
+        // marcadas con una tela/medida que unidades en la tienda.
+        variantes.push({
+          'Producto':   ej?.producto ?? '',
+          'Categoría':  ej?.categoria ?? '',
+          'Tipo':       tipo,
+          'Variante':   total - asignado < 0 ? '⚠ FALTAN UNIDADES' : 'Sin asignar',
+          'Disponible': total - asignado,
+          'Reservado':  '',
+        })
+
+        if (asignado > total) {
+          descuadres.push({
+            'Producto':          ej?.producto ?? '',
+            'Categoría':         ej?.categoria ?? '',
+            'Tipo':              tipo,
+            'Hay en la tienda':  total,
+            'Marcado con variante': asignado,
+            'Sobran marcadas':   asignado - total,
+          })
+        }
+      }
+    }
+    return { variantes, descuadres }
+  } catch {
+    // El desglose es un extra: si falla, el Excel del inventario igual sale.
+    return { variantes: [], descuadres: [] }
+  }
+}
+
 // Trae TODAS las páginas de la tienda/filtro actual y las exporta a Excel.
 async function exportarExcelInventario() {
   if (!tiendaId.value || exportando.value) return
@@ -600,8 +683,12 @@ async function exportarExcelInventario() {
       'Sin stock':  categorias.reduce((s, g) => s + g.agotados, 0),
     })
 
+    const { variantes, descuadres } = await hojasDeVariantes(tiendaId.value)
+
     const hojas = [
       { nombre: 'Resumen', filas: resumen },
+      ...(descuadres.length ? [{ nombre: 'Descuadres', filas: descuadres }] : []),
+      ...(variantes.length  ? [{ nombre: 'Variantes',  filas: variantes  }] : []),
       ...categorias.map(g => ({
         nombre: g.cat,
         filas: [
