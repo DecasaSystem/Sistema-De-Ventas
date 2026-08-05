@@ -426,7 +426,7 @@ function agregarItemRestauracion() {
     boceto_blobs:    f.foto_blob    ? [f.foto_blob]    : [],
     boceto_urls:     f.foto_blob    ? ['']             : [],
     boceto_previews: f.foto_preview ? [f.foto_preview] : [],
-    _cotizarPrecio:      true,
+    _cotizarPrecio:      false,   // se activa a mano si hay que consultarlo
     _mostrarCalculadora: false,
     _calculandoPrecio:   false,
     _precioCalc:         null,
@@ -575,7 +575,7 @@ function agregarProductoCustom() {
     boceto_blobs: [],
     boceto_urls: [],
     boceto_previews: [],
-    _cotizarPrecio:      true,
+    _cotizarPrecio:      false,   // se activa a mano si hay que consultarlo
     _mostrarCalculadora: false,
     _calculandoPrecio:   false,
     _precioCalc:         null,
@@ -1023,7 +1023,7 @@ function agregarPersonalizado(producto) {
     boceto_urls:         [],
     boceto_previews:     [],
     _fabricar_pedido:    false,
-    _cotizarPrecio:      true,
+    _cotizarPrecio:      false,   // se activa a mano si hay que consultarlo
     _mostrarCalculadora: false,
     _calculandoPrecio:   false,
     _precioCalc:         null,
@@ -1049,7 +1049,8 @@ function togglePersonalizado(item) {
     item._combo_id        = null
     item._config_id       = null
     item.tienda_origen_id = null
-    item._cotizarPrecio   = true
+    // Apagado por defecto: se olvidaban de quitarlo y la orden salia sin precio
+    item._cotizarPrecio   = false
     item._telaSelections  = {}
   } else {
     item._cotizarPrecio = false
