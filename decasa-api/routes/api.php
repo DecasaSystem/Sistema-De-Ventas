@@ -7,6 +7,7 @@ use App\Http\Controllers\ClienteController;
 use App\Http\Controllers\InventarioController;
 use App\Http\Controllers\NotificacionController;
 use App\Http\Controllers\OrdenController;
+use App\Http\Controllers\OrdenMensajeController;
 use App\Http\Controllers\PagoController;
 use App\Http\Controllers\ProduccionController;
 use App\Http\Controllers\ProductoController;
@@ -110,6 +111,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/ordenes/{id}/acta-entrega',            [DespachoController::class, 'actaEntrega'])->whereNumber('id');
     Route::post('/ordenes/{id}/reenviar-cotizacion',    [OrdenController::class, 'reenviarCotizacion']);
     Route::patch('/ordenes/{id}/fechas-entrega',        [OrdenController::class, 'asignarFechas']);
+
+    // Chat de la orden: dudas entre el vendedor y los supervisores
+    Route::get('/ordenes/{id}/mensajes',  [OrdenMensajeController::class, 'index'])->whereNumber('id');
+    Route::post('/ordenes/{id}/mensajes', [OrdenMensajeController::class, 'store'])->whereNumber('id');
 
     // Cotizaciones — propuestas de precio; no reservan stock ni generan comisión
     Route::get('/cotizaciones',            [CotizacionController::class, 'index']);

@@ -408,6 +408,7 @@ function tipoIcono(tipo) {
     consulta_costo_nueva:       CurrencyDollarIcon,
     consulta_costo_respondida:  CurrencyDollarIcon,
     consulta_costo_mensaje:     ChatBubbleLeftRightIcon,
+    orden_mensaje:              ChatBubbleLeftRightIcon,
   }
   return icons[tipo] ?? BellIcon
 }

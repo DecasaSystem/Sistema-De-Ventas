@@ -14,6 +14,9 @@ import BadgeEstado from '@/components/common/BadgeEstado.vue'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import RegistroPagoModal from '@/components/ordenes/RegistroPagoModal.vue'
 import EditarOrdenModal from '@/components/ordenes/EditarOrdenModal.vue'
+import ChatOrden from '@/components/ordenes/ChatOrden.vue'
+// Se usaba sin importar: mientras cargaba la orden no se veía nada
+import AppSpinner from '@/components/common/AppSpinner.vue'
 import { SparklesIcon, XMarkIcon } from '@heroicons/vue/24/solid'
 import { DocumentIcon, EnvelopeIcon, ChatBubbleLeftEllipsisIcon, ArrowDownTrayIcon, CalendarIcon, BuildingOffice2Icon, TruckIcon, PencilSquareIcon, ClockIcon, CheckBadgeIcon, LockClosedIcon, WrenchScrewdriverIcon, CheckCircleIcon, UserGroupIcon, CurrencyDollarIcon, BanknotesIcon, ExclamationTriangleIcon, SwatchIcon } from '@heroicons/vue/24/outline'
 import FirmaCanvas from '@/components/FirmaCanvas.vue'
@@ -1896,6 +1899,14 @@ onMounted(cargarOrden)
           {{ guardandoFechas ? 'Guardando...' : 'Guardar fechas' }}
         </button>
       </div>
+
+      <!-- Chat de dudas de la orden. Solo para quien participa: el vendedor,
+           su covendedor y los supervisores. -->
+      <ChatOrden
+        v-if="auth.isSupervisor || orden.vendedor_id === auth.usuario?.id || orden.covendedor_id === auth.usuario?.id"
+        :orden-id="orden.id"
+        :estado="orden.estado"
+      />
 
       <!-- Historial de ediciones -->
       <div v-if="orden.ediciones?.length" class="bg-white rounded-xl shadow-sm p-4 space-y-3">
