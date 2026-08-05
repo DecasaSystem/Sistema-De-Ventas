@@ -26,8 +26,14 @@ class InventarioController extends Controller
         $search   = $request->query('search');
         $categoria = $request->query('categoria');
 
+        // Descargar el inventario completo son ~19 viajes de 20 filas. Se deja
+        // pedir mas por pagina para que el Excel salga en dos. El tope evita
+        // que alguien pida el catalogo entero de una.
+        $pedido  = $request->query('per_page');
+        $perPage = is_numeric($pedido) ? min(max((int) $pedido, 1), 200) : 20;
+
         if ($tiendaId === 'todas') {
-            return $this->inventarioTodas($search, $categoria);
+            return $this->inventarioTodas($search, $categoria, $perPage);
         }
 
         $request->validate([
@@ -69,14 +75,20 @@ class InventarioController extends Controller
             });
         }
 
+        // El desempate por id no es cosmetico: sin el, "ordenar por cantidad"
+        // deja el orden indefinido entre filas empatadas (aqui hay categorias
+        // con 33 productos en el mismo numero), y con LIMIT/OFFSET eso permite
+        // que una fila salga en dos paginas y otra en ninguna. Quien recorre
+        // todas las paginas para descargar el Excel se lo llevaria repetido.
         if ($categoria) {
             $query->where('productos.categoria', $categoria);
             $query->orderBy(DB::raw('COALESCE(inventario.cantidad_disponible, 0)'), 'desc');
         } else {
             $query->orderBy('productos.nombre');
         }
+        $query->orderBy('productos.id');
 
-        return response()->json($query->paginate(20)->through(function ($inv) {
+        return response()->json($query->paginate($perPage)->through(function ($inv) {
             $inv->stock_libre = $inv->cantidad_disponible - $inv->cantidad_reservada;
             $inv->bajo_stock  = $inv->cantidad_disponible <= $inv->stock_minimo;
             $inv->producto = (object) [
@@ -100,7 +112,7 @@ class InventarioController extends Controller
     /**
      * Devuelve inventario agrupado por producto de TODAS las tiendas.
      */
-    private function inventarioTodas($search = null, $categoria = null)
+    private function inventarioTodas($search = null, $categoria = null, $perPage = 20)
     {
         $query = DB::table('productos')
             ->leftJoin('inventario', 'inventario.producto_id', '=', 'productos.id')
@@ -149,8 +161,9 @@ class InventarioController extends Controller
         } else {
             $query->orderBy('productos.nombre');
         }
+        $query->orderBy('productos.id');   // desempate, ver index()
 
-        $pagina = $query->paginate(20);
+        $pagina = $query->paginate($perPage);
 
         // Cuánto hay en CADA tienda, no solo el total. Antes solo se decía en
         // cuántas tiendas está, que no sirve para saber de dónde traerlo.

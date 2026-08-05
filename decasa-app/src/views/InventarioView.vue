@@ -20,7 +20,7 @@ import {
   ArrowRightIcon,
   ArrowDownTrayIcon,
 } from '@heroicons/vue/24/outline'
-import { exportarExcel } from '@/utils/exportarExcel'
+import { exportarExcelHojas } from '@/utils/exportarExcel'
 import { getInventario, addStock, removeStock, getVariantes, crearVariante, addStockVariante, getMovimientos, getVarianteUso, eliminarVariante } from '@/api/inventario'
 import SurtidosPendientesPanel from '@/components/inventario/SurtidosPendientesPanel.vue'
 import ModalVariantes from '@/components/inventario/ModalVariantes.vue'
@@ -532,7 +532,7 @@ async function exportarExcelInventario() {
     let lastP = 1
     const todos = []
     do {
-      const { data } = await getInventario(tiendaId.value, busqueda.value.trim(), page, categoriaFiltro.value)
+      const { data } = await getInventario(tiendaId.value, busqueda.value.trim(), page, categoriaFiltro.value, 200)
       todos.push(...(data.data ?? []))
       lastP = data.last_page ?? 1
       page++
@@ -543,21 +543,79 @@ async function exportarExcelInventario() {
       return
     }
 
-    const filas = todos.map(it => ({
-      'Producto':   it.producto?.nombre ?? '',
-      'Categoría':  it.producto?.categoria ?? '',
-      'Disponible': Number(it.cantidad_disponible) || 0,
-      'Reservado':  Number(it.cantidad_reservada) || 0,
-      'Libre':      Number(it.stock_libre) || 0,
-      ...(esVistaGlobal.value ? {} : { 'Mínimo': Number(it.stock_minimo) || 0 }),
-      'Precio':     Number(it.producto?.precio_base) || 0,
-    }))
+    const global = esVistaGlobal.value
+    const num    = v => Number(v) || 0
 
-    const nombreTienda = esVistaGlobal.value
+    // De los que más hay a los que menos. Se desempata por lo libre y luego
+    // por nombre para que dos descargas seguidas salgan idénticas: si no,
+    // los muchos productos empatados en el mismo número bailan entre sí.
+    const porStock = (a, b) =>
+      num(b.cantidad_disponible) - num(a.cantidad_disponible)
+      || num(b.stock_libre) - num(a.stock_libre)
+      || (a.producto?.nombre ?? '').localeCompare(b.producto?.nombre ?? '', 'es')
+
+    const aFila = it => ({
+      'Producto':   it.producto?.nombre ?? '',
+      'Disponible': num(it.cantidad_disponible),
+      'Reservado':  num(it.cantidad_reservada),
+      'Libre':      num(it.stock_libre),
+      // En la vista global el mínimo no existe (viene en 0 para todos); en su
+      // lugar interesa en cuántas tiendas está repartido.
+      ...(global ? { 'En tiendas': num(it.tiendas_count) } : { 'Mínimo': num(it.stock_minimo) }),
+      'Precio':     num(it.producto?.precio_base),
+    })
+
+    const grupos = new Map()
+    for (const it of todos) {
+      const cat = (it.producto?.categoria ?? '').trim() || 'Sin categoría'
+      if (!grupos.has(cat)) grupos.set(cat, [])
+      grupos.get(cat).push(it)
+    }
+
+    const categorias = [...grupos.entries()]
+      .map(([cat, items]) => ({
+        cat,
+        items:      [...items].sort(porStock),
+        disponible: items.reduce((s, i) => s + num(i.cantidad_disponible), 0),
+        reservado:  items.reduce((s, i) => s + num(i.cantidad_reservada), 0),
+        libre:      items.reduce((s, i) => s + num(i.stock_libre), 0),
+        agotados:   items.filter(i => num(i.cantidad_disponible) === 0).length,
+      }))
+      .sort((a, b) => b.disponible - a.disponible || a.cat.localeCompare(b.cat, 'es'))
+
+    const resumen = categorias.map(g => ({
+      'Categoría':  g.cat,
+      'Productos':  g.items.length,
+      'Disponible': g.disponible,
+      'Reservado':  g.reservado,
+      'Libre':      g.libre,
+      'Sin stock':  g.agotados,
+    }))
+    resumen.push({
+      'Categoría':  'TOTAL',
+      'Productos':  todos.length,
+      'Disponible': categorias.reduce((s, g) => s + g.disponible, 0),
+      'Reservado':  categorias.reduce((s, g) => s + g.reservado, 0),
+      'Libre':      categorias.reduce((s, g) => s + g.libre, 0),
+      'Sin stock':  categorias.reduce((s, g) => s + g.agotados, 0),
+    })
+
+    const hojas = [
+      { nombre: 'Resumen', filas: resumen },
+      ...categorias.map(g => ({
+        nombre: g.cat,
+        filas: [
+          ...g.items.map(aFila),
+          { 'Producto': `TOTAL ${g.cat}`, 'Disponible': g.disponible, 'Reservado': g.reservado, 'Libre': g.libre },
+        ],
+      })),
+    ]
+
+    const nombreTienda = global
       ? 'todas'
       : (tiendas.value.find(t => t.id == tiendaId.value)?.nombre ?? 'tienda')
         .toLowerCase().replace(/\s+/g, '_')
-    exportarExcel(filas, { nombreArchivo: `inventario_${nombreTienda}`, hoja: 'Inventario' })
+    exportarExcelHojas(hojas, { nombreArchivo: `inventario_${nombreTienda}` })
   } catch (e) {
     toast.error('No se pudo generar el Excel. Intenta de nuevo.')
   } finally {
