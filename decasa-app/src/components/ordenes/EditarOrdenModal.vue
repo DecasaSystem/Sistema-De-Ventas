@@ -2,6 +2,7 @@
 import { ref, computed, watch } from 'vue'
 import { editarOrden, editarPago, buscarProductos, getTiendas } from '@/api/ordenes'
 import { getVariantes } from '@/api/inventario'
+import { getReservaInfo } from '@/api/reserva'
 import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
 import { SPECS_TEMPLATES, resolverCategoria } from '@/constants/specsConfig'
@@ -273,7 +274,21 @@ function elegirVarianteNuevo(v) {
 const nuevoItem        = ref(nuevoItemVacio())
 const nuevoTiendaOrigen = ref(null)   // tienda de la que sale el stock del ítem nuevo
 
+// La Bodega Fábrica no viene en /tiendas: ese endpoint filtra es_fabrica. Se
+// pide aparte y se agrega a mano al selector, igual que en Nueva Orden, para
+// poder sacar de la reserva un producto que en la tienda ya no hay.
+const fabricaId = ref(null)
+
+// "Independientes" agrupa a los vendedores sin tienda: no es una bodega y no
+// tiene stock del que sacar. Mismo criterio que en Nueva Orden.
+const tiendasOrigen = computed(() =>
+  tiendasLista.value.filter(t => !t.es_independientes)
+)
+
 async function cargarTiendas() {
+  if (!fabricaId.value) {
+    try { const { data } = await getReservaInfo(); fabricaId.value = data.id } catch {}
+  }
   if (tiendasLista.value.length) return
   try { const { data } = await getTiendas(); tiendasLista.value = data } catch {}
 }
@@ -523,7 +538,13 @@ function agregarNuevo() {
     fabricar_pedido:  !n.es_custom && n.modo === 'fabricar',
     es_restauracion:  !!n.es_restauracion,
     tienda_origen_id: otraTienda ? nuevoTiendaOrigen.value : null,
-    tienda_origen_nombre: otraTienda ? (tiendasLista.value.find(t => t.id === nuevoTiendaOrigen.value)?.nombre ?? '') : null,
+    // La fábrica no está en tiendasLista (/tiendas la filtra), así que su
+    // nombre no sale de ahí: sin esto el ítem quedaría sin origen visible.
+    tienda_origen_nombre: otraTienda
+      ? (nuevoTiendaOrigen.value === fabricaId.value
+          ? 'Bodega Fábrica'
+          : (tiendasLista.value.find(t => t.id === nuevoTiendaOrigen.value)?.nombre ?? ''))
+      : null,
     specs_personalizacion: Object.keys(specs).length ? specs : null,
     boceto_urls:      [...n.boceto_urls],
     _regalo:          !!n._regalo,
@@ -1420,10 +1441,14 @@ async function guardar() {
                 <label class="block text-[11px] text-gray-500 mb-1">Buscar / sacar stock de</label>
                 <select v-model.number="nuevoTiendaOrigen"
                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                  <option v-for="t in tiendasLista" :key="t.id" :value="t.id">
+                  <option v-for="t in tiendasOrigen" :key="t.id" :value="t.id">
                     {{ t.id === orden.tienda_id ? t.nombre + ' (tienda de la orden)' : t.nombre }}
                   </option>
+                  <option v-if="fabricaId" :value="fabricaId">Bodega Fábrica (Reserva)</option>
                 </select>
+                <p v-if="fabricaId && nuevoTiendaOrigen === fabricaId" class="mt-1 text-xs text-purple-600 font-medium">
+                  Consultando la reserva de fábrica — el producto sale de allá directo al cliente.
+                </p>
               </div>
 
               <!-- Ítems nuevos ya agregados -->
