@@ -543,60 +543,61 @@ async function hojasDeVariantes(tienda) {
     const variantes  = []
     const descuadres = []
 
-    // Agrupar por producto y, dentro, por tipo de variante
-    const porProducto = new Map()
+    // Se agrupa por TIENDA además de por producto y tipo. El stock no se mueve
+    // solo entre tiendas: cada una cuadra o no cuadra por su cuenta, y juntarlas
+    // antes de comparar tapaba los descuadres de una con las unidades de otra.
+    const bloques = new Map()
     for (const f of filas) {
-      if (!porProducto.has(f.producto_id)) porProducto.set(f.producto_id, new Map())
-      const tipos = porProducto.get(f.producto_id)
-      if (!tipos.has(f.tipo)) tipos.set(f.tipo, [])
-      tipos.get(f.tipo).push(f)
+      const clave = `${f.producto_id}|${f.tienda_id}|${f.tipo}`
+      if (!bloques.has(clave)) bloques.set(clave, [])
+      bloques.get(clave).push(f)
     }
 
-    const productos = [...porProducto.entries()].sort((a, b) => {
-      const na = filas.find(f => f.producto_id === a[0])?.producto ?? ''
-      const nb = filas.find(f => f.producto_id === b[0])?.producto ?? ''
-      return na.localeCompare(nb, 'es')
-    })
+    const ordenados = [...bloques.entries()].sort(([, a], [, b]) =>
+      a[0].producto.localeCompare(b[0].producto, 'es')
+      || (a[0].tienda ?? '').localeCompare(b[0].tienda ?? '', 'es')
+      || a[0].tipo.localeCompare(b[0].tipo, 'es'))
 
-    for (const [pid, tipos] of productos) {
-      const ej    = filas.find(f => f.producto_id === pid)
-      const total = Number(totales[pid]?.disponible) || 0
+    for (const [clave, lista] of ordenados) {
+      const ej       = lista[0]
+      const [pid, tid] = clave.split('|')
+      const total    = Number(totales[`${pid}|${tid}`]?.disponible) || 0
+      const asignado = lista.reduce((s, f) => s + (Number(f.disponible) || 0), 0)
 
-      for (const [tipo, lista] of tipos) {
-        const asignado = lista.reduce((s, f) => s + (Number(f.disponible) || 0), 0)
-
-        for (const f of [...lista].sort((a, b) => b.disponible - a.disponible)) {
-          variantes.push({
-            'Producto':   f.producto,
-            'Categoría':  f.categoria ?? '',
-            'Tipo':       tipo,
-            'Variante':   f.variante,
-            'Disponible': Number(f.disponible) || 0,
-            'Reservado':  Number(f.reservado) || 0,
-          })
-        }
-
-        // El renglón que cierra el bloque. Si sale negativo, hay más unidades
-        // marcadas con una tela/medida que unidades en la tienda.
+      for (const f of [...lista].sort((a, b) => b.disponible - a.disponible)) {
         variantes.push({
-          'Producto':   ej?.producto ?? '',
-          'Categoría':  ej?.categoria ?? '',
-          'Tipo':       tipo,
-          'Variante':   total - asignado < 0 ? '⚠ FALTAN UNIDADES' : 'Sin asignar',
-          'Disponible': total - asignado,
-          'Reservado':  '',
+          'Producto':   f.producto,
+          'Tienda':     f.tienda ?? '',
+          'Categoría':  f.categoria ?? '',
+          'Tipo':       f.tipo,
+          'Variante':   f.variante,
+          'Disponible': Number(f.disponible) || 0,
+          'Reservado':  Number(f.reservado) || 0,
         })
+      }
 
-        if (asignado > total) {
-          descuadres.push({
-            'Producto':          ej?.producto ?? '',
-            'Categoría':         ej?.categoria ?? '',
-            'Tipo':              tipo,
-            'Hay en la tienda':  total,
-            'Marcado con variante': asignado,
-            'Sobran marcadas':   asignado - total,
-          })
-        }
+      // El renglón que cierra el bloque. Si sale negativo, en ESA tienda hay
+      // más unidades marcadas con una tela/medida que unidades reales.
+      variantes.push({
+        'Producto':   ej.producto,
+        'Tienda':     ej.tienda ?? '',
+        'Categoría':  ej.categoria ?? '',
+        'Tipo':       ej.tipo,
+        'Variante':   total - asignado < 0 ? '⚠ FALTAN UNIDADES' : 'Sin asignar',
+        'Disponible': total - asignado,
+        'Reservado':  '',
+      })
+
+      if (asignado > total) {
+        descuadres.push({
+          'Producto':             ej.producto,
+          'Tienda':               ej.tienda ?? '',
+          'Categoría':            ej.categoria ?? '',
+          'Tipo':                 ej.tipo,
+          'Hay en la tienda':     total,
+          'Marcado con variante': asignado,
+          'Sobran marcadas':      asignado - total,
+        })
       }
     }
     return { variantes, descuadres }
@@ -685,9 +686,30 @@ async function exportarExcelInventario() {
 
     const { variantes, descuadres } = await hojasDeVariantes(tiendaId.value)
 
+    // En la vista global las hojas de categoría dan el total sumado de todas
+    // las tiendas, que no dice dónde está cada cosa. La API ya trae el reparto
+    // y hasta ahora se descartaba.
+    const porTienda = []
+    if (global) {
+      for (const it of [...todos].sort((a, b) =>
+        (a.producto?.nombre ?? '').localeCompare(b.producto?.nombre ?? '', 'es'))) {
+        for (const t of (it.por_tienda ?? [])) {
+          porTienda.push({
+            'Producto':   it.producto?.nombre ?? '',
+            'Categoría':  it.producto?.categoria ?? '',
+            'Tienda':     t.tienda_nombre ?? '',
+            'Disponible': num(t.cantidad_disponible),
+            'Reservado':  num(t.cantidad_reservada),
+            'Libre':      num(t.cantidad_disponible) - num(t.cantidad_reservada),
+          })
+        }
+      }
+    }
+
     const hojas = [
       { nombre: 'Resumen', filas: resumen },
       ...(descuadres.length ? [{ nombre: 'Descuadres', filas: descuadres }] : []),
+      ...(porTienda.length  ? [{ nombre: 'Por tienda', filas: porTienda  }] : []),
       ...(variantes.length  ? [{ nombre: 'Variantes',  filas: variantes  }] : []),
       ...categorias.map(g => ({
         nombre: g.cat,

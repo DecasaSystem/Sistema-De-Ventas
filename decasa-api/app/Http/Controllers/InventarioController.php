@@ -23,6 +23,13 @@ class InventarioController extends Controller
      * Los dos desgloses (tapizado y medida) son ejes distintos del mismo
      * stock: no se suman entre sí. Por eso cada fila trae su 'tipo' y quien
      * los presente debe cerrarlos por separado.
+     *
+     * SIEMPRE se agrupa por tienda, incluso con tienda_id=todas. Sumar las
+     * tiendas antes de comparar tapaba los descuadres: un producto en cero en
+     * una tienda con una unidad marcada ahí quedaba cubierto por las unidades
+     * de las otras tiendas, y el problema desaparecía del reporte. El stock no
+     * se puede mover solo de una tienda a otra, así que cada tienda cuadra o
+     * no cuadra por su cuenta.
      */
     public function desgloseVariantes(Request $request)
     {
@@ -39,14 +46,17 @@ class InventarioController extends Controller
         $porTapizado = DB::table('inventario_variantes as iv')
             ->join('producto_variantes as pv', 'pv.id', '=', 'iv.variante_id')
             ->join('productos as p', 'p.id', '=', 'pv.producto_id')
+            ->join('tiendas as t', 't.id', '=', 'iv.tienda_id')
             ->where('p.activo', true)
             ->when(! $todas, fn ($q) => $q->where('iv.tienda_id', $tid))
-            ->groupBy('pv.producto_id', 'p.nombre', 'p.categoria', 'pv.id',
-                      'pv.marca', 'pv.marca_tela', 'pv.nombre_color', 'pv.medida')
+            ->groupBy('pv.producto_id', 'p.nombre', 'p.categoria', 'iv.tienda_id', 't.nombre',
+                      'pv.id', 'pv.marca', 'pv.marca_tela', 'pv.nombre_color', 'pv.medida')
             ->select(
                 'pv.producto_id',
                 'p.nombre as producto',
                 'p.categoria',
+                'iv.tienda_id',
+                't.nombre as tienda',
                 'pv.marca', 'pv.marca_tela', 'pv.nombre_color', 'pv.medida',
                 DB::raw('SUM(iv.cantidad_disponible) as disponible'),
                 DB::raw('SUM(iv.cantidad_reservada) as reservado'),
@@ -56,6 +66,8 @@ class InventarioController extends Controller
                 'producto_id' => (int) $r->producto_id,
                 'producto'    => $r->producto,
                 'categoria'   => $r->categoria,
+                'tienda_id'   => (int) $r->tienda_id,
+                'tienda'      => $r->tienda,
                 'tipo'        => 'Tapizado',
                 'variante'    => trim(implode(' · ', array_filter([
                     $r->marca, $r->marca_tela, $r->nombre_color, $r->medida,
@@ -70,13 +82,17 @@ class InventarioController extends Controller
             ->join('tipos_variante as tv', 'tv.id', '=', 'pvc.tipo_variante_id')
             ->join('tipo_variante_opciones as tvo', 'tvo.id', '=', 'pvc.opcion_id')
             ->join('productos as p', 'p.id', '=', 'pvc.producto_id')
+            ->join('tiendas as t', 't.id', '=', 'ivc.tienda_id')
             ->where('p.activo', true)
             ->when(! $todas, fn ($q) => $q->where('ivc.tienda_id', $tid))
-            ->groupBy('pvc.producto_id', 'p.nombre', 'p.categoria', 'tv.nombre', 'tvo.nombre')
+            ->groupBy('pvc.producto_id', 'p.nombre', 'p.categoria', 'ivc.tienda_id', 't.nombre',
+                      'tv.nombre', 'tvo.nombre')
             ->select(
                 'pvc.producto_id',
                 'p.nombre as producto',
                 'p.categoria',
+                'ivc.tienda_id',
+                't.nombre as tienda',
                 'tv.nombre as tipo',
                 'tvo.nombre as opcion',
                 DB::raw('SUM(ivc.cantidad_disponible) as disponible'),
@@ -87,32 +103,37 @@ class InventarioController extends Controller
                 'producto_id' => (int) $r->producto_id,
                 'producto'    => $r->producto,
                 'categoria'   => $r->categoria,
+                'tienda_id'   => (int) $r->tienda_id,
+                'tienda'      => $r->tienda,
                 'tipo'        => $r->tipo,
                 'variante'    => $r->opcion,
                 'disponible'  => (int) $r->disponible,
                 'reservado'   => (int) $r->reservado,
             ]);
 
-        // El total del producto, para poder decir cuánto queda sin asignar
-        $ids = $porTapizado->pluck('producto_id')
-            ->merge($porConfig->pluck('producto_id'))->unique()->values();
+        $filas = $porTapizado->concat($porConfig)->values();
 
-        $totales = $ids->isEmpty() ? collect() : DB::table('inventario')
+        // El total del producto EN CADA TIENDA, para poder decir cuánto queda
+        // sin asignar ahí. La clave es "producto|tienda" justamente para no
+        // poder compararlo nunca contra un total de varias tiendas juntas.
+        $ids = $filas->pluck('producto_id')->unique()->values();
+
+        $totales = $ids->isEmpty() ? [] : DB::table('inventario')
             ->whereIn('producto_id', $ids)
             ->when(! $todas, fn ($q) => $q->where('tienda_id', $tid))
-            ->groupBy('producto_id')
-            ->select('producto_id',
-                DB::raw('SUM(cantidad_disponible) as disponible'),
-                DB::raw('SUM(cantidad_reservada) as reservado'))
+            ->select('producto_id', 'tienda_id', 'cantidad_disponible', 'cantidad_reservada')
             ->get()
-            ->keyBy('producto_id');
+            ->mapWithKeys(fn ($r) => [
+                $r->producto_id.'|'.$r->tienda_id => [
+                    'disponible' => (int) $r->cantidad_disponible,
+                    'reservado'  => (int) $r->cantidad_reservada,
+                ],
+            ])
+            ->all();
 
         return response()->json([
-            'filas'   => $porTapizado->concat($porConfig)->values(),
-            'totales' => $ids->mapWithKeys(fn ($id) => [$id => [
-                'disponible' => (int) ($totales[$id]->disponible ?? 0),
-                'reservado'  => (int) ($totales[$id]->reservado  ?? 0),
-            ]]),
+            'filas'   => $filas,
+            'totales' => (object) $totales,
         ]);
     }
 
