@@ -129,6 +129,23 @@ const totalEstimado = computed(() =>
   Math.max(0, baseCondEdit.value - descCondEdit.value)
 )
 
+// ── Consulta de costo dejada activada por error ──────────────────────────────
+// La orden está trabada esperando al supervisor. El backend la destraba solo
+// cuando NINGÚN ítem personalizado sigue en cero, así que aquí se cuenta lo
+// que falta para poder decirlo antes de guardar.
+const itemsEsperandoCosto = computed(() =>
+  items.value.filter(i => i._esperaCosto && !itemsEliminar.value.includes(i.id))
+)
+const faltanPreciosPorPoner = computed(() =>
+  itemsEsperandoCosto.value.filter(i => !(Number(i.precio_unitario) > 0))
+)
+/** Se le puso precio a todo lo que faltaba: al guardar, la orden se destraba. */
+const seDestrabaAlGuardar = computed(() =>
+  props.orden?.estado === 'pendiente_cotizacion'
+  && itemsEsperandoCosto.value.length > 0
+  && faltanPreciosPorPoner.value.length === 0
+)
+
 /** El total quedaría en cero: casi siempre es una digitación mal puesta. */
 const totalEditEnCero = computed(() =>
   subtotalEstimado.value > 0 && totalEstimado.value === 0
@@ -621,6 +638,12 @@ watch(() => props.show, (v) => {
       // no cortesía.
       _regalo: Number(item.precio_unitario) === 0
                && props.orden.estado !== 'pendiente_cotizacion',
+      // Se dejó activado "consultar costo" y la orden quedó esperando al
+      // supervisor. Se marca al abrir, no sobre el precio que se está
+      // escribiendo, para que el aviso no desaparezca al teclear el primer dígito.
+      _esperaCosto: props.orden.estado === 'pendiente_cotizacion'
+                    && item.es_personalizado
+                    && Number(item.precio_unitario) === 0,
       fecha_entrega_prom: item.fecha_entrega_prom
         ? String(item.fecha_entrega_prom).substring(0, 10)
         : '',
@@ -1127,6 +1150,29 @@ async function guardar() {
 
               <!-- Campos de edición (ocultos si marcado para eliminar) -->
               <template v-if="!itemsEliminar.includes(item.id)">
+
+              <!-- Se dejó "consultar costo" activado y la orden quedó esperando -->
+              <div
+                v-if="item._esperaCosto"
+                class="rounded-lg p-2.5 text-xs border"
+                :class="Number(item.precio_unitario) > 0
+                  ? 'bg-green-50 border-green-200 text-green-800'
+                  : 'bg-amber-50 border-amber-200 text-amber-800'"
+              >
+                <template v-if="Number(item.precio_unitario) > 0">
+                  <p class="font-semibold">Ya no hay que consultarlo</p>
+                  <p class="mt-0.5">
+                    Al guardar se le quita de la lista al supervisor.
+                  </p>
+                </template>
+                <template v-else>
+                  <p class="font-semibold">Esperando el costo del supervisor</p>
+                  <p class="mt-0.5">
+                    Si ya sabes cuánto vale, escríbelo aquí abajo y la orden sigue
+                    su curso sin esperar.
+                  </p>
+                </template>
+              </div>
 
               <!-- Precio + fecha -->
               <div class="grid grid-cols-2 gap-3">
@@ -1707,6 +1753,33 @@ async function guardar() {
                 Revisa si el campo está en <strong>%</strong>: escribir 90000 ahí son 90.000 por ciento.
               </p>
             </div>
+            <!-- Qué va a pasar con la consulta de costo al guardar -->
+            <div
+              v-if="itemsEsperandoCosto.length"
+              class="rounded-lg px-3 py-2 text-xs leading-snug border"
+              :class="seDestrabaAlGuardar
+                ? 'bg-green-50 border-green-300 text-green-800'
+                : 'bg-amber-50 border-amber-300 text-amber-800'"
+            >
+              <template v-if="seDestrabaAlGuardar">
+                <p class="font-semibold">Al guardar, la orden deja de esperar el costo.</p>
+                <p>
+                  Pasa a espera de anticipo, se le asigna el número y se le quita
+                  al supervisor de sus consultas pendientes.
+                </p>
+              </template>
+              <template v-else>
+                <p class="font-semibold">
+                  {{ faltanPreciosPorPoner.length === 1
+                     ? 'Falta el precio de 1 ítem.'
+                     : `Faltan los precios de ${faltanPreciosPorPoner.length} ítems.` }}
+                </p>
+                <p>
+                  Mientras alguno siga en $0, la orden sigue esperando al supervisor.
+                </p>
+              </template>
+            </div>
+
             <!-- Total estimado -->
             <div class="flex items-center justify-between text-sm">
               <span class="text-gray-500">
