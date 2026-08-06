@@ -16,7 +16,7 @@ import { cloudinaryOpt } from '@/utils/cloudinary'
 import { comprimirImagen } from '@/utils/comprimirImagen'
 import { pctDeMonto, montoDePct, formatPct } from '@/utils/descuentos'
 import { ArrowPathIcon, SparklesIcon, XMarkIcon } from '@heroicons/vue/24/solid'
-import { ArrowPathIcon as ArrowPathOutlineIcon, PhotoIcon, UserGroupIcon, ArrowPathIcon as ConvertIcon, ExclamationTriangleIcon, PencilIcon, MapPinIcon, SwatchIcon, CurrencyDollarIcon, PlusIcon, GiftIcon, ChevronDownIcon } from '@heroicons/vue/24/outline'
+import { ArrowPathIcon as ArrowPathOutlineIcon, PhotoIcon, UserGroupIcon, BuildingStorefrontIcon, ArrowPathIcon as ConvertIcon, ExclamationTriangleIcon, PencilIcon, MapPinIcon, SwatchIcon, CurrencyDollarIcon, PlusIcon, GiftIcon, ChevronDownIcon } from '@heroicons/vue/24/outline'
 import { getReceptores, crearConsulta } from '@/api/consultas'
 import FirmaCanvas from '@/components/FirmaCanvas.vue'
 import BocetoCanvas from '@/components/BocetoCanvas.vue'
@@ -1213,6 +1213,13 @@ const notas                = ref('')
 const fechaSugeridaVendedor = ref('')
 const esCompartida         = ref(false)
 const covendedorId         = ref(null)
+
+// Un independiente que cierra una venta con el contacto de un almacen: la
+// mitad se le abona a esa tienda para su meta y la otra mitad queda para el.
+const tiendaAbonadaId = ref(null)
+const tiendasAbonables = computed(() =>
+  tiendas.value.filter(t => !t.es_fabrica && !t.es_independientes && t.id !== tiendaId.value)
+)
 const vendedoresLista      = ref([])
 const cargandoVendedores   = ref(false)
 const submitting           = ref(false)
@@ -1583,6 +1590,7 @@ async function submit() {
       notas:                notas.value || undefined,
       fecha_sugerida_vendedor: fechaSugeridaVendedor.value || undefined,
       es_compartida:        esCompartida.value || undefined,
+      tienda_abonada_id:    (auth.isIndependiente && tiendaAbonadaId.value) ? tiendaAbonadaId.value : undefined,
       covendedor_id:        (esCompartida.value && covendedorId.value) ? covendedorId.value : undefined,
       factura_foto_url:     facturaFotoUrl.value  || undefined,
       firma_url:            firmaUrl.value        || undefined,
@@ -3664,6 +3672,46 @@ function removeFacturaFoto() {
             Podrás registrar el anticipo desde el detalle de la orden cuando el cliente acepte.
           </p>
         </div>
+      </div>
+
+      <!-- Media venta abonada a una tienda (solo independientes) -->
+      <div v-if="auth.isIndependiente" class="bg-white rounded-xl shadow-sm p-4 space-y-3">
+        <div class="flex items-center gap-2">
+          <BuildingStorefrontIcon class="w-5 h-5 text-emerald-500" />
+          <span class="text-sm font-semibold text-gray-700">¿Un almacén te pasó el contacto?</span>
+        </div>
+        <p class="text-xs text-gray-500 -mt-1">
+          Si esta venta salió de un contacto que te dio un almacén, la mitad se le
+          abona a ellos para su meta y la otra mitad queda tuya.
+        </p>
+
+        <div class="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            @click="tiendaAbonadaId = null"
+            :class="['px-3 py-2 rounded-lg border text-sm font-medium transition-colors',
+              !tiendaAbonadaId
+                ? 'border-emerald-500 bg-emerald-50 text-emerald-800'
+                : 'border-gray-200 bg-white text-gray-600 hover:border-emerald-300']"
+          >No, es solo mía</button>
+          <button
+            v-for="t in tiendasAbonables"
+            :key="t.id"
+            type="button"
+            @click="tiendaAbonadaId = t.id"
+            :class="['px-3 py-2 rounded-lg border text-sm font-medium transition-colors',
+              tiendaAbonadaId === t.id
+                ? 'border-emerald-500 bg-emerald-50 text-emerald-800'
+                : 'border-gray-200 bg-white text-gray-600 hover:border-emerald-300']"
+          >{{ t.nombre }}</button>
+        </div>
+
+        <p v-if="tiendaAbonadaId && valorTotal > 0" class="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+          De ${{ Number(valorTotal).toLocaleString('es-CO') }}:
+          <strong>${{ Math.round(valorTotal / 2).toLocaleString('es-CO') }}</strong> para
+          {{ tiendasAbonables.find(t => t.id === tiendaAbonadaId)?.nombre }} y
+          <strong>${{ Math.round(valorTotal / 2).toLocaleString('es-CO') }}</strong> para ti.
+        </p>
       </div>
 
       <!-- Venta compartida -->

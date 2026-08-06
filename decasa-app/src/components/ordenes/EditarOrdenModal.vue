@@ -49,6 +49,7 @@ const vendedorId    = ref(null)
 const tiendaId      = ref(null)
 const covendedorId  = ref(null)
 const esCompartida  = ref(false)
+const tiendaAbonadaId = ref(null)   // media venta abonada a una tienda
 const tiendasLista    = ref([])
 const vendedoresLista = ref([])
 
@@ -282,6 +283,15 @@ const fabricaId = ref(null)
 
 // "Independientes" agrupa a los vendedores sin tienda: no es una bodega y no
 // tiene stock del que sacar. Mismo criterio que en Nueva Orden.
+/** El vendedor de la orden (o el que se esta poniendo) es independiente? */
+const vendedorEsIndependiente = computed(() => {
+  const id = vendedorId.value ?? props.orden?.vendedor_id
+  return !!vendedoresLista.value.find(v => v.id === id)?.independiente
+})
+const tiendasAbonables = computed(() =>
+  tiendasLista.value.filter(t => !t.es_fabrica && !t.es_independientes && t.id !== tiendaId.value)
+)
+
 const tiendasOrigen = computed(() =>
   tiendasLista.value.filter(t => !t.es_independientes)
 )
@@ -659,6 +669,7 @@ watch(() => props.show, (v) => {
   tiendaId.value     = props.orden.tienda_id ?? null
   covendedorId.value = props.orden.covendedor_id ?? null
   esCompartida.value = !!props.orden.es_compartida
+  tiendaAbonadaId.value = props.orden.tienda_abonada_id ?? null
   if (esSupervisor.value) cargarListasSupervisor()
 
   itemsEliminar.value  = []
@@ -908,6 +919,8 @@ async function guardar() {
       if (tiendaId.value !== (props.orden.tienda_id ?? null)) payload.tienda_id = tiendaId.value
       if (covendedorId.value !== (props.orden.covendedor_id ?? null)) payload.covendedor_id = covendedorId.value
       if (esCompartida.value !== !!props.orden.es_compartida) payload.es_compartida = esCompartida.value
+      if ((tiendaAbonadaId.value ?? null) !== (props.orden.tienda_abonada_id ?? null))
+        payload.tienda_abonada_id = tiendaAbonadaId.value || null
     }
 
     const { data } = await editarOrden(props.orden.id, payload)
@@ -1163,6 +1176,24 @@ async function guardar() {
                 <input type="checkbox" v-model="esCompartida" />
                 Venta compartida
               </label>
+
+              <!-- Media venta abonada a una tienda: solo si el vendedor es
+                   independiente, que es quien cierra con contactos de almacen -->
+              <div v-if="vendedorEsIndependiente">
+                <label class="block text-xs font-medium text-gray-600 mb-1">
+                  Mitad de la venta abonada a
+                </label>
+                <select
+                  v-model.number="tiendaAbonadaId"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                >
+                  <option :value="null">Nadie — la venta entera es del vendedor</option>
+                  <option v-for="t in tiendasAbonables" :key="t.id" :value="t.id">{{ t.nombre }}</option>
+                </select>
+                <p v-if="tiendaAbonadaId" class="text-[11px] text-emerald-700 mt-1">
+                  La mitad se le suma a esa tienda para su meta; la otra mitad queda para el vendedor.
+                </p>
+              </div>
               <div v-if="esCompartida">
                 <label class="block text-xs font-medium text-gray-600 mb-1">Co-vendedor</label>
                 <select
