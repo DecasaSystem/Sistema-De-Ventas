@@ -593,6 +593,36 @@ function getTemplate(item) {
   return SPECS_TEMPLATES[key] ?? SPECS_TEMPLATES['generico']
 }
 
+// Nombres legibles de campos que se guardan pero que ninguna plantilla declara
+const ETIQUETAS_SUELTAS = {
+  descripcion_trabajo: 'Trabajo a realizar',
+  variante_marca:      'Marca de la tela',
+  variante_color:      'Color de la tela',
+  descripcion:         'Descripción',
+  trabajo:             'Trabajo',
+}
+
+/**
+ * Lo que el ítem tiene guardado y su plantilla no dibuja.
+ *
+ * La plantilla sale de adivinar la categoría por el nombre, así que puede no
+ * coincidir con la de quien lo creó: una restauración de un "MODULAR TORONTO"
+ * cae en la plantilla de modulares, que no tiene "Trabajo a realizar", y el
+ * texto que escribió el vendedor quedaba guardado pero invisible — no había
+ * forma de corregir ni una letra.
+ *
+ * Se guardaban bien y se mandaban de vuelta al guardar; solo faltaba pintarlos.
+ */
+function specsSueltas(item) {
+  const conocidas = new Set((getTemplate(item).campos ?? []).map(c => c.key))
+  return Object.keys(item.specs ?? {})
+    .filter(k => ! conocidas.has(k))
+    .map(k => ({
+      key:   k,
+      label: ETIQUETAS_SUELTAS[k] ?? (k.charAt(0).toUpperCase() + k.slice(1).replace(/_/g, ' ')),
+    }))
+}
+
 // product search per item
 const buscando  = ref({})
 const resultados = ref({})
@@ -1375,6 +1405,17 @@ async function guardar() {
                         />
                       </div>
                     </template>
+                  </div>
+
+                  <!-- Lo que se guardó pero la plantilla de esta categoría no
+                       dibuja: sin esto quedaba escrito e imposible de corregir -->
+                  <div v-for="extra in specsSueltas(item)" :key="extra.key">
+                    <label class="block text-xs font-medium text-gray-600 mb-1">{{ extra.label }}</label>
+                    <textarea
+                      v-model="item.specs[extra.key]"
+                      rows="2"
+                      class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                    />
                   </div>
 
                   <div>
