@@ -688,9 +688,10 @@ watch(() => props.show, (v) => {
       // deduce del precio, que es la única señal que hay. Se excluyen las
       // órdenes que esperan precio, donde el 0 significa "todavía sin cotizar",
       // no cortesía.
-      _regalo: Number(item.precio_unitario) === 0
-               && props.orden.estado !== 'pendiente_cotizacion',
-      // Se dejó activado "consultar costo" y la orden quedó esperando al
+      // Ya viene guardado: antes se adivinaba por el precio, y en $0 esta
+      // tanto el obsequio como lo que espera cotizacion.
+      _regalo: item.es_regalo ?? (Number(item.precio_unitario) === 0
+               && props.orden.estado !== 'pendiente_cotizacion'),      // Se dejó activado "consultar costo" y la orden quedó esperando al
       // supervisor. Se marca al abrir, no sobre el precio que se está
       // escribiendo, para que el aviso no desaparezca al teclear el primer dígito.
       _esperaCosto: props.orden.estado === 'pendiente_cotizacion'
@@ -858,6 +859,7 @@ async function guardar() {
             id:               item.id,
             precio_unitario:  precioEfectivo(item),
             fecha_entrega_prom: item.fecha_entrega_prom || null,
+            es_regalo:        !!item._regalo,
           }
           if (item.es_personalizado) {
             const s = { ...item.specs }
@@ -894,6 +896,7 @@ async function guardar() {
             es_personalizado: i.es_personalizado || undefined,
             fabricar_pedido:  i.fabricar_pedido || undefined,
             es_restauracion:  i.es_restauracion || undefined,
+            es_regalo:        i._regalo || undefined,
             specs_personalizacion: i.specs_personalizacion ?? undefined,
             boceto_urls:      i.boceto_urls?.length ? i.boceto_urls : undefined,
           }))

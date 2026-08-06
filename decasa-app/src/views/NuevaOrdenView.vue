@@ -1602,6 +1602,9 @@ async function submit() {
         es_personalizado:        i.es_personalizado,
         fabricar_pedido:         i._fabricar_pedido || undefined,
         es_restauracion:         i._es_restauracion || undefined,
+        // El obsequio se manda, no se deduce del precio: en $0 tambien esta
+        // lo que todavia espera cotizacion, y son cosas distintas.
+        es_regalo:               i._regalo || undefined,
         fecha_entrega_prometida: i.fecha_entrega_prometida || undefined,
         specs_personalizacion:   i.es_personalizado
           ? (() => {

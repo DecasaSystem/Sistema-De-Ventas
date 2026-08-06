@@ -219,6 +219,7 @@ class OrdenController extends Controller
             'items.*.es_personalizado'           => 'nullable|boolean',
             'items.*.fabricar_pedido'            => 'nullable|boolean',
             'items.*.es_restauracion'            => 'nullable|boolean',
+            'items.*.es_regalo'                  => 'nullable|boolean',
             'items.*.usa_stock_tienda'           => 'nullable|boolean',
             'items.*.specs_personalizacion'      => 'nullable|array',
             'items.*.boceto_url'                 => 'nullable|string|max:500',
@@ -295,8 +296,13 @@ class OrdenController extends Controller
         $valorTotal = $baseCondicionado - $descuentoCondicionado;
 
         // Detectar si hay ítems personalizados sin precio (cotización pendiente)
+        // Un obsequio tambien va en $0, y no espera ningun precio. Antes se
+        // miraba solo el precio, asi que una venta con un regalo quedaba
+        // atrapada esperando una cotizacion que nadie iba a mandar.
         $tieneItemsCotizacionPendiente = collect($data['items'])->contains(
-            fn($i) => ($i['es_personalizado'] ?? false) && (($i['precio_unitario'] ?? 0) == 0)
+            fn($i) => ($i['es_personalizado'] ?? false)
+                      && (($i['precio_unitario'] ?? 0) == 0)
+                      && ! ($i['es_regalo'] ?? false)
         );
 
         if (! $guardarBorrador) {
@@ -430,6 +436,7 @@ class OrdenController extends Controller
                     'es_personalizado'      => $esPersonalizado || $esProductoCustom,
                     'fabricar_pedido'       => (bool) ($itemData['fabricar_pedido'] ?? false) && ! $esProductoCustom,
                     'es_restauracion'       => (bool) ($itemData['es_restauracion'] ?? false),
+                    'es_regalo'             => (bool) ($itemData['es_regalo'] ?? false),
                     'specs_personalizacion' => $specsExtra,
                     'boceto_url'            => isset($itemData['boceto_urls'])
                         ? (array_values(array_filter($itemData['boceto_urls']))[0] ?? null)
@@ -958,6 +965,7 @@ class OrdenController extends Controller
             'items_nuevos.*.es_personalizado'    => 'nullable|boolean',
             'items_nuevos.*.fabricar_pedido'     => 'nullable|boolean',
             'items_nuevos.*.es_restauracion'     => 'nullable|boolean',
+            'items_nuevos.*.es_regalo'            => 'nullable|boolean',
             'items_nuevos.*.specs_personalizacion' => 'nullable|array',
             'items_nuevos.*.boceto_urls'         => 'nullable|array|max:10',
             'items_nuevos.*.boceto_urls.*'       => 'nullable|string|max:500',
@@ -1333,6 +1341,7 @@ class OrdenController extends Controller
                         'es_personalizado'      => $esPersonalizado,
                         'fabricar_pedido'       => $fabricarPedido,
                         'es_restauracion'       => (bool) ($nuevoData['es_restauracion'] ?? false),
+                        'es_regalo'             => (bool) ($nuevoData['es_regalo'] ?? false),
                         'tienda_origen_id'      => $esPersonalizado ? null : ($origenId !== (int) $orden->tienda_id ? $origenId : null),
                         'specs_personalizacion' => $nuevoData['specs_personalizacion'] ?? null,
                         'boceto_url'            => $bocetos[0] ?? null,
@@ -1453,6 +1462,7 @@ class OrdenController extends Controller
                 $orden->refresh()->load('items');
                 $faltaPrecio = $orden->items->contains(
                     fn ($i) => $i->es_personalizado && (float) $i->precio_unitario == 0.0
+                               && ! $i->es_regalo
                 );
                 if (! $faltaPrecio) {
                     $updateOrden['estado'] = 'pendiente_anticipo';
@@ -1667,7 +1677,7 @@ class OrdenController extends Controller
         }
 
         $tieneItemsCotizacion = $orden->items->contains(
-            fn($i) => $i->es_personalizado && $i->precio_unitario == 0
+            fn($i) => $i->es_personalizado && $i->precio_unitario == 0 && ! $i->es_regalo
         );
 
         // No se fuerza un mínimo — el vendedor puede poner cualquier monto ≥ 0
@@ -1757,7 +1767,7 @@ class OrdenController extends Controller
             ->get();
 
         $tieneItemsCotizPendiente = $ordenFresh->items->contains(
-            fn($i) => $i->es_personalizado && (float) $i->precio_unitario === 0.0
+            fn($i) => $i->es_personalizado && (float) $i->precio_unitario === 0.0 && ! $i->es_regalo
         );
 
         foreach ($supervisores as $sup) {

@@ -464,6 +464,7 @@ class CotizacionController extends Controller
 
             $tieneItemsSinPrecio = $cotizacion->items->contains(
                 fn($i) => $i->es_personalizado && (float) $i->precio_unitario === 0.0
+                          && ! $i->es_regalo
             );
 
             // 4. La cotización se transforma en orden: misma fila, sin duplicar ítems.
