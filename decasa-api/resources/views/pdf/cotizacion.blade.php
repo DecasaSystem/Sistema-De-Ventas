@@ -119,8 +119,8 @@
                             @endif
                         </td>
                         <td style="padding: 8px; text-align: center;">{{ $item->cantidad }}</td>
-                        <td style="padding: 8px; text-align: right;">$ {{ number_format($item->precio_unitario, 2) }}</td>
-                        <td style="padding: 8px; text-align: right; font-weight: bold;">$ {{ number_format($item->cantidad * $item->precio_unitario, 2) }}</td>
+                        <td style="padding: 8px; text-align: right;">$ {{ number_format($item->precio_unitario, 0, ',', '.') }}</td>
+                        <td style="padding: 8px; text-align: right; font-weight: bold;">$ {{ number_format($item->cantidad * $item->precio_unitario, 0, ',', '.') }}</td>
                     </tr>
                 @endforeach
             </tbody>
@@ -128,16 +128,16 @@
                 @if($cotizacion->descuento_total > 0)
                 <tr>
                     <td colspan="4" style="padding: 6px 8px; text-align: right; font-size: 11px; color: #6b7280;">Subtotal:</td>
-                    <td style="padding: 6px 8px; text-align: right; font-size: 11px; color: #6b7280;">$ {{ number_format($cotizacion->valor_total + $cotizacion->descuento_total, 2) }}</td>
+                    <td style="padding: 6px 8px; text-align: right; font-size: 11px; color: #6b7280;">$ {{ number_format($cotizacion->valor_total + $cotizacion->descuento_total, 0, ',', '.') }}</td>
                 </tr>
                 <tr>
                     <td colspan="4" style="padding: 6px 8px; text-align: right; font-size: 11px; color: #059669;">Descuento:</td>
-                    <td style="padding: 6px 8px; text-align: right; font-size: 11px; color: #059669;">− $ {{ number_format($cotizacion->descuento_total, 2) }}</td>
+                    <td style="padding: 6px 8px; text-align: right; font-size: 11px; color: #059669;">− $ {{ number_format($cotizacion->descuento_total, 0, ',', '.') }}</td>
                 </tr>
                 @endif
                 <tr style="background-color: #faf5ff;">
                     <td colspan="4" style="padding: 8px; text-align: right; font-weight: bold;">TOTAL COTIZADO:</td>
-                    <td style="padding: 8px; text-align: right; font-weight: bold; font-size: 13px; color: #7c3aed;">$ {{ number_format($cotizacion->valor_total, 2) }}</td>
+                    <td style="padding: 8px; text-align: right; font-weight: bold; font-size: 13px; color: #7c3aed;">$ {{ number_format($cotizacion->valor_total, 0, ',', '.') }}</td>
                 </tr>
             </tfoot>
         </table>

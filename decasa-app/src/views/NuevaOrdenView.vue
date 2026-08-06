@@ -1,5 +1,6 @@
 <script setup>
 import IconoS from '@/components/common/IconoS.vue'
+import InputPesos from '@/components/common/InputPesos.vue'
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
@@ -2407,12 +2408,11 @@ function removeFacturaFoto() {
           </div>
           <div>
             <label class="text-xs text-gray-600 mb-1 block">Precio base *</label>
-            <input
-              v-model.number="crearProductoForm.precio_base"
-              type="number" min="0"
+            <InputPesos
+              v-model="crearProductoForm.precio_base" permite-vacio
               class="input text-sm"
               placeholder="0"
-            />
+              />
           </div>
         </div>
 
@@ -2585,7 +2585,8 @@ function removeFacturaFoto() {
             </div>
             <div>
               <label class="text-xs text-gray-500">Precio</label>
-              <input v-model.number="restauracionItem.precio_unitario" type="number" min="0" placeholder="0" class="input text-sm" />
+              <InputPesos v-model="restauracionItem.precio_unitario" permite-vacio placeholder="0" class="input text-sm"
+              />
             </div>
           </div>
 
@@ -2752,10 +2753,9 @@ function removeFacturaFoto() {
                 <CurrencyDollarIcon class="w-4 h-4 text-violet-500 flex-shrink-0" />
                 <span class="text-xs text-violet-700 font-medium">Por definir</span>
               </div>
-              <input
+              <InputPesos
                 v-else
-                v-model.number="item.precio_unitario"
-                type="number" min="0"
+                v-model="item.precio_unitario"
                 :class="['input text-sm', item.es_personalizado && !item.precio_unitario ? 'border-amber-400 bg-amber-50' : '']"
               />
             </div>
@@ -2790,7 +2790,14 @@ function removeFacturaFoto() {
               >{{ m.t }}</button>
             </div>
 
+            <InputPesos
+              v-if="(item._descuento_modo ?? 'monto') !== 'pct'"
+              v-model="item._descuento_valor"
+              placeholder="0"
+              class="w-24 input text-sm text-right"
+            />
             <input
+              v-else
               v-model.number="item._descuento_valor"
               type="number"
               min="0"
@@ -3070,13 +3077,11 @@ function removeFacturaFoto() {
                 <label class="block text-xs font-medium text-gray-500 mb-1">
                   Precio de referencia <span class="font-normal text-gray-400">(opcional — si sabes cuánto costó uno similar)</span>
                 </label>
-                <input
-                  v-model.number="item._precioReferencia"
-                  type="number"
-                  min="0"
+                <InputPesos
+                  v-model="item._precioReferencia"
                   placeholder="ej: 11000000"
                   class="w-full rounded-lg border border-purple-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
-                />
+              />
               </div>
 
               <button
@@ -3194,7 +3199,14 @@ function removeFacturaFoto() {
                 >{{ p }}%</button>
               </template>
 
+              <InputPesos
+                v-if="descuentoModo !== 'pct'"
+                v-model="descuentoInput"
+                placeholder="0"
+                :class="['input text-sm text-right', descuentoModo === 'pct' ? 'w-16' : 'w-28']"
+              />
               <input
+                v-else
                 v-model.number="descuentoInput"
                 type="number" min="0"
                 :max="descuentoModo === 'pct' ? 100 : null"
@@ -3234,7 +3246,14 @@ function removeFacturaFoto() {
                   >{{ p }}%</button>
                 </template>
 
-                <input
+                <InputPesos
+                v-if="descuentoCondModo !== 'pct'"
+                v-model="descuentoCondInput"
+                placeholder="0"
+                :class="['input text-sm text-right', descuentoCondModo === 'pct' ? 'w-16' : 'w-28']"
+              />
+              <input
+                v-else
                   v-model.number="descuentoCondInput"
                   type="number" min="0"
                   :max="descuentoCondModo === 'pct' ? 100 : null"
@@ -3541,7 +3560,8 @@ function removeFacturaFoto() {
         <template v-if="!pagoSplit">
           <div>
             <label class="label">Monto anticipo</label>
-            <input v-model.number="anticipo_monto" type="number" min="0" class="input" />
+            <InputPesos v-model="anticipo_monto" class="input"
+              />
             <p v-if="valorTotal > 0 && anticipo_monto > 0" class="mt-1 text-xs text-gray-400">
               = {{ anticipoPctActual }}% del total
             </p>
@@ -3587,7 +3607,8 @@ function removeFacturaFoto() {
             <p class="text-xs font-semibold text-blue-700">Primer pago</p>
             <div>
               <label class="label">Monto</label>
-              <input v-model.number="anticipo_monto1_input" type="number" min="0" :max="anticipo_monto" class="input" placeholder="0" />
+              <InputPesos v-model="anticipo_monto1_input" class="input" placeholder="0"
+              />
               <p v-if="anticipo_monto1_input > anticipo_monto" class="text-xs text-red-500 mt-1">No puede superar el total</p>
             </div>
             <div>

@@ -1,5 +1,6 @@
 <script setup>
 import IconoS from '@/components/common/IconoS.vue'
+import InputPesos from '@/components/common/InputPesos.vue'
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useToast } from '@/composables/useToast'
@@ -757,7 +758,8 @@ onMounted(cargar)
             <!-- Anticipo -->
             <div class="space-y-2 pt-1">
               <p class="text-xs font-semibold text-gray-700">Anticipo</p>
-              <input v-model.number="form.anticipo_monto" type="number" min="0" placeholder="Monto" class="input text-sm" />
+              <InputPesos v-model="form.anticipo_monto" placeholder="Monto" class="input text-sm"
+              />
               <select v-model="form.anticipo_metodo" class="input text-sm">
                 <option value="efectivo">Efectivo</option>
                 <option value="transferencia">Transferencia</option>

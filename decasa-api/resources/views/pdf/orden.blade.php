@@ -86,15 +86,15 @@
                     <table style="width: 100%; font-size: 10px;">
                         <tr>
                             <td style="padding: 2px 0;"><strong>Total:</strong></td>
-                            <td style="text-align: right; font-weight: bold;">$ {{ number_format($orden->valor_total, 2) }}</td>
+                            <td style="text-align: right; font-weight: bold;">$ {{ number_format($orden->valor_total, 0, ',', '.') }}</td>
                         </tr>
                         <tr>
                             <td style="padding: 2px 0;"><strong>Pagado:</strong></td>
-                            <td style="text-align: right; color: #16a34a; font-weight: bold;">$ {{ number_format($orden->total_pagado, 2) }}</td>
+                            <td style="text-align: right; color: #16a34a; font-weight: bold;">$ {{ number_format($orden->total_pagado, 0, ',', '.') }}</td>
                         </tr>
                         <tr>
                             <td style="padding: 2px 0;"><strong>Saldo:</strong></td>
-                            <td style="text-align: right; color: #dc2626; font-weight: bold;">$ {{ number_format($orden->saldo_pendiente, 2) }}</td>
+                            <td style="text-align: right; color: #dc2626; font-weight: bold;">$ {{ number_format($orden->saldo_pendiente, 0, ',', '.') }}</td>
                         </tr>
                     </table>
                     <div style="margin-top: 5px;">
@@ -167,8 +167,8 @@
                             @endif
                         </td>
                         <td style="padding: 4px 5px; text-align: center;">{{ $item->cantidad }}</td>
-                        <td style="padding: 4px 5px; text-align: right;">$ {{ number_format($item->precio_unitario, 2) }}</td>
-                        <td style="padding: 4px 5px; text-align: right; font-weight: bold;">$ {{ number_format($item->cantidad * $item->precio_unitario, 2) }}</td>
+                        <td style="padding: 4px 5px; text-align: right;">$ {{ number_format($item->precio_unitario, 0, ',', '.') }}</td>
+                        <td style="padding: 4px 5px; text-align: right; font-weight: bold;">$ {{ number_format($item->cantidad * $item->precio_unitario, 0, ',', '.') }}</td>
                         <td style="padding: 4px 5px; text-align: center; font-size: 9px; color: {{ $item->fecha_entrega_prom ? '#374151' : '#9ca3af' }};">
                             {{ $item->fecha_entrega_prom ? \Carbon\Carbon::parse($item->fecha_entrega_prom)->format('d/m/Y') : '—' }}
                         </td>
@@ -190,7 +190,7 @@
                 @if($orden->descuento_total > 0 || $orden->descuento_condicionado > 0)
                 <tr>
                     <td colspan="4" style="padding: 3px 5px; text-align: right; font-size: 10px; color: #6b7280;">Subtotal:</td>
-                    <td style="padding: 3px 5px; text-align: right; font-size: 10px; color: #6b7280;">$ {{ number_format($subtotalBruto, 2) }}</td>
+                    <td style="padding: 3px 5px; text-align: right; font-size: 10px; color: #6b7280;">$ {{ number_format($subtotalBruto, 0, ',', '.') }}</td>
                     <td></td>
                 </tr>
                 @endif
@@ -200,7 +200,7 @@
                     <td colspan="4" style="padding: 3px 5px; text-align: right; font-size: 10px; color: #059669;">
                         Descuento ({{ $pctTexto($orden->descuento_total) }}%):
                     </td>
-                    <td style="padding: 3px 5px; text-align: right; font-size: 10px; color: #059669;">− $ {{ number_format($orden->descuento_total, 2) }}</td>
+                    <td style="padding: 3px 5px; text-align: right; font-size: 10px; color: #059669;">− $ {{ number_format($orden->descuento_total, 0, ',', '.') }}</td>
                     <td></td>
                 </tr>
                 @endif
@@ -210,13 +210,13 @@
                     <td colspan="4" style="padding: 3px 5px; text-align: right; font-size: 10px; color: #059669;">
                         Descuento por pago en efectivo o transferencia ({{ $pctTexto($orden->descuento_condicionado) }}%):
                     </td>
-                    <td style="padding: 3px 5px; text-align: right; font-size: 10px; color: #059669;">− $ {{ number_format($orden->descuento_condicionado, 2) }}</td>
+                    <td style="padding: 3px 5px; text-align: right; font-size: 10px; color: #059669;">− $ {{ number_format($orden->descuento_condicionado, 0, ',', '.') }}</td>
                     <td></td>
                 </tr>
                 @endif
                 <tr style="background-color: #eff6ff;">
                     <td colspan="4" style="padding: 5px; text-align: right; font-weight: bold;">TOTAL:</td>
-                    <td style="padding: 5px; text-align: right; font-weight: bold; font-size: 12px; color: #2563eb;">$ {{ number_format($orden->valor_total, 2) }}</td>
+                    <td style="padding: 5px; text-align: right; font-weight: bold; font-size: 12px; color: #2563eb;">$ {{ number_format($orden->valor_total, 0, ',', '.') }}</td>
                     <td></td>
                 </tr>
             </tfoot>
@@ -319,7 +319,7 @@
                             </td>
                             <td style="padding: 4px 5px; text-transform: capitalize;">{{ $pago->metodo }}</td>
                             <td style="padding: 4px 5px;">{{ $pago->referencia ?? '—' }}</td>
-                            <td style="padding: 4px 5px; text-align: right; color: #16a34a; font-weight: bold;">$ {{ number_format($pago->monto, 2) }}</td>
+                            <td style="padding: 4px 5px; text-align: right; color: #16a34a; font-weight: bold;">$ {{ number_format($pago->monto, 0, ',', '.') }}</td>
                             <td style="padding: 4px 5px; text-align: right;">{{ \Carbon\Carbon::parse($pago->created_at)->format('d/m/Y H:i') }}</td>
                         </tr>
                     @endforeach

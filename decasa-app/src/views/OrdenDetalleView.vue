@@ -1,5 +1,6 @@
 <script setup>
 import IconoS from '@/components/common/IconoS.vue'
+import InputPesos from '@/components/common/InputPesos.vue'
 import { cloudinaryOpt } from '@/utils/cloudinary'
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -1439,11 +1440,10 @@ onMounted(cargarOrden)
                       </span>
                       <div class="flex items-center gap-0.5 bg-amber-50 border border-amber-300 rounded-lg px-2 py-1 flex-shrink-0">
                         <span class="text-xs text-amber-700 font-bold">$</span>
-                        <input
-                          v-model.number="preciosAjustados[item.id]"
-                          type="number" min="0"
+                        <InputPesos
+                          v-model="preciosAjustados[item.id]"
                           class="w-24 text-xs text-right focus:outline-none bg-transparent font-semibold text-amber-900"
-                        />
+              />
                       </div>
                     </div>
                   </div>
@@ -2427,10 +2427,8 @@ onMounted(cargarOrden)
                 Monto anticipo
                 <span class="text-gray-400">(mínimo {{ new Intl.NumberFormat('es-CO').format(minimoAnticipoc) }})</span>
               </label>
-              <input
-                v-model.number="anticipoConfirmar"
-                type="number"
-                min="0"
+              <InputPesos
+                v-model="anticipoConfirmar"
                 class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
               />
             </div>
@@ -2469,8 +2467,9 @@ onMounted(cargarOrden)
               <!-- Primer pago: monto editable -->
               <div class="border border-green-200 rounded-xl p-3 space-y-2 bg-green-50/40">
                 <p class="text-xs font-semibold text-green-700">Primer pago</p>
-                <input v-model.number="confirmarMonto1Input" type="number" min="0" :max="anticipoConfirmar"
-                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" placeholder="0" />
+                <InputPesos v-model="confirmarMonto1Input"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" placeholder="0"
+              />
                 <div class="flex gap-2 flex-wrap">
                   <button v-for="m in metodosOpts" :key="m.value" @click="metodoPagoConfirmar = m.value"
                     :class="['px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors',
@@ -2714,10 +2713,8 @@ onMounted(cargarOrden)
           <template v-if="!borradorTieneItemsCotiz">
             <div class="space-y-1">
               <label class="block text-xs font-semibold text-gray-600 uppercase">Anticipo</label>
-              <input
-                v-model.number="borradorForm.anticipo_monto"
-                type="number"
-                min="0"
+              <InputPesos
+                v-model="borradorForm.anticipo_monto"
                 class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
               />
             </div>
@@ -2756,8 +2753,9 @@ onMounted(cargarOrden)
               <!-- Primer pago: monto editable -->
               <div class="border border-blue-200 rounded-xl p-3 space-y-2 bg-blue-50/40">
                 <p class="text-xs font-semibold text-blue-700">Primer pago</p>
-                <input v-model.number="borradorMonto1Input" type="number" min="0" :max="borradorForm.anticipo_monto" placeholder="0"
-                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400" />
+                <InputPesos v-model="borradorMonto1Input" placeholder="0"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
+              />
                 <select v-model="borradorForm.anticipo_metodo"
                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400">
                   <option value="efectivo">Efectivo</option>

@@ -8,6 +8,7 @@ import { useAuthStore } from '@/stores/auth'
 import { SPECS_TEMPLATES, resolverCategoria } from '@/constants/specsConfig'
 import { useTelas } from '@/composables/useTelas'
 import TelaPicker from '@/components/ordenes/TelaPicker.vue'
+import InputPesos from '@/components/common/InputPesos.vue'
 import { pctDeMonto, montoDePct, formatPct } from '@/utils/descuentos'
 import { XMarkIcon, SparklesIcon, MagnifyingGlassIcon, TrashIcon, PlusIcon, PhotoIcon, WrenchScrewdriverIcon, GiftIcon } from '@heroicons/vue/24/outline'
 import { comprimirImagen } from '@/utils/comprimirImagen'
@@ -1096,12 +1097,10 @@ async function guardar() {
               <div class="grid grid-cols-2 gap-3">
                 <div>
                   <label class="block text-xs font-medium text-gray-600 mb-1">Monto</label>
-                  <input
+                  <InputPesos
                     v-model="anticipoMonto"
-                    type="number"
-                    min="0"
                     class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
+              />
                 </div>
                 <div>
                   <label class="block text-xs font-medium text-gray-600 mb-1">Método</label>
@@ -1229,12 +1228,10 @@ async function guardar() {
               <div class="grid grid-cols-2 gap-3">
                 <div>
                   <label class="block text-xs font-medium text-gray-600 mb-1">Precio unitario</label>
-                  <input
+                  <InputPesos
                     v-model="item.precio_unitario"
-                    type="number"
-                    min="0"
                     class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
+              />
                 </div>
                 <div>
                   <label class="block text-xs font-medium text-gray-600 mb-1">Fecha entrega</label>
@@ -1284,7 +1281,14 @@ async function guardar() {
                   >{{ m.t }}</button>
                 </div>
 
+                <InputPesos
+                  v-if="(item._descuento_modo ?? 'monto') !== 'pct'"
+                  v-model="item._descuento_valor"
+                  placeholder="0"
+                  class="w-24 rounded-lg border border-gray-300 px-3 py-2 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
                 <input
+                  v-else
                   v-model.number="item._descuento_valor"
                   type="number"
                   min="0"
@@ -1707,12 +1711,11 @@ async function guardar() {
                       <GiftIcon class="w-4 h-4 text-pink-600 flex-shrink-0" />
                       <span class="text-sm font-semibold text-pink-700">Obsequio · $0</span>
                     </div>
-                    <input
+                    <InputPesos
                       v-else
-                      v-model="nuevoItem.precio_unitario"
-                      type="number" min="0"
+                      v-model="nuevoItem.precio_unitario" permite-vacio
                       class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
+              />
                   </div>
                 </div>
 
@@ -1771,7 +1774,15 @@ async function guardar() {
                   >{{ p }}%</button>
                 </template>
 
-                <input
+                <InputPesos
+                v-if="descuentoModoEdit !== 'pct'"
+                v-model="descuentoInputEdit"
+                placeholder="0"
+                :class="['rounded-lg border border-gray-300 px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-500',
+                    descuentoModoEdit === 'pct' ? 'w-16' : 'w-28']"
+              />
+              <input
+                v-else
                   v-model.number="descuentoInputEdit"
                   type="number" min="0"
                   :max="descuentoModoEdit === 'pct' ? 100 : null"
