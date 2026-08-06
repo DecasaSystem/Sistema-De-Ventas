@@ -33,7 +33,7 @@ const inputTrabajador = ref('')
 const historial        = ref([])
 const loadingHistorial = ref(false)
 
-const PROCESO_LABEL = { ebanisteria: 'Ebanistería', tapizado: 'Tapizado', laca: 'Laca', esqueleteria: 'Esqueletería', pintura: 'Pintura', costura: 'Costura' }
+const PROCESO_LABEL = { ebanisteria: 'Ebanistería', tapizado: 'Tapizado', laca: 'Laca', esqueleteria: 'Esqueletería', pintura: 'Pintura', costura: 'Costura', destapizar: 'Destapizar', pelar: 'Pelar' }
 
 // ── Devolver paso ──────────────────────────────────────────────────────────────
 const mostrarModalDevolver = ref(false)
@@ -78,6 +78,8 @@ const PROCESO_COLOR = {
   esqueleteria: 'bg-yellow-100 text-yellow-700',
   pintura:      'bg-purple-100 text-purple-700',
   costura:      'bg-pink-100 text-pink-700',
+  destapizar:   'bg-rose-100 text-rose-700',
+  pelar:        'bg-stone-200 text-stone-700',
 }
 
 async function cargar() {

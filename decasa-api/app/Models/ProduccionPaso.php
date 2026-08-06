@@ -52,6 +52,8 @@ class ProduccionPaso extends Model
             'esqueleteria'=> 'Esqueletería',
             'pintura'     => 'Pintura',
             'costura'     => 'Costura',
+            'destapizar'  => 'Destapizar',
+            'pelar'       => 'Pelar',
             default       => $tipo,
         };
     }

@@ -252,6 +252,8 @@ const PASO_LABEL = {
   esqueleteria:         { text: 'Esqueletería',       cls: 'bg-yellow-100 text-yellow-700' },
   pintura:              { text: 'Pintura',            cls: 'bg-purple-100 text-purple-700' },
   costura:              { text: 'Costura',            cls: 'bg-pink-100 text-pink-700'    },
+  destapizar:           { text: 'Destapizar',         cls: 'bg-rose-100 text-rose-700'    },
+  pelar:                { text: 'Pelar',              cls: 'bg-stone-200 text-stone-700'  },
   pendiente_despachador:{ text: 'Lista p/ despacho',  cls: 'bg-purple-100 text-purple-700' },
 }
 

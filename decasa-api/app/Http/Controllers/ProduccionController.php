@@ -511,7 +511,7 @@ class ProduccionController extends Controller
             'estado'         => 'required|in:pendiente,en_proceso,listo,retrasado,entregado,cancelado',
             'motivo_retraso' => 'nullable|string|max:500',
             'pasos'          => 'nullable|array|min:1',
-            'pasos.*.tipo_proceso' => 'required_with:pasos|in:ebanisteria,tapizado,laca,esqueleteria,pintura,costura',
+            'pasos.*.tipo_proceso' => 'required_with:pasos|in:ebanisteria,tapizado,laca,esqueleteria,pintura,costura,destapizar,pelar',
             'pasos.*.orden'        => 'required_with:pasos|integer|min:1',
         ]);
 
@@ -718,11 +718,13 @@ class ProduccionController extends Controller
 
     private function tiposParaRol(Usuario $usuario): array
     {
+        // Pelar (quitar el acabado viejo) es trabajo de madera: ebanista.
+        // Destapizar (quitar la tela vieja) es de tapiceria: tapicero.
         if ($usuario->rol === 'ebanista') {
-            return ['ebanisteria', 'laca', 'pintura'];
+            return ['ebanisteria', 'laca', 'pintura', 'pelar'];
         }
         if ($usuario->rol === 'supervisor' && $usuario->es_tapicero) {
-            return ['tapizado', 'laca', 'esqueleteria', 'costura', 'pintura'];
+            return ['tapizado', 'laca', 'esqueleteria', 'costura', 'pintura', 'destapizar'];
         }
         if ($usuario->rol === 'despachador') {
             return ['pintura'];
@@ -736,13 +738,13 @@ class ProduccionController extends Controller
 
         $usuariosANotificar = collect();
 
-        if (in_array($tipoProceso, ['ebanisteria', 'laca', 'pintura'])) {
+        if (in_array($tipoProceso, ['ebanisteria', 'laca', 'pintura', 'pelar'])) {
             $usuariosANotificar = $usuariosANotificar->merge(
                 Usuario::where('rol', 'ebanista')->where('activo', true)->get()
             );
         }
 
-        if (in_array($tipoProceso, ['tapizado', 'laca', 'esqueleteria', 'costura', 'pintura'])) {
+        if (in_array($tipoProceso, ['tapizado', 'laca', 'esqueleteria', 'costura', 'pintura', 'destapizar'])) {
             $usuariosANotificar = $usuariosANotificar->merge(
                 Usuario::where('rol', 'supervisor')->where('es_tapicero', true)->where('activo', true)->get()
             );

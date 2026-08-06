@@ -49,6 +49,10 @@ const modalLoading = ref(false)
 
 // Pasos de producción (para cuando se cambia a en_proceso)
 const PROCESOS_DISPONIBLES = [
+  // Van primero porque es lo primero que se hace: un mueble a restaurar hay
+  // que desvestirlo antes de poder trabajarlo.
+  { tipo: 'destapizar',   label: 'Destapizar',   desc: 'Quitar la tela vieja (restauración)' },
+  { tipo: 'pelar',        label: 'Pelar',        desc: 'Quitar el acabado viejo (restauración)' },
   { tipo: 'ebanisteria',  label: 'Ebanistería',  desc: 'Estructura en madera' },
   { tipo: 'esqueleteria', label: 'Esqueletería', desc: 'Armazón y refuerzos' },
   { tipo: 'tapizado',     label: 'Tapizado',     desc: 'Telas y relleno' },
@@ -120,7 +124,7 @@ function pasoActualLabel(p) {
 }
 
 function labelProceso(tipo) {
-  const m = { ebanisteria: 'Ebanistería', tapizado: 'Tapizado', laca: 'Laca', esqueleteria: 'Esqueletería', pintura: 'Pintura', costura: 'Costura' }
+  const m = { ebanisteria: 'Ebanistería', tapizado: 'Tapizado', laca: 'Laca', esqueleteria: 'Esqueletería', pintura: 'Pintura', costura: 'Costura', destapizar: 'Destapizar', pelar: 'Pelar' }
   return m[tipo] ?? tipo
 }
 
