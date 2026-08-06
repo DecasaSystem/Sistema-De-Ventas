@@ -10,7 +10,7 @@ import { useTelas } from '@/composables/useTelas'
 import TelaPicker from '@/components/ordenes/TelaPicker.vue'
 import InputPesos from '@/components/common/InputPesos.vue'
 import { pctDeMonto, montoDePct, formatPct } from '@/utils/descuentos'
-import { XMarkIcon, SparklesIcon, MagnifyingGlassIcon, TrashIcon, PlusIcon, PhotoIcon, WrenchScrewdriverIcon, GiftIcon } from '@heroicons/vue/24/outline'
+import { PencilSquareIcon, XMarkIcon, SparklesIcon, MagnifyingGlassIcon, TrashIcon, PlusIcon, PhotoIcon, WrenchScrewdriverIcon, GiftIcon } from '@heroicons/vue/24/outline'
 import { comprimirImagen } from '@/utils/comprimirImagen'
 import { cloudinaryOpt } from '@/utils/cloudinary'
 import IconoS from '@/components/common/IconoS.vue'
@@ -972,6 +972,10 @@ async function guardar() {
                 </p>
               </div>
               <!-- Fotos de la orden -->
+              <p class="text-xs font-semibold text-gray-500 uppercase pt-1">Comprobante, anexo y firma</p>
+              <p class="text-[11px] text-gray-500 -mt-1.5">
+                Se pueden cambiar todas. Toca la foto para verla en grande.
+              </p>
               <div class="grid grid-cols-2 gap-3">
                 <div v-for="f in [
                     { k: 'factura', url: facturaFotoUrl, label: 'Foto de la factura' },
@@ -991,8 +995,11 @@ async function guardar() {
                     >
                       <XMarkIcon class="w-3.5 h-3.5" />
                     </button>
-                    <label class="mt-1 block text-[11px] text-blue-600 cursor-pointer hover:underline text-center">
-                      Reemplazar
+                    <!-- Botón de verdad, no un enlace de 11px: en el móvil el
+                         anterior era casi imposible de acertar y parecía que no
+                         se podía cambiar. -->
+                    <label class="mt-1.5 flex items-center justify-center gap-1.5 py-2 rounded-lg border border-blue-200 bg-blue-50 text-xs font-semibold text-blue-700 cursor-pointer hover:bg-blue-100 transition-colors">
+                      <PhotoIcon class="w-4 h-4" /> Cambiar foto
                       <input type="file" accept="image/*" class="hidden" @change="onFotoOrden($event, f.k)" />
                     </label>
                   </div>
@@ -1002,7 +1009,7 @@ async function guardar() {
                     class="h-24 flex flex-col items-center justify-center gap-1 border-2 border-dashed border-gray-300 rounded-lg text-gray-400 cursor-pointer hover:border-blue-400 hover:text-blue-500 transition-colors"
                   >
                     <PhotoIcon class="w-5 h-5" />
-                    <span class="text-[11px]">Subir</span>
+                    <span class="text-[11px] font-semibold">Subir foto</span>
                     <input type="file" accept="image/*" class="hidden" @change="onFotoOrden($event, f.k)" />
                   </label>
 
@@ -1027,8 +1034,8 @@ async function guardar() {
                     <button
                       type="button"
                       @click="abrirCambioFirma"
-                      class="text-xs font-semibold text-blue-600 hover:underline"
-                    >Volver a firmar</button>
+                      class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-blue-200 bg-blue-50 text-xs font-semibold text-blue-700 hover:bg-blue-100 transition-colors"
+                    ><PencilSquareIcon class="w-4 h-4" /> Volver a firmar</button>
                   </div>
                   <div v-else class="flex items-center gap-3">
                     <p class="text-xs text-amber-600">Esta orden no tiene firma.</p>
