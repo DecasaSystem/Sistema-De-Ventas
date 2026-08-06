@@ -34,12 +34,20 @@ const filtros = ref({
   serie: '',          // '' todas · 'normales' · 'FV2' descuentos especiales
 })
 
-// Apartado de órdenes: las de descuento especial llevan serie propia, no consecutivo normal
+// Apartados: lo que lleva serie propia no gasta consecutivo de venta.
+// "Normales" son las que sí lo gastan, o sea las que no tienen serie.
 const APARTADOS = [
-  { value: '',         label: 'Todas'    },
-  { value: 'normales', label: 'Normales' },
-  { value: 'FV2',      label: 'Descuento FV2' },
+  { value: '',         label: 'Todas'         },
+  { value: 'normales', label: 'Normales'      },
+  { value: 'FV2',      label: 'FV2'           },
+  { value: 'R',        label: 'Restauración'  },
 ]
+
+// Cada apartado con su color, el mismo que ya usa esa serie en el resto
+const COLOR_APARTADO = {
+  FV2: 'bg-white shadow-sm text-amber-700',
+  R:   'bg-white shadow-sm text-indigo-700',
+}
 
 function seleccionarApartado(serie) {
   filtros.value.serie = serie
@@ -311,9 +319,9 @@ onUnmounted(() => {
         v-for="a in APARTADOS"
         :key="a.value"
         @click="seleccionarApartado(a.value)"
-        :class="['flex-1 py-1.5 text-sm font-medium rounded-lg transition-colors',
+        :class="['flex-1 py-1.5 text-[13px] font-medium rounded-lg transition-colors whitespace-nowrap',
           filtros.serie === a.value
-            ? (a.value === 'FV2' ? 'bg-white shadow-sm text-amber-700' : 'bg-white shadow-sm text-gray-800')
+            ? (COLOR_APARTADO[a.value] ?? 'bg-white shadow-sm text-gray-800')
             : 'text-gray-500']"
       >{{ a.label }}</button>
     </div>
@@ -321,6 +329,12 @@ onUnmounted(() => {
     <p v-if="filtros.serie === 'FV2'" class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
       Órdenes con descuento especial. Llevan numeración FV2-N propia, no gastan
       consecutivo de orden y sí generan comisión.
+    </p>
+
+    <p v-if="filtros.serie === 'R'" class="text-xs text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2">
+      Restauraciones: trabajos sobre un mueble que ya es del cliente. Llevan
+      numeración R-N propia, no gastan consecutivo de venta y sí generan
+      comisión. Si la orden además lleva algo vendido, va con número normal.
     </p>
 
     <!-- Filtro rápido por tienda -->
@@ -443,8 +457,14 @@ onUnmounted(() => {
                   <MapPinIcon v-else class="w-4 h-4" />
                 </button>
                 <span class="font-semibold text-sm text-gray-800">{{ o.referencia ?? ('#' + (o.numero_orden ?? o.id)) }}</span>
+                <!-- Cada serie dice lo suyo: antes cualquiera ponía "Descuento",
+                     y una restauración no lo es. -->
                 <span
-                  v-if="o.serie"
+                  v-if="o.serie === 'R'"
+                  class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700"
+                >Restauración</span>
+                <span
+                  v-else-if="o.serie"
                   class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700"
                 >Descuento</span>
                 <BadgeEstado :estado="o.estado" />

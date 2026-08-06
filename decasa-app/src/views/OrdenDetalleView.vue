@@ -2859,7 +2859,7 @@ onMounted(cargarOrden)
                 class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
               />
             </div>
-            <p v-else-if="orden?.serie" class="text-xs text-amber-700 pl-6">
+            <p v-else-if="orden?.serie === 'FV2'" class="text-xs text-amber-700 pl-6">
               Este borrador se guardó como FV2. Si lo desmarcas, tomará número de orden normal.
             </p>
           </div>
