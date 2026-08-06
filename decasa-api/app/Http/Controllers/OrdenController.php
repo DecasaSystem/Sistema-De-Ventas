@@ -201,6 +201,7 @@ class OrdenController extends Controller
             // Orden con descuento especial (serie FV2): numeración propia, sigue contando
             // como venta y generando comisión.
             'es_fv2'                               => 'nullable|boolean',
+            'tienda_abonada_id'                    => 'nullable|integer|exists:tiendas,id',
             'motivo_serie'                         => 'nullable|string|max:300',
             // Descuento que solo vale si paga en efectivo o transferencia. Se
             // acepta en pesos o en %; el monto tiene prioridad porque es lo que
@@ -240,6 +241,25 @@ class OrdenController extends Controller
         $tiendaId        = $data['tienda_id'];
         $anticupoPct     = $data['anticipo_pct'] ?? 50;
         $esFv2           = $request->boolean('es_fv2', false);
+
+        // Abonarle media venta a una tienda es cosa de vendedores independientes:
+        // van a un almacen, les pasan el contacto y cierran ellos. Un vendedor de
+        // tienda ya vende para la suya, no tiene a quien abonarle nada.
+        $tiendaAbonadaId = $data['tienda_abonada_id'] ?? null;
+        if ($tiendaAbonadaId) {
+            // store() marca como vendedor al usuario que la crea, asi que el
+            // dueno de la venta es quien esta logueado.
+            if (! $request->user()->independiente) {
+                return response()->json([
+                    'message' => 'Solo un vendedor independiente puede abonarle la venta a una tienda.',
+                ], 422);
+            }
+            if ((int) $tiendaAbonadaId === (int) $tiendaId) {
+                return response()->json([
+                    'message' => 'La tienda que se lleva la mitad no puede ser la misma de la orden.',
+                ], 422);
+            }
+        }
 
         // Venta directa: el cliente paga (total o parcial) y se lleva los productos en
         // el acto. La orden nace 'entregado', descuenta stock de una y no pasa por
@@ -333,7 +353,7 @@ class OrdenController extends Controller
             ], 409);
         }
 
-        $orden = DB::transaction(function () use ($data, $tiendaId, $anticupoPct, $valorTotal, $descuentoTotal, $request, $tieneItemsCotizacionPendiente, $guardarBorrador, $entregaInmediata, $esFv2, $descuentoCondicionado, $pctCondicionado) {
+        $orden = DB::transaction(function () use ($data, $tiendaId, $anticupoPct, $valorTotal, $descuentoTotal, $request, $tieneItemsCotizacionPendiente, $guardarBorrador, $entregaInmediata, $esFv2, $descuentoCondicionado, $pctCondicionado, $tiendaAbonadaId) {
 
             // --- 1. Verificar stock para items no personalizados (con bloqueo) ---
             foreach ($data['items'] as $item) {
@@ -401,6 +421,7 @@ class OrdenController extends Controller
                 'ciudad_envio'       => $data['ciudad_envio'] ?? null,
                 'direccion_envio'    => $data['direccion_envio'] ?? null,
                 // Serie especial: el número FV2-N se asigna al confirmar la orden
+                'tienda_abonada_id'  => $tiendaAbonadaId,
                 'serie'              => $esFv2 ? Orden::SERIE_FV2 : null,
                 'motivo_serie'       => $esFv2 ? ($data['motivo_serie'] ?? null) : null,
             ]);
@@ -940,6 +961,7 @@ class OrdenController extends Controller
             'descuento_condicionado_monto'  => 'sometimes|nullable|numeric|min:0',
             'vendedor_id'                   => 'sometimes|nullable|integer|exists:usuarios,id',
             'tienda_id'                     => 'sometimes|nullable|integer|exists:tiendas,id',
+            'tienda_abonada_id'             => 'sometimes|nullable|integer|exists:tiendas,id',
             'covendedor_id'                 => 'sometimes|nullable|integer|exists:usuarios,id',
             'es_compartida'                 => 'sometimes|boolean',
             'items'                         => 'sometimes|nullable|array',
@@ -989,7 +1011,7 @@ class OrdenController extends Controller
             ], 422);
         }
 
-        $camposReasignacion = ['vendedor_id', 'tienda_id', 'covendedor_id', 'es_compartida'];
+        $camposReasignacion = ['vendedor_id', 'tienda_id', 'covendedor_id', 'es_compartida', 'tienda_abonada_id'];
         $reasignando        = collect($camposReasignacion)->contains(fn ($c) => array_key_exists($c, $data));
 
         if ($reasignando) {
@@ -1103,6 +1125,28 @@ class OrdenController extends Controller
                 if (array_key_exists('es_compartida', $data) && (bool) $data['es_compartida'] !== (bool) $orden->es_compartida) {
                     $cambios[] = ['campo' => 'es_compartida', 'label' => 'Venta compartida', 'antes' => (bool) $orden->es_compartida, 'despues' => (bool) $data['es_compartida']];
                     $updateOrden['es_compartida'] = $data['es_compartida'];
+                }
+                if (array_key_exists('tienda_abonada_id', $data)
+                    && (int) $data['tienda_abonada_id'] !== (int) $orden->tienda_abonada_id) {
+                    // Aqui el dueno de la venta es el vendedor de la orden, no
+                    // el supervisor que la esta corrigiendo.
+                    $vendedorFinal = Usuario::find($updateOrden['vendedor_id'] ?? $orden->vendedor_id);
+                    if ($data['tienda_abonada_id'] && ! $vendedorFinal?->independiente) {
+                        throw new \RuntimeException('Solo un vendedor independiente puede abonarle la venta a una tienda.');
+                    }
+                    if ($data['tienda_abonada_id']
+                        && (int) $data['tienda_abonada_id'] === (int) ($updateOrden['tienda_id'] ?? $orden->tienda_id)) {
+                        throw new \RuntimeException('La tienda que se lleva la mitad no puede ser la misma de la orden.');
+                    }
+                    $nombreAntes   = $orden->tienda_abonada_id ? (Tienda::find($orden->tienda_abonada_id)?->nombre ?? $orden->tienda_abonada_id) : null;
+                    $nombreDespues = $data['tienda_abonada_id'] ? (Tienda::find($data['tienda_abonada_id'])?->nombre ?? $data['tienda_abonada_id']) : null;
+                    $cambios[]     = [
+                        'campo' => 'tienda_abonada_id',
+                        'label' => 'Mitad de la venta abonada a',
+                        'antes' => $nombreAntes ?? 'nadie (venta entera del vendedor)',
+                        'despues' => $nombreDespues ?? 'nadie (venta entera del vendedor)',
+                    ];
+                    $updateOrden['tienda_abonada_id'] = $data['tienda_abonada_id'] ?: null;
                 }
             }
 
@@ -1479,7 +1523,7 @@ class OrdenController extends Controller
                 $orden->update($updateOrden);
             }
 
-            $tocoAsignacion = collect(['vendedor_id', 'tienda_id', 'covendedor_id', 'es_compartida'])
+            $tocoAsignacion = collect(['vendedor_id', 'tienda_id', 'covendedor_id', 'es_compartida', 'tienda_abonada_id'])
                 ->contains(fn ($c) => array_key_exists($c, $updateOrden));
             if ($reasignando && $tocoAsignacion) {
                 Comision::where('orden_id', $orden->id)->delete();

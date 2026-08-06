@@ -19,6 +19,7 @@ class Orden extends Model
         'cliente_id',
         'vendedor_id',
         'tienda_id',
+        'tienda_abonada_id',
         'canal',
         'tipo',
         'estado',
@@ -240,6 +241,12 @@ class Orden extends Model
     public function tienda()
     {
         return $this->belongsTo(Tienda::class, 'tienda_id');
+    }
+
+    /** La tienda que ayudo con el contacto y se lleva la mitad de la venta. */
+    public function tiendaAbonada()
+    {
+        return $this->belongsTo(Tienda::class, 'tienda_abonada_id');
     }
 
     public function items()

@@ -467,7 +467,14 @@ class ComisionController extends Controller
 
         $esCompartida  = (bool) $orden->es_compartida;
         $covendedorId  = $orden->covendedor_id;
-        $valorPrincipal = $esCompartida ? round((float) $orden->valor_total / 2) : (float) $orden->valor_total;
+
+        // Abonarle la venta a una tienda la parte por la mitad igual que
+        // compartirla con otro vendedor: la mitad es del vendedor y la otra
+        // mitad se le suma a la tienda que ayudo con el contacto.
+        $abonaATienda = (bool) $orden->tienda_abonada_id;
+        $valorPrincipal = ($esCompartida || $abonaATienda)
+            ? round((float) $orden->valor_total / 2)
+            : (float) $orden->valor_total;
 
         // Registro del vendedor principal
         Comision::firstOrCreate(
@@ -640,6 +647,27 @@ class ComisionController extends Controller
      * - totalesTienda: total de ventas de TODA la tienda por mes (pool de comisión)
      * - totalesVendedor: total de ventas por vendedor+tienda+mes (para distribución proporcional)
      */
+    /**
+     * Lo que los independientes le abonaron a cada tienda, por mes.
+     *
+     * Se cuenta la mitad de la venta, que es lo que le toca a la tienda. La
+     * otra mitad ya esta en comisiones, a nombre del vendedor.
+     */
+    public static function abonadoPorTienda(): array
+    {
+        return DB::table('ordenes')
+            ->whereNotNull('tienda_abonada_id')
+            ->whereNotIn('estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES))
+            ->selectRaw(
+                "tienda_abonada_id, DATE_FORMAT(CONVERT_TZ(created_at,'+00:00','-05:00'),'%Y-%m') as mes, " .
+                'SUM(valor_total) / 2 as total'
+            )
+            ->groupBy('tienda_abonada_id', 'mes')
+            ->get()
+            ->mapWithKeys(fn ($r) => [$r->tienda_abonada_id . '_' . $r->mes => (float) $r->total])
+            ->all();
+    }
+
     private function cargarTotales(): array
     {
         $metas = MetaTienda::all()->keyBy(fn($m) => $m->tienda_id . '_' . $m->mes);
@@ -649,6 +677,20 @@ class ComisionController extends Controller
             ->groupBy('tienda_id', 'mes_venta')
             ->get()
             ->keyBy(fn($r) => $r->tienda_id . '_' . $r->mes_venta);
+
+        // Y lo que le abonaron los independientes: la mitad de cada venta que
+        // se cerro con un contacto de esa tienda. No sale de comisiones porque
+        // ahi la fila es del vendedor, no de la tienda que ayudo.
+        foreach (self::abonadoPorTienda() as $clave => $monto) {
+            if (isset($totalesTienda[$clave])) {
+                $totalesTienda[$clave]->total = (float) $totalesTienda[$clave]->total + $monto;
+            } else {
+                [$tid, $mes] = explode('_', $clave, 2);
+                $totalesTienda[$clave] = (object) [
+                    'tienda_id' => (int) $tid, 'mes_venta' => $mes, 'total' => $monto,
+                ];
+            }
+        }
 
         $totalesVendedor = DB::table('comisiones')
             ->selectRaw('vendedor_id, tienda_id, mes_venta, SUM(valor_orden) as total')
