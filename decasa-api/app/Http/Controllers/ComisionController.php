@@ -120,7 +120,8 @@ class ComisionController extends Controller
 
         $mes     = $request->query('mes', Carbon::now()->format('Y-m'));
         $tiendas = Tienda::where('activa', true)->get();
-        $metas   = MetaTienda::where('mes', $mes)->get()->keyBy('tienda_id');
+        // La meta se arrastra: si nadie la cargo este mes, rige la ultima puesta.
+        $metas   = MetaTienda::vigentesEn($mes);
 
         try {
             $asesoresAsignados = TiendaAsesor::with('vendedor:id,nombre')
@@ -670,7 +671,20 @@ class ComisionController extends Controller
 
     private function cargarTotales(): array
     {
-        $metas = MetaTienda::all()->keyBy(fn($m) => $m->tienda_id . '_' . $m->mes);
+        // Los meses que hay que resolver salen de las comisiones que existen;
+        // para cada uno rige la ultima meta cargada hasta ese mes.
+        $meses = DB::table('comisiones')->distinct()->pluck('mes_venta')
+            ->merge(DB::table('metas_tienda')->distinct()->pluck('mes'))
+            ->merge([now()->format('Y-m')])
+            ->unique()->values()->all();
+        // Las tiendas trimestrales miran los tres meses del trimestre, que
+        // pueden no tener comisiones todavia. Sin esto, un mes sin ventas
+        // contaria meta 0 y el diferencial saldria inflado.
+        foreach ($meses as $m) {
+            foreach (self::mesesDeTrimestre(self::trimestreDeMes($m)) as $mm) $meses[] = $mm;
+        }
+        $meses = array_values(array_unique($meses));
+        $metas = MetaTienda::mapaVigente($meses);
 
         $totalesTienda = DB::table('comisiones')
             ->selectRaw('tienda_id, mes_venta, SUM(valor_orden) as total')
