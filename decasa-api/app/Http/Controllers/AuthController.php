@@ -34,6 +34,10 @@ class AuthController extends Controller
             'nombre'            => $usuario->nombre,
             'rol'               => $usuario->rol,
             'es_tapicero'       => (bool) $usuario->es_tapicero,
+            // Sin esto la pantalla no sabe que alguien es independiente: se
+            // quedaba fuera del payload y todo lo que depende de ello —su
+            // caja propia, compartir la venta con un almacen— no aparecia.
+            'independiente'     => (bool) $usuario->independiente,
             'facturacion'       => (bool) $usuario->facturacion,
             'acceso_redes'       => (bool) $usuario->acceso_redes,
             'acceso_comisiones'  => (bool) $usuario->acceso_comisiones,
@@ -60,6 +64,10 @@ class AuthController extends Controller
             'email'             => $usuario->email,
             'rol'               => $usuario->rol,
             'es_tapicero'       => (bool) $usuario->es_tapicero,
+            // Sin esto la pantalla no sabe que alguien es independiente: se
+            // quedaba fuera del payload y todo lo que depende de ello —su
+            // caja propia, compartir la venta con un almacen— no aparecia.
+            'independiente'     => (bool) $usuario->independiente,
             'facturacion'       => (bool) $usuario->facturacion,
             'acceso_redes'      => (bool) $usuario->acceso_redes,
             'acceso_comisiones' => (bool) $usuario->acceso_comisiones,
