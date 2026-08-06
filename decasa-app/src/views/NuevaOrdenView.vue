@@ -837,13 +837,21 @@ const mostrarVariantePicker = ref(false)
 const productoParaVariante = ref(null)
 const variantesDisponibles = ref([])
 const cargandoVariantes = ref(false)
-const varianteSeleccionada = ref(null)
+// Tres estados, no dos: undefined = todavía no eligió, null = eligió "sin
+// especificar tela" a propósito, objeto = eligió una tela concreta.
+//
+// Antes solo había dos y arrancaba en null, así que "Sin especificar tela"
+// salía ya marcado y bastaba con darle a "Agregar al carrito" para que la
+// venta quedara sin tela. Por eso ninguna orden tenía variante guardada:
+// 0 de 68 ítems, ni siquiera vendiendo un SOFA CAMA ROMA que tiene 4.
+const varianteSeleccionada = ref(undefined)
+const NO_ELEGIDA = undefined
 
 async function agregarItem(producto) {
   const tiendaConsulta = tiendaBusqueda.value || tiendaId.value
   if (producto.variantes?.length > 0 || producto.tiene_tallas || producto.es_tapizado) {
     productoParaVariante.value = producto
-    varianteSeleccionada.value = null
+    varianteSeleccionada.value = NO_ELEGIDA
     cargandoVariantes.value = true
     mostrarVariantePicker.value = true
     try {
@@ -896,6 +904,9 @@ async function agregarItem(producto) {
 }
 
 function confirmarVariante() {
+  // Sin elegir no se agrega: "sin especificar" tiene que ser una decisión,
+  // no lo que pasa por darle al botón sin mirar.
+  if (varianteSeleccionada.value === undefined) return
   if (productoParaVariante.value?.tiene_tallas && !varianteSeleccionada.value) return
   _pushItem(productoParaVariante.value, varianteSeleccionada.value)
   mostrarVariantePicker.value = false
@@ -3915,6 +3926,9 @@ function removeFacturaFoto() {
           >
             Sin especificar tela
             <span class="text-xs text-gray-400 ml-1">(stock base: {{ stockLibre(productoParaVariante) }})</span>
+            <span class="block text-[11px] text-gray-400 mt-0.5">
+              Solo si de verdad da igual cuál se lleve: la orden saldrá sin decir la tela.
+            </span>
           </button>
 
           <!-- Variantes disponibles -->
@@ -3962,9 +3976,14 @@ function removeFacturaFoto() {
           </p>
         </div>
 
+        <p v-if="varianteSeleccionada === undefined && !cargandoVariantes" class="text-xs text-amber-600 font-medium text-center">
+          Elige la tela antes de agregar. Queda escrita en la orden y en el acta
+          de entrega, para que no se despache la que no es.
+        </p>
+
         <button
           @click="confirmarVariante"
-          :disabled="!!(productoParaVariante?.tiene_tallas && !varianteSeleccionada)"
+          :disabled="varianteSeleccionada === undefined"
           class="w-full bg-blue-600 text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
         >
           Agregar al carrito
