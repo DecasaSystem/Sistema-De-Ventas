@@ -3678,11 +3678,11 @@ function removeFacturaFoto() {
       <div v-if="auth.isIndependiente" class="bg-white rounded-xl shadow-sm p-4 space-y-3">
         <div class="flex items-center gap-2">
           <BuildingStorefrontIcon class="w-5 h-5 text-emerald-500" />
-          <span class="text-sm font-semibold text-gray-700">¿Un almacén te pasó el contacto?</span>
+          <span class="text-sm font-semibold text-gray-700">Compartir la venta con un almacén</span>
         </div>
         <p class="text-xs text-gray-500 -mt-1">
-          Si esta venta salió de un contacto que te dio un almacén, la mitad se le
-          abona a ellos para su meta y la otra mitad queda tuya.
+          Si el almacén te pasó el contacto, la venta se reparte: la mitad
+          cuenta para ellos y la otra mitad para ti.
         </p>
 
         <div class="grid grid-cols-2 gap-2">
@@ -3693,7 +3693,7 @@ function removeFacturaFoto() {
               !tiendaAbonadaId
                 ? 'border-emerald-500 bg-emerald-50 text-emerald-800'
                 : 'border-gray-200 bg-white text-gray-600 hover:border-emerald-300']"
-          >No, es solo mía</button>
+          >Sin compartir</button>
           <button
             v-for="t in tiendasAbonables"
             :key="t.id"

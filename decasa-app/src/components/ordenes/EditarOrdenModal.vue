@@ -1181,17 +1181,17 @@ async function guardar() {
                    independiente, que es quien cierra con contactos de almacen -->
               <div v-if="vendedorEsIndependiente">
                 <label class="block text-xs font-medium text-gray-600 mb-1">
-                  Mitad de la venta abonada a
+                  Venta compartida con un almacén
                 </label>
                 <select
                   v-model.number="tiendaAbonadaId"
                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 >
-                  <option :value="null">Nadie — la venta entera es del vendedor</option>
+                  <option :value="null">Sin compartir — la venta entera es del vendedor</option>
                   <option v-for="t in tiendasAbonables" :key="t.id" :value="t.id">{{ t.nombre }}</option>
                 </select>
                 <p v-if="tiendaAbonadaId" class="text-[11px] text-emerald-700 mt-1">
-                  La mitad se le suma a esa tienda para su meta; la otra mitad queda para el vendedor.
+                  La venta se reparte: la mitad cuenta para ese almacén y la otra mitad para el vendedor.
                 </p>
               </div>
               <div v-if="esCompartida">
