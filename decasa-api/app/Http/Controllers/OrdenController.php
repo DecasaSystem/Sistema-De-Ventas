@@ -43,7 +43,7 @@ class OrdenController extends Controller
         $query = Orden::with([
             'cliente:id,nombre,telefono',
             'tienda:id,nombre',
-            'vendedor:id,nombre',
+            'vendedor:id,nombre,independiente',
             'items.produccion.pasoActual',
         ])->withSum('pagos', 'monto')
             // Las cotizaciones tienen su propio módulo: no se mezclan con órdenes.
@@ -575,7 +575,7 @@ class OrdenController extends Controller
 
         $ordenCargada = $orden->load([
             'cliente:id,nombre,cedula,telefono',
-            'vendedor:id,nombre',
+            'vendedor:id,nombre,independiente',
             'tienda:id,nombre',
             'items.producto:id,nombre,categoria,foto_url',
             'items.variante', 'items.comboConfig.tipo', 'items.comboConfig.opcion',
@@ -787,7 +787,7 @@ class OrdenController extends Controller
 
         $orden = Orden::with([
             'cliente',
-            'vendedor:id,nombre',
+            'vendedor:id,nombre,independiente',
             'tienda:id,nombre',
             'covendedor:id,nombre',
             'items.producto:id,nombre,categoria,precio_base,personalizable,foto_url,medidas,material',
@@ -1574,7 +1574,7 @@ class OrdenController extends Controller
 
         $ordenFresh = Orden::with([
             'cliente',
-            'vendedor:id,nombre',
+            'vendedor:id,nombre,independiente',
             'tienda:id,nombre',
             'items.producto:id,nombre,categoria,precio_base,personalizable,foto_url,medidas,material',
             'items.variante', 'items.comboConfig.tipo', 'items.comboConfig.opcion',
@@ -1784,7 +1784,7 @@ class OrdenController extends Controller
 
         $ordenFresh = $orden->fresh()->load([
             'cliente:id,nombre,cedula,telefono',
-            'vendedor:id,nombre',
+            'vendedor:id,nombre,independiente',
             'tienda:id,nombre',
             'items.producto:id,nombre,categoria,foto_url',
             'items.variante', 'items.comboConfig.tipo', 'items.comboConfig.opcion',
@@ -2276,7 +2276,7 @@ class OrdenController extends Controller
             'items.*.fecha' => 'required|date',
         ]);
 
-        $orden = Orden::with(['items', 'cliente:id,nombre', 'vendedor:id,nombre'])->findOrFail($id);
+        $orden = Orden::with(['items', 'cliente:id,nombre', 'vendedor:id,nombre,independiente'])->findOrFail($id);
 
         // Verificar que todos los items pertenecen a esta orden
         $itemIdsOrden = $orden->items->pluck('id')->all();

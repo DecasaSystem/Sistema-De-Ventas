@@ -253,13 +253,16 @@ class UsuarioController extends Controller
                 ->where('activo', true)
                 ->where('id', '!=', $yo->id)
                 ->with('tiendaDefault:id,nombre')
-                ->select('id', 'nombre', 'tienda_default_id')
+                ->select('id', 'nombre', 'tienda_default_id', 'independiente')
                 ->orderBy('nombre')
                 ->get()
                 ->map(fn($u) => [
                     'id'     => $u->id,
                     'nombre' => $u->nombre,
                     'tienda' => $u->tiendaDefault?->nombre ?? '—',
+                    // Lo necesita la pantalla para saber si puede compartir la
+                    // venta con un almacen.
+                    'independiente' => (bool) $u->independiente,
                 ])
         );
     }

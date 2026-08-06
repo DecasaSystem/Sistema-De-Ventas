@@ -286,6 +286,9 @@ const fabricaId = ref(null)
 /** El vendedor de la orden (o el que se esta poniendo) es independiente? */
 const vendedorEsIndependiente = computed(() => {
   const id = vendedorId.value ?? props.orden?.vendedor_id
+  // Si sigue siendo el vendedor de la orden, se cree al dato que vino con
+  // ella: la lista de asesores no trae ebanistas, y Henry es uno.
+  if (id === props.orden?.vendedor_id) return !!props.orden?.vendedor?.independiente
   return !!vendedoresLista.value.find(v => v.id === id)?.independiente
 })
 const tiendasAbonables = computed(() =>
