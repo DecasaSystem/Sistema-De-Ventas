@@ -24,6 +24,7 @@ use App\Support\StockVariantes;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
 class OrdenController extends Controller
@@ -2365,7 +2366,10 @@ class OrdenController extends Controller
     // Tiendas que comparten secuencia de numeración por grupo
     private const GRUPOS_SECUENCIA = [
         'pereira' => ['Decasa Unicentro Pereira', 'Decasa Circunvalar'],
-        'armenia' => ['Decasa Norte', 'Decasa Vía El Edén', 'Decasa Vía Jardines', 'Bodega Fábrica', 'Tienda Virtual'],
+        // Los independientes no tienen tienda propia, pero venden en Armenia:
+        // llevan su consecutivo. Antes no estaban en ningún grupo y caían en la
+        // rama de abajo, que reparte números sin reservarlos.
+        'armenia' => ['Decasa Norte', 'Decasa Vía El Edén', 'Decasa Vía Jardines', 'Bodega Fábrica', 'Tienda Virtual', 'Independientes'],
     ];
 
     /**
@@ -2559,9 +2563,27 @@ class OrdenController extends Controller
                     'grupo_secuencia' => $grupo,
                 ]);
             } else {
-                // Sin grupo definido: MAX global (comportamiento previo)
-                $max = DB::table('ordenes')->lockForUpdate()->max('numero_orden') ?? 0;
-                $orden->update(['numero_orden' => $max + 1]);
+                // Una tienda sin grupo no deberia existir. Si aparece —una nueva
+                // que nadie asigno— antes se le daba MAX+1 sin reservarlo en
+                // ninguna secuencia: el numero salia del rango de Armenia y la
+                // siguiente venta de Armenia lo repetia. Paso de verdad con la
+                // tienda de Independientes.
+                //
+                // Se usa el consecutivo de Armenia, que es de donde ese MAX
+                // salia igualmente, pero reservandolo. Y se deja aviso para que
+                // alguien la meta en su grupo.
+                Log::warning('Orden de una tienda sin grupo de consecutivo: se numera con el de Armenia', [
+                    'orden_id'  => $orden->id,
+                    'tienda_id' => $orden->tienda_id,
+                    'tienda'    => DB::table('tiendas')->where('id', $orden->tienda_id)->value('nombre'),
+                ]);
+
+                $actual = DB::table('orden_secuencias')->where('grupo', 'armenia')
+                    ->lockForUpdate()->value('ultimo_numero') ?? 0;
+                $siguiente = $actual + 1;
+                DB::table('orden_secuencias')->where('grupo', 'armenia')
+                    ->update(['ultimo_numero' => $siguiente]);
+                $orden->update(['numero_orden' => $siguiente, 'grupo_secuencia' => 'armenia']);
             }
         });
     }
