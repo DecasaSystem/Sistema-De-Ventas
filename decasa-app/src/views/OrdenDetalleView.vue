@@ -8,6 +8,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
 import { getOrden, updateEstado, revertirEntrega, descargarPdfOrden, descargarActaEntrega, reenviarCotizacion, asignarFechasEntrega, confirmarCotizacion, editarPago, completarBorrador as completarBorradorApi, eliminarBorrador as eliminarBorradorApi } from '@/api/ordenes'
 import api from '@/api'
+import { useTiposProceso } from '@/composables/useTiposProceso'
 import { updateCliente } from '@/api/clientes'
 import { despachoPorOrden } from '@/api/despacho'
 import { tomarFacturacion, marcarFacturada } from '@/api/pagos'
@@ -30,6 +31,7 @@ import { PhotoIcon } from '@heroicons/vue/24/outline'
 import { SPECS_TEMPLATES, resolverCategoria } from '@/constants/specsConfig'
 
 const route = useRoute()
+const { cargar: cargarTipos, nombre: nombreProceso } = useTiposProceso()
 const router = useRouter()
 const auth = useAuthStore()
 const toast = useToast()
@@ -960,7 +962,7 @@ const itemsConProduccion = computed(() =>
 )
 
 function labelProceso(tipo) {
-  return { ebanisteria: 'Ebanistería', tapizado: 'Tapizado', laca: 'Laca', esqueleteria: 'Esqueletería', pintura: 'Pintura', costura: 'Costura', destapizar: 'Destapizar', pelar: 'Pelar' }[tipo] ?? tipo
+  return nombreProceso(tipo)
 }
 
 function colorPaso(estado) {
@@ -1211,7 +1213,7 @@ async function enviarSolicitudCotizacion() {
   }
 }
 
-onMounted(cargarOrden)
+onMounted(() => { cargarTipos(); cargarOrden() })
 </script>
 
 <template>

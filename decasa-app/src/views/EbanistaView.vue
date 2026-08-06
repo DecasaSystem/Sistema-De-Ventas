@@ -1,6 +1,7 @@
 <script setup>
 import { cloudinaryOpt } from '@/utils/cloudinary'
 import { ref, onMounted } from 'vue'
+import { useTiposProceso } from '@/composables/useTiposProceso'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { CheckCircleIcon, WrenchScrewdriverIcon, ClockIcon, ArrowTopRightOnSquareIcon, UserPlusIcon, XMarkIcon, ArrowUturnLeftIcon, ExclamationTriangleIcon } from '@heroicons/vue/24/outline'
@@ -33,7 +34,9 @@ const inputTrabajador = ref('')
 const historial        = ref([])
 const loadingHistorial = ref(false)
 
-const PROCESO_LABEL = { ebanisteria: 'Ebanistería', tapizado: 'Tapizado', laca: 'Laca', esqueleteria: 'Esqueletería', pintura: 'Pintura', costura: 'Costura', destapizar: 'Destapizar', pelar: 'Pelar' }
+// Los nombres salen del catalogo que mantiene el taller, no de una lista fija
+const { tipos: tiposProceso, cargar: cargarTipos, nombre: nombreProceso, clases: clasesProceso } = useTiposProceso()
+const PROCESO_LABEL = new Proxy({}, { get: (_, k) => nombreProceso(String(k)) })
 
 // ── Devolver paso ──────────────────────────────────────────────────────────────
 const mostrarModalDevolver = ref(false)
@@ -161,6 +164,7 @@ function progresoTexto(pasoActual) {
 const { listen } = useRealtime()
 
 onMounted(async () => {
+  cargarTipos()   // nombres y colores de los procesos
   await Promise.all([cargar(), cargarHistorial()])
   listen('produccion', 'produccion.actualizada', cargar)
 })

@@ -1,8 +1,9 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { useTiposProceso } from '@/composables/useTiposProceso'
 import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
-import { MapPinIcon } from '@heroicons/vue/24/outline'
+import { MapPinIcon, Cog6ToothIcon } from '@heroicons/vue/24/outline'
 import { MapPinIcon as MapPinSolid } from '@heroicons/vue/24/solid'
 import {
   MagnifyingGlassIcon,
@@ -18,6 +19,7 @@ import { useToast } from '@/composables/useToast'
 import { getTiendas, fijarOrden, quitarFijada } from '@/api/ordenes'
 import { useRealtime } from '@/composables/useRealtime'
 import EmptyState from '@/components/common/EmptyState.vue'
+import ProcesosModal from '@/components/produccion/ProcesosModal.vue'
 import { SPECS_TEMPLATES, resolverCategoria } from '@/constants/specsConfig'
 
 const auth   = useAuthStore()
@@ -48,18 +50,15 @@ const motivoRetraso = ref('')
 const modalLoading = ref(false)
 
 // Pasos de producción (para cuando se cambia a en_proceso)
-const PROCESOS_DISPONIBLES = [
-  // Van primero porque es lo primero que se hace: un mueble a restaurar hay
-  // que desvestirlo antes de poder trabajarlo.
-  { tipo: 'destapizar',   label: 'Destapizar',   desc: 'Quitar la tela vieja (restauración)' },
-  { tipo: 'pelar',        label: 'Pelar',        desc: 'Quitar el acabado viejo (restauración)' },
-  { tipo: 'ebanisteria',  label: 'Ebanistería',  desc: 'Estructura en madera' },
-  { tipo: 'esqueleteria', label: 'Esqueletería', desc: 'Armazón y refuerzos' },
-  { tipo: 'tapizado',     label: 'Tapizado',     desc: 'Telas y relleno' },
-  { tipo: 'costura',      label: 'Costura',      desc: 'Unión y acabado de telas' },
-  { tipo: 'laca',         label: 'Laca',         desc: 'Acabado con laca' },
-  { tipo: 'pintura',      label: 'Pintura',      desc: 'Pintura y acabado final' },
-]
+// Los procesos los mantiene el taller desde el boton "Procesos"
+const { tipos: tiposProceso, cargar: cargarTipos, nombre: nombreProceso, clases: clasesProceso } = useTiposProceso()
+const PROCESOS_DISPONIBLES = computed(() =>
+  [...tiposProceso.value]
+    .filter(t => t.activo)
+    .sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0))
+    .map(t => ({ tipo: t.clave, label: t.nombre, desc: t.descripcion ?? '' }))
+)
+const showProcesos = ref(false)
 const pasosSeleccionados = ref([]) // [{tipo_proceso, orden}] en orden de selección
 const pasoSelectorRef   = ref(null)
 
@@ -124,7 +123,7 @@ function pasoActualLabel(p) {
 }
 
 function labelProceso(tipo) {
-  const m = { ebanisteria: 'Ebanistería', tapizado: 'Tapizado', laca: 'Laca', esqueleteria: 'Esqueletería', pintura: 'Pintura', costura: 'Costura', destapizar: 'Destapizar', pelar: 'Pelar' }
+  const m = new Proxy({}, { get: (_, k) => nombreProceso(String(k)) })
   return m[tipo] ?? tipo
 }
 
@@ -338,6 +337,7 @@ function buscar() {
 const { listen } = useRealtime()
 
 onMounted(async () => {
+  cargarTipos()   // nombres y colores de los procesos
   await loadTiendas()
   await fetchProduccion(1, false)
   setupObserver()
@@ -364,6 +364,15 @@ onUnmounted(() => {
       >
         <FunnelIcon class="w-4 h-4" />
         {{ showFilters ? 'Cerrar' : 'Filtros' }}
+      </button>
+      <button
+        v-if="auth.isSupervisor"
+        @click="showProcesos = true"
+        class="text-sm text-gray-600 font-medium px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors flex items-center gap-1"
+        title="Crear o cambiar los procesos del taller"
+      >
+        <Cog6ToothIcon class="w-4 h-4" />
+        Procesos
       </button>
     </div>
 
@@ -615,6 +624,12 @@ onUnmounted(() => {
       </div>
     </Transition>
   </div>
+
+  <ProcesosModal
+    :show="showProcesos"
+    @close="showProcesos = false"
+    @cambiado="cargarTipos(true)"
+  />
 </template>
 
 <style scoped>

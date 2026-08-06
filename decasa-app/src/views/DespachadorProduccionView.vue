@@ -1,6 +1,7 @@
 <script setup>
 import { cloudinaryOpt } from '@/utils/cloudinary'
 import { ref, onMounted } from 'vue'
+import { useTiposProceso } from '@/composables/useTiposProceso'
 import { useRouter } from 'vue-router'
 import { CheckCircleIcon, ArchiveBoxArrowDownIcon, ClockIcon, ArrowTopRightOnSquareIcon, ArrowUturnLeftIcon } from '@heroicons/vue/24/outline'
 import { getPendientesDespacho, completarDespacho, getHistorialDespacho, devolverDesdeDespacho } from '@/api/produccion'
@@ -113,11 +114,14 @@ function formatFecha(dateStr) {
   return d.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
-const PROCESO_LABEL = { ebanisteria: 'Ebanistería', tapizado: 'Tapizado', laca: 'Laca', esqueleteria: 'Esqueletería', pintura: 'Pintura', costura: 'Costura', destapizar: 'Destapizar', pelar: 'Pelar' }
+// Los nombres salen del catalogo que mantiene el taller, no de una lista fija
+const { tipos: tiposProceso, cargar: cargarTipos, nombre: nombreProceso, clases: clasesProceso } = useTiposProceso()
+const PROCESO_LABEL = new Proxy({}, { get: (_, k) => nombreProceso(String(k)) })
 
 const { listen } = useRealtime()
 
 onMounted(async () => {
+  cargarTipos()   // nombres y colores de los procesos
   await Promise.all([cargar(), cargarHistorial()])
   listen('produccion', 'produccion.actualizada', cargar)
 })

@@ -43,18 +43,14 @@ class ProduccionPaso extends Model
         return $this->belongsTo(Usuario::class, 'completado_por');
     }
 
+    /**
+     * El nombre visible de un proceso.
+     *
+     * Ya no es una lista fija: los procesos los mantiene el taller desde
+     * Produccion, asi que sale del catalogo.
+     */
     public static function labelProceso(string $tipo): string
     {
-        return match ($tipo) {
-            'ebanisteria' => 'Ebanistería',
-            'tapizado'    => 'Tapizado',
-            'laca'        => 'Laca',
-            'esqueleteria'=> 'Esqueletería',
-            'pintura'     => 'Pintura',
-            'costura'     => 'Costura',
-            'destapizar'  => 'Destapizar',
-            'pelar'       => 'Pelar',
-            default       => $tipo,
-        };
+        return TipoProceso::nombreDe($tipo);
     }
 }

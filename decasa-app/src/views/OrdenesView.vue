@@ -1,6 +1,7 @@
 ﻿<script setup>
 import IconoS from '@/components/common/IconoS.vue'
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { useTiposProceso } from '@/composables/useTiposProceso'
 import { useRouter } from 'vue-router'
 import { MagnifyingGlassIcon, Cog6ToothIcon, ArrowDownTrayIcon, MapPinIcon } from '@heroicons/vue/24/outline'
 import { XMarkIcon, MapPinIcon as MapPinSolid } from '@heroicons/vue/24/solid'
@@ -245,17 +246,14 @@ function formatFecha(dateStr) {
   return d.toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })
 }
 
-const PASO_LABEL = {
-  ebanisteria:          { text: 'Ebanistería',       cls: 'bg-orange-100 text-orange-700' },
-  tapizado:             { text: 'Tapizado',           cls: 'bg-teal-100 text-teal-700'    },
-  laca:                 { text: 'Laca',               cls: 'bg-indigo-100 text-indigo-700' },
-  esqueleteria:         { text: 'Esqueletería',       cls: 'bg-yellow-100 text-yellow-700' },
-  pintura:              { text: 'Pintura',            cls: 'bg-purple-100 text-purple-700' },
-  costura:              { text: 'Costura',            cls: 'bg-pink-100 text-pink-700'    },
-  destapizar:           { text: 'Destapizar',         cls: 'bg-rose-100 text-rose-700'    },
-  pelar:                { text: 'Pelar',              cls: 'bg-stone-200 text-stone-700'  },
-  pendiente_despachador:{ text: 'Lista p/ despacho',  cls: 'bg-purple-100 text-purple-700' },
+// Los pasos del taller salen del catalogo; el de despacho es propio de aqui.
+const { cargar: cargarTipos, nombre: nombreProceso, clases: clasesProceso } = useTiposProceso()
+const PASO_FIJO = {
+  pendiente_despachador: { text: 'Lista p/ despacho', cls: 'bg-purple-100 text-purple-700' },
 }
+const PASO_LABEL = new Proxy({}, {
+  get: (_, k) => PASO_FIJO[k] ?? { text: nombreProceso(String(k)), cls: clasesProceso(String(k)) },
+})
 
 function pasoInfo(paso) {
   return PASO_LABEL[paso] ?? null
@@ -264,6 +262,7 @@ function pasoInfo(paso) {
 const { listen } = useRealtime()
 
 onMounted(async () => {
+  cargarTipos()   // nombres y colores de los procesos
   await loadTiendas()
   await fetchOrdenes(1, false)
   setupObserver()

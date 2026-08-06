@@ -14,6 +14,7 @@ use App\Http\Controllers\ProduccionController;
 use App\Http\Controllers\ProductoController;
 use App\Http\Controllers\ReporteController;
 use App\Http\Controllers\TiendaController;
+use App\Http\Controllers\TipoProcesoController;
 use App\Http\Controllers\StatsController;
 use App\Http\Controllers\UploadController;
 use App\Http\Controllers\UsuarioController;
@@ -65,6 +66,14 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Tiendas (solo lectura — usada por el selector de tienda en la orden)
     Route::get('/tiendas', [TiendaController::class, 'index']);
+
+    // Procesos del taller: los mantiene el supervisor desde Produccion.
+    // Leer puede cualquiera —las listas necesitan nombres y colores—, escribir
+    // lo valida el controlador.
+    Route::get('/tipos-proceso',           [TipoProcesoController::class, 'index']);
+    Route::post('/tipos-proceso',          [TipoProcesoController::class, 'store']);
+    Route::patch('/tipos-proceso/{id}',    [TipoProcesoController::class, 'update'])->whereNumber('id');
+    Route::delete('/tipos-proceso/{id}',   [TipoProcesoController::class, 'destroy'])->whereNumber('id');
 
     // Reserva / Fábrica
     Route::get('/reserva/info',                          [ReservaController::class, 'info']);
