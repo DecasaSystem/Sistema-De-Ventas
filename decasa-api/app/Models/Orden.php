@@ -130,6 +130,16 @@ class Orden extends Model
     public const SERIE_FV2 = 'FV2';
 
     /**
+     * Las restauraciones llevan su propia numeración (R-1092) y no gastan
+     * consecutivo de venta: no son una venta de mueble, son un trabajo sobre
+     * un mueble del cliente.
+     *
+     * Solo las órdenes que son ÍNTEGRAMENTE restauración. Si además se le
+     * vende algo, es una venta con un arreglo incluido y lleva número normal.
+     */
+    public const SERIE_RESTAURACION = 'R';
+
+    /**
      * Cómo se nombra esta orden donde sea que se muestre: "FV2-3" si es de
      * serie especial, "#4261" si es una orden normal. Evita que las FV2
      * aparezcan como "#" vacío por no tener numero_orden.

@@ -86,8 +86,10 @@ class OrdenController extends Controller
             $term   = '%' . mb_strtolower($limpio) . '%';
             // "FV2-3" o "fv2 3": buscar en la serie especial. La serie puede
             // llevar dígitos (FV2), por eso el separador es obligatorio.
+            // El prefijo puede ser de una sola letra: la serie de restauración
+            // es "R", y con el mínimo en dos "R-1092" no se encontraba.
             $serieNum = null;
-            if (preg_match('/^([a-zA-Z][a-zA-Z0-9]{1,9})[\s\-]+(\d+)$/', $limpio, $m)) {
+            if (preg_match('/^([a-zA-Z][a-zA-Z0-9]{0,9})[\s\-]+(\d+)$/', $limpio, $m)) {
                 $serieNum = ['serie' => strtoupper($m[1]), 'numero' => (int) $m[2]];
             }
 
@@ -2490,11 +2492,39 @@ class OrdenController extends Controller
         });
     }
 
+    /**
+     * ¿Toda la orden es restauración?
+     *
+     * Se consulta la tabla en vez de $orden->items para no depender de que la
+     * relación esté cargada: aquí se decide el número, y equivocarse quema un
+     * consecutivo que no se puede devolver.
+     */
+    public static function esSoloRestauracion(Orden $orden): bool
+    {
+        $total = OrdenItem::where('orden_id', $orden->id)->count();
+        if ($total === 0) return false;
+
+        $restauraciones = OrdenItem::where('orden_id', $orden->id)
+            ->where('es_restauracion', true)->count();
+
+        return $total === $restauraciones;
+    }
+
     public static function asignarNumeroOrden(Orden $orden): void
     {
         // Las órdenes de serie especial llevan su propia numeración.
+        // El FV2 se marca a mano, así que manda sobre lo demás.
         if ($orden->serie) {
             self::asignarNumeroSerie($orden, $orden->serie);
+            return;
+        }
+
+        // Una restauración no es una venta de mueble: no gasta consecutivo de
+        // venta, lleva el suyo (R-1092). Va aquí dentro y no en cada sitio que
+        // numera —crear, confirmar cotización, completar borrador, destrabar—
+        // para que ninguno se quede fuera por olvido.
+        if (self::esSoloRestauracion($orden)) {
+            self::asignarNumeroSerie($orden, Orden::SERIE_RESTAURACION);
             return;
         }
 
