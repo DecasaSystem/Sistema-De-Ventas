@@ -364,9 +364,10 @@ class StatsController extends Controller
             ->where('es_independientes', false)->get();
 
         $mesActual = Carbon::now(self::TZ_NEGOCIO)->format('Y-m');
+        $metasVigentes = \App\Models\MetaTienda::vigentesEn($mesActual);
         $porSuCuenta = $this->idsPorSuCuenta();
 
-        $resultado = $tiendas->map(function ($t) use ($rango, $desde, $hasta, $mesActual, $porSuCuenta) {
+        $resultado = $tiendas->map(function ($t) use ($rango, $desde, $hasta, $mesActual, $porSuCuenta, $metasVigentes) {
             $rangoCreacion = $this->rangoUtc($desde, $hasta);
 
             // Ingresos: el dinero se le acredita a la tienda que lo recibió, que
@@ -442,7 +443,8 @@ class StatsController extends Controller
                 ->groupBy('u.id', 'u.nombre')->orderByDesc('ingresos')
                 ->first();
 
-            $metaReg        = DB::table('metas_tienda')->where('tienda_id', $t->id)->where('mes', $mesActual)->first();
+            // La meta se arrastra: rige la ultima cargada hasta este mes.
+            $metaReg        = $metasVigentes[$t->id] ?? null;
             $totalTiendaMes = (float) DB::table('comisiones')->where('tienda_id', $t->id)->where('mes_venta', $mesActual)->sum('valor_orden');
             $metaVal        = $metaReg ? (float) $metaReg->meta : null;
             $pct            = ($metaVal && $metaVal > 0) ? min(100, round($totalTiendaMes / $metaVal * 100, 1)) : null;
@@ -950,12 +952,9 @@ class StatsController extends Controller
 
         // Meta mensual de la tienda del vendedor (siempre mes actual, independiente del período)
         $mesActual  = Carbon::now(self::TZ_NEGOCIO)->format('Y-m');
-        $metaReg    = $vendedor->tienda_id
-            ? DB::table('metas_tienda')
-                ->where('tienda_id', $vendedor->tienda_id)
-                ->where('mes', $mesActual)
-                ->first()
-            : null;
+        // La meta se arrastra: no hace falta volver a cargarla cada mes.
+        $vigentes   = \App\Models\MetaTienda::vigentesEn($mesActual);
+        $metaReg    = $vendedor->tienda_id ? ($vigentes[$vendedor->tienda_id] ?? null) : null;
 
         $totalTiendaMes = $vendedor->tienda_id
             ? (float) DB::table('comisiones')
