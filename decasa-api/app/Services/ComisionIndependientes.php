@@ -56,7 +56,10 @@ class ComisionIndependientes
             ->whereBetween('o.created_at', [$desde, $hasta])
             ->whereNotIn('o.estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES))
             ->select(
-                'o.id', 'o.numero_orden', 'o.serie', 'o.serie_numero', 'o.valor_total',
+                'o.id', 'o.numero_orden', 'o.serie', 'o.serie_numero',
+                // Si la comparte con otro asesor, solo la mitad es suya: es el
+                // mismo criterio que usan sus estadisticas y su comision.
+                DB::raw('CASE WHEN o.es_compartida = 1 THEN o.valor_total / 2 ELSE o.valor_total END as valor_total'),
                 'o.estado', 'o.created_at', 'o.tienda_abonada_id',
                 'u.nombre as vendedor', 'o.vendedor_id',
                 't.nombre as almacen', 'c.nombre as cliente'

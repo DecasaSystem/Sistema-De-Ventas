@@ -259,6 +259,14 @@ class OrdenController extends Controller
                     'message' => 'La tienda que se lleva la mitad no puede ser la misma de la orden.',
                 ], 422);
             }
+            // Las dos formas de compartir a la vez no estan definidas y no
+            // cuadran: la venta se repartiria entre tres por dos reglas
+            // distintas y sumaria mas de lo que vale.
+            if ($request->boolean('es_compartida')) {
+                return response()->json([
+                    'message' => 'Una venta se comparte con otro asesor o con un almacén, no con los dos.',
+                ], 422);
+            }
         }
 
         // Venta directa: el cliente paga (total o parcial) y se lleva los productos en
@@ -1137,6 +1145,11 @@ class OrdenController extends Controller
                     if ($data['tienda_abonada_id']
                         && (int) $data['tienda_abonada_id'] === (int) ($updateOrden['tienda_id'] ?? $orden->tienda_id)) {
                         throw new \RuntimeException('La tienda que se lleva la mitad no puede ser la misma de la orden.');
+                    }
+                    $compartidaFinal = array_key_exists('es_compartida', $data)
+                        ? (bool) $data['es_compartida'] : (bool) $orden->es_compartida;
+                    if ($data['tienda_abonada_id'] && $compartidaFinal) {
+                        throw new \RuntimeException('Una venta se comparte con otro asesor o con un almacén, no con los dos.');
                     }
                     $nombreAntes   = $orden->tienda_abonada_id ? (Tienda::find($orden->tienda_abonada_id)?->nombre ?? $orden->tienda_abonada_id) : null;
                     $nombreDespues = $data['tienda_abonada_id'] ? (Tienda::find($data['tienda_abonada_id'])?->nombre ?? $data['tienda_abonada_id']) : null;

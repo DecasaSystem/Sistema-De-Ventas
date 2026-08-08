@@ -729,9 +729,16 @@ class ComisionController extends Controller
         $meses = array_values(array_unique($meses));
         $metas = MetaTienda::mapaVigente($meses);
 
-        $totalesTienda = DB::table('comisiones')
-            ->selectRaw('tienda_id, mes_venta, SUM(valor_orden) as total')
-            ->groupBy('tienda_id', 'mes_venta')
+        // Las ventas de un independiente NO alimentan la meta de ninguna
+        // tienda por esta via: ellos cobran por su porcentaje fijo, no del pool.
+        // Lo unico que le llega a una tienda es la mitad que le abonen, que se
+        // suma abajo. Sin esto, un independiente cuya orden llevara el
+        // tienda_id de una tienda real le sumaba dos veces.
+        $totalesTienda = DB::table('comisiones as c')
+            ->join('usuarios as u', 'u.id', '=', 'c.vendedor_id')
+            ->where('u.independiente', false)
+            ->selectRaw('c.tienda_id, c.mes_venta, SUM(c.valor_orden) as total')
+            ->groupBy('c.tienda_id', 'c.mes_venta')
             ->get()
             ->keyBy(fn($r) => $r->tienda_id . '_' . $r->mes_venta);
 
