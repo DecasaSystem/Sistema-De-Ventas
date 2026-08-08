@@ -405,6 +405,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/vendedores',                [ComisionController::class, 'vendedores']);
         Route::get('/resumen',                   [ComisionController::class, 'resumen']);
         Route::get('/metas',                     [ComisionController::class, 'getMetas']);
+        // Los independientes cobran por porcentaje fijo, no por meta
+        Route::get('/independientes',            [ComisionController::class, 'independientes']);
         Route::get('/asesores-asignados',        [ComisionController::class, 'getAsesoresAsignados']);
         Route::post('/metas',                    [ComisionController::class, 'setMeta'])->middleware('role:supervisor');
         Route::post('/recalcular',               [ComisionController::class, 'recalcular'])->middleware('role:supervisor');

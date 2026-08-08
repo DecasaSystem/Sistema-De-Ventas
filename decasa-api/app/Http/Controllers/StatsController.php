@@ -378,7 +378,7 @@ class StatsController extends Controller
                 ->whereBetween('p.created_at', $rango)
                 // Lo que vende quien va por su cuenta no es de esta tienda
                 ->when($porSuCuenta, fn($q) => $q->whereNotIn('o.vendedor_id', $porSuCuenta))
-                ->selectRaw('SUM(CASE WHEN (o.es_compartida = 1 OR o.tienda_abonada_id IS NOT NULL) THEN p.monto / 2 ELSE p.monto END) as total')
+                ->selectRaw('SUM(CASE WHEN o.es_compartida = 1 THEN p.monto / 2 ELSE p.monto END) as total')
                 ->value('total') ?? 0;
 
             $ingresosCo = (float) DB::table('pagos as p')
@@ -398,7 +398,7 @@ class StatsController extends Controller
                 ->where('o.tienda_id', $t->id)->whereBetween('o.created_at', $rangoCreacion)
                 ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES)
                 ->when($porSuCuenta, fn($q) => $q->whereNotIn('o.vendedor_id', $porSuCuenta))
-                ->selectRaw('SUM(CASE WHEN (o.es_compartida = 1 OR o.tienda_abonada_id IS NOT NULL) THEN vs.saldo_pendiente / 2 ELSE vs.saldo_pendiente END) as total')
+                ->selectRaw('SUM(CASE WHEN o.es_compartida = 1 THEN vs.saldo_pendiente / 2 ELSE vs.saldo_pendiente END) as total')
                 ->value('total') ?? 0;
 
             $carteraCo = (float) DB::table('v_saldo_ordenes as vs')
@@ -439,7 +439,7 @@ class StatsController extends Controller
                 ->whereRaw('COALESCE(p.tienda_id, o.tienda_id) = ?', [$t->id])
                 ->whereBetween('p.created_at', $rango)
                 ->when($porSuCuenta, fn($q) => $q->whereNotIn('o.vendedor_id', $porSuCuenta))
-                ->selectRaw('u.id, u.nombre, SUM(CASE WHEN (o.es_compartida = 1 OR o.tienda_abonada_id IS NOT NULL) THEN p.monto / 2 ELSE p.monto END) AS ingresos')
+                ->selectRaw('u.id, u.nombre, SUM(CASE WHEN o.es_compartida = 1 THEN p.monto / 2 ELSE p.monto END) AS ingresos')
                 ->groupBy('u.id', 'u.nombre')->orderByDesc('ingresos')
                 ->first();
 
@@ -564,7 +564,7 @@ class StatsController extends Controller
                       });
                 })
                 ->whereBetween('p.created_at', $rango)
-                ->selectRaw('SUM(CASE WHEN (o.es_compartida = 1 OR o.tienda_abonada_id IS NOT NULL) THEN p.monto / 2 ELSE p.monto END) as total')
+                ->selectRaw('SUM(CASE WHEN o.es_compartida = 1 THEN p.monto / 2 ELSE p.monto END) as total')
                 ->value('total') ?? 0;
 
             $ord = DB::table('ordenes')
@@ -595,7 +595,7 @@ class StatsController extends Controller
                 })
                 ->whereBetween('created_at', $rango)
                 ->whereNotIn('estado', Orden::ESTADOS_NO_COMERCIALES)
-                ->selectRaw('SUM(CASE WHEN (es_compartida = 1 OR tienda_abonada_id IS NOT NULL) THEN valor_total / 2 ELSE valor_total END) as total')
+                ->selectRaw('SUM(CASE WHEN es_compartida = 1 THEN valor_total / 2 ELSE valor_total END) as total')
                 ->value('total') ?? 0;
 
             $cartera = (float) DB::table('v_saldo_ordenes as vs')
@@ -608,7 +608,7 @@ class StatsController extends Controller
                 })
                 ->where('vs.saldo_pendiente', '>', 0)
                 ->whereNotIn('o.estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES))
-                ->selectRaw('SUM(CASE WHEN (o.es_compartida = 1 OR o.tienda_abonada_id IS NOT NULL) THEN vs.saldo_pendiente / 2 ELSE vs.saldo_pendiente END) as total')
+                ->selectRaw('SUM(CASE WHEN o.es_compartida = 1 THEN vs.saldo_pendiente / 2 ELSE vs.saldo_pendiente END) as total')
                 ->value('total') ?? 0;
 
             return [
@@ -818,7 +818,7 @@ class StatsController extends Controller
                 ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
                 ->where($whereVendedorO)
                 ->whereBetween('p.created_at', $rango)
-                ->selectRaw('SUM(CASE WHEN (o.es_compartida = 1 OR o.tienda_abonada_id IS NOT NULL) THEN p.monto / 2 ELSE p.monto END) as total')
+                ->selectRaw('SUM(CASE WHEN o.es_compartida = 1 THEN p.monto / 2 ELSE p.monto END) as total')
                 ->value('total') ?? 0;
         } else {
             $ingresos = (float) DB::table('pagos as p')
@@ -856,7 +856,7 @@ class StatsController extends Controller
             ->whereBetween('created_at', $rango)
             ->whereNotIn('estado', Orden::ESTADOS_NO_COMERCIALES)
             ->selectRaw($esVendedor
-                ? 'SUM(CASE WHEN (es_compartida = 1 OR tienda_abonada_id IS NOT NULL) THEN valor_total / 2 ELSE valor_total END) as total'
+                ? 'SUM(CASE WHEN es_compartida = 1 THEN valor_total / 2 ELSE valor_total END) as total'
                 : 'SUM(valor_total) as total')
             ->value('total') ?? 0;
 
@@ -869,7 +869,7 @@ class StatsController extends Controller
                 ->where($whereVendedorO)
                 ->where('v.saldo_pendiente', '>', 0)
                 ->whereNotIn('o.estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES))
-                ->selectRaw('SUM(CASE WHEN (o.es_compartida = 1 OR o.tienda_abonada_id IS NOT NULL) THEN v.saldo_pendiente / 2 ELSE v.saldo_pendiente END) as total')
+                ->selectRaw('SUM(CASE WHEN o.es_compartida = 1 THEN v.saldo_pendiente / 2 ELSE v.saldo_pendiente END) as total')
                 ->value('total') ?? 0;
         } else {
             $cartera = (float) DB::table('v_saldo_ordenes as v')

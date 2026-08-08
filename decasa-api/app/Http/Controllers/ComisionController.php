@@ -827,4 +827,21 @@ class ComisionController extends Controller
             NotificacionService::crear('comisiones', $titulo, $mensaje, ['comision_id' => $c->id], $sup->id);
         }
     }
+
+    /**
+     * GET /api/comisiones/independientes?mes=YYYY-MM
+     *
+     * Los independientes no van por meta ni por pool: cobran un porcentaje
+     * fijo de todo lo que venden entre ellos. Se calcula aparte por eso.
+     */
+    public function independientes(Request $request)
+    {
+        if (! $request->user()->acceso_comisiones && $request->user()->rol !== 'supervisor') {
+            return response()->json(['error' => 'Sin acceso'], 403);
+        }
+
+        $mes = $request->query('mes', Carbon::now(StatsController::TZ_NEGOCIO)->format('Y-m'));
+
+        return response()->json(\App\Services\ComisionIndependientes::delMes($mes));
+    }
 }

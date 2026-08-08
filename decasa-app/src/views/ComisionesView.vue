@@ -90,6 +90,16 @@ async function cargarResumen() {
   }
 }
 
+// Los independientes no van por meta ni por pool: cobran un porcentaje fijo
+// de todo lo que venden entre ellos, asi que se calcula y se muestra aparte.
+const indepData = ref(null)
+async function cargarIndependientes() {
+  try {
+    const { data } = await api.get('/comisiones/independientes', { params: { mes: mesActual.value } })
+    indepData.value = (data?.independientes?.length || data?.almacenes?.length) ? data : null
+  } catch { indepData.value = null }
+}
+
 async function cargarTodosVendedores() {
   if (todosVendedores.value.length > 0) return
   try {
@@ -105,6 +115,7 @@ async function recalcular() {
     toast.success(`Recalculado — ${data.actualizadas} actualizadas, ${data.notificadas} notificadas`)
     await cargar()
     if (vistaTab.value === 'resumen') await cargarResumen()
+  cargarIndependientes()
   } catch {
     toast.error('Error al recalcular')
   } finally {
@@ -392,6 +403,7 @@ function exportarResumenExcel() {
 }
 
 onMounted(async () => {
+  cargarIndependientes()
   await cargar()
   await cargarTodosVendedores()
 })
@@ -431,6 +443,49 @@ onMounted(async () => {
           {{ recalculando ? 'Calculando…' : 'Recalcular' }}
         </button>
       </div>
+    </div>
+
+    <!-- Independientes: porcentaje fijo, sin meta -->
+    <div v-if="indepData" class="bg-white rounded-xl shadow-sm p-4 mb-4 border border-emerald-200">
+      <div class="flex items-center justify-between mb-1">
+        <p class="text-sm font-bold text-gray-800">Vendedores independientes</p>
+        <span class="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">
+          {{ Math.round(indepData.porcentaje * 100) }}% fijo
+        </span>
+      </div>
+      <p class="text-[11px] text-gray-500 mb-3">
+        No van por meta: cada uno cobra el {{ Math.round(indepData.porcentaje * 100) }}% de todo lo
+        que vendieron entre ellos este mes.
+      </p>
+
+      <div class="flex items-center justify-between text-sm py-1.5 border-b border-gray-100">
+        <span class="text-gray-500">Vendido entre todos</span>
+        <span class="font-bold text-gray-800">{{ cop(indepData.base) }}</span>
+      </div>
+
+      <div v-for="i in indepData.independientes" :key="i.vendedor_id"
+           class="flex items-center justify-between text-sm py-1.5 border-b border-gray-50">
+        <div class="min-w-0">
+          <p class="font-medium text-gray-700 truncate">{{ i.nombre }}</p>
+          <p class="text-[11px] text-gray-400">vendió {{ cop(i.vendio) }}</p>
+        </div>
+        <span class="font-bold text-emerald-700 shrink-0">{{ cop(i.comision) }}</span>
+      </div>
+
+      <template v-if="indepData.almacenes.length">
+        <p class="text-[11px] font-semibold text-gray-500 uppercase mt-3 mb-1">Almacenes que ayudaron</p>
+        <div v-for="a in indepData.almacenes" :key="a.tienda_id"
+             class="flex items-center justify-between text-sm py-1.5 border-b border-gray-50">
+          <div class="min-w-0">
+            <p class="font-medium text-gray-700 truncate">{{ a.nombre }}</p>
+            <p class="text-[11px] text-gray-400">
+              {{ a.ordenes }} compartida(s) · {{ cop(a.compartido) }} ·
+              suma {{ cop(a.suma_a_meta) }} a su meta
+            </p>
+          </div>
+          <span class="font-bold text-emerald-700 shrink-0">{{ cop(a.comision) }}</span>
+        </div>
+      </template>
     </div>
 
     <!-- ── Panel metas + asesores ──────────────────────────────────────────── -->
