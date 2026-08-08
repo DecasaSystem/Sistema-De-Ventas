@@ -44,7 +44,9 @@ class ComisionIndependientes
 
         $independientes = Usuario::where('independiente', true)->get(['id', 'nombre']);
         if ($independientes->isEmpty()) {
-            return ['mes' => $mes, 'base' => 0.0, 'porcentaje' => self::PORCENTAJE,
+            return ['mes' => $mes, 'base' => 0.0, 'base_lista' => 0.0, 'base_pendiente' => 0.0,
+                    'se_cobra_el' => Carbon::parse($mes.'-01')->addMonth()->day(20)->toDateString(),
+                    'llego_la_fecha' => false, 'porcentaje' => self::PORCENTAJE,
                     'independientes' => [], 'almacenes' => [], 'ordenes' => []];
         }
 
@@ -64,13 +66,29 @@ class ComisionIndependientes
                 'u.nombre as vendedor', 'o.vendedor_id',
                 't.nombre as almacen', 'c.nombre as cliente'
             )
+            ->selectSub(
+                DB::table('pagos')->selectRaw('COALESCE(SUM(monto),0)')->whereColumn('orden_id','o.id'),
+                'pagado'
+            )
             ->orderBy('o.created_at')
             ->get();
 
         // Una restauración no le suma a la meta del almacén aunque se comparta.
         $idsRestauracion = self::idsDeRestauracion($ordenes->pluck('id')->all());
 
-        $base = (float) $ordenes->sum('valor_total');
+        // Se cobra igual que en las tiendas: cuando el cliente ha pagado la
+        // mitad Y llega el 20 del mes siguiente a la venta.
+        $hoy       = Carbon::today(StatsController::TZ_NEGOCIO);
+        $seCobraEl = Carbon::parse($mes . '-01')->addMonth()->day(20);
+        $llegoLaFecha = $hoy->gte($seCobraEl);
+
+        $listas = $ordenes->filter(fn ($o) =>
+            $llegoLaFecha && (float) $o->pagado >= (float) $o->valor_total / 2
+        );
+
+        $base         = (float) $ordenes->sum('valor_total');
+        $baseLista    = (float) $listas->sum('valor_total');
+        $basePendiente = $base - $baseLista;
 
         // Los dos cobran sobre lo mismo: todo lo que vendieron entre ambos.
         $porIndependiente = $independientes->map(fn ($u) => [
@@ -78,12 +96,15 @@ class ComisionIndependientes
             'nombre'      => $u->nombre,
             'vendio'      => (float) $ordenes->where('vendedor_id', $u->id)->sum('valor_total'),
             'comision'    => round($base * self::PORCENTAJE),
+            'comision_lista'     => round($baseLista * self::PORCENTAJE),
+            'comision_pendiente' => round($basePendiente * self::PORCENTAJE),
         ])->values()->all();
 
         // Cada almacén cobra sobre lo que se compartió con él.
         $almacenes = $ordenes->whereNotNull('tienda_abonada_id')
             ->groupBy('tienda_abonada_id')
-            ->map(function ($grupo) use ($idsRestauracion) {
+            ->map(function ($grupo) use ($idsRestauracion, $listas) {
+                $idsListas = $listas->pluck('id')->all();
                 $compartido = (float) $grupo->sum('valor_total');
                 // A la meta solo le suma la mitad de lo que NO es restauración.
                 $paraMeta = (float) $grupo
@@ -95,6 +116,10 @@ class ComisionIndependientes
                     'nombre'      => $grupo->first()->almacen,
                     'compartido'  => $compartido,
                     'comision'    => round($compartido * self::PORCENTAJE),
+                    'comision_lista' => round(
+                        (float) $grupo->filter(fn ($o) => in_array($o->id, $idsListas, true))
+                            ->sum('valor_total') * self::PORCENTAJE
+                    ),
                     'suma_a_meta' => $paraMeta,
                     'ordenes'     => $grupo->count(),
                 ];
@@ -103,6 +128,10 @@ class ComisionIndependientes
         return [
             'mes'            => $mes,
             'base'           => $base,
+            'base_lista'     => $baseLista,
+            'base_pendiente' => $basePendiente,
+            'se_cobra_el'    => $seCobraEl->toDateString(),
+            'llego_la_fecha' => $llegoLaFecha,
             'porcentaje'     => self::PORCENTAJE,
             'independientes' => $porIndependiente,
             'almacenes'      => $almacenes,
@@ -118,6 +147,9 @@ class ComisionIndependientes
                 'es_restauracion'=> in_array($o->id, $idsRestauracion, true),
                 'suma_a_meta'    => ($o->tienda_abonada_id && ! in_array($o->id, $idsRestauracion, true))
                                     ? (float) $o->valor_total / 2 : 0.0,
+                'pagado'         => (float) $o->pagado,
+                'pago_completo'  => (float) $o->pagado >= (float) $o->valor_total / 2,
+                'lista'          => $listas->contains('id', $o->id),
             ])->values()->all(),
         ];
     }

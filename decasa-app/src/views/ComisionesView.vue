@@ -93,6 +93,13 @@ async function cargarResumen() {
 // Los independientes no van por meta ni por pool: cobran un porcentaje fijo
 // de todo lo que venden entre ellos, asi que se calcula y se muestra aparte.
 const indepData = ref(null)
+function fechaCorta(f) {
+  if (!f) return ''
+  const [a, m, d] = f.split('-')
+  const meses = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic']
+  return `${Number(d)} de ${meses[Number(m) - 1]}`
+}
+
 async function cargarIndependientes() {
   try {
     const { data } = await api.get('/comisiones/independientes', { params: { mes: mesActual.value } })
@@ -463,13 +470,26 @@ onMounted(async () => {
         <span class="font-bold text-gray-800">{{ cop(indepData.base) }}</span>
       </div>
 
+      <!-- Se cobra igual que en las tiendas: el 20 del mes siguiente y con la
+           mitad pagada por el cliente -->
+      <div class="flex items-center justify-between text-[11px] py-1 text-gray-500">
+        <span>Se paga el {{ fechaCorta(indepData.se_cobra_el) }}</span>
+        <span v-if="!indepData.llego_la_fecha" class="text-amber-700 font-medium">aún no llega</span>
+        <span v-else class="text-green-700 font-medium">ya se puede cobrar</span>
+      </div>
+
       <div v-for="i in indepData.independientes" :key="i.vendedor_id"
            class="flex items-center justify-between text-sm py-1.5 border-b border-gray-50">
         <div class="min-w-0">
           <p class="font-medium text-gray-700 truncate">{{ i.nombre }}</p>
           <p class="text-[11px] text-gray-400">vendió {{ cop(i.vendio) }}</p>
         </div>
-        <span class="font-bold text-emerald-700 shrink-0">{{ cop(i.comision) }}</span>
+        <div class="text-right shrink-0">
+          <p class="font-bold text-emerald-700">{{ cop(i.comision) }}</p>
+          <p v-if="i.comision_pendiente > 0" class="text-[10px] text-amber-700">
+            {{ cop(i.comision_lista) }} listo · {{ cop(i.comision_pendiente) }} pendiente
+          </p>
+        </div>
       </div>
 
       <template v-if="indepData.almacenes.length">
