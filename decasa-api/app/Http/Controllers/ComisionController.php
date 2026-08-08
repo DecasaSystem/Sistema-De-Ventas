@@ -192,6 +192,11 @@ class ComisionController extends Controller
                 'total_ventas'    => $items->sum(fn($i) => (float) $i['valor_orden']),
                 'comision_total'  => $items->sum(fn($i) => (float) $i['monto_comision']),
                 'comision_asesor' => (float) $first['comision_asesor'],
+                // Como va el trimestre: en Pereira y Circunvalar el pool mira
+                // los 3 meses, y a mitad de camino los que faltan cuentan como
+                // cero vendido contra meta entera.
+                'periodicidad'     => $first['periodicidad'] ?? 'mensual',
+                'avance_trimestre' => $first['avance_trimestre'] ?? null,
                 'pendientes'      => $items->where('estado_calculado', 'pendiente')->count(),
                 'listas'          => $items->where('estado_calculado', 'lista')->count(),
                 'pagadas'         => $items->where('estado_calculado', 'pagada')->count(),
@@ -554,6 +559,47 @@ class ComisionController extends Controller
      * Diferencial de ventas vs meta sumado en los 3 meses del trimestre
      * (puede ser negativo). No incluye arrastre de déficit.
      */
+    /**
+     * Como va un trimestre que todavia no termina.
+     *
+     * El pool suma (ventas - meta) de los tres meses, asi que a mitad de
+     * trimestre los meses que no han pasado cuentan como cero vendido contra
+     * una meta entera y el resultado sale en rojo aunque se vaya bien. Aqui se
+     * separan las dos cosas: lo que va acumulado de verdad, y cuanto falta por
+     * vender para que el trimestre cierre en positivo.
+     */
+    private function avanceTrimestre(int $tiendaId, string $trimestre, $metas, $totalesTienda): array
+    {
+        $mesActual  = Carbon::now(StatsController::TZ_NEGOCIO)->format('Y-m');
+        $acumulado  = 0.0;
+        $metaFutura = 0.0;
+        $cumplidos  = 0;
+        $restantes  = 0;
+
+        foreach (self::mesesDeTrimestre($trimestre) as $mes) {
+            $key  = $tiendaId . '_' . $mes;
+            $meta = isset($metas[$key]) ? (float) $metas[$key]->meta : 0;
+
+            if ($mes <= $mesActual) {
+                $ventas = isset($totalesTienda[$key]) ? (float) $totalesTienda[$key]->total : 0;
+                $acumulado += ($ventas - $meta);
+                $cumplidos++;
+            } else {
+                $metaFutura += $meta;
+                $restantes++;
+            }
+        }
+
+        return [
+            'acumulado'       => round($acumulado),
+            'meses_cumplidos' => $cumplidos,
+            'meses_restantes' => $restantes,
+            // Lo que hay que vender en lo que queda para cerrar en positivo.
+            'falta_vender'    => round(max(0, $metaFutura - $acumulado)),
+            'en_curso'        => $restantes > 0,
+        ];
+    }
+
     private function diferencialTrimestre(int $tiendaId, string $trimestre, $metas, $totalesTienda): float
     {
         $diferencial = 0.0;
@@ -797,6 +843,9 @@ class ComisionController extends Controller
             'req_mes_vencido'  => $reqVencio,
             'periodicidad'     => $esTrimestral ? 'trimestral' : 'mensual',
             'trimestre'        => $esTrimestral ? self::trimestreDeMes($c->mes_venta) : null,
+            'avance_trimestre' => $esTrimestral
+                ? $this->avanceTrimestre($c->tienda_id, self::trimestreDeMes($c->mes_venta), $metas, $totalesTienda)
+                : null,
             'deficit_inicial'  => round($deficitInicial),
             'deficit_final'    => round($deficitFinal),
             'pct_pagado'       => $c->valor_orden > 0 ? round($pagado / (float) $c->valor_orden * 100) : 0,

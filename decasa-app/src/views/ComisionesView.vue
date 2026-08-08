@@ -764,6 +764,38 @@ onMounted(async () => {
                   <p class="text-[10px] text-gray-400">de {{ cop(r.total_ventas) }} vendidos</p>
                 </div>
               </div>
+
+              <!-- Trimestre en curso: el pool mira los 3 meses, asi que los que
+                   faltan cuentan como cero vendido contra meta entera. Se separa
+                   lo que va de verdad de lo que falta. -->
+              <div v-if="r.avance_trimestre?.en_curso"
+                   class="mb-2 rounded-lg bg-amber-50 border border-amber-200 px-2.5 py-2">
+                <p class="text-[11px] font-semibold text-amber-800">
+                  Trimestre en curso — faltan {{ r.avance_trimestre.meses_restantes }}
+                  {{ r.avance_trimestre.meses_restantes === 1 ? 'mes' : 'meses' }}
+                </p>
+                <div class="flex items-center justify-between text-[11px] mt-1">
+                  <span class="text-gray-600">
+                    Va acumulado ({{ r.avance_trimestre.meses_cumplidos }}
+                    {{ r.avance_trimestre.meses_cumplidos === 1 ? 'mes' : 'meses' }})
+                  </span>
+                  <span :class="['font-bold', r.avance_trimestre.acumulado >= 0 ? 'text-green-700' : 'text-red-600']">
+                    {{ r.avance_trimestre.acumulado >= 0 ? '+' : '' }}{{ cop(r.avance_trimestre.acumulado) }}
+                  </span>
+                </div>
+                <div v-if="r.avance_trimestre.falta_vender > 0"
+                     class="flex items-center justify-between text-[11px] mt-0.5">
+                  <span class="text-gray-600">Falta vender para cerrar en positivo</span>
+                  <span class="font-bold text-amber-800">{{ cop(r.avance_trimestre.falta_vender) }}</span>
+                </div>
+                <p v-else class="text-[11px] text-green-700 font-semibold mt-0.5">
+                  Ya cierra en positivo con lo vendido.
+                </p>
+                <p class="text-[10px] text-gray-500 mt-1 leading-snug">
+                  La comisión de arriba es provisional: se calcula sobre el trimestre
+                  completo y se cierra al terminar.
+                </p>
+              </div>
               <div class="flex items-center justify-between">
                 <div class="flex items-center gap-2">
                   <span :class="['inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full', resumenEstadoLabel(r).bg, resumenEstadoLabel(r).color]">
