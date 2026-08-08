@@ -72,8 +72,17 @@ export const useAuthStore = defineStore('auth', () => {
     return null
   }
 
+  /**
+   * Arma el usuario de la sesion.
+   *
+   * Se conserva lo que venga del backend y solo se le fijan valores por
+   * defecto a lo que la app da por hecho. Antes se listaban los campos uno a
+   * uno y lo que no estuviera en la lista se perdia en silencio: asi se cayo
+   * 'independiente', y con el todo lo que depende de serlo.
+   */
   function _buildUsuario(data) {
     return {
+      ...data,
       id:                data.id,
       nombre:            data.nombre,
       email:             data.email ?? null,
@@ -85,6 +94,7 @@ export const useAuthStore = defineStore('auth', () => {
       recarga_telas:     data.recarga_telas     ?? false,
       tienda_default_id: data.tienda_default_id ?? null,
       firma_url:         data.firma_url         ?? null,
+      independiente:     data.independiente     ?? false,
     }
   }
 
