@@ -119,6 +119,38 @@ class ComisionIndependientes
         ];
     }
 
+    /**
+     * Lo que los independientes le abonaron a cada tienda para su META.
+     *
+     * Es la mitad de cada venta compartida, PERO solo de las ventas: una
+     * restauración compartida le paga su 5% al almacén y no le cuenta para la
+     * meta. Vive aquí y no en el controlador para que la meta y lo que se
+     * muestra en pantalla salgan del mismo sitio: estaban duplicados y decían
+     * cosas distintas.
+     *
+     * @return array<string,float>  ['tienda_mes' => monto]
+     */
+    public static function abonadoParaMeta(): array
+    {
+        return DB::table('ordenes')
+            ->whereNotNull('tienda_abonada_id')
+            ->whereNotIn('estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES))
+            // Fuera las que son íntegramente restauración
+            ->whereNotIn('id', function ($q) {
+                $q->from('orden_items')->select('orden_id')
+                  ->groupBy('orden_id')
+                  ->havingRaw('COUNT(*) = SUM(es_restauracion)');
+            })
+            ->selectRaw(
+                "tienda_abonada_id, DATE_FORMAT(CONVERT_TZ(created_at,'+00:00','-05:00'),'%Y-%m') as mes, " .
+                'SUM(valor_total) / 2 as total'
+            )
+            ->groupBy('tienda_abonada_id', 'mes')
+            ->get()
+            ->mapWithKeys(fn ($r) => [$r->tienda_abonada_id . '_' . $r->mes => (float) $r->total])
+            ->all();
+    }
+
     /** Órdenes cuyos ítems son todos restauración. */
     private static function idsDeRestauracion(array $ordenIds): array
     {

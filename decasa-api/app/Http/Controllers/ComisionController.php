@@ -700,19 +700,16 @@ class ComisionController extends Controller
      * Se cuenta la mitad de la venta, que es lo que le toca a la tienda. La
      * otra mitad ya esta en comisiones, a nombre del vendedor.
      */
+    /**
+     * Lo que los independientes le abonaron a cada tienda.
+     *
+     * Delega en el servicio para que la meta y lo que se ve en pantalla no
+     * puedan volver a desacoplarse: estaban calculados por separado y la
+     * pantalla descontaba las restauraciones pero la meta no.
+     */
     public static function abonadoPorTienda(): array
     {
-        return DB::table('ordenes')
-            ->whereNotNull('tienda_abonada_id')
-            ->whereNotIn('estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES))
-            ->selectRaw(
-                "tienda_abonada_id, DATE_FORMAT(CONVERT_TZ(created_at,'+00:00','-05:00'),'%Y-%m') as mes, " .
-                'SUM(valor_total) / 2 as total'
-            )
-            ->groupBy('tienda_abonada_id', 'mes')
-            ->get()
-            ->mapWithKeys(fn ($r) => [$r->tienda_abonada_id . '_' . $r->mes => (float) $r->total])
-            ->all();
+        return \App\Services\ComisionIndependientes::abonadoParaMeta();
     }
 
     private function cargarTotales(): array
