@@ -149,6 +149,33 @@ function totalListasVendedor(r) {
   return r.ordenes.filter(o => o.estado === 'lista').reduce((s, o) => s + o.monto_comision, 0)
 }
 
+// Una comisión se paga de tres maneras y no se distinguían en pantalla: se
+// veía el desglose del pool aunque la orden no se hubiera pagado por pool.
+const FORMAS_PAGO = {
+  restauracion_5: {
+    etiqueta: 'Restauración',
+    resumen:  '5% del valor. No pasa por el pool ni le suma a la meta.',
+    clase:    'bg-purple-100 text-purple-700',
+  },
+  sin_meta_5: {
+    etiqueta: 'Individual',
+    resumen:  'Sin meta no hay pool: cobra el 5% de lo suyo, sin dividir.',
+    clase:    'bg-sky-100 text-sky-700',
+  },
+  pool: {
+    etiqueta: 'Pool',
+    resumen:  'Su parte del pool de la tienda, a prorrata de lo que vendió.',
+    clase:    'bg-gray-100 text-gray-600',
+  },
+}
+function formaPago(c) {
+  return FORMAS_PAGO[c?.forma_pago] ?? FORMAS_PAGO.pool
+}
+// La meta solo es requisito cuando se cobra por el pool.
+function dependeDeLaMeta(c) {
+  return (c?.forma_pago ?? 'pool') === 'pool'
+}
+
 async function pagarTodasListas(r) {
   const total = totalListasVendedor(r)
   if (!confirm(`¿Marcar ${r.listas} comisión${r.listas > 1 ? 'es' : ''} de ${r.vendedor_nombre} como pagadas?\nTotal: ${cop(total)}`)) return
@@ -266,6 +293,9 @@ const resumenPorTienda = computed(() => {
         tienda_nombre:  r.tienda_nombre,
         comision_total: 0,
         total_ventas:   0,
+        // Las restauraciones no le suman a la meta, así que el total de la
+        // tienda no se puede leer como avance contra ella sin separarlas.
+        total_restauraciones: 0,
         total_ordenes:  0,
         pendientes:     0,
         listas:         0,
@@ -276,6 +306,9 @@ const resumenPorTienda = computed(() => {
     const t = map[r.tienda_id]
     t.comision_total += r.comision_total
     t.total_ventas   += r.total_ventas
+    t.total_restauraciones += (r.ordenes ?? [])
+      .filter(o => o.es_restauracion)
+      .reduce((s, o) => s + Number(o.valor_orden || 0), 0)
     t.total_ordenes  += r.total_ordenes
     t.pendientes     += r.pendientes
     t.listas         += r.listas
@@ -362,6 +395,8 @@ function exportarDetalleExcel() {
     'Orden N°':          c.orden_referencia ?? c.orden_numero ?? '',
     'Estado':            ESTADO_LABEL[c.estado_calculado ?? c.estado] ?? (c.estado_calculado ?? c.estado ?? ''),
     'Atrasada':          c.atrasada ? 'Sí' : 'No',
+    'Tipo':              c.es_restauracion ? 'Restauración' : 'Venta',
+    'Cómo se paga':      formaPago(c).etiqueta,
     'Comisión':          Number(c.monto_comision) || 0,
     'Valor orden':       Number(c.valor_orden) || 0,
     '% pagado orden':    Number(c.pct_pagado) || 0,
@@ -462,12 +497,32 @@ onMounted(async () => {
       </div>
       <p class="text-[11px] text-gray-500 mb-3">
         No van por meta: cada uno cobra el {{ Math.round(indepData.porcentaje * 100) }}% de todo lo
-        que vendieron entre ellos este mes.
+        que vendieron entre ellos este mes. A las ventas se les descuenta el IVA
+        primero; a las restauraciones no.
       </p>
 
       <div class="flex items-center justify-between text-sm py-1.5 border-b border-gray-100">
         <span class="text-gray-500">Vendido entre todos</span>
         <span class="font-bold text-gray-800">{{ cop(indepData.base) }}</span>
+      </div>
+
+      <!-- Las dos partes llevan cuentas distintas, asi que el total solo no
+           explica de donde sale la comision. -->
+      <div v-if="indepData.base_restauracion > 0" class="text-[11px] text-gray-500 py-1 space-y-0.5">
+        <div class="flex items-center justify-between">
+          <span>Ventas ÷1.19 × {{ Math.round(indepData.porcentaje * 100) }}%</span>
+          <span class="font-medium">
+            {{ cop(indepData.base_venta) }} →
+            {{ cop(indepData.base_venta / 1.19 * indepData.porcentaje) }}
+          </span>
+        </div>
+        <div class="flex items-center justify-between text-purple-600">
+          <span>Restauraciones × {{ Math.round(indepData.porcentaje * 100) }}%</span>
+          <span class="font-medium">
+            {{ cop(indepData.base_restauracion) }} →
+            {{ cop(indepData.base_restauracion * indepData.porcentaje) }}
+          </span>
+        </div>
       </div>
 
       <!-- Se cobra igual que en las tiendas: el 20 del mes siguiente y con la
@@ -482,7 +537,12 @@ onMounted(async () => {
            class="flex items-center justify-between text-sm py-1.5 border-b border-gray-50">
         <div class="min-w-0">
           <p class="font-medium text-gray-700 truncate">{{ i.nombre }}</p>
-          <p class="text-[11px] text-gray-400">vendió {{ cop(i.vendio) }}</p>
+          <p class="text-[11px] text-gray-400">
+            vendió {{ cop(i.vendio) }}
+            <span v-if="i.vendio_restauracion > 0" class="text-purple-600">
+              ({{ cop(i.vendio_restauracion) }} en restauraciones)
+            </span>
+          </p>
         </div>
         <div class="text-right shrink-0">
           <p class="font-bold text-emerald-700">{{ cop(i.comision) }}</p>
@@ -723,6 +783,10 @@ onMounted(async () => {
                 <div class="text-right shrink-0">
                   <p class="text-lg font-bold text-green-700">{{ cop(t.comision_total) }}</p>
                   <p class="text-[10px] text-gray-400">de {{ cop(t.total_ventas) }}</p>
+                  <p v-if="t.total_restauraciones > 0" class="text-[10px] text-purple-600">
+                    incluye {{ cop(t.total_restauraciones) }} en restauraciones,
+                    que no le suman a la meta
+                  </p>
                 </div>
               </div>
               <!-- Mini badges estados -->
@@ -876,6 +940,10 @@ onMounted(async () => {
                       v-if="o.es_descuento_especial"
                       class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 shrink-0"
                     >Descuento</span>
+                    <span
+                      v-if="o.forma_pago && o.forma_pago !== 'pool'"
+                      :class="['text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0', formaPago(o).clase]"
+                    >{{ formaPago(o).etiqueta }}</span>
                     <span class="text-gray-400 truncate">{{ fmtFecha(o.fecha_venta) }}</span>
                   </div>
                   <div class="text-right shrink-0 ml-2">
@@ -972,7 +1040,13 @@ onMounted(async () => {
           <div class="p-4">
             <div class="flex items-start justify-between gap-2 mb-2">
               <div class="flex-1 min-w-0">
-                <p class="font-semibold text-gray-800 text-sm truncate">{{ c.vendedor_nombre }}</p>
+                <div class="flex items-center gap-1.5">
+                  <p class="font-semibold text-gray-800 text-sm truncate">{{ c.vendedor_nombre }}</p>
+                  <span
+                    v-if="c.forma_pago && c.forma_pago !== 'pool'"
+                    :class="['text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0', formaPago(c).clase]"
+                  >{{ formaPago(c).etiqueta }}</span>
+                </div>
                 <div class="flex items-center gap-1.5 mt-0.5">
                   <p class="text-xs text-gray-400">
                     {{ c.tienda_nombre }} · Orden {{ c.orden_referencia ?? ('#' + c.orden_numero) }}
@@ -1033,7 +1107,10 @@ onMounted(async () => {
               </div>
               <span class="text-gray-400 font-medium">{{ c.pct_pagado }}%</span>
             </div>
-            <div class="flex items-center justify-between text-xs">
+            <!-- La meta solo es requisito si se cobra por el pool. En una
+                 restauración, o sin meta, salía un ✗ rojo que no significaba
+                 nada: la comisión se paga igual. -->
+            <div v-if="dependeDeLaMeta(c)" class="flex items-center justify-between text-xs">
               <div class="flex items-center gap-1.5">
                 <CheckCircleIcon v-if="c.meta_cumplida" class="w-4 h-4 text-green-500" />
                 <XCircleIcon v-else class="w-4 h-4 text-red-400" />
@@ -1044,6 +1121,10 @@ onMounted(async () => {
               <span v-if="c.periodicidad !== 'trimestral'" class="text-gray-400 font-medium">
                 {{ cop(c.total_tienda_mes) }} / {{ c.meta_tienda > 0 ? cop(c.meta_tienda) : 'Sin meta' }}
               </span>
+            </div>
+            <div v-else class="flex items-center gap-1.5 text-xs">
+              <CheckCircleIcon class="w-4 h-4 text-green-500" />
+              <span class="text-green-700">No depende de la meta</span>
             </div>
             <div class="flex items-center justify-between text-xs">
               <div class="flex items-center gap-1.5">
@@ -1056,7 +1137,18 @@ onMounted(async () => {
               <span class="text-gray-400 font-medium">Disponible {{ fmtFecha(c.fecha_disponible) }}</span>
             </div>
 
-            <div v-if="c.periodicidad === 'trimestral'" class="mt-2 pt-2 border-t border-gray-100 text-xs text-gray-500 space-y-0.5">
+            <!-- Fuera del pool la cuenta es de una sola línea, y antes se
+                 mostraba el desglose del pool aunque no se hubiera pagado así. -->
+            <div v-if="!dependeDeLaMeta(c)" class="mt-2 pt-2 border-t border-gray-100 text-xs text-gray-500 space-y-0.5">
+              <p class="font-semibold text-gray-600 mb-1">Cálculo</p>
+              <p>{{ formaPago(c).resumen }}</p>
+              <p>Valor de la orden: {{ cop(c.valor_orden) }}</p>
+              <p v-if="c.forma_pago === 'sin_meta_5'">Sin IVA (÷1.19): {{ cop(c.valor_orden / 1.19) }}</p>
+              <p class="font-bold text-green-700 border-t border-gray-100 pt-0.5 mt-0.5">
+                5% = {{ cop(c.monto_comision) }}
+              </p>
+            </div>
+            <div v-else-if="c.periodicidad === 'trimestral'" class="mt-2 pt-2 border-t border-gray-100 text-xs text-gray-500 space-y-0.5">
               <p class="font-semibold text-gray-600 mb-1">Cálculo (trimestre {{ c.trimestre }})</p>
               <p v-if="c.deficit_inicial > 0" class="text-red-500">Déficit arrastrado del trimestre anterior: − {{ cop(c.deficit_inicial) }}</p>
               <p>Pool trimestral (después de déficit): {{ cop(c.comision_pool) }}</p>

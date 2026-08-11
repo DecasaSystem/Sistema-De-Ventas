@@ -113,15 +113,30 @@ class ComisionIndependientes
         $comisionLista     = $pagaPor($listas);
         $comisionPendiente = $comisionTotal - $comisionLista;
 
+        // Cuanto de la base es venta y cuanto restauracion. En pantalla el
+        // total solo no explica el monto: las dos partes llevan cuentas
+        // distintas y una de ellas no descuenta IVA.
+        $baseVenta = (float) $ordenes->reject(fn ($o) => in_array($o->id, $idsRestauracion, true))
+            ->sum('valor_total');
+        $baseRest  = $base - $baseVenta;
+
         // Los dos cobran sobre lo mismo: todo lo que vendieron entre ambos.
-        $porIndependiente = $independientes->map(fn ($u) => [
-            'vendedor_id' => $u->id,
-            'nombre'      => $u->nombre,
-            'vendio'      => (float) $ordenes->where('vendedor_id', $u->id)->sum('valor_total'),
-            'comision'           => round($comisionTotal),
-            'comision_lista'     => round($comisionLista),
-            'comision_pendiente' => round($comisionPendiente),
-        ])->values()->all();
+        $porIndependiente = $independientes->map(function ($u) use ($ordenes, $idsRestauracion, $comisionTotal, $comisionLista, $comisionPendiente) {
+            $suyas = $ordenes->where('vendedor_id', $u->id);
+            $venta = (float) $suyas->reject(fn ($o) => in_array($o->id, $idsRestauracion, true))
+                ->sum('valor_total');
+
+            return [
+                'vendedor_id' => $u->id,
+                'nombre'      => $u->nombre,
+                'vendio'      => (float) $suyas->sum('valor_total'),
+                'vendio_venta'        => $venta,
+                'vendio_restauracion' => (float) $suyas->sum('valor_total') - $venta,
+                'comision'           => round($comisionTotal),
+                'comision_lista'     => round($comisionLista),
+                'comision_pendiente' => round($comisionPendiente),
+            ];
+        })->values()->all();
 
         // Cada almacén cobra sobre lo que se compartió con él.
         $almacenes = $ordenes->whereNotNull('tienda_abonada_id')
@@ -150,6 +165,8 @@ class ComisionIndependientes
         return [
             'mes'            => $mes,
             'base'           => $base,
+            'base_venta'         => $baseVenta,
+            'base_restauracion'  => $baseRest,
             'base_lista'     => $baseLista,
             'base_pendiente' => $basePendiente,
             'se_cobra_el'    => $seCobraEl->toDateString(),
