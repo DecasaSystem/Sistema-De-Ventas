@@ -735,6 +735,31 @@ class ComisionController extends Controller
             ->pluck('orden_id')->map(fn ($v) => (int) $v)->all();
     }
 
+    /**
+     * ¿Esta persona cobra por fuera del pool de una tienda?
+     *
+     * Lo es quien no pertenece a ninguna tienda con meta ese mes: los
+     * independientes, y los de Vía Jardines y Tienda Virtual, que son casi
+     * todos supervisores. Ahí no hay meta, así que no hay pool que repartir y
+     * cada uno cobra sobre lo suyo. Antes esto se decidía con la tienda de la
+     * orden, y un supervisor que escogiera una tienda con meta se llevaba una
+     * parte de un pool ajeno.
+     */
+    public static function cobraIndividual(int $vendedorId, string $mes): bool
+    {
+        static $cache = [];
+
+        if (! isset($cache[$mes])) {
+            $conMeta = array_keys(MetaTienda::vigentesEn($mes));
+            $cache[$mes] = DB::table('usuarios')
+                ->where(fn ($q) => $q->whereNull('tienda_default_id')
+                                     ->orWhereNotIn('tienda_default_id', $conMeta ?: [0]))
+                ->pluck('id')->map(fn ($v) => (int) $v)->flip()->all();
+        }
+
+        return isset($cache[$mes][$vendedorId]);
+    }
+
     private function cargarTotales(): array
     {
         // Los meses que hay que resolver salen de las comisiones que existen;
@@ -846,8 +871,14 @@ class ComisionController extends Controller
         //                          pasa por el pool ni depende de la meta.
         //   venta sin meta      -> valor / 1,19 x 5%, igual que un independiente
         //   venta con meta      -> su parte del pool, prorrateada
+        //
+        // "Su tienda" es la de la persona, no la de la orden. Un supervisor
+        // puede escoger la tienda al crear una orden, y si escogía una con meta
+        // se llevaba una parte de ese pool sin pertenecer al equipo. Quien no
+        // está en una tienda con meta cobra individual, caiga donde caiga la
+        // orden. Al revés no: nadie pasa a cobrar por pool por dónde vendió.
         $esRestauracion = in_array((int) $c->orden_id, $idsRestauracion, true);
-        $tieneMeta      = $meta > 0;
+        $tieneMeta      = $meta > 0 && ! self::cobraIndividual((int) $c->vendedor_id, $c->mes_venta);
 
         if ($esRestauracion) {
             $montoComision = round((float) $c->valor_orden * self::PORCENTAJE_DIRECTO);
