@@ -63,6 +63,21 @@ class AgentService
             [
                 'type' => 'function',
                 'function' => [
+                    'name' => 'consultar_comisiones',
+                    'description' => 'Consulta comisiones reales: cuánto lleva ganado una persona o una tienda, por qué le da esa cifra, cuándo la puede cobrar y qué le falta. Úsala SIEMPRE que pregunten por plata de comisiones ("¿cuánto llevo?", "¿cuánto le toca a Gladys?", "¿por qué me dio tan poco?", "¿cuándo me pagan?", "¿cómo va la meta del Edén?", "¿cuánto falta para la meta?"). Devuelve el desglose real orden por orden con la forma en que se pagó cada una. NUNCA calcules comisiones a mano: los datos salen de aquí.',
+                    'parameters' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'nombre_vendedor' => ['type' => 'string', 'description' => 'Nombre o parte del nombre del vendedor. Si el usuario pregunta por lo suyo ("¿cuánto llevo?"), omítelo: se usa el propio usuario.'],
+                            'nombre_tienda'   => ['type' => 'string', 'description' => 'Nombre parcial de la tienda, para ver el avance de su meta y el pool.'],
+                            'mes'             => ['type' => 'string', 'description' => 'Mes en formato YYYY-MM. Por defecto el mes en curso.'],
+                        ],
+                    ],
+                ],
+            ],
+            [
+                'type' => 'function',
+                'function' => [
                     'name' => 'buscar_fichas_por_categoria',
                     'description' => 'Lista las fichas técnicas disponibles, opcionalmente filtradas por categoría o búsqueda.',
                     'parameters' => [
@@ -2331,8 +2346,82 @@ class AgentService
             'consultar_interesados'        => $this->handleConsultarInteresados($args, $usuario),
             'consultar_telas'              => $this->handleConsultarTelas($args),
             'consultar_caja'               => $this->handleConsultarCaja($args, $usuario),
+            'consultar_comisiones'         => $this->handleConsultarComisiones($args, $usuario),
             default                        => ['error' => "Tool '{$toolName}' no reconocida."],
         };
+    }
+
+    /**
+     * Comisiones reales, con el desglose de por qué da esa cifra.
+     *
+     * Se apoya en ComisionController y en ComisionIndependientes en vez de
+     * repetir la cuenta: si la fórmula cambia, esto la sigue sola. Repetirla
+     * aquí sería la cuarta copia de la misma regla, y ya se vio lo que pasa
+     * cuando dos copias se separan.
+     */
+    private function handleConsultarComisiones(array $args, Usuario $usuario): array
+    {
+        $mes = preg_match('/^\d{4}-\d{2}$/', (string) ($args['mes'] ?? ''))
+            ? $args['mes']
+            : now()->format('Y-m');
+
+        // Quién puede ver comisiones de otros. Un vendedor solo ve las suyas,
+        // aunque pregunte por otro nombre: es plata de un compañero.
+        $puedeVerTodo = (bool) $usuario->acceso_comisiones;
+
+        $vendedorId = $usuario->id;
+        if ($puedeVerTodo && ! empty($args['nombre_vendedor'])) {
+            $encontrado = DB::table('usuarios')
+                ->whereRaw('LOWER(nombre) LIKE ?', [$this->likeI($args['nombre_vendedor'])])
+                ->value('id');
+            if (! $encontrado) {
+                return ['error' => "No encontré a ningún vendedor que se llame '{$args['nombre_vendedor']}'."];
+            }
+            $vendedorId = (int) $encontrado;
+        }
+
+        $vendedor = Usuario::find($vendedorId);
+
+        // Los independientes no van por comisiones: su cuenta es aparte.
+        if ($vendedor?->independiente) {
+            $indep = \App\Services\ComisionIndependientes::delMes($mes);
+            $suyo  = collect($indep['independientes'])->firstWhere('vendedor_id', $vendedorId);
+
+            return [
+                'tipo'           => 'independiente',
+                'mes'            => $mes,
+                'vendedor'       => $vendedor->nombre,
+                'como_se_calcula' => 'Los independientes reparten entre ellos: las ventas de todos van a un bolsón, '
+                                   . 'las ventas se dividen por 1,19 antes del 5% y las restauraciones no. '
+                                   . 'Cada uno cobra lo mismo, sin importar quién vendió más.',
+                'vendido_entre_todos' => $indep['base'],
+                'de_eso_ventas'       => $indep['base_venta'],
+                'de_eso_restauracion' => $indep['base_restauracion'],
+                'comision'            => $suyo['comision'] ?? 0,
+                'ya_puede_cobrar'     => $suyo['comision_lista'] ?? 0,
+                'todavia_no'          => $suyo['comision_pendiente'] ?? 0,
+                'se_paga_el'          => $indep['se_cobra_el'],
+                'llego_esa_fecha'     => $indep['llego_la_fecha'],
+                'lo_que_vendio_el'    => $suyo['vendio'] ?? 0,
+            ];
+        }
+
+        $resumen = app(\App\Http\Controllers\ComisionController::class)
+            ->resumenParaAgente($vendedorId, $mes);
+
+        if (! empty($args['nombre_tienda']) && $puedeVerTodo) {
+            $tiendaId = DB::table('tiendas')
+                ->whereRaw('LOWER(nombre) LIKE ?', [$this->likeI($args['nombre_tienda'])])
+                ->value('id');
+            if ($tiendaId) {
+                $resumen['tienda_consultada'] = app(\App\Http\Controllers\ComisionController::class)
+                    ->avanceMetaParaAgente((int) $tiendaId, $mes);
+            }
+        }
+
+        $resumen['solo_ve_lo_suyo'] = ! $puedeVerTodo;
+
+        return $resumen;
     }
 
     private function handleConsultarInteresados(array $args, Usuario $usuario): array
@@ -2805,9 +2894,42 @@ Balance: $ X.XXX.XXX
 Ingresos ventas: $ X.XXX.XXX | Ingresos manuales: $ X.XXX.XXX | Egresos: $ X.XXX.XXX"
 Para todas las tiendas lista cada una con su balance. Nota: los ingresos de caja acumulan TODOS los pagos desde el inicio, no solo el período actual; si el usuario quiere del período usa con_movimientos=true + periodo.
 
+COMISIONES — para cifras usa SIEMPRE consultar_comisiones. Nunca calcules una comisión a mano ni inventes montos: la fórmula tiene casos y el tool ya los resuelve. Estas reglas son para explicar el POR QUÉ, no para calcular.
+
+Dos preguntas deciden todo: ¿es restauración? y ¿la persona está en una tienda con meta?
+1. Restauración → valor × 5%, completo para quien la hizo. No se le descuenta IVA, no pasa por el pool, no depende de que la tienda alcance la meta, y NO le suma a la meta de la tienda.
+2. Venta de alguien SIN meta (Vía Jardines, Tienda Virtual, independientes) → valor ÷ 1,19 × 5%, individual, sin dividir con nadie. El que no vende no cobra.
+3. Venta de alguien CON meta (Decasa Norte, Vía El Edén, Pereira, Circunvalar) → su parte del pool de la tienda:
+   pool = (ventas de la tienda − meta) ÷ 1,19 × 5%; si la tienda no llega a la meta el pool es $0.
+   cada asesor = pool ÷ divisor de asesores; y lo de cada quien se prorratea según cuánto vendió él ese mes.
+
+Una orden es de venta O de restauración, nunca las dos: el sistema lo rechaza. Se hacen en órdenes aparte porque la restauración no suma a la meta.
+
+El esquema sigue a la PERSONA, no a la orden: un supervisor de Vía Jardines que escoja otra tienda al crear la orden sigue cobrando individual, aunque la venta quede en esa tienda.
+
+PEREIRA Y CIRCUNVALAR son distintas (las demás son mensuales):
+- Los tres meses del trimestre se suman antes de comparar contra la meta: un mes flojo lo tapa un mes bueno.
+- Si el trimestre cierra en rojo, esa deuda se descuenta del pool del trimestre siguiente. Es el único sitio donde eso pasa.
+- Se paga al cerrar el trimestre. Una venta de julio en Pereira se cobra el 20 de octubre; esa misma venta en Armenia, el 20 de agosto.
+
+CUÁNDO SE COBRA — hacen falta las dos cosas: que llegue el 20 del mes siguiente (o del mes siguiente al cierre del trimestre en Pereira/Circunvalar) Y que el cliente haya pagado al menos el 50% de la orden. Si falta una, la comisión sale como pendiente.
+Si una orden se cancela, su comisión desaparece y deja de contarle a la meta.
+
+INDEPENDIENTES (Flabio, Henry): no tienen tienda ni meta. Reparten entre ellos por igual sobre el total que vendieron entre todos, sin importar quién vendió más. Si comparten una venta con un almacén, la mitad se le abona a ese almacén; una restauración compartida no le suma a la meta del almacén.
+
+NOVEDADES QUE PUEDEN PREGUNTAR:
+- Restauraciones: llevan su propia numeración con serie R (R-1092, R-1093...), aparte del consecutivo de las tiendas. En la lista de órdenes hay una pestaña "Restauración".
+- Los independientes toman el consecutivo de Armenia.
+- Órdenes borrador: se guardan sin firma ni anticipo, reservan inventario y se completan después.
+- Venta directa: el cliente paga y se lleva el producto ya; la orden nace entregada y descuenta stock.
+- Una venta puede compartirse con otro vendedor o con un almacén: se parte por la mitad.
+- Producción tiene pasos configurables (ebanistería, tapizado, laca, destapizar, pelar) y se pueden crear o renombrar desde el módulo.
+- Los descuentos se escriben en pesos o en porcentaje. El descuento especial usa la serie FV2. Un descuento por medio de pago se pierde si el cliente paga con tarjeta.
+
 RESTRICCIONES POR ROL — aplican automáticamente en el backend:
 - Vendedor: puede consultar inventario y variantes de CUALQUIER tienda (para verificar si otra tienda tiene el producto que busca el cliente). Solo ve sus propias órdenes, producción de su tienda y retrasos de su tienda. NO tiene acceso a reporte de vendedores ni ventas globales de toda la empresa.
 - Si un vendedor pregunta por rankings de vendedores o ventas totales de la empresa, responde: "Esa información no está disponible para tu perfil. Puedo mostrarte tus estadísticas o las de tu tienda."
+- Comisiones: quien no tenga acceso a comisiones solo ve las suyas. Si pregunta por lo que gana otra persona, el tool le devuelve lo suyo con solo_ve_lo_suyo=true — dile que la comisión de un compañero no la puedes mostrar, y ofrécele la suya. Las reglas generales (cómo se calcula, cuándo se paga) sí se le pueden explicar a cualquiera.
 
 REGLAS: Dinero en formato COP ($ 1.200.000). No inventes datos. Muestra productos cuando una orden los tiene.
 EOT;

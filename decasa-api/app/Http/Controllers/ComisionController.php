@@ -233,6 +233,117 @@ class ComisionController extends Controller
         return response()->json($grouped);
     }
 
+    /**
+     * Lo que gana una persona en un mes, explicado.
+     *
+     * Para el asistente de la página: cuando alguien pregunta "¿cuánto llevo?"
+     * o "¿por qué me dio tan poco?", esto le da la cifra real y el porqué.
+     * Usa el mismo enriquecer() que la pantalla, así que nunca puede contestar
+     * un número distinto al que ve el usuario.
+     */
+    public function resumenParaAgente(int $vendedorId, string $mes): array
+    {
+        $comisiones = Comision::with(['orden.pagos', 'vendedor:id,nombre', 'tienda:id,nombre'])
+            ->where('vendedor_id', $vendedorId)->where('mes_venta', $mes)->get();
+
+        $vendedor = Usuario::find($vendedorId);
+
+        if ($comisiones->isEmpty()) {
+            return [
+                'tipo' => 'vendedor', 'mes' => $mes,
+                'vendedor' => $vendedor?->nombre,
+                'sin_ventas' => true,
+                'comision' => 0,
+                'nota' => "No tiene ninguna venta registrada en {$mes}.",
+            ];
+        }
+
+        [$metas, $totalesTienda, $totalesVendedor] = $this->cargarTotales();
+        $pools = $this->cargarPoolsTrimestrales($metas, $totalesTienda);
+        $hoy   = Carbon::today();
+
+        $filas = $comisiones->map(fn ($c) => $this->enriquecer(
+            $c, $metas, $totalesTienda, $totalesVendedor, $pools, $hoy
+        ));
+
+        $explica = [
+            'restauracion_5' => 'restauración: 5% del valor, aparte del pool y sin depender de la meta',
+            'sin_meta_5'     => 'no está en una tienda con meta: valor ÷ 1,19 × 5%, sin dividir con nadie',
+            'pool'           => 'por el pool de la tienda, a prorrata de lo que vendió ese mes',
+        ];
+        $primera = $filas->first();
+
+        return [
+            'tipo'      => 'vendedor',
+            'mes'       => $mes,
+            'vendedor'  => $vendedor?->nombre,
+            'tienda'    => $primera['tienda_nombre'] ?? null,
+            'periodicidad' => $primera['periodicidad'] ?? 'mensual',
+            'comision_total'  => $filas->sum('monto_comision'),
+            'ya_puede_cobrar' => $filas->where('estado_calculado', 'lista')->sum('monto_comision'),
+            'ya_pagada'       => $filas->where('estado_calculado', 'pagada')->sum('monto_comision'),
+            'todavia_no'      => $filas->where('estado_calculado', 'pendiente')->sum('monto_comision'),
+            'vendio'          => $filas->sum('valor_orden'),
+            'meta_de_su_tienda'   => $primera['meta_tienda'] ?? 0,
+            'lleva_la_tienda'     => $primera['total_tienda_mes'] ?? 0,
+            'asesores_que_reparten' => $primera['divisor_asesores'] ?? 1,
+            'ordenes' => $filas->map(fn ($f) => [
+                'orden'          => $f['orden_referencia'] ?? ('#' . $f['orden_numero']),
+                'valor'          => $f['valor_orden'],
+                'es_restauracion' => $f['es_restauracion'],
+                'comision'       => $f['monto_comision'],
+                'como_se_paga'   => $explica[$f['forma_pago']] ?? $f['forma_pago'],
+                'estado'         => $f['estado_calculado'],
+                'se_paga_el'     => $f['fecha_disponible'],
+                'cliente_ya_pago_la_mitad' => $f['req_50_pct'],
+                'pct_pagado_por_el_cliente' => $f['pct_pagado'],
+            ])->values()->all(),
+            'para_cobrar_hacen_falta_dos_cosas' =>
+                'que llegue la fecha de pago (el 20 del mes siguiente; en Pereira y Circunvalar '
+                . 'el 20 del mes siguiente al cierre del trimestre) y que el cliente haya pagado '
+                . 'al menos el 50% de la orden.',
+        ];
+    }
+
+    /** Cómo va la meta de una tienda, para el asistente de la página. */
+    public function avanceMetaParaAgente(int $tiendaId, string $mes): array
+    {
+        [$metas, $totalesTienda, ] = $this->cargarTotales();
+
+        $clave  = $tiendaId . '_' . $mes;
+        $meta   = isset($metas[$clave]) ? (float) $metas[$clave]->meta : 0.0;
+        $ventas = isset($totalesTienda[$clave]) ? (float) $totalesTienda[$clave]->total : 0.0;
+        $tienda = Tienda::find($tiendaId);
+
+        if ($meta <= 0) {
+            return [
+                'tienda' => $tienda?->nombre, 'mes' => $mes,
+                'tiene_meta' => false,
+                'vendio' => $ventas,
+                'nota' => 'Esta tienda no tiene meta, así que no hay pool: cada quien cobra el 5% de lo suyo.',
+            ];
+        }
+
+        $pool = max(0, ($ventas - $meta) / self::IVA * self::PORCENTAJE_DIRECTO);
+        $div  = isset($metas[$clave]) ? max(1, (int) $metas[$clave]->divisor_asesores) : 1;
+
+        return [
+            'tienda' => $tienda?->nombre,
+            'mes'    => $mes,
+            'tiene_meta'   => true,
+            'periodicidad' => self::esTiendaTrimestral($tienda?->nombre) ? 'trimestral' : 'mensual',
+            'meta'   => $meta,
+            'vendio' => $ventas,
+            'ya_alcanzo_la_meta' => $ventas >= $meta,
+            'le_falta_vender'    => max(0, $meta - $ventas),
+            'pool_del_mes'       => round($pool),
+            'asesores_que_reparten' => $div,
+            'a_cada_asesor'      => round($pool / $div),
+            'nota' => 'El pool es (lo vendido − la meta) ÷ 1,19 × 5%, repartido entre los asesores '
+                    . 'y prorrateado según lo que vendió cada uno. Las restauraciones no entran aquí.',
+        ];
+    }
+
     // GET /api/comisiones/asesores-asignados?mes=YYYY-MM
     public function getAsesoresAsignados(Request $request)
     {
