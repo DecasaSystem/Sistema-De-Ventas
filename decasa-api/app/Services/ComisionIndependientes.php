@@ -33,6 +33,12 @@ class ComisionIndependientes
     public const PORCENTAJE = 0.05;
 
     /**
+     * A una VENTA se le quita el IVA antes de sacar el 5%; a una restauración
+     * no. Son cosas distintas: en la restauración se cobra mano de obra.
+     */
+    public const IVA = 1.19;
+
+    /**
      * @return array{
      *   mes:string, base:float, porcentaje:float,
      *   independientes:array, almacenes:array, ordenes:array
@@ -86,24 +92,41 @@ class ComisionIndependientes
             $llegoLaFecha && (float) $o->pagado >= (float) $o->valor_total / 2
         );
 
-        $base         = (float) $ordenes->sum('valor_total');
-        $baseLista    = (float) $listas->sum('valor_total');
+        /**
+         * Lo que paga un grupo de ordenes:
+         *   venta        -> valor / 1,19 x 5%
+         *   restauracion -> valor x 5%
+         */
+        $pagaPor = function ($grupo) use ($idsRestauracion) {
+            $venta = (float) $grupo->reject(fn ($o) => in_array($o->id, $idsRestauracion, true))
+                ->sum('valor_total');
+            $rest  = (float) $grupo->filter(fn ($o) => in_array($o->id, $idsRestauracion, true))
+                ->sum('valor_total');
+            return ($venta / self::IVA + $rest) * self::PORCENTAJE;
+        };
+
+        $base          = (float) $ordenes->sum('valor_total');
+        $baseLista     = (float) $listas->sum('valor_total');
         $basePendiente = $base - $baseLista;
+
+        $comisionTotal     = $pagaPor($ordenes);
+        $comisionLista     = $pagaPor($listas);
+        $comisionPendiente = $comisionTotal - $comisionLista;
 
         // Los dos cobran sobre lo mismo: todo lo que vendieron entre ambos.
         $porIndependiente = $independientes->map(fn ($u) => [
             'vendedor_id' => $u->id,
             'nombre'      => $u->nombre,
             'vendio'      => (float) $ordenes->where('vendedor_id', $u->id)->sum('valor_total'),
-            'comision'    => round($base * self::PORCENTAJE),
-            'comision_lista'     => round($baseLista * self::PORCENTAJE),
-            'comision_pendiente' => round($basePendiente * self::PORCENTAJE),
+            'comision'           => round($comisionTotal),
+            'comision_lista'     => round($comisionLista),
+            'comision_pendiente' => round($comisionPendiente),
         ])->values()->all();
 
         // Cada almacén cobra sobre lo que se compartió con él.
         $almacenes = $ordenes->whereNotNull('tienda_abonada_id')
             ->groupBy('tienda_abonada_id')
-            ->map(function ($grupo) use ($idsRestauracion, $listas) {
+            ->map(function ($grupo) use ($idsRestauracion, $listas, $pagaPor) {
                 $idsListas = $listas->pluck('id')->all();
                 $compartido = (float) $grupo->sum('valor_total');
                 // A la meta solo le suma la mitad de lo que NO es restauración.
@@ -115,10 +138,9 @@ class ComisionIndependientes
                     'tienda_id'   => (int) $grupo->first()->tienda_abonada_id,
                     'nombre'      => $grupo->first()->almacen,
                     'compartido'  => $compartido,
-                    'comision'    => round($compartido * self::PORCENTAJE),
+                    'comision'    => round($pagaPor($grupo)),
                     'comision_lista' => round(
-                        (float) $grupo->filter(fn ($o) => in_array($o->id, $idsListas, true))
-                            ->sum('valor_total') * self::PORCENTAJE
+                        $pagaPor($grupo->filter(fn ($o) => in_array($o->id, $idsListas, true)))
                     ),
                     'suma_a_meta' => $paraMeta,
                     'ordenes'     => $grupo->count(),
@@ -150,6 +172,9 @@ class ComisionIndependientes
                 'pagado'         => (float) $o->pagado,
                 'pago_completo'  => (float) $o->pagado >= (float) $o->valor_total / 2,
                 'lista'          => $listas->contains('id', $o->id),
+                'paga'           => round(in_array($o->id, $idsRestauracion, true)
+                                    ? (float) $o->valor_total * self::PORCENTAJE
+                                    : (float) $o->valor_total / self::IVA * self::PORCENTAJE),
             ])->values()->all(),
         ];
     }

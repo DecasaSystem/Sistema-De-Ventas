@@ -324,6 +324,17 @@ class OrdenController extends Controller
 
         $valorTotal = $baseCondicionado - $descuentoCondicionado;
 
+        // Una restauración no le suma a la meta de la tienda y una venta sí,
+        // así que no pueden ir juntas: la orden entera es de una cosa o de la
+        // otra. Si se mezclaran no habría forma de decir cuánto cuenta.
+        $conRest = collect($data['items'])->filter(fn ($i) => ! empty($i['es_restauracion']))->count();
+        if ($conRest > 0 && $conRest < count($data['items'])) {
+            return response()->json([
+                'message' => 'Una orden es de venta o de restauración, no las dos. ' .
+                             'Haz la restauración en una orden aparte.',
+            ], 422);
+        }
+
         // Detectar si hay ítems personalizados sin precio (cotización pendiente)
         // Un obsequio tambien va en $0, y no espera ningun precio. Antes se
         // miraba solo el precio, asi que una venta con un regalo quedaba

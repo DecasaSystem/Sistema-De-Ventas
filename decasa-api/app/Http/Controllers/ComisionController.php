@@ -15,6 +15,12 @@ use Illuminate\Support\Facades\DB;
 
 class ComisionController extends Controller
 {
+    /** Lo que se paga cuando no hay pool de por medio. */
+    public const PORCENTAJE_DIRECTO = 0.05;
+
+    /** El IVA se descuenta antes de sacar el % de una venta, no de una restauración. */
+    public const IVA = 1.19;
+
     // GET /api/comisiones
     public function index(Request $request)
     {
@@ -37,10 +43,11 @@ class ComisionController extends Controller
         $comisiones = $query->get();
 
         [$metas, $totalesTienda, $totalesVendedor] = $this->cargarTotales();
+        $idsRestauracion = self::idsDeRestauracion();
         $poolsTrimestrales = $this->cargarPoolsTrimestrales($metas, $totalesTienda);
         $hoy = Carbon::today();
 
-        $result = $comisiones->map(fn($c) => $this->enriquecer($c, $metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, $hoy));
+        $result = $comisiones->map(fn($c) => $this->enriquecer($c, $metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, $hoy, $idsRestauracion));
 
         return response()->json($result);
     }
@@ -93,6 +100,7 @@ class ComisionController extends Controller
 
         // Calcular estado real en el momento del pago (no depender del campo guardado en BD)
         [$metas, $totalesTienda, $totalesVendedor] = $this->cargarTotales();
+        $idsRestauracion = self::idsDeRestauracion();
         $poolsTrimestrales = $this->cargarPoolsTrimestrales($metas, $totalesTienda);
         $enriquecida = $this->enriquecer($comision, $metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, Carbon::today());
 
@@ -176,10 +184,11 @@ class ComisionController extends Controller
         }
 
         [$metas, $totalesTienda, $totalesVendedor] = $this->cargarTotales();
+        $idsRestauracion = self::idsDeRestauracion();
         $poolsTrimestrales = $this->cargarPoolsTrimestrales($metas, $totalesTienda);
         $hoy = Carbon::today();
 
-        $enriquecidas = $comisiones->map(fn($c) => $this->enriquecer($c, $metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, $hoy));
+        $enriquecidas = $comisiones->map(fn($c) => $this->enriquecer($c, $metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, $hoy, $idsRestauracion));
 
         $grouped = $enriquecidas->groupBy('vendedor_id')->map(function ($items) {
             $first = $items->first();
@@ -206,6 +215,10 @@ class ComisionController extends Controller
                     'orden_numero'   => $i['orden_numero'],
                     'orden_referencia' => $i['orden_referencia'] ?? null,
                     'es_descuento_especial' => $i['es_descuento_especial'] ?? false,
+                    // Como se pago esta orden: por el pool de la meta, el 5%
+                    // de una restauracion, o el 5% de una tienda sin meta.
+                    'forma_pago'     => $i['forma_pago'] ?? 'pool',
+                    'es_restauracion'=> $i['es_restauracion'] ?? false,
                     'valor_orden'    => (float) $i['valor_orden'],
                     'monto_comision' => (float) $i['monto_comision'],
                     'estado'         => $i['estado_calculado'],
@@ -347,6 +360,7 @@ class ComisionController extends Controller
         ]);
 
         [$metas, $totalesTienda, $totalesVendedor] = $this->cargarTotales();
+        $idsRestauracion = self::idsDeRestauracion();
         $poolsTrimestrales = $this->cargarPoolsTrimestrales($metas, $totalesTienda);
         $hoy     = Carbon::today();
         $pagadas = 0;
@@ -357,7 +371,7 @@ class ComisionController extends Controller
             ->where('estado', '!=', 'pagada')
             ->get()
             ->each(function ($c) use ($metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, $hoy, $usuario, &$pagadas) {
-                $e = $this->enriquecer($c, $metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, $hoy);
+                $e = $this->enriquecer($c, $metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, $hoy, $idsRestauracion);
                 if ($e['estado_calculado'] === 'lista') {
                     $c->update([
                         'estado'         => 'pagada',
@@ -391,6 +405,7 @@ class ComisionController extends Controller
             });
 
         [$metas, $totalesTienda, $totalesVendedor] = $this->cargarTotales();
+        $idsRestauracion = self::idsDeRestauracion();
         $poolsTrimestrales = $this->cargarPoolsTrimestrales($metas, $totalesTienda);
         $hoy          = Carbon::today();
         $actualizadas = 0;
@@ -399,7 +414,7 @@ class ComisionController extends Controller
         Comision::with('orden.pagos')->where('estado', '!=', 'pagada')
             ->chunk(100, function ($chunk) use ($metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, $hoy, &$actualizadas, &$notificadas) {
                 foreach ($chunk as $c) {
-                    $enriquecida = $this->enriquecer($c, $metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, $hoy);
+                    $enriquecida = $this->enriquecer($c, $metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, $hoy, $idsRestauracion);
                     $nuevoEstado = $enriquecida['estado_calculado'];
 
                     $cambios = ['monto_comision' => $enriquecida['monto_comision']];
@@ -712,6 +727,14 @@ class ComisionController extends Controller
         return \App\Services\ComisionIndependientes::abonadoParaMeta();
     }
 
+    /** Ordenes cuyos items son todos restauracion. */
+    public static function idsDeRestauracion(): array
+    {
+        return DB::table('orden_items')->groupBy('orden_id')
+            ->havingRaw('COUNT(*) = SUM(es_restauracion)')
+            ->pluck('orden_id')->map(fn ($v) => (int) $v)->all();
+    }
+
     private function cargarTotales(): array
     {
         // Los meses que hay que resolver salen de las comisiones que existen;
@@ -737,6 +760,11 @@ class ComisionController extends Controller
         $totalesTienda = DB::table('comisiones as c')
             ->join('usuarios as u', 'u.id', '=', 'c.vendedor_id')
             ->where('u.independiente', false)
+            // Una restauracion no es una venta de mueble: no le suma a la meta.
+            ->whereNotIn('c.orden_id', function ($q) {
+                $q->from('orden_items')->select('orden_id')
+                  ->groupBy('orden_id')->havingRaw('COUNT(*) = SUM(es_restauracion)');
+            })
             ->selectRaw('c.tienda_id, c.mes_venta, SUM(c.valor_orden) as total')
             ->groupBy('c.tienda_id', 'c.mes_venta')
             ->get()
@@ -765,7 +793,7 @@ class ComisionController extends Controller
         return [$metas, $totalesTienda, $totalesVendedor];
     }
 
-    private function enriquecer(Comision $c, $metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, Carbon $hoy): array
+    private function enriquecer(Comision $c, $metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, Carbon $hoy, array $idsRestauracion = []): array
     {
         $metaKey = $c->tienda_id . '_' . $c->mes_venta;
         $meta    = isset($metas[$metaKey]) ? (float) $metas[$metaKey]->meta    : 0;
@@ -812,10 +840,25 @@ class ComisionController extends Controller
         // Comisión de cada asesor = pool / divisor
         $comisionAsesor = $divisor > 0 ? $comisionPool / $divisor : $comisionPool;
 
-        // La comisión de esta orden es proporcional a su valor dentro del total del vendedor
-        $montoComision = ($totalVendedor > 0 && $comisionAsesor > 0)
-            ? round($comisionAsesor * ((float) $c->valor_orden / $totalVendedor))
-            : 0;
+        // Cómo se paga depende de qué se vendió y de si su tienda tiene meta:
+        //
+        //   restauración        -> 5% del valor, solo para quien la hizo. No
+        //                          pasa por el pool ni depende de la meta.
+        //   venta sin meta      -> valor / 1,19 x 5%, igual que un independiente
+        //   venta con meta      -> su parte del pool, prorrateada
+        $esRestauracion = in_array((int) $c->orden_id, $idsRestauracion, true);
+        $tieneMeta      = $meta > 0;
+
+        if ($esRestauracion) {
+            $montoComision = round((float) $c->valor_orden * self::PORCENTAJE_DIRECTO);
+        } elseif (! $tieneMeta) {
+            $montoComision = round((float) $c->valor_orden / self::IVA * self::PORCENTAJE_DIRECTO);
+        } else {
+            // La comisión de esta orden es proporcional a su valor dentro del total del vendedor
+            $montoComision = ($totalVendedor > 0 && $comisionAsesor > 0)
+                ? round($comisionAsesor * ((float) $c->valor_orden / $totalVendedor))
+                : 0;
+        }
 
         $pagado    = $c->orden?->pagos?->sum('monto') ?? 0;
         $req50     = $pagado >= ((float) $c->valor_orden * 0.5);
@@ -826,7 +869,7 @@ class ComisionController extends Controller
         $estadoCalculado = 'pendiente';
         if ($c->estado === 'pagada') {
             $estadoCalculado = 'pagada';
-        } elseif ($req50 && $reqVencio && ($esTrimestral || $metaCumplida)) {
+        } elseif ($req50 && $reqVencio && ($esRestauracion || ! $tieneMeta || $esTrimestral || $metaCumplida)) {
             $estadoCalculado = 'lista';
         }
 
@@ -846,6 +889,9 @@ class ComisionController extends Controller
             'req_50_pct'       => $req50,
             'req_mes_vencido'  => $reqVencio,
             'periodicidad'     => $esTrimestral ? 'trimestral' : 'mensual',
+            'es_restauracion'  => $esRestauracion,
+            'forma_pago'       => $esRestauracion ? 'restauracion_5'
+                                  : (! $tieneMeta ? 'sin_meta_5' : 'pool'),
             'trimestre'        => $esTrimestral ? self::trimestreDeMes($c->mes_venta) : null,
             'avance_trimestre' => $esTrimestral
                 ? $this->avanceTrimestre($c->tienda_id, self::trimestreDeMes($c->mes_venta), $metas, $totalesTienda)
