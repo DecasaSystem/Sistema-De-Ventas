@@ -21,6 +21,12 @@ class ComisionController extends Controller
     /** El IVA se descuenta antes de sacar el % de una venta, no de una restauración. */
     public const IVA = 1.19;
 
+    /**
+     * Estados en los que una orden no es una venta y no debe comisionar:
+     * los que nunca lo fueron, más la que se canceló después.
+     */
+    public const ESTADOS_SIN_VENTA = ['cancelado', ...Orden::ESTADOS_NO_COMERCIALES];
+
     // GET /api/comisiones
     public function index(Request $request)
     {
@@ -43,11 +49,10 @@ class ComisionController extends Controller
         $comisiones = $query->get();
 
         [$metas, $totalesTienda, $totalesVendedor] = $this->cargarTotales();
-        $idsRestauracion = self::idsDeRestauracion();
         $poolsTrimestrales = $this->cargarPoolsTrimestrales($metas, $totalesTienda);
         $hoy = Carbon::today();
 
-        $result = $comisiones->map(fn($c) => $this->enriquecer($c, $metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, $hoy, $idsRestauracion));
+        $result = $comisiones->map(fn($c) => $this->enriquecer($c, $metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, $hoy));
 
         return response()->json($result);
     }
@@ -100,7 +105,6 @@ class ComisionController extends Controller
 
         // Calcular estado real en el momento del pago (no depender del campo guardado en BD)
         [$metas, $totalesTienda, $totalesVendedor] = $this->cargarTotales();
-        $idsRestauracion = self::idsDeRestauracion();
         $poolsTrimestrales = $this->cargarPoolsTrimestrales($metas, $totalesTienda);
         $enriquecida = $this->enriquecer($comision, $metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, Carbon::today());
 
@@ -184,11 +188,10 @@ class ComisionController extends Controller
         }
 
         [$metas, $totalesTienda, $totalesVendedor] = $this->cargarTotales();
-        $idsRestauracion = self::idsDeRestauracion();
         $poolsTrimestrales = $this->cargarPoolsTrimestrales($metas, $totalesTienda);
         $hoy = Carbon::today();
 
-        $enriquecidas = $comisiones->map(fn($c) => $this->enriquecer($c, $metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, $hoy, $idsRestauracion));
+        $enriquecidas = $comisiones->map(fn($c) => $this->enriquecer($c, $metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, $hoy));
 
         $grouped = $enriquecidas->groupBy('vendedor_id')->map(function ($items) {
             $first = $items->first();
@@ -360,7 +363,6 @@ class ComisionController extends Controller
         ]);
 
         [$metas, $totalesTienda, $totalesVendedor] = $this->cargarTotales();
-        $idsRestauracion = self::idsDeRestauracion();
         $poolsTrimestrales = $this->cargarPoolsTrimestrales($metas, $totalesTienda);
         $hoy     = Carbon::today();
         $pagadas = 0;
@@ -371,7 +373,7 @@ class ComisionController extends Controller
             ->where('estado', '!=', 'pagada')
             ->get()
             ->each(function ($c) use ($metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, $hoy, $usuario, &$pagadas) {
-                $e = $this->enriquecer($c, $metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, $hoy, $idsRestauracion);
+                $e = $this->enriquecer($c, $metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, $hoy);
                 if ($e['estado_calculado'] === 'lista') {
                     $c->update([
                         'estado'         => 'pagada',
@@ -405,7 +407,6 @@ class ComisionController extends Controller
             });
 
         [$metas, $totalesTienda, $totalesVendedor] = $this->cargarTotales();
-        $idsRestauracion = self::idsDeRestauracion();
         $poolsTrimestrales = $this->cargarPoolsTrimestrales($metas, $totalesTienda);
         $hoy          = Carbon::today();
         $actualizadas = 0;
@@ -414,7 +415,7 @@ class ComisionController extends Controller
         Comision::with('orden.pagos')->where('estado', '!=', 'pagada')
             ->chunk(100, function ($chunk) use ($metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, $hoy, &$actualizadas, &$notificadas) {
                 foreach ($chunk as $c) {
-                    $enriquecida = $this->enriquecer($c, $metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, $hoy, $idsRestauracion);
+                    $enriquecida = $this->enriquecer($c, $metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, $hoy);
                     $nuevoEstado = $enriquecida['estado_calculado'];
 
                     $cambios = ['monto_comision' => $enriquecida['monto_comision']];
@@ -457,9 +458,7 @@ class ComisionController extends Controller
      */
     public static function sincronizarValorOrden(Orden $orden): int
     {
-        $valor = $orden->es_compartida
-            ? round((float) $orden->valor_total / 2)
-            : (float) $orden->valor_total;
+        $valor = self::valorComisionable($orden);
 
         $cambiadas = 0;
         foreach (Comision::where('orden_id', $orden->id)->where('estado', '!=', 'pagada')->get() as $c) {
@@ -489,13 +488,7 @@ class ComisionController extends Controller
         $esCompartida  = (bool) $orden->es_compartida;
         $covendedorId  = $orden->covendedor_id;
 
-        // Abonarle la venta a una tienda la parte por la mitad igual que
-        // compartirla con otro vendedor: la mitad es del vendedor y la otra
-        // mitad se le suma a la tienda que ayudo con el contacto.
-        $abonaATienda = (bool) $orden->tienda_abonada_id;
-        $valorPrincipal = ($esCompartida || $abonaATienda)
-            ? round((float) $orden->valor_total / 2)
-            : (float) $orden->valor_total;
+        $valorPrincipal = self::valorComisionable($orden);
 
         // Registro del vendedor principal
         Comision::firstOrCreate(
@@ -527,6 +520,27 @@ class ComisionController extends Controller
                 );
             }
         }
+    }
+
+    /**
+     * Sobre cuánto comisiona el vendedor de esta orden.
+     *
+     * Se parte por la mitad cuando la venta se comparte, sea con otro vendedor
+     * (`es_compartida`) o con el almacén que pasó el contacto
+     * (`tienda_abonada_id`): la mitad es suya y la otra mitad del que ayudó.
+     *
+     * Vive en un solo lugar porque estaba en dos y se separaron: al crear la
+     * comisión se partía por las dos razones, pero al sincronizarla solo por
+     * `es_compartida`, así que la primera pasada de recalcular le devolvía el
+     * valor entero a las compartidas con un almacén y les duplicaba la base.
+     */
+    public static function valorComisionable(Orden $orden): float
+    {
+        $compartida = $orden->es_compartida || $orden->tienda_abonada_id;
+
+        return $compartida
+            ? round((float) $orden->valor_total / 2)
+            : (float) $orden->valor_total;
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -727,12 +741,28 @@ class ComisionController extends Controller
         return \App\Services\ComisionIndependientes::abonadoParaMeta();
     }
 
-    /** Ordenes cuyos items son todos restauracion. */
-    public static function idsDeRestauracion(): array
+    /** Se llena en cargarTotales() y se descarta al empezar el siguiente cálculo. */
+    private ?array $idsRestauracion = null;
+
+    /**
+     * Órdenes cuyos ítems son todos restauración.
+     *
+     * Se resuelve sola. Antes se pasaba a enriquecer() como parámetro y tres
+     * veces se olvidó enhebrarla: dos closures se quedaron sin el `use` (500 en
+     * recalcular y en pagar-listas) y marcarPagada la calculaba sin usarla, con
+     * lo que una restauración se liquidaba como si fuera venta.
+     *
+     * No se puede memoizar por instancia ni en un `static`: Laravel guarda el
+     * controlador dentro del objeto Route, que vive todo el proceso, así que
+     * una restauración creada después seguiría viendo la lista vieja. Por eso
+     * la caché la invalida cargarTotales(), que es justo lo que corre al
+     * empezar cada cálculo.
+     */
+    private function idsDeRestauracion(): array
     {
-        return DB::table('orden_items')->groupBy('orden_id')
+        return $this->idsRestauracion ??= DB::table('orden_items')->groupBy('orden_id')
             ->havingRaw('COUNT(*) = SUM(es_restauracion)')
-            ->pluck('orden_id')->map(fn ($v) => (int) $v)->all();
+            ->pluck('orden_id')->map(fn ($v) => (int) $v)->flip()->all();
     }
 
     /**
@@ -745,23 +775,30 @@ class ComisionController extends Controller
      * orden, y un supervisor que escogiera una tienda con meta se llevaba una
      * parte de un pool ajeno.
      */
-    public static function cobraIndividual(int $vendedorId, string $mes): bool
+    private function cobraIndividual(int $vendedorId, string $mes): bool
     {
-        static $cache = [];
-
-        if (! isset($cache[$mes])) {
+        // Por mes, y se descarta en cargarTotales() por lo mismo que la lista de
+        // restauraciones: el controlador sobrevive al request.
+        if (! isset($this->individuales[$mes])) {
             $conMeta = array_keys(MetaTienda::vigentesEn($mes));
-            $cache[$mes] = DB::table('usuarios')
+            $this->individuales[$mes] = DB::table('usuarios')
                 ->where(fn ($q) => $q->whereNull('tienda_default_id')
                                      ->orWhereNotIn('tienda_default_id', $conMeta ?: [0]))
                 ->pluck('id')->map(fn ($v) => (int) $v)->flip()->all();
         }
 
-        return isset($cache[$mes][$vendedorId]);
+        return isset($this->individuales[$mes][$vendedorId]);
     }
+
+    /** Quién cobra por fuera del pool, por mes. Ver cobraIndividual(). */
+    private array $individuales = [];
 
     private function cargarTotales(): array
     {
+        // Arranca un cálculo nuevo: lo de la pasada anterior ya no sirve.
+        $this->idsRestauracion = null;
+        $this->individuales    = [];
+
         // Los meses que hay que resolver salen de las comisiones que existen;
         // para cada uno rige la ultima meta cargada hasta ese mes.
         $meses = DB::table('comisiones')->distinct()->pluck('mes_venta')
@@ -784,7 +821,11 @@ class ComisionController extends Controller
         // tienda_id de una tienda real le sumaba dos veces.
         $totalesTienda = DB::table('comisiones as c')
             ->join('usuarios as u', 'u.id', '=', 'c.vendedor_id')
+            ->join('ordenes as o', 'o.id', '=', 'c.orden_id')
             ->where('u.independiente', false)
+            // Solo cuentan las ventas vivas. Una orden cancelada dejaba su
+            // comision atras y su valor seguia empujando la meta de la tienda.
+            ->whereNotIn('o.estado', self::ESTADOS_SIN_VENTA)
             // Una restauracion no es una venta de mueble: no le suma a la meta.
             ->whereNotIn('c.orden_id', function ($q) {
                 $q->from('orden_items')->select('orden_id')
@@ -809,17 +850,21 @@ class ComisionController extends Controller
             }
         }
 
-        $totalesVendedor = DB::table('comisiones')
-            ->selectRaw('vendedor_id, tienda_id, mes_venta, SUM(valor_orden) as total')
-            ->groupBy('vendedor_id', 'tienda_id', 'mes_venta')
+        $totalesVendedor = DB::table('comisiones as c')
+            ->join('ordenes as o', 'o.id', '=', 'c.orden_id')
+            ->whereNotIn('o.estado', self::ESTADOS_SIN_VENTA)
+            ->selectRaw('c.vendedor_id, c.tienda_id, c.mes_venta, SUM(c.valor_orden) as total')
+            ->groupBy('c.vendedor_id', 'c.tienda_id', 'c.mes_venta')
             ->get()
             ->keyBy(fn($r) => $r->vendedor_id . '_' . $r->tienda_id . '_' . $r->mes_venta);
 
         return [$metas, $totalesTienda, $totalesVendedor];
     }
 
-    private function enriquecer(Comision $c, $metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, Carbon $hoy, array $idsRestauracion = []): array
+    private function enriquecer(Comision $c, $metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, Carbon $hoy): array
     {
+        $idsRestauracion = $this->idsDeRestauracion();
+
         $metaKey = $c->tienda_id . '_' . $c->mes_venta;
         $meta    = isset($metas[$metaKey]) ? (float) $metas[$metaKey]->meta    : 0;
         $divisor = isset($metas[$metaKey]) ? (int)   $metas[$metaKey]->divisor_asesores : 1;
@@ -877,8 +922,8 @@ class ComisionController extends Controller
         // se llevaba una parte de ese pool sin pertenecer al equipo. Quien no
         // está en una tienda con meta cobra individual, caiga donde caiga la
         // orden. Al revés no: nadie pasa a cobrar por pool por dónde vendió.
-        $esRestauracion = in_array((int) $c->orden_id, $idsRestauracion, true);
-        $tieneMeta      = $meta > 0 && ! self::cobraIndividual((int) $c->vendedor_id, $c->mes_venta);
+        $esRestauracion = isset($idsRestauracion[(int) $c->orden_id]);
+        $tieneMeta      = $meta > 0 && ! $this->cobraIndividual((int) $c->vendedor_id, $c->mes_venta);
 
         if ($esRestauracion) {
             $montoComision = round((float) $c->valor_orden * self::PORCENTAJE_DIRECTO);

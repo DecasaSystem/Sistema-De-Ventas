@@ -2149,6 +2149,16 @@ class OrdenController extends Controller
                 \App\Models\Produccion::whereHas('ordenItem', fn($q) => $q->where('orden_id', $orden->id))
                     ->whereNotIn('estado', ['cancelado', 'completado'])
                     ->update(['estado' => 'cancelado']);
+
+                // Una venta cancelada no se comisiona. Quedaba la comisión viva
+                // y pagable, y peor: su valor le seguía sumando a la meta de la
+                // tienda, empujándola sobre el objetivo con una venta que no
+                // existió y destrabando el pool de todo el equipo.
+                // Las ya pagadas no se tocan: esa plata ya salió y borrar el
+                // registro sería perder el rastro de que se pagó.
+                Comision::where('orden_id', $orden->id)
+                    ->where('estado', '!=', 'pagada')
+                    ->delete();
             }
 
             $updateData = ['estado' => $estadoNuevo];
