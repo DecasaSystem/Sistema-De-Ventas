@@ -65,26 +65,39 @@ class ComisionController extends Controller
             return response()->json(['error' => 'Sin acceso'], 403);
         }
 
-        $vendedores = Usuario::whereIn('rol', ['vendedor', 'supervisor'])
-            ->where('activo', true)
-            ->whereHas('comisiones')
-            ->select('id', 'nombre', 'tienda_default_id')
-            ->with('tiendaDefault:id,nombre')
-            ->get()
-            ->map(function ($v) {
-                $counts = Comision::where('vendedor_id', $v->id)
-                    ->selectRaw('estado, COUNT(*) as n')
-                    ->groupBy('estado')
-                    ->pluck('n', 'estado');
-                return [
-                    'id'        => $v->id,
-                    'nombre'    => $v->nombre,
-                    'tienda'    => $v->tiendaDefault?->nombre,
-                    'pendiente' => (int) ($counts['pendiente'] ?? 0),
-                    'lista'     => (int) ($counts['lista'] ?? 0),
-                    'pagada'    => (int) ($counts['pagada'] ?? 0),
-                ];
-            });
+        // Del mes que se está viendo, no de todos. El selector decía "6
+        // comisiones" mientras la pantalla, filtrada a un mes, mostraba 2.
+        $mes = $request->query('mes');
+
+        // Y con el estado calculado, no el guardado. El guardado solo se pone
+        // al día cuando alguien pulsa Recalcular, así que al llegar el 20 el
+        // selector decía "0 listas" con plata lista para pagar en la lista de
+        // al lado. Quien paga se guía por ese contador.
+        $comisiones = Comision::with(['orden.pagos', 'vendedor:id,nombre', 'tienda:id,nombre'])
+            ->when($mes, fn ($q) => $q->where('mes_venta', $mes))
+            ->get();
+
+        if ($comisiones->isEmpty()) {
+            return response()->json([]);
+        }
+
+        [$metas, $totalesTienda, $totalesVendedor] = $this->cargarTotales();
+        $pools = $this->cargarPoolsTrimestrales($metas, $totalesTienda);
+        $hoy   = Carbon::today();
+
+        $vendedores = $comisiones
+            ->map(fn ($c) => $this->enriquecer($c, $metas, $totalesTienda, $totalesVendedor, $pools, $hoy))
+            ->groupBy('vendedor_id')
+            ->map(fn ($items) => [
+                'id'        => (int) $items->first()['vendedor_id'],
+                'nombre'    => $items->first()['vendedor_nombre'],
+                'tienda'    => $items->first()['tienda_nombre'],
+                'pendiente' => $items->where('estado_calculado', 'pendiente')->count(),
+                'lista'     => $items->where('estado_calculado', 'lista')->count(),
+                'pagada'    => $items->where('estado_calculado', 'pagada')->count(),
+            ])
+            ->sortBy('nombre')
+            ->values();
 
         return response()->json($vendedores);
     }

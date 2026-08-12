@@ -53,14 +53,16 @@ const removiendoAsesor = ref(null) // registro id en proceso
 async function cargar() {
   cargando.value = true
   try {
-    const params = {}
+    // El mes va en las dos: la pantalla dice "agosto" y la lista traia todos
+    // los meses mezclados, y el selector de vendedor contaba lo mismo.
+    const params = { mes: mesActual.value }
     if (vistaTab.value === 'vendedor' && vendedorSel.value) {
       params.vendedor_id = vendedorSel.value
     }
 
     const [cRes, vRes] = await Promise.all([
       api.get('/comisiones', { params }),
-      api.get('/comisiones/vendedores'),
+      api.get('/comisiones/vendedores', { params: { mes: mesActual.value } }),
     ])
     comisiones.value = cRes.data
     vendedores.value = vRes.data
@@ -70,6 +72,13 @@ async function cargar() {
   } finally {
     cargando.value = false
   }
+}
+
+// Cambiar el mes tiene que recargarlo todo. Solo recargaba el resumen (o las
+// metas, segun el selector que se tocara), asi que la lista de comisiones se
+// quedaba con el mes anterior mientras la pantalla decia otro.
+async function cambiarMes() {
+  await Promise.all([cargar(), cargarResumen(), cargarIndependientes()])
 }
 
 async function cargarMetas() {
@@ -584,7 +593,7 @@ onMounted(async () => {
         <input
           type="month"
           v-model="mesActual"
-          @change="cargarMetas"
+          @change="cambiarMes"
           class="text-xs border border-gray-200 rounded-lg px-2 py-1 focus:ring-2 focus:ring-green-500 focus:border-transparent"
         />
       </div>
@@ -706,7 +715,7 @@ onMounted(async () => {
           <input
             type="month"
             v-model="mesActual"
-            @change="cargarResumen"
+            @change="cambiarMes"
             class="text-xs border border-gray-200 rounded-lg px-2 py-1 focus:ring-2 focus:ring-green-500 focus:border-transparent"
           />
         </div>
