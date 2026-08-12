@@ -853,6 +853,24 @@ onMounted(async () => {
                 </div>
               </div>
 
+              <!-- Un independiente cobra sobre lo que venden ENTRE los dos, asi
+                   que sus propias ordenes nunca suman su total. Sin esta linea
+                   la ficha parece descuadrada. -->
+              <div v-if="r.es_independiente && r.del_otro_independiente > 0"
+                   class="mb-2 rounded-lg bg-sky-50 border border-sky-100 px-3 py-2 text-xs">
+                <div class="flex items-center justify-between">
+                  <span class="text-sky-800">De sus propias órdenes</span>
+                  <span class="font-semibold text-sky-700">{{ cop(r.de_sus_ordenes) }}</span>
+                </div>
+                <div class="flex items-center justify-between mt-0.5">
+                  <span class="text-sky-800">De lo que vendió el otro independiente</span>
+                  <span class="font-semibold text-sky-700">+ {{ cop(r.del_otro_independiente) }}</span>
+                </div>
+                <p class="text-[11px] text-sky-600 mt-1">
+                  Los independientes cobran sobre todo lo que venden entre ellos, por igual.
+                </p>
+              </div>
+
               <!-- Su parte del 5% que dejo un independiente al compartir una
                    venta con su tienda. Se reparte entre la gente del almacen
                    y no depende de la meta: sale de esa venta, no del pool. -->

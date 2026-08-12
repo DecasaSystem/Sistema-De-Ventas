@@ -179,6 +179,7 @@ class ComisionIndependientes
                 'referencia'     => $o->serie ? "{$o->serie}-{$o->serie_numero}" : ('#' . ($o->numero_orden ?? $o->id)),
                 'cliente'        => $o->cliente,
                 'vendedor'       => $o->vendedor,
+                'vendedor_id'    => (int) $o->vendedor_id,
                 'valor'          => (float) $o->valor_total,
                 'estado'         => $o->estado,
                 'fecha'          => $o->created_at,

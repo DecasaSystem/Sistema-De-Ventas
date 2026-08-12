@@ -234,6 +234,50 @@ class ComisionController extends Controller
             ];
         })->keyBy('vendedor_id');
 
+        // Los independientes no van por este camino: no tienen meta ni pool, y
+        // sobre todo REPARTEN entre ellos, así que su cifra no sale de sus
+        // propias órdenes. Enriquecer los trataba como "vendedor sin meta" y la
+        // misma pantalla mostraba dos números distintos para la misma persona:
+        // aquí lo suyo, y en el bloque de independientes lo que de verdad cobra.
+        $indep = \App\Services\ComisionIndependientes::delMes($mes);
+        foreach ($indep['independientes'] as $i) {
+            if (! $grouped->has($i['vendedor_id'])) continue;
+
+            $fila  = $grouped[$i['vendedor_id']];
+            $suyas = collect($indep['ordenes'])->where('vendedor_id', $i['vendedor_id']);
+
+            // Las órdenes salen del servicio, no de comisiones: ahí una venta
+            // compartida con un almacén está partida por la mitad, y a ellos el
+            // 5% se les paga sobre el valor entero. Lo de la mitad es para la
+            // meta del almacén, no para lo que cobran.
+            $fila['es_independiente'] = true;
+            $fila['comision_total']   = (float) $i['comision'];
+            $fila['total_ventas']     = (float) $i['vendio'];
+            $fila['total_ordenes']    = $suyas->count();
+            $fila['ordenes'] = $suyas->map(fn ($o) => [
+                'id'               => $o['id'],
+                'orden_id'         => $o['id'],
+                'orden_numero'     => null,
+                'orden_referencia' => $o['referencia'],
+                'es_descuento_especial' => false,
+                'forma_pago'       => $o['es_restauracion'] ? 'restauracion_5' : 'sin_meta_5',
+                'es_restauracion'  => $o['es_restauracion'],
+                'valor_orden'      => $o['valor'],
+                'monto_comision'   => $o['paga'],
+                'estado'           => $o['lista'] ? 'lista' : 'pendiente',
+                'fecha_venta'      => $o['fecha'],
+            ])->values();
+
+            // Lo que le entra por las ventas del otro. Sin esta línea las
+            // órdenes de la ficha no suman nunca lo que dice el total.
+            $deSusOrdenes = $suyas->sum('paga');
+            $fila['de_sus_ordenes']         = round($deSusOrdenes);
+            $fila['del_otro_independiente'] = round((float) $i['comision'] - $deSusOrdenes);
+            $fila['pendientes'] = $suyas->where('lista', false)->count();
+            $fila['listas']     = $suyas->where('lista', true)->count();
+            $grouped[$i['vendedor_id']] = $fila;
+        }
+
         // Sumarle a cada uno su parte del 5% de los almacenes. Quien no vendió
         // nada ese mes no está en el agrupado y hay que darle su fila: si no,
         // esa plata se perdería justo para el que no tuvo ventas propias.
