@@ -167,6 +167,11 @@ const FORMAS_PAGO = {
     resumen:  'Su parte del pool de la tienda, a prorrata de lo que vendió.',
     clase:    'bg-gray-100 text-gray-600',
   },
+  abono_almacen: {
+    etiqueta: 'Le dejó un independiente',
+    resumen:  'Su parte del 5% que dejó un independiente al compartir una venta con su tienda. No le suma a la meta.',
+    clase:    'bg-emerald-100 text-emerald-700',
+  },
 }
 function formaPago(c) {
   return FORMAS_PAGO[c?.forma_pago] ?? FORMAS_PAGO.pool
@@ -871,22 +876,6 @@ onMounted(async () => {
                 </p>
               </div>
 
-              <!-- Su parte del 5% que dejo un independiente al compartir una
-                   venta con su tienda. Se reparte entre la gente del almacen
-                   y no depende de la meta: sale de esa venta, no del pool. -->
-              <div v-if="r.abonado_por_almacen > 0"
-                   class="mb-2 rounded-lg bg-emerald-50 border border-emerald-100 px-3 py-2">
-                <div class="flex items-center justify-between text-xs">
-                  <span class="font-semibold text-emerald-800">Le dejó un independiente</span>
-                  <span class="font-bold text-emerald-700">+ {{ cop(r.abonado_por_almacen) }}</span>
-                </div>
-                <p v-for="(d, i) in r.abonado_detalle" :key="i" class="text-[11px] text-emerald-700 mt-0.5">
-                  {{ d.almacen }} recibió {{ cop(d.del_almacen) }} por
-                  {{ d.ordenes }} {{ d.ordenes === 1 ? 'orden compartida' : 'órdenes compartidas' }},
-                  entre {{ d.entre }} {{ d.entre === 1 ? 'persona' : 'personas' }}
-                </p>
-              </div>
-
               <!-- Trimestre en curso: el pool mira los 3 meses, asi que los que
                    faltan cuentan como cero vendido contra meta entera. Se separa
                    lo que va de verdad de lo que falta. -->
@@ -1180,8 +1169,11 @@ onMounted(async () => {
             <div v-if="!dependeDeLaMeta(c)" class="mt-2 pt-2 border-t border-gray-100 text-xs text-gray-500 space-y-0.5">
               <p class="font-semibold text-gray-600 mb-1">Cálculo</p>
               <p>{{ formaPago(c).resumen }}</p>
-              <p>Valor de la orden: {{ cop(c.valor_orden) }}</p>
-              <p v-if="c.forma_pago === 'sin_meta_5'">Sin IVA (÷1.19): {{ cop(c.valor_orden / 1.19) }}</p>
+              <p>{{ c.abono_de_almacen ? 'Lo que le tocó de la orden' : 'Valor de la orden' }}:
+                {{ cop(c.valor_orden) }}</p>
+              <p v-if="c.forma_pago === 'sin_meta_5' || (c.abono_de_almacen && !c.es_restauracion)">
+                Sin IVA (÷1.19): {{ cop(c.valor_orden / 1.19) }}
+              </p>
               <p class="font-bold text-green-700 border-t border-gray-100 pt-0.5 mt-0.5">
                 5% = {{ cop(c.monto_comision) }}
               </p>

@@ -183,11 +183,7 @@ class ComisionController extends Controller
             ->where('mes_venta', $mes)
             ->get();
 
-        // El 5% que deja un independiente al compartir con un almacén se
-        // reparte entre la gente de ese almacén, hayan vendido o no.
-        $reparto = \App\Services\ComisionIndependientes::repartoPorAlmacen($mes);
-
-        if ($comisiones->isEmpty() && empty($reparto)) {
+        if ($comisiones->isEmpty()) {
             return response()->json([]);
         }
 
@@ -278,37 +274,6 @@ class ComisionController extends Controller
             $grouped[$i['vendedor_id']] = $fila;
         }
 
-        // Sumarle a cada uno su parte del 5% de los almacenes. Quien no vendió
-        // nada ese mes no está en el agrupado y hay que darle su fila: si no,
-        // esa plata se perdería justo para el que no tuvo ventas propias.
-        foreach ($reparto as $vendedorId => $parte) {
-            if (! $grouped->has($vendedorId)) {
-                $u = Usuario::find($vendedorId);
-                if (! $u) continue;
-                $grouped[$vendedorId] = [
-                    'vendedor_id'     => $vendedorId,
-                    'vendedor_nombre' => $u->nombre,
-                    'tienda_id'       => (int) $u->tienda_default_id,
-                    'tienda_nombre'   => $u->tiendaDefault?->nombre,
-                    'total_ordenes'   => 0,
-                    'total_ventas'    => 0.0,
-                    'comision_total'  => 0.0,
-                    'comision_asesor' => 0.0,
-                    'periodicidad'    => 'mensual',
-                    'avance_trimestre' => null,
-                    'pendientes' => 0, 'listas' => 0, 'pagadas' => 0,
-                    'ordenes'    => [],
-                ];
-            }
-
-            $fila = $grouped[$vendedorId];
-            $fila['comision_total']     = (float) $fila['comision_total'] + $parte['monto'];
-            $fila['abonado_por_almacen'] = round($parte['monto']);
-            $fila['abonado_listo']       = round($parte['lista']);
-            $fila['abonado_detalle']     = $parte['de'];
-            $grouped[$vendedorId] = $fila;
-        }
-
         $grouped = $grouped->sortByDesc('comision_total')->values();
 
         return response()->json($grouped);
@@ -329,21 +294,16 @@ class ComisionController extends Controller
 
         $vendedor = Usuario::find($vendedorId);
 
-        // Su parte del 5% que dejó un independiente al compartir con su tienda.
-        $parte = \App\Services\ComisionIndependientes::repartoPorAlmacen($mes)[$vendedorId] ?? null;
+        // Su parte del 5% que dejó un independiente: ya son filas propias,
+        // asi que vienen dentro de $comisiones como una mas.
 
         if ($comisiones->isEmpty()) {
             return [
                 'tipo' => 'vendedor', 'mes' => $mes,
                 'vendedor'   => $vendedor?->nombre,
                 'sin_ventas' => true,
-                'comision'   => $parte ? round($parte['monto']) : 0,
-                'del_5_por_ciento_de_almacen' => $parte ? round($parte['monto']) : 0,
-                'ese_5_de_donde_sale' => $parte['de'] ?? null,
-                'nota' => $parte
-                    ? "No tiene ventas propias en {$mes}, pero le toca parte del 5% que dejó "
-                      . "un independiente al compartir una venta con su tienda."
-                    : "No tiene ninguna venta registrada en {$mes}.",
+                'comision'   => 0,
+                'nota' => "No tiene ninguna venta registrada en {$mes}.",
             ];
         }
 
@@ -359,6 +319,7 @@ class ComisionController extends Controller
             'restauracion_5' => 'restauración: 5% del valor, aparte del pool y sin depender de la meta',
             'sin_meta_5'     => 'no está en una tienda con meta: valor ÷ 1,19 × 5%, sin dividir con nadie',
             'pool'           => 'por el pool de la tienda, a prorrata de lo que vendió ese mes',
+            'abono_almacen'  => 'su parte del 5% que dejó un independiente al compartir una venta con su tienda',
         ];
         $primera = $filas->first();
 
@@ -368,12 +329,10 @@ class ComisionController extends Controller
             'vendedor'  => $vendedor?->nombre,
             'tienda'    => $primera['tienda_nombre'] ?? null,
             'periodicidad' => $primera['periodicidad'] ?? 'mensual',
-            'comision_total'  => $filas->sum('monto_comision') + ($parte['monto'] ?? 0),
-            'de_sus_ventas'   => $filas->sum('monto_comision'),
-            'del_5_por_ciento_de_almacen' => $parte ? round($parte['monto']) : 0,
-            'ese_5_de_donde_sale'         => $parte['de'] ?? null,
-            'ya_puede_cobrar' => $filas->where('estado_calculado', 'lista')->sum('monto_comision')
-                                 + ($parte['lista'] ?? 0),
+            'comision_total'  => $filas->sum('monto_comision'),
+            'de_sus_ventas'   => $filas->reject(fn ($f) => $f['abono_de_almacen'])->sum('monto_comision'),
+            'del_5_por_ciento_de_almacen' => $filas->where('abono_de_almacen', true)->sum('monto_comision'),
+            'ya_puede_cobrar' => $filas->where('estado_calculado', 'lista')->sum('monto_comision'),
             'ya_pagada'       => $filas->where('estado_calculado', 'pagada')->sum('monto_comision'),
             'todavia_no'      => $filas->where('estado_calculado', 'pendiente')->sum('monto_comision'),
             'vendio'          => $filas->sum('valor_orden'),
@@ -665,7 +624,13 @@ class ComisionController extends Controller
         $valor = self::valorComisionable($orden);
 
         $cambiadas = 0;
-        foreach (Comision::where('orden_id', $orden->id)->where('estado', '!=', 'pagada')->get() as $c) {
+        self::sincronizarAbonoAlmacen($orden);
+
+        // El reparto del almacen lleva su propia base (el pedazo de cada uno),
+        // asi que no puede recibir el valor de la orden entera.
+        foreach (Comision::where('orden_id', $orden->id)
+                     ->where('origen', '!=', self::ORIGEN_ABONO)
+                     ->where('estado', '!=', 'pagada')->get() as $c) {
             if (abs((float) $c->valor_orden - $valor) < 0.01) continue;
             $c->update(['valor_orden' => $valor]);
             $cambiadas++;
@@ -707,6 +672,8 @@ class ComisionController extends Controller
             ]
         );
 
+        self::sincronizarAbonoAlmacen($orden);
+
         // Registro del co-vendedor si la venta es compartida
         if ($esCompartida && $covendedorId) {
             $covendedor = Usuario::find($covendedorId);
@@ -723,6 +690,70 @@ class ComisionController extends Controller
                     ]
                 );
             }
+        }
+    }
+
+    /** Marca de las comisiones que salen del 5% que deja un independiente. */
+    public const ORIGEN_ABONO = 'abono_almacen';
+
+    /**
+     * Le arma (o le pone al día) su fila a cada persona del almacén con el que
+     * un independiente compartió la venta.
+     *
+     * Ese 5% es de la gente de la tienda, no de la tienda. Se divide en partes
+     * iguales entre quienes trabajan ahí, y a cada uno se le guarda su pedazo
+     * como `valor_orden` para que la cuenta de siempre (5% a la restauración,
+     * ÷1,19 antes del 5% a la venta) le dé justo lo suyo.
+     *
+     * Se vuelve a llamar cuando la orden cambia: si entra o sale gente de la
+     * tienda, el reparto se rehace. No toca las ya pagadas — esa plata ya salió.
+     */
+    public static function sincronizarAbonoAlmacen(Orden $orden): void
+    {
+        $existentes = Comision::where('orden_id', $orden->id)
+            ->where('origen', self::ORIGEN_ABONO)->get();
+
+        $sigueCompartida = $orden->tienda_abonada_id
+            && ! in_array($orden->estado, self::ESTADOS_SIN_VENTA, true);
+
+        if (! $sigueCompartida) {
+            $existentes->where('estado', '!=', 'pagada')->each->delete();
+            return;
+        }
+
+        $gente = Usuario::where('tienda_default_id', $orden->tienda_abonada_id)
+            ->where('activo', true)
+            ->whereIn('rol', ['vendedor', 'supervisor'])
+            ->pluck('id');
+
+        if ($gente->isEmpty()) return;
+
+        $fechaVenta = Carbon::parse($orden->created_at)->setTimezone(StatsController::TZ_NEGOCIO);
+        // Su pedazo del valor de la orden. El 5% se lo saca enriquecer() con la
+        // misma regla que a todo lo demás, así que basta con darle la base.
+        $porCabeza = round((float) $orden->valor_total / $gente->count());
+
+        // Al que ya no está en la tienda se le quita, salvo que ya se le pagara.
+        $existentes->whereNotIn('vendedor_id', $gente->all())
+            ->where('estado', '!=', 'pagada')->each->delete();
+
+        foreach ($gente as $vendedorId) {
+            $fila = $existentes->firstWhere('vendedor_id', $vendedorId);
+
+            if ($fila?->estado === 'pagada') continue;
+
+            Comision::updateOrCreate(
+                ['orden_id' => $orden->id, 'vendedor_id' => $vendedorId],
+                [
+                    'origen'           => self::ORIGEN_ABONO,
+                    'tienda_id'        => $orden->tienda_abonada_id,
+                    'mes_venta'        => $fechaVenta->format('Y-m'),
+                    'valor_orden'      => $porCabeza,
+                    'fecha_venta'      => $fechaVenta->toDateString(),
+                    'fecha_disponible' => self::calcularFechaDisponible($fechaVenta, $orden->tienda_abonada_id),
+                    'estado'           => $fila->estado ?? 'pendiente',
+                ]
+            );
         }
     }
 
@@ -1027,6 +1058,9 @@ class ComisionController extends Controller
             ->join('usuarios as u', 'u.id', '=', 'c.vendedor_id')
             ->join('ordenes as o', 'o.id', '=', 'c.orden_id')
             ->where('u.independiente', false)
+            // El 5% que deja un independiente no es una venta de la tienda:
+            // paga a su gente pero no le empuja la meta ni le arma pool.
+            ->where('c.origen', '!=', self::ORIGEN_ABONO)
             // Solo cuentan las ventas vivas. Una orden cancelada dejaba su
             // comision atras y su valor seguia empujando la meta de la tienda.
             ->whereNotIn('o.estado', self::ESTADOS_SIN_VENTA)
@@ -1057,6 +1091,7 @@ class ComisionController extends Controller
         $totalesVendedor = DB::table('comisiones as c')
             ->join('ordenes as o', 'o.id', '=', 'c.orden_id')
             ->whereNotIn('o.estado', self::ESTADOS_SIN_VENTA)
+            ->where('c.origen', '!=', self::ORIGEN_ABONO)
             ->selectRaw('c.vendedor_id, c.tienda_id, c.mes_venta, SUM(c.valor_orden) as total')
             ->groupBy('c.vendedor_id', 'c.tienda_id', 'c.mes_venta')
             ->get()
@@ -1129,7 +1164,17 @@ class ComisionController extends Controller
         $esRestauracion = isset($idsRestauracion[(int) $c->orden_id]);
         $tieneMeta      = $meta > 0 && ! $this->cobraIndividual((int) $c->vendedor_id, $c->mes_venta);
 
-        if ($esRestauracion) {
+        // Su parte del 5% que dejó un independiente al compartir con su tienda.
+        // Nunca por el pool: esa venta no es del equipo, solo pasaron el
+        // contacto. Se cobra el 5% de lo que le tocó, con la misma regla de
+        // siempre (a la venta se le quita el IVA, a la restauración no).
+        $esAbono = $c->origen === self::ORIGEN_ABONO;
+
+        if ($esAbono) {
+            $montoComision = $esRestauracion
+                ? round((float) $c->valor_orden * self::PORCENTAJE_DIRECTO)
+                : round((float) $c->valor_orden / self::IVA * self::PORCENTAJE_DIRECTO);
+        } elseif ($esRestauracion) {
             $montoComision = round((float) $c->valor_orden * self::PORCENTAJE_DIRECTO);
         } elseif (! $tieneMeta) {
             $montoComision = round((float) $c->valor_orden / self::IVA * self::PORCENTAJE_DIRECTO);
@@ -1149,7 +1194,7 @@ class ComisionController extends Controller
         $estadoCalculado = 'pendiente';
         if ($c->estado === 'pagada') {
             $estadoCalculado = 'pagada';
-        } elseif ($req50 && $reqVencio && ($esRestauracion || ! $tieneMeta || $esTrimestral || $metaCumplida)) {
+        } elseif ($req50 && $reqVencio && ($esAbono || $esRestauracion || ! $tieneMeta || $esTrimestral || $metaCumplida)) {
             $estadoCalculado = 'lista';
         }
 
@@ -1170,8 +1215,10 @@ class ComisionController extends Controller
             'req_mes_vencido'  => $reqVencio,
             'periodicidad'     => $esTrimestral ? 'trimestral' : 'mensual',
             'es_restauracion'  => $esRestauracion,
-            'forma_pago'       => $esRestauracion ? 'restauracion_5'
-                                  : (! $tieneMeta ? 'sin_meta_5' : 'pool'),
+            'forma_pago'       => $esAbono ? self::ORIGEN_ABONO
+                                  : ($esRestauracion ? 'restauracion_5'
+                                  : (! $tieneMeta ? 'sin_meta_5' : 'pool')),
+            'abono_de_almacen' => $esAbono,
             'trimestre'        => $esTrimestral ? self::trimestreDeMes($c->mes_venta) : null,
             'avance_trimestre' => $esTrimestral
                 ? $this->avanceTrimestre($c->tienda_id, self::trimestreDeMes($c->mes_venta), $metas, $totalesTienda)
