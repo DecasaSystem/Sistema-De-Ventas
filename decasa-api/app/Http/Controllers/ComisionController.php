@@ -183,7 +183,11 @@ class ComisionController extends Controller
             ->where('mes_venta', $mes)
             ->get();
 
-        if ($comisiones->isEmpty()) {
+        // El 5% que deja un independiente al compartir con un almacén se
+        // reparte entre la gente de ese almacén, hayan vendido o no.
+        $reparto = \App\Services\ComisionIndependientes::repartoPorAlmacen($mes);
+
+        if ($comisiones->isEmpty() && empty($reparto)) {
             return response()->json([]);
         }
 
@@ -228,7 +232,40 @@ class ComisionController extends Controller
                     'fecha_venta'    => $i['fecha_venta'],
                 ])->values(),
             ];
-        })->sortByDesc('comision_total')->values();
+        })->keyBy('vendedor_id');
+
+        // Sumarle a cada uno su parte del 5% de los almacenes. Quien no vendió
+        // nada ese mes no está en el agrupado y hay que darle su fila: si no,
+        // esa plata se perdería justo para el que no tuvo ventas propias.
+        foreach ($reparto as $vendedorId => $parte) {
+            if (! $grouped->has($vendedorId)) {
+                $u = Usuario::find($vendedorId);
+                if (! $u) continue;
+                $grouped[$vendedorId] = [
+                    'vendedor_id'     => $vendedorId,
+                    'vendedor_nombre' => $u->nombre,
+                    'tienda_id'       => (int) $u->tienda_default_id,
+                    'tienda_nombre'   => $u->tiendaDefault?->nombre,
+                    'total_ordenes'   => 0,
+                    'total_ventas'    => 0.0,
+                    'comision_total'  => 0.0,
+                    'comision_asesor' => 0.0,
+                    'periodicidad'    => 'mensual',
+                    'avance_trimestre' => null,
+                    'pendientes' => 0, 'listas' => 0, 'pagadas' => 0,
+                    'ordenes'    => [],
+                ];
+            }
+
+            $fila = $grouped[$vendedorId];
+            $fila['comision_total']     = (float) $fila['comision_total'] + $parte['monto'];
+            $fila['abonado_por_almacen'] = round($parte['monto']);
+            $fila['abonado_listo']       = round($parte['lista']);
+            $fila['abonado_detalle']     = $parte['de'];
+            $grouped[$vendedorId] = $fila;
+        }
+
+        $grouped = $grouped->sortByDesc('comision_total')->values();
 
         return response()->json($grouped);
     }
@@ -248,13 +285,21 @@ class ComisionController extends Controller
 
         $vendedor = Usuario::find($vendedorId);
 
+        // Su parte del 5% que dejó un independiente al compartir con su tienda.
+        $parte = \App\Services\ComisionIndependientes::repartoPorAlmacen($mes)[$vendedorId] ?? null;
+
         if ($comisiones->isEmpty()) {
             return [
                 'tipo' => 'vendedor', 'mes' => $mes,
-                'vendedor' => $vendedor?->nombre,
+                'vendedor'   => $vendedor?->nombre,
                 'sin_ventas' => true,
-                'comision' => 0,
-                'nota' => "No tiene ninguna venta registrada en {$mes}.",
+                'comision'   => $parte ? round($parte['monto']) : 0,
+                'del_5_por_ciento_de_almacen' => $parte ? round($parte['monto']) : 0,
+                'ese_5_de_donde_sale' => $parte['de'] ?? null,
+                'nota' => $parte
+                    ? "No tiene ventas propias en {$mes}, pero le toca parte del 5% que dejó "
+                      . "un independiente al compartir una venta con su tienda."
+                    : "No tiene ninguna venta registrada en {$mes}.",
             ];
         }
 
@@ -279,8 +324,12 @@ class ComisionController extends Controller
             'vendedor'  => $vendedor?->nombre,
             'tienda'    => $primera['tienda_nombre'] ?? null,
             'periodicidad' => $primera['periodicidad'] ?? 'mensual',
-            'comision_total'  => $filas->sum('monto_comision'),
-            'ya_puede_cobrar' => $filas->where('estado_calculado', 'lista')->sum('monto_comision'),
+            'comision_total'  => $filas->sum('monto_comision') + ($parte['monto'] ?? 0),
+            'de_sus_ventas'   => $filas->sum('monto_comision'),
+            'del_5_por_ciento_de_almacen' => $parte ? round($parte['monto']) : 0,
+            'ese_5_de_donde_sale'         => $parte['de'] ?? null,
+            'ya_puede_cobrar' => $filas->where('estado_calculado', 'lista')->sum('monto_comision')
+                                 + ($parte['lista'] ?? 0),
             'ya_pagada'       => $filas->where('estado_calculado', 'pagada')->sum('monto_comision'),
             'todavia_no'      => $filas->where('estado_calculado', 'pendiente')->sum('monto_comision'),
             'vendio'          => $filas->sum('valor_orden'),

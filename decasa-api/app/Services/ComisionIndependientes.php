@@ -197,6 +197,58 @@ class ComisionIndependientes
     }
 
     /**
+     * El 5% del almacén, repartido entre su gente.
+     *
+     * Cuando un independiente comparte una venta o una restauración con un
+     * almacén, ese almacén cobra su 5%. Esa plata no es de la tienda como
+     * entidad: se divide en partes iguales entre las personas que trabajan
+     * ahí y se les suma a su comisión del mes. Antes se calculaba, se
+     * mostraba en pantalla y no llegaba a nadie.
+     *
+     * No depende de que la tienda alcance su meta. Sale de la venta del
+     * independiente, no del pool: si dependiera de la meta, el equipo perdería
+     * una plata que ya se genero por ayudar con el contacto.
+     *
+     * Se divide entre la gente asignada a esa tienda (`tienda_default_id`),
+     * que es el mismo grupo que hoy usa el divisor de la meta.
+     *
+     * @return array<int,array{monto:float,lista:float,de:array}>  por vendedor_id
+     */
+    public static function repartoPorAlmacen(string $mes): array
+    {
+        $reparto = [];
+
+        foreach (self::delMes($mes)['almacenes'] as $almacen) {
+            $gente = DB::table('usuarios')
+                ->where('tienda_default_id', $almacen['tienda_id'])
+                ->where('activo', true)
+                ->whereIn('rol', ['vendedor', 'supervisor'])
+                ->pluck('id');
+
+            if ($gente->isEmpty()) continue;
+
+            $porCabeza      = $almacen['comision'] / $gente->count();
+            $porCabezaLista = $almacen['comision_lista'] / $gente->count();
+
+            foreach ($gente as $vendedorId) {
+                $id = (int) $vendedorId;
+                $reparto[$id] ??= ['monto' => 0.0, 'lista' => 0.0, 'de' => []];
+                $reparto[$id]['monto'] += $porCabeza;
+                $reparto[$id]['lista'] += $porCabezaLista;
+                $reparto[$id]['de'][]   = [
+                    'almacen'      => $almacen['nombre'],
+                    'ordenes'      => $almacen['ordenes'],
+                    'del_almacen'  => $almacen['comision'],
+                    'entre'        => $gente->count(),
+                    'le_toca'      => round($porCabeza),
+                ];
+            }
+        }
+
+        return $reparto;
+    }
+
+    /**
      * Lo que los independientes le abonaron a cada tienda para su META.
      *
      * Es la mitad de cada venta compartida, PERO solo de las ventas: una

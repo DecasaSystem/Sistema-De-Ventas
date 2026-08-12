@@ -554,6 +554,10 @@ onMounted(async () => {
 
       <template v-if="indepData.almacenes.length">
         <p class="text-[11px] font-semibold text-gray-500 uppercase mt-3 mb-1">Almacenes que ayudaron</p>
+        <p class="text-[11px] text-gray-500 mb-1">
+          Ese 5% no se queda en la tienda: se reparte en partes iguales entre su
+          gente y les suma a su comisión del mes.
+        </p>
         <div v-for="a in indepData.almacenes" :key="a.tienda_id"
              class="flex items-center justify-between text-sm py-1.5 border-b border-gray-50">
           <div class="min-w-0">
@@ -847,6 +851,22 @@ onMounted(async () => {
                   <p class="text-lg font-bold text-green-700">{{ cop(r.comision_total) }}</p>
                   <p class="text-[10px] text-gray-400">de {{ cop(r.total_ventas) }} vendidos</p>
                 </div>
+              </div>
+
+              <!-- Su parte del 5% que dejo un independiente al compartir una
+                   venta con su tienda. Se reparte entre la gente del almacen
+                   y no depende de la meta: sale de esa venta, no del pool. -->
+              <div v-if="r.abonado_por_almacen > 0"
+                   class="mb-2 rounded-lg bg-emerald-50 border border-emerald-100 px-3 py-2">
+                <div class="flex items-center justify-between text-xs">
+                  <span class="font-semibold text-emerald-800">Le dejó un independiente</span>
+                  <span class="font-bold text-emerald-700">+ {{ cop(r.abonado_por_almacen) }}</span>
+                </div>
+                <p v-for="(d, i) in r.abonado_detalle" :key="i" class="text-[11px] text-emerald-700 mt-0.5">
+                  {{ d.almacen }} recibió {{ cop(d.del_almacen) }} por
+                  {{ d.ordenes }} {{ d.ordenes === 1 ? 'orden compartida' : 'órdenes compartidas' }},
+                  entre {{ d.entre }} {{ d.entre === 1 ? 'persona' : 'personas' }}
+                </p>
               </div>
 
               <!-- Trimestre en curso: el pool mira los 3 meses, asi que los que

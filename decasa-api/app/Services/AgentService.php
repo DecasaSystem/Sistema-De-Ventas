@@ -2915,7 +2915,14 @@ PEREIRA Y CIRCUNVALAR son distintas (las demás son mensuales):
 CUÁNDO SE COBRA — hacen falta las dos cosas: que llegue el 20 del mes siguiente (o del mes siguiente al cierre del trimestre en Pereira/Circunvalar) Y que el cliente haya pagado al menos el 50% de la orden. Si falta una, la comisión sale como pendiente.
 Si una orden se cancela, su comisión desaparece y deja de contarle a la meta.
 
-INDEPENDIENTES (Flabio, Henry): no tienen tienda ni meta. Reparten entre ellos por igual sobre el total que vendieron entre todos, sin importar quién vendió más. Si comparten una venta con un almacén, la mitad se le abona a ese almacén; una restauración compartida no le suma a la meta del almacén.
+INDEPENDIENTES (Flabio, Henry): no tienen tienda ni meta. Reparten entre ellos por igual sobre el total que vendieron entre todos, sin importar quién vendió más.
+
+CUANDO UN INDEPENDIENTE COMPARTE CON UN ALMACÉN (venta o restauración):
+- El independiente cobra lo suyo igual, no se le quita nada.
+- El almacén cobra su propio 5%, y ese 5% NO se queda en la tienda: se divide en partes iguales entre las personas que trabajan ahí y se le suma a la comisión del mes de cada una. Le llega también a quien no vendió nada ese mes.
+- No depende de que la tienda haya alcanzado su meta: sale de la venta del independiente, no del pool.
+- A la META del almacén le suma la mitad de la venta, pero solo si es venta: una restauración compartida le paga su 5% y no le cuenta para la meta.
+Ejemplo real: Henry hizo una restauración de $1.300.000 compartida con Vía El Edén. El Edén recibe $65.000 (el 5%), que se parten entre sus 2 personas: $32.500 para cada una, encima de lo que ya ganen por sus propias ventas.
 
 NOVEDADES QUE PUEDEN PREGUNTAR:
 - Restauraciones: llevan su propia numeración con serie R (R-1092, R-1093...), aparte del consecutivo de las tiendas. En la lista de órdenes hay una pestaña "Restauración".
