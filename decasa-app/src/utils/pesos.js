@@ -12,10 +12,37 @@ export function soloDigitos(texto) {
   return String(texto ?? '').replace(/\D/g, '')
 }
 
+/**
+ * Cuánto vale algo que puede venir de dos sitios muy distintos.
+ *
+ * El backend manda los decimales como texto en formato inglés: "500000.00".
+ * Una persona escribe en formato colombiano: "500.000". Los dos son cadenas
+ * con un punto, y quedarse con los dígitos de la primera daba 50.000.000:
+ * cien veces más. Así salían el anticipo, el precio de un producto de
+ * catálogo y todo lo que llegara con centavos.
+ *
+ * Lo que los distingue es cuántos dígitos van tras el separador. En pesos el
+ * separador de miles agrupa SIEMPRE de tres en tres, así que uno o dos
+ * dígitos detrás sólo pueden ser centavos.
+ */
+function aNumero(valor) {
+  if (typeof valor === 'number') return valor
+
+  const texto = String(valor ?? '').trim()
+  if (texto === '') return NaN
+
+  // "500000.00", "50.00", "1580000.00" — como lo manda el backend.
+  if (/^-?\d+(?:\.\d{1,2})?$/.test(texto)) return Number(texto)
+
+  // "1.234.567" o "1.234.567,89" — como lo escribe o lo pega una persona.
+  const n = Number(soloDigitos(quitarCentavos(texto)))
+  return texto.startsWith('-') ? -n : n
+}
+
 /** 1234567 → "1.234.567". Redondea: no hay medios pesos. */
 export function formatearPesos(valor) {
   if (valor === null || valor === undefined || valor === '') return ''
-  const n = typeof valor === 'string' ? Number(soloDigitos(valor)) : Math.round(Number(valor))
+  const n = Math.round(aNumero(valor))
   if (!Number.isFinite(n)) return ''
   return new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 }).format(n)
 }
@@ -27,8 +54,9 @@ export function pesos(valor) {
 
 /** "1.234.567" → 1234567. Lo que se escribe vuelve a ser número. */
 export function pesosANumero(texto) {
-  const d = soloDigitos(texto)
-  return d === '' ? null : Number(d)
+  if (texto === null || texto === undefined || String(texto).trim() === '') return null
+  const n = aNumero(texto)
+  return Number.isFinite(n) ? Math.round(n) : null
 }
 
 /**

@@ -988,7 +988,7 @@ function fabricarBajoPedido(producto) {
     stock_libre: 0,
     personalizable: false,
     cantidad: 1,
-    precio_unitario: producto.precio_base ?? 0,
+    precio_unitario: Number(producto.precio_base ?? 0),
     es_personalizado: true,   // backend crea Produccion y omite reserva de inventario
     specs: {},
     specs_notas: '',
@@ -1025,7 +1025,7 @@ function agregarPersonalizado(producto) {
     stock_libre:         0,
     personalizable:      true,
     cantidad:            1,
-    precio_unitario:     producto.precio_base ?? 0,
+    precio_unitario:     Number(producto.precio_base ?? 0),
     es_personalizado:    true,
     specs:               {},
     specs_notas:         '',
