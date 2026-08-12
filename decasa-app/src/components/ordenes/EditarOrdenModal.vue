@@ -1193,9 +1193,6 @@ async function guardar() {
                   <option :value="null">Sin compartir — la venta entera es del vendedor</option>
                   <option v-for="t in tiendasAbonables" :key="t.id" :value="t.id">{{ t.nombre }}</option>
                 </select>
-                <p v-if="tiendaAbonadaId" class="text-[11px] text-emerald-700 mt-1">
-                  La venta se reparte: la mitad cuenta para ese almacén y la otra mitad para el vendedor.
-                </p>
               </div>
               <div v-if="esCompartida">
                 <label class="block text-xs font-medium text-gray-600 mb-1">Co-vendedor</label>

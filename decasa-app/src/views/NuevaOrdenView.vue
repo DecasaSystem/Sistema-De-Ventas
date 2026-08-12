@@ -3706,12 +3706,6 @@ function removeFacturaFoto() {
           >{{ t.nombre }}</button>
         </div>
 
-        <p v-if="tiendaAbonadaId && valorTotal > 0" class="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
-          De ${{ Number(valorTotal).toLocaleString('es-CO') }}:
-          <strong>${{ Math.round(valorTotal / 2).toLocaleString('es-CO') }}</strong> para
-          {{ tiendasAbonables.find(t => t.id === tiendaAbonadaId)?.nombre }} y
-          <strong>${{ Math.round(valorTotal / 2).toLocaleString('es-CO') }}</strong> para ti.
-        </p>
       </div>
 
       <!-- Venta compartida -->
