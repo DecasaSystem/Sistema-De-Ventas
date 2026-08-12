@@ -1028,6 +1028,26 @@ class ComisionController extends Controller
     /** Quién cobra por fuera del pool, por mes. Ver cobraIndividual(). */
     private array $individuales = [];
 
+    /**
+     * Lo que lleva vendido una tienda contra su meta, por mes.
+     *
+     * Es la MISMA cuenta que usa la pantalla de comisiones, y existe para que
+     * nadie la vuelva a escribir por su lado. Las estadísticas del vendedor la
+     * hacían con un `SUM(valor_orden)` pelado y contaban cuatro cosas que no
+     * van: las ventas de un independiente, las restauraciones, las órdenes
+     * canceladas y el 5% que un independiente le deja al almacén. A Gladys y a
+     * Sebastián les inflaba la meta en $1.300.000.
+     *
+     * @return array<string,float>  ['tienda_mes' => vendido]
+     */
+    public static function ventasParaMeta(): array
+    {
+        $c = app(self::class);
+        [, $totales, ] = $c->cargarTotales();
+
+        return collect($totales)->map(fn ($r) => (float) $r->total)->all();
+    }
+
     private function cargarTotales(): array
     {
         // Arranca un cálculo nuevo: lo de la pasada anterior ya no sirve.

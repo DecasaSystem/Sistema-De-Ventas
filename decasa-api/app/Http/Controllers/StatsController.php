@@ -365,9 +365,11 @@ class StatsController extends Controller
 
         $mesActual = Carbon::now(self::TZ_NEGOCIO)->format('Y-m');
         $metasVigentes = \App\Models\MetaTienda::vigentesEn($mesActual);
+        // Se resuelve una vez para todas las tiendas, no una consulta por cada una.
+        $ventasParaMeta = ComisionController::ventasParaMeta();
         $porSuCuenta = $this->idsPorSuCuenta();
 
-        $resultado = $tiendas->map(function ($t) use ($rango, $desde, $hasta, $mesActual, $porSuCuenta, $metasVigentes) {
+        $resultado = $tiendas->map(function ($t) use ($rango, $desde, $hasta, $mesActual, $porSuCuenta, $metasVigentes, $ventasParaMeta) {
             $rangoCreacion = $this->rangoUtc($desde, $hasta);
 
             // Ingresos: el dinero se le acredita a la tienda que lo recibió, que
@@ -445,7 +447,8 @@ class StatsController extends Controller
 
             // La meta se arrastra: rige la ultima cargada hasta este mes.
             $metaReg        = $metasVigentes[$t->id] ?? null;
-            $totalTiendaMes = (float) DB::table('comisiones')->where('tienda_id', $t->id)->where('mes_venta', $mesActual)->sum('valor_orden');
+            // Lo mismo que ve la pantalla de comisiones, no una suma aparte.
+            $totalTiendaMes = $ventasParaMeta[$t->id . '_' . $mesActual] ?? 0.0;
             $metaVal        = $metaReg ? (float) $metaReg->meta : null;
             $pct            = ($metaVal && $metaVal > 0) ? min(100, round($totalTiendaMes / $metaVal * 100, 1)) : null;
 
@@ -956,11 +959,9 @@ class StatsController extends Controller
         $vigentes   = \App\Models\MetaTienda::vigentesEn($mesActual);
         $metaReg    = $vendedor->tienda_id ? ($vigentes[$vendedor->tienda_id] ?? null) : null;
 
+        // Lo mismo que ve la pantalla de comisiones, no una suma aparte.
         $totalTiendaMes = $vendedor->tienda_id
-            ? (float) DB::table('comisiones')
-                ->where('tienda_id', $vendedor->tienda_id)
-                ->where('mes_venta', $mesActual)
-                ->sum('valor_orden')
+            ? (ComisionController::ventasParaMeta()[$vendedor->tienda_id . '_' . $mesActual] ?? 0.0)
             : 0;
 
         $meta = $metaReg ? (float) $metaReg->meta : null;
