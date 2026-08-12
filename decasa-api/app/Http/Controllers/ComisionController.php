@@ -132,6 +132,9 @@ class ComisionController extends Controller
             'pagada_por'      => $usuario->id,
         ]);
 
+        // Liquidado el trimestre, se queda quieto.
+        $this->cerrarTrimestre($comision, $poolsTrimestrales);
+
         return response()->json($comision->fresh('pagadaPor:id,nombre'));
     }
 
@@ -557,6 +560,7 @@ class ComisionController extends Controller
                         'fecha_pago'     => now(),
                         'pagada_por'     => $usuario->id,
                     ]);
+                    $this->cerrarTrimestre($c, $poolsTrimestrales);
                     $pagadas++;
                 }
             });
@@ -583,7 +587,8 @@ class ComisionController extends Controller
             });
 
         [$metas, $totalesTienda, $totalesVendedor] = $this->cargarTotales();
-        $poolsTrimestrales = $this->cargarPoolsTrimestrales($metas, $totalesTienda);
+        // La unica que guarda: es la accion que existe para poner al dia.
+        $poolsTrimestrales = $this->cargarPoolsTrimestrales($metas, $totalesTienda, true);
         $hoy          = Carbon::today();
         $actualizadas = 0;
         $notificadas  = 0;
@@ -899,10 +904,24 @@ class ComisionController extends Controller
      * Devuelve un mapa "tiendaId_trimestre" => [pool_bruto, pool_pagado, deficit_inicial, deficit_final]
      * para todos los trimestres entre la línea base y el trimestre actual.
      */
-    private function cargarPoolsTrimestrales($metas, $totalesTienda): array
+    /**
+     * El pool de cada trimestre de Pereira y Circunvalar, encadenando el déficit.
+     *
+     * Un trimestre ya liquidado no se vuelve a calcular: se lee tal como quedó
+     * (`cerrado_at`). Antes se recalculaba la cadena entera en cada consulta,
+     * así que corregirle el precio a una orden vieja movía el déficit de un
+     * trimestre ya pagado y, de rebote, lo que se debía en el siguiente.
+     *
+     * Tampoco guarda nada: consultar comisiones no debe escribir. Lo persiste
+     * `recalcular()`, que es la acción que sí existe para eso.
+     */
+    private function cargarPoolsTrimestrales($metas, $totalesTienda, bool $persistir = false): array
     {
         $tiendaIds = DB::table('tiendas')->whereIn('nombre', self::TIENDAS_TRIMESTRALES)->pluck('id');
-        $trimestreActual = self::trimestreDeMes(Carbon::now()->format('Y-m'));
+        $trimestreActual = self::trimestreDeMes(Carbon::now(StatsController::TZ_NEGOCIO)->format('Y-m'));
+
+        $guardados = DB::table('tienda_trimestres')->get()
+            ->keyBy(fn ($r) => $r->tienda_id . '_' . $r->trimestre);
 
         $pools = [];
 
@@ -911,38 +930,85 @@ class ComisionController extends Controller
             $deficitPrevio = 0.0;
 
             while (true) {
-                $diferencial = $this->diferencialTrimestre((int) $tiendaId, $trimestre, $metas, $totalesTienda);
-                $poolBruto   = $diferencial / 1.19 * 0.05;
-                $poolNeto    = $poolBruto - $deficitPrevio;
-                $poolPagado  = max(0, $poolNeto);
-                $deficitFinal = $poolNeto < 0 ? abs($poolNeto) : 0.0;
+                $clave    = $tiendaId . '_' . $trimestre;
+                $guardado = $guardados[$clave] ?? null;
 
-                DB::table('tienda_trimestres')->updateOrInsert(
-                    ['tienda_id' => $tiendaId, 'trimestre' => $trimestre],
-                    [
-                        'deficit_inicial' => $deficitPrevio,
+                if ($guardado && $guardado->cerrado_at) {
+                    // Ya se liquidó: rige lo que se usó para pagar.
+                    $info = [
+                        'pool_bruto'      => (float) $guardado->pool_bruto,
+                        'pool_pagado'     => (float) $guardado->pool_pagado,
+                        'deficit_inicial' => (float) $guardado->deficit_inicial,
+                        'deficit_final'   => (float) $guardado->deficit_final,
+                        'cerrado'         => true,
+                    ];
+                } else {
+                    $diferencial  = $this->diferencialTrimestre((int) $tiendaId, $trimestre, $metas, $totalesTienda);
+                    $poolBruto    = $diferencial / self::IVA * self::PORCENTAJE_DIRECTO;
+                    $poolNeto     = $poolBruto - $deficitPrevio;
+                    $info = [
                         'pool_bruto'      => $poolBruto,
-                        'pool_pagado'     => $poolPagado,
-                        'deficit_final'   => $deficitFinal,
-                        'created_at'      => now(),
-                        'updated_at'      => now(),
-                    ]
-                );
+                        'pool_pagado'     => max(0, $poolNeto),
+                        'deficit_inicial' => $deficitPrevio,
+                        'deficit_final'   => $poolNeto < 0 ? abs($poolNeto) : 0.0,
+                        'cerrado'         => false,
+                    ];
 
-                $pools[$tiendaId . '_' . $trimestre] = [
-                    'pool_bruto'      => $poolBruto,
-                    'pool_pagado'     => $poolPagado,
-                    'deficit_inicial' => $deficitPrevio,
-                    'deficit_final'   => $deficitFinal,
-                ];
+                    if ($persistir) {
+                        DB::table('tienda_trimestres')->updateOrInsert(
+                            ['tienda_id' => $tiendaId, 'trimestre' => $trimestre],
+                            [
+                                'deficit_inicial' => $info['deficit_inicial'],
+                                'pool_bruto'      => $info['pool_bruto'],
+                                'pool_pagado'     => $info['pool_pagado'],
+                                'deficit_final'   => $info['deficit_final'],
+                                'created_at'      => now(),
+                                'updated_at'      => now(),
+                            ]
+                        );
+                    }
+                }
+
+                $pools[$clave] = $info;
 
                 if ($trimestre === $trimestreActual) break;
-                $deficitPrevio = $deficitFinal;
+                $deficitPrevio = $info['deficit_final'];
                 $trimestre     = self::trimestreSiguiente($trimestre);
             }
         }
 
         return $pools;
+    }
+
+    /**
+     * Deja el trimestre quieto: lo que se usó para pagar es lo que rige.
+     *
+     * Se llama al marcar pagada una comisión de Pereira o Circunvalar. A
+     * partir de ahí, tocar una orden de esos meses ya no le mueve el déficit
+     * ni a ese trimestre ni al siguiente.
+     */
+    private function cerrarTrimestre(Comision $c, array $pools): void
+    {
+        if (! self::esTiendaTrimestral($c->tienda?->nombre)) return;
+
+        $trimestre = self::trimestreDeMes($c->mes_venta);
+        $clave     = $c->tienda_id . '_' . $trimestre;
+        $info      = $pools[$clave] ?? null;
+
+        if (! $info || ! empty($info['cerrado'])) return;
+
+        DB::table('tienda_trimestres')->updateOrInsert(
+            ['tienda_id' => $c->tienda_id, 'trimestre' => $trimestre],
+            [
+                'deficit_inicial' => $info['deficit_inicial'],
+                'pool_bruto'      => $info['pool_bruto'],
+                'pool_pagado'     => $info['pool_pagado'],
+                'deficit_final'   => $info['deficit_final'],
+                'cerrado_at'      => now(),
+                'created_at'      => now(),
+                'updated_at'      => now(),
+            ]
+        );
     }
 
     /**
