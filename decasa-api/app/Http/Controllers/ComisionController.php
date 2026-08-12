@@ -1262,7 +1262,10 @@ class ComisionController extends Controller
      */
     public function independientes(Request $request)
     {
-        if (! $request->user()->acceso_comisiones && $request->user()->rol !== 'supervisor') {
+        // El mismo permiso que el resto de comisiones. Tenía un portillo para
+        // cualquier supervisor, y cinco de ellos veían lo que ganan Flabio y
+        // Henry sin tener el acceso: es plata de un compañero.
+        if (! $request->user()->acceso_comisiones) {
             return response()->json(['error' => 'Sin acceso'], 403);
         }
 
