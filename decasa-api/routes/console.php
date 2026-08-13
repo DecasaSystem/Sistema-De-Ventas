@@ -35,6 +35,14 @@ Schedule::job(new AvisarCotizacionesPorVencer())
     ->name('avisar-cotizaciones-por-vencer')
     ->withoutOverlapping();
 
+// De madrugada, cuando nadie está vendiendo, para no competir por la conexión.
+Schedule::command('respaldo:base')
+    ->dailyAt('03:00')
+    ->timezone('America/Bogota')
+    ->name('respaldo-base-datos')
+    ->withoutOverlapping()
+    ->emailOutputOnFailure(config('mail.from.address'));
+
 // ── Comando manual (útil en desarrollo y soporte) ─────────────────────────────
 // Uso: php artisan produccion:revisar-retrasos
 
