@@ -598,6 +598,21 @@ onMounted(async () => {
   } catch {}
 })
 
+/**
+ * Deja la búsqueda como si no se hubiera hecho.
+ *
+ * Se busca un producto, salen veinte resultados, y entonces uno se acuerda de
+ * que lo suyo era un diseño nuevo o una restauración. Sin esto había que bajar
+ * por toda la lista hasta dar con esos botones.
+ */
+function limpiarBusqueda() {
+  productoQuery.value      = ''
+  productoResultados.value = []
+  sugerencias.value        = []
+  busquedaHecha.value      = false
+  fabricaStock.value       = {}
+}
+
 async function buscarProducto() {
   if (!productoQuery.value.trim()) return
   buscandoProducto.value = true
@@ -2246,14 +2261,42 @@ function removeFacturaFoto() {
 
       <!-- Buscador de productos -->
       <div class="flex gap-2">
-        <input
-          v-model="productoQuery"
-          @keyup.enter="buscarProducto"
-          placeholder="Buscar producto..."
-          class="input flex-1"
-        />
+        <div class="relative flex-1">
+          <input
+            v-model="productoQuery"
+            @keyup.enter="buscarProducto"
+            @keyup.esc="limpiarBusqueda"
+            placeholder="Buscar producto..."
+            class="input w-full pr-9"
+          />
+          <button
+            v-if="productoQuery"
+            type="button"
+            @click="limpiarBusqueda"
+            aria-label="Limpiar búsqueda"
+            class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500 transition-colors"
+          >
+            <XMarkIcon class="w-4 h-4" />
+          </button>
+        </div>
         <button @click="buscarProducto" :disabled="buscandoProducto" class="btn-primary px-3">
           Buscar
+        </button>
+      </div>
+
+      <!-- Cerrar los resultados sin tener que bajar hasta el final -->
+      <div v-if="productoResultados.length" class="flex items-center justify-between">
+        <p class="text-xs text-gray-400">
+          {{ productoResultados.length }}
+          {{ productoResultados.length === 1 ? 'resultado' : 'resultados' }}
+        </p>
+        <button
+          type="button"
+          @click="limpiarBusqueda"
+          class="flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-800 transition-colors"
+        >
+          <XMarkIcon class="w-3.5 h-3.5" />
+          Cerrar resultados
         </button>
       </div>
 
