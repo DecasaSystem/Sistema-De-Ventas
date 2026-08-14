@@ -38,6 +38,8 @@ const routes = [
   { path: '/consultas-costo/:id', name: 'consulta-detalle', component: () => import('@/views/ConsultaDetalleView.vue'), meta: { requiresAuth: true, requiresConsultas: true } },
   { path: '/telas', name: 'telas', component: () => import('@/views/TelasView.vue'), meta: { requiresAuth: true, requiresTelas: true } },
   { path: '/caja',  name: 'caja',  component: () => import('@/views/CajaView.vue'),  meta: { requiresAuth: true, requiresCaja: true } },
+  // Solo accesible desde el botón en el Home, a propósito: no va en el nav inferior.
+  { path: '/proveedores', name: 'proveedores', component: () => import('@/views/ProveedoresView.vue'), meta: { requiresAuth: true } },
 ]
 
 const router = createRouter({

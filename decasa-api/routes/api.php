@@ -12,6 +12,7 @@ use App\Http\Controllers\OrdenFijadaController;
 use App\Http\Controllers\PagoController;
 use App\Http\Controllers\ProduccionController;
 use App\Http\Controllers\ProductoController;
+use App\Http\Controllers\ProveedorController;
 use App\Http\Controllers\ReporteController;
 use App\Http\Controllers\TiendaController;
 use App\Http\Controllers\TipoProcesoController;
@@ -74,6 +75,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/tipos-proceso',          [TipoProcesoController::class, 'store']);
     Route::patch('/tipos-proceso/{id}',    [TipoProcesoController::class, 'update'])->whereNumber('id');
     Route::delete('/tipos-proceso/{id}',   [TipoProcesoController::class, 'destroy'])->whereNumber('id');
+
+    // Proveedores: libreta compartida, cualquiera lee y suma; borrar es del supervisor.
+    Route::get('/proveedores',           [ProveedorController::class, 'index']);
+    Route::post('/proveedores',          [ProveedorController::class, 'store']);
+    Route::patch('/proveedores/{id}',    [ProveedorController::class, 'update'])->whereNumber('id');
+    Route::delete('/proveedores/{id}',   [ProveedorController::class, 'destroy'])->whereNumber('id')->middleware('role:supervisor');
 
     // Reserva / Fábrica
     Route::get('/reserva/info',                          [ReservaController::class, 'info']);

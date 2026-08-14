@@ -35,6 +35,7 @@ import {
   SwatchIcon,
   BanknotesIcon,
   ReceiptPercentIcon,
+  BuildingStorefrontIcon,
 } from '@heroicons/vue/24/outline'
 
 const auth         = useAuthStore()
@@ -59,6 +60,7 @@ const accesos = computed(() => {
     return [
       { label: 'Mis entregas', icon: TruckIcon,                  to: { name: 'mis-entregas' },        badge: despacho.misEntregasPendientes },
       { label: 'Estadísticas', icon: PresentationChartLineIcon,  to: { name: 'mis-stats-conductor' } },
+      { label: 'Proveedores',  icon: BuildingStorefrontIcon,     to: { name: 'proveedores' } },
     ]
   }
   if (auth.usuario?.rol === 'ebanista') {
@@ -72,11 +74,13 @@ const accesos = computed(() => {
       { label: 'Telas',        icon: SwatchIcon,                 to: { name: 'telas'       } },
       { label: 'Caja',         icon: BanknotesIcon,              to: { name: 'caja'        } },
       { label: 'Estadísticas', icon: PresentationChartLineIcon,  to: { name: 'mis-stats'   } },
+      { label: 'Proveedores',  icon: BuildingStorefrontIcon,     to: { name: 'proveedores' } },
     ]
   }
   if (auth.usuario?.rol === 'despachador') {
     return [
       { label: 'Despacho producción', icon: TruckIcon, to: { name: 'despacho-produccion' }, badge: despachoProd.pendientesCount },
+      { label: 'Proveedores',         icon: BuildingStorefrontIcon, to: { name: 'proveedores' } },
     ]
   }
 
@@ -105,6 +109,7 @@ const accesos = computed(() => {
   items.push({ label: 'Cotizaciones', icon: DocumentTextIcon,           to: { name: 'cotizaciones' } })
   items.push({ label: 'Consultar costo', icon: CurrencyDollarIcon,      to: { name: 'consultas'  }, badge: consultas.pendientesCount })
   items.push({ label: auth.isSupervisor ? 'Mis estadísticas' : 'Estadísticas', icon: PresentationChartLineIcon, to: { name: 'mis-stats' } })
+  items.push({ label: 'Proveedores', icon: BuildingStorefrontIcon, to: { name: 'proveedores' } })
 
   if (auth.isFacturador) {
     items.unshift({ label: 'Facturación', icon: DocumentCurrencyDollarIcon, to: { name: 'facturacion' }, badge: abonosNoLeidos.value })
