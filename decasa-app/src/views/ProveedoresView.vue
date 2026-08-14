@@ -146,7 +146,7 @@ function linkWhatsapp(telefono) {
       <input
         v-model="busqueda"
         placeholder="Buscar por nombre, producto, teléfono..."
-        class="input w-full pl-9"
+        class="w-full rounded-xl border border-gray-200 bg-white pl-9 pr-3 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
       />
     </div>
 
@@ -219,52 +219,110 @@ function linkWhatsapp(telefono) {
 
     <!-- Nuevo / editar -->
     <Teleport to="body">
-      <div v-if="mostrarForm" class="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-        <div class="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md max-h-[90vh] overflow-y-auto">
-          <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100 sticky top-0 bg-white">
-            <p class="font-semibold text-gray-800">{{ editando ? 'Editar proveedor' : 'Nuevo proveedor' }}</p>
-            <button @click="cerrarForm" class="text-gray-300 hover:text-gray-600">
-              <XMarkIcon class="w-5 h-5" />
-            </button>
-          </div>
+      <Transition
+        enter-active-class="transition-opacity duration-200"
+        enter-from-class="opacity-0"
+        leave-active-class="transition-opacity duration-150"
+        leave-to-class="opacity-0"
+      >
+        <div
+          v-if="mostrarForm"
+          class="fixed inset-0 bg-black/50 backdrop-blur-[2px] z-50 flex items-end sm:items-center justify-center"
+          @click.self="cerrarForm"
+        >
+          <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full sm:max-w-md max-h-[92vh] overflow-y-auto shadow-2xl">
+            <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-100 sticky top-0 bg-white/95 backdrop-blur-sm rounded-t-3xl sm:rounded-t-2xl">
+              <div class="flex items-center gap-2.5">
+                <div class="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center shrink-0">
+                  <BuildingStorefrontIcon class="w-5 h-5 text-blue-600" />
+                </div>
+                <p class="font-semibold text-gray-800">{{ editando ? 'Editar proveedor' : 'Nuevo proveedor' }}</p>
+              </div>
+              <button
+                @click="cerrarForm"
+                class="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+              >
+                <XMarkIcon class="w-5 h-5" />
+              </button>
+            </div>
 
-          <div class="p-4 space-y-3">
-            <div>
-              <label class="block text-xs font-medium text-gray-600 mb-1">Nombre *</label>
-              <input v-model="form.nombre" class="input w-full" placeholder="Espuma Santa Fé" />
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-gray-600 mb-1">Contacto</label>
-              <input v-model="form.contacto" class="input w-full" placeholder="Silvio" />
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-gray-600 mb-1">Teléfono</label>
-              <input v-model="form.telefono" class="input w-full" placeholder="3158937683" />
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-gray-600 mb-1">Qué provee</label>
-              <textarea v-model="form.productos" rows="2" class="input w-full resize-none" placeholder="Espuma, herrajes, tela..." />
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-gray-600 mb-1">Dirección</label>
-              <input v-model="form.direccion" class="input w-full" placeholder="Opcional" />
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-gray-600 mb-1">Notas</label>
-              <textarea v-model="form.notas" rows="2" class="input w-full resize-none" placeholder="Opcional" />
-            </div>
-          </div>
+            <div class="p-5 space-y-4">
+              <div>
+                <label class="block text-xs font-semibold text-gray-500 mb-1.5">Nombre *</label>
+                <input
+                  v-model="form.nombre"
+                  placeholder="Espuma Santa Fé"
+                  class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
+                />
+              </div>
 
-          <div class="flex gap-2 p-4 border-t border-gray-100">
-            <button @click="cerrarForm" class="btn-secondary flex-1 text-sm">Cancelar</button>
-            <button
-              @click="guardar"
-              :disabled="guardando"
-              class="btn-primary flex-1 text-sm disabled:opacity-50"
-            >{{ guardando ? 'Guardando...' : 'Guardar' }}</button>
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-xs font-semibold text-gray-500 mb-1.5">Contacto</label>
+                  <input
+                    v-model="form.contacto"
+                    placeholder="Silvio"
+                    class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
+                  />
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-gray-500 mb-1.5">Teléfono</label>
+                  <input
+                    v-model="form.telefono"
+                    placeholder="3158937683"
+                    inputmode="numeric"
+                    class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-xs font-semibold text-gray-500 mb-1.5">Qué provee</label>
+                <textarea
+                  v-model="form.productos"
+                  rows="2"
+                  placeholder="Espuma, herrajes, tela..."
+                  class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
+                />
+              </div>
+
+              <div>
+                <label class="block text-xs font-semibold text-gray-500 mb-1.5">Dirección</label>
+                <input
+                  v-model="form.direccion"
+                  placeholder="Opcional"
+                  class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
+                />
+              </div>
+
+              <div>
+                <label class="block text-xs font-semibold text-gray-500 mb-1.5">Notas</label>
+                <textarea
+                  v-model="form.notas"
+                  rows="2"
+                  placeholder="Opcional"
+                  class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
+                />
+              </div>
+            </div>
+
+            <div class="flex gap-2.5 p-5 pt-2">
+              <button
+                @click="cerrarForm"
+                class="flex-1 bg-gray-100 text-gray-700 text-sm font-semibold rounded-xl px-4 py-2.5 hover:bg-gray-200 active:bg-gray-300 transition-colors"
+              >Cancelar</button>
+              <button
+                @click="guardar"
+                :disabled="guardando"
+                class="flex-1 bg-blue-600 text-white text-sm font-semibold rounded-xl px-4 py-2.5 hover:bg-blue-700 active:bg-blue-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+              >
+                <span v-if="guardando" class="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                {{ guardando ? 'Guardando...' : 'Guardar' }}
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      </Transition>
     </Teleport>
   </div>
 </template>
