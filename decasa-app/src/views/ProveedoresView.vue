@@ -14,6 +14,9 @@ import {
   XMarkIcon,
   MagnifyingGlassIcon,
   UserIcon,
+  EnvelopeIcon,
+  AtSymbolIcon,
+  ClipboardDocumentIcon,
 } from '@heroicons/vue/24/outline'
 
 const auth  = useAuthStore()
@@ -23,7 +26,10 @@ const proveedores = ref([])
 const cargando     = ref(true)
 const busqueda      = ref('')
 
-const vacio = () => ({ nombre: '', contacto: '', telefono: '', productos: '', direccion: '', notas: '' })
+const vacio = () => ({
+  nombre: '', contacto: '', telefono: '', usuario_whatsapp: '', correo: '',
+  productos: '', direccion: '', notas: '',
+})
 const mostrarForm = ref(false)
 const editando     = ref(null)   // id del que se está editando, o null si es nuevo
 const form         = ref(vacio())
@@ -46,7 +52,7 @@ const filtrados = computed(() => {
   const q = busqueda.value.trim().toLowerCase()
   if (!q) return proveedores.value
   return proveedores.value.filter(p =>
-    [p.nombre, p.contacto, p.telefono, p.productos, p.direccion]
+    [p.nombre, p.contacto, p.telefono, p.usuario_whatsapp, p.correo, p.productos, p.direccion]
       .filter(Boolean).some(campo => campo.toLowerCase().includes(q)))
 })
 
@@ -60,6 +66,7 @@ function abrirEditar(p) {
   editando.value = p.id
   form.value = {
     nombre: p.nombre, contacto: p.contacto ?? '', telefono: p.telefono ?? '',
+    usuario_whatsapp: p.usuario_whatsapp ?? '', correo: p.correo ?? '',
     productos: p.productos ?? '', direccion: p.direccion ?? '', notas: p.notas ?? '',
   }
   mostrarForm.value = true
@@ -77,12 +84,14 @@ async function guardar() {
   guardando.value = true
   try {
     const payload = {
-      nombre:     form.value.nombre.trim(),
-      contacto:   form.value.contacto.trim()   || null,
-      telefono:   form.value.telefono.trim()   || null,
-      productos:  form.value.productos.trim()  || null,
-      direccion:  form.value.direccion.trim()  || null,
-      notas:      form.value.notas.trim()      || null,
+      nombre:            form.value.nombre.trim(),
+      contacto:          form.value.contacto.trim()          || null,
+      telefono:          form.value.telefono.trim()          || null,
+      usuario_whatsapp:  form.value.usuario_whatsapp.trim()   || null,
+      correo:            form.value.correo.trim()             || null,
+      productos:         form.value.productos.trim()          || null,
+      direccion:         form.value.direccion.trim()          || null,
+      notas:             form.value.notas.trim()              || null,
     }
     if (editando.value) {
       const { data } = await api.patch(`/proveedores/${editando.value}`, payload)
@@ -119,6 +128,17 @@ function linkWhatsapp(telefono) {
   const digitos = String(telefono ?? '').replace(/\D/g, '')
   const conIndicativo = digitos.startsWith('57') ? digitos : `57${digitos}`
   return `https://wa.me/${conIndicativo}`
+}
+
+// Un usuario de WhatsApp (@algo) no tiene un enlace público confiable como el
+// del teléfono, así que se deja copiar para pegarlo dentro de la app.
+async function copiarUsuario(usuario) {
+  try {
+    await navigator.clipboard.writeText(usuario)
+    toast.success('Usuario copiado')
+  } catch {
+    toast.info('No se pudo copiar automáticamente')
+  }
 }
 </script>
 
@@ -198,20 +218,42 @@ function linkWhatsapp(telefono) {
 
         <p v-if="p.notas" class="text-xs text-gray-400 italic mt-1.5">{{ p.notas }}</p>
 
-        <div v-if="p.telefono" class="flex items-center gap-2 mt-3 pt-3 border-t border-gray-50">
+        <div
+          v-if="p.telefono || p.usuario_whatsapp || p.correo"
+          class="flex items-center gap-2 flex-wrap mt-3 pt-3 border-t border-gray-50"
+        >
           <a
+            v-if="p.telefono"
             :href="`tel:${p.telefono}`"
             class="flex items-center gap-1.5 text-xs font-semibold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-100 transition-colors"
           >
             <PhoneIcon class="w-3.5 h-3.5" /> {{ p.telefono }}
           </a>
           <a
+            v-if="p.telefono"
             :href="linkWhatsapp(p.telefono)"
             target="_blank"
             rel="noopener"
             class="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-lg hover:bg-emerald-100 transition-colors"
           >
             <ChatBubbleLeftRightIcon class="w-3.5 h-3.5" /> WhatsApp
+          </a>
+          <!-- Sin teléfono no hay un enlace de WhatsApp confiable para un
+               usuario (@algo), así que se deja copiar en vez de inventar uno. -->
+          <button
+            v-if="!p.telefono && p.usuario_whatsapp"
+            @click="copiarUsuario(p.usuario_whatsapp)"
+            class="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-lg hover:bg-emerald-100 transition-colors"
+          >
+            <AtSymbolIcon class="w-3.5 h-3.5" /> {{ p.usuario_whatsapp }}
+            <ClipboardDocumentIcon class="w-3.5 h-3.5 text-emerald-400" />
+          </button>
+          <a
+            v-if="p.correo"
+            :href="`mailto:${p.correo}`"
+            class="flex items-center gap-1.5 text-xs font-semibold text-gray-600 bg-gray-100 px-3 py-1.5 rounded-lg hover:bg-gray-200 transition-colors"
+          >
+            <EnvelopeIcon class="w-3.5 h-3.5" /> {{ p.correo }}
           </a>
         </div>
       </div>
@@ -271,6 +313,27 @@ function linkWhatsapp(telefono) {
                     v-model="form.telefono"
                     placeholder="3158937683"
                     inputmode="numeric"
+                    class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
+                  />
+                </div>
+              </div>
+
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-xs font-semibold text-gray-500 mb-1.5">Usuario de WhatsApp</label>
+                  <input
+                    v-model="form.usuario_whatsapp"
+                    placeholder="@nombre"
+                    class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
+                  />
+                  <p class="text-[11px] text-gray-400 mt-1">Si en WhatsApp solo se le encuentra por usuario, no por número.</p>
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-gray-500 mb-1.5">Correo</label>
+                  <input
+                    v-model="form.correo"
+                    type="email"
+                    placeholder="Opcional"
                     class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
                   />
                 </div>

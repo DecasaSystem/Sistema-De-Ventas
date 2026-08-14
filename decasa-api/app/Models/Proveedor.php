@@ -10,7 +10,8 @@ class Proveedor extends Model
     protected $table = 'proveedores';
 
     protected $fillable = [
-        'nombre', 'contacto', 'telefono', 'productos', 'direccion', 'notas', 'activo',
+        'nombre', 'contacto', 'telefono', 'usuario_whatsapp', 'correo',
+        'productos', 'direccion', 'notas', 'activo',
     ];
 
     protected function casts(): array

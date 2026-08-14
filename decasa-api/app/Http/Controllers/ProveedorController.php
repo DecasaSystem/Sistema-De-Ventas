@@ -30,17 +30,23 @@ class ProveedorController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-            'nombre'    => 'required|string|max:120',
-            'contacto'  => 'nullable|string|max:120',
-            'telefono'  => 'nullable|string|max:30',
-            'productos' => 'nullable|string|max:500',
-            'direccion' => 'nullable|string|max:200',
-            'notas'     => 'nullable|string|max:500',
+            'nombre'           => 'required|string|max:120',
+            'contacto'         => 'nullable|string|max:120',
+            'telefono'         => 'nullable|string|max:30',
+            'usuario_whatsapp' => 'nullable|string|max:60',
+            'correo'           => 'nullable|email|max:120',
+            'productos'        => 'nullable|string|max:500',
+            'direccion'        => 'nullable|string|max:200',
+            'notas'            => 'nullable|string|max:500',
         ]);
 
         $proveedor = Proveedor::create($data + ['activo' => true]);
 
-        return response()->json($proveedor, 201);
+        // create() solo trae en memoria lo que se mandó en la petición: un
+        // proveedor sin teléfono respondía sin la clave "telefono" siquiera,
+        // a diferencia de update() que sí recarga la fila completa. fresh()
+        // deja las dos respuestas con la misma forma.
+        return response()->json($proveedor->fresh(), 201);
     }
 
     /** PATCH /api/proveedores/{id} */
@@ -49,13 +55,15 @@ class ProveedorController extends Controller
         $proveedor = Proveedor::findOrFail($id);
 
         $data = $request->validate([
-            'nombre'    => 'sometimes|required|string|max:120',
-            'contacto'  => 'sometimes|nullable|string|max:120',
-            'telefono'  => 'sometimes|nullable|string|max:30',
-            'productos' => 'sometimes|nullable|string|max:500',
-            'direccion' => 'sometimes|nullable|string|max:200',
-            'notas'     => 'sometimes|nullable|string|max:500',
-            'activo'    => 'sometimes|boolean',
+            'nombre'           => 'sometimes|required|string|max:120',
+            'contacto'         => 'sometimes|nullable|string|max:120',
+            'telefono'         => 'sometimes|nullable|string|max:30',
+            'usuario_whatsapp' => 'sometimes|nullable|string|max:60',
+            'correo'           => 'sometimes|nullable|email|max:120',
+            'productos'        => 'sometimes|nullable|string|max:500',
+            'direccion'        => 'sometimes|nullable|string|max:200',
+            'notas'            => 'sometimes|nullable|string|max:500',
+            'activo'           => 'sometimes|boolean',
         ]);
 
         $proveedor->update($data);
