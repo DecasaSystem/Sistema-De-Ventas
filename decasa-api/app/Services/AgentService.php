@@ -2391,12 +2391,15 @@ class AgentService
                 'tipo'           => 'independiente',
                 'mes'            => $mes,
                 'vendedor'       => $vendedor->nombre,
-                'como_se_calcula' => 'Los independientes reparten entre ellos: las ventas de todos van a un bolsón, '
-                                   . 'las ventas se dividen por 1,19 antes del 5% y las restauraciones no. '
-                                   . 'Cada uno cobra lo mismo, sin importar quién vendió más.',
+                'como_se_calcula' => 'Sus ventas son de cada uno: 5% de lo suyo, dividido por 1,19 primero. '
+                                   . 'Las restauraciones sí se reparten: se suman TODAS las de los independientes '
+                                   . 'en un solo bolsón (sin dividir por 1,19) y cada uno cobra el 5% de ese '
+                                   . 'bolsón completo, sin importar quién hizo cuál.',
                 'vendido_entre_todos' => $indep['base'],
                 'de_eso_ventas'       => $indep['base_venta'],
                 'de_eso_restauracion' => $indep['base_restauracion'],
+                'de_sus_ventas_propias'         => $suyo['comision_ventas_propias'] ?? 0,
+                'de_restauraciones_compartidas' => $suyo['comision_restauraciones'] ?? 0,
                 'comision'            => $suyo['comision'] ?? 0,
                 'ya_puede_cobrar'     => $suyo['comision_lista'] ?? 0,
                 'todavia_no'          => $suyo['comision_pendiente'] ?? 0,
@@ -2915,7 +2918,10 @@ PEREIRA Y CIRCUNVALAR son distintas (las demás son mensuales):
 CUÁNDO SE COBRA — hacen falta las dos cosas: que llegue el 20 del mes siguiente (o del mes siguiente al cierre del trimestre en Pereira/Circunvalar) Y que el cliente haya pagado al menos el 50% de la orden. Si falta una, la comisión sale como pendiente.
 Si una orden se cancela, su comisión desaparece y deja de contarle a la meta.
 
-INDEPENDIENTES (Flabio, Henry): no tienen tienda ni meta. Reparten entre ellos por igual sobre el total que vendieron entre todos, sin importar quién vendió más.
+INDEPENDIENTES (Flabio, Henry): no tienen tienda ni meta.
+- VENTA: es de quien la hizo. 5% de lo suyo (÷1,19 primero), solo para esa persona. No se comparte con el otro independiente.
+- RESTAURACIÓN: sí se reparte. Se suman TODAS las restauraciones del mes de cualquiera de los independientes en un solo bolsón, y cada uno cobra el 5% de ese bolsón completo (sin ÷1,19), sin importar quién hizo cuál ni cuánto hizo cada uno.
+- Su comisión total = su 5% de ventas propias + el 5% del bolsón de restauraciones compartido.
 
 CUANDO UN INDEPENDIENTE COMPARTE CON UN ALMACÉN (venta o restauración):
 - El independiente cobra lo suyo igual, no se le quita nada.

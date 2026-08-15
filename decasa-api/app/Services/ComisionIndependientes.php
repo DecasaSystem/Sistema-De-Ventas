@@ -12,16 +12,21 @@ use Illuminate\Support\Facades\DB;
  * La comisión de los vendedores independientes.
  *
  * No tiene nada que ver con la de las tiendas. Ahí hay una meta, un pool y un
- * reparto entre asesores; aquí es un porcentaje fijo por venta, así que al
- * final del mes no hay bolsa que repartir: se suma y ya.
+ * reparto entre asesores; aquí es un porcentaje fijo, y solo una parte se
+ * comparte.
  *
  * La regla:
  *
- *   Cada venta o restauración de un independiente paga
- *     5%  a cada independiente   (es mutuo: cobran sobre lo de los dos)
- *     5%  al almacén             (solo si la venta se compartió con uno)
+ *   RESTAURACIÓN  -> se reparte. Todas las restauraciones del mes, hechas
+ *                    por cualquiera de los independientes, se suman en un
+ *                    solo bolsón y cada uno cobra el 5% de ESE bolsón
+ *                    completo — no la mitad, el 5% cada uno, sin importar
+ *                    quién hizo cuál.
+ *   VENTA         -> es de quien la hizo. 5% de lo suyo (÷1,19 primero),
+ *                    solo para esa persona. No entra al bolsón.
  *
- *   Todo sobre el valor completo de la venta, no sobre mitades.
+ *   Y aparte, si se comparte con un almacén, el almacén cobra su propio 5%
+ *   (venta o restauración, da igual), sobre el valor completo.
  *
  * Lo de las mitades es otra cosa: a la META del almacén le suma la mitad de
  * la venta, y solo si es venta —una restauración compartida le paga su 5% al
@@ -50,9 +55,11 @@ class ComisionIndependientes
 
         $independientes = Usuario::where('independiente', true)->get(['id', 'nombre']);
         if ($independientes->isEmpty()) {
-            return ['mes' => $mes, 'base' => 0.0, 'base_lista' => 0.0, 'base_pendiente' => 0.0,
+            return ['mes' => $mes, 'base' => 0.0, 'base_venta' => 0.0, 'base_restauracion' => 0.0,
+                    'base_lista' => 0.0, 'base_pendiente' => 0.0,
                     'se_cobra_el' => Carbon::parse($mes.'-01')->addMonth()->day(20)->toDateString(),
                     'llego_la_fecha' => false, 'porcentaje' => self::PORCENTAJE,
+                    'comision_restauraciones' => 0.0, 'comision_restauraciones_lista' => 0.0,
                     'independientes' => [], 'almacenes' => [], 'ordenes' => []];
         }
 
@@ -92,11 +99,7 @@ class ComisionIndependientes
             $llegoLaFecha && (float) $o->pagado >= (float) $o->valor_total / 2
         );
 
-        /**
-         * Lo que paga un grupo de ordenes:
-         *   venta        -> valor / 1,19 x 5%
-         *   restauracion -> valor x 5%
-         */
+        /** Lo que paga un grupo de órdenes, mezclando venta y restauración — para el almacén, que cobra igual sobre las dos. */
         $pagaPor = function ($grupo) use ($idsRestauracion) {
             $venta = (float) $grupo->reject(fn ($o) => in_array($o->id, $idsRestauracion, true))
                 ->sum('valor_total');
@@ -105,13 +108,19 @@ class ComisionIndependientes
             return ($venta / self::IVA + $rest) * self::PORCENTAJE;
         };
 
+        /** Solo la parte de restauración de un grupo — lo que se reparte. */
+        $pagaRestauracion = fn ($grupo) => (float) $grupo
+            ->filter(fn ($o) => in_array($o->id, $idsRestauracion, true))
+            ->sum('valor_total') * self::PORCENTAJE;
+
+        /** Solo la parte de venta de un grupo — de quien la hizo, nadie más. */
+        $pagaVenta = fn ($grupo) => (float) $grupo
+            ->reject(fn ($o) => in_array($o->id, $idsRestauracion, true))
+            ->sum('valor_total') / self::IVA * self::PORCENTAJE;
+
         $base          = (float) $ordenes->sum('valor_total');
         $baseLista     = (float) $listas->sum('valor_total');
         $basePendiente = $base - $baseLista;
-
-        $comisionTotal     = $pagaPor($ordenes);
-        $comisionLista     = $pagaPor($listas);
-        $comisionPendiente = $comisionTotal - $comisionLista;
 
         // Cuanto de la base es venta y cuanto restauracion. En pantalla el
         // total solo no explica el monto: las dos partes llevan cuentas
@@ -120,11 +129,28 @@ class ComisionIndependientes
             ->sum('valor_total');
         $baseRest  = $base - $baseVenta;
 
-        // Los dos cobran sobre lo mismo: todo lo que vendieron entre ambos.
-        $porIndependiente = $independientes->map(function ($u) use ($ordenes, $idsRestauracion, $comisionTotal, $comisionLista, $comisionPendiente) {
-            $suyas = $ordenes->where('vendedor_id', $u->id);
-            $venta = (float) $suyas->reject(fn ($o) => in_array($o->id, $idsRestauracion, true))
+        // El bolsón de las restauraciones: se suman TODAS, de cualquiera de
+        // los independientes, y cada uno cobra el 5% de esa suma completa.
+        // Esto sí es igual para todos.
+        $comisionRestauraciones      = $pagaRestauracion($ordenes);
+        $comisionRestauracionesLista = $pagaRestauracion($listas);
+
+        // La venta es de quien la hizo: cada uno cobra solo sobre sus propias
+        // órdenes, sin sumarse con las del otro independiente.
+        $porIndependiente = $independientes->map(function ($u) use (
+            $ordenes, $listas, $idsRestauracion, $pagaVenta,
+            $comisionRestauraciones, $comisionRestauracionesLista
+        ) {
+            $suyas       = $ordenes->where('vendedor_id', $u->id);
+            $suyasListas = $listas->where('vendedor_id', $u->id);
+            $venta       = (float) $suyas->reject(fn ($o) => in_array($o->id, $idsRestauracion, true))
                 ->sum('valor_total');
+
+            $comisionVenta      = $pagaVenta($suyas);
+            $comisionVentaLista = $pagaVenta($suyasListas);
+
+            $comisionTotal  = $comisionVenta + $comisionRestauraciones;
+            $comisionLista  = $comisionVentaLista + $comisionRestauracionesLista;
 
             return [
                 'vendedor_id' => $u->id,
@@ -134,7 +160,11 @@ class ComisionIndependientes
                 'vendio_restauracion' => (float) $suyas->sum('valor_total') - $venta,
                 'comision'           => round($comisionTotal),
                 'comision_lista'     => round($comisionLista),
-                'comision_pendiente' => round($comisionPendiente),
+                'comision_pendiente' => round($comisionTotal - $comisionLista),
+                // El desglose: cuánto es solo suyo y cuánto viene del bolsón
+                // compartido de restauraciones. Las dos suman el total.
+                'comision_ventas_propias' => round($comisionVenta),
+                'comision_restauraciones' => round($comisionRestauraciones),
             ];
         })->values()->all();
 
@@ -172,6 +202,10 @@ class ComisionIndependientes
             'se_cobra_el'    => $seCobraEl->toDateString(),
             'llego_la_fecha' => $llegoLaFecha,
             'porcentaje'     => self::PORCENTAJE,
+            // El bolsón de restauraciones: un solo número, igual para todos
+            // los independientes — es lo único que de verdad se comparte.
+            'comision_restauraciones'       => round($comisionRestauraciones),
+            'comision_restauraciones_lista' => round($comisionRestauracionesLista),
             'independientes' => $porIndependiente,
             'almacenes'      => $almacenes,
             'ordenes'        => $ordenes->map(fn ($o) => [

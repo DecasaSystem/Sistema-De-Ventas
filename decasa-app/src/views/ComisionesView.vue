@@ -510,9 +510,10 @@ onMounted(async () => {
         </span>
       </div>
       <p class="text-[11px] text-gray-500 mb-3">
-        No van por meta: cada uno cobra el {{ Math.round(indepData.porcentaje * 100) }}% de todo lo
-        que vendieron entre ellos este mes. A las ventas se les descuenta el IVA
-        primero; a las restauraciones no.
+        No van por meta. Sus ventas son de cada uno, {{ Math.round(indepData.porcentaje * 100) }}%
+        con el IVA descontado primero. Las restauraciones sí se reparten: se suman
+        todas entre los independientes y cada uno cobra el {{ Math.round(indepData.porcentaje * 100) }}%
+        de ese total completo, sin importar quién la hizo.
       </p>
 
       <div class="flex items-center justify-between text-sm py-1.5 border-b border-gray-100">
@@ -520,21 +521,14 @@ onMounted(async () => {
         <span class="font-bold text-gray-800">{{ cop(indepData.base) }}</span>
       </div>
 
-      <!-- Las dos partes llevan cuentas distintas, asi que el total solo no
-           explica de donde sale la comision. -->
-      <div v-if="indepData.base_restauracion > 0" class="text-[11px] text-gray-500 py-1 space-y-0.5">
-        <div class="flex items-center justify-between">
-          <span>Ventas ÷1.19 × {{ Math.round(indepData.porcentaje * 100) }}%</span>
-          <span class="font-medium">
-            {{ cop(indepData.base_venta) }} →
-            {{ cop(indepData.base_venta / 1.19 * indepData.porcentaje) }}
-          </span>
-        </div>
+      <!-- Solo el bolson de restauraciones es un numero unico para todos; las
+           ventas ya no lo son, cada quien cobra la suya en su propia fila de abajo. -->
+      <div v-if="indepData.base_restauracion > 0" class="text-[11px] text-gray-500 py-1">
         <div class="flex items-center justify-between text-purple-600">
-          <span>Restauraciones × {{ Math.round(indepData.porcentaje * 100) }}%</span>
+          <span>Bolsón de restauraciones × {{ Math.round(indepData.porcentaje * 100) }}%</span>
           <span class="font-medium">
             {{ cop(indepData.base_restauracion) }} →
-            {{ cop(indepData.base_restauracion * indepData.porcentaje) }}
+            {{ cop(indepData.comision_restauraciones) }} c/u
           </span>
         </div>
       </div>
@@ -548,22 +542,28 @@ onMounted(async () => {
       </div>
 
       <div v-for="i in indepData.independientes" :key="i.vendedor_id"
-           class="flex items-center justify-between text-sm py-1.5 border-b border-gray-50">
-        <div class="min-w-0">
-          <p class="font-medium text-gray-700 truncate">{{ i.nombre }}</p>
-          <p class="text-[11px] text-gray-400">
-            vendió {{ cop(i.vendio) }}
-            <span v-if="i.vendio_restauracion > 0" class="text-purple-600">
-              ({{ cop(i.vendio_restauracion) }} en restauraciones)
-            </span>
-          </p>
+           class="py-1.5 border-b border-gray-50">
+        <div class="flex items-center justify-between text-sm">
+          <div class="min-w-0">
+            <p class="font-medium text-gray-700 truncate">{{ i.nombre }}</p>
+            <p class="text-[11px] text-gray-400">
+              vendió {{ cop(i.vendio) }}
+              <span v-if="i.vendio_restauracion > 0" class="text-purple-600">
+                ({{ cop(i.vendio_restauracion) }} en restauraciones)
+              </span>
+            </p>
+          </div>
+          <div class="text-right shrink-0">
+            <p class="font-bold text-emerald-700">{{ cop(i.comision) }}</p>
+            <p v-if="i.comision_pendiente > 0" class="text-[10px] text-amber-700">
+              {{ cop(i.comision_lista) }} listo · {{ cop(i.comision_pendiente) }} pendiente
+            </p>
+          </div>
         </div>
-        <div class="text-right shrink-0">
-          <p class="font-bold text-emerald-700">{{ cop(i.comision) }}</p>
-          <p v-if="i.comision_pendiente > 0" class="text-[10px] text-amber-700">
-            {{ cop(i.comision_lista) }} listo · {{ cop(i.comision_pendiente) }} pendiente
-          </p>
-        </div>
+        <!-- Cuánto es solo suyo y cuánto viene del bolsón compartido. -->
+        <p v-if="i.comision_restauraciones > 0" class="text-[10px] text-gray-400 mt-0.5">
+          {{ cop(i.comision_ventas_propias) }} de lo suyo + {{ cop(i.comision_restauraciones) }} del bolsón compartido
+        </p>
       </div>
 
       <template v-if="indepData.almacenes.length">
@@ -867,21 +867,22 @@ onMounted(async () => {
                 </div>
               </div>
 
-              <!-- Un independiente cobra sobre lo que venden ENTRE los dos, asi
-                   que sus propias ordenes nunca suman su total. Sin esta linea
-                   la ficha parece descuadrada. -->
-              <div v-if="r.es_independiente && r.del_otro_independiente > 0"
+              <!-- Un independiente cobra sus ventas solo (nadie mas las toca) mas
+                   su parte del bolson de restauraciones, que si se reparte con el
+                   otro independiente. Sin esta linea la ficha parece descuadrada:
+                   sus propias ordenes de venta no explican todo el total. -->
+              <div v-if="r.es_independiente"
                    class="mb-2 rounded-lg bg-sky-50 border border-sky-100 px-3 py-2 text-xs">
                 <div class="flex items-center justify-between">
-                  <span class="text-sky-800">De sus propias órdenes</span>
-                  <span class="font-semibold text-sky-700">{{ cop(r.de_sus_ordenes) }}</span>
+                  <span class="text-sky-800">De sus ventas (solo suyas)</span>
+                  <span class="font-semibold text-sky-700">{{ cop(r.de_sus_ventas) }}</span>
                 </div>
-                <div class="flex items-center justify-between mt-0.5">
-                  <span class="text-sky-800">De lo que vendió el otro independiente</span>
-                  <span class="font-semibold text-sky-700">+ {{ cop(r.del_otro_independiente) }}</span>
+                <div v-if="r.de_restauraciones_compartidas > 0" class="flex items-center justify-between mt-0.5">
+                  <span class="text-sky-800">De restauraciones (compartidas)</span>
+                  <span class="font-semibold text-sky-700">+ {{ cop(r.de_restauraciones_compartidas) }}</span>
                 </div>
                 <p class="text-[11px] text-sky-600 mt-1">
-                  Los independientes cobran sobre todo lo que venden entre ellos, por igual.
+                  Las ventas son de quien las hizo. Las restauraciones se reparten entre los independientes, por igual.
                 </p>
               </div>
 

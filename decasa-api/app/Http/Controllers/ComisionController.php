@@ -280,11 +280,12 @@ class ComisionController extends Controller
                 'fecha_venta'      => $o['fecha'],
             ])->values();
 
-            // Lo que le entra por las ventas del otro. Sin esta línea las
-            // órdenes de la ficha no suman nunca lo que dice el total.
-            $deSusOrdenes = $suyas->sum('paga');
-            $fila['de_sus_ordenes']         = round($deSusOrdenes);
-            $fila['del_otro_independiente'] = round((float) $i['comision'] - $deSusOrdenes);
+            // El desglose real: sus ventas son solo suyas, las restauraciones
+            // se reparten con el otro independiente. Las dos suman el total,
+            // así que las órdenes de la ficha nunca cuadran solas con la
+            // restauración — esa parte no es "de esta orden", es del bolsón.
+            $fila['de_sus_ventas']         = round($i['comision_ventas_propias']);
+            $fila['de_restauraciones_compartidas'] = round($i['comision_restauraciones']);
             $fila['pendientes'] = $suyas->where('lista', false)->count();
             $fila['listas']     = $suyas->where('lista', true)->count();
             $grouped[$i['vendedor_id']] = $fila;
