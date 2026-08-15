@@ -298,6 +298,20 @@ async function copiarUsuario(usuario) {
                 />
               </div>
 
+              <!-- Es lo primero que alguien busca de un proveedor, asi que va
+                   de segundo, justo debajo del nombre — no enterrado despues
+                   de contacto, telefono, whatsapp y correo. -->
+              <div>
+                <label class="block text-xs font-semibold text-gray-700 mb-1.5">Qué provee</label>
+                <textarea
+                  v-model="form.productos"
+                  rows="2"
+                  placeholder="Espuma, herrajes, tela..."
+                  class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
+                />
+                <p class="text-[11px] text-gray-400 mt-1">Esto es lo que se ve en la tarjeta de la lista.</p>
+              </div>
+
               <div class="grid grid-cols-2 gap-3">
                 <div>
                   <label class="block text-xs font-semibold text-gray-500 mb-1.5">Contacto</label>
@@ -337,16 +351,6 @@ async function copiarUsuario(usuario) {
                     class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
                   />
                 </div>
-              </div>
-
-              <div>
-                <label class="block text-xs font-semibold text-gray-500 mb-1.5">Qué provee</label>
-                <textarea
-                  v-model="form.productos"
-                  rows="2"
-                  placeholder="Espuma, herrajes, tela..."
-                  class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
-                />
               </div>
 
               <div>
