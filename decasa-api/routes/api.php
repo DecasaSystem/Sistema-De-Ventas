@@ -15,6 +15,7 @@ use App\Http\Controllers\ProduccionController;
 use App\Http\Controllers\ProductoController;
 use App\Http\Controllers\ProveedorController;
 use App\Http\Controllers\ReporteController;
+use App\Http\Controllers\RolController;
 use App\Http\Controllers\TiendaController;
 use App\Http\Controllers\TipoProcesoController;
 use App\Http\Controllers\StatsController;
@@ -91,6 +92,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/perfiles-produccion',          [PerfilProduccionController::class, 'store']);
     Route::patch('/perfiles-produccion/{id}',    [PerfilProduccionController::class, 'update'])->whereNumber('id');
     Route::delete('/perfiles-produccion/{id}',   [PerfilProduccionController::class, 'destroy'])->whereNumber('id');
+
+    // Roles/puestos de trabajo, configurables desde Gestión.
+    Route::get('/roles',           [RolController::class, 'index']);
+    Route::post('/roles',          [RolController::class, 'store']);
+    Route::patch('/roles/{id}',    [RolController::class, 'update'])->whereNumber('id');
+    Route::delete('/roles/{id}',   [RolController::class, 'destroy'])->whereNumber('id');
 
     // Proveedores: cualquiera lee; crear/editar necesita acceso_proveedores
     // (predeterminado para supervisor, activable para el resto); borrar sigue

@@ -14,6 +14,7 @@ import {
 import { getUsuario, toggleActivo, resetPassword, updateUsuario } from '@/api/usuarios'
 import { getTiendas } from '@/api/ordenes'
 import { getPerfilesProduccion } from '@/api/perfilesProduccion'
+import { getRoles } from '@/api/roles'
 import EmptyState from '@/components/common/EmptyState.vue'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 
@@ -29,6 +30,7 @@ const actionLoading = ref(false)
 const actionError = ref('')
 const tiendas = ref([])
 const perfiles = ref([])
+const roles = ref([])
 const editLoading = ref(false)
 
 // Reset password
@@ -37,34 +39,28 @@ const confirmacionPassword = ref('')
 
 // Edit form
 const editForm = ref({
-  nombre: '', email: '', rol: '', facturacion: false, es_tapicero: false, independiente: false,
+  nombre: '', email: '', rol_id: '', facturacion: false, es_tapicero: false, independiente: false,
   notif_asignar_fecha: true, notif_stock: false, acceso_redes: false, acceso_comisiones: false,
   recarga_telas: false, acceso_surtir: false, acceso_costos: false, acceso_proveedores: false,
   acceso_despacho: false, acceso_produccion: false, acceso_reserva: false,
   ve_todas_ordenes: false, perfil_produccion_id: '', tienda_default_id: '',
 })
-const rolesSinTienda = ['conductor', 'ebanista', 'despachador', 'costurero']
+const arquetiposSinTienda = ['conductor', 'despachador', 'taller']
+
+// Arquetipo del rol elegido en el formulario de edición.
+const editArquetipo = computed(() => roles.value.find(r => r.id === editForm.value.rol_id)?.arquetipo ?? '')
 
 // Solo un vendedor puede ir por su cuenta, y entonces no pertenece a ninguna tienda.
-const editEsIndependiente = computed(() => editForm.value.rol === 'vendedor' && editForm.value.independiente)
+const editEsIndependiente = computed(() => editArquetipo.value === 'vendedor' && editForm.value.independiente)
 // El selector se muestra para cualquiera que no la tenga oculta por completo.
 const editMostrarTienda = computed(() =>
-  !rolesSinTienda.includes(editForm.value.rol) && !editEsIndependiente.value
+  !arquetiposSinTienda.includes(editArquetipo.value) && !editEsIndependiente.value
 )
-// Pero solo es obligatorio elegir una si no es supervisor: varios son jefes
-// que no pertenecen a ninguna tienda en particular.
-const editRequiereTienda = computed(() => editMostrarTienda.value && editForm.value.rol !== 'supervisor')
+// Pero solo es obligatorio elegir una si el arquetipo es vendedor: los demás
+// (incluido supervisor, donde varios son jefes sin tienda) no la necesitan.
+const editRequiereTienda = computed(() => editMostrarTienda.value && editArquetipo.value === 'vendedor')
 
-const ROL_LABELS = {
-  supervisor:  'Supervisor',
-  conductor:   'Conductor',
-  ebanista:    'Ebanista',
-  despachador: 'Despachador',
-  costurero:   'Costurero',
-  vendedor:    'Vendedor',
-}
-
-const rolLabel = computed(() => ROL_LABELS[usuario.value?.rol] ?? 'Vendedor')
+const rolLabel = computed(() => usuario.value?.rol_nombre ?? 'Vendedor')
 
 async function cargarUsuario() {
   loading.value = true
@@ -126,7 +122,7 @@ function openEditModal() {
   editForm.value = {
     nombre: usuario.value.nombre,
     email: usuario.value.email,
-    rol: usuario.value.rol,
+    rol_id: usuario.value.rol_id,
     facturacion: usuario.value.facturacion ?? false,
     es_tapicero: usuario.value.es_tapicero ?? false,
     independiente: usuario.value.independiente ?? false,
@@ -164,22 +160,22 @@ async function submitEdit() {
     await updateUsuario(usuario.value.id, {
       nombre: editForm.value.nombre.trim(),
       email: editForm.value.email.trim(),
-      rol: editForm.value.rol,
-      facturacion: editForm.value.rol === 'vendedor' ? editForm.value.facturacion : false,
-      es_tapicero: editForm.value.rol === 'supervisor' ? editForm.value.es_tapicero : false,
+      rol_id: editForm.value.rol_id,
+      facturacion: editArquetipo.value === 'vendedor' ? editForm.value.facturacion : false,
+      es_tapicero: editArquetipo.value === 'supervisor' ? editForm.value.es_tapicero : false,
       independiente: editEsIndependiente.value,
-      notif_asignar_fecha: editForm.value.rol === 'supervisor' ? editForm.value.notif_asignar_fecha : false,
-      notif_stock: editForm.value.rol === 'supervisor' ? editForm.value.notif_stock : false,
-      acceso_redes: ['vendedor', 'supervisor'].includes(editForm.value.rol) ? editForm.value.acceso_redes : false,
-      acceso_comisiones: editForm.value.rol === 'supervisor' ? editForm.value.acceso_comisiones : false,
-      recarga_telas: ['vendedor', 'supervisor'].includes(editForm.value.rol) ? editForm.value.recarga_telas : false,
+      notif_asignar_fecha: editArquetipo.value === 'supervisor' ? editForm.value.notif_asignar_fecha : false,
+      notif_stock: editArquetipo.value === 'supervisor' ? editForm.value.notif_stock : false,
+      acceso_redes: ['vendedor', 'supervisor'].includes(editArquetipo.value) ? editForm.value.acceso_redes : false,
+      acceso_comisiones: editArquetipo.value === 'supervisor' ? editForm.value.acceso_comisiones : false,
+      recarga_telas: ['vendedor', 'supervisor'].includes(editArquetipo.value) ? editForm.value.recarga_telas : false,
       acceso_surtir: editForm.value.acceso_surtir,
       acceso_costos: editForm.value.acceso_costos,
       acceso_proveedores: editForm.value.acceso_proveedores,
-      acceso_despacho: editForm.value.rol === 'supervisor' ? editForm.value.acceso_despacho : false,
-      acceso_produccion: editForm.value.rol === 'supervisor' ? editForm.value.acceso_produccion : false,
+      acceso_despacho: editArquetipo.value === 'supervisor' ? editForm.value.acceso_despacho : false,
+      acceso_produccion: editArquetipo.value === 'supervisor' ? editForm.value.acceso_produccion : false,
       acceso_reserva: editForm.value.acceso_reserva,
-      ve_todas_ordenes: editForm.value.rol === 'vendedor' ? editForm.value.ve_todas_ordenes : false,
+      ve_todas_ordenes: editArquetipo.value === 'vendedor' ? editForm.value.ve_todas_ordenes : false,
       perfil_produccion_id: editForm.value.perfil_produccion_id || null,
       tienda_default_id: editMostrarTienda.value ? (editForm.value.tienda_default_id || null) : null,
     })
@@ -213,6 +209,10 @@ onMounted(async () => {
     const { data } = await getPerfilesProduccion()
     perfiles.value = data
   } catch {}
+  try {
+    const { data } = await getRoles()
+    roles.value = data
+  } catch {}
 })
 </script>
 
@@ -228,11 +228,10 @@ onMounted(async () => {
         v-if="usuario"
         :class="[
           'inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium',
-          usuario.rol === 'supervisor'  ? 'bg-blue-100 text-blue-700' :
-          usuario.rol === 'conductor'   ? 'bg-amber-100 text-amber-700' :
-          usuario.rol === 'ebanista'    ? 'bg-orange-100 text-orange-700' :
-          usuario.rol === 'despachador' ? 'bg-purple-100 text-purple-700' :
-          usuario.rol === 'costurero'   ? 'bg-pink-100 text-pink-700' :
+          usuario.arquetipo === 'supervisor'  ? 'bg-blue-100 text-blue-700' :
+          usuario.arquetipo === 'conductor'   ? 'bg-amber-100 text-amber-700' :
+          usuario.arquetipo === 'taller'      ? 'bg-orange-100 text-orange-700' :
+          usuario.arquetipo === 'despachador' ? 'bg-purple-100 text-purple-700' :
           'bg-gray-100 text-gray-600'
         ]"
       >
@@ -269,14 +268,14 @@ onMounted(async () => {
             <p class="text-xs text-gray-500">No pertenece a ninguna tienda · lleva su propia caja</p>
           </div>
         </div>
-        <div v-if="usuario.facturacion && usuario.rol === 'vendedor'" class="flex items-center gap-3">
+        <div v-if="usuario.facturacion && usuario.arquetipo === 'vendedor'" class="flex items-center gap-3">
           <BanknotesIcon class="w-5 h-5 text-green-500 flex-shrink-0" />
           <div>
             <p class="text-xs text-gray-400">Función especial</p>
             <p class="font-medium text-green-700">Facturación habilitada</p>
           </div>
         </div>
-        <div v-if="usuario.es_tapicero && usuario.rol === 'supervisor'" class="flex items-center gap-3">
+        <div v-if="usuario.es_tapicero && usuario.arquetipo === 'supervisor'" class="flex items-center gap-3">
           <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
             <span class="text-sm">🪡</span>
           </div>
@@ -294,7 +293,7 @@ onMounted(async () => {
             <p class="font-medium text-gray-800">{{ usuario.perfil_produccion.nombre }}</p>
           </div>
         </div>
-        <div v-if="usuario.rol === 'supervisor'" class="flex items-center gap-3">
+        <div v-if="usuario.arquetipo === 'supervisor'" class="flex items-center gap-3">
           <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
             <span class="text-sm">{{ usuario.notif_asignar_fecha ? '🔔' : '🔕' }}</span>
           </div>
@@ -305,7 +304,7 @@ onMounted(async () => {
             </p>
           </div>
         </div>
-        <div v-if="usuario.rol === 'supervisor'" class="flex items-center gap-3">
+        <div v-if="usuario.arquetipo === 'supervisor'" class="flex items-center gap-3">
           <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
             <span class="text-sm">{{ usuario.notif_stock ? '📦' : '🔕' }}</span>
           </div>
@@ -316,7 +315,7 @@ onMounted(async () => {
             </p>
           </div>
         </div>
-        <div v-if="usuario.acceso_redes && ['vendedor', 'supervisor'].includes(usuario.rol)" class="flex items-center gap-3">
+        <div v-if="usuario.acceso_redes && ['vendedor', 'supervisor'].includes(usuario.arquetipo)" class="flex items-center gap-3">
           <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
             <span class="text-sm">📱</span>
           </div>
@@ -325,7 +324,7 @@ onMounted(async () => {
             <p class="font-medium text-blue-700">Acceso habilitado</p>
           </div>
         </div>
-        <div v-if="usuario.recarga_telas && ['vendedor', 'supervisor'].includes(usuario.rol)" class="flex items-center gap-3">
+        <div v-if="usuario.recarga_telas && ['vendedor', 'supervisor'].includes(usuario.arquetipo)" class="flex items-center gap-3">
           <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
             <span class="text-sm">🧵</span>
           </div>
@@ -370,7 +369,7 @@ onMounted(async () => {
             <p class="font-medium text-blue-700">Acceso habilitado</p>
           </div>
         </div>
-        <div v-if="usuario.ve_todas_ordenes && usuario.rol === 'vendedor'" class="flex items-center gap-3">
+        <div v-if="usuario.ve_todas_ordenes && usuario.arquetipo === 'vendedor'" class="flex items-center gap-3">
           <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
             <span class="text-sm">👁️</span>
           </div>
@@ -379,7 +378,7 @@ onMounted(async () => {
             <p class="font-medium text-blue-700">Ve todas las órdenes</p>
           </div>
         </div>
-        <div v-if="usuario.acceso_despacho && usuario.rol === 'supervisor'" class="flex items-center gap-3">
+        <div v-if="usuario.acceso_despacho && usuario.arquetipo === 'supervisor'" class="flex items-center gap-3">
           <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
             <span class="text-sm">🚚</span>
           </div>
@@ -388,7 +387,7 @@ onMounted(async () => {
             <p class="font-medium text-blue-700">Acceso habilitado</p>
           </div>
         </div>
-        <div v-if="usuario.acceso_produccion && usuario.rol === 'supervisor'" class="flex items-center gap-3">
+        <div v-if="usuario.acceso_produccion && usuario.arquetipo === 'supervisor'" class="flex items-center gap-3">
           <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
             <span class="text-sm">🛠️</span>
           </div>
@@ -397,7 +396,7 @@ onMounted(async () => {
             <p class="font-medium text-blue-700">Acceso habilitado</p>
           </div>
         </div>
-        <div v-if="usuario.tienda_default && !usuario.independiente && !rolesSinTienda.includes(usuario.rol)" class="flex items-center gap-3">
+        <div v-if="usuario.tienda_default && !usuario.independiente && !arquetiposSinTienda.includes(usuario.arquetipo)" class="flex items-center gap-3">
           <MapPinIcon class="w-5 h-5 text-gray-400 flex-shrink-0" />
           <div>
             <p class="text-xs text-gray-400">Tienda predeterminada</p>
@@ -468,7 +467,7 @@ onMounted(async () => {
       </div>
 
       <!-- Si es vendedor: estadísticas embebidas -->
-      <div v-if="usuario.rol === 'vendedor' && usuario.stats" class="space-y-3">
+      <div v-if="usuario.arquetipo === 'vendedor' && usuario.stats" class="space-y-3">
         <p class="text-xs font-semibold text-gray-500 uppercase">Estadísticas del vendedor</p>
 
         <!-- KPIs -->
@@ -557,16 +556,11 @@ onMounted(async () => {
             </div>
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Rol</label>
-              <select v-model="editForm.rol" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <option value="vendedor">Vendedor</option>
-                <option value="supervisor">Supervisor</option>
-                <option value="conductor">Conductor</option>
-                <option value="ebanista">Ebanista</option>
-                <option value="despachador">Despachador</option>
-                <option value="costurero">Costurero</option>
+              <select v-model="editForm.rol_id" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option v-for="r in roles" :key="r.id" :value="r.id">{{ r.nombre }}</option>
               </select>
             </div>
-            <div v-if="editForm.rol === 'vendedor'" class="flex items-start gap-3 py-2 px-3 bg-amber-50 border border-amber-200 rounded-xl">
+            <div v-if="editArquetipo === 'vendedor'" class="flex items-start gap-3 py-2 px-3 bg-amber-50 border border-amber-200 rounded-xl">
               <input
                 id="edit-independiente"
                 type="checkbox"
@@ -581,7 +575,7 @@ onMounted(async () => {
                 </p>
               </div>
             </div>
-            <div v-if="editForm.rol === 'vendedor'" class="flex items-start gap-3 py-1">
+            <div v-if="editArquetipo === 'vendedor'" class="flex items-start gap-3 py-1">
               <input
                 id="edit-facturacion"
                 type="checkbox"
@@ -593,7 +587,7 @@ onMounted(async () => {
                 <p class="text-xs text-gray-500 mt-0.5">Podrá ver órdenes entregadas de toda la tienda para facturación externa.</p>
               </div>
             </div>
-            <template v-if="editForm.rol === 'supervisor'">
+            <template v-if="editArquetipo === 'supervisor'">
               <div class="flex items-start gap-3 py-1">
                 <input
                   id="edit-tapicero"
@@ -639,7 +633,7 @@ onMounted(async () => {
               </select>
               <p class="text-xs text-gray-500 mt-0.5">Define qué pasos de producción puede ver y completar en "Mis pasos".</p>
             </div>
-            <div v-if="['vendedor', 'supervisor'].includes(editForm.rol)" class="flex items-start gap-3 py-1">
+            <div v-if="['vendedor', 'supervisor'].includes(editArquetipo)" class="flex items-start gap-3 py-1">
               <input
                 id="edit-acceso-redes"
                 type="checkbox"
@@ -651,7 +645,7 @@ onMounted(async () => {
                 <p class="text-xs text-gray-500 mt-0.5">Podrá acceder al módulo de redes sociales y seguimiento digital. Incluye Métricas: no es un permiso aparte.</p>
               </div>
             </div>
-            <div v-if="editForm.rol === 'supervisor'" class="flex items-start gap-3 py-1">
+            <div v-if="editArquetipo === 'supervisor'" class="flex items-start gap-3 py-1">
               <input
                 id="edit-acceso-comisiones"
                 type="checkbox"
@@ -663,7 +657,7 @@ onMounted(async () => {
                 <p class="text-xs text-gray-500 mt-0.5">Podrá ver, gestionar y marcar como pagadas las comisiones de los vendedores.</p>
               </div>
             </div>
-            <div v-if="['vendedor', 'supervisor'].includes(editForm.rol)" class="flex items-start gap-3 py-1">
+            <div v-if="['vendedor', 'supervisor'].includes(editArquetipo)" class="flex items-start gap-3 py-1">
               <input
                 id="edit-recarga-telas"
                 type="checkbox"
@@ -687,7 +681,7 @@ onMounted(async () => {
                 <p class="text-xs text-gray-500 mt-0.5">Podrá enviar surtidos desde fábrica y hacer traslados entre tiendas.</p>
               </div>
             </div>
-            <div v-if="['vendedor', 'supervisor'].includes(editForm.rol)" class="flex items-start gap-3 py-1">
+            <div v-if="['vendedor', 'supervisor'].includes(editArquetipo)" class="flex items-start gap-3 py-1">
               <input
                 id="edit-acceso-costos"
                 type="checkbox"
@@ -699,7 +693,7 @@ onMounted(async () => {
                 <p class="text-xs text-gray-500 mt-0.5">Podrá ver fichas técnicas y configuración de costos de producción.</p>
               </div>
             </div>
-            <div v-if="editForm.rol === 'vendedor'" class="flex items-start gap-3 py-1">
+            <div v-if="editArquetipo === 'vendedor'" class="flex items-start gap-3 py-1">
               <input
                 id="edit-acceso-proveedores"
                 type="checkbox"
@@ -711,7 +705,7 @@ onMounted(async () => {
                 <p class="text-xs text-gray-500 mt-0.5">Ver la lista ya está disponible para todos; esto habilita agregar o modificar.</p>
               </div>
             </div>
-            <div v-if="['vendedor', 'supervisor'].includes(editForm.rol)" class="flex items-start gap-3 py-1">
+            <div v-if="['vendedor', 'supervisor'].includes(editArquetipo)" class="flex items-start gap-3 py-1">
               <input
                 id="edit-acceso-reserva"
                 type="checkbox"
@@ -723,7 +717,7 @@ onMounted(async () => {
                 <p class="text-xs text-gray-500 mt-0.5">Podrá consultar y mover el inventario que está en fábrica/reserva.</p>
               </div>
             </div>
-            <div v-if="editForm.rol === 'vendedor'" class="flex items-start gap-3 py-1">
+            <div v-if="editArquetipo === 'vendedor'" class="flex items-start gap-3 py-1">
               <input
                 id="edit-ve-todas-ordenes"
                 type="checkbox"
@@ -735,7 +729,7 @@ onMounted(async () => {
                 <p class="text-xs text-gray-500 mt-0.5">Sin esto solo ve las suyas. No hace falta volverlo supervisor para darle esta visibilidad.</p>
               </div>
             </div>
-            <template v-if="editForm.rol === 'supervisor'">
+            <template v-if="editArquetipo === 'supervisor'">
               <div class="flex items-start gap-3 py-1">
                 <input
                   id="edit-acceso-despacho"
@@ -768,10 +762,10 @@ onMounted(async () => {
             <div v-if="editMostrarTienda">
               <label class="block text-sm font-medium text-gray-700 mb-1">Tienda{{ editRequiereTienda ? '' : ' (opcional)' }}</label>
               <select v-model="editForm.tienda_default_id" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <option value="">{{ editForm.rol === 'supervisor' ? 'Sin tienda (jefe)' : 'Seleccionar...' }}</option>
+                <option value="">{{ editArquetipo === 'supervisor' ? 'Sin tienda (jefe)' : 'Seleccionar...' }}</option>
                 <option v-for="t in tiendas" :key="t.id" :value="t.id">{{ t.nombre }}</option>
               </select>
-              <p v-if="editForm.rol === 'supervisor'" class="text-xs text-gray-500 mt-1">
+              <p v-if="editArquetipo === 'supervisor'" class="text-xs text-gray-500 mt-1">
                 "Sin tienda" es para un jefe que no pertenece a ninguna en particular — no le toca el reparto de comisiones de ninguna tienda.
               </p>
             </div>

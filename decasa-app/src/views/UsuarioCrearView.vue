@@ -4,11 +4,13 @@ import { useRouter } from 'vue-router'
 import { createUsuario } from '@/api/usuarios'
 import { getTiendas } from '@/api/ordenes'
 import { getPerfilesProduccion } from '@/api/perfilesProduccion'
+import { getRoles } from '@/api/roles'
 
 const router = useRouter()
 
 const tiendas  = ref([])
 const perfiles = ref([])
+const roles    = ref([])
 const submitting = ref(false)
 const error = ref('')
 
@@ -17,7 +19,7 @@ const form = ref({
   email: '',
   password: '',
   password_confirmation: '',
-  rol: 'vendedor',
+  rol_id: '',
   facturacion: false,
   es_tapicero: false,
   independiente: false,
@@ -48,19 +50,26 @@ const errores = ref({})
 const mostrarPass    = ref(false)
 const mostrarConfirm = ref(false)
 
-const rolesSinTienda = ['conductor', 'ebanista', 'despachador', 'costurero']
+// Arquetipo del rol elegido: el comportamiento de fondo (vendedor, supervisor,
+// conductor, taller, despachador) que determina qué campos aplican — el rol
+// en sí puede ser cualquier nombre que la empresa haya inventado.
+const rolSeleccionado = computed(() => roles.value.find(r => r.id === form.value.rol_id))
+const arquetipo = computed(() => rolSeleccionado.value?.arquetipo ?? '')
+const claveSeleccionada = computed(() => rolSeleccionado.value?.clave ?? '')
+
+const arquetiposSinTienda = ['conductor', 'despachador', 'taller']
 // Un independiente no pertenece a ninguna tienda: vende por su cuenta y saca
 // producto de las que haya, así que tampoco elige una.
-const puedeSerIndependiente = computed(() => form.value.rol === 'vendedor')
+const puedeSerIndependiente = computed(() => arquetipo.value === 'vendedor')
 const esIndependiente = computed(() => puedeSerIndependiente.value && form.value.independiente)
 // El selector se muestra para cualquiera que no tenga la tienda oculta por
-// completo (ebanista, despachador...) ni sea independiente.
+// completo (conductor, taller, despachador...) ni sea independiente.
 const mostrarTienda = computed(() =>
-  !rolesSinTienda.includes(form.value.rol) && !esIndependiente.value
+  !arquetiposSinTienda.includes(arquetipo.value) && !esIndependiente.value
 )
-// Pero solo es obligatorio elegir una si NO es supervisor: varios son jefes
-// que no pertenecen a ninguna tienda en particular.
-const requiereTienda = computed(() => mostrarTienda.value && form.value.rol !== 'supervisor')
+// Pero solo es obligatorio elegir una si el arquetipo es vendedor: los demás
+// (incluido supervisor, donde varios son jefes sin tienda) no la necesitan.
+const requiereTienda = computed(() => mostrarTienda.value && arquetipo.value === 'vendedor')
 
 function errMsg(e) {
   if (!e) return ''
@@ -75,6 +84,12 @@ onMounted(async () => {
   try {
     const { data } = await getPerfilesProduccion()
     perfiles.value = data
+  } catch {}
+  try {
+    const { data } = await getRoles()
+    roles.value = data
+    // Vendedor sigue siendo el rol por defecto de este formulario.
+    form.value.rol_id = data.find(r => r.clave === 'vendedor')?.id ?? data[0]?.id ?? ''
   } catch {}
 })
 
@@ -101,22 +116,22 @@ async function submit() {
       email: form.value.email.trim(),
       password: form.value.password,
       password_confirmation: form.value.password_confirmation,
-      rol: form.value.rol,
+      rol_id: form.value.rol_id,
       facturacion: form.value.facturacion,
       es_tapicero: form.value.es_tapicero,
       independiente: esIndependiente.value,
       notif_asignar_fecha: form.value.notif_asignar_fecha,
-      notif_stock: form.value.rol === 'supervisor' ? form.value.notif_stock : false,
+      notif_stock: arquetipo.value === 'supervisor' ? form.value.notif_stock : false,
       acceso_redes: form.value.acceso_redes,
-      acceso_comisiones: form.value.rol === 'supervisor' ? form.value.acceso_comisiones : false,
+      acceso_comisiones: arquetipo.value === 'supervisor' ? form.value.acceso_comisiones : false,
       recarga_telas: form.value.recarga_telas,
       acceso_surtir: form.value.acceso_surtir,
       acceso_costos: form.value.acceso_costos,
       acceso_proveedores: form.value.acceso_proveedores,
-      acceso_despacho: form.value.rol === 'supervisor' ? form.value.acceso_despacho : false,
-      acceso_produccion: form.value.rol === 'supervisor' ? form.value.acceso_produccion : false,
+      acceso_despacho: arquetipo.value === 'supervisor' ? form.value.acceso_despacho : false,
+      acceso_produccion: arquetipo.value === 'supervisor' ? form.value.acceso_produccion : false,
       acceso_reserva: form.value.acceso_reserva,
-      ve_todas_ordenes: form.value.rol === 'vendedor' ? form.value.ve_todas_ordenes : false,
+      ve_todas_ordenes: arquetipo.value === 'vendedor' ? form.value.ve_todas_ordenes : false,
       perfil_produccion_id: form.value.perfil_produccion_id || null,
       tienda_default_id: mostrarTienda.value ? (form.value.tienda_default_id || null) : null,
     })
@@ -231,24 +246,19 @@ async function submit() {
       <div>
         <label class="block text-sm font-medium text-gray-700 mb-1">Rol *</label>
         <select
-          v-model="form.rol"
+          v-model="form.rol_id"
           class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
-          <option value="vendedor">Vendedor</option>
-          <option value="supervisor">Supervisor</option>
-          <option value="conductor">Conductor</option>
-          <option value="ebanista">Ebanista</option>
-          <option value="despachador">Despachador</option>
-          <option value="costurero">Costurero</option>
+          <option v-for="r in roles" :key="r.id" :value="r.id">{{ r.nombre }}</option>
         </select>
       </div>
 
       <!-- Descripción del rol de producción -->
-      <div v-if="['ebanista', 'despachador', 'costurero'].includes(form.rol)" class="bg-amber-50 rounded-lg px-3 py-2 text-xs text-amber-700">
-        <span v-if="form.rol === 'ebanista'">
+      <div v-if="['ebanista', 'despachador', 'costurero'].includes(claveSeleccionada)" class="bg-amber-50 rounded-lg px-3 py-2 text-xs text-amber-700">
+        <span v-if="claveSeleccionada === 'ebanista'">
           El ebanista puede ver y completar los pasos de <strong>ebanistería</strong>, <strong>laca</strong> y <strong>pintura</strong> en las órdenes personalizadas.
         </span>
-        <span v-else-if="form.rol === 'costurero'">
+        <span v-else-if="claveSeleccionada === 'costurero'">
           El costurero puede <strong>descontar metros de tela</strong> del inventario cuando los use en producción.
         </span>
         <span v-else>
@@ -275,7 +285,7 @@ async function submit() {
       </div>
 
       <!-- Facturación (solo vendedores) -->
-      <div v-if="form.rol === 'vendedor'" class="flex items-start gap-3 py-2">
+      <div v-if="arquetipo === 'vendedor'" class="flex items-start gap-3 py-2">
         <input
           id="facturacion"
           type="checkbox"
@@ -289,7 +299,7 @@ async function submit() {
       </div>
 
       <!-- Opciones solo para supervisores -->
-      <template v-if="form.rol === 'supervisor'">
+      <template v-if="arquetipo === 'supervisor'">
         <div class="flex items-start gap-3 py-2">
           <input
             id="es_tapicero"
@@ -329,7 +339,7 @@ async function submit() {
       </template>
 
       <!-- Acceso redes (vendedor y supervisor) -->
-      <div v-if="['vendedor', 'supervisor'].includes(form.rol)" class="flex items-start gap-3 py-2">
+      <div v-if="['vendedor', 'supervisor'].includes(arquetipo)" class="flex items-start gap-3 py-2">
         <input
           id="acceso_redes"
           type="checkbox"
@@ -343,7 +353,7 @@ async function submit() {
       </div>
 
       <!-- Acceso comisiones (solo supervisor) -->
-      <div v-if="form.rol === 'supervisor'" class="flex items-start gap-3 py-2">
+      <div v-if="arquetipo === 'supervisor'" class="flex items-start gap-3 py-2">
         <input
           id="acceso_comisiones"
           type="checkbox"
@@ -357,7 +367,7 @@ async function submit() {
       </div>
 
       <!-- Recarga telas (vendedor y supervisor) -->
-      <div v-if="['vendedor', 'supervisor'].includes(form.rol)" class="flex items-start gap-3 py-2">
+      <div v-if="['vendedor', 'supervisor'].includes(arquetipo)" class="flex items-start gap-3 py-2">
         <input
           id="recarga_telas"
           type="checkbox"
@@ -385,7 +395,7 @@ async function submit() {
       </div>
 
       <!-- Costos (vendedor y supervisor; el ebanista ya lo trae automático) -->
-      <div v-if="['vendedor', 'supervisor'].includes(form.rol)" class="flex items-start gap-3 py-2">
+      <div v-if="['vendedor', 'supervisor'].includes(arquetipo)" class="flex items-start gap-3 py-2">
         <input
           id="acceso_costos"
           type="checkbox"
@@ -399,7 +409,7 @@ async function submit() {
       </div>
 
       <!-- Proveedores (activable solo para vendedor: el supervisor ya lo trae de por sí) -->
-      <div v-if="form.rol === 'vendedor'" class="flex items-start gap-3 py-2">
+      <div v-if="arquetipo === 'vendedor'" class="flex items-start gap-3 py-2">
         <input
           id="acceso_proveedores"
           type="checkbox"
@@ -413,7 +423,7 @@ async function submit() {
       </div>
 
       <!-- Reserva / Fábrica (vendedor y supervisor) -->
-      <div v-if="['vendedor', 'supervisor'].includes(form.rol)" class="flex items-start gap-3 py-2">
+      <div v-if="['vendedor', 'supervisor'].includes(arquetipo)" class="flex items-start gap-3 py-2">
         <input
           id="acceso_reserva"
           type="checkbox"
@@ -427,7 +437,7 @@ async function submit() {
       </div>
 
       <!-- Ver todas las órdenes (solo vendedor: el supervisor ya ve todo) -->
-      <div v-if="form.rol === 'vendedor'" class="flex items-start gap-3 py-2">
+      <div v-if="arquetipo === 'vendedor'" class="flex items-start gap-3 py-2">
         <input
           id="ve_todas_ordenes"
           type="checkbox"
@@ -454,7 +464,7 @@ async function submit() {
       </div>
 
       <!-- Opciones activables solo para supervisor: ya no vienen automáticas -->
-      <template v-if="form.rol === 'supervisor'">
+      <template v-if="arquetipo === 'supervisor'">
         <div class="flex items-start gap-3 py-2">
           <input
             id="acceso_despacho"
@@ -493,11 +503,11 @@ async function submit() {
           class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           :class="{ 'border-red-400': errores.tienda_default_id }"
         >
-          <option value="">{{ form.rol === 'supervisor' ? 'Sin tienda (jefe)' : 'Seleccionar tienda...' }}</option>
+          <option value="">{{ arquetipo === 'supervisor' ? 'Sin tienda (jefe)' : 'Seleccionar tienda...' }}</option>
           <option v-for="t in tiendas" :key="t.id" :value="t.id">{{ t.nombre }}</option>
         </select>
         <p v-if="errores.tienda_default_id" class="text-xs text-red-600 mt-1">{{ errMsg(errores.tienda_default_id) }}</p>
-        <p v-else-if="form.rol === 'supervisor'" class="text-xs text-gray-500 mt-1">
+        <p v-else-if="arquetipo === 'supervisor'" class="text-xs text-gray-500 mt-1">
           Déjalo en "Sin tienda" si es un jefe que no pertenece a ninguna en particular — no le tocará el reparto de comisiones de ninguna tienda.
         </p>
       </div>

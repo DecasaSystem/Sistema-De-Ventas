@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useToast } from '@/composables/useToast'
 import { getTiendasAdmin, crearTienda, actualizarTienda, eliminarTienda } from '@/api/tiendas'
 import { getPerfilesProduccion, crearPerfilProduccion, actualizarPerfilProduccion, eliminarPerfilProduccion } from '@/api/perfilesProduccion'
+import { getRoles, crearRol, actualizarRol, eliminarRol } from '@/api/roles'
 import {
   Cog6ToothIcon,
   BuildingStorefrontIcon,
@@ -14,14 +15,108 @@ import {
   MapPinIcon,
   PhoneIcon,
   WrenchScrewdriverIcon,
+  UserGroupIcon,
 } from '@heroicons/vue/24/outline'
 
 const router = useRouter()
 const toast  = useToast()
 
-const tab = ref('tiendas')
+const tab = ref('roles')
 
-// ── Roles de producción ─────────────────────────────────────────────────
+// ── Roles (puestos de trabajo) ────────────────────────────────────────────
+const ARQUETIPOS = [
+  { valor: 'vendedor',    etiqueta: 'Vende y genera comisión' },
+  { valor: 'supervisor',  etiqueta: 'Administra el negocio' },
+  { valor: 'conductor',   etiqueta: 'Conduce y entrega' },
+  { valor: 'taller',      etiqueta: 'Fabrica y lleva caja propia' },
+  { valor: 'despachador', etiqueta: 'Recibe y despacha producción' },
+]
+
+const roles         = ref([])
+const cargandoRoles = ref(true)
+const mostrarFormRol = ref(false)
+const editandoRol    = ref(null)
+const formRol         = ref({ nombre: '', arquetipo: 'vendedor' })
+const guardandoRol    = ref(false)
+
+async function cargarRoles() {
+  cargandoRoles.value = true
+  try {
+    const { data } = await getRoles(true)
+    roles.value = data
+  } catch {
+    toast.error('No se pudo cargar la lista de roles')
+  } finally {
+    cargandoRoles.value = false
+  }
+}
+onMounted(cargarRoles)
+
+function etiquetaArquetipo(valor) {
+  return ARQUETIPOS.find(a => a.valor === valor)?.etiqueta ?? valor
+}
+
+function abrirNuevoRol() {
+  editandoRol.value = null
+  formRol.value = { nombre: '', arquetipo: 'vendedor' }
+  mostrarFormRol.value = true
+}
+
+function abrirEditarRol(r) {
+  editandoRol.value = r.id
+  formRol.value = { nombre: r.nombre, arquetipo: r.arquetipo }
+  mostrarFormRol.value = true
+}
+
+async function guardarRol() {
+  if (!formRol.value.nombre.trim()) {
+    toast.error('El nombre es obligatorio')
+    return
+  }
+  guardandoRol.value = true
+  try {
+    if (editandoRol.value) {
+      // El arquetipo no se puede cambiar después de creado.
+      await actualizarRol(editandoRol.value, { nombre: formRol.value.nombre.trim() })
+      toast.success('Rol actualizado')
+    } else {
+      await crearRol({ nombre: formRol.value.nombre.trim(), arquetipo: formRol.value.arquetipo })
+      toast.success('Rol creado')
+    }
+    mostrarFormRol.value = false
+    await cargarRoles()
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo guardar')
+  } finally {
+    guardandoRol.value = false
+  }
+}
+
+async function eliminarRolItem(r) {
+  if (!confirm(`¿Eliminar el rol "${r.nombre}"? Si algún trabajador lo tiene asignado, se desactiva en vez de borrarse.`)) return
+  try {
+    const { data } = await eliminarRol(r.id)
+    toast.success(data?.message ?? 'Rol eliminado')
+    await cargarRoles()
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo eliminar')
+  }
+}
+
+async function reactivarRol(r) {
+  try {
+    await actualizarRol(r.id, { activo: true })
+    toast.success('Rol reactivado')
+    await cargarRoles()
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo reactivar')
+  }
+}
+
+const rolesActivos   = computed(() => roles.value.filter(r => r.activo))
+const rolesInactivos = computed(() => roles.value.filter(r => !r.activo))
+
+// ── Especialidades de taller (antes "perfiles de producción") ────────────
 const perfiles         = ref([])
 const cargandoPerfiles = ref(true)
 const nuevoPerfil       = ref('')
@@ -178,7 +273,7 @@ const inactivas = computed(() => tiendas.value.filter(t => !t.activa))
 
 let perfilesCargados = false
 watch(tab, (t) => {
-  if (t === 'roles' && !perfilesCargados) {
+  if (t === 'especialidades' && !perfilesCargados) {
     perfilesCargados = true
     cargarPerfiles()
   }
@@ -198,18 +293,123 @@ watch(tab, (t) => {
     <!-- Tabs -->
     <div class="flex gap-2 mb-4 bg-gray-100 rounded-xl p-1">
       <button
+        @click="tab = 'roles'"
+        :class="['flex-1 text-sm font-semibold rounded-lg py-2 transition-colors', tab === 'roles' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500']"
+      >
+        Roles
+      </button>
+      <button
         @click="tab = 'tiendas'"
         :class="['flex-1 text-sm font-semibold rounded-lg py-2 transition-colors', tab === 'tiendas' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500']"
       >
         Tiendas
       </button>
       <button
-        @click="tab = 'roles'"
-        :class="['flex-1 text-sm font-semibold rounded-lg py-2 transition-colors', tab === 'roles' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500']"
+        @click="tab = 'especialidades'"
+        :class="['flex-1 text-sm font-semibold rounded-lg py-2 transition-colors', tab === 'especialidades' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500']"
       >
-        Roles de producción
+        Especialidades de taller
       </button>
     </div>
+
+    <template v-if="tab === 'roles'">
+      <div class="flex items-center justify-between mb-3">
+        <p class="text-xs text-gray-400">Los puestos de trabajo del negocio. Cada uno determina qué pantalla y qué permisos trae por defecto.</p>
+        <button
+          @click="abrirNuevoRol"
+          class="flex items-center gap-1.5 bg-blue-600 text-white text-xs font-semibold px-3 py-2 rounded-xl hover:bg-blue-700 transition-colors shadow-sm shrink-0"
+        >
+          <PlusIcon class="w-4 h-4" /> Nuevo
+        </button>
+      </div>
+
+      <div v-if="cargandoRoles" class="flex justify-center py-12">
+        <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+
+      <div v-else class="space-y-2.5">
+        <div v-for="r in rolesActivos" :key="r.id" class="bg-white rounded-xl shadow-sm p-4">
+          <div class="flex items-start justify-between gap-2">
+            <div class="min-w-0">
+              <p class="font-semibold text-sm text-gray-800 truncate">{{ r.nombre }}</p>
+              <p class="text-xs text-gray-500 mt-0.5">{{ etiquetaArquetipo(r.arquetipo) }}</p>
+            </div>
+            <div class="flex items-center gap-1 shrink-0">
+              <button @click="abrirEditarRol(r)" class="p-1.5 text-gray-300 hover:text-blue-600 transition-colors" aria-label="Editar">
+                <PencilSquareIcon class="w-4 h-4" />
+              </button>
+              <button @click="eliminarRolItem(r)" class="p-1.5 text-gray-300 hover:text-red-600 transition-colors" aria-label="Eliminar">
+                <TrashIcon class="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <template v-if="rolesInactivos.length">
+          <p class="text-xs font-semibold text-gray-400 uppercase pt-2">Desactivados</p>
+          <div v-for="r in rolesInactivos" :key="r.id" class="bg-gray-50 rounded-xl p-4 flex items-center justify-between gap-2">
+            <p class="text-sm text-gray-500 truncate">{{ r.nombre }}</p>
+            <button @click="reactivarRol(r)" class="text-xs font-semibold text-blue-600 hover:text-blue-700 shrink-0">Reactivar</button>
+          </div>
+        </template>
+      </div>
+
+      <!-- Nuevo / editar rol -->
+      <Teleport to="body">
+        <Transition
+          enter-active-class="transition-opacity duration-200" enter-from-class="opacity-0"
+          leave-active-class="transition-opacity duration-150" leave-to-class="opacity-0"
+        >
+          <div v-if="mostrarFormRol" class="fixed inset-0 bg-black/50 backdrop-blur-[2px] z-50 flex items-end sm:items-center justify-center" @click.self="mostrarFormRol = false">
+            <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full sm:max-w-md max-h-[92vh] overflow-y-auto shadow-2xl">
+              <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-100 sticky top-0 bg-white/95 backdrop-blur-sm rounded-t-3xl sm:rounded-t-2xl">
+                <div class="flex items-center gap-2.5">
+                  <div class="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center shrink-0">
+                    <UserGroupIcon class="w-5 h-5 text-blue-600" />
+                  </div>
+                  <p class="font-semibold text-gray-800">{{ editandoRol ? 'Editar rol' : 'Nuevo rol' }}</p>
+                </div>
+                <button @click="mostrarFormRol = false" class="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
+                  <XMarkIcon class="w-5 h-5" />
+                </button>
+              </div>
+
+              <div class="p-5 space-y-4">
+                <div>
+                  <label class="block text-xs font-semibold text-gray-500 mb-1.5">Nombre *</label>
+                  <input v-model="formRol.nombre" placeholder="Bodeguero" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow" />
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-gray-500 mb-1.5">Se comporta como</label>
+                  <select
+                    v-model="formRol.arquetipo"
+                    :disabled="!!editandoRol"
+                    class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow disabled:bg-gray-50 disabled:text-gray-400"
+                  >
+                    <option v-for="a in ARQUETIPOS" :key="a.valor" :value="a.valor">{{ a.etiqueta }}</option>
+                  </select>
+                  <p class="text-[11px] text-gray-400 mt-1">
+                    {{ editandoRol ? 'No se puede cambiar después de creado.' : 'Define el cálculo de comisiones, caja y demás — elige el que más se parezca al puesto real.' }}
+                  </p>
+                </div>
+              </div>
+
+              <div class="flex gap-2.5 p-5 pt-2">
+                <button @click="mostrarFormRol = false" class="flex-1 bg-gray-100 text-gray-700 text-sm font-semibold rounded-xl px-4 py-2.5 hover:bg-gray-200 active:bg-gray-300 transition-colors">Cancelar</button>
+                <button
+                  @click="guardarRol"
+                  :disabled="guardandoRol"
+                  class="flex-1 bg-blue-600 text-white text-sm font-semibold rounded-xl px-4 py-2.5 hover:bg-blue-700 active:bg-blue-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+                >
+                  <span v-if="guardandoRol" class="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                  {{ guardandoRol ? 'Guardando...' : 'Guardar' }}
+                </button>
+              </div>
+            </div>
+          </div>
+        </Transition>
+      </Teleport>
+    </template>
 
     <template v-if="tab === 'tiendas'">
       <div class="flex items-center justify-between mb-3">
@@ -336,7 +536,7 @@ watch(tab, (t) => {
       </Teleport>
     </template>
 
-    <template v-else-if="tab === 'roles'">
+    <template v-else-if="tab === 'especialidades'">
       <p class="text-xs text-gray-400 mb-3">
         Quién puede trabajar qué paso del taller. Se asignan desde la ficha de cada trabajador.
       </p>

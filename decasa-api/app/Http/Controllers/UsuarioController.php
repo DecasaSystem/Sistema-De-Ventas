@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Rol;
 use App\Models\Tienda;
 use App\Models\Usuario;
 use Illuminate\Http\Request;
@@ -18,6 +19,9 @@ class UsuarioController extends Controller
             'nombre'              => $u->nombre,
             'email'               => $u->email,
             'rol'                 => $u->rol,
+            'rol_id'              => $u->rol_id,
+            'rol_nombre'          => $u->relationLoaded('rolAsignado') ? $u->rolAsignado?->nombre : null,
+            'arquetipo'           => $u->relationLoaded('rolAsignado') ? $u->rolAsignado?->arquetipo : null,
             'facturacion'         => (bool) $u->facturacion,
             'es_tapicero'         => (bool) $u->es_tapicero,
             'independiente'       => (bool) $u->independiente,
@@ -44,7 +48,7 @@ class UsuarioController extends Controller
 
     public function index(Request $request)
     {
-        $query = Usuario::with(['tiendaDefault:id,nombre,ciudad', 'perfilProduccion']);
+        $query = Usuario::with(['tiendaDefault:id,nombre,ciudad', 'perfilProduccion', 'rolAsignado']);
 
         if ($rol = $request->query('rol')) {
             $query->where('rol', $rol);
@@ -65,20 +69,18 @@ class UsuarioController extends Controller
 
     public function show($id)
     {
-        $usuario = Usuario::with(['tiendaDefault:id,nombre,ciudad', 'perfilProduccion'])->findOrFail($id);
+        $usuario = Usuario::with(['tiendaDefault:id,nombre,ciudad', 'perfilProduccion', 'rolAsignado'])->findOrFail($id);
 
         return response()->json($this->comoJson($usuario));
     }
 
     public function store(Request $request)
     {
-        $rolesProduccion = ['ebanista', 'despachador', 'conductor', 'costurero'];
-
         $data = $request->validate([
             'nombre'            => 'required|string|max:100',
             'email'             => 'required|email|unique:usuarios,email',
             'password'          => 'required|string|min:8|confirmed',
-            'rol'                 => ['required', Rule::in(['vendedor', 'supervisor', 'conductor', 'ebanista', 'despachador', 'costurero'])],
+            'rol_id'              => ['required', 'exists:roles,id'],
             'facturacion'         => 'boolean',
             'es_tapicero'         => 'boolean',
             // Vendedor por su cuenta: no pertenece a ninguna tienda
@@ -102,8 +104,11 @@ class UsuarioController extends Controller
                 // pertenecen a ninguna tienda en particular, y forzarles una
                 // los metía de cabeza extra en el reparto del 5% de almacén de
                 // esa tienda, diluyendo lo que le tocaba a cada vendedor real.
-                Rule::requiredIf(fn () => ! in_array($request->rol, [...$rolesProduccion, 'supervisor'])
-                    && ! $request->boolean('independiente')),
+                // Solo el arquetipo "vendedor" la necesita de verdad.
+                Rule::requiredIf(function () use ($request) {
+                    $arquetipo = Rol::find($request->input('rol_id'))?->arquetipo;
+                    return $arquetipo === 'vendedor' && ! $request->boolean('independiente');
+                }),
                 'nullable',
                 'exists:tiendas,id',
             ],
@@ -116,27 +121,29 @@ class UsuarioController extends Controller
             'password.required'          => 'La contraseña es obligatoria.',
             'password.min'               => 'La contraseña debe tener al menos 8 caracteres.',
             'password.confirmed'         => 'Las contraseñas no coinciden.',
-            'rol.required'               => 'El rol es obligatorio.',
-            'rol.in'                     => 'El rol no es válido.',
+            'rol_id.required'            => 'El rol es obligatorio.',
+            'rol_id.exists'              => 'El rol no es válido.',
             'tienda_default_id.required' => 'La tienda predeterminada es obligatoria.',
             'tienda_default_id.exists'   => 'La tienda seleccionada no existe.',
         ]);
 
-        $esSupervisor = ($data['rol'] === 'supervisor');
+        $arquetipo = Rol::findOrFail($data['rol_id'])->arquetipo;
 
-        $puedeAccesoRedes = in_array($data['rol'], ['vendedor', 'supervisor']);
-        $puedeRecargaTelas = in_array($data['rol'], ['vendedor', 'supervisor']);
+        $esSupervisor = ($arquetipo === 'supervisor');
+
+        $puedeAccesoRedes = in_array($arquetipo, ['vendedor', 'supervisor']);
+        $puedeRecargaTelas = in_array($arquetipo, ['vendedor', 'supervisor']);
 
         // Solo un vendedor puede ir por su cuenta: un supervisor o un conductor
         // independiente no significa nada.
-        $independiente = ($data['rol'] === 'vendedor') && $request->boolean('independiente');
+        $independiente = ($arquetipo === 'vendedor') && $request->boolean('independiente');
 
         $usuario = Usuario::create([
             'nombre'              => $data['nombre'],
             'email'               => $data['email'],
             'password'            => Hash::make($data['password']),
-            'rol'                 => $data['rol'],
-            'facturacion'         => ($data['rol'] === 'vendedor') && $request->boolean('facturacion'),
+            'rol_id'              => $data['rol_id'],
+            'facturacion'         => ($arquetipo === 'vendedor') && $request->boolean('facturacion'),
             'es_tapicero'         => $esSupervisor && $request->boolean('es_tapicero'),
             // Sin restricción de rol: es justo lo que se pidió, que un perfil
             // de producción se le pueda asignar a cualquier trabajador.
@@ -163,18 +170,17 @@ class UsuarioController extends Controller
             'activo'              => true,
         ]);
 
-        return response()->json($this->comoJson($usuario->load('perfilProduccion')), 201);
+        return response()->json($this->comoJson($usuario->load(['perfilProduccion', 'rolAsignado'])), 201);
     }
 
     public function update(Request $request, $id)
     {
         $usuario = Usuario::findOrFail($id);
-        $rolesProduccion = ['ebanista', 'despachador', 'conductor', 'costurero'];
 
         $data = $request->validate([
             'nombre'            => 'sometimes|string|max:100',
             'email'             => ['sometimes', 'email', Rule::unique('usuarios', 'email')->ignore($usuario->id)],
-            'rol'                 => ['sometimes', Rule::in(['vendedor', 'supervisor', 'conductor', 'ebanista', 'despachador', 'costurero'])],
+            'rol_id'              => ['sometimes', 'exists:roles,id'],
             'facturacion'         => 'nullable|boolean',
             'es_tapicero'         => 'nullable|boolean',
             'independiente'       => 'nullable|boolean',
@@ -196,32 +202,34 @@ class UsuarioController extends Controller
             'nombre.max'               => 'El nombre no puede tener más de 100 caracteres.',
             'email.email'              => 'El email debe ser una dirección válida.',
             'email.unique'             => 'Este email ya está registrado.',
-            'rol.in'                   => 'El rol no es válido.',
+            'rol_id.exists'            => 'El rol no es válido.',
             'tienda_default_id.exists' => 'La tienda seleccionada no existe.',
         ]);
 
-        $rolFinal = $data['rol'] ?? $usuario->rol;
+        $arquetipoFinal = isset($data['rol_id'])
+            ? Rol::findOrFail($data['rol_id'])->arquetipo
+            : $usuario->rolAsignado?->arquetipo;
 
         if ($request->has('es_tapicero')) {
-            $data['es_tapicero'] = ($rolFinal === 'supervisor') && $request->boolean('es_tapicero');
+            $data['es_tapicero'] = ($arquetipoFinal === 'supervisor') && $request->boolean('es_tapicero');
         }
         if ($request->has('notif_asignar_fecha')) {
-            $data['notif_asignar_fecha'] = ($rolFinal === 'supervisor') && $request->boolean('notif_asignar_fecha');
+            $data['notif_asignar_fecha'] = ($arquetipoFinal === 'supervisor') && $request->boolean('notif_asignar_fecha');
         }
         if ($request->has('notif_stock')) {
-            $data['notif_stock'] = ($rolFinal === 'supervisor') && $request->boolean('notif_stock');
+            $data['notif_stock'] = ($arquetipoFinal === 'supervisor') && $request->boolean('notif_stock');
         }
         if ($request->has('facturacion')) {
-            $data['facturacion'] = ($rolFinal === 'vendedor') && $request->boolean('facturacion');
+            $data['facturacion'] = ($arquetipoFinal === 'vendedor') && $request->boolean('facturacion');
         }
         if ($request->has('acceso_redes')) {
-            $data['acceso_redes'] = in_array($rolFinal, ['vendedor', 'supervisor']) && $request->boolean('acceso_redes');
+            $data['acceso_redes'] = in_array($arquetipoFinal, ['vendedor', 'supervisor']) && $request->boolean('acceso_redes');
         }
         if ($request->has('acceso_comisiones')) {
-            $data['acceso_comisiones'] = ($rolFinal === 'supervisor') && $request->boolean('acceso_comisiones');
+            $data['acceso_comisiones'] = ($arquetipoFinal === 'supervisor') && $request->boolean('acceso_comisiones');
         }
         if ($request->has('recarga_telas')) {
-            $data['recarga_telas'] = in_array($rolFinal, ['vendedor', 'supervisor']) && $request->boolean('recarga_telas');
+            $data['recarga_telas'] = in_array($arquetipoFinal, ['vendedor', 'supervisor']) && $request->boolean('recarga_telas');
         }
         // Sin restricción de rol: es lo que se pidió, poder asignárselo a
         // cualquiera.
@@ -248,10 +256,13 @@ class UsuarioController extends Controller
         }
 
         if ($request->has('independiente')) {
-            $data['independiente'] = ($rolFinal === 'vendedor') && $request->boolean('independiente');
+            $data['independiente'] = ($arquetipoFinal === 'vendedor') && $request->boolean('independiente');
         }
 
-        if (isset($data['rol']) && in_array($data['rol'], $rolesProduccion)) {
+        // Al pasar a un arquetipo que nunca elige tienda (taller/despachador/
+        // conductor), se limpia la que tuviera. Supervisor y vendedor sí
+        // pueden conservarla (para supervisor es opcional, no forzada).
+        if (isset($data['rol_id']) && in_array($arquetipoFinal, ['taller', 'despachador', 'conductor'])) {
             $data['tienda_default_id'] = null;
         }
 
@@ -268,7 +279,7 @@ class UsuarioController extends Controller
         }
 
         $usuario->update($data);
-        $usuario->load(['tiendaDefault:id,nombre,ciudad', 'perfilProduccion']);
+        $usuario->load(['tiendaDefault:id,nombre,ciudad', 'perfilProduccion', 'rolAsignado']);
 
         return response()->json($this->comoJson($usuario));
     }

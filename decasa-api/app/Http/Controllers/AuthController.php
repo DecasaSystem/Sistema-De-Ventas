@@ -33,6 +33,8 @@ class AuthController extends Controller
             'id'                => $usuario->id,
             'nombre'            => $usuario->nombre,
             'rol'               => $usuario->rol,
+            'rol_id'            => $usuario->rol_id,
+            'rol_nombre'        => $usuario->rolAsignado?->nombre,
             'es_tapicero'       => (bool) $usuario->es_tapicero,
             // Sin esto la pantalla no sabe que alguien es independiente: se
             // quedaba fuera del payload y todo lo que depende de ello —su
@@ -64,13 +66,15 @@ class AuthController extends Controller
 
     public function me(Request $request)
     {
-        $usuario = $request->user()->load(['tiendaDefault:id,nombre,ciudad', 'perfilProduccion']);
+        $usuario = $request->user()->load(['tiendaDefault:id,nombre,ciudad', 'perfilProduccion', 'rolAsignado']);
 
         return response()->json([
             'id'                => $usuario->id,
             'nombre'            => $usuario->nombre,
             'email'             => $usuario->email,
             'rol'               => $usuario->rol,
+            'rol_id'            => $usuario->rol_id,
+            'rol_nombre'        => $usuario->rolAsignado?->nombre,
             'es_tapicero'       => (bool) $usuario->es_tapicero,
             // Sin esto la pantalla no sabe que alguien es independiente: se
             // quedaba fuera del payload y todo lo que depende de ello —su
