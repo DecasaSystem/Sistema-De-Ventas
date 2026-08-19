@@ -1,6 +1,7 @@
 <script setup>
 import IconoS from '@/components/common/IconoS.vue'
 import { ref, computed, watch, onMounted, markRaw } from 'vue'
+import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import {
   MagnifyingGlassIcon,
@@ -32,6 +33,7 @@ import { TELAS_CATALOGO, marcasOrdenadas, tiposTelaDeM, coloresDeTela } from '@/
 
 const toast = useToast()
 const auth  = useAuthStore()
+const route = useRoute()
 
 // Fotos de tela (cargadas una sola vez, cacheadas y optimizadas)
 const { cargarFotosTela, fotosPorColor } = useTelaFotos()
@@ -176,7 +178,9 @@ function onTelaChange(item, v) {
 }
 
 // ── Tabs ─────────────────────────────────────────────────────────────────────
-const tabActivo = ref(auth.usuario?.rol === 'vendedor' ? 'traslado' : 'nuevo')
+// El botón "Traslado" del Home llega con ?tab=traslado para abrir directo
+// ahí, en vez de aterrizar siempre en "Nuevo surtido" y obligar a buscarla.
+const tabActivo = ref(route.query.tab || (auth.usuario?.rol === 'vendedor' ? 'traslado' : 'nuevo'))
 
 // ── Wizard paso ──────────────────────────────────────────────────────────────
 const paso = ref(1)

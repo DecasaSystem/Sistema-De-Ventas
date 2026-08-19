@@ -118,7 +118,13 @@ const accesos = computed(() => {
     // migración; de ahí en adelante es un control fino real).
     if (auth.puedeReserva)    items.push({ label: 'Reserva',     icon: CubeIcon,                    to: { name: 'reserva'    } })
     if (auth.puedeProduccion) items.push({ label: 'Producción',  icon: WrenchScrewdriverIcon,       to: { name: 'produccion' } })
-    if (auth.puedeSurtir)     items.push({ label: 'Surtir',      icon: ArchiveBoxArrowDownIcon,     to: { name: 'surtir'     } })
+    if (auth.puedeSurtir) {
+      items.push({ label: 'Surtir',   icon: ArchiveBoxArrowDownIcon, to: { name: 'surtir' } })
+      // Antes solo estaba "Surtir", que aterriza en "Nuevo surtido": un
+      // supervisor no tenía cómo llegar directo a Traslado desde el Home,
+      // solo buscándolo dentro de esa pantalla.
+      items.push({ label: 'Traslado', icon: ArrowPathIcon,           to: { name: 'surtir', query: { tab: 'traslado' } } })
+    }
     if (auth.puedeCostos)     items.push({ label: 'Costos',      icon: CalculatorIcon,               to: { name: 'costos'     } })
     if (auth.isTapicero) {
       items.push({ label: 'Mis pasos', icon: ClipboardDocumentCheckIcon,  to: { name: 'mis-pasos'  }, badge: pasos.pendientesCount })
