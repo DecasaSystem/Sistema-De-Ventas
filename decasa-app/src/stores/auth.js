@@ -92,6 +92,7 @@ export const useAuthStore = defineStore('auth', () => {
       acceso_redes:      data.acceso_redes      ?? false,
       acceso_comisiones: data.acceso_comisiones ?? false,
       recarga_telas:     data.recarga_telas     ?? false,
+      acceso_surtir:     data.acceso_surtir     ?? false,
       tienda_default_id: data.tienda_default_id ?? null,
       firma_url:         data.firma_url         ?? null,
       independiente:     data.independiente     ?? false,
@@ -125,6 +126,10 @@ export const useAuthStore = defineStore('auth', () => {
   const tieneAccesoRedes      = computed(() => !!usuario.value?.acceso_redes)
   const tieneAccesoComisiones = computed(() => !!usuario.value?.acceso_comisiones)
   const puedeRecargarTelas    = computed(() => isSupervisor.value || (!!usuario.value?.recarga_telas && ['vendedor', 'supervisor'].includes(usuario.value?.rol)))
+  // Ya no es del rol vendedor: es una bandera asignable, como redes o
+  // comisiones. Los vendedores existentes la traen encendida desde la
+  // migración que la creó, así que nadie perdió acceso el día del cambio.
+  const puedeSurtir           = computed(() => isSupervisor.value || !!usuario.value?.acceso_surtir)
 
   // Dual-profile getters
   const tienePerfilAlternativo = computed(() => _perfiles.value.length > 1)
@@ -239,7 +244,7 @@ export const useAuthStore = defineStore('auth', () => {
     isAuthenticated, isSupervisor, isEbanista, isTapicero, isDespachador, isCosturero,
     isIndependiente, llevaCajaPropia,
     tieneAccesoPasos, tieneAccesoDespachoProd,
-    isFacturador, tieneAccesoRedes, tieneAccesoComisiones, puedeRecargarTelas,
+    isFacturador, tieneAccesoRedes, tieneAccesoComisiones, puedeRecargarTelas, puedeSurtir,
     tienePerfilAlternativo, perfilAlternativo, perfilActivoIdx,
     login, fetchMe, setFirma, setEmail, logout, clearSession,
     loginPerfilAlternativo, cambiarPerfil, eliminarPerfilAlternativo,

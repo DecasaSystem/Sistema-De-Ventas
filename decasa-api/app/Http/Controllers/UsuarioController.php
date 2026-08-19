@@ -26,6 +26,7 @@ class UsuarioController extends Controller
             'acceso_redes'        => (bool) $u->acceso_redes,
             'acceso_comisiones'   => (bool) $u->acceso_comisiones,
             'recarga_telas'       => (bool) $u->recarga_telas,
+            'acceso_surtir'       => (bool) $u->acceso_surtir,
             'tienda_default_id'   => $u->tienda_default_id,
             'tienda_default'      => $u->relationLoaded('tiendaDefault') ? $u->tiendaDefault : null,
             'activo'              => (bool) $u->activo,
@@ -79,6 +80,7 @@ class UsuarioController extends Controller
             'acceso_redes'        => 'boolean',
             'acceso_comisiones'   => 'boolean',
             'recarga_telas'       => 'boolean',
+            'acceso_surtir'       => 'boolean',
             'tienda_default_id' => [
                 // Un independiente no elige tienda: se le asigna la sede propia.
                 Rule::requiredIf(fn () => ! in_array($request->rol, $rolesProduccion)
@@ -123,6 +125,10 @@ class UsuarioController extends Controller
             'acceso_redes'        => $puedeAccesoRedes && $request->boolean('acceso_redes'),
             'acceso_comisiones'   => $esSupervisor && $request->boolean('acceso_comisiones'),
             'recarga_telas'       => $puedeRecargaTelas && $request->boolean('recarga_telas'),
+            // A diferencia de los otros permisos, este no se restringe por rol:
+            // es justo lo que se pidió — poder dárselo a cualquiera (un
+            // costurero, un ebanista) sin tener que volverlo vendedor.
+            'acceso_surtir'       => $request->boolean('acceso_surtir'),
             'tienda_default_id'   => $independiente
                 ? Tienda::sedeIndependientes()?->id
                 : ($data['tienda_default_id'] ?? null),
@@ -149,6 +155,7 @@ class UsuarioController extends Controller
             'acceso_redes'        => 'nullable|boolean',
             'acceso_comisiones'   => 'nullable|boolean',
             'recarga_telas'       => 'nullable|boolean',
+            'acceso_surtir'       => 'nullable|boolean',
             'tienda_default_id'   => 'sometimes|nullable|exists:tiendas,id',
         ], [
             'nombre.max'               => 'El nombre no puede tener más de 100 caracteres.',
@@ -180,6 +187,11 @@ class UsuarioController extends Controller
         }
         if ($request->has('recarga_telas')) {
             $data['recarga_telas'] = in_array($rolFinal, ['vendedor', 'supervisor']) && $request->boolean('recarga_telas');
+        }
+        // Sin restricción de rol: es lo que se pidió, poder asignárselo a
+        // cualquiera.
+        if ($request->has('acceso_surtir')) {
+            $data['acceso_surtir'] = $request->boolean('acceso_surtir');
         }
 
         if ($request->has('independiente')) {

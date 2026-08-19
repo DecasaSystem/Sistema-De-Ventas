@@ -27,6 +27,7 @@ class Usuario extends Authenticatable
         'acceso_redes',
         'acceso_comisiones',
         'recarga_telas',
+        'acceso_surtir',
         'tienda_default_id',
         'activo',
         'firma_url',
@@ -48,6 +49,7 @@ class Usuario extends Authenticatable
             'acceso_redes'        => 'boolean',
             'acceso_comisiones'   => 'boolean',
             'recarga_telas'       => 'boolean',
+            'acceso_surtir'       => 'boolean',
         ];
     }
 

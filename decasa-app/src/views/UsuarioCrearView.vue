@@ -24,6 +24,11 @@ const form = ref({
   acceso_redes: false,
   acceso_comisiones: false,
   recarga_telas: false,
+  // El rol por defecto de este formulario es 'vendedor', y un vendedor
+  // siempre ha tenido Surtir por su rol — se arranca encendido para que
+  // crear uno nuevo no lo deje sin algo que antes traía de fábrica. Para
+  // cualquier otro rol, quien crea la cuenta lo prende a mano si aplica.
+  acceso_surtir: true,
   tienda_default_id: '',
 })
 
@@ -85,6 +90,7 @@ async function submit() {
       acceso_redes: form.value.acceso_redes,
       acceso_comisiones: form.value.rol === 'supervisor' ? form.value.acceso_comisiones : false,
       recarga_telas: form.value.recarga_telas,
+      acceso_surtir: form.value.acceso_surtir,
       tienda_default_id: requiereTienda.value ? form.value.tienda_default_id : null,
     })
     router.push({ name: 'usuarios' })
@@ -334,6 +340,20 @@ async function submit() {
         <div>
           <label for="recarga_telas" class="text-sm font-medium text-gray-700 cursor-pointer">Puede recargar telas</label>
           <p class="text-xs text-gray-500 mt-0.5">Tendrá acceso al módulo de telas para agregar metros cuando llegue nueva mercancía.</p>
+        </div>
+      </div>
+
+      <!-- Acceso surtir (cualquier rol: es lo que se pidió, poder asignarlo) -->
+      <div class="flex items-start gap-3 py-2">
+        <input
+          id="acceso_surtir"
+          type="checkbox"
+          v-model="form.acceso_surtir"
+          class="mt-0.5 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+        />
+        <div>
+          <label for="acceso_surtir" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a módulo de Surtir</label>
+          <p class="text-xs text-gray-500 mt-0.5">Podrá enviar surtidos desde fábrica y hacer traslados entre tiendas.</p>
         </div>
       </div>
 

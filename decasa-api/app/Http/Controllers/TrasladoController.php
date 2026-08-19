@@ -32,7 +32,10 @@ class TrasladoController extends Controller
     public function stockTienda(Request $request, int $tiendaId)
     {
         $user = $request->user();
-        if ($user->rol === 'vendedor' && $user->tienda_default_id != $tiendaId) {
+        // No es "vendedor": es "no supervisor". Con acceso_surtir esto ya no
+        // lo usa solo el rol vendedor, y todo el que no sea supervisor tiene
+        // que quedarse mirando su propia tienda.
+        if ($user->rol !== 'supervisor' && $user->tienda_default_id != $tiendaId) {
             abort(403, 'Solo puedes ver el stock de tu propia tienda.');
         }
 
@@ -76,7 +79,11 @@ class TrasladoController extends Controller
         ]);
 
         $user      = $request->user();
-        $esVendedor = $user->rol === 'vendedor';
+        // Igual que en stockTienda(): ya no es solo el rol vendedor. Cualquiera
+        // que no sea supervisor -por rol o por tener acceso_surtir- entra por
+        // el camino restringido: su propia tienda, con validador, pendiente
+        // de aceptación (no mueve inventario de una).
+        $esVendedor = $user->rol !== 'supervisor';
 
         if ($esVendedor) {
             if ($user->tienda_default_id != $data['tienda_origen_id']) {
@@ -222,7 +229,7 @@ class TrasladoController extends Controller
         $user = $request->user();
         $q = Traslado::with($this->withRelaciones())->orderByDesc('created_at');
 
-        if ($user->rol === 'vendedor') {
+        if ($user->rol !== 'supervisor') {
             $q->where(function ($q) use ($user) {
                 $q->where('tienda_origen_id', $user->tienda_default_id)
                   ->orWhere('tienda_destino_id', $user->tienda_default_id);

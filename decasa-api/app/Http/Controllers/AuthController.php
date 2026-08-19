@@ -42,6 +42,7 @@ class AuthController extends Controller
             'acceso_redes'       => (bool) $usuario->acceso_redes,
             'acceso_comisiones'  => (bool) $usuario->acceso_comisiones,
             'recarga_telas'      => (bool) $usuario->recarga_telas,
+            'acceso_surtir'      => (bool) $usuario->acceso_surtir,
             'tienda_default_id'  => $usuario->tienda_default_id,
             'firma_url'          => $usuario->firma_url,
         ]);
@@ -72,6 +73,7 @@ class AuthController extends Controller
             'acceso_redes'      => (bool) $usuario->acceso_redes,
             'acceso_comisiones' => (bool) $usuario->acceso_comisiones,
             'recarga_telas'     => (bool) $usuario->recarga_telas,
+            'acceso_surtir'     => (bool) $usuario->acceso_surtir,
             'tienda_default_id' => $usuario->tienda_default_id,
             'tienda_default'    => $usuario->tiendaDefault,
             'firma_url'         => $usuario->firma_url,

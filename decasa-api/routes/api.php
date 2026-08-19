@@ -182,26 +182,24 @@ Route::middleware('auth:sanctum')->group(function () {
     // Vendedores-tienda — usado para seleccionar validadores en surtidos y traslados
     Route::get('/inventario/vendedores-tienda/{tiendaId}', [SurtidoController::class, 'vendedoresTienda'])->whereNumber('tiendaId');
 
-    // Surtir — accesible para vendedor (pendientes, aceptar, rechazar) y supervisor (todo)
+    // Surtir — accesible para cualquiera con el rol o con acceso_surtir (guarda
+    // adentro del controlador: la columna acceso_surtir no la sabe leer el
+    // middleware `role:`, que solo compara el rol).
     Route::get('/inventario/surtidos/pendientes',          [SurtidoController::class, 'pendientes']);
     Route::patch('/inventario/surtido-tiendas/{id}/aceptar', [SurtidoController::class, 'aceptar']);
     Route::patch('/inventario/surtido-tiendas/{id}/rechazar', [SurtidoController::class, 'rechazar']);
+    Route::post('/inventario/surtir',                          [SurtidoController::class, 'crear']);
+    Route::get('/inventario/surtidos',                         [SurtidoController::class, 'index']);
+    Route::get('/inventario/surtidos/{id}',                    [SurtidoController::class, 'show'])->whereNumber('id');
+    Route::get('/inventario/recomendaciones',                  [SurtidoController::class, 'recomendaciones']);
 
-    // Traslados entre tiendas (supervisor y vendedor, con guardas en el controlador)
+    // Traslados entre tiendas (mismo criterio, con guardas en el controlador)
     Route::get('/inventario/traslados/pendientes',                   [TrasladoController::class, 'pendientes']);
     Route::get('/inventario/traslados/stock-tienda/{tiendaId}',      [TrasladoController::class, 'stockTienda'])->whereNumber('tiendaId');
     Route::post('/inventario/traslados',                             [TrasladoController::class, 'crear']);
     Route::get('/inventario/traslados',                              [TrasladoController::class, 'index']);
     Route::patch('/inventario/traslados/{id}/aceptar',               [TrasladoController::class, 'aceptar'])->whereNumber('id');
     Route::patch('/inventario/traslados/{id}/rechazar',              [TrasladoController::class, 'rechazar'])->whereNumber('id');
-
-    Route::middleware('role:supervisor')->group(function () {
-
-        Route::post('/inventario/surtir',                          [SurtidoController::class, 'crear']);
-        Route::get('/inventario/surtidos',                         [SurtidoController::class, 'index']);
-        Route::get('/inventario/surtidos/{id}',                    [SurtidoController::class, 'show'])->whereNumber('id');
-        Route::get('/inventario/recomendaciones',                  [SurtidoController::class, 'recomendaciones']);
-    });
 
     // Variantes de producto (tela/color)
     Route::get('/variantes/telas',           [VarianteController::class, 'telas']);

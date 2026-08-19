@@ -60,6 +60,7 @@ const accesos = computed(() => {
     return [
       { label: 'Mis entregas', icon: TruckIcon,                  to: { name: 'mis-entregas' },        badge: despacho.misEntregasPendientes },
       { label: 'Estadísticas', icon: PresentationChartLineIcon,  to: { name: 'mis-stats-conductor' } },
+      ...(auth.puedeSurtir ? [{ label: 'Surtir', icon: ArrowPathIcon, to: { name: 'surtir' } }] : []),
       { label: 'Proveedores',  icon: BuildingStorefrontIcon,     to: { name: 'proveedores' } },
     ]
   }
@@ -72,6 +73,7 @@ const accesos = computed(() => {
       { label: 'Consultar costo', icon: CurrencyDollarIcon,      to: { name: 'consultas'   }, badge: consultas.pendientesCount },
       { label: 'Costos',       icon: CalculatorIcon,             to: { name: 'costos'      } },
       { label: 'Telas',        icon: SwatchIcon,                 to: { name: 'telas'       } },
+      ...(auth.puedeSurtir ? [{ label: 'Surtir', icon: ArrowPathIcon, to: { name: 'surtir' } }] : []),
       { label: 'Caja',         icon: BanknotesIcon,              to: { name: 'caja'        } },
       { label: 'Estadísticas', icon: PresentationChartLineIcon,  to: { name: 'mis-stats'   } },
       { label: 'Proveedores',  icon: BuildingStorefrontIcon,     to: { name: 'proveedores' } },
@@ -80,6 +82,7 @@ const accesos = computed(() => {
   if (auth.usuario?.rol === 'despachador') {
     return [
       { label: 'Despacho producción', icon: TruckIcon, to: { name: 'despacho-produccion' }, badge: despachoProd.pendientesCount },
+      ...(auth.puedeSurtir ? [{ label: 'Surtir', icon: ArrowPathIcon, to: { name: 'surtir' } }] : []),
       { label: 'Proveedores',         icon: BuildingStorefrontIcon, to: { name: 'proveedores' } },
     ]
   }
@@ -91,7 +94,10 @@ const accesos = computed(() => {
     { label: 'Inventario',   icon: ArchiveBoxIcon,            to: { name: 'inventario'  }, badge: surtidos.pendientesCount },
     ...((auth.puedeRecargarTelas || auth.isCosturero || auth.usuario?.rol === 'vendedor' || auth.isSupervisor) ? [{ label: 'Telas', icon: SwatchIcon, to: { name: 'telas' } }] : []),
     ...(!auth.isSupervisor ? [{ label: 'Fábrica',  icon: BuildingOffice2Icon, to: { name: 'reserva' } }] : []),
-    ...(!auth.isSupervisor ? [{ label: 'Traslado', icon: ArrowPathIcon,       to: { name: 'surtir'  } }] : []),
+    // Antes era "cualquiera que no sea supervisor". Ahora depende del
+    // permiso: un vendedor lo trae encendido de por defecto, y a partir de
+    // ahí es lo mismo que se le asigne a cualquier otro rol.
+    ...(!auth.isSupervisor && auth.puedeSurtir ? [{ label: 'Traslado', icon: ArrowPathIcon, to: { name: 'surtir'  } }] : []),
     ...(auth.tieneAccesoRedes ? [{ label: 'Redes', icon: ChatBubbleLeftRightIcon, to: { name: 'redes' } }] : []),
     { label: 'Citas', icon: CalendarDaysIcon, to: { name: 'citas' } },
     { label: 'Caja',  icon: BanknotesIcon,    to: { name: 'caja'  } },

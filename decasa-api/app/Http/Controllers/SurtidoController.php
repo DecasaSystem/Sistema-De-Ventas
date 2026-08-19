@@ -26,11 +26,27 @@ use Illuminate\Support\Facades\Log;
 class SurtidoController extends Controller
 {
     /**
+     * "Nuevo surtido desde fábrica" ya no es solo del supervisor: se le puede
+     * dar el permiso a cualquiera (acceso_surtir), igual que pasó con redes o
+     * comisiones. Vive aquí y no en la ruta porque el middleware `role:` solo
+     * sabe comparar el rol, no una columna aparte.
+     */
+    private function puedeIniciarSurtido(?Usuario $usuario): bool
+    {
+        return $usuario && ($usuario->rol === 'supervisor' || $usuario->acceso_surtir);
+    }
+
+    /**
      * POST /api/inventario/surtir
-     * Supervisor crea un surtido y notifica a los vendedores validadores.
+     * Quien tenga acceso al módulo crea un surtido y notifica a los
+     * vendedores validadores.
      */
     public function crear(Request $request)
     {
+        if (! $this->puedeIniciarSurtido($request->user())) {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+
         $data = $request->validate([
             'notas'                                     => 'nullable|string|max:1000',
             'fuente_fabrica'                            => 'boolean',
@@ -170,10 +186,14 @@ class SurtidoController extends Controller
 
     /**
      * GET /api/inventario/surtidos
-     * Historial de surtidos — solo supervisor.
+     * Historial de surtidos — de quien tenga acceso al módulo.
      */
     public function index(Request $request)
     {
+        if (! $this->puedeIniciarSurtido($request->user())) {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+
         $query = Surtido::with([
             'supervisor:id,nombre',
             'tiendas.tienda:id,nombre',
@@ -220,6 +240,10 @@ class SurtidoController extends Controller
      */
     public function show(int $id)
     {
+        if (! $this->puedeIniciarSurtido(auth()->user())) {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+
         $surtido = Surtido::with([
             'supervisor:id,nombre',
             'tiendas.tienda:id,nombre',
@@ -585,6 +609,10 @@ class SurtidoController extends Controller
      */
     public function recomendaciones(Request $request)
     {
+        if (! $this->puedeIniciarSurtido($request->user())) {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+
         $VENTANA_DIAS   = (int) $request->query('ventana', 90);   // historial que se mira
         $HORIZONTE_DIAS = (int) $request->query('horizonte', 30); // stock que se quiere tener
         $desde          = now()->subDays($VENTANA_DIAS);

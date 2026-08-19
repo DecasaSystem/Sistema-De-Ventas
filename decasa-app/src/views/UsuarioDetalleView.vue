@@ -34,7 +34,7 @@ const nuevaPassword = ref('')
 const confirmacionPassword = ref('')
 
 // Edit form
-const editForm = ref({ nombre: '', email: '', rol: '', facturacion: false, es_tapicero: false, independiente: false, notif_asignar_fecha: true, notif_stock: false, acceso_redes: false, acceso_comisiones: false, recarga_telas: false, tienda_default_id: '' })
+const editForm = ref({ nombre: '', email: '', rol: '', facturacion: false, es_tapicero: false, independiente: false, notif_asignar_fecha: true, notif_stock: false, acceso_redes: false, acceso_comisiones: false, recarga_telas: false, acceso_surtir: false, tienda_default_id: '' })
 const rolesSinTienda = ['conductor', 'ebanista', 'despachador', 'costurero']
 
 // Solo un vendedor puede ir por su cuenta, y entonces no pertenece a ninguna tienda.
@@ -123,6 +123,7 @@ function openEditModal() {
     acceso_redes: usuario.value.acceso_redes ?? false,
     acceso_comisiones: usuario.value.acceso_comisiones ?? false,
     recarga_telas: usuario.value.recarga_telas ?? false,
+    acceso_surtir: usuario.value.acceso_surtir ?? false,
     tienda_default_id: usuario.value.tienda_default_id,
   }
   actionError.value = ''
@@ -153,6 +154,7 @@ async function submitEdit() {
       acceso_redes: ['vendedor', 'supervisor'].includes(editForm.value.rol) ? editForm.value.acceso_redes : false,
       acceso_comisiones: editForm.value.rol === 'supervisor' ? editForm.value.acceso_comisiones : false,
       recarga_telas: ['vendedor', 'supervisor'].includes(editForm.value.rol) ? editForm.value.recarga_telas : false,
+      acceso_surtir: editForm.value.acceso_surtir,
       tienda_default_id: editRequiereTienda.value ? editForm.value.tienda_default_id : null,
     })
     showEditModal.value = false
@@ -291,6 +293,15 @@ onMounted(async () => {
           <div>
             <p class="text-xs text-gray-400">Módulo de telas</p>
             <p class="font-medium text-pink-700">Puede recargar telas</p>
+          </div>
+        </div>
+        <div v-if="usuario.acceso_surtir && usuario.rol !== 'supervisor'" class="flex items-center gap-3">
+          <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
+            <span class="text-sm">📦</span>
+          </div>
+          <div>
+            <p class="text-xs text-gray-400">Módulo de Surtir</p>
+            <p class="font-medium text-purple-700">Acceso habilitado</p>
           </div>
         </div>
         <div v-if="usuario.tienda_default && !usuario.independiente && !rolesSinTienda.includes(usuario.rol)" class="flex items-center gap-3">
@@ -561,6 +572,18 @@ onMounted(async () => {
               <div>
                 <label for="edit-recarga-telas" class="text-sm font-medium text-gray-700 cursor-pointer">Puede recargar telas</label>
                 <p class="text-xs text-gray-500 mt-0.5">Tendrá acceso al módulo de telas para agregar metros cuando llegue nueva mercancía.</p>
+              </div>
+            </div>
+            <div class="flex items-start gap-3 py-1">
+              <input
+                id="edit-acceso-surtir"
+                type="checkbox"
+                v-model="editForm.acceso_surtir"
+                class="mt-0.5 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+              />
+              <div>
+                <label for="edit-acceso-surtir" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a módulo de Surtir</label>
+                <p class="text-xs text-gray-500 mt-0.5">Podrá enviar surtidos desde fábrica y hacer traslados entre tiendas.</p>
               </div>
             </div>
             <div v-if="editRequiereTienda">
