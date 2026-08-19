@@ -106,9 +106,14 @@ const accesos = computed(() => {
   if (auth.isSupervisor) {
     items.push({ label: 'Reserva',     icon: CubeIcon,                    to: { name: 'reserva'    } })
     items.push({ label: 'Producción',  icon: WrenchScrewdriverIcon,       to: { name: 'produccion' } })
+    // Todo supervisor ya puede usar Surtir por el backend (rol=supervisor
+    // basta), pero el botón solo aparecía si además era tapicero. Quedaban
+    // afuera los que son supervisor por otra razón — por ejemplo, los que
+    // están en Vía Jardines/Tienda Virtual para el esquema de comisiones —
+    // con acceso real pero sin cómo llegar ahí desde el inicio.
+    items.push({ label: 'Surtir',      icon: ArchiveBoxArrowDownIcon,     to: { name: 'surtir'     } })
     if (auth.isTapicero) {
       items.push({ label: 'Mis pasos', icon: ClipboardDocumentCheckIcon,  to: { name: 'mis-pasos'  }, badge: pasos.pendientesCount })
-      items.push({ label: 'Surtir',    icon: ArchiveBoxArrowDownIcon,     to: { name: 'surtir'     } })
     }
   }
 
