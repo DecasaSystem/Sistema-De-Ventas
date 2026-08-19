@@ -34,7 +34,13 @@ const nuevaPassword = ref('')
 const confirmacionPassword = ref('')
 
 // Edit form
-const editForm = ref({ nombre: '', email: '', rol: '', facturacion: false, es_tapicero: false, independiente: false, notif_asignar_fecha: true, notif_stock: false, acceso_redes: false, acceso_comisiones: false, recarga_telas: false, acceso_surtir: false, tienda_default_id: '' })
+const editForm = ref({
+  nombre: '', email: '', rol: '', facturacion: false, es_tapicero: false, independiente: false,
+  notif_asignar_fecha: true, notif_stock: false, acceso_redes: false, acceso_comisiones: false,
+  recarga_telas: false, acceso_surtir: false, acceso_costos: false, acceso_proveedores: false,
+  acceso_despacho: false, acceso_metricas: false, acceso_produccion: false, acceso_reserva: false,
+  ve_todas_ordenes: false, tienda_default_id: '',
+})
 const rolesSinTienda = ['conductor', 'ebanista', 'despachador', 'costurero']
 
 // Solo un vendedor puede ir por su cuenta, y entonces no pertenece a ninguna tienda.
@@ -124,6 +130,13 @@ function openEditModal() {
     acceso_comisiones: usuario.value.acceso_comisiones ?? false,
     recarga_telas: usuario.value.recarga_telas ?? false,
     acceso_surtir: usuario.value.acceso_surtir ?? false,
+    acceso_costos: usuario.value.acceso_costos ?? false,
+    acceso_proveedores: usuario.value.acceso_proveedores ?? false,
+    acceso_despacho: usuario.value.acceso_despacho ?? false,
+    acceso_metricas: usuario.value.acceso_metricas ?? false,
+    acceso_produccion: usuario.value.acceso_produccion ?? false,
+    acceso_reserva: usuario.value.acceso_reserva ?? false,
+    ve_todas_ordenes: usuario.value.ve_todas_ordenes ?? false,
     tienda_default_id: usuario.value.tienda_default_id,
   }
   actionError.value = ''
@@ -155,6 +168,13 @@ async function submitEdit() {
       acceso_comisiones: editForm.value.rol === 'supervisor' ? editForm.value.acceso_comisiones : false,
       recarga_telas: ['vendedor', 'supervisor'].includes(editForm.value.rol) ? editForm.value.recarga_telas : false,
       acceso_surtir: editForm.value.acceso_surtir,
+      acceso_costos: editForm.value.acceso_costos,
+      acceso_proveedores: editForm.value.acceso_proveedores,
+      acceso_despacho: editForm.value.rol === 'supervisor' ? editForm.value.acceso_despacho : false,
+      acceso_metricas: editForm.value.rol === 'supervisor' ? editForm.value.acceso_metricas : false,
+      acceso_produccion: editForm.value.rol === 'supervisor' ? editForm.value.acceso_produccion : false,
+      acceso_reserva: editForm.value.acceso_reserva,
+      ve_todas_ordenes: editForm.value.rol === 'vendedor' ? editForm.value.ve_todas_ordenes : false,
       tienda_default_id: editRequiereTienda.value ? editForm.value.tienda_default_id : null,
     })
     showEditModal.value = false
@@ -295,13 +315,76 @@ onMounted(async () => {
             <p class="font-medium text-pink-700">Puede recargar telas</p>
           </div>
         </div>
-        <div v-if="usuario.acceso_surtir && usuario.rol !== 'supervisor'" class="flex items-center gap-3">
+        <div v-if="usuario.acceso_surtir" class="flex items-center gap-3">
           <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
             <span class="text-sm">📦</span>
           </div>
           <div>
             <p class="text-xs text-gray-400">Módulo de Surtir</p>
             <p class="font-medium text-purple-700">Acceso habilitado</p>
+          </div>
+        </div>
+        <div v-if="usuario.acceso_costos" class="flex items-center gap-3">
+          <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
+            <span class="text-sm">🧮</span>
+          </div>
+          <div>
+            <p class="text-xs text-gray-400">Módulo de Costos</p>
+            <p class="font-medium text-blue-700">Acceso habilitado</p>
+          </div>
+        </div>
+        <div v-if="usuario.acceso_proveedores" class="flex items-center gap-3">
+          <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
+            <span class="text-sm">🏭</span>
+          </div>
+          <div>
+            <p class="text-xs text-gray-400">Proveedores</p>
+            <p class="font-medium text-blue-700">Puede crear y editar</p>
+          </div>
+        </div>
+        <div v-if="usuario.acceso_reserva" class="flex items-center gap-3">
+          <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
+            <span class="text-sm">🏗️</span>
+          </div>
+          <div>
+            <p class="text-xs text-gray-400">Reserva / Fábrica</p>
+            <p class="font-medium text-blue-700">Acceso habilitado</p>
+          </div>
+        </div>
+        <div v-if="usuario.ve_todas_ordenes && usuario.rol === 'vendedor'" class="flex items-center gap-3">
+          <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
+            <span class="text-sm">👁️</span>
+          </div>
+          <div>
+            <p class="text-xs text-gray-400">Visibilidad de órdenes</p>
+            <p class="font-medium text-blue-700">Ve todas las órdenes</p>
+          </div>
+        </div>
+        <div v-if="usuario.acceso_despacho && usuario.rol === 'supervisor'" class="flex items-center gap-3">
+          <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
+            <span class="text-sm">🚚</span>
+          </div>
+          <div>
+            <p class="text-xs text-gray-400">Módulo de Despacho</p>
+            <p class="font-medium text-blue-700">Acceso habilitado</p>
+          </div>
+        </div>
+        <div v-if="usuario.acceso_metricas && usuario.rol === 'supervisor'" class="flex items-center gap-3">
+          <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
+            <span class="text-sm">📊</span>
+          </div>
+          <div>
+            <p class="text-xs text-gray-400">Métricas de Redes</p>
+            <p class="font-medium text-blue-700">Acceso habilitado</p>
+          </div>
+        </div>
+        <div v-if="usuario.acceso_produccion && usuario.rol === 'supervisor'" class="flex items-center gap-3">
+          <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
+            <span class="text-sm">🛠️</span>
+          </div>
+          <div>
+            <p class="text-xs text-gray-400">Producción</p>
+            <p class="font-medium text-blue-700">Acceso habilitado</p>
           </div>
         </div>
         <div v-if="usuario.tienda_default && !usuario.independiente && !rolesSinTienda.includes(usuario.rol)" class="flex items-center gap-3">
@@ -586,6 +669,92 @@ onMounted(async () => {
                 <p class="text-xs text-gray-500 mt-0.5">Podrá enviar surtidos desde fábrica y hacer traslados entre tiendas.</p>
               </div>
             </div>
+            <div v-if="['vendedor', 'supervisor'].includes(editForm.rol)" class="flex items-start gap-3 py-1">
+              <input
+                id="edit-acceso-costos"
+                type="checkbox"
+                v-model="editForm.acceso_costos"
+                class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <div>
+                <label for="edit-acceso-costos" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a módulo de Costos</label>
+                <p class="text-xs text-gray-500 mt-0.5">Podrá ver fichas técnicas y configuración de costos de producción.</p>
+              </div>
+            </div>
+            <div v-if="editForm.rol === 'vendedor'" class="flex items-start gap-3 py-1">
+              <input
+                id="edit-acceso-proveedores"
+                type="checkbox"
+                v-model="editForm.acceso_proveedores"
+                class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <div>
+                <label for="edit-acceso-proveedores" class="text-sm font-medium text-gray-700 cursor-pointer">Puede crear y editar proveedores</label>
+                <p class="text-xs text-gray-500 mt-0.5">Ver la lista ya está disponible para todos; esto habilita agregar o modificar.</p>
+              </div>
+            </div>
+            <div v-if="['vendedor', 'supervisor'].includes(editForm.rol)" class="flex items-start gap-3 py-1">
+              <input
+                id="edit-acceso-reserva"
+                type="checkbox"
+                v-model="editForm.acceso_reserva"
+                class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <div>
+                <label for="edit-acceso-reserva" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a Reserva / Fábrica</label>
+                <p class="text-xs text-gray-500 mt-0.5">Podrá consultar y mover el inventario que está en fábrica/reserva.</p>
+              </div>
+            </div>
+            <div v-if="editForm.rol === 'vendedor'" class="flex items-start gap-3 py-1">
+              <input
+                id="edit-ve-todas-ordenes"
+                type="checkbox"
+                v-model="editForm.ve_todas_ordenes"
+                class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <div>
+                <label for="edit-ve-todas-ordenes" class="text-sm font-medium text-gray-700 cursor-pointer">Puede ver todas las órdenes</label>
+                <p class="text-xs text-gray-500 mt-0.5">Sin esto solo ve las suyas. No hace falta volverlo supervisor para darle esta visibilidad.</p>
+              </div>
+            </div>
+            <template v-if="editForm.rol === 'supervisor'">
+              <div class="flex items-start gap-3 py-1">
+                <input
+                  id="edit-acceso-despacho"
+                  type="checkbox"
+                  v-model="editForm.acceso_despacho"
+                  class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <div>
+                  <label for="edit-acceso-despacho" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a módulo de Despacho</label>
+                  <p class="text-xs text-gray-500 mt-0.5">Podrá asignar conductores, armar rutas y ver el historial de entregas.</p>
+                </div>
+              </div>
+              <div class="flex items-start gap-3 py-1">
+                <input
+                  id="edit-acceso-metricas"
+                  type="checkbox"
+                  v-model="editForm.acceso_metricas"
+                  class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <div>
+                  <label for="edit-acceso-metricas" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a Métricas de Redes</label>
+                  <p class="text-xs text-gray-500 mt-0.5">Podrá ver las métricas del módulo de redes sociales.</p>
+                </div>
+              </div>
+              <div class="flex items-start gap-3 py-1">
+                <input
+                  id="edit-acceso-produccion"
+                  type="checkbox"
+                  v-model="editForm.acceso_produccion"
+                  class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <div>
+                  <label for="edit-acceso-produccion" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a Producción</label>
+                  <p class="text-xs text-gray-500 mt-0.5">Podrá ver y gestionar el tablero completo de producción del taller.</p>
+                </div>
+              </div>
+            </template>
             <div v-if="editRequiereTienda">
               <label class="block text-sm font-medium text-gray-700 mb-1">Tienda</label>
               <select v-model="editForm.tienda_default_id" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">

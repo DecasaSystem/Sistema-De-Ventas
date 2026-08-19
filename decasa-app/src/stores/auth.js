@@ -93,6 +93,13 @@ export const useAuthStore = defineStore('auth', () => {
       acceso_comisiones: data.acceso_comisiones ?? false,
       recarga_telas:     data.recarga_telas     ?? false,
       acceso_surtir:     data.acceso_surtir     ?? false,
+      acceso_costos:      data.acceso_costos      ?? false,
+      acceso_proveedores: data.acceso_proveedores ?? false,
+      acceso_despacho:    data.acceso_despacho    ?? false,
+      acceso_metricas:    data.acceso_metricas    ?? false,
+      acceso_produccion:  data.acceso_produccion  ?? false,
+      acceso_reserva:     data.acceso_reserva     ?? false,
+      ve_todas_ordenes:   data.ve_todas_ordenes   ?? false,
       tienda_default_id: data.tienda_default_id ?? null,
       firma_url:         data.firma_url         ?? null,
       independiente:     data.independiente     ?? false,
@@ -129,7 +136,20 @@ export const useAuthStore = defineStore('auth', () => {
   // Ya no es del rol vendedor: es una bandera asignable, como redes o
   // comisiones. Los vendedores existentes la traen encendida desde la
   // migración que la creó, así que nadie perdió acceso el día del cambio.
-  const puedeSurtir           = computed(() => isSupervisor.value || !!usuario.value?.acceso_surtir)
+  // Tampoco hay atajo por ser supervisor: ese respaldo también se dio en la
+  // migración, pero de ahí en adelante es un permiso real por trabajador.
+  const puedeSurtir           = computed(() => !!usuario.value?.acceso_surtir)
+  // Costos: el ebanista lo sigue trayendo automático (no se tocó); el resto
+  // —incluido el supervisor— necesita la bandera.
+  const puedeCostos           = computed(() => isEbanista.value || !!usuario.value?.acceso_costos)
+  // Proveedores: ver la lista sigue abierto a todos; esto es solo para
+  // crear/editar. Predeterminado para supervisor, activable para el resto.
+  const puedeProveedores      = computed(() => isSupervisor.value || !!usuario.value?.acceso_proveedores)
+  const puedeDespacho         = computed(() => !!usuario.value?.acceso_despacho)
+  const puedeMetricas         = computed(() => !!usuario.value?.acceso_metricas)
+  const puedeProduccion       = computed(() => !!usuario.value?.acceso_produccion)
+  const puedeReserva          = computed(() => !!usuario.value?.acceso_reserva)
+  const veTodasOrdenes        = computed(() => !!usuario.value?.ve_todas_ordenes)
 
   // Dual-profile getters
   const tienePerfilAlternativo = computed(() => _perfiles.value.length > 1)
@@ -245,6 +265,7 @@ export const useAuthStore = defineStore('auth', () => {
     isIndependiente, llevaCajaPropia,
     tieneAccesoPasos, tieneAccesoDespachoProd,
     isFacturador, tieneAccesoRedes, tieneAccesoComisiones, puedeRecargarTelas, puedeSurtir,
+    puedeCostos, puedeProveedores, puedeDespacho, puedeMetricas, puedeProduccion, puedeReserva, veTodasOrdenes,
     tienePerfilAlternativo, perfilAlternativo, perfilActivoIdx,
     login, fetchMe, setFirma, setEmail, logout, clearSession,
     loginPerfilAlternativo, cambiarPerfil, eliminarPerfilAlternativo,

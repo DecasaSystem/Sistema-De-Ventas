@@ -33,7 +33,9 @@ class SurtidoController extends Controller
      */
     private function puedeIniciarSurtido(?Usuario $usuario): bool
     {
-        return $usuario && ($usuario->rol === 'supervisor' || $usuario->acceso_surtir);
+        // Ya no hay atajo por rol: hasta el supervisor necesita la bandera
+        // prendida (la trae de por defecto por el respaldo de la migración).
+        return $usuario && $usuario->acceso_surtir;
     }
 
     /**

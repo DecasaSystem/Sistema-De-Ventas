@@ -10,7 +10,7 @@ const routes = [
   { path: '/clientes', name: 'clientes',  component: () => import('@/views/ClientesView.vue'),   meta: { requiresAuth: true } },
   { path: '/clientes/:id', name: 'cliente-detalle', component: () => import('@/views/ClienteDetalleView.vue'), meta: { requiresAuth: true } },
   { path: '/inventario', name: 'inventario', component: () => import('@/views/InventarioView.vue'), meta: { requiresAuth: true } },
-  { path: '/produccion', name: 'produccion', component: () => import('@/views/ProduccionView.vue'), meta: { requiresAuth: true, requiresSupervisor: true } },
+  { path: '/produccion', name: 'produccion', component: () => import('@/views/ProduccionView.vue'), meta: { requiresAuth: true, requiresProduccion: true } },
   { path: '/mis-stats',  name: 'mis-stats',  component: () => import('@/views/StatsVendedorView.vue'), meta: { requiresAuth: true } },
   { path: '/mis-stats-conductor', name: 'mis-stats-conductor', component: () => import('@/views/StatsConductorView.vue'), meta: { requiresAuth: true, requiresConductor: true } },
   { path: '/reportes',   name: 'reportes',   component: () => import('@/views/ReportesView.vue'),   meta: { requiresAuth: true, requiresSupervisor: true } },
@@ -18,7 +18,7 @@ const routes = [
   { path: '/usuarios/crear', name: 'usuario-crear', component: () => import('@/views/UsuarioCrearView.vue'), meta: { requiresAuth: true, requiresSupervisor: true } },
   { path: '/usuarios/:id', name: 'usuario-detalle', component: () => import('@/views/UsuarioDetalleView.vue'), meta: { requiresAuth: true, requiresSupervisor: true } },
   { path: '/perfil', name: 'perfil', component: () => import('@/views/PerfilView.vue'), meta: { requiresAuth: true } },
-  { path: '/despacho', name: 'despacho', component: () => import('@/views/DespachoView.vue'), meta: { requiresAuth: true, requiresSupervisor: true } },
+  { path: '/despacho', name: 'despacho', component: () => import('@/views/DespachoView.vue'), meta: { requiresAuth: true, requiresDespacho: true } },
   { path: '/mis-entregas', name: 'mis-entregas', component: () => import('@/views/MisEntregasView.vue'), meta: { requiresAuth: true, requiresConductor: true } },
   { path: '/surtir', name: 'surtir', component: () => import('@/views/SurtirView.vue'), meta: { requiresAuth: true, requiresSurtir: true } },
   // Nuevas rutas para roles de producción
@@ -29,7 +29,7 @@ const routes = [
   { path: '/facturacion', name: 'facturacion', component: () => import('@/views/FacturacionView.vue'), meta: { requiresAuth: true, requiresFacturador: true } },
   { path: '/reserva', name: 'reserva', component: () => import('@/views/ReservaView.vue'), meta: { requiresAuth: true, requiresReserva: true } },
   { path: '/redes',       name: 'redes',       component: () => import('@/views/RedesView.vue'),       meta: { requiresAuth: true, requiresRedes: true } },
-  { path: '/redes/metricas', name: 'metricas-redes', component: () => import('@/views/MetricasRedesView.vue'), meta: { requiresAuth: true, requiresSupervisor: true } },
+  { path: '/redes/metricas', name: 'metricas-redes', component: () => import('@/views/MetricasRedesView.vue'), meta: { requiresAuth: true, requiresMetricas: true } },
   { path: '/comisiones',  name: 'comisiones',  component: () => import('@/views/ComisionesView.vue'),  meta: { requiresAuth: true, requiresComisiones: true } },
   { path: '/citas',  name: 'citas',  component: () => import('@/views/CitasView.vue'),  meta: { requiresAuth: true } },
   { path: '/cotizaciones',     name: 'cotizaciones',       component: () => import('@/views/CotizacionesView.vue'),      meta: { requiresAuth: true } },
@@ -67,15 +67,20 @@ router.beforeEach((to) => {
   if (to.meta.guest && auth.isAuthenticated) return { name: 'dashboard' }
   if (to.meta.requiresSupervisor && !auth.isSupervisor) return { name: 'dashboard' }
   if (to.meta.requiresSurtir && !auth.puedeSurtir) return { name: 'dashboard' }
-  if (to.meta.requiresCostos && !auth.isSupervisor && auth.usuario?.rol !== 'ebanista') return { name: 'dashboard' }
+  if (to.meta.requiresCostos && !auth.puedeCostos) return { name: 'dashboard' }
   if (to.meta.requiresConductor && auth.usuario?.rol !== 'conductor') return { name: 'dashboard' }
   if (to.meta.requiresDespachador && !auth.tieneAccesoDespachoProd) return { name: 'dashboard' }
   if (to.meta.requiresProduccionWorker && !auth.tieneAccesoPasos) return { name: 'dashboard' }
   if (to.meta.requiresFacturador && !auth.isFacturador) return { name: 'dashboard' }
   if (to.meta.requiresRedes       && !auth.tieneAccesoRedes)       return { name: 'dashboard' }
+  if (to.meta.requiresMetricas    && !auth.puedeMetricas)          return { name: 'dashboard' }
   if (to.meta.requiresComisiones  && !auth.tieneAccesoComisiones)  return { name: 'dashboard' }
+  if (to.meta.requiresDespacho    && !auth.puedeDespacho)          return { name: 'dashboard' }
+  // El vendedor sigue entrando (ve solo lo suyo); el supervisor necesita el
+  // permiso para el tablero completo del taller.
+  if (to.meta.requiresProduccion && !(auth.usuario?.rol === 'vendedor' || (auth.isSupervisor && auth.puedeProduccion))) return { name: 'dashboard' }
   if (to.meta.requiresConsultas && !auth.isSupervisor && auth.usuario?.rol !== 'ebanista' && auth.usuario?.rol !== 'vendedor') return { name: 'dashboard' }
-  if (to.meta.requiresReserva && !auth.isSupervisor && auth.usuario?.rol !== 'vendedor') return { name: 'dashboard' }
+  if (to.meta.requiresReserva && !auth.puedeReserva) return { name: 'dashboard' }
   if (to.meta.requiresTelas && !auth.isCosturero && !auth.puedeRecargarTelas && auth.usuario?.rol !== 'vendedor' && !auth.isEbanista) return { name: 'dashboard' }
   if (to.meta.requiresCaja && !auth.isSupervisor && auth.usuario?.rol !== 'vendedor' && !auth.isEbanista) return { name: 'dashboard' }
 })

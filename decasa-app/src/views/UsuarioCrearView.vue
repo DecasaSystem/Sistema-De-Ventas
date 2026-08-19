@@ -25,10 +25,19 @@ const form = ref({
   acceso_comisiones: false,
   recarga_telas: false,
   // El rol por defecto de este formulario es 'vendedor', y un vendedor
-  // siempre ha tenido Surtir por su rol — se arranca encendido para que
-  // crear uno nuevo no lo deje sin algo que antes traía de fábrica. Para
-  // cualquier otro rol, quien crea la cuenta lo prende a mano si aplica.
+  // siempre ha tenido Surtir, Proveedores y Reserva por su rol — se arrancan
+  // encendidos para que crear uno nuevo no lo deje sin algo que antes traía
+  // de fábrica. Costos/Despacho/Métricas/Producción sí arrancan apagados
+  // aunque el rol sea supervisor: dejaron de ser automáticos, así que quien
+  // crea la cuenta los prende a propósito si corresponde.
   acceso_surtir: true,
+  acceso_proveedores: true,
+  acceso_reserva: true,
+  acceso_costos: false,
+  acceso_despacho: false,
+  acceso_metricas: false,
+  acceso_produccion: false,
+  ve_todas_ordenes: false,
   tienda_default_id: '',
 })
 
@@ -91,6 +100,13 @@ async function submit() {
       acceso_comisiones: form.value.rol === 'supervisor' ? form.value.acceso_comisiones : false,
       recarga_telas: form.value.recarga_telas,
       acceso_surtir: form.value.acceso_surtir,
+      acceso_costos: form.value.acceso_costos,
+      acceso_proveedores: form.value.acceso_proveedores,
+      acceso_despacho: form.value.rol === 'supervisor' ? form.value.acceso_despacho : false,
+      acceso_metricas: form.value.rol === 'supervisor' ? form.value.acceso_metricas : false,
+      acceso_produccion: form.value.rol === 'supervisor' ? form.value.acceso_produccion : false,
+      acceso_reserva: form.value.acceso_reserva,
+      ve_todas_ordenes: form.value.rol === 'vendedor' ? form.value.ve_todas_ordenes : false,
       tienda_default_id: requiereTienda.value ? form.value.tienda_default_id : null,
     })
     router.push({ name: 'usuarios' })
@@ -356,6 +372,102 @@ async function submit() {
           <p class="text-xs text-gray-500 mt-0.5">Podrá enviar surtidos desde fábrica y hacer traslados entre tiendas.</p>
         </div>
       </div>
+
+      <!-- Costos (vendedor y supervisor; el ebanista ya lo trae automático) -->
+      <div v-if="['vendedor', 'supervisor'].includes(form.rol)" class="flex items-start gap-3 py-2">
+        <input
+          id="acceso_costos"
+          type="checkbox"
+          v-model="form.acceso_costos"
+          class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+        />
+        <div>
+          <label for="acceso_costos" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a módulo de Costos</label>
+          <p class="text-xs text-gray-500 mt-0.5">Podrá ver fichas técnicas y configuración de costos de producción.</p>
+        </div>
+      </div>
+
+      <!-- Proveedores (activable solo para vendedor: el supervisor ya lo trae de por sí) -->
+      <div v-if="form.rol === 'vendedor'" class="flex items-start gap-3 py-2">
+        <input
+          id="acceso_proveedores"
+          type="checkbox"
+          v-model="form.acceso_proveedores"
+          class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+        />
+        <div>
+          <label for="acceso_proveedores" class="text-sm font-medium text-gray-700 cursor-pointer">Puede crear y editar proveedores</label>
+          <p class="text-xs text-gray-500 mt-0.5">Ver la lista de proveedores ya está disponible para todos; esto habilita agregar o modificar.</p>
+        </div>
+      </div>
+
+      <!-- Reserva / Fábrica (vendedor y supervisor) -->
+      <div v-if="['vendedor', 'supervisor'].includes(form.rol)" class="flex items-start gap-3 py-2">
+        <input
+          id="acceso_reserva"
+          type="checkbox"
+          v-model="form.acceso_reserva"
+          class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+        />
+        <div>
+          <label for="acceso_reserva" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a Reserva / Fábrica</label>
+          <p class="text-xs text-gray-500 mt-0.5">Podrá consultar y mover el inventario que está en fábrica/reserva.</p>
+        </div>
+      </div>
+
+      <!-- Ver todas las órdenes (solo vendedor: el supervisor ya ve todo) -->
+      <div v-if="form.rol === 'vendedor'" class="flex items-start gap-3 py-2">
+        <input
+          id="ve_todas_ordenes"
+          type="checkbox"
+          v-model="form.ve_todas_ordenes"
+          class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+        />
+        <div>
+          <label for="ve_todas_ordenes" class="text-sm font-medium text-gray-700 cursor-pointer">Puede ver todas las órdenes</label>
+          <p class="text-xs text-gray-500 mt-0.5">Sin esto solo ve las suyas. No hace falta volverlo supervisor para darle esta visibilidad.</p>
+        </div>
+      </div>
+
+      <!-- Opciones activables solo para supervisor: ya no vienen automáticas -->
+      <template v-if="form.rol === 'supervisor'">
+        <div class="flex items-start gap-3 py-2">
+          <input
+            id="acceso_despacho"
+            type="checkbox"
+            v-model="form.acceso_despacho"
+            class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <div>
+            <label for="acceso_despacho" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a módulo de Despacho</label>
+            <p class="text-xs text-gray-500 mt-0.5">Podrá asignar conductores, armar rutas y ver el historial de entregas.</p>
+          </div>
+        </div>
+        <div class="flex items-start gap-3 py-2">
+          <input
+            id="acceso_metricas"
+            type="checkbox"
+            v-model="form.acceso_metricas"
+            class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <div>
+            <label for="acceso_metricas" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a Métricas de Redes</label>
+            <p class="text-xs text-gray-500 mt-0.5">Podrá ver las métricas del módulo de redes sociales.</p>
+          </div>
+        </div>
+        <div class="flex items-start gap-3 py-2">
+          <input
+            id="acceso_produccion"
+            type="checkbox"
+            v-model="form.acceso_produccion"
+            class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <div>
+            <label for="acceso_produccion" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a Producción</label>
+            <p class="text-xs text-gray-500 mt-0.5">Podrá ver y gestionar el tablero completo de producción del taller.</p>
+          </div>
+        </div>
+      </template>
 
       <!-- Tienda -->
       <div v-if="requiereTienda">

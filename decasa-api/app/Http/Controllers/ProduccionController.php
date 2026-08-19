@@ -22,6 +22,13 @@ class ProduccionController extends Controller
     {
         $usuario = $request->user();
 
+        // El vendedor ya venía viendo solo lo suyo, sin necesitar permiso
+        // aparte; lo nuevo es que un supervisor necesita acceso_produccion
+        // para ver el tablero completo del taller.
+        if ($usuario->rol === 'supervisor' && ! $usuario->acceso_produccion) {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+
         $query = Produccion::with([
             'ordenItem.producto:id,nombre,categoria,foto_url',
             'ordenItem.orden.cliente:id,nombre,telefono',
@@ -501,6 +508,10 @@ class ProduccionController extends Controller
     {
         $usuario    = $request->user();
         $produccion = Produccion::with('ordenItem.orden')->findOrFail($id);
+
+        if ($usuario->rol === 'supervisor' && ! $usuario->acceso_produccion) {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
 
         // Vendedor solo puede actualizar sus propios pedidos (para otros estados, no en_proceso)
         if ($usuario->rol === 'vendedor' &&

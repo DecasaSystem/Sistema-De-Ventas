@@ -76,10 +76,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('/tipos-proceso/{id}',    [TipoProcesoController::class, 'update'])->whereNumber('id');
     Route::delete('/tipos-proceso/{id}',   [TipoProcesoController::class, 'destroy'])->whereNumber('id');
 
-    // Proveedores: libreta compartida, cualquiera lee y suma; borrar es del supervisor.
+    // Proveedores: cualquiera lee; crear/editar necesita acceso_proveedores
+    // (predeterminado para supervisor, activable para el resto); borrar sigue
+    // siendo solo del supervisor.
     Route::get('/proveedores',           [ProveedorController::class, 'index']);
-    Route::post('/proveedores',          [ProveedorController::class, 'store']);
-    Route::patch('/proveedores/{id}',    [ProveedorController::class, 'update'])->whereNumber('id');
+    Route::middleware('permiso:acceso_proveedores,supervisor')->group(function () {
+        Route::post('/proveedores',          [ProveedorController::class, 'store']);
+        Route::patch('/proveedores/{id}',    [ProveedorController::class, 'update'])->whereNumber('id');
+    });
     Route::delete('/proveedores/{id}',   [ProveedorController::class, 'destroy'])->whereNumber('id')->middleware('role:supervisor');
 
     // Reserva / Fábrica
@@ -87,7 +91,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/reserva/stock-lote',                    [ReservaController::class, 'stockLote']);
     // Lectura de inventario: cualquier usuario autenticado (vendedor consulta, supervisor gestiona)
     Route::get('/reserva/inventario',                    [ReservaController::class, 'inventario']);
-    Route::middleware('role:supervisor')->group(function () {
+    Route::middleware('permiso:acceso_reserva')->group(function () {
         Route::post('/reserva/entrada',                  [ReservaController::class, 'entrada']);
         Route::post('/reserva/variante-entrada',         [ReservaController::class, 'entradaVariante']);
         Route::post('/reserva/salida',                   [ReservaController::class, 'salida']);
@@ -331,8 +335,9 @@ Route::middleware('auth:sanctum')->group(function () {
         // Público autenticado (supervisor, vendedor, conductor)
         Route::get('/por-orden/{ordenId}', [DespachoController::class, 'porOrden']);
 
-        // Supervisor
-        Route::middleware('role:supervisor')->group(function () {
+        // Antes era solo supervisor; ahora hace falta el permiso, que el
+        // supervisor trae de por defecto en el respaldo de la migración.
+        Route::middleware('permiso:acceso_despacho')->group(function () {
             Route::get('/cola',          [DespachoController::class, 'cola']);
             Route::get('/asignados',     [DespachoController::class, 'asignados']);
             Route::post('/asignar',      [DespachoController::class, 'asignar']);
@@ -390,8 +395,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/consultas-costo/{id}/mensajes',                 [ConsultaCostoController::class, 'mensajes'])->whereNumber('id');
     Route::post('/consultas-costo/{id}/mensajes',                [ConsultaCostoController::class, 'enviarMensaje'])->whereNumber('id');
 
-    // Configuración de costos — supervisor y ebanista
-    Route::middleware('role:supervisor,ebanista')->group(function () {
+    // Configuración de costos — el ebanista sigue automático; el resto
+    // (incluido el supervisor) necesita acceso_costos.
+    Route::middleware('permiso:acceso_costos,ebanista')->group(function () {
         Route::get('/configuracion/costos',                      [ConfiguracionCostosController::class, 'index']);
         Route::put('/configuracion/costos',                      [ConfiguracionCostosController::class, 'guardar']);
         Route::put('/configuracion/costos/factor-venta',         [ConfiguracionCostosController::class, 'guardarFactorVenta']);
@@ -426,7 +432,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/redes/conversaciones/{id}/tomar',           [RedesController::class, 'tomar']);
     Route::post('/redes/conversaciones/{id}/terminar',        [RedesController::class, 'terminar']);
     Route::delete('/redes/conversaciones/terminadas',         [RedesController::class, 'limpiarTerminadas'])->middleware('role:supervisor');
-    Route::get('/redes/metricas',                             [RedesController::class, 'metricas'])->middleware('role:supervisor');
+    Route::get('/redes/metricas',                             [RedesController::class, 'metricas'])->middleware('permiso:acceso_metricas');
     Route::get('/redes/catalogos',                            [RedesController::class, 'catalogos']);
 
     // Citas
@@ -449,11 +455,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/fichas-tecnicas',                        [FichaTecnicaController::class, 'index']);
     Route::get('/fichas-tecnicas/materiales-sugeridos',   [FichaTecnicaController::class, 'materialesSugeridos']);
     Route::get('/fichas-tecnicas/{fichaTecnica}',         [FichaTecnicaController::class, 'show']);
-    Route::middleware('role:supervisor,ebanista')->group(function () {
+    Route::middleware('permiso:acceso_costos,ebanista')->group(function () {
         Route::post('/fichas-tecnicas',                          [FichaTecnicaController::class, 'store']);
         Route::patch('/fichas-tecnicas/{fichaTecnica}/items',    [FichaTecnicaController::class, 'updateItems']);
     });
-    Route::middleware('role:supervisor')->group(function () {
+    Route::middleware(['role:supervisor', 'permiso:acceso_costos'])->group(function () {
         Route::post('/fichas-tecnicas/reimportar',               [FichaTecnicaController::class, 'reimportar']);
     });
 });

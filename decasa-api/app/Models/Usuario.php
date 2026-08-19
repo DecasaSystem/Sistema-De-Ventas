@@ -28,6 +28,13 @@ class Usuario extends Authenticatable
         'acceso_comisiones',
         'recarga_telas',
         'acceso_surtir',
+        'acceso_costos',
+        'acceso_proveedores',
+        'acceso_despacho',
+        'acceso_metricas',
+        'acceso_produccion',
+        'acceso_reserva',
+        've_todas_ordenes',
         'tienda_default_id',
         'activo',
         'firma_url',
@@ -50,6 +57,13 @@ class Usuario extends Authenticatable
             'acceso_comisiones'   => 'boolean',
             'recarga_telas'       => 'boolean',
             'acceso_surtir'       => 'boolean',
+            'acceso_costos'       => 'boolean',
+            'acceso_proveedores'  => 'boolean',
+            'acceso_despacho'     => 'boolean',
+            'acceso_metricas'     => 'boolean',
+            'acceso_produccion'   => 'boolean',
+            'acceso_reserva'      => 'boolean',
+            've_todas_ordenes'    => 'boolean',
         ];
     }
 

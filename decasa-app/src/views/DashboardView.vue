@@ -93,25 +93,29 @@ const accesos = computed(() => {
     { label: 'Clientes',     icon: UserGroupIcon,             to: { name: 'clientes'    } },
     { label: 'Inventario',   icon: ArchiveBoxIcon,            to: { name: 'inventario'  }, badge: surtidos.pendientesCount },
     ...((auth.puedeRecargarTelas || auth.isCosturero || auth.usuario?.rol === 'vendedor' || auth.isSupervisor) ? [{ label: 'Telas', icon: SwatchIcon, to: { name: 'telas' } }] : []),
-    ...(!auth.isSupervisor ? [{ label: 'Fábrica',  icon: BuildingOffice2Icon, to: { name: 'reserva' } }] : []),
+    // Antes era automática para todo el que no fuera supervisor. Ahora es un
+    // permiso activable, igual que Surtir: los vendedores actuales la
+    // conservan por el respaldo de la migración.
+    ...(!auth.isSupervisor && auth.puedeReserva ? [{ label: 'Fábrica',  icon: BuildingOffice2Icon, to: { name: 'reserva' } }] : []),
     // Antes era "cualquiera que no sea supervisor". Ahora depende del
     // permiso: un vendedor lo trae encendido de por defecto, y a partir de
     // ahí es lo mismo que se le asigne a cualquier otro rol.
     ...(!auth.isSupervisor && auth.puedeSurtir ? [{ label: 'Traslado', icon: ArrowPathIcon, to: { name: 'surtir'  } }] : []),
     ...(auth.tieneAccesoRedes ? [{ label: 'Redes', icon: ChatBubbleLeftRightIcon, to: { name: 'redes' } }] : []),
+    ...(!auth.isSupervisor && auth.puedeCostos ? [{ label: 'Costos', icon: CalculatorIcon, to: { name: 'costos' } }] : []),
     { label: 'Citas', icon: CalendarDaysIcon, to: { name: 'citas' } },
     { label: 'Caja',  icon: BanknotesIcon,    to: { name: 'caja'  } },
   ]
 
   if (auth.isSupervisor) {
-    items.push({ label: 'Reserva',     icon: CubeIcon,                    to: { name: 'reserva'    } })
-    items.push({ label: 'Producción',  icon: WrenchScrewdriverIcon,       to: { name: 'produccion' } })
-    // Todo supervisor ya puede usar Surtir por el backend (rol=supervisor
-    // basta), pero el botón solo aparecía si además era tapicero. Quedaban
-    // afuera los que son supervisor por otra razón — por ejemplo, los que
-    // están en Vía Jardines/Tienda Virtual para el esquema de comisiones —
-    // con acceso real pero sin cómo llegar ahí desde el inicio.
-    items.push({ label: 'Surtir',      icon: ArchiveBoxArrowDownIcon,     to: { name: 'surtir'     } })
+    // Costos/Despacho/Métricas/Producción/Reserva/Surtir ya no son
+    // automáticos por ser supervisor: cada uno necesita su permiso prendido
+    // (todo supervisor existente lo trae encendido por el respaldo de la
+    // migración; de ahí en adelante es un control fino real).
+    if (auth.puedeReserva)    items.push({ label: 'Reserva',     icon: CubeIcon,                    to: { name: 'reserva'    } })
+    if (auth.puedeProduccion) items.push({ label: 'Producción',  icon: WrenchScrewdriverIcon,       to: { name: 'produccion' } })
+    if (auth.puedeSurtir)     items.push({ label: 'Surtir',      icon: ArchiveBoxArrowDownIcon,     to: { name: 'surtir'     } })
+    if (auth.puedeCostos)     items.push({ label: 'Costos',      icon: CalculatorIcon,               to: { name: 'costos'     } })
     if (auth.isTapicero) {
       items.push({ label: 'Mis pasos', icon: ClipboardDocumentCheckIcon,  to: { name: 'mis-pasos'  }, badge: pasos.pendientesCount })
     }
@@ -132,12 +136,13 @@ const accesos = computed(() => {
 const accesosAdmin = computed(() => {
   if (!auth.isSupervisor) return []
   const items = [
-    { label: 'Despacho',     icon: TruckIcon,             to: { name: 'despacho'   }, badge: despacho.ordenesPendientes },
     { label: 'Trabajadores', icon: UsersIcon,              to: { name: 'usuarios'   } },
     { label: 'Reportes',     icon: ChartBarIcon,           to: { name: 'reportes'   } },
-    { label: 'Costos',       icon: CalculatorIcon,         to: { name: 'costos'     } },
   ]
-  if (auth.tieneAccesoRedes) {
+  if (auth.puedeDespacho) {
+    items.push({ label: 'Despacho', icon: TruckIcon, to: { name: 'despacho' }, badge: despacho.ordenesPendientes })
+  }
+  if (auth.puedeMetricas) {
     items.push({ label: 'Métricas', icon: ChartPieIcon, to: { name: 'metricas-redes' } })
   }
   if (auth.tieneAccesoComisiones) {

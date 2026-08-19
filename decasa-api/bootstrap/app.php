@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\CheckPermiso;
 use App\Http\Middleware\CheckRole;
 use App\Http\Middleware\SecurityHeaders;
 use Illuminate\Foundation\Application;
@@ -17,7 +18,8 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->append(SecurityHeaders::class);
         $middleware->alias([
-            'role' => CheckRole::class,
+            'role'    => CheckRole::class,
+            'permiso' => CheckPermiso::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

@@ -150,6 +150,7 @@ async function copiarUsuario(usuario) {
         Proveedores
       </h1>
       <button
+        v-if="auth.puedeProveedores"
         @click="abrirNuevo"
         class="flex items-center gap-1.5 bg-blue-600 text-white text-xs font-semibold px-3 py-2 rounded-xl hover:bg-blue-700 transition-colors shadow-sm"
       >
@@ -158,7 +159,7 @@ async function copiarUsuario(usuario) {
     </div>
 
     <p class="text-xs text-gray-400 mb-4">
-      Quiénes son, cómo contactarlos y qué proveen. Cualquiera puede sumar uno nuevo o corregir un dato.
+      Quiénes son, cómo contactarlos y qué proveen.
     </p>
 
     <div class="relative mb-4">
@@ -193,6 +194,7 @@ async function copiarUsuario(usuario) {
           </div>
           <div class="flex items-center gap-1 shrink-0">
             <button
+              v-if="auth.puedeProveedores"
               @click="abrirEditar(p)"
               class="p-1.5 text-gray-300 hover:text-blue-600 transition-colors"
               aria-label="Editar"
