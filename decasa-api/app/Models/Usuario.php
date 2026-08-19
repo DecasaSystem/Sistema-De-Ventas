@@ -51,6 +51,7 @@ class Usuario extends Authenticatable
         'acceso_despacho',
         'acceso_produccion',
         'acceso_reserva',
+        'acceso_nomina',
         've_todas_ordenes',
         'tienda_default_id',
         'activo',
@@ -79,6 +80,7 @@ class Usuario extends Authenticatable
             'acceso_despacho'     => 'boolean',
             'acceso_produccion'   => 'boolean',
             'acceso_reserva'      => 'boolean',
+            'acceso_nomina'       => 'boolean',
             've_todas_ordenes'    => 'boolean',
         ];
     }

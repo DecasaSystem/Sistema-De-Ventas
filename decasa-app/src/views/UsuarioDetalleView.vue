@@ -42,7 +42,7 @@ const editForm = ref({
   nombre: '', email: '', rol_id: '', facturacion: false, es_tapicero: false, independiente: false,
   notif_asignar_fecha: true, notif_stock: false, acceso_redes: false, acceso_comisiones: false,
   recarga_telas: false, acceso_surtir: false, acceso_costos: false, acceso_proveedores: false,
-  acceso_despacho: false, acceso_produccion: false, acceso_reserva: false,
+  acceso_despacho: false, acceso_produccion: false, acceso_nomina: false, acceso_reserva: false,
   ve_todas_ordenes: false, perfil_produccion_id: '', tienda_default_id: '',
 })
 const arquetiposSinTienda = ['conductor', 'despachador', 'taller']
@@ -136,6 +136,7 @@ function openEditModal() {
     acceso_proveedores: usuario.value.acceso_proveedores ?? false,
     acceso_despacho: usuario.value.acceso_despacho ?? false,
     acceso_produccion: usuario.value.acceso_produccion ?? false,
+    acceso_nomina: usuario.value.acceso_nomina ?? false,
     acceso_reserva: usuario.value.acceso_reserva ?? false,
     ve_todas_ordenes: usuario.value.ve_todas_ordenes ?? false,
     perfil_produccion_id: usuario.value.perfil_produccion_id ?? '',
@@ -174,6 +175,7 @@ async function submitEdit() {
       acceso_proveedores: editForm.value.acceso_proveedores,
       acceso_despacho: editArquetipo.value === 'supervisor' ? editForm.value.acceso_despacho : false,
       acceso_produccion: editArquetipo.value === 'supervisor' ? editForm.value.acceso_produccion : false,
+      acceso_nomina: editArquetipo.value === 'supervisor' ? editForm.value.acceso_nomina : false,
       acceso_reserva: editForm.value.acceso_reserva,
       ve_todas_ordenes: editArquetipo.value === 'vendedor' ? editForm.value.ve_todas_ordenes : false,
       perfil_produccion_id: editForm.value.perfil_produccion_id || null,
@@ -393,6 +395,15 @@ onMounted(async () => {
           </div>
           <div>
             <p class="text-xs text-gray-400">Producción</p>
+            <p class="font-medium text-blue-700">Acceso habilitado</p>
+          </div>
+        </div>
+        <div v-if="usuario.acceso_nomina && usuario.arquetipo === 'supervisor'" class="flex items-center gap-3">
+          <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
+            <span class="text-sm">💵</span>
+          </div>
+          <div>
+            <p class="text-xs text-gray-400">Nómina</p>
             <p class="font-medium text-blue-700">Acceso habilitado</p>
           </div>
         </div>
@@ -756,6 +767,18 @@ onMounted(async () => {
                 <div>
                   <label for="edit-acceso-produccion" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a Producción</label>
                   <p class="text-xs text-gray-500 mt-0.5">Podrá ver y gestionar el tablero completo de producción del taller.</p>
+                </div>
+              </div>
+              <div class="flex items-start gap-3 py-1">
+                <input
+                  id="edit-acceso-nomina"
+                  type="checkbox"
+                  v-model="editForm.acceso_nomina"
+                  class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <div>
+                  <label for="edit-acceso-nomina" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a Nómina</label>
+                  <p class="text-xs text-gray-500 mt-0.5">Podrá gestionar el pago quincenal de los trabajadores del taller.</p>
                 </div>
               </div>
             </template>

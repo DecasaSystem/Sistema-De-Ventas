@@ -125,6 +125,7 @@ class RolController extends Controller
             'acceso_despacho'    => $regla,
             'acceso_produccion'  => $regla,
             'acceso_reserva'     => $regla,
+            'acceso_nomina'      => $regla,
         ];
     }
 

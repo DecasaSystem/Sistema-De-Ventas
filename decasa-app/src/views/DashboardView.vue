@@ -160,6 +160,9 @@ const accesosAdmin = computed(() => {
   if (auth.tieneAccesoComisiones) {
     items.push({ label: 'Comisiones', icon: ReceiptPercentIcon, to: { name: 'comisiones' } })
   }
+  if (auth.puedeNomina) {
+    items.push({ label: 'Nómina', icon: BanknotesIcon, to: { name: 'nomina' } })
+  }
   return items
 })
 </script>

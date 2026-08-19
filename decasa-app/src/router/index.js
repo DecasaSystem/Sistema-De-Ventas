@@ -16,6 +16,8 @@ const routes = [
   { path: '/reportes',   name: 'reportes',   component: () => import('@/views/ReportesView.vue'),   meta: { requiresAuth: true, requiresSupervisor: true } },
   { path: '/usuarios', name: 'usuarios', component: () => import('@/views/UsuariosView.vue'), meta: { requiresAuth: true, requiresSupervisor: true } },
   { path: '/gestion', name: 'gestion', component: () => import('@/views/GestionView.vue'), meta: { requiresAuth: true, requiresSupervisor: true } },
+  { path: '/nomina', name: 'nomina', component: () => import('@/views/NominaView.vue'), meta: { requiresAuth: true, requiresNomina: true } },
+  { path: '/nomina/periodos/:id', name: 'nomina-periodo', component: () => import('@/views/NominaPeriodoView.vue'), meta: { requiresAuth: true, requiresNomina: true } },
   { path: '/usuarios/crear', name: 'usuario-crear', component: () => import('@/views/UsuarioCrearView.vue'), meta: { requiresAuth: true, requiresSupervisor: true } },
   { path: '/usuarios/:id', name: 'usuario-detalle', component: () => import('@/views/UsuarioDetalleView.vue'), meta: { requiresAuth: true, requiresSupervisor: true } },
   { path: '/perfil', name: 'perfil', component: () => import('@/views/PerfilView.vue'), meta: { requiresAuth: true } },
@@ -77,6 +79,7 @@ router.beforeEach((to) => {
   if (to.meta.requiresRedes       && !auth.tieneAccesoRedes)       return { name: 'dashboard' }
   if (to.meta.requiresComisiones  && !auth.tieneAccesoComisiones)  return { name: 'dashboard' }
   if (to.meta.requiresDespacho    && !auth.puedeDespacho)          return { name: 'dashboard' }
+  if (to.meta.requiresNomina      && !auth.puedeNomina)            return { name: 'dashboard' }
   // El vendedor sigue entrando (ve solo lo suyo); el supervisor necesita el
   // permiso para el tablero completo del taller.
   if (to.meta.requiresProduccion && !(auth.usuario?.rol === 'vendedor' || (auth.isSupervisor && auth.puedeProduccion))) return { name: 'dashboard' }

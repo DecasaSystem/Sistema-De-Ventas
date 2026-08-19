@@ -98,6 +98,7 @@ export const useAuthStore = defineStore('auth', () => {
       acceso_despacho:    data.acceso_despacho    ?? false,
       acceso_produccion:  data.acceso_produccion  ?? false,
       acceso_reserva:     data.acceso_reserva     ?? false,
+      acceso_nomina:      data.acceso_nomina      ?? false,
       ve_todas_ordenes:   data.ve_todas_ordenes   ?? false,
       perfil_produccion:  data.perfil_produccion  ?? null,
       tienda_default_id: data.tienda_default_id ?? null,
@@ -151,6 +152,7 @@ export const useAuthStore = defineStore('auth', () => {
   const puedeDespacho         = computed(() => !!usuario.value?.acceso_despacho)
   const puedeProduccion       = computed(() => !!usuario.value?.acceso_produccion)
   const puedeReserva          = computed(() => !!usuario.value?.acceso_reserva)
+  const puedeNomina           = computed(() => !!usuario.value?.acceso_nomina)
   const veTodasOrdenes        = computed(() => !!usuario.value?.ve_todas_ordenes)
 
   // Dual-profile getters
@@ -267,7 +269,7 @@ export const useAuthStore = defineStore('auth', () => {
     isIndependiente, llevaCajaPropia,
     tieneAccesoPasos, tieneAccesoDespachoProd,
     isFacturador, tieneAccesoRedes, tieneAccesoComisiones, puedeRecargarTelas, puedeSurtir,
-    puedeCostos, puedeProveedores, puedeDespacho, puedeProduccion, puedeReserva, veTodasOrdenes,
+    puedeCostos, puedeProveedores, puedeDespacho, puedeProduccion, puedeReserva, puedeNomina, veTodasOrdenes,
     tienePerfilAlternativo, perfilAlternativo, perfilActivoIdx,
     login, fetchMe, setFirma, setEmail, logout, clearSession,
     loginPerfilAlternativo, cambiarPerfil, eliminarPerfilAlternativo,

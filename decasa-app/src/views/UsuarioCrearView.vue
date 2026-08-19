@@ -40,6 +40,7 @@ const form = ref({
   acceso_costos: false,
   acceso_despacho: false,
   acceso_produccion: false,
+  acceso_nomina: false,
   ve_todas_ordenes: false,
   perfil_produccion_id: '',
   tienda_default_id: '',
@@ -130,6 +131,7 @@ async function submit() {
       acceso_proveedores: form.value.acceso_proveedores,
       acceso_despacho: arquetipo.value === 'supervisor' ? form.value.acceso_despacho : false,
       acceso_produccion: arquetipo.value === 'supervisor' ? form.value.acceso_produccion : false,
+      acceso_nomina: arquetipo.value === 'supervisor' ? form.value.acceso_nomina : false,
       acceso_reserva: form.value.acceso_reserva,
       ve_todas_ordenes: arquetipo.value === 'vendedor' ? form.value.ve_todas_ordenes : false,
       perfil_produccion_id: form.value.perfil_produccion_id || null,
@@ -491,6 +493,18 @@ async function submit() {
           <div>
             <label for="acceso_produccion" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a Producción</label>
             <p class="text-xs text-gray-500 mt-0.5">Podrá ver y gestionar el tablero completo de producción del taller.</p>
+          </div>
+        </div>
+        <div class="flex items-start gap-3 py-2">
+          <input
+            id="acceso_nomina"
+            type="checkbox"
+            v-model="form.acceso_nomina"
+            class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <div>
+            <label for="acceso_nomina" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a Nómina</label>
+            <p class="text-xs text-gray-500 mt-0.5">Podrá gestionar el pago quincenal de los trabajadores del taller.</p>
           </div>
         </div>
       </template>

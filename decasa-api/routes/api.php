@@ -44,6 +44,10 @@ use App\Http\Controllers\TipoVarianteController;
 use App\Http\Controllers\ProductoVarianteConfigController;
 use App\Http\Controllers\CajaController;
 use App\Http\Controllers\ComisionController;
+use App\Http\Controllers\EmpleadoController;
+use App\Http\Controllers\NominaPeriodoController;
+use App\Http\Controllers\NominaItemController;
+use App\Http\Controllers\NominaAjusteController;
 use Illuminate\Support\Facades\Route;
 
 // ── Auth (público) ────────────────────────────────────────────────────────────
@@ -98,6 +102,27 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/roles',          [RolController::class, 'store']);
     Route::patch('/roles/{id}',    [RolController::class, 'update'])->whereNumber('id');
     Route::delete('/roles/{id}',   [RolController::class, 'destroy'])->whereNumber('id');
+
+    // Nómina — simple, como se paga hoy en Excel. Todo bajo acceso_nomina.
+    Route::middleware('permiso:acceso_nomina')->prefix('nomina')->group(function () {
+        Route::get('/empleados',            [EmpleadoController::class, 'index']);
+        Route::post('/empleados',           [EmpleadoController::class, 'store']);
+        Route::patch('/empleados/{id}',     [EmpleadoController::class, 'update'])->whereNumber('id');
+        Route::delete('/empleados/{id}',    [EmpleadoController::class, 'destroy'])->whereNumber('id');
+
+        Route::get('/periodos',             [NominaPeriodoController::class, 'index']);
+        Route::post('/periodos',            [NominaPeriodoController::class, 'store']);
+        Route::get('/periodos/{id}',        [NominaPeriodoController::class, 'show'])->whereNumber('id');
+        Route::patch('/periodos/{id}',      [NominaPeriodoController::class, 'update'])->whereNumber('id');
+        Route::delete('/periodos/{id}',     [NominaPeriodoController::class, 'destroy'])->whereNumber('id');
+        Route::post('/periodos/{id}/pagar',      [NominaPeriodoController::class, 'marcarPagado'])->whereNumber('id');
+        Route::post('/periodos/{id}/empleados',  [NominaPeriodoController::class, 'agregarEmpleado'])->whereNumber('id');
+
+        Route::patch('/items/{id}',         [NominaItemController::class, 'update'])->whereNumber('id');
+        Route::delete('/items/{id}',        [NominaItemController::class, 'destroy'])->whereNumber('id');
+        Route::post('/items/{itemId}/ajustes', [NominaAjusteController::class, 'store'])->whereNumber('itemId');
+        Route::delete('/ajustes/{id}',      [NominaAjusteController::class, 'destroy'])->whereNumber('id');
+    });
 
     // Proveedores: cualquiera lee; crear/editar necesita acceso_proveedores
     // (predeterminado para supervisor, activable para el resto); borrar sigue
