@@ -54,9 +54,14 @@ const rolesSinTienda = ['conductor', 'ebanista', 'despachador', 'costurero']
 // producto de las que haya, así que tampoco elige una.
 const puedeSerIndependiente = computed(() => form.value.rol === 'vendedor')
 const esIndependiente = computed(() => puedeSerIndependiente.value && form.value.independiente)
-const requiereTienda = computed(() =>
+// El selector se muestra para cualquiera que no tenga la tienda oculta por
+// completo (ebanista, despachador...) ni sea independiente.
+const mostrarTienda = computed(() =>
   !rolesSinTienda.includes(form.value.rol) && !esIndependiente.value
 )
+// Pero solo es obligatorio elegir una si NO es supervisor: varios son jefes
+// que no pertenecen a ninguna tienda en particular.
+const requiereTienda = computed(() => mostrarTienda.value && form.value.rol !== 'supervisor')
 
 function errMsg(e) {
   if (!e) return ''
@@ -115,7 +120,7 @@ async function submit() {
       acceso_reserva: form.value.acceso_reserva,
       ve_todas_ordenes: form.value.rol === 'vendedor' ? form.value.ve_todas_ordenes : false,
       perfil_produccion_id: form.value.perfil_produccion_id || null,
-      tienda_default_id: requiereTienda.value ? form.value.tienda_default_id : null,
+      tienda_default_id: mostrarTienda.value ? (form.value.tienda_default_id || null) : null,
     })
     router.push({ name: 'usuarios' })
   } catch (e) {
@@ -491,17 +496,20 @@ async function submit() {
       </template>
 
       <!-- Tienda -->
-      <div v-if="requiereTienda">
-        <label class="block text-sm font-medium text-gray-700 mb-1">Tienda predeterminada *</label>
+      <div v-if="mostrarTienda">
+        <label class="block text-sm font-medium text-gray-700 mb-1">Tienda predeterminada{{ requiereTienda ? ' *' : '' }}</label>
         <select
           v-model="form.tienda_default_id"
           class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           :class="{ 'border-red-400': errores.tienda_default_id }"
         >
-          <option value="">Seleccionar tienda...</option>
+          <option value="">{{ form.rol === 'supervisor' ? 'Sin tienda (jefe)' : 'Seleccionar tienda...' }}</option>
           <option v-for="t in tiendas" :key="t.id" :value="t.id">{{ t.nombre }}</option>
         </select>
         <p v-if="errores.tienda_default_id" class="text-xs text-red-600 mt-1">{{ errMsg(errores.tienda_default_id) }}</p>
+        <p v-else-if="form.rol === 'supervisor'" class="text-xs text-gray-500 mt-1">
+          Déjalo en "Sin tienda" si es un jefe que no pertenece a ninguna en particular — no le tocará el reparto de comisiones de ninguna tienda.
+        </p>
       </div>
       <p v-else-if="esIndependiente" class="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
         No se elige tienda: al ser independiente no pertenece a ninguna.

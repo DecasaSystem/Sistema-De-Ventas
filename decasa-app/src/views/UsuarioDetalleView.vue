@@ -47,9 +47,13 @@ const rolesSinTienda = ['conductor', 'ebanista', 'despachador', 'costurero']
 
 // Solo un vendedor puede ir por su cuenta, y entonces no pertenece a ninguna tienda.
 const editEsIndependiente = computed(() => editForm.value.rol === 'vendedor' && editForm.value.independiente)
-const editRequiereTienda  = computed(() =>
+// El selector se muestra para cualquiera que no la tenga oculta por completo.
+const editMostrarTienda = computed(() =>
   !rolesSinTienda.includes(editForm.value.rol) && !editEsIndependiente.value
 )
+// Pero solo es obligatorio elegir una si no es supervisor: varios son jefes
+// que no pertenecen a ninguna tienda en particular.
+const editRequiereTienda = computed(() => editMostrarTienda.value && editForm.value.rol !== 'supervisor')
 
 const ROL_LABELS = {
   supervisor:  'Supervisor',
@@ -179,7 +183,7 @@ async function submitEdit() {
       acceso_reserva: editForm.value.acceso_reserva,
       ve_todas_ordenes: editForm.value.rol === 'vendedor' ? editForm.value.ve_todas_ordenes : false,
       perfil_produccion_id: editForm.value.perfil_produccion_id || null,
-      tienda_default_id: editRequiereTienda.value ? editForm.value.tienda_default_id : null,
+      tienda_default_id: editMostrarTienda.value ? (editForm.value.tienda_default_id || null) : null,
     })
     showEditModal.value = false
     await cargarUsuario()
@@ -780,12 +784,15 @@ onMounted(async () => {
                 </div>
               </div>
             </template>
-            <div v-if="editRequiereTienda">
-              <label class="block text-sm font-medium text-gray-700 mb-1">Tienda</label>
+            <div v-if="editMostrarTienda">
+              <label class="block text-sm font-medium text-gray-700 mb-1">Tienda{{ editRequiereTienda ? '' : ' (opcional)' }}</label>
               <select v-model="editForm.tienda_default_id" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <option value="">Seleccionar...</option>
+                <option value="">{{ editForm.rol === 'supervisor' ? 'Sin tienda (jefe)' : 'Seleccionar...' }}</option>
                 <option v-for="t in tiendas" :key="t.id" :value="t.id">{{ t.nombre }}</option>
               </select>
+              <p v-if="editForm.rol === 'supervisor'" class="text-xs text-gray-500 mt-1">
+                "Sin tienda" es para un jefe que no pertenece a ninguna en particular — no le toca el reparto de comisiones de ninguna tienda.
+              </p>
             </div>
             <p v-else-if="editEsIndependiente" class="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
               No se elige tienda: al ser independiente no pertenece a ninguna.

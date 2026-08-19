@@ -100,7 +100,11 @@ class UsuarioController extends Controller
             'perfil_produccion_id' => 'nullable|exists:perfiles_produccion,id',
             'tienda_default_id' => [
                 // Un independiente no elige tienda: se le asigna la sede propia.
-                Rule::requiredIf(fn () => ! in_array($request->rol, $rolesProduccion)
+                // Un supervisor tampoco es obligatorio: varios son jefes que no
+                // pertenecen a ninguna tienda en particular, y forzarles una
+                // los metía de cabeza extra en el reparto del 5% de almacén de
+                // esa tienda, diluyendo lo que le tocaba a cada vendedor real.
+                Rule::requiredIf(fn () => ! in_array($request->rol, [...$rolesProduccion, 'supervisor'])
                     && ! $request->boolean('independiente')),
                 'nullable',
                 'exists:tiendas,id',
