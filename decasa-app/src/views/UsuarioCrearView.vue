@@ -463,8 +463,12 @@ async function submit() {
             class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
           />
           <div>
-            <label for="acceso_despacho" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a módulo de Despacho</label>
-            <p class="text-xs text-gray-500 mt-0.5">Podrá asignar conductores, armar rutas y ver el historial de entregas.</p>
+            <label for="acceso_despacho" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a Despacho (logística de entregas)</label>
+            <p class="text-xs text-gray-500 mt-0.5">
+              Asignar conductores, armar rutas y ver el historial de entregas a domicilio.
+              <strong>No es el paso de producción</strong> (cuando un producto termina y pasa a listo para entrega) —
+              eso ya lo tiene automático quien sea despachador o encargado de tapicería, sin necesitar esto.
+            </p>
           </div>
         </div>
         <div class="flex items-start gap-3 py-2">
