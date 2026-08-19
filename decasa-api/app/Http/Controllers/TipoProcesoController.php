@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\PerfilProduccion;
 use App\Models\ProduccionPaso;
 use App\Models\TipoProceso;
 use Illuminate\Http\Request;
@@ -26,7 +27,10 @@ class TipoProcesoController extends Controller
 
         return response()->json([
             'tipos'    => $q->get(),
-            'perfiles' => TipoProceso::PERFILES,
+            // Antes era la constante fija TipoProceso::PERFILES; ahora sale
+            // del catálogo que se mantiene desde Gestión, así que un perfil
+            // nuevo aparece aquí solo, sin tocar código.
+            'perfiles' => PerfilProduccion::where('activo', true)->orderBy('orden')->orderBy('nombre')->get(['clave', 'nombre']),
             'colores'  => TipoProceso::COLORES,
         ]);
     }
@@ -43,7 +47,7 @@ class TipoProcesoController extends Controller
             'descripcion' => 'nullable|string|max:160',
             'color'       => ['nullable', Rule::in(TipoProceso::COLORES)],
             'perfiles'    => 'required|array|min:1',
-            'perfiles.*'  => Rule::in(TipoProceso::PERFILES),
+            'perfiles.*'  => Rule::in(PerfilProduccion::where('activo', true)->pluck('clave')),
         ]);
 
         // La clave sale del nombre y ya no cambia nunca: es lo que queda escrito
@@ -78,7 +82,7 @@ class TipoProcesoController extends Controller
             'descripcion' => 'sometimes|nullable|string|max:160',
             'color'       => ['sometimes', Rule::in(TipoProceso::COLORES)],
             'perfiles'    => 'sometimes|array|min:1',
-            'perfiles.*'  => Rule::in(TipoProceso::PERFILES),
+            'perfiles.*'  => Rule::in(PerfilProduccion::where('activo', true)->pluck('clave')),
             'orden'       => 'sometimes|integer|min:0|max:9999',
             'activo'      => 'sometimes|boolean',
         ]);

@@ -22,12 +22,6 @@ const cargando = ref(false)
 const guardando = ref(null)   // id o 'nuevo'
 const nuevo = ref(null)
 
-const ETIQUETA_PERFIL = {
-  ebanista:    'Ebanista',
-  tapicero:    'Tapicero',
-  despachador: 'Despachador',
-}
-
 watch(() => props.show, async (abierto) => {
   if (!abierto) return
   cargando.value = true
@@ -170,12 +164,12 @@ async function quitar(t) {
                   <label class="block text-[11px] text-gray-500 mb-1">Quién lo hace</label>
                   <div class="flex flex-wrap gap-1.5">
                     <button
-                      v-for="p in perfiles" :key="p" type="button" @click="alternarPerfil(t, p)"
+                      v-for="p in perfiles" :key="p.clave" type="button" @click="alternarPerfil(t, p.clave)"
                       :class="['px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors',
-                        (t.perfiles ?? []).includes(p)
+                        (t.perfiles ?? []).includes(p.clave)
                           ? 'border-blue-500 bg-blue-50 text-blue-700'
                           : 'border-gray-200 bg-white text-gray-500 hover:border-blue-300']"
-                    >{{ ETIQUETA_PERFIL[p] ?? p }}</button>
+                    >{{ p.nombre }}</button>
                   </div>
                 </div>
 
@@ -213,12 +207,12 @@ async function quitar(t) {
                   <label class="block text-[11px] text-gray-500 mb-1">Quién lo hace</label>
                   <div class="flex flex-wrap gap-1.5">
                     <button
-                      v-for="p in perfiles" :key="p" type="button" @click="alternarPerfil(nuevo, p)"
+                      v-for="p in perfiles" :key="p.clave" type="button" @click="alternarPerfil(nuevo, p.clave)"
                       :class="['px-2.5 py-1 rounded-lg border text-xs font-medium',
-                        nuevo.perfiles.includes(p)
+                        nuevo.perfiles.includes(p.clave)
                           ? 'border-blue-500 bg-blue-50 text-blue-700'
                           : 'border-gray-200 bg-white text-gray-500']"
-                    >{{ ETIQUETA_PERFIL[p] ?? p }}</button>
+                    >{{ p.nombre }}</button>
                   </div>
                 </div>
                 <div>

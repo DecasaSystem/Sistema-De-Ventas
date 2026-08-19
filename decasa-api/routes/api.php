@@ -10,6 +10,7 @@ use App\Http\Controllers\OrdenController;
 use App\Http\Controllers\OrdenMensajeController;
 use App\Http\Controllers\OrdenFijadaController;
 use App\Http\Controllers\PagoController;
+use App\Http\Controllers\PerfilProduccionController;
 use App\Http\Controllers\ProduccionController;
 use App\Http\Controllers\ProductoController;
 use App\Http\Controllers\ProveedorController;
@@ -68,6 +69,14 @@ Route::middleware('auth:sanctum')->group(function () {
     // Tiendas (solo lectura — usada por el selector de tienda en la orden)
     Route::get('/tiendas', [TiendaController::class, 'index']);
 
+    // Gestión de tiendas (crear, editar, eliminar) — solo supervisor
+    Route::middleware('role:supervisor')->group(function () {
+        Route::get('/tiendas/admin',    [TiendaController::class, 'adminIndex']);
+        Route::post('/tiendas',         [TiendaController::class, 'store']);
+        Route::patch('/tiendas/{id}',   [TiendaController::class, 'update'])->whereNumber('id');
+        Route::delete('/tiendas/{id}',  [TiendaController::class, 'destroy'])->whereNumber('id');
+    });
+
     // Procesos del taller: los mantiene el supervisor desde Produccion.
     // Leer puede cualquiera —las listas necesitan nombres y colores—, escribir
     // lo valida el controlador.
@@ -75,6 +84,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/tipos-proceso',          [TipoProcesoController::class, 'store']);
     Route::patch('/tipos-proceso/{id}',    [TipoProcesoController::class, 'update'])->whereNumber('id');
     Route::delete('/tipos-proceso/{id}',   [TipoProcesoController::class, 'destroy'])->whereNumber('id');
+
+    // Perfiles de producción: quién puede trabajar qué paso, mantenido desde
+    // Gestión. Mismo criterio de acceso que tipos-proceso.
+    Route::get('/perfiles-produccion',           [PerfilProduccionController::class, 'index']);
+    Route::post('/perfiles-produccion',          [PerfilProduccionController::class, 'store']);
+    Route::patch('/perfiles-produccion/{id}',    [PerfilProduccionController::class, 'update'])->whereNumber('id');
+    Route::delete('/perfiles-produccion/{id}',   [PerfilProduccionController::class, 'destroy'])->whereNumber('id');
 
     // Proveedores: cualquiera lee; crear/editar necesita acceso_proveedores
     // (predeterminado para supervisor, activable para el resto); borrar sigue

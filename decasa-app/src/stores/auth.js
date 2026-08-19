@@ -100,6 +100,7 @@ export const useAuthStore = defineStore('auth', () => {
       acceso_produccion:  data.acceso_produccion  ?? false,
       acceso_reserva:     data.acceso_reserva     ?? false,
       ve_todas_ordenes:   data.ve_todas_ordenes   ?? false,
+      perfil_produccion:  data.perfil_produccion  ?? null,
       tienda_default_id: data.tienda_default_id ?? null,
       firma_url:         data.firma_url         ?? null,
       independiente:     data.independiente     ?? false,
@@ -120,7 +121,10 @@ export const useAuthStore = defineStore('auth', () => {
   const isTapicero         = computed(() => usuario.value?.rol === 'supervisor' && !!usuario.value?.es_tapicero)
   const isDespachador      = computed(() => usuario.value?.rol === 'despachador')
   const isCosturero        = computed(() => usuario.value?.rol === 'costurero')
-  const tieneAccesoPasos   = computed(() => isEbanista.value || isTapicero.value || isDespachador.value)
+  // El rol sigue dando acceso automatico (ebanista/tapicero-supervisor/
+  // despachador); ademas, cualquiera con un perfil de produccion asignado
+  // -sin importar su rol- puede llegar a "Mis pasos".
+  const tieneAccesoPasos   = computed(() => isEbanista.value || isTapicero.value || isDespachador.value || !!usuario.value?.perfil_produccion)
 
   // El despacho de producción lo hacen dos personas: el despachador y la
   // encargada de tapicería. Ella ya podía por el backend (esas rutas admiten

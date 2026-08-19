@@ -21,6 +21,7 @@ class Usuario extends Authenticatable
         'rol',
         'facturacion',
         'es_tapicero',
+        'perfil_produccion_id',
         'independiente',
         'notif_asignar_fecha',
         'notif_stock',
@@ -70,6 +71,11 @@ class Usuario extends Authenticatable
     public function tiendaDefault()
     {
         return $this->belongsTo(Tienda::class, 'tienda_default_id');
+    }
+
+    public function perfilProduccion()
+    {
+        return $this->belongsTo(PerfilProduccion::class, 'perfil_produccion_id');
     }
 
     public function ordenes()

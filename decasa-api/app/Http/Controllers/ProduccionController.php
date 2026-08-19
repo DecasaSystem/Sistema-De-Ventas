@@ -730,41 +730,26 @@ class ProduccionController extends Controller
 
     private function tiposParaRol(Usuario $usuario): array
     {
-        // Que procesos toca cada quien sale del catalogo, que mantiene el
-        // taller. Un proceso nuevo aparece solo para quien corresponda sin
-        // tocar nada aqui.
-        if ($usuario->rol === 'ebanista')    return TipoProceso::clavesDePerfil('ebanista');
-        if ($usuario->rol === 'despachador') return TipoProceso::clavesDePerfil('despachador');
-        if ($usuario->rol === 'supervisor' && $usuario->es_tapicero) {
-            return TipoProceso::clavesDePerfil('tapicero');
-        }
-        return [];
+        // Que procesos toca cada quien sale del catalogo de tipos de
+        // proceso, cruzado con el perfil de produccion que tenga asignado
+        // el trabajador — ya no depende de su rol de sistema. Un perfil
+        // nuevo, o una asignacion nueva, funciona sin tocar codigo.
+        $clave = $usuario->perfilProduccion?->clave;
+        return $clave ? TipoProceso::clavesDePerfil($clave) : [];
     }
 
     private function notificarTrabajadores(string $tipoProceso, int $produccionId, int $ordenId, string $productoNombre): void
     {
         $label = ProduccionPaso::labelProceso($tipoProceso);
 
-        $usuariosANotificar = collect();
-
-        // A quien se avisa sale del mismo sitio que quien puede hacerlo.
+        // A quien se avisa sale del mismo sitio que quien puede hacerlo: los
+        // perfiles del proceso, cruzados con quien tenga cada perfil asignado
+        // — de cualquier rol, no solo ebanista/despachador/tapicero-supervisor.
         $perfiles = TipoProceso::perfilesDe($tipoProceso);
 
-        if (in_array('ebanista', $perfiles, true)) {
-            $usuariosANotificar = $usuariosANotificar->merge(
-                Usuario::where('rol', 'ebanista')->where('activo', true)->get()
-            );
-        }
-        if (in_array('tapicero', $perfiles, true)) {
-            $usuariosANotificar = $usuariosANotificar->merge(
-                Usuario::where('rol', 'supervisor')->where('es_tapicero', true)->where('activo', true)->get()
-            );
-        }
-        if (in_array('despachador', $perfiles, true)) {
-            $usuariosANotificar = $usuariosANotificar->merge(
-                Usuario::where('rol', 'despachador')->where('activo', true)->get()
-            );
-        }
+        $usuariosANotificar = Usuario::where('activo', true)
+            ->whereHas('perfilProduccion', fn($q) => $q->whereIn('clave', $perfiles))
+            ->get();
 
         foreach ($usuariosANotificar->unique('id') as $trabajador) {
             NotificacionService::crear(

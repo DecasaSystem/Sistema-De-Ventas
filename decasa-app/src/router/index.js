@@ -15,6 +15,7 @@ const routes = [
   { path: '/mis-stats-conductor', name: 'mis-stats-conductor', component: () => import('@/views/StatsConductorView.vue'), meta: { requiresAuth: true, requiresConductor: true } },
   { path: '/reportes',   name: 'reportes',   component: () => import('@/views/ReportesView.vue'),   meta: { requiresAuth: true, requiresSupervisor: true } },
   { path: '/usuarios', name: 'usuarios', component: () => import('@/views/UsuariosView.vue'), meta: { requiresAuth: true, requiresSupervisor: true } },
+  { path: '/gestion', name: 'gestion', component: () => import('@/views/GestionView.vue'), meta: { requiresAuth: true, requiresSupervisor: true } },
   { path: '/usuarios/crear', name: 'usuario-crear', component: () => import('@/views/UsuarioCrearView.vue'), meta: { requiresAuth: true, requiresSupervisor: true } },
   { path: '/usuarios/:id', name: 'usuario-detalle', component: () => import('@/views/UsuarioDetalleView.vue'), meta: { requiresAuth: true, requiresSupervisor: true } },
   { path: '/perfil', name: 'perfil', component: () => import('@/views/PerfilView.vue'), meta: { requiresAuth: true } },

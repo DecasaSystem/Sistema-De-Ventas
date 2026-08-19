@@ -3,10 +3,12 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { createUsuario } from '@/api/usuarios'
 import { getTiendas } from '@/api/ordenes'
+import { getPerfilesProduccion } from '@/api/perfilesProduccion'
 
 const router = useRouter()
 
-const tiendas = ref([])
+const tiendas  = ref([])
+const perfiles = ref([])
 const submitting = ref(false)
 const error = ref('')
 
@@ -38,6 +40,7 @@ const form = ref({
   acceso_metricas: false,
   acceso_produccion: false,
   ve_todas_ordenes: false,
+  perfil_produccion_id: '',
   tienda_default_id: '',
 })
 
@@ -64,6 +67,10 @@ onMounted(async () => {
   try {
     const { data } = await getTiendas()
     tiendas.value = data
+  } catch {}
+  try {
+    const { data } = await getPerfilesProduccion()
+    perfiles.value = data
   } catch {}
 })
 
@@ -107,6 +114,7 @@ async function submit() {
       acceso_produccion: form.value.rol === 'supervisor' ? form.value.acceso_produccion : false,
       acceso_reserva: form.value.acceso_reserva,
       ve_todas_ordenes: form.value.rol === 'vendedor' ? form.value.ve_todas_ordenes : false,
+      perfil_produccion_id: form.value.perfil_produccion_id || null,
       tienda_default_id: requiereTienda.value ? form.value.tienda_default_id : null,
     })
     router.push({ name: 'usuarios' })
@@ -427,6 +435,19 @@ async function submit() {
           <label for="ve_todas_ordenes" class="text-sm font-medium text-gray-700 cursor-pointer">Puede ver todas las órdenes</label>
           <p class="text-xs text-gray-500 mt-0.5">Sin esto solo ve las suyas. No hace falta volverlo supervisor para darle esta visibilidad.</p>
         </div>
+      </div>
+
+      <!-- Perfil de producción (cualquier rol: quién puede trabajar qué paso del taller) -->
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Perfil de producción</label>
+        <select
+          v-model="form.perfil_produccion_id"
+          class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="">Sin perfil</option>
+          <option v-for="p in perfiles" :key="p.id" :value="p.id">{{ p.nombre }}</option>
+        </select>
+        <p class="text-xs text-gray-500 mt-0.5">Define qué pasos de producción puede ver y completar en "Mis pasos", sin importar su rol.</p>
       </div>
 
       <!-- Opciones activables solo para supervisor: ya no vienen automáticas -->

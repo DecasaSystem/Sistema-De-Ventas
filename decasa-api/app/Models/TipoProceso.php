@@ -24,9 +24,6 @@ class TipoProceso extends Model
         ];
     }
 
-    /** Perfiles de trabajo que existen. No son roles: 'tapicero' es un supervisor marcado. */
-    public const PERFILES = ['ebanista', 'tapicero', 'despachador'];
-
     /** Colores que el front sabe pintar. */
     public const COLORES = [
         'orange', 'teal', 'indigo', 'yellow', 'purple', 'pink',

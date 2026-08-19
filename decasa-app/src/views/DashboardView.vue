@@ -36,6 +36,7 @@ import {
   BanknotesIcon,
   ReceiptPercentIcon,
   BuildingStorefrontIcon,
+  Cog6ToothIcon,
 } from '@heroicons/vue/24/outline'
 
 const auth         = useAuthStore()
@@ -103,6 +104,9 @@ const accesos = computed(() => {
     ...(!auth.isSupervisor && auth.puedeSurtir ? [{ label: 'Traslado', icon: ArrowPathIcon, to: { name: 'surtir'  } }] : []),
     ...(auth.tieneAccesoRedes ? [{ label: 'Redes', icon: ChatBubbleLeftRightIcon, to: { name: 'redes' } }] : []),
     ...(!auth.isSupervisor && auth.puedeCostos ? [{ label: 'Costos', icon: CalculatorIcon, to: { name: 'costos' } }] : []),
+    // Cualquiera con un perfil de producción asignado —sin importar su rol—
+    // puede trabajar sus pasos, no solo ebanista/tapicero/despachador.
+    ...(auth.usuario?.perfil_produccion && !auth.isTapicero ? [{ label: 'Mis pasos', icon: ClipboardDocumentCheckIcon, to: { name: 'mis-pasos' }, badge: pasos.pendientesCount }] : []),
     { label: 'Citas', icon: CalendarDaysIcon, to: { name: 'citas' } },
     { label: 'Caja',  icon: BanknotesIcon,    to: { name: 'caja'  } },
   ]
@@ -138,6 +142,7 @@ const accesosAdmin = computed(() => {
   const items = [
     { label: 'Trabajadores', icon: UsersIcon,              to: { name: 'usuarios'   } },
     { label: 'Reportes',     icon: ChartBarIcon,           to: { name: 'reportes'   } },
+    { label: 'Gestión',      icon: Cog6ToothIcon,          to: { name: 'gestion'    } },
   ]
   if (auth.puedeDespacho) {
     items.push({ label: 'Despacho', icon: TruckIcon, to: { name: 'despacho' }, badge: despacho.ordenesPendientes })

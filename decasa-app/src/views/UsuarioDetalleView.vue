@@ -13,6 +13,7 @@ import {
 } from '@heroicons/vue/24/outline'
 import { getUsuario, toggleActivo, resetPassword, updateUsuario } from '@/api/usuarios'
 import { getTiendas } from '@/api/ordenes'
+import { getPerfilesProduccion } from '@/api/perfilesProduccion'
 import EmptyState from '@/components/common/EmptyState.vue'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 
@@ -27,6 +28,7 @@ const showEditModal = ref(false)
 const actionLoading = ref(false)
 const actionError = ref('')
 const tiendas = ref([])
+const perfiles = ref([])
 const editLoading = ref(false)
 
 // Reset password
@@ -39,7 +41,7 @@ const editForm = ref({
   notif_asignar_fecha: true, notif_stock: false, acceso_redes: false, acceso_comisiones: false,
   recarga_telas: false, acceso_surtir: false, acceso_costos: false, acceso_proveedores: false,
   acceso_despacho: false, acceso_metricas: false, acceso_produccion: false, acceso_reserva: false,
-  ve_todas_ordenes: false, tienda_default_id: '',
+  ve_todas_ordenes: false, perfil_produccion_id: '', tienda_default_id: '',
 })
 const rolesSinTienda = ['conductor', 'ebanista', 'despachador', 'costurero']
 
@@ -137,6 +139,7 @@ function openEditModal() {
     acceso_produccion: usuario.value.acceso_produccion ?? false,
     acceso_reserva: usuario.value.acceso_reserva ?? false,
     ve_todas_ordenes: usuario.value.ve_todas_ordenes ?? false,
+    perfil_produccion_id: usuario.value.perfil_produccion_id ?? '',
     tienda_default_id: usuario.value.tienda_default_id,
   }
   actionError.value = ''
@@ -175,6 +178,7 @@ async function submitEdit() {
       acceso_produccion: editForm.value.rol === 'supervisor' ? editForm.value.acceso_produccion : false,
       acceso_reserva: editForm.value.acceso_reserva,
       ve_todas_ordenes: editForm.value.rol === 'vendedor' ? editForm.value.ve_todas_ordenes : false,
+      perfil_produccion_id: editForm.value.perfil_produccion_id || null,
       tienda_default_id: editRequiereTienda.value ? editForm.value.tienda_default_id : null,
     })
     showEditModal.value = false
@@ -202,6 +206,10 @@ onMounted(async () => {
   try {
     const { data } = await getTiendas()
     tiendas.value = data
+  } catch {}
+  try {
+    const { data } = await getPerfilesProduccion()
+    perfiles.value = data
   } catch {}
 })
 </script>
@@ -273,6 +281,15 @@ onMounted(async () => {
           <div>
             <p class="text-xs text-gray-400">Especialidad</p>
             <p class="font-medium text-gray-800">Encargado de tapicería, esqueletería, costura y pintura</p>
+          </div>
+        </div>
+        <div v-if="usuario.perfil_produccion" class="flex items-center gap-3">
+          <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
+            <span class="text-sm">🛠️</span>
+          </div>
+          <div>
+            <p class="text-xs text-gray-400">Perfil de producción</p>
+            <p class="font-medium text-gray-800">{{ usuario.perfil_produccion.nombre }}</p>
           </div>
         </div>
         <div v-if="usuario.rol === 'supervisor'" class="flex items-center gap-3">
@@ -621,6 +638,14 @@ onMounted(async () => {
                 </div>
               </div>
             </template>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Perfil de producción</label>
+              <select v-model="editForm.perfil_produccion_id" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="">Sin perfil</option>
+                <option v-for="p in perfiles" :key="p.id" :value="p.id">{{ p.nombre }}</option>
+              </select>
+              <p class="text-xs text-gray-500 mt-0.5">Define qué pasos de producción puede ver y completar en "Mis pasos".</p>
+            </div>
             <div v-if="['vendedor', 'supervisor'].includes(editForm.rol)" class="flex items-start gap-3 py-1">
               <input
                 id="edit-acceso-redes"

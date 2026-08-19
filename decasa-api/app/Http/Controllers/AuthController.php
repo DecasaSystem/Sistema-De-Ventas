@@ -50,6 +50,7 @@ class AuthController extends Controller
             'acceso_produccion'  => (bool) $usuario->acceso_produccion,
             'acceso_reserva'     => (bool) $usuario->acceso_reserva,
             've_todas_ordenes'   => (bool) $usuario->ve_todas_ordenes,
+            'perfil_produccion'  => $usuario->perfilProduccion,
             'tienda_default_id'  => $usuario->tienda_default_id,
             'firma_url'          => $usuario->firma_url,
         ]);
@@ -64,7 +65,7 @@ class AuthController extends Controller
 
     public function me(Request $request)
     {
-        $usuario = $request->user()->load('tiendaDefault:id,nombre,ciudad');
+        $usuario = $request->user()->load(['tiendaDefault:id,nombre,ciudad', 'perfilProduccion']);
 
         return response()->json([
             'id'                => $usuario->id,
@@ -88,6 +89,7 @@ class AuthController extends Controller
             'acceso_produccion'  => (bool) $usuario->acceso_produccion,
             'acceso_reserva'     => (bool) $usuario->acceso_reserva,
             've_todas_ordenes'   => (bool) $usuario->ve_todas_ordenes,
+            'perfil_produccion'  => $usuario->perfilProduccion,
             'tienda_default_id' => $usuario->tienda_default_id,
             'tienda_default'    => $usuario->tiendaDefault,
             'firma_url'         => $usuario->firma_url,

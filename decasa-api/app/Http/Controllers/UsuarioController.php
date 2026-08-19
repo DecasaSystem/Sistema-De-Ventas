@@ -34,6 +34,8 @@ class UsuarioController extends Controller
             'acceso_produccion'   => (bool) $u->acceso_produccion,
             'acceso_reserva'      => (bool) $u->acceso_reserva,
             've_todas_ordenes'    => (bool) $u->ve_todas_ordenes,
+            'perfil_produccion_id' => $u->perfil_produccion_id,
+            'perfil_produccion'    => $u->relationLoaded('perfilProduccion') ? $u->perfilProduccion : null,
             'tienda_default_id'   => $u->tienda_default_id,
             'tienda_default'      => $u->relationLoaded('tiendaDefault') ? $u->tiendaDefault : null,
             'activo'              => (bool) $u->activo,
@@ -43,7 +45,7 @@ class UsuarioController extends Controller
 
     public function index(Request $request)
     {
-        $query = Usuario::with('tiendaDefault:id,nombre,ciudad');
+        $query = Usuario::with(['tiendaDefault:id,nombre,ciudad', 'perfilProduccion']);
 
         if ($rol = $request->query('rol')) {
             $query->where('rol', $rol);
@@ -64,7 +66,7 @@ class UsuarioController extends Controller
 
     public function show($id)
     {
-        $usuario = Usuario::with('tiendaDefault:id,nombre,ciudad')->findOrFail($id);
+        $usuario = Usuario::with(['tiendaDefault:id,nombre,ciudad', 'perfilProduccion'])->findOrFail($id);
 
         return response()->json($this->comoJson($usuario));
     }
@@ -95,6 +97,7 @@ class UsuarioController extends Controller
             'acceso_produccion'   => 'boolean',
             'acceso_reserva'      => 'boolean',
             've_todas_ordenes'    => 'boolean',
+            'perfil_produccion_id' => 'nullable|exists:perfiles_produccion,id',
             'tienda_default_id' => [
                 // Un independiente no elige tienda: se le asigna la sede propia.
                 Rule::requiredIf(fn () => ! in_array($request->rol, $rolesProduccion)
@@ -133,6 +136,9 @@ class UsuarioController extends Controller
             'rol'                 => $data['rol'],
             'facturacion'         => ($data['rol'] === 'vendedor') && $request->boolean('facturacion'),
             'es_tapicero'         => $esSupervisor && $request->boolean('es_tapicero'),
+            // Sin restricción de rol: es justo lo que se pidió, que un perfil
+            // de producción se le pueda asignar a cualquier trabajador.
+            'perfil_produccion_id' => $data['perfil_produccion_id'] ?? null,
             'independiente'       => $independiente,
             'notif_asignar_fecha' => $esSupervisor && $request->boolean('notif_asignar_fecha'),
             'notif_stock'         => $esSupervisor && $request->boolean('notif_stock'),
@@ -156,7 +162,7 @@ class UsuarioController extends Controller
             'activo'              => true,
         ]);
 
-        return response()->json($this->comoJson($usuario), 201);
+        return response()->json($this->comoJson($usuario->load('perfilProduccion')), 201);
     }
 
     public function update(Request $request, $id)
@@ -184,6 +190,7 @@ class UsuarioController extends Controller
             'acceso_produccion'   => 'nullable|boolean',
             'acceso_reserva'      => 'nullable|boolean',
             've_todas_ordenes'    => 'nullable|boolean',
+            'perfil_produccion_id' => 'sometimes|nullable|exists:perfiles_produccion,id',
             'tienda_default_id'   => 'sometimes|nullable|exists:tiendas,id',
         ], [
             'nombre.max'               => 'El nombre no puede tener más de 100 caracteres.',
@@ -264,7 +271,7 @@ class UsuarioController extends Controller
         }
 
         $usuario->update($data);
-        $usuario->load('tiendaDefault:id,nombre,ciudad');
+        $usuario->load(['tiendaDefault:id,nombre,ciudad', 'perfilProduccion']);
 
         return response()->json($this->comoJson($usuario));
     }
