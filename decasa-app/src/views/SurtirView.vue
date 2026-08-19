@@ -266,26 +266,32 @@ async function agregarProducto(prod) {
   }
 
   if (desdeFabrica.value && fabricaId.value) {
-    vcPickerProd.value    = prod
-    vcPickerSelec.value   = {}
-    vcPickerGrupos.value  = []
-    vcPickerCargando.value = true
-    mostrarVCPicker.value = true
+    // Se consulta ANTES de abrir el modal, no después. Antes se abría siempre
+    // — con spinner y todo — y si el producto no tenía ninguna variante
+    // configurada (o la tenía pero sin stock, como pasa con productos que
+    // llevan un tipo de variante viejo/sin uso mientras su stock real vive en
+    // el inventario base), el modal mostraba "No hay variantes con stock
+    // disponible" y parecía un callejón sin salida: el producto SÍ se
+    // terminaba agregando por detrás, pero para quien lo usa se veía como que
+    // no dejaba seleccionarlo. Así, si no hay nada que elegir, ni se nota:
+    // se agrega directo, igual que cualquier producto sin variante.
+    let gruposConStock = []
     try {
       const { data } = await api.get(`/productos/${prod.id}/variante-configs`, {
         params: { tienda_id: fabricaId.value }
       })
-      const gruposConStock = data.filter(g => g.items.some(i => (i.stock_disponible ?? 0) > 0))
-      if (gruposConStock.length === 0) {
-        mostrarVCPicker.value = false
-      } else {
-        vcPickerGrupos.value = gruposConStock
-        return
-      }
+      gruposConStock = data.filter(g => g.items.some(i => (i.stock_disponible ?? 0) > 0))
     } catch {
-      mostrarVCPicker.value = false
-    } finally {
+      gruposConStock = []
+    }
+
+    if (gruposConStock.length > 0) {
+      vcPickerProd.value     = prod
+      vcPickerSelec.value    = {}
+      vcPickerGrupos.value   = gruposConStock
       vcPickerCargando.value = false
+      mostrarVCPicker.value  = true
+      return
     }
   }
 
