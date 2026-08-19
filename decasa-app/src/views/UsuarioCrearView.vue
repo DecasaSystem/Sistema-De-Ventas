@@ -37,7 +37,6 @@ const form = ref({
   acceso_reserva: true,
   acceso_costos: false,
   acceso_despacho: false,
-  acceso_metricas: false,
   acceso_produccion: false,
   ve_todas_ordenes: false,
   perfil_produccion_id: '',
@@ -115,7 +114,6 @@ async function submit() {
       acceso_costos: form.value.acceso_costos,
       acceso_proveedores: form.value.acceso_proveedores,
       acceso_despacho: form.value.rol === 'supervisor' ? form.value.acceso_despacho : false,
-      acceso_metricas: form.value.rol === 'supervisor' ? form.value.acceso_metricas : false,
       acceso_produccion: form.value.rol === 'supervisor' ? form.value.acceso_produccion : false,
       acceso_reserva: form.value.acceso_reserva,
       ve_todas_ordenes: form.value.rol === 'vendedor' ? form.value.ve_todas_ordenes : false,
@@ -340,7 +338,7 @@ async function submit() {
         />
         <div>
           <label for="acceso_redes" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a módulo de redes</label>
-          <p class="text-xs text-gray-500 mt-0.5">Podrá acceder al módulo de redes sociales y seguimiento digital.</p>
+          <p class="text-xs text-gray-500 mt-0.5">Podrá acceder al módulo de redes sociales y seguimiento digital. Incluye Métricas: no es un permiso aparte.</p>
         </div>
       </div>
 
@@ -467,18 +465,6 @@ async function submit() {
           <div>
             <label for="acceso_despacho" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a módulo de Despacho</label>
             <p class="text-xs text-gray-500 mt-0.5">Podrá asignar conductores, armar rutas y ver el historial de entregas.</p>
-          </div>
-        </div>
-        <div class="flex items-start gap-3 py-2">
-          <input
-            id="acceso_metricas"
-            type="checkbox"
-            v-model="form.acceso_metricas"
-            class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-          />
-          <div>
-            <label for="acceso_metricas" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a Métricas de Redes</label>
-            <p class="text-xs text-gray-500 mt-0.5">Podrá ver las métricas del módulo de redes sociales.</p>
           </div>
         </div>
         <div class="flex items-start gap-3 py-2">

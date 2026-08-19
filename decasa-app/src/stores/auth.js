@@ -96,7 +96,6 @@ export const useAuthStore = defineStore('auth', () => {
       acceso_costos:      data.acceso_costos      ?? false,
       acceso_proveedores: data.acceso_proveedores ?? false,
       acceso_despacho:    data.acceso_despacho    ?? false,
-      acceso_metricas:    data.acceso_metricas    ?? false,
       acceso_produccion:  data.acceso_produccion  ?? false,
       acceso_reserva:     data.acceso_reserva     ?? false,
       ve_todas_ordenes:   data.ve_todas_ordenes   ?? false,
@@ -150,7 +149,6 @@ export const useAuthStore = defineStore('auth', () => {
   // crear/editar. Predeterminado para supervisor, activable para el resto.
   const puedeProveedores      = computed(() => isSupervisor.value || !!usuario.value?.acceso_proveedores)
   const puedeDespacho         = computed(() => !!usuario.value?.acceso_despacho)
-  const puedeMetricas         = computed(() => !!usuario.value?.acceso_metricas)
   const puedeProduccion       = computed(() => !!usuario.value?.acceso_produccion)
   const puedeReserva          = computed(() => !!usuario.value?.acceso_reserva)
   const veTodasOrdenes        = computed(() => !!usuario.value?.ve_todas_ordenes)
@@ -269,7 +267,7 @@ export const useAuthStore = defineStore('auth', () => {
     isIndependiente, llevaCajaPropia,
     tieneAccesoPasos, tieneAccesoDespachoProd,
     isFacturador, tieneAccesoRedes, tieneAccesoComisiones, puedeRecargarTelas, puedeSurtir,
-    puedeCostos, puedeProveedores, puedeDespacho, puedeMetricas, puedeProduccion, puedeReserva, veTodasOrdenes,
+    puedeCostos, puedeProveedores, puedeDespacho, puedeProduccion, puedeReserva, veTodasOrdenes,
     tienePerfilAlternativo, perfilAlternativo, perfilActivoIdx,
     login, fetchMe, setFirma, setEmail, logout, clearSession,
     loginPerfilAlternativo, cambiarPerfil, eliminarPerfilAlternativo,

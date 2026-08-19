@@ -112,8 +112,8 @@ const accesos = computed(() => {
   ]
 
   if (auth.isSupervisor) {
-    // Costos/Despacho/Métricas/Producción/Reserva/Surtir ya no son
-    // automáticos por ser supervisor: cada uno necesita su permiso prendido
+    // Costos/Despacho/Producción/Reserva/Surtir ya no son automáticos por
+    // ser supervisor: cada uno necesita su permiso prendido
     // (todo supervisor existente lo trae encendido por el respaldo de la
     // migración; de ahí en adelante es un control fino real).
     if (auth.puedeReserva)    items.push({ label: 'Reserva',     icon: CubeIcon,                    to: { name: 'reserva'    } })
@@ -153,7 +153,8 @@ const accesosAdmin = computed(() => {
   if (auth.puedeDespacho) {
     items.push({ label: 'Despacho', icon: TruckIcon, to: { name: 'despacho' }, badge: despacho.ordenesPendientes })
   }
-  if (auth.puedeMetricas) {
+  // Métricas no es un módulo aparte: va junto con Redes, no con un permiso propio.
+  if (auth.tieneAccesoRedes) {
     items.push({ label: 'Métricas', icon: ChartPieIcon, to: { name: 'metricas-redes' } })
   }
   if (auth.tieneAccesoComisiones) {

@@ -30,7 +30,6 @@ class UsuarioController extends Controller
             'acceso_costos'       => (bool) $u->acceso_costos,
             'acceso_proveedores'  => (bool) $u->acceso_proveedores,
             'acceso_despacho'     => (bool) $u->acceso_despacho,
-            'acceso_metricas'     => (bool) $u->acceso_metricas,
             'acceso_produccion'   => (bool) $u->acceso_produccion,
             'acceso_reserva'      => (bool) $u->acceso_reserva,
             've_todas_ordenes'    => (bool) $u->ve_todas_ordenes,
@@ -93,7 +92,6 @@ class UsuarioController extends Controller
             'acceso_costos'       => 'boolean',
             'acceso_proveedores'  => 'boolean',
             'acceso_despacho'     => 'boolean',
-            'acceso_metricas'     => 'boolean',
             'acceso_produccion'   => 'boolean',
             'acceso_reserva'      => 'boolean',
             've_todas_ordenes'    => 'boolean',
@@ -156,7 +154,6 @@ class UsuarioController extends Controller
             'acceso_costos'       => $request->boolean('acceso_costos'),
             'acceso_proveedores'  => $request->boolean('acceso_proveedores'),
             'acceso_despacho'     => $request->boolean('acceso_despacho'),
-            'acceso_metricas'     => $request->boolean('acceso_metricas'),
             'acceso_produccion'   => $request->boolean('acceso_produccion'),
             'acceso_reserva'      => $request->boolean('acceso_reserva'),
             've_todas_ordenes'    => $request->boolean('ve_todas_ordenes'),
@@ -190,7 +187,6 @@ class UsuarioController extends Controller
             'acceso_costos'       => 'nullable|boolean',
             'acceso_proveedores'  => 'nullable|boolean',
             'acceso_despacho'     => 'nullable|boolean',
-            'acceso_metricas'     => 'nullable|boolean',
             'acceso_produccion'   => 'nullable|boolean',
             'acceso_reserva'      => 'nullable|boolean',
             've_todas_ordenes'    => 'nullable|boolean',
@@ -240,9 +236,6 @@ class UsuarioController extends Controller
         }
         if ($request->has('acceso_despacho')) {
             $data['acceso_despacho'] = $request->boolean('acceso_despacho');
-        }
-        if ($request->has('acceso_metricas')) {
-            $data['acceso_metricas'] = $request->boolean('acceso_metricas');
         }
         if ($request->has('acceso_produccion')) {
             $data['acceso_produccion'] = $request->boolean('acceso_produccion');

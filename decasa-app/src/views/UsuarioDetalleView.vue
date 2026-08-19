@@ -40,7 +40,7 @@ const editForm = ref({
   nombre: '', email: '', rol: '', facturacion: false, es_tapicero: false, independiente: false,
   notif_asignar_fecha: true, notif_stock: false, acceso_redes: false, acceso_comisiones: false,
   recarga_telas: false, acceso_surtir: false, acceso_costos: false, acceso_proveedores: false,
-  acceso_despacho: false, acceso_metricas: false, acceso_produccion: false, acceso_reserva: false,
+  acceso_despacho: false, acceso_produccion: false, acceso_reserva: false,
   ve_todas_ordenes: false, perfil_produccion_id: '', tienda_default_id: '',
 })
 const rolesSinTienda = ['conductor', 'ebanista', 'despachador', 'costurero']
@@ -139,7 +139,6 @@ function openEditModal() {
     acceso_costos: usuario.value.acceso_costos ?? false,
     acceso_proveedores: usuario.value.acceso_proveedores ?? false,
     acceso_despacho: usuario.value.acceso_despacho ?? false,
-    acceso_metricas: usuario.value.acceso_metricas ?? false,
     acceso_produccion: usuario.value.acceso_produccion ?? false,
     acceso_reserva: usuario.value.acceso_reserva ?? false,
     ve_todas_ordenes: usuario.value.ve_todas_ordenes ?? false,
@@ -178,7 +177,6 @@ async function submitEdit() {
       acceso_costos: editForm.value.acceso_costos,
       acceso_proveedores: editForm.value.acceso_proveedores,
       acceso_despacho: editForm.value.rol === 'supervisor' ? editForm.value.acceso_despacho : false,
-      acceso_metricas: editForm.value.rol === 'supervisor' ? editForm.value.acceso_metricas : false,
       acceso_produccion: editForm.value.rol === 'supervisor' ? editForm.value.acceso_produccion : false,
       acceso_reserva: editForm.value.acceso_reserva,
       ve_todas_ordenes: editForm.value.rol === 'vendedor' ? editForm.value.ve_todas_ordenes : false,
@@ -387,15 +385,6 @@ onMounted(async () => {
           </div>
           <div>
             <p class="text-xs text-gray-400">Módulo de Despacho</p>
-            <p class="font-medium text-blue-700">Acceso habilitado</p>
-          </div>
-        </div>
-        <div v-if="usuario.acceso_metricas && usuario.rol === 'supervisor'" class="flex items-center gap-3">
-          <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
-            <span class="text-sm">📊</span>
-          </div>
-          <div>
-            <p class="text-xs text-gray-400">Métricas de Redes</p>
             <p class="font-medium text-blue-700">Acceso habilitado</p>
           </div>
         </div>
@@ -659,7 +648,7 @@ onMounted(async () => {
               />
               <div>
                 <label for="edit-acceso-redes" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a módulo de redes</label>
-                <p class="text-xs text-gray-500 mt-0.5">Podrá acceder al módulo de redes sociales y seguimiento digital.</p>
+                <p class="text-xs text-gray-500 mt-0.5">Podrá acceder al módulo de redes sociales y seguimiento digital. Incluye Métricas: no es un permiso aparte.</p>
               </div>
             </div>
             <div v-if="editForm.rol === 'supervisor'" class="flex items-start gap-3 py-1">
@@ -757,18 +746,6 @@ onMounted(async () => {
                 <div>
                   <label for="edit-acceso-despacho" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a módulo de Despacho</label>
                   <p class="text-xs text-gray-500 mt-0.5">Podrá asignar conductores, armar rutas y ver el historial de entregas.</p>
-                </div>
-              </div>
-              <div class="flex items-start gap-3 py-1">
-                <input
-                  id="edit-acceso-metricas"
-                  type="checkbox"
-                  v-model="editForm.acceso_metricas"
-                  class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                <div>
-                  <label for="edit-acceso-metricas" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a Métricas de Redes</label>
-                  <p class="text-xs text-gray-500 mt-0.5">Podrá ver las métricas del módulo de redes sociales.</p>
                 </div>
               </div>
               <div class="flex items-start gap-3 py-1">
