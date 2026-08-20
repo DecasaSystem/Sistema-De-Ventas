@@ -19,22 +19,34 @@ use Illuminate\Http\Request;
  */
 class NominaAusenciaController extends Controller
 {
+    /**
+     * Trae también cuándo se registró (no solo la fecha en que faltó — se
+     * pueden loguear días después) y a qué período quedó ligada, para poder
+     * mostrar el rastro completo de por qué se descontó algo al pagar.
+     */
     private function comoJson(NominaAusencia $a): array
     {
+        $item = $a->relationLoaded('item') ? $a->item : null;
+
         return [
-            'id'          => $a->id,
-            'empleado_id' => $a->empleado_id,
-            'fecha'       => $a->fecha->toDateString(),
-            'horas'       => (float) $a->horas,
-            'motivo'      => $a->motivo,
-            'pendiente'   => $a->estaPendiente(),
+            'id'             => $a->id,
+            'empleado_id'    => $a->empleado_id,
+            'fecha'          => $a->fecha->toDateString(),
+            'horas'          => (float) $a->horas,
+            'motivo'         => $a->motivo,
+            'pendiente'      => $a->estaPendiente(),
+            'registrada_en'  => $a->created_at->toIso8601String(),
+            'periodo_id'     => $item?->nomina_periodo_id,
+            'periodo_nombre' => $item?->periodo?->nombre,
+            'pagado'         => $item?->periodo?->estaPagado() ?? false,
+            'monto'          => $item ? round((float) $a->horas * $item->valorHora()) : null,
         ];
     }
 
     /** GET /api/nomina/ausencias?empleado_id=&pendientes=1 */
     public function index(Request $request)
     {
-        $q = NominaAusencia::query()->orderByDesc('fecha');
+        $q = NominaAusencia::query()->with('item.periodo')->orderByDesc('fecha');
         if ($empleadoId = $request->query('empleado_id')) {
             $q->where('empleado_id', $empleadoId);
         }
@@ -87,11 +99,13 @@ class NominaAusenciaController extends Controller
             $item = $periodo
                 ? NominaItem::where('nomina_periodo_id', $periodo->id)->where('empleado_id', $empleado->id)->first()
                 : null;
+            $item?->setRelation('periodo', $periodo);
 
             $ausencia = NominaAusencia::updateOrCreate(
                 ['empleado_id' => $empleado->id, 'fecha' => $fecha->toDateString()],
                 ['horas' => $horas, 'motivo' => $data['motivo'] ?? null, 'nomina_item_id' => $item?->id]
             );
+            $ausencia->setRelation('item', $item);
 
             $guardadas[] = $this->comoJson($ausencia);
         }

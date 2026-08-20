@@ -46,11 +46,12 @@ class NominaItemController extends Controller
             'total'           => $item->total(),
             'ajustes'         => $item->ajustes->map(fn ($a) => ['id' => $a->id, 'nombre' => $a->nombre, 'monto' => (float) $a->monto]),
             'ausencias'       => $item->ausencias->map(fn ($a) => [
-                'id'     => $a->id,
-                'fecha'  => $a->fecha->toDateString(),
-                'horas'  => (float) $a->horas,
-                'motivo' => $a->motivo,
-                'monto'  => round((float) $a->horas * $item->valorHora()),
+                'id'            => $a->id,
+                'fecha'         => $a->fecha->toDateString(),
+                'horas'         => (float) $a->horas,
+                'motivo'        => $a->motivo,
+                'registrada_en' => $a->created_at->toIso8601String(),
+                'monto'         => round((float) $a->horas * $item->valorHora()),
             ]),
         ]);
     }

@@ -7,7 +7,7 @@ import { getEmpleados, crearEmpleado, actualizarEmpleado, eliminarEmpleado } fro
 import {
   getPeriodos, crearPeriodo, eliminarPeriodo,
   getSueldos, crearSueldo, actualizarSueldo, eliminarSueldo,
-  crearAusencia,
+  crearAusencia, getAusencias, eliminarAusencia,
 } from '@/api/nomina'
 import {
   BanknotesIcon,
@@ -20,6 +20,7 @@ import {
   CheckCircleIcon,
   TagIcon,
   CalendarIcon,
+  MagnifyingGlassIcon,
 } from '@heroicons/vue/24/outline'
 
 const router = useRouter()
@@ -209,6 +210,17 @@ const mostrarFormFalta = ref(false)
 const empleadoFalta     = ref(null)
 const formFalta = ref({ fecha_inicio: '', fecha_fin: '', horas: 8, motivo: '' })
 const guardandoFalta = ref(false)
+const historialFaltas   = ref([])
+const cargandoHistorial = ref(false)
+
+function formatoFechaHora(iso) {
+  if (!iso) return ''
+  return new Date(iso).toLocaleString('es-CO', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+}
+function formatoFecha(fecha) {
+  if (!fecha) return ''
+  return new Date(fecha + 'T00:00:00').toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' })
+}
 
 async function cargarEmpleados() {
   cargandoEmpleados.value = true
@@ -319,9 +331,18 @@ async function reactivarEmpleado(e) {
   }
 }
 
-const empleadosActivos   = computed(() => empleados.value.filter(e => e.activo))
-const empleadosInactivos = computed(() => empleados.value.filter(e => !e.activo))
-const sinValor = computed(() => empleadosActivos.value.filter(e => Number(e.valor_dia_efectivo) <= 0).length)
+const busquedaEmpleado = ref('')
+function coincideBusqueda(e) {
+  const q = busquedaEmpleado.value.trim().toLowerCase()
+  if (!q) return true
+  return (e.nombre ?? '').toLowerCase().includes(q)
+    || (e.cargo ?? '').toLowerCase().includes(q)
+    || (e.cedula ?? '').toLowerCase().includes(q)
+}
+
+const empleadosActivos   = computed(() => empleados.value.filter(e => e.activo && coincideBusqueda(e)))
+const empleadosInactivos = computed(() => empleados.value.filter(e => !e.activo && coincideBusqueda(e)))
+const sinValor = computed(() => empleados.value.filter(e => e.activo && Number(e.valor_dia_efectivo) <= 0).length)
 
 // Vista previa en vivo de quincena/mes mientras se escribe el valor día —
 // puro cálculo en cliente, no pide nada al backend.
@@ -338,8 +359,8 @@ const sueldoElegidoEmpleado = computed(() =>
   sueldosActivos.value.find(s => s.id === formEmpleado.value.fuente) ?? null
 )
 
-// ── Registrar falta ────────────────────────────────────────────────────
-function abrirFalta(e) {
+// ── Faltas (registrar + historial) ─────────────────────────────────────
+async function abrirFalta(e) {
   empleadoFalta.value = e
   formFalta.value = {
     fecha_inicio: new Date().toISOString().slice(0, 10),
@@ -348,6 +369,20 @@ function abrirFalta(e) {
     motivo: '',
   }
   mostrarFormFalta.value = true
+  await cargarHistorialFaltas()
+}
+
+async function cargarHistorialFaltas() {
+  if (!empleadoFalta.value) return
+  cargandoHistorial.value = true
+  try {
+    const { data } = await getAusencias({ empleado_id: empleadoFalta.value.id })
+    historialFaltas.value = data
+  } catch {
+    toast.error('No se pudo cargar el historial de faltas')
+  } finally {
+    cargandoHistorial.value = false
+  }
 }
 
 async function guardarFalta() {
@@ -364,16 +399,31 @@ async function guardarFalta() {
       horas: formFalta.value.horas,
       motivo: formFalta.value.motivo.trim() || null,
     })
-    mostrarFormFalta.value = false
     if (data.no_aplicadas?.length) {
       toast.error(`${data.no_aplicadas.length} fecha(s) caen en un período ya pagado y no se aplicaron`)
     } else {
       toast.success(data.guardadas.length > 1 ? `${data.guardadas.length} faltas registradas` : 'Falta registrada')
     }
+    formFalta.value = {
+      fecha_inicio: new Date().toISOString().slice(0, 10),
+      fecha_fin: '',
+      horas: Number(empleadoFalta.value?.horas_dia_efectivo) || 8,
+      motivo: '',
+    }
+    await cargarHistorialFaltas()
   } catch (e) {
     toast.error(e.response?.data?.message || 'No se pudo registrar la falta')
   } finally {
     guardandoFalta.value = false
+  }
+}
+
+async function quitarFaltaDesdePanel(id) {
+  try {
+    await eliminarAusencia(id)
+    await cargarHistorialFaltas()
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo quitar')
   }
 }
 </script>
@@ -529,6 +579,14 @@ async function guardarFalta() {
         </button>
       </div>
 
+      <div class="relative mb-3">
+        <MagnifyingGlassIcon class="w-4 h-4 text-gray-300 absolute left-3 top-1/2 -translate-y-1/2" />
+        <input
+          v-model="busquedaEmpleado" placeholder="Buscar por nombre, cargo o cédula..."
+          class="w-full rounded-xl border border-gray-200 pl-9 pr-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
+        />
+      </div>
+
       <p v-if="sinValor > 0" class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
         {{ sinValor }} trabajador(es) todavía no tienen un valor de pago cargado.
       </p>
@@ -536,6 +594,10 @@ async function guardarFalta() {
       <div v-if="cargandoEmpleados" class="flex justify-center py-12">
         <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
       </div>
+
+      <p v-else-if="!empleadosActivos.length && !empleadosInactivos.length" class="text-center py-12 text-gray-400 text-sm">
+        Nadie coincide con "{{ busquedaEmpleado }}".
+      </p>
 
       <div v-else class="space-y-2.5">
         <div v-for="e in empleadosActivos" :key="e.id" class="bg-white rounded-xl shadow-sm p-4">
@@ -822,19 +884,21 @@ async function guardarFalta() {
         leave-active-class="transition-opacity duration-150" leave-to-class="opacity-0"
       >
         <div v-if="mostrarFormFalta" class="fixed inset-0 bg-black/50 backdrop-blur-[2px] z-50 flex items-end sm:items-center justify-center" @click.self="mostrarFormFalta = false">
-          <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full sm:max-w-md shadow-2xl">
-            <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-100">
+          <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full sm:max-w-md max-h-[92vh] overflow-y-auto shadow-2xl">
+            <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-100 sticky top-0 bg-white/95 backdrop-blur-sm rounded-t-3xl sm:rounded-t-2xl">
               <div class="flex items-center gap-2.5">
                 <div class="w-9 h-9 rounded-xl bg-amber-50 flex items-center justify-center shrink-0">
                   <CalendarIcon class="w-5 h-5 text-amber-600" />
                 </div>
-                <p class="font-semibold text-gray-800">Registrar falta{{ empleadoFalta ? ' — ' + empleadoFalta.nombre : '' }}</p>
+                <p class="font-semibold text-gray-800">Faltas{{ empleadoFalta ? ' — ' + empleadoFalta.nombre : '' }}</p>
               </div>
               <button @click="mostrarFormFalta = false" class="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
                 <XMarkIcon class="w-5 h-5" />
               </button>
             </div>
-            <div class="p-5 space-y-4">
+
+            <!-- Registrar una nueva -->
+            <div class="p-5 space-y-4 border-b border-gray-100">
               <div class="grid grid-cols-2 gap-3">
                 <div>
                   <label class="block text-xs font-semibold text-gray-500 mb-1.5">Desde *</label>
@@ -846,31 +910,65 @@ async function guardarFalta() {
                 </div>
               </div>
               <p class="text-[11px] text-gray-400 -mt-2">Deja "Hasta" vacío si es un solo día. Si el rango cruza varias quincenas, cada fecha se descuenta en la suya.</p>
-              <div>
-                <label class="block text-xs font-semibold text-gray-500 mb-1.5">Horas que faltó (cada día del rango)</label>
-                <input
-                  v-model.number="formFalta.horas" type="number" step="0.5" min="0.5" max="24"
-                  class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
-                />
-                <p class="text-[11px] text-gray-400 mt-1">Prellenado con su jornada completa ({{ empleadoFalta?.horas_dia_efectivo }}h) — bájalo si solo faltó unas horas.</p>
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-xs font-semibold text-gray-500 mb-1.5">Horas que faltó</label>
+                  <input
+                    v-model.number="formFalta.horas" type="number" step="0.5" min="0.5" max="24"
+                    class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
+                  />
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-gray-500 mb-1.5">Motivo</label>
+                  <input v-model="formFalta.motivo" placeholder="Cita médica..." class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow" />
+                </div>
               </div>
-              <div>
-                <label class="block text-xs font-semibold text-gray-500 mb-1.5">Motivo</label>
-                <input v-model="formFalta.motivo" placeholder="Cita médica, permiso..." class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow" />
-              </div>
-              <p v-if="empleadoFalta" class="text-[11px] text-gray-400">
-                Se descuentan {{ formatoPesos((Number(formFalta.horas) || 0) * (Number(empleadoFalta.valor_hora_efectivo) || 0)) }} por día de este rango.
+              <p class="text-[11px] text-gray-400 -mt-2">
+                Jornada completa: {{ empleadoFalta?.horas_dia_efectivo }}h. Se descuentan {{ formatoPesos((Number(formFalta.horas) || 0) * (Number(empleadoFalta?.valor_hora_efectivo) || 0)) }} por cada día del rango.
               </p>
-            </div>
-            <div class="flex gap-2.5 p-5 pt-2">
-              <button @click="mostrarFormFalta = false" class="flex-1 bg-gray-100 text-gray-700 text-sm font-semibold rounded-xl px-4 py-2.5 hover:bg-gray-200 transition-colors">Cancelar</button>
               <button
                 @click="guardarFalta" :disabled="guardandoFalta"
-                class="flex-1 bg-amber-600 text-white text-sm font-semibold rounded-xl px-4 py-2.5 hover:bg-amber-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
+                class="w-full bg-amber-600 text-white text-sm font-semibold rounded-xl px-4 py-2.5 hover:bg-amber-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
               >
                 <span v-if="guardandoFalta" class="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                {{ guardandoFalta ? 'Guardando...' : 'Registrar' }}
+                {{ guardandoFalta ? 'Registrando...' : 'Registrar falta' }}
               </button>
+            </div>
+
+            <!-- Historial: por qué se le descontó, cuándo faltó y cuándo se anotó -->
+            <div class="p-5 space-y-2.5">
+              <p class="text-xs font-semibold text-gray-500 uppercase">Historial</p>
+
+              <div v-if="cargandoHistorial" class="flex justify-center py-8">
+                <div class="w-5 h-5 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+              </div>
+
+              <p v-else-if="!historialFaltas.length" class="text-center py-6 text-gray-400 text-sm">Sin faltas registradas todavía.</p>
+
+              <div v-else class="space-y-2">
+                <div v-for="a in historialFaltas" :key="a.id" class="bg-gray-50 rounded-xl px-3.5 py-3">
+                  <div class="flex items-start justify-between gap-2">
+                    <div class="min-w-0">
+                      <p class="text-sm font-semibold text-gray-800">{{ formatoFecha(a.fecha) }} · {{ a.horas }}h</p>
+                      <p v-if="a.motivo" class="text-xs text-gray-500 italic mt-0.5">{{ a.motivo }}</p>
+                      <p class="text-[11px] text-gray-400 mt-1">Registrada el {{ formatoFechaHora(a.registrada_en) }}</p>
+                    </div>
+                    <div class="flex flex-col items-end gap-1 shrink-0">
+                      <p v-if="a.monto" class="text-sm font-semibold text-red-600">-{{ formatoPesos(a.monto) }}</p>
+                      <button v-if="!a.pagado" @click="quitarFaltaDesdePanel(a.id)" class="text-gray-300 hover:text-red-600 transition-colors">
+                        <XMarkIcon class="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                  <p class="text-[11px] font-semibold mt-1.5" :class="a.pagado ? 'text-green-600' : (a.periodo_nombre ? 'text-blue-500' : 'text-amber-600')">
+                    {{ a.pagado ? `Pagada · ${a.periodo_nombre}` : (a.periodo_nombre ? a.periodo_nombre : 'Pendiente: todavía no hay período para esta fecha') }}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div class="flex gap-2.5 p-5 pt-2">
+              <button @click="mostrarFormFalta = false" class="flex-1 bg-gray-100 text-gray-700 text-sm font-semibold rounded-xl px-4 py-2.5 hover:bg-gray-200 transition-colors">Cerrar</button>
             </div>
           </div>
         </div>

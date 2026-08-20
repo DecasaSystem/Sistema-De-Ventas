@@ -47,6 +47,10 @@ onMounted(cargar)
 function formatoPesos(n) {
   return '$' + Math.round(n ?? 0).toLocaleString('es-CO')
 }
+function formatoFechaHora(iso) {
+  if (!iso) return ''
+  return new Date(iso).toLocaleString('es-CO', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+}
 
 const pagado = computed(() => !!periodo.value?.pagado_at)
 
@@ -310,13 +314,18 @@ async function pagar() {
             <div>
               <label class="block text-[11px] text-gray-500 mb-1.5">Faltas ({{ formatoPesos(item.valor_hora) }}/hora)</label>
               <div v-if="item.ausencias.length" class="space-y-1.5 mb-2">
-                <div v-for="a in item.ausencias" :key="a.id" class="flex items-center justify-between gap-2 bg-amber-50 rounded-lg px-2.5 py-1.5">
-                  <p class="text-xs text-gray-700 truncate">{{ a.fecha }} · {{ a.horas }}h<span v-if="a.motivo"> · {{ a.motivo }}</span></p>
-                  <div class="flex items-center gap-2 shrink-0">
-                    <p class="text-xs font-semibold text-red-600">-{{ formatoPesos(a.monto) }}</p>
-                    <button v-if="!pagado" @click="quitarFalta(a.id)" class="text-gray-300 hover:text-red-600 transition-colors">
-                      <XMarkIcon class="w-3.5 h-3.5" />
-                    </button>
+                <div v-for="a in item.ausencias" :key="a.id" class="bg-amber-50 rounded-lg px-2.5 py-1.5">
+                  <div class="flex items-start justify-between gap-2">
+                    <div class="min-w-0">
+                      <p class="text-xs font-semibold text-gray-700 truncate">{{ a.fecha }} · {{ a.horas }}h<span v-if="a.motivo"> · {{ a.motivo }}</span></p>
+                      <p class="text-[10px] text-gray-400 mt-0.5">Registrada el {{ formatoFechaHora(a.registrada_en) }}</p>
+                    </div>
+                    <div class="flex items-center gap-2 shrink-0">
+                      <p class="text-xs font-semibold text-red-600">-{{ formatoPesos(a.monto) }}</p>
+                      <button v-if="!pagado" @click="quitarFalta(a.id)" class="text-gray-300 hover:text-red-600 transition-colors">
+                        <XMarkIcon class="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
