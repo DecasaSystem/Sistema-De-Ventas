@@ -18,7 +18,7 @@ class Empleado extends Model
 
     protected $fillable = [
         'nombre', 'cedula', 'cargo', 'nomina_sueldo_id',
-        'valor_label', 'valor', 'unidad', 'horas_dia', 'activo',
+        'valor_label', 'valor', 'unidad', 'horas_dia', 'periodicidad', 'activo',
     ];
 
     protected function casts(): array
@@ -78,5 +78,10 @@ class Empleado extends Model
     public function labelEfectivo(): string
     {
         return $this->sueldo?->nombre ?? ($this->valor_label ?: 'Personalizado');
+    }
+
+    public function labelPeriodicidad(): string
+    {
+        return NominaPeriodo::labelPara($this->periodicidad);
     }
 }

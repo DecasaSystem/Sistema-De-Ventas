@@ -146,7 +146,10 @@ async function abrirAgregarEmpleado() {
   try {
     const { data } = await getEmpleados()
     const yaEstan = new Set(periodo.value.items.map(i => i.empleado_id))
-    empleadosDisponibles.value = data.filter(e => !yaEstan.has(e.id))
+    // Se filtra a la misma frecuencia del período para no mezclar por
+    // accidente — el que de verdad necesite mezclar frecuencias puede
+    // seguir creando el período a mano con la frecuencia que quiera.
+    empleadosDisponibles.value = data.filter(e => !yaEstan.has(e.id) && e.periodicidad === periodo.value.periodicidad)
     empleadoSeleccionado.value = ''
     mostrarAgregar.value = true
   } catch {
@@ -197,6 +200,7 @@ async function pagar() {
         <div class="flex items-center gap-2 text-xs text-gray-500 mb-2">
           <CalendarDaysIcon class="w-4 h-4" />
           {{ periodo.fecha_inicio }} a {{ periodo.fecha_fin }} · {{ periodo.dias_periodo }} días
+          <span class="text-[10px] font-semibold text-blue-600 bg-blue-50 rounded-full px-1.5 py-0.5">{{ periodo.periodicidad_label }}</span>
         </div>
         <div class="flex items-center justify-between">
           <p class="text-2xl font-bold text-gray-800">{{ formatoPesos(periodo.total_general) }}</p>
@@ -374,7 +378,7 @@ async function pagar() {
                 <option value="">Seleccionar...</option>
                 <option v-for="e in empleadosDisponibles" :key="e.id" :value="e.id">{{ e.nombre }} — {{ e.cargo || 'Sin cargo' }}</option>
               </select>
-              <p v-if="!empleadosDisponibles.length" class="text-xs text-gray-400 mt-2">Todos los trabajadores activos ya están en este período.</p>
+              <p v-if="!empleadosDisponibles.length" class="text-xs text-gray-400 mt-2">Todos los trabajadores activos de esta frecuencia ({{ periodo.periodicidad_label }}) ya están en este período.</p>
             </div>
             <div class="flex gap-2.5 p-5 pt-2">
               <button @click="mostrarAgregar = false" class="flex-1 bg-gray-100 text-gray-700 text-sm font-semibold rounded-xl px-4 py-2.5 hover:bg-gray-200">Cancelar</button>

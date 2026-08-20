@@ -16,8 +16,10 @@ class NominaPeriodoController extends Controller
         $items = $p->items()->with(['empleado', 'ajustes', 'ausencias'])->get();
 
         return [
-            'id'            => $p->id,
-            'nombre'        => $p->nombre,
+            'id'                 => $p->id,
+            'nombre'             => $p->nombre,
+            'periodicidad'       => $p->periodicidad,
+            'periodicidad_label' => $p->labelPeriodicidad(),
             'fecha_inicio'  => $p->fecha_inicio->toDateString(),
             'fecha_fin'     => $p->fecha_fin->toDateString(),
             'dias_periodo'  => $p->dias_periodo,
@@ -60,8 +62,10 @@ class NominaPeriodoController extends Controller
 
         return response()->json($periodos->map(function (NominaPeriodo $p) {
             return [
-                'id'            => $p->id,
-                'nombre'        => $p->nombre,
+                'id'                 => $p->id,
+                'nombre'             => $p->nombre,
+                'periodicidad'       => $p->periodicidad,
+                'periodicidad_label' => $p->labelPeriodicidad(),
                 'fecha_inicio'  => $p->fecha_inicio->toDateString(),
                 'fecha_fin'     => $p->fecha_fin->toDateString(),
                 'dias_periodo'  => $p->dias_periodo,
@@ -92,6 +96,7 @@ class NominaPeriodoController extends Controller
     {
         $data = $request->validate([
             'nombre'       => 'required|string|max:100',
+            'periodicidad' => 'nullable|in:diario,semanal,quincenal,20_dias,mensual',
             'fecha_inicio' => 'required|date',
             'fecha_fin'    => 'required|date|after_or_equal:fecha_inicio',
         ], [
@@ -102,7 +107,7 @@ class NominaPeriodoController extends Controller
         $inicio = Carbon::parse($data['fecha_inicio'])->startOfDay();
         $fin    = Carbon::parse($data['fecha_fin'])->startOfDay();
 
-        $periodo = NominaPeriodoService::crear($data['nombre'], $inicio, $fin);
+        $periodo = NominaPeriodoService::crear($data['nombre'], $inicio, $fin, $data['periodicidad'] ?? 'quincenal');
 
         return response()->json($this->conTotales($periodo), 201);
     }

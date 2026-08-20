@@ -13,7 +13,7 @@ class NominaPeriodo extends Model
 {
     protected $table = 'nomina_periodos';
 
-    protected $fillable = ['nombre', 'fecha_inicio', 'fecha_fin', 'dias_periodo', 'pagado_at'];
+    protected $fillable = ['nombre', 'periodicidad', 'fecha_inicio', 'fecha_fin', 'dias_periodo', 'pagado_at'];
 
     protected function casts(): array
     {
@@ -38,5 +38,22 @@ class NominaPeriodo extends Model
     public function totalGeneral(): float
     {
         return $this->items->sum(fn (NominaItem $i) => $i->total());
+    }
+
+    public function labelPeriodicidad(): string
+    {
+        return self::labelPara($this->periodicidad);
+    }
+
+    public static function labelPara(string $periodicidad): string
+    {
+        return match ($periodicidad) {
+            'diario'    => 'Diario',
+            'semanal'   => 'Semanal',
+            'quincenal' => 'Quincenal',
+            '20_dias'   => 'Cada 20 días',
+            'mensual'   => 'Mensual',
+            default     => ucfirst($periodicidad),
+        };
     }
 }

@@ -28,6 +28,8 @@ class EmpleadoController extends Controller
             'valor'             => $e->valor !== null ? (float) $e->valor : null,
             'unidad'            => $e->unidad,
             'horas_dia'         => $e->horas_dia !== null ? (float) $e->horas_dia : null,
+            'periodicidad'       => $e->periodicidad,
+            'periodicidad_label' => $e->labelPeriodicidad(),
             'activo'            => (bool) $e->activo,
             // Lo que de verdad rige, venga del catálogo o sea personalizado —
             // así el front no tiene que resolver la fuente por su cuenta.
@@ -82,6 +84,7 @@ class EmpleadoController extends Controller
             'valor'            => 'nullable|numeric|min:0',
             'unidad'           => 'nullable|in:dia,hora',
             'horas_dia'        => 'nullable|numeric|min:0.25|max:24',
+            'periodicidad'     => 'nullable|in:diario,semanal,quincenal,20_dias,mensual',
         ], [
             'nombre.required' => 'El nombre es obligatorio.',
             'cedula.unique'   => 'Ya hay un empleado con esa cédula.',
@@ -100,6 +103,7 @@ class EmpleadoController extends Controller
             'valor'            => $esPersonalizado ? $data['valor'] : null,
             'unidad'           => $esPersonalizado ? ($data['unidad'] ?? 'dia') : 'dia',
             'horas_dia'        => $esPersonalizado ? ($data['horas_dia'] ?? 8) : 8,
+            'periodicidad'     => $data['periodicidad'] ?? 'quincenal',
             'activo'           => true,
         ]);
 
@@ -120,6 +124,7 @@ class EmpleadoController extends Controller
             'valor'            => 'sometimes|nullable|numeric|min:0',
             'unidad'           => 'sometimes|nullable|in:dia,hora',
             'horas_dia'        => 'sometimes|nullable|numeric|min:0.25|max:24',
+            'periodicidad'     => 'sometimes|in:diario,semanal,quincenal,20_dias,mensual',
             'activo'           => 'sometimes|boolean',
         ], [
             'cedula.unique' => 'Ya hay un empleado con esa cédula.',

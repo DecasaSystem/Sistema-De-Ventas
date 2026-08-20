@@ -31,11 +31,23 @@ function formatoPesos(n) {
   return '$' + Math.round(n ?? 0).toLocaleString('es-CO')
 }
 
+// La mayoría cobra quincenal, pero no todos — se elige por trabajador.
+const PERIODICIDADES = [
+  { value: 'diario', label: 'Diario' },
+  { value: 'semanal', label: 'Semanal' },
+  { value: 'quincenal', label: 'Quincenal' },
+  { value: '20_dias', label: 'Cada 20 días' },
+  { value: 'mensual', label: 'Mensual' },
+]
+function labelPeriodicidad(p) {
+  return PERIODICIDADES.find(x => x.value === p)?.label ?? p
+}
+
 // ── Períodos ────────────────────────────────────────────────────────────
 const periodos         = ref([])
 const cargandoPeriodos = ref(true)
 const mostrarFormPeriodo = ref(false)
-const formPeriodo = ref({ nombre: '', fecha_inicio: '', fecha_fin: '' })
+const formPeriodo = ref({ nombre: '', periodicidad: 'quincenal', fecha_inicio: '', fecha_fin: '' })
 const guardandoPeriodo = ref(false)
 
 async function cargarPeriodos() {
@@ -52,7 +64,7 @@ async function cargarPeriodos() {
 onMounted(cargarPeriodos)
 
 function abrirNuevoPeriodo() {
-  formPeriodo.value = { nombre: '', fecha_inicio: '', fecha_fin: '' }
+  formPeriodo.value = { nombre: '', periodicidad: 'quincenal', fecha_inicio: '', fecha_fin: '' }
   mostrarFormPeriodo.value = true
 }
 
@@ -65,6 +77,7 @@ async function guardarPeriodo() {
   try {
     const { data } = await crearPeriodo({
       nombre: formPeriodo.value.nombre.trim(),
+      periodicidad: formPeriodo.value.periodicidad,
       fecha_inicio: formPeriodo.value.fecha_inicio,
       fecha_fin: formPeriodo.value.fecha_fin,
     })
@@ -187,7 +200,7 @@ const editandoEmpleado    = ref(null)
 const CUSTOM = 'personalizado'
 const formEmpleado = ref({
   nombre: '', cedula: '', cargo: '', fuente: CUSTOM, nomina_sueldo_id: '',
-  valor_label: 'Personalizado', valor: 0, unidad: 'dia', horas_dia: 8,
+  valor_label: 'Personalizado', valor: 0, unidad: 'dia', horas_dia: 8, periodicidad: 'quincenal',
 })
 const guardandoEmpleado = ref(false)
 
@@ -226,7 +239,7 @@ function abrirNuevoEmpleado() {
   editandoEmpleado.value = null
   formEmpleado.value = {
     nombre: '', cedula: '', cargo: '', fuente: CUSTOM, nomina_sueldo_id: '',
-    valor_label: 'Personalizado', valor: 0, unidad: 'dia', horas_dia: 8,
+    valor_label: 'Personalizado', valor: 0, unidad: 'dia', horas_dia: 8, periodicidad: 'quincenal',
   }
   mostrarFormEmpleado.value = true
 }
@@ -241,6 +254,7 @@ function abrirEditarEmpleado(e) {
     valor: Number(e.valor) || 0,
     unidad: e.unidad || 'dia',
     horas_dia: Number(e.horas_dia) || 8,
+    periodicidad: e.periodicidad || 'quincenal',
   }
   mostrarFormEmpleado.value = true
 }
@@ -266,6 +280,7 @@ async function guardarEmpleado() {
       valor: esPersonalizado ? formEmpleado.value.valor : null,
       unidad: esPersonalizado ? formEmpleado.value.unidad : null,
       horas_dia: esPersonalizado ? formEmpleado.value.horas_dia : null,
+      periodicidad: formEmpleado.value.periodicidad,
     }
     if (editandoEmpleado.value) {
       await actualizarEmpleado(editandoEmpleado.value, payload)
@@ -398,7 +413,7 @@ async function guardarFalta() {
     <!-- ═══════════ PERÍODOS ═══════════ -->
     <template v-if="tab === 'periodos'">
       <div class="flex items-center justify-between mb-3">
-        <p class="text-xs text-gray-400">Cada quincena es un período: se arma solo con los trabajadores activos.</p>
+        <p class="text-xs text-gray-400">Un período por frecuencia: se arma solo con los trabajadores activos de esa misma frecuencia.</p>
         <button
           @click="abrirNuevoPeriodo"
           class="flex items-center gap-1.5 bg-blue-600 text-white text-xs font-semibold px-3 py-2 rounded-xl hover:bg-blue-700 transition-colors shadow-sm shrink-0"
@@ -425,6 +440,7 @@ async function guardarFalta() {
             <div class="min-w-0">
               <p class="font-semibold text-sm text-gray-800 truncate flex items-center gap-1.5">
                 {{ p.nombre }}
+                <span class="text-[10px] font-semibold text-blue-600 bg-blue-50 rounded-full px-1.5 py-0.5 shrink-0">{{ p.periodicidad_label }}</span>
                 <CheckCircleIcon v-if="p.pagado_at" class="w-4 h-4 text-green-500 shrink-0" />
               </p>
               <p class="text-xs text-gray-500 mt-0.5">{{ p.fecha_inicio }} a {{ p.fecha_fin }} · {{ p.dias_periodo }} días · {{ p.num_empleados }} trabajadores</p>
@@ -465,6 +481,13 @@ async function guardarFalta() {
                 <div>
                   <label class="block text-xs font-semibold text-gray-500 mb-1.5">Nombre *</label>
                   <input v-model="formPeriodo.nombre" placeholder="16 al 31 de agosto de 2026" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow" />
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-gray-500 mb-1.5">Frecuencia</label>
+                  <select v-model="formPeriodo.periodicidad" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow">
+                    <option v-for="op in PERIODICIDADES" :key="op.value" :value="op.value">{{ op.label }}</option>
+                  </select>
+                  <p class="text-[11px] text-gray-400 mt-1">Se arma solo con los trabajadores activos que tengan esta misma frecuencia.</p>
                 </div>
                 <div class="grid grid-cols-2 gap-3">
                   <div>
@@ -518,7 +541,10 @@ async function guardarFalta() {
         <div v-for="e in empleadosActivos" :key="e.id" class="bg-white rounded-xl shadow-sm p-4">
           <div class="flex items-start justify-between gap-2">
             <div class="min-w-0">
-              <p class="font-semibold text-sm text-gray-800 truncate">{{ e.nombre }}</p>
+              <p class="font-semibold text-sm text-gray-800 truncate flex items-center gap-1.5">
+                {{ e.nombre }}
+                <span class="text-[10px] font-semibold text-blue-600 bg-blue-50 rounded-full px-1.5 py-0.5 shrink-0">{{ e.periodicidad_label }}</span>
+              </p>
               <p class="text-xs text-gray-500 mt-0.5">{{ e.cargo || 'Sin cargo' }} <span v-if="e.cedula">· CC {{ e.cedula }}</span></p>
               <p class="text-xs mt-0.5" :class="Number(e.valor_dia_efectivo) > 0 ? 'text-gray-600' : 'text-amber-600'">
                 {{ e.label_efectivo }}: {{ formatoPesos(e.valor_dia_efectivo) }}/día · {{ formatoPesos(e.valor_hora_efectivo) }}/hora
@@ -581,6 +607,13 @@ async function guardarFalta() {
                     <label class="block text-xs font-semibold text-gray-500 mb-1.5">Cargo</label>
                     <input v-model="formEmpleado.cargo" placeholder="Lijador, Ebanista..." class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow" />
                   </div>
+                </div>
+
+                <div>
+                  <label class="block text-xs font-semibold text-gray-500 mb-1.5">Frecuencia de pago</label>
+                  <select v-model="formEmpleado.periodicidad" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow">
+                    <option v-for="op in PERIODICIDADES" :key="op.value" :value="op.value">{{ op.label }}</option>
+                  </select>
                 </div>
 
                 <div>
