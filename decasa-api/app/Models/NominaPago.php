@@ -21,7 +21,7 @@ class NominaPago extends Model
         'empleado_id', 'periodicidad', 'fecha_inicio', 'fecha_fin', 'sueldo_nombre',
         'valor_dia', 'valor_hora', 'horas_dia', 'dias', 'subtotal',
         'descuento_faltas', 'total_ajustes', 'produccion_total', 'bonificacion',
-        'bonificacion_nombre', 'total', 'observaciones', 'pagado_at',
+        'bonificacion_nombre', 'bonificacion_detalle', 'total', 'observaciones', 'pagado_at',
     ];
 
     protected function casts(): array

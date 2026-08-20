@@ -269,7 +269,17 @@ const bonificaciones       = ref([])
 const cargandoBonos        = ref(true)
 const mostrarFormBono      = ref(false)
 const editandoBono         = ref(null)
-const formBono             = ref({ nombre: '', tope: 0, tope_activo: true })
+// Sobre qué ventana se mide el tope. 'ciclo' sigue el ciclo de pago de cada
+// trabajador; el resto son ventanas fijas iguales para todos.
+const PERIODOS_BONO = [
+  { value: 'ciclo', label: 'Por ciclo de pago' },
+  { value: 'diario', label: 'Diario' },
+  { value: 'semanal', label: 'Semanal' },
+  { value: 'quincenal', label: 'Quincenal' },
+  { value: '20_dias', label: 'Cada 20 días' },
+  { value: 'mensual', label: 'Mensual' },
+]
+const formBono             = ref({ nombre: '', periodo: 'ciclo', tope: 0, tope_activo: true })
 const guardandoBono        = ref(false)
 const bonoAbierto          = ref(null)
 // Formulario de meta nueva, uno por esquema: { [bonoId]: { desde, hasta, monto } }
@@ -292,13 +302,18 @@ const bonosInactivos = computed(() => bonificaciones.value.filter(b => !b.activo
 
 function abrirNuevoBono() {
   editandoBono.value = null
-  formBono.value = { nombre: '', tope: 0, tope_activo: true }
+  formBono.value = { nombre: '', periodo: 'ciclo', tope: 0, tope_activo: true }
   mostrarFormBono.value = true
 }
 
 function abrirEditarBono(b) {
   editandoBono.value = b.id
-  formBono.value = { nombre: b.nombre, tope: Number(b.tope) || 0, tope_activo: !!b.tope_activo }
+  formBono.value = {
+    nombre: b.nombre,
+    periodo: b.periodo || 'ciclo',
+    tope: Number(b.tope) || 0,
+    tope_activo: !!b.tope_activo,
+  }
   mostrarFormBono.value = true
 }
 
@@ -311,6 +326,7 @@ async function guardarBono() {
   try {
     const payload = {
       nombre: formBono.value.nombre.trim(),
+      periodo: formBono.value.periodo,
       tope: formBono.value.tope,
       tope_activo: formBono.value.tope_activo,
     }
@@ -859,7 +875,9 @@ async function quitarAjuste(id) {
 
                   <!-- Producción y bono del ciclo -->
                   <div v-if="p.bono.aplica">
-                    <p class="text-[11px] font-semibold text-gray-400 uppercase mb-1">Producción</p>
+                    <p class="text-[11px] font-semibold text-gray-400 uppercase mb-1">
+                      Producción<span v-if="p.producciones.length"> del ciclo</span>
+                    </p>
                     <div v-for="pr in p.producciones" :key="pr.id" class="flex justify-between text-xs bg-gray-50 rounded-lg px-2.5 py-1.5 mb-1">
                       <span class="text-gray-600 truncate">
                         {{ formatoFechaCorta(pr.fecha) }} · {{ pr.concepto }}
@@ -871,21 +889,34 @@ async function quitarAjuste(id) {
                       <span class="text-gray-600">Total producido</span>
                       <span class="text-gray-800">{{ formatoPesos(p.produccion_total) }}</span>
                     </div>
-                    <div
-                      class="flex justify-between text-xs rounded-lg px-2.5 py-1.5 mt-1"
-                      :class="p.bonificacion ? 'bg-green-50' : 'bg-amber-50'"
-                    >
-                      <span class="text-gray-600 truncate">
-                        <template v-if="p.bonificacion">Bono · {{ p.bono.meta }}</template>
-                        <template v-else-if="!p.bono.alcanzo_tope">
-                          No alcanzó el tope de {{ formatoPesos(p.bono.tope) }} (le faltaron {{ formatoPesos(p.bono.falta_para_tope) }})
-                        </template>
-                        <template v-else>Pasó el tope pero no cae en ninguna meta activa</template>
-                      </span>
-                      <span :class="['font-semibold shrink-0 ml-2', p.bonificacion ? 'text-green-600' : 'text-gray-400']">
-                        {{ p.bonificacion ? '+' + formatoPesos(p.bonificacion) : formatoPesos(0) }}
-                      </span>
-                    </div>
+                    <!-- El bono no siempre se mide sobre el ciclo: si la
+                         ventana es mensual, aquí se ve el mes completo. -->
+                    <template v-if="p.bono.cierra_aqui">
+                      <div v-for="(v, i) in p.bono.ventanas" :key="i" class="mt-1">
+                        <div
+                          class="flex justify-between text-xs rounded-lg px-2.5 py-1.5"
+                          :class="v.monto ? 'bg-green-50' : 'bg-amber-50'"
+                        >
+                          <span class="text-gray-600 truncate">
+                            <template v-if="v.monto">Bono {{ v.nombre }} · {{ v.meta }}</template>
+                            <template v-else>
+                              {{ v.nombre }}: produjo {{ formatoPesos(v.produccion) }}, sin bono
+                            </template>
+                          </span>
+                          <span :class="['font-semibold shrink-0 ml-2', v.monto ? 'text-green-600' : 'text-gray-400']">
+                            {{ v.monto ? '+' + formatoPesos(v.monto) : formatoPesos(0) }}
+                          </span>
+                        </div>
+                        <p v-if="p.bono.periodo !== 'ciclo'" class="text-[10px] text-gray-400 px-2.5 mt-0.5">
+                          Medido sobre {{ v.nombre.toLowerCase() }} ({{ formatoPesos(v.produccion) }} producidos),
+                          no solo sobre este ciclo.
+                        </p>
+                      </div>
+                    </template>
+                    <p v-else class="text-[11px] text-gray-500 bg-gray-50 rounded-lg px-2.5 py-1.5 mt-1">
+                      El bono es {{ p.bono.periodo_label.toLowerCase() }} y esa ventana no cierra en este ciclo:
+                      se paga completo en el pago que la cierre.
+                    </p>
                   </div>
 
                   <p class="text-[11px] text-gray-400">
@@ -995,14 +1026,18 @@ async function quitarAjuste(id) {
               <div class="flex items-center justify-between gap-2">
                 <p class="text-[11px] text-gray-500 truncate flex items-center gap-1">
                   <TrophyIcon class="w-3 h-3 text-purple-500 shrink-0" />
-                  Produjo <span class="font-semibold text-gray-700">{{ formatoPesos(e.ciclo.produccion_total) }}</span>
+                  Produjo <span class="font-semibold text-gray-700">{{ formatoPesos(e.ciclo.bono.produccion_medida) }}</span>
+                  <span v-if="e.ciclo.bono.periodo !== 'ciclo'" class="text-gray-400">({{ e.ciclo.bono.periodo_label.toLowerCase() }})</span>
                 </p>
                 <p v-if="e.ciclo.bonificacion" class="text-xs font-bold text-purple-600 shrink-0">
                   +{{ formatoPesos(e.ciclo.bonificacion) }}
                 </p>
               </div>
               <p class="text-[11px] mt-0.5" :class="e.ciclo.bonificacion ? 'text-purple-500' : 'text-gray-400'">
-                <template v-if="e.ciclo.bonificacion">Bono {{ e.ciclo.bono.meta }}</template>
+                <template v-if="!e.ciclo.bono.cierra_aqui">
+                  Bono {{ e.ciclo.bono.periodo_label.toLowerCase() }}: se cobra en el ciclo que cierre esa ventana.
+                </template>
+                <template v-else-if="e.ciclo.bonificacion">Bono {{ e.ciclo.bono.meta }}</template>
                 <template v-else-if="!e.ciclo.bono.alcanzo_tope">
                   Le faltan {{ formatoPesos(e.ciclo.bono.falta_para_tope) }} para el tope de {{ formatoPesos(e.ciclo.bono.tope) }}
                 </template>
@@ -1296,8 +1331,10 @@ async function quitarAjuste(id) {
                 <p class="text-xs text-gray-500 mt-0.5">
                   <span v-if="b.tope_activo">Tope {{ formatoPesos(b.tope) }}</span>
                   <span v-else class="text-amber-600">Tope desactivado</span>
-                  · {{ b.metas.filter(m => m.activo).length }} meta(s)
-                  · {{ b.num_trabajadores }} trabajador(es)
+                  · {{ b.periodo_label.toLowerCase() }}
+                </p>
+                <p class="text-[11px] text-gray-400 mt-0.5">
+                  {{ b.metas.filter(m => m.activo).length }} meta(s) · {{ b.num_trabajadores }} trabajador(es)
                 </p>
               </div>
             </div>
@@ -1314,7 +1351,11 @@ async function quitarAjuste(id) {
 
           <div v-if="bonoAbierto === b.id" class="px-4 pb-4 border-t border-gray-50 pt-3 space-y-3">
             <p class="text-[11px] text-gray-400">
-              <span v-if="b.tope_activo">Hay que producir al menos {{ formatoPesos(b.tope) }} en el ciclo para recibir bono.</span>
+              <span v-if="b.tope_activo">
+                Hay que producir al menos {{ formatoPesos(b.tope) }}
+                {{ b.periodo === 'ciclo' ? 'en el ciclo de pago' : `por ${b.periodo_label.toLowerCase()}` }}
+                para recibir bono.
+              </span>
               <span v-else>Sin tope: el bono depende solo de en qué meta caiga lo producido.</span>
             </p>
 
@@ -1404,6 +1445,22 @@ async function quitarAjuste(id) {
                   <label class="block text-xs font-semibold text-gray-500 mb-1.5">Nombre *</label>
                   <input v-model="formBono.nombre" placeholder="Bonos del mínimo" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow" />
                   <p class="text-[11px] text-gray-400 mt-1">Este nombre es el que se elige después en cada trabajador.</p>
+                </div>
+
+                <div>
+                  <label class="block text-xs font-semibold text-gray-500 mb-1.5">¿Cada cuánto se mide el tope? *</label>
+                  <select v-model="formBono.periodo" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow">
+                    <option v-for="op in PERIODOS_BONO" :key="op.value" :value="op.value">{{ op.label }}</option>
+                  </select>
+                  <p v-if="formBono.periodo === 'ciclo'" class="text-[11px] text-gray-400 mt-1">
+                    El tope se cuenta sobre el ciclo de pago de cada quien: al quincenal se le mide por quincena
+                    y al mensual por mes, así que el mismo tope les exige distinto.
+                  </p>
+                  <p v-else class="text-[11px] text-gray-400 mt-1">
+                    El tope se cuenta sobre {{ formBono.periodo === 'mensual' ? 'el mes' : 'la ventana' }} completo,
+                    igual para todos. Si alguien cobra más seguido, el bono se le paga una sola vez, en el pago
+                    que cierra {{ formBono.periodo === 'mensual' ? 'el mes' : 'esa ventana' }}.
+                  </p>
                 </div>
 
                 <div class="flex items-center justify-between gap-3 bg-gray-50 rounded-xl px-3.5 py-2.5">
@@ -1733,7 +1790,8 @@ async function quitarAjuste(id) {
                       <span v-if="p.total_ajustes">· {{ p.total_ajustes > 0 ? '+' : '' }}{{ formatoPesos(p.total_ajustes) }} ajustes</span>
                       <span v-if="p.bonificacion">· +{{ formatoPesos(p.bonificacion) }} bono</span>
                     </p>
-                    <p v-if="p.bonificacion_nombre" class="text-[11px] text-purple-500 mt-0.5 truncate">{{ p.bonificacion_nombre }}</p>
+                    <p v-if="p.bonificacion_nombre" class="text-[11px] text-purple-500 mt-0.5">{{ p.bonificacion_nombre }}</p>
+                    <p v-if="p.bonificacion_detalle" class="text-[10px] text-gray-400 mt-0.5">{{ p.bonificacion_detalle }}</p>
                     <p class="text-[11px] text-gray-400 mt-1">Pagado el {{ formatoFechaHora(p.pagado_at) }}</p>
                   </div>
                   <div class="flex flex-col items-end gap-1.5 shrink-0">

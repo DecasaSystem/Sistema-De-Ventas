@@ -211,9 +211,12 @@ class NominaPagoController extends Controller
             // Se guarda de dónde salió el bono ("Bonos del mínimo · de
             // $2.800.000 a $2.900.000"), porque el esquema puede cambiar
             // después y el pago tiene que poder explicarse solo.
-            'bonificacion_nombre' => $l['bono']['meta']
+            'bonificacion_nombre' => $l['bono']['monto'] > 0
                 ? $l['bono']['bonificacion_nombre'] . ' · ' . $l['bono']['meta']
                 : null,
+            // Sobre qué se midió y en qué rango: un bono mensual cobrado con
+            // la segunda quincena tiene que poder explicarse solo.
+            'bonificacion_detalle' => $this->detalleBono($l['bono']),
             'total'            => $l['total'],
             'observaciones'    => $observaciones,
             'pagado_at'        => now(),
@@ -240,6 +243,26 @@ class NominaPagoController extends Controller
             ->update(['nomina_pago_id' => $pago->id]);
 
         return $pago;
+    }
+
+    /**
+     * En texto, de dónde salió el bono: "Mensual · Agosto de 2026 · produjo
+     * $3.450.000". Con varias ventanas (mensual que cobra dos quincenas) se
+     * listan todas.
+     */
+    private function detalleBono(array $bono): ?string
+    {
+        if (! $bono['aplica'] || empty($bono['ventanas'])) {
+            return null;
+        }
+
+        $partes = array_map(
+            fn (array $v) => $v['nombre'] . ': produjo $' . number_format($v['produccion'], 0, ',', '.') .
+                ($v['monto'] > 0 ? ' → $' . number_format($v['monto'], 0, ',', '.') : ' → sin bono'),
+            $bono['ventanas']
+        );
+
+        return mb_substr($bono['periodo_label'] . ' · ' . implode(' · ', $partes), 0, 255);
     }
 
     /** El trabajador con todo lo que la liquidación necesita cargado. */
@@ -276,8 +299,9 @@ class NominaPagoController extends Controller
             'descuento_faltas'    => (float) $p->descuento_faltas,
             'total_ajustes'       => (float) $p->total_ajustes,
             'produccion_total'    => (float) $p->produccion_total,
-            'bonificacion'        => (float) $p->bonificacion,
-            'bonificacion_nombre' => $p->bonificacion_nombre,
+            'bonificacion'         => (float) $p->bonificacion,
+            'bonificacion_nombre'  => $p->bonificacion_nombre,
+            'bonificacion_detalle' => $p->bonificacion_detalle,
             'total'               => (float) $p->total,
             'observaciones'      => $p->observaciones,
             'pagado_at'          => $p->pagado_at?->toIso8601String(),

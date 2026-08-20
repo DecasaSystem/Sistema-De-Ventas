@@ -6,6 +6,7 @@ use App\Models\Empleado;
 use App\Models\NominaBonificacion;
 use App\Models\NominaBonificacionMeta;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -18,13 +19,21 @@ use Illuminate\Validation\ValidationException;
  */
 class NominaBonificacionController extends Controller
 {
+    /**
+     * Sobre qué ventana se mide el tope. 'ciclo' es el ciclo de pago de cada
+     * trabajador; el resto son ventanas fijas iguales para todos.
+     */
+    private const PERIODOS = ['ciclo', 'diario', 'semanal', 'quincenal', '20_dias', 'mensual'];
+
     private function comoJson(NominaBonificacion $b): array
     {
         $metas = $b->relationLoaded('metas') ? $b->metas : $b->metas()->get();
 
         return [
-            'id'          => $b->id,
-            'nombre'      => $b->nombre,
+            'id'            => $b->id,
+            'nombre'        => $b->nombre,
+            'periodo'       => $b->periodo,
+            'periodo_label' => $b->labelPeriodo(),
             'tope'        => (float) $b->tope,
             'tope_activo' => (bool) $b->tope_activo,
             'activo'      => (bool) $b->activo,
@@ -56,6 +65,7 @@ class NominaBonificacionController extends Controller
     {
         $data = $request->validate([
             'nombre'      => 'required|string|max:80',
+            'periodo'     => ['nullable', Rule::in(self::PERIODOS)],
             'tope'        => 'nullable|numeric|min:0',
             'tope_activo' => 'nullable|boolean',
         ], [
@@ -64,6 +74,7 @@ class NominaBonificacionController extends Controller
 
         $bonificacion = NominaBonificacion::create([
             'nombre'      => $data['nombre'],
+            'periodo'     => $data['periodo'] ?? 'ciclo',
             'tope'        => $data['tope'] ?? 0,
             'tope_activo' => $data['tope_activo'] ?? true,
             'activo'      => true,
@@ -79,6 +90,7 @@ class NominaBonificacionController extends Controller
 
         $data = $request->validate([
             'nombre'      => 'sometimes|required|string|max:80',
+            'periodo'     => ['sometimes', 'required', Rule::in(self::PERIODOS)],
             'tope'        => 'sometimes|numeric|min:0',
             'tope_activo' => 'sometimes|boolean',
             'activo'      => 'sometimes|boolean',

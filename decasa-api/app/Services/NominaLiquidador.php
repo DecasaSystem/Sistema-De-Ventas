@@ -32,6 +32,16 @@ class NominaLiquidador
     /** Tope duro de ciclos por trabajador, por si el piso no alcanza. */
     private const MAX_CICLOS = 60;
 
+    /** Tope de ventanas de bono dentro de un mismo pago (diario + mensual = 31). */
+    private const MAX_VENTANAS = 40;
+
+    /**
+     * Cuánta producción se trae cargada. Más que los ciclos que se liquidan,
+     * porque una ventana de bono mensual puede empezar antes que el ciclo
+     * de pago que la cobra.
+     */
+    private const DIAS_PRODUCCION_ATRAS = 150;
+
     /**
      * El desglose de un ciclo para un trabajador.
      *
@@ -76,13 +86,12 @@ class NominaLiquidador
         $descuentoFaltas = $faltas->sum(fn (NominaAusencia $a) => round((float) $a->horas * $valorHora));
         $totalAjustes    = $ajustes->sum(fn (NominaAjuste $a) => (float) $a->monto);
 
-        // La bonificación se mide sobre lo que produjo DENTRO de este ciclo:
-        // se evalúa contra el mismo período que se está pagando.
+        // Lo producido dentro del ciclo — es lo que se muestra en el detalle.
+        // La bonificación puede medirse sobre otra ventana (ver abajo).
         $producciones    = self::enVentana($empleado->producciones, $inicio, $hasta);
         $produccionTotal = (float) $producciones->sum(fn (NominaProduccion $p) => (float) $p->total);
-        $bono = $empleado->bonificacion
-            ? $empleado->bonificacion->evaluar($produccionTotal)
-            : NominaBonificacion::sinEsquema();
+
+        $bono = self::evaluarBono($empleado, $inicio, $fin, $hasta);
 
         return [
             'periodicidad'       => $empleado->periodicidad,
@@ -122,6 +131,122 @@ class NominaLiquidador
                 'monto'  => (float) $a->monto,
             ])->values(),
         ];
+    }
+
+    /**
+     * La bonificación que le corresponde a este pago.
+     *
+     * El tope puede medirse sobre el ciclo de pago ('ciclo') o sobre una
+     * ventana fija (mensual, quincenal...). Cuando no coinciden, la regla
+     * es: **una ventana se cobra en el pago donde ESA ventana cierra**.
+     *
+     * Así un bono mensual de alguien que cobra quincenal se paga una sola
+     * vez, con la quincena del 16 al 31, midiendo lo producido en todo el
+     * mes; la quincena del 1 al 15 no lo paga. Y si alguien cobra mensual
+     * con bono quincenal, ese único pago cierra dos ventanas y cobra las
+     * dos, cada una evaluada por separado.
+     *
+     * La producción de la ventana se cuenta completa, esté ya enganchada a
+     * un pago anterior o no: lo que se cobró antes fueron los días, no el
+     * bono de esta ventana.
+     */
+    private static function evaluarBono(Empleado $empleado, Carbon $inicio, Carbon $fin, Carbon $hasta): array
+    {
+        $esquema = $empleado->bonificacion;
+        if (! $esquema) {
+            return NominaBonificacion::sinEsquema();
+        }
+
+        $periodo = $esquema->periodo ?? 'ciclo';
+        $ventanas = $periodo === 'ciclo'
+            ? [[$inicio->copy(), $fin->copy()]]
+            : self::ventanasQueCierranEn($periodo, $inicio, $fin);
+
+        $base = [
+            'bonificacion_id'     => $esquema->id,
+            'bonificacion_nombre' => $esquema->nombre,
+            'aplica'              => true,
+            'periodo'             => $periodo,
+            'periodo_label'       => $esquema->labelPeriodo(),
+            'cierra_aqui'         => count($ventanas) > 0,
+            'tope'                => $esquema->tope_activo ? (float) $esquema->tope : null,
+            'produccion_medida'   => 0.0,
+            'ventanas'            => [],
+        ];
+
+        if (! $ventanas) {
+            // El bono existe pero esta ventana no cierra en este pago: se
+            // cobra en el que sí la cierre. No es un error, es el calendario.
+            return array_merge($base, [
+                'alcanzo_tope'    => false,
+                'falta_para_tope' => 0.0,
+                'meta'            => null,
+                'monto'           => 0.0,
+            ]);
+        }
+
+        $monto = 0.0;
+        $detalles = [];
+        $ultima = null;
+
+        foreach ($ventanas as [$vIni, $vFin]) {
+            // Hasta hoy si la ventana todavía no termina: mientras corre, lo
+            // que se muestra es lo que lleva ganado, y al cerrar queda firme.
+            $corte = $vFin->lessThan($hasta) ? $vFin : $hasta;
+            $producido = (float) self::enVentana($empleado->producciones, $vIni, $corte)
+                ->sum(fn (NominaProduccion $p) => (float) $p->total);
+
+            $ev = $esquema->evaluar($producido);
+            $monto += $ev['monto'];
+
+            $ultima = $ev;
+            $detalles[] = [
+                'desde'      => $vIni->toDateString(),
+                'hasta'      => $vFin->toDateString(),
+                'nombre'     => CicloNomina::nombre($periodo === 'ciclo' ? $empleado->periodicidad : $periodo, $vIni, $vFin),
+                'produccion' => $producido,
+                'cerrada'    => $vFin->lessThanOrEqualTo($hasta),
+                'meta'       => $ev['meta'],
+                'monto'      => $ev['monto'],
+            ];
+        }
+
+        return array_merge($base, [
+            'produccion_medida' => (float) array_sum(array_column($detalles, 'produccion')),
+            'alcanzo_tope'      => $ultima['alcanzo_tope'],
+            'falta_para_tope'   => $ultima['falta_para_tope'],
+            'meta'              => $ultima['meta'],
+            'monto'             => $monto,
+            'ventanas'          => $detalles,
+        ]);
+    }
+
+    /**
+     * Las ventanas de esa frecuencia que terminan dentro del ciclo de pago.
+     * Son las que este pago tiene que cobrar — ninguna otra las va a
+     * reclamar, y por eso el bono no se paga dos veces.
+     *
+     * @return array<int, array{0: Carbon, 1: Carbon}>
+     */
+    private static function ventanasQueCierranEn(string $periodo, Carbon $inicio, Carbon $fin): array
+    {
+        [$vIni, $vFin] = CicloNomina::rango($periodo, $inicio);
+
+        // Si la ventana del arranque cerró antes del ciclo, ya la cobró un
+        // pago anterior: se avanza hasta la primera que caiga adentro.
+        $vueltas = 0;
+        while ($vFin->lessThan($inicio) && $vueltas++ < self::MAX_VENTANAS) {
+            [$vIni, $vFin] = CicloNomina::siguiente($periodo, $vIni);
+        }
+
+        $ventanas = [];
+        $vueltas = 0;
+        while ($vFin->lessThanOrEqualTo($fin) && $vueltas++ < self::MAX_VENTANAS) {
+            $ventanas[] = [$vIni->copy(), $vFin->copy()];
+            [$vIni, $vFin] = CicloNomina::siguiente($periodo, $vIni);
+        }
+
+        return $ventanas;
     }
 
     /** El ciclo en curso de un trabajador — lo que lleva devengado hoy. */
@@ -233,12 +358,19 @@ class NominaLiquidador
     {
         $sinCobrar = fn ($q) => $q->whereNull('nomina_pago_id')->orderBy('fecha');
 
+        // La producción NO se filtra por "sin cobrar", a diferencia de las
+        // otras dos: un bono mensual que se paga con la segunda quincena
+        // tiene que poder sumar la producción de la primera, que ya quedó
+        // enganchada a ese pago. Se acota por fecha para que no crezca sola.
+        $piso = CicloNomina::hoy()->subDays(self::DIAS_PRODUCCION_ATRAS)->toDateString();
+        $recientes = fn ($q) => $q->where('fecha', '>=', $piso)->orderBy('fecha');
+
         return [
             'sueldo',
             'bonificacion.metas',
             'ausencias'    => $sinCobrar,
             'ajustes'      => $sinCobrar,
-            'producciones' => $sinCobrar,
+            'producciones' => $recientes,
         ];
     }
 

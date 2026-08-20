@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\CicloNomina;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -17,7 +18,7 @@ class NominaBonificacion extends Model
 {
     protected $table = 'nomina_bonificaciones';
 
-    protected $fillable = ['nombre', 'tope', 'tope_activo', 'activo'];
+    protected $fillable = ['nombre', 'periodo', 'tope', 'tope_activo', 'activo'];
 
     protected function casts(): array
     {
@@ -26,6 +27,18 @@ class NominaBonificacion extends Model
             'tope_activo' => 'boolean',
             'activo'      => 'boolean',
         ];
+    }
+
+    /**
+     * Sobre qué ventana se mide el tope: 'ciclo' es el ciclo de pago de cada
+     * trabajador (le sale distinto al quincenal que al mensual), y cualquier
+     * otro valor es una ventana fija igual para todos.
+     */
+    public function labelPeriodo(): string
+    {
+        return $this->periodo === 'ciclo'
+            ? 'Por ciclo de pago'
+            : CicloNomina::label($this->periodo);
     }
 
     public function metas()
