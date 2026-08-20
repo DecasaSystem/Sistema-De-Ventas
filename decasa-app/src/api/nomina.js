@@ -22,3 +22,18 @@ export const eliminarAusencia  = (id) => api.delete(`/nomina/ausencias/${id}`)
 export const getAjustes        = (params = {}) => api.get('/nomina/ajustes', { params })
 export const crearAjuste       = (payload) => api.post('/nomina/ajustes', payload)
 export const eliminarAjuste    = (id) => api.delete(`/nomina/ajustes/${id}`)
+
+// Lo que el trabajador produjo, que es lo que suma para el bono.
+export const getProducciones     = (params = {}) => api.get('/nomina/producciones', { params })
+export const crearProduccion     = (payload) => api.post('/nomina/producciones', payload)
+export const eliminarProduccion  = (id) => api.delete(`/nomina/producciones/${id}`)
+
+// Esquemas de bonificación: el tope y la escalera de metas.
+export const getBonificaciones      = (incluirInactivas = false) =>
+  api.get('/nomina/bonificaciones', { params: incluirInactivas ? { incluir_inactivas: 1 } : {} })
+export const crearBonificacion      = (payload) => api.post('/nomina/bonificaciones', payload)
+export const actualizarBonificacion = (id, payload) => api.patch(`/nomina/bonificaciones/${id}`, payload)
+export const eliminarBonificacion   = (id) => api.delete(`/nomina/bonificaciones/${id}`)
+export const agregarMeta            = (bonificacionId, payload) => api.post(`/nomina/bonificaciones/${bonificacionId}/metas`, payload)
+export const actualizarMeta         = (id, payload) => api.patch(`/nomina/metas/${id}`, payload)
+export const eliminarMeta           = (id) => api.delete(`/nomina/metas/${id}`)

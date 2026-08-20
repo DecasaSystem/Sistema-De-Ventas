@@ -20,7 +20,8 @@ class NominaPago extends Model
     protected $fillable = [
         'empleado_id', 'periodicidad', 'fecha_inicio', 'fecha_fin', 'sueldo_nombre',
         'valor_dia', 'valor_hora', 'horas_dia', 'dias', 'subtotal',
-        'descuento_faltas', 'total_ajustes', 'total', 'observaciones', 'pagado_at',
+        'descuento_faltas', 'total_ajustes', 'produccion_total', 'bonificacion',
+        'bonificacion_nombre', 'total', 'observaciones', 'pagado_at',
     ];
 
     protected function casts(): array
@@ -35,6 +36,8 @@ class NominaPago extends Model
             'subtotal'         => 'decimal:2',
             'descuento_faltas' => 'decimal:2',
             'total_ajustes'    => 'decimal:2',
+            'produccion_total' => 'decimal:2',
+            'bonificacion'     => 'decimal:2',
             'total'            => 'decimal:2',
             'pagado_at'        => 'datetime',
         ];
@@ -53,6 +56,11 @@ class NominaPago extends Model
     public function ajustes()
     {
         return $this->hasMany(NominaAjuste::class);
+    }
+
+    public function producciones()
+    {
+        return $this->hasMany(NominaProduccion::class);
     }
 
     public function nombreCiclo(): string

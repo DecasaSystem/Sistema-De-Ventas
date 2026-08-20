@@ -30,6 +30,9 @@ class EmpleadoController extends Controller
             'cargo'              => $e->cargo,
             'nomina_sueldo_id'   => $e->nomina_sueldo_id,
             'sueldo'             => $e->relationLoaded('sueldo') ? $e->sueldo : null,
+            // Null = no aplica para bonificación por producción.
+            'nomina_bonificacion_id' => $e->nomina_bonificacion_id,
+            'bonificacion_nombre'    => $e->bonificacion?->nombre,
             'periodicidad'       => $e->periodicidad,
             'periodicidad_label' => $e->labelPeriodicidad(),
             'activo'             => (bool) $e->activo,
@@ -63,12 +66,7 @@ class EmpleadoController extends Controller
     {
         $hoy = CicloNomina::hoy();
 
-        $q = Empleado::with([
-                'sueldo',
-                'ausencias' => fn ($qq) => $qq->whereNull('nomina_pago_id')->orderBy('fecha'),
-                'ajustes'   => fn ($qq) => $qq->whereNull('nomina_pago_id')->orderBy('fecha'),
-            ])
-            ->orderBy('nombre');
+        $q = Empleado::with(NominaLiquidador::relaciones())->orderBy('nombre');
 
         if (! $request->boolean('incluir_inactivos')) {
             $q->where('activo', true);
@@ -85,6 +83,7 @@ class EmpleadoController extends Controller
             'cedula'           => 'nullable|string|max:20|unique:empleados,cedula',
             'cargo'            => 'nullable|string|max:80',
             'nomina_sueldo_id' => 'required|exists:nomina_sueldos,id',
+            'nomina_bonificacion_id' => 'nullable|exists:nomina_bonificaciones,id',
             'periodicidad'     => ['nullable', Rule::in(CicloNomina::FRECUENCIAS)],
         ], [
             'nombre.required'           => 'El nombre es obligatorio.',
@@ -97,11 +96,12 @@ class EmpleadoController extends Controller
             'cedula'           => $data['cedula'] ?? null,
             'cargo'            => $data['cargo'] ?? null,
             'nomina_sueldo_id' => $data['nomina_sueldo_id'],
+            'nomina_bonificacion_id' => $data['nomina_bonificacion_id'] ?? null,
             'periodicidad'     => $data['periodicidad'] ?? 'quincenal',
             'activo'           => true,
         ]);
 
-        return response()->json($this->comoJson($empleado->load('sueldo')), 201);
+        return response()->json($this->comoJson($empleado->load('sueldo', 'bonificacion')), 201);
     }
 
     /** PATCH /api/nomina/empleados/{id} */
@@ -114,6 +114,8 @@ class EmpleadoController extends Controller
             'cedula'           => ['sometimes', 'nullable', 'string', 'max:20', Rule::unique('empleados', 'cedula')->ignore($empleado->id)],
             'cargo'            => 'sometimes|nullable|string|max:80',
             'nomina_sueldo_id' => 'sometimes|required|exists:nomina_sueldos,id',
+            // Mandar null aquí es desactivarle la bonificación.
+            'nomina_bonificacion_id' => 'sometimes|nullable|exists:nomina_bonificaciones,id',
             'periodicidad'     => ['sometimes', 'required', Rule::in(CicloNomina::FRECUENCIAS)],
             'activo'           => 'sometimes|boolean',
         ], [
@@ -123,7 +125,7 @@ class EmpleadoController extends Controller
 
         $empleado->update($data);
 
-        return response()->json($this->comoJson($empleado->fresh('sueldo')));
+        return response()->json($this->comoJson($empleado->fresh(['sueldo', 'bonificacion'])));
     }
 
     /**

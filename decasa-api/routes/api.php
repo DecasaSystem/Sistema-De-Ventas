@@ -47,6 +47,8 @@ use App\Http\Controllers\ComisionController;
 use App\Http\Controllers\EmpleadoController;
 use App\Http\Controllers\NominaPagoController;
 use App\Http\Controllers\NominaAjusteController;
+use App\Http\Controllers\NominaBonificacionController;
+use App\Http\Controllers\NominaProduccionController;
 use App\Http\Controllers\NominaSueldoController;
 use App\Http\Controllers\NominaAusenciaController;
 use Illuminate\Support\Facades\Route;
@@ -133,6 +135,20 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/ajustes',              [NominaAjusteController::class, 'index']);
         Route::post('/ajustes',             [NominaAjusteController::class, 'store']);
         Route::delete('/ajustes/{id}',      [NominaAjusteController::class, 'destroy'])->whereNumber('id');
+
+        // Lo que el trabajador produjo, que es lo que suma para el bono.
+        Route::get('/producciones',         [NominaProduccionController::class, 'index']);
+        Route::post('/producciones',        [NominaProduccionController::class, 'store']);
+        Route::delete('/producciones/{id}', [NominaProduccionController::class, 'destroy'])->whereNumber('id');
+
+        // Esquemas de bonificación y su escalera de metas.
+        Route::get('/bonificaciones',              [NominaBonificacionController::class, 'index']);
+        Route::post('/bonificaciones',             [NominaBonificacionController::class, 'store']);
+        Route::patch('/bonificaciones/{id}',       [NominaBonificacionController::class, 'update'])->whereNumber('id');
+        Route::delete('/bonificaciones/{id}',      [NominaBonificacionController::class, 'destroy'])->whereNumber('id');
+        Route::post('/bonificaciones/{id}/metas',  [NominaBonificacionController::class, 'agregarMeta'])->whereNumber('id');
+        Route::patch('/metas/{id}',                [NominaBonificacionController::class, 'actualizarMeta'])->whereNumber('id');
+        Route::delete('/metas/{id}',               [NominaBonificacionController::class, 'eliminarMeta'])->whereNumber('id');
     });
 
     // Proveedores: cualquiera lee; crear/editar necesita acceso_proveedores

@@ -6,6 +6,7 @@ use App\Models\Empleado;
 use App\Models\NominaAjuste;
 use App\Models\NominaAusencia;
 use App\Models\NominaPago;
+use App\Models\NominaProduccion;
 use App\Services\CicloNomina;
 use App\Services\NominaLiquidador;
 use Carbon\Carbon;
@@ -76,7 +77,7 @@ class NominaPagoController extends Controller
             $data['observaciones'] ?? null
         ));
 
-        return response()->json($this->comoJson($pago->load('empleado', 'ausencias', 'ajustes')), 201);
+        return response()->json($this->comoJson($pago->load('empleado', 'ausencias', 'ajustes', 'producciones')), 201);
     }
 
     /**
@@ -108,7 +109,7 @@ class NominaPagoController extends Controller
                     CicloNomina::fecha($fila['fecha_inicio']),
                     null
                 ));
-                $pagados[] = $this->comoJson($pago->load('empleado', 'ausencias', 'ajustes'));
+                $pagados[] = $this->comoJson($pago->load('empleado', 'ausencias', 'ajustes', 'producciones'));
             } catch (ValidationException $e) {
                 $omitidos[] = [
                     'empleado_id' => $fila['empleado_id'],
@@ -127,7 +128,7 @@ class NominaPagoController extends Controller
     /** GET /api/nomina/pagos?empleado_id=&limite= — el historial de lo pagado. */
     public function index(Request $request)
     {
-        $q = NominaPago::with('empleado', 'ausencias', 'ajustes')
+        $q = NominaPago::with('empleado', 'ausencias', 'ajustes', 'producciones')
             ->orderByDesc('fecha_fin')
             ->orderByDesc('id');
 
@@ -153,6 +154,7 @@ class NominaPagoController extends Controller
         DB::transaction(function () use ($pago) {
             NominaAusencia::where('nomina_pago_id', $pago->id)->update(['nomina_pago_id' => null]);
             NominaAjuste::where('nomina_pago_id', $pago->id)->update(['nomina_pago_id' => null]);
+            NominaProduccion::where('nomina_pago_id', $pago->id)->update(['nomina_pago_id' => null]);
             $pago->delete();
         });
 
@@ -204,6 +206,14 @@ class NominaPagoController extends Controller
             'subtotal'         => $l['subtotal'],
             'descuento_faltas' => $l['descuento_faltas'],
             'total_ajustes'    => $l['total_ajustes'],
+            'produccion_total' => $l['produccion_total'],
+            'bonificacion'     => $l['bonificacion'],
+            // Se guarda de dónde salió el bono ("Bonos del mínimo · de
+            // $2.800.000 a $2.900.000"), porque el esquema puede cambiar
+            // después y el pago tiene que poder explicarse solo.
+            'bonificacion_nombre' => $l['bono']['meta']
+                ? $l['bono']['bonificacion_nombre'] . ' · ' . $l['bono']['meta']
+                : null,
             'total'            => $l['total'],
             'observaciones'    => $observaciones,
             'pagado_at'        => now(),
@@ -224,17 +234,18 @@ class NominaPagoController extends Controller
             ->whereBetween('fecha', $rango)
             ->update(['nomina_pago_id' => $pago->id]);
 
+        NominaProduccion::where('empleado_id', $empleado->id)
+            ->whereNull('nomina_pago_id')
+            ->whereBetween('fecha', $rango)
+            ->update(['nomina_pago_id' => $pago->id]);
+
         return $pago;
     }
 
     /** El trabajador con todo lo que la liquidación necesita cargado. */
     private function empleadoLiquidable(int|string $id): Empleado
     {
-        $empleado = Empleado::with([
-            'sueldo',
-            'ausencias' => fn ($q) => $q->whereNull('nomina_pago_id')->orderBy('fecha'),
-            'ajustes'   => fn ($q) => $q->whereNull('nomina_pago_id')->orderBy('fecha'),
-        ])->findOrFail($id);
+        $empleado = Empleado::with(NominaLiquidador::relaciones())->findOrFail($id);
 
         if (! $empleado->nomina_sueldo_id) {
             throw ValidationException::withMessages([
@@ -261,10 +272,13 @@ class NominaPagoController extends Controller
             'valor_dia'          => (float) $p->valor_dia,
             'valor_hora'         => (float) $p->valor_hora,
             'dias'               => (float) $p->dias,
-            'subtotal'           => (float) $p->subtotal,
-            'descuento_faltas'   => (float) $p->descuento_faltas,
-            'total_ajustes'      => (float) $p->total_ajustes,
-            'total'              => (float) $p->total,
+            'subtotal'            => (float) $p->subtotal,
+            'descuento_faltas'    => (float) $p->descuento_faltas,
+            'total_ajustes'       => (float) $p->total_ajustes,
+            'produccion_total'    => (float) $p->produccion_total,
+            'bonificacion'        => (float) $p->bonificacion,
+            'bonificacion_nombre' => $p->bonificacion_nombre,
+            'total'               => (float) $p->total,
             'observaciones'      => $p->observaciones,
             'pagado_at'          => $p->pagado_at?->toIso8601String(),
             'faltas'             => $p->ausencias->map(fn (NominaAusencia $a) => [
@@ -279,6 +293,14 @@ class NominaPagoController extends Controller
                 'fecha'  => $a->fecha->toDateString(),
                 'nombre' => $a->nombre,
                 'monto'  => (float) $a->monto,
+            ])->values(),
+            'producciones' => $p->producciones->map(fn (NominaProduccion $pr) => [
+                'id'             => $pr->id,
+                'fecha'          => $pr->fecha->toDateString(),
+                'concepto'       => $pr->concepto,
+                'valor_unitario' => (float) $pr->valor_unitario,
+                'cantidad'       => (float) $pr->cantidad,
+                'total'          => (float) $pr->total,
             ])->values(),
         ];
     }

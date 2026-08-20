@@ -19,7 +19,10 @@ class Empleado extends Model
 {
     protected $table = 'empleados';
 
-    protected $fillable = ['nombre', 'cedula', 'cargo', 'nomina_sueldo_id', 'periodicidad', 'activo'];
+    protected $fillable = [
+        'nombre', 'cedula', 'cargo', 'nomina_sueldo_id',
+        'nomina_bonificacion_id', 'periodicidad', 'activo',
+    ];
 
     protected function casts(): array
     {
@@ -41,9 +44,20 @@ class Empleado extends Model
         return $this->hasMany(NominaAjuste::class);
     }
 
+    public function producciones()
+    {
+        return $this->hasMany(NominaProduccion::class);
+    }
+
     public function sueldo()
     {
         return $this->belongsTo(NominaSueldo::class, 'nomina_sueldo_id');
+    }
+
+    /** El esquema de bonificación asignado. Null = no aplica para bono. */
+    public function bonificacion()
+    {
+        return $this->belongsTo(NominaBonificacion::class, 'nomina_bonificacion_id');
     }
 
     /** Lo que gana en un día completo. Sin sueldo asignado todavía, 0. */

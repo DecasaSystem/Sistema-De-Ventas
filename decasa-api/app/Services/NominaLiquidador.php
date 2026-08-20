@@ -5,7 +5,9 @@ namespace App\Services;
 use App\Models\Empleado;
 use App\Models\NominaAjuste;
 use App\Models\NominaAusencia;
+use App\Models\NominaBonificacion;
 use App\Models\NominaPago;
+use App\Models\NominaProduccion;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Collection;
 
@@ -74,6 +76,14 @@ class NominaLiquidador
         $descuentoFaltas = $faltas->sum(fn (NominaAusencia $a) => round((float) $a->horas * $valorHora));
         $totalAjustes    = $ajustes->sum(fn (NominaAjuste $a) => (float) $a->monto);
 
+        // La bonificación se mide sobre lo que produjo DENTRO de este ciclo:
+        // se evalúa contra el mismo período que se está pagando.
+        $producciones    = self::enVentana($empleado->producciones, $inicio, $hasta);
+        $produccionTotal = (float) $producciones->sum(fn (NominaProduccion $p) => (float) $p->total);
+        $bono = $empleado->bonificacion
+            ? $empleado->bonificacion->evaluar($produccionTotal)
+            : NominaBonificacion::sinEsquema();
+
         return [
             'periodicidad'       => $empleado->periodicidad,
             'periodicidad_label' => CicloNomina::label($empleado->periodicidad),
@@ -91,7 +101,18 @@ class NominaLiquidador
             'subtotal'           => $subtotal,
             'descuento_faltas'   => (float) $descuentoFaltas,
             'total_ajustes'      => (float) $totalAjustes,
-            'total'              => $subtotal - (float) $descuentoFaltas + (float) $totalAjustes,
+            'produccion_total'   => $produccionTotal,
+            'bonificacion'       => $bono['monto'],
+            'bono'               => $bono,
+            'producciones'       => $producciones->map(fn (NominaProduccion $p) => [
+                'id'             => $p->id,
+                'fecha'          => $p->fecha->toDateString(),
+                'concepto'       => $p->concepto,
+                'valor_unitario' => (float) $p->valor_unitario,
+                'cantidad'       => (float) $p->cantidad,
+                'total'          => (float) $p->total,
+            ])->values(),
+            'total'              => $subtotal - (float) $descuentoFaltas + (float) $totalAjustes + $bono['monto'],
             'faltas'             => $faltas->map(fn (NominaAusencia $a) => self::faltaComoJson($a, $valorHora))->values(),
             'faltas_programadas' => $programadas->map(fn (NominaAusencia $a) => self::faltaComoJson($a, $valorHora))->values(),
             'ajustes'            => $ajustes->map(fn (NominaAjuste $a) => [
@@ -192,15 +213,33 @@ class NominaLiquidador
      */
     public static function empleadosLiquidables()
     {
-        return Empleado::with([
-                'sueldo',
-                'ausencias' => fn ($q) => $q->whereNull('nomina_pago_id')->orderBy('fecha'),
-                'ajustes'   => fn ($q) => $q->whereNull('nomina_pago_id')->orderBy('fecha'),
-            ])
+        return Empleado::with(self::relaciones())
             ->where('activo', true)
             ->whereNotNull('nomina_sueldo_id')
             ->orderBy('nombre')
             ->get();
+    }
+
+    /**
+     * Lo que `liquidar()` necesita tener cargado. Las tres listas se
+     * filtran a lo que no se ha cobrado todavía: es lo único que puede
+     * entrar en un ciclo pendiente, y así no crecen sin techo con los años.
+     *
+     * Método y no constante porque `with()` solo entiende Closures como
+     * filtro — un callable en formato array lo lee como más nombres de
+     * relación e intenta cargar una que no existe.
+     */
+    public static function relaciones(): array
+    {
+        $sinCobrar = fn ($q) => $q->whereNull('nomina_pago_id')->orderBy('fecha');
+
+        return [
+            'sueldo',
+            'bonificacion.metas',
+            'ausencias'    => $sinCobrar,
+            'ajustes'      => $sinCobrar,
+            'producciones' => $sinCobrar,
+        ];
     }
 
     /** Las filas de una colección ya cargada que caen dentro de un rango. */
