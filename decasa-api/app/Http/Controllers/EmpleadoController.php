@@ -25,32 +25,36 @@ class EmpleadoController extends Controller
             'nomina_sueldo_id'  => $e->nomina_sueldo_id,
             'sueldo'            => $e->relationLoaded('sueldo') ? $e->sueldo : null,
             'valor_label'       => $e->valor_label,
-            'valor_dia'         => $e->valor_dia !== null ? (float) $e->valor_dia : null,
+            'valor'             => $e->valor !== null ? (float) $e->valor : null,
+            'unidad'            => $e->unidad,
+            'horas_dia'         => $e->horas_dia !== null ? (float) $e->horas_dia : null,
             'activo'            => (bool) $e->activo,
             // Lo que de verdad rige, venga del catálogo o sea personalizado —
             // así el front no tiene que resolver la fuente por su cuenta.
-            'valor_dia_efectivo' => $e->valorDiaEfectivo(),
+            'valor_dia_efectivo'  => $e->valorDiaEfectivo(),
+            'valor_hora_efectivo' => $e->valorHoraEfectivo(),
+            'horas_dia_efectivo'  => $e->horasDiaEfectivo(),
             'label_efectivo'      => $e->labelEfectivo(),
         ];
     }
 
     /**
      * Exactamente una fuente de valor: un sueldo del catálogo, o uno propio
-     * (valor_dia + valor_label). Nunca las dos, nunca ninguna.
+     * (valor + unidad + horas_dia + valor_label). Nunca las dos, nunca ninguna.
      */
     private function validarFuenteDeValor(array $data): void
     {
         $tieneSueldo = ! empty($data['nomina_sueldo_id']);
-        $tienePersonalizado = array_key_exists('valor_dia', $data) && $data['valor_dia'] !== null;
+        $tienePersonalizado = array_key_exists('valor', $data) && $data['valor'] !== null;
 
         if ($tieneSueldo && $tienePersonalizado) {
             throw ValidationException::withMessages([
-                'valor_dia' => ['Elige un sueldo del catálogo o escribe un valor propio, no las dos cosas.'],
+                'valor' => ['Elige un sueldo del catálogo o escribe un valor propio, no las dos cosas.'],
             ]);
         }
         if (! $tieneSueldo && ! $tienePersonalizado) {
             throw ValidationException::withMessages([
-                'valor_dia' => ['Elige un sueldo del catálogo o escribe un valor propio para este trabajador.'],
+                'valor' => ['Elige un sueldo del catálogo o escribe un valor propio para este trabajador.'],
             ]);
         }
     }
@@ -75,7 +79,9 @@ class EmpleadoController extends Controller
             'cargo'            => 'nullable|string|max:80',
             'nomina_sueldo_id' => 'nullable|exists:nomina_sueldos,id',
             'valor_label'      => 'nullable|string|max:60',
-            'valor_dia'        => 'nullable|numeric|min:0',
+            'valor'            => 'nullable|numeric|min:0',
+            'unidad'           => 'nullable|in:dia,hora',
+            'horas_dia'        => 'nullable|numeric|min:0.25|max:24',
         ], [
             'nombre.required' => 'El nombre es obligatorio.',
             'cedula.unique'   => 'Ya hay un empleado con esa cédula.',
@@ -91,7 +97,9 @@ class EmpleadoController extends Controller
             'cargo'            => $data['cargo'] ?? null,
             'nomina_sueldo_id' => $esPersonalizado ? null : $data['nomina_sueldo_id'],
             'valor_label'      => $esPersonalizado ? ($data['valor_label'] ?? 'Personalizado') : null,
-            'valor_dia'        => $esPersonalizado ? $data['valor_dia'] : null,
+            'valor'            => $esPersonalizado ? $data['valor'] : null,
+            'unidad'           => $esPersonalizado ? ($data['unidad'] ?? 'dia') : 'dia',
+            'horas_dia'        => $esPersonalizado ? ($data['horas_dia'] ?? 8) : 8,
             'activo'           => true,
         ]);
 
@@ -109,7 +117,9 @@ class EmpleadoController extends Controller
             'cargo'            => 'sometimes|nullable|string|max:80',
             'nomina_sueldo_id' => 'sometimes|nullable|exists:nomina_sueldos,id',
             'valor_label'      => 'sometimes|nullable|string|max:60',
-            'valor_dia'        => 'sometimes|nullable|numeric|min:0',
+            'valor'            => 'sometimes|nullable|numeric|min:0',
+            'unidad'           => 'sometimes|nullable|in:dia,hora',
+            'horas_dia'        => 'sometimes|nullable|numeric|min:0.25|max:24',
             'activo'           => 'sometimes|boolean',
         ], [
             'cedula.unique' => 'Ya hay un empleado con esa cédula.',
@@ -118,17 +128,19 @@ class EmpleadoController extends Controller
         // Solo se revalida la fuente de valor si el pedido toca alguno de
         // los dos campos — así "activo" o "cargo" se pueden actualizar
         // solos sin tener que reenviar el valor completo cada vez.
-        if (array_key_exists('nomina_sueldo_id', $data) || array_key_exists('valor_dia', $data)) {
+        if (array_key_exists('nomina_sueldo_id', $data) || array_key_exists('valor', $data)) {
             $fuente = [
                 'nomina_sueldo_id' => $data['nomina_sueldo_id'] ?? $empleado->nomina_sueldo_id,
-                'valor_dia'        => array_key_exists('valor_dia', $data) ? $data['valor_dia'] : $empleado->valor_dia,
+                'valor'            => array_key_exists('valor', $data) ? $data['valor'] : $empleado->valor,
             ];
             $this->validarFuenteDeValor($fuente);
 
             $esPersonalizado = empty($fuente['nomina_sueldo_id']);
             $data['nomina_sueldo_id'] = $esPersonalizado ? null : $fuente['nomina_sueldo_id'];
-            $data['valor_dia']        = $esPersonalizado ? $fuente['valor_dia'] : null;
+            $data['valor']            = $esPersonalizado ? $fuente['valor'] : null;
             $data['valor_label']      = $esPersonalizado ? ($data['valor_label'] ?? $empleado->valor_label ?? 'Personalizado') : null;
+            $data['unidad']           = $esPersonalizado ? ($data['unidad'] ?? $empleado->unidad ?? 'dia') : 'dia';
+            $data['horas_dia']        = $esPersonalizado ? ($data['horas_dia'] ?? $empleado->horas_dia ?? 8) : 8;
         }
 
         $empleado->update($data);

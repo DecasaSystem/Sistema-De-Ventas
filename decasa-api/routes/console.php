@@ -3,6 +3,7 @@
 use App\Jobs\AlertarRetrasoProduccion;
 use App\Jobs\AlertarRutasAtrasadas;
 use App\Jobs\AvisarCotizacionesPorVencer;
+use App\Jobs\GenerarPeriodoNomina;
 use App\Jobs\RecordatoriosCitas;
 use Illuminate\Support\Facades\Schedule;
 
@@ -33,6 +34,12 @@ Schedule::job(new AvisarCotizacionesPorVencer())
     ->dailyAt('08:30')
     ->timezone('America/Bogota')
     ->name('avisar-cotizaciones-por-vencer')
+    ->withoutOverlapping();
+
+Schedule::job(new GenerarPeriodoNomina())
+    ->dailyAt('00:10')
+    ->timezone('America/Bogota')
+    ->name('generar-periodo-nomina')
     ->withoutOverlapping();
 
 // De madrugada, cuando nadie está vendiendo, para no competir por la conexión.

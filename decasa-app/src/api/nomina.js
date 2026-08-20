@@ -18,3 +18,7 @@ export const eliminarItem   = (id) => api.delete(`/nomina/items/${id}`)
 
 export const crearAjuste   = (itemId, payload) => api.post(`/nomina/items/${itemId}/ajustes`, payload)
 export const eliminarAjuste = (id) => api.delete(`/nomina/ajustes/${id}`)
+
+export const getAusencias      = (params = {}) => api.get('/nomina/ausencias', { params })
+export const crearAusencia     = (payload) => api.post('/nomina/ausencias', payload)
+export const eliminarAusencia  = (id) => api.delete(`/nomina/ausencias/${id}`)

@@ -6,6 +6,7 @@ import InputPesos from '@/components/common/InputPesos.vue'
 import {
   getPeriodo, marcarPeriodoPagado, agregarEmpleadoAPeriodo,
   actualizarItem, eliminarItem, crearAjuste, eliminarAjuste,
+  crearAusencia, eliminarAusencia,
 } from '@/api/nomina'
 import { getEmpleados } from '@/api/empleados'
 import {
@@ -28,6 +29,7 @@ const empleadoSeleccionado = ref('')
 const agregando = ref(false)
 
 const nuevoAjuste = ref({}) // { [itemId]: { nombre, monto } }
+const nuevaFalta  = ref({}) // { [itemId]: { fecha, horas, motivo } }
 
 async function cargar() {
   cargando.value = true
@@ -51,6 +53,7 @@ const pagado = computed(() => !!periodo.value?.pagado_at)
 function toggle(item) {
   abiertoId.value = abiertoId.value === item.id ? null : item.id
   if (!nuevoAjuste.value[item.id]) nuevoAjuste.value[item.id] = { nombre: '', monto: '' }
+  if (!nuevaFalta.value[item.id]) nuevaFalta.value[item.id] = { fecha: '', horas: item.horas_dia, motivo: '' }
 }
 
 async function guardarItem(item) {
@@ -100,6 +103,39 @@ async function agregarAjuste(item) {
 async function quitarAjuste(ajusteId) {
   try {
     await eliminarAjuste(ajusteId)
+    await cargar()
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo quitar')
+  }
+}
+
+async function agregarFalta(item) {
+  const f = nuevaFalta.value[item.id]
+  if (!f?.fecha) {
+    toast.error('Elige la fecha de la falta')
+    return
+  }
+  try {
+    const { data } = await crearAusencia({
+      empleado_id: item.empleado_id,
+      fecha_inicio: f.fecha,
+      horas: f.horas || item.horas_dia,
+      motivo: f.motivo?.trim() || null,
+    })
+    if (data.no_aplicadas?.length) {
+      toast.error('Esa fecha cae en un período ya pagado')
+    } else {
+      nuevaFalta.value[item.id] = { fecha: '', horas: item.horas_dia, motivo: '' }
+      await cargar()
+    }
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo registrar la falta')
+  }
+}
+
+async function quitarFalta(ausenciaId) {
+  try {
+    await eliminarAusencia(ausenciaId)
     await cargar()
   } catch (e) {
     toast.error(e.response?.data?.message || 'No se pudo quitar')
@@ -264,6 +300,40 @@ async function pagar() {
                 </button>
               </div>
               <p class="text-[11px] text-gray-400 mt-1">Un valor negativo se resta (ej: -20000 para un préstamo).</p>
+            </div>
+
+            <!-- Faltas -->
+            <div>
+              <label class="block text-[11px] text-gray-500 mb-1.5">Faltas ({{ formatoPesos(item.valor_hora) }}/hora)</label>
+              <div v-if="item.ausencias.length" class="space-y-1.5 mb-2">
+                <div v-for="a in item.ausencias" :key="a.id" class="flex items-center justify-between gap-2 bg-amber-50 rounded-lg px-2.5 py-1.5">
+                  <p class="text-xs text-gray-700 truncate">{{ a.fecha }} · {{ a.horas }}h<span v-if="a.motivo"> · {{ a.motivo }}</span></p>
+                  <div class="flex items-center gap-2 shrink-0">
+                    <p class="text-xs font-semibold text-red-600">-{{ formatoPesos(a.monto) }}</p>
+                    <button v-if="!pagado" @click="quitarFalta(a.id)" class="text-gray-300 hover:text-red-600 transition-colors">
+                      <XMarkIcon class="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div v-if="!pagado" class="flex gap-1.5">
+                <input
+                  v-model="nuevaFalta[item.id].fecha" type="date"
+                  class="flex-1 min-w-0 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <input
+                  v-model.number="nuevaFalta[item.id].horas" type="number" step="0.5" min="0.5" max="24" placeholder="Horas"
+                  class="w-16 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <input
+                  v-model="nuevaFalta[item.id].motivo" placeholder="Motivo"
+                  class="w-20 min-w-0 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <button @click="agregarFalta(item)" class="shrink-0 text-blue-600 hover:text-blue-700">
+                  <PlusIcon class="w-5 h-5" />
+                </button>
+              </div>
+              <p class="text-[11px] text-gray-400 mt-1">Se resta aparte de los días trabajados — no hace falta bajar el número de días a mano.</p>
             </div>
 
             <div class="flex items-center justify-between pt-2 border-t border-gray-50">

@@ -8,20 +8,24 @@ use Illuminate\Database\Eloquent\Model;
  * Un trabajador de nómina: mano de obra de taller que casi nunca tiene
  * cuenta en la app (a diferencia de Usuario, que sí inicia sesión).
  *
- * Su valor por día sale de una de dos fuentes: un sueldo con nombre del
- * catálogo (`nomina_sueldo_id`), o uno propio y personalizado (`valor_dia`
- * + `valor_label` directos en el empleado). Nunca las dos a la vez.
+ * Su valor sale de una de dos fuentes: un sueldo con nombre del catálogo
+ * (`nomina_sueldo_id`), o uno propio y personalizado (`valor` + `unidad` +
+ * `horas_dia` + `valor_label` directos en el empleado). Nunca las dos a la vez.
  */
 class Empleado extends Model
 {
     protected $table = 'empleados';
 
-    protected $fillable = ['nombre', 'cedula', 'cargo', 'nomina_sueldo_id', 'valor_label', 'valor_dia', 'activo'];
+    protected $fillable = [
+        'nombre', 'cedula', 'cargo', 'nomina_sueldo_id',
+        'valor_label', 'valor', 'unidad', 'horas_dia', 'activo',
+    ];
 
     protected function casts(): array
     {
         return [
-            'valor_dia' => 'decimal:2',
+            'valor'     => 'decimal:2',
+            'horas_dia' => 'decimal:2',
             'activo'    => 'boolean',
         ];
     }
@@ -29,6 +33,11 @@ class Empleado extends Model
     public function items()
     {
         return $this->hasMany(NominaItem::class);
+    }
+
+    public function ausencias()
+    {
+        return $this->hasMany(NominaAusencia::class);
     }
 
     public function sueldo()
@@ -39,7 +48,30 @@ class Empleado extends Model
     /** El valor día real, venga del catálogo o sea personalizado. */
     public function valorDiaEfectivo(): float
     {
-        return (float) ($this->sueldo?->valor_dia ?? $this->valor_dia ?? 0);
+        if ($this->sueldo) {
+            return $this->sueldo->valorDiaEquivalente();
+        }
+        return $this->unidad === 'hora'
+            ? round((float) $this->valor * (float) $this->horas_dia, 2)
+            : (float) ($this->valor ?? 0);
+    }
+
+    /** El valor por hora real, venga del catálogo o sea personalizado. */
+    public function valorHoraEfectivo(): float
+    {
+        if ($this->sueldo) {
+            return $this->sueldo->valorHoraEquivalente();
+        }
+        if ($this->unidad === 'hora') {
+            return (float) ($this->valor ?? 0);
+        }
+        return $this->horas_dia > 0 ? round((float) ($this->valor ?? 0) / (float) $this->horas_dia, 2) : 0.0;
+    }
+
+    /** Cuántas horas dura un día completo para este trabajador. */
+    public function horasDiaEfectivo(): float
+    {
+        return (float) ($this->sueldo?->horas_dia ?? $this->horas_dia ?? 8);
     }
 
     /** El nombre que se le muestra a ese valor, venga del catálogo o sea personalizado. */

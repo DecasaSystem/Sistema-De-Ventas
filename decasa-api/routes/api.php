@@ -49,6 +49,7 @@ use App\Http\Controllers\NominaPeriodoController;
 use App\Http\Controllers\NominaItemController;
 use App\Http\Controllers\NominaAjusteController;
 use App\Http\Controllers\NominaSueldoController;
+use App\Http\Controllers\NominaAusenciaController;
 use Illuminate\Support\Facades\Route;
 
 // ── Auth (público) ────────────────────────────────────────────────────────────
@@ -128,6 +129,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/items/{id}',        [NominaItemController::class, 'destroy'])->whereNumber('id');
         Route::post('/items/{itemId}/ajustes', [NominaAjusteController::class, 'store'])->whereNumber('itemId');
         Route::delete('/ajustes/{id}',      [NominaAjusteController::class, 'destroy'])->whereNumber('id');
+
+        Route::get('/ausencias',            [NominaAusenciaController::class, 'index']);
+        Route::post('/ausencias',           [NominaAusenciaController::class, 'store']);
+        Route::delete('/ausencias/{id}',    [NominaAusenciaController::class, 'destroy'])->whereNumber('id');
     });
 
     // Proveedores: cualquiera lee; crear/editar necesita acceso_proveedores

@@ -29,7 +29,7 @@ class NominaItemController extends Controller
         ]);
 
         $item->update($data);
-        $item->load('ajustes', 'empleado');
+        $item->load('ajustes', 'ausencias', 'empleado');
 
         return response()->json([
             'id'              => $item->id,
@@ -38,11 +38,20 @@ class NominaItemController extends Controller
             'empleado_cargo'  => $item->empleado?->cargo,
             'valor_label'     => $item->valor_label,
             'valor_dia'       => (float) $item->valor_dia,
+            'horas_dia'       => (float) $item->horas_dia,
+            'valor_hora'      => $item->valorHora(),
             'dias_trabajados' => (float) $item->dias_trabajados,
             'observaciones'   => $item->observaciones,
             'subtotal'        => $item->subtotal(),
             'total'           => $item->total(),
             'ajustes'         => $item->ajustes->map(fn ($a) => ['id' => $a->id, 'nombre' => $a->nombre, 'monto' => (float) $a->monto]),
+            'ausencias'       => $item->ausencias->map(fn ($a) => [
+                'id'     => $a->id,
+                'fecha'  => $a->fecha->toDateString(),
+                'horas'  => (float) $a->horas,
+                'motivo' => $a->motivo,
+                'monto'  => round((float) $a->horas * $item->valorHora()),
+            ]),
         ]);
     }
 

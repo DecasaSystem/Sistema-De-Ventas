@@ -5,15 +5,15 @@ namespace App\Http\Controllers;
 use App\Models\Empleado;
 use App\Models\NominaItem;
 use App\Models\NominaPeriodo;
+use App\Services\NominaPeriodoService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 class NominaPeriodoController extends Controller
 {
     private function conTotales(NominaPeriodo $p): array
     {
-        $items = $p->items()->with(['empleado', 'ajustes'])->get();
+        $items = $p->items()->with(['empleado', 'ajustes', 'ausencias'])->get();
 
         return [
             'id'            => $p->id,
@@ -36,18 +36,27 @@ class NominaPeriodoController extends Controller
             'empleado_cargo'  => $i->empleado?->cargo,
             'valor_label'     => $i->valor_label,
             'valor_dia'       => (float) $i->valor_dia,
+            'horas_dia'       => (float) $i->horas_dia,
+            'valor_hora'      => $i->valorHora(),
             'dias_trabajados' => (float) $i->dias_trabajados,
             'observaciones'   => $i->observaciones,
             'subtotal'        => $i->subtotal(),
             'total'           => $i->total(),
             'ajustes'         => $i->ajustes->map(fn ($a) => ['id' => $a->id, 'nombre' => $a->nombre, 'monto' => (float) $a->monto]),
+            'ausencias'       => $i->ausencias->map(fn ($a) => [
+                'id'     => $a->id,
+                'fecha'  => $a->fecha->toDateString(),
+                'horas'  => (float) $a->horas,
+                'motivo' => $a->motivo,
+                'monto'  => round((float) $a->horas * $i->valorHora()),
+            ]),
         ];
     }
 
     /** GET /api/nomina/periodos */
     public function index()
     {
-        $periodos = NominaPeriodo::with('items.ajustes')->orderByDesc('fecha_inicio')->get();
+        $periodos = NominaPeriodo::with('items.ajustes', 'items.ausencias')->orderByDesc('fecha_inicio')->get();
 
         return response()->json($periodos->map(function (NominaPeriodo $p) {
             return [
@@ -76,7 +85,8 @@ class NominaPeriodoController extends Controller
      *
      * Crea el período y siembra un item por cada empleado activo, con su
      * valor de plantilla — arrancar una quincena queda como hoy: aparece la
-     * lista completa y de ahí se ajusta lo que cambió.
+     * lista completa y de ahí se ajusta lo que cambió. Mismo camino que usa
+     * el job automático (NominaPeriodoService).
      */
     public function store(Request $request)
     {
@@ -91,29 +101,8 @@ class NominaPeriodoController extends Controller
 
         $inicio = Carbon::parse($data['fecha_inicio'])->startOfDay();
         $fin    = Carbon::parse($data['fecha_fin'])->startOfDay();
-        $dias   = $inicio->diffInDays($fin) + 1;
 
-        $periodo = DB::transaction(function () use ($data, $inicio, $fin, $dias) {
-            $periodo = NominaPeriodo::create([
-                'nombre'       => $data['nombre'],
-                'fecha_inicio' => $inicio,
-                'fecha_fin'    => $fin,
-                'dias_periodo' => $dias,
-            ]);
-
-            $activos = Empleado::with('sueldo')->where('activo', true)->get();
-            foreach ($activos as $empleado) {
-                NominaItem::create([
-                    'nomina_periodo_id' => $periodo->id,
-                    'empleado_id'       => $empleado->id,
-                    'valor_label'       => $empleado->labelEfectivo(),
-                    'valor_dia'         => $empleado->valorDiaEfectivo(),
-                    'dias_trabajados'   => $dias,
-                ]);
-            }
-
-            return $periodo;
-        });
+        $periodo = NominaPeriodoService::crear($data['nombre'], $inicio, $fin);
 
         return response()->json($this->conTotales($periodo), 201);
     }
@@ -173,13 +162,8 @@ class NominaPeriodoController extends Controller
         }
 
         $empleado = Empleado::with('sueldo')->findOrFail($data['empleado_id']);
-        $item = NominaItem::create([
-            'nomina_periodo_id' => $periodo->id,
-            'empleado_id'       => $empleado->id,
-            'valor_label'       => $empleado->labelEfectivo(),
-            'valor_dia'         => $empleado->valorDiaEfectivo(),
-            'dias_trabajados'   => $periodo->dias_periodo,
-        ]);
+        $item = NominaPeriodoService::sembrarItem($periodo, $empleado);
+        $item->load('ajustes', 'ausencias');
 
         return response()->json($this->itemComoJson($item), 201);
     }

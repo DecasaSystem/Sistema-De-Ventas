@@ -29,15 +29,19 @@ class NominaSueldoController extends Controller
     {
         $data = $request->validate([
             'nombre'    => 'required|string|max:60',
-            'valor_dia' => 'required|numeric|min:0',
+            'valor'     => 'required|numeric|min:0',
+            'unidad'    => 'nullable|in:dia,hora',
+            'horas_dia' => 'nullable|numeric|min:0.25|max:24',
         ], [
-            'nombre.required'    => 'Ponle un nombre al sueldo.',
-            'valor_dia.required' => 'El valor por día es obligatorio.',
+            'nombre.required' => 'Ponle un nombre al sueldo.',
+            'valor.required'  => 'El valor es obligatorio.',
         ]);
 
         $sueldo = NominaSueldo::create([
             'nombre'    => $data['nombre'],
-            'valor_dia' => $data['valor_dia'],
+            'valor'     => $data['valor'],
+            'unidad'    => $data['unidad'] ?? 'dia',
+            'horas_dia' => $data['horas_dia'] ?? 8,
             'activo'    => true,
         ]);
 
@@ -57,7 +61,9 @@ class NominaSueldoController extends Controller
 
         $data = $request->validate([
             'nombre'    => 'sometimes|required|string|max:60',
-            'valor_dia' => 'sometimes|numeric|min:0',
+            'valor'     => 'sometimes|numeric|min:0',
+            'unidad'    => 'sometimes|in:dia,hora',
+            'horas_dia' => 'sometimes|numeric|min:0.25|max:24',
             'activo'    => 'sometimes|boolean',
         ]);
 
