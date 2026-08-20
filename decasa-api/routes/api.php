@@ -45,8 +45,7 @@ use App\Http\Controllers\ProductoVarianteConfigController;
 use App\Http\Controllers\CajaController;
 use App\Http\Controllers\ComisionController;
 use App\Http\Controllers\EmpleadoController;
-use App\Http\Controllers\NominaPeriodoController;
-use App\Http\Controllers\NominaItemController;
+use App\Http\Controllers\NominaPagoController;
 use App\Http\Controllers\NominaAjusteController;
 use App\Http\Controllers\NominaSueldoController;
 use App\Http\Controllers\NominaAusenciaController;
@@ -105,7 +104,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('/roles/{id}',    [RolController::class, 'update'])->whereNumber('id');
     Route::delete('/roles/{id}',   [RolController::class, 'destroy'])->whereNumber('id');
 
-    // Nómina — simple, como se paga hoy en Excel. Todo bajo acceso_nomina.
+    // Nómina — los ciclos de pago se calculan del calendario según la
+    // frecuencia de cada trabajador; no hay períodos que crear a mano.
+    // Todo bajo acceso_nomina.
     Route::middleware('permiso:acceso_nomina')->prefix('nomina')->group(function () {
         Route::get('/sueldos',              [NominaSueldoController::class, 'index']);
         Route::post('/sueldos',             [NominaSueldoController::class, 'store']);
@@ -117,22 +118,21 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::patch('/empleados/{id}',     [EmpleadoController::class, 'update'])->whereNumber('id');
         Route::delete('/empleados/{id}',    [EmpleadoController::class, 'destroy'])->whereNumber('id');
 
-        Route::get('/periodos',             [NominaPeriodoController::class, 'index']);
-        Route::post('/periodos',            [NominaPeriodoController::class, 'store']);
-        Route::get('/periodos/{id}',        [NominaPeriodoController::class, 'show'])->whereNumber('id');
-        Route::patch('/periodos/{id}',      [NominaPeriodoController::class, 'update'])->whereNumber('id');
-        Route::delete('/periodos/{id}',     [NominaPeriodoController::class, 'destroy'])->whereNumber('id');
-        Route::post('/periodos/{id}/pagar',      [NominaPeriodoController::class, 'marcarPagado'])->whereNumber('id');
-        Route::post('/periodos/{id}/empleados',  [NominaPeriodoController::class, 'agregarEmpleado'])->whereNumber('id');
-
-        Route::patch('/items/{id}',         [NominaItemController::class, 'update'])->whereNumber('id');
-        Route::delete('/items/{id}',        [NominaItemController::class, 'destroy'])->whereNumber('id');
-        Route::post('/items/{itemId}/ajustes', [NominaAjusteController::class, 'store'])->whereNumber('itemId');
-        Route::delete('/ajustes/{id}',      [NominaAjusteController::class, 'destroy'])->whereNumber('id');
+        // Ojo con el orden: /pagos/pendientes tiene que ir antes de
+        // cualquier /pagos/{id} para que no se lo trague como parámetro.
+        Route::get('/pagos/pendientes',     [NominaPagoController::class, 'pendientes']);
+        Route::post('/pagos/lote',          [NominaPagoController::class, 'lote']);
+        Route::get('/pagos',                [NominaPagoController::class, 'index']);
+        Route::post('/pagos',               [NominaPagoController::class, 'store']);
+        Route::delete('/pagos/{id}',        [NominaPagoController::class, 'destroy'])->whereNumber('id');
 
         Route::get('/ausencias',            [NominaAusenciaController::class, 'index']);
         Route::post('/ausencias',           [NominaAusenciaController::class, 'store']);
         Route::delete('/ausencias/{id}',    [NominaAusenciaController::class, 'destroy'])->whereNumber('id');
+
+        Route::get('/ajustes',              [NominaAjusteController::class, 'index']);
+        Route::post('/ajustes',             [NominaAjusteController::class, 'store']);
+        Route::delete('/ajustes/{id}',      [NominaAjusteController::class, 'destroy'])->whereNumber('id');
     });
 
     // Proveedores: cualquiera lee; crear/editar necesita acceso_proveedores

@@ -3,7 +3,6 @@
 use App\Jobs\AlertarRetrasoProduccion;
 use App\Jobs\AlertarRutasAtrasadas;
 use App\Jobs\AvisarCotizacionesPorVencer;
-use App\Jobs\GenerarPeriodoNomina;
 use App\Jobs\RecordatoriosCitas;
 use Illuminate\Support\Facades\Schedule;
 
@@ -36,11 +35,9 @@ Schedule::job(new AvisarCotizacionesPorVencer())
     ->name('avisar-cotizaciones-por-vencer')
     ->withoutOverlapping();
 
-Schedule::job(new GenerarPeriodoNomina())
-    ->dailyAt('00:10')
-    ->timezone('America/Bogota')
-    ->name('generar-periodo-nomina')
-    ->withoutOverlapping();
+// La nómina ya no necesita un job: los ciclos de pago se calculan del
+// calendario cuando se abre la pantalla (App\Services\CicloNomina), así que
+// no hay períodos que generar de madrugada.
 
 // De madrugada, cuando nadie está vendiendo, para no competir por la conexión.
 Schedule::command('respaldo:base')

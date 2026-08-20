@@ -4,20 +4,38 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
-/** Un bono o descuento con nombre libre, encima del cálculo por días. */
+/**
+ * Un bono o descuento con nombre libre (positivo suma, negativo resta),
+ * anotado contra el trabajador y una fecha — igual que una falta. Cae solo
+ * en el ciclo que contenga esa fecha y se engancha al pago cuando ese ciclo
+ * se cobra; mientras tanto queda con `nomina_pago_id` en null.
+ */
 class NominaAjuste extends Model
 {
     protected $table = 'nomina_ajustes';
 
-    protected $fillable = ['nomina_item_id', 'nombre', 'monto'];
+    protected $fillable = ['empleado_id', 'nomina_pago_id', 'fecha', 'nombre', 'monto'];
 
     protected function casts(): array
     {
-        return ['monto' => 'decimal:2'];
+        return [
+            'fecha' => 'date',
+            'monto' => 'decimal:2',
+        ];
     }
 
-    public function item()
+    public function empleado()
     {
-        return $this->belongsTo(NominaItem::class, 'nomina_item_id');
+        return $this->belongsTo(Empleado::class);
+    }
+
+    public function pago()
+    {
+        return $this->belongsTo(NominaPago::class, 'nomina_pago_id');
+    }
+
+    public function estaPagado(): bool
+    {
+        return $this->nomina_pago_id !== null;
     }
 }

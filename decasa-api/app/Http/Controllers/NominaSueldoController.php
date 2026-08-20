@@ -51,9 +51,9 @@ class NominaSueldoController extends Controller
     /**
      * PATCH /api/nomina/sueldos/{id}
      *
-     * Cambiar el valor aquí solo afecta a los trabajadores que lo tengan
-     * asignado de ahí en adelante: los períodos ya sembrados guardan su
-     * propia copia congelada y no se mueven con retroactividad.
+     * Cambiar el valor mueve lo que todavía no se ha cobrado — incluido el
+     * ciclo en curso, que se recalcula completo con el valor nuevo. Lo ya
+     * pagado no se toca: cada pago guarda su propia copia congelada.
      */
     public function update(Request $request, int $id)
     {

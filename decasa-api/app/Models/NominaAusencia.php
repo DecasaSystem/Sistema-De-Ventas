@@ -6,15 +6,16 @@ use Illuminate\Database\Eloquent\Model;
 
 /**
  * Una falta con fecha real y horas (para faltas parciales). Se registra
- * contra el empleado y una fecha, no contra un item de período, porque la
- * fecha puede caer en una quincena que todavía no existe — queda con
- * `nomina_item_id` en null (pendiente) hasta que ese período se cree.
+ * contra el trabajador y una fecha, y cae sola en el ciclo que contenga esa
+ * fecha — incluido uno futuro: si alguien avisa hoy que va a faltar la
+ * quincena que viene, la falta espera con `nomina_pago_id` en null y se
+ * descuenta cuando esa quincena se cobre.
  */
 class NominaAusencia extends Model
 {
     protected $table = 'nomina_ausencias';
 
-    protected $fillable = ['empleado_id', 'nomina_item_id', 'fecha', 'horas', 'motivo'];
+    protected $fillable = ['empleado_id', 'nomina_pago_id', 'fecha', 'horas', 'motivo'];
 
     protected function casts(): array
     {
@@ -29,13 +30,13 @@ class NominaAusencia extends Model
         return $this->belongsTo(Empleado::class);
     }
 
-    public function item()
+    public function pago()
     {
-        return $this->belongsTo(NominaItem::class, 'nomina_item_id');
+        return $this->belongsTo(NominaPago::class, 'nomina_pago_id');
     }
 
-    public function estaPendiente(): bool
+    public function estaPagada(): bool
     {
-        return $this->nomina_item_id === null;
+        return $this->nomina_pago_id !== null;
     }
 }
