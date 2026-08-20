@@ -13,12 +13,12 @@ class NominaItem extends Model
 {
     protected $table = 'nomina_items';
 
-    protected $fillable = ['nomina_periodo_id', 'empleado_id', 'valor_label', 'valor_base', 'dias_trabajados', 'observaciones'];
+    protected $fillable = ['nomina_periodo_id', 'empleado_id', 'valor_label', 'valor_dia', 'dias_trabajados', 'observaciones'];
 
     protected function casts(): array
     {
         return [
-            'valor_base'      => 'decimal:2',
+            'valor_dia'       => 'decimal:2',
             'dias_trabajados' => 'decimal:2',
         ];
     }
@@ -40,8 +40,7 @@ class NominaItem extends Model
 
     public function subtotal(): float
     {
-        $diasPeriodo = $this->periodo?->dias_periodo ?: 1;
-        return round((float) $this->valor_base / $diasPeriodo * (float) $this->dias_trabajados);
+        return round((float) $this->valor_dia * (float) $this->dias_trabajados);
     }
 
     public function total(): float

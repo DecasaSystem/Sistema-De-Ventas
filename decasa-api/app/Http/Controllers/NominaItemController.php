@@ -23,7 +23,7 @@ class NominaItemController extends Controller
 
         $data = $request->validate([
             'valor_label'     => 'sometimes|required|string|max:60',
-            'valor_base'      => 'sometimes|numeric|min:0',
+            'valor_dia'       => 'sometimes|numeric|min:0',
             'dias_trabajados' => 'sometimes|numeric|min:0|max:31',
             'observaciones'   => 'sometimes|nullable|string|max:2000',
         ]);
@@ -37,7 +37,7 @@ class NominaItemController extends Controller
             'empleado_nombre' => $item->empleado?->nombre,
             'empleado_cargo'  => $item->empleado?->cargo,
             'valor_label'     => $item->valor_label,
-            'valor_base'      => (float) $item->valor_base,
+            'valor_dia'       => (float) $item->valor_dia,
             'dias_trabajados' => (float) $item->dias_trabajados,
             'observaciones'   => $item->observaciones,
             'subtotal'        => $item->subtotal(),

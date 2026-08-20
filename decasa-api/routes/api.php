@@ -48,6 +48,7 @@ use App\Http\Controllers\EmpleadoController;
 use App\Http\Controllers\NominaPeriodoController;
 use App\Http\Controllers\NominaItemController;
 use App\Http\Controllers\NominaAjusteController;
+use App\Http\Controllers\NominaSueldoController;
 use Illuminate\Support\Facades\Route;
 
 // ── Auth (público) ────────────────────────────────────────────────────────────
@@ -105,6 +106,11 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Nómina — simple, como se paga hoy en Excel. Todo bajo acceso_nomina.
     Route::middleware('permiso:acceso_nomina')->prefix('nomina')->group(function () {
+        Route::get('/sueldos',              [NominaSueldoController::class, 'index']);
+        Route::post('/sueldos',             [NominaSueldoController::class, 'store']);
+        Route::patch('/sueldos/{id}',       [NominaSueldoController::class, 'update'])->whereNumber('id');
+        Route::delete('/sueldos/{id}',      [NominaSueldoController::class, 'destroy'])->whereNumber('id');
+
         Route::get('/empleados',            [EmpleadoController::class, 'index']);
         Route::post('/empleados',           [EmpleadoController::class, 'store']);
         Route::patch('/empleados/{id}',     [EmpleadoController::class, 'update'])->whereNumber('id');

@@ -58,7 +58,7 @@ async function guardarItem(item) {
   try {
     await actualizarItem(item.id, {
       valor_label: item.valor_label,
-      valor_base: item.valor_base,
+      valor_dia: item.valor_dia,
       dias_trabajados: item.dias_trabajados,
       observaciones: item.observaciones,
     })
@@ -208,8 +208,8 @@ async function pagar() {
           <div v-if="abiertoId === item.id" class="px-4 pb-4 border-t border-gray-50 pt-3 space-y-3">
             <div class="grid grid-cols-2 gap-3">
               <div>
-                <label class="block text-[11px] text-gray-500 mb-1">{{ item.valor_label }}</label>
-                <InputPesos v-model="item.valor_base" :disabled="pagado" class="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50" />
+                <label class="block text-[11px] text-gray-500 mb-1">{{ item.valor_label }} (por día)</label>
+                <InputPesos v-model="item.valor_dia" :disabled="pagado" class="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50" />
               </div>
               <div>
                 <label class="block text-[11px] text-gray-500 mb-1">Días trabajados</label>
@@ -230,7 +230,7 @@ async function pagar() {
             </div>
 
             <div>
-              <label class="block text-[11px] text-gray-500 mb-1">Subtotal por días</label>
+              <label class="block text-[11px] text-gray-500 mb-1">Subtotal ({{ item.dias_trabajados }} días × {{ formatoPesos(item.valor_dia) }})</label>
               <p class="text-sm text-gray-700">{{ formatoPesos(item.subtotal) }}</p>
             </div>
 

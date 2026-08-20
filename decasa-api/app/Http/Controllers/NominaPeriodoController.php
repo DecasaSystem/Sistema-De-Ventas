@@ -35,7 +35,7 @@ class NominaPeriodoController extends Controller
             'empleado_nombre' => $i->empleado?->nombre,
             'empleado_cargo'  => $i->empleado?->cargo,
             'valor_label'     => $i->valor_label,
-            'valor_base'      => (float) $i->valor_base,
+            'valor_dia'       => (float) $i->valor_dia,
             'dias_trabajados' => (float) $i->dias_trabajados,
             'observaciones'   => $i->observaciones,
             'subtotal'        => $i->subtotal(),
@@ -101,13 +101,13 @@ class NominaPeriodoController extends Controller
                 'dias_periodo' => $dias,
             ]);
 
-            $activos = Empleado::where('activo', true)->get();
+            $activos = Empleado::with('sueldo')->where('activo', true)->get();
             foreach ($activos as $empleado) {
                 NominaItem::create([
                     'nomina_periodo_id' => $periodo->id,
                     'empleado_id'       => $empleado->id,
-                    'valor_label'       => $empleado->valor_label,
-                    'valor_base'        => $empleado->valor_base,
+                    'valor_label'       => $empleado->labelEfectivo(),
+                    'valor_dia'         => $empleado->valorDiaEfectivo(),
                     'dias_trabajados'   => $dias,
                 ]);
             }
@@ -172,12 +172,12 @@ class NominaPeriodoController extends Controller
             return response()->json(['message' => 'Ese empleado ya está en este período.'], 422);
         }
 
-        $empleado = Empleado::findOrFail($data['empleado_id']);
+        $empleado = Empleado::with('sueldo')->findOrFail($data['empleado_id']);
         $item = NominaItem::create([
             'nomina_periodo_id' => $periodo->id,
             'empleado_id'       => $empleado->id,
-            'valor_label'       => $empleado->valor_label,
-            'valor_base'        => $empleado->valor_base,
+            'valor_label'       => $empleado->labelEfectivo(),
+            'valor_dia'         => $empleado->valorDiaEfectivo(),
             'dias_trabajados'   => $periodo->dias_periodo,
         ]);
 

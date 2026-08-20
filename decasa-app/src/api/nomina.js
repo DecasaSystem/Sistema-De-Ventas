@@ -1,5 +1,10 @@
 import api from '@/api'
 
+export const getSueldos        = (incluirInactivos = false) => api.get('/nomina/sueldos', { params: incluirInactivos ? { incluir_inactivos: 1 } : {} })
+export const crearSueldo       = (payload) => api.post('/nomina/sueldos', payload)
+export const actualizarSueldo  = (id, payload) => api.patch(`/nomina/sueldos/${id}`, payload)
+export const eliminarSueldo    = (id) => api.delete(`/nomina/sueldos/${id}`)
+
 export const getPeriodos       = () => api.get('/nomina/periodos')
 export const getPeriodo        = (id) => api.get(`/nomina/periodos/${id}`)
 export const crearPeriodo      = (payload) => api.post('/nomina/periodos', payload)

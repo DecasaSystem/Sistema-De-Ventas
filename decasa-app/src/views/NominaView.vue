@@ -4,7 +4,10 @@ import { useRouter } from 'vue-router'
 import { useToast } from '@/composables/useToast'
 import InputPesos from '@/components/common/InputPesos.vue'
 import { getEmpleados, crearEmpleado, actualizarEmpleado, eliminarEmpleado } from '@/api/empleados'
-import { getPeriodos, crearPeriodo, eliminarPeriodo } from '@/api/nomina'
+import {
+  getPeriodos, crearPeriodo, eliminarPeriodo,
+  getSueldos, crearSueldo, actualizarSueldo, eliminarSueldo,
+} from '@/api/nomina'
 import {
   BanknotesIcon,
   PlusIcon,
@@ -14,12 +17,17 @@ import {
   UsersIcon,
   CalendarDaysIcon,
   CheckCircleIcon,
+  TagIcon,
 } from '@heroicons/vue/24/outline'
 
 const router = useRouter()
 const toast  = useToast()
 
 const tab = ref('periodos')
+
+function formatoPesos(n) {
+  return '$' + Math.round(n ?? 0).toLocaleString('es-CO')
+}
 
 // ── Períodos ────────────────────────────────────────────────────────────
 const periodos         = ref([])
@@ -79,16 +87,93 @@ async function borrarPeriodo(p) {
   }
 }
 
-function formatoPesos(n) {
-  return '$' + Math.round(n ?? 0).toLocaleString('es-CO')
+// ── Sueldos (catálogo con nombre) ─────────────────────────────────────────
+const sueldos         = ref([])
+const cargandoSueldos = ref(true)
+const mostrarFormSueldo = ref(false)
+const editandoSueldo    = ref(null)
+const formSueldo = ref({ nombre: '', valor_dia: 0 })
+const guardandoSueldo = ref(false)
+
+async function cargarSueldos() {
+  cargandoSueldos.value = true
+  try {
+    const { data } = await getSueldos(true)
+    sueldos.value = data
+  } catch {
+    toast.error('No se pudo cargar la lista de sueldos')
+  } finally {
+    cargandoSueldos.value = false
+  }
 }
+
+function abrirNuevoSueldo() {
+  editandoSueldo.value = null
+  formSueldo.value = { nombre: '', valor_dia: 0 }
+  mostrarFormSueldo.value = true
+}
+
+function abrirEditarSueldo(s) {
+  editandoSueldo.value = s.id
+  formSueldo.value = { nombre: s.nombre, valor_dia: Number(s.valor_dia) || 0 }
+  mostrarFormSueldo.value = true
+}
+
+async function guardarSueldo() {
+  if (!formSueldo.value.nombre.trim()) {
+    toast.error('Ponle un nombre al sueldo')
+    return
+  }
+  guardandoSueldo.value = true
+  try {
+    const payload = { nombre: formSueldo.value.nombre.trim(), valor_dia: formSueldo.value.valor_dia }
+    if (editandoSueldo.value) {
+      await actualizarSueldo(editandoSueldo.value, payload)
+      toast.success('Sueldo actualizado')
+    } else {
+      await crearSueldo(payload)
+      toast.success('Sueldo creado')
+    }
+    mostrarFormSueldo.value = false
+    await cargarSueldos()
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo guardar')
+  } finally {
+    guardandoSueldo.value = false
+  }
+}
+
+async function borrarSueldo(s) {
+  if (!confirm(`¿Eliminar el sueldo "${s.nombre}"? Si algún trabajador lo tiene asignado, se desactiva en vez de borrarse.`)) return
+  try {
+    const { data } = await eliminarSueldo(s.id)
+    toast.success(data?.message ?? 'Sueldo eliminado')
+    await cargarSueldos()
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo eliminar')
+  }
+}
+
+async function reactivarSueldo(s) {
+  try {
+    await actualizarSueldo(s.id, { activo: true })
+    toast.success('Sueldo reactivado')
+    await cargarSueldos()
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo reactivar')
+  }
+}
+
+const sueldosActivos   = computed(() => sueldos.value.filter(s => s.activo))
+const sueldosInactivos = computed(() => sueldos.value.filter(s => !s.activo))
 
 // ── Trabajadores (empleados de nómina) ────────────────────────────────────
 const empleados         = ref([])
 const cargandoEmpleados = ref(true)
 const mostrarFormEmpleado = ref(false)
 const editandoEmpleado    = ref(null)
-const formEmpleado = ref({ nombre: '', cedula: '', cargo: '', valor_label: 'Salario quincenal', valor_base: 0 })
+const CUSTOM = 'personalizado'
+const formEmpleado = ref({ nombre: '', cedula: '', cargo: '', fuente: CUSTOM, nomina_sueldo_id: '', valor_label: 'Personalizado', valor_dia: 0 })
 const guardandoEmpleado = ref(false)
 
 async function cargarEmpleados() {
@@ -104,16 +189,21 @@ async function cargarEmpleados() {
 }
 
 let empleadosCargados = false
+let sueldosCargados   = false
 watch(tab, (t) => {
   if (t === 'trabajadores' && !empleadosCargados) {
     empleadosCargados = true
     cargarEmpleados()
   }
+  if ((t === 'sueldos' || t === 'trabajadores') && !sueldosCargados) {
+    sueldosCargados = true
+    cargarSueldos()
+  }
 })
 
 function abrirNuevoEmpleado() {
   editandoEmpleado.value = null
-  formEmpleado.value = { nombre: '', cedula: '', cargo: '', valor_label: 'Salario quincenal', valor_base: 0 }
+  formEmpleado.value = { nombre: '', cedula: '', cargo: '', fuente: CUSTOM, nomina_sueldo_id: '', valor_label: 'Personalizado', valor_dia: 0 }
   mostrarFormEmpleado.value = true
 }
 
@@ -121,7 +211,10 @@ function abrirEditarEmpleado(e) {
   editandoEmpleado.value = e.id
   formEmpleado.value = {
     nombre: e.nombre, cedula: e.cedula ?? '', cargo: e.cargo ?? '',
-    valor_label: e.valor_label, valor_base: Number(e.valor_base) || 0,
+    fuente: e.nomina_sueldo_id ? e.nomina_sueldo_id : CUSTOM,
+    nomina_sueldo_id: e.nomina_sueldo_id ?? '',
+    valor_label: e.valor_label ?? 'Personalizado',
+    valor_dia: Number(e.valor_dia) || 0,
   }
   mostrarFormEmpleado.value = true
 }
@@ -131,14 +224,20 @@ async function guardarEmpleado() {
     toast.error('El nombre es obligatorio')
     return
   }
+  const esPersonalizado = formEmpleado.value.fuente === CUSTOM
+  if (!esPersonalizado && !formEmpleado.value.fuente) {
+    toast.error('Elige un sueldo o marca "Personalizado"')
+    return
+  }
   guardandoEmpleado.value = true
   try {
     const payload = {
       nombre: formEmpleado.value.nombre.trim(),
       cedula: formEmpleado.value.cedula.trim() || null,
       cargo: formEmpleado.value.cargo.trim() || null,
-      valor_label: formEmpleado.value.valor_label.trim() || 'Salario quincenal',
-      valor_base: formEmpleado.value.valor_base,
+      nomina_sueldo_id: esPersonalizado ? null : formEmpleado.value.fuente,
+      valor_label: esPersonalizado ? (formEmpleado.value.valor_label.trim() || 'Personalizado') : null,
+      valor_dia: esPersonalizado ? formEmpleado.value.valor_dia : null,
     }
     if (editandoEmpleado.value) {
       await actualizarEmpleado(editandoEmpleado.value, payload)
@@ -179,7 +278,16 @@ async function reactivarEmpleado(e) {
 
 const empleadosActivos   = computed(() => empleados.value.filter(e => e.activo))
 const empleadosInactivos = computed(() => empleados.value.filter(e => !e.activo))
-const sinValor = computed(() => empleadosActivos.value.filter(e => Number(e.valor_base) <= 0).length)
+const sinValor = computed(() => empleadosActivos.value.filter(e => Number(e.valor_dia_efectivo) <= 0).length)
+
+// Vista previa en vivo de quincena/mes mientras se escribe el valor día —
+// puro cálculo en cliente, no pide nada al backend.
+function quincena(valorDia) { return (Number(valorDia) || 0) * 15 }
+function mes(valorDia)      { return (Number(valorDia) || 0) * 30 }
+
+const sueldoElegidoEmpleado = computed(() =>
+  sueldosActivos.value.find(s => s.id === formEmpleado.value.fuente) ?? null
+)
 </script>
 
 <template>
@@ -205,6 +313,12 @@ const sinValor = computed(() => empleadosActivos.value.filter(e => Number(e.valo
         :class="['flex-1 text-sm font-semibold rounded-lg py-2 transition-colors', tab === 'trabajadores' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500']"
       >
         Trabajadores
+      </button>
+      <button
+        @click="tab = 'sueldos'"
+        :class="['flex-1 text-sm font-semibold rounded-lg py-2 transition-colors', tab === 'sueldos' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500']"
+      >
+        Sueldos
       </button>
     </div>
 
@@ -333,8 +447,9 @@ const sinValor = computed(() => empleadosActivos.value.filter(e => Number(e.valo
             <div class="min-w-0">
               <p class="font-semibold text-sm text-gray-800 truncate">{{ e.nombre }}</p>
               <p class="text-xs text-gray-500 mt-0.5">{{ e.cargo || 'Sin cargo' }} <span v-if="e.cedula">· CC {{ e.cedula }}</span></p>
-              <p class="text-xs mt-0.5" :class="Number(e.valor_base) > 0 ? 'text-gray-600' : 'text-amber-600'">
-                {{ e.valor_label }}: {{ formatoPesos(e.valor_base) }}
+              <p class="text-xs mt-0.5" :class="Number(e.valor_dia_efectivo) > 0 ? 'text-gray-600' : 'text-amber-600'">
+                {{ e.label_efectivo }}: {{ formatoPesos(e.valor_dia_efectivo) }}/día
+                <span class="text-gray-400">· {{ formatoPesos(quincena(e.valor_dia_efectivo)) }} quincena · {{ formatoPesos(mes(e.valor_dia_efectivo)) }} mes</span>
               </p>
             </div>
             <div class="flex items-center gap-1 shrink-0">
@@ -391,16 +506,38 @@ const sinValor = computed(() => empleadosActivos.value.filter(e => Number(e.valo
                     <input v-model="formEmpleado.cargo" placeholder="Lijador, Ebanista..." class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow" />
                   </div>
                 </div>
+
                 <div>
-                  <label class="block text-xs font-semibold text-gray-500 mb-1.5">Nombre del valor a pagar</label>
-                  <input v-model="formEmpleado.valor_label" placeholder="Salario quincenal, Jornal diario..." class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow" />
-                  <p class="text-[11px] text-gray-400 mt-1">Le pones el nombre que quieras — no tiene que decir "el mínimo".</p>
+                  <label class="block text-xs font-semibold text-gray-500 mb-1.5">Sueldo</label>
+                  <select v-model="formEmpleado.fuente" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow">
+                    <option v-for="s in sueldosActivos" :key="s.id" :value="s.id">{{ s.nombre }} — {{ formatoPesos(s.valor_dia) }}/día</option>
+                    <option :value="CUSTOM">Personalizado (escribir un valor propio)</option>
+                  </select>
                 </div>
-                <div>
-                  <label class="block text-xs font-semibold text-gray-500 mb-1.5">Valor</label>
-                  <InputPesos v-model="formEmpleado.valor_base" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow" />
-                  <p class="text-[11px] text-gray-400 mt-1">Es el valor completo del período; si falta o entra tarde, se prorratea solo en cada quincena.</p>
+
+                <!-- Del catálogo: solo mostrar, no se edita aquí -->
+                <div v-if="sueldoElegidoEmpleado" class="bg-blue-50 border border-blue-100 rounded-xl px-3.5 py-2.5 text-xs text-blue-700">
+                  {{ formatoPesos(sueldoElegidoEmpleado.valor_dia) }}/día ·
+                  {{ formatoPesos(quincena(sueldoElegidoEmpleado.valor_dia)) }} quincena ·
+                  {{ formatoPesos(mes(sueldoElegidoEmpleado.valor_dia)) }} mes
                 </div>
+
+                <!-- Personalizado: nombre + valor propios -->
+                <template v-else>
+                  <div>
+                    <label class="block text-xs font-semibold text-gray-500 mb-1.5">Nombre del valor</label>
+                    <input v-model="formEmpleado.valor_label" placeholder="Comisión especial, Jornal..." class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow" />
+                  </div>
+                  <div>
+                    <label class="block text-xs font-semibold text-gray-500 mb-1.5">Valor por día</label>
+                    <InputPesos v-model="formEmpleado.valor_dia" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow" />
+                    <p class="text-[11px] text-gray-400 mt-1">
+                      = {{ formatoPesos(quincena(formEmpleado.valor_dia)) }} quincena · {{ formatoPesos(mes(formEmpleado.valor_dia)) }} mes
+                    </p>
+                  </div>
+                </template>
+
+                <p class="text-[11px] text-gray-400">Si falta un día o entra a mitad de quincena, se descuenta o prorratea solo por el valor día.</p>
               </div>
               <div class="flex gap-2.5 p-5 pt-2">
                 <button @click="mostrarFormEmpleado = false" class="flex-1 bg-gray-100 text-gray-700 text-sm font-semibold rounded-xl px-4 py-2.5 hover:bg-gray-200 transition-colors">Cancelar</button>
@@ -410,6 +547,107 @@ const sinValor = computed(() => empleadosActivos.value.filter(e => Number(e.valo
                 >
                   <span v-if="guardandoEmpleado" class="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
                   {{ guardandoEmpleado ? 'Guardando...' : 'Guardar' }}
+                </button>
+              </div>
+            </div>
+          </div>
+        </Transition>
+      </Teleport>
+    </template>
+
+    <!-- ═══════════ SUELDOS ═══════════ -->
+    <template v-else-if="tab === 'sueldos'">
+      <div class="flex items-center justify-between mb-3">
+        <p class="text-xs text-gray-400">Sueldos con nombre para asignar rápido al crear un trabajador.</p>
+        <button
+          @click="abrirNuevoSueldo"
+          class="flex items-center gap-1.5 bg-blue-600 text-white text-xs font-semibold px-3 py-2 rounded-xl hover:bg-blue-700 transition-colors shadow-sm shrink-0"
+        >
+          <PlusIcon class="w-4 h-4" /> Nuevo
+        </button>
+      </div>
+
+      <div v-if="cargandoSueldos" class="flex justify-center py-12">
+        <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+
+      <div v-else class="space-y-2.5">
+        <div v-for="s in sueldosActivos" :key="s.id" class="bg-white rounded-xl shadow-sm p-4">
+          <div class="flex items-start justify-between gap-2">
+            <div class="min-w-0 flex items-center gap-2.5">
+              <div class="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center shrink-0">
+                <TagIcon class="w-5 h-5 text-blue-600" />
+              </div>
+              <div class="min-w-0">
+                <p class="font-semibold text-sm text-gray-800 truncate">{{ s.nombre }}</p>
+                <p class="text-xs text-gray-500 mt-0.5">
+                  {{ formatoPesos(s.valor_dia) }}/día · {{ formatoPesos(quincena(s.valor_dia)) }} quincena · {{ formatoPesos(mes(s.valor_dia)) }} mes
+                </p>
+              </div>
+            </div>
+            <div class="flex items-center gap-1 shrink-0">
+              <button @click="abrirEditarSueldo(s)" class="p-1.5 text-gray-300 hover:text-blue-600 transition-colors" aria-label="Editar">
+                <PencilSquareIcon class="w-4 h-4" />
+              </button>
+              <button @click="borrarSueldo(s)" class="p-1.5 text-gray-300 hover:text-red-600 transition-colors" aria-label="Eliminar">
+                <TrashIcon class="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <p v-if="!sueldosActivos.length" class="text-center py-8 text-gray-400 text-sm">Todavía no hay sueldos creados.</p>
+
+        <template v-if="sueldosInactivos.length">
+          <p class="text-xs font-semibold text-gray-400 uppercase pt-2">Desactivados</p>
+          <div v-for="s in sueldosInactivos" :key="s.id" class="bg-gray-50 rounded-xl p-4 flex items-center justify-between gap-2">
+            <p class="text-sm text-gray-500 truncate">{{ s.nombre }}</p>
+            <button @click="reactivarSueldo(s)" class="text-xs font-semibold text-blue-600 hover:text-blue-700 shrink-0">Reactivar</button>
+          </div>
+        </template>
+      </div>
+
+      <!-- Nuevo / editar sueldo -->
+      <Teleport to="body">
+        <Transition
+          enter-active-class="transition-opacity duration-200" enter-from-class="opacity-0"
+          leave-active-class="transition-opacity duration-150" leave-to-class="opacity-0"
+        >
+          <div v-if="mostrarFormSueldo" class="fixed inset-0 bg-black/50 backdrop-blur-[2px] z-50 flex items-end sm:items-center justify-center" @click.self="mostrarFormSueldo = false">
+            <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full sm:max-w-md shadow-2xl">
+              <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-100">
+                <div class="flex items-center gap-2.5">
+                  <div class="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center shrink-0">
+                    <TagIcon class="w-5 h-5 text-blue-600" />
+                  </div>
+                  <p class="font-semibold text-gray-800">{{ editandoSueldo ? 'Editar sueldo' : 'Nuevo sueldo' }}</p>
+                </div>
+                <button @click="mostrarFormSueldo = false" class="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
+                  <XMarkIcon class="w-5 h-5" />
+                </button>
+              </div>
+              <div class="p-5 space-y-4">
+                <div>
+                  <label class="block text-xs font-semibold text-gray-500 mb-1.5">Nombre *</label>
+                  <input v-model="formSueldo.nombre" placeholder="Mínimo" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow" />
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-gray-500 mb-1.5">Valor por día</label>
+                  <InputPesos v-model="formSueldo.valor_dia" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow" />
+                  <p class="text-[11px] text-gray-400 mt-1">
+                    = {{ formatoPesos(quincena(formSueldo.valor_dia)) }} quincena · {{ formatoPesos(mes(formSueldo.valor_dia)) }} mes
+                  </p>
+                </div>
+                <p class="text-[11px] text-gray-400">Editar el valor solo afecta a los períodos que se creen de ahora en adelante — los ya hechos quedan con lo que tenían.</p>
+              </div>
+              <div class="flex gap-2.5 p-5 pt-2">
+                <button @click="mostrarFormSueldo = false" class="flex-1 bg-gray-100 text-gray-700 text-sm font-semibold rounded-xl px-4 py-2.5 hover:bg-gray-200 transition-colors">Cancelar</button>
+                <button
+                  @click="guardarSueldo" :disabled="guardandoSueldo"
+                  class="flex-1 bg-blue-600 text-white text-sm font-semibold rounded-xl px-4 py-2.5 hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
+                >
+                  <span v-if="guardandoSueldo" class="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                  {{ guardandoSueldo ? 'Guardando...' : 'Guardar' }}
                 </button>
               </div>
             </div>
