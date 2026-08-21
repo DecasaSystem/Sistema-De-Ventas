@@ -37,6 +37,7 @@ import {
   ReceiptPercentIcon,
   BuildingStorefrontIcon,
   Cog6ToothIcon,
+  ShoppingCartIcon,
 } from '@heroicons/vue/24/outline'
 
 const auth         = useAuthStore()
@@ -63,6 +64,7 @@ const accesos = computed(() => {
       { label: 'Estadísticas', icon: PresentationChartLineIcon,  to: { name: 'mis-stats-conductor' } },
       ...(auth.puedeSurtir ? [{ label: 'Surtir', icon: ArrowPathIcon, to: { name: 'surtir' } }] : []),
       { label: 'Proveedores',  icon: BuildingStorefrontIcon,     to: { name: 'proveedores' } },
+      { label: 'Compras',      icon: ShoppingCartIcon,           to: { name: 'compras'     } },
     ]
   }
   if (auth.usuario?.rol === 'ebanista') {
@@ -78,6 +80,7 @@ const accesos = computed(() => {
       { label: 'Caja',         icon: BanknotesIcon,              to: { name: 'caja'        } },
       { label: 'Estadísticas', icon: PresentationChartLineIcon,  to: { name: 'mis-stats'   } },
       { label: 'Proveedores',  icon: BuildingStorefrontIcon,     to: { name: 'proveedores' } },
+      { label: 'Compras',      icon: ShoppingCartIcon,           to: { name: 'compras'     } },
     ]
   }
   if (auth.usuario?.rol === 'despachador') {
@@ -85,6 +88,7 @@ const accesos = computed(() => {
       { label: 'Despacho producción', icon: TruckIcon, to: { name: 'despacho-produccion' }, badge: despachoProd.pendientesCount },
       ...(auth.puedeSurtir ? [{ label: 'Surtir', icon: ArrowPathIcon, to: { name: 'surtir' } }] : []),
       { label: 'Proveedores',         icon: BuildingStorefrontIcon, to: { name: 'proveedores' } },
+      { label: 'Compras',             icon: ShoppingCartIcon,       to: { name: 'compras'     } },
     ]
   }
 
@@ -135,6 +139,7 @@ const accesos = computed(() => {
   items.push({ label: 'Consultar costo', icon: CurrencyDollarIcon,      to: { name: 'consultas'  }, badge: consultas.pendientesCount })
   items.push({ label: auth.isSupervisor ? 'Mis estadísticas' : 'Estadísticas', icon: PresentationChartLineIcon, to: { name: 'mis-stats' } })
   items.push({ label: 'Proveedores', icon: BuildingStorefrontIcon, to: { name: 'proveedores' } })
+  items.push({ label: 'Compras',     icon: ShoppingCartIcon,       to: { name: 'compras'     } })
 
   if (auth.isFacturador) {
     items.unshift({ label: 'Facturación', icon: DocumentCurrencyDollarIcon, to: { name: 'facturacion' }, badge: abonosNoLeidos.value })

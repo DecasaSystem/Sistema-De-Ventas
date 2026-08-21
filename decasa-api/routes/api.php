@@ -14,6 +14,7 @@ use App\Http\Controllers\PerfilProduccionController;
 use App\Http\Controllers\ProduccionController;
 use App\Http\Controllers\ProductoController;
 use App\Http\Controllers\ProveedorController;
+use App\Http\Controllers\CompraController;
 use App\Http\Controllers\ReporteController;
 use App\Http\Controllers\RolController;
 use App\Http\Controllers\TiendaController;
@@ -160,6 +161,14 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::patch('/proveedores/{id}',    [ProveedorController::class, 'update'])->whereNumber('id');
     });
     Route::delete('/proveedores/{id}',   [ProveedorController::class, 'destroy'])->whereNumber('id')->middleware('role:supervisor');
+
+    // Compras: la lista de "hay que comprar tal cosa", de todos. Cualquiera
+    // pide algo o marca que ya lo compró; borrar (solo pendientes) es del
+    // supervisor — lo ya comprado es historial y no se toca.
+    Route::get('/compras',                 [CompraController::class, 'index']);
+    Route::post('/compras',                [CompraController::class, 'store']);
+    Route::patch('/compras/{id}/comprar',  [CompraController::class, 'marcarComprado'])->whereNumber('id');
+    Route::delete('/compras/{id}',         [CompraController::class, 'destroy'])->whereNumber('id')->middleware('role:supervisor');
 
     // Reserva / Fábrica
     Route::get('/reserva/info',                          [ReservaController::class, 'info']);
