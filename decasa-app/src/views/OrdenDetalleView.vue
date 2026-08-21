@@ -1075,6 +1075,46 @@ const itemsConProduccion = computed(() =>
   (orden.value?.items ?? []).filter(i => i.es_personalizado && i.produccion?.pasos?.length)
 )
 
+/**
+ * Quiénes hicieron un paso, con sus horas y estrellas.
+ *
+ * Los pasos cerrados antes de que existieran los participantes sólo guardaron
+ * una lista de nombres escritos a mano; se muestran igual, sin calificación,
+ * para que una orden vieja no aparezca como si nadie la hubiera trabajado.
+ */
+function participantesDePaso(paso) {
+  const reales = paso?.participantes ?? []
+  if (reales.length) {
+    return reales.map(p => ({
+      nombre: p.usuario?.nombre ?? p.nombre ?? '—',
+      calidad: p.calidad, horas: p.horas,
+    }))
+  }
+  return (paso?.trabajadores ?? []).map(n => ({ nombre: n, calidad: null, horas: null }))
+}
+
+function horasDePaso(paso) {
+  const con = (paso?.participantes ?? []).filter(p => p.horas != null)
+  if (!con.length) return null
+  return con.reduce((s, p) => s + Number(p.horas), 0)
+}
+
+/** Todo el que puso mano en la orden, sin repetir. */
+const participantesDeLaOrden = computed(() => {
+  const vistos = new Map()
+  for (const item of itemsConProduccion.value) {
+    for (const paso of item.produccion?.pasos ?? []) {
+      for (const p of participantesDePaso(paso)) {
+        const previo = vistos.get(p.nombre) ?? { nombre: p.nombre, pasos: 0, horas: 0 }
+        previo.pasos += 1
+        previo.horas += Number(p.horas ?? 0)
+        vistos.set(p.nombre, previo)
+      }
+    }
+  }
+  return [...vistos.values()].sort((a, b) => b.pasos - a.pasos)
+})
+
 function labelProceso(tipo) {
   return nombreProceso(tipo)
 }
@@ -1870,19 +1910,36 @@ onMounted(() => { cargarTipos(); cargarOrden() })
                   <span v-else-if="paso.estado === 'pendiente'" class="text-[10px] bg-gray-100 text-gray-500 font-semibold px-1.5 py-0.5 rounded-full">Pendiente</span>
                 </div>
 
+                <!-- Mientras se está haciendo: por las manos de quién va -->
+                <div v-if="paso.estado === 'en_proceso' && participantesDePaso(paso).length"
+                  class="flex items-center gap-1 mt-1 text-xs text-blue-700">
+                  <UserGroupIcon class="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
+                  <span class="font-medium truncate">{{ participantesDePaso(paso).map(p => p.nombre).join(', ') }}</span>
+                </div>
+
                 <template v-if="paso.estado === 'completado'">
-                  <p class="text-xs text-gray-400 mt-0.5">{{ formatDateTime(paso.completado_at) }}</p>
-                  <div v-if="paso.completado_por" class="flex items-center gap-1 mt-1 text-xs text-gray-600">
+                  <p class="text-xs text-gray-400 mt-0.5">
+                    {{ formatDateTime(paso.completado_at) }}
+                    <span v-if="horasDePaso(paso) != null">· {{ horasDePaso(paso) }} h</span>
+                  </p>
+
+                  <!-- Quiénes lo hicieron, con su calificación -->
+                  <div v-if="participantesDePaso(paso).length" class="flex flex-wrap items-center gap-1 mt-1">
                     <UserGroupIcon class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
-                    <span class="font-medium">{{ paso.completado_por.nombre }}</span>
-                    <span v-if="paso.trabajadores?.length" class="text-gray-400">
-                      · {{ paso.trabajadores.join(', ') }}
+                    <span
+                      v-for="(p, i) in participantesDePaso(paso)" :key="i"
+                      class="inline-flex items-center gap-1 text-xs bg-gray-100 text-gray-700 rounded-full px-2 py-0.5"
+                    >
+                      {{ p.nombre }}
+                      <span v-if="p.calidad" class="text-amber-500 font-bold">{{ p.calidad }}★</span>
+                      <span v-if="p.horas != null" class="text-gray-400">{{ Number(p.horas) }}h</span>
                     </span>
                   </div>
-                  <div v-else-if="paso.trabajadores?.length" class="flex items-center gap-1 mt-1 text-xs text-gray-600">
-                    <UserGroupIcon class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
-                    {{ paso.trabajadores.join(', ') }}
-                  </div>
+
+                  <!-- Quién dio el visto bueno para seguir al siguiente paso -->
+                  <p v-if="paso.completado_por" class="text-[11px] text-gray-400 mt-0.5">
+                    Autorizó: <span class="font-medium text-gray-500">{{ paso.completado_por.nombre }}</span>
+                  </p>
                 </template>
               </div>
             </div>
@@ -1900,6 +1957,23 @@ onMounted(() => { cargarTipos(); cargarOrden() })
                 </p>
               </div>
             </div>
+          </div>
+        </div>
+
+        <!-- Por las manos de quién pasó la orden entera -->
+        <div v-if="participantesDeLaOrden.length" class="border-t border-gray-100 pt-3 mt-1">
+          <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+            Quiénes trabajaron esta orden
+          </p>
+          <div class="flex flex-wrap gap-1.5">
+            <span
+              v-for="p in participantesDeLaOrden" :key="p.nombre"
+              class="inline-flex items-center gap-1.5 text-xs bg-gray-50 border border-gray-200 rounded-full px-2.5 py-1"
+            >
+              <span class="font-medium text-gray-700">{{ p.nombre }}</span>
+              <span class="text-gray-400">{{ p.pasos }} paso{{ p.pasos === 1 ? '' : 's' }}</span>
+              <span v-if="p.horas > 0" class="text-gray-400">· {{ p.horas }}h</span>
+            </span>
           </div>
         </div>
       </div>

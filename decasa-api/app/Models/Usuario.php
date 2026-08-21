@@ -186,6 +186,42 @@ class Usuario extends Authenticatable
         return $this->belongsToMany(TipoProceso::class, 'proceso_trabajadores', 'usuario_id', 'tipo_proceso_id');
     }
 
+    /** Cada paso de producción en el que participó, con horas y calificación. */
+    public function participacionesPaso()
+    {
+        return $this->hasMany(PasoTrabajador::class, 'usuario_id');
+    }
+
+    /**
+     * La hoja de vida del trabajador en el taller.
+     *
+     * No se guarda en columnas: se calcula. Un promedio denormalizado se
+     * desincroniza en cuanto alguien corrige una calificación o se borra un
+     * paso, y un ranking equivocado manda trabajo a quien no debe.
+     *
+     * @return array{calificaciones:int, calidad_promedio:?float, pasos:int, horas_totales:float, horas_promedio:?float}
+     */
+    public function desempenoTaller(): array
+    {
+        $filas = $this->participacionesPaso()
+            ->selectRaw('COUNT(*) AS pasos')
+            ->selectRaw('COUNT(calidad) AS calificaciones')
+            ->selectRaw('AVG(calidad) AS calidad_promedio')
+            ->selectRaw('COALESCE(SUM(horas), 0) AS horas_totales')
+            ->selectRaw('AVG(horas) AS horas_promedio')
+            ->first();
+
+        return [
+            'pasos'            => (int) ($filas->pasos ?? 0),
+            'calificaciones'   => (int) ($filas->calificaciones ?? 0),
+            'calidad_promedio' => $filas?->calidad_promedio !== null
+                ? round((float) $filas->calidad_promedio, 2) : null,
+            'horas_totales'    => round((float) ($filas->horas_totales ?? 0), 2),
+            'horas_promedio'   => $filas?->horas_promedio !== null
+                ? round((float) $filas->horas_promedio, 2) : null,
+        ];
+    }
+
     /**
      * Qué procesos del taller puede trabajar: los de su especialidad MÁS los
      * que se le asignaron a dedo. Es la única fuente de verdad de esto — la

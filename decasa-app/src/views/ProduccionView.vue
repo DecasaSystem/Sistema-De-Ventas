@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useTiposProceso } from '@/composables/useTiposProceso'
 import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
-import { MapPinIcon, Cog6ToothIcon } from '@heroicons/vue/24/outline'
+import { MapPinIcon, Cog6ToothIcon, UserGroupIcon } from '@heroicons/vue/24/outline'
 import { MapPinIcon as MapPinSolid } from '@heroicons/vue/24/solid'
 import {
   MagnifyingGlassIcon,
@@ -120,6 +120,28 @@ function pasoActualLabel(p) {
   const todos = p.pasos.every(x => x.estado === 'completado')
   if (todos && p.estado !== 'listo') return { label: 'Todos los pasos listos', cls: 'bg-green-100 text-green-700' }
   return null
+}
+
+/** El paso que se está haciendo ahora, si hay alguno. */
+function pasoEnCurso(p) {
+  return (p.pasos ?? []).find(x => x.estado === 'en_proceso') ?? null
+}
+
+/**
+ * Los nombres de quienes están (o estuvieron) en un paso.
+ *
+ * Los pasos viejos sólo tienen la lista de nombres escritos a mano; se
+ * respetan para que una orden anterior al cambio no se quede sin nadie.
+ */
+function nombresDePaso(paso) {
+  const reales = (paso?.participantes ?? []).map(x => x.usuario?.nombre ?? x.nombre).filter(Boolean)
+  return reales.length ? reales : (paso?.trabajadores ?? [])
+}
+
+function horasDePaso(paso) {
+  const con = (paso?.participantes ?? []).filter(x => x.horas != null)
+  if (!con.length) return null
+  return con.reduce((s, x) => s + Number(x.horas), 0)
 }
 
 function labelProceso(tipo) {
@@ -475,15 +497,26 @@ onUnmounted(() => {
             </div>
           </div>
 
+          <!-- Quién está haciendo el paso ahora mismo -->
+          <div
+            v-if="pasoEnCurso(p) && nombresDePaso(pasoEnCurso(p)).length"
+            class="flex items-center gap-1.5 text-xs bg-blue-50 border border-blue-100 rounded-lg px-2 py-1"
+          >
+            <UserGroupIcon class="w-3.5 h-3.5 text-blue-500 shrink-0" />
+            <span class="text-blue-500">Trabajando ahora:</span>
+            <span class="text-blue-800 font-semibold truncate">{{ nombresDePaso(pasoEnCurso(p)).join(', ') }}</span>
+          </div>
+
           <!-- Responsables de pasos completados -->
           <div
-            v-if="p.pasos?.some(paso => paso.estado === 'completado' && paso.trabajadores?.length)"
+            v-if="p.pasos?.some(paso => paso.estado === 'completado' && nombresDePaso(paso).length)"
             class="space-y-0.5"
           >
-            <template v-for="paso in p.pasos.filter(x => x.estado === 'completado' && x.trabajadores?.length)" :key="paso.id">
+            <template v-for="paso in p.pasos.filter(x => x.estado === 'completado' && nombresDePaso(x).length)" :key="paso.id">
               <div class="flex items-center gap-1.5 text-xs">
                 <span class="text-gray-400">{{ labelProceso(paso.tipo_proceso) }}:</span>
-                <span class="text-gray-600 font-medium">{{ paso.trabajadores.join(', ') }}</span>
+                <span class="text-gray-600 font-medium">{{ nombresDePaso(paso).join(', ') }}</span>
+                <span v-if="horasDePaso(paso) != null" class="text-gray-400">· {{ horasDePaso(paso) }}h</span>
               </div>
             </template>
           </div>

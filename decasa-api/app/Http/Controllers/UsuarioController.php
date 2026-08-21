@@ -52,12 +52,39 @@ class UsuarioController extends Controller
             'tienda_default'      => $u->relationLoaded('tiendaDefault') ? $u->tiendaDefault : null,
             'activo'              => (bool) $u->activo,
             'created_at'          => $u->created_at,
+            // Cómo le va en el taller. Va aquí para que al buscar a alguien se
+            // vea de una su puntuación y se sepa a quién conviene darle trabajo.
+            'desempeno'           => $u->pasos_taller === null ? null : [
+                'pasos'            => (int) $u->pasos_taller,
+                'calificaciones'   => (int) $u->calificaciones_taller,
+                'calidad_promedio' => $u->calidad_promedio !== null ? round((float) $u->calidad_promedio, 2) : null,
+                'horas_totales'    => round((float) ($u->horas_taller ?? 0), 2),
+            ],
         ];
+    }
+
+    /**
+     * Los números del taller, resueltos en la misma consulta.
+     *
+     * Calcularlos usuario por usuario dispararía veinte consultas por página
+     * sólo para pintar unas estrellas.
+     */
+    private function conDesempeno($query)
+    {
+        return $query
+            ->withCount([
+                'participacionesPaso as pasos_taller',
+                'participacionesPaso as calificaciones_taller' => fn ($q) => $q->whereNotNull('calidad'),
+            ])
+            ->withAvg(['participacionesPaso as calidad_promedio' => fn ($q) => $q->whereNotNull('calidad')], 'calidad')
+            ->withSum('participacionesPaso as horas_taller', 'horas');
     }
 
     public function index(Request $request)
     {
-        $query = Usuario::with(['tiendaDefault:id,nombre,ciudad', 'perfilProduccion', 'rolAsignado']);
+        $query = $this->conDesempeno(
+            Usuario::with(['tiendaDefault:id,nombre,ciudad', 'perfilProduccion', 'rolAsignado'])
+        );
 
         if ($rol = $request->query('rol')) {
             $query->where('rol', $rol);
@@ -78,7 +105,9 @@ class UsuarioController extends Controller
 
     public function show($id)
     {
-        $usuario = Usuario::with(['tiendaDefault:id,nombre,ciudad', 'perfilProduccion', 'rolAsignado'])->findOrFail($id);
+        $usuario = $this->conDesempeno(
+            Usuario::with(['tiendaDefault:id,nombre,ciudad', 'perfilProduccion', 'rolAsignado'])
+        )->findOrFail($id);
 
         return response()->json($this->comoJson($usuario));
     }

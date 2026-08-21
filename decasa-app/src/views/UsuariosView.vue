@@ -8,6 +8,7 @@ import {
   ChevronRightIcon,
   MapPinIcon,
 } from '@heroicons/vue/24/outline'
+import { StarIcon as StarSolid } from '@heroicons/vue/24/solid'
 import { getUsuarios } from '@/api/usuarios'
 import { getTiendas } from '@/api/ordenes'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
@@ -233,6 +234,18 @@ onBeforeUnmount(() => {
             </span>
           </div>
           <p class="text-xs text-gray-400 truncate">{{ u.email }}</p>
+          <!-- Cómo le va en el taller: aquí es donde se decide a quién darle más trabajo -->
+          <p v-if="u.desempeno?.pasos" class="text-xs flex items-center gap-1 mt-0.5">
+            <template v-if="u.desempeno.calidad_promedio">
+              <StarSolid v-for="n in Math.round(u.desempeno.calidad_promedio)" :key="n" class="w-3.5 h-3.5 text-amber-400" />
+              <span class="text-gray-500 font-medium">{{ u.desempeno.calidad_promedio }}</span>
+              <span class="text-gray-300">·</span>
+            </template>
+            <span class="text-gray-400">
+              {{ u.desempeno.pasos }} paso{{ u.desempeno.pasos === 1 ? '' : 's' }}
+              <span v-if="u.desempeno.horas_totales > 0">· {{ u.desempeno.horas_totales }}h</span>
+            </span>
+          </p>
           <p v-if="u.tienda_default && !['conductor','ebanista','despachador'].includes(u.rol)" class="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
             <MapPinIcon class="w-3.5 h-3.5" />
             {{ u.tienda_default.nombre }}

@@ -5,11 +5,12 @@ import { useTiposProceso } from '@/composables/useTiposProceso'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { CheckCircleIcon, WrenchScrewdriverIcon, ClockIcon, ArrowTopRightOnSquareIcon, UserPlusIcon, XMarkIcon, ArrowUturnLeftIcon, ExclamationTriangleIcon } from '@heroicons/vue/24/outline'
-import { getMisPasos, completarPaso, getHistorialPasos, devolverPaso } from '@/api/produccion'
+import { getMisPasos, completarPaso, getHistorialPasos, devolverPaso, asignarTrabajadoresPaso } from '@/api/produccion'
 import { useToast } from '@/composables/useToast'
 import { useRealtime } from '@/composables/useRealtime'
 import { usePasosStore } from '@/stores/pasos'
 import EmptyState from '@/components/common/EmptyState.vue'
+import PasoTrabajadoresModal from '@/components/produccion/PasoTrabajadoresModal.vue'
 
 const router = useRouter()
 const auth   = useAuthStore()
@@ -28,8 +29,9 @@ const loading = ref(true)
 const completandoId = ref(null)
 const mostrarModal   = ref(false)
 const pasoConfirmar  = ref(null)
-const trabajadores   = ref([])
-const inputTrabajador = ref('')
+// 'empezar' = sólo apuntar quién lo está haciendo · 'terminar' = cerrar el paso
+const modoModal      = ref('terminar')
+const guardandoModal = ref(false)
 
 const historial        = ref([])
 const loadingHistorial = ref(false)
@@ -110,43 +112,50 @@ async function cargarHistorial() {
   }
 }
 
-function abrirConfirmar(paso) {
-  pasoConfirmar.value   = paso
-  trabajadores.value    = []
-  inputTrabajador.value = ''
-  mostrarModal.value    = true
+function abrirModal(paso, modo) {
+  pasoConfirmar.value = paso
+  modoModal.value     = modo
+  mostrarModal.value  = true
 }
 
-function agregarTrabajador() {
-  const nombre = inputTrabajador.value.trim()
-  if (!nombre || trabajadores.value.includes(nombre)) return
-  trabajadores.value.push(nombre)
-  inputTrabajador.value = ''
-}
-
-function quitarTrabajador(nombre) {
-  trabajadores.value = trabajadores.value.filter(t => t !== nombre)
-}
-
-function onInputKeydown(e) {
-  if (e.key === 'Enter') { e.preventDefault(); agregarTrabajador() }
-}
-
-async function confirmarListo() {
+/**
+ * Un solo guardado para los dos momentos: apuntar quién empieza, o cerrar el
+ * paso con horas y estrellas. La pantalla manda lo mismo; cambia el destino.
+ */
+async function guardarTrabajadores(trabajadores) {
   const paso = pasoConfirmar.value
-  if (!paso || trabajadores.value.length === 0) return
-  completandoId.value = paso.id
-  mostrarModal.value  = false
+  if (!paso || !trabajadores.length) return
+  guardandoModal.value = true
   try {
-    await completarPaso(paso.id, { trabajadores: trabajadores.value })
-    toast.success('¡Paso completado!')
-    await cargar()
-    await cargarHistorial()
+    if (modoModal.value === 'terminar') {
+      completandoId.value = paso.id
+      await completarPaso(paso.id, { trabajadores })
+      toast.success('¡Paso completado!')
+    } else {
+      await asignarTrabajadoresPaso(paso.id, trabajadores)
+      toast.success('Trabajadores asignados.')
+    }
+    mostrarModal.value = false
+    await Promise.all([cargar(), cargarHistorial()])
   } catch (e) {
-    toast.error(e.response?.data?.message ?? 'Error al completar el paso.')
+    toast.error(e.response?.data?.message ?? 'No se pudo guardar.')
   } finally {
-    completandoId.value = null
+    guardandoModal.value = false
+    completandoId.value  = null
   }
+}
+
+/** Los nombres de quienes están (o estuvieron) en un paso. */
+function nombresDePaso(paso) {
+  const reales = (paso?.participantes ?? []).map(p => p.usuario?.nombre ?? p.nombre).filter(Boolean)
+  // Los pasos cerrados antes de este cambio sólo tienen nombres escritos a mano.
+  return reales.length ? reales : (paso?.trabajadores ?? [])
+}
+
+function horasDePaso(paso) {
+  const con = (paso?.participantes ?? []).filter(p => p.horas != null)
+  if (!con.length) return null
+  return con.reduce((s, p) => s + Number(p.horas), 0)
 }
 
 function formatFecha(dateStr) {
@@ -320,6 +329,24 @@ onMounted(async () => {
             </div>
           </div>
 
+          <!-- Quién lo está haciendo, si ya se apuntó al empezar -->
+          <div class="flex items-center justify-between gap-2 bg-blue-50 border border-blue-100 rounded-xl px-3 py-2">
+            <div class="min-w-0">
+              <p class="text-[11px] font-semibold text-blue-900 uppercase tracking-wide">En manos de</p>
+              <p v-if="nombresDePaso(paso).length" class="text-sm text-blue-800 truncate">
+                {{ nombresDePaso(paso).join(', ') }}
+              </p>
+              <p v-else class="text-xs text-blue-500">Nadie apuntado todavía</p>
+            </div>
+            <button
+              @click="abrirModal(paso, 'empezar')"
+              class="shrink-0 text-xs font-semibold text-blue-700 bg-white border border-blue-200 rounded-lg px-2.5 py-1.5 hover:bg-blue-100 transition-colors flex items-center gap-1"
+            >
+              <UserPlusIcon class="w-3.5 h-3.5" />
+              {{ nombresDePaso(paso).length ? 'Cambiar' : 'Asignar' }}
+            </button>
+          </div>
+
           <!-- Botones -->
           <div class="flex gap-2">
             <button
@@ -330,7 +357,7 @@ onMounted(async () => {
               Ver orden
             </button>
             <button
-              @click="abrirConfirmar(paso)"
+              @click="abrirModal(paso, 'terminar')"
               :disabled="completandoId === paso.id"
               class="flex-[2] bg-green-600 text-white rounded-xl py-2.5 text-sm font-bold hover:bg-green-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
             >
@@ -419,14 +446,23 @@ onMounted(async () => {
                 {{ formatFecha(paso.completado_at) }}
               </p>
             </div>
-            <div v-if="paso.trabajadores?.length" class="col-span-2">
+            <div v-if="horasDePaso(paso) != null">
+              <p class="text-gray-400">Tomó</p>
+              <p class="font-medium text-gray-700">{{ horasDePaso(paso) }} h</p>
+            </div>
+            <div v-if="nombresDePaso(paso).length" class="col-span-2">
               <p class="text-gray-400">Responsables</p>
               <div class="flex flex-wrap gap-1 mt-1">
+                <!-- Con calificación cuando la hay; los pasos viejos sólo tienen el nombre. -->
                 <span
-                  v-for="t in paso.trabajadores"
-                  :key="t"
-                  class="inline-flex items-center bg-blue-50 text-blue-700 text-xs font-medium px-2.5 py-0.5 rounded-full"
-                >{{ t }}</span>
+                  v-for="(p, i) in (paso.participantes?.length ? paso.participantes : nombresDePaso(paso).map(n => ({ nombre: n })))"
+                  :key="p.usuario_id ?? i"
+                  class="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-xs font-medium px-2.5 py-0.5 rounded-full"
+                >
+                  {{ p.usuario?.nombre ?? p.nombre }}
+                  <span v-if="p.calidad" class="text-amber-500 font-bold">{{ p.calidad }}★</span>
+                  <span v-if="p.horas != null" class="text-blue-400">· {{ Number(p.horas) }}h</span>
+                </span>
               </div>
             </div>
           </div>
@@ -507,76 +543,17 @@ onMounted(async () => {
       </div>
     </Transition>
 
-    <!-- Modal de confirmación con asignación de trabajadores -->
-    <Transition name="fade">
-      <div v-if="mostrarModal" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="mostrarModal = false">
-        <div class="absolute inset-0 bg-black/40" />
-        <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-4">
-          <h3 class="text-lg font-bold text-gray-800">Registrar responsables</h3>
-          <p class="text-sm text-gray-600">
-            Paso de <strong>{{ PROCESO_LABEL[pasoConfirmar?.tipo_proceso] }}</strong>
-            — <strong>{{ pasoConfirmar?.produccion?.orden_item?.producto?.nombre }}</strong>
-          </p>
+    <!-- Quién hizo el paso, cuánto tardó y cómo quedó -->
+    <PasoTrabajadoresModal
+      :abierto="mostrarModal"
+      :paso="pasoConfirmar"
+      :modo="modoModal"
+      :proceso-label="PROCESO_LABEL[pasoConfirmar?.tipo_proceso]"
+      :guardando="guardandoModal"
+      @cerrar="mostrarModal = false"
+      @guardar="guardarTrabajadores"
+    />
 
-          <!-- Input de trabajadores -->
-          <div class="space-y-2">
-            <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wide">
-              Trabajadores que realizaron este paso
-            </label>
-
-            <!-- Chips de trabajadores ya agregados -->
-            <div v-if="trabajadores.length" class="flex flex-wrap gap-1.5 mb-2">
-              <span
-                v-for="t in trabajadores"
-                :key="t"
-                class="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-xs font-medium px-2.5 py-1 rounded-full"
-              >
-                {{ t }}
-                <button @click="quitarTrabajador(t)" class="hover:text-red-500 transition-colors">
-                  <XMarkIcon class="w-3 h-3" />
-                </button>
-              </span>
-            </div>
-
-            <!-- Input + botón agregar -->
-            <div class="flex gap-2">
-              <input
-                v-model="inputTrabajador"
-                @keydown="onInputKeydown"
-                type="text"
-                placeholder="Nombre del trabajador..."
-                class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <button
-                @click="agregarTrabajador"
-                :disabled="!inputTrabajador.trim()"
-                class="bg-blue-600 text-white rounded-lg px-3 py-2 hover:bg-blue-700 disabled:opacity-40 transition-colors"
-              >
-                <UserPlusIcon class="w-4 h-4" />
-              </button>
-            </div>
-            <p class="text-xs text-gray-400">Presiona Enter o el botón para agregar. Puedes agregar varios.</p>
-          </div>
-
-          <p v-if="trabajadores.length === 0" class="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
-            Debes agregar al menos un trabajador para poder marcar el paso como listo.
-          </p>
-
-          <div class="flex gap-3">
-            <button @click="mostrarModal = false" class="flex-1 bg-gray-100 text-gray-700 rounded-lg py-2.5 text-sm font-semibold">
-              Cancelar
-            </button>
-            <button
-              @click="confirmarListo"
-              :disabled="trabajadores.length === 0"
-              class="flex-1 bg-green-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
-              Confirmar listo
-            </button>
-          </div>
-        </div>
-      </div>
-    </Transition>
   </div>
 </template>
 

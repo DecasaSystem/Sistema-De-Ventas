@@ -818,6 +818,9 @@ class OrdenController extends Controller
             'items.variante', 'items.comboConfig.tipo', 'items.comboConfig.opcion',
             'items.tiendaOrigen:id,nombre',
             'items.produccion.pasos.completadoPor:id,nombre',
+            // Quiénes hicieron cada paso, para que al final la orden muestre
+            // por las manos de quién pasó el mueble.
+            'items.produccion.pasos.participantes.usuario:id,nombre',
             'items.produccion.despachador:id,nombre',
             'pagos.facturacionTomadaPor:id,nombre',
             'ediciones.usuario:id,nombre',

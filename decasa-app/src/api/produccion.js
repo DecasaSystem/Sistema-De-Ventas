@@ -19,6 +19,14 @@ export const completarPaso = (pasoId, data) =>
 export const devolverPaso = (pasoId, data) =>
   api.patch(`/produccion/pasos/${pasoId}/devolver`, data)
 
+// A quién se puede poner en un paso, con su puntuación del taller.
+export const getTrabajadoresTaller = (proceso) =>
+  api.get('/produccion/trabajadores', { params: { proceso } })
+
+// Apuntar quién está haciendo el paso, sin cerrarlo todavía.
+export const asignarTrabajadoresPaso = (pasoId, trabajadores) =>
+  api.patch(`/produccion/pasos/${pasoId}/trabajadores`, { trabajadores })
+
 // Despacho de producción (despachador)
 export const getPendientesDespacho = () =>
   api.get('/produccion/pendientes-despacho')

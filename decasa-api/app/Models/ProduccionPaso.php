@@ -15,6 +15,7 @@ class ProduccionPaso extends Model
         'tipo_proceso',
         'orden',
         'estado',
+        'iniciado_at',
         'completado_por',
         'completado_at',
         'trabajadores',
@@ -27,6 +28,7 @@ class ProduccionPaso extends Model
     protected function casts(): array
     {
         return [
+            'iniciado_at'    => 'datetime',
             'completado_at'  => 'datetime',
             'rechazado_at'   => 'datetime',
             'trabajadores'   => 'array',
@@ -38,9 +40,41 @@ class ProduccionPaso extends Model
         return $this->belongsTo(Produccion::class, 'produccion_id');
     }
 
+    /** Quién autorizó que el paso siguiera al siguiente. */
     public function completadoPor()
     {
         return $this->belongsTo(Usuario::class, 'completado_por');
+    }
+
+    /** Quiénes lo hicieron, con sus horas y su calificación. */
+    public function participantes()
+    {
+        return $this->hasMany(PasoTrabajador::class, 'paso_id');
+    }
+
+    /**
+     * Los nombres de quienes participaron, vengan de donde vengan.
+     *
+     * Los pasos cerrados antes de que existieran los participantes sólo tienen
+     * la lista de nombres escrita a mano. Mezclarlas acá evita que el detalle
+     * de una orden vieja aparezca sin nadie.
+     */
+    public function nombresParticipantes(): array
+    {
+        $deVerdad = $this->relationLoaded('participantes')
+            ? $this->participantes->map(fn ($p) => $p->usuario?->nombre)->filter()->all()
+            : [];
+
+        return $deVerdad ?: array_values(array_filter((array) $this->trabajadores));
+    }
+
+    /** Horas que tomó el paso: la suma de lo que reportó cada participante. */
+    public function horasTotales(): ?float
+    {
+        if (! $this->relationLoaded('participantes')) return null;
+        $con = $this->participantes->whereNotNull('horas');
+
+        return $con->isEmpty() ? null : (float) $con->sum('horas');
     }
 
     /**

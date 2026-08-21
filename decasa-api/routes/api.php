@@ -374,7 +374,10 @@ Route::middleware('auth:sanctum')->group(function () {
     // Producción — flujo de pasos (ebanista y tapicero-supervisor)
     Route::get('/produccion/mis-pasos',                        [ProduccionController::class, 'misPasos']);
     Route::get('/produccion/historial-pasos',                  [ProduccionController::class, 'historialPasos']);
+    Route::get('/produccion/trabajadores',                     [ProduccionController::class, 'trabajadores']);
     Route::patch('/produccion/pasos/{id}/completar',           [ProduccionController::class, 'completarPaso'])->whereNumber('id');
+    // Apuntar quién está haciendo el paso sin cerrarlo todavía.
+    Route::patch('/produccion/pasos/{id}/trabajadores',        [ProduccionController::class, 'asignarTrabajadores'])->whereNumber('id');
     Route::patch('/produccion/pasos/{id}/devolver',            [ProduccionController::class, 'devolverPaso'])->whereNumber('id');
 
     // Producción — despacho de producción (despachador)
