@@ -106,8 +106,13 @@ const numAplicando      = ref(false)
 const numNuevoNumero    = ref('')
 const numGuardandoNum   = ref(false)
 
+// Una orden ya convertida no se puede volver a convertir a la misma serie.
+// Preguntarlo igual solo produce un error, así que la vista previa ni se pide.
+const numYaEsSerie = computed(() => orden.value?.serie === numSerie.value)
+
 async function abrirNumeracion() {
-  numSerie.value = 'FV2'
+  // Si ya es FV2, abrir en FV2 sería ofrecer algo imposible: se arranca en la otra.
+  numSerie.value = orden.value?.serie === 'FV2' ? 'R' : 'FV2'
   numCorrer.value = true
   numMotivo.value = ''
   numNuevoNumero.value = orden.value?.numero_orden ?? ''
@@ -117,8 +122,10 @@ async function abrirNumeracion() {
 }
 
 async function cargarPreviaNumeracion() {
-  numCargando.value = true
   numPrevia.value = null
+  if (numYaEsSerie.value) return
+
+  numCargando.value = true
   try {
     const { data } = await previsualizarNumeracion(orden.value.id, numSerie.value, numCorrer.value)
     numPrevia.value = data
@@ -3198,7 +3205,14 @@ onMounted(() => { cargarTipos(); cargarOrden() })
             </div>
 
             <!-- Vista previa -->
-            <div v-if="numCargando" class="flex justify-center py-4">
+            <div v-if="numYaEsSerie" class="bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2.5">
+              <p class="text-xs text-emerald-800 leading-snug">
+                Esta orden <span class="font-semibold">ya es {{ orden?.referencia }}</span>.
+                Para moverla a la otra serie, elígela arriba.
+              </p>
+            </div>
+
+            <div v-else-if="numCargando" class="flex justify-center py-4">
               <div class="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
             </div>
 
