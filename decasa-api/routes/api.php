@@ -209,6 +209,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/ordenes/{id}/reenviar-cotizacion',    [OrdenController::class, 'reenviarCotizacion']);
     Route::patch('/ordenes/{id}/fechas-entrega',        [OrdenController::class, 'asignarFechas']);
 
+    // Numeración: convertir a serie (FV2/R) y corregir consecutivos. Solo
+    // supervisor — el permiso se valida dentro del controlador.
+    Route::get('/ordenes/{id}/numeracion',              [OrdenController::class, 'previsualizarNumeracion'])->whereNumber('id');
+    Route::post('/ordenes/{id}/numeracion/convertir',   [OrdenController::class, 'convertirSerie'])->whereNumber('id');
+    Route::patch('/ordenes/{id}/numeracion',            [OrdenController::class, 'cambiarNumero'])->whereNumber('id');
+
     // Chat de la orden: dudas entre el vendedor y los supervisores
     Route::get('/ordenes/{id}/mensajes',  [OrdenMensajeController::class, 'index'])->whereNumber('id');
 

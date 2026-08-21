@@ -31,3 +31,14 @@ export const quitarFijada = (id) => api.delete(`/ordenes/${id}/fijar`)
 // Solo supervisor, y no aplica a las que entregó un conductor (tienen acta).
 export const revertirEntrega = (id, motivo) =>
   api.patch(`/ordenes/${id}/revertir-entrega`, { motivo })
+
+// ── Numeración (solo supervisor) ─────────────────────────────────────────────
+// Convertir una orden a serie (FV2/R) y, si se pide, correr los consecutivos
+// de las siguientes para no dejar el hueco. Se previsualiza antes de aplicar:
+// correr números no se deshace con un botón.
+export const previsualizarNumeracion = (id, serie, correr) =>
+  api.get(`/ordenes/${id}/numeracion`, { params: { serie, correr: correr ? 1 : 0 } })
+export const convertirSerie = (id, payload) =>
+  api.post(`/ordenes/${id}/numeracion/convertir`, payload)
+export const cambiarNumeroOrden = (id, numero) =>
+  api.patch(`/ordenes/${id}/numeracion`, { numero_orden: numero })

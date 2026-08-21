@@ -21,7 +21,9 @@ use App\Models\ProductoVariante;
 use App\Models\Tienda;
 use App\Support\ConvierteImagenesPdf;
 use App\Support\StockVariantes;
+use App\Services\NumeracionOrdenes;
 use App\Support\PdfOrdenUnaHoja;
+use Illuminate\Validation\Rule;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -2542,6 +2544,71 @@ class OrdenController extends Controller
      * null si no está en ninguno). Lo usa también CotizacionController para
      * numerar las COT-N por grupo.
      */
+    /**
+     * GET /api/ordenes/{id}/numeracion?serie=FV2&correr=1
+     *
+     * Qué pasaría, sin tocar nada. Se muestra antes de aplicar porque correr
+     * los consecutivos no se puede deshacer con un botón.
+     */
+    public function previsualizarNumeracion(Request $request, int $id)
+    {
+        $orden = $this->ordenParaNumeracion($request, $id);
+
+        $data = $request->validate([
+            'serie'  => ['required', Rule::in([Orden::SERIE_FV2, Orden::SERIE_RESTAURACION])],
+            'correr' => 'nullable|boolean',
+        ]);
+
+        return response()->json(NumeracionOrdenes::previsualizarConversion(
+            $orden, $data['serie'], $request->boolean('correr')
+        ));
+    }
+
+    /** POST /api/ordenes/{id}/numeracion/convertir */
+    public function convertirSerie(Request $request, int $id)
+    {
+        $orden = $this->ordenParaNumeracion($request, $id);
+
+        $data = $request->validate([
+            'serie'  => ['required', Rule::in([Orden::SERIE_FV2, Orden::SERIE_RESTAURACION])],
+            'correr' => 'nullable|boolean',
+            'motivo' => 'nullable|string|max:300',
+        ]);
+
+        $resultado = NumeracionOrdenes::convertir(
+            $orden, $data['serie'], (bool) ($data['correr'] ?? false), $request->user(), $data['motivo'] ?? null
+        );
+
+        return response()->json($resultado);
+    }
+
+    /** PATCH /api/ordenes/{id}/numeracion — corregir el número a mano. */
+    public function cambiarNumero(Request $request, int $id)
+    {
+        $orden = $this->ordenParaNumeracion($request, $id);
+
+        $data = $request->validate([
+            'numero_orden' => 'required|integer|min:1|max:99999999',
+        ]);
+
+        return response()->json(
+            NumeracionOrdenes::cambiarNumero($orden, (int) $data['numero_orden'], $request->user())
+        );
+    }
+
+    /**
+     * Tocar consecutivos es solo del supervisor: es el talonario de la
+     * empresa, y un número mal puesto se arrastra a facturación y comisiones.
+     */
+    private function ordenParaNumeracion(Request $request, int $id): Orden
+    {
+        if ($request->user()->rol !== 'supervisor') {
+            abort(403, 'Solo un supervisor puede cambiar la numeración de una orden.');
+        }
+
+        return Orden::with('cliente:id,nombre')->findOrFail($id);
+    }
+
     public static function grupoDeTienda(?int $tiendaId): ?string
     {
         if (! $tiendaId) return null;

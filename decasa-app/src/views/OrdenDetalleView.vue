@@ -6,7 +6,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
-import { getOrden, updateEstado, revertirEntrega, descargarPdfOrden, descargarActaEntrega, reenviarCotizacion, asignarFechasEntrega, confirmarCotizacion, editarPago, completarBorrador as completarBorradorApi, eliminarBorrador as eliminarBorradorApi } from '@/api/ordenes'
+import { getOrden, updateEstado, revertirEntrega, descargarPdfOrden, descargarActaEntrega, reenviarCotizacion, asignarFechasEntrega, confirmarCotizacion, editarPago, completarBorrador as completarBorradorApi, eliminarBorrador as eliminarBorradorApi, previsualizarNumeracion, convertirSerie, cambiarNumeroOrden } from '@/api/ordenes'
 import api from '@/api'
 import { useTiposProceso } from '@/composables/useTiposProceso'
 import { updateCliente } from '@/api/clientes'
@@ -90,6 +90,94 @@ const fechaEntregaOrden = computed(() => {
     .sort()
     .at(-1)
 })
+
+// ── Numeración: convertir a serie y corregir consecutivos ──────────────────
+// El caso real: al vendedor se le olvidó marcar la venta como FV2 y ya se
+// hicieron órdenes encima. Convertirla libera su número y deja un hueco, así
+// que se ofrece correr las siguientes para que el sistema siga alineado con
+// el talonario de papel.
+const mostrarNumeracion = ref(false)
+const numSerie          = ref('FV2')
+const numCorrer         = ref(true)
+const numMotivo         = ref('')
+const numPrevia         = ref(null)
+const numCargando       = ref(false)
+const numAplicando      = ref(false)
+const numNuevoNumero    = ref('')
+const numGuardandoNum   = ref(false)
+
+async function abrirNumeracion() {
+  numSerie.value = 'FV2'
+  numCorrer.value = true
+  numMotivo.value = ''
+  numNuevoNumero.value = orden.value?.numero_orden ?? ''
+  numPrevia.value = null
+  mostrarNumeracion.value = true
+  await cargarPreviaNumeracion()
+}
+
+async function cargarPreviaNumeracion() {
+  numCargando.value = true
+  numPrevia.value = null
+  try {
+    const { data } = await previsualizarNumeracion(orden.value.id, numSerie.value, numCorrer.value)
+    numPrevia.value = data
+  } catch (e) {
+    toast.error(e.response?.data?.message
+      || Object.values(e.response?.data?.errors ?? {}).flat()[0]
+      || 'No se pudo calcular la vista previa')
+  } finally {
+    numCargando.value = false
+  }
+}
+watch([numSerie, numCorrer], () => { if (mostrarNumeracion.value) cargarPreviaNumeracion() })
+
+async function aplicarConversion() {
+  const n = numPrevia.value?.corridas?.length ?? 0
+  const aviso = n
+    ? `Se convierte a ${numPrevia.value.orden.a} y se corren ${n} orden(es).\n\nEsto NO se deshace con un botón. ¿Seguro?`
+    : `Se convierte a ${numPrevia.value.orden.a} sin correr las siguientes (queda el hueco). ¿Seguro?`
+  if (!confirm(aviso)) return
+
+  numAplicando.value = true
+  try {
+    const { data } = await convertirSerie(orden.value.id, {
+      serie: numSerie.value,
+      correr: numCorrer.value,
+      motivo: numMotivo.value.trim() || null,
+    })
+    toast.success(`Ahora es ${data.referencia}${data.corridas.length ? ` · ${data.corridas.length} orden(es) corridas` : ''}`)
+    mostrarNumeracion.value = false
+    await cargar()
+  } catch (e) {
+    toast.error(e.response?.data?.message
+      || Object.values(e.response?.data?.errors ?? {}).flat()[0]
+      || 'No se pudo convertir')
+  } finally {
+    numAplicando.value = false
+  }
+}
+
+async function aplicarNumeroManual() {
+  const n = parseInt(numNuevoNumero.value, 10)
+  if (!n || n < 1) { toast.error('Escribe un número válido'); return }
+  if (n === orden.value.numero_orden) { toast.error('Es el mismo número que ya tiene'); return }
+  if (!confirm(`Cambiar ${orden.value.referencia} a #${n}.\n\nNo corre ninguna otra orden. ¿Seguro?`)) return
+
+  numGuardandoNum.value = true
+  try {
+    const { data } = await cambiarNumeroOrden(orden.value.id, n)
+    toast.success(`Ahora es ${data.referencia}`)
+    mostrarNumeracion.value = false
+    await cargar()
+  } catch (e) {
+    toast.error(e.response?.data?.message
+      || Object.values(e.response?.data?.errors ?? {}).flat()[0]
+      || 'No se pudo cambiar el número')
+  } finally {
+    numGuardandoNum.value = false
+  }
+}
 
 const variasFechasEntrega = computed(() => {
   const fechas = (orden.value?.items ?? [])
@@ -1306,6 +1394,17 @@ onMounted(() => { cargarTipos(); cargarOrden() })
           </p>
         </div>
 
+        <div class="flex justify-between items-center">
+          <span class="text-gray-500">Número</span>
+          <span class="flex items-center gap-2">
+            <span class="font-semibold text-gray-800">{{ orden.referencia }}</span>
+            <button
+              v-if="auth.isSupervisor && !['borrador','cotizacion','pendiente_cotizacion'].includes(orden.estado)"
+              @click="abrirNumeracion"
+              class="text-xs text-blue-600 font-medium hover:text-blue-700 underline decoration-dotted"
+            >Corregir</button>
+          </span>
+        </div>
         <div class="flex justify-between">
           <span class="text-gray-500">Cliente</span>
           <span class="font-medium text-gray-800">{{ orden.cliente?.nombre }}</span>
@@ -3050,6 +3149,120 @@ onMounted(() => { cargarTipos(); cargarOrden() })
             >
               {{ descartandoBorrador ? 'Descartando...' : 'Sí, descartar' }}
             </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- ═══════════ NUMERACIÓN (solo supervisor) ═══════════ -->
+    <Transition
+      enter-active-class="transition-opacity duration-200" enter-from-class="opacity-0"
+      leave-active-class="transition-opacity duration-150" leave-to-class="opacity-0"
+    >
+      <div v-if="mostrarNumeracion" class="fixed inset-0 bg-black/50 backdrop-blur-[2px] z-50 flex items-end sm:items-center justify-center" @click.self="mostrarNumeracion = false">
+        <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full sm:max-w-lg max-h-[92vh] overflow-y-auto shadow-2xl">
+          <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-100 sticky top-0 bg-white/95 backdrop-blur-sm rounded-t-3xl sm:rounded-t-2xl">
+            <p class="font-semibold text-gray-800">Numeración — {{ orden?.referencia }}</p>
+            <button @click="mostrarNumeracion = false" class="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100">
+              <XMarkIcon class="w-5 h-5" />
+            </button>
+          </div>
+
+          <!-- Convertir a serie -->
+          <div class="p-5 space-y-4 border-b border-gray-100">
+            <p class="text-xs font-semibold text-gray-500 uppercase">Convertir a serie</p>
+
+            <div class="flex gap-2 bg-gray-100 rounded-xl p-1">
+              <button
+                type="button" @click="numSerie = 'FV2'"
+                :class="['flex-1 text-xs font-semibold rounded-lg py-1.5 transition-colors', numSerie === 'FV2' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500']"
+              >FV2 — descuento especial</button>
+              <button
+                type="button" @click="numSerie = 'R'"
+                :class="['flex-1 text-xs font-semibold rounded-lg py-1.5 transition-colors', numSerie === 'R' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500']"
+              >R — restauración</button>
+            </div>
+
+            <label class="flex items-start gap-2.5 cursor-pointer">
+              <input type="checkbox" v-model="numCorrer" class="mt-0.5 w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+              <span class="text-xs text-gray-600 leading-snug">
+                <span class="font-semibold text-gray-700">Correr las siguientes para cerrar el hueco.</span>
+                Al salir de la numeración normal, su número queda libre. Esto baja en 1 las órdenes posteriores
+                de la misma tienda, para que el sistema siga cuadrando con el talonario.
+              </span>
+            </label>
+
+            <div>
+              <label class="block text-xs font-semibold text-gray-500 mb-1.5">Motivo (queda en el historial)</label>
+              <input v-model="numMotivo" placeholder="Se le olvidó marcarla como descuento especial" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+
+            <!-- Vista previa -->
+            <div v-if="numCargando" class="flex justify-center py-4">
+              <div class="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+            </div>
+
+            <div v-else-if="numPrevia" class="bg-gray-50 border border-gray-200 rounded-xl p-3 space-y-2">
+              <p class="text-xs font-semibold text-gray-600 uppercase">Qué va a pasar</p>
+
+              <div class="flex items-center justify-between text-sm bg-blue-50 rounded-lg px-2.5 py-1.5">
+                <span class="text-gray-600 truncate">{{ numPrevia.orden.cliente || 'Esta orden' }}</span>
+                <span class="font-semibold text-blue-800 shrink-0 ml-2">{{ numPrevia.orden.de }} → {{ numPrevia.orden.a }}</span>
+              </div>
+
+              <template v-if="numPrevia.corridas.length">
+                <p class="text-[11px] text-gray-500">
+                  {{ numPrevia.corridas.length }} orden(es) bajan un número:
+                </p>
+                <div class="max-h-44 overflow-y-auto space-y-1">
+                  <div v-for="c in numPrevia.corridas" :key="c.id" class="flex items-center justify-between text-xs bg-white rounded-lg px-2.5 py-1.5 border border-gray-100">
+                    <span class="text-gray-600 truncate">
+                      {{ c.cliente || 'Sin cliente' }}
+                      <span v-if="c.entregada" class="text-amber-600 font-medium">· ya entregada</span>
+                    </span>
+                    <span class="font-semibold text-gray-800 shrink-0 ml-2">{{ c.de }} → {{ c.a }}</span>
+                  </div>
+                </div>
+                <p v-if="numPrevia.ya_entregadas" class="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                  {{ numPrevia.ya_entregadas }} de esas ya se entregaron: el cliente tiene su orden impresa con el número viejo.
+                </p>
+              </template>
+              <p v-else class="text-[11px] text-gray-500">
+                No se corre ninguna otra orden<span v-if="numPrevia.hueco">: queda libre el #{{ numPrevia.hueco }}</span>.
+              </p>
+            </div>
+
+            <button
+              @click="aplicarConversion" :disabled="numAplicando || numCargando || !numPrevia"
+              class="w-full bg-blue-600 text-white text-sm font-semibold rounded-xl px-4 py-2.5 hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            >
+              {{ numAplicando ? 'Aplicando...' : 'Convertir' }}
+            </button>
+          </div>
+
+          <!-- Corregir el número a mano -->
+          <div v-if="!orden?.serie" class="p-5 space-y-3">
+            <p class="text-xs font-semibold text-gray-500 uppercase">O corregir el número a mano</p>
+            <p class="text-[11px] text-gray-400">
+              Le pone a esta orden el número que le escribas. No corre ninguna otra: si el número ya lo tiene
+              alguien más, se rechaza.
+            </p>
+            <div class="flex gap-2">
+              <input
+                v-model="numNuevoNumero" type="number" min="1" placeholder="4289"
+                class="flex-1 rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button
+                @click="aplicarNumeroManual" :disabled="numGuardandoNum"
+                class="bg-gray-800 text-white text-sm font-semibold rounded-xl px-4 py-2.5 hover:bg-gray-900 disabled:opacity-50 shrink-0"
+              >
+                {{ numGuardandoNum ? '...' : 'Cambiar' }}
+              </button>
+            </div>
+          </div>
+
+          <div class="p-5 pt-0">
+            <button @click="mostrarNumeracion = false" class="w-full bg-gray-100 text-gray-700 text-sm font-semibold rounded-xl px-4 py-2.5 hover:bg-gray-200">Cerrar</button>
           </div>
         </div>
       </div>
