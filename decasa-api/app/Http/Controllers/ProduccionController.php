@@ -257,6 +257,16 @@ class ProduccionController extends Controller
         $pasoOrigen  = ProduccionPaso::with('produccion.ordenItem.producto', 'produccion.ordenItem.orden')->findOrFail($id);
         $pasoDestino = ProduccionPaso::findOrFail($data['paso_destino_id']);
 
+        // Devolver es tan delicado como completar —resetea todos los pasos
+        // desde el destino en adelante y borra quién los había hecho—, pero no
+        // verificaba nada: cualquiera con sesión podía devolver el paso de
+        // cualquier producción. Se pide lo mismo que para completar: poder
+        // trabajar el paso desde el que se devuelve. La pantalla ya lo usa así
+        // (solo se devuelve desde un paso propio), así que no cambia el flujo.
+        if (! in_array($pasoOrigen->tipo_proceso, $this->tiposParaRol($usuario))) {
+            return response()->json(['message' => 'No autorizado para este proceso.'], 403);
+        }
+
         // Validaciones
         if ($pasoOrigen->produccion_id !== $pasoDestino->produccion_id) {
             return response()->json(['message' => 'Los pasos no pertenecen a la misma producción.'], 422);
