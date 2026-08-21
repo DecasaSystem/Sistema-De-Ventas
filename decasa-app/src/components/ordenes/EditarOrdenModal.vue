@@ -497,15 +497,28 @@ function quitarNuevaFoto(i) {
   nuevoItem.value.boceto_urls.splice(i, 1)
 }
 
+/**
+ * ¿Hay un producto elegido en "Agregar producto" que todavía no se sumó a la
+ * lista? Es fácil llenarlo y guardar sin presionar "Agregar": el ítem se
+ * perdía en silencio, y si además se estaba reemplazando el único ítem de la
+ * orden, el backend respondía "La orden debe conservar al menos un ítem" sin
+ * que se entendiera por qué.
+ */
+function hayNuevoSinAgregar() {
+  const n = nuevoItem.value
+  return !!n && (!!n.producto_id || !!(n.nombre_custom ?? '').trim())
+}
+
+/** Devuelve true si el ítem quedó agregado; false si algo faltaba (ya avisado). */
 function agregarNuevo() {
   const n = nuevoItem.value
   if (n.es_custom) {
-    if (!n.nombre_custom.trim()) { toast.error('Ponle un nombre al diseño especial.'); return }
+    if (!n.nombre_custom.trim()) { toast.error('Ponle un nombre al diseño especial.'); return false }
   } else if (!n.producto_id) {
-    toast.error('Selecciona un producto.'); return
+    toast.error('Selecciona un producto.'); return false
   }
   if (n.precio_unitario === '' || n.precio_unitario === null || Number(n.precio_unitario) < 0) {
-    toast.error('Ingresa el precio del ítem.'); return
+    toast.error('Ingresa el precio del ítem.'); return false
   }
 
   // Consolidar specs (campos del template + telas elegidas + notas)
@@ -525,17 +538,17 @@ function agregarNuevo() {
   // Si el producto tiene variantes y es de stock, obliga a elegir una
   if (!esPersonalizado && nuevoVariantes.value.length && !n.variante_id) {
     toast.error('Este producto tiene variantes (tela/color). Elige una antes de agregar.')
-    return
+    return false
   }
   if (!esPersonalizado && nuevoVCGrupos.value.length && !nuevoVCCompleto.value) {
     toast.error('Este producto tiene variantes. Elige una opción de cada grupo.')
-    return
+    return false
   }
 
   // Validar stock solo para ítems de stock (no producción)
   if (!esPersonalizado && n.stock_libre != null && (parseInt(n.cantidad) || 1) > n.stock_libre) {
     toast.error(`Stock insuficiente: hay ${n.stock_libre} disponible(s) en la tienda seleccionada.`)
-    return
+    return false
   }
 
   const otraTienda = !esPersonalizado && nuevoTiendaOrigen.value && nuevoTiendaOrigen.value !== props.orden.tienda_id
@@ -569,6 +582,7 @@ function agregarNuevo() {
   })
   nuevoItem.value = nuevoItemVacio()
   nuevoQuery.value = ''
+  return true
 }
 function quitarNuevo(idx) {
   itemsNuevos.value.splice(idx, 1)
@@ -830,8 +844,22 @@ async function reemplazarPorStock(item) {
 
 // ── Guardar ──────────────────────────────────────────────────────────────────
 async function guardar() {
+  // Si quedó un producto elegido sin presionar "Agregar", se agrega solo:
+  // antes se perdía en silencio y, al estar reemplazando el único ítem de la
+  // orden, el guardado fallaba con "debe conservar al menos un ítem" sin que
+  // se entendiera que el reemplazo nunca se había sumado.
+  if (hayNuevoSinAgregar() && !agregarNuevo()) return
+
   if (itemsNuevos.value.some(i => (!i.producto_id && !i.nombre_custom) || i.precio_unitario === '' || i.precio_unitario == null)) {
     toast.error('Completa todos los campos de los ítems nuevos antes de guardar.')
+    return
+  }
+
+  // Se avisa acá, con el porqué, en vez de dejar que el backend responda un
+  // mensaje que no dice qué falta hacer.
+  const quedan = items.value.filter(i => !itemsEliminar.value.includes(i.id)).length
+  if (quedan === 0 && itemsNuevos.value.length === 0) {
+    toast.error('Quitaste todos los ítems. Agrega el reemplazo antes de guardar.')
     return
   }
   if (pagoAnticipo.value) {
