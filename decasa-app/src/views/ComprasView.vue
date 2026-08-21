@@ -8,7 +8,7 @@ import { comprimirImagen } from '@/utils/comprimirImagen'
 import { getCompras, crearCompra, marcarComprado, eliminarCompra } from '@/api/compras'
 import {
   ShoppingCartIcon, PlusIcon, XMarkIcon, TrashIcon, CheckCircleIcon,
-  CameraIcon, UserIcon, CalendarIcon,
+  CameraIcon, UserIcon, CalendarIcon, MagnifyingGlassIcon,
 } from '@heroicons/vue/24/outline'
 
 const router = useRouter()
@@ -16,6 +16,16 @@ const auth   = useAuthStore()
 const toast  = useToast()
 
 const tab = ref('pendientes')
+
+// Una sola caja, compartida entre las dos pestañas: busca por lo que hay que
+// comprar (item) y por las notas, que es donde suele quedar el detalle
+// ("para la lijadora", "el de la esquina") que no cabe en el nombre corto.
+const busqueda = ref('')
+function coincideBusqueda(c) {
+  const q = busqueda.value.trim().toLowerCase()
+  if (!q) return true
+  return (c.item ?? '').toLowerCase().includes(q) || (c.notas ?? '').toLowerCase().includes(q)
+}
 
 function formatoPesos(n) {
   return '$' + Math.round(n ?? 0).toLocaleString('es-CO')
@@ -74,8 +84,14 @@ watch(tab, (t) => {
   }
 })
 
+const pendientesFiltrados = computed(() => pendientes.value.filter(coincideBusqueda))
+const historialFiltrado   = computed(() => historial.value.filter(coincideBusqueda))
+
+// Sobre lo filtrado, no sobre todo el historial: si se busca "taladro", el
+// total que se ve es lo gastado en taladros, que es justo lo que se quiere
+// saber al buscar.
 const totalGastadoHistorial = computed(() =>
-  historial.value.reduce((s, c) => s + (Number(c.precio) || 0), 0)
+  historialFiltrado.value.reduce((s, c) => s + (Number(c.precio) || 0), 0)
 )
 
 // ── Pedir algo nuevo ──────────────────────────────────────────────────────
@@ -229,6 +245,14 @@ async function guardarComprado() {
       </button>
     </div>
 
+    <div class="relative mb-3">
+      <MagnifyingGlassIcon class="w-4 h-4 text-gray-300 absolute left-3 top-1/2 -translate-y-1/2" />
+      <input
+        v-model="busqueda" placeholder="Buscar por lo que hay que comprar o por notas..."
+        class="w-full rounded-xl border border-gray-200 pl-9 pr-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
+      />
+    </div>
+
     <!-- ═══════════ PENDIENTES ═══════════ -->
     <template v-if="tab === 'pendientes'">
       <div class="flex items-center justify-between mb-3">
@@ -250,8 +274,10 @@ async function guardarComprado() {
         <p class="text-gray-500 text-sm font-medium">No hay nada pendiente por comprar.</p>
       </div>
 
+      <p v-else-if="!pendientesFiltrados.length" class="text-center py-12 text-gray-400 text-sm">Nada pendiente coincide con "{{ busqueda }}".</p>
+
       <div v-else class="space-y-2.5">
-        <div v-for="c in pendientes" :key="c.id" class="bg-white rounded-xl shadow-sm p-4">
+        <div v-for="c in pendientesFiltrados" :key="c.id" class="bg-white rounded-xl shadow-sm p-4">
           <div class="flex items-start justify-between gap-2">
             <div class="min-w-0">
               <p class="font-semibold text-sm text-gray-800 truncate">
@@ -343,8 +369,10 @@ async function guardarComprado() {
 
       <p v-else-if="!historial.length" class="text-center py-12 text-gray-400 text-sm">Todavía no hay compras registradas.</p>
 
+      <p v-else-if="!historialFiltrado.length" class="text-center py-12 text-gray-400 text-sm">Nada en el historial coincide con "{{ busqueda }}".</p>
+
       <div v-else class="space-y-2.5">
-        <div v-for="c in historial" :key="c.id" class="bg-white rounded-xl shadow-sm p-4">
+        <div v-for="c in historialFiltrado" :key="c.id" class="bg-white rounded-xl shadow-sm p-4">
           <div class="flex items-start justify-between gap-2">
             <div class="min-w-0">
               <p class="font-semibold text-sm text-gray-800 truncate">
