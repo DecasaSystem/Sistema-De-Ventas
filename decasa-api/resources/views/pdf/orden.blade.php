@@ -59,6 +59,10 @@
         $variasFechas = $orden->items->pluck('fecha_entrega_prom')->filter()
             ->map(fn ($f) => \Carbon\Carbon::parse($f)->toDateString())->unique()->count() > 1;
     @endphp
+    {{-- La fecha que el vendedor le prometió al cliente NO va acá a propósito:
+         esta hoja se la lleva el cliente, y si la entrega termina siendo
+         posterior a lo prometido, tener las dos fechas juntas es un reclamo
+         servido. Se sigue viendo en el detalle de la orden, que es interno. --}}
     <table style="width: 100%; margin-bottom: 10px; border-collapse: collapse; background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px;">
         <tr>
             <td style="padding: 6px 10px; vertical-align: middle;">
@@ -66,14 +70,6 @@
                 <span style="font-size: 14px; font-weight: bold; color: #1e3a8a; margin-left: 8px;">{{ $fechaEntrega ? $fechaEntrega->format('d/m/Y') : 'Por definir' }}</span>
                 @if($fechaEntrega && $variasFechas)
                     <span style="font-size: 9px; color: #3b82f6;">(la última de los ítems)</span>
-                @endif
-            </td>
-            <td style="padding: 6px 10px; text-align: right; vertical-align: middle;">
-                @if($orden->fecha_sugerida_vendedor)
-                    <span style="font-size: 9px; color: #6b7280;">Prometida al cliente:</span>
-                    <span style="font-size: 10px; font-weight: bold; color: #374151;">{{ \Carbon\Carbon::parse($orden->fecha_sugerida_vendedor)->format('d/m/Y') }}</span>
-                @elseif(! $fechaEntrega)
-                    <span style="font-size: 9px; color: #92400e;">Falta asignarle fecha a algún ítem</span>
                 @endif
             </td>
         </tr>
