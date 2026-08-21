@@ -39,8 +39,76 @@ function formatoFechaHora(iso) {
   return new Date(iso).toLocaleString('es-CO', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' })
 }
 function hoyISO() {
-  const d = new Date()
+  return fechaISO(new Date())
+}
+// Fecha local en Y-M-D, sin pasar por toISOString(): eso convierte a UTC y
+// en Colombia (UTC-5) puede correr la fecha un día si se usa cerca de la
+// medianoche.
+function fechaISO(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+// ── Filtro de fechas (solo Historial: es donde vive fecha_compra) ─────────
+const PRESETS_FECHA = [
+  { label: 'Todo',      value: 'todo' },
+  { label: 'Hoy',       value: 'hoy' },
+  { label: 'Semana',    value: 'semana' },
+  { label: 'Mes',       value: 'mes' },
+  { label: 'Mes ant.',  value: 'mes_anterior' },
+  { label: 'Año',       value: 'anio' },
+]
+const filtroFecha  = ref('todo')
+const modoCustom   = ref(false)
+const desdeCustom  = ref('')
+const hastaCustom  = ref('')
+
+function elegirPreset(v) {
+  filtroFecha.value = v
+  modoCustom.value = false
+}
+
+// { desde, hasta } en 'YYYY-MM-DD', o null si no hay que filtrar por fecha.
+// Comparar como texto es seguro porque fecha_compra ya viene en ese mismo
+// formato: ISO ordena igual como string que como fecha.
+const rangoFecha = computed(() => {
+  if (modoCustom.value) {
+    if (!desdeCustom.value || !hastaCustom.value) return null
+    return { desde: desdeCustom.value, hasta: hastaCustom.value }
+  }
+  if (filtroFecha.value === 'todo') return null
+
+  const hoy = new Date()
+  if (filtroFecha.value === 'hoy') {
+    const h = hoyISO()
+    return { desde: h, hasta: h }
+  }
+  if (filtroFecha.value === 'semana') {
+    // Semana de lunes a hoy. getDay(): 0=domingo, 1=lunes...
+    const diasDesdeLunes = (hoy.getDay() + 6) % 7
+    const inicio = new Date(hoy)
+    inicio.setDate(hoy.getDate() - diasDesdeLunes)
+    return { desde: fechaISO(inicio), hasta: hoyISO() }
+  }
+  if (filtroFecha.value === 'mes') {
+    return { desde: fechaISO(new Date(hoy.getFullYear(), hoy.getMonth(), 1)), hasta: hoyISO() }
+  }
+  if (filtroFecha.value === 'mes_anterior') {
+    return {
+      desde: fechaISO(new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1)),
+      hasta: fechaISO(new Date(hoy.getFullYear(), hoy.getMonth(), 0)), // día 0 = último del mes anterior
+    }
+  }
+  if (filtroFecha.value === 'anio') {
+    return { desde: fechaISO(new Date(hoy.getFullYear(), 0, 1)), hasta: hoyISO() }
+  }
+  return null
+})
+
+function coincideFecha(c) {
+  if (!rangoFecha.value) return true
+  const f = c.fecha_compra
+  if (!f) return false
+  return f >= rangoFecha.value.desde && f <= rangoFecha.value.hasta
 }
 
 // ── Pendientes ────────────────────────────────────────────────────────────
@@ -85,11 +153,11 @@ watch(tab, (t) => {
 })
 
 const pendientesFiltrados = computed(() => pendientes.value.filter(coincideBusqueda))
-const historialFiltrado   = computed(() => historial.value.filter(coincideBusqueda))
+const historialFiltrado   = computed(() => historial.value.filter(c => coincideBusqueda(c) && coincideFecha(c)))
 
-// Sobre lo filtrado, no sobre todo el historial: si se busca "taladro", el
-// total que se ve es lo gastado en taladros, que es justo lo que se quiere
-// saber al buscar.
+// Sobre lo filtrado, no sobre todo el historial: si se busca "taladro" o se
+// mira solo el mes pasado, el total que se ve es lo gastado en eso, que es
+// justo lo que se quiere saber al filtrar.
 const totalGastadoHistorial = computed(() =>
   historialFiltrado.value.reduce((s, c) => s + (Number(c.precio) || 0), 0)
 )
@@ -358,6 +426,32 @@ async function guardarComprado() {
 
     <!-- ═══════════ HISTORIAL ═══════════ -->
     <template v-else>
+      <!-- Filtro de fechas -->
+      <div class="space-y-2 mb-3">
+        <div class="flex gap-1.5 flex-wrap">
+          <button
+            v-for="p in PRESETS_FECHA" :key="p.value"
+            @click="elegirPreset(p.value)"
+            :class="['px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors',
+              !modoCustom && filtroFecha === p.value
+                ? 'bg-blue-600 text-white border-blue-600'
+                : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400']"
+          >{{ p.label }}</button>
+          <button
+            @click="modoCustom = !modoCustom"
+            :class="['px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors',
+              modoCustom ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400']"
+          >Rango de fechas</button>
+        </div>
+        <div v-if="modoCustom" class="flex gap-2 items-center">
+          <input v-model="desdeCustom" type="date"
+            class="flex-1 rounded-lg border border-gray-300 px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <span class="text-gray-400 text-xs">→</span>
+          <input v-model="hastaCustom" type="date"
+            class="flex-1 rounded-lg border border-gray-300 px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
+      </div>
+
       <div class="bg-white rounded-xl shadow-sm p-4 mb-3">
         <p class="text-xs text-gray-400">Total comprado</p>
         <p class="text-2xl font-bold text-gray-800">{{ formatoPesos(totalGastadoHistorial) }}</p>
@@ -369,7 +463,9 @@ async function guardarComprado() {
 
       <p v-else-if="!historial.length" class="text-center py-12 text-gray-400 text-sm">Todavía no hay compras registradas.</p>
 
-      <p v-else-if="!historialFiltrado.length" class="text-center py-12 text-gray-400 text-sm">Nada en el historial coincide con "{{ busqueda }}".</p>
+      <p v-else-if="!historialFiltrado.length" class="text-center py-12 text-gray-400 text-sm">
+        Nada coincide<span v-if="busqueda"> con "{{ busqueda }}"</span><span v-if="rangoFecha"> en ese rango de fechas</span>.
+      </p>
 
       <div v-else class="space-y-2.5">
         <div v-for="c in historialFiltrado" :key="c.id" class="bg-white rounded-xl shadow-sm p-4">
