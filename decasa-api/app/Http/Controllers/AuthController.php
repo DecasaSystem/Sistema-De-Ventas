@@ -54,6 +54,10 @@ class AuthController extends Controller
             'acceso_compras'     => (bool) $usuario->acceso_compras,
             've_todas_ordenes'   => (bool) $usuario->ve_todas_ordenes,
             'perfil_produccion'  => $usuario->perfilProduccion,
+            // Si tiene pasos que trabajar, por especialidad O por asignación
+            // directa. El front ya no puede mirar solo perfil_produccion:
+            // alguien asignado a dedo no tiene especialidad y aun así entra.
+            'tiene_pasos_produccion' => count($usuario->procesosQuePuedeTrabajar()) > 0,
             'tienda_default_id'  => $usuario->tienda_default_id,
             'firma_url'          => $usuario->firma_url,
         ]);
@@ -96,6 +100,10 @@ class AuthController extends Controller
             'acceso_compras'     => (bool) $usuario->acceso_compras,
             've_todas_ordenes'   => (bool) $usuario->ve_todas_ordenes,
             'perfil_produccion'  => $usuario->perfilProduccion,
+            // Si tiene pasos que trabajar, por especialidad O por asignación
+            // directa. El front ya no puede mirar solo perfil_produccion:
+            // alguien asignado a dedo no tiene especialidad y aun así entra.
+            'tiene_pasos_produccion' => count($usuario->procesosQuePuedeTrabajar()) > 0,
             'tienda_default_id' => $usuario->tienda_default_id,
             'tienda_default'    => $usuario->tiendaDefault,
             'firma_url'         => $usuario->firma_url,

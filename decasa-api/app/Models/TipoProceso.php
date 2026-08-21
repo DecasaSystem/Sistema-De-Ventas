@@ -51,6 +51,15 @@ class TipoProceso extends Model
         self::$cacheNombres = null;
     }
 
+    /**
+     * Trabajadores asignados a este proceso a dedo, aparte de los que le
+     * llegan por su especialidad. Los dos caminos se suman.
+     */
+    public function trabajadores()
+    {
+        return $this->belongsToMany(Usuario::class, 'proceso_trabajadores', 'tipo_proceso_id', 'usuario_id');
+    }
+
     /** Las claves que puede trabajar un perfil. */
     public static function clavesDePerfil(string $perfil): array
     {

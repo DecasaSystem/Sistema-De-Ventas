@@ -10,6 +10,8 @@ import api from '@/api'
  */
 const tipos    = ref([])
 const perfiles = ref([])
+// A quién se le puede asignar un proceso a dedo, aparte de por especialidad.
+const trabajadores = ref([])
 const colores  = ref([])
 const cargados = ref(false)
 let enVuelo    = null
@@ -39,9 +41,10 @@ export function useTiposProceso() {
 
     enVuelo = api.get('/tipos-proceso', { params: incluirInactivos ? { incluir_inactivos: 1 } : {} })
       .then(({ data }) => {
-        tipos.value    = data.tipos ?? []
-        perfiles.value = data.perfiles ?? []
-        colores.value  = data.colores ?? []
+        tipos.value        = data.tipos ?? []
+        perfiles.value     = data.perfiles ?? []
+        trabajadores.value = data.trabajadores ?? []
+        colores.value      = data.colores ?? []
         cargados.value = true
         return tipos.value
       })
@@ -65,5 +68,5 @@ export function useTiposProceso() {
     return CLASES[color] ?? CLASES.slate
   }
 
-  return { tipos, perfiles, colores, cargados, cargar, nombre, clases, clasesDeColor, CLASES }
+  return { tipos, perfiles, trabajadores, colores, cargados, cargar, nombre, clases, clasesDeColor, CLASES }
 }

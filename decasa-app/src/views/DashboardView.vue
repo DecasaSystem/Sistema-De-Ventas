@@ -110,7 +110,9 @@ const accesos = computed(() => {
     ...(!auth.isSupervisor && auth.puedeCostos ? [{ label: 'Costos', icon: CalculatorIcon, to: { name: 'costos' } }] : []),
     // Cualquiera con un perfil de producción asignado —sin importar su rol—
     // puede trabajar sus pasos, no solo ebanista/tapicero/despachador.
-    ...(auth.usuario?.perfil_produccion && !auth.isTapicero ? [{ label: 'Mis pasos', icon: ClipboardDocumentCheckIcon, to: { name: 'mis-pasos' }, badge: pasos.pendientesCount }] : []),
+    // Antes solo miraba perfil_produccion, así que a quien tiene procesos
+    // asignados a dedo (sin especialidad) no le aparecía el acceso.
+    ...((auth.usuario?.perfil_produccion || auth.usuario?.tiene_pasos_produccion) && !auth.isTapicero ? [{ label: 'Mis pasos', icon: ClipboardDocumentCheckIcon, to: { name: 'mis-pasos' }, badge: pasos.pendientesCount }] : []),
     { label: 'Citas', icon: CalendarDaysIcon, to: { name: 'citas' } },
     { label: 'Caja',  icon: BanknotesIcon,    to: { name: 'caja'  } },
   ]

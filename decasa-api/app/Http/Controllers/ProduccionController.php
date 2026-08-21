@@ -730,12 +730,11 @@ class ProduccionController extends Controller
 
     private function tiposParaRol(Usuario $usuario): array
     {
-        // Que procesos toca cada quien sale del catalogo de tipos de
-        // proceso, cruzado con el perfil de produccion que tenga asignado
-        // el trabajador — ya no depende de su rol de sistema. Un perfil
-        // nuevo, o una asignacion nueva, funciona sin tocar codigo.
-        $clave = $usuario->perfilProduccion?->clave;
-        return $clave ? TipoProceso::clavesDePerfil($clave) : [];
+        // Que procesos toca cada quien sale de su especialidad MAS lo que se
+        // le haya asignado a dedo. La regla vive en el modelo para que
+        // "Mis pasos", el permiso de completar y las notificaciones no
+        // puedan quedar diciendo cosas distintas.
+        return $usuario->procesosQuePuedeTrabajar();
     }
 
     private function notificarTrabajadores(string $tipoProceso, int $produccionId, int $ordenId, string $productoNombre): void
@@ -743,12 +742,17 @@ class ProduccionController extends Controller
         $label = ProduccionPaso::labelProceso($tipoProceso);
 
         // A quien se avisa sale del mismo sitio que quien puede hacerlo: los
-        // perfiles del proceso, cruzados con quien tenga cada perfil asignado
-        // — de cualquier rol, no solo ebanista/despachador/tapicero-supervisor.
+        // perfiles del proceso cruzados con quien tenga cada perfil, MAS los
+        // trabajadores asignados a dedo a ese proceso. Si esto no incluyera
+        // a los asignados directos, verian el paso en "Mis pasos" pero nunca
+        // les llegaria el aviso.
         $perfiles = TipoProceso::perfilesDe($tipoProceso);
 
         $usuariosANotificar = Usuario::where('activo', true)
-            ->whereHas('perfilProduccion', fn($q) => $q->whereIn('clave', $perfiles))
+            ->where(function ($q) use ($perfiles, $tipoProceso) {
+                $q->whereHas('perfilProduccion', fn ($p) => $p->whereIn('clave', $perfiles))
+                  ->orWhereHas('procesosAsignados', fn ($p) => $p->where('clave', $tipoProceso));
+            })
             ->get();
 
         foreach ($usuariosANotificar->unique('id') as $trabajador) {

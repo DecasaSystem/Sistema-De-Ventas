@@ -97,6 +97,33 @@ class Usuario extends Authenticatable
         return $this->belongsTo(PerfilProduccion::class, 'perfil_produccion_id');
     }
 
+    /** Procesos que se le asignaron a esta persona en concreto. */
+    public function procesosAsignados()
+    {
+        return $this->belongsToMany(TipoProceso::class, 'proceso_trabajadores', 'usuario_id', 'tipo_proceso_id');
+    }
+
+    /**
+     * Qué procesos del taller puede trabajar: los de su especialidad MÁS los
+     * que se le asignaron a dedo. Es la única fuente de verdad de esto — la
+     * usan por igual "Mis pasos", el permiso para marcar un paso listo y a
+     * quién se le notifica, para que los tres no puedan discrepar.
+     *
+     * @return array<int, string> claves de tipos_proceso
+     */
+    public function procesosQuePuedeTrabajar(): array
+    {
+        $porEspecialidad = ($clave = $this->perfilProduccion?->clave)
+            ? TipoProceso::clavesDePerfil($clave)
+            : [];
+
+        // Solo procesos activos: uno apagado no debe seguir apareciéndole a
+        // nadie, igual que ya pasa con los que llegan por especialidad.
+        $asignados = $this->procesosAsignados()->where('activo', true)->pluck('clave')->all();
+
+        return array_values(array_unique(array_merge($porEspecialidad, $asignados)));
+    }
+
     public function rolAsignado()
     {
         return $this->belongsTo(Rol::class, 'rol_id');
