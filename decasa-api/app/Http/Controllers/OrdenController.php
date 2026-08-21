@@ -122,7 +122,10 @@ class OrdenController extends Controller
                     ->limit(1),
             ])
             ->orderByRaw('(SELECT 1 FROM orden_fijadas f WHERE f.orden_id = ordenes.id AND f.usuario_id = ?) IS NOT NULL DESC', [$uid])
-            ->orderByDesc('created_at')
+            // Un borrador completado hoy es una venta de hoy, aunque se haya
+            // empezado hace dos semanas: si se ordenara por `created_at` caería
+            // al fondo de la lista y nadie lo vería.
+            ->orderByRaw('COALESCE(confirmada_en, created_at) DESC')
             ->paginate(20);
 
         $hoy = now()->startOfDay();
@@ -1773,6 +1776,9 @@ class OrdenController extends Controller
 
             $orden->update([
                 'estado'             => $nuevoEstado,
+                // La venta nace ahora, no el día que se abrió el borrador: es
+                // esta fecha la que la pone de primera en la lista.
+                'confirmada_en'      => now(),
                 'firma_url'          => $data['firma_url']          ?? $orden->firma_url,
                 'notas'              => $data['notas']              ?? $orden->notas,
                 'factura_foto_url'   => $data['factura_foto_url']   ?? $orden->factura_foto_url,

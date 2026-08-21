@@ -190,7 +190,7 @@ async function exportarExcelOrdenes() {
       'Tipo':             o.tipo === 'restauracion' ? 'Restauración' : 'Venta',
       'Cliente':          o.cliente?.nombre ?? '',
       'Tienda':           o.tienda?.nombre ?? '',
-      'Fecha':            o.created_at ? new Date(o.created_at).toLocaleDateString('es-CO') : '',
+      'Fecha':            fechaVenta(o) ? new Date(fechaVenta(o)).toLocaleDateString('es-CO') : '',
       'Valor total':      Number(o.valor_total) || 0,
       'Saldo pendiente':  Number(o.saldo_pendiente) || 0,
       'Atrasado':         o.atrasado ? 'Sí' : 'No',
@@ -238,6 +238,13 @@ async function toggleFijada(o) {
 
 function goToDetalle(id) {
   router.push({ name: 'orden-detalle', params: { id } })
+}
+
+// La fecha de la venta. En un borrador `created_at` es el día en que el
+// vendedor lo empezó, no el día en que se cerró: mostrar esa sería contradecir
+// el lugar que la orden ocupa en la lista, que va por la de confirmación.
+function fechaVenta(o) {
+  return o?.confirmada_en || o?.created_at
 }
 
 function formatFecha(dateStr) {
@@ -479,7 +486,7 @@ onUnmounted(() => {
                 >Restauración</span>
               </div>
               <p class="text-sm text-gray-600 truncate">{{ o.cliente?.nombre }}</p>
-              <p class="text-xs text-gray-400 mt-0.5">{{ o.tienda?.nombre }} · {{ formatFecha(o.created_at) }}</p>
+              <p class="text-xs text-gray-400 mt-0.5">{{ o.tienda?.nombre }} · {{ formatFecha(fechaVenta(o)) }}</p>
               <span
                 v-if="o.paso_produccion_actual && pasoInfo(o.paso_produccion_actual)"
                 :class="['inline-block mt-1.5 text-xs font-semibold px-2 py-0.5 rounded-full', pasoInfo(o.paso_produccion_actual).cls]"

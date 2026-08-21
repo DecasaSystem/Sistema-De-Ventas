@@ -23,6 +23,7 @@ class Orden extends Model
         'canal',
         'tipo',
         'estado',
+        'confirmada_en',
         'numero_orden',
         'serie',
         'serie_numero',
@@ -65,6 +66,7 @@ class Orden extends Model
             'anticipo_pct'     => 'decimal:2',
             'es_compartida'    => 'boolean',
             'listo_entrega_at' => 'datetime',
+            'confirmada_en'    => 'datetime',
             'cotizacion_valida_hasta' => 'date',
             'fecha_sugerida_vendedor' => 'date',
         ];
