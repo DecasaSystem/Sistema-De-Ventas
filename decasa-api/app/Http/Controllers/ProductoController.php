@@ -229,6 +229,10 @@ class ProductoController extends Controller
             'foto_url_2'   => 'sometimes|nullable|string|max:500',
             'es_tapizado'  => 'sometimes|boolean',
             'tiene_tallas' => 'sometimes|boolean',
+            // Se podía marcar al crear pero no después: si se olvidaba, no
+            // había forma de vender ese producto como personalizado sin
+            // volver a crearlo.
+            'personalizable' => 'sometimes|boolean',
             'nombre'       => 'sometimes|string|max:150',
             'descripcion'  => 'sometimes|nullable|string',
             'medidas'      => 'sometimes|nullable|string|max:200',

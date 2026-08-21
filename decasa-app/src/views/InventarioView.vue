@@ -880,6 +880,21 @@ async function toggleEsTapizado() {
   }
 }
 
+// Se podía marcar al crear el producto pero no después: si se olvidaba, no
+// había forma de venderlo como personalizado sin volver a crearlo.
+async function togglePersonalizable() {
+  const nuevoValor = !itemGestionar.value.producto.personalizable
+  try {
+    await api.patch(`/productos/${itemGestionar.value.producto_id}`, { personalizable: nuevoValor })
+    itemGestionar.value.producto.personalizable = nuevoValor
+    const idx = inventario.value.findIndex(i => i.producto_id === itemGestionar.value.producto_id)
+    if (idx !== -1) inventario.value[idx].producto.personalizable = nuevoValor
+    toast.success(nuevoValor ? 'Ahora se puede vender personalizado' : 'Ya no se puede vender personalizado')
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo cambiar')
+  }
+}
+
 async function toggleTieneTallas() {
   const nuevoValor = !itemGestionar.value.producto.tiene_tallas
   try {
@@ -2451,6 +2466,28 @@ onMounted(async () => {
             </div>
 
             <div class="border-t border-gray-100" />
+
+            <!-- Toggle personalizable -->
+            <div class="flex items-center justify-between">
+              <div>
+                <p class="text-sm font-medium text-gray-700">Se puede personalizar</p>
+                <p class="text-xs text-gray-400">Permite venderlo con medidas, tela o acabados a pedido</p>
+              </div>
+              <button
+                @click="togglePersonalizable"
+                :class="[
+                  'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
+                  itemGestionar?.producto?.personalizable ? 'bg-blue-600' : 'bg-gray-200'
+                ]"
+              >
+                <span
+                  :class="[
+                    'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                    itemGestionar?.producto?.personalizable ? 'translate-x-6' : 'translate-x-1'
+                  ]"
+                />
+              </button>
+            </div>
 
             <!-- Toggle tapizado -->
             <div class="flex items-center justify-between">
