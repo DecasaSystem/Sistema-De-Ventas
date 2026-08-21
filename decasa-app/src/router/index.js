@@ -43,7 +43,7 @@ const routes = [
   { path: '/caja',  name: 'caja',  component: () => import('@/views/CajaView.vue'),  meta: { requiresAuth: true, requiresCaja: true } },
   // Solo accesible desde el botón en el Home, a propósito: no va en el nav inferior.
   { path: '/proveedores', name: 'proveedores', component: () => import('@/views/ProveedoresView.vue'), meta: { requiresAuth: true } },
-  { path: '/compras', name: 'compras', component: () => import('@/views/ComprasView.vue'), meta: { requiresAuth: true } },
+  { path: '/compras', name: 'compras', component: () => import('@/views/ComprasView.vue'), meta: { requiresAuth: true, requiresCompras: true } },
 ]
 
 const router = createRouter({
@@ -80,6 +80,7 @@ router.beforeEach((to) => {
   if (to.meta.requiresComisiones  && !auth.tieneAccesoComisiones)  return { name: 'dashboard' }
   if (to.meta.requiresDespacho    && !auth.puedeDespacho)          return { name: 'dashboard' }
   if (to.meta.requiresNomina      && !auth.puedeNomina)            return { name: 'dashboard' }
+  if (to.meta.requiresCompras     && !auth.puedeCompras)           return { name: 'dashboard' }
   // El vendedor sigue entrando (ve solo lo suyo); el supervisor necesita el
   // permiso para el tablero completo del taller.
   if (to.meta.requiresProduccion && !(auth.usuario?.rol === 'vendedor' || (auth.isSupervisor && auth.puedeProduccion))) return { name: 'dashboard' }

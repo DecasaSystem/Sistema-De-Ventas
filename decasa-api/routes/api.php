@@ -162,13 +162,17 @@ Route::middleware('auth:sanctum')->group(function () {
     });
     Route::delete('/proveedores/{id}',   [ProveedorController::class, 'destroy'])->whereNumber('id')->middleware('role:supervisor');
 
-    // Compras: la lista de "hay que comprar tal cosa", de todos. Cualquiera
-    // pide algo o marca que ya lo compró; borrar (solo pendientes) es del
-    // supervisor — lo ya comprado es historial y no se toca.
-    Route::get('/compras',                 [CompraController::class, 'index']);
-    Route::post('/compras',                [CompraController::class, 'store']);
-    Route::patch('/compras/{id}/comprar',  [CompraController::class, 'marcarComprado'])->whereNumber('id');
-    Route::delete('/compras/{id}',         [CompraController::class, 'destroy'])->whereNumber('id')->middleware('role:supervisor');
+    // Compras: la lista de "hay que comprar tal cosa". A diferencia de
+    // Proveedores, acá NO hay excepción automática para supervisor: es una
+    // bandera activable persona por persona, para cualquier rol, como
+    // acceso_surtir — el supervisor también necesita acceso_compras prendido.
+    // Borrar (solo pendientes) además exige ser supervisor.
+    Route::middleware('permiso:acceso_compras')->group(function () {
+        Route::get('/compras',                 [CompraController::class, 'index']);
+        Route::post('/compras',                [CompraController::class, 'store']);
+        Route::patch('/compras/{id}/comprar',  [CompraController::class, 'marcarComprado'])->whereNumber('id');
+        Route::delete('/compras/{id}',         [CompraController::class, 'destroy'])->whereNumber('id')->middleware('role:supervisor');
+    });
 
     // Reserva / Fábrica
     Route::get('/reserva/info',                          [ReservaController::class, 'info']);

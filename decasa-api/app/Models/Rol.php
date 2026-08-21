@@ -19,6 +19,7 @@ class Rol extends Model
         'clave', 'nombre', 'arquetipo', 'activo', 'orden',
         'acceso_redes', 'acceso_comisiones', 'recarga_telas', 'acceso_surtir',
         'acceso_costos', 'acceso_proveedores', 'acceso_despacho', 'acceso_produccion', 'acceso_reserva', 'acceso_nomina',
+        'acceso_compras',
     ];
 
     protected function casts(): array
@@ -36,6 +37,7 @@ class Rol extends Model
             'acceso_produccion'    => 'boolean',
             'acceso_reserva'       => 'boolean',
             'acceso_nomina'        => 'boolean',
+            'acceso_compras'       => 'boolean',
         ];
     }
 

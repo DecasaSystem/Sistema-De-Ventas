@@ -43,6 +43,7 @@ const editForm = ref({
   notif_asignar_fecha: true, notif_stock: false, acceso_redes: false, acceso_comisiones: false,
   recarga_telas: false, acceso_surtir: false, acceso_costos: false, acceso_proveedores: false,
   acceso_despacho: false, acceso_produccion: false, acceso_nomina: false, acceso_reserva: false,
+  acceso_compras: false,
   ve_todas_ordenes: false, perfil_produccion_id: '', tienda_default_id: '',
 })
 const arquetiposSinTienda = ['conductor', 'despachador', 'taller']
@@ -137,6 +138,7 @@ function openEditModal() {
     acceso_despacho: usuario.value.acceso_despacho ?? false,
     acceso_produccion: usuario.value.acceso_produccion ?? false,
     acceso_nomina: usuario.value.acceso_nomina ?? false,
+    acceso_compras: usuario.value.acceso_compras ?? false,
     acceso_reserva: usuario.value.acceso_reserva ?? false,
     ve_todas_ordenes: usuario.value.ve_todas_ordenes ?? false,
     perfil_produccion_id: usuario.value.perfil_produccion_id ?? '',
@@ -176,6 +178,7 @@ async function submitEdit() {
       acceso_despacho: editArquetipo.value === 'supervisor' ? editForm.value.acceso_despacho : false,
       acceso_produccion: editArquetipo.value === 'supervisor' ? editForm.value.acceso_produccion : false,
       acceso_nomina: editArquetipo.value === 'supervisor' ? editForm.value.acceso_nomina : false,
+      acceso_compras: editForm.value.acceso_compras,
       acceso_reserva: editForm.value.acceso_reserva,
       ve_todas_ordenes: editArquetipo.value === 'vendedor' ? editForm.value.ve_todas_ordenes : false,
       perfil_produccion_id: editForm.value.perfil_produccion_id || null,
@@ -368,6 +371,15 @@ onMounted(async () => {
           </div>
           <div>
             <p class="text-xs text-gray-400">Reserva / Fábrica</p>
+            <p class="font-medium text-blue-700">Acceso habilitado</p>
+          </div>
+        </div>
+        <div v-if="usuario.acceso_compras" class="flex items-center gap-3">
+          <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
+            <span class="text-sm">🛒</span>
+          </div>
+          <div>
+            <p class="text-xs text-gray-400">Módulo de Compras</p>
             <p class="font-medium text-blue-700">Acceso habilitado</p>
           </div>
         </div>
@@ -690,6 +702,18 @@ onMounted(async () => {
               <div>
                 <label for="edit-acceso-surtir" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a módulo de Surtir</label>
                 <p class="text-xs text-gray-500 mt-0.5">Podrá enviar surtidos desde fábrica y hacer traslados entre tiendas.</p>
+              </div>
+            </div>
+            <div class="flex items-start gap-3 py-1">
+              <input
+                id="edit-acceso-compras"
+                type="checkbox"
+                v-model="editForm.acceso_compras"
+                class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <div>
+                <label for="edit-acceso-compras" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a módulo de Compras</label>
+                <p class="text-xs text-gray-500 mt-0.5">Podrá pedir lo que haga falta comprar y marcar cuando ya lo compró.</p>
               </div>
             </div>
             <div v-if="['vendedor', 'supervisor'].includes(editArquetipo)" class="flex items-start gap-3 py-1">

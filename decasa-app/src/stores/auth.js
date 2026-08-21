@@ -99,6 +99,7 @@ export const useAuthStore = defineStore('auth', () => {
       acceso_produccion:  data.acceso_produccion  ?? false,
       acceso_reserva:     data.acceso_reserva     ?? false,
       acceso_nomina:      data.acceso_nomina      ?? false,
+      acceso_compras:     data.acceso_compras     ?? false,
       ve_todas_ordenes:   data.ve_todas_ordenes   ?? false,
       perfil_produccion:  data.perfil_produccion  ?? null,
       tienda_default_id: data.tienda_default_id ?? null,
@@ -153,6 +154,9 @@ export const useAuthStore = defineStore('auth', () => {
   const puedeProduccion       = computed(() => !!usuario.value?.acceso_produccion)
   const puedeReserva          = computed(() => !!usuario.value?.acceso_reserva)
   const puedeNomina           = computed(() => !!usuario.value?.acceso_nomina)
+  // Sin excepción para supervisor a propósito: es una bandera activable
+  // persona por persona para cualquier rol, no atada a ser supervisor.
+  const puedeCompras          = computed(() => !!usuario.value?.acceso_compras)
   const veTodasOrdenes        = computed(() => !!usuario.value?.ve_todas_ordenes)
 
   // Dual-profile getters
@@ -269,7 +273,7 @@ export const useAuthStore = defineStore('auth', () => {
     isIndependiente, llevaCajaPropia,
     tieneAccesoPasos, tieneAccesoDespachoProd,
     isFacturador, tieneAccesoRedes, tieneAccesoComisiones, puedeRecargarTelas, puedeSurtir,
-    puedeCostos, puedeProveedores, puedeDespacho, puedeProduccion, puedeReserva, puedeNomina, veTodasOrdenes,
+    puedeCostos, puedeProveedores, puedeDespacho, puedeProduccion, puedeReserva, puedeNomina, puedeCompras, veTodasOrdenes,
     tienePerfilAlternativo, perfilAlternativo, perfilActivoIdx,
     login, fetchMe, setFirma, setEmail, logout, clearSession,
     loginPerfilAlternativo, cambiarPerfil, eliminarPerfilAlternativo,

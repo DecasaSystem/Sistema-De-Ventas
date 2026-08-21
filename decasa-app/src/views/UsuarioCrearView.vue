@@ -37,6 +37,10 @@ const form = ref({
   acceso_surtir: true,
   acceso_proveedores: true,
   acceso_reserva: true,
+  // Compras nació abierta a cualquiera con sesión, sin importar el rol: se
+  // arranca encendida por la misma razón que Surtir, para no dejar a nadie
+  // nuevo sin algo que el módulo ya daba por hecho.
+  acceso_compras: true,
   acceso_costos: false,
   acceso_despacho: false,
   acceso_produccion: false,
@@ -132,6 +136,7 @@ async function submit() {
       acceso_despacho: arquetipo.value === 'supervisor' ? form.value.acceso_despacho : false,
       acceso_produccion: arquetipo.value === 'supervisor' ? form.value.acceso_produccion : false,
       acceso_nomina: arquetipo.value === 'supervisor' ? form.value.acceso_nomina : false,
+      acceso_compras: form.value.acceso_compras,
       acceso_reserva: form.value.acceso_reserva,
       ve_todas_ordenes: arquetipo.value === 'vendedor' ? form.value.ve_todas_ordenes : false,
       perfil_produccion_id: form.value.perfil_produccion_id || null,
@@ -421,6 +426,20 @@ async function submit() {
         <div>
           <label for="acceso_proveedores" class="text-sm font-medium text-gray-700 cursor-pointer">Puede crear y editar proveedores</label>
           <p class="text-xs text-gray-500 mt-0.5">Ver la lista de proveedores ya está disponible para todos; esto habilita agregar o modificar.</p>
+        </div>
+      </div>
+
+      <!-- Compras (cualquier rol: igual que Surtir, es lo que se pidió) -->
+      <div class="flex items-start gap-3 py-2">
+        <input
+          id="acceso_compras"
+          type="checkbox"
+          v-model="form.acceso_compras"
+          class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+        />
+        <div>
+          <label for="acceso_compras" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a módulo de Compras</label>
+          <p class="text-xs text-gray-500 mt-0.5">Podrá pedir lo que haga falta comprar y marcar cuando ya lo compró.</p>
         </div>
       </div>
 

@@ -37,6 +37,7 @@ class UsuarioController extends Controller
             'acceso_produccion'   => (bool) $u->acceso_produccion,
             'acceso_reserva'      => (bool) $u->acceso_reserva,
             'acceso_nomina'       => (bool) $u->acceso_nomina,
+            'acceso_compras'      => (bool) $u->acceso_compras,
             've_todas_ordenes'    => (bool) $u->ve_todas_ordenes,
             'perfil_produccion_id' => $u->perfil_produccion_id,
             'perfil_produccion'    => $u->relationLoaded('perfilProduccion') ? $u->perfilProduccion : null,
@@ -98,6 +99,7 @@ class UsuarioController extends Controller
             'acceso_produccion'   => 'boolean',
             'acceso_reserva'      => 'boolean',
             'acceso_nomina'       => 'boolean',
+            'acceso_compras'      => 'boolean',
             've_todas_ordenes'    => 'boolean',
             'perfil_produccion_id' => 'nullable|exists:perfiles_produccion,id',
             'tienda_default_id' => [
@@ -166,6 +168,7 @@ class UsuarioController extends Controller
             'acceso_produccion'   => $request->boolean('acceso_produccion'),
             'acceso_reserva'      => $request->boolean('acceso_reserva'),
             'acceso_nomina'       => $request->boolean('acceso_nomina'),
+            'acceso_compras'      => $request->boolean('acceso_compras'),
             've_todas_ordenes'    => $request->boolean('ve_todas_ordenes'),
             'tienda_default_id'   => $independiente
                 ? Tienda::sedeIndependientes()?->id
@@ -199,6 +202,7 @@ class UsuarioController extends Controller
             'acceso_produccion'   => 'nullable|boolean',
             'acceso_reserva'      => 'nullable|boolean',
             'acceso_nomina'       => 'nullable|boolean',
+            'acceso_compras'      => 'nullable|boolean',
             've_todas_ordenes'    => 'nullable|boolean',
             'perfil_produccion_id' => 'sometimes|nullable|exists:perfiles_produccion,id',
             'tienda_default_id'   => 'sometimes|nullable|exists:tiendas,id',
@@ -257,6 +261,9 @@ class UsuarioController extends Controller
         }
         if ($request->has('acceso_nomina')) {
             $data['acceso_nomina'] = $request->boolean('acceso_nomina');
+        }
+        if ($request->has('acceso_compras')) {
+            $data['acceso_compras'] = $request->boolean('acceso_compras');
         }
         if ($request->has('ve_todas_ordenes')) {
             $data['ve_todas_ordenes'] = $request->boolean('ve_todas_ordenes');
