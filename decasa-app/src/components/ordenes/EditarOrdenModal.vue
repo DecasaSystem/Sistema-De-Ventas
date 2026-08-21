@@ -230,6 +230,19 @@ const nuevoVCCompleto = computed(() =>
   nuevoVCGrupos.value.length > 0 && nuevoVCGrupos.value.every(g => nuevoVCSelec.value[g.tipo_variante_id])
 )
 
+/**
+ * ¿Hay que obligar a elegir variante?
+ *
+ * Solo si alguna variante tiene existencias. Hay muebles que llegaron a la
+ * bodega sin que se supiera de qué tela eran, así que su stock quedó a nivel
+ * del producto y no dentro de ninguna variante: todas marcan 0 mientras el
+ * producto muestra 8 disponibles. Exigir una variante ahí vuelve el mueble
+ * imposible de vender — no existe una que se pueda elegir.
+ */
+const nuevoVarianteObligatoria = computed(() =>
+  nuevoVariantes.value.some(v => (v.stock_libre ?? 0) > 0)
+)
+
 // No se puede agregar un producto de stock sin stock disponible (usar "Para fabricar").
 const nuevoSinStock = computed(() =>
   !nuevoItem.value.es_custom &&
@@ -535,9 +548,10 @@ function agregarNuevo() {
 
   const esPersonalizado = n.es_custom || n.modo === 'personalizado' || n.modo === 'fabricar'
 
-  // Si el producto tiene variantes y es de stock, obliga a elegir una
-  if (!esPersonalizado && nuevoVariantes.value.length && !n.variante_id) {
-    toast.error('Este producto tiene variantes (tela/color). Elige una antes de agregar.')
+  // Solo se exige variante si alguna tiene existencias: si el stock está a
+  // nivel del producto, no hay variante que elegir y se agrega tal cual.
+  if (!esPersonalizado && nuevoVarianteObligatoria.value && !n.variante_id) {
+    toast.error('Este producto tiene variantes con stock. Elige una antes de agregar.')
     return false
   }
   if (!esPersonalizado && nuevoVCGrupos.value.length && !nuevoVCCompleto.value) {
@@ -1741,9 +1755,14 @@ async function guardar() {
                 <!-- Variantes (tela/color) del producto — solo modo stock -->
                 <div v-if="!nuevoItem.es_custom && nuevoItem.modo === 'stock' && (nuevoVariantes.length || nuevoCargandoVariantes)">
                   <label class="block text-[11px] text-gray-500 mb-1">
-                    Variante (tela/color) <span class="text-red-500">*</span>
+                    Variante (tela/color) <span v-if="nuevoVarianteObligatoria" class="text-red-500">*</span>
                     <span v-if="nuevoCargandoVariantes" class="text-gray-400">· cargando...</span>
                   </label>
+                  <p v-if="!nuevoCargandoVariantes && !nuevoVarianteObligatoria && nuevoItem.stock_libre > 0"
+                    class="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 mb-1.5">
+                    Ninguna variante tiene existencias: el stock de este producto no está
+                    asignado a una tela/color. Se puede agregar sin elegir variante.
+                  </p>
                   <div class="flex flex-wrap gap-1.5">
                     <button
                       v-for="v in nuevoVariantes" :key="v.id" type="button"
