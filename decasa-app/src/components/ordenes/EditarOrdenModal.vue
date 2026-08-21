@@ -10,7 +10,7 @@ import { useTelas } from '@/composables/useTelas'
 import TelaPicker from '@/components/ordenes/TelaPicker.vue'
 import InputPesos from '@/components/common/InputPesos.vue'
 import { pctDeMonto, montoDePct, formatPct } from '@/utils/descuentos'
-import { PencilSquareIcon, XMarkIcon, SparklesIcon, MagnifyingGlassIcon, TrashIcon, PlusIcon, PhotoIcon, WrenchScrewdriverIcon, GiftIcon } from '@heroicons/vue/24/outline'
+import { PencilSquareIcon, XMarkIcon, SparklesIcon, MagnifyingGlassIcon, TrashIcon, PlusIcon, PhotoIcon, WrenchScrewdriverIcon, GiftIcon, BuildingStorefrontIcon } from '@heroicons/vue/24/outline'
 import { comprimirImagen } from '@/utils/comprimirImagen'
 import { cloudinaryOpt } from '@/utils/cloudinary'
 import IconoS from '@/components/common/IconoS.vue'
@@ -158,7 +158,7 @@ const totalEditEnCero = computed(() =>
 function marcarEliminar(item) {
   const prod = item._produccion
   if (prod && prod.pasos?.some(p => ['en_proceso', 'completado'].includes(p.estado))) {
-    toast.error(`"${item.producto_nombre}" ya está en producción y no se puede quitar.`)
+    toast.error(`"${item.producto_nombre || item.nombre_custom || 'Este ítem'}" ya está en producción y no se puede quitar.`)
     return
   }
   itemsEliminar.value.push(item.id)
@@ -691,9 +691,15 @@ watch(() => props.show, (v) => {
       id: item.id,
       es_personalizado: item.es_personalizado,
       producto_id: item.producto?.id ?? item.producto_id,
-      producto_nombre: item.producto?.nombre ?? '',
+      // Un diseño especial no tiene producto de catálogo: su nombre vive en
+      // nombre_custom. Sin esto se veía en blanco en toda la pantalla y la
+      // plantilla de specs se resolvía con el nombre vacío.
+      producto_nombre: item.producto?.nombre ?? item.nombre_custom ?? '',
+      nombre_custom: item.nombre_custom ?? '',
       producto_categoria: item.producto?.categoria ?? null,
       categoria_custom: item.categoria_custom ?? null,
+      // catalogo | personalizado | fabricar | diseno_especial | restauracion
+      _tipo_item: item.tipo_item,
       cantidad: item.cantidad,
       precio_unitario: item.precio_unitario,
       _descuento_modo: 'monto',
@@ -787,6 +793,39 @@ function reemplazarPorPersonalizado(item) {
     nuevoItem.value.precio_unitario = item.precio_unitario
   }
   toast.success('Ítem marcado para reemplazo. Ajusta la personalización en "Agregar producto" y agrégalo.')
+}
+
+// El camino inverso, y el error más común del vendedor: no vio el producto en
+// el inventario y lo mandó como "para fabricar" o personalizado cuando sí
+// había en stock. Esto lo devuelve a ítem de catálogo.
+//
+// Marcarlo para eliminar es lo que lo saca de producción: al guardar, el
+// backend le borra el registro de producción y sus pasos, así que la fábrica
+// deja de verlo y nadie lo construye. Si el taller ya lo empezó, marcarEliminar
+// no deja seguir — ahí ya hay trabajo hecho y esto se arregla hablando.
+async function reemplazarPorStock(item) {
+  marcarEliminar(item)
+  if (!itemsEliminar.value.includes(item.id)) return  // ya está en producción
+
+  nuevoItem.value = nuevoItemVacio()
+  nuevoItem.value.modo     = 'stock'
+  nuevoItem.value.cantidad = item.cantidad
+  // Se conserva el precio pactado: el cliente ya aceptó ese valor, y esto es
+  // corregir de dónde sale el mueble, no volver a negociar.
+  nuevoItem.value.precio_unitario = item.precio_unitario
+
+  if (item.producto_id) {
+    nuevoItem.value.producto_id        = item.producto_id
+    nuevoItem.value.producto_nombre    = item.producto_nombre
+    nuevoItem.value.producto_categoria = item.producto_categoria
+    // Trae el stock real y las variantes de la tienda: sin esto no se vería
+    // si de verdad hay disponible, que es justo lo que hay que comprobar.
+    await refrescarStockNuevo()
+    toast.success('Listo: ahora sale de inventario y se quita de producción. Revisa el stock abajo y agrégalo.')
+  } else {
+    // Un diseño especial no tiene producto de catálogo al que volver.
+    toast.success('Marcado. Busca abajo el producto del catálogo y agrégalo.')
+  }
 }
 
 // ── Guardar ──────────────────────────────────────────────────────────────────
@@ -1411,6 +1450,28 @@ async function guardar() {
 
               <!-- Personalizado: specs (según categoría del producto) -->
               <template v-else>
+                <!-- Volver a inventario. El caso típico: el vendedor no vio el
+                     producto en stock y lo mandó a fabricar sin necesidad. No
+                     se ofrece en restauraciones, que son un mueble del cliente
+                     y no tienen equivalente en catálogo. -->
+                <div
+                  v-if="item._tipo_item !== 'restauracion' && !itemsEliminar.includes(item.id)"
+                  class="bg-emerald-50 border border-emerald-200 rounded-lg p-2.5 space-y-1.5"
+                >
+                  <p class="text-[11px] text-emerald-800 leading-snug">
+                    <span class="font-semibold">¿Sí había en inventario?</span>
+                    Pásalo a producto de catálogo: se saca de producción para que en la fábrica no lo hagan,
+                    y se reserva del stock.
+                  </p>
+                  <button
+                    type="button"
+                    @click="reemplazarPorStock(item)"
+                    class="w-full text-xs text-emerald-700 font-semibold flex items-center justify-center gap-1 py-1.5 bg-white border border-emerald-300 rounded-lg hover:bg-emerald-100 transition-colors"
+                  >
+                    <BuildingStorefrontIcon class="w-3.5 h-3.5" /> Pasarlo a inventario
+                  </button>
+                </div>
+
                 <div class="space-y-3 pt-1 border-t border-purple-100">
                   <p class="text-xs font-medium text-purple-600">Especificaciones — {{ getTemplate(item).titulo }}</p>
 
