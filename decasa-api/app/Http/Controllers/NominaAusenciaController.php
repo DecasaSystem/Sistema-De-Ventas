@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Empleado;
+use App\Models\Usuario;
 use App\Models\NominaAusencia;
 use App\Models\NominaPago;
 use App\Services\CicloNomina;
@@ -25,11 +25,11 @@ class NominaAusenciaController extends Controller
     private function comoJson(NominaAusencia $a, ?float $valorHora = null): array
     {
         $pago  = $a->relationLoaded('pago') ? $a->pago : null;
-        $valor = $valorHora ?? ($pago ? (float) $pago->valor_hora : $a->empleado?->valorHoraEfectivo() ?? 0.0);
+        $valor = $valorHora ?? ($pago ? (float) $pago->valor_hora : $a->trabajador?->valorHoraEfectivo() ?? 0.0);
 
         return [
             'id'            => $a->id,
-            'empleado_id'   => $a->empleado_id,
+            'usuario_id'   => $a->usuario_id,
             'fecha'         => $a->fecha->toDateString(),
             'horas'         => (float) $a->horas,
             'motivo'        => $a->motivo,
@@ -44,7 +44,7 @@ class NominaAusenciaController extends Controller
     /** En qué ciclo va a caer una falta que todavía no se ha cobrado. */
     private function cicloDe(NominaAusencia $a): ?string
     {
-        $empleado = $a->relationLoaded('empleado') ? $a->empleado : null;
+        $empleado = $a->relationLoaded('trabajador') ? $a->trabajador : null;
         if (! $empleado) {
             return null;
         }
@@ -54,13 +54,13 @@ class NominaAusenciaController extends Controller
         return CicloNomina::nombre($empleado->periodicidad, $inicio, $fin);
     }
 
-    /** GET /api/nomina/ausencias?empleado_id=&pendientes=1 */
+    /** GET /api/nomina/ausencias?usuario_id=&pendientes=1 */
     public function index(Request $request)
     {
-        $q = NominaAusencia::query()->with('pago', 'empleado.sueldo')->orderByDesc('fecha');
+        $q = NominaAusencia::query()->with('pago', 'trabajador.sueldo')->orderByDesc('fecha');
 
-        if ($empleadoId = $request->query('empleado_id')) {
-            $q->where('empleado_id', $empleadoId);
+        if ($empleadoId = $request->query('usuario_id')) {
+            $q->where('usuario_id', $empleadoId);
         }
         if ($request->boolean('pendientes')) {
             $q->whereNull('nomina_pago_id');
@@ -79,17 +79,17 @@ class NominaAusenciaController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-            'empleado_id'  => 'required|exists:empleados,id',
+            'usuario_id'  => 'required|exists:usuarios,id',
             'fecha_inicio' => 'required|date',
             'fecha_fin'    => 'nullable|date|after_or_equal:fecha_inicio',
             'horas'        => 'nullable|numeric|min:0.25|max:24',
             'motivo'       => 'nullable|string|max:160',
         ], [
-            'empleado_id.required'  => 'Elige el trabajador.',
+            'usuario_id.required'  => 'Elige el trabajador.',
             'fecha_inicio.required' => 'La fecha es obligatoria.',
         ]);
 
-        $empleado = Empleado::with('sueldo')->findOrFail($data['empleado_id']);
+        $empleado = Usuario::with('sueldo')->findOrFail($data['usuario_id']);
         $horas    = $data['horas'] ?? $empleado->horasDiaEfectivo();
 
         $inicio = CicloNomina::fecha($data['fecha_inicio']);
@@ -102,7 +102,7 @@ class NominaAusenciaController extends Controller
 
         // Los ciclos ya cobrados de esta persona, para saber qué fechas
         // están cerradas — una sola consulta en vez de una por día.
-        $pagados = NominaPago::where('empleado_id', $empleado->id)
+        $pagados = NominaPago::where('usuario_id', $empleado->id)
             ->where('fecha_fin', '>=', $inicio->toDateString())
             ->where('fecha_inicio', '<=', $fin->toDateString())
             ->get();
@@ -123,10 +123,10 @@ class NominaAusenciaController extends Controller
             }
 
             $ausencia = NominaAusencia::updateOrCreate(
-                ['empleado_id' => $empleado->id, 'fecha' => $fecha->toDateString()],
+                ['usuario_id' => $empleado->id, 'fecha' => $fecha->toDateString()],
                 ['horas' => $horas, 'motivo' => $data['motivo'] ?? null, 'nomina_pago_id' => null]
             );
-            $ausencia->setRelation('empleado', $empleado);
+            $ausencia->setRelation('trabajador', $empleado);
             $ausencia->setRelation('pago', null);
 
             $guardadas[] = $this->comoJson($ausencia, $valorHora);

@@ -17,7 +17,14 @@ class UsuarioController extends Controller
         return [
             'id'                  => $u->id,
             'nombre'              => $u->nombre,
+            'cedula'              => $u->cedula,
             'email'               => $u->email,
+            // Trabajador de fábrica: sin login, sin tienda, sin permisos. Su
+            // rol hace de oficio (Lijador, Laquero...) y aparece en Nómina.
+            'no_usa_programa'     => (bool) $u->no_usa_programa,
+            'apto_comisiones'     => (bool) $u->apto_comisiones,
+            'periodicidad'        => $u->periodicidad,
+            'nomina_sueldo_id'    => $u->nomina_sueldo_id,
             'rol'                 => $u->rol,
             'rol_id'              => $u->rol_id,
             'rol_nombre'          => $u->relationLoaded('rolAsignado') ? $u->rolAsignado?->nombre : null,
@@ -80,8 +87,16 @@ class UsuarioController extends Controller
     {
         $data = $request->validate([
             'nombre'            => 'required|string|max:100',
-            'email'             => 'required|email|unique:usuarios,email',
-            'password'          => 'required|string|min:8|confirmed',
+            // Quien no usa el programa no lleva correo ni contraseña: no
+            // tiene con qué iniciar sesión, y pedírselos obligaría a
+            // inventarle un correo falso a cada persona de fábrica.
+            'no_usa_programa'   => 'boolean',
+            'email'             => 'required_if:no_usa_programa,false,0|nullable|email|unique:usuarios,email',
+            'password'          => 'required_if:no_usa_programa,false,0|nullable|string|min:8|confirmed',
+            'cedula'            => 'nullable|string|max:20|unique:usuarios,cedula',
+            'apto_comisiones'   => 'boolean',
+            'periodicidad'      => ['nullable', Rule::in(['diario', 'semanal', 'quincenal', '20_dias', 'mensual'])],
+            'nomina_sueldo_id'  => 'nullable|exists:nomina_sueldos,id',
             'rol_id'              => ['required', 'exists:roles,id'],
             'facturacion'         => 'boolean',
             'es_tapicero'         => 'boolean',
@@ -142,10 +157,20 @@ class UsuarioController extends Controller
         // independiente no significa nada.
         $independiente = ($arquetipo === 'vendedor') && $request->boolean('independiente');
 
+        $noUsaPrograma = $request->boolean('no_usa_programa');
+
         $usuario = Usuario::create([
             'nombre'              => $data['nombre'],
-            'email'               => $data['email'],
-            'password'            => Hash::make($data['password']),
+            'cedula'              => $data['cedula'] ?? null,
+            // El de fábrica queda sin credenciales: el login busca por correo,
+            // así que sin correo no hay forma de que entre ni por accidente.
+            'email'               => $noUsaPrograma ? null : $data['email'],
+            'password'            => $noUsaPrograma ? null : Hash::make($data['password']),
+            'no_usa_programa'     => $noUsaPrograma,
+            // Quien no usa el programa no hace ventas: no puede ser apto.
+            'apto_comisiones'     => ! $noUsaPrograma && $request->boolean('apto_comisiones'),
+            'periodicidad'        => $data['periodicidad'] ?? 'quincenal',
+            'nomina_sueldo_id'    => $data['nomina_sueldo_id'] ?? null,
             'rol_id'              => $data['rol_id'],
             'facturacion'         => ($arquetipo === 'vendedor') && $request->boolean('facturacion'),
             'es_tapicero'         => $esSupervisor && $request->boolean('es_tapicero'),
@@ -185,7 +210,11 @@ class UsuarioController extends Controller
 
         $data = $request->validate([
             'nombre'            => 'sometimes|string|max:100',
-            'email'             => ['sometimes', 'email', Rule::unique('usuarios', 'email')->ignore($usuario->id)],
+            'email'             => ['sometimes', 'nullable', 'email', Rule::unique('usuarios', 'email')->ignore($usuario->id)],
+            'cedula'            => ['sometimes', 'nullable', 'string', 'max:20', Rule::unique('usuarios', 'cedula')->ignore($usuario->id)],
+            'apto_comisiones'   => 'nullable|boolean',
+            'periodicidad'      => ['sometimes', 'required', Rule::in(['diario', 'semanal', 'quincenal', '20_dias', 'mensual'])],
+            'nomina_sueldo_id'  => 'sometimes|nullable|exists:nomina_sueldos,id',
             'rol_id'              => ['sometimes', 'exists:roles,id'],
             'facturacion'         => 'nullable|boolean',
             'es_tapicero'         => 'nullable|boolean',
@@ -264,6 +293,11 @@ class UsuarioController extends Controller
         }
         if ($request->has('acceso_compras')) {
             $data['acceso_compras'] = $request->boolean('acceso_compras');
+        }
+        // Se respeta lo que ya es: quien no usa el programa nunca puede ser
+        // apto para comisiones, porque no hace ventas.
+        if ($request->has('apto_comisiones')) {
+            $data['apto_comisiones'] = ! $usuario->no_usa_programa && $request->boolean('apto_comisiones');
         }
         if ($request->has('ve_todas_ordenes')) {
             $data['ve_todas_ordenes'] = $request->boolean('ve_todas_ordenes');

@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Empleado;
+use App\Models\Usuario;
 use App\Models\NominaSueldo;
 use Illuminate\Http\Request;
 
@@ -81,7 +81,7 @@ class NominaSueldoController extends Controller
     public function destroy(int $id)
     {
         $sueldo = NominaSueldo::findOrFail($id);
-        $usos = Empleado::where('nomina_sueldo_id', $id)->count();
+        $usos = Usuario::where('nomina_sueldo_id', $id)->count();
 
         if ($usos > 0) {
             $sueldo->update(['activo' => false]);

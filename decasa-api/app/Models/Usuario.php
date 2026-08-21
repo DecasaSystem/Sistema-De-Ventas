@@ -54,6 +54,13 @@ class Usuario extends Authenticatable
         'acceso_nomina',
         'acceso_compras',
         've_todas_ordenes',
+        // Trabajador de fábrica: sin login, sin tienda, sin permisos.
+        'cedula',
+        'no_usa_programa',
+        'apto_comisiones',
+        'nomina_sueldo_id',
+        'nomina_bonificacion_id',
+        'periodicidad',
         'tienda_default_id',
         'activo',
         'firma_url',
@@ -84,6 +91,8 @@ class Usuario extends Authenticatable
             'acceso_nomina'       => 'boolean',
             'acceso_compras'      => 'boolean',
             've_todas_ordenes'    => 'boolean',
+            'no_usa_programa'     => 'boolean',
+            'apto_comisiones'     => 'boolean',
         ];
     }
 
@@ -95,6 +104,80 @@ class Usuario extends Authenticatable
     public function perfilProduccion()
     {
         return $this->belongsTo(PerfilProduccion::class, 'perfil_produccion_id');
+    }
+
+    // ── Nómina ───────────────────────────────────────────────────────────────
+    // Lo que antes vivía en el modelo Empleado, que era una segunda tabla de
+    // personas paralela a esta. Un trabajador se crea una sola vez acá y
+    // aparece solo en Nómina.
+
+    public function sueldo()
+    {
+        return $this->belongsTo(NominaSueldo::class, 'nomina_sueldo_id');
+    }
+
+    /** El esquema de bonificación asignado. Null = no aplica para bono. */
+    public function bonificacion()
+    {
+        return $this->belongsTo(NominaBonificacion::class, 'nomina_bonificacion_id');
+    }
+
+    public function pagosNomina()
+    {
+        return $this->hasMany(NominaPago::class, 'usuario_id');
+    }
+
+    public function ausencias()
+    {
+        return $this->hasMany(NominaAusencia::class, 'usuario_id');
+    }
+
+    public function ajustes()
+    {
+        return $this->hasMany(NominaAjuste::class, 'usuario_id');
+    }
+
+    public function producciones()
+    {
+        return $this->hasMany(NominaProduccion::class, 'usuario_id');
+    }
+
+    /** Lo que gana en un día completo. Sin sueldo asignado todavía, 0. */
+    public function valorDiaEfectivo(): float
+    {
+        return $this->sueldo?->valorDiaEquivalente() ?? 0.0;
+    }
+
+    /** Lo que gana por hora — con esto se descuentan las faltas parciales. */
+    public function valorHoraEfectivo(): float
+    {
+        return $this->sueldo?->valorHoraEquivalente() ?? 0.0;
+    }
+
+    /** Cuántas horas dura un día completo para este trabajador. */
+    public function horasDiaEfectivo(): float
+    {
+        return (float) ($this->sueldo?->horas_dia ?? 8);
+    }
+
+    /** El nombre del sueldo que tiene asignado. */
+    public function labelEfectivo(): string
+    {
+        return $this->sueldo?->nombre ?? 'Sin sueldo asignado';
+    }
+
+    public function labelPeriodicidad(): string
+    {
+        return \App\Services\CicloNomina::label($this->periodicidad);
+    }
+
+    /**
+     * ¿Se le puede liquidar nómina? Hace falta tener un sueldo asignado; sin
+     * eso la liquidación daría $0 y ese cero se vería igual que un pago real.
+     */
+    public function liquidable(): bool
+    {
+        return $this->activo && $this->nomina_sueldo_id !== null;
     }
 
     /** Procesos que se le asignaron a esta persona en concreto. */

@@ -2,7 +2,7 @@
 
 namespace App\Services;
 
-use App\Models\Empleado;
+use App\Models\Usuario;
 use App\Models\NominaAjuste;
 use App\Models\NominaAusencia;
 use App\Models\NominaBonificacion;
@@ -52,7 +52,7 @@ class NominaLiquidador
      * hoy: quien entró a mitad de quincena cobra proporcional, y un ciclo
      * en curso muestra lo que lleva devengado, no el ciclo completo.
      */
-    public static function liquidar(Empleado $empleado, Carbon $inicio, Carbon $fin, Carbon $hoy): array
+    public static function liquidar(Usuario $empleado, Carbon $inicio, Carbon $fin, Carbon $hoy): array
     {
         // Todo a la misma zona antes de restar días: mezclar medianoches de
         // husos distintos da diferencias con decimales que truncan mal.
@@ -150,7 +150,7 @@ class NominaLiquidador
      * un pago anterior o no: lo que se cobró antes fueron los días, no el
      * bono de esta ventana.
      */
-    private static function evaluarBono(Empleado $empleado, Carbon $inicio, Carbon $fin, Carbon $hasta): array
+    private static function evaluarBono(Usuario $empleado, Carbon $inicio, Carbon $fin, Carbon $hasta): array
     {
         $esquema = $empleado->bonificacion;
         if (! $esquema) {
@@ -250,7 +250,7 @@ class NominaLiquidador
     }
 
     /** El ciclo en curso de un trabajador — lo que lleva devengado hoy. */
-    public static function cicloActual(Empleado $empleado, Carbon $hoy): array
+    public static function cicloActual(Usuario $empleado, Carbon $hoy): array
     {
         [$inicio, $fin] = CicloNomina::rango($empleado->periodicidad, $hoy);
 
@@ -279,15 +279,15 @@ class NominaLiquidador
 
         // Hasta dónde se le pagó a cada uno y qué ciclos ya tienen pago, en
         // dos consultas y no dos por trabajador.
-        $ultimoFin = NominaPago::whereIn('empleado_id', $empleados->pluck('id'))
-            ->selectRaw('empleado_id, MAX(fecha_fin) as ultimo_fin')
-            ->groupBy('empleado_id')
-            ->pluck('ultimo_fin', 'empleado_id');
+        $ultimoFin = NominaPago::whereIn('usuario_id', $empleados->pluck('id'))
+            ->selectRaw('usuario_id, MAX(fecha_fin) as ultimo_fin')
+            ->groupBy('usuario_id')
+            ->pluck('ultimo_fin', 'usuario_id');
 
-        $yaPagados = NominaPago::whereIn('empleado_id', $empleados->pluck('id'))
+        $yaPagados = NominaPago::whereIn('usuario_id', $empleados->pluck('id'))
             ->where('fecha_fin', '>=', $pisoGlobal->toDateString())
-            ->get(['empleado_id', 'fecha_inicio'])
-            ->map(fn (NominaPago $p) => $p->empleado_id . '|' . $p->fecha_inicio->toDateString())
+            ->get(['usuario_id', 'fecha_inicio'])
+            ->map(fn (NominaPago $p) => $p->usuario_id . '|' . $p->fecha_inicio->toDateString())
             ->flip();
 
         $pendientes = [];
@@ -316,9 +316,11 @@ class NominaLiquidador
 
                     if ($liquidacion['dias'] > 0) {
                         $pendientes[] = [
-                            'empleado_id'     => $empleado->id,
+                            'usuario_id'      => $empleado->id,
                             'empleado_nombre' => $empleado->nombre,
-                            'empleado_cargo'  => $empleado->cargo,
+                            // El cargo ya no es texto suelto: es el rol del
+                            // trabajador, que se mantiene desde Trabajadores.
+                            'empleado_cargo'  => $empleado->rolAsignado?->nombre,
                             'empleado_cedula' => $empleado->cedula,
                         ] + $liquidacion;
                     }
@@ -338,7 +340,7 @@ class NominaLiquidador
      */
     public static function empleadosLiquidables()
     {
-        return Empleado::with(self::relaciones())
+        return Usuario::with(self::relaciones())
             ->where('activo', true)
             ->whereNotNull('nomina_sueldo_id')
             ->orderBy('nombre')
@@ -367,6 +369,7 @@ class NominaLiquidador
 
         return [
             'sueldo',
+            'rolAsignado:id,nombre',
             'bonificacion.metas',
             'ausencias'    => $sinCobrar,
             'ajustes'      => $sinCobrar,

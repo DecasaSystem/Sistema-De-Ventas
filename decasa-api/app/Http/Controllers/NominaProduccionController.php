@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Empleado;
+use App\Models\Usuario;
 use App\Models\NominaPago;
 use App\Models\NominaProduccion;
 use App\Services\CicloNomina;
@@ -25,7 +25,7 @@ class NominaProduccionController extends Controller
 
         return [
             'id'             => $p->id,
-            'empleado_id'    => $p->empleado_id,
+            'usuario_id'    => $p->usuario_id,
             'fecha'          => $p->fecha->toDateString(),
             'concepto'       => $p->concepto,
             'valor_unitario' => (float) $p->valor_unitario,
@@ -41,7 +41,7 @@ class NominaProduccionController extends Controller
     /** En qué ciclo va a caer una producción que todavía no se ha cobrado. */
     private function cicloDe(NominaProduccion $p): ?string
     {
-        $empleado = $p->relationLoaded('empleado') ? $p->empleado : null;
+        $empleado = $p->relationLoaded('trabajador') ? $p->trabajador : null;
         if (! $empleado) {
             return null;
         }
@@ -51,13 +51,13 @@ class NominaProduccionController extends Controller
         return CicloNomina::nombre($empleado->periodicidad, $inicio, $fin);
     }
 
-    /** GET /api/nomina/producciones?empleado_id=&pendientes=1 */
+    /** GET /api/nomina/producciones?usuario_id=&pendientes=1 */
     public function index(Request $request)
     {
-        $q = NominaProduccion::query()->with('pago', 'empleado')->orderByDesc('fecha')->orderByDesc('id');
+        $q = NominaProduccion::query()->with('pago', 'trabajador')->orderByDesc('fecha')->orderByDesc('id');
 
-        if ($empleadoId = $request->query('empleado_id')) {
-            $q->where('empleado_id', $empleadoId);
+        if ($empleadoId = $request->query('usuario_id')) {
+            $q->where('usuario_id', $empleadoId);
         }
         if ($request->boolean('pendientes')) {
             $q->whereNull('nomina_pago_id');
@@ -70,20 +70,20 @@ class NominaProduccionController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-            'empleado_id'    => 'required|exists:empleados,id',
+            'usuario_id'    => 'required|exists:usuarios,id',
             'fecha'          => 'required|date',
             'concepto'       => 'required|string|max:120',
             'valor_unitario' => 'required|numeric|min:0',
             'cantidad'       => 'required|numeric|min:0.01|max:9999',
         ], [
-            'empleado_id.required'    => 'Elige el trabajador.',
+            'usuario_id.required'    => 'Elige el trabajador.',
             'fecha.required'          => 'La fecha es obligatoria.',
             'concepto.required'       => 'Escribe qué hizo (mesa de comedor, silla blanca...).',
             'valor_unitario.required' => 'Falta cuánto vale cada una.',
             'cantidad.required'       => 'Falta cuántas hizo.',
         ]);
 
-        $empleado = Empleado::findOrFail($data['empleado_id']);
+        $empleado = Usuario::findOrFail($data['usuario_id']);
         $fecha    = CicloNomina::fecha($data['fecha']);
 
         // Si esa fecha ya quedó dentro de un ciclo cobrado, sumarla ahora no
@@ -100,14 +100,14 @@ class NominaProduccionController extends Controller
         $total = round((float) $data['valor_unitario'] * (float) $data['cantidad']);
 
         $produccion = NominaProduccion::create([
-            'empleado_id'    => $empleado->id,
+            'usuario_id'    => $empleado->id,
             'fecha'          => $fecha,
             'concepto'       => $data['concepto'],
             'valor_unitario' => $data['valor_unitario'],
             'cantidad'       => $data['cantidad'],
             'total'          => $total,
         ]);
-        $produccion->setRelation('empleado', $empleado);
+        $produccion->setRelation('trabajador', $empleado);
 
         return response()->json($this->comoJson($produccion), 201);
     }
@@ -130,7 +130,7 @@ class NominaProduccionController extends Controller
 
     private function pagoQueCubre(int $empleadoId, Carbon $fecha): ?NominaPago
     {
-        return NominaPago::where('empleado_id', $empleadoId)
+        return NominaPago::where('usuario_id', $empleadoId)
             ->whereDate('fecha_inicio', '<=', $fecha->toDateString())
             ->whereDate('fecha_fin', '>=', $fecha->toDateString())
             ->first();

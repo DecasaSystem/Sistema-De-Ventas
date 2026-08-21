@@ -16,7 +16,13 @@ class AuthController extends Controller
             'password' => 'required|string',
         ]);
 
+        // whereNotNull explícito además de buscar por correo: el trabajador de
+        // fábrica se guarda con email y password en null, y este candado deja
+        // dicho que no entra, en vez de depender de que nadie mande null.
         $usuario = Usuario::where('email', $request->email)
+                          ->whereNotNull('email')
+                          ->whereNotNull('password')
+                          ->where('no_usa_programa', false)
                           ->where('activo', true)
                           ->first();
 

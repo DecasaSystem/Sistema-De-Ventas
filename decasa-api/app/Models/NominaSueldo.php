@@ -26,9 +26,9 @@ class NominaSueldo extends Model
         ];
     }
 
-    public function empleados()
+    public function trabajadores()
     {
-        return $this->hasMany(Empleado::class, 'nomina_sueldo_id');
+        return $this->hasMany(Usuario::class, 'nomina_sueldo_id');
     }
 
     /** Lo que gana en un día completo, sea cual sea la unidad en que se cargó. */

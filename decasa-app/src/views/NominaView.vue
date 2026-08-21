@@ -3,7 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useToast } from '@/composables/useToast'
 import InputPesos from '@/components/common/InputPesos.vue'
-import { getEmpleados, crearEmpleado, actualizarEmpleado, eliminarEmpleado } from '@/api/empleados'
+import { getEmpleados, actualizarEmpleado, eliminarEmpleado } from '@/api/empleados'
 import {
   getSueldos, crearSueldo, actualizarSueldo, eliminarSueldo,
   getPagosPendientes, pagar, pagarLote, getHistorialPagos, deshacerPago,
@@ -464,23 +464,13 @@ watch(tab, (t) => {
   }
 })
 
-function abrirNuevoEmpleado() {
-  // Solo se manda a Sueldos si de verdad no hay ninguno — no mientras la
-  // lista todavía viene en camino.
+function abrirEditarEmpleado(e) {
+  // Sin sueldos cargados no hay nada que asignarle.
   if (!cargandoSueldos.value && !sueldosActivos.value.length) {
     toast.error('Primero crea un sueldo en la pestaña Sueldos')
     tab.value = 'sueldos'
     return
   }
-  editandoEmpleado.value = null
-  formEmpleado.value = {
-    nombre: '', cedula: '', cargo: '', nomina_sueldo_id: '',
-    nomina_bonificacion_id: SIN_BONO, periodicidad: 'quincenal',
-  }
-  mostrarFormEmpleado.value = true
-}
-
-function abrirEditarEmpleado(e) {
   editandoEmpleado.value = e.id
   formEmpleado.value = {
     nombre: e.nombre,
@@ -493,33 +483,23 @@ function abrirEditarEmpleado(e) {
   mostrarFormEmpleado.value = true
 }
 
+// Desde acá NO se crea gente ni se le cambia el nombre, la cédula o el
+// cargo: eso vive en Trabajadores, que es el único sitio donde una persona
+// existe. Acá solo se asigna lo de nómina.
 async function guardarEmpleado() {
-  if (!formEmpleado.value.nombre.trim()) {
-    toast.error('El nombre es obligatorio')
-    return
-  }
   if (!formEmpleado.value.nomina_sueldo_id) {
     toast.error('Elige el sueldo de este trabajador')
     return
   }
   guardandoEmpleado.value = true
   try {
-    const payload = {
-      nombre: formEmpleado.value.nombre.trim(),
-      cedula: formEmpleado.value.cedula.trim() || null,
-      cargo: formEmpleado.value.cargo.trim() || null,
+    await actualizarEmpleado(editandoEmpleado.value, {
       nomina_sueldo_id: formEmpleado.value.nomina_sueldo_id,
       // Vacío = no aplica para bonificación.
       nomina_bonificacion_id: formEmpleado.value.nomina_bonificacion_id || null,
       periodicidad: formEmpleado.value.periodicidad,
-    }
-    if (editandoEmpleado.value) {
-      await actualizarEmpleado(editandoEmpleado.value, payload)
-      toast.success('Trabajador actualizado')
-    } else {
-      await crearEmpleado(payload)
-      toast.success('Trabajador creado')
-    }
+    })
+    toast.success('Trabajador actualizado')
     mostrarFormEmpleado.value = false
     await Promise.all([cargarEmpleados(), cargarPendientes()])
   } catch (e) {
@@ -529,8 +509,10 @@ async function guardarEmpleado() {
   }
 }
 
+// No borra a la persona —eso es en Trabajadores—: le quita el sueldo, con
+// lo cual deja de aparecer para cobrar pero sigue existiendo.
 async function borrarEmpleado(e) {
-  if (!confirm(`¿Eliminar a "${e.nombre}"? Si ya tiene pagos registrados, se desactiva en vez de borrarse.`)) return
+  if (!confirm(`¿Sacar a "${e.nombre}" de nómina?\n\nSe le quita el sueldo y deja de aparecer para cobrar. La persona y su historial de pagos se conservan; para borrarla del todo hay que ir a Trabajadores.`)) return
   try {
     const { data } = await eliminarEmpleado(e.id)
     toast.success(data?.message ?? 'Trabajador eliminado')
@@ -540,15 +522,8 @@ async function borrarEmpleado(e) {
   }
 }
 
-async function reactivarEmpleado(e) {
-  try {
-    await actualizarEmpleado(e.id, { activo: true })
-    toast.success('Trabajador reactivado')
-    await Promise.all([cargarEmpleados(), cargarPendientes()])
-  } catch (err) {
-    toast.error(err.response?.data?.message || 'No se pudo reactivar')
-  }
-}
+// Reactivar a una persona es de Trabajadores, no de Nómina: acá solo se
+// muestra quién está inactivo para que se sepa por qué no aparece.
 
 const busquedaEmpleado = ref('')
 function coincideBusqueda(e) {
@@ -944,14 +919,11 @@ async function quitarAjuste(id) {
 
     <!-- ═══════════ TRABAJADORES ═══════════ -->
     <template v-else-if="tab === 'trabajadores'">
-      <div class="flex items-center justify-between mb-3">
-        <p class="text-xs text-gray-400">El roster de nómina — no necesitan cuenta en la app.</p>
-        <button
-          @click="abrirNuevoEmpleado"
-          class="flex items-center gap-1.5 bg-blue-600 text-white text-xs font-semibold px-3 py-2 rounded-xl hover:bg-blue-700 transition-colors shadow-sm shrink-0"
-        >
-          <PlusIcon class="w-4 h-4" /> Nuevo
-        </button>
+      <div class="mb-3">
+        <p class="text-xs text-gray-400">
+          Los trabajadores se dan de alta en <span class="font-semibold text-gray-500">Trabajadores</span> y aparecen
+          acá solos. Desde esta pantalla se les asigna el sueldo, la bonificación y cada cuánto se les paga.
+        </p>
       </div>
 
       <div class="relative mb-3">
@@ -1059,7 +1031,7 @@ async function quitarAjuste(id) {
           <p class="text-xs font-semibold text-gray-400 uppercase pt-2">Desactivados</p>
           <div v-for="e in empleadosInactivos" :key="e.id" class="bg-gray-50 rounded-xl p-4 flex items-center justify-between gap-2">
             <p class="text-sm text-gray-500 truncate">{{ e.nombre }}</p>
-            <button @click="reactivarEmpleado(e)" class="text-xs font-semibold text-blue-600 hover:text-blue-700 shrink-0">Reactivar</button>
+            <span class="text-[11px] text-gray-400 shrink-0">Se reactiva en Trabajadores</span>
           </div>
         </template>
       </div>
@@ -1077,26 +1049,24 @@ async function quitarAjuste(id) {
                   <div class="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center shrink-0">
                     <UsersIcon class="w-5 h-5 text-blue-600" />
                   </div>
-                  <p class="font-semibold text-gray-800">{{ editandoEmpleado ? 'Editar trabajador' : 'Nuevo trabajador' }}</p>
+                  <p class="font-semibold text-gray-800">Nómina de {{ formEmpleado.nombre }}</p>
                 </div>
                 <button @click="mostrarFormEmpleado = false" class="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
                   <XMarkIcon class="w-5 h-5" />
                 </button>
               </div>
               <div class="p-5 space-y-4">
-                <div>
-                  <label class="block text-xs font-semibold text-gray-500 mb-1.5">Nombre *</label>
-                  <input v-model="formEmpleado.nombre" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow" />
-                </div>
-                <div class="grid grid-cols-2 gap-3">
-                  <div>
-                    <label class="block text-xs font-semibold text-gray-500 mb-1.5">Cédula</label>
-                    <input v-model="formEmpleado.cedula" inputmode="numeric" placeholder="Opcional" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow" />
-                  </div>
-                  <div>
-                    <label class="block text-xs font-semibold text-gray-500 mb-1.5">Cargo</label>
-                    <input v-model="formEmpleado.cargo" placeholder="Lijador, Ebanista..." class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow" />
-                  </div>
+                <!-- Identidad: se ve, no se toca. Se edita en Trabajadores,
+                     que es donde la persona existe. -->
+                <div class="bg-gray-50 border border-gray-200 rounded-xl px-3.5 py-2.5 text-xs text-gray-600 space-y-0.5">
+                  <p class="font-semibold text-gray-800">{{ formEmpleado.nombre }}</p>
+                  <p>
+                    {{ formEmpleado.cargo || 'Sin cargo' }}
+                    <span v-if="formEmpleado.cedula">· CC {{ formEmpleado.cedula }}</span>
+                  </p>
+                  <p class="text-[11px] text-gray-400 pt-1">
+                    El nombre, la cédula y el cargo se cambian en Trabajadores.
+                  </p>
                 </div>
 
                 <div>

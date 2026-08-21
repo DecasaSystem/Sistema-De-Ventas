@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Empleado;
+use App\Models\Usuario;
 use App\Models\NominaBonificacion;
 use App\Models\NominaBonificacionMeta;
 use Illuminate\Http\Request;
@@ -45,7 +45,7 @@ class NominaBonificacionController extends Controller
                 'activo'   => (bool) $m->activo,
                 'etiqueta' => $m->etiqueta(),
             ])->values(),
-            'num_trabajadores' => Empleado::where('nomina_bonificacion_id', $b->id)->where('activo', true)->count(),
+            'num_trabajadores' => Usuario::where('nomina_bonificacion_id', $b->id)->where('activo', true)->count(),
         ];
     }
 
@@ -110,7 +110,7 @@ class NominaBonificacionController extends Controller
     public function destroy(int $id)
     {
         $bonificacion = NominaBonificacion::findOrFail($id);
-        $usos = Empleado::where('nomina_bonificacion_id', $id)->count();
+        $usos = Usuario::where('nomina_bonificacion_id', $id)->count();
 
         if ($usos > 0) {
             $bonificacion->update(['activo' => false]);

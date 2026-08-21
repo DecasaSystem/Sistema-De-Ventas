@@ -16,6 +16,12 @@ const error = ref('')
 
 const form = ref({
   nombre: '',
+  // Trabajador de fábrica: no entra al programa, así que no lleva correo,
+  // contraseña, tienda ni permisos. Solo sus datos y su oficio, para que
+  // aparezca en Nómina.
+  no_usa_programa: false,
+  cedula: '',
+  apto_comisiones: false,
   email: '',
   password: '',
   password_confirmation: '',
@@ -101,12 +107,16 @@ onMounted(async () => {
 function validar() {
   errores.value = {}
   if (!form.value.nombre.trim()) errores.value.nombre = 'El nombre es obligatorio'
-  if (!form.value.email.trim()) errores.value.email = 'El email es obligatorio'
-  else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.value.email)) errores.value.email = 'Email inválido'
-  if (!form.value.password) errores.value.password = 'La contraseña es obligatoria'
-  else if (form.value.password.length < 8) errores.value.password = 'Mínimo 8 caracteres'
-  if (form.value.password !== form.value.password_confirmation) errores.value.password_confirmation = 'Las contraseñas no coinciden'
-  if (requiereTienda.value && !form.value.tienda_default_id) errores.value.tienda_default_id = 'Selecciona una tienda'
+
+  // Al de fábrica no se le piden credenciales ni tienda: no entra al programa.
+  if (!form.value.no_usa_programa) {
+    if (!form.value.email.trim()) errores.value.email = 'El email es obligatorio'
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.value.email)) errores.value.email = 'Email inválido'
+    if (!form.value.password) errores.value.password = 'La contraseña es obligatoria'
+    else if (form.value.password.length < 8) errores.value.password = 'Mínimo 8 caracteres'
+    if (form.value.password !== form.value.password_confirmation) errores.value.password_confirmation = 'Las contraseñas no coinciden'
+    if (requiereTienda.value && !form.value.tienda_default_id) errores.value.tienda_default_id = 'Selecciona una tienda'
+  }
   return Object.keys(errores.value).length === 0
 }
 
@@ -118,9 +128,13 @@ async function submit() {
   try {
     await createUsuario({
       nombre: form.value.nombre.trim(),
-      email: form.value.email.trim(),
-      password: form.value.password,
-      password_confirmation: form.value.password_confirmation,
+      cedula: form.value.cedula.trim() || null,
+      no_usa_programa: form.value.no_usa_programa,
+      // Quien no usa el programa va sin credenciales y no puede comisionar.
+      email: form.value.no_usa_programa ? null : form.value.email.trim(),
+      password: form.value.no_usa_programa ? null : form.value.password,
+      password_confirmation: form.value.no_usa_programa ? null : form.value.password_confirmation,
+      apto_comisiones: !form.value.no_usa_programa && form.value.apto_comisiones,
       rol_id: form.value.rol_id,
       facturacion: form.value.facturacion,
       es_tapicero: form.value.es_tapicero,
@@ -166,6 +180,23 @@ async function submit() {
 
     <!-- Formulario -->
     <form @submit.prevent="submit" class="space-y-4">
+      <!-- No usa el programa: define casi todo lo que sigue -->
+      <div class="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-lg p-3">
+        <input
+          id="no_usa_programa"
+          type="checkbox"
+          v-model="form.no_usa_programa"
+          class="mt-0.5 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+        />
+        <div>
+          <label for="no_usa_programa" class="text-sm font-medium text-gray-700 cursor-pointer">Este trabajador no usa el programa</label>
+          <p class="text-xs text-gray-500 mt-0.5">
+            Para la gente de fábrica (lijador, laquero, tapicero…). No lleva correo, contraseña, tienda ni
+            permisos: solo sus datos y su oficio, y aparece solo en Nómina para pagarle.
+          </p>
+        </div>
+      </div>
+
       <!-- Nombre -->
       <div>
         <label class="block text-sm font-medium text-gray-700 mb-1">Nombre completo *</label>
@@ -178,8 +209,19 @@ async function submit() {
         <p v-if="errores.nombre" class="text-xs text-red-600 mt-1">{{ errMsg(errores.nombre) }}</p>
       </div>
 
-      <!-- Email -->
+      <!-- Cédula -->
       <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Cédula</label>
+        <input
+          v-model="form.cedula"
+          inputmode="numeric"
+          class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          placeholder="Opcional"
+        />
+      </div>
+
+      <!-- Email -->
+      <div v-show="!form.no_usa_programa">
         <label class="block text-sm font-medium text-gray-700 mb-1">Email *</label>
         <input
           v-model="form.email"
@@ -192,7 +234,7 @@ async function submit() {
       </div>
 
       <!-- Contraseña -->
-      <div class="grid grid-cols-2 gap-3">
+      <div v-show="!form.no_usa_programa" class="grid grid-cols-2 gap-3">
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Contraseña *</label>
           <div class="relative">
@@ -259,6 +301,23 @@ async function submit() {
           <option v-for="r in roles" :key="r.id" :value="r.id">{{ r.nombre }}</option>
         </select>
       </div>
+
+      <!-- Apto para comisiones. Quien no usa el programa no hace ventas. -->
+      <div v-if="!form.no_usa_programa" class="flex items-start gap-3 py-2">
+        <input
+          id="apto_comisiones"
+          type="checkbox"
+          v-model="form.apto_comisiones"
+          class="mt-0.5 rounded border-gray-300 text-green-600 focus:ring-green-500"
+        />
+        <div>
+          <label for="apto_comisiones" class="text-sm font-medium text-gray-700 cursor-pointer">Apto para comisiones</label>
+          <p class="text-xs text-gray-500 mt-0.5">Marca que esta persona hace ventas y por lo tanto le corresponde comisión.</p>
+        </div>
+      </div>
+
+      <!-- Todo lo que sigue es del programa: no aplica a la gente de fábrica -->
+      <template v-if="!form.no_usa_programa">
 
       <!-- Descripción del rol de producción -->
       <div v-if="['ebanista', 'despachador', 'costurero'].includes(claveSeleccionada)" class="bg-amber-50 rounded-lg px-3 py-2 text-xs text-amber-700">
@@ -546,6 +605,13 @@ async function submit() {
       </div>
       <p v-else-if="esIndependiente" class="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
         No se elige tienda: al ser independiente no pertenece a ninguna.
+      </p>
+
+      </template>
+
+      <p v-if="form.no_usa_programa" class="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
+        Al no usar el programa no lleva tienda ni permisos. Su sueldo y cada cuánto se le paga
+        se le asignan desde <span class="font-semibold">Nómina</span>, donde va a aparecer solo.
       </p>
 
       <!-- Error general -->

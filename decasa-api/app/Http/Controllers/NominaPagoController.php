@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Empleado;
+use App\Models\Usuario;
 use App\Models\NominaAjuste;
 use App\Models\NominaAusencia;
 use App\Models\NominaPago;
@@ -43,7 +43,14 @@ class NominaPagoController extends Controller
     {
         $pendientes = NominaLiquidador::pendientes($this->hoy());
 
-        $sinSueldo = Empleado::where('activo', true)->whereNull('nomina_sueldo_id')->count();
+        // Solo se avisa por los de fábrica: ellos cobran por nómina sí o sí,
+        // así que sin sueldo asignado es un pendiente real. Un vendedor sin
+        // sueldo normalmente vive de comisión, y contarlo llenaría el aviso
+        // de ruido que nadie tiene que atender.
+        $sinSueldo = Usuario::where('activo', true)
+            ->where('no_usa_programa', true)
+            ->whereNull('nomina_sueldo_id')
+            ->count();
 
         return response()->json([
             'pendientes'    => $pendientes,
@@ -61,15 +68,15 @@ class NominaPagoController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-            'empleado_id'   => 'required|exists:empleados,id',
+            'usuario_id'   => 'required|exists:usuarios,id',
             'fecha_inicio'  => 'required|date',
             'observaciones' => 'nullable|string|max:2000',
         ], [
-            'empleado_id.required'  => 'Elige el trabajador.',
+            'usuario_id.required'  => 'Elige el trabajador.',
             'fecha_inicio.required' => 'Falta el ciclo que se está pagando.',
         ]);
 
-        $empleado = $this->empleadoLiquidable($data['empleado_id']);
+        $empleado = $this->trabajadorLiquidable($data['usuario_id']);
 
         $pago = DB::transaction(fn () => $this->registrar(
             $empleado,
@@ -77,7 +84,7 @@ class NominaPagoController extends Controller
             $data['observaciones'] ?? null
         ));
 
-        return response()->json($this->comoJson($pago->load('empleado', 'ausencias', 'ajustes', 'producciones')), 201);
+        return response()->json($this->comoJson($pago->load('trabajador', 'ausencias', 'ajustes', 'producciones')), 201);
     }
 
     /**
@@ -92,7 +99,7 @@ class NominaPagoController extends Controller
     {
         $data = $request->validate([
             'pagos'                => 'required|array|min:1',
-            'pagos.*.empleado_id'  => 'required|exists:empleados,id',
+            'pagos.*.usuario_id'  => 'required|exists:usuarios,id',
             'pagos.*.fecha_inicio' => 'required|date',
         ], [
             'pagos.required' => 'No hay nada que pagar.',
@@ -103,16 +110,16 @@ class NominaPagoController extends Controller
 
         foreach ($data['pagos'] as $fila) {
             try {
-                $empleado = $this->empleadoLiquidable($fila['empleado_id']);
+                $empleado = $this->trabajadorLiquidable($fila['usuario_id']);
                 $pago = DB::transaction(fn () => $this->registrar(
                     $empleado,
                     CicloNomina::fecha($fila['fecha_inicio']),
                     null
                 ));
-                $pagados[] = $this->comoJson($pago->load('empleado', 'ausencias', 'ajustes', 'producciones'));
+                $pagados[] = $this->comoJson($pago->load('trabajador', 'ausencias', 'ajustes', 'producciones'));
             } catch (ValidationException $e) {
                 $omitidos[] = [
-                    'empleado_id' => $fila['empleado_id'],
+                    'usuario_id' => $fila['usuario_id'],
                     'motivo'      => collect($e->errors())->flatten()->first(),
                 ];
             }
@@ -125,15 +132,15 @@ class NominaPagoController extends Controller
         ], 201);
     }
 
-    /** GET /api/nomina/pagos?empleado_id=&limite= — el historial de lo pagado. */
+    /** GET /api/nomina/pagos?usuario_id=&limite= — el historial de lo pagado. */
     public function index(Request $request)
     {
-        $q = NominaPago::with('empleado', 'ausencias', 'ajustes', 'producciones')
+        $q = NominaPago::with('trabajador', 'ausencias', 'ajustes', 'producciones')
             ->orderByDesc('fecha_fin')
             ->orderByDesc('id');
 
-        if ($empleadoId = $request->query('empleado_id')) {
-            $q->where('empleado_id', $empleadoId);
+        if ($empleadoId = $request->query('usuario_id')) {
+            $q->where('usuario_id', $empleadoId);
         }
 
         $pagos = $q->limit((int) $request->query('limite', 100))->get();
@@ -165,7 +172,7 @@ class NominaPagoController extends Controller
      * Congela el desglose del ciclo y engancha las faltas y ajustes que
      * caen adentro. Corre dentro de una transacción.
      */
-    private function registrar(Empleado $empleado, Carbon $fechaInicio, ?string $observaciones): NominaPago
+    private function registrar(Usuario $empleado, Carbon $fechaInicio, ?string $observaciones): NominaPago
     {
         $hoy = $this->hoy();
         [$inicio, $fin] = CicloNomina::rango($empleado->periodicidad, $fechaInicio);
@@ -185,7 +192,7 @@ class NominaPagoController extends Controller
             ]);
         }
 
-        if (NominaPago::where('empleado_id', $empleado->id)->whereDate('fecha_inicio', $inicio->toDateString())->exists()) {
+        if (NominaPago::where('usuario_id', $empleado->id)->whereDate('fecha_inicio', $inicio->toDateString())->exists()) {
             throw ValidationException::withMessages([
                 'fecha_inicio' => ["Ese ciclo de {$empleado->nombre} ya estaba pagado."],
             ]);
@@ -194,7 +201,7 @@ class NominaPagoController extends Controller
         $l = NominaLiquidador::liquidar($empleado, $inicio, $fin, $hoy);
 
         $pago = NominaPago::create([
-            'empleado_id'      => $empleado->id,
+            'usuario_id'      => $empleado->id,
             'periodicidad'     => $empleado->periodicidad,
             'fecha_inicio'     => $inicio,
             'fecha_fin'        => $fin,
@@ -227,17 +234,17 @@ class NominaPagoController extends Controller
         // que queda enganchado.
         $rango = [$inicio->toDateString(), $fin->toDateString()];
 
-        NominaAusencia::where('empleado_id', $empleado->id)
+        NominaAusencia::where('usuario_id', $empleado->id)
             ->whereNull('nomina_pago_id')
             ->whereBetween('fecha', $rango)
             ->update(['nomina_pago_id' => $pago->id]);
 
-        NominaAjuste::where('empleado_id', $empleado->id)
+        NominaAjuste::where('usuario_id', $empleado->id)
             ->whereNull('nomina_pago_id')
             ->whereBetween('fecha', $rango)
             ->update(['nomina_pago_id' => $pago->id]);
 
-        NominaProduccion::where('empleado_id', $empleado->id)
+        NominaProduccion::where('usuario_id', $empleado->id)
             ->whereNull('nomina_pago_id')
             ->whereBetween('fecha', $rango)
             ->update(['nomina_pago_id' => $pago->id]);
@@ -266,13 +273,13 @@ class NominaPagoController extends Controller
     }
 
     /** El trabajador con todo lo que la liquidación necesita cargado. */
-    private function empleadoLiquidable(int|string $id): Empleado
+    private function trabajadorLiquidable(int|string $id): Usuario
     {
-        $empleado = Empleado::with(NominaLiquidador::relaciones())->findOrFail($id);
+        $empleado = Usuario::with(NominaLiquidador::relaciones())->findOrFail($id);
 
         if (! $empleado->nomina_sueldo_id) {
             throw ValidationException::withMessages([
-                'empleado_id' => ["{$empleado->nombre} todavía no tiene un sueldo asignado."],
+                'usuario_id' => ["{$empleado->nombre} todavía no tiene un sueldo asignado."],
             ]);
         }
 
@@ -283,9 +290,9 @@ class NominaPagoController extends Controller
     {
         return [
             'id'                 => $p->id,
-            'empleado_id'        => $p->empleado_id,
-            'empleado_nombre'    => $p->empleado?->nombre,
-            'empleado_cargo'     => $p->empleado?->cargo,
+            'usuario_id'        => $p->usuario_id,
+            'empleado_nombre'    => $p->trabajador?->nombre,
+            'empleado_cargo'     => $p->trabajador?->rolAsignado?->nombre,
             'periodicidad'       => $p->periodicidad,
             'periodicidad_label' => $p->labelPeriodicidad(),
             'nombre'             => $p->nombreCiclo(),

@@ -46,9 +46,9 @@ class NominaBonificacion extends Model
         return $this->hasMany(NominaBonificacionMeta::class)->orderBy('desde');
     }
 
-    public function empleados()
+    public function trabajadores()
     {
-        return $this->hasMany(Empleado::class, 'nomina_bonificacion_id');
+        return $this->hasMany(Usuario::class, 'nomina_bonificacion_id');
     }
 
     /**

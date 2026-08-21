@@ -18,7 +18,7 @@ class NominaPago extends Model
     protected $table = 'nomina_pagos';
 
     protected $fillable = [
-        'empleado_id', 'periodicidad', 'fecha_inicio', 'fecha_fin', 'sueldo_nombre',
+        'usuario_id', 'periodicidad', 'fecha_inicio', 'fecha_fin', 'sueldo_nombre',
         'valor_dia', 'valor_hora', 'horas_dia', 'dias', 'subtotal',
         'descuento_faltas', 'total_ajustes', 'produccion_total', 'bonificacion',
         'bonificacion_nombre', 'bonificacion_detalle', 'total', 'observaciones', 'pagado_at',
@@ -43,9 +43,9 @@ class NominaPago extends Model
         ];
     }
 
-    public function empleado()
+    public function trabajador()
     {
-        return $this->belongsTo(Empleado::class);
+        return $this->belongsTo(Usuario::class, 'usuario_id');
     }
 
     public function ausencias()

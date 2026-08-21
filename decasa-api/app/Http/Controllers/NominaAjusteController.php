@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Empleado;
+use App\Models\Usuario;
 use App\Models\NominaAjuste;
 use App\Models\NominaPago;
 use App\Services\CicloNomina;
@@ -22,7 +22,7 @@ class NominaAjusteController extends Controller
 
         return [
             'id'            => $a->id,
-            'empleado_id'   => $a->empleado_id,
+            'usuario_id'   => $a->usuario_id,
             'fecha'         => $a->fecha->toDateString(),
             'nombre'        => $a->nombre,
             'monto'         => (float) $a->monto,
@@ -33,13 +33,13 @@ class NominaAjusteController extends Controller
         ];
     }
 
-    /** GET /api/nomina/ajustes?empleado_id=&pendientes=1 */
+    /** GET /api/nomina/ajustes?usuario_id=&pendientes=1 */
     public function index(Request $request)
     {
         $q = NominaAjuste::query()->with('pago')->orderByDesc('fecha');
 
-        if ($empleadoId = $request->query('empleado_id')) {
-            $q->where('empleado_id', $empleadoId);
+        if ($empleadoId = $request->query('usuario_id')) {
+            $q->where('usuario_id', $empleadoId);
         }
         if ($request->boolean('pendientes')) {
             $q->whereNull('nomina_pago_id');
@@ -52,18 +52,18 @@ class NominaAjusteController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-            'empleado_id' => 'required|exists:empleados,id',
+            'usuario_id' => 'required|exists:usuarios,id',
             'fecha'       => 'required|date',
             'nombre'      => 'required|string|max:120',
             'monto'       => 'required|numeric',
         ], [
-            'empleado_id.required' => 'Elige el trabajador.',
+            'usuario_id.required' => 'Elige el trabajador.',
             'fecha.required'       => 'La fecha es obligatoria.',
             'nombre.required'      => 'Ponle un nombre al ajuste.',
             'monto.required'       => 'El valor es obligatorio (negativo si es un descuento).',
         ]);
 
-        $empleado = Empleado::findOrFail($data['empleado_id']);
+        $empleado = Usuario::findOrFail($data['usuario_id']);
         $fecha    = CicloNomina::fecha($data['fecha']);
 
         // Si esa fecha ya quedó dentro de un ciclo cobrado, el ajuste no
@@ -77,7 +77,7 @@ class NominaAjusteController extends Controller
         }
 
         $ajuste = NominaAjuste::create([
-            'empleado_id' => $empleado->id,
+            'usuario_id' => $empleado->id,
             'fecha'       => $fecha,
             'nombre'      => $data['nombre'],
             'monto'       => $data['monto'],
@@ -104,7 +104,7 @@ class NominaAjusteController extends Controller
 
     private function pagoQueCubre(int $empleadoId, Carbon $fecha): ?NominaPago
     {
-        return NominaPago::where('empleado_id', $empleadoId)
+        return NominaPago::where('usuario_id', $empleadoId)
             ->whereDate('fecha_inicio', '<=', $fecha->toDateString())
             ->whereDate('fecha_fin', '>=', $fecha->toDateString())
             ->first();

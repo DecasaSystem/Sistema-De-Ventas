@@ -14,7 +14,7 @@ class NominaAjuste extends Model
 {
     protected $table = 'nomina_ajustes';
 
-    protected $fillable = ['empleado_id', 'nomina_pago_id', 'fecha', 'nombre', 'monto'];
+    protected $fillable = ['usuario_id', 'nomina_pago_id', 'fecha', 'nombre', 'monto'];
 
     protected function casts(): array
     {
@@ -24,9 +24,9 @@ class NominaAjuste extends Model
         ];
     }
 
-    public function empleado()
+    public function trabajador()
     {
-        return $this->belongsTo(Empleado::class);
+        return $this->belongsTo(Usuario::class, 'usuario_id');
     }
 
     public function pago()

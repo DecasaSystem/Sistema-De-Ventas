@@ -15,7 +15,7 @@ class NominaAusencia extends Model
 {
     protected $table = 'nomina_ausencias';
 
-    protected $fillable = ['empleado_id', 'nomina_pago_id', 'fecha', 'horas', 'motivo'];
+    protected $fillable = ['usuario_id', 'nomina_pago_id', 'fecha', 'horas', 'motivo'];
 
     protected function casts(): array
     {
@@ -25,9 +25,9 @@ class NominaAusencia extends Model
         ];
     }
 
-    public function empleado()
+    public function trabajador()
     {
-        return $this->belongsTo(Empleado::class);
+        return $this->belongsTo(Usuario::class, 'usuario_id');
     }
 
     public function pago()

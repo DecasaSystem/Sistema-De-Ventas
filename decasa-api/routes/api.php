@@ -116,8 +116,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::patch('/sueldos/{id}',       [NominaSueldoController::class, 'update'])->whereNumber('id');
         Route::delete('/sueldos/{id}',      [NominaSueldoController::class, 'destroy'])->whereNumber('id');
 
+        // Los trabajadores NO se crean acá: se dan de alta una sola vez en
+        // Trabajadores (/usuarios) y aparecen solos en esta lista. Desde acá
+        // solo se les asigna lo de nómina (sueldo, bonificación, frecuencia).
         Route::get('/empleados',            [EmpleadoController::class, 'index']);
-        Route::post('/empleados',           [EmpleadoController::class, 'store']);
         Route::patch('/empleados/{id}',     [EmpleadoController::class, 'update'])->whereNumber('id');
         Route::delete('/empleados/{id}',    [EmpleadoController::class, 'destroy'])->whereNumber('id');
 

@@ -15,7 +15,7 @@ class NominaProduccion extends Model
     protected $table = 'nomina_producciones';
 
     protected $fillable = [
-        'empleado_id', 'nomina_pago_id', 'fecha', 'concepto',
+        'usuario_id', 'nomina_pago_id', 'fecha', 'concepto',
         'valor_unitario', 'cantidad', 'total',
     ];
 
@@ -29,9 +29,9 @@ class NominaProduccion extends Model
         ];
     }
 
-    public function empleado()
+    public function trabajador()
     {
-        return $this->belongsTo(Empleado::class);
+        return $this->belongsTo(Usuario::class, 'usuario_id');
     }
 
     public function pago()
