@@ -65,6 +65,9 @@ const accesos = computed(() => {
       ...(auth.puedeSurtir ? [{ label: 'Surtir', icon: ArrowPathIcon, to: { name: 'surtir' } }] : []),
       { label: 'Proveedores',  icon: BuildingStorefrontIcon,     to: { name: 'proveedores' } },
       ...(auth.puedeCompras ? [{ label: 'Compras', icon: ShoppingCartIcon, to: { name: 'compras' } }] : []),
+      // Un conductor puede tener pasos del taller asignados a dedo: sin esto
+      // el acceso no le aparecía aunque el permiso ya lo dejara entrar.
+      ...(auth.tieneAccesoPasos ? [{ label: 'Mis pasos', icon: ClipboardDocumentCheckIcon, to: { name: 'mis-pasos' }, badge: pasos.pendientesCount }] : []),
     ]
   }
   if (auth.usuario?.rol === 'ebanista') {
@@ -89,6 +92,9 @@ const accesos = computed(() => {
       ...(auth.puedeSurtir ? [{ label: 'Surtir', icon: ArrowPathIcon, to: { name: 'surtir' } }] : []),
       { label: 'Proveedores',         icon: BuildingStorefrontIcon, to: { name: 'proveedores' } },
       ...(auth.puedeCompras ? [{ label: 'Compras', icon: ShoppingCartIcon, to: { name: 'compras' } }] : []),
+      // Igual que el conductor: el despachador tiene su propia pantalla de
+      // despacho, pero puede además trabajar pasos si se le asignan.
+      ...(auth.tieneAccesoPasos ? [{ label: 'Mis pasos', icon: ClipboardDocumentCheckIcon, to: { name: 'mis-pasos' }, badge: pasos.pendientesCount }] : []),
     ]
   }
 
