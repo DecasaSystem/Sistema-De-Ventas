@@ -21,7 +21,7 @@ use App\Models\ProductoVariante;
 use App\Models\Tienda;
 use App\Support\ConvierteImagenesPdf;
 use App\Support\StockVariantes;
-use Barryvdh\DomPDF\Facade\Pdf;
+use App\Support\PdfOrdenUnaHoja;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -2386,8 +2386,14 @@ class OrdenController extends Controller
         // Los bocetos ya no van en el PDF: la orden se imprime y cada boceto
         // se llevaba media hoja. Se consultan en el detalle de la orden, que es
         // donde además se ven a tamaño completo.
-        $pdf = Pdf::loadView('pdf.orden', compact('orden', 'firmaCliente', 'firmaVendedor', 'logoBase64'));
-        $pdf->setPaper('letter');
+        // Lo más grande que quepa en una hoja: se prueban varias escalas de
+        // mayor a menor y se deja la primera que no se pase (ver
+        // PdfOrdenUnaHoja). Antes se imprimía siempre al mismo tamaño y se
+        // veía chiquito, porque el tamaño estaba elegido para que cupiera
+        // hasta la orden más larga.
+        [$pdf] = PdfOrdenUnaHoja::generar(
+            compact('orden', 'firmaCliente', 'firmaVendedor', 'logoBase64')
+        );
 
         return $pdf->download('orden-' . $orden->id . '.pdf');
     }

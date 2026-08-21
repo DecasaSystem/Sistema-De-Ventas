@@ -51,6 +51,34 @@
         </tr>
     </table>
 
+    {{-- Fecha de entrega, arriba y grande: es lo primero que se busca en la
+         hoja impresa, y antes había que ir leyendo la columna Entrega ítem
+         por ítem para deducirla. --}}
+    @php
+        $fechaEntrega = $orden->fechaEntregaEstimada();
+        $variasFechas = $orden->items->pluck('fecha_entrega_prom')->filter()
+            ->map(fn ($f) => \Carbon\Carbon::parse($f)->toDateString())->unique()->count() > 1;
+    @endphp
+    <table style="width: 100%; margin-bottom: 10px; border-collapse: collapse; background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px;">
+        <tr>
+            <td style="padding: 6px 10px; vertical-align: middle;">
+                <span style="font-size: 9px; font-weight: bold; color: #1d4ed8; text-transform: uppercase;">Fecha de entrega</span>
+                <span style="font-size: 14px; font-weight: bold; color: #1e3a8a; margin-left: 8px;">{{ $fechaEntrega ? $fechaEntrega->format('d/m/Y') : 'Por definir' }}</span>
+                @if($fechaEntrega && $variasFechas)
+                    <span style="font-size: 9px; color: #3b82f6;">(la última de los ítems)</span>
+                @endif
+            </td>
+            <td style="padding: 6px 10px; text-align: right; vertical-align: middle;">
+                @if($orden->fecha_sugerida_vendedor)
+                    <span style="font-size: 9px; color: #6b7280;">Prometida al cliente:</span>
+                    <span style="font-size: 10px; font-weight: bold; color: #374151;">{{ \Carbon\Carbon::parse($orden->fecha_sugerida_vendedor)->format('d/m/Y') }}</span>
+                @elseif(! $fechaEntrega)
+                    <span style="font-size: 9px; color: #92400e;">Falta asignarle fecha a algún ítem</span>
+                @endif
+            </td>
+        </tr>
+    </table>
+
     <!-- Info General -->
     <table style="width: 100%; margin-bottom: 10px; border-collapse: collapse;">
         <tr>
@@ -353,7 +381,7 @@
                         @endif
                     </div>
                     <p style="font-size: 10px; color: #374151; margin: 2px 0 0 0;"><strong>{{ $orden->cliente->nombre ?? 'Cliente' }}</strong></p>
-                    <p style="font-size: 8px; color: #6b7280; margin: 0;">{{ $orden->cliente->cedula ? 'C.C. / NIT: ' . $orden->cliente->cedula : 'Cliente' }}</p>
+                    <p style="font-size: 8px; color: #6b7280; margin: 0;">{{ $orden->cliente?->cedula ? 'C.C. / NIT: ' . $orden->cliente->cedula : 'Cliente' }}</p>
                 </td>
             </tr>
         </table>

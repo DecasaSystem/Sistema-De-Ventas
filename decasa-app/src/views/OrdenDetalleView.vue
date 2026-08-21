@@ -79,6 +79,25 @@ const todasFechasAsignadas = computed(() =>
   (orden.value?.items?.length ?? 0) > 0 && (orden.value?.items?.every(i => i.fecha_entrega_prom) ?? false)
 )
 
+// Cuándo se entrega la orden completa: la fecha más lejana de sus ítems,
+// porque el cliente recibe todo cuando esté listo el último. Si a alguno le
+// falta fecha no se muestra ninguna — media orden con fecha no es una fecha
+// de entrega. Misma regla que Orden::fechaEntregaEstimada() en el PDF.
+const fechaEntregaOrden = computed(() => {
+  if (!todasFechasAsignadas.value) return null
+  return orden.value.items
+    .map(i => String(i.fecha_entrega_prom).substring(0, 10))
+    .sort()
+    .at(-1)
+})
+
+const variasFechasEntrega = computed(() => {
+  const fechas = (orden.value?.items ?? [])
+    .map(i => i.fecha_entrega_prom ? String(i.fecha_entrega_prom).substring(0, 10) : null)
+    .filter(Boolean)
+  return new Set(fechas).size > 1
+})
+
 // 'entregado' directo: el cliente se llevó el producto de la tienda al pagar y
 // no se marcó entrega inmediata al hacer la orden. No pasa por despacho porque
 // nadie lo transportó, pero descuenta inventario igual.
@@ -1263,6 +1282,30 @@ onMounted(() => { cargarTipos(); cargarOrden() })
       <!-- Info general -->
       <div class="bg-white rounded-xl shadow-sm p-4 space-y-2 text-sm">
         <p class="text-xs font-semibold text-gray-500 uppercase mb-2">Información general</p>
+
+        <!-- Fecha de entrega arriba de todo: es lo que más se consulta, y
+             antes tocaba bajar hasta los ítems para deducirla. -->
+        <div class="rounded-lg px-3 py-2.5 mb-1" :class="fechaEntregaOrden ? 'bg-blue-50 border border-blue-100' : 'bg-amber-50 border border-amber-100'">
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2 min-w-0">
+              <CalendarIcon class="w-4 h-4 shrink-0" :class="fechaEntregaOrden ? 'text-blue-500' : 'text-amber-500'" />
+              <span class="text-xs font-semibold uppercase" :class="fechaEntregaOrden ? 'text-blue-700' : 'text-amber-700'">Fecha de entrega</span>
+            </div>
+            <span class="font-bold text-base shrink-0" :class="fechaEntregaOrden ? 'text-blue-900' : 'text-amber-700'">
+              {{ fechaEntregaOrden ? formatFecha(fechaEntregaOrden) : 'Por definir' }}
+            </span>
+          </div>
+          <p v-if="fechaEntregaOrden && variasFechasEntrega" class="text-[11px] text-blue-600 mt-1">
+            Es la última de los ítems — cada uno tiene su fecha más abajo.
+          </p>
+          <p v-else-if="!fechaEntregaOrden" class="text-[11px] text-amber-700 mt-1">
+            Falta asignarle fecha a algún ítem.
+          </p>
+          <p v-if="orden.fecha_sugerida_vendedor" class="text-[11px] mt-1" :class="fechaEntregaOrden ? 'text-blue-600' : 'text-amber-700'">
+            Prometida al cliente: <span class="font-semibold">{{ formatFecha(orden.fecha_sugerida_vendedor) }}</span>
+          </p>
+        </div>
+
         <div class="flex justify-between">
           <span class="text-gray-500">Cliente</span>
           <span class="font-medium text-gray-800">{{ orden.cliente?.nombre }}</span>

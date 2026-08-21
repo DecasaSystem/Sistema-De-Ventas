@@ -78,6 +78,30 @@ class Orden extends Model
      * Subtotal antes de cualquier descuento. El monto es la fuente de verdad,
      * así que el subtotal se reconstruye sumándolos de vuelta.
      */
+    /**
+     * Cuándo se entrega la orden completa: la fecha más lejana de sus ítems,
+     * porque el cliente recibe todo cuando esté listo el último.
+     *
+     * Null si todavía falta asignarle fecha a alguno — media orden con fecha
+     * no es una fecha de entrega, y decir la del primero prometería algo que
+     * no se va a cumplir.
+     *
+     * Requiere `items` cargada.
+     */
+    public function fechaEntregaEstimada(): ?\Carbon\Carbon
+    {
+        $items = $this->items;
+
+        if ($items->isEmpty() || $items->contains(fn ($i) => empty($i->fecha_entrega_prom))) {
+            return null;
+        }
+
+        return $items
+            ->map(fn ($i) => \Carbon\Carbon::parse($i->fecha_entrega_prom))
+            ->sortDesc()
+            ->first();
+    }
+
     public function subtotalBruto(): float
     {
         return (float) $this->valor_total

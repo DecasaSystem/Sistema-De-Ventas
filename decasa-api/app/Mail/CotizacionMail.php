@@ -3,7 +3,7 @@
 namespace App\Mail;
 
 use App\Models\Orden;
-use Barryvdh\DomPDF\Facade\Pdf;
+use App\Support\PdfOrdenUnaHoja;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Attachment;
@@ -47,9 +47,12 @@ class CotizacionMail extends Mailable
             $firmaVendedor = $this->urlToBase64($orden->vendedor?->firma_url);
             $logoBase64    = $this->avifToPngBase64(public_path('img/logo.avif'));
 
-            // Sin bocetos: mismo PDF de una hoja que se imprime en la tienda.
-            $pdf = Pdf::loadView('pdf.orden', compact('orden', 'firmaCliente', 'firmaVendedor', 'logoBase64'));
-            $pdf->setPaper('letter');
+            // Sin bocetos: mismo PDF de una hoja que se imprime en la tienda,
+            // y con el mismo ajuste de tamaño — si acá se generara aparte, al
+            // cliente le llegaría más chico que el que se imprime en tienda.
+            [$pdf] = PdfOrdenUnaHoja::generar(
+                compact('orden', 'firmaCliente', 'firmaVendedor', 'logoBase64')
+            );
 
             $num = $orden->numero_orden ?? $this->ordenId;
             return [
