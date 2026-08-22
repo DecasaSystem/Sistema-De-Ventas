@@ -866,7 +866,7 @@ class DespachoController extends Controller
 
         $orden = $item->orden;
 
-        if ($usuario->rol === 'vendedor'
+        if ($usuario->soloVeSusOrdenes()
             && $orden->vendedor_id !== $usuario->id
             && ! $usuario->facturacion
         ) {

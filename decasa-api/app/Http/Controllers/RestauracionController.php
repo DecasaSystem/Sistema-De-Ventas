@@ -36,7 +36,7 @@ class RestauracionController extends Controller
         })
         ->withSum('pagos', 'monto');
 
-        if ($usuario->rol === 'vendedor') {
+        if ($usuario->soloVeSusOrdenes()) {
             $query->where('vendedor_id', $usuario->id);
         }
 

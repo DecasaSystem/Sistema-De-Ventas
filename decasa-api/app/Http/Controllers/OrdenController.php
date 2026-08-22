@@ -51,7 +51,7 @@ class OrdenController extends Controller
             // Las cotizaciones tienen su propio módulo: no se mezclan con órdenes.
             ->where('estado', '!=', 'cotizacion');
 
-        if ($usuario->rol === 'vendedor' && ! $usuario->ve_todas_ordenes) {
+        if ($usuario->soloVeSusOrdenes()) {
             if ($usuario->facturacion) {
                 $query->where(function ($q) use ($usuario) {
                     $q->where('vendedor_id', $usuario->id)
@@ -782,7 +782,7 @@ class OrdenController extends Controller
 
         $orden = Orden::with('cliente:id,nombre,email')->findOrFail($id);
 
-        if ($usuario->rol === 'vendedor' && $orden->vendedor_id !== $usuario->id && ! $usuario->ve_todas_ordenes) {
+        if ($usuario->soloVeSusOrdenes() && $orden->vendedor_id !== $usuario->id) {
             return response()->json(['message' => 'No autorizado.'], 403);
         }
 
@@ -826,7 +826,7 @@ class OrdenController extends Controller
             'ediciones.usuario:id,nombre',
         ])->findOrFail($id);
 
-        if ($usuario->rol === 'vendedor' && $orden->vendedor_id !== $usuario->id && ! $usuario->ve_todas_ordenes) {
+        if ($usuario->soloVeSusOrdenes() && $orden->vendedor_id !== $usuario->id) {
             if (! $usuario->facturacion) {
                 return response()->json(['message' => 'No autorizado.'], 403);
             }
@@ -857,7 +857,7 @@ class OrdenController extends Controller
             return response()->json(['message' => 'La orden no está pendiente de cotización.'], 422);
         }
 
-        if ($usuario->rol === 'vendedor' && $orden->vendedor_id !== $usuario->id && ! $usuario->ve_todas_ordenes) {
+        if ($usuario->soloVeSusOrdenes() && $orden->vendedor_id !== $usuario->id) {
             return response()->json(['message' => 'No autorizado.'], 403);
         }
 
@@ -1024,7 +1024,7 @@ class OrdenController extends Controller
 
         $orden = Orden::with(['items', 'items.producto:id,nombre'])->findOrFail($id);
 
-        if ($usuario->rol === 'vendedor' && $orden->vendedor_id !== $usuario->id) {
+        if ($usuario->soloVeSusOrdenes() && $orden->vendedor_id !== $usuario->id) {
             return response()->json(['message' => 'No autorizado.'], 403);
         }
 
@@ -2375,7 +2375,7 @@ class OrdenController extends Controller
             'pagos',
         ])->findOrFail($id);
 
-        if ($usuario->rol === 'vendedor' && $orden->vendedor_id !== $usuario->id && ! $usuario->ve_todas_ordenes) {
+        if ($usuario->soloVeSusOrdenes() && $orden->vendedor_id !== $usuario->id) {
             if (! $usuario->facturacion) {
                 return response()->json(['message' => 'No autorizado.'], 403);
             }

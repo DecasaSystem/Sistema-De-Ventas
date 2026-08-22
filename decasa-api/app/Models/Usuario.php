@@ -174,6 +174,20 @@ class Usuario extends Authenticatable
         return $this->activo && $this->nomina_sueldo_id !== null;
     }
 
+    /**
+     * ¿Solo ve las órdenes que él mismo vendió?
+     *
+     * Un vendedor ve lo suyo, salvo que se le active "puede ver todas las
+     * órdenes". La regla vive acá porque se pregunta en una docena de sitios
+     * —la lista, el detalle, los pagos, producción, restauraciones— y con la
+     * condición repetida a mano bastaba con olvidarla en uno para que alguien
+     * viera la orden pero no pudiera abrir sus pagos.
+     */
+    public function soloVeSusOrdenes(): bool
+    {
+        return $this->rol === 'vendedor' && ! $this->ve_todas_ordenes;
+    }
+
     /** Procesos que se le asignaron a esta persona en concreto. */
     public function procesosAsignados()
     {

@@ -152,6 +152,10 @@ export const useAuthStore = defineStore('auth', () => {
   // persona por persona para cualquier rol, no atada a ser supervisor.
   const puedeCompras          = computed(() => !!usuario.value?.acceso_compras)
   const veTodasOrdenes        = computed(() => !!usuario.value?.ve_todas_ordenes)
+  // La cara opuesta, que es como se pregunta en las pantallas: un vendedor ve
+  // lo suyo salvo que se le haya activado ver todas.
+  const soloVeSusOrdenes      = computed(() =>
+    usuario.value?.rol === 'vendedor' && !usuario.value?.ve_todas_ordenes)
 
   // Dual-profile getters
   const tienePerfilAlternativo = computed(() => _perfiles.value.length > 1)
@@ -267,7 +271,7 @@ export const useAuthStore = defineStore('auth', () => {
     isIndependiente, llevaCajaPropia,
     tieneAccesoPasos,
     isFacturador, tieneAccesoRedes, tieneAccesoComisiones, puedeRecargarTelas, puedeSurtir,
-    puedeCostos, puedeProveedores, puedeDespacho, puedeProduccion, puedeReserva, puedeNomina, puedeCompras, veTodasOrdenes,
+    puedeCostos, puedeProveedores, puedeDespacho, puedeProduccion, puedeReserva, puedeNomina, puedeCompras, veTodasOrdenes, soloVeSusOrdenes,
     tienePerfilAlternativo, perfilAlternativo, perfilActivoIdx,
     login, fetchMe, setFirma, setEmail, logout, clearSession,
     loginPerfilAlternativo, cambiarPerfil, eliminarPerfilAlternativo,

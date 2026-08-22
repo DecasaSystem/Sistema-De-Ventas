@@ -40,7 +40,7 @@ class ProduccionController extends Controller
             'pasos.completadoPor:id,nombre',
         ]);
 
-        if ($usuario->rol === 'vendedor') {
+        if ($usuario->soloVeSusOrdenes()) {
             $query->whereHas('ordenItem.orden', fn($q) => $q->where('vendedor_id', $usuario->id));
         }
 
@@ -401,7 +401,7 @@ class ProduccionController extends Controller
         }
 
         // Vendedor solo puede actualizar sus propios pedidos (para otros estados, no en_proceso)
-        if ($usuario->rol === 'vendedor' &&
+        if ($usuario->soloVeSusOrdenes() &&
             $produccion->ordenItem->orden->vendedor_id !== $usuario->id) {
             return response()->json(['message' => 'No autorizado.'], 403);
         }
