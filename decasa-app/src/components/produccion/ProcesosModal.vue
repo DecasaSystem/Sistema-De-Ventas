@@ -16,7 +16,7 @@ const props = defineProps({ show: Boolean })
 const emit  = defineEmits(['close', 'cambiado'])
 
 const toast = useToast()
-const { tipos, perfiles, trabajadores, colores, cargar, clasesDeColor } = useTiposProceso()
+const { tipos, trabajadores, colores, cargar, clasesDeColor } = useTiposProceso()
 
 const cargando = ref(false)
 const guardando = ref(null)   // id o 'nuevo'
@@ -35,18 +35,13 @@ const ordenados = computed(() =>
 )
 
 function empezarNuevo() {
-  nuevo.value = { nombre: '', descripcion: '', color: 'slate', perfiles: [], trabajador_ids: [] }
+  nuevo.value = { nombre: '', descripcion: '', color: 'slate', trabajador_ids: [] }
 }
 
-function alternarPerfil(obj, perfil) {
-  const i = obj.perfiles.indexOf(perfil)
-  if (i === -1) obj.perfiles.push(perfil)
-  else obj.perfiles.splice(i, 1)
-}
 
-// Asignar el proceso a una persona concreta, aparte de por especialidad.
-// Sirve para el caso que la especialidad no sabe resolver: dos tapiceros y
-// que el paso le llegue solo a uno.
+// Quién hace este proceso. Se elige persona por persona: ya no hay
+// "especialidades" que repartan el trabajo en bloque, porque eso obligaba a
+// darle un rol de taller a quien solo estaba encargado de un paso.
 function alternarTrabajador(obj, id) {
   if (!Array.isArray(obj.trabajador_ids)) obj.trabajador_ids = []
   const i = obj.trabajador_ids.indexOf(id)
@@ -54,24 +49,22 @@ function alternarTrabajador(obj, id) {
   else obj.trabajador_ids.splice(i, 1)
 }
 
-// Cuánta gente queda cubierta: la de las especialidades marcadas más las
-// personas elegidas. Sin esto se podía dejar un proceso sin nadie que lo
-// viera y los pasos quedaban colgados en silencio.
+// Sin nadie asignado el proceso queda sin quien lo vea, y los pasos que lo
+// usen se quedan colgados en silencio.
 function nadieAsignado(obj) {
-  return !(obj.perfiles ?? []).length && !(obj.trabajador_ids ?? []).length
+  return !(obj.trabajador_ids ?? []).length
 }
 
 async function crear() {
   const n = nuevo.value
   if (!n.nombre.trim())  { toast.error('Ponle un nombre al proceso.'); return }
-  if (nadieAsignado(n))  { toast.error('Elige al menos una especialidad o un trabajador.'); return }
+  if (nadieAsignado(n))  { toast.error('Elige al menos un trabajador que haga este proceso.'); return }
   guardando.value = 'nuevo'
   try {
     await api.post('/tipos-proceso', {
       nombre: n.nombre.trim(),
       descripcion: n.descripcion.trim() || undefined,
       color: n.color,
-      perfiles: n.perfiles,
       trabajadores: n.trabajador_ids,
     })
     await cargar(true, true)
@@ -85,14 +78,13 @@ async function crear() {
 
 async function guardar(t) {
   if (!t.nombre.trim())  { toast.error('El nombre no puede quedar vacío.'); return }
-  if (nadieAsignado(t))  { toast.error('Elige al menos una especialidad o un trabajador.'); return }
+  if (nadieAsignado(t))  { toast.error('Elige al menos un trabajador que haga este proceso.'); return }
   guardando.value = t.id
   try {
     await api.patch(`/tipos-proceso/${t.id}`, {
       nombre: t.nombre.trim(),
       descripcion: t.descripcion?.trim() ?? null,
       color: t.color,
-      perfiles: t.perfiles,
       trabajadores: t.trabajador_ids ?? [],
       orden: Number(t.orden) || 0,
       activo: !!t.activo,
@@ -179,18 +171,6 @@ async function quitar(t) {
                     class="w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
 
-                <div>
-                  <label class="block text-[11px] text-gray-500 mb-1">Quién lo hace — por especialidad</label>
-                  <div class="flex flex-wrap gap-1.5">
-                    <button
-                      v-for="p in perfiles" :key="p.clave" type="button" @click="alternarPerfil(t, p.clave)"
-                      :class="['px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors',
-                        (t.perfiles ?? []).includes(p.clave)
-                          ? 'border-blue-500 bg-blue-50 text-blue-700'
-                          : 'border-gray-200 bg-white text-gray-500 hover:border-blue-300']"
-                    >{{ p.nombre }}</button>
-                  </div>
-                </div>
 
                 <div>
                   <label class="block text-[11px] text-gray-500 mb-1">…o personas concretas</label>
@@ -204,8 +184,8 @@ async function quitar(t) {
                     >{{ w.nombre }}</button>
                   </div>
                   <p class="text-[11px] text-gray-400 mt-1">
-                    Para cuando la especialidad no alcanza: si dos personas son tapiceras y el paso
-                    debe llegarle solo a una, márcala aquí y deja la especialidad sin marcar.
+                    A quien marques aquí le llegará el paso en "Mis pasos", sea vendedor,
+                    supervisor o trabajador de fábrica. El cargo que tenga no importa.
                   </p>
                   <p v-if="nadieAsignado(t)" class="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 mt-1.5">
                     Nadie puede hacer este proceso: sus pasos quedarían en curso pero invisibles para todos.
@@ -243,18 +223,6 @@ async function quitar(t) {
                 <input v-model="nuevo.descripcion" type="text" maxlength="160" placeholder="Descripción (opcional)"
                   class="w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 <div>
-                  <label class="block text-[11px] text-gray-500 mb-1">Quién lo hace — por especialidad</label>
-                  <div class="flex flex-wrap gap-1.5">
-                    <button
-                      v-for="p in perfiles" :key="p.clave" type="button" @click="alternarPerfil(nuevo, p.clave)"
-                      :class="['px-2.5 py-1 rounded-lg border text-xs font-medium',
-                        nuevo.perfiles.includes(p.clave)
-                          ? 'border-blue-500 bg-blue-50 text-blue-700'
-                          : 'border-gray-200 bg-white text-gray-500']"
-                    >{{ p.nombre }}</button>
-                  </div>
-                </div>
-                <div>
                   <label class="block text-[11px] text-gray-500 mb-1">…o personas concretas</label>
                   <div class="flex flex-wrap gap-1.5">
                     <button
@@ -266,7 +234,7 @@ async function quitar(t) {
                     >{{ w.nombre }}</button>
                   </div>
                   <p v-if="nadieAsignado(nuevo)" class="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 mt-1.5">
-                    Elige al menos una especialidad o una persona.
+                    Elige al menos una persona.
                   </p>
                 </div>
                 <div>

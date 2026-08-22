@@ -71,7 +71,7 @@ const pruebaEntregaVisible = computed(() =>
 const puedeEditar = computed(() => {
   if (!orden.value) return false
   if (['entregado', 'cancelado', 'listo_entrega', 'en_camino'].includes(orden.value.estado)) return false
-  if ((auth.usuario?.rol === 'vendedor' || auth.isEbanista) && Number(orden.value.vendedor_id) !== Number(auth.usuario.id)) return false
+  if (auth.usuario?.rol === 'vendedor' && Number(orden.value.vendedor_id) !== Number(auth.usuario.id)) return false
   return true
 })
 
@@ -639,7 +639,7 @@ const puedeRegistrarPago = computed(() => {
   // 'entregado' se permite para cobrar el saldo residual de una venta directa.
   if (['cancelado', 'borrador'].includes(orden.value.estado)) return false
   if (orden.value.saldo_pendiente <= 0) return false
-  if (auth.isEbanista && Number(orden.value.vendedor_id) !== Number(auth.usuario?.id)) return false
+  if (auth.usuario?.rol === 'vendedor' && Number(orden.value.vendedor_id) !== Number(auth.usuario?.id)) return false
   return true
 })
 

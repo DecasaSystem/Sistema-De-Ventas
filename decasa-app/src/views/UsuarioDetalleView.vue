@@ -13,7 +13,6 @@ import {
 } from '@heroicons/vue/24/outline'
 import { getUsuario, toggleActivo, resetPassword, updateUsuario } from '@/api/usuarios'
 import { getTiendas } from '@/api/ordenes'
-import { getPerfilesProduccion } from '@/api/perfilesProduccion'
 import { getRoles } from '@/api/roles'
 import EmptyState from '@/components/common/EmptyState.vue'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
@@ -29,7 +28,6 @@ const showEditModal = ref(false)
 const actionLoading = ref(false)
 const actionError = ref('')
 const tiendas = ref([])
-const perfiles = ref([])
 const roles = ref([])
 const editLoading = ref(false)
 
@@ -39,12 +37,12 @@ const confirmacionPassword = ref('')
 
 // Edit form
 const editForm = ref({
-  nombre: '', email: '', rol_id: '', facturacion: false, es_tapicero: false, independiente: false,
+  nombre: '', email: '', rol_id: '', facturacion: false, independiente: false,
   notif_asignar_fecha: true, notif_stock: false, acceso_redes: false, acceso_comisiones: false,
   recarga_telas: false, acceso_surtir: false, acceso_costos: false, acceso_proveedores: false,
   acceso_despacho: false, acceso_produccion: false, acceso_nomina: false, acceso_reserva: false,
   acceso_compras: false,
-  ve_todas_ordenes: false, perfil_produccion_id: '', tienda_default_id: '',
+  ve_todas_ordenes: false, tienda_default_id: '',
 })
 const arquetiposSinTienda = ['conductor', 'despachador', 'taller']
 
@@ -125,7 +123,6 @@ function openEditModal() {
     email: usuario.value.email,
     rol_id: usuario.value.rol_id,
     facturacion: usuario.value.facturacion ?? false,
-    es_tapicero: usuario.value.es_tapicero ?? false,
     independiente: usuario.value.independiente ?? false,
     notif_asignar_fecha: usuario.value.notif_asignar_fecha ?? true,
     notif_stock: usuario.value.notif_stock ?? false,
@@ -141,7 +138,6 @@ function openEditModal() {
     acceso_compras: usuario.value.acceso_compras ?? false,
     acceso_reserva: usuario.value.acceso_reserva ?? false,
     ve_todas_ordenes: usuario.value.ve_todas_ordenes ?? false,
-    perfil_produccion_id: usuario.value.perfil_produccion_id ?? '',
     tienda_default_id: usuario.value.tienda_default_id,
   }
   actionError.value = ''
@@ -165,7 +161,6 @@ async function submitEdit() {
       email: editForm.value.email.trim(),
       rol_id: editForm.value.rol_id,
       facturacion: editArquetipo.value === 'vendedor' ? editForm.value.facturacion : false,
-      es_tapicero: editArquetipo.value === 'supervisor' ? editForm.value.es_tapicero : false,
       independiente: editEsIndependiente.value,
       notif_asignar_fecha: editArquetipo.value === 'supervisor' ? editForm.value.notif_asignar_fecha : false,
       notif_stock: editArquetipo.value === 'supervisor' ? editForm.value.notif_stock : false,
@@ -181,7 +176,6 @@ async function submitEdit() {
       acceso_compras: editForm.value.acceso_compras,
       acceso_reserva: editForm.value.acceso_reserva,
       ve_todas_ordenes: editArquetipo.value === 'vendedor' ? editForm.value.ve_todas_ordenes : false,
-      perfil_produccion_id: editForm.value.perfil_produccion_id || null,
       tienda_default_id: editMostrarTienda.value ? (editForm.value.tienda_default_id || null) : null,
     })
     showEditModal.value = false
@@ -209,10 +203,6 @@ onMounted(async () => {
   try {
     const { data } = await getTiendas()
     tiendas.value = data
-  } catch {}
-  try {
-    const { data } = await getPerfilesProduccion()
-    perfiles.value = data
   } catch {}
   try {
     const { data } = await getRoles()
@@ -278,24 +268,6 @@ onMounted(async () => {
           <div>
             <p class="text-xs text-gray-400">Función especial</p>
             <p class="font-medium text-green-700">Facturación habilitada</p>
-          </div>
-        </div>
-        <div v-if="usuario.es_tapicero && usuario.arquetipo === 'supervisor'" class="flex items-center gap-3">
-          <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
-            <span class="text-sm">🪡</span>
-          </div>
-          <div>
-            <p class="text-xs text-gray-400">Especialidad</p>
-            <p class="font-medium text-gray-800">Encargado de tapicería, esqueletería, costura y pintura</p>
-          </div>
-        </div>
-        <div v-if="usuario.perfil_produccion" class="flex items-center gap-3">
-          <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
-            <span class="text-sm">🛠️</span>
-          </div>
-          <div>
-            <p class="text-xs text-gray-400">Perfil de producción</p>
-            <p class="font-medium text-gray-800">{{ usuario.perfil_produccion.nombre }}</p>
           </div>
         </div>
         <div v-if="usuario.arquetipo === 'supervisor'" class="flex items-center gap-3">
@@ -613,18 +585,6 @@ onMounted(async () => {
             <template v-if="editArquetipo === 'supervisor'">
               <div class="flex items-start gap-3 py-1">
                 <input
-                  id="edit-tapicero"
-                  type="checkbox"
-                  v-model="editForm.es_tapicero"
-                  class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                <div>
-                  <label for="edit-tapicero" class="text-sm font-medium text-gray-700 cursor-pointer">Encargado de tapicería</label>
-                  <p class="text-xs text-gray-500 mt-0.5">Puede completar pasos de <strong>tapizado</strong>, <strong>laca</strong>, <strong>esqueletería</strong>, <strong>costura</strong> y <strong>pintura</strong>.</p>
-                </div>
-              </div>
-              <div class="flex items-start gap-3 py-1">
-                <input
                   id="edit-notif-fecha"
                   type="checkbox"
                   v-model="editForm.notif_asignar_fecha"
@@ -648,14 +608,6 @@ onMounted(async () => {
                 </div>
               </div>
             </template>
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Perfil de producción</label>
-              <select v-model="editForm.perfil_produccion_id" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <option value="">Sin perfil</option>
-                <option v-for="p in perfiles" :key="p.id" :value="p.id">{{ p.nombre }}</option>
-              </select>
-              <p class="text-xs text-gray-500 mt-0.5">Define qué pasos de producción puede ver y completar en "Mis pasos".</p>
-            </div>
             <div v-if="['vendedor', 'supervisor'].includes(editArquetipo)" class="flex items-start gap-3 py-1">
               <input
                 id="edit-acceso-redes"

@@ -185,16 +185,12 @@ onMounted(async () => {
     <div class="flex items-center gap-2">
       <WrenchScrewdriverIcon class="w-6 h-6 text-orange-600" />
       <h2 class="text-lg font-bold text-gray-800 flex-1">
-        {{ auth.isTapicero ? 'Mis pasos de producción' : 'Mis pasos' }}
+        Mis pasos
       </h2>
     </div>
 
     <p class="text-xs text-gray-500">
-      {{ auth.isTapicero
-        ? 'Pasos de tapizado, esqueletería, costura y pintura asignados a ti'
-        : auth.isDespachador
-          ? 'Pasos de pintura asignados a ti'
-          : 'Pasos de ebanistería, laca y pintura asignados a ti' }}
+      Los pasos del taller que tienes a tu cargo
     </p>
 
     <!-- Tabs -->

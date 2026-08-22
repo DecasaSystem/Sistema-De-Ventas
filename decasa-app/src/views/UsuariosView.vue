@@ -118,12 +118,9 @@ const rolBadgeCls = (rol) => {
   return m[rol] ?? 'bg-gray-100 text-gray-600'
 }
 
-const rolLabel = (u) => {
-  const m = { supervisor: 'Supervisor', conductor: 'Conductor', ebanista: 'Ebanista', despachador: 'Despachador', vendedor: 'Vendedor' }
-  let label = m[u.rol] ?? u.rol
-  if (u.rol === 'supervisor' && u.es_tapicero) label += ' · Tapicero'
-  return label
-}
+// El nombre del rol sale del catalogo, no de una lista escrita en el codigo:
+// los roles se crean desde el programa y esta lista quedaba siempre corta.
+const rolLabel = (u) => u.rol_nombre ?? u.rol
 
 const estadoBadgeCls = (activo) =>
   activo
@@ -181,8 +178,6 @@ onBeforeUnmount(() => {
           <option value="vendedor">Vendedores</option>
           <option value="supervisor">Supervisores</option>
           <option value="conductor">Conductores</option>
-          <option value="ebanista">Ebanistas</option>
-          <option value="despachador">Despachadores</option>
         </select>
       </div>
       <div>

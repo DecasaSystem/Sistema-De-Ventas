@@ -3,13 +3,11 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { createUsuario } from '@/api/usuarios'
 import { getTiendas } from '@/api/ordenes'
-import { getPerfilesProduccion } from '@/api/perfilesProduccion'
 import { getRoles } from '@/api/roles'
 
 const router = useRouter()
 
 const tiendas  = ref([])
-const perfiles = ref([])
 const roles    = ref([])
 const submitting = ref(false)
 const error = ref('')
@@ -27,7 +25,6 @@ const form = ref({
   password_confirmation: '',
   rol_id: '',
   facturacion: false,
-  es_tapicero: false,
   independiente: false,
   notif_asignar_fecha: true,
   notif_stock: false,
@@ -52,7 +49,6 @@ const form = ref({
   acceso_produccion: false,
   acceso_nomina: false,
   ve_todas_ordenes: false,
-  perfil_produccion_id: '',
   tienda_default_id: '',
 })
 
@@ -91,10 +87,6 @@ onMounted(async () => {
   try {
     const { data } = await getTiendas()
     tiendas.value = data
-  } catch {}
-  try {
-    const { data } = await getPerfilesProduccion()
-    perfiles.value = data
   } catch {}
   try {
     const { data } = await getRoles()
@@ -137,7 +129,6 @@ async function submit() {
       apto_comisiones: !form.value.no_usa_programa && form.value.apto_comisiones,
       rol_id: form.value.rol_id,
       facturacion: form.value.facturacion,
-      es_tapicero: form.value.es_tapicero,
       independiente: esIndependiente.value,
       notif_asignar_fecha: form.value.notif_asignar_fecha,
       notif_stock: arquetipo.value === 'supervisor' ? form.value.notif_stock : false,
@@ -153,7 +144,6 @@ async function submit() {
       acceso_compras: form.value.acceso_compras,
       acceso_reserva: form.value.acceso_reserva,
       ve_todas_ordenes: arquetipo.value === 'vendedor' ? form.value.ve_todas_ordenes : false,
-      perfil_produccion_id: form.value.perfil_produccion_id || null,
       tienda_default_id: mostrarTienda.value ? (form.value.tienda_default_id || null) : null,
     })
     router.push({ name: 'usuarios' })
@@ -368,18 +358,6 @@ async function submit() {
       <template v-if="arquetipo === 'supervisor'">
         <div class="flex items-start gap-3 py-2">
           <input
-            id="es_tapicero"
-            type="checkbox"
-            v-model="form.es_tapicero"
-            class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-          />
-          <div>
-            <label for="es_tapicero" class="text-sm font-medium text-gray-700 cursor-pointer">Encargado de tapicería</label>
-            <p class="text-xs text-gray-500 mt-0.5">Podrá completar los pasos de <strong>tapizado</strong>, <strong>laca</strong>, <strong>esqueletería</strong>, <strong>costura</strong> y <strong>pintura</strong> en producción personalizada.</p>
-          </div>
-        </div>
-        <div class="flex items-start gap-3 py-2">
-          <input
             id="notif_asignar_fecha"
             type="checkbox"
             v-model="form.notif_asignar_fecha"
@@ -530,17 +508,14 @@ async function submit() {
         </div>
       </div>
 
-      <!-- Perfil de producción (cualquier rol: quién puede trabajar qué paso del taller) -->
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Perfil de producción</label>
-        <select
-          v-model="form.perfil_produccion_id"
-          class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          <option value="">Sin perfil</option>
-          <option v-for="p in perfiles" :key="p.id" :value="p.id">{{ p.nombre }}</option>
-        </select>
-        <p class="text-xs text-gray-500 mt-0.5">Define qué pasos de producción puede ver y completar en "Mis pasos", sin importar su rol.</p>
+
+      <!-- Los pasos del taller no se dan aquí: se asignan por proceso -->
+      <div class="bg-blue-50 border border-blue-200 rounded-xl px-3 py-2.5">
+        <p class="text-xs text-blue-800 leading-snug">
+          <span class="font-semibold">¿Va a llevar pasos del taller?</span>
+          Eso ya no depende del rol. Se asigna en <strong>Producción → Procesos</strong>,
+          eligiendo quién hace cada paso. Cualquiera puede estar a cargo de uno.
+        </p>
       </div>
 
       <!-- Opciones activables solo para supervisor: ya no vienen automáticas -->

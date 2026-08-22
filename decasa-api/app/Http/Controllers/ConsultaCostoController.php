@@ -21,7 +21,10 @@ class ConsultaCostoController extends Controller
      */
     public function receptores(Request $request)
     {
-        $usuarios = Usuario::whereIn('rol', ['supervisor', 'ebanista'])
+        // Atender consultas de costo es un permiso (`acceso_costos`), no un
+        // cargo: antes se preguntaba por el rol y eso ataba la funcion al
+        // nombre que tuviera la persona.
+        $usuarios = Usuario::where('acceso_costos', true)
             ->where('activo', true)
             ->orderBy('rol')
             ->orderBy('nombre')
@@ -57,7 +60,7 @@ class ConsultaCostoController extends Controller
                       ->orWhere('solicitado_por_id', $usuario->id);
                 });
             }
-        } elseif ($usuario->rol === 'ebanista') {
+        } elseif ($usuario->acceso_costos) {
             $query->where('asignado_a_id', $usuario->id);
         } else {
             return response()->json([]);
@@ -86,8 +89,8 @@ class ConsultaCostoController extends Controller
 
         // Verificar que el receptor es supervisor o ebanista activo
         $receptor = Usuario::findOrFail($data['asignado_a_id']);
-        if (! in_array($receptor->rol, ['supervisor', 'ebanista'])) {
-            return response()->json(['message' => 'El receptor debe ser supervisor o ebanista.'], 422);
+        if (! $receptor->acceso_costos) {
+            return response()->json(['message' => 'El receptor no tiene acceso a costos.'], 422);
         }
         if (! $receptor->activo) {
             return response()->json(['message' => 'El receptor seleccionado no está activo.'], 422);

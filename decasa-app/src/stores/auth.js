@@ -87,7 +87,6 @@ export const useAuthStore = defineStore('auth', () => {
       nombre:            data.nombre,
       email:             data.email ?? null,
       rol:               data.rol,
-      es_tapicero:       data.es_tapicero       ?? false,
       facturacion:       data.facturacion       ?? false,
       acceso_redes:      data.acceso_redes      ?? false,
       acceso_comisiones: data.acceso_comisiones ?? false,
@@ -101,7 +100,6 @@ export const useAuthStore = defineStore('auth', () => {
       acceso_nomina:      data.acceso_nomina      ?? false,
       acceso_compras:     data.acceso_compras     ?? false,
       ve_todas_ordenes:   data.ve_todas_ordenes   ?? false,
-      perfil_produccion:  data.perfil_produccion  ?? null,
       tiene_pasos_produccion: data.tiene_pasos_produccion ?? false,
       tienda_default_id: data.tienda_default_id ?? null,
       firma_url:         data.firma_url         ?? null,
@@ -119,29 +117,21 @@ export const useAuthStore = defineStore('auth', () => {
   // ── Getters ───────────────────────────────────────────────────────────────
   const isAuthenticated    = computed(() => !!token.value)
   const isSupervisor       = computed(() => usuario.value?.rol === 'supervisor')
-  const isEbanista         = computed(() => usuario.value?.rol === 'ebanista')
-  const isTapicero         = computed(() => usuario.value?.rol === 'supervisor' && !!usuario.value?.es_tapicero)
-  const isDespachador      = computed(() => usuario.value?.rol === 'despachador')
   const isCosturero        = computed(() => usuario.value?.rol === 'costurero')
-  // El rol sigue dando acceso automatico (ebanista/tapicero-supervisor/
-  // despachador); ademas, cualquiera con un perfil de produccion asignado
-  // -sin importar su rol- puede llegar a "Mis pasos".
-  // tiene_pasos_produccion lo calcula el backend: cubre tanto la
-  // especialidad como los procesos asignados a la persona en concreto, que
-  // es gente que no tiene especialidad ninguna y aun así trabaja pasos.
-  const tieneAccesoPasos   = computed(() =>
-    isEbanista.value || isTapicero.value || isDespachador.value
-    || !!usuario.value?.perfil_produccion
-    || !!usuario.value?.tiene_pasos_produccion)
 
-  // El despacho de producción lo hacen dos personas: el despachador y la
-  // encargada de tapicería. Ella ya podía por el backend (esas rutas admiten
-  // supervisor) pero la pantalla no se la mostraba.
-  const tieneAccesoDespachoProd = computed(() => isDespachador.value || isTapicero.value)
+  // Llevar pasos del taller ya no depende del rol. Antes había que ponerle a
+  // alguien el rol "Ebanista" —o la bandera de tapicero— solo para que le
+  // llegaran sus pasos, aunque de verdad fuera un vendedor independiente o
+  // una supervisora. Ahora el backend responde si tiene pasos asignados y
+  // punto: quién es la persona y qué pasos lleva son dos cosas distintas.
+  const tieneAccesoPasos   = computed(() => !!usuario.value?.tiene_pasos_produccion)
+
+  // Despachar producción es un permiso, no un cargo.
+  const tieneAccesoDespachoProd = computed(() => !!usuario.value?.acceso_despacho)
   const isFacturador       = computed(() => usuario.value?.rol === 'vendedor' && !!usuario.value?.facturacion)
   // Vende por su cuenta: no pertenece a ninguna tienda y lleva caja propia.
   const isIndependiente    = computed(() => !!usuario.value?.independiente)
-  const llevaCajaPropia    = computed(() => isIndependiente.value || isEbanista.value)
+  const llevaCajaPropia    = computed(() => isIndependiente.value)
   const tieneAccesoRedes      = computed(() => !!usuario.value?.acceso_redes)
   const tieneAccesoComisiones = computed(() => !!usuario.value?.acceso_comisiones)
   const puedeRecargarTelas    = computed(() => isSupervisor.value || (!!usuario.value?.recarga_telas && ['vendedor', 'supervisor'].includes(usuario.value?.rol)))
@@ -151,9 +141,8 @@ export const useAuthStore = defineStore('auth', () => {
   // Tampoco hay atajo por ser supervisor: ese respaldo también se dio en la
   // migración, pero de ahí en adelante es un permiso real por trabajador.
   const puedeSurtir           = computed(() => !!usuario.value?.acceso_surtir)
-  // Costos: el ebanista lo sigue trayendo automático (no se tocó); el resto
-  // —incluido el supervisor— necesita la bandera.
-  const puedeCostos           = computed(() => isEbanista.value || !!usuario.value?.acceso_costos)
+  // Costos: es una bandera por trabajador, para nadie automático.
+  const puedeCostos           = computed(() => !!usuario.value?.acceso_costos)
   // Proveedores: ver la lista sigue abierto a todos; esto es solo para
   // crear/editar. Predeterminado para supervisor, activable para el resto.
   const puedeProveedores      = computed(() => isSupervisor.value || !!usuario.value?.acceso_proveedores)
@@ -276,7 +265,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   return {
     token, usuario,
-    isAuthenticated, isSupervisor, isEbanista, isTapicero, isDespachador, isCosturero,
+    isAuthenticated, isSupervisor, isCosturero,
     isIndependiente, llevaCajaPropia,
     tieneAccesoPasos, tieneAccesoDespachoProd,
     isFacturador, tieneAccesoRedes, tieneAccesoComisiones, puedeRecargarTelas, puedeSurtir,

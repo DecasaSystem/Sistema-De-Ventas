@@ -110,7 +110,7 @@ onMounted(cargar)
     <!-- ═══════════════════════ MIS CONSULTAS ═══════════════════════ -->
     <template v-if="tabPrincipal === 'mias'">
       <p class="text-xs text-gray-500">
-        {{ auth.isEbanista || auth.isTapicero
+        {{ auth.puedeCostos
           ? 'Consultas de costo asignadas a ti para calcular'
           : auth.isSupervisor ? 'Consultas en las que participas'
           : 'Consultas de costo que has solicitado para tus órdenes' }}
@@ -159,9 +159,9 @@ onMounted(cargar)
               <p class="font-medium text-gray-700">{{ c.orden?.cliente?.nombre ?? '—' }}</p>
             </div>
             <div>
-              <span class="text-gray-400">{{ auth.isEbanista || auth.isTapicero ? 'Solicitado por' : 'Asignado a' }}</span>
+              <span class="text-gray-400">{{ auth.puedeCostos ? 'Solicitado por' : 'Asignado a' }}</span>
               <p class="font-medium text-gray-700">
-                {{ auth.isEbanista || auth.isTapicero ? (c.solicitado_por?.nombre ?? '—') : (c.asignado_a?.nombre ?? '—') }}
+                {{ auth.puedeCostos ? (c.solicitado_por?.nombre ?? '—') : (c.asignado_a?.nombre ?? '—') }}
               </p>
             </div>
           </div>

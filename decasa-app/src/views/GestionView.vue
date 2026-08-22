@@ -3,7 +3,6 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useToast } from '@/composables/useToast'
 import { getTiendasAdmin, crearTienda, actualizarTienda, eliminarTienda } from '@/api/tiendas'
-import { getPerfilesProduccion, crearPerfilProduccion, actualizarPerfilProduccion, eliminarPerfilProduccion } from '@/api/perfilesProduccion'
 import { getRoles, crearRol, actualizarRol, eliminarRol } from '@/api/roles'
 import {
   Cog6ToothIcon,
@@ -116,168 +115,6 @@ async function reactivarRol(r) {
 const rolesActivos   = computed(() => roles.value.filter(r => r.activo))
 const rolesInactivos = computed(() => roles.value.filter(r => !r.activo))
 
-// ── Especialidades de taller (antes "perfiles de producción") ────────────
-const perfiles         = ref([])
-const cargandoPerfiles = ref(true)
-const nuevoPerfil       = ref('')
-const creandoPerfil     = ref(false)
-const guardandoPerfilId = ref(null)
-
-async function cargarPerfiles() {
-  cargandoPerfiles.value = true
-  try {
-    const { data } = await getPerfilesProduccion(true)
-    perfiles.value = data
-  } catch {
-    toast.error('No se pudo cargar la lista de perfiles de producción')
-  } finally {
-    cargandoPerfiles.value = false
-  }
-}
-
-async function crearPerfil() {
-  if (!nuevoPerfil.value.trim()) return
-  creandoPerfil.value = true
-  try {
-    await crearPerfilProduccion({ nombre: nuevoPerfil.value.trim() })
-    nuevoPerfil.value = ''
-    toast.success('Perfil creado')
-    await cargarPerfiles()
-  } catch (e) {
-    toast.error(e.response?.data?.message || 'No se pudo crear el perfil')
-  } finally {
-    creandoPerfil.value = false
-  }
-}
-
-async function guardarPerfil(p) {
-  guardandoPerfilId.value = p.id
-  try {
-    await actualizarPerfilProduccion(p.id, { nombre: p.nombre, activo: p.activo })
-    toast.success('Perfil actualizado')
-    await cargarPerfiles()
-  } catch (e) {
-    toast.error(e.response?.data?.message || 'No se pudo guardar')
-  } finally {
-    guardandoPerfilId.value = null
-  }
-}
-
-async function borrarPerfil(p) {
-  if (!confirm(`¿Eliminar el perfil "${p.nombre}"? Si algún trabajador lo tiene asignado, se desactiva en vez de borrarse.`)) return
-  try {
-    const { data } = await eliminarPerfilProduccion(p.id)
-    toast.success(data?.message ?? 'Perfil eliminado')
-    await cargarPerfiles()
-  } catch (e) {
-    toast.error(e.response?.data?.message || 'No se pudo eliminar')
-  }
-}
-
-// ── Tiendas ──────────────────────────────────────────────────────────────
-const tiendas   = ref([])
-const cargando  = ref(true)
-
-const vacio = () => ({ nombre: '', ciudad: '', direccion: '', telefono: '', es_fabrica: false, es_independientes: false })
-const mostrarForm = ref(false)
-const editando     = ref(null)
-const form          = ref(vacio())
-const guardando     = ref(false)
-
-async function cargarTiendas() {
-  cargando.value = true
-  try {
-    const { data } = await getTiendasAdmin()
-    tiendas.value = data
-  } catch {
-    toast.error('No se pudo cargar la lista de tiendas')
-  } finally {
-    cargando.value = false
-  }
-}
-onMounted(cargarTiendas)
-
-function abrirNueva() {
-  editando.value = null
-  form.value = vacio()
-  mostrarForm.value = true
-}
-
-function abrirEditar(t) {
-  editando.value = t.id
-  form.value = {
-    nombre: t.nombre, ciudad: t.ciudad ?? '', direccion: t.direccion ?? '', telefono: t.telefono ?? '',
-    es_fabrica: !!t.es_fabrica, es_independientes: !!t.es_independientes,
-  }
-  mostrarForm.value = true
-}
-
-function cerrarForm() {
-  mostrarForm.value = false
-}
-
-async function guardar() {
-  if (!form.value.nombre.trim()) {
-    toast.error('El nombre es obligatorio')
-    return
-  }
-  guardando.value = true
-  try {
-    const payload = {
-      nombre: form.value.nombre.trim(),
-      ciudad: form.value.ciudad.trim() || null,
-      direccion: form.value.direccion.trim() || null,
-      telefono: form.value.telefono.trim() || null,
-      es_fabrica: form.value.es_fabrica,
-      es_independientes: form.value.es_independientes,
-    }
-    if (editando.value) {
-      await actualizarTienda(editando.value, payload)
-      toast.success('Tienda actualizada')
-    } else {
-      await crearTienda(payload)
-      toast.success('Tienda creada')
-    }
-    mostrarForm.value = false
-    await cargarTiendas()
-  } catch (e) {
-    toast.error(e.response?.data?.message || 'No se pudo guardar')
-  } finally {
-    guardando.value = false
-  }
-}
-
-async function eliminar(t) {
-  if (!confirm(`¿Eliminar "${t.nombre}"? Si tiene datos asociados, se desactiva en vez de borrarse.`)) return
-  try {
-    const { data } = await eliminarTienda(t.id)
-    toast.success(data?.message ?? 'Tienda eliminada')
-    await cargarTiendas()
-  } catch (e) {
-    toast.error(e.response?.data?.message || 'No se pudo eliminar')
-  }
-}
-
-async function reactivar(t) {
-  try {
-    await actualizarTienda(t.id, { activa: true })
-    toast.success('Tienda reactivada')
-    await cargarTiendas()
-  } catch (e) {
-    toast.error(e.response?.data?.message || 'No se pudo reactivar')
-  }
-}
-
-const activas   = computed(() => tiendas.value.filter(t => t.activa))
-const inactivas = computed(() => tiendas.value.filter(t => !t.activa))
-
-let perfilesCargados = false
-watch(tab, (t) => {
-  if (t === 'especialidades' && !perfilesCargados) {
-    perfilesCargados = true
-    cargarPerfiles()
-  }
-})
 </script>
 
 <template>
@@ -303,12 +140,6 @@ watch(tab, (t) => {
         :class="['flex-1 text-sm font-semibold rounded-lg py-2 transition-colors', tab === 'tiendas' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500']"
       >
         Tiendas
-      </button>
-      <button
-        @click="tab = 'especialidades'"
-        :class="['flex-1 text-sm font-semibold rounded-lg py-2 transition-colors', tab === 'especialidades' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500']"
-      >
-        Especialidades de taller
       </button>
     </div>
 
@@ -536,55 +367,5 @@ watch(tab, (t) => {
       </Teleport>
     </template>
 
-    <template v-else-if="tab === 'especialidades'">
-      <p class="text-xs text-gray-400 mb-3">
-        Quién puede trabajar qué paso del taller. Se asignan desde la ficha de cada trabajador.
-      </p>
-
-      <div class="flex gap-2 mb-3">
-        <input
-          v-model="nuevoPerfil"
-          @keyup.enter="crearPerfil"
-          placeholder="Nombre del perfil nuevo (ej: Lacador)"
-          class="flex-1 rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
-        />
-        <button
-          @click="crearPerfil"
-          :disabled="creandoPerfil || !nuevoPerfil.trim()"
-          class="flex items-center gap-1.5 bg-blue-600 text-white text-xs font-semibold px-3 py-2 rounded-xl hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50 shrink-0"
-        >
-          <PlusIcon class="w-4 h-4" /> Crear
-        </button>
-      </div>
-
-      <div v-if="cargandoPerfiles" class="flex justify-center py-12">
-        <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-      </div>
-
-      <div v-else class="space-y-2.5">
-        <div v-for="p in perfiles" :key="p.id" class="bg-white rounded-xl shadow-sm p-4 flex items-center gap-3">
-          <div class="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center shrink-0">
-            <WrenchScrewdriverIcon class="w-5 h-5 text-blue-600" />
-          </div>
-          <input
-            v-model="p.nombre"
-            class="flex-1 min-w-0 rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-          <label class="flex items-center gap-1.5 text-xs text-gray-600 shrink-0">
-            <input type="checkbox" v-model="p.activo" /> Activo
-          </label>
-          <button
-            @click="guardarPerfil(p)"
-            :disabled="guardandoPerfilId === p.id"
-            class="text-xs font-semibold text-blue-600 hover:text-blue-700 disabled:opacity-50 shrink-0"
-          >Guardar</button>
-          <button @click="borrarPerfil(p)" class="p-1.5 text-gray-300 hover:text-red-600 transition-colors shrink-0" aria-label="Eliminar">
-            <TrashIcon class="w-4 h-4" />
-          </button>
-        </div>
-
-        <p v-if="!perfiles.length" class="text-center py-8 text-gray-400 text-sm">Todavía no hay perfiles de producción.</p>
-      </div>
-    </template>
   </div>
 </template>

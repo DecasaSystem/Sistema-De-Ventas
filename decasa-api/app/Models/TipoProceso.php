@@ -13,12 +13,11 @@ class TipoProceso extends Model
 {
     protected $table = 'tipos_proceso';
 
-    protected $fillable = ['clave', 'nombre', 'descripcion', 'color', 'perfiles', 'orden', 'activo'];
+    protected $fillable = ['clave', 'nombre', 'descripcion', 'color', 'orden', 'activo'];
 
     protected function casts(): array
     {
         return [
-            'perfiles' => 'array',
             'activo'   => 'boolean',
             'orden'    => 'integer',
         ];
@@ -60,25 +59,4 @@ class TipoProceso extends Model
         return $this->belongsToMany(Usuario::class, 'proceso_trabajadores', 'tipo_proceso_id', 'usuario_id');
     }
 
-    /** Las claves que puede trabajar un perfil. */
-    public static function clavesDePerfil(string $perfil): array
-    {
-        return static::where('activo', true)
-            ->get()
-            ->filter(fn ($t) => in_array($perfil, $t->perfiles ?? [], true))
-            ->pluck('clave')
-            ->values()
-            ->all();
-    }
-
-    /**
-     * Los perfiles que hacen un proceso.
-     *
-     * Se trae el modelo entero y no value('perfiles'): value() no pasa por los
-     * casts y devolvería el JSON en crudo.
-     */
-    public static function perfilesDe(string $clave): array
-    {
-        return static::where('clave', $clave)->first()?->perfiles ?? [];
-    }
 }

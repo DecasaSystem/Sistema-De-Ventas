@@ -1024,7 +1024,7 @@ class OrdenController extends Controller
 
         $orden = Orden::with(['items', 'items.producto:id,nombre'])->findOrFail($id);
 
-        if (in_array($usuario->rol, ['vendedor', 'ebanista']) && $orden->vendedor_id !== $usuario->id) {
+        if ($usuario->rol === 'vendedor' && $orden->vendedor_id !== $usuario->id) {
             return response()->json(['message' => 'No autorizado.'], 403);
         }
 
@@ -2021,7 +2021,7 @@ class OrdenController extends Controller
             'estado' => 'required|in:pendiente_anticipo,en_produccion,listo_entrega,en_camino,entregado,cancelado',
         ]);
 
-        if (in_array($usuario->rol, ['vendedor', 'ebanista'])) {
+        if ($usuario->rol === 'vendedor') {
             return response()->json(['message' => 'Solo el supervisor puede cambiar el estado de las órdenes.'], 403);
         }
 

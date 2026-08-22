@@ -30,7 +30,6 @@ class UsuarioController extends Controller
             'rol_nombre'          => $u->relationLoaded('rolAsignado') ? $u->rolAsignado?->nombre : null,
             'arquetipo'           => $u->relationLoaded('rolAsignado') ? $u->rolAsignado?->arquetipo : null,
             'facturacion'         => (bool) $u->facturacion,
-            'es_tapicero'         => (bool) $u->es_tapicero,
             'independiente'       => (bool) $u->independiente,
             'notif_asignar_fecha' => (bool) $u->notif_asignar_fecha,
             'notif_stock'         => (bool) $u->notif_stock,
@@ -46,8 +45,6 @@ class UsuarioController extends Controller
             'acceso_nomina'       => (bool) $u->acceso_nomina,
             'acceso_compras'      => (bool) $u->acceso_compras,
             've_todas_ordenes'    => (bool) $u->ve_todas_ordenes,
-            'perfil_produccion_id' => $u->perfil_produccion_id,
-            'perfil_produccion'    => $u->relationLoaded('perfilProduccion') ? $u->perfilProduccion : null,
             'tienda_default_id'   => $u->tienda_default_id,
             'tienda_default'      => $u->relationLoaded('tiendaDefault') ? $u->tiendaDefault : null,
             'activo'              => (bool) $u->activo,
@@ -83,7 +80,7 @@ class UsuarioController extends Controller
     public function index(Request $request)
     {
         $query = $this->conDesempeno(
-            Usuario::with(['tiendaDefault:id,nombre,ciudad', 'perfilProduccion', 'rolAsignado'])
+            Usuario::with(['tiendaDefault:id,nombre,ciudad', 'rolAsignado'])
         );
 
         if ($rol = $request->query('rol')) {
@@ -106,7 +103,7 @@ class UsuarioController extends Controller
     public function show($id)
     {
         $usuario = $this->conDesempeno(
-            Usuario::with(['tiendaDefault:id,nombre,ciudad', 'perfilProduccion', 'rolAsignado'])
+            Usuario::with(['tiendaDefault:id,nombre,ciudad', 'rolAsignado'])
         )->findOrFail($id);
 
         return response()->json($this->comoJson($usuario));
@@ -128,7 +125,6 @@ class UsuarioController extends Controller
             'nomina_sueldo_id'  => 'nullable|exists:nomina_sueldos,id',
             'rol_id'              => ['required', 'exists:roles,id'],
             'facturacion'         => 'boolean',
-            'es_tapicero'         => 'boolean',
             // Vendedor por su cuenta: no pertenece a ninguna tienda
             'independiente'       => 'boolean',
             'notif_asignar_fecha' => 'boolean',
@@ -145,7 +141,6 @@ class UsuarioController extends Controller
             'acceso_nomina'       => 'boolean',
             'acceso_compras'      => 'boolean',
             've_todas_ordenes'    => 'boolean',
-            'perfil_produccion_id' => 'nullable|exists:perfiles_produccion,id',
             'tienda_default_id' => [
                 // Un independiente no elige tienda: se le asigna la sede propia.
                 // Un supervisor tampoco es obligatorio: varios son jefes que no
@@ -202,10 +197,8 @@ class UsuarioController extends Controller
             'nomina_sueldo_id'    => $data['nomina_sueldo_id'] ?? null,
             'rol_id'              => $data['rol_id'],
             'facturacion'         => ($arquetipo === 'vendedor') && $request->boolean('facturacion'),
-            'es_tapicero'         => $esSupervisor && $request->boolean('es_tapicero'),
             // Sin restricción de rol: es justo lo que se pidió, que un perfil
             // de producción se le pueda asignar a cualquier trabajador.
-            'perfil_produccion_id' => $data['perfil_produccion_id'] ?? null,
             'independiente'       => $independiente,
             'notif_asignar_fecha' => $esSupervisor && $request->boolean('notif_asignar_fecha'),
             'notif_stock'         => $esSupervisor && $request->boolean('notif_stock'),
@@ -230,7 +223,7 @@ class UsuarioController extends Controller
             'activo'              => true,
         ]);
 
-        return response()->json($this->comoJson($usuario->load(['perfilProduccion', 'rolAsignado'])), 201);
+        return response()->json($this->comoJson($usuario->load(['rolAsignado'])), 201);
     }
 
     public function update(Request $request, $id)
@@ -246,7 +239,6 @@ class UsuarioController extends Controller
             'nomina_sueldo_id'  => 'sometimes|nullable|exists:nomina_sueldos,id',
             'rol_id'              => ['sometimes', 'exists:roles,id'],
             'facturacion'         => 'nullable|boolean',
-            'es_tapicero'         => 'nullable|boolean',
             'independiente'       => 'nullable|boolean',
             'notif_asignar_fecha' => 'nullable|boolean',
             'notif_stock'         => 'nullable|boolean',
@@ -262,7 +254,6 @@ class UsuarioController extends Controller
             'acceso_nomina'       => 'nullable|boolean',
             'acceso_compras'      => 'nullable|boolean',
             've_todas_ordenes'    => 'nullable|boolean',
-            'perfil_produccion_id' => 'sometimes|nullable|exists:perfiles_produccion,id',
             'tienda_default_id'   => 'sometimes|nullable|exists:tiendas,id',
         ], [
             'nombre.max'               => 'El nombre no puede tener más de 100 caracteres.',
@@ -276,9 +267,6 @@ class UsuarioController extends Controller
             ? Rol::findOrFail($data['rol_id'])->arquetipo
             : $usuario->rolAsignado?->arquetipo;
 
-        if ($request->has('es_tapicero')) {
-            $data['es_tapicero'] = ($arquetipoFinal === 'supervisor') && $request->boolean('es_tapicero');
-        }
         if ($request->has('notif_asignar_fecha')) {
             $data['notif_asignar_fecha'] = ($arquetipoFinal === 'supervisor') && $request->boolean('notif_asignar_fecha');
         }
@@ -356,7 +344,7 @@ class UsuarioController extends Controller
         }
 
         $usuario->update($data);
-        $usuario->load(['tiendaDefault:id,nombre,ciudad', 'perfilProduccion', 'rolAsignado']);
+        $usuario->load(['tiendaDefault:id,nombre,ciudad', 'rolAsignado']);
 
         return response()->json($this->comoJson($usuario));
     }

@@ -29,13 +29,13 @@ class CajaController extends Controller
     private function llevaCajaPropia(): bool
     {
         $u = auth()->user();
-        return (bool) ($u?->independiente) || $u?->rol === 'ebanista';
+        return (bool) ($u?->independiente);
     }
 
     /** Filtro reutilizable: pagos de quien lleva caja propia. */
     private static function esDeCajaPropia($q)
     {
-        return $q->where('independiente', true)->orWhere('rol', 'ebanista');
+        return $q->where('independiente', true);
     }
 
     /**

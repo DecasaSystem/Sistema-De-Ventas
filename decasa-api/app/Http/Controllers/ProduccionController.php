@@ -214,7 +214,7 @@ class ProduccionController extends Controller
             $produccion->update(['estado' => 'pendiente_despachador']);
 
             // Notificar despachadores
-            $despachadores = Usuario::where('rol', 'despachador')->where('activo', true)->get();
+            $despachadores = Usuario::where('acceso_despacho', true)->where('activo', true)->get();
             foreach ($despachadores as $d) {
                 NotificacionService::crear(
                     'paso_produccion',
@@ -706,8 +706,8 @@ class ProduccionController extends Controller
         // encargada de tapicería. El resto de este módulo ya aceptaba a ambos
         // (las rutas van con role:despachador,supervisor); solo el historial se
         // había quedado pidiendo el rol exacto.
-        $puedeVer = $usuario->rol === 'despachador'
-            || ($usuario->rol === 'supervisor' && $usuario->es_tapicero);
+        // Despachar es un permiso, no un cargo.
+        $puedeVer = (bool) $usuario->acceso_despacho;
 
         if (! $puedeVer) {
             return response()->json(['message' => 'Sin acceso.'], 403);
@@ -760,7 +760,7 @@ class ProduccionController extends Controller
         $proceso = $request->query('proceso');
 
         $usuarios = Usuario::where('activo', true)
-            ->with(['perfilProduccion:id,clave,nombre', 'rolAsignado:id,nombre'])
+            ->with('rolAsignado:id,nombre')
             ->orderBy('nombre')
             ->get();
 
@@ -771,7 +771,7 @@ class ProduccionController extends Controller
                 return [
                     'id'               => $u->id,
                     'nombre'           => $u->nombre,
-                    'rol'              => $u->rolAsignado?->nombre ?? $u->perfilProduccion?->nombre ?? $u->rol,
+                    'rol'              => $u->rolAsignado?->nombre ?? $u->rol,
                     'del_proceso'      => $proceso ? in_array($proceso, $u->procesosQuePuedeTrabajar(), true) : false,
                     'calidad_promedio' => $d['calidad_promedio'],
                     'calificaciones'   => $d['calificaciones'],
@@ -967,17 +967,11 @@ class ProduccionController extends Controller
         $label = ProduccionPaso::labelProceso($tipoProceso);
 
         // A quien se avisa sale del mismo sitio que quien puede hacerlo: los
-        // perfiles del proceso cruzados con quien tenga cada perfil, MAS los
-        // trabajadores asignados a dedo a ese proceso. Si esto no incluyera
-        // a los asignados directos, verian el paso en "Mis pasos" pero nunca
-        // les llegaria el aviso.
-        $perfiles = TipoProceso::perfilesDe($tipoProceso);
-
+        // trabajadores que tengan ese proceso asignado. Antes se cruzaba
+        // además con el "perfil" de la persona, que era lo que obligaba a
+        // darle un rol de taller a quien solo estaba encargado de un paso.
         $usuariosANotificar = Usuario::where('activo', true)
-            ->where(function ($q) use ($perfiles, $tipoProceso) {
-                $q->whereHas('perfilProduccion', fn ($p) => $p->whereIn('clave', $perfiles))
-                  ->orWhereHas('procesosAsignados', fn ($p) => $p->where('clave', $tipoProceso));
-            })
+            ->whereHas('procesosAsignados', fn ($p) => $p->where('clave', $tipoProceso))
             ->get();
 
         foreach ($usuariosANotificar->unique('id') as $trabajador) {

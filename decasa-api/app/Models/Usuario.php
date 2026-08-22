@@ -37,8 +37,7 @@ class Usuario extends Authenticatable
         'rol',
         'rol_id',
         'facturacion',
-        'es_tapicero',
-        'perfil_produccion_id',
+
         'independiente',
         'notif_asignar_fecha',
         'notif_stock',
@@ -75,7 +74,6 @@ class Usuario extends Authenticatable
             'password'            => 'hashed',
             'activo'              => 'boolean',
             'facturacion'         => 'boolean',
-            'es_tapicero'         => 'boolean',
             'independiente'       => 'boolean',
             'notif_asignar_fecha' => 'boolean',
             'notif_stock'         => 'boolean',
@@ -101,10 +99,6 @@ class Usuario extends Authenticatable
         return $this->belongsTo(Tienda::class, 'tienda_default_id');
     }
 
-    public function perfilProduccion()
-    {
-        return $this->belongsTo(PerfilProduccion::class, 'perfil_produccion_id');
-    }
 
     // ── Nómina ───────────────────────────────────────────────────────────────
     // Lo que antes vivía en el modelo Empleado, que era una segunda tabla de
@@ -223,24 +217,17 @@ class Usuario extends Authenticatable
     }
 
     /**
-     * Qué procesos del taller puede trabajar: los de su especialidad MÁS los
-     * que se le asignaron a dedo. Es la única fuente de verdad de esto — la
-     * usan por igual "Mis pasos", el permiso para marcar un paso listo y a
-     * quién se le notifica, para que los tres no puedan discrepar.
+     * Qué pasos del taller lleva esta persona.
      *
-     * @return array<int, string> claves de tipos_proceso
+     * Sale de lo que se le haya asignado, y de nada más. Antes también salía
+     * de un "perfil de producción" que abría en bloque todos los pasos de una
+     * especialidad, y eso era lo que obligaba a ponerle a Henry el rol de
+     * Ebanista para que le llegaran sus pasos, cuando lo que él es de verdad
+     * es un vendedor independiente encargado de esos pasos.
      */
     public function procesosQuePuedeTrabajar(): array
     {
-        $porEspecialidad = ($clave = $this->perfilProduccion?->clave)
-            ? TipoProceso::clavesDePerfil($clave)
-            : [];
-
-        // Solo procesos activos: uno apagado no debe seguir apareciéndole a
-        // nadie, igual que ya pasa con los que llegan por especialidad.
-        $asignados = $this->procesosAsignados()->where('activo', true)->pluck('clave')->all();
-
-        return array_values(array_unique(array_merge($porEspecialidad, $asignados)));
+        return $this->procesosAsignados()->where('activo', true)->pluck('clave')->all();
     }
 
     public function rolAsignado()

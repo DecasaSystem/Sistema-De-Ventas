@@ -126,7 +126,7 @@ watch(() => auth.isAuthenticated, (isAuth) => {
   if (auth.tieneAccesoPasos) {
     pasos.cargar()
   }
-  if (auth.isSupervisor || auth.isEbanista || auth.usuario?.rol === 'vendedor') {
+  if (auth.isSupervisor || auth.usuario?.rol === 'vendedor') {
     consultasStore.cargar()
   }
   if (auth.tieneAccesoDespachoProd) {
@@ -156,7 +156,7 @@ watch(() => auth.usuario?.id, (id, oldId) => {
         despachoProd.cargar()
       }
       if (['consulta_costo_nueva', 'consulta_costo_respondida', 'consulta_costo_mensaje'].includes(n.tipo)) {
-        if (auth.isSupervisor || auth.isEbanista || auth.usuario?.rol === 'vendedor') consultasStore.cargar()
+        if (auth.isSupervisor || auth.usuario?.rol === 'vendedor') consultasStore.cargar()
       }
       if (n.tipo === 'despacho_asignado' && auth.usuario?.rol === 'conductor') {
         despacho.cargarMisEntregas()
@@ -216,7 +216,7 @@ const navItems = computed(() => {
       { name: 'cotizaciones', label: 'Cotizaciones',   icon: DocumentTextIcon },
       { name: 'consultas',  label: 'Consultar costo', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
     ]
-    if (auth.isTapicero) {
+    if (auth.tieneAccesoDespachoProd) {
       items.unshift({ name: 'mis-pasos', label: 'Mis pasos', icon: ClipboardDocumentCheckIcon, badge: pasos.pendientesCount })
       // El despacho de producción lo hacen entre el despachador y ella
       items.unshift({ name: 'despacho-produccion', label: 'Despacho prod.', icon: ArchiveBoxArrowDownIcon, badge: despachoProd.pendientesCount })
@@ -254,7 +254,7 @@ const navItems = computed(() => {
       { name: 'mis-stats',   label: 'Estadíst.',    icon: PresentationChartLineIcon },
     ]
   }
-  if (auth.usuario?.rol === 'supervisor' && auth.usuario?.es_tapicero) {
+  if (auth.tieneAccesoDespachoProd) {
     return [
       { name: 'mis-pasos',  label: 'Mis pasos',   icon: WrenchScrewdriverIcon, badge: pasos.pendientesCount },
       { name: 'consultas',  label: 'Consultar costo', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
@@ -302,12 +302,12 @@ const navItems = computed(() => {
 const navPrimarios   = computed(() => {
   const items = navItems.value
   if (auth.usuario?.rol === 'conductor') return items
-  if (auth.isSupervisor || auth.isFacturador || auth.usuario?.rol === 'vendedor' || auth.isEbanista) return items.slice(0, 4)
+  if (auth.isSupervisor || auth.isFacturador || auth.usuario?.rol === 'vendedor') return items.slice(0, 4)
   return items
 })
 const navSecundarios = computed(() => {
   if (auth.usuario?.rol === 'conductor') return []
-  if (auth.isSupervisor || auth.isFacturador || auth.usuario?.rol === 'vendedor' || auth.isEbanista) return navItems.value.slice(4)
+  if (auth.isSupervisor || auth.isFacturador || auth.usuario?.rol === 'vendedor') return navItems.value.slice(4)
   return []
 })
 const masActivo      = computed(() => navSecundarios.value.some(i => i.name === route.name))

@@ -17,7 +17,7 @@ class PrecisionCotizadorController extends Controller
     public function index(Request $request)
     {
         $usuario = $request->user();
-        if (! in_array($usuario->rol, ['supervisor', 'ebanista'])) {
+        if (! ($usuario->rol === 'supervisor' || $usuario->acceso_costos)) {
             return response()->json(['message' => 'No autorizado.'], 403);
         }
 

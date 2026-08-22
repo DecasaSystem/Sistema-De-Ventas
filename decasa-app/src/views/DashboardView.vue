@@ -116,9 +116,9 @@ const accesos = computed(() => {
     ...(!auth.isSupervisor && auth.puedeCostos ? [{ label: 'Costos', icon: CalculatorIcon, to: { name: 'costos' } }] : []),
     // Cualquiera con un perfil de producción asignado —sin importar su rol—
     // puede trabajar sus pasos, no solo ebanista/tapicero/despachador.
-    // Antes solo miraba perfil_produccion, así que a quien tiene procesos
-    // asignados a dedo (sin especialidad) no le aparecía el acceso.
-    ...((auth.usuario?.perfil_produccion || auth.usuario?.tiene_pasos_produccion) && !auth.isTapicero ? [{ label: 'Mis pasos', icon: ClipboardDocumentCheckIcon, to: { name: 'mis-pasos' }, badge: pasos.pendientesCount }] : []),
+    // Lleva pasos del taller: ya no se mira el rol ni un "perfil", sino si
+    // de verdad tiene pasos asignados.
+    ...(auth.tieneAccesoPasos ? [{ label: 'Mis pasos', icon: ClipboardDocumentCheckIcon, to: { name: 'mis-pasos' }, badge: pasos.pendientesCount }] : []),
     { label: 'Citas', icon: CalendarDaysIcon, to: { name: 'citas' } },
     { label: 'Caja',  icon: BanknotesIcon,    to: { name: 'caja'  } },
   ]
@@ -138,7 +138,7 @@ const accesos = computed(() => {
       items.push({ label: 'Traslado', icon: ArrowPathIcon,           to: { name: 'surtir', query: { tab: 'traslado' } } })
     }
     if (auth.puedeCostos)     items.push({ label: 'Costos',      icon: CalculatorIcon,               to: { name: 'costos'     } })
-    if (auth.isTapicero) {
+    if (auth.tieneAccesoDespachoProd) {
       items.push({ label: 'Mis pasos', icon: ClipboardDocumentCheckIcon,  to: { name: 'mis-pasos'  }, badge: pasos.pendientesCount })
     }
   }

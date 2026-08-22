@@ -10,7 +10,6 @@ use App\Http\Controllers\OrdenController;
 use App\Http\Controllers\OrdenMensajeController;
 use App\Http\Controllers\OrdenFijadaController;
 use App\Http\Controllers\PagoController;
-use App\Http\Controllers\PerfilProduccionController;
 use App\Http\Controllers\ProduccionController;
 use App\Http\Controllers\ProductoController;
 use App\Http\Controllers\ProveedorController;
@@ -93,13 +92,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/tipos-proceso',          [TipoProcesoController::class, 'store']);
     Route::patch('/tipos-proceso/{id}',    [TipoProcesoController::class, 'update'])->whereNumber('id');
     Route::delete('/tipos-proceso/{id}',   [TipoProcesoController::class, 'destroy'])->whereNumber('id');
-
-    // Perfiles de producción: quién puede trabajar qué paso, mantenido desde
-    // Gestión. Mismo criterio de acceso que tipos-proceso.
-    Route::get('/perfiles-produccion',           [PerfilProduccionController::class, 'index']);
-    Route::post('/perfiles-produccion',          [PerfilProduccionController::class, 'store']);
-    Route::patch('/perfiles-produccion/{id}',    [PerfilProduccionController::class, 'update'])->whereNumber('id');
-    Route::delete('/perfiles-produccion/{id}',   [PerfilProduccionController::class, 'destroy'])->whereNumber('id');
 
     // Roles/puestos de trabajo, configurables desde Gestión.
     Route::get('/roles',           [RolController::class, 'index']);

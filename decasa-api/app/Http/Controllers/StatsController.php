@@ -346,7 +346,7 @@ class StatsController extends Controller
         static $ids = null;
         if ($ids === null) {
             $ids = DB::table('usuarios')
-                ->where(fn($q) => $q->where('independiente', true)->orWhere('rol', 'ebanista'))
+                ->where('independiente', true)
                 ->pluck('id')->all();
         }
         return $ids;
@@ -495,7 +495,7 @@ class StatsController extends Controller
 
         return DB::table('usuarios')
             ->where('activo', true)
-            ->where(fn($q) => $q->where('independiente', true)->orWhere('rol', 'ebanista'))
+            ->where('independiente', true)
             ->orderBy('nombre')
             ->get()
             ->map(function ($u) use ($rango, $rangoCreacion) {
@@ -551,7 +551,7 @@ class StatsController extends Controller
 
         $vendedores = DB::table('usuarios as u')
             ->leftJoin('tiendas as t', 't.id', '=', 'u.tienda_default_id')
-            ->whereIn('u.rol', ['vendedor', 'supervisor', 'ebanista'])->where('u.activo', true)
+            ->whereIn('u.rol', ['vendedor', 'supervisor'])->where('u.activo', true)
             ->when($tiendaId, fn($q) => $q->where('u.tienda_default_id', $tiendaId))
             ->selectRaw('u.id, u.nombre, u.rol, t.nombre AS tienda, t.id AS tienda_id')
             ->get();
@@ -658,7 +658,7 @@ class StatsController extends Controller
             $totalEquipo = (float) DB::table('pagos as p')
                 ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
                 ->whereBetween('p.created_at', $rango)->sum('p.monto');
-            $nVendedores = DB::table('usuarios')->whereIn('rol', ['vendedor', 'supervisor', 'ebanista'])->where('activo', true)->count();
+            $nVendedores = DB::table('usuarios')->whereIn('rol', ['vendedor', 'supervisor'])->where('activo', true)->count();
 
             $perfil['comparativa_equipo'] = [
                 'promedio_ingresos' => $nVendedores > 0 ? round($totalEquipo / $nVendedores) : 0,

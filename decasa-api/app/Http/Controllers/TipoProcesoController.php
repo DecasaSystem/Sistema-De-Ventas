@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\PerfilProduccion;
 use App\Models\ProduccionPaso;
 use App\Models\TipoProceso;
 use App\Models\Usuario;
@@ -37,12 +36,8 @@ class TipoProcesoController extends Controller
                 $data['trabajador_ids'] = $t->trabajadores->pluck('id')->all();
                 return $data;
             }),
-            // Antes era la constante fija TipoProceso::PERFILES; ahora sale
-            // del catálogo que se mantiene desde Gestión, así que un perfil
-            // nuevo aparece aquí solo, sin tocar código.
-            'perfiles' => PerfilProduccion::where('activo', true)->orderBy('orden')->orderBy('nombre')->get(['clave', 'nombre']),
-            // A quién se le puede asignar un proceso a dedo: cualquier
-            // trabajador activo, tenga o no especialidad.
+            // A quién se le puede asignar un proceso: cualquier trabajador
+            // activo. Ya no hay "especialidades" de por medio.
             'trabajadores' => Usuario::where('activo', true)->orderBy('nombre')->get(['id', 'nombre', 'rol']),
             'colores'  => TipoProceso::COLORES,
         ]);
@@ -55,22 +50,17 @@ class TipoProcesoController extends Controller
             return response()->json(['message' => 'Solo un supervisor puede crear procesos.'], 403);
         }
 
-        // Ni perfiles ni trabajadores son obligatorios por separado: se puede
-        // asignar un proceso solo por especialidad, solo a dedo, o de las dos
-        // formas. Lo que no se admite es dejarlo sin nadie (ver exigirAlguien).
+        // Un proceso tiene que quedar en manos de alguien (ver exigirAlguien).
         $data = $request->validate([
             'nombre'         => 'required|string|max:60',
             'descripcion'    => 'nullable|string|max:160',
             'color'          => ['nullable', Rule::in(TipoProceso::COLORES)],
-            'perfiles'       => 'nullable|array',
-            'perfiles.*'     => Rule::in(PerfilProduccion::where('activo', true)->pluck('clave')),
             'trabajadores'   => 'nullable|array',
             'trabajadores.*' => 'integer|exists:usuarios,id',
         ]);
 
-        $perfiles     = $data['perfiles'] ?? [];
         $trabajadores = $data['trabajadores'] ?? [];
-        $this->exigirAlguien($perfiles, $trabajadores);
+        $this->exigirAlguien($trabajadores);
 
         // La clave sale del nombre y ya no cambia nunca: es lo que queda escrito
         // en cada paso. El nombre sí se puede corregir después.
@@ -81,7 +71,6 @@ class TipoProcesoController extends Controller
             'nombre'      => $data['nombre'],
             'descripcion' => $data['descripcion'] ?? null,
             'color'       => $data['color'] ?? 'slate',
-            'perfiles'    => $perfiles,
             'orden'       => (int) (TipoProceso::max('orden') ?? 0) + 10,
             'activo'      => true,
         ]);
@@ -104,25 +93,14 @@ class TipoProcesoController extends Controller
             'nombre'         => 'sometimes|required|string|max:60',
             'descripcion'    => 'sometimes|nullable|string|max:160',
             'color'          => ['sometimes', Rule::in(TipoProceso::COLORES)],
-            'perfiles'       => 'sometimes|array',
-            'perfiles.*'     => Rule::in(PerfilProduccion::where('activo', true)->pluck('clave')),
             'trabajadores'   => 'sometimes|array',
             'trabajadores.*' => 'integer|exists:usuarios,id',
             'orden'          => 'sometimes|integer|min:0|max:9999',
             'activo'         => 'sometimes|boolean',
         ]);
 
-        // Se valida contra el resultado FINAL: si solo mandan 'perfiles', hay
-        // que contar los trabajadores que ya tenía guardados, o quitar la
-        // última especialidad de un proceso asignado a dedo se rechazaría sin
-        // motivo.
-        if (array_key_exists('perfiles', $data) || array_key_exists('trabajadores', $data)) {
-            $this->exigirAlguien(
-                $data['perfiles'] ?? ($tipo->perfiles ?? []),
-                array_key_exists('trabajadores', $data)
-                    ? $data['trabajadores']
-                    : $tipo->trabajadores()->pluck('usuarios.id')->all()
-            );
+        if (array_key_exists('trabajadores', $data)) {
+            $this->exigirAlguien($data['trabajadores']);
         }
 
         // Apagar un proceso que hay gente trabajando ahora mismo dejaría ese
@@ -153,18 +131,18 @@ class TipoProcesoController extends Controller
     }
 
     /**
-     * Un proceso sin especialidades NI personas no se lo puede trabajar
-     * nadie: los pasos que lo usen quedan en curso pero invisibles para
-     * todos, y sin este aviso se guardaba sin decir nada.
+     * Un proceso sin nadie a cargo no se lo puede trabajar nadie: los pasos
+     * que lo usen quedan en curso pero invisibles para todos, y sin este
+     * aviso se guardaba sin decir nada.
      */
-    private function exigirAlguien(array $perfiles, array $trabajadores): void
+    private function exigirAlguien(array $trabajadores): void
     {
-        if (! empty($perfiles) || ! empty($trabajadores)) {
+        if (! empty($trabajadores)) {
             return;
         }
 
         throw ValidationException::withMessages([
-            'perfiles' => ['Elige al menos una especialidad o un trabajador que haga este proceso.'],
+            'trabajadores' => ['Elige al menos un trabajador que haga este proceso.'],
         ]);
     }
 

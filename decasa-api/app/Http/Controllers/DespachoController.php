@@ -866,7 +866,7 @@ class DespachoController extends Controller
 
         $orden = $item->orden;
 
-        if (in_array($usuario->rol, ['vendedor', 'ebanista'], true)
+        if ($usuario->rol === 'vendedor'
             && $orden->vendedor_id !== $usuario->id
             && ! $usuario->facturacion
         ) {

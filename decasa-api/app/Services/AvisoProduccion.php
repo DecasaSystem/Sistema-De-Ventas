@@ -139,21 +139,22 @@ class AvisoProduccion
     }
 
     /**
-     * Quién arma los muebles: el ebanista y los tapiceros.
+     * Quién arma los muebles: los encargados de algún paso del taller.
      *
-     * Los tapiceros tienen rol supervisor con la bandera es_tapicero, así que ya
-     * les llega el aviso genérico de "Orden editada". Por eso solo se les suma
-     * este cuando el cambio es del taller —si no, verían lo mismo dos veces—.
+     * Antes se preguntaba por el rol —el ebanista, y los supervisores con la
+     * bandera de tapicero—, lo que ataba el aviso a cómo se llamara el cargo.
+     * Ahora le llega a quien de verdad tiene pasos a su cargo, sea vendedor,
+     * supervisor o lo que sea.
+     *
+     * Los supervisores ya reciben el aviso genérico de "Orden editada", así que
+     * este solo se les suma cuando el cambio es del taller: si no, verían lo
+     * mismo dos veces.
      */
     private static function destinatarios(?int $excluirUsuarioId = null, bool $incluirTapiceros = true): \Illuminate\Support\Collection
     {
         return Usuario::where('activo', true)
-            ->where(function ($q) use ($incluirTapiceros) {
-                $q->where('rol', 'ebanista');
-                if ($incluirTapiceros) {
-                    $q->orWhere(fn($t) => $t->where('rol', 'supervisor')->where('es_tapicero', true));
-                }
-            })
+            ->whereHas('procesosAsignados', fn ($p) => $p->where('activo', true))
+            ->when(! $incluirTapiceros, fn($q) => $q->where('rol', '!=', 'supervisor'))
             ->when($excluirUsuarioId, fn($q) => $q->where('id', '!=', $excluirUsuarioId))
             ->get();
     }
