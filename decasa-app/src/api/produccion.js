@@ -26,16 +26,3 @@ export const getTrabajadoresTaller = (proceso) =>
 // Apuntar quién está haciendo el paso, sin cerrarlo todavía.
 export const asignarTrabajadoresPaso = (pasoId, trabajadores) =>
   api.patch(`/produccion/pasos/${pasoId}/trabajadores`, { trabajadores })
-
-// Despacho de producción (despachador)
-export const getPendientesDespacho = () =>
-  api.get('/produccion/pendientes-despacho')
-
-export const getHistorialDespacho = () =>
-  api.get('/produccion/historial-despacho')
-
-export const completarDespacho = (produccionId) =>
-  api.patch(`/produccion/${produccionId}/completar-despacho`)
-
-export const devolverDesdeDespacho = (produccionId, data) =>
-  api.patch(`/produccion/${produccionId}/devolver-despacho`, data)

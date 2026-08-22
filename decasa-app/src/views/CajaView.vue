@@ -39,20 +39,18 @@ function buildParams() {
 
 async function cargarTiendas() {
   if (!auth.isSupervisor) return
-  const [tRes, ebRes, vendRes] = await Promise.all([
+  const [tRes, vendRes] = await Promise.all([
     api.get('/tiendas'),
-    api.get('/usuarios', { params: { rol: 'ebanista' } }),
     api.get('/usuarios', { params: { rol: 'vendedor' } }),
   ])
   // Ni la fábrica ni la sede de independientes son cajas de tienda: su plata
   // está en la caja personal de cada quien, que se lista aparte.
   tiendas.value = tRes.data.filter(t => !t.es_fabrica && !t.es_independientes)
 
-  // "Cajas propias": el ebanista y los vendedores independientes
-  ebanistas.value = [
-    ...(ebRes.data.data ?? []),
-    ...(vendRes.data.data ?? []).filter(u => u.independiente),
-  ].filter(u => u.activo)
+  // "Cajas propias": los vendedores independientes. Antes se sumaba además
+  // a todo el que tuviera rol "ebanista", y eso metía en la lista a los seis
+  // ebanistas de fábrica, que no venden ni manejan plata.
+  ebanistas.value = (vendRes.data.data ?? []).filter(u => u.independiente && u.activo)
 
   if (!seleccion.value) {
     if (tiendas.value.length)   seleccion.value = 't:' + tiendas.value[0].id

@@ -372,11 +372,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('/produccion/pasos/{id}/trabajadores',        [ProduccionController::class, 'asignarTrabajadores'])->whereNumber('id');
     Route::patch('/produccion/pasos/{id}/devolver',            [ProduccionController::class, 'devolverPaso'])->whereNumber('id');
 
-    // Producción — despacho de producción (despachador)
-    Route::get('/produccion/pendientes-despacho',              [ProduccionController::class, 'pendientesDespacho']);
-    Route::get('/produccion/historial-despacho',               [ProduccionController::class, 'historialDespacho']);
-    Route::patch('/produccion/{id}/completar-despacho',        [ProduccionController::class, 'completarDespacho'])->whereNumber('id')->middleware('role:despachador,supervisor');
-    Route::patch('/produccion/{id}/devolver-despacho',         [ProduccionController::class, 'devolverDesdeDespacho'])->whereNumber('id')->middleware('role:despachador,supervisor');
+    // El despacho ya no es un módulo: es el último paso, y se cierra desde
+    // "Mis pasos" como cualquier otro.
 
     // Stats — ambos roles (vendedor ve solo lo suyo, supervisor ve todo)
     Route::prefix('stats')->group(function () {

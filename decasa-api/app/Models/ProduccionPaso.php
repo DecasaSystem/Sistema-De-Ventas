@@ -8,6 +8,13 @@ class ProduccionPaso extends Model
 {
     protected $table = 'produccion_pasos';
 
+    /**
+     * El paso que cierra el taller. Es un proceso más del catálogo; lo único
+     * especial es que va siempre de último y que al completarse la producción
+     * queda lista para entrega.
+     */
+    public const DESPACHO = 'despacho';
+
     public $timestamps = false;
 
     protected $fillable = [

@@ -8,7 +8,6 @@ import { useNotificacionesStore } from '@/stores/notificaciones'
 import { useDespachoStore } from '@/stores/despacho'
 import { useSurtidosStore } from '@/stores/surtidos'
 import { usePasosStore } from '@/stores/pasos'
-import { useDespachoProduccionStore } from '@/stores/despachoProduccion'
 import { useConsultasStore } from '@/stores/consultas'
 import { useSurtidosSocket } from '@/composables/useSurtidosSocket'
 import { useCargaGlobal } from '@/composables/useCargaGlobal'
@@ -68,7 +67,6 @@ const notif  = useNotificacionesStore()
 const despacho = useDespachoStore()
 const surtidos = useSurtidosStore()
 const pasos    = usePasosStore()
-const despachoProd = useDespachoProduccionStore()
 const consultasStore = useConsultasStore()
 const { conectar: conectarSurtidos } = useSurtidosSocket()
 
@@ -129,13 +127,8 @@ watch(() => auth.isAuthenticated, (isAuth) => {
   if (auth.isSupervisor || auth.usuario?.rol === 'vendedor') {
     consultasStore.cargar()
   }
-  if (auth.tieneAccesoDespachoProd) {
-    despachoProd.cargar()
-  }
 }, { immediate: true })
 
-// Reconectar al supervisor tapicero también como trabajador de producción
-// (solo necesita las notificaciones normales — ya las recibe por su canal)
 
 // WebSockets — espera a que usuario esté cargado (fetchMe) para tener id y rol
 // immediate: true para que conecte aunque el ID ya esté en localStorage al cargar la página
@@ -151,9 +144,6 @@ watch(() => auth.usuario?.id, (id, oldId) => {
       // Recargar badge de pasos cuando llega una notificación de producción
       if (n.tipo === 'paso_produccion' && auth.tieneAccesoPasos) {
         pasos.cargar()
-      }
-      if (n.tipo === 'paso_produccion' && auth.tieneAccesoDespachoProd) {
-        despachoProd.cargar()
       }
       if (['consulta_costo_nueva', 'consulta_costo_respondida', 'consulta_costo_mensaje'].includes(n.tipo)) {
         if (auth.isSupervisor || auth.usuario?.rol === 'vendedor') consultasStore.cargar()
@@ -216,10 +206,9 @@ const navItems = computed(() => {
       { name: 'cotizaciones', label: 'Cotizaciones',   icon: DocumentTextIcon },
       { name: 'consultas',  label: 'Consultar costo', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
     ]
-    if (auth.tieneAccesoDespachoProd) {
+    // "Mis pasos" sale si de verdad lleva pasos, sin importar el cargo.
+    if (auth.tieneAccesoPasos) {
       items.unshift({ name: 'mis-pasos', label: 'Mis pasos', icon: ClipboardDocumentCheckIcon, badge: pasos.pendientesCount })
-      // El despacho de producción lo hacen entre el despachador y ella
-      items.unshift({ name: 'despacho-produccion', label: 'Despacho prod.', icon: ArchiveBoxArrowDownIcon, badge: despachoProd.pendientesCount })
     }
     if (auth.tieneAccesoRedes) {
       items.push({ name: 'redes', label: 'Redes', icon: ChatBubbleLeftRightIcon, badge: redesPendientes.value })
@@ -239,32 +228,6 @@ const navItems = computed(() => {
     return [
       { name: 'mis-entregas',        label: 'Entregas',  icon: TruckIcon, badge: despacho.misEntregasPendientes },
       { name: 'mis-stats-conductor', label: 'Estadíst.', icon: PresentationChartLineIcon },
-    ]
-  }
-  if (auth.usuario?.rol === 'ebanista') {
-    return [
-      { name: 'dashboard',   label: 'Inicio',       icon: HomeIcon },
-      { name: 'mis-pasos',   label: 'Mis pasos',    icon: WrenchScrewdriverIcon, badge: pasos.pendientesCount },
-      { name: 'ordenes',     label: 'Órdenes',      icon: ClipboardDocumentListIcon },
-      { name: 'consultas',   label: 'Consultar costo', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
-      { name: 'costos',      label: 'Costos',       icon: CalculatorIcon },
-      { name: 'telas',       label: 'Telas',        icon: SwatchIcon },
-      { name: 'clientes',    label: 'Clientes',     icon: UserGroupIcon },
-      { name: 'caja',        label: 'Caja',         icon: BanknotesIcon },
-      { name: 'mis-stats',   label: 'Estadíst.',    icon: PresentationChartLineIcon },
-    ]
-  }
-  if (auth.tieneAccesoDespachoProd) {
-    return [
-      { name: 'mis-pasos',  label: 'Mis pasos',   icon: WrenchScrewdriverIcon, badge: pasos.pendientesCount },
-      { name: 'consultas',  label: 'Consultar costo', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
-      { name: 'costos',     label: 'Costos',       icon: CalculatorIcon },
-    ]
-  }
-  if (auth.usuario?.rol === 'despachador') {
-    return [
-      { name: 'despacho-produccion', label: 'Despacho prod.', icon: ArchiveBoxArrowDownIcon, badge: despachoProd.pendientesCount },
-      { name: 'mis-pasos',           label: 'Mis pasos',      icon: WrenchScrewdriverIcon, badge: pasos.pendientesCount },
     ]
   }
   if (auth.isFacturador) {
@@ -679,7 +642,7 @@ function formatFecha(iso) {
     <ToastContainer />
 
     <!-- Agente de IA — solo supervisor, vendedor y ebanista -->
-    <AgentChat v-if="auth.isAuthenticated && (auth.isSupervisor || auth.usuario?.rol === 'vendedor' || auth.usuario?.rol === 'ebanista')" />
+    <AgentChat v-if="auth.isAuthenticated && (auth.isSupervisor || auth.usuario?.rol === 'vendedor')" />
   </div>
 </template>
 

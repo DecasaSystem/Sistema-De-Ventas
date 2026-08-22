@@ -198,6 +198,14 @@ class ProduccionController extends Controller
             $siguientePaso->update(['estado' => 'en_proceso', 'iniciado_at' => now()]);
             $labelSiguiente = ProduccionPaso::labelProceso($siguientePaso->tipo_proceso);
 
+            // El estado de la producción se sigue moviendo igual que antes, para
+            // que el tablero y los filtros no cambien: lo que se fue es la
+            // pantalla aparte, no el estado.
+            if ($siguientePaso->tipo_proceso === ProduccionPaso::DESPACHO) {
+                $produccion->update(['estado' => 'pendiente_despachador']);
+                event(new ProduccionActualizada($produccion->id, $orden->id, 'pendiente_despachador'));
+            }
+
             // Notificar trabajadores del siguiente paso
             $this->notificarTrabajadores($siguientePaso->tipo_proceso, $produccion->id, $orden->id, $productoNombre);
 
@@ -210,39 +218,9 @@ class ProduccionController extends Controller
                 $vendedorId,
             );
         } else {
-            // Todos los pasos terminaron → espera al despachador
-            $produccion->update(['estado' => 'pendiente_despachador']);
-
-            // Notificar despachadores
-            $despachadores = Usuario::where('acceso_despacho', true)->where('activo', true)->get();
-            foreach ($despachadores as $d) {
-                NotificacionService::crear(
-                    'paso_produccion',
-                    'Producto listo para despacho',
-                    "\"{$productoNombre}\" completo produccion y esta en espera de despacho",
-                    ['produccion_id' => $produccion->id, 'orden_id' => $orden->id],
-                    $d->id,
-                );
-            }
-
-            // Notificar supervisores
-            NotificacionService::crear(
-                'paso_produccion',
-                'Producción completada',
-                "\"{$productoNombre}\" completo todos los pasos - en espera de despachador",
-                ['produccion_id' => $produccion->id, 'orden_id' => $orden->id],
-            );
-
-            // Notificar al vendedor
-            NotificacionService::crear(
-                'paso_produccion',
-                'Tu pedido terminó producción',
-                "\"{$productoNombre}\" completo todos los procesos y esta pendiente de entrega",
-                ['produccion_id' => $produccion->id, 'orden_id' => $orden->id],
-                $vendedorId,
-            );
-
-            event(new ProduccionActualizada($produccion->id, $orden->id, 'pendiente_despachador'));
+            // No quedan pasos. El último es siempre el de despacho, así que
+            // llegar aquí significa que la pieza ya salió del taller.
+            $this->cerrarProduccion($produccion, $orden, $usuario, $productoNombre, $vendedorId);
         }
 
         return response()->json(['message' => 'Paso completado.']);
@@ -351,126 +329,17 @@ class ProduccionController extends Controller
         return response()->json(['message' => "Paso devuelto a {$labelDestino} correctamente."]);
     }
 
-    /**
-     * GET /api/produccion/pendientes-despacho
-     * Solo despachadores: producciones que terminaron todos sus pasos.
-     */
-    public function pendientesDespacho(Request $request)
-    {
-        $pasos = Produccion::with([
-            'ordenItem.producto:id,nombre,categoria,foto_url',
-            'ordenItem.orden.cliente:id,nombre,telefono',
-            'ordenItem.orden.vendedor:id,nombre',
-            'ordenItem.orden.tienda:id,nombre',
-            'pasos',
-        ])
-        ->where('estado', 'pendiente_despachador')
-        ->orderBy('updated_at')
-        ->get()
-        ->map(fn($p) => $this->conDiasRestantes($p));
 
-        return response()->json($pasos);
-    }
 
     /**
-     * PATCH /api/produccion/{id}/devolver-despacho
-     * Despachador detecta un defecto y devuelve el producto a un paso anterior.
+     * La pieza salió del taller: se cierra la producción y la orden se pone al día.
+     *
+     * Antes esto vivía en `completarDespacho`, el botón de un módulo aparte.
+     * Ahora lo dispara el paso de despacho al completarse, igual que cualquier
+     * otro paso, y por eso el despachador ya no necesita pantalla propia.
      */
-    public function devolverDesdeDespacho(Request $request, int $id)
+    private function cerrarProduccion(Produccion $produccion, $orden, Usuario $usuario, string $productoNombre, ?int $vendedorId): void
     {
-        $usuario = $request->user();
-
-        $data = $request->validate([
-            'paso_destino_id' => 'required|integer|exists:produccion_pasos,id',
-            'motivo'          => 'required|string|max:500',
-        ]);
-
-        $produccion = Produccion::with([
-            'pasos',
-            'ordenItem.producto',
-            'ordenItem.orden',
-        ])->where('estado', 'pendiente_despachador')->findOrFail($id);
-
-        $pasoDestino = ProduccionPaso::findOrFail($data['paso_destino_id']);
-
-        if ($pasoDestino->produccion_id !== $produccion->id) {
-            return response()->json(['message' => 'El paso no pertenece a esta producción.'], 422);
-        }
-
-        $productoNombre = $produccion->ordenItem->producto->nombre ?? 'Producto';
-        $orden          = $produccion->ordenItem->orden;
-
-        DB::transaction(function () use ($produccion, $pasoDestino, $usuario, $data) {
-            // Registrar rechazo en el paso devuelto
-            $pasoDestino->update([
-                'rechazos'         => $pasoDestino->rechazos + 1,
-                'ultimo_rechazo'   => $data['motivo'],
-                'rechazado_por_id' => $usuario->id,
-                'rechazado_at'     => now(),
-            ]);
-
-            // Resetear todos los pasos desde el destino en adelante
-            ProduccionPaso::where('produccion_id', $produccion->id)
-                ->where('orden', '>=', $pasoDestino->orden)
-                ->update([
-                    'estado'         => 'pendiente',
-                    'completado_por' => null,
-                    'completado_at'  => now(),
-                    'trabajadores'   => null,
-                ]);
-
-            // Activar el paso con el defecto
-            $pasoDestino->update(['estado' => 'en_proceso', 'iniciado_at' => now()]);
-
-            // Produccion regresa a en_proceso
-            $produccion->update(['estado' => 'en_proceso']);
-        });
-
-        $this->notificarTrabajadores(
-            $pasoDestino->tipo_proceso,
-            $produccion->id,
-            $orden->id,
-            $productoNombre
-        );
-
-        $labelDestino = ProduccionPaso::labelProceso($pasoDestino->tipo_proceso);
-
-        NotificacionService::crear(
-            'paso_produccion',
-            'Producto devuelto por el despachador',
-            "\"{$productoNombre}\" devuelto a {$labelDestino} — {$data['motivo']}",
-            ['produccion_id' => $produccion->id, 'orden_id' => $orden->id],
-        );
-
-        NotificacionService::crear(
-            'paso_produccion',
-            'Corrección en tu pedido',
-            "\"{$productoNombre}\" regresó a {$labelDestino} para corrección",
-            ['produccion_id' => $produccion->id, 'orden_id' => $orden->id],
-            $orden->vendedor_id,
-        );
-
-        event(new ProduccionActualizada($produccion->id, $orden->id, 'en_proceso'));
-
-        return response()->json(['message' => "Producto devuelto a {$labelDestino} correctamente."]);
-    }
-
-    /**
-     * PATCH /api/produccion/{id}/completar-despacho
-     * Despachador marca el producto como listo → la orden pasa a listo_entrega.
-     */
-    public function completarDespacho(Request $request, int $id)
-    {
-        $usuario    = $request->user();
-        $produccion = Produccion::with('ordenItem.orden')->findOrFail($id);
-
-        if ($produccion->estado !== 'pendiente_despachador') {
-            return response()->json(['message' => 'Este pedido no está pendiente de despacho.'], 422);
-        }
-
-        // Extraer la orden antes del closure para que esté disponible afuera
-        $orden = $produccion->ordenItem->orden;
-
         DB::transaction(function () use ($produccion, $usuario, $orden) {
             $produccion->update([
                 'estado'         => 'listo',
@@ -478,7 +347,6 @@ class ProduccionController extends Controller
                 'despachado_por' => $usuario->id,
             ]);
 
-            // Sincronizar estado de la orden
             $orden->loadMissing('items.produccion');
 
             $estadosProduccion = $orden->items
@@ -500,11 +368,6 @@ class ProduccionController extends Controller
             }
         });
 
-        $produccion->load(['ordenItem.producto:id,nombre', 'ordenItem.orden.vendedor:id']);
-        $productoNombre = $produccion->ordenItem->producto->nombre ?? 'Producto';
-        $vendedorId     = $produccion->ordenItem->orden->vendedor_id;
-
-        // Notificar al vendedor
         NotificacionService::crear(
             'entregado',
             'Tu pedido está listo para entrega',
@@ -513,9 +376,15 @@ class ProduccionController extends Controller
             $vendedorId,
         );
 
-        event(new ProduccionActualizada($produccion->id, $orden->id, 'listo'));
+        // A los supervisores también, que es lo que avisaba el módulo viejo.
+        NotificacionService::crear(
+            'paso_produccion',
+            'Producción completada',
+            "\"{$productoNombre}\" salió del taller y está listo para entrega",
+            ['produccion_id' => $produccion->id, 'orden_id' => $orden->id],
+        );
 
-        return response()->json(['message' => 'Producto despachado. La orden pasó a listo para entrega.']);
+        event(new ProduccionActualizada($produccion->id, $orden->id, 'listo'));
     }
 
     /**
@@ -582,7 +451,21 @@ class ProduccionController extends Controller
             // Eliminar pasos anteriores si los hubiera (reinicio de flujo)
             ProduccionPaso::where('produccion_id', $produccion->id)->delete();
 
-            $pasosOrdenados = collect($data['pasos'])->sortBy('orden');
+            // El despacho cierra siempre: se añade solo al final, para que no
+            // dependa de que quien arma el flujo se acuerde de ponerlo.
+            $delTaller = collect($data['pasos'])
+                ->reject(fn ($p) => $p['tipo_proceso'] === ProduccionPaso::DESPACHO)
+                ->sortBy('orden')
+                ->values();
+
+            // El orden es un número pequeño (la columna es un tinyint), así que
+            // el despacho se numera justo después del último, no con un número
+            // alto simbólico.
+            $pasosOrdenados = $delTaller->push([
+                'tipo_proceso' => ProduccionPaso::DESPACHO,
+                'orden'        => (int) $delTaller->max('orden') + 1,
+            ]);
+
             foreach ($pasosOrdenados as $paso) {
                 ProduccionPaso::create([
                     'produccion_id' => $produccion->id,
@@ -694,41 +577,6 @@ class ProduccionController extends Controller
         return response()->json($this->conDiasRestantes($produccion));
     }
 
-    /**
-     * GET /api/produccion/historial-despacho
-     * Para despachadores: producciones que ellos mismos despacharon.
-     */
-    public function historialDespacho(Request $request)
-    {
-        $usuario = $request->user();
-
-        // El despacho de producción lo hacen dos personas: el despachador y la
-        // encargada de tapicería. El resto de este módulo ya aceptaba a ambos
-        // (las rutas van con role:despachador,supervisor); solo el historial se
-        // había quedado pidiendo el rol exacto.
-        // Despachar es un permiso, no un cargo.
-        $puedeVer = (bool) $usuario->acceso_despacho;
-
-        if (! $puedeVer) {
-            return response()->json(['message' => 'Sin acceso.'], 403);
-        }
-
-        $producciones = Produccion::with([
-            'ordenItem.producto:id,nombre,categoria,foto_url',
-            'ordenItem.orden.cliente:id,nombre,telefono',
-            'ordenItem.orden.vendedor:id,nombre',
-            'ordenItem.orden.tienda:id,nombre',
-            'pasos',
-        ])
-        ->where('despachado_por', $usuario->id)
-        ->whereIn('estado', ['listo', 'entregado'])
-        ->orderByDesc('fecha_real')
-        ->limit(50)
-        ->get()
-        ->map(fn($p) => $this->conDiasRestantes($p));
-
-        return response()->json($producciones);
-    }
 
     // ──────────────────────────────────────────────────────────────────────────
     // Helpers privados

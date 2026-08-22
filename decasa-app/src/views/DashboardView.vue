@@ -6,7 +6,6 @@ import { useDespachoStore } from '@/stores/despacho'
 import { useSurtidosStore } from '@/stores/surtidos'
 import { usePasosStore } from '@/stores/pasos'
 import { useConsultasStore } from '@/stores/consultas'
-import { useDespachoProduccionStore } from '@/stores/despachoProduccion'
 import { useNotificacionesStore } from '@/stores/notificaciones'
 import RedesHerramientas from '@/components/RedesHerramientas.vue'
 import {
@@ -46,7 +45,6 @@ const despacho     = useDespachoStore()
 const surtidos     = useSurtidosStore()
 const pasos        = usePasosStore()
 const consultas    = useConsultasStore()
-const despachoProd = useDespachoProduccionStore()
 const notif        = useNotificacionesStore()
 
 // Panel de herramientas (direcciones, horarios, catálogos…). Disponible para TODOS
@@ -88,7 +86,6 @@ const accesos = computed(() => {
   }
   if (auth.usuario?.rol === 'despachador') {
     return [
-      { label: 'Despacho producción', icon: TruckIcon, to: { name: 'despacho-produccion' }, badge: despachoProd.pendientesCount },
       ...(auth.puedeSurtir ? [{ label: 'Surtir', icon: ArrowPathIcon, to: { name: 'surtir' } }] : []),
       { label: 'Proveedores',         icon: BuildingStorefrontIcon, to: { name: 'proveedores' } },
       ...(auth.puedeCompras ? [{ label: 'Compras', icon: ShoppingCartIcon, to: { name: 'compras' } }] : []),
@@ -138,9 +135,6 @@ const accesos = computed(() => {
       items.push({ label: 'Traslado', icon: ArrowPathIcon,           to: { name: 'surtir', query: { tab: 'traslado' } } })
     }
     if (auth.puedeCostos)     items.push({ label: 'Costos',      icon: CalculatorIcon,               to: { name: 'costos'     } })
-    if (auth.tieneAccesoDespachoProd) {
-      items.push({ label: 'Mis pasos', icon: ClipboardDocumentCheckIcon,  to: { name: 'mis-pasos'  }, badge: pasos.pendientesCount })
-    }
   }
 
   items.push({ label: 'Cotizaciones', icon: DocumentTextIcon,           to: { name: 'cotizaciones' } })

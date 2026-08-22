@@ -126,8 +126,6 @@ export const useAuthStore = defineStore('auth', () => {
   // punto: quién es la persona y qué pasos lleva son dos cosas distintas.
   const tieneAccesoPasos   = computed(() => !!usuario.value?.tiene_pasos_produccion)
 
-  // Despachar producción es un permiso, no un cargo.
-  const tieneAccesoDespachoProd = computed(() => !!usuario.value?.acceso_despacho)
   const isFacturador       = computed(() => usuario.value?.rol === 'vendedor' && !!usuario.value?.facturacion)
   // Vende por su cuenta: no pertenece a ninguna tienda y lleva caja propia.
   const isIndependiente    = computed(() => !!usuario.value?.independiente)
@@ -267,7 +265,7 @@ export const useAuthStore = defineStore('auth', () => {
     token, usuario,
     isAuthenticated, isSupervisor, isCosturero,
     isIndependiente, llevaCajaPropia,
-    tieneAccesoPasos, tieneAccesoDespachoProd,
+    tieneAccesoPasos,
     isFacturador, tieneAccesoRedes, tieneAccesoComisiones, puedeRecargarTelas, puedeSurtir,
     puedeCostos, puedeProveedores, puedeDespacho, puedeProduccion, puedeReserva, puedeNomina, puedeCompras, veTodasOrdenes,
     tienePerfilAlternativo, perfilAlternativo, perfilActivoIdx,

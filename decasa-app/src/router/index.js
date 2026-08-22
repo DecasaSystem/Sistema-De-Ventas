@@ -25,7 +25,6 @@ const routes = [
   { path: '/surtir', name: 'surtir', component: () => import('@/views/SurtirView.vue'), meta: { requiresAuth: true, requiresSurtir: true } },
   // Nuevas rutas para roles de producción
   { path: '/mis-pasos', name: 'mis-pasos', component: () => import('@/views/EbanistaView.vue'), meta: { requiresAuth: true, requiresProduccionWorker: true } },
-  { path: '/despacho-produccion', name: 'despacho-produccion', component: () => import('@/views/DespachadorProduccionView.vue'), meta: { requiresAuth: true, requiresDespachador: true } },
   { path: '/stats/vendedor/:id', name: 'stats-vendedor', component: () => import('@/views/StatsVendedorDetalleView.vue'), meta: { requiresAuth: true, requiresSupervisor: true } },
   { path: '/costos', name: 'costos', component: () => import('@/views/CostosView.vue'), meta: { requiresAuth: true, requiresCostos: true } },
   { path: '/facturacion', name: 'facturacion', component: () => import('@/views/FacturacionView.vue'), meta: { requiresAuth: true, requiresFacturador: true } },
@@ -73,7 +72,6 @@ router.beforeEach((to) => {
   if (to.meta.requiresSurtir && !auth.puedeSurtir) return { name: 'dashboard' }
   if (to.meta.requiresCostos && !auth.puedeCostos) return { name: 'dashboard' }
   if (to.meta.requiresConductor && auth.usuario?.rol !== 'conductor') return { name: 'dashboard' }
-  if (to.meta.requiresDespachador && !auth.tieneAccesoDespachoProd) return { name: 'dashboard' }
   if (to.meta.requiresProduccionWorker && !auth.tieneAccesoPasos) return { name: 'dashboard' }
   if (to.meta.requiresFacturador && !auth.isFacturador) return { name: 'dashboard' }
   if (to.meta.requiresRedes       && !auth.tieneAccesoRedes)       return { name: 'dashboard' }
@@ -84,7 +82,7 @@ router.beforeEach((to) => {
   // El vendedor sigue entrando (ve solo lo suyo); el supervisor necesita el
   // permiso para el tablero completo del taller.
   if (to.meta.requiresProduccion && !(auth.usuario?.rol === 'vendedor' || (auth.isSupervisor && auth.puedeProduccion))) return { name: 'dashboard' }
-  if (to.meta.requiresConsultas && !auth.isSupervisor && auth.usuario?.rol !== 'ebanista' && auth.usuario?.rol !== 'vendedor') return { name: 'dashboard' }
+  if (to.meta.requiresConsultas && !auth.isSupervisor && auth.usuario?.rol !== 'vendedor') return { name: 'dashboard' }
   if (to.meta.requiresReserva && !auth.puedeReserva) return { name: 'dashboard' }
   if (to.meta.requiresTelas && !auth.isCosturero && !auth.puedeRecargarTelas && auth.usuario?.rol !== 'vendedor') return { name: 'dashboard' }
   if (to.meta.requiresCaja && !auth.isSupervisor && auth.usuario?.rol !== 'vendedor') return { name: 'dashboard' }
