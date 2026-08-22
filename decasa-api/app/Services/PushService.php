@@ -8,7 +8,7 @@ use Minishlink\WebPush\Subscription;
 
 class PushService
 {
-    public static function enviarAUsuario(int $usuarioId, string $titulo, string $cuerpo, array $datos = []): void
+    public static function enviarAUsuario(int $usuarioId, string $titulo, string $cuerpo, array $datos = [], ?string $tipo = null): void
     {
         $suscripciones = PushSubscription::where('usuario_id', $usuarioId)->get();
         if ($suscripciones->isEmpty()) return;
@@ -23,10 +23,13 @@ class PushService
 
         $webPush = new WebPush($auth);
 
+        // El tipo va incluido porque el clic en la notificación decide a dónde
+        // llevar con él: sin tipo, todas terminaban en el inicio.
         $payload = json_encode([
             'title' => $titulo,
             'body'  => $cuerpo,
             'datos' => $datos,
+            'tipo'  => $tipo,
         ]);
 
         $expiradas = [];

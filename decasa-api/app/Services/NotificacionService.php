@@ -57,7 +57,7 @@ class NotificacionService
 
         if ($usuarioId) {
             try {
-                PushService::enviarAUsuario($usuarioId, $titulo, $mensaje, $datos);
+                PushService::enviarAUsuario($usuarioId, $titulo, $mensaje, $datos, $tipo);
             } catch (\Throwable $e) {
                 \Log::warning("Push notification fallida para usuario {$usuarioId}", [
                     'tipo'  => $tipo,

@@ -88,16 +88,32 @@ const mostrarCarga = computed(() =>
 
 function onSwMessage(e) {
   if (e.data?.type === 'push-click') {
-    const datos = e.data.datos ?? {}
-    if (datos.cita_id)          router.push({ name: 'citas' })
-    else if (datos.conversacion_id) router.push({ name: 'redes' })
-    else if (datos.orden_id)    router.push({ name: 'orden-detalle', params: { id: datos.orden_id } })
-    else                         router.push({ name: 'dashboard' })
+    const destino = destinoNotificacion(e.data.tipo, e.data.datos)
+    router.push(destino ?? { name: 'dashboard' })
   }
 }
 
+/**
+ * La app se abrió DESDE una notificación con la app cerrada.
+ *
+ * En ese caso no hay ventana a la que avisarle, así que el service worker abre
+ * la app con el aviso en la dirección y acá se lee para ir al mismo sitio al
+ * que habría ido con la app abierta.
+ */
+function abrirDesdeNotificacionInicial() {
+  const crudo = new URLSearchParams(window.location.search).get('notif')
+  if (!crudo) return
+  // Se limpia la dirección para que al recargar no vuelva a saltar sola.
+  window.history.replaceState({}, '', window.location.pathname)
+  try {
+    const info = JSON.parse(crudo)
+    const destino = destinoNotificacion(info.tipo, info.datos)
+    if (destino) router.push(destino)
+  } catch { /* dirección manipulada: se queda en el inicio */ }
+}
+
 onMounted(() => {
-  auth.fetchMe()
+  auth.fetchMe().finally(abrirDesdeNotificacionInicial)
   navigator.serviceWorker?.addEventListener('message', onSwMessage)
 })
 onUnmounted(() => {
@@ -293,49 +309,57 @@ async function doLogout() {
   router.push({ name: 'login' })
 }
 
-async function abrirNotificacion(n) {
-  notif.leer(n.id)
-  abrirNotif.value = false
-  const datos = n.datos ?? {}
+/**
+ * A dónde lleva una notificación.
+ *
+ * Una sola función para los dos caminos: la campana de adentro y el clic en la
+ * notificación del celular. Antes el push tenía su propio mapeo de cuatro
+ * casos —y ni siquiera recibía el tipo—, así que casi todas terminaban
+ * tirándote al inicio en vez de a lo que te estaban avisando.
+ *
+ * Devuelve un destino de vue-router, o null si no hay a dónde ir.
+ */
+function destinoNotificacion(tipo, datos) {
+  datos = datos ?? {}
+
   // Si el precio ya quedó puesto en una cotización, lo que sigue es mandársela
   // al cliente: se abre la cotización, no el detalle de la consulta.
   if (datos.es_cotizacion && datos.orden_id) {
-    router.push({ name: 'cotizacion-detalle', params: { id: datos.orden_id } })
-  // Notificaciones de consultas de costo — van al detalle de la consulta
-  } else if (datos.consulta_id) {
-    router.push({ name: 'consulta-detalle', params: { id: datos.consulta_id } })
-  } else if (n.tipo === 'ruta_atrasada') {
-    router.push({ name: 'despacho' })
-  } else if (n.tipo === 'despacho_asignado' || (auth.usuario?.rol === 'conductor' && datos.orden_id)) {
-    // Conductor: cualquier notificación con orden_id o despacho asignado va a sus entregas
-    router.push({ name: 'mis-entregas' })
-  } else if (datos.orden_id) {
-    if (n.tipo === 'venta_otra_tienda') {
-      const ids = datos.productos
-      router.push({ name: 'inventario', query: ids?.length ? { abrir: ids.join(',') } : {} })
-    } else if (n.tipo === 'paso_produccion' && auth.tieneAccesoPasos) {
-      router.push({ name: 'mis-pasos' })
-    } else {
-      router.push({ name: 'orden-detalle', params: { id: datos.orden_id } })
-    }
-  } else if (datos.surtido_id) {
-    // Un surtido por validar se acepta en Inventario, sea quien sea. Antes al
-    // supervisor lo mandaba a Surtir, donde no hay nada que aceptar.
-    router.push({ name: 'inventario' })
-  } else if (n.tipo === 'stock_agotado') {
-    // El aviso de "se vendió el último" no llevaba a ningún lado: se tocaba y
-    // no pasaba nada. Va a surtir, que es donde se decide qué mandar.
-    router.push({ name: auth.isSupervisor ? 'surtir' : 'inventario' })
-  } else if (datos.traslado_id) {
-    // Validador (traslado_pendiente) → inventario; iniciador (aceptado/rechazado) → surtir
-    router.push({ name: n.tipo === 'traslado_pendiente' ? 'inventario' : 'surtir' })
-  } else if (datos.cita_id) {
-    router.push({ name: 'citas' })
-  } else if (datos.conversacion_id || n.tipo === 'redes') {
-    router.push({ name: 'redes' })
-  } else if (datos.comision_id || n.tipo === 'comisiones') {
-    router.push({ name: 'comisiones' })
+    return { name: 'cotizacion-detalle', params: { id: datos.orden_id } }
   }
+  if (datos.consulta_id)      return { name: 'consulta-detalle', params: { id: datos.consulta_id } }
+  if (tipo === 'ruta_atrasada') return { name: 'despacho' }
+  // Conductor: cualquier aviso con orden_id lo lleva a sus entregas.
+  if (tipo === 'despacho_asignado' || (auth.usuario?.rol === 'conductor' && datos.orden_id)) {
+    return { name: 'mis-entregas' }
+  }
+  if (datos.orden_id) {
+    if (tipo === 'venta_otra_tienda') {
+      const ids = datos.productos
+      return { name: 'inventario', query: ids?.length ? { abrir: ids.join(',') } : {} }
+    }
+    if (tipo === 'paso_produccion' && auth.tieneAccesoPasos) return { name: 'mis-pasos' }
+    return { name: 'orden-detalle', params: { id: datos.orden_id } }
+  }
+  // Un surtido por validar se acepta en Inventario, sea quien sea.
+  if (datos.surtido_id)       return { name: 'inventario' }
+  if (tipo === 'stock_agotado') return { name: auth.isSupervisor ? 'surtir' : 'inventario' }
+  // Validador (traslado_pendiente) → inventario; iniciador → surtir.
+  if (datos.traslado_id)      return { name: tipo === 'traslado_pendiente' ? 'inventario' : 'surtir' }
+  if (datos.compra_id)        return { name: 'compras' }
+  if (datos.cita_id)          return { name: 'citas' }
+  if (datos.conversacion_id || tipo === 'redes')     return { name: 'redes' }
+  if (datos.comision_id || tipo === 'comisiones')    return { name: 'comisiones' }
+  if (datos.produccion_id)    return { name: auth.tieneAccesoPasos ? 'mis-pasos' : 'produccion' }
+
+  return null
+}
+
+async function abrirNotificacion(n) {
+  notif.leer(n.id)
+  abrirNotif.value = false
+  const destino = destinoNotificacion(n.tipo, n.datos ?? {})
+  if (destino) router.push(destino)
 }
 
 function tipoIcono(tipo) {

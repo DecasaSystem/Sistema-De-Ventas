@@ -1,6 +1,6 @@
 // Subir este número en cada cambio del service worker: al activarse borra los
 // caches con otro nombre, y así no queda nada de la versión anterior.
-const CACHE_NAME = 'decasa-v16'
+const CACHE_NAME = 'decasa-v17'
 
 // ── Push notifications ────────────────────────────────────────────────────────
 self.addEventListener('push', (event) => {
@@ -13,7 +13,7 @@ self.addEventListener('push', (event) => {
     body: payload.body ?? '',
     icon: '/logo_192x192.png',
     badge: '/logo_192x192.png',
-    data: payload.datos ?? {},
+    data: { datos: payload.datos ?? {}, tipo: payload.tipo ?? null },
     vibrate: [200, 100, 200],
   }
   event.waitUntil(self.registration.showNotification(title, options))
@@ -21,17 +21,25 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close()
-  const url = '/'
+
+  // A dónde lleva la notificación. Si la app ya está abierta se le pasa el
+  // aviso y ella navega —así usa el mismo criterio que la campana—; si está
+  // cerrada hay que abrirla directo en el sitio, porque no hay a quién avisarle.
+  const info = event.notification.data ?? {}
+  const url  = '/?notif=' + encodeURIComponent(JSON.stringify(info))
+
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
       const existing = list.find((c) => c.url.includes(self.location.origin))
       if (existing) {
         existing.focus()
-        existing.postMessage({ type: 'push-click', datos: event.notification.data })
+        existing.postMessage({ type: 'push-click', datos: info.datos ?? {}, tipo: info.tipo ?? null })
       } else {
         clients.openWindow(url)
       }
     })
+  )
+})
   )
 })
 

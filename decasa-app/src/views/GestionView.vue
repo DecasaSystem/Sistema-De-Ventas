@@ -115,6 +115,104 @@ async function reactivarRol(r) {
 const rolesActivos   = computed(() => roles.value.filter(r => r.activo))
 const rolesInactivos = computed(() => roles.value.filter(r => !r.activo))
 
+// ── Tiendas ──────────────────────────────────────────────────────────────
+const tiendas   = ref([])
+const cargando  = ref(true)
+
+const vacio = () => ({ nombre: '', ciudad: '', direccion: '', telefono: '', es_fabrica: false, es_independientes: false })
+const mostrarForm = ref(false)
+const editando     = ref(null)
+const form          = ref(vacio())
+const guardando     = ref(false)
+
+async function cargarTiendas() {
+  cargando.value = true
+  try {
+    const { data } = await getTiendasAdmin()
+    tiendas.value = data
+  } catch {
+    toast.error('No se pudo cargar la lista de tiendas')
+  } finally {
+    cargando.value = false
+  }
+}
+onMounted(cargarTiendas)
+
+function abrirNueva() {
+  editando.value = null
+  form.value = vacio()
+  mostrarForm.value = true
+}
+
+function abrirEditar(t) {
+  editando.value = t.id
+  form.value = {
+    nombre: t.nombre, ciudad: t.ciudad ?? '', direccion: t.direccion ?? '', telefono: t.telefono ?? '',
+    es_fabrica: !!t.es_fabrica, es_independientes: !!t.es_independientes,
+  }
+  mostrarForm.value = true
+}
+
+function cerrarForm() {
+  mostrarForm.value = false
+}
+
+async function guardar() {
+  if (!form.value.nombre.trim()) {
+    toast.error('El nombre es obligatorio')
+    return
+  }
+  guardando.value = true
+  try {
+    const payload = {
+      nombre: form.value.nombre.trim(),
+      ciudad: form.value.ciudad.trim() || null,
+      direccion: form.value.direccion.trim() || null,
+      telefono: form.value.telefono.trim() || null,
+      es_fabrica: form.value.es_fabrica,
+      es_independientes: form.value.es_independientes,
+    }
+    if (editando.value) {
+      await actualizarTienda(editando.value, payload)
+      toast.success('Tienda actualizada')
+    } else {
+      await crearTienda(payload)
+      toast.success('Tienda creada')
+    }
+    mostrarForm.value = false
+    await cargarTiendas()
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo guardar')
+  } finally {
+    guardando.value = false
+  }
+}
+
+async function eliminar(t) {
+  if (!confirm(`¿Eliminar "${t.nombre}"? Si tiene datos asociados, se desactiva en vez de borrarse.`)) return
+  try {
+    const { data } = await eliminarTienda(t.id)
+    toast.success(data?.message ?? 'Tienda eliminada')
+    await cargarTiendas()
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo eliminar')
+  }
+}
+
+async function reactivar(t) {
+  try {
+    await actualizarTienda(t.id, { activa: true })
+    toast.success('Tienda reactivada')
+    await cargarTiendas()
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo reactivar')
+  }
+}
+
+const activas   = computed(() => tiendas.value.filter(t => t.activa))
+const inactivas = computed(() => tiendas.value.filter(t => !t.activa))
+
+
 </script>
 
 <template>
