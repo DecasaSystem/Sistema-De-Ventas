@@ -219,7 +219,7 @@ const navItems = computed(() => {
     // Telas y Métricas se movieron a módulos del home (Dashboard) para aligerar el nav.
     return items
   }
-  if (auth.isCosturero) {
+  if (auth.puedeUsarTelas && !auth.isSupervisor) {
     return [
       { name: 'telas', label: 'Telas', icon: SwatchIcon },
     ]

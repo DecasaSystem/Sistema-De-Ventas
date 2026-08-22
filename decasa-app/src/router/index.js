@@ -84,7 +84,7 @@ router.beforeEach((to) => {
   if (to.meta.requiresProduccion && !(auth.usuario?.rol === 'vendedor' || (auth.isSupervisor && auth.puedeProduccion))) return { name: 'dashboard' }
   if (to.meta.requiresConsultas && !auth.isSupervisor && auth.usuario?.rol !== 'vendedor') return { name: 'dashboard' }
   if (to.meta.requiresReserva && !auth.puedeReserva) return { name: 'dashboard' }
-  if (to.meta.requiresTelas && !auth.isCosturero && !auth.puedeRecargarTelas && auth.usuario?.rol !== 'vendedor') return { name: 'dashboard' }
+  if (to.meta.requiresTelas && !auth.puedeUsarTelas && !auth.puedeRecargarTelas) return { name: 'dashboard' }
   if (to.meta.requiresCaja && !auth.isSupervisor && auth.usuario?.rol !== 'vendedor') return { name: 'dashboard' }
 })
 

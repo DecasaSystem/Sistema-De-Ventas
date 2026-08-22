@@ -76,7 +76,7 @@ const crearError = ref('')
 const crearForm  = ref({ marca: '', marcaNueva: '', tipo: '', color: '', referencia: '', textura: '', metros: '', foto_url: '' })
 
 const puedeRecargar  = computed(() => auth.puedeRecargarTelas)
-const puedeDescontar = computed(() => auth.isCosturero || auth.isSupervisor)
+const puedeDescontar = computed(() => auth.puedeUsarTelas)
 
 const telasFiltradas = computed(() => {
   let lista = telas.value

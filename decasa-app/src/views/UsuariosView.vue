@@ -11,6 +11,7 @@ import {
 import { StarIcon as StarSolid } from '@heroicons/vue/24/solid'
 import { getUsuarios } from '@/api/usuarios'
 import { getTiendas } from '@/api/ordenes'
+import { getRoles } from '@/api/roles'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 
@@ -18,6 +19,9 @@ const router = useRouter()
 
 const usuarios = ref([])
 const tiendas = ref([])
+// Los roles salen del catálogo: cada empresa crea los suyos, así que una
+// lista escrita aquí siempre quedaría corta.
+const roles = ref([])
 const loading = ref(true)
 const showFilters = ref(false)
 const cargandoMas = ref(false)
@@ -37,6 +41,10 @@ async function cargarTiendas() {
   try {
     const { data } = await getTiendas()
     tiendas.value = data
+  } catch {}
+  try {
+    const { data } = await getRoles()
+    roles.value = data
   } catch {}
 }
 
@@ -108,14 +116,16 @@ function goToCrear() {
   router.push({ name: 'usuario-crear' })
 }
 
-const rolBadgeCls = (rol) => {
+// El color va por arquetipo, no por nombre: un rol nuevo ("Metalero") tiene
+// que verse bien sin que nadie toque el código.
+const rolBadgeCls = (u) => {
   const m = {
-    supervisor:  'bg-blue-100 text-blue-700',
-    conductor:   'bg-amber-100 text-amber-700',
-    ebanista:    'bg-orange-100 text-orange-700',
-    despachador: 'bg-purple-100 text-purple-700',
+    supervisor: 'bg-blue-100 text-blue-700',
+    conductor:  'bg-amber-100 text-amber-700',
+    taller:     'bg-orange-100 text-orange-700',
+    vendedor:   'bg-emerald-100 text-emerald-700',
   }
-  return m[rol] ?? 'bg-gray-100 text-gray-600'
+  return m[u.arquetipo] ?? 'bg-gray-100 text-gray-600'
 }
 
 // El nombre del rol sale del catalogo, no de una lista escrita en el codigo:
@@ -175,9 +185,7 @@ onBeforeUnmount(() => {
         <label class="block text-xs font-medium text-gray-500 mb-1">Rol</label>
         <select v-model="filtros.rol" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
           <option value="">Todos</option>
-          <option value="vendedor">Vendedores</option>
-          <option value="supervisor">Supervisores</option>
-          <option value="conductor">Conductores</option>
+          <option v-for="r in roles" :key="r.id" :value="r.clave">{{ r.nombre }}</option>
         </select>
       </div>
       <div>
@@ -221,7 +229,7 @@ onBeforeUnmount(() => {
         <div class="flex-1 min-w-0">
           <div class="flex items-center gap-2 mb-1">
             <p class="font-medium text-gray-800 truncate">{{ u.nombre }}</p>
-            <span :class="['inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium', rolBadgeCls(u.rol)]">
+            <span :class="['inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium', rolBadgeCls(u)]">
               {{ rolLabel(u) }}
             </span>
             <span :class="['inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium', estadoBadgeCls(u.activo)]">

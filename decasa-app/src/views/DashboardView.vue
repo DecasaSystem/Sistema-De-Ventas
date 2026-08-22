@@ -100,7 +100,7 @@ const accesos = computed(() => {
     { label: 'Órdenes',      icon: ClipboardDocumentListIcon, to: { name: 'ordenes'     } },
     { label: 'Clientes',     icon: UserGroupIcon,             to: { name: 'clientes'    } },
     { label: 'Inventario',   icon: ArchiveBoxIcon,            to: { name: 'inventario'  }, badge: surtidos.pendientesCount },
-    ...((auth.puedeRecargarTelas || auth.isCosturero || auth.usuario?.rol === 'vendedor' || auth.isSupervisor) ? [{ label: 'Telas', icon: SwatchIcon, to: { name: 'telas' } }] : []),
+    ...((auth.puedeRecargarTelas || auth.puedeUsarTelas) ? [{ label: 'Telas', icon: SwatchIcon, to: { name: 'telas' } }] : []),
     // Antes era automática para todo el que no fuera supervisor. Ahora es un
     // permiso activable, igual que Surtir: los vendedores actuales la
     // conservan por el respaldo de la migración.

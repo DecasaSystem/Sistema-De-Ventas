@@ -36,6 +36,7 @@ class UsuarioController extends Controller
             'acceso_redes'        => (bool) $u->acceso_redes,
             'acceso_comisiones'   => (bool) $u->acceso_comisiones,
             'recarga_telas'       => (bool) $u->recarga_telas,
+            'acceso_telas'        => (bool) $u->acceso_telas,
             'acceso_surtir'       => (bool) $u->acceso_surtir,
             'acceso_costos'       => (bool) $u->acceso_costos,
             'acceso_proveedores'  => (bool) $u->acceso_proveedores,
@@ -132,6 +133,7 @@ class UsuarioController extends Controller
             'acceso_redes'        => 'boolean',
             'acceso_comisiones'   => 'boolean',
             'recarga_telas'       => 'boolean',
+            'acceso_telas'        => 'boolean',
             'acceso_surtir'       => 'boolean',
             'acceso_costos'       => 'boolean',
             'acceso_proveedores'  => 'boolean',
@@ -245,6 +247,7 @@ class UsuarioController extends Controller
             'acceso_redes'        => 'nullable|boolean',
             'acceso_comisiones'   => 'nullable|boolean',
             'recarga_telas'       => 'nullable|boolean',
+            'acceso_telas'        => 'nullable|boolean',
             'acceso_surtir'       => 'nullable|boolean',
             'acceso_costos'       => 'nullable|boolean',
             'acceso_proveedores'  => 'nullable|boolean',
@@ -281,6 +284,9 @@ class UsuarioController extends Controller
         }
         if ($request->has('acceso_comisiones')) {
             $data['acceso_comisiones'] = ($arquetipoFinal === 'supervisor') && $request->boolean('acceso_comisiones');
+        }
+        if ($request->has('acceso_telas')) {
+            $data['acceso_telas'] = $request->boolean('acceso_telas');
         }
         if ($request->has('recarga_telas')) {
             $data['recarga_telas'] = in_array($arquetipoFinal, ['vendedor', 'supervisor']) && $request->boolean('recarga_telas');

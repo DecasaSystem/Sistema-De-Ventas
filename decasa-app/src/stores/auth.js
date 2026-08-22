@@ -91,6 +91,7 @@ export const useAuthStore = defineStore('auth', () => {
       acceso_redes:      data.acceso_redes      ?? false,
       acceso_comisiones: data.acceso_comisiones ?? false,
       recarga_telas:     data.recarga_telas     ?? false,
+      acceso_telas:      data.acceso_telas      ?? false,
       acceso_surtir:     data.acceso_surtir     ?? false,
       acceso_costos:      data.acceso_costos      ?? false,
       acceso_proveedores: data.acceso_proveedores ?? false,
@@ -117,7 +118,6 @@ export const useAuthStore = defineStore('auth', () => {
   // ── Getters ───────────────────────────────────────────────────────────────
   const isAuthenticated    = computed(() => !!token.value)
   const isSupervisor       = computed(() => usuario.value?.rol === 'supervisor')
-  const isCosturero        = computed(() => usuario.value?.rol === 'costurero')
 
   // Llevar pasos del taller ya no depende del rol. Antes había que ponerle a
   // alguien el rol "Ebanista" —o la bandera de tapicero— solo para que le
@@ -132,7 +132,10 @@ export const useAuthStore = defineStore('auth', () => {
   const llevaCajaPropia    = computed(() => isIndependiente.value)
   const tieneAccesoRedes      = computed(() => !!usuario.value?.acceso_redes)
   const tieneAccesoComisiones = computed(() => !!usuario.value?.acceso_comisiones)
-  const puedeRecargarTelas    = computed(() => isSupervisor.value || (!!usuario.value?.recarga_telas && ['vendedor', 'supervisor'].includes(usuario.value?.rol)))
+  // Telas: dos permisos, ninguno atado a un oficio. Antes descontar dependía
+  // de llamarse "Costurero", lo que obligaba a otra empresa a usar ese nombre.
+  const puedeRecargarTelas    = computed(() => isSupervisor.value || !!usuario.value?.recarga_telas)
+  const puedeUsarTelas        = computed(() => isSupervisor.value || !!usuario.value?.acceso_telas)
   // Ya no es del rol vendedor: es una bandera asignable, como redes o
   // comisiones. Los vendedores existentes la traen encendida desde la
   // migración que la creó, así que nadie perdió acceso el día del cambio.
@@ -267,10 +270,10 @@ export const useAuthStore = defineStore('auth', () => {
 
   return {
     token, usuario,
-    isAuthenticated, isSupervisor, isCosturero,
+    isAuthenticated, isSupervisor,
     isIndependiente, llevaCajaPropia,
     tieneAccesoPasos,
-    isFacturador, tieneAccesoRedes, tieneAccesoComisiones, puedeRecargarTelas, puedeSurtir,
+    isFacturador, tieneAccesoRedes, tieneAccesoComisiones, puedeRecargarTelas, puedeUsarTelas, puedeSurtir,
     puedeCostos, puedeProveedores, puedeDespacho, puedeProduccion, puedeReserva, puedeNomina, puedeCompras, veTodasOrdenes, soloVeSusOrdenes,
     tienePerfilAlternativo, perfilAlternativo, perfilActivoIdx,
     login, fetchMe, setFirma, setEmail, logout, clearSession,

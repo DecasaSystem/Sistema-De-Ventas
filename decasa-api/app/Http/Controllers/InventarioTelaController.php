@@ -106,7 +106,8 @@ class InventarioTelaController extends Controller
         $cat    = DB::table('catalogo_telas')->where('id', $data['id'])->first();
         $nombre = "{$cat->marca} · {$cat->tipo} · {$cat->color}";
 
-        $costureros = Usuario::where('rol', 'costurero')->where('activo', true)->pluck('id');
+        // Por permiso, no por oficio: otra empresa no tiene "costureros".
+        $costureros = Usuario::where('acceso_telas', true)->where('activo', true)->pluck('id');
         foreach ($costureros as $uid) {
             NotificacionService::crear(
                 'tela_recargada',

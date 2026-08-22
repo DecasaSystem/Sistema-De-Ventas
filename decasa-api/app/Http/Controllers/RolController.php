@@ -10,14 +10,14 @@ use Illuminate\Validation\Rule;
 
 /**
  * Los roles/puestos de trabajo, configurables por empresa desde Gestión.
- * Cada uno se apoya en un "arquetipo" fijo (vendedor, supervisor, conductor,
- * taller, despachador) que determina el comportamiento de fondo (comisiones,
- * caja, etc.) — eso no se toca aquí, este controlador solo administra el
- * nombre y las banderas de plantilla.
+ * Cada uno se apoya en un "arquetipo" (vendedor, supervisor, conductor,
+ * taller) que determina el comportamiento de fondo — comisiones, caja, si
+ * pertenece a una tienda—. El NOMBRE lo pone cada empresa: "Metalero",
+ * "Soldador", lo que sea. El arquetipo solo dice cómo se comporta.
  */
 class RolController extends Controller
 {
-    public const ARQUETIPOS = ['vendedor', 'supervisor', 'conductor', 'taller', 'despachador'];
+    public const ARQUETIPOS = ['vendedor', 'supervisor', 'conductor', 'taller'];
 
     /** GET /api/roles?incluir_inactivos=1 */
     public function index(Request $request)

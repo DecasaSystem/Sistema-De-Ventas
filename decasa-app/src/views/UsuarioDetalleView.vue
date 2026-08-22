@@ -39,7 +39,7 @@ const confirmacionPassword = ref('')
 const editForm = ref({
   nombre: '', email: '', rol_id: '', facturacion: false, independiente: false,
   notif_asignar_fecha: true, notif_stock: false, acceso_redes: false, acceso_comisiones: false,
-  recarga_telas: false, acceso_surtir: false, acceso_costos: false, acceso_proveedores: false,
+  recarga_telas: false, acceso_telas: false, acceso_surtir: false, acceso_costos: false, acceso_proveedores: false,
   acceso_despacho: false, acceso_produccion: false, acceso_nomina: false, acceso_reserva: false,
   acceso_compras: false,
   ve_todas_ordenes: false, tienda_default_id: '',
@@ -129,6 +129,7 @@ function openEditModal() {
     acceso_redes: usuario.value.acceso_redes ?? false,
     acceso_comisiones: usuario.value.acceso_comisiones ?? false,
     recarga_telas: usuario.value.recarga_telas ?? false,
+    acceso_telas: usuario.value.acceso_telas ?? false,
     acceso_surtir: usuario.value.acceso_surtir ?? false,
     acceso_costos: usuario.value.acceso_costos ?? false,
     acceso_proveedores: usuario.value.acceso_proveedores ?? false,
@@ -166,7 +167,8 @@ async function submitEdit() {
       notif_stock: editArquetipo.value === 'supervisor' ? editForm.value.notif_stock : false,
       acceso_redes: ['vendedor', 'supervisor'].includes(editArquetipo.value) ? editForm.value.acceso_redes : false,
       acceso_comisiones: editArquetipo.value === 'supervisor' ? editForm.value.acceso_comisiones : false,
-      recarga_telas: ['vendedor', 'supervisor'].includes(editArquetipo.value) ? editForm.value.recarga_telas : false,
+      recarga_telas: editForm.value.recarga_telas,
+      acceso_telas: editForm.value.acceso_telas,
       acceso_surtir: editForm.value.acceso_surtir,
       acceso_costos: editForm.value.acceso_costos,
       acceso_proveedores: editForm.value.acceso_proveedores,
@@ -301,7 +303,7 @@ onMounted(async () => {
             <p class="font-medium text-blue-700">Acceso habilitado</p>
           </div>
         </div>
-        <div v-if="usuario.recarga_telas && ['vendedor', 'supervisor'].includes(usuario.arquetipo)" class="flex items-center gap-3">
+        <div v-if="usuario.recarga_telas" class="flex items-center gap-3">
           <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
             <span class="text-sm">🧵</span>
           </div>
@@ -632,7 +634,7 @@ onMounted(async () => {
                 <p class="text-xs text-gray-500 mt-0.5">Podrá ver, gestionar y marcar como pagadas las comisiones de los vendedores.</p>
               </div>
             </div>
-            <div v-if="['vendedor', 'supervisor'].includes(editArquetipo)" class="flex items-start gap-3 py-1">
+            <div class="flex items-start gap-3 py-1">
               <input
                 id="edit-recarga-telas"
                 type="checkbox"
@@ -642,6 +644,18 @@ onMounted(async () => {
               <div>
                 <label for="edit-recarga-telas" class="text-sm font-medium text-gray-700 cursor-pointer">Puede recargar telas</label>
                 <p class="text-xs text-gray-500 mt-0.5">Tendrá acceso al módulo de telas para agregar metros cuando llegue nueva mercancía.</p>
+              </div>
+            </div>
+            <div class="flex items-start gap-3 py-1">
+              <input
+                id="edit-acceso-telas"
+                type="checkbox"
+                v-model="editForm.acceso_telas"
+                class="mt-0.5 rounded border-gray-300 text-pink-600 focus:ring-pink-500"
+              />
+              <div>
+                <label for="edit-acceso-telas" class="text-sm font-medium text-gray-700 cursor-pointer">Puede descontar telas</label>
+                <p class="text-xs text-gray-500 mt-0.5">Podrá descontar del inventario los metros que use en producción.</p>
               </div>
             </div>
             <div class="flex items-start gap-3 py-1">

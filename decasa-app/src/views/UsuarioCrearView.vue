@@ -31,6 +31,7 @@ const form = ref({
   acceso_redes: false,
   acceso_comisiones: false,
   recarga_telas: false,
+  acceso_telas: false,
   // El rol por defecto de este formulario es 'vendedor', y un vendedor
   // siempre ha tenido Surtir, Proveedores y Reserva por su rol — se arrancan
   // encendidos para que crear uno nuevo no lo deje sin algo que antes traía
@@ -135,6 +136,7 @@ async function submit() {
       acceso_redes: form.value.acceso_redes,
       acceso_comisiones: arquetipo.value === 'supervisor' ? form.value.acceso_comisiones : false,
       recarga_telas: form.value.recarga_telas,
+      acceso_telas: form.value.acceso_telas,
       acceso_surtir: form.value.acceso_surtir,
       acceso_costos: form.value.acceso_costos,
       acceso_proveedores: form.value.acceso_proveedores,
@@ -309,19 +311,6 @@ async function submit() {
       <!-- Todo lo que sigue es del programa: no aplica a la gente de fábrica -->
       <template v-if="!form.no_usa_programa">
 
-      <!-- Descripción del rol de producción -->
-      <div v-if="['ebanista', 'despachador', 'costurero'].includes(claveSeleccionada)" class="bg-amber-50 rounded-lg px-3 py-2 text-xs text-amber-700">
-        <span v-if="claveSeleccionada === 'ebanista'">
-          El ebanista puede ver y completar los pasos de <strong>ebanistería</strong>, <strong>laca</strong> y <strong>pintura</strong> en las órdenes personalizadas.
-        </span>
-        <span v-else-if="claveSeleccionada === 'costurero'">
-          El costurero puede <strong>descontar metros de tela</strong> del inventario cuando los use en producción.
-        </span>
-        <span v-else>
-          El despachador recibe las órdenes cuando terminan todos los pasos de producción, las envía a entrega, y también puede completar pasos de <strong>pintura</strong>.
-        </span>
-      </div>
-
       <!-- Vendedor independiente -->
       <div v-if="puedeSerIndependiente" class="flex items-start gap-3 py-2 px-3 bg-amber-50 border border-amber-200 rounded-xl">
         <input
@@ -410,8 +399,8 @@ async function submit() {
         </div>
       </div>
 
-      <!-- Recarga telas (vendedor y supervisor) -->
-      <div v-if="['vendedor', 'supervisor'].includes(arquetipo)" class="flex items-start gap-3 py-2">
+      <!-- Telas: dos permisos sueltos, sin atarlos a ningún oficio -->
+      <div class="flex items-start gap-3 py-2">
         <input
           id="recarga_telas"
           type="checkbox"
@@ -421,6 +410,19 @@ async function submit() {
         <div>
           <label for="recarga_telas" class="text-sm font-medium text-gray-700 cursor-pointer">Puede recargar telas</label>
           <p class="text-xs text-gray-500 mt-0.5">Tendrá acceso al módulo de telas para agregar metros cuando llegue nueva mercancía.</p>
+        </div>
+      </div>
+
+      <div class="flex items-start gap-3 py-2">
+        <input
+          id="acceso_telas"
+          type="checkbox"
+          v-model="form.acceso_telas"
+          class="mt-0.5 rounded border-gray-300 text-pink-600 focus:ring-pink-500"
+        />
+        <div>
+          <label for="acceso_telas" class="text-sm font-medium text-gray-700 cursor-pointer">Puede descontar telas</label>
+          <p class="text-xs text-gray-500 mt-0.5">Podrá descontar del inventario los metros que use en producción. Antes esto dependía de tener el rol "Costurero"; ahora es un permiso, para que cada empresa llame a su gente como quiera.</p>
         </div>
       </div>
 
