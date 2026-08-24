@@ -190,6 +190,20 @@ class Usuario extends Authenticatable
         return $this->rol === 'vendedor' && ! $this->ve_todas_ordenes;
     }
 
+    /**
+     * Los que pueden ENTRAR al programa.
+     *
+     * La gente de fábrica está marcada como que no lo usa: no tiene correo ni
+     * contraseña, así que nunca va a abrir "Mis pasos". Ponerlos como
+     * encargados de un proceso deja el paso sin nadie que lo vea, y en el
+     * taller eso se traduce en un mueble parado esperando a alguien que no va
+     * a llegar.
+     */
+    public function scopeUsaElPrograma($query)
+    {
+        return $query->where('no_usa_programa', false);
+    }
+
     /** Procesos que se le asignaron a esta persona en concreto. */
     public function procesosAsignados()
     {

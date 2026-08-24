@@ -173,7 +173,7 @@ async function quitar(t) {
 
 
                 <div>
-                  <label class="block text-[11px] text-gray-500 mb-1">…o personas concretas</label>
+                  <label class="block text-[11px] text-gray-500 mb-1">Encargados del paso</label>
                   <div class="flex flex-wrap gap-1.5">
                     <button
                       v-for="w in trabajadores" :key="w.id" type="button" @click="alternarTrabajador(t, w.id)"
@@ -184,8 +184,10 @@ async function quitar(t) {
                     >{{ w.nombre }}</button>
                   </div>
                   <p class="text-[11px] text-gray-400 mt-1">
-                    A quien marques aquí le llegará el paso en "Mis pasos", sea vendedor,
-                    supervisor o trabajador de fábrica. El cargo que tenga no importa.
+                    Es quien VE el paso en "Mis pasos" y lo confirma. Sea vendedor o
+                    supervisor, el cargo no importa; pero tiene que entrar al programa,
+                    así que la gente de fábrica no sale aquí: a ellos se les anota al
+                    cerrar el paso, que es donde se registra quién lo hizo.
                   </p>
                   <p v-if="nadieAsignado(t)" class="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 mt-1.5">
                     Nadie puede hacer este proceso: sus pasos quedarían en curso pero invisibles para todos.
@@ -223,7 +225,7 @@ async function quitar(t) {
                 <input v-model="nuevo.descripcion" type="text" maxlength="160" placeholder="Descripción (opcional)"
                   class="w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 <div>
-                  <label class="block text-[11px] text-gray-500 mb-1">…o personas concretas</label>
+                  <label class="block text-[11px] text-gray-500 mb-1">Encargados del paso</label>
                   <div class="flex flex-wrap gap-1.5">
                     <button
                       v-for="w in trabajadores" :key="w.id" type="button" @click="alternarTrabajador(nuevo, w.id)"
@@ -233,6 +235,9 @@ async function quitar(t) {
                           : 'border-gray-200 bg-white text-gray-500']"
                     >{{ w.nombre }}</button>
                   </div>
+                  <p class="text-[11px] text-gray-400 mt-1">
+                    Solo quien entra al programa: es el que ve el paso y lo confirma.
+                  </p>
                   <p v-if="nadieAsignado(nuevo)" class="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 mt-1.5">
                     Elige al menos una persona.
                   </p>

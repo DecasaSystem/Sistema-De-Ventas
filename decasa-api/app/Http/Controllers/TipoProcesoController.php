@@ -36,9 +36,12 @@ class TipoProcesoController extends Controller
                 $data['trabajador_ids'] = $t->trabajadores->pluck('id')->all();
                 return $data;
             }),
-            // A quién se le puede asignar un proceso: cualquier trabajador
-            // activo. Ya no hay "especialidades" de por medio.
-            'trabajadores' => Usuario::where('activo', true)->orderBy('nombre')->get(['id', 'nombre', 'rol']),
+            // Quién puede quedar ENCARGADO de un proceso: solo quien entra al
+            // programa, porque el encargado es el que ve el paso y lo confirma.
+            // Quién lo HACE es otra cosa: ahí sí entra la gente de fábrica, y se
+            // elige al cerrar el paso (ver ProduccionController::trabajadores).
+            'trabajadores' => Usuario::where('activo', true)->usaElPrograma()
+                ->orderBy('nombre')->get(['id', 'nombre', 'rol']),
             'colores'  => TipoProceso::COLORES,
         ]);
     }
@@ -56,7 +59,7 @@ class TipoProcesoController extends Controller
             'descripcion'    => 'nullable|string|max:160',
             'color'          => ['nullable', Rule::in(TipoProceso::COLORES)],
             'trabajadores'   => 'nullable|array',
-            'trabajadores.*' => 'integer|exists:usuarios,id',
+            'trabajadores.*' => ['integer', Rule::exists('usuarios', 'id')->where('no_usa_programa', false)],
         ]);
 
         $trabajadores = $data['trabajadores'] ?? [];
@@ -94,7 +97,7 @@ class TipoProcesoController extends Controller
             'descripcion'    => 'sometimes|nullable|string|max:160',
             'color'          => ['sometimes', Rule::in(TipoProceso::COLORES)],
             'trabajadores'   => 'sometimes|array',
-            'trabajadores.*' => 'integer|exists:usuarios,id',
+            'trabajadores.*' => ['integer', Rule::exists('usuarios', 'id')->where('no_usa_programa', false)],
             'orden'          => 'sometimes|integer|min:0|max:9999',
             'activo'         => 'sometimes|boolean',
         ]);

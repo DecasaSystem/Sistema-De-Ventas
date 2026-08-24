@@ -818,7 +818,7 @@ class ProduccionController extends Controller
         // trabajadores que tengan ese proceso asignado. Antes se cruzaba
         // además con el "perfil" de la persona, que era lo que obligaba a
         // darle un rol de taller a quien solo estaba encargado de un paso.
-        $usuariosANotificar = Usuario::where('activo', true)
+        $usuariosANotificar = Usuario::where('activo', true)->usaElPrograma()
             ->whereHas('procesosAsignados', fn ($p) => $p->where('clave', $tipoProceso))
             ->get();
 
