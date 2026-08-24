@@ -811,6 +811,10 @@ class DespachoController extends Controller
             }
         });
 
+        // El otro camino por el que se cobra una orden. Si el conductor cobró
+        // con datáfono, la comisión también tiene que bajar 5,5%.
+        ComisionController::sincronizarValorOrden($item->orden->fresh());
+
         $item->load('orden.cliente:id,nombre');
         $item->orden->total_pagado    = $item->orden->totalPagado();
         $item->orden->saldo_pendiente = $item->orden->saldoPendiente();

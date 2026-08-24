@@ -22,6 +22,14 @@ class ComisionController extends Controller
     public const IVA = 1.19;
 
     /**
+     * Lo que se queda la franquicia de cada peso cobrado con datáfono.
+     *
+     * Baja la base de la comisión, no el valor de la orden: el cliente sigue
+     * debiendo lo mismo, es la empresa la que recibe menos.
+     */
+    public const COSTO_TARJETA = 0.055;
+
+    /**
      * Estados en los que una orden no es una venta y no debe comisionar:
      * los que nunca lo fueron, más la que se canceló después.
      */
@@ -748,9 +756,10 @@ class ComisionController extends Controller
         if ($gente->isEmpty()) return;
 
         $fechaVenta = Carbon::parse($orden->created_at)->setTimezone(StatsController::TZ_NEGOCIO);
-        // Su pedazo del valor de la orden. El 5% se lo saca enriquecer() con la
-        // misma regla que a todo lo demás, así que basta con darle la base.
-        $porCabeza = round((float) $orden->valor_total / $gente->count());
+        // Su pedazo del valor de la orden, ya sin lo que se llevó el datáfono.
+        // El 5% se lo saca enriquecer() con la misma regla que a todo lo demás,
+        // así que basta con darle la base.
+        $porCabeza = round(((float) $orden->valor_total - self::costoDatafono($orden)) / $gente->count());
 
         // Al que ya no está en la tienda se le quita, salvo que ya se le pagara.
         $existentes->whereNotIn('vendedor_id', $gente->all())
@@ -790,11 +799,28 @@ class ComisionController extends Controller
      */
     public static function valorComisionable(Orden $orden): float
     {
+        $base = (float) $orden->valor_total - self::costoDatafono($orden);
+
         $compartida = $orden->es_compartida || $orden->tienda_abonada_id;
 
-        return $compartida
-            ? round((float) $orden->valor_total / 2)
-            : (float) $orden->valor_total;
+        return $compartida ? round($base / 2) : $base;
+    }
+
+    /**
+     * Lo que se queda la franquicia de la tarjeta, y sobre lo que nadie comisiona.
+     *
+     * De cada peso cobrado por datáfono a la empresa le entra el 94,5%: el resto
+     * se lo lleva la franquicia. Comisionar sobre el total sería pagarle al
+     * vendedor un 5% de plata que nunca llegó a la caja.
+     *
+     * Se calcula sobre lo REALMENTE pagado con tarjeta, no sobre la orden
+     * entera: en un pago mixto —parte efectivo, parte datáfono— solo ese pedazo
+     * tiene el costo. Y si el cliente aún no ha pagado nada con tarjeta, no se
+     * descuenta nada; el día que lo haga, el cobro vuelve a sincronizar la base.
+     */
+    public static function costoDatafono(Orden $orden): float
+    {
+        return round($orden->pagadoConTarjeta() * self::COSTO_TARJETA);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────────

@@ -38,13 +38,12 @@ class DescuentoCondicionadoService
                 'descuento_condicionado_revertido_at' => now(),
             ]);
 
-            // La comisión sigue al valor real de la venta. En ventas compartidas
-            // cada vendedor tiene la mitad, igual que al crearla.
-            DB::table('comisiones')
-                ->where('orden_id', $orden->id)
-                ->update([
-                    'valor_orden' => $orden->es_compartida ? round($valorNuevo / 2) : $valorNuevo,
-                ]);
+            // La comisión sigue al valor real de la venta. Se recalcula con la
+            // regla completa en vez de escribir el total a mano: esto corre
+            // justo cuando el cliente paga con tarjeta, y hacerlo a mano
+            // borraba el descuento del 5,5% del datáfono que acababa de
+            // aplicarse, devolviéndole al vendedor una comisión inflada.
+            \App\Http\Controllers\ComisionController::sincronizarValorOrden($orden->fresh());
 
             DB::table('orden_ediciones')->insert([
                 'orden_id'   => $orden->id,

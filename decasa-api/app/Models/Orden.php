@@ -290,6 +290,19 @@ class Orden extends Model
         return (float) $this->pagos()->sum('monto');
     }
 
+    /**
+     * Cuánto de esta orden entró por datáfono.
+     *
+     * Se usa para la comisión: de esa plata la empresa no recibe el 5,5% que se
+     * queda la franquicia, así que el vendedor no comisiona sobre ella. Se mira
+     * pago por pago y no "si tocó la tarjeta", porque en un pago mixto sólo el
+     * pedazo que pasó por datáfono tiene ese costo.
+     */
+    public function pagadoConTarjeta(): float
+    {
+        return (float) $this->pagos()->where('metodo', 'tarjeta')->sum('monto');
+    }
+
     public function saldoPendiente(): float
     {
         return (float) $this->valor_total - $this->totalPagado();

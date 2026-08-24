@@ -127,6 +127,12 @@ class PagoController extends Controller
             'comprobante_url' => $data['comprobante_url'],
         ]);
 
+        // La comisión se calcula sobre lo que de verdad le entra a la empresa,
+        // y eso solo se sabe al cobrar: si este pago fue con datáfono, la base
+        // baja 5,5%. Sin esto la comisión se quedaría con la foto del día de
+        // la venta, cuando todavía no se sabía cómo iba a pagar el cliente.
+        ComisionController::sincronizarValorOrden($orden->fresh());
+
         // Si saldo queda en cero y la orden está lista para entregar → entregado
         $nuevoSaldo = $orden->saldoPendiente();
         if ($nuevoSaldo <= 0 && $orden->estado === 'listo_entrega') {
@@ -274,6 +280,12 @@ class PagoController extends Controller
                     'cambios'    => $cambios,
                 ]);
             });
+
+            // Corregir el medio de pago mueve la comisión: si el pago pasa a
+            // tarjeta hay que descontarle el 5,5% del datáfono, y si sale de
+            // tarjeta hay que devolvérselo. Sin esto, arreglar un método mal
+            // marcado dejaba la comisión calculada sobre la cifra equivocada.
+            ComisionController::sincronizarValorOrden($orden->fresh());
 
             // Facturación tiene que enterarse ya: corregir un anticipo o el medio
             // de pago le cambia lo que tiene que cuadrar y lo que va a la caja.
