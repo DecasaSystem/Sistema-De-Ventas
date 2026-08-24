@@ -49,6 +49,7 @@ const form = ref({
   acceso_costos: false,
   acceso_despacho: false,
   acceso_produccion: false,
+  gestiona_produccion: false,
   acceso_nomina: false,
   ve_todas_ordenes: false,
   tienda_default_id: '',
@@ -143,7 +144,8 @@ async function submit() {
       acceso_costos: form.value.acceso_costos,
       acceso_proveedores: form.value.acceso_proveedores,
       acceso_despacho: arquetipo.value === 'supervisor' ? form.value.acceso_despacho : false,
-      acceso_produccion: arquetipo.value === 'supervisor' ? form.value.acceso_produccion : false,
+      acceso_produccion: form.value.acceso_produccion,
+      gestiona_produccion: form.value.acceso_produccion && form.value.gestiona_produccion,
       acceso_nomina: arquetipo.value === 'supervisor' ? form.value.acceso_nomina : false,
       acceso_compras: form.value.acceso_compras,
       acceso_reserva: form.value.acceso_reserva,
@@ -575,8 +577,20 @@ async function submit() {
             class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
           />
           <div>
-            <label for="acceso_produccion" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a Producción</label>
-            <p class="text-xs text-gray-500 mt-0.5">Podrá ver y gestionar el tablero completo de producción del taller.</p>
+            <label for="acceso_produccion" class="text-sm font-medium text-gray-700 cursor-pointer">Ver Producción</label>
+            <p class="text-xs text-gray-500 mt-0.5">Podrá abrir el tablero del taller y mirar en qué va cada pieza. Solo mirar.</p>
+          </div>
+        </div>
+        <div v-if="form.acceso_produccion" class="flex items-start gap-3 py-2 pl-6">
+          <input
+            id="gestiona_produccion"
+            type="checkbox"
+            v-model="form.gestiona_produccion"
+            class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <div>
+            <label for="gestiona_produccion" class="text-sm font-medium text-gray-700 cursor-pointer">…y gestionarla</label>
+            <p class="text-xs text-gray-500 mt-0.5">Además podrá arrancar procesos, armar el flujo de pasos y cambiarle el estado a una pieza. Sin esto, el tablero es de solo lectura.</p>
           </div>
         </div>
         <div class="flex items-start gap-3 py-2">

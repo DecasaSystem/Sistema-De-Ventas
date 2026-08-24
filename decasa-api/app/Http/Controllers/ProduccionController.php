@@ -22,10 +22,11 @@ class ProduccionController extends Controller
     {
         $usuario = $request->user();
 
-        // El vendedor ya venía viendo solo lo suyo, sin necesitar permiso
-        // aparte; lo nuevo es que un supervisor necesita acceso_produccion
-        // para ver el tablero completo del taller.
-        if ($usuario->rol === 'supervisor' && ! $usuario->acceso_produccion) {
+        // El vendedor ve lo suyo sin permiso aparte —son sus ventas—; para el
+        // tablero del taller hace falta el permiso, o llevar algún paso. Antes
+        // esto solo se le exigía al supervisor, así que cualquier otro rol veía
+        // la producción entera sin que nadie se la hubiera activado.
+        if (! $usuario->soloVeSusOrdenes() && ! $usuario->veProduccion()) {
             return response()->json(['message' => 'No autorizado.'], 403);
         }
 
@@ -396,8 +397,13 @@ class ProduccionController extends Controller
         $usuario    = $request->user();
         $produccion = Produccion::with('ordenItem.orden')->findOrFail($id);
 
-        if ($usuario->rol === 'supervisor' && ! $usuario->acceso_produccion) {
-            return response()->json(['message' => 'No autorizado.'], 403);
+        // Arrancar un proceso, armarle los pasos o moverle el estado a una
+        // pieza es mandar en el taller, no mirarlo: va con su propio permiso.
+        // El vendedor conserva lo suyo (más abajo se comprueba que sea de él).
+        if (! $usuario->soloVeSusOrdenes() && ! $usuario->gestionaProduccion()) {
+            return response()->json([
+                'message' => 'Puedes ver la producción, pero no cambiarla.',
+            ], 403);
         }
 
         // Vendedor solo puede actualizar sus propios pedidos (para otros estados, no en_proceso)
@@ -414,10 +420,13 @@ class ProduccionController extends Controller
             'pasos.*.orden'        => 'required_with:pasos|integer|min:1',
         ]);
 
-        // en_proceso requiere pasos (solo supervisor)
+        // Arrancar una pieza es armarle el flujo de pasos, y eso lo decide quien
+        // gestiona el taller. Antes se exigía ser supervisor, así que activarle
+        // el permiso a otro rol no servía de nada: el permiso quedaba puesto y
+        // el botón seguía dando 403.
         if ($data['estado'] === 'en_proceso') {
-            if ($usuario->rol !== 'supervisor') {
-                return response()->json(['message' => 'Solo el supervisor puede iniciar producción.'], 403);
+            if (! $usuario->gestionaProduccion()) {
+                return response()->json(['message' => 'No tienes permiso para arrancar producción.'], 403);
             }
             if (empty($data['pasos'])) {
                 return response()->json([
@@ -650,8 +659,11 @@ class ProduccionController extends Controller
         $usuario = $request->user();
         $paso    = ProduccionPaso::with('participantes')->findOrFail($id);
 
+        // El encargado del paso, o quien gestione el taller. Antes se pedía ser
+        // supervisor, y eso dejaba fuera a cualquier otro rol al que se le
+        // hubiera activado el permiso.
         if (! in_array($paso->tipo_proceso, $this->tiposParaRol($usuario))
-            && ! ($usuario->rol === 'supervisor' && $usuario->acceso_produccion)) {
+            && ! $usuario->gestionaProduccion()) {
             return response()->json(['message' => 'No autorizado para este proceso.'], 403);
         }
 

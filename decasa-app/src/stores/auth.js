@@ -148,7 +148,12 @@ export const useAuthStore = defineStore('auth', () => {
   // crear/editar. Predeterminado para supervisor, activable para el resto.
   const puedeProveedores      = computed(() => isSupervisor.value || !!usuario.value?.acceso_proveedores)
   const puedeDespacho         = computed(() => !!usuario.value?.acceso_despacho)
-  const puedeProduccion       = computed(() => !!usuario.value?.acceso_produccion)
+  // Ver el taller y mandar en el taller son dos permisos. El backend ya manda
+  // `ve_produccion` resuelto —cubre tener el permiso o llevar algún paso—, así
+  // que la pantalla no tiene que volver a deducirlo.
+  const puedeProduccion       = computed(() =>
+    !!usuario.value?.ve_produccion || !!usuario.value?.acceso_produccion)
+  const gestionaProduccion    = computed(() => !!usuario.value?.gestiona_produccion)
   const puedeReserva          = computed(() => !!usuario.value?.acceso_reserva)
   const puedeNomina           = computed(() => !!usuario.value?.acceso_nomina)
   // Sin excepción para supervisor a propósito: es una bandera activable
@@ -274,7 +279,7 @@ export const useAuthStore = defineStore('auth', () => {
     isIndependiente, llevaCajaPropia,
     tieneAccesoPasos,
     isFacturador, tieneAccesoRedes, tieneAccesoComisiones, puedeRecargarTelas, puedeUsarTelas, puedeSurtir,
-    puedeCostos, puedeProveedores, puedeDespacho, puedeProduccion, puedeReserva, puedeNomina, puedeCompras, veTodasOrdenes, soloVeSusOrdenes,
+    puedeCostos, puedeProveedores, puedeDespacho, puedeProduccion, gestionaProduccion, puedeReserva, puedeNomina, puedeCompras, veTodasOrdenes, soloVeSusOrdenes,
     tienePerfilAlternativo, perfilAlternativo, perfilActivoIdx,
     login, fetchMe, setFirma, setEmail, logout, clearSession,
     loginPerfilAlternativo, cambiarPerfil, eliminarPerfilAlternativo,

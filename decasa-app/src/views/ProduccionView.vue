@@ -388,7 +388,7 @@ onUnmounted(() => {
         {{ showFilters ? 'Cerrar' : 'Filtros' }}
       </button>
       <button
-        v-if="auth.isSupervisor"
+        v-if="auth.gestionaProduccion"
         @click="showProcesos = true"
         class="text-sm text-gray-600 font-medium px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors flex items-center gap-1"
         title="Crear o cambiar los procesos del taller"
@@ -397,6 +397,11 @@ onUnmounted(() => {
         Procesos
       </button>
     </div>
+
+    <p v-if="!auth.gestionaProduccion" class="text-[11px] text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1.5">
+      Estás viendo en qué va el taller. Para arrancar procesos o cambiarle el estado a
+      una pieza hace falta el permiso de gestionar producción.
+    </p>
 
     <!-- Buscador -->
     <div class="relative">
@@ -551,7 +556,7 @@ onUnmounted(() => {
             <span v-else-if="p.estado === 'entregado'" class="text-gray-400 italic">Entregado</span>
           </div>
           <button
-            v-if="auth.isSupervisor && !['entregado', 'cancelado'].includes(p.estado)"
+            v-if="auth.gestionaProduccion && !['entregado', 'cancelado'].includes(p.estado)"
             @click.stop="openModal(p)"
             class="w-full mt-2 text-blue-600 text-xs font-medium text-center py-1.5 rounded-lg border border-blue-200 hover:bg-blue-50 transition-colors"
           >

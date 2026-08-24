@@ -50,6 +50,7 @@ class Usuario extends Authenticatable
         'acceso_proveedores',
         'acceso_despacho',
         'acceso_produccion',
+        'gestiona_produccion',
         'acceso_reserva',
         'acceso_nomina',
         'acceso_compras',
@@ -88,6 +89,7 @@ class Usuario extends Authenticatable
             'acceso_proveedores'  => 'boolean',
             'acceso_despacho'     => 'boolean',
             'acceso_produccion'   => 'boolean',
+            'gestiona_produccion' => 'boolean',
             'acceso_reserva'      => 'boolean',
             'acceso_nomina'       => 'boolean',
             'acceso_compras'      => 'boolean',
@@ -208,6 +210,25 @@ class Usuario extends Authenticatable
      * cajeros, vendedores— y había que buscar entre cincuenta nombres al que
      * de verdad estaba ahí.
      */
+    /**
+     * ¿Puede al menos MIRAR el tablero del taller?
+     *
+     * Con el permiso, o por llevar algún paso: a quien le asignan trabajo hay
+     * que dejarlo ver en qué va la pieza que le toca, si no llega a su paso a
+     * ciegas. Las dos pantallas van juntas por eso.
+     */
+    public function veProduccion(): bool
+    {
+        return (bool) $this->acceso_produccion
+            || count($this->procesosQuePuedeTrabajar()) > 0;
+    }
+
+    /** ¿Puede además arrancar procesos y mover producciones? */
+    public function gestionaProduccion(): bool
+    {
+        return (bool) $this->gestiona_produccion;
+    }
+
     public function scopeAptoProduccion($query)
     {
         return $query->where('apto_produccion', true);

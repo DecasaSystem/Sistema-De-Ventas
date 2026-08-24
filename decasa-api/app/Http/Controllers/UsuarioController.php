@@ -43,6 +43,7 @@ class UsuarioController extends Controller
             'acceso_proveedores'  => (bool) $u->acceso_proveedores,
             'acceso_despacho'     => (bool) $u->acceso_despacho,
             'acceso_produccion'   => (bool) $u->acceso_produccion,
+            'gestiona_produccion' => (bool) $u->gestiona_produccion,
             'acceso_reserva'      => (bool) $u->acceso_reserva,
             'acceso_nomina'       => (bool) $u->acceso_nomina,
             'acceso_compras'      => (bool) $u->acceso_compras,
@@ -141,6 +142,7 @@ class UsuarioController extends Controller
             'acceso_proveedores'  => 'boolean',
             'acceso_despacho'     => 'boolean',
             'acceso_produccion'   => 'boolean',
+            'gestiona_produccion' => 'boolean',
             'acceso_reserva'      => 'boolean',
             'acceso_nomina'       => 'boolean',
             'acceso_compras'      => 'boolean',
@@ -207,10 +209,10 @@ class UsuarioController extends Controller
             // Sin restricción de rol: es justo lo que se pidió, que un perfil
             // de producción se le pueda asignar a cualquier trabajador.
             'independiente'       => $independiente,
-            'notif_asignar_fecha' => $esSupervisor && $request->boolean('notif_asignar_fecha'),
-            'notif_stock'         => $esSupervisor && $request->boolean('notif_stock'),
+            'notif_asignar_fecha' => $request->boolean('notif_asignar_fecha'),
+            'notif_stock'         => $request->boolean('notif_stock'),
             'acceso_redes'        => $puedeAccesoRedes && $request->boolean('acceso_redes'),
-            'acceso_comisiones'   => $esSupervisor && $request->boolean('acceso_comisiones'),
+            'acceso_comisiones'   => $request->boolean('acceso_comisiones'),
             'recarga_telas'       => $puedeRecargaTelas && $request->boolean('recarga_telas'),
             // Igual que acceso_surtir: estos módulos ya no van atados al rol,
             // así que se guardan tal cual se pidan, sin restricción — es
@@ -220,6 +222,7 @@ class UsuarioController extends Controller
             'acceso_proveedores'  => $request->boolean('acceso_proveedores'),
             'acceso_despacho'     => $request->boolean('acceso_despacho'),
             'acceso_produccion'   => $request->boolean('acceso_produccion'),
+            'gestiona_produccion' => $request->boolean('gestiona_produccion'),
             'acceso_reserva'      => $request->boolean('acceso_reserva'),
             'acceso_nomina'       => $request->boolean('acceso_nomina'),
             'acceso_compras'      => $request->boolean('acceso_compras'),
@@ -265,6 +268,7 @@ class UsuarioController extends Controller
             'acceso_proveedores'  => 'nullable|boolean',
             'acceso_despacho'     => 'nullable|boolean',
             'acceso_produccion'   => 'nullable|boolean',
+            'gestiona_produccion' => 'nullable|boolean',
             'acceso_reserva'      => 'nullable|boolean',
             'acceso_nomina'       => 'nullable|boolean',
             'acceso_compras'      => 'nullable|boolean',
@@ -283,10 +287,10 @@ class UsuarioController extends Controller
             : $usuario->rolAsignado?->arquetipo;
 
         if ($request->has('notif_asignar_fecha')) {
-            $data['notif_asignar_fecha'] = ($arquetipoFinal === 'supervisor') && $request->boolean('notif_asignar_fecha');
+            $data['notif_asignar_fecha'] = $request->boolean('notif_asignar_fecha');
         }
         if ($request->has('notif_stock')) {
-            $data['notif_stock'] = ($arquetipoFinal === 'supervisor') && $request->boolean('notif_stock');
+            $data['notif_stock'] = $request->boolean('notif_stock');
         }
         if ($request->has('facturacion')) {
             $data['facturacion'] = ($arquetipoFinal === 'vendedor') && $request->boolean('facturacion');
@@ -333,7 +337,7 @@ class UsuarioController extends Controller
         }
 
         if ($request->has('acceso_comisiones')) {
-            $data['acceso_comisiones'] = ($arquetipoFinal === 'supervisor') && $request->boolean('acceso_comisiones');
+            $data['acceso_comisiones'] = $request->boolean('acceso_comisiones');
         }
         if ($request->has('acceso_telas')) {
             $data['acceso_telas'] = $request->boolean('acceso_telas');
@@ -354,6 +358,9 @@ class UsuarioController extends Controller
         }
         if ($request->has('acceso_despacho')) {
             $data['acceso_despacho'] = $request->boolean('acceso_despacho');
+        }
+        if ($request->has('gestiona_produccion')) {
+            $data['gestiona_produccion'] = $request->boolean('gestiona_produccion');
         }
         if ($request->has('acceso_produccion')) {
             $data['acceso_produccion'] = $request->boolean('acceso_produccion');

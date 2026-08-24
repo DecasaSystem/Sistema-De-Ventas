@@ -126,7 +126,7 @@ const accesos = computed(() => {
     // (todo supervisor existente lo trae encendido por el respaldo de la
     // migración; de ahí en adelante es un control fino real).
     if (auth.puedeReserva)    items.push({ label: 'Reserva',     icon: CubeIcon,                    to: { name: 'reserva'    } })
-    if (auth.puedeProduccion) items.push({ label: 'Producción',  icon: WrenchScrewdriverIcon,       to: { name: 'produccion' } })
+
     if (auth.puedeSurtir) {
       items.push({ label: 'Surtir',   icon: ArchiveBoxArrowDownIcon, to: { name: 'surtir' } })
       // Antes solo estaba "Surtir", que aterriza en "Nuevo surtido": un
@@ -137,6 +137,9 @@ const accesos = computed(() => {
     if (auth.puedeCostos)     items.push({ label: 'Costos',      icon: CalculatorIcon,               to: { name: 'costos'     } })
   }
 
+  // Producción va por permiso, no por cargo: un operario al que se le active
+  // entra a mirar en qué va el taller.
+  if (auth.puedeProduccion) items.push({ label: 'Producción', icon: WrenchScrewdriverIcon, to: { name: 'produccion' } })
   items.push({ label: 'Cotizaciones', icon: DocumentTextIcon,           to: { name: 'cotizaciones' } })
   items.push({ label: 'Consultar costo', icon: CurrencyDollarIcon,      to: { name: 'consultas'  }, badge: consultas.pendientesCount })
   items.push({ label: auth.isSupervisor ? 'Mis estadísticas' : 'Estadísticas', icon: PresentationChartLineIcon, to: { name: 'mis-stats' } })

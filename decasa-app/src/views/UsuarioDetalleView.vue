@@ -40,7 +40,7 @@ const editForm = ref({
   nombre: '', email: '', rol_id: '', facturacion: false, independiente: false,
   notif_asignar_fecha: true, notif_stock: false, acceso_redes: false, acceso_comisiones: false,
   recarga_telas: false, acceso_telas: false, acceso_surtir: false, acceso_costos: false, acceso_proveedores: false,
-  acceso_despacho: false, acceso_produccion: false, acceso_nomina: false, acceso_reserva: false,
+  acceso_despacho: false, acceso_produccion: false, gestiona_produccion: false, acceso_nomina: false, acceso_reserva: false,
   acceso_compras: false,
   ve_todas_ordenes: false, tienda_default_id: '',
   apto_comisiones: false, apto_produccion: false,
@@ -137,6 +137,7 @@ function openEditModal() {
     acceso_proveedores: usuario.value.acceso_proveedores ?? false,
     acceso_despacho: usuario.value.acceso_despacho ?? false,
     acceso_produccion: usuario.value.acceso_produccion ?? false,
+    gestiona_produccion: usuario.value.gestiona_produccion ?? false,
     acceso_nomina: usuario.value.acceso_nomina ?? false,
     acceso_compras: usuario.value.acceso_compras ?? false,
     acceso_reserva: usuario.value.acceso_reserva ?? false,
@@ -186,7 +187,8 @@ async function submitEdit() {
       acceso_costos: editForm.value.acceso_costos,
       acceso_proveedores: editForm.value.acceso_proveedores,
       acceso_despacho: editArquetipo.value === 'supervisor' ? editForm.value.acceso_despacho : false,
-      acceso_produccion: editArquetipo.value === 'supervisor' ? editForm.value.acceso_produccion : false,
+      acceso_produccion: editForm.value.acceso_produccion,
+      gestiona_produccion: editForm.value.acceso_produccion && editForm.value.gestiona_produccion,
       acceso_nomina: editArquetipo.value === 'supervisor' ? editForm.value.acceso_nomina : false,
       acceso_compras: editForm.value.acceso_compras,
       acceso_reserva: editForm.value.acceso_reserva,
@@ -388,7 +390,7 @@ onMounted(async () => {
             <p class="font-medium text-blue-700">Acceso habilitado</p>
           </div>
         </div>
-        <div v-if="usuario.acceso_produccion && usuario.arquetipo === 'supervisor'" class="flex items-center gap-3">
+        <div v-if="usuario.acceso_produccion" class="flex items-center gap-3">
           <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
             <span class="text-sm">🛠️</span>
           </div>
@@ -837,8 +839,20 @@ onMounted(async () => {
                   class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                 />
                 <div>
-                  <label for="edit-acceso-produccion" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a Producción</label>
-                  <p class="text-xs text-gray-500 mt-0.5">Podrá ver y gestionar el tablero completo de producción del taller.</p>
+                  <label for="edit-acceso-produccion" class="text-sm font-medium text-gray-700 cursor-pointer">Ver Producción</label>
+                  <p class="text-xs text-gray-500 mt-0.5">Podrá abrir el tablero del taller y mirar en qué va cada pieza. Solo mirar.</p>
+                </div>
+              </div>
+              <div v-if="editForm.acceso_produccion" class="flex items-start gap-3 py-1 pl-6">
+                <input
+                  id="edit-gestiona-produccion"
+                  type="checkbox"
+                  v-model="editForm.gestiona_produccion"
+                  class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <div>
+                  <label for="edit-gestiona-produccion" class="text-sm font-medium text-gray-700 cursor-pointer">…y gestionarla</label>
+                  <p class="text-xs text-gray-500 mt-0.5">Además podrá arrancar procesos y cambiarle el estado a una pieza.</p>
                 </div>
               </div>
               <div class="flex items-start gap-3 py-1">

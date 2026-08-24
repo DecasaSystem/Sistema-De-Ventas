@@ -54,6 +54,7 @@ class AuthController extends Controller
             'acceso_costos'      => (bool) $usuario->acceso_costos,
             'acceso_proveedores' => (bool) $usuario->acceso_proveedores,
             'acceso_despacho'    => (bool) $usuario->acceso_despacho,
+            'gestiona_produccion'  => (bool) $usuario->gestiona_produccion,
             'acceso_produccion'  => (bool) $usuario->acceso_produccion,
             'acceso_reserva'     => (bool) $usuario->acceso_reserva,
             'acceso_nomina'      => (bool) $usuario->acceso_nomina,
@@ -62,6 +63,8 @@ class AuthController extends Controller
             // Si lleva algún paso del taller. Es lo único que decide si ve
             // "Mis pasos": ya no depende de qué rol tenga la persona.
             'tiene_pasos_produccion' => count($usuario->procesosQuePuedeTrabajar()) > 0,
+            // Ver el taller: por permiso, o por llevar algún paso.
+            've_produccion'      => $usuario->veProduccion(),
             'tienda_default_id'  => $usuario->tienda_default_id,
             'firma_url'          => $usuario->firma_url,
         ]);
@@ -98,6 +101,7 @@ class AuthController extends Controller
             'acceso_costos'      => (bool) $usuario->acceso_costos,
             'acceso_proveedores' => (bool) $usuario->acceso_proveedores,
             'acceso_despacho'    => (bool) $usuario->acceso_despacho,
+            'gestiona_produccion'  => (bool) $usuario->gestiona_produccion,
             'acceso_produccion'  => (bool) $usuario->acceso_produccion,
             'acceso_reserva'     => (bool) $usuario->acceso_reserva,
             'acceso_nomina'      => (bool) $usuario->acceso_nomina,
@@ -106,6 +110,8 @@ class AuthController extends Controller
             // Si lleva algún paso del taller. Es lo único que decide si ve
             // "Mis pasos": ya no depende de qué rol tenga la persona.
             'tiene_pasos_produccion' => count($usuario->procesosQuePuedeTrabajar()) > 0,
+            // Ver el taller: por permiso, o por llevar algún paso.
+            've_produccion'      => $usuario->veProduccion(),
             'tienda_default_id' => $usuario->tienda_default_id,
             'tienda_default'    => $usuario->tiendaDefault,
             'firma_url'         => $usuario->firma_url,

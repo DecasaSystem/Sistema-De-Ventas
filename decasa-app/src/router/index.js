@@ -112,7 +112,9 @@ router.beforeEach((to) => {
   if (to.meta.requiresCompras     && !auth.puedeCompras)           return { name: 'dashboard' }
   // El vendedor sigue entrando (ve solo lo suyo); el supervisor necesita el
   // permiso para el tablero completo del taller.
-  if (to.meta.requiresProduccion && !(auth.usuario?.rol === 'vendedor' || (auth.isSupervisor && auth.puedeProduccion))) return { name: 'dashboard' }
+  // Producción se activa por trabajador, sea cual sea su cargo. El vendedor
+  // entra igual: ahí ve sus propios pedidos.
+  if (to.meta.requiresProduccion && !(auth.usuario?.rol === 'vendedor' || auth.puedeProduccion)) return { name: 'dashboard' }
   if (to.meta.requiresConsultas && !auth.isSupervisor && auth.usuario?.rol !== 'vendedor') return { name: 'dashboard' }
   if (to.meta.requiresReserva && !auth.puedeReserva) return { name: 'dashboard' }
   if (to.meta.requiresTelas && !auth.puedeUsarTelas && !auth.puedeRecargarTelas) return { name: 'dashboard' }
