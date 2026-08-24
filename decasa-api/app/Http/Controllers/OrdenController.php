@@ -277,8 +277,13 @@ class OrdenController extends Controller
         // Venta directa: el cliente paga (total o parcial) y se lleva los productos en
         // el acto. La orden nace 'entregado', descuenta stock de una y no pasa por
         // supervisor ni despacho. Solo válida para productos de inventario.
-        $entregaInmediata = ! $guardarBorrador && $request->boolean('entrega_inmediata', false);
-        if ($entregaInmediata) {
+        // La marca se guarda SIEMPRE, incluso en un borrador: es la intención del
+        // vendedor y hay que respetarla al completarlo. Lo que sí espera al
+        // borrador es la ENTREGA en sí —descontar el stock y darla por entregada—,
+        // porque mientras sea borrador la venta todavía no existe.
+        $quiereEntregaInmediata = $request->boolean('entrega_inmediata', false);
+        $entregaInmediata       = ! $guardarBorrador && $quiereEntregaInmediata;
+        if ($quiereEntregaInmediata) {
             $tienePersonalizados = collect($data['items'])->contains(
                 fn($i) => ($i['es_personalizado'] ?? false) || empty($i['producto_id'])
             );
@@ -377,7 +382,7 @@ class OrdenController extends Controller
             ], 409);
         }
 
-        $orden = DB::transaction(function () use ($data, $tiendaId, $anticupoPct, $valorTotal, $descuentoTotal, $request, $tieneItemsCotizacionPendiente, $guardarBorrador, $entregaInmediata, $esFv2, $descuentoCondicionado, $pctCondicionado, $tiendaAbonadaId) {
+        $orden = DB::transaction(function () use ($data, $tiendaId, $anticupoPct, $valorTotal, $descuentoTotal, $request, $tieneItemsCotizacionPendiente, $guardarBorrador, $entregaInmediata, $quiereEntregaInmediata, $esFv2, $descuentoCondicionado, $pctCondicionado, $tiendaAbonadaId) {
 
             // --- 1. Verificar stock para items no personalizados (con bloqueo) ---
             foreach ($data['items'] as $item) {
@@ -427,6 +432,7 @@ class OrdenController extends Controller
                         ? 'entregado'
                         : ($tieneItemsCotizacionPendiente ? 'pendiente_cotizacion' : 'pendiente_anticipo')),
                 'listo_entrega_at'  => $entregaInmediata ? now() : null,
+                'entrega_inmediata' => $quiereEntregaInmediata,
                 'valor_total'       => $valorTotal,
                 'descuento_total'   => $descuentoTotal,
                 'descuento_condicionado'     => $descuentoCondicionado,
@@ -1840,6 +1846,33 @@ class OrdenController extends Controller
             ComisionController::crearParaOrden($orden);
         }
 
+        // Si al llenar el formulario se marcó entrega inmediata, el cliente ya se
+        // llevó los muebles: la orden no espera despacho ni anticipo, se da por
+        // entregada y el stock sale de una. La marca quedó guardada desde que se
+        // creó el borrador; antes se perdía ahí y la orden nacía como una venta
+        // normal, esperando un despacho que nunca iba a pasar.
+        if ($orden->entrega_inmediata && $ordenFresh->estado === 'pendiente_anticipo') {
+            $tienePersonalizados = $orden->items->contains(
+                fn ($i) => $i->es_personalizado || ! $i->producto_id
+            );
+
+            if ($tienePersonalizados) {
+                // Se le avisa en vez de callarlo: la orden queda bien, pero el
+                // vendedor tiene que saber que no salió como entrega inmediata.
+                $ordenFresh->aviso_entrega_inmediata =
+                    'Esta orden tenía entrega inmediata, pero lleva productos que hay que fabricar. '
+                    . 'Quedó como venta normal.';
+            } else {
+                DB::transaction(function () use ($orden, $usuario) {
+                    $this->descontarStockPorEntrega($orden->load('items'), $usuario);
+                    $orden->update(['estado' => 'entregado', 'listo_entrega_at' => now()]);
+                });
+                $ordenFresh = $orden->fresh();
+                $ordenFresh->total_pagado    = $ordenFresh->totalPagado();
+                $ordenFresh->saldo_pendiente = $ordenFresh->saldoPendiente();
+            }
+        }
+
         // Notify supervisors of the now-confirmed order
         $supervisores = Usuario::where('rol', 'supervisor')
             ->where('activo', true)
@@ -2013,6 +2046,63 @@ class OrdenController extends Controller
         return response()->json($orden->fresh());
     }
 
+    /**
+     * El producto salió de la tienda: baja el stock y suelta la reserva.
+     *
+     * Vive aparte porque pasa por dos caminos —marcar la orden como entregada,
+     * y completar un borrador que venía marcado como entrega inmediata— y
+     * tenerlo escrito dos veces era garantía de que uno de los dos se quedara
+     * sin actualizar el día que cambiara algo.
+     */
+    private function descontarStockPorEntrega(Orden $orden, Usuario $usuario): void
+    {
+        foreach ($orden->items->where('es_personalizado', false) as $item) {
+            $origenId = $item->tienda_origen_id ?? $orden->tienda_id;
+
+                if ($item->variante_id) {
+                    InventarioVariante::where('variante_id', $item->variante_id)
+                        ->where('tienda_id', $origenId)
+                        ->update([
+                            'cantidad_disponible' => DB::raw("cantidad_disponible - {$item->cantidad}"),
+                            'cantidad_reservada'  => DB::raw("cantidad_reservada - {$item->cantidad}"),
+                        ]);
+                    if ($item->combo_config_id) {
+                        InventarioVarianteCombinacion::where('variante_id', $item->variante_id)
+                            ->where('config_id', $item->combo_config_id)
+                            ->where('tienda_id', $origenId)
+                            ->update([
+                                'cantidad_disponible' => DB::raw("cantidad_disponible - {$item->cantidad}"),
+                                'cantidad_reservada'  => DB::raw("cantidad_reservada - {$item->cantidad}"),
+                            ]);
+                    }
+                    Inventario::where('producto_id', $item->producto_id)
+                        ->where('tienda_id', $origenId)
+                        ->update([
+                            'cantidad_disponible' => DB::raw("cantidad_disponible - {$item->cantidad}"),
+                            'cantidad_reservada'  => DB::raw("cantidad_reservada - {$item->cantidad}"),
+                        ]);
+                } else {
+                    Inventario::where('producto_id', $item->producto_id)
+                        ->where('tienda_id', $origenId)
+                        ->update([
+                            'cantidad_disponible' => DB::raw("cantidad_disponible - {$item->cantidad}"),
+                            'cantidad_reservada'  => DB::raw("cantidad_reservada - {$item->cantidad}"),
+                        ]);
+                }
+                // Bajó el stock base: el reparto tiene que seguir cabiendo.
+                StockVariantes::cuadrar(
+                    (int) $item->producto_id, (int) $origenId, "Entrega orden #{$orden->id}"
+                );
+                InventarioMovimiento::create([
+                    'producto_id' => $item->producto_id,
+                    'tienda_id'   => $origenId,
+                    'tipo'        => 'salida',
+                    'cantidad'    => $item->cantidad,
+                    'motivo'      => "Entrega orden #{$orden->id}",
+                    'usuario_id'  => $usuario->id,
+                ]);
+        }
+    }
     public function updateEstado(Request $request, int $id)
     {
         $usuario = $request->user();
@@ -2075,52 +2165,15 @@ class OrdenController extends Controller
 
             $itemsStock = $orden->items->where('es_personalizado', false);
 
+            if ($estadoNuevo === 'entregado') {
+                $this->descontarStockPorEntrega($orden, $usuario);
+            }
+
             foreach ($itemsStock as $item) {
                 $origenId = $item->tienda_origen_id ?? $orden->tienda_id;
 
                 if ($estadoNuevo === 'entregado') {
-                    if ($item->variante_id) {
-                        InventarioVariante::where('variante_id', $item->variante_id)
-                            ->where('tienda_id', $origenId)
-                            ->update([
-                                'cantidad_disponible' => DB::raw("cantidad_disponible - {$item->cantidad}"),
-                                'cantidad_reservada'  => DB::raw("cantidad_reservada - {$item->cantidad}"),
-                            ]);
-                        if ($item->combo_config_id) {
-                            InventarioVarianteCombinacion::where('variante_id', $item->variante_id)
-                                ->where('config_id', $item->combo_config_id)
-                                ->where('tienda_id', $origenId)
-                                ->update([
-                                    'cantidad_disponible' => DB::raw("cantidad_disponible - {$item->cantidad}"),
-                                    'cantidad_reservada'  => DB::raw("cantidad_reservada - {$item->cantidad}"),
-                                ]);
-                        }
-                        Inventario::where('producto_id', $item->producto_id)
-                            ->where('tienda_id', $origenId)
-                            ->update([
-                                'cantidad_disponible' => DB::raw("cantidad_disponible - {$item->cantidad}"),
-                                'cantidad_reservada'  => DB::raw("cantidad_reservada - {$item->cantidad}"),
-                            ]);
-                    } else {
-                        Inventario::where('producto_id', $item->producto_id)
-                            ->where('tienda_id', $origenId)
-                            ->update([
-                                'cantidad_disponible' => DB::raw("cantidad_disponible - {$item->cantidad}"),
-                                'cantidad_reservada'  => DB::raw("cantidad_reservada - {$item->cantidad}"),
-                            ]);
-                    }
-                    // Bajó el stock base: el reparto tiene que seguir cabiendo.
-                    StockVariantes::cuadrar(
-                        (int) $item->producto_id, (int) $origenId, "Entrega orden #{$orden->id}"
-                    );
-                    InventarioMovimiento::create([
-                        'producto_id' => $item->producto_id,
-                        'tienda_id'   => $origenId,
-                        'tipo'        => 'salida',
-                        'cantidad'    => $item->cantidad,
-                        'motivo'      => "Entrega orden #{$orden->id}",
-                        'usuario_id'  => $usuario->id,
-                    ]);
+                    // (el descuento real lo hace descontarStockPorEntrega, abajo)
                 } elseif ($estadoNuevo === 'cancelado' && $estadoAnterior !== 'cancelado') {
                     if ($item->variante_id) {
                         InventarioVariante::where('variante_id', $item->variante_id)
