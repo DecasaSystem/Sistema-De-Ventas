@@ -1,6 +1,7 @@
 ﻿<script setup>
 import IconoS from '@/components/common/IconoS.vue'
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { seVolvioAtras } from '@/router'
 import { useTiposProceso } from '@/composables/useTiposProceso'
 import { useRouter } from 'vue-router'
 import { MagnifyingGlassIcon, Cog6ToothIcon, ArrowDownTrayIcon, MapPinIcon } from '@heroicons/vue/24/outline'
@@ -15,6 +16,19 @@ import EmptyState from '@/components/common/EmptyState.vue'
 
 const router = useRouter()
 const toast = useToast()
+
+/**
+ * Dónde iba el usuario la última vez que estuvo en esta lista.
+ *
+ * Vive fuera del componente a propósito: al entrar a una orden esta pantalla
+ * se destruye, así que un `ref` de adentro se perdería. Antes, al volver, la
+ * lista arrancaba en la primera página y en el tope, y si la orden estaba
+ * abajo tocaba bajar otra vez todo.
+ *
+ * Solo se restaura si se volvió con el botón "atrás". Si el usuario entra a
+ * Órdenes por el menú, espera la lista fresca y desde arriba.
+ */
+let dondeIba = null
 
 const ordenes = ref([])
 const loading = ref(true)
@@ -271,7 +285,25 @@ const { listen } = useRealtime()
 onMounted(async () => {
   cargarTipos()   // nombres y colores de los procesos
   await loadTiendas()
-  await fetchOrdenes(1, false)
+
+  if (seVolvioAtras() && dondeIba) {
+    // Se devuelve la pantalla tal como estaba, sin volver a pedir nada: la
+    // lista entera, los filtros y la altura. Pedirla de nuevo la reordenaría
+    // y el usuario perdería el sitio igual.
+    ordenes.value     = dondeIba.ordenes
+    currentPage.value = dondeIba.page
+    hasMore.value     = dondeIba.hasMore
+    filtros.value     = { ...dondeIba.filtros }
+    busqueda.value    = dondeIba.busqueda
+    loading.value     = false
+    const y = dondeIba.scrollY
+    await nextTick()
+    window.scrollTo({ top: y, behavior: 'instant' })
+  } else {
+    dondeIba = null
+    await fetchOrdenes(1, false)
+  }
+
   setupObserver()
 
   listen('ordenes', 'orden.actualizada', () => {
@@ -283,6 +315,17 @@ onMounted(async () => {
 onUnmounted(() => {
   if (observer) observer.disconnect()
   clearTimeout(searchTimer)
+
+  // Se guarda todo lo que hace falta para dejar la pantalla igual: las órdenes
+  // ya cargadas, por qué página iba, los filtros y la altura del scroll.
+  dondeIba = {
+    ordenes:  ordenes.value,
+    page:     currentPage.value,
+    hasMore:  hasMore.value,
+    filtros:  { ...filtros.value },
+    busqueda: busqueda.value,
+    scrollY:  window.scrollY,
+  }
 })
 </script>
 

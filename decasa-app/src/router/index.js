@@ -7,7 +7,7 @@ const routes = [
   // ni `guest`, porque lo abre cualquiera —tenga o no sesión abierta—.
   { path: '/catalogo/:seccion', name: 'catalogo-publico', component: () => import('@/views/CatalogoPublicoView.vue') },
   { path: '/',        name: 'dashboard',  component: () => import('@/views/DashboardView.vue'),  meta: { requiresAuth: true } },
-  { path: '/ordenes', name: 'ordenes',    component: () => import('@/views/OrdenesView.vue'),    meta: { requiresAuth: true } },
+  { path: '/ordenes', name: 'ordenes',    component: () => import('@/views/OrdenesView.vue'),    meta: { requiresAuth: true, restauraSolo: true } },
   { path: '/ordenes/:id', name: 'orden-detalle', component: () => import('@/views/OrdenDetalleView.vue'), meta: { requiresAuth: true } },
   { path: '/ordenes/nueva', name: 'nueva-orden', component: () => import('@/views/NuevaOrdenView.vue'), meta: { requiresAuth: true } },
   { path: '/clientes', name: 'clientes',  component: () => import('@/views/ClientesView.vue'),   meta: { requiresAuth: true } },
@@ -48,9 +48,37 @@ const routes = [
   { path: '/compras', name: 'compras', component: () => import('@/views/ComprasView.vue'), meta: { requiresAuth: true, requiresCompras: true } },
 ]
 
+/**
+ * Si se llegó a esta pantalla con el botón "atrás" del navegador.
+ *
+ * vue-router solo entrega `savedPosition` cuando la navegación es hacia atrás
+ * o hacia adelante en el historial, así que sirve de señal. Las listas la usan
+ * para saber si tienen que restaurar donde iba el usuario o empezar de cero.
+ */
+let _volviendo = false
+export const seVolvioAtras = () => _volviendo
+
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes,
+  scrollBehavior(to, from, savedPosition) {
+    _volviendo = !!savedPosition
+
+    // Las listas que cargan por scroll se restauran solas: al volver todavía
+    // no existe el contenido que había, así que el navegador no tiene a dónde
+    // ir y terminaría dejándote al final de la primera página.
+    if (to.meta.restauraSolo) return false
+
+    if (! savedPosition) return { top: 0 }
+
+    // Se espera un instante antes de devolver la altura: casi todas las
+    // pantallas piden sus datos al montarse, y si se salta de inmediato el
+    // contenido todavía no existe, así que el navegador no tiene hasta dónde
+    // bajar y te deja arriba igual.
+    return new Promise((resolve) => {
+      setTimeout(() => resolve(savedPosition), 120)
+    })
+  },
 })
 
 // Cuando un chunk lazy falla por cache stale (deployment nuevo), navegar directamente
