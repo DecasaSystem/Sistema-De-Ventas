@@ -70,7 +70,10 @@ const pasos    = usePasosStore()
 const consultasStore = useConsultasStore()
 const { conectar: conectarSurtidos } = useSurtidosSocket()
 
-const showNav       = computed(() => auth.isAuthenticated && route.name !== 'login')
+// El catálogo público es una página para el cliente: no lleva el menú del
+// programa aunque quien la abra tenga sesión iniciada.
+const SIN_MENU = ['login', 'catalogo-publico']
+const showNav       = computed(() => auth.isAuthenticated && !SIN_MENU.includes(route.name))
 const abrirNotif    = ref(false)
 const abrirMas      = ref(false)
 const navCargando   = ref(false)

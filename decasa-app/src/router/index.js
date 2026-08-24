@@ -3,6 +3,9 @@ import { useAuthStore } from '@/stores/auth'
 
 const routes = [
   { path: '/login', name: 'login', component: () => import('@/views/LoginView.vue'), meta: { guest: true } },
+  // Catálogo público: el link que se le manda a un cliente. Sin `requiresAuth`
+  // ni `guest`, porque lo abre cualquiera —tenga o no sesión abierta—.
+  { path: '/catalogo/:seccion', name: 'catalogo-publico', component: () => import('@/views/CatalogoPublicoView.vue') },
   { path: '/',        name: 'dashboard',  component: () => import('@/views/DashboardView.vue'),  meta: { requiresAuth: true } },
   { path: '/ordenes', name: 'ordenes',    component: () => import('@/views/OrdenesView.vue'),    meta: { requiresAuth: true } },
   { path: '/ordenes/:id', name: 'orden-detalle', component: () => import('@/views/OrdenDetalleView.vue'), meta: { requiresAuth: true } },

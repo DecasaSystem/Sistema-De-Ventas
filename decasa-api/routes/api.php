@@ -43,6 +43,7 @@ use App\Http\Controllers\InventarioTelaController;
 use App\Http\Controllers\TipoVarianteController;
 use App\Http\Controllers\ProductoVarianteConfigController;
 use App\Http\Controllers\CajaController;
+use App\Http\Controllers\CatalogoPublicoController;
 use App\Http\Controllers\ComisionController;
 use App\Http\Controllers\EmpleadoController;
 use App\Http\Controllers\NominaPagoController;
@@ -58,6 +59,13 @@ Route::post('/auth/login', [AuthController::class, 'login'])->middleware('thrott
 
 // ── Webhook del agente WA (público con token secreto) ────────────────────────
 Route::post('/redes/webhook', [RedesController::class, 'webhook'])->middleware('throttle:60,1');
+
+// ── Catálogo público ─────────────────────────────────────────────────────────
+// El link que se le manda a un cliente por WhatsApp. Sin contraseña, porque el
+// cliente no tiene cuenta; con tope de peticiones, porque está abierto a
+// internet. Solo lectura y solo de una sección.
+Route::get('/catalogo/{seccion}', [CatalogoPublicoController::class, 'seccion'])
+    ->middleware('throttle:60,1');
 
 // ── VAPID public key (público — necesario antes de login para suscribir) ─────
 Route::get('/push/vapid-key', [PushSubscriptionController::class, 'vapidKey']);

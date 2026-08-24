@@ -71,6 +71,39 @@ const tiendaId = ref(auth.usuario?.tienda_default_id ?? '')
 const inventario = ref([])
 const busqueda = ref('')
 const categoriaFiltro = ref('')
+const copiado = ref(false)
+
+/**
+ * El link público de la sección que se está viendo.
+ *
+ * La categoría se guarda como "sillas_comedor" o "Reloj"; en la dirección va
+ * en minúsculas y con guiones, y el backend la compara igual sin importar cómo
+ * esté escrita.
+ */
+function linkSeccion(cat) {
+  const slug = String(cat)
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')   // fuera las tildes
+    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+  return `${window.location.origin}/catalogo/${slug}`
+}
+
+async function compartirSeccion() {
+  const url = linkSeccion(categoriaFiltro.value)
+  const nombre = CATEGORY_LABELS[categoriaFiltro.value] ?? categoriaFiltro.value
+  // En el celular sale el menú de compartir del sistema (WhatsApp directo);
+  // en el computador no existe, así que se copia al portapapeles.
+  if (navigator.share) {
+    try { await navigator.share({ title: nombre, url }); return } catch { /* lo cerró */ }
+  }
+  try {
+    await navigator.clipboard.writeText(url)
+    copiado.value = true
+    toast.success('Link copiado')
+    setTimeout(() => { copiado.value = false }, 2000)
+  } catch {
+    toast.error('No se pudo copiar. El link es: ' + url)
+  }
+}
 const categoriasDisponibles = ref([])
 const loading = ref(!!auth.usuario?.tienda_default_id)
 const currentPage = ref(1)
@@ -1654,6 +1687,18 @@ onMounted(async () => {
         ]"
       >
         {{ CATEGORY_LABELS[cat] ?? cat }}
+      </button>
+    </div>
+
+    <!-- Compartir la sección con un cliente -->
+    <div v-if="categoriaFiltro" class="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2">
+      <p class="text-xs text-emerald-800 flex-1 leading-snug">
+        Manda <strong>{{ CATEGORY_LABELS[categoriaFiltro] ?? categoriaFiltro }}</strong> a un cliente:
+        ve las fotos y los precios de esta sección, y de nada más.
+      </p>
+      <button @click="compartirSeccion"
+        class="shrink-0 text-xs font-semibold text-white bg-emerald-600 rounded-lg px-3 py-1.5 hover:bg-emerald-700 transition-colors">
+        {{ copiado ? '¡Copiado!' : 'Copiar link' }}
       </button>
     </div>
 
