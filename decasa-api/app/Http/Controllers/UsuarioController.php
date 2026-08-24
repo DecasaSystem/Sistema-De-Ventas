@@ -241,6 +241,12 @@ class UsuarioController extends Controller
             'nombre'            => 'sometimes|string|max:100',
             'email'             => ['sometimes', 'nullable', 'email', Rule::unique('usuarios', 'email')->ignore($usuario->id)],
             'cedula'            => ['sometimes', 'nullable', 'string', 'max:20', Rule::unique('usuarios', 'cedula')->ignore($usuario->id)],
+            // Un trabajador de fábrica al que ahora sí se le va a dar acceso:
+            // hay que poderle poner correo y contraseña sin volver a crearlo,
+            // porque toda su historia —nómina, pasos, calificaciones— cuelga
+            // de este mismo registro.
+            'no_usa_programa'   => 'sometimes|boolean',
+            'password'          => 'sometimes|nullable|string|min:8|confirmed',
             'apto_comisiones'   => 'nullable|boolean',
             'apto_produccion'   => 'nullable|boolean',
             'periodicidad'      => ['sometimes', 'required', Rule::in(['diario', 'semanal', 'quincenal', '20_dias', 'mensual'])],
@@ -288,6 +294,44 @@ class UsuarioController extends Controller
         if ($request->has('acceso_redes')) {
             $data['acceso_redes'] = in_array($arquetipoFinal, ['vendedor', 'supervisor']) && $request->boolean('acceso_redes');
         }
+        // ── Pasar de "no usa el programa" a que sí lo use, y al revés ──────
+        if ($request->has('no_usa_programa')) {
+            $ahoraNoUsa = $request->boolean('no_usa_programa');
+            $data['no_usa_programa'] = $ahoraNoUsa;
+
+            if (! $ahoraNoUsa) {
+                // Va a entrar al programa: sin correo y contraseña no tiene con
+                // qué. Se piden solo si no los tiene ya, para no obligar a
+                // reescribirlos cada vez que se guarda la ficha.
+                $correo = $data['email'] ?? $usuario->email;
+                if (! $correo) {
+                    return response()->json([
+                        'message' => 'Para que use el programa hay que darle un correo.',
+                        'errors'  => ['email' => ['Escribe el correo con el que va a entrar.']],
+                    ], 422);
+                }
+                if (empty($data['password']) && ! $usuario->password) {
+                    return response()->json([
+                        'message' => 'Para que use el programa hay que ponerle una contraseña.',
+                        'errors'  => ['password' => ['Escribe la contraseña con la que va a entrar.']],
+                    ], 422);
+                }
+                $data['email'] = $correo;
+            } else {
+                // Deja de usarlo: se le suelta el correo —para que no bloquee a
+                // otro— y se le cierran las sesiones abiertas. La contraseña se
+                // deja como está; sin correo no hay por dónde entrar.
+                $data['email'] = null;
+                $usuario->tokens()->delete();
+            }
+        }
+
+        if (! empty($data['password'])) {
+            $data['password'] = Hash::make($data['password']);
+        } else {
+            unset($data['password']);
+        }
+
         if ($request->has('acceso_comisiones')) {
             $data['acceso_comisiones'] = ($arquetipoFinal === 'supervisor') && $request->boolean('acceso_comisiones');
         }

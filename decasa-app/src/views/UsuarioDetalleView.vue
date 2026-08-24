@@ -44,6 +44,7 @@ const editForm = ref({
   acceso_compras: false,
   ve_todas_ordenes: false, tienda_default_id: '',
   apto_comisiones: false, apto_produccion: false,
+  no_usa_programa: false, password: '', password_confirmation: '',
 })
 const arquetiposSinTienda = ['conductor', 'despachador', 'taller']
 
@@ -142,6 +143,8 @@ function openEditModal() {
     ve_todas_ordenes: usuario.value.ve_todas_ordenes ?? false,
     apto_comisiones: usuario.value.apto_comisiones ?? false,
     apto_produccion: usuario.value.apto_produccion ?? false,
+    no_usa_programa: usuario.value.no_usa_programa ?? false,
+    password: '', password_confirmation: '',
     tienda_default_id: usuario.value.tienda_default_id,
   }
   actionError.value = ''
@@ -172,6 +175,11 @@ async function submitEdit() {
       acceso_comisiones: editArquetipo.value === 'supervisor' ? editForm.value.acceso_comisiones : false,
       apto_comisiones: editForm.value.apto_comisiones,
       apto_produccion: editForm.value.apto_produccion,
+      no_usa_programa: editForm.value.no_usa_programa,
+      // Solo viaja si se escribió: en blanco significa "déjala como está".
+      ...(editForm.value.password
+        ? { password: editForm.value.password, password_confirmation: editForm.value.password_confirmation }
+        : {}),
       recarga_telas: editForm.value.recarga_telas,
       acceso_telas: editForm.value.acceso_telas,
       acceso_surtir: editForm.value.acceso_surtir,
@@ -552,9 +560,44 @@ onMounted(async () => {
               <label class="block text-sm font-medium text-gray-700 mb-1">Nombre</label>
               <input v-model="editForm.nombre" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+            <div class="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-lg p-3">
+              <input
+                id="edit-no-usa-programa"
+                type="checkbox"
+                v-model="editForm.no_usa_programa"
+                class="mt-0.5 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+              />
+              <div>
+                <label for="edit-no-usa-programa" class="text-sm font-medium text-gray-700 cursor-pointer">Este trabajador no usa el programa</label>
+                <p class="text-xs text-gray-500 mt-0.5">
+                  Para la gente de fábrica: no lleva correo ni contraseña y solo aparece en
+                  Nómina y al anotar quién hizo un paso. Al desmarcarlo hay que darle correo
+                  y contraseña; su historial —nómina, pasos, calificaciones— se conserva.
+                </p>
+              </div>
+            </div>
+
+            <div v-if="!editForm.no_usa_programa">
+              <label class="block text-sm font-medium text-gray-700 mb-1">
+                Email <span v-if="!usuario.email" class="text-red-500">*</span>
+              </label>
               <input v-model="editForm.email" type="email" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+
+            <div v-if="!editForm.no_usa_programa" class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">
+                  Contraseña <span v-if="!usuario.email" class="text-red-500">*</span>
+                </label>
+                <input v-model="editForm.password" type="password" autocomplete="new-password"
+                  :placeholder="usuario.email ? 'Dejar en blanco para no cambiarla' : 'Mínimo 8 caracteres'"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Repetir</label>
+                <input v-model="editForm.password_confirmation" type="password" autocomplete="new-password"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
             </div>
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Rol</label>
