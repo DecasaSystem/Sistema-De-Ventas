@@ -43,6 +43,7 @@ const editForm = ref({
   acceso_despacho: false, acceso_produccion: false, acceso_nomina: false, acceso_reserva: false,
   acceso_compras: false,
   ve_todas_ordenes: false, tienda_default_id: '',
+  apto_comisiones: false, apto_produccion: false,
 })
 const arquetiposSinTienda = ['conductor', 'despachador', 'taller']
 
@@ -139,6 +140,8 @@ function openEditModal() {
     acceso_compras: usuario.value.acceso_compras ?? false,
     acceso_reserva: usuario.value.acceso_reserva ?? false,
     ve_todas_ordenes: usuario.value.ve_todas_ordenes ?? false,
+    apto_comisiones: usuario.value.apto_comisiones ?? false,
+    apto_produccion: usuario.value.apto_produccion ?? false,
     tienda_default_id: usuario.value.tienda_default_id,
   }
   actionError.value = ''
@@ -167,6 +170,8 @@ async function submitEdit() {
       notif_stock: editArquetipo.value === 'supervisor' ? editForm.value.notif_stock : false,
       acceso_redes: ['vendedor', 'supervisor'].includes(editArquetipo.value) ? editForm.value.acceso_redes : false,
       acceso_comisiones: editArquetipo.value === 'supervisor' ? editForm.value.acceso_comisiones : false,
+      apto_comisiones: editForm.value.apto_comisiones,
+      apto_produccion: editForm.value.apto_produccion,
       recarga_telas: editForm.value.recarga_telas,
       acceso_telas: editForm.value.acceso_telas,
       acceso_surtir: editForm.value.acceso_surtir,
@@ -632,6 +637,40 @@ onMounted(async () => {
               <div>
                 <label for="edit-acceso-comisiones" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a módulo de comisiones</label>
                 <p class="text-xs text-gray-500 mt-0.5">Podrá ver, gestionar y marcar como pagadas las comisiones de los vendedores.</p>
+              </div>
+            </div>
+            <div v-if="!usuario.no_usa_programa" class="flex items-start gap-3 py-1">
+              <input
+                id="edit-apto-comisiones"
+                type="checkbox"
+                v-model="editForm.apto_comisiones"
+                class="mt-0.5 rounded border-gray-300 text-green-600 focus:ring-green-500"
+              />
+              <div>
+                <label for="edit-apto-comisiones" class="text-sm font-medium text-gray-700 cursor-pointer">Apto para comisiones</label>
+                <p class="text-xs text-gray-500 mt-0.5">Hace ventas, así que le corresponde comisión.</p>
+              </div>
+            </div>
+            <div class="flex items-start gap-3 py-1">
+              <input
+                id="edit-apto-produccion"
+                type="checkbox"
+                :checked="usuario.no_usa_programa || editForm.apto_produccion"
+                :disabled="usuario.no_usa_programa"
+                @change="editForm.apto_produccion = $event.target.checked"
+                class="mt-0.5 rounded border-gray-300 text-orange-600 focus:ring-orange-500 disabled:opacity-60"
+              />
+              <div>
+                <label for="edit-apto-produccion" class="text-sm font-medium text-gray-700 cursor-pointer">Apto para producción</label>
+                <p class="text-xs text-gray-500 mt-0.5">
+                  <template v-if="usuario.no_usa_programa">
+                    Quien no usa el programa es del taller: va marcado siempre.
+                  </template>
+                  <template v-else>
+                    Sale en las listas de producción: para ponerlo de encargado de un proceso
+                    y para anotarlo como que hizo un paso.
+                  </template>
+                </p>
               </div>
             </div>
             <div class="flex items-start gap-3 py-1">

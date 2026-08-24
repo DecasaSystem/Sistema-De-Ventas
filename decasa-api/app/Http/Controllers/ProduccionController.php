@@ -598,16 +598,16 @@ class ProduccionController extends Controller
      * GET /api/produccion/trabajadores
      * A quién se puede poner en un paso.
      *
-     * Salen todos los trabajadores activos, no sólo los del proceso: en el
-     * taller entra a ayudar quien esté libre, y antes se escribía cualquier
-     * nombre justamente porque la lista no daba para eso. Los que sí son del
-     * proceso vienen marcados para que aparezcan de primeros.
+     * Salen los del taller, no sólo los del proceso: ahí adentro entra a ayudar
+     * quien esté libre. Se filtra por "apto para producción" y no por si entra
+     * al programa: la gente de fábrica no entra y es justamente la que hace el
+     * trabajo. Los del proceso vienen marcados para que salgan de primeros.
      */
     public function trabajadores(Request $request)
     {
         $proceso = $request->query('proceso');
 
-        $usuarios = Usuario::where('activo', true)
+        $usuarios = Usuario::where('activo', true)->aptoProduccion()
             ->with('rolAsignado:id,nombre')
             ->orderBy('nombre')
             ->get();
@@ -818,7 +818,7 @@ class ProduccionController extends Controller
         // trabajadores que tengan ese proceso asignado. Antes se cruzaba
         // además con el "perfil" de la persona, que era lo que obligaba a
         // darle un rol de taller a quien solo estaba encargado de un paso.
-        $usuariosANotificar = Usuario::where('activo', true)->usaElPrograma()
+        $usuariosANotificar = Usuario::where('activo', true)->usaElPrograma()->aptoProduccion()
             ->whereHas('procesosAsignados', fn ($p) => $p->where('clave', $tipoProceso))
             ->get();
 

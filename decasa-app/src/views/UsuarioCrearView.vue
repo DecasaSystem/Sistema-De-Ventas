@@ -20,6 +20,7 @@ const form = ref({
   no_usa_programa: false,
   cedula: '',
   apto_comisiones: false,
+  apto_produccion: false,
   email: '',
   password: '',
   password_confirmation: '',
@@ -128,6 +129,7 @@ async function submit() {
       password: form.value.no_usa_programa ? null : form.value.password,
       password_confirmation: form.value.no_usa_programa ? null : form.value.password_confirmation,
       apto_comisiones: !form.value.no_usa_programa && form.value.apto_comisiones,
+      apto_produccion: form.value.no_usa_programa || form.value.apto_produccion,
       rol_id: form.value.rol_id,
       facturacion: form.value.facturacion,
       independiente: esIndependiente.value,
@@ -305,6 +307,33 @@ async function submit() {
         <div>
           <label for="apto_comisiones" class="text-sm font-medium text-gray-700 cursor-pointer">Apto para comisiones</label>
           <p class="text-xs text-gray-500 mt-0.5">Marca que esta persona hace ventas y por lo tanto le corresponde comisión.</p>
+        </div>
+      </div>
+
+
+      <!-- Apto para producción. La fábrica lo trae puesto: es el taller. -->
+      <div class="flex items-start gap-3 py-2">
+        <input
+          id="apto_produccion"
+          type="checkbox"
+          :checked="form.no_usa_programa || form.apto_produccion"
+          :disabled="form.no_usa_programa"
+          @change="form.apto_produccion = $event.target.checked"
+          class="mt-0.5 rounded border-gray-300 text-orange-600 focus:ring-orange-500 disabled:opacity-60"
+        />
+        <div>
+          <label for="apto_produccion" class="text-sm font-medium text-gray-700 cursor-pointer">Apto para producción</label>
+          <p class="text-xs text-gray-500 mt-0.5">
+            <template v-if="form.no_usa_programa">
+              Quien no usa el programa es del taller, así que va marcado siempre.
+              Aparecerá al anotar quién hizo un paso.
+            </template>
+            <template v-else>
+              Sale en las listas de producción: para ponerlo de encargado de un proceso
+              y para anotarlo como que hizo un paso. Sin esto no aparece, y así esas
+              listas no se llenan de gente que nunca pisa el taller.
+            </template>
+          </p>
         </div>
       </div>
 

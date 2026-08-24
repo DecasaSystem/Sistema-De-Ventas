@@ -23,6 +23,7 @@ class UsuarioController extends Controller
             // rol hace de oficio (Lijador, Laquero...) y aparece en Nómina.
             'no_usa_programa'     => (bool) $u->no_usa_programa,
             'apto_comisiones'     => (bool) $u->apto_comisiones,
+            'apto_produccion'     => (bool) $u->apto_produccion,
             'periodicidad'        => $u->periodicidad,
             'nomina_sueldo_id'    => $u->nomina_sueldo_id,
             'rol'                 => $u->rol,
@@ -122,6 +123,7 @@ class UsuarioController extends Controller
             'password'          => 'required_if:no_usa_programa,false,0|nullable|string|min:8|confirmed',
             'cedula'            => 'nullable|string|max:20|unique:usuarios,cedula',
             'apto_comisiones'   => 'boolean',
+            'apto_produccion'   => 'boolean',
             'periodicidad'      => ['nullable', Rule::in(['diario', 'semanal', 'quincenal', '20_dias', 'mensual'])],
             'nomina_sueldo_id'  => 'nullable|exists:nomina_sueldos,id',
             'rol_id'              => ['required', 'exists:roles,id'],
@@ -195,6 +197,9 @@ class UsuarioController extends Controller
             'no_usa_programa'     => $noUsaPrograma,
             // Quien no usa el programa no hace ventas: no puede ser apto.
             'apto_comisiones'     => ! $noUsaPrograma && $request->boolean('apto_comisiones'),
+            // La gente de fábrica ES el taller: se marca sola, para que no haya
+            // que acordarse y para que salga de una al cerrar un paso.
+            'apto_produccion'     => $noUsaPrograma || $request->boolean('apto_produccion'),
             'periodicidad'        => $data['periodicidad'] ?? 'quincenal',
             'nomina_sueldo_id'    => $data['nomina_sueldo_id'] ?? null,
             'rol_id'              => $data['rol_id'],
@@ -237,6 +242,7 @@ class UsuarioController extends Controller
             'email'             => ['sometimes', 'nullable', 'email', Rule::unique('usuarios', 'email')->ignore($usuario->id)],
             'cedula'            => ['sometimes', 'nullable', 'string', 'max:20', Rule::unique('usuarios', 'cedula')->ignore($usuario->id)],
             'apto_comisiones'   => 'nullable|boolean',
+            'apto_produccion'   => 'nullable|boolean',
             'periodicidad'      => ['sometimes', 'required', Rule::in(['diario', 'semanal', 'quincenal', '20_dias', 'mensual'])],
             'nomina_sueldo_id'  => 'sometimes|nullable|exists:nomina_sueldos,id',
             'rol_id'              => ['sometimes', 'exists:roles,id'],
@@ -321,6 +327,10 @@ class UsuarioController extends Controller
         // apto para comisiones, porque no hace ventas.
         if ($request->has('apto_comisiones')) {
             $data['apto_comisiones'] = ! $usuario->no_usa_programa && $request->boolean('apto_comisiones');
+        }
+        if ($request->has('apto_produccion')) {
+            // A quien no usa el programa no se le puede quitar: es del taller.
+            $data['apto_produccion'] = $usuario->no_usa_programa || $request->boolean('apto_produccion');
         }
         if ($request->has('ve_todas_ordenes')) {
             $data['ve_todas_ordenes'] = $request->boolean('ve_todas_ordenes');

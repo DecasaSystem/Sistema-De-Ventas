@@ -58,6 +58,7 @@ class Usuario extends Authenticatable
         'cedula',
         'no_usa_programa',
         'apto_comisiones',
+        'apto_produccion',
         'nomina_sueldo_id',
         'nomina_bonificacion_id',
         'periodicidad',
@@ -93,6 +94,7 @@ class Usuario extends Authenticatable
             've_todas_ordenes'    => 'boolean',
             'no_usa_programa'     => 'boolean',
             'apto_comisiones'     => 'boolean',
+            'apto_produccion'     => 'boolean',
         ];
     }
 
@@ -199,6 +201,18 @@ class Usuario extends Authenticatable
      * taller eso se traduce en un mueble parado esperando a alguien que no va
      * a llegar.
      */
+    /**
+     * Los que tienen que ver con el taller.
+     *
+     * Sin esto las listas de producción traían a todo el mundo —conductores,
+     * cajeros, vendedores— y había que buscar entre cincuenta nombres al que
+     * de verdad estaba ahí.
+     */
+    public function scopeAptoProduccion($query)
+    {
+        return $query->where('apto_produccion', true);
+    }
+
     public function scopeUsaElPrograma($query)
     {
         return $query->where('no_usa_programa', false);
