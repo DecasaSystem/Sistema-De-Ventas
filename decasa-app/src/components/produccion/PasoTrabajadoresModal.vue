@@ -29,6 +29,15 @@ const emit = defineEmits(['cerrar', 'guardar'])
 const catalogo  = ref([])
 const cargando  = ref(false)
 const busqueda  = ref('')
+/**
+ * Por defecto solo salen los encasillados en ESTE proceso: en el taller un paso
+ * lo hace su gente, y buscar entre treinta y cinco nombres para dar con el
+ * tapicero de siempre es lo que hacía que se escribiera cualquier cosa.
+ *
+ * Queda la salida de "ver todos" porque entra a ayudar quien esté libre, y
+ * mandarte a Procesos a encasillarlo en mitad del cierre sería peor.
+ */
+const verTodos  = ref(false)
 /** Lo elegido: [{ usuario_id, nombre, horas, calidad, comentario }] */
 const elegidos  = ref([])
 
@@ -51,6 +60,7 @@ async function cargarCatalogo() {
 watch(() => props.abierto, async (abierto) => {
   if (!abierto) return
   busqueda.value = ''
+  verTodos.value = false
   elegidos.value = (props.paso?.participantes ?? []).map(p => ({
     usuario_id: p.usuario_id,
     nombre:     p.nombre ?? p.usuario?.nombre ?? '',
@@ -61,12 +71,26 @@ watch(() => props.abierto, async (abierto) => {
   await cargarCatalogo()
 })
 
+const delProceso = computed(() => catalogo.value.filter(t => t.del_proceso))
+
 const disponibles = computed(() => {
   const yaEsta = new Set(elegidos.value.map(e => e.usuario_id))
   const term = busqueda.value.trim().toLowerCase()
-  return catalogo.value
+  // Escribir un nombre busca siempre en todos: si uno lo escribe es porque sabe
+  // a quién quiere, y no tiene por qué acordarse de si está encasillado.
+  const base = (verTodos.value || term || !delProceso.value.length)
+    ? catalogo.value
+    : delProceso.value
+  return base
     .filter(t => !yaEsta.has(t.id))
     .filter(t => !term || t.nombre.toLowerCase().includes(term))
+})
+
+/** Cuántos quedan escondidos por no ser de este proceso. */
+const ocultos = computed(() => {
+  if (verTodos.value || busqueda.value.trim() || !delProceso.value.length) return 0
+  const yaEsta = new Set(elegidos.value.map(e => e.usuario_id))
+  return catalogo.value.filter(t => !t.del_proceso && !yaEsta.has(t.id)).length
 })
 
 function agregar(t) {
@@ -214,6 +238,19 @@ function estrellasDe(promedio) {
                 {{ busqueda ? 'Nadie con ese nombre.' : 'No queda nadie por agregar.' }}
               </p>
             </div>
+
+            <button
+              v-if="ocultos" type="button" @click="verTodos = true"
+              class="mt-1.5 w-full text-[11px] text-gray-500 hover:text-gray-700 py-1.5"
+            >
+              Trabajó alguien más — ver los otros {{ ocultos }} del taller
+            </button>
+            <p v-else-if="verTodos && delProceso.length" class="mt-1.5 text-[11px] text-gray-400 text-center">
+              Viendo a todo el taller.
+              <button type="button" @click="verTodos = false" class="underline hover:text-gray-600">
+                Volver a los de este paso
+              </button>
+            </p>
           </div>
         </div>
 

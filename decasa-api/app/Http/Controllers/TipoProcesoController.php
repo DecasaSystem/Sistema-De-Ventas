@@ -36,12 +36,13 @@ class TipoProcesoController extends Controller
                 $data['trabajador_ids'] = $t->trabajadores->pluck('id')->all();
                 return $data;
             }),
-            // Quién puede quedar ENCARGADO de un proceso: solo quien entra al
-            // programa, porque el encargado es el que ve el paso y lo confirma.
-            // Quién lo HACE es otra cosa: ahí sí entra la gente de fábrica, y se
-            // elige al cerrar el paso (ver ProduccionController::trabajadores).
-            'trabajadores' => Usuario::where('activo', true)->usaElPrograma()->aptoProduccion()
-                ->orderBy('nombre')->get(['id', 'nombre', 'rol']),
+            // Quiénes trabajan este proceso. Una sola lista que se lee de dos
+            // maneras: los que entran al programa son además los encargados —ven
+            // el paso y lo confirman—, y los de fábrica no lo ven pero salen de
+            // primeros al anotar quién hizo el trabajo.
+            'trabajadores' => Usuario::where('activo', true)->aptoProduccion()
+                ->orderBy('nombre')
+                ->get(['id', 'nombre', 'rol', 'no_usa_programa']),
             'colores'  => TipoProceso::COLORES,
         ]);
     }
@@ -59,7 +60,7 @@ class TipoProcesoController extends Controller
             'descripcion'    => 'nullable|string|max:160',
             'color'          => ['nullable', Rule::in(TipoProceso::COLORES)],
             'trabajadores'   => 'nullable|array',
-            'trabajadores.*' => ['integer', Rule::exists('usuarios', 'id')->where('no_usa_programa', false)->where('apto_produccion', true)],
+            'trabajadores.*' => ['integer', Rule::exists('usuarios', 'id')->where('apto_produccion', true)],
         ]);
 
         $trabajadores = $data['trabajadores'] ?? [];
@@ -97,7 +98,7 @@ class TipoProcesoController extends Controller
             'descripcion'    => 'sometimes|nullable|string|max:160',
             'color'          => ['sometimes', Rule::in(TipoProceso::COLORES)],
             'trabajadores'   => 'sometimes|array',
-            'trabajadores.*' => ['integer', Rule::exists('usuarios', 'id')->where('no_usa_programa', false)->where('apto_produccion', true)],
+            'trabajadores.*' => ['integer', Rule::exists('usuarios', 'id')->where('apto_produccion', true)],
             'orden'          => 'sometimes|integer|min:0|max:9999',
             'activo'         => 'sometimes|boolean',
         ]);

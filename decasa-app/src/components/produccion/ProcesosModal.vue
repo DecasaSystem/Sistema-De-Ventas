@@ -173,7 +173,7 @@ async function quitar(t) {
 
 
                 <div>
-                  <label class="block text-[11px] text-gray-500 mb-1">Encargados del paso</label>
+                  <label class="block text-[11px] text-gray-500 mb-1">Quiénes trabajan este paso</label>
                   <div class="flex flex-wrap gap-1.5">
                     <button
                       v-for="w in trabajadores" :key="w.id" type="button" @click="alternarTrabajador(t, w.id)"
@@ -181,13 +181,15 @@ async function quitar(t) {
                         (t.trabajador_ids ?? []).includes(w.id)
                           ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
                           : 'border-gray-200 bg-white text-gray-500 hover:border-emerald-300']"
-                    >{{ w.nombre }}</button>
+                    >
+                      {{ w.nombre }}
+                      <span v-if="w.no_usa_programa" class="ml-1 text-[10px] opacity-60">fábrica</span>
+                    </button>
                   </div>
                   <p class="text-[11px] text-gray-400 mt-1">
-                    Es quien VE el paso en "Mis pasos" y lo confirma. Sea vendedor o
-                    supervisor, el cargo no importa; pero tiene que entrar al programa,
-                    así que la gente de fábrica no sale aquí: a ellos se les anota al
-                    cerrar el paso, que es donde se registra quién lo hizo.
+                    Los que entran al programa VEN el paso en "Mis pasos" y lo confirman.
+                    Los de fábrica no lo ven, pero salen de primeros al anotar quién hizo
+                    el trabajo, en vez de tener que buscarlos entre todo el taller.
                   </p>
                   <p v-if="nadieAsignado(t)" class="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 mt-1.5">
                     Nadie puede hacer este proceso: sus pasos quedarían en curso pero invisibles para todos.
@@ -225,7 +227,7 @@ async function quitar(t) {
                 <input v-model="nuevo.descripcion" type="text" maxlength="160" placeholder="Descripción (opcional)"
                   class="w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 <div>
-                  <label class="block text-[11px] text-gray-500 mb-1">Encargados del paso</label>
+                  <label class="block text-[11px] text-gray-500 mb-1">Quiénes trabajan este paso</label>
                   <div class="flex flex-wrap gap-1.5">
                     <button
                       v-for="w in trabajadores" :key="w.id" type="button" @click="alternarTrabajador(nuevo, w.id)"
@@ -233,10 +235,13 @@ async function quitar(t) {
                         (nuevo.trabajador_ids ?? []).includes(w.id)
                           ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
                           : 'border-gray-200 bg-white text-gray-500']"
-                    >{{ w.nombre }}</button>
+                    >
+                      {{ w.nombre }}
+                      <span v-if="w.no_usa_programa" class="ml-1 text-[10px] opacity-60">fábrica</span>
+                    </button>
                   </div>
                   <p class="text-[11px] text-gray-400 mt-1">
-                    Solo quien entra al programa: es el que ve el paso y lo confirma.
+                    Los del programa lo ven y lo confirman; los de fábrica salen al anotar quién lo hizo.
                   </p>
                   <p v-if="nadieAsignado(nuevo)" class="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 mt-1.5">
                     Elige al menos una persona.
