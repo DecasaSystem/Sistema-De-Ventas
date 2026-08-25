@@ -13,6 +13,9 @@ const map = {
   en_produccion: { label: 'En producción', cls: 'bg-blue-100 text-blue-800' },
   listo_entrega: { label: 'Listo entrega', cls: 'bg-emerald-100 text-emerald-800' },
   en_camino:   { label: 'En camino',   cls: 'bg-purple-100 text-purple-800' },
+  // Volvió algo en el camión y falta decidir si se arregla o se cancela. En
+  // naranja fuerte a propósito: es de lo poco que exige que alguien haga algo.
+  devuelto:    { label: 'Devuelto',    cls: 'bg-orange-100 text-orange-800' },
   entregado: { label: 'Entregado', cls: 'bg-gray-100 text-gray-600' },
   cancelado: { label: 'Cancelado', cls: 'bg-red-100 text-red-800' },
   pendiente: { label: 'Pendiente', cls: 'bg-orange-100 text-orange-800' },

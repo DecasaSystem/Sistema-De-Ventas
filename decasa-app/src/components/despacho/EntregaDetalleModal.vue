@@ -76,6 +76,58 @@ const actaCompleta = computed(() => {
   return true
 })
 
+// ── Lo que se devuelve ───────────────────────────────────────────────────────
+// "Con novedad" es que llegó rayado y el cliente se lo quedó igual. Esto es
+// otra cosa: el producto se regresa en el camión. Va por pieza porque puede
+// llevar la cama y dos mesas y volver solo la cama.
+const hayDevolucion   = ref(false)
+const motivoDevolucion = ref('')
+const fotoDevolucion        = ref(null)
+const fotoDevolucionPreview = ref(null)
+// { [orden_item_id]: cantidad que vuelve }
+const devueltos = ref({})
+
+const itemsOrden = computed(() => item.value?.orden?.items ?? [])
+
+function alternarDevuelto(oi) {
+  if (devueltos.value[oi.id]) {
+    delete devueltos.value[oi.id]
+  } else {
+    // Casi siempre vuelve todo lo de esa línea; si vuelve solo una de dos, se
+    // baja a mano.
+    devueltos.value[oi.id] = oi.cantidad
+  }
+}
+
+function nombreItem(oi) {
+  return oi.nombre_custom || oi.producto?.nombre || 'Producto'
+}
+
+const piezasDevueltas = computed(() =>
+  Object.values(devueltos.value).reduce((s, n) => s + (Number(n) || 0), 0)
+)
+
+// Si vuelve absolutamente todo, no hay nada que cobrarle al cliente.
+const devuelveTodo = computed(() => {
+  if (!hayDevolucion.value || !itemsOrden.value.length) return false
+  return itemsOrden.value.every(oi => (Number(devueltos.value[oi.id]) || 0) >= oi.cantidad)
+})
+
+const devolucionCompleta = computed(() => {
+  if (!hayDevolucion.value) return true
+  if (!piezasDevueltas.value) return false
+  return motivoDevolucion.value.trim().length >= 3
+})
+
+function onFotoDevolucion(e) {
+  const file = e.target.files?.[0]
+  if (!file) return
+  compressImage(file).then(blob => {
+    fotoDevolucion.value = blob
+    fotoDevolucionPreview.value = URL.createObjectURL(blob)
+  })
+}
+
 // ── Descuento que se pierde al pagar con tarjeta ──────────────────────────────
 // Viene del backend cuando la orden tiene descuento por pago en efectivo o
 // transferencia. Si el conductor elige tarjeta, el cliente pierde el descuento
@@ -103,13 +155,21 @@ watch([metodo, descuentoCond], () => {
 const puedeEntregar = computed(() => {
   if (!fotoProductoPreview.value) return false
   if (!actaCompleta.value) return false
+  if (!devolucionCompleta.value) return false
+  // Si vuelve todo, no se le cobra nada: no se le puede pedir al conductor un
+  // comprobante de un pago que no existe.
+  if (devuelveTodo.value) return true
   if (tieneSaldo.value) return !!fotoPagoPreview.value && monto.value > 0
   return true  // sin saldo: foto del producto y acta firmada
 })
 
 const mensajeBoton = computed(() => {
   if (!fotoProductoPreview.value) return 'Sube la foto del producto para continuar'
-  if (tieneSaldo.value) {
+  if (hayDevolucion.value) {
+    if (!piezasDevueltas.value)              return 'Marca qué se devuelve'
+    if (motivoDevolucion.value.trim().length < 3) return 'Escribe por qué se devuelve'
+  }
+  if (tieneSaldo.value && !devuelveTodo.value) {
     if (!fotoPagoPreview.value) return 'Sube la foto del comprobante de pago'
     if (!(monto.value > 0))     return 'Ingresa el monto cobrado'
   }
@@ -204,7 +264,22 @@ async function guardarPagoYEntregar() {
     const fd = new FormData()
     fd.append('foto_producto', fotoProducto.value, 'foto_producto.jpg')
 
-    if (tieneSaldo.value) {
+    // ── Lo que se regresa en el camión ──────────────────────────────────────
+    // Va antes del pago porque lo cambia: si vuelve todo, no se cobra nada.
+    if (hayDevolucion.value && piezasDevueltas.value) {
+      fd.append('devoluciones', JSON.stringify(
+        Object.entries(devueltos.value)
+          .filter(([, cant]) => Number(cant) > 0)
+          .map(([ordenItemId, cant]) => ({
+            orden_item_id: Number(ordenItemId),
+            cantidad: Number(cant),
+            motivo: motivoDevolucion.value.trim(),
+          }))
+      ))
+      if (fotoDevolucion.value) fd.append('foto_devolucion', fotoDevolucion.value, 'foto_devolucion.jpg')
+    }
+
+    if (tieneSaldo.value && !devuelveTodo.value) {
       fd.append('monto', monto.value)
       fd.append('metodo', metodo.value)
       if (referencia.value) fd.append('referencia', referencia.value)
@@ -592,6 +667,82 @@ async function guardarPagoYEntregar() {
               >
                 {{ noHayQuienFirme ? '← Volver a la firma' : 'No hay quien firme' }}
               </button>
+            </div>
+
+            <!-- ── Se devuelve en el camión ────────────────────────────────
+                 Distinto de "con novedad": ahí el producto se queda en la casa
+                 golpeado. Acá el cliente no se lo recibe y vuelve. -->
+            <div class="border-t border-gray-200 pt-4 space-y-3">
+              <label class="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  v-model="hayDevolucion"
+                  class="mt-0.5 rounded border-gray-300 text-orange-600 focus:ring-orange-500"
+                />
+                <span>
+                  <span class="text-sm font-semibold text-gray-800">El cliente devuelve algo</span>
+                  <span class="block text-[11px] text-gray-500">
+                    El producto se regresa en el camión. Distinto de recibirlo con novedad y quedárselo.
+                  </span>
+                </span>
+              </label>
+
+              <div v-if="hayDevolucion" class="bg-orange-50 border border-orange-300 rounded-xl p-3 space-y-3">
+                <p class="text-xs font-semibold text-orange-900">¿Qué se devuelve?</p>
+
+                <div class="space-y-1.5">
+                  <div
+                    v-for="oi in itemsOrden" :key="oi.id"
+                    :class="['flex items-center gap-2 rounded-lg px-2 py-1.5 border transition-colors',
+                      devueltos[oi.id] ? 'bg-white border-orange-400' : 'bg-white/60 border-transparent']"
+                  >
+                    <input
+                      type="checkbox"
+                      :checked="!!devueltos[oi.id]"
+                      @change="alternarDevuelto(oi)"
+                      class="rounded border-gray-300 text-orange-600 focus:ring-orange-500"
+                    />
+                    <span class="flex-1 min-w-0 text-xs text-gray-800 truncate">
+                      {{ nombreItem(oi) }}
+                      <span class="text-gray-400">({{ oi.cantidad }})</span>
+                    </span>
+                    <!-- De dos mesas puede volver una sola -->
+                    <input
+                      v-if="devueltos[oi.id] && oi.cantidad > 1"
+                      v-model.number="devueltos[oi.id]"
+                      type="number" min="1" :max="oi.cantidad"
+                      class="w-14 border border-orange-300 rounded-lg px-1.5 py-1 text-xs text-center focus:ring-2 focus:ring-orange-500 outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <p class="text-xs font-semibold text-orange-900 mb-1">
+                    ¿Por qué se devuelve? <span class="text-red-500">*</span>
+                  </p>
+                  <textarea
+                    v-model="motivoDevolucion"
+                    rows="2"
+                    placeholder="Ej. la cama llegó con la madera partida en el espaldar"
+                    class="w-full border border-orange-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-orange-500 outline-none"
+                  />
+                </div>
+
+                <label class="block border-2 border-dashed border-orange-300 rounded-xl p-2 text-center cursor-pointer">
+                  <input type="file" accept="image/*" capture="environment" class="hidden" @change="onFotoDevolucion" />
+                  <img v-if="fotoDevolucionPreview" :src="fotoDevolucionPreview" class="w-full h-24 object-cover rounded-lg" />
+                  <span v-else class="text-xs text-orange-700">📷 Foto del daño (recomendada)</span>
+                </label>
+
+                <p v-if="devuelveTodo" class="text-[11px] text-orange-900 bg-orange-100 rounded-lg px-2 py-1.5">
+                  Vuelve todo, así que no se le cobra nada al cliente. La orden queda esperando que
+                  producción decida si se arregla o se cancela.
+                </p>
+                <p v-else class="text-[11px] text-orange-800">
+                  Se cobra solo lo que el cliente se queda. Producción decide después qué se hace con
+                  lo que vuelve.
+                </p>
+              </div>
             </div>
 
             <button

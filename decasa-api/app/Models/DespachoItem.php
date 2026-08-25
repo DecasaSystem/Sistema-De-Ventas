@@ -64,10 +64,39 @@ class DespachoItem extends Model
         // Evidencia de llegada siempre obligatoria
         if ($this->foto_producto === null) return false;
 
+        // Si se devolvió todo no hay nada que cobrar: el cliente no se quedó
+        // con nada. Exigirle el pago acá dejaría al conductor trabado en la
+        // puerta de la casa sin poder cerrar la entrega.
+        if ($this->seDevolvioTodo()) return true;
+
         // Sin saldo pendiente: solo se necesita foto del producto
         if ($this->orden->saldoPendiente() <= 0.01) return true;
 
         // Con saldo: también foto del pago y pago registrado
         return $this->foto_pago !== null && $this->tienePago();
+    }
+
+    /** ¿Volvió en el camión todo lo que llevaba esta orden? */
+    public function seDevolvioTodo(): bool
+    {
+        $devueltas = Devolucion::where('despacho_item_id', $this->id)
+            ->get()
+            ->groupBy('orden_item_id')
+            ->map(fn ($g) => (int) $g->sum('cantidad'));
+
+        if ($devueltas->isEmpty()) return false;
+
+        foreach ($this->orden->items as $item) {
+            if ((int) $item->cantidad > (int) ($devueltas[$item->id] ?? 0)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    public function devoluciones()
+    {
+        return $this->hasMany(Devolucion::class, 'despacho_item_id');
     }
 }

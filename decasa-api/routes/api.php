@@ -15,6 +15,7 @@ use App\Http\Controllers\ProductoController;
 use App\Http\Controllers\ProveedorController;
 use App\Http\Controllers\CompraController;
 use App\Http\Controllers\EncargoController;
+use App\Http\Controllers\DevolucionController;
 use App\Http\Controllers\ReporteController;
 use App\Http\Controllers\RolController;
 use App\Http\Controllers\TiendaController;
@@ -219,6 +220,14 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/encargos/{id}/cerrar',      [EncargoController::class, 'cerrar'])->whereNumber('id');
         Route::delete('/encargos/{id}',           [EncargoController::class, 'destroy'])->whereNumber('id');
     });
+
+    // Devoluciones: lo que volvió en el camión porque llegó dañado.
+    // Leer la lista es abierto —el vendedor necesita saber en qué quedó la
+    // orden de su cliente—; decidir qué se hace lo valida el controlador
+    // contra gestiona_produccion, que es la supervisora del taller.
+    Route::get('/devoluciones',                [DevolucionController::class, 'index']);
+    Route::post('/devoluciones',               [DevolucionController::class, 'store']);
+    Route::post('/devoluciones/{id}/decidir',  [DevolucionController::class, 'decidir'])->whereNumber('id');
 
     // Reserva / Fábrica
     Route::get('/reserva/info',                          [ReservaController::class, 'info']);

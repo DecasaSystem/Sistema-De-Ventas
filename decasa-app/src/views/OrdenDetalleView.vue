@@ -11,6 +11,7 @@ import api from '@/api'
 import { useTiposProceso } from '@/composables/useTiposProceso'
 import { updateCliente } from '@/api/clientes'
 import { despachoPorOrden } from '@/api/despacho'
+import { getDevoluciones } from '@/api/devoluciones'
 import { tomarFacturacion, marcarFacturada } from '@/api/pagos'
 import { getReceptores, crearConsulta, getConsultas, ajustarPrecio as ajustarPrecioApi } from '@/api/consultas'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
@@ -21,7 +22,7 @@ import ChatOrden from '@/components/ordenes/ChatOrden.vue'
 // Se usaba sin importar: mientras cargaba la orden no se veía nada
 import AppSpinner from '@/components/common/AppSpinner.vue'
 import { SparklesIcon, XMarkIcon } from '@heroicons/vue/24/solid'
-import { DocumentIcon, EnvelopeIcon, ChatBubbleLeftEllipsisIcon, ArrowDownTrayIcon, CalendarIcon, BuildingOffice2Icon, TruckIcon, PencilSquareIcon, ClockIcon, CheckBadgeIcon, LockClosedIcon, WrenchScrewdriverIcon, CheckCircleIcon, UserGroupIcon, CurrencyDollarIcon, BanknotesIcon, ExclamationTriangleIcon, SwatchIcon } from '@heroicons/vue/24/outline'
+import { DocumentIcon, EnvelopeIcon, ChatBubbleLeftEllipsisIcon, ArrowDownTrayIcon, CalendarIcon, BuildingOffice2Icon, TruckIcon, PencilSquareIcon, ClockIcon, CheckBadgeIcon, LockClosedIcon, WrenchScrewdriverIcon, CheckCircleIcon, UserGroupIcon, CurrencyDollarIcon, BanknotesIcon, ExclamationTriangleIcon, SwatchIcon, ArrowUturnLeftIcon } from '@heroicons/vue/24/outline'
 import FirmaCanvas from '@/components/FirmaCanvas.vue'
 import DireccionColombia from '@/components/DireccionColombia.vue'
 import TelaPicker from '@/components/ordenes/TelaPicker.vue'
@@ -37,6 +38,9 @@ const auth = useAuthStore()
 const toast = useToast()
 
 const orden = ref(null)
+// Lo que volvió del camión. Se muestra en la orden y NO en el PDF: esa hoja se
+// la lleva el cliente y es el comprobante de lo que compró.
+const devoluciones = ref([])
 const loading = ref(true)
 const verFactura = ref(false)
 const bocetoModal = ref('')
@@ -660,6 +664,12 @@ const opcionesNuevoEstado = computed(() => {
     }))
 })
 
+function fmtFechaCorta(f) {
+  if (!f) return ''
+  return new Date(String(f).substring(0, 10) + 'T00:00:00')
+    .toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
 async function cargarOrden() {
   loading.value = true
   error.value = ''
@@ -678,6 +688,15 @@ async function cargarOrden() {
 
     if (data.estado === 'entregado') {
       cargarDespachoEntrega(data.id)
+    }
+
+    // Una orden puede tener devoluciones ya resueltas aunque hoy figure
+    // entregada o cancelada, así que se piden siempre.
+    try {
+      const r = await getDevoluciones({ orden_id: data.id })
+      devoluciones.value = r.data
+    } catch {
+      devoluciones.value = []
     }
   } catch (e) {
     error.value = e.response?.data?.message ?? 'No se pudo cargar la orden.'
@@ -2077,6 +2096,50 @@ onMounted(() => { cargarTipos(); cargarOrden() })
             </div>
           </div>
         </template>
+      </div>
+
+      <!-- ── Lo que se devolvió ─────────────────────────────────────────────
+           Queda acá, en la orden, y no en el PDF: esa hoja se la lleva el
+           cliente y es el comprobante de lo que compró, no el expediente de lo
+           que salió mal. -->
+      <div v-if="devoluciones.length" class="bg-white rounded-xl shadow-sm p-4 space-y-3 border border-orange-200">
+        <p class="text-xs font-semibold text-orange-700 uppercase flex items-center gap-1.5">
+          <ArrowUturnLeftIcon class="w-4 h-4" />
+          Devoluciones ({{ devoluciones.length }})
+        </p>
+        <div v-for="d in devoluciones" :key="d.id" class="border-t border-gray-50 pt-3 first:border-0 first:pt-0">
+          <div class="flex items-start gap-3">
+            <a v-if="d.foto_url" :href="d.foto_url" target="_blank" rel="noopener" class="shrink-0">
+              <img :src="d.foto_url" class="w-14 h-14 rounded-lg object-cover border border-gray-100" />
+            </a>
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-semibold text-gray-800">
+                <span v-if="d.cantidad > 1" class="text-orange-700">{{ d.cantidad }}× </span>{{ d.producto }}
+              </p>
+              <p class="text-xs text-gray-600 mt-0.5">{{ d.motivo }}</p>
+              <p class="text-[11px] text-gray-400 mt-0.5">
+                Devuelto el {{ fmtFechaCorta(d.fecha) }}<span v-if="d.reportado_por"> · lo trajo {{ d.reportado_por }}</span>
+              </p>
+              <p
+                class="text-[11px] font-medium mt-1"
+                :class="{
+                  'text-orange-700': d.estado === 'pendiente',
+                  'text-blue-700':   d.estado === 'a_produccion',
+                  'text-red-700':    d.estado === 'reembolsada',
+                }"
+              >
+                <template v-if="d.estado === 'pendiente'">Esperando que producción decida</template>
+                <template v-else-if="d.estado === 'a_produccion'">
+                  Volvió al taller para arreglo<span v-if="d.decidido_por"> — {{ d.decidido_por }}</span>
+                </template>
+                <template v-else>
+                  Se canceló y se devolvieron ${{ Math.round(d.monto_devuelto ?? 0).toLocaleString('es-CO') }}<span v-if="d.decidido_por"> — {{ d.decidido_por }}</span>
+                </template>
+              </p>
+              <p v-if="d.notas_decision" class="text-[11px] text-gray-500 italic mt-0.5">{{ d.notas_decision }}</p>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Historial de pagos -->

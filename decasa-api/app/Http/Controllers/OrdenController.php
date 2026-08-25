@@ -153,7 +153,7 @@ class OrdenController extends Controller
             }
 
             // Detectar si algún item tiene fecha_entrega_prom vencida y la orden no está entregada/cancelada
-            $o->atrasado = !in_array($o->estado, ['entregado', 'cancelado']) &&
+            $o->atrasado = !in_array($o->estado, ['entregado', 'cancelado', 'devuelto']) &&
                 $o->items->some(fn($item) =>
                     $item->fecha_entrega_prom &&
                     \Carbon\Carbon::parse($item->fecha_entrega_prom)->lt($hoy)
@@ -840,7 +840,7 @@ class OrdenController extends Controller
 
         $orden->total_pagado    = $orden->totalPagado();
         $orden->saldo_pendiente = $orden->saldoPendiente();
-        $orden->atrasado        = !in_array($orden->estado, ['entregado', 'cancelado']) &&
+        $orden->atrasado        = !in_array($orden->estado, ['entregado', 'cancelado', 'devuelto']) &&
             $orden->items->some(fn($item) =>
                 $item->fecha_entrega_prom &&
                 $item->fecha_entrega_prom->lt(now()->startOfDay())
@@ -2145,6 +2145,11 @@ class OrdenController extends Controller
             // Despacho las maneja; de todos modos se bloquean más arriba
             'listo_entrega'         => [],
             'en_camino'             => [],
+            // Volvió algo en el camión. De aquí se sale por la decisión que se
+            // tome en Devoluciones —vuelve al taller o se cancela—, no a mano
+            // desde la orden: cambiarlo por este lado dejaría la devolución
+            // abierta para siempre y a nadie esperándola.
+            'devuelto'              => [],
             // Estados finales: de aquí no se sale
             'entregado'             => [],
             'cancelado'             => [],

@@ -7,6 +7,7 @@ use App\Events\OrdenEntregada;
 use App\Models\Camion;
 use App\Models\Despacho;
 use App\Models\DespachoItem;
+use App\Models\Devolucion;
 use App\Models\Inventario;
 use App\Models\InventarioMovimiento;
 use App\Models\InventarioVariante;
@@ -684,6 +685,20 @@ class DespachoController extends Controller
         $saldoPendiente = $item->orden->saldoPendiente();
         $requierePago   = $saldoPendiente > 0.01;
 
+        // ── Lo que se devuelve ───────────────────────────────────────────────
+        // Se lee antes de validar el resto porque cambia las reglas: si el
+        // cliente devuelve todo no hay nada que cobrar, y exigirle el pago al
+        // conductor lo dejaría trabado en la puerta de la casa.
+        $devoluciones = $this->leerDevoluciones($request, $item);
+        if ($devoluciones instanceof \Illuminate\Http\JsonResponse) {
+            return $devoluciones;
+        }
+
+        $devuelveTodo = $devoluciones && $this->devuelveTodaLaOrden($item->orden, $devoluciones);
+        if ($devuelveTodo) {
+            $requierePago = false;
+        }
+
         $data = $request->validate([
             'monto'         => $requierePago ? 'required|numeric|min:1'                         : 'nullable|numeric|min:0',
             'metodo'        => $requierePago ? 'required|in:efectivo,transferencia,tarjeta,otro' : 'nullable|in:efectivo,transferencia,tarjeta,otro',
@@ -702,6 +717,12 @@ class DespachoController extends Controller
             'conforme'             => 'nullable|boolean',
             'observaciones_entrega'=> 'nullable|string|max:500',
             'foto_novedad'         => 'nullable|image|max:10240',
+
+            // ── Lo que se devuelve ───────────────────────────────────────────
+            // JSON con [{orden_item_id, cantidad, motivo}]. Va por producto: en
+            // el camión pueden ir la cama y dos mesas y volver solo la cama.
+            'devoluciones'         => 'nullable|string',
+            'foto_devolucion'      => 'nullable|image|max:10240',
         ]);
 
         $conforme = $request->has('conforme') ? $request->boolean('conforme') : null;
@@ -779,8 +800,11 @@ class DespachoController extends Controller
         $fotoNovedad   = $request->hasFile('foto_novedad')
             ? $this->subirCloudinary($request->file('foto_novedad'))
             : null;
+        $fotoDevolucion = $request->hasFile('foto_devolucion')
+            ? $this->subirCloudinary($request->file('foto_devolucion'))
+            : null;
 
-        DB::transaction(function () use ($item, $data, $usuario, $fotoProducto, $fotoPago, $fotoAnexo, $requierePago, $firmaRecibido, $fotoNovedad, $conforme) {
+        DB::transaction(function () use ($item, $data, $usuario, $fotoProducto, $fotoPago, $fotoAnexo, $requierePago, $firmaRecibido, $fotoNovedad, $conforme, $devoluciones, $fotoDevolucion) {
             $item->update([
                 'foto_producto' => $fotoProducto,
                 'foto_pago'     => $fotoPago,
@@ -809,7 +833,29 @@ class DespachoController extends Controller
                     'referencia'  => $data['referencia'] ?? null,
                 ]);
             }
+
+            // Lo que se regresó en el camión. Se guarda acá y no al marcar
+            // entregado porque es acá donde el conductor sube la foto y
+            // escribe el motivo, delante del cliente.
+            foreach ($devoluciones as $d) {
+                Devolucion::create([
+                    'orden_id'         => $item->orden_id,
+                    'orden_item_id'    => $d['orden_item_id'],
+                    'despacho_item_id' => $item->id,
+                    'cantidad'         => $d['cantidad'],
+                    'motivo'           => $d['motivo'],
+                    'foto_url'         => $fotoDevolucion,
+                    'fecha'            => now()->toDateString(),
+                    'reportado_por_id' => $usuario->id,
+                    'estado'           => 'pendiente',
+                ]);
+            }
         });
+
+        // Fuera de la transacción: avisar no puede tumbar una entrega ya hecha.
+        foreach (Devolucion::where('despacho_item_id', $item->id)->with('orden.cliente', 'item.producto')->get() as $dev) {
+            DevolucionController::avisarDevolucion($dev);
+        }
 
         // El otro camino por el que se cobra una orden. Si el conductor cobró
         // con datáfono, la comisión también tiene que bajar 5,5%.
@@ -842,6 +888,80 @@ class DespachoController extends Controller
         }
 
         return response()->json($item);
+    }
+
+    /**
+     * Lo que el conductor marcó como devuelto, ya comprobado.
+     *
+     * Llega como JSON dentro del multipart porque el formulario sube fotos.
+     * Devuelve la lista limpia, o una respuesta de error si algo no cuadra —
+     * un ítem que no es de esta orden, o más unidades de las que se llevaron.
+     *
+     * @return array<int, array{orden_item_id:int, cantidad:int, motivo:string}>|\Illuminate\Http\JsonResponse
+     */
+    private function leerDevoluciones(Request $request, DespachoItem $item)
+    {
+        $crudo = $request->input('devoluciones');
+
+        if (! $crudo) {
+            return [];
+        }
+
+        $lista = is_array($crudo) ? $crudo : json_decode($crudo, true);
+
+        if (! is_array($lista)) {
+            return response()->json(['message' => 'No se entendió lo que se devuelve.'], 422);
+        }
+
+        $itemsOrden = $item->orden->items->keyBy('id');
+        $limpias    = [];
+
+        foreach ($lista as $d) {
+            $itemId   = (int) ($d['orden_item_id'] ?? 0);
+            $cantidad = (int) ($d['cantidad'] ?? 0);
+            $motivo   = trim((string) ($d['motivo'] ?? ''));
+
+            if ($cantidad < 1) continue;
+
+            $ordenItem = $itemsOrden->get($itemId);
+            if (! $ordenItem) {
+                return response()->json([
+                    'message' => 'Se está devolviendo algo que no es de esta orden.',
+                ], 422);
+            }
+            if ($cantidad > (int) $ordenItem->cantidad) {
+                $nombre = $ordenItem->nombre_custom ?: ($ordenItem->producto?->nombre ?? 'ese producto');
+                return response()->json([
+                    'message' => "No se pueden devolver {$cantidad} de {$nombre}: se llevaron {$ordenItem->cantidad}.",
+                ], 422);
+            }
+            // Sin motivo la devolución no sirve para decidir nada después.
+            if (mb_strlen($motivo) < 3) {
+                return response()->json([
+                    'message' => 'Falta decir por qué se devuelve.',
+                    'errors'  => ['devoluciones' => ['Escribe el motivo de la devolución.']],
+                ], 422);
+            }
+
+            $limpias[] = ['orden_item_id' => $itemId, 'cantidad' => $cantidad, 'motivo' => $motivo];
+        }
+
+        return $limpias;
+    }
+
+    /** ¿Se regresó absolutamente todo lo que llevaba la orden? */
+    private function devuelveTodaLaOrden(Orden $orden, array $devoluciones): bool
+    {
+        $porItem = collect($devoluciones)->groupBy('orden_item_id')
+            ->map(fn ($g) => collect($g)->sum('cantidad'));
+
+        foreach ($orden->items as $item) {
+            if ((int) $item->cantidad > (int) ($porItem[$item->id] ?? 0)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -913,22 +1033,45 @@ class DespachoController extends Controller
 
         $orden = $item->orden()->with(['items' => fn($q) => $q->where('es_personalizado', false)])->first();
 
-        DB::transaction(function () use ($item, $orden) {
+        // Lo que se regresó en el camión, anotado un momento antes al subir el
+        // acta. Esas unidades no se entregaron: ni salen del inventario ni
+        // cierran su producción.
+        $devueltoPorItem = Devolucion::where('despacho_item_id', $item->id)
+            ->get()
+            ->groupBy('orden_item_id')
+            ->map(fn ($g) => (int) $g->sum('cantidad'));
+
+        $hayDevolucion = $devueltoPorItem->isNotEmpty();
+
+        DB::transaction(function () use ($item, $orden, $devueltoPorItem, $hayDevolucion) {
             $now = now();
 
+            // Si volvió TODO, esta entrega no se hizo: se devolvió.
+            $seDevolvioTodo = $hayDevolucion && $this->devuelveTodaLaOrden(
+                $item->orden()->with('items')->first(),
+                $devueltoPorItem->map(fn ($c, $id) => ['orden_item_id' => $id, 'cantidad' => $c])->values()->all(),
+            );
+
             $item->update([
-                'estado'       => 'entregado',
+                'estado'       => $seDevolvioTodo ? 'devuelto' : 'entregado',
                 'entregado_at' => $now,
             ]);
 
-            $orden->update(['estado' => 'entregado']);
+            // Con algo devuelto la orden no está entregada: queda esperando que
+            // decidan si se arregla o se cancela.
+            $orden->update(['estado' => $hayDevolucion ? 'devuelto' : 'entregado']);
 
+            // Lo devuelto queda fuera: su produccion no se cierra porque esa
+            // pieza no llego a la casa, y si se decide arreglarla hay que
+            // poder reabrirla donde estaba.
             Produccion::whereIn('orden_item_id', function ($q) use ($item) {
                 $q->select('id')
                     ->from('orden_items')
                     ->where('orden_id', $item->orden_id)
                     ->where('es_personalizado', true);
-            })->whereIn('estado', ['pendiente', 'en_proceso', 'listo', 'retrasado'])
+            })
+                ->whereNotIn('orden_item_id', $devueltoPorItem->keys()->all() ?: [0])
+                ->whereIn('estado', ['pendiente', 'en_proceso', 'listo', 'retrasado'])
                 ->update([
                     'estado'     => 'entregado',
                     'fecha_real' => $now->toDateString(),
@@ -936,26 +1079,34 @@ class DespachoController extends Controller
 
             // Decrementar inventario de los ítems de stock (no personalizados)
             foreach ($orden->items as $ordenItem) {
+                // Lo que volvio en el camion no salio del inventario: sigue
+                // reservado para esta orden hasta que se decida que hacer.
+                // Descontarlo aca lo daria por vendido y la pieza esta en la
+                // bodega, rota.
+                $devueltas = (int) ($devueltoPorItem[$ordenItem->id] ?? 0);
+                $entregadas = (int) $ordenItem->cantidad - $devueltas;
+                if ($entregadas <= 0) continue;
+
                 $origenId = $ordenItem->tienda_origen_id ?? $orden->tienda_id;
                 if ($ordenItem->variante_id) {
                     InventarioVariante::where('variante_id', $ordenItem->variante_id)
                         ->where('tienda_id', $origenId)
                         ->update([
-                            'cantidad_disponible' => DB::raw("cantidad_disponible - {$ordenItem->cantidad}"),
-                            'cantidad_reservada'  => DB::raw("cantidad_reservada - {$ordenItem->cantidad}"),
+                            'cantidad_disponible' => DB::raw("cantidad_disponible - {$entregadas}"),
+                            'cantidad_reservada'  => DB::raw("cantidad_reservada - {$entregadas}"),
                         ]);
                     Inventario::where('producto_id', $ordenItem->producto_id)
                         ->where('tienda_id', $origenId)
                         ->update([
-                            'cantidad_disponible' => DB::raw("cantidad_disponible - {$ordenItem->cantidad}"),
-                            'cantidad_reservada'  => DB::raw("cantidad_reservada - {$ordenItem->cantidad}"),
+                            'cantidad_disponible' => DB::raw("cantidad_disponible - {$entregadas}"),
+                            'cantidad_reservada'  => DB::raw("cantidad_reservada - {$entregadas}"),
                         ]);
                 } else {
                     Inventario::where('producto_id', $ordenItem->producto_id)
                         ->where('tienda_id', $origenId)
                         ->update([
-                            'cantidad_disponible' => DB::raw("cantidad_disponible - {$ordenItem->cantidad}"),
-                            'cantidad_reservada'  => DB::raw("cantidad_reservada - {$ordenItem->cantidad}"),
+                            'cantidad_disponible' => DB::raw("cantidad_disponible - {$entregadas}"),
+                            'cantidad_reservada'  => DB::raw("cantidad_reservada - {$entregadas}"),
                         ]);
                 }
                 // Bajó el stock base: el reparto por tela/medida tiene que
@@ -967,7 +1118,7 @@ class DespachoController extends Controller
                     'producto_id' => $ordenItem->producto_id,
                     'tienda_id'   => $origenId,
                     'tipo'        => 'salida',
-                    'cantidad'    => $ordenItem->cantidad,
+                    'cantidad'    => $entregadas,
                     'motivo'      => "Entrega orden #{$orden->id} — conductor",
                     'usuario_id'  => $item->despacho->conductor_id,
                 ]);
@@ -980,7 +1131,7 @@ class DespachoController extends Controller
                     OrdenController::notificarSiSeAcabo(
                         (int) $ordenItem->producto_id,
                         (int) $origenId,
-                        (int) $ordenItem->cantidad,
+                        $entregadas,
                     );
                 }
             }

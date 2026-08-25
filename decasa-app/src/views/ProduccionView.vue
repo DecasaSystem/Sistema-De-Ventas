@@ -20,6 +20,7 @@ import { getTiendas, fijarOrden, quitarFijada } from '@/api/ordenes'
 import { useRealtime } from '@/composables/useRealtime'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ProcesosModal from '@/components/produccion/ProcesosModal.vue'
+import DevolucionesPendientes from '@/components/produccion/DevolucionesPendientes.vue'
 import { SPECS_TEMPLATES, resolverCategoria } from '@/constants/specsConfig'
 
 const auth   = useAuthStore()
@@ -397,6 +398,12 @@ onUnmounted(() => {
         Procesos
       </button>
     </div>
+
+    <!-- Lo que volvió del camión y espera decisión. Va arriba de todo: mientras
+         nadie resuelva, hay un mueble parado y un cliente esperando. Al
+         resolverla, la pieza que vuelve al taller aparece en la lista de abajo,
+         así que se recarga. -->
+    <DevolucionesPendientes @resuelta="fetchProduccion(1)" />
 
     <p v-if="!auth.gestionaProduccion" class="text-[11px] text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1.5">
       Estás viendo en qué va el taller. Para arrancar procesos o cambiarle el estado a
