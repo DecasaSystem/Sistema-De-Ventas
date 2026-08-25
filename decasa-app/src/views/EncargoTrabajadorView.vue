@@ -9,7 +9,7 @@ import {
   guardarRevision, getRevision, guardarConfig,
 } from '@/api/encargos'
 import {
-  BriefcaseIcon, PlusIcon, XMarkIcon, TrashIcon, CheckCircleIcon,
+  BriefcaseIcon, PlusIcon, XMarkIcon, TrashIcon, CheckCircleIcon, CheckIcon,
   ClipboardDocumentCheckIcon, ExclamationTriangleIcon, ArrowUturnLeftIcon,
 } from '@heroicons/vue/24/outline'
 
@@ -156,15 +156,17 @@ function abrirRevista() {
     // Se propone descontar lo perdido: si estuviera apagado por defecto, la
     // pérdida se registraría y la plata no aparecería por ningún lado.
     descontar: true,
-    // Todo arranca en "bien": la revista es ir marcando las excepciones, que
-    // en un día normal son una o ninguna.
+    // Nada viene marcado. La revista es ir caminando y poniendo el visto uno
+    // por uno; si todo arrancara en "bien" bastaría con darle a guardar sin
+    // haber mirado nada, que es exactamente lo que hay que evitar.
     items: aCargo.value.map(e => ({
       encargo_id: e.id,
       nombre: e.nombre,
       serial: e.serial,
       total: e.cantidad,
       valor_unitario: e.valor_unitario ?? 0,
-      cantidad_ok: e.cantidad,
+      // null = sin revisar · 'ok' = ahí está y está bien · 'problema'
+      marca: null,
       cantidad_danada: 0,
       cantidad_perdida: 0,
       descuento: 0,
@@ -174,40 +176,65 @@ function abrirRevista() {
   mostrarRevista.value = true
 }
 
-/**
- * Lo de una sola unidad se marca con un botón, no con tres casillas: para
- * "¿está el martillo?" escribir un 1 en una de tres columnas es absurdo.
- */
-function marcarUnica(item, campo) {
-  item.cantidad_ok = campo === 'ok' ? 1 : 0
-  item.cantidad_danada = campo === 'danada' ? 1 : 0
-  item.cantidad_perdida = campo === 'perdida' ? 1 : 0
-  recalcularDescuento(item)
+/** Las que quedan buenas se calculan solas: así el conteo nunca descuadra. */
+function buenas(item) {
+  return item.total - (Number(item.cantidad_danada) || 0) - (Number(item.cantidad_perdida) || 0)
 }
 
-function estadoUnica(item) {
-  if (item.cantidad_perdida) return 'perdida'
-  if (item.cantidad_danada) return 'danada'
-  return 'ok'
+function revisado(item) {
+  return item.marca !== null && buenas(item) >= 0
+}
+
+/** El check. Volver a tocarlo la deja pendiente otra vez, para deshacer. */
+function marcarBien(item) {
+  item.marca = item.marca === 'ok' ? null : 'ok'
+  item.cantidad_danada = 0
+  item.cantidad_perdida = 0
+  item.descuento = 0
+  item.notas = ''
+}
+
+function marcarProblema(item) {
+  item.marca = 'problema'
+}
+
+/** Lo de una sola unidad: no hay nada que contar, es un botón. */
+function marcarUnica(item, campo) {
+  item.marca = 'problema'
+  item.cantidad_danada  = campo === 'danada'  ? 1 : 0
+  item.cantidad_perdida = campo === 'perdida' ? 1 : 0
+  recalcularDescuento(item)
 }
 
 function recalcularDescuento(item) {
   item.descuento = Math.round((Number(item.cantidad_perdida) || 0) * (Number(item.valor_unitario) || 0))
 }
 
-function contadas(item) {
-  return (Number(item.cantidad_ok) || 0) + (Number(item.cantidad_danada) || 0) + (Number(item.cantidad_perdida) || 0)
-}
-
-const revistaCuadra = computed(() => revista.value.items.every(i => contadas(i) === i.total))
+const revisadas      = computed(() => revista.value.items.filter(revisado).length)
+const revistaCuadra  = computed(() => revista.value.items.every(revisado))
+const faltanPorRevisar = computed(() => revista.value.items.length - revisadas.value)
 const descuentoRevista = computed(() =>
   revista.value.items.reduce((s, i) => s + (Number(i.descuento) || 0), 0)
 )
 const hayPerdidas = computed(() => revista.value.items.some(i => Number(i.cantidad_perdida) > 0))
 
+/** Para el día en que todo está en orden y son quince cosas. */
+function marcarTodoBien() {
+  revista.value.items.forEach(i => {
+    i.marca = 'ok'
+    i.cantidad_danada = 0
+    i.cantidad_perdida = 0
+    i.descuento = 0
+  })
+}
+
 async function enviarRevista() {
   if (!revistaCuadra.value) {
-    return toast.error('En alguna línea las cantidades no dan con lo que tiene a cargo')
+    return toast.error(
+      faltanPorRevisar.value > 0
+        ? `Faltan ${faltanPorRevisar.value} por revisar`
+        : 'En alguna línea hay más dañadas y perdidas de las que tiene'
+    )
   }
   guardandoRevista.value = true
   try {
@@ -218,7 +245,7 @@ async function enviarRevista() {
       descontar: revista.value.descontar,
       items: revista.value.items.map(i => ({
         encargo_id: i.encargo_id,
-        cantidad_ok: Number(i.cantidad_ok) || 0,
+        cantidad_ok: buenas(i),
         cantidad_danada: Number(i.cantidad_danada) || 0,
         cantidad_perdida: Number(i.cantidad_perdida) || 0,
         descuento: Number(i.descuento) || 0,
@@ -444,14 +471,32 @@ async function guardarRitmo() {
       >
         <div v-if="mostrarRevista" class="fixed inset-0 bg-black/50 backdrop-blur-[2px] z-50 flex items-end sm:items-center justify-center" @click.self="mostrarRevista = false">
           <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full sm:max-w-md max-h-[92vh] flex flex-col shadow-2xl">
-            <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-100 shrink-0">
-              <div class="min-w-0">
-                <p class="font-semibold text-gray-800">Inventario de {{ trabajador?.nombre }}</p>
-                <p class="text-[11px] text-gray-400">Marca cómo está cada cosa.</p>
+            <div class="px-5 py-4 border-b border-gray-100 shrink-0">
+              <div class="flex items-center justify-between gap-3">
+                <div class="min-w-0">
+                  <p class="font-semibold text-gray-800">Inventario de {{ trabajador?.nombre }}</p>
+                  <p class="text-[11px] text-gray-400">Ve tocando cada cosa que esté en orden.</p>
+                </div>
+                <button @click="mostrarRevista = false" class="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors shrink-0">
+                  <XMarkIcon class="w-5 h-5" />
+                </button>
               </div>
-              <button @click="mostrarRevista = false" class="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors shrink-0">
-                <XMarkIcon class="w-5 h-5" />
-              </button>
+              <!-- Cuánto lleva. Va arriba y fijo porque en una lista larga es
+                   lo único que dice si ya se pasó por todas. -->
+              <div class="flex items-center gap-2 mt-3">
+                <div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                  <div
+                    class="h-full bg-teal-500 rounded-full transition-all"
+                    :style="{ width: revista.items.length ? (revisadas / revista.items.length * 100) + '%' : '0%' }"
+                  />
+                </div>
+                <span class="text-[11px] font-medium text-gray-500 shrink-0">{{ revisadas }} de {{ revista.items.length }}</span>
+                <button
+                  v-if="faltanPorRevisar"
+                  @click="marcarTodoBien"
+                  class="text-[11px] font-semibold text-teal-700 hover:text-teal-800 shrink-0"
+                >Todo bien</button>
+              </div>
             </div>
 
             <div class="overflow-y-auto flex-1 px-5 py-4 space-y-4">
@@ -460,50 +505,87 @@ async function guardarRitmo() {
                 <input v-model="revista.fecha" type="date" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent" />
               </div>
 
-              <div v-for="item in revista.items" :key="item.encargo_id" class="border border-gray-100 rounded-xl p-3">
-                <p class="text-sm font-medium text-gray-800">
-                  <span v-if="item.total > 1" class="text-teal-700">{{ item.total }}×</span>
-                  {{ item.nombre }}
-                  <span v-if="item.serial" class="text-[11px] text-gray-400 font-normal">· {{ item.serial }}</span>
-                </p>
-
-                <!-- Una sola unidad: un botón, no tres casillas -->
-                <div v-if="item.total === 1" class="flex gap-1.5 mt-2">
+              <!-- La lista para ir pasando revista: se toca cada cosa y queda
+                   con su visto. Lo que no se toca se queda pendiente y no deja
+                   guardar, que es lo que obliga a mirarlas todas. -->
+              <div
+                v-for="item in revista.items" :key="item.encargo_id"
+                :class="['border rounded-xl p-3 transition-colors',
+                  item.marca === 'ok'       ? 'border-green-300 bg-green-50/60' :
+                  item.marca === 'problema' ? 'border-amber-300 bg-amber-50/50' :
+                                              'border-gray-200']"
+              >
+                <div class="flex items-center gap-3">
+                  <!-- El check. Toda la fila lo activa: en la mano, apuntarle
+                       a un cuadrito de 16px con el celular es una pelea. -->
                   <button
-                    v-for="op in [
-                      { k: 'ok',      label: 'Bien',    on: 'bg-green-600 text-white', off: 'bg-green-50 text-green-700' },
-                      { k: 'danada',  label: 'Dañada',  on: 'bg-amber-500 text-white', off: 'bg-amber-50 text-amber-700' },
-                      { k: 'perdida', label: 'Perdida', on: 'bg-red-600 text-white',   off: 'bg-red-50 text-red-700' },
-                    ]"
-                    :key="op.k"
-                    @click="marcarUnica(item, op.k)"
-                    :class="['flex-1 text-xs font-semibold rounded-lg py-2 transition-colors',
-                      estadoUnica(item) === op.k ? op.on : op.off]"
-                  >{{ op.label }}</button>
+                    @click="marcarBien(item)"
+                    :class="['w-7 h-7 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors',
+                      item.marca === 'ok'       ? 'bg-green-600 border-green-600 text-white' :
+                      item.marca === 'problema' ? 'bg-amber-500 border-amber-500 text-white' :
+                                                  'border-gray-300 text-transparent']"
+                    :aria-label="item.marca === 'ok' ? 'Marcada como bien' : 'Marcar como bien'"
+                  >
+                    <CheckIcon v-if="item.marca === 'ok'" class="w-4 h-4" />
+                    <ExclamationTriangleIcon v-else-if="item.marca === 'problema'" class="w-4 h-4" />
+                    <CheckIcon v-else class="w-4 h-4" />
+                  </button>
+
+                  <button @click="marcarBien(item)" class="flex-1 min-w-0 text-left">
+                    <p class="text-sm font-medium text-gray-800">
+                      <span v-if="item.total > 1" class="text-teal-700">{{ item.total }}×</span>
+                      {{ item.nombre }}
+                    </p>
+                    <p v-if="item.serial" class="text-[11px] text-gray-400">{{ item.serial }}</p>
+                  </button>
+
+                  <button
+                    v-if="item.marca !== 'problema'"
+                    @click="marcarProblema(item)"
+                    class="text-[11px] font-medium text-gray-400 hover:text-amber-700 shrink-0 px-1"
+                  >Algo pasó</button>
                 </div>
 
-                <!-- Varias: se cuentan una por una -->
-                <div v-else class="grid grid-cols-3 gap-2 mt-2">
-                  <div>
-                    <label class="block text-[10px] font-semibold text-green-700 mb-1">Bien</label>
-                    <input v-model="item.cantidad_ok" type="number" min="0" @input="recalcularDescuento(item)"
-                      class="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-green-500" />
+                <!-- Solo cuando algo no está bien: en un día normal esto no se
+                     abre ni una vez. -->
+                <template v-if="item.marca === 'problema'">
+                  <!-- Una sola unidad: no hay nada que contar -->
+                  <div v-if="item.total === 1" class="flex gap-1.5 mt-2.5">
+                    <button
+                      @click="marcarUnica(item, 'danada')"
+                      :class="['flex-1 text-xs font-semibold rounded-lg py-2 transition-colors',
+                        item.cantidad_danada ? 'bg-amber-500 text-white' : 'bg-amber-50 text-amber-700']"
+                    >Se dañó</button>
+                    <button
+                      @click="marcarUnica(item, 'perdida')"
+                      :class="['flex-1 text-xs font-semibold rounded-lg py-2 transition-colors',
+                        item.cantidad_perdida ? 'bg-red-600 text-white' : 'bg-red-50 text-red-700']"
+                    >Se perdió</button>
                   </div>
-                  <div>
-                    <label class="block text-[10px] font-semibold text-amber-700 mb-1">Dañadas</label>
-                    <input v-model="item.cantidad_danada" type="number" min="0" @input="recalcularDescuento(item)"
-                      class="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-amber-500" />
-                  </div>
-                  <div>
-                    <label class="block text-[10px] font-semibold text-red-700 mb-1">Perdidas</label>
-                    <input v-model="item.cantidad_perdida" type="number" min="0" @input="recalcularDescuento(item)"
-                      class="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-red-500" />
-                  </div>
-                </div>
 
-                <p v-if="contadas(item) !== item.total" class="text-[11px] text-red-600 mt-1.5">
-                  Contaste {{ contadas(item) }} y tiene {{ item.total }}: entre las tres tienen que dar {{ item.total }}.
-                </p>
+                  <!-- Varias: solo se anota lo que está mal. Las buenas salen
+                       de restar, así el conteo no puede descuadrar. -->
+                  <div v-else class="mt-2.5">
+                    <div class="grid grid-cols-2 gap-2">
+                      <div>
+                        <label class="block text-[10px] font-semibold text-amber-700 mb-1">¿Cuántas dañadas?</label>
+                        <input v-model="item.cantidad_danada" type="number" min="0" :max="item.total" @input="recalcularDescuento(item)"
+                          class="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-amber-500" />
+                      </div>
+                      <div>
+                        <label class="block text-[10px] font-semibold text-red-700 mb-1">¿Cuántas perdidas?</label>
+                        <input v-model="item.cantidad_perdida" type="number" min="0" :max="item.total" @input="recalcularDescuento(item)"
+                          class="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-red-500" />
+                      </div>
+                    </div>
+                    <p v-if="buenas(item) >= 0" class="text-[11px] text-green-700 mt-1.5">
+                      Quedan {{ buenas(item) }} {{ buenas(item) === 1 ? 'buena' : 'buenas' }} de {{ item.total }}.
+                    </p>
+                    <p v-else class="text-[11px] text-red-600 mt-1.5">
+                      Son más de las {{ item.total }} que tiene a cargo.
+                    </p>
+                  </div>
+                </template>
 
                 <!-- Lo que se le cobraría por lo perdido -->
                 <div v-if="item.cantidad_perdida > 0" class="mt-2">
@@ -553,7 +635,12 @@ async function guardarRitmo() {
                 class="flex-1 bg-teal-600 text-white text-sm font-semibold rounded-xl px-4 py-2.5 hover:bg-teal-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
               >
                 <span v-if="guardandoRevista" class="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                {{ guardandoRevista ? 'Guardando...' : 'Guardar revisión' }}
+                <!-- El botón dice qué falta, no solo que no se puede: sin eso,
+                     en una lista larga hay que ir bajando a buscar cuál quedó
+                     sin tocar. -->
+                {{ guardandoRevista ? 'Guardando...'
+                   : faltanPorRevisar ? `Faltan ${faltanPorRevisar}`
+                   : 'Guardar revisión' }}
               </button>
             </div>
           </div>
