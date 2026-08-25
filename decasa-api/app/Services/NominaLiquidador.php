@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Usuario;
 use App\Models\NominaAjuste;
+use App\Models\NominaPrestamo;
 use App\Models\NominaAusencia;
 use App\Models\NominaBonificacion;
 use App\Models\NominaPago;
@@ -86,6 +87,13 @@ class NominaLiquidador
         $descuentoFaltas = $faltas->sum(fn (NominaAusencia $a) => round((float) $a->horas * $valorHora));
         $totalAjustes    = $ajustes->sum(fn (NominaAjuste $a) => (float) $a->monto);
 
+        // Los préstamos se descuentan solos: una cuota por pago, hasta saldar.
+        // Se calculan aquí y no se guardan, para que lo que se ve antes de
+        // pagar sea exactamente lo que se va a descontar.
+        $prestamos = ($empleado->relationLoaded('prestamos') ? $empleado->prestamos : collect())
+            ->filter(fn (NominaPrestamo $pr) => $pr->activo && ! $pr->saldado());
+        $totalCuotas = $prestamos->sum(fn (NominaPrestamo $pr) => $pr->cuotaDelProximoPago());
+
         // Lo producido dentro del ciclo — es lo que se muestra en el detalle.
         // La bonificación puede medirse sobre otra ventana (ver abajo).
         $producciones    = self::enVentana($empleado->producciones, $inicio, $hasta);
@@ -121,7 +129,19 @@ class NominaLiquidador
                 'cantidad'       => (float) $p->cantidad,
                 'total'          => (float) $p->total,
             ])->values(),
-            'total'              => $subtotal - (float) $descuentoFaltas + (float) $totalAjustes + $bono['monto'],
+            'total_prestamos'    => round((float) $totalCuotas, 2),
+            'prestamos'          => $prestamos->map(fn (NominaPrestamo $pr) => [
+                'id'          => $pr->id,
+                'motivo'      => $pr->motivo,
+                'monto'       => (float) $pr->monto,
+                'cuotas'      => (int) $pr->cuotas,
+                'valor_cuota' => (float) $pr->valor_cuota,
+                'abonado'     => $pr->abonado(),
+                'saldo'       => $pr->saldo(),
+                'cuota_ahora' => $pr->cuotaDelProximoPago(),
+            ])->values(),
+            'total'              => $subtotal - (float) $descuentoFaltas + (float) $totalAjustes
+                                    + $bono['monto'] - (float) $totalCuotas,
             'faltas'             => $faltas->map(fn (NominaAusencia $a) => self::faltaComoJson($a, $valorHora))->values(),
             'faltas_programadas' => $programadas->map(fn (NominaAusencia $a) => self::faltaComoJson($a, $valorHora))->values(),
             'ajustes'            => $ajustes->map(fn (NominaAjuste $a) => [
@@ -359,6 +379,9 @@ class NominaLiquidador
     public static function relaciones(): array
     {
         $sinCobrar = fn ($q) => $q->whereNull('nomina_pago_id')->orderBy('fecha');
+        // Los préstamos vivos van completos con sus cuotas: el saldo se saca
+        // de ahí, así que filtrarlos por "sin cobrar" daría un saldo inflado.
+        $prestamosVivos = fn ($q) => $q->where('activo', true)->with('cuotasPagadas');
 
         // La producción NO se filtra por "sin cobrar", a diferencia de las
         // otras dos: un bono mensual que se paga con la segunda quincena
@@ -373,6 +396,7 @@ class NominaLiquidador
             'bonificacion.metas',
             'ausencias'    => $sinCobrar,
             'ajustes'      => $sinCobrar,
+            'prestamos'    => $prestamosVivos,
             'producciones' => $recientes,
         ];
     }

@@ -6,6 +6,8 @@ use App\Models\Usuario;
 use App\Models\NominaAjuste;
 use App\Models\NominaAusencia;
 use App\Models\NominaPago;
+use App\Models\NominaPrestamo;
+use App\Models\NominaPrestamoCuota;
 use App\Models\NominaProduccion;
 use App\Services\CicloNomina;
 use App\Services\NominaLiquidador;
@@ -162,6 +164,9 @@ class NominaPagoController extends Controller
             NominaAusencia::where('nomina_pago_id', $pago->id)->update(['nomina_pago_id' => null]);
             NominaAjuste::where('nomina_pago_id', $pago->id)->update(['nomina_pago_id' => null]);
             NominaProduccion::where('nomina_pago_id', $pago->id)->update(['nomina_pago_id' => null]);
+            // Se borran, no se desligan: una cuota sin pago no significa nada,
+            // y dejarla suelta descontaria dos veces al volver a pagar.
+            NominaPrestamoCuota::where('nomina_pago_id', $pago->id)->delete();
             $pago->delete();
         });
 
@@ -243,6 +248,22 @@ class NominaPagoController extends Controller
             ->whereNull('nomina_pago_id')
             ->whereBetween('fecha', $rango)
             ->update(['nomina_pago_id' => $pago->id]);
+
+        // La cuota del préstamo se anota como una fila propia, atada a ESTE
+        // pago: así el saldo sale de sumarlas, y deshacer el pago devuelve la
+        // deuda sola en vez de dejarla mal para siempre.
+        foreach (NominaPrestamo::with('cuotasPagadas')
+                     ->where('usuario_id', $empleado->id)->where('activo', true)->get() as $prestamo) {
+            $cuota = $prestamo->cuotaDelProximoPago();
+            if ($cuota <= 0) continue;
+
+            NominaPrestamoCuota::create([
+                'prestamo_id'    => $prestamo->id,
+                'nomina_pago_id' => $pago->id,
+                'monto'          => $cuota,
+                'fecha'          => $pago->fecha ?? now()->toDateString(),
+            ]);
+        }
 
         NominaProduccion::where('usuario_id', $empleado->id)
             ->whereNull('nomina_pago_id')

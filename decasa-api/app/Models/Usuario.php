@@ -139,6 +139,12 @@ class Usuario extends Authenticatable
         return $this->hasMany(NominaAusencia::class, 'usuario_id');
     }
 
+    /** Los préstamos que se le están descontando por cuotas. */
+    public function prestamos()
+    {
+        return $this->hasMany(NominaPrestamo::class, 'usuario_id');
+    }
+
     public function ajustes()
     {
         return $this->hasMany(NominaAjuste::class, 'usuario_id');

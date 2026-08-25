@@ -76,6 +76,16 @@ class EmpleadoController extends Controller
             $q->where('activo', true);
         }
 
+        // "En nómina" es tener sueldo asignado. Sin este filtro la lista traía
+        // a los 53 trabajadores, así que sacar a alguien no se notaba: se le
+        // quitaba el sueldo pero seguía ahí, y parecía que el botón no servía.
+        // Con `sin_sueldo=1` se piden los otros, para poder agregarlos.
+        if ($request->boolean('sin_sueldo')) {
+            $q->whereNull('nomina_sueldo_id');
+        } elseif (! $request->boolean('todos')) {
+            $q->whereNotNull('nomina_sueldo_id');
+        }
+
         return response()->json($q->get()->map(fn (Usuario $e) => $this->comoJson($e, $hoy)));
     }
 

@@ -49,6 +49,7 @@ use App\Http\Controllers\EmpleadoController;
 use App\Http\Controllers\NominaPagoController;
 use App\Http\Controllers\NominaAjusteController;
 use App\Http\Controllers\NominaBonificacionController;
+use App\Http\Controllers\NominaPrestamoController;
 use App\Http\Controllers\NominaProduccionController;
 use App\Http\Controllers\NominaSueldoController;
 use App\Http\Controllers\NominaAusenciaController;
@@ -135,6 +136,12 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/ausencias',            [NominaAusenciaController::class, 'index']);
         Route::post('/ausencias',           [NominaAusenciaController::class, 'store']);
         Route::delete('/ausencias/{id}',    [NominaAusenciaController::class, 'destroy'])->whereNumber('id');
+
+        // Prestamos que se descuentan solos por cuotas.
+        Route::get('/prestamos',            [NominaPrestamoController::class, 'index']);
+        Route::post('/prestamos',           [NominaPrestamoController::class, 'store']);
+        Route::patch('/prestamos/{id}',     [NominaPrestamoController::class, 'update'])->whereNumber('id');
+        Route::delete('/prestamos/{id}',    [NominaPrestamoController::class, 'destroy'])->whereNumber('id');
 
         Route::get('/ajustes',              [NominaAjusteController::class, 'index']);
         Route::post('/ajustes',             [NominaAjusteController::class, 'store']);
