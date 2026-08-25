@@ -13,11 +13,13 @@ import {
   ArchiveBoxArrowDownIcon,
   ChevronDownIcon,
   ChevronUpIcon,
+  DocumentArrowDownIcon,
 } from '@heroicons/vue/24/outline'
 import {
   crearSurtido,
   getSurtidos,
   getSurtido,
+  descargarPdfSurtido,
   getVendedoresTienda,
   getRecomendaciones,
 } from '@/api/surtidos'
@@ -590,6 +592,31 @@ async function toggleDetalle(id) {
       const { data } = await getSurtido(id)
       detalleData.value[id] = data
     } catch {}
+  }
+}
+
+// ── Remisión en PDF ───────────────────────────────────────────────────────────
+// La hoja que viaja con la mercancía: la arma el servidor y puede tardar unos
+// segundos, así que el botón dice en qué va. Sin eso se toca dos y tres veces.
+const generandoPdf = ref(null)
+
+async function pdfSurtido(surtidoId, surtidoTiendaId = null) {
+  const clave = surtidoTiendaId ? `${surtidoId}-${surtidoTiendaId}` : String(surtidoId)
+  if (generandoPdf.value) return
+  generandoPdf.value = clave
+  try {
+    const res  = await descargarPdfSurtido(surtidoId, surtidoTiendaId)
+    const blob = new Blob([res.data], { type: 'application/pdf' })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a')
+    a.href = url
+    a.download = `surtido-${surtidoId}.pdf`
+    a.click()
+    URL.revokeObjectURL(url)
+  } catch {
+    toast.error('No se pudo generar la remisión')
+  } finally {
+    generandoPdf.value = null
   }
 }
 
@@ -1817,11 +1844,8 @@ onMounted(async () => {
           class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"
         >
           <!-- Cabecera -->
-          <button
-            @click="toggleDetalle(s.id)"
-            class="w-full flex items-center justify-between px-4 py-3 text-left"
-          >
-            <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-1 px-4 py-3">
+            <button @click="toggleDetalle(s.id)" class="flex-1 min-w-0 text-left">
               <div class="flex items-center gap-2 flex-wrap">
                 <p class="text-sm font-semibold text-gray-800">Surtido #{{ s.id }}</p>
                 <span :class="['px-2 py-0.5 rounded-full text-xs font-semibold', badgeEstado(s.estado)]">
@@ -1836,10 +1860,26 @@ onMounted(async () => {
                   {{ fmtFecha(s.created_at) }} ·
                 </template>
                 {{ s.tiendas?.length ?? 0 }} tienda(s)
+                <template v-if="s.supervisor?.nombre"> · envió {{ s.supervisor.nombre }}</template>
               </p>
-            </div>
-            <component :is="detalleAbierto[s.id] ? ChevronUpIcon : ChevronDownIcon" class="w-4 h-4 text-gray-400 flex-shrink-0 ml-2" />
-          </button>
+            </button>
+            <!-- La remisión completa. Si va a varias tiendas, dentro del
+                 detalle hay una por tienda: es la que se imprime para cada
+                 camión. -->
+            <button
+              @click.stop="pdfSurtido(s.id)"
+              :disabled="generandoPdf !== null"
+              class="flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700 disabled:opacity-40 px-2 py-1.5 flex-shrink-0"
+              title="Remisión en PDF"
+            >
+              <IconoS v-if="generandoPdf === String(s.id)" class="w-3.5 h-3.5" />
+              <DocumentArrowDownIcon v-else class="w-4 h-4" />
+              PDF
+            </button>
+            <button @click="toggleDetalle(s.id)" class="flex-shrink-0 p-1">
+              <component :is="detalleAbierto[s.id] ? ChevronUpIcon : ChevronDownIcon" class="w-4 h-4 text-gray-400" />
+            </button>
+          </div>
 
           <!-- Detalle expandible -->
           <Transition name="slide">
@@ -1856,11 +1896,29 @@ onMounted(async () => {
                     <span :class="['px-1.5 py-0.5 rounded-full text-xs font-semibold', badgeEstadoTienda(st.estado)]">
                       {{ st.estado }}
                     </span>
+                    <!-- La remisión de ESTA tienda: es la que se imprime y
+                         viaja con su parte del envío. -->
+                    <button
+                      v-if="detalleData[s.id].tiendas.length > 1"
+                      @click.stop="pdfSurtido(s.id, st.id)"
+                      :disabled="generandoPdf !== null"
+                      class="text-xs font-semibold text-blue-600 hover:text-blue-700 disabled:opacity-40"
+                      title="Remisión de esta tienda"
+                    >
+                      <IconoS v-if="generandoPdf === `${s.id}-${st.id}`" class="w-3.5 h-3.5" />
+                      <span v-else>PDF</span>
+                    </button>
                   </div>
                 </div>
                 <div class="divide-y divide-gray-50">
                   <div v-for="item in st.items" :key="item.id" class="flex items-center gap-2 px-3 py-1.5 text-xs">
                     <span class="flex-1 text-gray-600 truncate">{{ item.producto?.nombre }}</span>
+                    <!-- Lo que llegó de verdad, cuando ya se respondió: es la
+                         única forma de ver desde acá que faltó algo. -->
+                    <span
+                      v-if="st.estado === 'aceptado' && (item.cantidad_aceptada ?? item.cantidad) < item.cantidad"
+                      class="text-red-600 font-semibold"
+                    >{{ item.cantidad_aceptada ?? 0 }} de</span>
                     <span class="font-bold text-gray-700">× {{ item.cantidad }}</span>
                   </div>
                 </div>

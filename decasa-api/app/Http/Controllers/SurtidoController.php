@@ -19,12 +19,16 @@ use App\Models\SurtidoTienda;
 use App\Models\Tienda;
 use App\Models\Usuario;
 use App\Services\NotificacionService;
+use App\Support\ConvierteImagenesPdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class SurtidoController extends Controller
 {
+    // El logo del PDF viene en AVIF y DomPDF no lo entiende.
+    use ConvierteImagenesPdf;
+
     /**
      * "Nuevo surtido desde fábrica" ya no es solo del supervisor: se le puede
      * dar el permiso a cualquiera (acceso_surtir), igual que pasó con redes o
@@ -254,6 +258,59 @@ class SurtidoController extends Controller
         ])->findOrFail($id);
 
         return response()->json($surtido);
+    }
+
+    /**
+     * GET /api/inventario/surtidos/{id}/pdf?tienda={surtidoTiendaId}
+     *
+     * La remisión: la hoja que acompaña la mercancía y que se firma al
+     * descargarla. Sin ella, lo que llega a la tienda se compara de memoria
+     * contra lo que alguien dijo que había mandado.
+     *
+     * Va una hoja por tienda. Con `tienda` se saca solo la de una, que es lo
+     * que se imprime cuando el envío se reparte entre varias y cada camión
+     * lleva la suya.
+     */
+    public function pdf(Request $request, int $id)
+    {
+        if (! $this->puedeIniciarSurtido($request->user())) {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+
+        $surtido = Surtido::with([
+            'supervisor:id,nombre',
+            'tiendas.tienda:id,nombre',
+            'tiendas.vendedorValidador:id,nombre',
+            'tiendas.items.producto:id,nombre,categoria',
+            'tiendas.items.variante',
+            'tiendas.items.comboConfig.tipo',
+            'tiendas.items.comboConfig.opcion',
+        ])->findOrFail($id);
+
+        $tiendas = $surtido->tiendas;
+
+        if ($soloTienda = $request->query('tienda')) {
+            $tiendas = $tiendas->where('id', (int) $soloTienda)->values();
+
+            if ($tiendas->isEmpty()) {
+                return response()->json(['message' => 'Esa tienda no está en este surtido.'], 404);
+            }
+        }
+
+        // De dónde salió la mercancía. Es lo primero que se pregunta cuando
+        // algo no cuadra: no es lo mismo reclamarle a fábrica que a una tienda.
+        $origen = $surtido->fuente_fabrica
+            ? (Tienda::where('es_fabrica', true)->value('nombre') ?? 'Fábrica')
+            : 'Inventario general';
+
+        $logoBase64 = $this->avifToPngBase64(public_path('img/logo.avif'));
+
+        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('pdf.surtido', compact('surtido', 'tiendas', 'origen', 'logoBase64'));
+        $pdf->setPaper('letter');
+
+        $sufijo = $soloTienda ? '-' . \Illuminate\Support\Str::slug($tiendas->first()->tienda?->nombre ?? 'tienda') : '';
+
+        return $pdf->download("surtido-{$surtido->id}{$sufijo}.pdf");
     }
 
     /**

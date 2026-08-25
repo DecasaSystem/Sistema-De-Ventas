@@ -335,6 +335,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/inventario/surtir',                          [SurtidoController::class, 'crear']);
     Route::get('/inventario/surtidos',                         [SurtidoController::class, 'index']);
     Route::get('/inventario/surtidos/{id}',                    [SurtidoController::class, 'show'])->whereNumber('id');
+    // La remisión que acompaña la mercancía y se firma al descargarla.
+    Route::get('/inventario/surtidos/{id}/pdf',                [SurtidoController::class, 'pdf'])->whereNumber('id');
     Route::get('/inventario/recomendaciones',                  [SurtidoController::class, 'recomendaciones']);
 
     // Traslados entre tiendas (mismo criterio, con guardas en el controlador)
