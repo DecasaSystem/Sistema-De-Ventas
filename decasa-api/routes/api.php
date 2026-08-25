@@ -122,6 +122,8 @@ Route::middleware('auth:sanctum')->group(function () {
         // Trabajadores (/usuarios) y aparecen solos en esta lista. Desde acá
         // solo se les asigna lo de nómina (sueldo, bonificación, frecuencia).
         Route::get('/empleados',            [EmpleadoController::class, 'index']);
+        // Ojo con el orden: /lote antes de /{id} o se lo traga como parametro.
+        Route::patch('/empleados/lote',     [EmpleadoController::class, 'lote']);
         Route::patch('/empleados/{id}',     [EmpleadoController::class, 'update'])->whereNumber('id');
         Route::delete('/empleados/{id}',    [EmpleadoController::class, 'destroy'])->whereNumber('id');
 

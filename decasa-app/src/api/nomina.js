@@ -37,3 +37,10 @@ export const eliminarBonificacion   = (id) => api.delete(`/nomina/bonificaciones
 export const agregarMeta            = (bonificacionId, payload) => api.post(`/nomina/bonificaciones/${bonificacionId}/metas`, payload)
 export const actualizarMeta         = (id, payload) => api.patch(`/nomina/metas/${id}`, payload)
 export const eliminarMeta           = (id) => api.delete(`/nomina/metas/${id}`)
+
+// ── Préstamos que se descuentan solos por cuotas ─────────────────────────────
+export const getPrestamos   = (usuarioId = null, incluirSaldados = false) =>
+  api.get('/nomina/prestamos', { params: { usuario_id: usuarioId, incluir_saldados: incluirSaldados ? 1 : 0 } })
+export const crearPrestamo  = (payload) => api.post('/nomina/prestamos', payload)
+export const editarPrestamo = (id, payload) => api.patch(`/nomina/prestamos/${id}`, payload)
+export const borrarPrestamo = (id) => api.delete(`/nomina/prestamos/${id}`)

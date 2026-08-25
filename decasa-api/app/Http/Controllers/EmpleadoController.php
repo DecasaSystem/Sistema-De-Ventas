@@ -120,6 +120,45 @@ class EmpleadoController extends Controller
      * persona: el trabajador sigue existiendo en Trabajadores. Borrarlo de
      * verdad se hace allá, y solo si nunca cobró.
      */
+    /**
+     * PATCH /api/nomina/empleados/lote
+     *
+     * Ponerle el mismo sueldo y la misma frecuencia a varios de una. Los nueve
+     * lijadores ganan lo mismo: cargarlos uno por uno son treinta y dos
+     * formularios, y eso es lo que hace que nómina no arranque nunca.
+     */
+    public function lote(Request $request)
+    {
+        $data = $request->validate([
+            'usuarios'           => 'required|array|min:1',
+            'usuarios.*'         => 'integer|exists:usuarios,id',
+            'nomina_sueldo_id'   => 'nullable|exists:nomina_sueldos,id',
+            'periodicidad'       => ['nullable', Rule::in(['diario', 'semanal', 'quincenal', '20_dias', 'mensual'])],
+            'nomina_bonificacion_id' => 'nullable|exists:nomina_bonificaciones,id',
+        ]);
+
+        // Solo se toca lo que venga: mandar el sueldo no debe borrarle a nadie
+        // la frecuencia que ya tenía puesta.
+        $cambios = array_filter([
+            'nomina_sueldo_id'       => $data['nomina_sueldo_id'] ?? null,
+            'periodicidad'           => $data['periodicidad'] ?? null,
+            'nomina_bonificacion_id' => $data['nomina_bonificacion_id'] ?? null,
+        ], fn ($v) => $v !== null);
+
+        if (empty($cambios)) {
+            return response()->json([
+                'message' => 'No mandaste nada que cambiar: elige el sueldo, la frecuencia o la bonificación.',
+            ], 422);
+        }
+
+        $n = Usuario::whereIn('id', $data['usuarios'])->update($cambios);
+
+        return response()->json([
+            'ok'      => true,
+            'message' => $n === 1 ? 'Se actualizó 1 trabajador.' : "Se actualizaron {$n} trabajadores.",
+        ]);
+    }
+
     public function destroy(int $id)
     {
         $trabajador = Usuario::findOrFail($id);

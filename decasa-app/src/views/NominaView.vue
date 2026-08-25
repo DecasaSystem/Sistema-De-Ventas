@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useToast } from '@/composables/useToast'
 import InputPesos from '@/components/common/InputPesos.vue'
 import { getEmpleados, actualizarEmpleado, eliminarEmpleado } from '@/api/empleados'
+import { getPrestamos, crearPrestamo, editarPrestamo, borrarPrestamo } from '@/api/nomina'
 import {
   getSueldos, crearSueldo, actualizarSueldo, eliminarSueldo,
   getPagosPendientes, pagar, pagarLote, getHistorialPagos, deshacerPago,
@@ -542,6 +543,75 @@ const sueldoElegido = computed(() =>
   sueldosActivos.value.find(s => s.id === formEmpleado.value.nomina_sueldo_id) ?? null
 )
 
+// ── Préstamos ─────────────────────────────────────────────────────────────
+// "Présteme 200.000 y me los descuenta en dos meses": se registra una vez y el
+// sistema descuenta una cuota en cada pago, hasta saldarlo.
+const modalPrestamo   = ref(false)
+const empPrestamo     = ref(null)
+const prestamosDe     = ref([])
+const cargandoPrest   = ref(false)
+const guardandoPrest  = ref(false)
+const formPrestamo    = ref({ monto: '', cuotas: '', motivo: '' })
+
+/** Lo que se le va a descontar en cada pago, para verlo antes de guardar. */
+const cuotaCalculada = computed(() => {
+  const m = Number(formPrestamo.value.monto) || 0
+  const c = Number(formPrestamo.value.cuotas) || 0
+  return m > 0 && c > 0 ? Math.ceil(m / c) : 0
+})
+
+async function abrirPrestamos(e) {
+  empPrestamo.value  = e
+  formPrestamo.value = { monto: '', cuotas: '', motivo: '' }
+  modalPrestamo.value = true
+  cargandoPrest.value = true
+  try {
+    const { data } = await getPrestamos(e.id, true)
+    prestamosDe.value = Array.isArray(data) ? data : []
+  } catch { prestamosDe.value = [] } finally { cargandoPrest.value = false }
+}
+
+async function guardarPrestamo() {
+  const m = Number(formPrestamo.value.monto)
+  const c = Number(formPrestamo.value.cuotas)
+  if (!(m > 0)) { toast.error('¿Cuánto se le presta?'); return }
+  if (!(c > 0)) { toast.error('¿En cuántos pagos se le descuenta?'); return }
+  guardandoPrest.value = true
+  try {
+    await crearPrestamo({
+      usuario_id: empPrestamo.value.id, monto: m, cuotas: c,
+      motivo: formPrestamo.value.motivo.trim() || null,
+    })
+    toast.success('Préstamo registrado: se descuenta solo en cada pago.')
+    formPrestamo.value = { monto: '', cuotas: '', motivo: '' }
+    const { data } = await getPrestamos(empPrestamo.value.id, true)
+    prestamosDe.value = Array.isArray(data) ? data : []
+    await cargarEmpleados()
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo registrar')
+  } finally { guardandoPrest.value = false }
+}
+
+async function pausarPrestamo(pr) {
+  try {
+    await editarPrestamo(pr.id, { activo: !pr.activo })
+    const { data } = await getPrestamos(empPrestamo.value.id, true)
+    prestamosDe.value = Array.isArray(data) ? data : []
+    toast.success(pr.activo ? 'Pausado: deja de descontarse.' : 'Reactivado.')
+  } catch (e) { toast.error(e.response?.data?.message || 'No se pudo cambiar') }
+}
+
+async function quitarPrestamo(pr) {
+  if (!confirm(`¿Borrar el préstamo de ${formatoPesos(pr.monto)}?`)) return
+  try {
+    await borrarPrestamo(pr.id)
+    const { data } = await getPrestamos(empPrestamo.value.id, true)
+    prestamosDe.value = Array.isArray(data) ? data : []
+    toast.success('Préstamo eliminado')
+    await cargarEmpleados()
+  } catch (e) { toast.error(e.response?.data?.message || 'No se pudo borrar') }
+}
+
 // ── Novedades del trabajador: faltas y ajustes ────────────────────────────
 const mostrarNovedades  = ref(false)
 const empleadoNovedades = ref(null)
@@ -838,6 +908,16 @@ async function quitarAjuste(id) {
                     </div>
                   </div>
 
+                  <div v-if="p.prestamos?.length">
+                    <p class="text-[11px] font-semibold text-gray-400 uppercase mb-1">Préstamos</p>
+                    <div v-for="pr in p.prestamos" :key="pr.id" class="flex justify-between text-xs bg-purple-50 rounded-lg px-2.5 py-1.5 mb-1">
+                      <span class="text-gray-600 truncate">
+                        {{ pr.motivo || 'Préstamo' }} · queda {{ formatoPesos(pr.saldo) }}
+                      </span>
+                      <span class="text-red-600 font-semibold shrink-0 ml-2">−{{ formatoPesos(pr.cuota_ahora) }}</span>
+                    </div>
+                  </div>
+
                   <div v-if="p.ajustes.length">
                     <p class="text-[11px] font-semibold text-gray-400 uppercase mb-1">Ajustes</p>
                     <div v-for="a in p.ajustes" :key="a.id" class="flex justify-between text-xs bg-gray-50 rounded-lg px-2.5 py-1.5 mb-1">
@@ -965,6 +1045,9 @@ async function quitarAjuste(id) {
             <div class="flex items-center gap-1 shrink-0">
               <button @click="abrirNovedades(e)" class="p-1.5 text-gray-300 hover:text-amber-600 transition-colors" aria-label="Faltas y ajustes">
                 <CalendarIcon class="w-4 h-4" />
+              </button>
+              <button @click="abrirPrestamos(e)" class="p-1.5 text-gray-300 hover:text-purple-600 transition-colors" aria-label="Préstamos">
+                <BanknotesIcon class="w-4 h-4" />
               </button>
               <button @click="abrirEditarEmpleado(e)" class="p-1.5 text-gray-300 hover:text-blue-600 transition-colors" aria-label="Editar">
                 <PencilSquareIcon class="w-4 h-4" />
@@ -1776,6 +1859,98 @@ async function quitarAjuste(id) {
 
             <div class="flex gap-2.5 p-5 pt-2">
               <button @click="mostrarHistorial = false" class="flex-1 bg-gray-100 text-gray-700 text-sm font-semibold rounded-xl px-4 py-2.5 hover:bg-gray-200 transition-colors">Cerrar</button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- Préstamos del trabajador -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="modalPrestamo" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
+          @click.self="modalPrestamo = false">
+          <div class="absolute inset-0 bg-black/40" />
+          <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md max-h-[92vh] overflow-y-auto">
+            <div class="sticky top-0 bg-white/95 backdrop-blur-sm px-5 py-4 border-b border-gray-100 flex items-start justify-between gap-3">
+              <div>
+                <h3 class="text-lg font-bold text-gray-800">Préstamos</h3>
+                <p class="text-xs text-gray-500 mt-0.5">{{ empPrestamo?.nombre }}</p>
+              </div>
+              <button @click="modalPrestamo = false" class="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:bg-gray-100 shrink-0">
+                <XMarkIcon class="w-5 h-5" />
+              </button>
+            </div>
+
+            <div class="p-5 space-y-4">
+              <!-- Lo que ya debe -->
+              <div v-if="cargandoPrest" class="flex justify-center py-4">
+                <div class="w-5 h-5 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
+              </div>
+              <div v-else-if="prestamosDe.length" class="space-y-2">
+                <p class="text-[11px] font-semibold text-gray-400 uppercase">Lo que se le está descontando</p>
+                <div v-for="pr in prestamosDe" :key="pr.id"
+                  :class="['rounded-xl border p-3', pr.saldado ? 'bg-gray-50 border-gray-200' : 'bg-purple-50 border-purple-200']">
+                  <div class="flex items-start justify-between gap-2">
+                    <div class="min-w-0">
+                      <p class="text-sm font-semibold text-gray-800 truncate">
+                        {{ pr.motivo || 'Préstamo' }} · {{ formatoPesos(pr.monto) }}
+                      </p>
+                      <p class="text-[11px] text-gray-500 mt-0.5">
+                        {{ formatoPesos(pr.valor_cuota) }} por pago · {{ pr.cuotas_pagadas }} de {{ pr.cuotas }} cuotas
+                      </p>
+                    </div>
+                    <div class="text-right shrink-0">
+                      <p v-if="pr.saldado" class="text-xs font-bold text-green-600">Saldado</p>
+                      <template v-else>
+                        <p class="text-[11px] text-gray-400">Queda</p>
+                        <p class="text-sm font-bold text-purple-700">{{ formatoPesos(pr.saldo) }}</p>
+                      </template>
+                    </div>
+                  </div>
+                  <div v-if="!pr.saldado" class="flex gap-2 mt-2 pt-2 border-t border-purple-100">
+                    <button @click="pausarPrestamo(pr)" class="text-[11px] font-semibold text-gray-600 hover:text-gray-800">
+                      {{ pr.activo ? 'Pausar el descuento' : 'Reanudar' }}
+                    </button>
+                    <button v-if="!pr.cuotas_pagadas" @click="quitarPrestamo(pr)"
+                      class="text-[11px] font-semibold text-red-500 hover:text-red-700 ml-auto">
+                      Borrar
+                    </button>
+                  </div>
+                  <p v-else-if="!pr.activo" class="text-[11px] text-gray-400 mt-1">Pausado</p>
+                </div>
+              </div>
+              <p v-else class="text-xs text-gray-400 text-center py-2">No tiene préstamos.</p>
+
+              <!-- Uno nuevo -->
+              <div class="border-t border-gray-100 pt-4 space-y-3">
+                <p class="text-[11px] font-semibold text-gray-400 uppercase">Prestarle</p>
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <label class="block text-xs font-semibold text-gray-500 mb-1">Cuánto</label>
+                    <input v-model="formPrestamo.monto" type="number" min="0" inputmode="numeric" placeholder="200000"
+                      class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
+                  </div>
+                  <div>
+                    <label class="block text-xs font-semibold text-gray-500 mb-1">En cuántos pagos</label>
+                    <input v-model="formPrestamo.cuotas" type="number" min="1" inputmode="numeric" placeholder="4"
+                      class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
+                  </div>
+                </div>
+                <input v-model="formPrestamo.motivo" type="text" maxlength="160" placeholder="Motivo (opcional)"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
+
+                <p v-if="cuotaCalculada" class="text-xs text-purple-800 bg-purple-50 border border-purple-200 rounded-lg px-3 py-2">
+                  Se le descontarán <strong>{{ formatoPesos(cuotaCalculada) }}</strong> en cada pago,
+                  hasta completar {{ formatoPesos(Number(formPrestamo.monto) || 0) }}.
+                  La última cuota se ajusta para no cobrar de más.
+                </p>
+
+                <button @click="guardarPrestamo" :disabled="guardandoPrest"
+                  class="w-full bg-purple-600 text-white text-sm font-semibold rounded-xl py-2.5 hover:bg-purple-700 disabled:opacity-50 transition-colors">
+                  {{ guardandoPrest ? 'Guardando...' : 'Registrar préstamo' }}
+                </button>
+              </div>
             </div>
           </div>
         </div>
