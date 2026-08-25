@@ -331,10 +331,18 @@ function buildLine() {
 // ── Chart: barras horizontales vendedores ─────────────────────────────────────
 const vendMetrica = ref('total_vendido') // 'total_vendido' | 'ingresos'
 
+// De más a menos por la cifra que se está mirando. El backend ya los manda
+// ordenados por lo vendido, pero al cambiar el selector a "Cobrado" el número
+// del ranking dejaría de corresponder con la columna: el #1 no sería el de
+// arriba. Se reordena acá para que las dos cosas digan siempre lo mismo.
+const vendedoresOrdenados = computed(() =>
+  [...vendedores.value].sort((a, b) => (b[vendMetrica.value] ?? 0) - (a[vendMetrica.value] ?? 0))
+)
+
 function buildVend() {
   if (vendChart) { vendChart.destroy(); vendChart = null }
-  if (!vendCanvas.value || !vendedores.value.length) return
-  const top = vendedores.value.slice(0, 8)
+  if (!vendCanvas.value || !vendedoresOrdenados.value.length) return
+  const top = vendedoresOrdenados.value.slice(0, 8)
   const usaTotal = vendMetrica.value === 'total_vendido'
   vendChart = new Chart(vendCanvas.value, {
     type: 'bar',
@@ -356,15 +364,20 @@ watch(vendMetrica, () => buildVend())
 const TIENDA_COLORS = ['#2563eb', '#16a34a', '#d97706', '#dc2626', '#7c3aed', '#0891b2']
 const tiendMetrica = ref('total_vendido') // 'total_vendido' | 'ingresos'
 
+const tiendasOrdenadas = computed(() =>
+  [...tiendasData.value].sort((a, b) => (b[tiendMetrica.value] ?? 0) - (a[tiendMetrica.value] ?? 0))
+)
+
 function buildTiend() {
   if (tiendChart) { tiendChart.destroy(); tiendChart = null }
-  if (!tiendCanvas.value || !tiendasData.value.length) return
+  if (!tiendasOrdenadas.value.length) return
+  if (!tiendCanvas.value) return
   const usaTotal = tiendMetrica.value === 'total_vendido'
   tiendChart = new Chart(tiendCanvas.value, {
     type: 'bar',
     data: {
-      labels: tiendasData.value.map(t => t.nombre),
-      datasets: [{ label: usaTotal ? 'Total vendido' : 'Cobrado', data: tiendasData.value.map(t => usaTotal ? t.total_vendido : t.ingresos), backgroundColor: tiendasData.value.map((_, i) => TIENDA_COLORS[i % TIENDA_COLORS.length]), borderRadius: 6 }],
+      labels: tiendasOrdenadas.value.map(t => t.nombre),
+      datasets: [{ label: usaTotal ? 'Total vendido' : 'Cobrado', data: tiendasOrdenadas.value.map(t => usaTotal ? t.total_vendido : t.ingresos), backgroundColor: tiendasOrdenadas.value.map((_, i) => TIENDA_COLORS[i % TIENDA_COLORS.length]), borderRadius: 6 }],
     },
     options: {
       responsive: true, maintainAspectRatio: false,
@@ -642,7 +655,7 @@ onBeforeUnmount(() => {
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-100">
-                <tr v-for="(v, i) in vendedores" :key="v.id"
+                <tr v-for="(v, i) in vendedoresOrdenados" :key="v.id"
                   class="hover:bg-gray-50 cursor-pointer"
                   @click="router.push({ name: 'stats-vendedor', params: { id: v.id } })">
                   <td class="px-3 py-2.5">
@@ -673,6 +686,13 @@ onBeforeUnmount(() => {
       <!-- ══════ TAB: TIENDAS ══════ -->
       <div v-show="tabActivo === 'tiendas' && auth.isSupervisor" class="space-y-4">
 
+        <!-- Esta pestaña es para comparar unas tiendas con otras, así que sale
+             siempre completa. Si hay una tienda elegida arriba se dice, porque
+             si no parece que el filtro dejó de funcionar. -->
+        <p v-if="tiendaFiltroNombre" class="text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2">
+          Salen todas para poder compararlas — el filtro de "{{ tiendaFiltroNombre }}" aplica en las demás pestañas.
+        </p>
+
         <!-- Gráfica barras -->
         <div v-if="tiendasData.length" class="bg-white rounded-xl shadow-sm p-4">
           <div class="flex items-center justify-between mb-3">
@@ -697,7 +717,7 @@ onBeforeUnmount(() => {
 
         <!-- Cards por tienda -->
         <div class="grid grid-cols-1 gap-3">
-          <div v-for="(t, i) in tiendasData" :key="t.tienda_id"
+          <div v-for="(t, i) in tiendasOrdenadas" :key="t.tienda_id ?? `ind-${t.usuario_id}`"
             class="bg-white rounded-xl shadow-sm p-4 border-l-4"
             :style="{ borderColor: TIENDA_COLORS[i % TIENDA_COLORS.length] }">
             <div class="flex justify-between items-start mb-3">
@@ -844,6 +864,12 @@ onBeforeUnmount(() => {
 
       <!-- ══════ TAB: CARTERA ══════ -->
       <div v-show="tabActivo === 'cartera'" class="space-y-3">
+        <!-- Lo que deben HOY: no es un acumulado del período, así que el filtro
+             de tiempo no la mueve. Se dice acá porque si no, uno cambia a "Hoy"
+             y al ver el mismo número cree que la pantalla se quedó pegada. -->
+        <p class="text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2">
+          Es lo que deben hoy, sin importar el período de arriba.
+        </p>
         <div class="flex items-center justify-between">
           <p class="text-sm text-gray-500">{{ cartera.length }} orden{{ cartera.length !== 1 ? 'es' : '' }} con saldo pendiente</p>
           <button
@@ -889,6 +915,10 @@ onBeforeUnmount(() => {
 
       <!-- ══════ TAB: PRODUCCIÓN ══════ -->
       <div v-show="tabActivo === 'produccion'" class="space-y-3">
+        <!-- Lo que está atrasado AHORA, no lo que se atrasó en el período. -->
+        <p class="text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2">
+          Es lo que está atrasado hoy, sin importar el período de arriba.
+        </p>
         <div class="flex items-center justify-between">
           <p class="text-sm text-gray-500">{{ retrasos.length }} orden{{ retrasos.length !== 1 ? 'es' : '' }} atrasada{{ retrasos.length !== 1 ? 's' : '' }}</p>
           <button

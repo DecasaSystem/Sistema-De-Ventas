@@ -469,7 +469,16 @@ class StatsController extends Controller
             ];
         });
 
-        return response()->json($resultado->concat($this->filasPorSuCuenta($rango, $desde, $hasta))->values());
+        // De la que más vendió a la que menos, y con los independientes
+        // mezclados en el mismo orden. Antes salían en el orden de la tabla y
+        // los independientes siempre al final, así que había que ir leyendo
+        // cifra por cifra para saber quién iba ganando — que es lo único que
+        // se le pregunta a esta pantalla.
+        return response()->json(
+            $resultado->concat($this->filasPorSuCuenta($rango, $desde, $hasta))
+                ->sortByDesc('total_vendido')
+                ->values()
+        );
     }
 
     /**
@@ -615,7 +624,11 @@ class StatsController extends Controller
                 'ticket_promedio'    => $ordenesTotales > 0 ? round($totalVendido / $ordenesTotales) : 0,
                 'cartera_pendiente'  => $cartera,
             ];
-        })->sortByDesc('ingresos')->values();
+        // Por lo vendido, no por lo cobrado: es la columna que la tabla pone
+        // en grande y la que decide el número del ranking. Ordenar por una
+        // cifra y numerar por otra hacía que el "#1" no fuera el de arriba en
+        // la columna que se está mirando.
+        })->sortByDesc('total_vendido')->values();
 
         return response()->json($resultado);
     }

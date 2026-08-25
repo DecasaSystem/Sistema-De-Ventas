@@ -47,8 +47,11 @@ class ReporteController extends Controller
     public function interesados(Request $request)
     {
         $tiendaId = $request->query('tienda_id');
-        $desde    = $request->query('desde');
-        $hasta    = $request->query('hasta');
+        // Mismo caso que Canales: leer `desde`/`hasta` a pelo dejaba esta
+        // pestaña sin filtrar, porque la pantalla manda `periodo` salvo cuando
+        // se escribe un rango a mano. Se veían los interesados de siempre con
+        // el botón de "Hoy" marcado.
+        [$desde, $hasta] = $this->rango($request);
 
         // ── Leads activos (solo tipo=interesado) ──────────────────────────────
         $baseLeads = DB::table('clientes')->where('tipo', 'interesado');
