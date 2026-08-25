@@ -59,6 +59,11 @@ class AuthController extends Controller
             'acceso_reserva'     => (bool) $usuario->acceso_reserva,
             'acceso_nomina'      => (bool) $usuario->acceso_nomina,
             'acceso_compras'     => (bool) $usuario->acceso_compras,
+            // Encargos: administrar el módulo. `lleva_encargos` viaja también
+            // porque con esa sola —sin el permiso— la persona ya puede abrir
+            // su propia ficha y ver de qué responde.
+            'acceso_encargos'    => (bool) $usuario->acceso_encargos,
+            'lleva_encargos'     => (bool) $usuario->lleva_encargos,
             've_todas_ordenes'   => (bool) $usuario->ve_todas_ordenes,
             // Si lleva algún paso del taller. Es lo único que decide si ve
             // "Mis pasos": ya no depende de qué rol tenga la persona.
@@ -113,6 +118,11 @@ class AuthController extends Controller
             'acceso_reserva'     => (bool) $usuario->acceso_reserva,
             'acceso_nomina'      => (bool) $usuario->acceso_nomina,
             'acceso_compras'     => (bool) $usuario->acceso_compras,
+            // Encargos: administrar el módulo. `lleva_encargos` viaja también
+            // porque con esa sola —sin el permiso— la persona ya puede abrir
+            // su propia ficha y ver de qué responde.
+            'acceso_encargos'    => (bool) $usuario->acceso_encargos,
+            'lleva_encargos'     => (bool) $usuario->lleva_encargos,
             've_todas_ordenes'   => (bool) $usuario->ve_todas_ordenes,
             // Si lleva algún paso del taller. Es lo único que decide si ve
             // "Mis pasos": ya no depende de qué rol tenga la persona.

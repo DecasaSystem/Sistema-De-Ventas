@@ -378,6 +378,11 @@ function destinoNotificacion(tipo, datos) {
   if (datos.conversacion_id || tipo === 'redes')     return { name: 'redes' }
   if (datos.comision_id || tipo === 'comisiones')    return { name: 'comisiones' }
   if (datos.produccion_id)    return { name: auth.tieneAccesoPasos ? 'mis-pasos' : 'produccion' }
+  // Encargos: el descuento le llega al trabajador y lo lleva a su propia
+  // ficha, donde puede ver qué se contó ese día; el aviso de "toca revisar"
+  // le llega a quien administra y lo lleva a la lista.
+  if (tipo === 'encargo_descuento') return { name: 'encargo-trabajador', params: { id: datos.usuario_id } }
+  if (tipo === 'encargo_revision')  return { name: 'encargos' }
 
   return null
 }

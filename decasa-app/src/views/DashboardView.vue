@@ -37,6 +37,7 @@ import {
   BuildingStorefrontIcon,
   Cog6ToothIcon,
   ShoppingCartIcon,
+  BriefcaseIcon,
 } from '@heroicons/vue/24/outline'
 
 const auth         = useAuthStore()
@@ -55,6 +56,18 @@ const abonosNoLeidos = computed(() =>
   notif.items.filter(n => !n.leida && n.tipo === 'abono_registrado').length
 )
 
+// Encargos entra por dos puertas distintas: quien administra el módulo llega a
+// la lista de todo el mundo, y quien solo responde por sus herramientas llega
+// directo a su propia ficha. Se arma acá porque el acceso aparece igual en el
+// Home de todos los cargos.
+const accesoEncargos = computed(() => {
+  if (auth.puedeEncargos) return [{ label: 'Encargos', icon: BriefcaseIcon, to: { name: 'encargos' } }]
+  if (auth.llevaEncargos) {
+    return [{ label: 'Mis encargos', icon: BriefcaseIcon, to: { name: 'encargo-trabajador', params: { id: auth.usuario.id } } }]
+  }
+  return []
+})
+
 const accesos = computed(() => {
   if (auth.usuario?.rol === 'conductor') {
     return [
@@ -63,6 +76,7 @@ const accesos = computed(() => {
       ...(auth.puedeSurtir ? [{ label: 'Surtir', icon: ArrowPathIcon, to: { name: 'surtir' } }] : []),
       { label: 'Proveedores',  icon: BuildingStorefrontIcon,     to: { name: 'proveedores' } },
       ...(auth.puedeCompras ? [{ label: 'Compras', icon: ShoppingCartIcon, to: { name: 'compras' } }] : []),
+      ...accesoEncargos.value,
       // Un conductor puede tener pasos del taller asignados a dedo: sin esto
       // el acceso no le aparecía aunque el permiso ya lo dejara entrar.
       ...(auth.tieneAccesoPasos ? [{ label: 'Mis pasos', icon: ClipboardDocumentCheckIcon, to: { name: 'mis-pasos' }, badge: pasos.pendientesCount }] : []),
@@ -82,6 +96,7 @@ const accesos = computed(() => {
       { label: 'Estadísticas', icon: PresentationChartLineIcon,  to: { name: 'mis-stats'   } },
       { label: 'Proveedores',  icon: BuildingStorefrontIcon,     to: { name: 'proveedores' } },
       ...(auth.puedeCompras ? [{ label: 'Compras', icon: ShoppingCartIcon, to: { name: 'compras' } }] : []),
+      ...accesoEncargos.value,
     ]
   }
   if (auth.usuario?.rol === 'despachador') {
@@ -89,6 +104,7 @@ const accesos = computed(() => {
       ...(auth.puedeSurtir ? [{ label: 'Surtir', icon: ArrowPathIcon, to: { name: 'surtir' } }] : []),
       { label: 'Proveedores',         icon: BuildingStorefrontIcon, to: { name: 'proveedores' } },
       ...(auth.puedeCompras ? [{ label: 'Compras', icon: ShoppingCartIcon, to: { name: 'compras' } }] : []),
+      ...accesoEncargos.value,
       // Igual que el conductor: el despachador tiene su propia pantalla de
       // despacho, pero puede además trabajar pasos si se le asignan.
       ...(auth.tieneAccesoPasos ? [{ label: 'Mis pasos', icon: ClipboardDocumentCheckIcon, to: { name: 'mis-pasos' }, badge: pasos.pendientesCount }] : []),
@@ -145,6 +161,7 @@ const accesos = computed(() => {
   items.push({ label: auth.isSupervisor ? 'Mis estadísticas' : 'Estadísticas', icon: PresentationChartLineIcon, to: { name: 'mis-stats' } })
   items.push({ label: 'Proveedores', icon: BuildingStorefrontIcon, to: { name: 'proveedores' } })
   if (auth.puedeCompras) items.push({ label: 'Compras', icon: ShoppingCartIcon, to: { name: 'compras' } })
+  items.push(...accesoEncargos.value)
 
   if (auth.isFacturador) {
     items.unshift({ label: 'Facturación', icon: DocumentCurrencyDollarIcon, to: { name: 'facturacion' }, badge: abonosNoLeidos.value })

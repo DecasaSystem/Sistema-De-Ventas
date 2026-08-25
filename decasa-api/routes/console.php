@@ -3,6 +3,7 @@
 use App\Jobs\AlertarRetrasoProduccion;
 use App\Jobs\AlertarRutasAtrasadas;
 use App\Jobs\AvisarCotizacionesPorVencer;
+use App\Jobs\AvisarRevisionesEncargos;
 use App\Jobs\RecordatoriosCitas;
 use Illuminate\Support\Facades\Schedule;
 
@@ -33,6 +34,16 @@ Schedule::job(new AvisarCotizacionesPorVencer())
     ->dailyAt('08:30')
     ->timezone('America/Bogota')
     ->name('avisar-cotizaciones-por-vencer')
+    ->withoutOverlapping();
+
+// Encargos: a quién le toca revista. Semanal y no diario a propósito — lo que
+// se revisa cada mes no cambia de un día para otro, y un aviso repetido todos
+// los días termina leyéndose como ruido y se descarta junto con los que sí
+// importan.
+Schedule::job(new AvisarRevisionesEncargos())
+    ->weeklyOn(1, '08:45')
+    ->timezone('America/Bogota')
+    ->name('avisar-revisiones-encargos')
     ->withoutOverlapping();
 
 // La nómina ya no necesita un job: los ciclos de pago se calculan del

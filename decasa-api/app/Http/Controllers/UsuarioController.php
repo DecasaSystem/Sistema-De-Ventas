@@ -47,6 +47,12 @@ class UsuarioController extends Controller
             'acceso_reserva'      => (bool) $u->acceso_reserva,
             'acceso_nomina'       => (bool) $u->acceso_nomina,
             'acceso_compras'      => (bool) $u->acceso_compras,
+            // Responde por herramientas (le sirve a cualquiera, use o no el
+            // programa) / administra el módulo de Encargos (eso sí es del
+            // programa).
+            'lleva_encargos'      => (bool) $u->lleva_encargos,
+            'acceso_encargos'     => (bool) $u->acceso_encargos,
+            'encargo_revision_dias' => $u->encargo_revision_dias,
             've_todas_ordenes'    => (bool) $u->ve_todas_ordenes,
             'tienda_default_id'   => $u->tienda_default_id,
             'tienda_default'      => $u->relationLoaded('tiendaDefault') ? $u->tiendaDefault : null,
@@ -146,6 +152,9 @@ class UsuarioController extends Controller
             'acceso_reserva'      => 'boolean',
             'acceso_nomina'       => 'boolean',
             'acceso_compras'      => 'boolean',
+            'lleva_encargos'      => 'boolean',
+            'acceso_encargos'     => 'boolean',
+            'encargo_revision_dias' => 'nullable|integer|min:1|max:730',
             've_todas_ordenes'    => 'boolean',
             'tienda_default_id' => [
                 // Un independiente no elige tienda: se le asigna la sede propia.
@@ -226,6 +235,13 @@ class UsuarioController extends Controller
             'acceso_reserva'      => $request->boolean('acceso_reserva'),
             'acceso_nomina'       => $request->boolean('acceso_nomina'),
             'acceso_compras'      => $request->boolean('acceso_compras'),
+            // Que responda por herramientas vale para cualquiera: el de los
+            // taladros suele ser justo el que no entra al programa.
+            'lleva_encargos'      => $request->boolean('lleva_encargos'),
+            'encargo_revision_dias' => $data['encargo_revision_dias'] ?? null,
+            // Administrar el módulo sí es del programa: quien no entra no
+            // tiene dónde abrirlo.
+            'acceso_encargos'     => ! $noUsaPrograma && $request->boolean('acceso_encargos'),
             've_todas_ordenes'    => $request->boolean('ve_todas_ordenes'),
             'tienda_default_id'   => $independiente
                 ? Tienda::sedeIndependientes()?->id
@@ -373,6 +389,16 @@ class UsuarioController extends Controller
         }
         if ($request->has('acceso_compras')) {
             $data['acceso_compras'] = $request->boolean('acceso_compras');
+        }
+        if ($request->has('lleva_encargos')) {
+            $data['lleva_encargos'] = $request->boolean('lleva_encargos');
+        }
+        if ($request->has('acceso_encargos')) {
+            // Se mira lo que va a quedar, no lo que era: si en este mismo
+            // guardado se le está quitando el acceso al programa, no tiene
+            // sentido dejarle el permiso para administrar el módulo.
+            $noUsaraPrograma = $data['no_usa_programa'] ?? (bool) $usuario->no_usa_programa;
+            $data['acceso_encargos'] = ! $noUsaraPrograma && $request->boolean('acceso_encargos');
         }
         // Se respeta lo que ya es: quien no usa el programa nunca puede ser
         // apto para comisiones, porque no hace ventas.

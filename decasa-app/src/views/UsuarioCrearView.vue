@@ -46,6 +46,10 @@ const form = ref({
   // arranca encendida por la misma razón que Surtir, para no dejar a nadie
   // nuevo sin algo que el módulo ya daba por hecho.
   acceso_compras: true,
+  // Encargos: responder por herramientas es una cosa y administrar el módulo
+  // es otra. Ambas arrancan apagadas — a la mayoría no se le entrega nada.
+  lleva_encargos: false,
+  acceso_encargos: false,
   acceso_costos: false,
   acceso_despacho: false,
   acceso_produccion: false,
@@ -131,6 +135,10 @@ async function submit() {
       password_confirmation: form.value.no_usa_programa ? null : form.value.password_confirmation,
       apto_comisiones: !form.value.no_usa_programa && form.value.apto_comisiones,
       apto_produccion: form.value.no_usa_programa || form.value.apto_produccion,
+      // Se le entregan herramientas: vale igual para el que no usa el programa.
+      lleva_encargos: form.value.lleva_encargos,
+      // Administrar el módulo sí necesita entrar al programa.
+      acceso_encargos: !form.value.no_usa_programa && form.value.acceso_encargos,
       rol_id: form.value.rol_id,
       facturacion: form.value.facturacion,
       independiente: esIndependiente.value,
@@ -339,6 +347,25 @@ async function submit() {
         </div>
       </div>
 
+      <!-- Encargos. Va antes del bloque del programa a propósito: el de los
+           dos taladros suele ser justo el que no entra a la app. -->
+      <div class="flex items-start gap-3 py-2 px-3 bg-teal-50 border border-teal-200 rounded-xl">
+        <input
+          id="lleva_encargos"
+          type="checkbox"
+          v-model="form.lleva_encargos"
+          class="mt-0.5 rounded border-gray-300 text-teal-600 focus:ring-teal-500"
+        />
+        <div>
+          <label for="lleva_encargos" class="text-sm font-medium text-gray-800 cursor-pointer">Responde por herramientas o equipos</label>
+          <p class="text-xs text-gray-600 mt-0.5">
+            Prende el módulo de <strong>Encargos</strong> para esta persona: se le anota qué se le
+            entregó (portátil, taladros, martillo…) y cada cierto tiempo se le pasa revista para
+            marcar qué está bien, qué se dañó y qué se perdió.
+          </p>
+        </div>
+      </div>
+
       <!-- Todo lo que sigue es del programa: no aplica a la gente de fábrica -->
       <template v-if="!form.no_usa_programa">
 
@@ -510,6 +537,23 @@ async function submit() {
         <div>
           <label for="acceso_compras" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a módulo de Compras</label>
           <p class="text-xs text-gray-500 mt-0.5">Podrá pedir lo que haga falta comprar y marcar cuando ya lo compró.</p>
+        </div>
+      </div>
+
+      <!-- Administrar Encargos (cualquier rol, como Compras) -->
+      <div class="flex items-start gap-3 py-2">
+        <input
+          id="acceso_encargos"
+          type="checkbox"
+          v-model="form.acceso_encargos"
+          class="mt-0.5 rounded border-gray-300 text-teal-600 focus:ring-teal-500"
+        />
+        <div>
+          <label for="acceso_encargos" class="text-sm font-medium text-gray-700 cursor-pointer">Administra los Encargos</label>
+          <p class="text-xs text-gray-500 mt-0.5">
+            Podrá entregarle herramientas a cualquiera y pasarles revista. Es otra cosa que
+            responder por las suyas: para eso está la casilla de arriba.
+          </p>
         </div>
       </div>
 

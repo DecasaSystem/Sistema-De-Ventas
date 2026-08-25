@@ -54,6 +54,12 @@ class Usuario extends Authenticatable
         'acceso_reserva',
         'acceso_nomina',
         'acceso_compras',
+        // Encargos: responder por herramientas es una cosa (`lleva_encargos`,
+        // que le sirve hasta a quien no entra al programa) y administrar el
+        // módulo es otra (`acceso_encargos`).
+        'lleva_encargos',
+        'acceso_encargos',
+        'encargo_revision_dias',
         've_todas_ordenes',
         // Trabajador de fábrica: sin login, sin tienda, sin permisos.
         'cedula',
@@ -95,6 +101,8 @@ class Usuario extends Authenticatable
             'acceso_reserva'      => 'boolean',
             'acceso_nomina'       => 'boolean',
             'acceso_compras'      => 'boolean',
+            'lleva_encargos'      => 'boolean',
+            'acceso_encargos'     => 'boolean',
             've_todas_ordenes'    => 'boolean',
             'no_usa_programa'     => 'boolean',
             'apto_comisiones'     => 'boolean',
@@ -308,6 +316,20 @@ class Usuario extends Authenticatable
     public function procesosQuePuedeTrabajar(): array
     {
         return $this->procesosAsignados()->where('activo', true)->pluck('clave')->all();
+    }
+
+    // ── Encargos ─────────────────────────────────────────────────────────────
+
+    /** Las herramientas y equipos que se le entregaron, incluidos los cerrados. */
+    public function encargos()
+    {
+        return $this->hasMany(Encargo::class, 'usuario_id');
+    }
+
+    /** Las veces que se le ha pasado revista a lo que tiene. */
+    public function revisionesEncargo()
+    {
+        return $this->hasMany(EncargoRevision::class, 'usuario_id');
     }
 
     public function rolAsignado()

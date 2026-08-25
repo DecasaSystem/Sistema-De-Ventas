@@ -46,6 +46,10 @@ const routes = [
   // Solo accesible desde el botón en el Home, a propósito: no va en el nav inferior.
   { path: '/proveedores', name: 'proveedores', component: () => import('@/views/ProveedoresView.vue'), meta: { requiresAuth: true } },
   { path: '/compras', name: 'compras', component: () => import('@/views/ComprasView.vue'), meta: { requiresAuth: true, requiresCompras: true } },
+  // Encargos: la lista completa es de quien administra el módulo; la ficha de
+  // una persona la abre también ella misma (el backend no deja ver la ajena).
+  { path: '/encargos', name: 'encargos', component: () => import('@/views/EncargosView.vue'), meta: { requiresAuth: true, requiresEncargos: true } },
+  { path: '/encargos/:id', name: 'encargo-trabajador', component: () => import('@/views/EncargoTrabajadorView.vue'), meta: { requiresAuth: true, requiresEncargos: true } },
 ]
 
 /**
@@ -110,6 +114,9 @@ router.beforeEach((to) => {
   if (to.meta.requiresDespacho    && !auth.puedeDespacho)          return { name: 'dashboard' }
   if (to.meta.requiresNomina      && !auth.puedeNomina)            return { name: 'dashboard' }
   if (to.meta.requiresCompras     && !auth.puedeCompras)           return { name: 'dashboard' }
+  // Entra quien administra el módulo y también quien solo responde por lo
+  // suyo: ver de qué respondes tú no es administrar nada.
+  if (to.meta.requiresEncargos    && !auth.puedeEncargos && !auth.llevaEncargos) return { name: 'dashboard' }
   // El vendedor sigue entrando (ve solo lo suyo); el supervisor necesita el
   // permiso para el tablero completo del taller.
   // Producción se activa por trabajador, sea cual sea su cargo. El vendedor

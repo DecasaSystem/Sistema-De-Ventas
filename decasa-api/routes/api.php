@@ -14,6 +14,7 @@ use App\Http\Controllers\ProduccionController;
 use App\Http\Controllers\ProductoController;
 use App\Http\Controllers\ProveedorController;
 use App\Http\Controllers\CompraController;
+use App\Http\Controllers\EncargoController;
 use App\Http\Controllers\ReporteController;
 use App\Http\Controllers\RolController;
 use App\Http\Controllers\TiendaController;
@@ -184,6 +185,28 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/compras',                [CompraController::class, 'store']);
         Route::patch('/compras/{id}/comprar',  [CompraController::class, 'marcarComprado'])->whereNumber('id');
         Route::delete('/compras/{id}',         [CompraController::class, 'destroy'])->whereNumber('id')->middleware('role:supervisor');
+    });
+
+    // Encargos: de qué responde cada trabajador (herramientas, equipos) y la
+    // revista que se le pasa cada cierto tiempo.
+    //
+    // Ver lo PROPIO no pide permiso: cualquiera puede mirar de qué responde él
+    // mismo, y el controlador se encarga de que no vea la ficha de otro. Todo
+    // lo demás —entregar, revisar, configurar— va bajo acceso_encargos, sin
+    // excepción automática para supervisor (misma regla que Compras).
+    Route::get('/encargos/mios',                  [EncargoController::class, 'mios']);
+    // Sin permiso solo pasa si el id es el suyo; lo valida el controlador.
+    Route::get('/encargos/trabajadores/{id}',     [EncargoController::class, 'trabajador'])->whereNumber('id');
+    Route::get('/encargos/revisiones/{id}',       [EncargoController::class, 'revision'])->whereNumber('id');
+
+    Route::middleware('permiso:acceso_encargos')->group(function () {
+        Route::get('/encargos/trabajadores',      [EncargoController::class, 'trabajadores']);
+        Route::put('/encargos/config',            [EncargoController::class, 'guardarConfig']);
+        Route::post('/encargos/revisiones',       [EncargoController::class, 'guardarRevision']);
+        Route::post('/encargos',                  [EncargoController::class, 'store']);
+        Route::patch('/encargos/{id}',            [EncargoController::class, 'update'])->whereNumber('id');
+        Route::post('/encargos/{id}/cerrar',      [EncargoController::class, 'cerrar'])->whereNumber('id');
+        Route::delete('/encargos/{id}',           [EncargoController::class, 'destroy'])->whereNumber('id');
     });
 
     // Reserva / Fábrica
