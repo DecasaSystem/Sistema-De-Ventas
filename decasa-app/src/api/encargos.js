@@ -21,3 +21,8 @@ export const getRevision     = (id)      => api.get(`/encargos/revisiones/${id}`
 
 // Cada cuántos días se revisa: el número general, o el propio de alguien.
 export const guardarConfig = (payload) => api.put('/encargos/config', payload)
+
+// Quién hace los checks. Se manda la lista completa de los que quedan, no
+// "agrega a este": así lo guardado es exactamente lo que se ve marcado.
+export const guardarRevisores = (usuarioIds) =>
+  api.put('/encargos/revisores', { usuario_ids: usuarioIds })

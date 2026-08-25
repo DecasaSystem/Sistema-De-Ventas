@@ -3,14 +3,21 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useToast } from '@/composables/useToast'
 import InputPesos from '@/components/common/InputPesos.vue'
-import { getTrabajadores, entregar, guardarConfig } from '@/api/encargos'
+import { useAuthStore } from '@/stores/auth'
+import { getTrabajadores, entregar, guardarConfig, guardarRevisores } from '@/api/encargos'
 import {
   BriefcaseIcon, PlusIcon, XMarkIcon, MagnifyingGlassIcon,
   ExclamationTriangleIcon, Cog6ToothIcon, ChevronRightIcon,
+  ClipboardDocumentCheckIcon, CheckIcon,
 } from '@heroicons/vue/24/outline'
 
 const router = useRouter()
 const toast  = useToast()
+const auth   = useAuthStore()
+
+// Quien solo tiene el acceso mira y nada más: entregar y pasar revista es de
+// quien hace los checks.
+const puedeRevisar = computed(() => auth.revisaEncargos)
 
 const cargando     = ref(true)
 const trabajadores = ref([])
@@ -20,6 +27,10 @@ const valorTotal   = ref(0)
 const vencidas     = ref(0)
 const busqueda     = ref('')
 const verInactivos = ref(false)
+// Quién hace los checks, y entre quiénes se puede elegir.
+const revisores    = ref([])
+const candidatos   = ref([])
+const puedoDesignar = ref(false)
 
 function formatoPesos(n) {
   return '$' + Math.round(n ?? 0).toLocaleString('es-CO')
@@ -48,6 +59,9 @@ async function cargar() {
     const { data } = await getTrabajadores(verInactivos.value)
     trabajadores.value  = data.trabajadores
     asignables.value    = data.asignables
+    revisores.value     = data.revisores
+    candidatos.value    = data.candidatos
+    puedoDesignar.value = data.puedo_designar
     diasGenerales.value = data.dias_generales
     valorTotal.value    = data.valor_total
     vencidas.value      = data.vencidas
@@ -111,6 +125,50 @@ async function guardarEntrega() {
   }
 }
 
+// ── Quién hace los checks ──────────────────────────────────────────────────
+const mostrarRevisores = ref(false)
+const seleccionados    = ref([])
+const guardandoRevisores = ref(false)
+const buscaRevisor     = ref('')
+
+function abrirRevisores() {
+  seleccionados.value = revisores.value.map(r => r.id)
+  buscaRevisor.value  = ''
+  mostrarRevisores.value = true
+}
+
+function alternar(id) {
+  const i = seleccionados.value.indexOf(id)
+  if (i === -1) seleccionados.value.push(id)
+  else seleccionados.value.splice(i, 1)
+}
+
+const candidatosFiltrados = computed(() => {
+  const q = buscaRevisor.value.trim().toLowerCase()
+  return q ? candidatos.value.filter(c => c.nombre.toLowerCase().includes(q)) : candidatos.value
+})
+
+async function guardarQuienRevisa() {
+  guardandoRevisores.value = true
+  try {
+    await guardarRevisores(seleccionados.value)
+    toast.success(
+      seleccionados.value.length
+        ? 'Listo: les llega el aviso cuando toque revisión'
+        : 'Nadie queda a cargo de las revisiones'
+    )
+    mostrarRevisores.value = false
+    await cargar()
+    // Si se quitó a sí mismo, sus propios permisos cambiaron: sin refrescar
+    // la sesión seguiría viendo botones que el backend ya le va a rechazar.
+    await auth.fetchMe()
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo guardar')
+  } finally {
+    guardandoRevisores.value = false
+  }
+}
+
 // ── Cada cuánto se revisa ──────────────────────────────────────────────────
 const mostrarConfig = ref(false)
 const diasEditados  = ref(30)
@@ -146,7 +204,7 @@ async function guardarDias() {
         <BriefcaseIcon class="w-5 h-5 text-teal-600" />
         Encargos
       </h1>
-      <button @click="abrirConfig" class="p-1.5 text-gray-400 hover:text-gray-600" aria-label="Cada cuánto se revisa">
+      <button v-if="puedeRevisar" @click="abrirConfig" class="p-1.5 text-gray-400 hover:text-gray-600" aria-label="Cada cuánto se revisa">
         <Cog6ToothIcon class="w-5 h-5" />
       </button>
     </div>
@@ -169,6 +227,36 @@ async function guardarDias() {
       Se revisa cada {{ diasGenerales }} días, salvo a quien se le haya puesto otro ritmo.
     </p>
 
+    <!-- Quién hace los checks. Va arriba y a la vista: sin nadie marcado el
+         aviso del día no le llega a nadie y el módulo se queda mudo. -->
+    <div
+      :class="['rounded-xl p-4 mb-3 flex items-start gap-3',
+        revisores.length ? 'bg-white shadow-sm' : 'bg-amber-50 border border-amber-200']"
+    >
+      <div class="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+           :class="revisores.length ? 'bg-teal-50' : 'bg-amber-100'">
+        <ClipboardDocumentCheckIcon class="w-5 h-5" :class="revisores.length ? 'text-teal-600' : 'text-amber-600'" />
+      </div>
+      <div class="min-w-0 flex-1">
+        <p class="text-xs text-gray-400">Hace las revisiones</p>
+        <p v-if="revisores.length" class="text-sm font-medium text-gray-800">
+          {{ revisores.map(r => r.nombre).join(', ') }}
+        </p>
+        <p v-else class="text-sm font-medium text-amber-800">Nadie todavía</p>
+        <p class="text-[11px] mt-0.5" :class="revisores.length ? 'text-gray-400' : 'text-amber-700'">
+          {{ revisores.length
+            ? 'Les llega el aviso el día que le toca revisión a alguien.'
+            : 'Sin nadie a cargo, el aviso del día del chequeo no le llega a nadie.' }}
+        </p>
+        <button
+          v-if="puedoDesignar"
+          @click="abrirRevisores"
+          class="text-xs font-semibold mt-1.5"
+          :class="revisores.length ? 'text-teal-700 hover:text-teal-800' : 'text-amber-800 hover:text-amber-900'"
+        >{{ revisores.length ? 'Cambiar' : 'Elegir quién' }}</button>
+      </div>
+    </div>
+
     <div class="flex items-center justify-between gap-2 mb-3">
       <div class="relative flex-1">
         <MagnifyingGlassIcon class="w-4 h-4 text-gray-300 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -178,6 +266,7 @@ async function guardarDias() {
         />
       </div>
       <button
+        v-if="puedeRevisar"
         @click="abrirEntrega"
         class="flex items-center gap-1.5 bg-teal-600 text-white text-xs font-semibold px-3 py-2.5 rounded-xl hover:bg-teal-700 transition-colors shadow-sm shrink-0"
       >
@@ -198,7 +287,7 @@ async function guardarDias() {
     <div v-else-if="!trabajadores.length" class="text-center py-12 px-6">
       <BriefcaseIcon class="w-10 h-10 text-gray-300 mx-auto mb-3" />
       <p class="text-gray-500 text-sm font-medium">Todavía no se le ha entregado nada a nadie.</p>
-      <p class="text-gray-400 text-xs mt-1">Con "Entregar" queda anotado quién responde por qué.</p>
+      <p v-if="puedeRevisar" class="text-gray-400 text-xs mt-1">Con "Entregar" queda anotado quién responde por qué.</p>
     </div>
 
     <p v-else-if="!lista.length" class="text-center py-12 text-gray-400 text-sm">Nadie coincide con "{{ busqueda }}".</p>
@@ -308,6 +397,71 @@ async function guardarDias() {
               >
                 <span v-if="guardando" class="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
                 {{ guardando ? 'Guardando...' : 'Entregar' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- Quién hace los checks -->
+    <Teleport to="body">
+      <Transition
+        enter-active-class="transition-opacity duration-200" enter-from-class="opacity-0"
+        leave-active-class="transition-opacity duration-150" leave-to-class="opacity-0"
+      >
+        <div v-if="mostrarRevisores" class="fixed inset-0 bg-black/50 backdrop-blur-[2px] z-50 flex items-end sm:items-center justify-center" @click.self="mostrarRevisores = false">
+          <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full sm:max-w-md max-h-[92vh] flex flex-col shadow-2xl">
+            <div class="px-5 py-4 border-b border-gray-100 shrink-0">
+              <div class="flex items-center justify-between gap-3">
+                <div class="min-w-0">
+                  <p class="font-semibold text-gray-800">¿Quién hace las revisiones?</p>
+                  <p class="text-[11px] text-gray-400">A los marcados les llega el aviso el día que toca.</p>
+                </div>
+                <button @click="mostrarRevisores = false" class="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors shrink-0">
+                  <XMarkIcon class="w-5 h-5" />
+                </button>
+              </div>
+              <div class="relative mt-3">
+                <MagnifyingGlassIcon class="w-4 h-4 text-gray-300 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  v-model="buscaRevisor" placeholder="Buscar..."
+                  class="w-full rounded-xl border border-gray-200 pl-9 pr-3.5 py-2 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                />
+              </div>
+            </div>
+
+            <div class="overflow-y-auto flex-1 px-5 py-3 space-y-1.5">
+              <button
+                v-for="c in candidatosFiltrados" :key="c.id"
+                @click="alternar(c.id)"
+                :class="['w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors border',
+                  seleccionados.includes(c.id) ? 'border-teal-300 bg-teal-50/60' : 'border-transparent hover:bg-gray-50']"
+              >
+                <span
+                  :class="['w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0',
+                    seleccionados.includes(c.id) ? 'bg-teal-600 border-teal-600 text-white' : 'border-gray-300 text-transparent']"
+                >
+                  <CheckIcon class="w-3.5 h-3.5" />
+                </span>
+                <span class="text-sm text-gray-800 truncate">{{ c.nombre }}</span>
+              </button>
+              <p v-if="!candidatosFiltrados.length" class="text-center text-sm text-gray-400 py-6">Nadie coincide.</p>
+            </div>
+
+            <div class="px-5 pt-2 shrink-0">
+              <p class="text-[11px] text-gray-400">
+                Solo sale quien usa el programa: hay que poder abrir la revisión y recibir el aviso.
+                Quien quede marcado podrá además entregar herramientas.
+              </p>
+            </div>
+            <div class="flex gap-2.5 p-5 pt-3 shrink-0">
+              <button @click="mostrarRevisores = false" class="flex-1 bg-gray-100 text-gray-700 text-sm font-semibold rounded-xl px-4 py-2.5 hover:bg-gray-200 transition-colors">Cancelar</button>
+              <button
+                @click="guardarQuienRevisa" :disabled="guardandoRevisores"
+                class="flex-1 bg-teal-600 text-white text-sm font-semibold rounded-xl px-4 py-2.5 hover:bg-teal-700 transition-colors disabled:opacity-50"
+              >
+                {{ guardandoRevisores ? 'Guardando...' : 'Guardar' }}
               </button>
             </div>
           </div>

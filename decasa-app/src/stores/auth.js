@@ -101,6 +101,7 @@ export const useAuthStore = defineStore('auth', () => {
       acceso_nomina:      data.acceso_nomina      ?? false,
       acceso_compras:     data.acceso_compras     ?? false,
       acceso_encargos:    data.acceso_encargos    ?? false,
+      revisa_encargos:    data.revisa_encargos    ?? false,
       lleva_encargos:     data.lleva_encargos     ?? false,
       ve_todas_ordenes:   data.ve_todas_ordenes   ?? false,
       tiene_pasos_produccion: data.tiene_pasos_produccion ?? false,
@@ -162,10 +163,12 @@ export const useAuthStore = defineStore('auth', () => {
   // Sin excepción para supervisor a propósito: es una bandera activable
   // persona por persona para cualquier rol, no atada a ser supervisor.
   const puedeCompras          = computed(() => !!usuario.value?.acceso_compras)
-  // Encargos: administrar el módulo (entregar herramientas a cualquiera y
-  // pasar revista) es una cosa; responder por las propias es otra. Quien solo
-  // responde por las suyas entra igual, pero a ver únicamente su ficha.
+  // Encargos, tres cosas distintas: mirar quién tiene qué (acceso_encargos),
+  // hacer los checks y descontar (revisa_encargos, y a esos les llega el
+  // aviso del día), y responder por lo propio (lleva_encargos), que entra
+  // igual pero solo a ver su ficha.
   const puedeEncargos         = computed(() => !!usuario.value?.acceso_encargos)
+  const revisaEncargos        = computed(() => !!usuario.value?.revisa_encargos)
   const llevaEncargos         = computed(() => !!usuario.value?.lleva_encargos)
   const veTodasOrdenes        = computed(() => !!usuario.value?.ve_todas_ordenes)
   // La cara opuesta, que es como se pregunta en las pantallas: un vendedor ve
@@ -298,7 +301,7 @@ export const useAuthStore = defineStore('auth', () => {
     tieneAccesoPasos,
     isFacturador, tieneAccesoRedes, tieneAccesoComisiones, puedeRecargarTelas, puedeUsarTelas, puedeSurtir,
     puedeCostos, puedeProveedores, puedeDespacho, puedeProduccion, gestionaProduccion, puedeReserva, puedeNomina, puedeCompras,
-    puedeEncargos, llevaEncargos, veTodasOrdenes, soloVeSusOrdenes,
+    puedeEncargos, revisaEncargos, llevaEncargos, veTodasOrdenes, soloVeSusOrdenes,
     tienePerfilAlternativo, perfilAlternativo, perfilActivoIdx, perfilAlternoRecordado,
     login, fetchMe, setFirma, setEmail, logout, clearSession,
     loginPerfilAlternativo, cambiarPerfil, eliminarPerfilAlternativo,

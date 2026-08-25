@@ -190,10 +190,15 @@ Route::middleware('auth:sanctum')->group(function () {
     // Encargos: de qué responde cada trabajador (herramientas, equipos) y la
     // revista que se le pasa cada cierto tiempo.
     //
-    // Ver lo PROPIO no pide permiso: cualquiera puede mirar de qué responde él
-    // mismo, y el controlador se encarga de que no vea la ficha de otro. Todo
-    // lo demás —entregar, revisar, configurar— va bajo acceso_encargos, sin
-    // excepción automática para supervisor (misma regla que Compras).
+    // Tres niveles, de menos a más:
+    //  · sin nada          → solo la ficha PROPIA (/encargos/mios), para saber
+    //                        de qué responde uno mismo.
+    //  · acceso_encargos   → mirar quién tiene qué. Solo lectura.
+    //  · revisa_encargos   → entregar, pasar revista y descontar. Es quien
+    //                        hace los checks, y a quien le llegan los avisos.
+    // Sin excepción automática para supervisor (misma regla que Compras),
+    // salvo para designar revisores: si no, con el módulo recién estrenado no
+    // habría quién nombrara al primero.
     Route::get('/encargos/mios',                  [EncargoController::class, 'mios']);
     // Sin permiso solo pasa si el id es el suyo; lo valida el controlador.
     Route::get('/encargos/trabajadores/{id}',     [EncargoController::class, 'trabajador'])->whereNumber('id');
@@ -201,6 +206,12 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::middleware('permiso:acceso_encargos')->group(function () {
         Route::get('/encargos/trabajadores',      [EncargoController::class, 'trabajadores']);
+    });
+
+    Route::put('/encargos/revisores', [EncargoController::class, 'guardarRevisores'])
+        ->middleware('permiso:revisa_encargos,supervisor');
+
+    Route::middleware('permiso:revisa_encargos')->group(function () {
         Route::put('/encargos/config',            [EncargoController::class, 'guardarConfig']);
         Route::post('/encargos/revisiones',       [EncargoController::class, 'guardarRevision']);
         Route::post('/encargos',                  [EncargoController::class, 'store']);

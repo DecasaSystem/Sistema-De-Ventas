@@ -22,7 +22,9 @@ const cargando   = ref(true)
 const trabajador = ref(null)
 const encargos   = ref([])
 const revisiones = ref([])
-const puedeAdministrar = ref(false)
+// Quien solo mira ve lo mismo sin los botones: entregar y pasar revista
+// es de quien hace los checks.
+const puedeRevisar = ref(false)
 
 const esMiFicha = computed(() => Number(route.params.id) === auth.usuario?.id)
 
@@ -60,7 +62,7 @@ async function cargar() {
     trabajador.value = data.trabajador
     encargos.value   = data.encargos
     revisiones.value = data.revisiones
-    puedeAdministrar.value = data.puede_administrar
+    puedeRevisar.value = data.puede_revisar
   } catch (e) {
     toast.error(e.response?.data?.message || 'No se pudo cargar la ficha')
     router.back()
@@ -346,7 +348,7 @@ async function guardarRitmo() {
           </template>
         </p>
         <button
-          v-if="puedeAdministrar"
+          v-if="puedeRevisar"
           @click="abrirRitmo"
           class="text-xs text-teal-700 font-medium mt-1 hover:text-teal-800"
         >
@@ -355,7 +357,7 @@ async function guardarRitmo() {
       </div>
 
       <!-- Acciones -->
-      <div v-if="puedeAdministrar" class="flex gap-2 mb-4">
+      <div v-if="puedeRevisar" class="flex gap-2 mb-4">
         <button
           @click="abrirRevista"
           :disabled="!aCargo.length"
@@ -401,7 +403,7 @@ async function guardarRitmo() {
               <p v-if="e.valor_unitario && e.cantidad > 1" class="text-[10px] text-gray-400">{{ formatoPesos(e.valor_unitario) }} c/u</p>
             </div>
           </div>
-          <div v-if="puedeAdministrar" class="flex gap-2 mt-3">
+          <div v-if="puedeRevisar" class="flex gap-2 mt-3">
             <button
               @click="abrirCierre(e)"
               class="flex-1 bg-gray-100 text-gray-700 text-[11px] font-semibold rounded-lg px-2 py-1.5 hover:bg-gray-200 transition-colors flex items-center justify-center gap-1"

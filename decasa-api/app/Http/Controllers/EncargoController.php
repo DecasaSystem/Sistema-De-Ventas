@@ -160,6 +160,15 @@ class EncargoController extends Controller
         return response()->json([
             'trabajadores'  => $lista,
             'asignables'    => $asignables,
+            // Quién hace los checks hoy, y entre quiénes se puede elegir. Se
+            // designa desde acá y no solo desde la ficha de cada uno: es una
+            // decisión sobre el módulo, no sobre una persona suelta.
+            'revisores'     => Usuario::where('revisa_encargos', true)->where('activo', true)
+                ->orderBy('nombre')->get(['id', 'nombre'])->map(fn ($u) => ['id' => $u->id, 'nombre' => $u->nombre]),
+            'candidatos'    => Usuario::where('activo', true)->where('no_usa_programa', false)
+                ->orderBy('nombre')->get(['id', 'nombre', 'rol'])
+                ->map(fn ($u) => ['id' => $u->id, 'nombre' => $u->nombre]),
+            'puedo_designar' => $request->user()->revisa_encargos || $request->user()->rol === 'supervisor',
             'dias_generales' => RevisionEncargos::diasGenerales(),
             // Lo que la empresa tiene repartido por ahí, sumado. Es el número
             // que justifica el módulo entero.
@@ -200,7 +209,9 @@ class EncargoController extends Controller
                 ->sortBy([['estado', 'asc'], ['nombre', 'asc']])
                 ->map(fn (Encargo $e) => $this->encargoJson($e))->values(),
             'revisiones' => $revisiones->map(fn (EncargoRevision $r) => $this->revisionJson($r)),
-            'puede_administrar' => (bool) $request->user()->acceso_encargos,
+            // Quien solo mira ve exactamente lo mismo, pero sin los botones:
+            // entregar y pasar revista es de quien hace los checks.
+            'puede_revisar' => (bool) $request->user()->revisa_encargos,
         ]);
     }
 
@@ -547,6 +558,49 @@ class EncargoController extends Controller
     }
 
     // ── Cada cuánto se revisa ────────────────────────────────────────────────
+
+    /**
+     * PUT /api/encargos/revisores
+     *
+     * Quién pasa los checks. Se manda la lista completa —los que quedan—, no
+     * "agrega a este": así la pantalla siempre refleja exactamente lo que se
+     * ve marcado, sin que sobreviva nadie de una edición anterior.
+     *
+     * Quien revisa necesita poder abrir el módulo, así que el acceso se le
+     * prende solo; al quitarlo de revisor se le deja el acceso de mirar, que
+     * es lo menos sorprendente.
+     */
+    public function guardarRevisores(Request $request)
+    {
+        $data = $request->validate([
+            'usuario_ids'   => 'present|array',
+            'usuario_ids.*' => 'integer|exists:usuarios,id',
+        ]);
+
+        $ids = $data['usuario_ids'];
+
+        // Nadie de fábrica: revisar se hace desde el programa, y quien no
+        // entra nunca vería el aviso ni podría abrir la revista.
+        $validos = Usuario::whereIn('id', $ids)
+            ->where('no_usa_programa', false)
+            ->pluck('id')->all();
+
+        DB::transaction(function () use ($validos) {
+            Usuario::where('revisa_encargos', true)->whereNotIn('id', $validos ?: [0])
+                ->update(['revisa_encargos' => false]);
+
+            if ($validos) {
+                Usuario::whereIn('id', $validos)
+                    ->update(['revisa_encargos' => true, 'acceso_encargos' => true]);
+            }
+        });
+
+        return response()->json([
+            'revisores' => Usuario::whereIn('id', $validos ?: [0])
+                ->orderBy('nombre')->get(['id', 'nombre'])
+                ->map(fn ($u) => ['id' => $u->id, 'nombre' => $u->nombre]),
+        ]);
+    }
 
     /**
      * PUT /api/encargos/config

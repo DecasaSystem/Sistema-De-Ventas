@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Models\Usuario;
 use App\Services\NotificacionService;
 use App\Services\RevisionEncargos;
+use Carbon\Carbon;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -14,13 +15,20 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Avisa cuando hay gente a la que ya le tocaba revista.
+ * "Hoy le toca revisión a Fulano".
  *
  * Sin esto el módulo solo sirve si alguien se acuerda de abrirlo, y el punto
  * entero era no depender de que alguien se acuerde.
  *
- * Va un solo aviso con el total, no uno por persona: doce notificaciones
- * seguidas un lunes se leen como ruido y se descartan todas juntas.
+ * Corre todos los días para que el aviso llegue **el día** que toca, no
+ * cuando cuadre. Pero avisar todos los días de los mismos atrasados
+ * convierte la notificación en ruido y se descarta junto con las que sí
+ * importan, así que los que ya venían vencidos se recuerdan una vez por
+ * semana, los lunes.
+ *
+ * Va solo a quien hace los checks (`revisa_encargos`), no a todo el que puede
+ * mirar el módulo: si le llega a diez personas, ninguna sabe que le hablan
+ * a ella.
  */
 class AvisarRevisionesEncargos implements ShouldQueue, ShouldBeUnique
 {
@@ -30,44 +38,74 @@ class AvisarRevisionesEncargos implements ShouldQueue, ShouldBeUnique
 
     public function handle(): void
     {
-        $vencidos = Usuario::where('lleva_encargos', true)
-            ->where('activo', true)
-            ->get()
-            ->filter(fn (Usuario $u) => RevisionEncargos::estadoDe($u)['estado'] === 'vencida')
-            ->values();
+        $hoy    = Carbon::today();
+        $esLunes = $hoy->isMonday();
 
-        if ($vencidos->isEmpty()) {
-            Log::info('[DECASA] AvisarRevisionesEncargos: nadie con revista vencida.');
+        $vencen   = collect();   // les toca justo hoy
+        $atrasados = collect();  // ya se pasó la fecha
+
+        foreach (Usuario::where('lleva_encargos', true)->where('activo', true)->get() as $trabajador) {
+            $estado = RevisionEncargos::estadoDe($trabajador, $hoy);
+
+            if ($estado['dias_restantes'] === 0)      $vencen->push($trabajador);
+            elseif ($estado['estado'] === 'vencida')  $atrasados->push($trabajador);
+        }
+
+        // Los atrasados solo se recuerdan los lunes; los de hoy, siempre.
+        $avisar = $esLunes ? $vencen->merge($atrasados) : $vencen;
+
+        if ($avisar->isEmpty()) {
+            Log::info('[DECASA] AvisarRevisionesEncargos: nada que avisar hoy.');
             return;
         }
 
-        // A quien administra el módulo. No a los supervisores por serlo: el
-        // permiso es justo lo que dice quién se encarga de esto.
-        $encargados = Usuario::where('acceso_encargos', true)->where('activo', true)->get();
+        $revisores = Usuario::where('revisa_encargos', true)->where('activo', true)->get();
 
-        if ($encargados->isEmpty()) {
-            Log::warning('[DECASA] Hay revistas de encargos vencidas y nadie con acceso_encargos a quién avisarle.');
+        if ($revisores->isEmpty()) {
+            Log::warning('[DECASA] Hay revisiones de encargos pendientes y nadie marcado como que hace los checks.');
             return;
         }
 
-        $cuantos = $vencidos->count();
-        $nombres = $vencidos->take(3)->pluck('nombre')->implode(', ');
-        $resto   = $cuantos - min($cuantos, 3);
+        $mensaje = $this->mensaje($vencen, $esLunes ? $atrasados : collect());
 
-        $mensaje = $cuantos === 1
-            ? "A {$nombres} le toca revisión de lo que tiene a cargo."
-            : "A {$cuantos} personas les toca revisión: {$nombres}" . ($resto > 0 ? " y {$resto} más." : '.');
-
-        foreach ($encargados as $encargado) {
+        foreach ($revisores as $revisor) {
             NotificacionService::crear(
                 'encargo_revision',
                 'Toca revisar encargos',
                 $mensaje,
-                ['vencidas' => $cuantos],
-                $encargado->id,
+                ['pendientes' => $avisar->count()],
+                $revisor->id,
             );
         }
 
-        Log::info('[DECASA] AvisarRevisionesEncargos: avisadas ' . $cuantos . ' revistas vencidas.');
+        Log::info('[DECASA] AvisarRevisionesEncargos: ' . $avisar->count() . ' pendientes avisados a ' . $revisores->count() . ' revisor(es).');
+    }
+
+    /** Nombres si son pocos, cuenta si son muchos: leerlo tiene que costar un vistazo. */
+    private function mensaje($vencen, $atrasados): string
+    {
+        $partes = [];
+
+        if ($vencen->isNotEmpty()) {
+            $partes[] = $vencen->count() === 1
+                ? "Hoy le toca a {$vencen->first()->nombre}."
+                : 'Hoy les toca a ' . $this->nombres($vencen) . '.';
+        }
+
+        if ($atrasados->isNotEmpty()) {
+            $partes[] = $atrasados->count() === 1
+                ? "{$atrasados->first()->nombre} sigue sin revisar."
+                : $atrasados->count() . ' siguen sin revisar: ' . $this->nombres($atrasados) . '.';
+        }
+
+        return implode(' ', $partes);
+    }
+
+    private function nombres($gente): string
+    {
+        $primeros = $gente->take(3)->pluck('nombre')->implode(', ');
+        $resto    = $gente->count() - min($gente->count(), 3);
+
+        return $resto > 0 ? "{$primeros} y {$resto} más" : $primeros;
     }
 }

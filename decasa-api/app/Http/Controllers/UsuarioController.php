@@ -52,6 +52,7 @@ class UsuarioController extends Controller
             // programa).
             'lleva_encargos'      => (bool) $u->lleva_encargos,
             'acceso_encargos'     => (bool) $u->acceso_encargos,
+            'revisa_encargos'     => (bool) $u->revisa_encargos,
             'encargo_revision_dias' => $u->encargo_revision_dias,
             've_todas_ordenes'    => (bool) $u->ve_todas_ordenes,
             'tienda_default_id'   => $u->tienda_default_id,
@@ -154,6 +155,7 @@ class UsuarioController extends Controller
             'acceso_compras'      => 'boolean',
             'lleva_encargos'      => 'boolean',
             'acceso_encargos'     => 'boolean',
+            'revisa_encargos'     => 'boolean',
             'encargo_revision_dias' => 'nullable|integer|min:1|max:730',
             've_todas_ordenes'    => 'boolean',
             'tienda_default_id' => [
@@ -239,9 +241,12 @@ class UsuarioController extends Controller
             // taladros suele ser justo el que no entra al programa.
             'lleva_encargos'      => $request->boolean('lleva_encargos'),
             'encargo_revision_dias' => $data['encargo_revision_dias'] ?? null,
-            // Administrar el módulo sí es del programa: quien no entra no
-            // tiene dónde abrirlo.
-            'acceso_encargos'     => ! $noUsaPrograma && $request->boolean('acceso_encargos'),
+            // Ver el módulo y hacer los checks son del programa: quien no
+            // entra no tiene dónde abrirlo. Y quien revisa necesita poder
+            // verlo, así que el acceso va implícito.
+            'acceso_encargos'     => ! $noUsaPrograma
+                && ($request->boolean('acceso_encargos') || $request->boolean('revisa_encargos')),
+            'revisa_encargos'     => ! $noUsaPrograma && $request->boolean('revisa_encargos'),
             've_todas_ordenes'    => $request->boolean('ve_todas_ordenes'),
             'tienda_default_id'   => $independiente
                 ? Tienda::sedeIndependientes()?->id
@@ -393,12 +398,22 @@ class UsuarioController extends Controller
         if ($request->has('lleva_encargos')) {
             $data['lleva_encargos'] = $request->boolean('lleva_encargos');
         }
-        if ($request->has('acceso_encargos')) {
+        if ($request->has('acceso_encargos') || $request->has('revisa_encargos')) {
             // Se mira lo que va a quedar, no lo que era: si en este mismo
             // guardado se le está quitando el acceso al programa, no tiene
-            // sentido dejarle el permiso para administrar el módulo.
+            // sentido dejarle permisos sobre el módulo.
             $noUsaraPrograma = $data['no_usa_programa'] ?? (bool) $usuario->no_usa_programa;
-            $data['acceso_encargos'] = ! $noUsaraPrograma && $request->boolean('acceso_encargos');
+
+            $revisa = $request->has('revisa_encargos')
+                ? $request->boolean('revisa_encargos')
+                : (bool) $usuario->revisa_encargos;
+            $ve = $request->has('acceso_encargos')
+                ? $request->boolean('acceso_encargos')
+                : (bool) $usuario->acceso_encargos;
+
+            $data['revisa_encargos'] = ! $noUsaraPrograma && $revisa;
+            // Quien hace los checks tiene que poder abrir el módulo.
+            $data['acceso_encargos'] = ! $noUsaraPrograma && ($ve || $data['revisa_encargos']);
         }
         // Se respeta lo que ya es: quien no usa el programa nunca puede ser
         // apto para comisiones, porque no hace ventas.

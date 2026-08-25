@@ -63,6 +63,7 @@ class AuthController extends Controller
             // porque con esa sola —sin el permiso— la persona ya puede abrir
             // su propia ficha y ver de qué responde.
             'acceso_encargos'    => (bool) $usuario->acceso_encargos,
+            'revisa_encargos'    => (bool) $usuario->revisa_encargos,
             'lleva_encargos'     => (bool) $usuario->lleva_encargos,
             've_todas_ordenes'   => (bool) $usuario->ve_todas_ordenes,
             // Si lleva algún paso del taller. Es lo único que decide si ve
@@ -122,6 +123,7 @@ class AuthController extends Controller
             // porque con esa sola —sin el permiso— la persona ya puede abrir
             // su propia ficha y ver de qué responde.
             'acceso_encargos'    => (bool) $usuario->acceso_encargos,
+            'revisa_encargos'    => (bool) $usuario->revisa_encargos,
             'lleva_encargos'     => (bool) $usuario->lleva_encargos,
             've_todas_ordenes'   => (bool) $usuario->ve_todas_ordenes,
             // Si lleva algún paso del taller. Es lo único que decide si ve

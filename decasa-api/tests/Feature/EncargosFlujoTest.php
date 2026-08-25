@@ -54,6 +54,7 @@ class EncargosFlujoTest extends TestCase
         });
 
         (require database_path('migrations/2026_09_04_000001_encargos_de_los_trabajadores.php'))->up();
+        (require database_path('migrations/2026_09_05_000001_quien_hace_las_revisiones_de_encargos.php'))->up();
     }
 
     private function trabajador(array $attrs = []): Usuario
@@ -68,7 +69,8 @@ class EncargosFlujoTest extends TestCase
     {
         return Usuario::create([
             'nombre' => 'Juan David', 'email' => 'jd@decasa.com', 'password' => 'x',
-            'rol' => 'supervisor', 'activo' => true, 'acceso_encargos' => true, 'created_at' => now(),
+            'rol' => 'supervisor', 'activo' => true,
+            'acceso_encargos' => true, 'revisa_encargos' => true, 'created_at' => now(),
         ]);
     }
 
@@ -235,5 +237,52 @@ class EncargosFlujoTest extends TestCase
         $this->actingAs($curioso)->postJson('/api/encargos', [
             'usuario_id' => $t->id, 'nombre' => 'X', 'cantidad' => 1, 'fecha_entrega' => '2026-08-01',
         ])->assertStatus(403);
+    }
+
+    public function test_quien_solo_mira_no_entrega_ni_revisa(): void
+    {
+        $t     = $this->trabajador();
+        $e     = Encargo::create(['usuario_id' => $t->id, 'nombre' => 'Taladro', 'cantidad' => 1, 'fecha_entrega' => '2026-08-01']);
+        $mirón = Usuario::create(['nombre' => 'Mirón', 'email' => 'm@d.com', 'password' => 'x', 'rol' => 'vendedor',
+                                  'activo' => true, 'acceso_encargos' => true, 'created_at' => now()]);
+
+        // Ve quién tiene qué...
+        $this->actingAs($mirón)->getJson('/api/encargos/trabajadores')->assertOk();
+        $this->actingAs($mirón)->getJson("/api/encargos/trabajadores/{$t->id}")
+            ->assertOk()->assertJsonPath('puede_revisar', false);
+
+        // ...pero no toca nada.
+        $this->actingAs($mirón)->postJson('/api/encargos', [
+            'usuario_id' => $t->id, 'nombre' => 'X', 'cantidad' => 1, 'fecha_entrega' => '2026-08-01',
+        ])->assertStatus(403);
+        $this->actingAs($mirón)->postJson('/api/encargos/revisiones', [
+            'usuario_id' => $t->id, 'fecha' => '2026-08-25',
+            'items' => [['encargo_id' => $e->id, 'cantidad_ok' => 1, 'cantidad_danada' => 0, 'cantidad_perdida' => 0]],
+        ])->assertStatus(403);
+    }
+
+    public function test_se_designa_desde_el_modulo_quien_hace_los_checks(): void
+    {
+        $jefe  = $this->jefe();
+        $nuevo = Usuario::create(['nombre' => 'Encargada', 'email' => 'e@d.com', 'password' => 'x',
+                                  'rol' => 'vendedor', 'activo' => true, 'created_at' => now()]);
+        $fabrica = $this->trabajador(['nombre' => 'De fábrica']);
+
+        $this->actingAs($jefe)->putJson('/api/encargos/revisores', [
+            // El de fábrica se ignora: no entra al programa, así que nunca
+            // vería el aviso ni podría abrir la revista.
+            'usuario_ids' => [$nuevo->id, $fabrica->id],
+        ])->assertOk()->assertJsonCount(1, 'revisores');
+
+        $nuevo->refresh();
+        $this->assertTrue($nuevo->revisa_encargos);
+        // Quien revisa tiene que poder abrir el módulo: el acceso va implícito.
+        $this->assertTrue($nuevo->acceso_encargos);
+        $this->assertFalse($fabrica->fresh()->revisa_encargos);
+
+        // Se manda la lista completa, así que el que no viene deja de serlo —
+        // pero conserva el acceso de mirar, que es lo menos sorprendente.
+        $this->assertFalse($jefe->fresh()->revisa_encargos);
+        $this->assertTrue($jefe->fresh()->acceso_encargos);
     }
 }

@@ -50,6 +50,7 @@ const form = ref({
   // es otra. Ambas arrancan apagadas — a la mayoría no se le entrega nada.
   lleva_encargos: false,
   acceso_encargos: false,
+  revisa_encargos: false,
   acceso_costos: false,
   acceso_despacho: false,
   acceso_produccion: false,
@@ -137,8 +138,9 @@ async function submit() {
       apto_produccion: form.value.no_usa_programa || form.value.apto_produccion,
       // Se le entregan herramientas: vale igual para el que no usa el programa.
       lleva_encargos: form.value.lleva_encargos,
-      // Administrar el módulo sí necesita entrar al programa.
+      // Ver el módulo y hacer los checks sí necesitan entrar al programa.
       acceso_encargos: !form.value.no_usa_programa && form.value.acceso_encargos,
+      revisa_encargos: !form.value.no_usa_programa && form.value.acceso_encargos && form.value.revisa_encargos,
       rol_id: form.value.rol_id,
       facturacion: form.value.facturacion,
       independiente: esIndependiente.value,
@@ -540,7 +542,7 @@ async function submit() {
         </div>
       </div>
 
-      <!-- Administrar Encargos (cualquier rol, como Compras) -->
+      <!-- Encargos: mirar y hacer los checks son dos permisos (como Producción) -->
       <div class="flex items-start gap-3 py-2">
         <input
           id="acceso_encargos"
@@ -549,10 +551,25 @@ async function submit() {
           class="mt-0.5 rounded border-gray-300 text-teal-600 focus:ring-teal-500"
         />
         <div>
-          <label for="acceso_encargos" class="text-sm font-medium text-gray-700 cursor-pointer">Administra los Encargos</label>
+          <label for="acceso_encargos" class="text-sm font-medium text-gray-700 cursor-pointer">Ve los Encargos de todos</label>
           <p class="text-xs text-gray-500 mt-0.5">
-            Podrá entregarle herramientas a cualquiera y pasarles revista. Es otra cosa que
+            Podrá abrir el módulo y mirar quién responde por qué. Solo mirar. Es otra cosa que
             responder por las suyas: para eso está la casilla de arriba.
+          </p>
+        </div>
+      </div>
+      <div v-if="form.acceso_encargos" class="flex items-start gap-3 py-2 pl-6">
+        <input
+          id="revisa_encargos"
+          type="checkbox"
+          v-model="form.revisa_encargos"
+          class="mt-0.5 rounded border-gray-300 text-teal-600 focus:ring-teal-500"
+        />
+        <div>
+          <label for="revisa_encargos" class="text-sm font-medium text-gray-700 cursor-pointer">…y hace las revisiones</label>
+          <p class="text-xs text-gray-500 mt-0.5">
+            Es quien pasa contando: entrega herramientas, marca qué se dañó o se perdió y decide
+            qué se descuenta. <strong>El aviso del día del chequeo le llega solo a él.</strong>
           </p>
         </div>
       </div>

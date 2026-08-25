@@ -58,7 +58,10 @@ class Usuario extends Authenticatable
         // que le sirve hasta a quien no entra al programa) y administrar el
         // módulo es otra (`acceso_encargos`).
         'lleva_encargos',
+        // Ver quién tiene qué es una cosa; pasar revista y decidir qué se
+        // descuenta es otra, y esa es de una persona en concreto.
         'acceso_encargos',
+        'revisa_encargos',
         'encargo_revision_dias',
         've_todas_ordenes',
         // Trabajador de fábrica: sin login, sin tienda, sin permisos.
@@ -103,6 +106,7 @@ class Usuario extends Authenticatable
             'acceso_compras'      => 'boolean',
             'lleva_encargos'      => 'boolean',
             'acceso_encargos'     => 'boolean',
+            'revisa_encargos'     => 'boolean',
             've_todas_ordenes'    => 'boolean',
             'no_usa_programa'     => 'boolean',
             'apto_comisiones'     => 'boolean',

@@ -42,7 +42,7 @@ const editForm = ref({
   recarga_telas: false, acceso_telas: false, acceso_surtir: false, acceso_costos: false, acceso_proveedores: false,
   acceso_despacho: false, acceso_produccion: false, gestiona_produccion: false, acceso_nomina: false, acceso_reserva: false,
   acceso_compras: false,
-  lleva_encargos: false, acceso_encargos: false,
+  lleva_encargos: false, acceso_encargos: false, revisa_encargos: false,
   ve_todas_ordenes: false, tienda_default_id: '',
   apto_comisiones: false, apto_produccion: false,
   no_usa_programa: false, password: '', password_confirmation: '',
@@ -143,6 +143,7 @@ function openEditModal() {
     acceso_compras: usuario.value.acceso_compras ?? false,
     lleva_encargos: usuario.value.lleva_encargos ?? false,
     acceso_encargos: usuario.value.acceso_encargos ?? false,
+    revisa_encargos: usuario.value.revisa_encargos ?? false,
     acceso_reserva: usuario.value.acceso_reserva ?? false,
     ve_todas_ordenes: usuario.value.ve_todas_ordenes ?? false,
     apto_comisiones: usuario.value.apto_comisiones ?? false,
@@ -195,9 +196,10 @@ async function submitEdit() {
       acceso_nomina: editArquetipo.value === 'supervisor' ? editForm.value.acceso_nomina : false,
       acceso_compras: editForm.value.acceso_compras,
       // Responder por herramientas vale también para quien no usa el programa;
-      // administrar el módulo, no.
+      // mirar el módulo y hacer los checks, no.
       lleva_encargos: editForm.value.lleva_encargos,
       acceso_encargos: !editForm.value.no_usa_programa && editForm.value.acceso_encargos,
+      revisa_encargos: !editForm.value.no_usa_programa && editForm.value.acceso_encargos && editForm.value.revisa_encargos,
       acceso_reserva: editForm.value.acceso_reserva,
       ve_todas_ordenes: editArquetipo.value === 'vendedor' ? editForm.value.ve_todas_ordenes : false,
       tienda_default_id: editMostrarTienda.value ? (editForm.value.tienda_default_id || null) : null,
@@ -393,7 +395,9 @@ onMounted(async () => {
           </div>
           <div>
             <p class="text-xs text-gray-400">Módulo de Encargos</p>
-            <p class="font-medium text-teal-700">Puede entregar y pasar revista</p>
+            <p class="font-medium text-teal-700">
+              {{ usuario.revisa_encargos ? 'Hace las revisiones — le llega el aviso del día' : 'Puede ver quién tiene qué' }}
+            </p>
           </div>
         </div>
         <div v-if="usuario.acceso_compras" class="flex items-center gap-3">
@@ -776,10 +780,24 @@ onMounted(async () => {
                 class="mt-0.5 rounded border-gray-300 text-teal-600 focus:ring-teal-500"
               />
               <div>
-                <label for="edit-acceso-encargos" class="text-sm font-medium text-gray-700 cursor-pointer">Administra los Encargos</label>
+                <label for="edit-acceso-encargos" class="text-sm font-medium text-gray-700 cursor-pointer">Ve los Encargos de todos</label>
                 <p class="text-xs text-gray-500 mt-0.5">
-                  Podrá entregarle herramientas a cualquiera y pasarles revista. Es otra cosa que
-                  responder por las suyas.
+                  Podrá abrir el módulo y mirar quién responde por qué. Solo mirar.
+                </p>
+              </div>
+            </div>
+            <div v-if="!editForm.no_usa_programa && editForm.acceso_encargos" class="flex items-start gap-3 py-1 pl-6">
+              <input
+                id="edit-revisa-encargos"
+                type="checkbox"
+                v-model="editForm.revisa_encargos"
+                class="mt-0.5 rounded border-gray-300 text-teal-600 focus:ring-teal-500"
+              />
+              <div>
+                <label for="edit-revisa-encargos" class="text-sm font-medium text-gray-700 cursor-pointer">…y hace las revisiones</label>
+                <p class="text-xs text-gray-500 mt-0.5">
+                  Es quien pasa contando y decide qué se descuenta.
+                  <strong>El aviso del día del chequeo le llega solo a él.</strong>
                 </p>
               </div>
             </div>

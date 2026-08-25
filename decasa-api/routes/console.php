@@ -36,12 +36,11 @@ Schedule::job(new AvisarCotizacionesPorVencer())
     ->name('avisar-cotizaciones-por-vencer')
     ->withoutOverlapping();
 
-// Encargos: a quién le toca revista. Semanal y no diario a propósito — lo que
-// se revisa cada mes no cambia de un día para otro, y un aviso repetido todos
-// los días termina leyéndose como ruido y se descarta junto con los que sí
-// importan.
+// Encargos: a quién le toca revista. Diario, para que el aviso llegue el DÍA
+// que toca y no cuando cuadre; el propio job se guarda de repetir a los
+// atrasados todos los días (esos se recuerdan los lunes).
 Schedule::job(new AvisarRevisionesEncargos())
-    ->weeklyOn(1, '08:45')
+    ->dailyAt('08:45')
     ->timezone('America/Bogota')
     ->name('avisar-revisiones-encargos')
     ->withoutOverlapping();
