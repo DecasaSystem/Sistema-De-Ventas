@@ -320,7 +320,10 @@ class NominaLiquidador
             if ($ultimo) {
                 $piso = CicloNomina::fecha($ultimo)->addDay();
             } else {
-                $alta = CicloNomina::dia($empleado->created_at);
+                // Desde que entró a NÓMINA, no desde que existe como
+                // trabajador: a alguien creado en junio al que se le asigna
+                // sueldo hoy no se le deben las quincenas de junio.
+                $alta = CicloNomina::fecha($empleado->nomina_desde ?? $empleado->created_at);
                 $piso = $alta->greaterThan($pisoGlobal) ? $alta : $pisoGlobal->copy();
             }
 

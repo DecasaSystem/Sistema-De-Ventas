@@ -61,6 +61,7 @@ class Usuario extends Authenticatable
         'apto_comisiones',
         'apto_produccion',
         'nomina_sueldo_id',
+        'nomina_desde',
         'nomina_bonificacion_id',
         'periodicidad',
         'tienda_default_id',
@@ -98,6 +99,7 @@ class Usuario extends Authenticatable
             'no_usa_programa'     => 'boolean',
             'apto_comisiones'     => 'boolean',
             'apto_produccion'     => 'boolean',
+            'nomina_desde'        => 'date',
         ];
     }
 

@@ -33,6 +33,7 @@ class EmpleadoController extends Controller
             'cargo'              => $e->rolAsignado?->nombre,
             'no_usa_programa'    => (bool) $e->no_usa_programa,
             'nomina_sueldo_id'   => $e->nomina_sueldo_id,
+            'nomina_desde'       => $e->nomina_desde?->toDateString(),
             'sueldo'             => $e->relationLoaded('sueldo') ? $e->sueldo : null,
             'nomina_bonificacion_id' => $e->nomina_bonificacion_id,
             'bonificacion_nombre'    => $e->bonificacion?->nombre,
@@ -104,7 +105,17 @@ class EmpleadoController extends Controller
             'nomina_sueldo_id'       => 'sometimes|nullable|exists:nomina_sueldos,id',
             'nomina_bonificacion_id' => 'sometimes|nullable|exists:nomina_bonificaciones,id',
             'periodicidad'           => ['sometimes', 'required', Rule::in(CicloNomina::FRECUENCIAS)],
+            // Se puede corregir a mano: si alguien entró el 20 y se carga el
+            // 25, hay que poder decirlo para que la primera quincena cuadre.
+            'nomina_desde'           => 'sometimes|nullable|date',
         ]);
+
+        // Entra a nómina ahora: desde hoy, salvo que se diga otra fecha. Sin
+        // esto, los ciclos ya cerrados le saldrían como pagos atrasados.
+        if (! empty($data['nomina_sueldo_id']) && ! $trabajador->nomina_desde
+            && ! array_key_exists('nomina_desde', $data)) {
+            $data['nomina_desde'] = now()->toDateString();
+        }
 
         $trabajador->update($data);
 
@@ -149,6 +160,14 @@ class EmpleadoController extends Controller
             return response()->json([
                 'message' => 'No mandaste nada que cambiar: elige el sueldo, la frecuencia o la bonificación.',
             ], 422);
+        }
+
+        // Al entrar a nómina se marca desde cuándo, si no lo tenían: sin eso,
+        // los ciclos ya cerrados aparecerían como pagos atrasados que nadie debe.
+        if (isset($cambios['nomina_sueldo_id'])) {
+            Usuario::whereIn('id', $data['usuarios'])
+                ->whereNull('nomina_desde')
+                ->update(['nomina_desde' => now()->toDateString()]);
         }
 
         $n = Usuario::whereIn('id', $data['usuarios'])->update($cambios);
