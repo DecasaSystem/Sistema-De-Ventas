@@ -58,6 +58,26 @@ function alternarTrabajador(obj, id) {
  * trabajo, pero no entra al programa: un proceso donde solo hay fábrica deja
  * sus pasos invisibles y las piezas paradas.
  */
+/**
+ * La lista se parte en dos porque son dos papeles distintos.
+ *
+ * Juntos no servian: los 4 encargados se perdian entre 32 de fabrica, y la
+ * pantalla se veia igual que antes de filtrar nada.
+ */
+const encargadosPosibles = computed(() => trabajadores.value.filter(w => !w.no_usa_programa))
+const fabricaPosible     = computed(() => trabajadores.value.filter(w => w.no_usa_programa))
+
+/** El equipo de fabrica va plegado: es largo, y no es lo que uno viene a hacer. */
+const verFabrica = ref({})
+function alternarVerFabrica(clave) {
+  verFabrica.value = { ...verFabrica.value, [clave]: ! verFabrica.value[clave] }
+}
+/** Cuantos de fabrica lleva marcados, para verlo sin desplegar. */
+function fabricaMarcada(obj) {
+  const ids = obj.trabajador_ids ?? []
+  return fabricaPosible.value.filter(w => ids.includes(w.id)).length
+}
+
 function sinQuienConfirme(obj) {
   const ids = obj.trabajador_ids ?? []
   if (!ids.length) return false
@@ -188,19 +208,32 @@ async function quitar(t) {
 
 
                 <div>
-                  <label class="block text-[11px] text-gray-500 mb-1">Quiénes trabajan este paso</label>
+                  <label class="block text-[11px] text-gray-500 mb-1">Encargados — ven el paso y lo confirman</label>
                   <div class="flex flex-wrap gap-1.5">
                     <button
-                      v-for="w in trabajadores" :key="w.id" type="button" @click="alternarTrabajador(t, w.id)"
+                      v-for="w in encargadosPosibles" :key="w.id" type="button" @click="alternarTrabajador(t, w.id)"
                       :class="['px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors',
-                        (t.trabajador_ids ?? []).includes(w.id)
-                          ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
-                          : 'border-gray-200 bg-white text-gray-500 hover:border-emerald-300']"
-                    >
-                      {{ w.nombre }}
-                      <span v-if="w.no_usa_programa" class="ml-1 text-[10px] opacity-60">fábrica</span>
-                    </button>
+                        (t.trabajador_ids ?? []).includes(w.id) ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-gray-200 bg-white text-gray-500 hover:border-emerald-300']"
+                    >{{ w.nombre }}</button>
                   </div>
+
+                  <button type="button" @click="alternarVerFabrica('t' + t.id)"
+                    class="mt-2 text-[11px] text-gray-500 hover:text-gray-700">
+                    Equipo de fábrica — quiénes lo hacen
+                    <span v-if="fabricaMarcada(t)" class="text-emerald-600 font-semibold">({{ fabricaMarcada(t) }})</span>
+                    <span class="ml-1 opacity-60">{{ verFabrica['t' + t.id] ? '▲' : '▼' }}</span>
+                  </button>
+                  <div v-if="verFabrica['t' + t.id]" class="flex flex-wrap gap-1.5 mt-1.5">
+                    <button
+                      v-for="w in fabricaPosible" :key="w.id" type="button" @click="alternarTrabajador(t, w.id)"
+                      :class="['px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors',
+                        (t.trabajador_ids ?? []).includes(w.id) ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-gray-200 bg-white text-gray-500 hover:border-emerald-300']"
+                    >{{ w.nombre }}</button>
+                  </div>
+                  <p v-if="verFabrica['t' + t.id]" class="text-[11px] text-gray-400 mt-1">
+                    No entran al programa: no ven el paso, pero salen de primeros al anotar
+                    quién hizo el trabajo.
+                  </p>
                   <p class="text-[11px] text-gray-400 mt-1">
                     Los que entran al programa VEN el paso en "Mis pasos" y lo confirman.
                     Los de fábrica no lo ven, pero salen de primeros al anotar quién hizo
@@ -246,19 +279,32 @@ async function quitar(t) {
                 <input v-model="nuevo.descripcion" type="text" maxlength="160" placeholder="Descripción (opcional)"
                   class="w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 <div>
-                  <label class="block text-[11px] text-gray-500 mb-1">Quiénes trabajan este paso</label>
+                  <label class="block text-[11px] text-gray-500 mb-1">Encargados — ven el paso y lo confirman</label>
                   <div class="flex flex-wrap gap-1.5">
                     <button
-                      v-for="w in trabajadores" :key="w.id" type="button" @click="alternarTrabajador(nuevo, w.id)"
-                      :class="['px-2.5 py-1 rounded-lg border text-xs font-medium',
-                        (nuevo.trabajador_ids ?? []).includes(w.id)
-                          ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
-                          : 'border-gray-200 bg-white text-gray-500']"
-                    >
-                      {{ w.nombre }}
-                      <span v-if="w.no_usa_programa" class="ml-1 text-[10px] opacity-60">fábrica</span>
-                    </button>
+                      v-for="w in encargadosPosibles" :key="w.id" type="button" @click="alternarTrabajador(nuevo, w.id)"
+                      :class="['px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors',
+                        (nuevo.trabajador_ids ?? []).includes(w.id) ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-gray-200 bg-white text-gray-500']"
+                    >{{ w.nombre }}</button>
                   </div>
+
+                  <button type="button" @click="alternarVerFabrica('nuevo')"
+                    class="mt-2 text-[11px] text-gray-500 hover:text-gray-700">
+                    Equipo de fábrica — quiénes lo hacen
+                    <span v-if="fabricaMarcada(nuevo)" class="text-emerald-600 font-semibold">({{ fabricaMarcada(nuevo) }})</span>
+                    <span class="ml-1 opacity-60">{{ verFabrica['nuevo'] ? '▲' : '▼' }}</span>
+                  </button>
+                  <div v-if="verFabrica['nuevo']" class="flex flex-wrap gap-1.5 mt-1.5">
+                    <button
+                      v-for="w in fabricaPosible" :key="w.id" type="button" @click="alternarTrabajador(nuevo, w.id)"
+                      :class="['px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors',
+                        (nuevo.trabajador_ids ?? []).includes(w.id) ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-gray-200 bg-white text-gray-500']"
+                    >{{ w.nombre }}</button>
+                  </div>
+                  <p v-if="verFabrica['nuevo']" class="text-[11px] text-gray-400 mt-1">
+                    No entran al programa: no ven el paso, pero salen de primeros al anotar
+                    quién hizo el trabajo.
+                  </p>
                   <p class="text-[11px] text-gray-400 mt-1">
                     Los del programa lo ven y lo confirman; los de fábrica salen al anotar quién lo hizo.
                   </p>
