@@ -1079,11 +1079,6 @@ async function quitarAjuste(id) {
         <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
       </div>
 
-      <button v-if="empleadosActivos.length || empleadosInactivos.length" @click="abrirAgregar"
-        class="w-full mb-2 flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-dashed border-blue-300 text-blue-600 text-sm font-semibold hover:bg-blue-50 transition-colors">
-        <PlusIcon class="w-4 h-4" /> Agregar gente a nómina
-      </button>
-
       <div v-else-if="!empleadosActivos.length && !empleadosInactivos.length" class="text-center py-12 px-4">
         <template v-if="busquedaEmpleado.trim()">
           <p class="text-gray-400 text-sm">Nadie en nómina coincide con "{{ busquedaEmpleado }}".</p>
@@ -1102,6 +1097,14 @@ async function quitarAjuste(id) {
       </div>
 
       <div v-else class="space-y-2.5">
+        <!-- Dentro del bloque de la lista, no entre medio: puesto como un
+             `v-if` suelto partia la cadena v-if/v-else-if/v-else y el `v-else`
+             —que es esta lista— dejaba de renderizarse en cuanto habia gente. -->
+        <button @click="abrirAgregar"
+          class="w-full mb-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-dashed border-blue-300 text-blue-600 text-sm font-semibold hover:bg-blue-50 transition-colors">
+          <PlusIcon class="w-4 h-4" /> Agregar gente a nómina
+        </button>
+
         <div v-for="e in empleadosActivos" :key="e.id" class="bg-white rounded-xl shadow-sm p-4">
           <div class="flex items-start justify-between gap-2">
             <div class="min-w-0 flex-1">
