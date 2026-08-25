@@ -235,23 +235,34 @@ class EncargoController extends Controller
 
     // ── Entregar y cerrar ────────────────────────────────────────────────────
 
-    /** POST /api/encargos — entregarle algo a alguien. */
+    /**
+     * POST /api/encargos — entregarle cosas a alguien.
+     *
+     * Se entrega una lista, no un artículo. A alguien que llega se le da el
+     * portátil, la pantalla, el teclado y el mouse el mismo día y de una sola
+     * vez; hacer eso de a uno son cuatro formularios idénticos, y a la tercera
+     * el mouse se queda sin anotar.
+     *
+     * La fecha es una sola para todo lo que se entrega: es el mismo acto.
+     */
     public function store(Request $request)
     {
         $data = $request->validate([
-            'usuario_id'     => 'required|exists:usuarios,id',
-            'nombre'         => 'required|string|max:150',
-            'cantidad'       => 'required|integer|min:1|max:9999',
-            'serial'         => 'nullable|string|max:80',
-            'valor_unitario' => 'nullable|numeric|min:0',
-            'fecha_entrega'  => 'required|date',
-            'foto_url'       => 'nullable|string|max:500',
-            'notas'          => 'nullable|string|max:1000',
+            'usuario_id'             => 'required|exists:usuarios,id',
+            'fecha_entrega'          => 'required|date',
+            'items'                  => 'required|array|min:1',
+            'items.*.nombre'         => 'required|string|max:150',
+            'items.*.cantidad'       => 'required|integer|min:1|max:9999',
+            'items.*.serial'         => 'nullable|string|max:80',
+            'items.*.valor_unitario' => 'nullable|numeric|min:0',
+            'items.*.foto_url'       => 'nullable|string|max:500',
+            'items.*.notas'          => 'nullable|string|max:1000',
         ], [
-            'usuario_id.required'    => 'Elige a quién se le entrega.',
-            'nombre.required'        => 'Escribe qué se le entrega.',
-            'cantidad.required'      => 'Falta cuántas se le entregan.',
-            'fecha_entrega.required' => 'Falta la fecha de entrega.',
+            'usuario_id.required'      => 'Elige a quién se le entrega.',
+            'fecha_entrega.required'   => 'Falta la fecha de entrega.',
+            'items.required'           => 'No hay nada que entregar.',
+            'items.*.nombre.required'  => 'Hay una línea sin decir qué es.',
+            'items.*.cantidad.required'=> 'Hay una línea sin cantidad.',
         ]);
 
         $trabajador = Usuario::findOrFail($data['usuario_id']);
@@ -264,12 +275,25 @@ class EncargoController extends Controller
             $trabajador->update(['lleva_encargos' => true]);
         }
 
-        $encargo = Encargo::create($data + [
+        // Todo junto o nada: si la tercera línea falla, no puede quedar la
+        // persona con dos cosas a cargo y el resto perdido en un formulario
+        // que ya se cerró.
+        $creados = DB::transaction(fn () => collect($data['items'])->map(fn (array $item) => Encargo::create([
+            'usuario_id'       => $trabajador->id,
+            'nombre'           => $item['nombre'],
+            'cantidad'         => $item['cantidad'],
+            'serial'           => $item['serial'] ?? null,
+            'valor_unitario'   => $item['valor_unitario'] ?? null,
+            'foto_url'         => $item['foto_url'] ?? null,
+            'notas'            => $item['notas'] ?? null,
+            'fecha_entrega'    => $data['fecha_entrega'],
             'entregado_por_id' => $request->user()->id,
             'estado'           => 'a_cargo',
-        ]);
+        ])));
 
-        return response()->json($this->encargoJson($encargo->load('entregadoPor:id,nombre')), 201);
+        return response()->json([
+            'entregados' => $creados->map(fn (Encargo $e) => $this->encargoJson($e->load('entregadoPor:id,nombre'))),
+        ], 201);
     }
 
     /** PATCH /api/encargos/{id} — corregir lo que se anotó mal. */

@@ -4,8 +4,9 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
 import InputPesos from '@/components/common/InputPesos.vue'
+import EntregaModal from '@/components/encargos/EntregaModal.vue'
 import {
-  getTrabajador, entregar, cerrarEncargo, borrarEncargo,
+  getTrabajador, cerrarEncargo, borrarEncargo,
   guardarRevision, getRevision, guardarConfig,
 } from '@/api/encargos'
 import {
@@ -73,36 +74,13 @@ async function cargar() {
 onMounted(cargar)
 
 // ── Entregar algo más ──────────────────────────────────────────────────────
+// Se entregan varias de una vez (portátil, pantalla, teclado, mouse), así que
+// el formulario es el mismo componente que en la lista general.
 const mostrarEntrega = ref(false)
-const guardandoEntrega = ref(false)
-const formEntrega = ref({ nombre: '', cantidad: 1, serial: '', valor_unitario: 0, fecha_entrega: '', notas: '' })
 
-function abrirEntrega() {
-  formEntrega.value = { nombre: '', cantidad: 1, serial: '', valor_unitario: 0, fecha_entrega: hoyISO(), notas: '' }
-  mostrarEntrega.value = true
-}
-
-async function guardarEntrega() {
-  if (!formEntrega.value.nombre.trim()) return toast.error('Escribe qué se le entrega')
-  guardandoEntrega.value = true
-  try {
-    await entregar({
-      usuario_id: Number(route.params.id),
-      nombre: formEntrega.value.nombre.trim(),
-      cantidad: Number(formEntrega.value.cantidad) || 1,
-      serial: formEntrega.value.serial.trim() || null,
-      valor_unitario: Number(formEntrega.value.valor_unitario) || null,
-      fecha_entrega: formEntrega.value.fecha_entrega,
-      notas: formEntrega.value.notas.trim() || null,
-    })
-    toast.success('Entregado y anotado')
-    mostrarEntrega.value = false
-    await cargar()
-  } catch (e) {
-    toast.error(e.response?.data?.message || 'No se pudo guardar')
-  } finally {
-    guardandoEntrega.value = false
-  }
+async function alEntregar() {
+  mostrarEntrega.value = false
+  await cargar()
 }
 
 // ── Cerrar un encargo (devolver / perdido / baja) ──────────────────────────
@@ -366,7 +344,7 @@ async function guardarRitmo() {
           <ClipboardDocumentCheckIcon class="w-4 h-4" /> Hacer inventario
         </button>
         <button
-          @click="abrirEntrega"
+          @click="mostrarEntrega = true"
           class="flex-1 bg-gray-100 text-gray-700 text-xs font-semibold rounded-xl px-3 py-2.5 hover:bg-gray-200 transition-colors flex items-center justify-center gap-1.5"
         >
           <PlusIcon class="w-4 h-4" /> Entregar algo
@@ -650,61 +628,13 @@ async function guardarRitmo() {
       </Transition>
     </Teleport>
 
-    <!-- ═══════════ Modal: entregar algo ═══════════ -->
-    <Teleport to="body">
-      <Transition
-        enter-active-class="transition-opacity duration-200" enter-from-class="opacity-0"
-        leave-active-class="transition-opacity duration-150" leave-to-class="opacity-0"
-      >
-        <div v-if="mostrarEntrega" class="fixed inset-0 bg-black/50 backdrop-blur-[2px] z-50 flex items-end sm:items-center justify-center" @click.self="mostrarEntrega = false">
-          <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full sm:max-w-md max-h-[92vh] overflow-y-auto shadow-2xl">
-            <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-100 sticky top-0 bg-white/95 backdrop-blur-sm">
-              <p class="font-semibold text-gray-800 truncate">Entregarle a {{ trabajador?.nombre }}</p>
-              <button @click="mostrarEntrega = false" class="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors shrink-0">
-                <XMarkIcon class="w-5 h-5" />
-              </button>
-            </div>
-            <div class="p-5 space-y-4">
-              <div>
-                <label class="block text-xs font-semibold text-gray-500 mb-1.5">¿Qué se le entrega? *</label>
-                <input v-model="formEntrega.nombre" placeholder="Taladro Bosch" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent" />
-              </div>
-              <div class="grid grid-cols-2 gap-3">
-                <div>
-                  <label class="block text-xs font-semibold text-gray-500 mb-1.5">¿Cuántas? *</label>
-                  <input v-model="formEntrega.cantidad" type="number" min="1" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent" />
-                </div>
-                <div>
-                  <label class="block text-xs font-semibold text-gray-500 mb-1.5">Fecha *</label>
-                  <input v-model="formEntrega.fecha_entrega" type="date" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent" />
-                </div>
-              </div>
-              <div>
-                <label class="block text-xs font-semibold text-gray-500 mb-1.5">Serial o placa</label>
-                <input v-model="formEntrega.serial" placeholder="Para distinguirlo si hay varios iguales" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent" />
-              </div>
-              <div>
-                <label class="block text-xs font-semibold text-gray-500 mb-1.5">¿Cuánto vale reponer una?</label>
-                <InputPesos v-model="formEntrega.valor_unitario" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent" />
-              </div>
-              <div>
-                <label class="block text-xs font-semibold text-gray-500 mb-1.5">Notas</label>
-                <textarea v-model="formEntrega.notas" rows="2" placeholder="Estado en que se entrega, accesorios..." class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 resize-none focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent" />
-              </div>
-            </div>
-            <div class="flex gap-2.5 p-5 pt-2">
-              <button @click="mostrarEntrega = false" class="flex-1 bg-gray-100 text-gray-700 text-sm font-semibold rounded-xl px-4 py-2.5 hover:bg-gray-200 transition-colors">Cancelar</button>
-              <button
-                @click="guardarEntrega" :disabled="guardandoEntrega"
-                class="flex-1 bg-teal-600 text-white text-sm font-semibold rounded-xl px-4 py-2.5 hover:bg-teal-700 transition-colors disabled:opacity-50"
-              >
-                {{ guardandoEntrega ? 'Guardando...' : 'Entregar' }}
-              </button>
-            </div>
-          </div>
-        </div>
-      </Transition>
-    </Teleport>
+    <EntregaModal
+      v-if="mostrarEntrega"
+      :trabajador-id="route.params.id"
+      :nombre-trabajador="trabajador?.nombre ?? ''"
+      @cerrar="mostrarEntrega = false"
+      @guardado="alEntregar"
+    />
 
     <!-- ═══════════ Modal: cerrar un encargo ═══════════ -->
     <Teleport to="body">

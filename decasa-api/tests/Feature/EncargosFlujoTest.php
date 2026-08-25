@@ -80,8 +80,8 @@ class EncargosFlujoTest extends TestCase
         $nuevo = Usuario::create(['nombre' => 'Nuevo', 'rol' => 'lijador', 'activo' => true, 'created_at' => now()]);
 
         $this->actingAs($jefe)->postJson('/api/encargos', [
-            'usuario_id' => $nuevo->id, 'nombre' => 'Taladro Bosch', 'cantidad' => 2,
-            'valor_unitario' => 300000, 'fecha_entrega' => '2026-08-01',
+            'usuario_id' => $nuevo->id, 'fecha_entrega' => '2026-08-01',
+            'items' => [['nombre' => 'Taladro Bosch', 'cantidad' => 2, 'valor_unitario' => 300000]],
         ])->assertCreated();
 
         // Se le entregó algo, así que el módulo se le prende solo: no hace
@@ -91,6 +91,46 @@ class EncargosFlujoTest extends TestCase
         $r = $this->actingAs($jefe)->getJson('/api/encargos/trabajadores')->assertOk();
         $this->assertEquals(600000, $r->json('valor_total'));
         $this->assertSame(2, $r->json('trabajadores.0.piezas'));
+    }
+
+    public function test_se_entrega_todo_de_una_vez(): void
+    {
+        $jefe = $this->jefe();
+        $t    = $this->trabajador();
+
+        // Lo que se le da a alguien que llega: cuatro cosas el mismo día.
+        $this->actingAs($jefe)->postJson('/api/encargos', [
+            'usuario_id' => $t->id, 'fecha_entrega' => '2026-08-01',
+            'items' => [
+                ['nombre' => 'Portátil HP', 'cantidad' => 1, 'valor_unitario' => 2000000, 'serial' => 'HP-99'],
+                ['nombre' => 'Pantalla',    'cantidad' => 1, 'valor_unitario' => 400000],
+                ['nombre' => 'Teclado',     'cantidad' => 1],
+                ['nombre' => 'Mouse',       'cantidad' => 2],
+            ],
+        ])->assertCreated()->assertJsonCount(4, 'entregados');
+
+        $this->assertSame(4, Encargo::where('usuario_id', $t->id)->count());
+        // La fecha es una sola: es el mismo acto de entrega.
+        $this->assertSame(4, Encargo::whereDate('fecha_entrega', '2026-08-01')->count());
+        $this->assertSame('HP-99', Encargo::where('nombre', 'Portátil HP')->value('serial'));
+    }
+
+    public function test_si_una_linea_esta_mal_no_se_entrega_ninguna(): void
+    {
+        $jefe = $this->jefe();
+        $t    = $this->trabajador();
+
+        $this->actingAs($jefe)->postJson('/api/encargos', [
+            'usuario_id' => $t->id, 'fecha_entrega' => '2026-08-01',
+            'items' => [
+                ['nombre' => 'Portátil HP', 'cantidad' => 1],
+                ['nombre' => '',            'cantidad' => 1],   // se quedó sin nombre
+            ],
+        ])->assertStatus(422);
+
+        // Ni el portátil: si no, la persona queda con una cosa a cargo y el
+        // resto perdido en un formulario que ya se cerró.
+        $this->assertSame(0, Encargo::count());
     }
 
     public function test_la_revista_tiene_que_cuadrar_con_lo_que_tiene_a_cargo(): void
@@ -235,7 +275,8 @@ class EncargosFlujoTest extends TestCase
         $this->actingAs($curioso)->getJson('/api/encargos/mios')->assertOk();
         // Y no puede entregar ni revisar.
         $this->actingAs($curioso)->postJson('/api/encargos', [
-            'usuario_id' => $t->id, 'nombre' => 'X', 'cantidad' => 1, 'fecha_entrega' => '2026-08-01',
+            'usuario_id' => $t->id, 'fecha_entrega' => '2026-08-01',
+            'items' => [['nombre' => 'X', 'cantidad' => 1]],
         ])->assertStatus(403);
     }
 
@@ -253,7 +294,8 @@ class EncargosFlujoTest extends TestCase
 
         // ...pero no toca nada.
         $this->actingAs($mirón)->postJson('/api/encargos', [
-            'usuario_id' => $t->id, 'nombre' => 'X', 'cantidad' => 1, 'fecha_entrega' => '2026-08-01',
+            'usuario_id' => $t->id, 'fecha_entrega' => '2026-08-01',
+            'items' => [['nombre' => 'X', 'cantidad' => 1]],
         ])->assertStatus(403);
         $this->actingAs($mirón)->postJson('/api/encargos/revisiones', [
             'usuario_id' => $t->id, 'fecha' => '2026-08-25',

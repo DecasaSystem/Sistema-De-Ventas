@@ -2,9 +2,9 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useToast } from '@/composables/useToast'
-import InputPesos from '@/components/common/InputPesos.vue'
+import EntregaModal from '@/components/encargos/EntregaModal.vue'
 import { useAuthStore } from '@/stores/auth'
-import { getTrabajadores, entregar, guardarConfig, guardarRevisores } from '@/api/encargos'
+import { getTrabajadores, guardarConfig, guardarRevisores } from '@/api/encargos'
 import {
   BriefcaseIcon, PlusIcon, XMarkIcon, MagnifyingGlassIcon,
   ExclamationTriangleIcon, Cog6ToothIcon, ChevronRightIcon,
@@ -38,10 +38,6 @@ function formatoPesos(n) {
 function formatoFecha(f) {
   if (!f) return ''
   return new Date(f + 'T00:00:00').toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' })
-}
-function hoyISO() {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 // Cómo se pinta cada estado de revista. El texto dice qué hacer, no qué pasó:
@@ -85,44 +81,13 @@ const lista = computed(() => {
 })
 
 // ── Entregar algo ──────────────────────────────────────────────────────────
+// El formulario vive en EntregaModal: se abre igual desde acá y desde la ficha
+// de una persona, y la única diferencia es si hay que preguntar a quién.
 const mostrarEntrega = ref(false)
-const guardando      = ref(false)
-const form = ref({ usuario_id: '', nombre: '', cantidad: 1, serial: '', valor_unitario: 0, fecha_entrega: '', notas: '' })
 
-function abrirEntrega() {
-  form.value = {
-    usuario_id: '', nombre: '', cantidad: 1, serial: '',
-    valor_unitario: 0, fecha_entrega: hoyISO(), notas: '',
-  }
-  mostrarEntrega.value = true
-}
-
-async function guardarEntrega() {
-  if (!form.value.usuario_id) return toast.error('Elige a quién se le entrega')
-  if (!form.value.nombre.trim()) return toast.error('Escribe qué se le entrega')
-  if (!form.value.cantidad || form.value.cantidad < 1) return toast.error('La cantidad tiene que ser al menos 1')
-
-  guardando.value = true
-  try {
-    await entregar({
-      usuario_id: form.value.usuario_id,
-      nombre: form.value.nombre.trim(),
-      cantidad: Number(form.value.cantidad),
-      serial: form.value.serial.trim() || null,
-      // Sin valor no se puede sugerir cuánto descontar si se pierde, pero se
-      // permite: hay cosas que no se le cobran a nadie.
-      valor_unitario: Number(form.value.valor_unitario) || null,
-      fecha_entrega: form.value.fecha_entrega,
-      notas: form.value.notas.trim() || null,
-    })
-    toast.success('Entregado y anotado')
-    mostrarEntrega.value = false
-    await cargar()
-  } catch (e) {
-    toast.error(e.response?.data?.message || 'No se pudo guardar')
-  } finally {
-    guardando.value = false
-  }
+async function alEntregar() {
+  mostrarEntrega.value = false
+  await cargar()
 }
 
 // ── Quién hace los checks ──────────────────────────────────────────────────
@@ -267,7 +232,7 @@ async function guardarDias() {
       </div>
       <button
         v-if="puedeRevisar"
-        @click="abrirEntrega"
+        @click="mostrarEntrega = true"
         class="flex items-center gap-1.5 bg-teal-600 text-white text-xs font-semibold px-3 py-2.5 rounded-xl hover:bg-teal-700 transition-colors shadow-sm shrink-0"
       >
         <PlusIcon class="w-4 h-4" /> Entregar
@@ -332,77 +297,12 @@ async function guardarDias() {
       </button>
     </div>
 
-    <!-- Entregar algo -->
-    <Teleport to="body">
-      <Transition
-        enter-active-class="transition-opacity duration-200" enter-from-class="opacity-0"
-        leave-active-class="transition-opacity duration-150" leave-to-class="opacity-0"
-      >
-        <div v-if="mostrarEntrega" class="fixed inset-0 bg-black/50 backdrop-blur-[2px] z-50 flex items-end sm:items-center justify-center" @click.self="mostrarEntrega = false">
-          <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full sm:max-w-md max-h-[92vh] overflow-y-auto shadow-2xl">
-            <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-100 sticky top-0 bg-white/95 backdrop-blur-sm">
-              <div class="flex items-center gap-2.5">
-                <div class="w-9 h-9 rounded-xl bg-teal-50 flex items-center justify-center shrink-0">
-                  <BriefcaseIcon class="w-5 h-5 text-teal-600" />
-                </div>
-                <p class="font-semibold text-gray-800">Entregar algo</p>
-              </div>
-              <button @click="mostrarEntrega = false" class="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
-                <XMarkIcon class="w-5 h-5" />
-              </button>
-            </div>
-
-            <div class="p-5 space-y-4">
-              <div>
-                <label class="block text-xs font-semibold text-gray-500 mb-1.5">¿A quién? *</label>
-                <select v-model="form.usuario_id" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent">
-                  <option value="">Elegir trabajador...</option>
-                  <option v-for="a in asignables" :key="a.id" :value="a.id">{{ a.nombre }} — {{ a.cargo }}</option>
-                </select>
-              </div>
-              <div>
-                <label class="block text-xs font-semibold text-gray-500 mb-1.5">¿Qué se le entrega? *</label>
-                <input v-model="form.nombre" placeholder="Taladro Bosch" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent" />
-              </div>
-              <div class="grid grid-cols-2 gap-3">
-                <div>
-                  <label class="block text-xs font-semibold text-gray-500 mb-1.5">¿Cuántas? *</label>
-                  <input v-model="form.cantidad" type="number" min="1" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent" />
-                </div>
-                <div>
-                  <label class="block text-xs font-semibold text-gray-500 mb-1.5">Fecha *</label>
-                  <input v-model="form.fecha_entrega" type="date" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent" />
-                </div>
-              </div>
-              <div>
-                <label class="block text-xs font-semibold text-gray-500 mb-1.5">Serial o placa</label>
-                <input v-model="form.serial" placeholder="Para distinguirlo cuando hay varios iguales" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent" />
-              </div>
-              <div>
-                <label class="block text-xs font-semibold text-gray-500 mb-1.5">¿Cuánto vale reponer una?</label>
-                <InputPesos v-model="form.valor_unitario" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent" />
-                <p class="text-[11px] text-gray-400 mt-1">Es lo que se le sugiere descontar si se pierde. Se puede dejar vacío.</p>
-              </div>
-              <div>
-                <label class="block text-xs font-semibold text-gray-500 mb-1.5">Notas</label>
-                <textarea v-model="form.notas" rows="2" placeholder="Estado en que se entrega, accesorios que lleva..." class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 resize-none focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent" />
-              </div>
-            </div>
-
-            <div class="flex gap-2.5 p-5 pt-2">
-              <button @click="mostrarEntrega = false" class="flex-1 bg-gray-100 text-gray-700 text-sm font-semibold rounded-xl px-4 py-2.5 hover:bg-gray-200 transition-colors">Cancelar</button>
-              <button
-                @click="guardarEntrega" :disabled="guardando"
-                class="flex-1 bg-teal-600 text-white text-sm font-semibold rounded-xl px-4 py-2.5 hover:bg-teal-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
-              >
-                <span v-if="guardando" class="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                {{ guardando ? 'Guardando...' : 'Entregar' }}
-              </button>
-            </div>
-          </div>
-        </div>
-      </Transition>
-    </Teleport>
+    <EntregaModal
+      v-if="mostrarEntrega"
+      :asignables="asignables"
+      @cerrar="mostrarEntrega = false"
+      @guardado="alEntregar"
+    />
 
     <!-- Quién hace los checks -->
     <Teleport to="body">
