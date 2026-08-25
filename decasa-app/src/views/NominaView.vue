@@ -3,7 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useToast } from '@/composables/useToast'
 import InputPesos from '@/components/common/InputPesos.vue'
-import { getEmpleados, actualizarEmpleado, eliminarEmpleado } from '@/api/empleados'
+import { getEmpleados, actualizarEmpleado, eliminarEmpleado, asignarEnLote } from '@/api/empleados'
 import { getPrestamos, crearPrestamo, editarPrestamo, borrarPrestamo } from '@/api/nomina'
 import {
   getSueldos, crearSueldo, actualizarSueldo, eliminarSueldo,
@@ -543,6 +543,63 @@ const sueldoElegido = computed(() =>
   sueldosActivos.value.find(s => s.id === formEmpleado.value.nomina_sueldo_id) ?? null
 )
 
+// ── Agregar gente a nómina ────────────────────────────────────────────────
+// La lista principal son los que YA están en nómina. Los demás se piden
+// aparte: cargar 32 personas de fábrica una por una es lo que hace que nómina
+// no arranque nunca, así que se les pone el sueldo a varios de una.
+const modalAgregar   = ref(false)
+const porAgregar     = ref([])
+const cargandoAgregar = ref(false)
+const seleccionados  = ref([])
+const loteSueldo     = ref('')
+const lotePeriodo    = ref('quincenal')
+const guardandoLote  = ref(false)
+const busquedaAgregar = ref('')
+
+const porAgregarFiltrados = computed(() => {
+  const q = busquedaAgregar.value.trim().toLowerCase()
+  return porAgregar.value.filter(u => !q || (u.nombre ?? '').toLowerCase().includes(q))
+})
+
+async function abrirAgregar() {
+  modalAgregar.value = true
+  seleccionados.value = []
+  busquedaAgregar.value = ''
+  cargandoAgregar.value = true
+  try {
+    const { data } = await getEmpleados(false, { sin_sueldo: 1 })
+    porAgregar.value = Array.isArray(data) ? data : []
+  } catch { porAgregar.value = [] } finally { cargandoAgregar.value = false }
+}
+
+function alternarSeleccion(id) {
+  seleccionados.value = seleccionados.value.includes(id)
+    ? seleccionados.value.filter(x => x !== id)
+    : [...seleccionados.value, id]
+}
+function seleccionarTodos() {
+  const ids = porAgregarFiltrados.value.map(u => u.id)
+  seleccionados.value = seleccionados.value.length === ids.length ? [] : ids
+}
+
+async function guardarLote() {
+  if (!seleccionados.value.length) { toast.error('Elige a quién le vas a poner sueldo.'); return }
+  if (!loteSueldo.value) { toast.error('Elige el sueldo.'); return }
+  guardandoLote.value = true
+  try {
+    const { data } = await asignarEnLote({
+      usuarios: seleccionados.value,
+      nomina_sueldo_id: loteSueldo.value,
+      periodicidad: lotePeriodo.value,
+    })
+    toast.success(data?.message ?? 'Listo')
+    modalAgregar.value = false
+    await Promise.all([cargarEmpleados(), cargarPendientes()])
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo asignar')
+  } finally { guardandoLote.value = false }
+}
+
 // ── Préstamos ─────────────────────────────────────────────────────────────
 // "Présteme 200.000 y me los descuenta en dos meses": se registra una vez y el
 // sistema descuenta una cuota en cada pago, hasta saldarlo.
@@ -1022,9 +1079,27 @@ async function quitarAjuste(id) {
         <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
       </div>
 
-      <p v-else-if="!empleadosActivos.length && !empleadosInactivos.length" class="text-center py-12 text-gray-400 text-sm">
-        Nadie coincide con "{{ busquedaEmpleado }}".
-      </p>
+      <button v-if="empleadosActivos.length || empleadosInactivos.length" @click="abrirAgregar"
+        class="w-full mb-2 flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-dashed border-blue-300 text-blue-600 text-sm font-semibold hover:bg-blue-50 transition-colors">
+        <PlusIcon class="w-4 h-4" /> Agregar gente a nómina
+      </button>
+
+      <div v-else-if="!empleadosActivos.length && !empleadosInactivos.length" class="text-center py-12 px-4">
+        <template v-if="busquedaEmpleado.trim()">
+          <p class="text-gray-400 text-sm">Nadie en nómina coincide con "{{ busquedaEmpleado }}".</p>
+        </template>
+        <template v-else>
+          <p class="text-gray-600 text-sm font-medium">Todavía no hay nadie en nómina.</p>
+          <p class="text-gray-400 text-xs mt-1 max-w-xs mx-auto">
+            Estar en nómina es tener un sueldo asignado. Elige a quién le vas a pagar
+            y con qué sueldo; puedes hacerlo con varios a la vez.
+          </p>
+          <button @click="abrirAgregar"
+            class="mt-4 bg-blue-600 text-white text-sm font-semibold rounded-xl px-5 py-2.5 hover:bg-blue-700 transition-colors">
+            Agregar gente a nómina
+          </button>
+        </template>
+      </div>
 
       <div v-else class="space-y-2.5">
         <div v-for="e in empleadosActivos" :key="e.id" class="bg-white rounded-xl shadow-sm p-4">
@@ -1951,6 +2026,97 @@ async function quitarAjuste(id) {
                   {{ guardandoPrest ? 'Guardando...' : 'Registrar préstamo' }}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- A quién le vamos a pagar -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="modalAgregar" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
+          @click.self="modalAgregar = false">
+          <div class="absolute inset-0 bg-black/40" />
+          <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md max-h-[92vh] overflow-y-auto">
+            <div class="sticky top-0 bg-white/95 backdrop-blur-sm px-5 py-4 border-b border-gray-100 flex items-start justify-between gap-3">
+              <div>
+                <h3 class="text-lg font-bold text-gray-800">Agregar a nómina</h3>
+                <p class="text-xs text-gray-500 mt-0.5">Elige a varios y ponles el mismo sueldo de una vez</p>
+              </div>
+              <button @click="modalAgregar = false" class="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:bg-gray-100 shrink-0">
+                <XMarkIcon class="w-5 h-5" />
+              </button>
+            </div>
+
+            <div class="p-5 space-y-4">
+              <div v-if="cargandoAgregar" class="flex justify-center py-6">
+                <div class="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+              </div>
+
+              <template v-else-if="porAgregar.length">
+                <div class="relative">
+                  <input v-model="busquedaAgregar" type="text" placeholder="Buscar trabajador..."
+                    class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+
+                <div class="flex items-center justify-between">
+                  <button @click="seleccionarTodos" class="text-xs font-semibold text-blue-600 hover:text-blue-700">
+                    {{ seleccionados.length === porAgregarFiltrados.length ? 'Quitar todos' : 'Elegir todos' }}
+                  </button>
+                  <span class="text-xs text-gray-400">{{ seleccionados.length }} elegido(s)</span>
+                </div>
+
+                <div class="max-h-56 overflow-y-auto border border-gray-100 rounded-xl divide-y divide-gray-100">
+                  <button v-for="u in porAgregarFiltrados" :key="u.id" type="button" @click="alternarSeleccion(u.id)"
+                    class="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-blue-50 text-left transition-colors">
+                    <input type="checkbox" :checked="seleccionados.includes(u.id)" tabindex="-1"
+                      class="rounded border-gray-300 text-blue-600 pointer-events-none" />
+                    <div class="min-w-0">
+                      <p class="text-sm text-gray-800 truncate">{{ u.nombre }}</p>
+                      <p class="text-[11px] text-gray-400">{{ u.rol_nombre ?? u.rol }}</p>
+                    </div>
+                  </button>
+                  <p v-if="!porAgregarFiltrados.length" class="text-xs text-gray-400 text-center py-4">
+                    Nadie con ese nombre.
+                  </p>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <label class="block text-xs font-semibold text-gray-500 mb-1">Sueldo</label>
+                    <select v-model="loteSueldo"
+                      class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                      <option value="">Elige...</option>
+                      <option v-for="sd in sueldosActivos" :key="sd.id" :value="sd.id">{{ sd.nombre }}</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="block text-xs font-semibold text-gray-500 mb-1">Cada cuánto cobra</label>
+                    <select v-model="lotePeriodo"
+                      class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                      <option value="diario">Diario</option>
+                      <option value="semanal">Semanal</option>
+                      <option value="quincenal">Quincenal</option>
+                      <option value="20_dias">Cada 20 días</option>
+                      <option value="mensual">Mensual</option>
+                    </select>
+                  </div>
+                </div>
+
+                <p v-if="!sueldosActivos.length" class="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                  No hay sueldos cargados todavía. Créalos primero en la pestaña de Sueldos.
+                </p>
+
+                <button @click="guardarLote" :disabled="guardandoLote || !seleccionados.length || !loteSueldo"
+                  class="w-full bg-blue-600 text-white text-sm font-semibold rounded-xl py-2.5 hover:bg-blue-700 disabled:opacity-50 transition-colors">
+                  {{ guardandoLote ? 'Guardando...' : `Agregar ${seleccionados.length || ''} a nómina` }}
+                </button>
+              </template>
+
+              <p v-else class="text-sm text-gray-500 text-center py-6">
+                Ya están todos en nómina.
+              </p>
             </div>
           </div>
         </div>
