@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Exports\ReporteExport;
 use App\Models\Orden;
+use App\Services\RangoFechas;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Maatwebsite\Excel\Facades\Excel;
@@ -702,12 +703,18 @@ class ReporteController extends Controller
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
+    /**
+     * El filtro de tiempo de la pantalla.
+     *
+     * Antes solo miraba `desde`/`hasta`, y la pantalla manda `periodo` salvo
+     * cuando se escribe un rango a mano: todo lo que sale de acá —Canales, y
+     * las exportaciones— se quedaba en los últimos 30 días tocara uno el botón
+     * que tocara. Ahora es el mismo lector que usa Stats, para que no se
+     * vuelvan a separar.
+     */
     private function rango(Request $r): array
     {
-        return [
-            $r->query('desde', now()->subDays(30)->toDateString()),
-            $r->query('hasta', now()->toDateString()),
-        ];
+        return RangoFechas::de($r);
     }
 
     private function metaStr(?string $desde, ?string $hasta, mixed $tiendaId = null): string

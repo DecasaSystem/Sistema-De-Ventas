@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Orden;
+use App\Services\RangoFechas;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
@@ -32,25 +33,11 @@ class StatsController extends Controller
 
     private function parseFechas(Request $r): array
     {
-        $periodo = $r->query('periodo');
-        // El "hoy" del negocio, no el del reloj UTC del servidor
-        $hoy     = Carbon::now(self::TZ_NEGOCIO)->toDateString();
-
-        switch ($periodo) {
-            case 'hoy':
-                $desde = $hoy; $hasta = $hoy; break;
-            case 'semana':
-                $desde = Carbon::now(self::TZ_NEGOCIO)->startOfWeek()->toDateString(); $hasta = $hoy; break;
-            case 'mes_anterior':
-                $desde = Carbon::now(self::TZ_NEGOCIO)->subMonth()->startOfMonth()->toDateString();
-                $hasta = Carbon::now(self::TZ_NEGOCIO)->subMonth()->endOfMonth()->toDateString();
-                break;
-            case 'anio':
-                $desde = Carbon::now(self::TZ_NEGOCIO)->startOfYear()->toDateString(); $hasta = $hoy; break;
-            default:
-                $desde = $r->query('desde', Carbon::now(self::TZ_NEGOCIO)->startOfMonth()->toDateString());
-                $hasta = $r->query('hasta', $hoy);
-        }
+        // Qué significa cada botón del filtro vive en RangoFechas, y no acá,
+        // porque Reportes leía lo mismo por su cuenta y se separaron: sus
+        // apartados ignoraban el filtro y devolvían siempre lo de los últimos
+        // 30 días.
+        [$desde, $hasta] = RangoFechas::de($r);
 
         // Período anterior (misma duración) para comparativa
         $duracion       = Carbon::parse($desde)->diffInDays(Carbon::parse($hasta)) + 1;
