@@ -61,7 +61,11 @@ class NominaLiquidador
         $inicio = CicloNomina::fecha($inicio);
         $fin    = CicloNomina::fecha($fin);
 
-        $alta  = CicloNomina::dia($empleado->created_at);
+        // Desde que entró a NÓMINA. Con `created_at` se recortaba el ciclo a
+        // partir del día en que la persona se creó como trabajador: a los de
+        // fábrica, dados de alta el 19, una quincena que arranca el 16 les
+        // contaba 7 días en vez de 10.
+        $alta  = CicloNomina::fecha($empleado->nomina_desde ?? $empleado->created_at);
         $desde = $inicio->greaterThan($alta) ? $inicio->copy() : $alta->copy();
         $hasta = $fin->lessThan($hoy) ? $fin->copy() : $hoy->copy();
 
