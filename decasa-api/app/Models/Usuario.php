@@ -64,6 +64,7 @@ class Usuario extends Authenticatable
         'nomina_bonificacion_id',
         'periodicidad',
         'tienda_default_id',
+        'perfil_alterno_id',
         'activo',
         'firma_url',
         'created_at',
@@ -98,6 +99,12 @@ class Usuario extends Authenticatable
             'apto_comisiones'     => 'boolean',
             'apto_produccion'     => 'boolean',
         ];
+    }
+
+    /** La otra cuenta con la que alterna, si configuró doble perfil. */
+    public function perfilAlterno()
+    {
+        return $this->belongsTo(Usuario::class, 'perfil_alterno_id');
     }
 
     public function tiendaDefault()

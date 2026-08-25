@@ -80,6 +80,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/push/subscribe', [PushSubscriptionController::class, 'unsubscribe']);
     Route::get('/auth/me',         [AuthController::class, 'me']);
     Route::patch('/auth/mi-firma',   [AuthController::class, 'guardarFirma']);
+    Route::patch('/auth/mi-perfil-alterno', [AuthController::class, 'guardarPerfilAlterno']);
     Route::patch('/auth/mi-cuenta',  [AuthController::class, 'actualizarCuenta']);
 
     // Tiendas (solo lectura — usada por el selector de tienda en la orden)

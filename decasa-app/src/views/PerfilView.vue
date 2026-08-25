@@ -124,7 +124,9 @@ const altErr          = ref('')
 const altMostrarPass  = ref(false)
 
 function abrirFormAlt() {
-  altEmail.value    = ''
+  // Si la cuenta ya recuerda con quién alterna, el correo viene puesto: solo
+  // falta la contraseña.
+  altEmail.value    = auth.perfilAlternoRecordado?.email ?? ''
   altPassword.value = ''
   altErr.value      = ''
   mostrarFormAlt.value = true
@@ -410,6 +412,20 @@ function rolLabel(rol) {
       <p class="text-xs text-gray-500">
         Permite cambiar de usuario sin cerrar sesión — ideal cuando dos personas comparten un mismo equipo.
       </p>
+
+      <!-- La cuenta recuerda con quién alternas, aunque este aparato no lo
+           tenga activo. La sesión del otro perfil no puede viajar —es su
+           contraseña—, pero saber quién es evita tener que acordarse. -->
+      <div
+        v-if="!auth.tienePerfilAlternativo && auth.perfilAlternoRecordado"
+        class="bg-blue-50 border border-blue-200 rounded-xl px-3 py-2.5"
+      >
+        <p class="text-xs text-blue-800 leading-snug">
+          En tu cuenta alternas con <strong>{{ auth.perfilAlternoRecordado.nombre }}</strong>,
+          pero en este dispositivo todavía no está activo. Escribe su contraseña una vez
+          y queda listo aquí también.
+        </p>
+      </div>
 
       <!-- Sin perfil alternativo -->
       <template v-if="!auth.tienePerfilAlternativo">

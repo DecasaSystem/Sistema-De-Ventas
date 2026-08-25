@@ -103,6 +103,7 @@ export const useAuthStore = defineStore('auth', () => {
       ve_todas_ordenes:   data.ve_todas_ordenes   ?? false,
       tiene_pasos_produccion: data.tiene_pasos_produccion ?? false,
       tienda_default_id: data.tienda_default_id ?? null,
+      perfil_alterno:    data.perfil_alterno    ?? null,
       firma_url:         data.firma_url         ?? null,
       independiente:     data.independiente     ?? false,
     }
@@ -167,6 +168,12 @@ export const useAuthStore = defineStore('auth', () => {
 
   // Dual-profile getters
   const tienePerfilAlternativo = computed(() => _perfiles.value.length > 1)
+  /**
+   * Con quien alterna segun la CUENTA, aunque en este aparato no este activo.
+   * La sesion del otro perfil no se puede sincronizar —es una contrasena
+   * ajena—, pero saber quien es sirve para no tener que acordarse.
+   */
+  const perfilAlternoRecordado = computed(() => usuario.value?.perfil_alterno ?? null)
   const perfilAlternativo      = computed(() => {
     const otroIdx = _perfilActivo.value === 0 ? 1 : 0
     return _perfiles.value[otroIdx]?.usuario ?? null
@@ -250,6 +257,9 @@ export const useAuthStore = defineStore('auth', () => {
     _syncStorage()
     // Guardar también en clave persistente
     _persistirAlt()
+    // Y se anota en la CUENTA, no solo en este aparato: asi al entrar desde el
+    // celular ya sabe con quien alterna y solo pide la contrasena.
+    api.patch('/auth/mi-perfil-alterno', { usuario_id: u.id }).catch(() => {})
     return u
   }
 
@@ -264,6 +274,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function eliminarPerfilAlternativo() {
+    api.patch('/auth/mi-perfil-alterno', { usuario_id: null }).catch(() => {})
     if (_perfilActivo.value === 1) {
       _activarPerfil(0)
     }
@@ -280,7 +291,7 @@ export const useAuthStore = defineStore('auth', () => {
     tieneAccesoPasos,
     isFacturador, tieneAccesoRedes, tieneAccesoComisiones, puedeRecargarTelas, puedeUsarTelas, puedeSurtir,
     puedeCostos, puedeProveedores, puedeDespacho, puedeProduccion, gestionaProduccion, puedeReserva, puedeNomina, puedeCompras, veTodasOrdenes, soloVeSusOrdenes,
-    tienePerfilAlternativo, perfilAlternativo, perfilActivoIdx,
+    tienePerfilAlternativo, perfilAlternativo, perfilActivoIdx, perfilAlternoRecordado,
     login, fetchMe, setFirma, setEmail, logout, clearSession,
     loginPerfilAlternativo, cambiarPerfil, eliminarPerfilAlternativo,
   }

@@ -66,6 +66,13 @@ class AuthController extends Controller
             // Ver el taller: por permiso, o por llevar algún paso.
             've_produccion'      => $usuario->veProduccion(),
             'tienda_default_id'  => $usuario->tienda_default_id,
+            // Con qué cuenta alterna. Viaja el QUIÉN, nunca su sesión: el otro
+            // aparato tiene que escribir la contraseña igual.
+            'perfil_alterno'     => $usuario->perfilAlterno
+                ? ['id' => $usuario->perfilAlterno->id,
+                   'nombre' => $usuario->perfilAlterno->nombre,
+                   'email' => $usuario->perfilAlterno->email]
+                : null,
             'firma_url'          => $usuario->firma_url,
         ]);
     }
@@ -79,7 +86,7 @@ class AuthController extends Controller
 
     public function me(Request $request)
     {
-        $usuario = $request->user()->load(['tiendaDefault:id,nombre,ciudad', 'rolAsignado']);
+        $usuario = $request->user()->load(['tiendaDefault:id,nombre,ciudad', 'rolAsignado', 'perfilAlterno:id,nombre,email']);
 
         return response()->json([
             'id'                => $usuario->id,
@@ -113,9 +120,35 @@ class AuthController extends Controller
             // Ver el taller: por permiso, o por llevar algún paso.
             've_produccion'      => $usuario->veProduccion(),
             'tienda_default_id' => $usuario->tienda_default_id,
+            'perfil_alterno'    => $usuario->perfilAlterno
+                ? ['id' => $usuario->perfilAlterno->id,
+                   'nombre' => $usuario->perfilAlterno->nombre,
+                   'email' => $usuario->perfilAlterno->email]
+                : null,
             'tienda_default'    => $usuario->tiendaDefault,
             'firma_url'         => $usuario->firma_url,
         ]);
+    }
+
+    /**
+     * PATCH /api/auth/mi-perfil-alterno
+     * Deja anotado con qué cuenta alterna, para que el ajuste no se quede en
+     * este aparato. Mandar null lo quita.
+     */
+    public function guardarPerfilAlterno(Request $request)
+    {
+        $data = $request->validate([
+            'usuario_id' => 'nullable|integer|exists:usuarios,id',
+        ]);
+
+        $otro = $data['usuario_id'] ?? null;
+        if ($otro && (int) $otro === (int) $request->user()->id) {
+            return response()->json(['message' => 'No puedes alternar contigo mismo.'], 422);
+        }
+
+        $request->user()->update(['perfil_alterno_id' => $otro]);
+
+        return response()->json(['ok' => true]);
     }
 
     public function guardarFirma(Request $request)
