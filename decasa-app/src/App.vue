@@ -89,6 +89,26 @@ const mostrarCarga = computed(() =>
   (navCargando.value || cargandoRed.value) && !hayCargaLocal.value
 )
 
+/**
+ * Vuelve a pedir los permisos cuando el usuario regresa a la pestaña.
+ *
+ * Se pedían una sola vez, al abrir la app, así que un cambio hecho desde otro
+ * computador —asignarle un paso, activarle un módulo— no le llegaba nunca a
+ * quien ya tenía la sesión abierta: seguía sin ver "Mis pasos" hasta cerrar
+ * sesión o recargar, y desde afuera parecía que la asignación no se guardó.
+ *
+ * Se limita a una vez por minuto: volver a la pestaña es algo que pasa todo el
+ * tiempo y no hay por qué pedirlo en cada vistazo.
+ */
+let ultimoRefresco = 0
+function refrescarPermisos() {
+  if (document.visibilityState !== 'visible' || !auth.isAuthenticated) return
+  const ahora = Date.now()
+  if (ahora - ultimoRefresco < 60_000) return
+  ultimoRefresco = ahora
+  auth.fetchMe()
+}
+
 function onSwMessage(e) {
   if (e.data?.type === 'push-click') {
     const destino = destinoNotificacion(e.data.tipo, e.data.datos)
@@ -117,10 +137,14 @@ function abrirDesdeNotificacionInicial() {
 
 onMounted(() => {
   auth.fetchMe().finally(abrirDesdeNotificacionInicial)
+  document.addEventListener('visibilitychange', refrescarPermisos)
+  window.addEventListener('focus', refrescarPermisos)
   navigator.serviceWorker?.addEventListener('message', onSwMessage)
 })
 onUnmounted(() => {
   navigator.serviceWorker?.removeEventListener('message', onSwMessage)
+  document.removeEventListener('visibilitychange', refrescarPermisos)
+  window.removeEventListener('focus', refrescarPermisos)
 })
 
 watch(() => auth.isAuthenticated, (isAuth) => {
