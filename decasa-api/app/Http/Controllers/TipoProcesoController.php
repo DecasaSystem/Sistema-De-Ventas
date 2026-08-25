@@ -135,19 +135,34 @@ class TipoProcesoController extends Controller
     }
 
     /**
-     * Un proceso sin nadie a cargo no se lo puede trabajar nadie: los pasos
-     * que lo usen quedan en curso pero invisibles para todos, y sin este
-     * aviso se guardaba sin decir nada.
+     * Un proceso necesita al menos UNA persona que entre al programa.
+     *
+     * No basta con que la lista no esté vacía: la gente de fábrica no tiene
+     * correo ni contraseña, así que nunca abre "Mis pasos". Un proceso donde
+     * solo hay gente de fábrica deja sus pasos en curso pero invisibles para
+     * todos, y las piezas se quedan paradas esperando a alguien que no puede
+     * llegar. Pasó de verdad con Despacho.
      */
     private function exigirAlguien(array $trabajadores): void
     {
-        if (! empty($trabajadores)) {
-            return;
+        if (empty($trabajadores)) {
+            throw ValidationException::withMessages([
+                'trabajadores' => ['Elige al menos un trabajador que haga este proceso.'],
+            ]);
         }
 
-        throw ValidationException::withMessages([
-            'trabajadores' => ['Elige al menos un trabajador que haga este proceso.'],
-        ]);
+        $puedenVerlo = Usuario::whereIn('id', $trabajadores)
+            ->where('activo', true)->usaElPrograma()->count();
+
+        if ($puedenVerlo === 0) {
+            throw ValidationException::withMessages([
+                'trabajadores' => [
+                    'Falta alguien que pueda confirmar este paso. Los que marcaste no entran '
+                    . 'al programa, así que nunca lo verán en "Mis pasos" y las piezas se '
+                    . 'quedarían paradas. Agrega al menos un encargado con acceso.',
+                ],
+            ]);
+        }
     }
 
     /**

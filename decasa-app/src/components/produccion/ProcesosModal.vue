@@ -51,6 +51,19 @@ function alternarTrabajador(obj, id) {
 
 // Sin nadie asignado el proceso queda sin quien lo vea, y los pasos que lo
 // usen se quedan colgados en silencio.
+/**
+ * ¿Hay alguien que pueda CONFIRMAR el paso?
+ *
+ * La gente de fábrica se encasilla para poder anotarla como que hizo el
+ * trabajo, pero no entra al programa: un proceso donde solo hay fábrica deja
+ * sus pasos invisibles y las piezas paradas.
+ */
+function sinQuienConfirme(obj) {
+  const ids = obj.trabajador_ids ?? []
+  if (!ids.length) return false
+  return !trabajadores.value.some(w => ids.includes(w.id) && !w.no_usa_programa)
+}
+
 function nadieAsignado(obj) {
   return !(obj.trabajador_ids ?? []).length
 }
@@ -59,6 +72,7 @@ async function crear() {
   const n = nuevo.value
   if (!n.nombre.trim())  { toast.error('Ponle un nombre al proceso.'); return }
   if (nadieAsignado(n))  { toast.error('Elige al menos un trabajador que haga este proceso.'); return }
+  if (sinQuienConfirme(n)) { toast.error('Falta un encargado con acceso al programa: los de fábrica no ven el paso.'); return }
   guardando.value = 'nuevo'
   try {
     await api.post('/tipos-proceso', {
@@ -79,6 +93,7 @@ async function crear() {
 async function guardar(t) {
   if (!t.nombre.trim())  { toast.error('El nombre no puede quedar vacío.'); return }
   if (nadieAsignado(t))  { toast.error('Elige al menos un trabajador que haga este proceso.'); return }
+  if (sinQuienConfirme(t)) { toast.error('Falta un encargado con acceso al programa: los de fábrica no ven el paso.'); return }
   guardando.value = t.id
   try {
     await api.patch(`/tipos-proceso/${t.id}`, {
@@ -193,6 +208,10 @@ async function quitar(t) {
                   </p>
                   <p v-if="nadieAsignado(t)" class="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 mt-1.5">
                     Nadie puede hacer este proceso: sus pasos quedarían en curso pero invisibles para todos.
+                  </p>
+                  <p v-else-if="sinQuienConfirme(t)" class="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 mt-1.5">
+                    Solo marcaste gente de fábrica. Ellos no entran al programa, así que nadie
+                    vería este paso para confirmarlo y las piezas se quedarían paradas.
                   </p>
                 </div>
 
