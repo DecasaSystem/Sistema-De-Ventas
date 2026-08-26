@@ -190,6 +190,34 @@ const FORMAS_PAGO = {
 function formaPago(c) {
   return FORMAS_PAGO[c?.forma_pago] ?? FORMAS_PAGO.pool
 }
+
+// De dónde sale cada peso de lo que se le va a pagar a alguien. Solo salen las
+// líneas que traen plata: listarlas todas con ceros llena la ficha de ruido y
+// deja de leerse de un vistazo, que es justo lo que se venía a arreglar.
+const ETIQUETAS_DESGLOSE = {
+  pool:             'Su parte del pool',
+  parte_equipo:     'Su parte (no vendió este mes)',
+  restauraciones:   'Restauraciones (5% directo)',
+  de_independiente: 'Le dejó un independiente',
+  individual:       'Sus ventas al 5%',
+}
+
+function lineasDesglose(r) {
+  const d = r?.desglose
+  if (!d) return []
+
+  return Object.keys(ETIQUETAS_DESGLOSE)
+    .filter(k => (d[k]?.comision ?? 0) > 0)
+    .map(k => ({
+      clave:    k,
+      label:    ETIQUETAS_DESGLOSE[k],
+      comision: d[k].comision,
+      // Cuántas órdenes y sobre qué base, para poder rehacer la cuenta.
+      detalle:  d[k].base > 0
+        ? `· ${d[k].ordenes} ${d[k].ordenes === 1 ? 'orden' : 'órdenes'} sobre ${cop(d[k].base)}`
+        : '',
+    }))
+}
 // La meta es requisito para todo lo que sale del pool, se haya vendido o no.
 function dependeDeLaMeta(c) {
   return ['pool', 'parte_pool'].includes(c?.forma_pago ?? 'pool')
@@ -871,6 +899,40 @@ onMounted(async () => {
                 <div class="text-right shrink-0">
                   <p class="text-lg font-bold text-green-700">{{ cop(r.comision_total) }}</p>
                   <p class="text-[10px] text-gray-400">de {{ cop(r.total_ventas) }} vendidos</p>
+                </div>
+              </div>
+
+              <!-- De dónde sale cada peso. Antes había un solo número y para
+                   comprobarlo tocaba abrir las órdenes una por una y sumar de
+                   cabeza. Solo se pintan las líneas que traen plata: en un mes
+                   normal son una o dos. -->
+              <div v-if="!r.es_independiente && lineasDesglose(r).length" class="mb-2 rounded-lg bg-gray-50 border border-gray-100 px-3 py-2 text-xs">
+                <div
+                  v-for="l in lineasDesglose(r)" :key="l.clave"
+                  class="flex items-center justify-between py-0.5"
+                >
+                  <span class="text-gray-600">
+                    {{ l.label }}
+                    <span v-if="l.detalle" class="text-gray-400">{{ l.detalle }}</span>
+                  </span>
+                  <span class="font-semibold text-gray-700 shrink-0 ml-2">{{ cop(l.comision) }}</span>
+                </div>
+
+                <!-- Lo que se llevó la franquicia: es lo que explica por qué la
+                     base no cuadra con lo vendido. -->
+                <div v-if="r.desglose?.pagado_tarjeta > 0" class="border-t border-gray-200 mt-1.5 pt-1.5 space-y-0.5">
+                  <div class="flex items-center justify-between text-[11px]">
+                    <span class="text-gray-500">Cobrado con tarjeta</span>
+                    <span class="text-gray-500">{{ cop(r.desglose.pagado_tarjeta) }}</span>
+                  </div>
+                  <div class="flex items-center justify-between text-[11px]">
+                    <span class="text-gray-400">Se llevó el datáfono (5,5%)</span>
+                    <span class="text-gray-400">− {{ cop(r.desglose.costo_datafono) }}</span>
+                  </div>
+                  <div class="flex items-center justify-between text-[11px]">
+                    <span class="text-gray-500">En efectivo o transferencia</span>
+                    <span class="text-gray-500">{{ cop(r.desglose.sin_tarjeta) }}</span>
+                  </div>
                 </div>
               </div>
 

@@ -228,10 +228,15 @@ class ComisionController extends Controller
                 'vendedor_nombre' => $first['vendedor_nombre'],
                 'tienda_id'       => (int) $first['tienda_id'],
                 'tienda_nombre'   => $first['tienda_nombre'],
-                'total_ordenes'   => $items->count(),
+                // Sin contar el renglón de quien no vendió: no es una orden,
+                // y decir "1 orden" de alguien que no vendió nada confunde.
+                'total_ordenes'   => $items->where('forma_pago', '!=', self::ORIGEN_PARTE_POOL)->count(),
                 'total_ventas'    => $items->sum(fn($i) => (float) $i['valor_orden']),
                 'comision_total'  => $items->sum(fn($i) => (float) $i['monto_comision']),
                 'comision_asesor' => (float) $first['comision_asesor'],
+                // De dónde sale cada peso, para poder rehacer la cuenta a mano
+                // sin abrir orden por orden.
+                'desglose'        => $this->desglosarComision($items),
                 // Como va el trimestre: en Pereira y Circunvalar el pool mira
                 // los 3 meses, y a mitad de camino los que faltan cuentan como
                 // cero vendido contra meta entera.
@@ -278,6 +283,11 @@ class ComisionController extends Controller
             $fila['comision_total']   = (float) $i['comision'];
             $fila['total_ventas']     = (float) $i['vendio'];
             $fila['total_ordenes']    = $suyas->count();
+            // El desglose por órdenes no cuadra para ellos y no se debe usar:
+            // el bolsón de restauraciones se reparte entre los independientes,
+            // así que lo que cobran no sale de sus propias filas. Su ficha ya
+            // muestra el reparto correcto abajo.
+            unset($fila['desglose']);
             $fila['ordenes'] = $suyas->map(fn ($o) => [
                 'id'               => $o['id'],
                 'orden_id'         => $o['id'],
@@ -546,6 +556,46 @@ class ComisionController extends Controller
      * Solo para tiendas con meta: donde no hay pool, cada uno cobra el 5% de lo
      * suyo y sin ventas no hay nada que cobrar.
      */
+    /**
+     * De dónde sale cada peso de lo que se le va a pagar a alguien.
+     *
+     * La pantalla mostraba un solo número y para comprobarlo había que abrir
+     * las órdenes una por una y sumar de cabeza. Acá quedan separadas las
+     * cuatro formas en que se cobra —el pool, la restauración, lo que dejó un
+     * independiente y el 5% suelto— más lo que entró por datáfono, que es lo
+     * que explica por qué la base no es igual al valor de las ventas.
+     *
+     * @param  \Illuminate\Support\Collection  $items  Comisiones ya enriquecidas.
+     */
+    private function desglosarComision($items): array
+    {
+        $porForma = fn (string $forma) => $items->where('forma_pago', $forma);
+        $suma     = fn ($col, string $campo) => round($col->sum(fn ($i) => (float) ($i[$campo] ?? 0)));
+
+        $pool        = $porForma('pool');
+        $partePool   = $porForma(self::ORIGEN_PARTE_POOL);
+        $restaura    = $items->where('es_restauracion', true)->where('forma_pago', '!=', self::ORIGEN_ABONO);
+        $abonos      = $porForma(self::ORIGEN_ABONO);
+        $sinMeta     = $porForma('sin_meta_5');
+
+        $tarjeta = $suma($items, 'pagado_tarjeta');
+
+        return [
+            // Lo que se le paga, partido por el camino que lo genera.
+            'pool'            => ['ordenes' => $pool->count(),      'base' => $suma($pool, 'valor_orden'),     'comision' => $suma($pool, 'monto_comision')],
+            'parte_equipo'    => ['ordenes' => $partePool->count(), 'base' => 0,                               'comision' => $suma($partePool, 'monto_comision')],
+            'restauraciones'  => ['ordenes' => $restaura->count(),  'base' => $suma($restaura, 'valor_orden'), 'comision' => $suma($restaura, 'monto_comision')],
+            'de_independiente'=> ['ordenes' => $abonos->count(),    'base' => $suma($abonos, 'valor_orden'),   'comision' => $suma($abonos, 'monto_comision')],
+            'individual'      => ['ordenes' => $sinMeta->count(),   'base' => $suma($sinMeta, 'valor_orden'),  'comision' => $suma($sinMeta, 'monto_comision')],
+
+            // Cómo se cobró: lo que pasó por datáfono no comisiona completo,
+            // y esto es lo que explica la diferencia contra el valor vendido.
+            'pagado_tarjeta'  => $tarjeta,
+            'costo_datafono'  => $suma($items, 'costo_datafono'),
+            'sin_tarjeta'     => max(0, $suma($items, 'valor_orden') - $tarjeta),
+        ];
+    }
+
     private function asegurarPartesDePool(string $mes): void
     {
         try {
@@ -1431,6 +1481,10 @@ class ComisionController extends Controller
         }
 
         $pagado    = $c->orden?->pagos?->sum('monto') ?? 0;
+        // Cuánto de esta orden entró por datáfono. Sale de los pagos que ya
+        // vienen cargados, no de una consulta nueva: en el resumen serían
+        // decenas de consultas para pintar una línea.
+        $pagadoTarjeta = (float) ($c->orden?->pagos?->where('metodo', 'tarjeta')->sum('monto') ?? 0);
         // El 50% cobrado es un requisito de la ORDEN: hasta que el cliente no
         // ha abonado la mitad, esa venta no paga comisión. Una parte de pool no
         // tiene orden detrás —sale de lo que vendió el equipo, que ya cumplió
@@ -1476,6 +1530,11 @@ class ComisionController extends Controller
             'deficit_inicial'  => round($deficitInicial),
             'deficit_final'    => round($deficitFinal),
             'pct_pagado'       => $c->valor_orden > 0 ? round($pagado / (float) $c->valor_orden * 100) : 0,
+            // Para poder rehacer la cuenta a mano: lo que entró por datáfono y
+            // lo que se llevó la franquicia, que es plata que nunca llegó a la
+            // caja y sobre la que nadie comisiona.
+            'pagado_tarjeta'   => round($pagadoTarjeta),
+            'costo_datafono'   => round($pagadoTarjeta * self::COSTO_TARJETA),
             'atrasada'         => $atrasada,
             'dias_restantes'   => (int) $diasRestantes,
             'estado_calculado' => $estadoCalculado,
