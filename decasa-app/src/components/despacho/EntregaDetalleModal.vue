@@ -6,6 +6,7 @@ import { useToast } from '@/composables/useToast'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import FirmaCanvas from '@/components/FirmaCanvas.vue'
 import { CheckCircleIcon, MapPinIcon, ClockIcon, ExclamationTriangleIcon } from '@heroicons/vue/24/outline'
+import InputPesos from '@/components/common/InputPesos.vue'
 
 function compressImage(file, maxWidth = 1280, quality = 0.75) {
   return new Promise((resolve) => {
@@ -496,12 +497,9 @@ async function guardarPagoYEntregar() {
 
                   <div>
                     <label class="text-xs text-gray-500">Monto cobrado</label>
-                    <input
-                      v-model.number="monto"
-                      type="number"
-                      step="0.01"
-                      min="1"
-                      :readonly="pierdeDescuento"
+                    <InputPesos
+                      v-model="monto"
+                      :disabled="pierdeDescuento"
                       :class="['w-full border rounded-lg px-3 py-2 text-sm outline-none',
                         pierdeDescuento
                           ? 'border-amber-300 bg-amber-50 font-bold text-amber-900 cursor-not-allowed'

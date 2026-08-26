@@ -12,6 +12,7 @@ import {
 import api from '@/api'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
+import { formatPct } from '@/utils/descuentos'
 import { useAuthStore } from '@/stores/auth'
 import { StarIcon } from '@heroicons/vue/24/solid'
 
@@ -223,9 +224,16 @@ function cop(n) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n ?? 0)
 }
 function copCompact(v) {
-  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`
-  if (v >= 1_000)     return `$${(v / 1_000).toFixed(0)}K`
-  return `$${v}`
+  // Se trabaja sobre el valor absoluto y el signo se pone al final: con un
+  // negativo ningún `>=` se cumplía y se devolvía el número crudo, así que
+  // una cifra en rojo salía como "$-1500000", sin puntos ni abreviar.
+  const n = Math.abs(Number(v) || 0)
+  const signo = (Number(v) || 0) < 0 ? '-' : ''
+  if (n >= 1_000_000) return `${signo}$${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000)     return `${signo}$${(n / 1_000).toFixed(0)}K`
+  // Por debajo de mil no hay nada que abreviar, pero sí que puntuar y
+  // redondear: es lo que se ve en los ejes y en algún indicador.
+  return `${signo}$${Math.round(n).toLocaleString('es-CO')}`
 }
 function varColor(pct) {
   if (pct === null || pct === undefined) return 'text-gray-400'
@@ -233,7 +241,7 @@ function varColor(pct) {
 }
 function varLabel(pct) {
   if (pct === null || pct === undefined) return 'Sin datos anteriores'
-  return (pct >= 0 ? '↑ ' : '↓ ') + Math.abs(pct) + '% vs período anterior'
+  return (pct >= 0 ? '↑ ' : '↓ ') + formatPct(Math.abs(pct)) + '% vs período anterior'
 }
 function diasColor(d) {
   if (d > 15) return 'bg-red-100 text-red-700'
@@ -753,7 +761,7 @@ onBeforeUnmount(() => {
                   t.meta_mes.pct >= 80  ? 'bg-blue-100 text-blue-700' :
                   t.meta_mes.pct >= 50  ? 'bg-yellow-100 text-yellow-700' :
                   'bg-gray-100 text-gray-500']">
-                  {{ t.meta_mes.pct }}%
+                  {{ formatPct(t.meta_mes.pct) }}%
                 </span>
               </div>
               <div class="h-2 bg-gray-100 rounded-full overflow-hidden mb-1.5">
@@ -1013,8 +1021,8 @@ onBeforeUnmount(() => {
                   />
                 </div>
                 <div class="flex justify-between text-[11px] text-gray-400 mt-1">
-                  <span>{{ c.pct_ordenes }}% de órdenes</span>
-                  <span>{{ c.pct_valor }}% del valor</span>
+                  <span>{{ formatPct(c.pct_ordenes) }}% de órdenes</span>
+                  <span>{{ formatPct(c.pct_valor) }}% del valor</span>
                 </div>
               </div>
             </div>

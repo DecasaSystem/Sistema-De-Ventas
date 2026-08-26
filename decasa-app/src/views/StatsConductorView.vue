@@ -45,9 +45,16 @@ function cop(n) {
 }
 
 function copCompact(v) {
-  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`
-  if (v >= 1_000)     return `$${(v / 1_000).toFixed(0)}K`
-  return `$${v}`
+  // Se trabaja sobre el valor absoluto y el signo se pone al final: con un
+  // negativo ningún `>=` se cumplía y se devolvía el número crudo, así que
+  // una cifra en rojo salía como "$-1500000", sin puntos ni abreviar.
+  const n = Math.abs(Number(v) || 0)
+  const signo = (Number(v) || 0) < 0 ? '-' : ''
+  if (n >= 1_000_000) return `${signo}$${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000)     return `${signo}$${(n / 1_000).toFixed(0)}K`
+  // Por debajo de mil no hay nada que abreviar, pero sí que puntuar y
+  // redondear: es lo que se ve en los ejes y en algún indicador.
+  return `${signo}$${Math.round(n).toLocaleString('es-CO')}`
 }
 
 function fmtFecha(iso) {

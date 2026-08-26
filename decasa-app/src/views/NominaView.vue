@@ -2006,7 +2006,7 @@ async function quitarAjuste(id) {
                 <div class="grid grid-cols-2 gap-3">
                   <div>
                     <label class="block text-xs font-semibold text-gray-500 mb-1">Cuánto</label>
-                    <input v-model="formPrestamo.monto" type="number" min="0" inputmode="numeric" placeholder="200000"
+                    <InputPesos v-model="formPrestamo.monto" placeholder="200.000"
                       class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
                   </div>
                   <div>

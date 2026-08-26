@@ -19,6 +19,7 @@ import { getRestauraciones, createRestauracion } from '@/api/restauraciones'
 import { getClientes } from '@/api/clientes'
 import { useToast } from '@/composables/useToast'
 import { useTelaFotos } from '@/composables/useTelaFotos'
+import InputPesos from '@/components/common/InputPesos.vue'
 
 const auth  = useAuthStore()
 const toast = useToast()
@@ -483,10 +484,8 @@ onMounted(async () => {
                       </div>
                       <div class="flex-[2]">
                         <label class="text-xs text-gray-500 mb-1 block">Precio unitario</label>
-                        <input
-                          v-model.number="item.precio_unitario"
-                          type="number"
-                          min="0"
+                        <InputPesos
+                          v-model="item.precio_unitario"
                           placeholder="0"
                           class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 bg-white"
                         />

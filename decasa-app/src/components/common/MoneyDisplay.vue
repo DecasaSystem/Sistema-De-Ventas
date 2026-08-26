@@ -11,7 +11,11 @@ defineProps({
 })
 
 function format(n) {
-  return Number(n).toLocaleString('es-CO')
+  // Redondeado y sin decimales: en pesos no hay centavos, y sin esto un valor
+  // con decimales —un saldo, un cobro con `step="0.01"`— salía como
+  // "$1.234.567,5". Es el componente que pinta casi todo el dinero de la app,
+  // así que el redondeo tiene que estar acá y no repetido en cada pantalla.
+  return Math.round(Number(n) || 0).toLocaleString('es-CO')
 }
 </script>
 

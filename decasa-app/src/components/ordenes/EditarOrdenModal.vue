@@ -682,7 +682,9 @@ watch(() => props.show, (v) => {
   canal.value          = props.orden.canal ?? ''
   direccionEnvio.value = props.orden.direccion_envio ?? ''
   ciudadEnvio.value    = props.orden.ciudad_envio ?? ''
-  anticipoPct.value    = props.orden.anticipo_pct ?? ''
+  // Number() a propósito: si llega "50.00" —como lo mandaba el backend antes—
+  // el campo mostraba "50,00", y nadie escribe medio punto de anticipo.
+  anticipoPct.value    = props.orden.anticipo_pct != null ? Number(props.orden.anticipo_pct) : ''
   // El descuento se carga en pesos, tal como está guardado. Derivarlo a % y
   // recalcularlo desde ahí perdía dinero en cada edición.
   descuentoModoEdit.value  = 'monto'
@@ -1957,14 +1959,22 @@ async function guardar() {
                       ? 'bg-amber-600 text-white border-amber-600'
                       : 'bg-white text-gray-500 border-gray-300']"
                 >{{ m.t }}</button>
-                <input
-                  v-model.number="descCondInputEdit"
-                  type="number" min="0"
-                  :max="descCondModoEdit === 'pct' ? 100 : null"
-                  :step="descCondModoEdit === 'pct' ? 0.1 : 1000"
+                <!-- En pesos va con puntos; en % sigue siendo un número suelto.
+                     Es el mismo patrón que ya usan los otros dos descuentos de
+                     este formulario: acá había un solo campo para los dos modos
+                     y en pesos se escribía sin un separador. -->
+                <InputPesos
+                  v-if="descCondModoEdit !== 'pct'"
+                  v-model="descCondInputEdit"
                   placeholder="0"
-                  :class="['rounded-lg border border-gray-300 px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-amber-500',
-                    descCondModoEdit === 'pct' ? 'w-16' : 'w-28']"
+                  class="w-28 rounded-lg border border-gray-300 px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+                <input
+                  v-else
+                  v-model.number="descCondInputEdit"
+                  type="number" min="0" max="100" step="0.1"
+                  placeholder="0"
+                  class="w-16 rounded-lg border border-gray-300 px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-amber-500"
                 />
                 <span class="text-xs text-gray-400">{{ descCondModoEdit === 'pct' ? '%' : '$' }}</span>
               </div>

@@ -7,6 +7,7 @@ import api from '@/api'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
+import { formatPct } from '@/utils/descuentos'
 
 const router = useRouter()
 
@@ -122,9 +123,16 @@ function cop(n) {
   }).format(n ?? 0)
 }
 function copCompact(v) {
-  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`
-  if (v >= 1_000)     return `$${(v / 1_000).toFixed(0)}K`
-  return `$${v}`
+  // Se trabaja sobre el valor absoluto y el signo se pone al final: con un
+  // negativo ningún `>=` se cumplía y se devolvía el número crudo, así que
+  // una cifra en rojo salía como "$-1500000", sin puntos ni abreviar.
+  const n = Math.abs(Number(v) || 0)
+  const signo = (Number(v) || 0) < 0 ? '-' : ''
+  if (n >= 1_000_000) return `${signo}$${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000)     return `${signo}$${(n / 1_000).toFixed(0)}K`
+  // Por debajo de mil no hay nada que abreviar, pero sí que puntuar y
+  // redondear: es lo que se ve en los ejes y en algún indicador.
+  return `${signo}$${Math.round(n).toLocaleString('es-CO')}`
 }
 
 // ── Carga ─────────────────────────────────────────────────────────────────────
@@ -330,7 +338,7 @@ onBeforeUnmount(() => {
                     ? 'bg-yellow-100 text-yellow-700'
                     : 'bg-gray-100 text-gray-500'
             ]"
-          >{{ stats.meta_mes.pct }}%</span>
+          >{{ formatPct(stats.meta_mes.pct) }}%</span>
         </div>
 
         <!-- Barra de progreso -->

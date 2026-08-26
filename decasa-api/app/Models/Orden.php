@@ -62,9 +62,17 @@ class Orden extends Model
             'valor_total'      => 'decimal:2',
             'descuento_total'  => 'decimal:2',
             'descuento_condicionado' => 'decimal:2',
-            'descuento_condicionado_pct' => 'decimal:2',
+            // Los porcentajes viajan como número, no como "50.00".
+            //
+            // `decimal:2` los serializa a texto con dos decimales, y la
+            // pantalla los pintaba tal cual: el campo "% de anticipo sugerido"
+            // decía 50,00 y el aviso del descuento, "5,00%". Nadie escribe
+            // medio punto porcentual, así que esos dos ceros solo estorban al
+            // leer. La columna sigue siendo decimal en la base: esto es cómo
+            // sale, no cómo se guarda.
+            'descuento_condicionado_pct' => 'float',
             'descuento_condicionado_revertido_at' => 'datetime',
-            'anticipo_pct'     => 'decimal:2',
+            'anticipo_pct'     => 'float',
             'es_compartida'    => 'boolean',
             'entrega_inmediata' => 'boolean',
             'listo_entrega_at' => 'datetime',

@@ -11,11 +11,12 @@ import { marcasOrdenadas, tiposTelaDeM, coloresDeTela } from '@/data/telasCatalo
 import { cloudinaryOpt } from '@/utils/cloudinary'
 import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
-import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ComboInput from '@/components/common/ComboInput.vue'
 import { useTelaFotos } from '@/composables/useTelaFotos'
 import api from '@/api'
+import { pesos } from '@/utils/pesos'
+import InputPesos from '@/components/common/InputPesos.vue'
 
 const toast      = useToast()
 const auth       = useAuthStore()
@@ -633,7 +634,7 @@ onMounted(async () => {
                     !soloLectura && 'transition-colors']"
                 >
                   <template v-if="item.producto?.tiene_tallas">
-                    {{ v.medida }}<span v-if="v.precio_variante" class="ml-1 opacity-70">${{ Number(v.precio_variante).toLocaleString('es-CO') }}</span>
+                    {{ v.medida }}<span v-if="v.precio_variante" class="ml-1 opacity-70">{{ pesos(v.precio_variante) }}</span>
                   </template>
                   <template v-else>
                     {{ [v.marca_tela, v.nombre_color].filter(Boolean).join(' · ') }}<span v-if="v._config_label" class="text-indigo-600"> · {{ v._config_label }}</span>
@@ -668,7 +669,7 @@ onMounted(async () => {
               >
                 {{ configItem.opcion_nombre }}
                 <span v-if="grupo.tipo.afecta_precio && configItem.precio_adicional > 0" class="opacity-70 ml-1">
-                  +${{ Number(configItem.precio_adicional).toLocaleString('es-CO') }}
+                  +{{ pesos(configItem.precio_adicional) }}
                 </span>
                 <span class="ml-1 font-bold">{{ configItem.stock_disponible ?? 0 }}</span>
               </component>
@@ -782,7 +783,7 @@ onMounted(async () => {
             </div>
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Precio de venta (opcional)</label>
-              <input v-model.number="formVarianteTalla.precio_variante" type="number" min="0" placeholder="Ej: 850000"
+              <InputPesos v-model="formVarianteTalla.precio_variante" placeholder="Ej: 850.000"
                 class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
             </div>
             <div>

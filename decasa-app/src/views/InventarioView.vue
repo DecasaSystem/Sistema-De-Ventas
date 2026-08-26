@@ -35,6 +35,8 @@ import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import api from '@/api'
 import { comprimirImagen } from '@/utils/comprimirImagen'
+import { pesos } from '@/utils/pesos'
+import InputPesos from '@/components/common/InputPesos.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -2022,10 +2024,10 @@ onMounted(async () => {
                       ? 'bg-indigo-50 border-indigo-300 text-indigo-800'
                       : 'bg-gray-50 border-gray-200 text-gray-400',
                     (!esVistaGlobal && puedeGestionar) ? 'cursor-pointer hover:opacity-75' : 'cursor-default']"
-                  :title="opt.opcion_nombre + (opt.precio_adicional > 0 ? ' +$' + Number(opt.precio_adicional).toLocaleString('es-CO') : '') + ((!esVistaGlobal && puedeGestionar) ? ' — clic para agregar stock' : '')"
+                  :title="opt.opcion_nombre + (opt.precio_adicional > 0 ? ' +' + pesos(opt.precio_adicional) : '') + ((!esVistaGlobal && puedeGestionar) ? ' — clic para agregar stock' : '')"
                 >
                   {{ opt.opcion_nombre }}
-                  <span v-if="opt.precio_adicional > 0" class="ml-1 text-emerald-600 font-semibold">+${{ Number(opt.precio_adicional).toLocaleString('es-CO') }}</span>
+                  <span v-if="opt.precio_adicional > 0" class="ml-1 text-emerald-600 font-semibold">+{{ pesos(opt.precio_adicional) }}</span>
                   <span class="ml-1 font-bold">{{ opt.stock_disponible ?? 0 }}</span>
                 </button>
               </div>
@@ -2060,11 +2062,11 @@ onMounted(async () => {
                   >
                     <template v-if="esTalla(item)">
                       {{ v.medida }}
-                      <span v-if="v.precio_variante" class="ml-1 text-emerald-600 font-semibold">${{ Number(v.precio_variante).toLocaleString('es-CO') }}</span>
+                      <span v-if="v.precio_variante" class="ml-1 text-emerald-600 font-semibold">{{ pesos(v.precio_variante) }}</span>
                     </template>
                     <template v-else>
                       {{ [v.marca_tela, v.nombre_color].filter(Boolean).join(' · ') }}<span v-if="v._config_label" class="text-indigo-600"> · {{ v._config_label }}</span>
-                      <span v-if="v.precio_variante" class="ml-1 text-emerald-600 font-semibold">${{ Number(v.precio_variante).toLocaleString('es-CO') }}</span>
+                      <span v-if="v.precio_variante" class="ml-1 text-emerald-600 font-semibold">{{ pesos(v.precio_variante) }}</span>
                     </template>
                     <span class="ml-1 font-bold">{{ v.stock_libre ?? '—' }}</span>
                   </button>
@@ -2145,7 +2147,7 @@ onMounted(async () => {
               </div>
               <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">Precio base <span class="text-red-500">*</span></label>
-                <input v-model="formProducto.precio_base" type="number" min="0" placeholder="0" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <InputPesos v-model="formProducto.precio_base" placeholder="0" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
             </div>
 
@@ -2338,10 +2340,8 @@ onMounted(async () => {
             <!-- Cambiar precio -->
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Precio base</label>
-              <input
-                v-model.number="nuevoPrecio"
-                type="number"
-                min="0"
+              <InputPesos
+                v-model="nuevoPrecio"
                 class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <p v-if="gestionError" class="text-xs text-red-600 mt-1">{{ gestionError }}</p>
@@ -3224,10 +3224,8 @@ onMounted(async () => {
               </div>
               <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">Precio (opcional)</label>
-                <input
+                <InputPesos
                   v-model="formVarianteTalla.precio_variante"
-                  type="number"
-                  min="0"
                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="Precio en pesos..."
                 />

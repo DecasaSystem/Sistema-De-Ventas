@@ -829,7 +829,16 @@ function formatCambioVal(val) {
       })
     return parts.length ? parts.join(' · ') : '—'
   }
-  if (typeof val === 'number') return new Intl.NumberFormat('es-CO').format(val)
+  // El backend guarda el valor del cambio como texto decimal ("1580000.00"),
+  // así que la rama de abajo era la que se ejecutaba de verdad y el historial
+  // decía "1580000.00 → 1750000.00". Si lo que llega es un número —venga como
+  // número o como texto— se puntúa y se redondea; lo que no lo sea (una nota,
+  // una fecha) se deja tal cual.
+  const n = typeof val === 'number' ? val
+          : (/^-?\d+(\.\d+)?$/.test(String(val).trim()) ? Number(val) : null)
+
+  if (n !== null) return new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 }).format(Math.round(n))
+
   return String(val)
 }
 
@@ -973,9 +982,12 @@ function whatsappLink() {
   const numero = digits.startsWith('57') ? digits : `57${digits}`
 
   const o = orden.value
-  const total     = new Intl.NumberFormat('es-CO').format(o.valor_total)
-  const anticipo  = new Intl.NumberFormat('es-CO').format(o.total_pagado)
-  const saldo     = new Intl.NumberFormat('es-CO').format(o.saldo_pendiente)
+  // Sin decimales: esto se le manda al cliente por WhatsApp y un
+  // "$1.580.000,5" en el mensaje se ve como un error de la empresa.
+  const enPesos   = (v) => new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 }).format(Math.round(Number(v) || 0))
+  const total     = enPesos(o.valor_total)
+  const anticipo  = enPesos(o.total_pagado)
+  const saldo     = enPesos(o.saldo_pendiente)
 
   const productos = (o.items ?? [])
     .map(i => `  • ${i.producto?.nombre ?? i.nombre_custom ?? 'Producto personalizado'} x${i.cantidad}`)
@@ -1787,7 +1799,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
           class="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2"
         >
           <p class="text-xs font-semibold text-amber-900">
-            Incluye {{ orden.descuento_condicionado_pct }}% de descuento por pago en efectivo o transferencia
+            Incluye {{ formatPct(orden.descuento_condicionado_pct) }}% de descuento por pago en efectivo o transferencia
           </p>
           <p class="text-xs text-amber-700 mt-0.5">
             Si el cliente paga cualquier parte con tarjeta se pierden

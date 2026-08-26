@@ -4,6 +4,8 @@ import { registrarPago, getTiendas } from '@/api/ordenes'
 import api from '@/api'
 import { comprimirImagen } from '@/utils/comprimirImagen'
 import { PhotoIcon, XMarkIcon } from '@heroicons/vue/24/outline'
+import InputPesos from '@/components/common/InputPesos.vue'
+import { formatPct } from '@/utils/descuentos'
 
 const props = defineProps({
   show: { type: Boolean, required: true },
@@ -106,7 +108,7 @@ watch(() => props.show, (val) => {
 })
 
 function money(v) {
-  return '$' + Number(v ?? 0).toLocaleString('es-CO')
+  return '$' + Math.round(Number(v) || 0).toLocaleString('es-CO')
 }
 
 function onComprobanteChange(e) {
@@ -209,9 +211,8 @@ async function submit() {
         <!-- Monto -->
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Monto a pagar</label>
-          <input
-            v-model.number="monto"
-            type="number" min="1" :max="saldoPendienteN"
+          <InputPesos
+            v-model="monto"
             class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             placeholder="0"
           />
@@ -264,7 +265,7 @@ async function submit() {
             Se pierde el descuento de {{ money(avisoDescuento.descuento) }}
           </p>
           <p class="text-xs text-amber-800">
-            Esta orden tenía {{ avisoDescuento.pct }}% de descuento por pagar en efectivo o
+            Esta orden tenía {{ formatPct(avisoDescuento.pct) }}% de descuento por pagar en efectivo o
             transferencia. Al cobrar con {{ metodo }}, el descuento se pierde completo.
           </p>
 

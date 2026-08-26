@@ -17,6 +17,7 @@ import {
   ArrowDownTrayIcon,
 } from '@heroicons/vue/24/outline'
 import { exportarExcel } from '@/utils/exportarExcel'
+import InputPesos from '@/components/common/InputPesos.vue'
 
 const auth = useAuthStore()
 
@@ -225,7 +226,9 @@ async function eliminar(mov) {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function formatMonto(n) {
-  return Number(n).toLocaleString('es-CO')
+  // Redondeado: los montos llegan con centavos del backend y sin esto salían
+  // como "1.234.567,5". Y con `undefined` imprimía "NaN".
+  return Math.round(Number(n) || 0).toLocaleString('es-CO')
 }
 
 function formatFecha(iso) {
@@ -527,11 +530,8 @@ const balancePositivo = computed(() => balance.value.balance >= 0)
 
               <div>
                 <label class="block text-xs font-semibold text-gray-500 mb-1">Monto *</label>
-                <input
+                <InputPesos
                   v-model="egresoForm.monto"
-                  type="number"
-                  step="100"
-                  min="1"
                   placeholder="0"
                   class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
                 />
@@ -650,11 +650,8 @@ const balancePositivo = computed(() => balance.value.balance >= 0)
 
               <div>
                 <label class="block text-xs font-semibold text-gray-500 mb-1">Monto *</label>
-                <input
+                <InputPesos
                   v-model="ingresoForm.monto"
-                  type="number"
-                  step="100"
-                  min="1"
                   placeholder="0"
                   class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400"
                 />

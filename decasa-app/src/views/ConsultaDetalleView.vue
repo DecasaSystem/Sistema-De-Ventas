@@ -7,6 +7,7 @@ import { useToast } from '@/composables/useToast'
 import { useRealtime } from '@/composables/useRealtime'
 import { getConsulta, guardarItem, enviarConsulta, getMensajes, enviarMensaje } from '@/api/consultas'
 import { getMateriales } from '@/api/materiales'
+import InputPesos from '@/components/common/InputPesos.vue'
 import {
   SparklesIcon, PlusIcon, TrashIcon, CheckCircleIcon,
   ArrowDownTrayIcon, PaperAirplaneIcon,
@@ -456,12 +457,9 @@ watch(() => consulta.value?.estado, (estado) => {
               </div>
 
               <label class="block text-xs font-semibold text-gray-600 uppercase">Precio final</label>
-              <input
-                v-model.number="formularios[item.id].precio_manual"
-                type="number"
-                min="0"
-                step="1000"
-                placeholder="Ej: 850000"
+              <InputPesos
+                v-model="formularios[item.id].precio_manual"
+                placeholder="Ej: 850.000"
                 class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400"
               />
               <p class="text-xs text-gray-400">El precio se envía tal cual, sin desglose de materiales.</p>
@@ -560,11 +558,8 @@ watch(() => consulta.value?.estado, (estado) => {
                   </div>
                   <div>
                     <label class="block text-xs text-gray-400 mb-0.5">Precio unit.</label>
-                    <input
-                      v-model.number="fila.precio_unitario"
-                      type="number"
-                      min="0"
-                      step="1000"
+                    <InputPesos
+                      v-model="fila.precio_unitario"
                       class="w-full text-sm border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-violet-400"
                     />
                   </div>

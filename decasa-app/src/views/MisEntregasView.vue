@@ -170,7 +170,9 @@ function fmtFechaRuta(f) {
 }
 
 function totalRuta(items) {
-  return items.reduce((s, i) => s + (parseFloat(i.orden?.saldo_pendiente) || 0), 0)
+  // Redondeado: los saldos vienen con centavos y al sumarlos se arrastraban
+  // hasta la pantalla — "$1.234.567,5" en el total de una ruta.
+  return Math.round(items.reduce((s, i) => s + (parseFloat(i.orden?.saldo_pendiente) || 0), 0))
 }
 
 function pendientesRuta(items) {
@@ -252,7 +254,7 @@ function pendientesRuta(items) {
                 <p class="text-sm font-semibold text-gray-800">{{ pendientesRuta(grupo.items) }} entrega(s) pendiente(s)</p>
                 <div class="text-right flex-shrink-0">
                   <p class="text-xs text-gray-400">A cobrar</p>
-                  <p class="text-base font-bold text-green-600">${{ totalRuta(grupo.items).toLocaleString('es-CO') }}</p>
+                  <p class="text-base font-bold text-green-600"><MoneyDisplay :amount="totalRuta(grupo.items)" bold /></p>
                 </div>
               </div>
             </button>
@@ -293,7 +295,7 @@ function pendientesRuta(items) {
                   </div>
                   <div class="text-right flex-shrink-0">
                     <p class="text-xs text-gray-400">A cobrar</p>
-                    <p class="text-base font-bold text-green-600">${{ totalRuta(grupo.items).toLocaleString('es-CO') }}</p>
+                    <p class="text-base font-bold text-green-600"><MoneyDisplay :amount="totalRuta(grupo.items)" bold /></p>
                   </div>
                 </div>
               </button>
@@ -340,7 +342,7 @@ function pendientesRuta(items) {
             </div>
             <div class="bg-white/15 rounded-lg px-3 py-2 flex items-center justify-between">
               <span class="text-xs opacity-80">Total a cobrar</span>
-              <span class="font-bold">${{ totalRuta(itemsRutaActiva).toLocaleString('es-CO') }}</span>
+              <MoneyDisplay :amount="totalRuta(itemsRutaActiva)" bold />
             </div>
             <div v-if="infoRutaActiva?.despacho?.instrucciones" class="bg-white/15 rounded-lg px-3 py-2">
               <p class="text-xs opacity-70 font-semibold mb-0.5">Instrucciones</p>

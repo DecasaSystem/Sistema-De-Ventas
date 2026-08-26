@@ -20,6 +20,8 @@ import {
   ArrowDownTrayIcon,
 } from '@heroicons/vue/24/outline'
 import { exportarExcel } from '@/utils/exportarExcel'
+import InputPesos from '@/components/common/InputPesos.vue'
+import { formatPct } from '@/utils/descuentos'
 
 const router = useRouter()
 const toast  = useToast()
@@ -84,7 +86,8 @@ async function cambiarMes() {
 async function cargarMetas() {
   const { data } = await api.get('/comisiones/metas', { params: { mes: mesActual.value } })
   metas.value = data
-  metaEdits.value = Object.fromEntries(data.map(m => [m.tienda_id, m.meta != null ? String(m.meta) : '']))
+  // Número, no texto: InputPesos trabaja con números y es quien pone los puntos.
+  metaEdits.value = Object.fromEntries(data.map(m => [m.tienda_id, m.meta != null ? Number(m.meta) : '']))
 }
 
 async function cargarResumen() {
@@ -646,8 +649,7 @@ onMounted(async () => {
           <div class="flex items-center gap-2 mb-3">
             <div class="flex-1">
               <p class="text-[10px] text-gray-400 mb-0.5">Meta mensual</p>
-              <input
-                type="number"
+              <InputPesos
                 v-model="metaEdits[m.tienda_id]"
                 placeholder="0"
                 class="w-full text-xs text-right border border-gray-200 rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-green-500 focus:border-transparent"
@@ -808,7 +810,7 @@ onMounted(async () => {
             <div class="text-right">
               <p class="text-xs text-gray-400">Comisión sobre ventas</p>
               <p class="text-base font-bold text-green-700">
-                {{ totalGeneral.ventas > 0 ? (totalGeneral.comision / totalGeneral.ventas * 100).toFixed(1) : 0 }}%
+                {{ formatPct(totalGeneral.ventas > 0 ? totalGeneral.comision / totalGeneral.ventas * 100 : 0) }}%
               </p>
             </div>
           </div>

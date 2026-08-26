@@ -32,6 +32,7 @@ import { useToast } from '@/composables/useToast'
 import ComboInput from '@/components/common/ComboInput.vue'
 import { useTelaFotos } from '@/composables/useTelaFotos'
 import { TELAS_CATALOGO, marcasOrdenadas, tiposTelaDeM, coloresDeTela } from '@/data/telasCatalogo'
+import { pesos } from '@/utils/pesos'
 
 const toast = useToast()
 const auth  = useAuthStore()
@@ -1202,7 +1203,7 @@ onMounted(async () => {
                     @update:model-value="v => item.especificaciones.medida = v"
                   />
                   <p v-if="tallaSeleccionadaPrecio(item)" class="text-[10px] text-purple-600 mt-0.5 font-medium">
-                    Precio: ${{ tallaSeleccionadaPrecio(item).toLocaleString('es-CO') }}
+                    Precio: {{ pesos(tallaSeleccionadaPrecio(item)) }}
                   </p>
                   <p v-else class="text-[10px] text-gray-400 mt-0.5">El precio varía por talla.</p>
                 </div>
@@ -2101,7 +2102,7 @@ onMounted(async () => {
                 <p class="text-sm font-medium text-gray-800 truncate">
                   <template v-if="v.medida">
                     {{ v.medida }}
-                    <span v-if="v.precio_variante" class="text-blue-600 ml-1">— ${{ Number(v.precio_variante).toLocaleString('es-CO') }}</span>
+                    <span v-if="v.precio_variante" class="text-blue-600 ml-1">— {{ pesos(v.precio_variante) }}</span>
                   </template>
                   <template v-else>
                     {{ [v.marca, v.marca_tela, v.nombre_color].filter(Boolean).join(' · ') || 'Sin especificación' }}<span v-if="v._config_label" class="text-indigo-600 font-semibold"> · {{ v._config_label }}</span>

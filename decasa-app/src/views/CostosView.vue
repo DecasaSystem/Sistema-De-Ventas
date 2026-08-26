@@ -26,6 +26,9 @@ import {
   PhotoIcon,
 } from '@heroicons/vue/24/outline'
 import { comprimirImagen } from '@/utils/comprimirImagen'
+import { pesos } from '@/utils/pesos'
+import InputPesos from '@/components/common/InputPesos.vue'
+import { formatPct } from '@/utils/descuentos'
 
 // ── TAB activo ────────────────────────────────────────────────────────────────
 const tab = ref('productos') // 'productos' | 'materiales' | 'tarifas'
@@ -420,7 +423,7 @@ function onSearchMat() {
 function abrirEdicion(mat) {
   materialEditando.value = {
     ...mat,
-    _precio:      String(mat.precio_unitario),
+    _precio:      Number(mat.precio_unitario) || 0,
     _descripcion: mat.descripcion || '',
     _unidad:      mat.unidad || '',
   }
@@ -709,9 +712,9 @@ async function cargarTarifas() {
     const res = await getCostos()
     salarios.value = res.data.salarios.map(s => ({
       ...s,
-      _salario:    String(s.salario_mensual),
+      _salario:    Number(s.salario_mensual) || 0,
       _dias:       String(s.dias_laborales_mes || 26),
-      _tarifaHora: String(s.tarifa_hora || 0),
+      _tarifaHora: Number(s.tarifa_hora) || 0,
     }))
     procesos.value = res.data.procesos.map(p => ({ ...p, _horas: String(Math.round((p.dias_por_unidad ?? 0) * 8 * 100) / 100) }))
     if (res.data.factor_venta_sugerido) factorVenta.value = String(res.data.factor_venta_sugerido)
@@ -793,7 +796,13 @@ async function guardarTarifas() {
 
 // ── Formateo ──────────────────────────────────────────────────────────────────
 function formatPeso(valor) {
-  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0 }).format(valor)
+  // `maximumFractionDigits: 0` es obligatorio: el COP trae 2 decimales por
+  // defecto, y acá los subtotales salen de cantidad × precio con cantidades de
+  // hasta 4 decimales, así que 0,125 × 12.500 se veía como "$ 1.562,5".
+  return new Intl.NumberFormat('es-CO', {
+    style: 'currency', currency: 'COP',
+    minimumFractionDigits: 0, maximumFractionDigits: 0,
+  }).format(Math.round(Number(valor) || 0))
 }
 
 function formatCantidad(valor) {
@@ -996,7 +1005,7 @@ onMounted(() => {
             </div>
             <div class="text-xs text-gray-500 pb-2">
               Ej: costo $1.000.000 &rarr; sugiere
-              <strong class="text-emerald-700">${{ Math.round(1000000 * (parseFloat(factorVenta) || 0)).toLocaleString('es-CO') }}</strong>
+              <strong class="text-emerald-700">{{ pesos(1000000 * (parseFloat(factorVenta) || 0)) }}</strong>
             </div>
             <button @click="guardarFactor" :disabled="guardandoFactor"
               class="ml-auto bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
@@ -1032,12 +1041,12 @@ onMounted(() => {
               </div>
               <div>
                 <label class="text-[10px] text-gray-500 uppercase font-medium">Salario mensual *</label>
-                <input v-model="formCargo.salario_mensual" type="number" step="50000" min="0" placeholder="ej: 2500000"
+                <InputPesos v-model="formCargo.salario_mensual" placeholder="ej: 2.500.000"
                   class="w-full mt-0.5 text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div>
                 <label class="text-[10px] text-blue-500 uppercase font-medium">Incentivo / hora</label>
-                <input v-model="formCargo.tarifa_hora" type="number" step="500" min="0" placeholder="ej: 8000"
+                <InputPesos v-model="formCargo.tarifa_hora" placeholder="ej: 8.000"
                   class="w-full mt-0.5 text-sm border border-blue-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-blue-50" />
               </div>
             </div>
@@ -1073,7 +1082,7 @@ onMounted(() => {
               <div class="grid grid-cols-2 gap-3 mb-3">
                 <div>
                   <label class="text-[10px] text-gray-400 uppercase font-medium">Salario mensual</label>
-                  <input v-model="s._salario" @input="tarifasDirty = true" type="number" step="1000" min="0"
+                  <InputPesos v-model="s._salario" @update:modelValue="tarifasDirty = true"
                     class="w-full mt-0.5 text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
                 <div>
@@ -1091,7 +1100,7 @@ onMounted(() => {
                 </div>
                 <div>
                   <label class="text-[10px] text-blue-500 uppercase font-medium">Incentivo / hora</label>
-                  <input v-model="s._tarifaHora" @input="tarifasDirty = true" type="number" step="1000" min="0"
+                  <InputPesos v-model="s._tarifaHora" @update:modelValue="tarifasDirty = true"
                     class="w-full mt-0.5 text-sm border border-blue-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-blue-50" />
                 </div>
               </div>
@@ -1220,7 +1229,7 @@ onMounted(() => {
               <div class="text-xs text-gray-500 mt-0.5">casos corregidos</div>
             </div>
             <div class="bg-white border border-gray-200 rounded-xl p-3 text-center">
-              <div class="text-2xl font-bold" :class="colorError(precision.global.error_medio_abs)">{{ precision.global.error_medio_abs }}%</div>
+              <div class="text-2xl font-bold" :class="colorError(precision.global.error_medio_abs)">{{ formatPct(precision.global.error_medio_abs) }}%</div>
               <div class="text-xs text-gray-500 mt-0.5">error promedio</div>
             </div>
             <div class="bg-white border border-gray-200 rounded-xl p-3 text-center">
@@ -1235,7 +1244,7 @@ onMounted(() => {
               <div class="text-xs text-gray-500">Tendencia del estimado</div>
               <div class="text-sm font-semibold" :class="colorSesgo(precision.global.sesgo_medio)">
                 {{ precision.global.sesgo_medio > 0 ? 'Sobreestima' : precision.global.sesgo_medio < 0 ? 'Subestima' : 'Neutral' }}
-                {{ precision.global.sesgo_medio > 0 ? '+' : '' }}{{ precision.global.sesgo_medio }}% en promedio
+                {{ precision.global.sesgo_medio > 0 ? '+' : '' }}{{ formatPct(precision.global.sesgo_medio) }}% en promedio
               </div>
             </div>
             <div class="text-xs text-right max-w-[45%]" :class="precision.global.sesgo_medio < -8 ? 'text-red-500' : 'text-gray-400'">
@@ -1256,8 +1265,8 @@ onMounted(() => {
                 class="grid grid-cols-[1fr_auto_auto_auto] gap-2 px-3 py-2 text-sm border-b border-gray-50 last:border-0">
                 <span class="text-gray-700 truncate">{{ c.categoria }}</span>
                 <span class="text-right text-gray-500">{{ c.n }}</span>
-                <span class="text-right font-medium" :class="colorError(c.error_medio_abs)">{{ c.error_medio_abs }}%</span>
-                <span class="text-right font-medium" :class="colorSesgo(c.sesgo_medio)">{{ c.sesgo_medio > 0 ? '+' : '' }}{{ c.sesgo_medio }}%</span>
+                <span class="text-right font-medium" :class="colorError(c.error_medio_abs)">{{ formatPct(c.error_medio_abs) }}%</span>
+                <span class="text-right font-medium" :class="colorSesgo(c.sesgo_medio)">{{ c.sesgo_medio > 0 ? '+' : '' }}{{ formatPct(c.sesgo_medio) }}%</span>
               </div>
             </div>
           </div>
@@ -1274,13 +1283,13 @@ onMounted(() => {
                   </div>
                   <div class="text-right flex-shrink-0">
                     <div class="text-xs font-semibold" :class="colorError(Math.abs(r.error_pct))">
-                      {{ r.error_pct > 0 ? '+' : '' }}{{ r.error_pct }}%
+                      {{ r.error_pct > 0 ? '+' : '' }}{{ formatPct(r.error_pct) }}%
                     </div>
                   </div>
                 </div>
                 <div class="flex items-center gap-3 mt-1.5 text-xs">
-                  <span class="text-gray-400">IA: <span class="text-gray-600">${{ r.precio_ia.toLocaleString('es-CO') }}</span></span>
-                  <span class="text-gray-400">Real: <span class="text-gray-700 font-medium">${{ r.precio_real.toLocaleString('es-CO') }}</span></span>
+                  <span class="text-gray-400">IA: <span class="text-gray-600">{{ pesos(r.precio_ia) }}</span></span>
+                  <span class="text-gray-400">Real: <span class="text-gray-700 font-medium">{{ pesos(r.precio_real) }}</span></span>
                 </div>
               </div>
             </div>
@@ -1419,7 +1428,7 @@ onMounted(() => {
                       </td>
                       <td class="px-2 py-2 text-gray-400">{{ item.unidad }}</td>
                       <td class="px-2 py-1.5 text-right">
-                        <input v-if="modoEdicion" v-model="item.precio_unitario" @input="onCampoChange(item)" type="number" step="any" min="0"
+                        <InputPesos v-if="modoEdicion" v-model="item.precio_unitario" @update:modelValue="onCampoChange(item)"
                           class="w-24 text-right text-xs border border-blue-300 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white" />
                         <span v-else class="text-gray-500">{{ formatPeso(item.precio_unitario) }}</span>
                       </td>
@@ -1476,7 +1485,7 @@ onMounted(() => {
                 <p v-if="mat.descripcion && mat.descripcion !== mat.nombre" class="text-xs text-gray-400 truncate">{{ mat.descripcion }}</p>
               </div>
               <div class="text-right flex-shrink-0">
-                <p class="text-sm font-semibold text-blue-700">${{ Number(mat.precio_unitario).toLocaleString('es-CO') }}</p>
+                <p class="text-sm font-semibold text-blue-700">{{ pesos(mat.precio_unitario) }}</p>
                 <p v-if="mat.unidad" class="text-xs text-gray-400">{{ mat.unidad }}</p>
               </div>
             </li>
@@ -1717,7 +1726,7 @@ onMounted(() => {
                   </div>
                   <div>
                     <label class="text-[10px] text-gray-400 uppercase font-medium">Vr. Unit.</label>
-                    <input v-model="item.precio_unitario" @input="recalcularItemForm(item)" type="number" step="any" min="0"
+                    <InputPesos v-model="item.precio_unitario" @update:modelValue="recalcularItemForm(item)"
                       class="w-full text-sm border border-gray-300 rounded-lg px-2 py-1.5 mt-0.5 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                   </div>
                   <div>
@@ -1799,7 +1808,7 @@ onMounted(() => {
             </div>
             <div>
               <label class="text-xs font-medium text-gray-600">Precio unitario</label>
-              <input v-model="materialEditando._precio" type="number" step="any" min="0"
+              <InputPesos v-model="materialEditando._precio"
                 class="w-full mt-1 text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
               <p class="text-[10px] text-amber-600 mt-1">⚠ Cambiar el precio actualizará todos los productos que usen este material</p>
             </div>
@@ -1836,7 +1845,7 @@ onMounted(() => {
             </div>
             <div>
               <label class="text-xs font-medium text-gray-600">Precio unitario <span class="text-red-500">*</span></label>
-              <input v-model="formMat.precio_unitario" type="number" step="any" min="0" placeholder="0"
+              <InputPesos v-model="formMat.precio_unitario" placeholder="0"
                 class="w-full mt-1 text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
           </div>
