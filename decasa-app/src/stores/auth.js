@@ -3,8 +3,10 @@ import { ref, computed } from 'vue'
 import api from '@/api'
 import { login as apiLogin, logout as apiLogout } from '@/api/auth'
 
-// 'perfilAlt' es la clave que sobrevive logout y 401 para que el perfil
-// alternativo no se pierda cuando el usuario cierra sesión y vuelve a entrar.
+// 'perfilAlt' guarda la sesion del segundo perfil para que no se pierda
+// cuando la sesion se cae sola (un 401, un token vencido). Al cerrar sesion a
+// proposito se borra: dejar la sesion de otra cuenta guardada en un aparato
+// del que alguien acaba de salir es dejarle la puerta abierta al siguiente.
 const KEY_PERFIL_ALT = 'perfilAlt'
 
 export const useAuthStore = defineStore('auth', () => {
@@ -235,14 +237,38 @@ export const useAuthStore = defineStore('auth', () => {
     _syncStorage()
   }
 
+  /**
+   * Cerrar sesion a proposito: no queda nada del aparato.
+   *
+   * Antes tambien aca se conservaba el token del perfil alternativo, asi que
+   * despues de "cerrar sesion" seguia guardada la sesion de la OTRA cuenta —en
+   * un computador compartido eso es dejarle la puerta abierta al siguiente—.
+   * Ese respaldo tiene sentido cuando la sesion se cae sola (un 401, el token
+   * vencido), no cuando alguien decide salir.
+   */
   async function logout() {
     try { await apiLogout() } catch {}
-    clearSession()
+
+    // Se cierra tambien la sesion del perfil alternativo en el servidor: si no,
+    // ese token sigue siendo valido aunque se borre de este aparato.
+    const alt = _perfiles.value.find((_, i) => i !== _perfilActivo.value)
+    if (alt?.token) {
+      try {
+        await fetch('/api/auth/logout', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${alt.token}` },
+        })
+      } catch {}
+    }
+
+    clearSession({ conservarAlterno: false })
+    localStorage.removeItem(KEY_PERFIL_ALT)
   }
 
-  function clearSession() {
-    // Persistir el perfil alternativo ANTES de limpiar, para que sobreviva
-    _persistirAlt()
+  function clearSession({ conservarAlterno = true } = {}) {
+    // Al caerse la sesion sola se conserva, para no perder el doble perfil por
+    // un token vencido. Al salir a proposito, no.
+    if (conservarAlterno) _persistirAlt()
 
     _perfiles.value     = []
     _perfilActivo.value = 0
@@ -252,7 +278,8 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem('usuario')
     localStorage.removeItem('perfiles')
     localStorage.removeItem('perfilActivo')
-    // KEY_PERFIL_ALT se mantiene intencionalmente
+    // KEY_PERFIL_ALT lo decide quien llama: se conserva si la sesion se
+    // cayo sola, y se borra si se cerro a proposito (ver logout).
   }
 
   // ── Acciones de doble perfil ──────────────────────────────────────────────

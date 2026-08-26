@@ -17,6 +17,12 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->append(SecurityHeaders::class);
+
+        // Techo de peticiones para toda la API. Desde Laravel 11 el grupo `api`
+        // ya no lo trae puesto, así que había que pedirlo: sin esto solo siete
+        // rutas de casi trescientas tenían límite. El cupo se define en
+        // AppServiceProvider (limitador 'api').
+        $middleware->throttleApi();
         $middleware->alias([
             'role'    => CheckRole::class,
             'permiso' => CheckPermiso::class,

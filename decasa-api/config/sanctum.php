@@ -47,7 +47,17 @@ return [
     |
     */
 
-    'expiration' => null,
+    /*
+     * Sesenta días, y no "para siempre".
+     *
+     * Con `null` un token no caducaba nunca: el que se emitió en junio seguía
+     * sirviendo, y uno robado —de un celular perdido, de una sesión abierta en
+     * un computador ajeno— servía igual para siempre. Sesenta días es holgado
+     * para quien entra todos los días y acota la ventana de lo que se pierde.
+     *
+     * Se puede ajustar sin tocar código con SANCTUM_EXPIRATION (en minutos).
+     */
+    'expiration' => (int) env('SANCTUM_EXPIRATION', 60 * 24 * 60),
 
     /*
     |--------------------------------------------------------------------------

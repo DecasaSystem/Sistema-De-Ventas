@@ -41,8 +41,23 @@ class RedesController extends Controller
     // POST /api/redes/webhook  — recibe notificaciones del agente WA (sin auth, con token secreto)
     public function webhook(Request $request)
     {
+        // Sin secreto configurado se RECHAZA, no se deja pasar.
+        //
+        // Antes la comprobación era `if ($secret && ...)`: si la variable de
+        // entorno faltaba, la condición no se cumplía y el webhook quedaba
+        // abierto a internet sin que nadie se enterara. Borrar una variable en
+        // el panel del servidor no puede ser lo mismo que quitarle la puerta
+        // a un endpoint público que crea clientes y conversaciones.
         $secret = config('app.agent_token');
-        if ($secret && $request->header('X-Agent-Token') !== $secret) {
+
+        if (! $secret) {
+            \Log::error('[DECASA] Webhook de redes llamado sin AGENT_TOKEN configurado: se rechaza.');
+            return response()->json(['error' => 'Unauthorized'], 401);
+        }
+
+        // hash_equals: la comparación normal se corta en el primer carácter
+        // distinto y el tiempo de respuesta va filtrando el secreto.
+        if (! hash_equals($secret, (string) $request->header('X-Agent-Token'))) {
             return response()->json(['error' => 'Unauthorized'], 401);
         }
 
