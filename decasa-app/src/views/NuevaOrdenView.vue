@@ -3804,19 +3804,22 @@ function removeFacturaFoto() {
         </template>
       </div>
 
-      <!-- Fecha que se le prometió al cliente.
-           No es la fecha de entrega — esa la asigna el supervisor por ítem.
-           Sirve para que sepa qué se habló acá y no la ponga un mes después. -->
+      <!-- La fecha que se acuerda acá ES la fecha de entrega: entra sola en la
+           orden y en el taller. Antes era solo una referencia y alguien tenía
+           que ir orden por orden poniendo la de verdad. -->
       <div>
-        <label class="label">¿Qué fecha le prometiste al cliente? (opcional)</label>
+        <label class="label">¿Para qué fecha se la prometiste al cliente?</label>
         <input
           v-model="fechaSugeridaVendedor"
           type="date"
           :min="hoy"
-          class="input"
+          :class="['input', !fechaSugeridaVendedor ? 'border-amber-300 bg-amber-50' : '']"
         />
-        <p class="text-xs text-gray-500 mt-1">
-          Le aparece a quien asigna las fechas de entrega, para que no quede muy lejos de lo que le dijiste.
+        <p v-if="fechaSugeridaVendedor" class="text-xs text-gray-500 mt-1">
+          Esta queda como la fecha de entrega de la orden. Producción trabaja con ella.
+        </p>
+        <p v-else class="text-xs text-amber-700 mt-1">
+          Sin esto la orden queda sin fecha de entrega y alguien tiene que ponérsela después.
         </p>
       </div>
 

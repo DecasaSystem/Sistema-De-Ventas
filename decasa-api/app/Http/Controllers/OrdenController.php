@@ -382,7 +382,13 @@ class OrdenController extends Controller
             ], 409);
         }
 
-        $orden = DB::transaction(function () use ($data, $tiendaId, $anticupoPct, $valorTotal, $descuentoTotal, $request, $tieneItemsCotizacionPendiente, $guardarBorrador, $entregaInmediata, $quiereEntregaInmediata, $esFv2, $descuentoCondicionado, $pctCondicionado, $tiendaAbonadaId) {
+        // La fecha de entrega de toda la orden: la que el vendedor acordó con el
+        // cliente. Si no la puso, los ítems quedan sin fecha y a quien supervisa
+        // le llega el aviso de que hay que ponerla. Se resuelve acá afuera
+        // porque también decide, después de la transacción, qué aviso se manda.
+        $fechaEntregaInicial = $data['fecha_sugerida_vendedor'] ?? null;
+
+        $orden = DB::transaction(function () use ($data, $tiendaId, $anticupoPct, $valorTotal, $descuentoTotal, $request, $tieneItemsCotizacionPendiente, $guardarBorrador, $entregaInmediata, $quiereEntregaInmediata, $esFv2, $descuentoCondicionado, $pctCondicionado, $tiendaAbonadaId, $fechaEntregaInicial) {
 
             // --- 1. Verificar stock para items no personalizados (con bloqueo) ---
             foreach ($data['items'] as $item) {
@@ -439,8 +445,8 @@ class OrdenController extends Controller
                 'descuento_condicionado_pct' => $descuentoCondicionado > 0 ? $pctCondicionado : null,
                 'anticipo_pct'      => $anticupoPct,
                 'notas'             => $data['notas'] ?? null,
-                // Lo que el vendedor le prometió al cliente. Es referencia para
-                // quien asigna la fecha real, no la fecha de entrega.
+                // Lo que el vendedor le prometió al cliente pasa a ser la fecha
+                // de entrega de una vez (ver abajo, al crear los ítems).
                 'fecha_sugerida_vendedor' => $data['fecha_sugerida_vendedor'] ?? null,
                 'es_compartida'     => $data['es_compartida'] ?? false,
                 'covendedor_id'     => ($data['es_compartida'] ?? false) ? ($data['covendedor_id'] ?? null) : null,
@@ -496,7 +502,11 @@ class OrdenController extends Controller
                     'boceto_fotos'          => isset($itemData['boceto_urls']) && count(array_filter($itemData['boceto_urls'])) > 1
                         ? array_values(array_filter($itemData['boceto_urls']))
                         : null,
-                    'fecha_entrega_prom'    => null, // El supervisor asigna fechas después de confirmar la orden
+                    // La fecha sale de lo que se le prometió al cliente en el
+                    // punto de venta. Antes nacía vacía y alguien tenía que ir
+                    // orden por orden poniéndola; ahora entra sola y quien
+                    // supervisa solo corrige la que vea mal.
+                    'fecha_entrega_prom'    => $fechaEntregaInicial,
                 ]);
 
                 if ($esPersonalizado || $esProductoCustom) {
@@ -505,7 +515,9 @@ class OrdenController extends Controller
                         Produccion::create([
                             'orden_item_id'    => $item->id,
                             'fecha_inicio'     => now()->toDateString(),
-                            'fecha_compromiso' => null, // El supervisor asigna la fecha vía asignarFechas()
+                            // El taller trabaja contra la misma fecha que se le
+                            // prometió al cliente, no contra una en blanco.
+                            'fecha_compromiso' => $fechaEntregaInicial,
                             'estado'           => 'pendiente',
                         ]);
                     }
@@ -656,13 +668,25 @@ class OrdenController extends Controller
                     $sup->id,
                 );
 
+                // Ya no se pide asignar la fecha: entró sola con lo que el
+                // vendedor le prometió al cliente. El aviso pasa a ser para
+                // revisarla —quien supervisa solo corrige la que vea mal— y
+                // solo vuelve a ser un encargo cuando la orden quedó sin fecha.
                 if ($sup->notif_asignar_fecha && ! $tieneItemsCotizacionPendiente) {
+                    $sinFecha = $fechaEntregaInicial === null;
+
                     NotificacionService::crear(
                         'asignar_fecha',
-                        'Asignar fecha de entrega',
-                        "Orden {$orden->referencia} de {$ordenCargada->cliente->nombre} necesita fecha de entrega",
+                        $sinFecha ? 'Falta la fecha de entrega' : 'Revisar fecha de entrega',
+                        $sinFecha
+                            ? "Orden {$orden->referencia} de {$ordenCargada->cliente->nombre} quedó sin fecha: hay que ponérsela."
+                            : "Orden {$orden->referencia} de {$ordenCargada->cliente->nombre} quedó para el "
+                              . \Carbon\Carbon::parse($fechaEntregaInicial)->locale('es')->isoFormat('D [de] MMMM')
+                              . ", que es lo que le prometieron al cliente.",
                         ['orden_id' => $orden->id],
                         $sup->id,
+                        // Sin fecha sí es urgente: nadie sabe para cuándo va.
+                        urgente: $sinFecha,
                     );
                 }
             }
@@ -1798,13 +1822,22 @@ class OrdenController extends Controller
                 ...$extra,
             ]);
 
+            // Al completarlo pasa a ser una venta como cualquier otra, así que
+            // la fecha prometida al cliente entra igual que en una orden nueva.
+            $fechaBorrador = $orden->fresh()->fecha_sugerida_vendedor?->toDateString();
+
+            if ($fechaBorrador) {
+                $orden->items()->whereNull('fecha_entrega_prom')
+                    ->update(['fecha_entrega_prom' => $fechaBorrador]);
+            }
+
             // Crear registros de producción para los items personalizados del borrador
             foreach ($orden->items->where('es_personalizado', true) as $item) {
                 if (! $item->produccion) {
                     Produccion::create([
                         'orden_item_id'    => $item->id,
                         'fecha_inicio'     => now()->toDateString(),
-                        'fecha_compromiso' => null, // El supervisor asigna la fecha vía asignarFechas()
+                        'fecha_compromiso' => $fechaBorrador,
                         'estado'           => 'pendiente',
                     ]);
                 }

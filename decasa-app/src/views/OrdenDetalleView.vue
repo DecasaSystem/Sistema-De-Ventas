@@ -83,6 +83,22 @@ const todasFechasAsignadas = computed(() =>
   (orden.value?.items?.length ?? 0) > 0 && (orden.value?.items?.every(i => i.fecha_entrega_prom) ?? false)
 )
 
+/**
+ * ¿Lo que está puesto sigue siendo lo que se le prometió al cliente?
+ *
+ * Se compara contra lo que hay escrito en los campos, no contra lo guardado:
+ * el botón de volver a la fecha prometida solo tiene sentido mientras alguien
+ * la esté cambiando, y una vez que la deja igual otra vez, sobra.
+ */
+const fechasIgualesALaPrometida = computed(() => {
+  const prometida = String(orden.value?.fecha_sugerida_vendedor ?? '').substring(0, 10)
+  if (!prometida) return false
+
+  return (orden.value?.items ?? []).every(
+    i => String(fechasEdicion.value[i.id] ?? '').substring(0, 10) === prometida
+  )
+})
+
 // Cuándo se entrega la orden completa: la fecha más lejana de sus ítems,
 // porque el cliente recibe todo cuando esté listo el último. Si a alguno le
 // falta fecha no se muestra ninguna — media orden con fecha no es una fecha
@@ -2243,25 +2259,37 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         </div>
       </div>
 
-      <!-- Asignar fechas de entrega (solo después de que el cliente acepte el precio) -->
-      <div v-if="auth.isSupervisor && !todasFechasAsignadas && orden.estado !== 'pendiente_cotizacion'" class="bg-white rounded-xl shadow-sm p-4 space-y-3">
-        <p class="text-xs font-semibold text-gray-500 uppercase">Asignar fechas de entrega</p>
+      <!-- Fechas de entrega. Entran solas con lo que el vendedor le prometió al
+           cliente; esto es para corregir la que quede mal, no para ponerlas una
+           por una. -->
+      <div v-if="auth.isSupervisor && orden.estado !== 'pendiente_cotizacion'" class="bg-white rounded-xl shadow-sm p-4 space-y-3">
+        <p class="text-xs font-semibold text-gray-500 uppercase">
+          {{ todasFechasAsignadas ? 'Fechas de entrega' : 'Falta la fecha de entrega' }}
+        </p>
 
-        <!-- Lo que el vendedor le prometió al cliente. Sin esto la fecha se
-             ponía a ciegas y a veces quedaba un mes más lejos de lo hablado. -->
+        <!-- De dónde salió la fecha que está puesta -->
         <div v-if="orden.fecha_sugerida_vendedor" class="bg-blue-50 border border-blue-200 rounded-lg p-3 space-y-2">
           <p class="text-xs text-blue-900">
             <span class="font-semibold">{{ orden.vendedor?.nombre ?? 'El vendedor' }}</span>
             le prometió al cliente el
-            <span class="font-semibold">{{ formatFecha(orden.fecha_sugerida_vendedor) }}</span>.
+            <span class="font-semibold">{{ formatFecha(orden.fecha_sugerida_vendedor) }}</span>,
+            y esa quedó como fecha de entrega. Cámbiala solo si no se puede cumplir.
           </p>
           <button
+            v-if="!fechasIgualesALaPrometida"
             type="button"
             @click="usarFechaSugerida"
             class="w-full text-xs font-semibold py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors"
           >
-            Usar esa fecha {{ orden.items.length > 1 ? 'en todos los ítems' : '' }}
+            Volver a la fecha prometida
           </button>
+        </div>
+
+        <!-- Sin fecha del vendedor no hay de dónde sacarla: hay que ponerla. -->
+        <div v-else class="bg-amber-50 border border-amber-200 rounded-lg p-3">
+          <p class="text-xs text-amber-900">
+            Esta orden se creó sin fecha prometida al cliente, así que hay que ponerle una.
+          </p>
         </div>
 
         <div
@@ -2281,7 +2309,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
           :disabled="guardandoFechas"
           class="w-full bg-blue-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors"
         >
-          {{ guardandoFechas ? 'Guardando...' : 'Guardar fechas' }}
+          {{ guardandoFechas ? 'Guardando...' : (todasFechasAsignadas ? 'Guardar cambios' : 'Guardar fechas') }}
         </button>
       </div>
 
@@ -2356,7 +2384,8 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         >
           <CalendarIcon class="w-4 h-4 mt-0.5 text-amber-500 flex-shrink-0" />
           <p class="text-xs text-amber-700 leading-snug">
-            Aún no se han asignado las fechas de entrega. Puedes enviar la cotización igual; el PDF mostrará las fechas pendientes.
+            Esta orden quedó sin fecha de entrega — se creó sin fecha prometida al cliente.
+            Puedes enviar la cotización igual; el PDF mostrará las fechas pendientes.
           </p>
         </div>
 

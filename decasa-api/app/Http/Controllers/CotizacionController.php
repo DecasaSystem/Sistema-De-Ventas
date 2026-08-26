@@ -365,6 +365,9 @@ class CotizacionController extends Controller
             'ciudad_envio'        => 'nullable|string|max:100',
             'direccion_envio'     => 'nullable|string|max:300',
             'notas'               => 'nullable|string|max:1000',
+            // Lo que se le promete al cliente al cerrar. Pasa a ser la fecha
+            // de entrega de la orden, igual que en una venta directa.
+            'fecha_sugerida_vendedor' => 'nullable|date',
 
             // El vendedor confirma que vio las advertencias de precio.
             'aceptar_cambios_precio' => 'nullable|boolean',
@@ -450,13 +453,21 @@ class CotizacionController extends Controller
                 ]);
             }
 
+            // La fecha que se acaba de acordar con el cliente es la fecha de
+            // entrega: ni los ítems ni el taller arrancan en blanco.
+            $fechaPrometida = $data['fecha_sugerida_vendedor'] ?? null;
+
+            if ($fechaPrometida) {
+                $cotizacion->items()->update(['fecha_entrega_prom' => $fechaPrometida]);
+            }
+
             // 3. Producción para los ítems personalizados
             foreach ($cotizacion->items->where('es_personalizado', true) as $item) {
                 if (! $item->produccion) {
                     Produccion::create([
                         'orden_item_id'    => $item->id,
                         'fecha_inicio'     => now()->toDateString(),
-                        'fecha_compromiso' => null,
+                        'fecha_compromiso' => $fechaPrometida,
                         'estado'           => 'pendiente',
                     ]);
                 }
@@ -473,6 +484,7 @@ class CotizacionController extends Controller
                 'estado'             => $tieneItemsSinPrecio ? 'pendiente_cotizacion' : 'pendiente_anticipo',
                 'cotizacion_estado'  => 'convertida',
                 'firma_url'          => $data['firma_url'],
+                'fecha_sugerida_vendedor' => $data['fecha_sugerida_vendedor'] ?? null,
                 'anexo_foto_url'     => $data['anexo_foto_url']     ?? null,
                 'departamento_envio' => $data['departamento_envio'] ?? null,
                 'ciudad_envio'       => $data['ciudad_envio']       ?? null,

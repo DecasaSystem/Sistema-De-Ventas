@@ -253,6 +253,9 @@ const form = ref({
   anticipo_referencia: '',
   es_fv2:           false,
   motivo_serie:     '',
+  // Lo que se le promete al cliente al cerrar: pasa a ser la fecha de entrega
+  // de la orden y con la que arranca el taller.
+  fecha_prometida:  '',
 })
 
 const necesitaCliente = computed(() => !cotizacion.value?.cliente_id)
@@ -302,6 +305,7 @@ async function hacerConversion() {
       anticipo_metodo: form.value.anticipo_metodo,
       anticipo_referencia: form.value.anticipo_referencia || undefined,
       aceptar_cambios_precio: true,   // ya se mostraron las diferencias arriba
+      fecha_sugerida_vendedor: form.value.fecha_prometida || undefined,
       es_fv2:         form.value.es_fv2 || undefined,
       motivo_serie:   form.value.es_fv2 ? (form.value.motivo_serie.trim() || undefined) : undefined,
       ...(necesitaCliente.value
@@ -753,6 +757,16 @@ onMounted(cargar)
                 placeholder="Motivo (opcional)"
                 class="input text-sm mt-2"
               />
+            </div>
+
+            <!-- La fecha que se acuerda al cerrar ES la fecha de entrega: entra
+                 sola en la orden y en el taller. -->
+            <div class="space-y-1 pt-1">
+              <p class="text-xs font-semibold text-gray-700">¿Para qué fecha se la prometiste?</p>
+              <input v-model="form.fecha_prometida" type="date" class="input text-sm" />
+              <p class="text-[11px] text-gray-500">
+                Queda como la fecha de entrega de la orden. Si la dejas vacía, alguien tendrá que ponérsela después.
+              </p>
             </div>
 
             <!-- Anticipo -->
