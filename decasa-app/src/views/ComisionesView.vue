@@ -181,13 +181,18 @@ const FORMAS_PAGO = {
     resumen:  'Su parte del 5% que dejó un independiente al compartir una venta con su tienda. No le suma a la meta.',
     clase:    'bg-emerald-100 text-emerald-700',
   },
+  parte_pool: {
+    etiqueta: 'Parte del equipo',
+    resumen:  'No vendió este mes, pero el pool se parte entre todos los integrantes de la tienda: le toca su parte igual.',
+    clase:    'bg-amber-100 text-amber-700',
+  },
 }
 function formaPago(c) {
   return FORMAS_PAGO[c?.forma_pago] ?? FORMAS_PAGO.pool
 }
-// La meta solo es requisito cuando se cobra por el pool.
+// La meta es requisito para todo lo que sale del pool, se haya vendido o no.
 function dependeDeLaMeta(c) {
-  return (c?.forma_pago ?? 'pool') === 'pool'
+  return ['pool', 'parte_pool'].includes(c?.forma_pago ?? 'pool')
 }
 
 async function pagarTodasListas(r) {

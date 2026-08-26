@@ -203,6 +203,10 @@ class ComisionController extends Controller
 
         $mes = $request->query('mes', Carbon::now()->format('Y-m'));
 
+        // Le abre su renglón a quien no vendió: en una tienda con meta el pool
+        // se parte entre todos los integrantes, venda cada uno o no.
+        $this->asegurarPartesDePool($mes);
+
         $comisiones = Comision::with(['orden.pagos', 'vendedor:id,nombre', 'tienda:id,nombre'])
             ->where('mes_venta', $mes)
             ->get();
@@ -528,6 +532,68 @@ class ComisionController extends Controller
      * copiando la que rige por arrastre: sin fila propia el divisor se quedaba
      * en el del mes anterior y cambiar el equipo no movía el reparto.
      */
+    /**
+     * Le abre su renglón a quien no vendió nada en el mes.
+     *
+     * El pool de una tienda con meta se reparte entre todos los integrantes,
+     * venda cada uno o no —en Norte siempre se parte en 3—. Quien no vendió no
+     * tenía ninguna fila, así que su parte se calculaba pero no se la llevaba
+     * nadie: no había dónde escribirla ni dónde marcarla como pagada.
+     *
+     * Se llama al abrir la pantalla y es idempotente: si ya tiene renglón —sea
+     * por ventas suyas o por una parte creada antes— no hace nada.
+     *
+     * Solo para tiendas con meta: donde no hay pool, cada uno cobra el 5% de lo
+     * suyo y sin ventas no hay nada que cobrar.
+     */
+    private function asegurarPartesDePool(string $mes): void
+    {
+        try {
+            $this->crearPartesDePool($mes);
+        } catch (\Throwable $e) {
+            // Abrir renglones no puede tumbar la pantalla: si algo falla —la
+            // columna todavía sin migrar, por ejemplo— se sigue mostrando lo
+            // que sí hay, que es lo que la gente viene a mirar.
+            \Log::warning('[DECASA] No se pudieron crear las partes de pool de ' . $mes, ['error' => $e->getMessage()]);
+        }
+    }
+
+    private function crearPartesDePool(string $mes): void
+    {
+        $conMeta = MetaTienda::vigentesEn($mes);
+        if (! $conMeta) return;
+
+        $equipos = TiendaAsesor::vigentesEn($mes);
+
+        // Quién ya tiene renglón este mes, para no duplicarlo.
+        $conRenglon = Comision::where('mes_venta', $mes)
+            ->get(['vendedor_id', 'tienda_id'])
+            ->map(fn ($c) => $c->vendedor_id . '_' . $c->tienda_id)
+            ->flip();
+
+        $finDeMes = Carbon::parse($mes . '-01')->endOfMonth();
+
+        foreach ($equipos as $tiendaId => $integrantes) {
+            if (! isset($conMeta[$tiendaId])) continue;
+
+            foreach ($integrantes as $asesor) {
+                if ($conRenglon->has($asesor->vendedor_id . '_' . $tiendaId)) continue;
+
+                Comision::create([
+                    'orden_id'         => null,
+                    'vendedor_id'      => $asesor->vendedor_id,
+                    'tienda_id'        => $tiendaId,
+                    'origen'           => self::ORIGEN_PARTE_POOL,
+                    'mes_venta'        => $mes,
+                    'valor_orden'      => 0,
+                    'fecha_venta'      => $finDeMes->toDateString(),
+                    'fecha_disponible' => self::calcularFechaDisponible($finDeMes, $tiendaId),
+                    'estado'           => 'pendiente',
+                ]);
+            }
+        }
+    }
+
     private function sincronizarDivisor(int $tiendaId, string $mes): int
     {
         $divisor = max(1, TiendaAsesor::where('tienda_id', $tiendaId)->where('mes', $mes)->count());
@@ -759,6 +825,16 @@ class ComisionController extends Controller
 
     /** Marca de las comisiones que salen del 5% que deja un independiente. */
     public const ORIGEN_ABONO = 'abono_almacen';
+
+    /**
+     * La parte del pool de alguien que no vendió nada ese mes.
+     *
+     * En una tienda con meta la comisión es de la TIENDA, no de la venta: el
+     * pool se parte entre los integrantes y a cada uno le toca lo mismo. Esta
+     * fila no cuelga de ninguna orden porque no hay ninguna — es justamente el
+     * caso que antes se quedaba sin pagar.
+     */
+    public const ORIGEN_PARTE_POOL = 'parte_pool';
 
     /**
      * Le arma (o le pone al día) su fila a cada persona del almacén con el que
@@ -1332,8 +1408,14 @@ class ComisionController extends Controller
         // contacto. Se cobra el 5% de lo que le tocó, con la misma regla de
         // siempre (a la venta se le quita el IVA, a la restauración no).
         $esAbono = $c->origen === self::ORIGEN_ABONO;
+        // No vendió nada, pero es del equipo: le toca su parte igual, entera.
+        // No se prorratea por ventas suyas porque no tiene ninguna — ese
+        // prorrateo daría cero, que es justo lo que pasaba antes.
+        $esPartePool = $c->origen === self::ORIGEN_PARTE_POOL;
 
-        if ($esAbono) {
+        if ($esPartePool) {
+            $montoComision = round($comisionAsesor);
+        } elseif ($esAbono) {
             $montoComision = $esRestauracion
                 ? round((float) $c->valor_orden * self::PORCENTAJE_DIRECTO)
                 : round((float) $c->valor_orden / self::IVA * self::PORCENTAJE_DIRECTO);
@@ -1349,7 +1431,11 @@ class ComisionController extends Controller
         }
 
         $pagado    = $c->orden?->pagos?->sum('monto') ?? 0;
-        $req50     = $pagado >= ((float) $c->valor_orden * 0.5);
+        // El 50% cobrado es un requisito de la ORDEN: hasta que el cliente no
+        // ha abonado la mitad, esa venta no paga comisión. Una parte de pool no
+        // tiene orden detrás —sale de lo que vendió el equipo, que ya cumplió
+        // ese filtro cada una por su lado—, así que no le aplica.
+        $req50     = $esPartePool || $pagado >= ((float) $c->valor_orden * 0.5);
         $reqVencio = $hoy->gte(Carbon::parse($c->fecha_disponible));
 
         // En tiendas trimestrales el déficit ya quedó neteado en $comisionPool
@@ -1357,7 +1443,7 @@ class ComisionController extends Controller
         $estadoCalculado = 'pendiente';
         if ($c->estado === 'pagada') {
             $estadoCalculado = 'pagada';
-        } elseif ($req50 && $reqVencio && ($esAbono || $esRestauracion || ! $tieneMeta || $esTrimestral || $metaCumplida)) {
+        } elseif ($req50 && $reqVencio && ($esAbono || $esPartePool || $esRestauracion || ! $tieneMeta || $esTrimestral || $metaCumplida)) {
             $estadoCalculado = 'lista';
         }
 
@@ -1378,9 +1464,10 @@ class ComisionController extends Controller
             'req_mes_vencido'  => $reqVencio,
             'periodicidad'     => $esTrimestral ? 'trimestral' : 'mensual',
             'es_restauracion'  => $esRestauracion,
-            'forma_pago'       => $esAbono ? self::ORIGEN_ABONO
+            'forma_pago'       => $esPartePool ? self::ORIGEN_PARTE_POOL
+                                  : ($esAbono ? self::ORIGEN_ABONO
                                   : ($esRestauracion ? 'restauracion_5'
-                                  : (! $tieneMeta ? 'sin_meta_5' : 'pool')),
+                                  : (! $tieneMeta ? 'sin_meta_5' : 'pool'))),
             'abono_de_almacen' => $esAbono,
             'trimestre'        => $esTrimestral ? self::trimestreDeMes($c->mes_venta) : null,
             'avance_trimestre' => $esTrimestral
