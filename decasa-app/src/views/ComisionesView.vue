@@ -249,7 +249,9 @@ async function agregarAsesor(tiendaId) {
 async function quitarAsesor(asesorId) {
   removiendoAsesor.value = asesorId
   try {
-    await api.delete(`/comisiones/asesores-asignados/${asesorId}`)
+    // Va el mes que se está viendo: la lista puede venir arrastrada de un mes
+    // anterior, y sin esto se le quitaría el asesor a ese mes ya pagado.
+    await api.delete(`/comisiones/asesores-asignados/${asesorId}`, { params: { mes: mesActual.value } })
     await cargarMetas()
   } catch {
     toast.error('Error eliminando asesor')

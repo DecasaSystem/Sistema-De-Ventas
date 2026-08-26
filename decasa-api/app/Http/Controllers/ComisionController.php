@@ -432,16 +432,22 @@ class ComisionController extends Controller
         $mes = $request->query('mes', Carbon::now()->format('Y-m'));
 
         try {
-            $asignados = TiendaAsesor::with(['vendedor:id,nombre', 'tienda:id,nombre'])
-                ->where('mes', $mes)
-                ->get()
-                ->map(fn($a) => [
+            // Se arrastra la última lista puesta: el equipo casi nunca cambia y
+            // nadie lo vuelve a registrar cada mes. Antes se filtraba por el
+            // mes exacto y en agosto salían todas las tiendas sin gente.
+            $asignados = collect(TiendaAsesor::vigentesEn($mes))
+                ->flatten(1)
+                ->map(fn ($a) => [
                     'id'              => $a->id,
                     'tienda_id'       => $a->tienda_id,
                     'tienda_nombre'   => $a->tienda?->nombre,
                     'vendedor_id'     => $a->vendedor_id,
                     'vendedor_nombre' => $a->vendedor?->nombre,
-                ]);
+                    // Viene de un mes anterior. Al tocar el equipo se copia a
+                    // este mes primero, para no reescribir uno ya pagado.
+                    'heredado_de'     => $a->mes === $mes ? null : $a->mes,
+                ])
+                ->values();
         } catch (\Exception $e) {
             $asignados = collect([]);
         }
@@ -463,20 +469,18 @@ class ComisionController extends Controller
             'vendedor_id' => 'required|integer|exists:usuarios,id',
         ]);
 
+        // Si el equipo de este mes venía arrastrado de uno anterior, se copia
+        // primero: agregar a alguien no puede terminar cambiando la lista de un
+        // mes que ya se pagó.
+        TiendaAsesor::materializar($data['tienda_id'], $data['mes']);
+
         $asesor = TiendaAsesor::firstOrCreate([
             'tienda_id'   => $data['tienda_id'],
             'mes'         => $data['mes'],
             'vendedor_id' => $data['vendedor_id'],
         ]);
 
-        $count = TiendaAsesor::where('tienda_id', $data['tienda_id'])
-            ->where('mes', $data['mes'])
-            ->count();
-
-        // Only update divisor if a meta record already exists (avoid creating rows without meta)
-        MetaTienda::where('tienda_id', $data['tienda_id'])
-            ->where('mes', $data['mes'])
-            ->update(['divisor_asesores' => $count]);
+        $count = $this->sincronizarDivisor($data['tienda_id'], $data['mes']);
 
         $asesor->load('vendedor:id,nombre');
 
@@ -499,16 +503,49 @@ class ComisionController extends Controller
 
         $asesor   = TiendaAsesor::findOrFail($id);
         $tiendaId = $asesor->tienda_id;
-        $mes      = $asesor->mes;
-        $asesor->delete();
+        // El mes que se está viendo en pantalla, que puede no ser el de la
+        // fila: si la lista viene arrastrada de un mes anterior, la fila que
+        // se toca es la vieja. Quitarla ahí cambiaría un mes ya pagado.
+        $mes = $request->query('mes', $asesor->mes);
 
-        $count   = TiendaAsesor::where('tienda_id', $tiendaId)->where('mes', $mes)->count();
-        $divisor = max(1, $count);
-        // Only update if a meta record exists (don't create rows without meta)
-        MetaTienda::where('tienda_id', $tiendaId)->where('mes', $mes)
-            ->update(['divisor_asesores' => $divisor]);
+        if ($mes !== $asesor->mes) {
+            TiendaAsesor::materializar($tiendaId, $mes);
+            TiendaAsesor::where('tienda_id', $tiendaId)
+                ->where('mes', $mes)
+                ->where('vendedor_id', $asesor->vendedor_id)
+                ->delete();
+        } else {
+            $asesor->delete();
+        }
 
-        return response()->json(['divisor' => $divisor]);
+        return response()->json(['divisor' => $this->sincronizarDivisor($tiendaId, $mes)]);
+    }
+
+    /**
+     * El divisor es cuánta gente hay en el equipo ese mes.
+     *
+     * Se guarda en la meta del mes, y si esa meta todavía no existe se crea
+     * copiando la que rige por arrastre: sin fila propia el divisor se quedaba
+     * en el del mes anterior y cambiar el equipo no movía el reparto.
+     */
+    private function sincronizarDivisor(int $tiendaId, string $mes): int
+    {
+        $divisor = max(1, TiendaAsesor::where('tienda_id', $tiendaId)->where('mes', $mes)->count());
+
+        $meta = MetaTienda::where('tienda_id', $tiendaId)->where('mes', $mes)->first();
+
+        if ($meta) {
+            $meta->update(['divisor_asesores' => $divisor]);
+        } elseif ($vigente = (MetaTienda::vigentesEn($mes)[$tiendaId] ?? null)) {
+            MetaTienda::create([
+                'tienda_id'        => $tiendaId,
+                'mes'              => $mes,
+                'meta'             => $vigente->meta,
+                'divisor_asesores' => $divisor,
+            ]);
+        }
+
+        return $divisor;
     }
 
     // POST /api/comisiones/metas
