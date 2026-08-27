@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Events\OrdenListaParaEntrega;
 use App\Events\ProduccionActualizada;
+use App\Models\PasoTrabajador;
 use App\Models\Produccion;
 use App\Models\ProduccionPaso;
 use App\Models\TipoProceso;
@@ -760,9 +761,12 @@ class ProduccionController extends Controller
         $data = $request->validate([
             'trabajadores'              => ($exigirAlMenosUno ? 'required|array|min:1' : 'nullable|array'),
             'trabajadores.*.usuario_id' => 'required|integer|exists:usuarios,id',
-            // Un paso que tomó más de un mes de trabajo de una sola persona no
-            // es un dato: es un dedo que se resbaló en el teclado.
-            'trabajadores.*.horas'      => 'nullable|numeric|min:0|max:500',
+            // Cuánto se demoró, en la unidad que diga `unidad`. `horas` es la
+            // forma vieja —siempre en horas— y la sigue mandando una app que
+            // se haya quedado abierta desde antes de que existieran los días.
+            'trabajadores.*.tiempo'     => 'nullable|numeric|min:0',
+            'trabajadores.*.horas'      => 'nullable|numeric|min:0',
+            'trabajadores.*.unidad'     => 'nullable|in:hora,dia',
             'trabajadores.*.calidad'    => 'nullable|integer|min:1|max:5',
             'trabajadores.*.comentario' => 'nullable|string|max:300',
         ]);
@@ -771,7 +775,7 @@ class ProduccionController extends Controller
             ->map(fn ($t) => [
                 'usuario_id' => (int) $t['usuario_id'],
                 'nombre'     => null,
-                'horas'      => isset($t['horas']) && $t['horas'] !== '' ? (float) $t['horas'] : null,
+                'horas'      => $this->horasDe($t),
                 'calidad'    => isset($t['calidad']) && $t['calidad'] !== '' ? (int) $t['calidad'] : null,
                 'comentario' => trim($t['comentario'] ?? '') ?: null,
             ])
@@ -786,6 +790,31 @@ class ProduccionController extends Controller
         }
 
         return $lista;
+    }
+
+    /**
+     * Cuánto se demoró un participante, siempre en horas.
+     *
+     * Lo que llega es el número tal como lo escribieron más la unidad, porque
+     * en el taller se cuenta por días y pasarlo a horas en la pantalla dejaría
+     * el dato a merced de la versión de la app que tenga abierta cada quien.
+     */
+    private function horasDe(array $t): ?float
+    {
+        $crudo  = $t['tiempo'] ?? $t['horas'] ?? null;
+        if ($crudo === null || $crudo === '') {
+            return null;
+        }
+
+        $horas = PasoTrabajador::aHoras((float) $crudo, $t['unidad'] ?? null);
+
+        // Un paso que se llevó más de un mes de trabajo de una sola persona no
+        // es un dato: es un dedo que se resbaló en el teclado.
+        if ($horas > 500) {
+            abort(422, 'Ese tiempo es demasiado: revisa si son horas o días.');
+        }
+
+        return round($horas, 2);
     }
 
     /** Los nombres, para el JSON viejo que siguen leyendo otras pantallas. */

@@ -28,6 +28,7 @@ import DireccionColombia from '@/components/DireccionColombia.vue'
 import TelaPicker from '@/components/ordenes/TelaPicker.vue'
 import { comprimirImagen } from '@/utils/comprimirImagen'
 import { pctDeMonto, formatPct } from '@/utils/descuentos'
+import { formatoDuracion } from '@/utils/duracion'
 import { PhotoIcon } from '@heroicons/vue/24/outline'
 import { SPECS_TEMPLATES, resolverCategoria } from '@/constants/specsConfig'
 
@@ -2040,7 +2041,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
                 <template v-if="paso.estado === 'completado'">
                   <p class="text-xs text-gray-400 mt-0.5">
                     {{ formatDateTime(paso.completado_at) }}
-                    <span v-if="horasDePaso(paso) != null">· {{ horasDePaso(paso) }} h</span>
+                    <span v-if="horasDePaso(paso) != null">· {{ formatoDuracion(horasDePaso(paso)) }}</span>
                   </p>
 
                   <!-- Quiénes lo hicieron, con su calificación -->
@@ -2052,7 +2053,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
                     >
                       {{ p.nombre }}
                       <span v-if="p.calidad" class="text-amber-500 font-bold">{{ p.calidad }}★</span>
-                      <span v-if="p.horas != null" class="text-gray-400">{{ Number(p.horas) }}h</span>
+                      <span v-if="p.horas != null" class="text-gray-400">{{ formatoDuracion(p.horas) }}</span>
                     </span>
                   </div>
 
@@ -2092,7 +2093,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
             >
               <span class="font-medium text-gray-700">{{ p.nombre }}</span>
               <span class="text-gray-400">{{ p.pasos }} paso{{ p.pasos === 1 ? '' : 's' }}</span>
-              <span v-if="p.horas > 0" class="text-gray-400">· {{ p.horas }}h</span>
+              <span v-if="p.horas > 0" class="text-gray-400">· {{ formatoDuracion(p.horas) }}</span>
             </span>
           </div>
         </div>

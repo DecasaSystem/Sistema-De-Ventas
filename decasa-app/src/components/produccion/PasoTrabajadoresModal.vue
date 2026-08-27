@@ -15,6 +15,7 @@ import { ref, computed, watch } from 'vue'
 import { XMarkIcon, StarIcon, MagnifyingGlassIcon } from '@heroicons/vue/24/outline'
 import { StarIcon as StarSolid } from '@heroicons/vue/24/solid'
 import { getTrabajadoresTaller } from '@/api/produccion'
+import { aHoras, enUnidad, unidadSugerida } from '@/utils/duracion'
 
 const props = defineProps({
   abierto: { type: Boolean, default: false },
@@ -38,7 +39,7 @@ const busqueda  = ref('')
  * mandarte a Procesos a encasillarlo en mitad del cierre sería peor.
  */
 const verTodos  = ref(false)
-/** Lo elegido: [{ usuario_id, nombre, horas, calidad, comentario }] */
+/** Lo elegido: [{ usuario_id, nombre, tiempo, unidad, calidad, comentario }] */
 const elegidos  = ref([])
 
 const esTerminar = computed(() => props.modo === 'terminar')
@@ -61,13 +62,18 @@ watch(() => props.abierto, async (abierto) => {
   if (!abierto) return
   busqueda.value = ''
   verTodos.value = false
-  elegidos.value = (props.paso?.participantes ?? []).map(p => ({
-    usuario_id: p.usuario_id,
-    nombre:     p.nombre ?? p.usuario?.nombre ?? '',
-    horas:      p.horas ?? '',
-    calidad:    p.calidad ?? null,
-    comentario: p.comentario ?? '',
-  }))
+  elegidos.value = (props.paso?.participantes ?? []).map(p => {
+    // Lo guardado son horas; si son días redondos se vuelve a mostrar en días.
+    const unidad = p.horas != null ? unidadSugerida(p.horas) : 'hora'
+    return {
+      usuario_id: p.usuario_id,
+      nombre:     p.nombre ?? p.usuario?.nombre ?? '',
+      tiempo:     p.horas != null ? enUnidad(p.horas, unidad) : '',
+      unidad,
+      calidad:    p.calidad ?? null,
+      comentario: p.comentario ?? '',
+    }
+  })
   await cargarCatalogo()
 })
 
@@ -96,9 +102,16 @@ const ocultos = computed(() => {
 function agregar(t) {
   elegidos.value.push({
     usuario_id: t.id, nombre: t.nombre,
-    horas: '', calidad: null, comentario: '',
+    tiempo: '', unidad: 'hora', calidad: null, comentario: '',
   })
   busqueda.value = ''
+}
+
+/** "= 24 h" bajo el campo, para que se vea qué se va a guardar. */
+function equivalencia(e) {
+  if (e.unidad !== 'dia' || e.tiempo === '') return ''
+  const horas = aHoras(e.tiempo, 'dia')
+  return horas === null ? '' : `= ${horas} h`
 }
 
 function quitar(usuarioId) {
@@ -110,7 +123,10 @@ function guardar() {
   emit('guardar', elegidos.value.map(e => ({
     usuario_id: e.usuario_id,
     // En "empezar" no se manda nada de esto: todavía no se sabe.
-    horas:      esTerminar.value && e.horas !== '' ? Number(e.horas) : null,
+    // El número va tal como se escribió y la unidad aparte: quien pasa días a
+    // horas es el servidor, para que no dependa de la versión de la app.
+    tiempo:     esTerminar.value && e.tiempo !== '' ? Number(e.tiempo) : null,
+    unidad:     esTerminar.value ? e.unidad : null,
     calidad:    esTerminar.value ? e.calidad : null,
     comentario: esTerminar.value ? (e.comentario || null) : null,
   })))
@@ -158,12 +174,22 @@ function estrellasDe(promedio) {
 
               <div v-if="esTerminar" class="grid grid-cols-2 gap-2.5">
                 <div>
-                  <label class="block text-[11px] font-semibold text-gray-500 mb-1">Horas</label>
-                  <input
-                    v-model="e.horas" type="number" min="0" step="0.5" inputmode="decimal"
-                    placeholder="0"
-                    class="w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
+                  <label class="block text-[11px] font-semibold text-gray-500 mb-1">Se demoró</label>
+                  <div class="flex gap-1">
+                    <input
+                      v-model="e.tiempo" type="number" min="0" step="0.5" inputmode="decimal"
+                      placeholder="0"
+                      class="w-full min-w-0 rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <select
+                      v-model="e.unidad"
+                      class="shrink-0 rounded-lg border border-gray-300 px-1.5 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="hora">h</option>
+                      <option value="dia">días</option>
+                    </select>
+                  </div>
+                  <p v-if="equivalencia(e)" class="text-[10px] text-gray-400 mt-0.5">{{ equivalencia(e) }}</p>
                 </div>
                 <div>
                   <label class="block text-[11px] font-semibold text-gray-500 mb-1">Calidad</label>
@@ -189,8 +215,9 @@ function estrellasDe(promedio) {
           </div>
 
           <p v-if="esTerminar && elegidos.length" class="text-[11px] text-gray-400">
-            Las horas y la calidad son opcionales, pero es lo que arma la puntuación
+            El tiempo y la calidad son opcionales, pero es lo que arma la puntuación
             del trabajador y lo que decide a quién conviene darle más trabajo.
+            Un día de taller cuenta como 8 horas.
           </p>
 
           <!-- Buscador del catálogo -->

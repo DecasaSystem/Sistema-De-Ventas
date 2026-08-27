@@ -16,6 +16,7 @@ import {
   CalendarDaysIcon,
 } from '@heroicons/vue/24/outline'
 import { getProduccion, updateProduccion } from '@/api/produccion'
+import { formatoDuracion } from '@/utils/duracion'
 import { useToast } from '@/composables/useToast'
 import { getTiendas, fijarOrden, quitarFijada } from '@/api/ordenes'
 import { useRealtime } from '@/composables/useRealtime'
@@ -556,7 +557,7 @@ onUnmounted(() => {
               <div class="flex items-center gap-1.5 text-xs">
                 <span class="text-gray-400">{{ labelProceso(paso.tipo_proceso) }}:</span>
                 <span class="text-gray-600 font-medium">{{ nombresDePaso(paso).join(', ') }}</span>
-                <span v-if="horasDePaso(paso) != null" class="text-gray-400">· {{ horasDePaso(paso) }}h</span>
+                <span v-if="horasDePaso(paso) != null" class="text-gray-400">· {{ formatoDuracion(horasDePaso(paso)) }}</span>
               </div>
             </template>
           </div>

@@ -7,6 +7,7 @@ import { useAuthStore } from '@/stores/auth'
 import { CheckCircleIcon, WrenchScrewdriverIcon, ClockIcon, ArrowTopRightOnSquareIcon, UserPlusIcon, XMarkIcon, ArrowUturnLeftIcon, ExclamationTriangleIcon } from '@heroicons/vue/24/outline'
 import { getMisPasos, completarPaso, getHistorialPasos, devolverPaso, asignarTrabajadoresPaso } from '@/api/produccion'
 import { useToast } from '@/composables/useToast'
+import { formatoDuracion } from '@/utils/duracion'
 import { useRealtime } from '@/composables/useRealtime'
 import { usePasosStore } from '@/stores/pasos'
 import EmptyState from '@/components/common/EmptyState.vue'
@@ -444,7 +445,7 @@ onMounted(async () => {
             </div>
             <div v-if="horasDePaso(paso) != null">
               <p class="text-gray-400">Tomó</p>
-              <p class="font-medium text-gray-700">{{ horasDePaso(paso) }} h</p>
+              <p class="font-medium text-gray-700">{{ formatoDuracion(horasDePaso(paso)) }}</p>
             </div>
             <div v-if="nombresDePaso(paso).length" class="col-span-2">
               <p class="text-gray-400">Responsables</p>
@@ -457,7 +458,7 @@ onMounted(async () => {
                 >
                   {{ p.usuario?.nombre ?? p.nombre }}
                   <span v-if="p.calidad" class="text-amber-500 font-bold">{{ p.calidad }}★</span>
-                  <span v-if="p.horas != null" class="text-blue-400">· {{ Number(p.horas) }}h</span>
+                  <span v-if="p.horas != null" class="text-blue-400">· {{ formatoDuracion(p.horas) }}</span>
                 </span>
               </div>
             </div>
