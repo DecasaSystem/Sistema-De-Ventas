@@ -2386,6 +2386,105 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         </button>
       </div>
 
+      <!-- Acciones sobre una orden ya entregada.
+           Van en su propio bloque a proposito: el de "Acciones" de arriba se
+           oculta cuando la orden esta entregada y pagada —no hay estado que
+           cambiar ni saldo que cobrar— y estos dos botones son justamente los
+           que hacen falta en ese momento. -->
+      <div v-if="auth.isSupervisor && orden.estado === 'entregado'" class="bg-white rounded-xl shadow-sm p-4 space-y-3">
+        <p class="text-xs font-semibold text-gray-500 uppercase">Después de entregada</p>
+
+        <!-- El cliente devuelve algo y lo cambia por otra cosa. Distinto de
+             revertir: acá la entrega sí ocurrió, y lo que pagó se le abona al
+             producto nuevo. -->
+        <div v-if="itemsCambiables.length" class="space-y-2">
+          <button
+            v-if="!showCambio"
+            @click="abrirCambio"
+            class="w-full text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-xl py-2.5 hover:bg-amber-100 transition-colors"
+          >El cliente devolvió algo y lo quiere cambiar</button>
+
+          <div v-else class="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2.5">
+            <p class="text-xs font-semibold text-amber-900">¿Qué devuelve?</p>
+
+            <select v-model="cambioItemId" class="w-full rounded-lg border border-amber-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+              <option v-for="i in itemsCambiables" :key="i.id" :value="i.id">
+                {{ i.cantidad }} × {{ i.producto?.nombre ?? i.nombre_custom ?? 'Producto' }}
+              </option>
+            </select>
+
+            <textarea
+              v-model="cambioMotivo"
+              rows="2"
+              placeholder="Por qué lo devuelve. Ej: no le gustó el color, lo quiere más grande"
+              class="w-full rounded-lg border border-amber-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+            />
+
+            <label class="flex items-start gap-2 cursor-pointer">
+              <input type="checkbox" v-model="cambioAlStock" class="mt-0.5 rounded border-gray-300 text-amber-600 focus:ring-amber-500" />
+              <span class="text-[11px] text-amber-900">
+                Vuelve al inventario para vender. Desmárcalo si llegó dañado.
+              </span>
+            </label>
+
+            <p class="text-[11px] text-amber-800 bg-amber-100 rounded-lg px-2.5 py-2">
+              Lo que ya pagó queda a su favor: el producto devuelto deja de cobrarse y la orden
+              vuelve a estar abierta. El reemplazo se agrega desde <strong>Editar orden</strong>,
+              y si hay que fabricarlo entra a producción con su fecha.
+              <span v-if="itemsCambiables.length === 1" class="block mt-1 font-semibold">
+                Es el único producto de la orden, así que va a quedar vacía hasta que le agregues
+                el reemplazo.
+              </span>
+            </p>
+
+            <div class="flex gap-2">
+              <button @click="showCambio = false" class="flex-1 bg-white text-gray-700 border border-gray-300 rounded-lg py-2 text-xs font-semibold">Cancelar</button>
+              <button
+                @click="doCambiarProducto" :disabled="cambiando"
+                class="flex-1 bg-amber-600 text-white rounded-lg py-2 text-xs font-semibold hover:bg-amber-700 disabled:opacity-50"
+              >{{ cambiando ? 'Guardando...' : 'Reabrir para el cambio' }}</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Deshacer una entrega marcada por error -->
+        <div class="space-y-2">
+          <button
+            v-if="!showRevertir"
+            @click="showRevertir = true"
+            class="text-xs text-gray-500 hover:text-red-600 hover:underline transition-colors"
+          >¿Se marcó entregada por error? Revertir</button>
+
+          <div v-else class="bg-red-50 border border-red-200 rounded-xl p-3 space-y-2">
+            <p class="text-xs text-red-800 font-semibold">Revertir la entrega</p>
+            <p class="text-[11px] text-red-700 leading-snug">
+              El producto vuelve al inventario, reservado para esta orden, y la orden
+              regresa a «en espera». Queda registrado con tu nombre.
+            </p>
+            <input
+              v-model="motivoRevertir"
+              type="text"
+              placeholder="¿Por qué se revierte?"
+              class="w-full rounded-lg border border-red-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+            />
+            <div class="flex gap-2">
+              <button
+                @click="showRevertir = false; motivoRevertir = ''"
+                class="flex-1 py-2 rounded-lg border border-gray-300 text-xs font-semibold text-gray-600"
+              >Cancelar</button>
+              <button
+                @click="doRevertirEntrega"
+                :disabled="revirtiendo || motivoRevertir.trim().length < 3"
+                class="flex-1 py-2 rounded-lg bg-red-600 text-white text-xs font-semibold hover:bg-red-700 disabled:opacity-40 flex items-center justify-center gap-1.5"
+              >
+                <IconoS v-if="revirtiendo" class="w-3.5 h-3.5" />
+                Revertir entrega
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Chat de dudas de la orden. Solo para quien participa: el vendedor,
            su covendedor y los supervisores. -->
       <ChatOrden
@@ -2618,95 +2717,6 @@ onMounted(() => { cargarTipos(); cargarOrden() })
           </div>
         </div>
 
-        <!-- El cliente devuelve algo y lo cambia por otra cosa. Distinto de
-             revertir: acá la entrega sí ocurrió, y lo que pagó se le abona al
-             producto nuevo. -->
-        <div v-if="auth.isSupervisor && orden.estado === 'entregado' && itemsCambiables.length" class="space-y-2">
-          <button
-            v-if="!showCambio"
-            @click="abrirCambio"
-            class="w-full text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-xl py-2.5 hover:bg-amber-100 transition-colors"
-          >El cliente devolvió algo y lo quiere cambiar</button>
-
-          <div v-else class="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2.5">
-            <p class="text-xs font-semibold text-amber-900">¿Qué devuelve?</p>
-
-            <select v-model="cambioItemId" class="w-full rounded-lg border border-amber-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
-              <option v-for="i in itemsCambiables" :key="i.id" :value="i.id">
-                {{ i.cantidad }} × {{ i.producto?.nombre ?? i.nombre_custom ?? 'Producto' }}
-              </option>
-            </select>
-
-            <textarea
-              v-model="cambioMotivo"
-              rows="2"
-              placeholder="Por qué lo devuelve. Ej: no le gustó el color, lo quiere más grande"
-              class="w-full rounded-lg border border-amber-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
-            />
-
-            <label class="flex items-start gap-2 cursor-pointer">
-              <input type="checkbox" v-model="cambioAlStock" class="mt-0.5 rounded border-gray-300 text-amber-600 focus:ring-amber-500" />
-              <span class="text-[11px] text-amber-900">
-                Vuelve al inventario para vender. Desmárcalo si llegó dañado.
-              </span>
-            </label>
-
-            <p class="text-[11px] text-amber-800 bg-amber-100 rounded-lg px-2.5 py-2">
-              Lo que ya pagó queda a su favor: el producto devuelto deja de cobrarse y la orden
-              vuelve a estar abierta. El reemplazo se agrega desde <strong>Editar orden</strong>,
-              y si hay que fabricarlo entra a producción con su fecha.
-              <span v-if="itemsCambiables.length === 1" class="block mt-1 font-semibold">
-                Es el único producto de la orden, así que va a quedar vacía hasta que le agregues
-                el reemplazo.
-              </span>
-            </p>
-
-            <div class="flex gap-2">
-              <button @click="showCambio = false" class="flex-1 bg-white text-gray-700 border border-gray-300 rounded-lg py-2 text-xs font-semibold">Cancelar</button>
-              <button
-                @click="doCambiarProducto" :disabled="cambiando"
-                class="flex-1 bg-amber-600 text-white rounded-lg py-2 text-xs font-semibold hover:bg-amber-700 disabled:opacity-50"
-              >{{ cambiando ? 'Guardando...' : 'Reabrir para el cambio' }}</button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Deshacer una entrega marcada por error -->
-        <div v-if="auth.isSupervisor && orden.estado === 'entregado'" class="space-y-2">
-          <button
-            v-if="!showRevertir"
-            @click="showRevertir = true"
-            class="text-xs text-gray-500 hover:text-red-600 hover:underline transition-colors"
-          >¿Se marcó entregada por error? Revertir</button>
-
-          <div v-else class="bg-red-50 border border-red-200 rounded-xl p-3 space-y-2">
-            <p class="text-xs text-red-800 font-semibold">Revertir la entrega</p>
-            <p class="text-[11px] text-red-700 leading-snug">
-              El producto vuelve al inventario, reservado para esta orden, y la orden
-              regresa a «en espera». Queda registrado con tu nombre.
-            </p>
-            <input
-              v-model="motivoRevertir"
-              type="text"
-              placeholder="¿Por qué se revierte?"
-              class="w-full rounded-lg border border-red-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
-            />
-            <div class="flex gap-2">
-              <button
-                @click="showRevertir = false; motivoRevertir = ''"
-                class="flex-1 py-2 rounded-lg border border-gray-300 text-xs font-semibold text-gray-600"
-              >Cancelar</button>
-              <button
-                @click="doRevertirEntrega"
-                :disabled="revirtiendo || motivoRevertir.trim().length < 3"
-                class="flex-1 py-2 rounded-lg bg-red-600 text-white text-xs font-semibold hover:bg-red-700 disabled:opacity-40 flex items-center justify-center gap-1.5"
-              >
-                <IconoS v-if="revirtiendo" class="w-3.5 h-3.5" />
-                Revertir entrega
-              </button>
-            </div>
-          </div>
-        </div>
 
         <!-- Cambiar estado (solo órdenes sin personalizados) -->
         <div v-if="puedeCambiarEstado" class="space-y-2">
