@@ -14,9 +14,11 @@ import {
   XCircleIcon,
   NoSymbolIcon,
   CalendarDaysIcon,
+  TableCellsIcon,
 } from '@heroicons/vue/24/outline'
 import { getProduccion, updateProduccion } from '@/api/produccion'
 import { formatoDuracion } from '@/utils/duracion'
+import { exportarExcel } from '@/utils/exportarExcel'
 import { useToast } from '@/composables/useToast'
 import { getTiendas, fijarOrden, quitarFijada } from '@/api/ordenes'
 import { useRealtime } from '@/composables/useRealtime'
@@ -372,6 +374,177 @@ function buscar() {
   setupObserver()
 }
 
+// ── Hoja para la fábrica ──────────────────────────────────────────────────────
+//
+// El taller trabaja en papel: alguien imprime lo que hay que sacar y lo pega en
+// la pared. Por eso se puede escoger a mano cuáles van —"estas cinco son las de
+// esta semana"— o sacar de un golpe todo lo que está en el taller ahora.
+
+const exportando  = ref(false)
+const modoElegir  = ref(false)
+/** Lo marcado, por id. Se guarda la pieza entera: la lista se recarga sola
+ *  (realtime, scroll) y perder lo elegido a mitad de camino enfurece. */
+const elegidas    = ref(new Map())
+const mostrarExportar = ref(false)
+
+function toggleElegida(p) {
+  if (elegidas.value.has(p.id)) elegidas.value.delete(p.id)
+  else elegidas.value.set(p.id, p)
+}
+
+function elegirTodasVisibles() {
+  for (const p of producciones.value) elegidas.value.set(p.id, p)
+}
+
+function limpiarEleccion() {
+  elegidas.value.clear()
+}
+
+function empezarAElegir() {
+  mostrarExportar.value = false
+  modoElegir.value = true
+}
+
+function salirDeElegir() {
+  modoElegir.value = false
+  limpiarEleccion()
+}
+
+/** En modo elegir la tarjeta marca; si no, abre la orden como siempre. */
+function clickTarjeta(p) {
+  if (modoElegir.value) return toggleElegida(p)
+  const id = p.orden_item?.orden?.id
+  if (id) router.push({ name: 'orden-detalle', params: { id } })
+}
+
+/** En qué va la pieza, dicho para alguien que la va a leer en un papel. */
+function pasoTextoExcel(p) {
+  const pasos = p.pasos ?? []
+  if (!pasos.length) return 'Sin pasos definidos'
+
+  const enCurso = pasos.find(x => x.estado === 'en_proceso')
+  if (enCurso) return labelProceso(enCurso.tipo_proceso)
+
+  const pendiente = pasos.find(x => x.estado === 'pendiente')
+  if (pendiente) return `Por empezar: ${labelProceso(pendiente.tipo_proceso)}`
+
+  return pasos.every(x => x.estado === 'completado') ? 'Todos los pasos listos' : '—'
+}
+
+function avanceTexto(p) {
+  const pasos = p.pasos ?? []
+  if (!pasos.length) return ''
+  const hechos = pasos.filter(x => x.estado === 'completado').length
+  return `${hechos} de ${pasos.length}`
+}
+
+function fechaCorta(dateStr) {
+  if (!dateStr) return ''
+  return new Date(String(dateStr).substring(0, 10) + 'T00:00:00').toLocaleDateString('es-CO')
+}
+
+function filaExcel(p) {
+  return {
+    'Orden':            p.orden_item?.orden?.referencia ?? ('#' + (p.orden_item?.orden?.numero_orden ?? p.orden_item?.orden?.id ?? '')),
+    'Cliente':          p.orden_item?.orden?.cliente?.nombre ?? '',
+    'Producto':         p.orden_item?.producto?.nombre || p.orden_item?.nombre_custom || '',
+    'Cantidad':         Number(p.orden_item?.cantidad) || 1,
+    'Paso actual':      pasoTextoExcel(p),
+    'Avance':           avanceTexto(p),
+    'Fecha de entrega': fechaCorta(p.fecha_compromiso),
+    'Estado':           badgeInfo(p).label,
+    'Tienda':           p.orden_item?.orden?.tienda?.nombre ?? '',
+    // Medidas y acabados: sin esto el papel no sirve para fabricar.
+    'Detalle':          specsResumen(p.orden_item),
+  }
+}
+
+/** Lo que sale primero va arriba: es el orden en que se trabaja. */
+function porFechaDeEntrega(a, b) {
+  const fa = a.fecha_compromiso ?? '9999-12-31'
+  const fb = b.fecha_compromiso ?? '9999-12-31'
+  return String(fa).localeCompare(String(fb))
+}
+
+function bajarExcel(lista) {
+  if (!lista.length) {
+    toast.error('No hay piezas para poner en la hoja.')
+    return false
+  }
+  exportarExcel([...lista].sort(porFechaDeEntrega).map(filaExcel), {
+    nombreArchivo: 'produccion_fabrica',
+    hoja: 'Producción',
+  })
+  return true
+}
+
+/** Todas las páginas de un filtro, no sólo lo que alcanzó a cargar la pantalla. */
+async function traerTodo(params) {
+  const todas = []
+  let page = 1
+  let lastPage = 1
+  do {
+    const { data } = await getProduccion({ ...params, page })
+    todas.push(...(data.data ?? []))
+    lastPage = data.last_page ?? 1
+    page++
+  } while (page <= lastPage)
+  return todas
+}
+
+/**
+ * Lo que está en el taller ahora: arrancado y todavía adentro. Se piden los dos
+ * estados por separado —y no todo sin filtro— porque "todo" arrastra el
+ * histórico entero de piezas ya entregadas.
+ */
+async function excelDelTaller() {
+  if (exportando.value) return
+  exportando.value = true
+  try {
+    const base = {}
+    if (filtros.value.tienda_id) base.tienda_id = filtros.value.tienda_id
+    if (busqueda.value)          base.search    = busqueda.value
+
+    const [enProceso, retrasadas] = await Promise.all([
+      traerTodo({ ...base, estado: 'en_proceso' }),
+      traerTodo({ ...base, estado: 'retrasado' }),
+    ])
+
+    if (bajarExcel([...enProceso, ...retrasadas])) mostrarExportar.value = false
+  } catch {
+    toast.error('No se pudo generar el Excel. Intenta de nuevo.')
+  } finally {
+    exportando.value = false
+  }
+}
+
+/** Lo mismo que se está viendo en pantalla, con sus filtros y todas sus páginas. */
+async function excelConFiltros() {
+  if (exportando.value) return
+  exportando.value = true
+  try {
+    const params = {}
+    if (filtros.value.estado)    params.estado    = filtros.value.estado
+    if (filtros.value.tienda_id) params.tienda_id = filtros.value.tienda_id
+    if (busqueda.value)          params.search    = busqueda.value
+    if (porEntregar.value)       params.orden     = 'entrega'
+
+    if (bajarExcel(await traerTodo(params))) mostrarExportar.value = false
+  } catch {
+    toast.error('No se pudo generar el Excel. Intenta de nuevo.')
+  } finally {
+    exportando.value = false
+  }
+}
+
+/** Sólo las marcadas a mano, con lo último que se sepa de cada una. */
+function excelDeLoElegido() {
+  const lista = [...elegidas.value.entries()].map(
+    ([id, guardada]) => producciones.value.find(x => x.id === id) ?? guardada
+  )
+  if (bajarExcel(lista)) salirDeElegir()
+}
+
 const { listen } = useRealtime()
 
 onMounted(async () => {
@@ -393,8 +566,8 @@ onUnmounted(() => {
 
 <template>
   <div class="p-4 max-w-2xl mx-auto space-y-3 pb-8">
-    <!-- Header -->
-    <div class="flex items-center gap-2">
+    <!-- Header. Envuelve porque en un teléfono no caben los cuatro botones. -->
+    <div class="flex items-center flex-wrap gap-2">
       <h2 class="text-lg font-bold text-gray-800 flex-1">Producción</h2>
       <button
         @click="alternarPorEntregar"
@@ -406,6 +579,14 @@ onUnmounted(() => {
       >
         <CalendarDaysIcon class="w-4 h-4" />
         Por entregar
+      </button>
+      <button
+        @click="mostrarExportar = true"
+        class="text-sm text-green-700 font-medium px-3 py-1.5 rounded-lg border border-green-200 hover:bg-green-50 transition-colors flex items-center gap-1"
+        title="Sacar la hoja de trabajo para la fábrica"
+      >
+        <TableCellsIcon class="w-4 h-4" />
+        Excel
       </button>
       <button
         @click="showFilters = !showFilters"
@@ -468,6 +649,31 @@ onUnmounted(() => {
       </div>
     </div>
 
+    <!-- Elegir a mano cuáles van en la hoja. Va pegado arriba: se marca
+         bajando por la lista y el botón de generar tiene que seguir a la vista. -->
+    <div v-if="modoElegir" class="sticky top-0 z-20 bg-green-700 text-white rounded-xl px-3 py-2.5 shadow-md space-y-2">
+      <div class="flex items-center gap-2">
+        <p class="text-sm font-semibold flex-1">
+          {{ elegidas.size }} pieza{{ elegidas.size === 1 ? '' : 's' }} para la hoja
+        </p>
+        <button @click="elegirTodasVisibles" class="text-xs bg-white/15 hover:bg-white/25 rounded-lg px-2 py-1">Toda la lista</button>
+        <button @click="limpiarEleccion" class="text-xs bg-white/15 hover:bg-white/25 rounded-lg px-2 py-1">Ninguna</button>
+      </div>
+      <div class="flex gap-2">
+        <button @click="salirDeElegir" class="flex-1 text-sm bg-white/15 hover:bg-white/25 rounded-lg py-1.5 font-medium">
+          Cancelar
+        </button>
+        <button
+          @click="excelDeLoElegido"
+          :disabled="!elegidas.size"
+          class="flex-[2] text-sm bg-white text-green-700 rounded-lg py-1.5 font-bold disabled:opacity-50"
+        >
+          Generar Excel
+        </button>
+      </div>
+      <p class="text-[11px] text-white/70">Toca las piezas de la lista para marcarlas.</p>
+    </div>
+
     <!-- Loading -->
     <AppSpinner v-if="loading" />
 
@@ -484,14 +690,23 @@ onUnmounted(() => {
           v-for="p in producciones"
           :key="p.id"
           :class="['rounded-xl shadow-sm p-4 space-y-2 cursor-pointer active:scale-[0.99] transition-transform',
-            p.fijada ? 'bg-amber-50 border-l-4 border-amber-400' : 'bg-white']"
-          @click="p.orden_item?.orden?.id && router.push({ name: 'orden-detalle', params: { id: p.orden_item.orden.id } })"
+            modoElegir && elegidas.has(p.id) ? 'bg-green-50 ring-2 ring-green-500'
+              : p.fijada ? 'bg-amber-50 border-l-4 border-amber-400' : 'bg-white']"
+          @click="clickTarjeta(p)"
         >
           <!-- Producto + badge de estado -->
           <div class="flex justify-between items-start">
             <div class="flex-1 min-w-0">
               <p class="font-medium text-sm text-gray-800 truncate flex items-center gap-1.5">
+                <span
+                  v-if="modoElegir"
+                  :class="['w-5 h-5 rounded-md border-2 flex-shrink-0 flex items-center justify-center',
+                    elegidas.has(p.id) ? 'bg-green-600 border-green-600 text-white' : 'border-gray-300']"
+                >
+                  <CheckCircleIcon v-if="elegidas.has(p.id)" class="w-4 h-4" />
+                </span>
                 <button
+                  v-else
                   type="button"
                   @click.stop="toggleFijada(p)"
                   :class="['flex-shrink-0 transition-colors', p.fijada ? 'text-amber-500' : 'text-gray-300 hover:text-amber-400']"
@@ -592,7 +807,7 @@ onUnmounted(() => {
             <span v-else-if="p.estado === 'entregado'" class="text-gray-400 italic">Entregado</span>
           </div>
           <button
-            v-if="auth.gestionaProduccion && !['entregado', 'cancelado'].includes(p.estado)"
+            v-if="auth.gestionaProduccion && !modoElegir && !['entregado', 'cancelado'].includes(p.estado)"
             @click.stop="openModal(p)"
             class="w-full mt-2 text-blue-600 text-xs font-medium text-center py-1.5 rounded-lg border border-blue-200 hover:bg-blue-50 transition-colors"
           >
@@ -607,6 +822,54 @@ onUnmounted(() => {
         <div v-else-if="!hasMore && producciones.length > 0" class="text-xs text-gray-300">No hay más pedidos.</div>
       </div>
     </template>
+
+    <!-- Modal: la hoja que se lleva a la fábrica -->
+    <Transition name="fade">
+      <div v-if="mostrarExportar" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="mostrarExportar = false">
+        <div class="absolute inset-0 bg-black/40" />
+        <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-4">
+          <div class="flex items-center justify-between">
+            <h3 class="text-lg font-bold text-gray-800">Hoja para la fábrica</h3>
+            <button @click="mostrarExportar = false" class="text-gray-400 text-2xl leading-none">&times;</button>
+          </div>
+          <p class="text-xs text-gray-500">
+            Sale un Excel con la orden, el cliente, el producto, la cantidad, en qué paso
+            va, la fecha de entrega y el detalle de cada pieza.
+          </p>
+
+          <div class="space-y-2">
+            <button
+              @click="excelDelTaller"
+              :disabled="exportando"
+              class="w-full text-left rounded-xl border-2 border-green-200 hover:border-green-400 px-3 py-3 transition-colors disabled:opacity-50"
+            >
+              <p class="text-sm font-bold text-gray-800">Lo que está en el taller ahora</p>
+              <p class="text-xs text-gray-500">Todo lo que ya arrancó y sigue adentro, incluido lo retrasado.</p>
+            </button>
+
+            <button
+              @click="excelConFiltros"
+              :disabled="exportando"
+              class="w-full text-left rounded-xl border-2 border-gray-200 hover:border-gray-300 px-3 py-3 transition-colors disabled:opacity-50"
+            >
+              <p class="text-sm font-bold text-gray-800">Lo que se está viendo</p>
+              <p class="text-xs text-gray-500">Con los filtros y la búsqueda de la pantalla, todas las páginas.</p>
+            </button>
+
+            <button
+              @click="empezarAElegir"
+              :disabled="exportando"
+              class="w-full text-left rounded-xl border-2 border-gray-200 hover:border-gray-300 px-3 py-3 transition-colors disabled:opacity-50"
+            >
+              <p class="text-sm font-bold text-gray-800">Elegir a mano cuáles</p>
+              <p class="text-xs text-gray-500">Se marcan una por una en la lista y sólo esas van a la hoja.</p>
+            </button>
+          </div>
+
+          <p v-if="exportando" class="text-xs text-gray-500 text-center">Armando la hoja...</p>
+        </div>
+      </div>
+    </Transition>
 
     <!-- Modal cambiar estado -->
     <Transition name="fade">
