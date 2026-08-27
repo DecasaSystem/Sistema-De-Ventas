@@ -809,10 +809,11 @@ async function doCambiarProducto() {
     showCambio.value = false
     await cargarOrden()
     const aFavor = -Math.round(Number(data.saldo_pendiente) || 0)
+    const cola   = data.quedo_vacia
+      ? ' La orden quedó sin productos: agrégale el reemplazo desde Editar.'
+      : ' Agrégale el producto nuevo desde Editar.'
     toast.success(
-      aFavor > 0
-        ? `Listo. Le quedan $${aFavor.toLocaleString('es-CO')} a favor. Agrégale el producto nuevo desde Editar.`
-        : 'Listo. Agrégale el producto nuevo desde Editar.',
+      (aFavor > 0 ? `Listo. Le quedan $${aFavor.toLocaleString('es-CO')} a favor.` : 'Listo.') + cola,
       9000,
     )
   } catch (e) {
@@ -2620,7 +2621,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         <!-- El cliente devuelve algo y lo cambia por otra cosa. Distinto de
              revertir: acá la entrega sí ocurrió, y lo que pagó se le abona al
              producto nuevo. -->
-        <div v-if="auth.isSupervisor && orden.estado === 'entregado' && itemsCambiables.length > 1" class="space-y-2">
+        <div v-if="auth.isSupervisor && orden.estado === 'entregado' && itemsCambiables.length" class="space-y-2">
           <button
             v-if="!showCambio"
             @click="abrirCambio"
@@ -2654,6 +2655,10 @@ onMounted(() => { cargarTipos(); cargarOrden() })
               Lo que ya pagó queda a su favor: el producto devuelto deja de cobrarse y la orden
               vuelve a estar abierta. El reemplazo se agrega desde <strong>Editar orden</strong>,
               y si hay que fabricarlo entra a producción con su fecha.
+              <span v-if="itemsCambiables.length === 1" class="block mt-1 font-semibold">
+                Es el único producto de la orden, así que va a quedar vacía hasta que le agregues
+                el reemplazo.
+              </span>
             </p>
 
             <div class="flex gap-2">

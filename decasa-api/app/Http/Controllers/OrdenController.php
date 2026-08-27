@@ -2031,15 +2031,12 @@ class OrdenController extends Controller
         if (! $item->estaVivo()) {
             return response()->json(['message' => 'Ese producto ya se había devuelto.'], 422);
         }
-        if ($orden->items->where('devuelto_en', null)->count() <= 1) {
-            // Si se devuelve lo único que quedaba, no es un cambio: es una
-            // orden sin nada, y eso se resuelve cancelándola y devolviendo la
-            // plata, no dejándola viva y vacía.
-            return response()->json([
-                'message' => 'Es lo único que queda en la orden. Si el cliente no quiere nada más, '
-                           . 'cancélala y devuélvele la plata en vez de dejarla vacía.',
-            ], 422);
-        }
+        // Se permite devolver hasta el último producto de la orden: el caso
+        // más común es justo ese —una orden de un solo mueble que el cliente
+        // cambia por otro—. La orden queda un momento sin nada y con toda la
+        // plata a favor, hasta que se le agrega el reemplazo. Bloquearlo dejaba
+        // fuera el caso para el que se hizo esto.
+        $ultimo = $orden->items->where('devuelto_en', null)->count() <= 1;
 
         $fecha = $data['fecha'] ?? now()->toDateString();
 
@@ -2114,7 +2111,10 @@ class OrdenController extends Controller
         ComisionController::sincronizarValorOrden($orden);
 
         return response()->json([
-            'message'        => 'Orden reabierta. Ya puedes agregarle el producto nuevo desde Editar.',
+            'message'        => $ultimo
+                ? 'Orden reabierta y sin productos: agrégale el reemplazo desde Editar para no dejarla vacía.'
+                : 'Orden reabierta. Ya puedes agregarle el producto nuevo desde Editar.',
+            'quedo_vacia'    => $ultimo,
             'valor_total'    => (float) $orden->valor_total,
             'total_pagado'   => $orden->totalPagado(),
             'saldo_pendiente'=> $orden->saldoPendiente(),

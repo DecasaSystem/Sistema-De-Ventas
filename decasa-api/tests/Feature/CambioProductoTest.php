@@ -208,20 +208,33 @@ class CambioProductoTest extends TestCase
         $this->assertSame(2, (int) DB::table('inventario')->where('producto_id', 5)->value('cantidad_disponible'));
     }
 
-    public function test_no_se_puede_vaciar_la_orden(): void
+    public function test_se_puede_devolver_el_unico_producto_de_la_orden(): void
     {
-        [$orden, $mesa, $silla] = $this->ordenEntregada();
-        $jefe = $this->jefe();
+        // Es el caso más común y el que motivó todo esto: una orden de un solo
+        // mueble que el cliente cambia por otro. La orden queda un momento sin
+        // nada y con toda la plata a favor, hasta que se le pone el reemplazo.
+        DB::table('tiendas')->insert(['id' => 1, 'nombre' => 'Decasa Norte']);
+        DB::table('clientes')->insert(['id' => 1, 'nombre' => 'Sra. Pérez', 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('productos')->insert(['id' => 5, 'nombre' => 'Mesa de comedor']);
+        DB::table('inventario')->insert(['producto_id' => 5, 'tienda_id' => 1, 'cantidad_disponible' => 1, 'cantidad_reservada' => 0]);
 
-        $this->actingAs($jefe)->postJson("/api/ordenes/{$orden->id}/cambiar-producto", [
+        $orden = Orden::create(['cliente_id' => 1, 'tienda_id' => 1, 'vendedor_id' => 1,
+                                'estado' => 'entregado', 'valor_total' => 800000, 'numero_orden' => 4301]);
+        $mesa  = OrdenItem::create(['orden_id' => $orden->id, 'producto_id' => 5, 'tienda_origen_id' => 1,
+                                    'cantidad' => 1, 'precio_unitario' => 800000]);
+        DB::table('pagos')->insert(['orden_id' => $orden->id, 'monto' => 800000, 'metodo' => 'efectivo',
+                                    'created_at' => now(), 'updated_at' => now()]);
+
+        $r = $this->actingAs($this->jefe())->postJson("/api/ordenes/{$orden->id}/cambiar-producto", [
             'orden_item_id' => $mesa->id, 'motivo' => 'La quiere más grande',
         ])->assertOk();
 
-        // Devolver lo único que queda no es un cambio: es una orden vacía, y
-        // eso se resuelve cancelándola y devolviendo la plata.
-        $this->actingAs($jefe)->postJson("/api/ordenes/{$orden->id}/cambiar-producto", [
-            'orden_item_id' => $silla->id, 'motivo' => 'Tampoco la quiere',
-        ])->assertStatus(422);
+        // Toda la plata queda a favor para el mueble nuevo.
+        $this->assertEquals(0, $r->json('valor_total'));
+        $this->assertEquals(-800000, $r->json('saldo_pendiente'));
+        // Y se avisa que quedó vacía, para que no se deje colgada.
+        $this->assertTrue($r->json('quedo_vacia'));
+        $this->assertSame('pendiente_anticipo', $orden->fresh()->estado);
     }
 
     public function test_solo_sirve_para_ordenes_entregadas(): void
