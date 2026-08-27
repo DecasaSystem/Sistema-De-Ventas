@@ -71,9 +71,25 @@ class ProduccionController extends Controller
         $producciones = $query
             ->addSelect(['*', DB::raw("($fijada) AS fijada")])
             ->addBinding($usuario->id, 'select')
-            ->orderByRaw("$fijada DESC", [$usuario->id])
-            ->orderByRaw("FIELD(estado, 'pendiente', 'retrasado', 'en_proceso', 'pendiente_despachador', 'listo', 'entregado')")
-            ->orderBy('fecha_compromiso')
+            ->when($request->query('orden') === 'entrega', function ($q) {
+                // Por lo que se entrega primero, sin agrupar por estado: la
+                // pregunta es "qué sale esta semana", y agrupando por estado lo
+                // de mañana que ya está en proceso queda debajo de lo de dentro
+                // de un mes que sigue pendiente.
+                //
+                // Se deja fuera lo que ya salió del taller. Y no se respeta lo
+                // fijado: si uno pide ver por urgencia, algo fijado colándose
+                // arriba sin que le toque rompe la respuesta.
+                $q->whereNotIn('estado', ['entregado', 'cancelado'])
+                  // Sin fecha no se sabe cuándo sale, así que va al final; en
+                  // MySQL un NULL se ordenaría primero.
+                  ->orderByRaw('fecha_compromiso IS NULL')
+                  ->orderBy('fecha_compromiso');
+            }, function ($q) use ($usuario, $fijada) {
+                $q->orderByRaw("$fijada DESC", [$usuario->id])
+                  ->orderByRaw("FIELD(estado, 'pendiente', 'retrasado', 'en_proceso', 'pendiente_despachador', 'listo', 'entregado')")
+                  ->orderBy('fecha_compromiso');
+            })
             ->paginate(20)
             ->through(function ($p) {
                 $p = $this->conDiasRestantes($p);

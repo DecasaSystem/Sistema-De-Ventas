@@ -122,11 +122,34 @@ class OrdenController extends Controller
                     ->where('orden_fijadas.usuario_id', $uid)
                     ->limit(1),
             ])
-            ->orderByRaw('(SELECT 1 FROM orden_fijadas f WHERE f.orden_id = ordenes.id AND f.usuario_id = ?) IS NOT NULL DESC', [$uid])
-            // Un borrador completado hoy es una venta de hoy, aunque se haya
-            // empezado hace dos semanas: si se ordenara por `created_at` caería
-            // al fondo de la lista y nadie lo vería.
-            ->orderByRaw('COALESCE(confirmada_en, created_at) DESC')
+            ->when($request->query('orden') === 'entrega', function ($q) {
+                // Por lo que se entrega primero. Solo lo que sigue pendiente:
+                // preguntarse "qué sale esta semana" no incluye lo que ya se
+                // entregó ni lo cancelado.
+                //
+                // La fecha de una orden es la del ítem MÁS LEJANO —el cliente
+                // recibe todo cuando esté listo el último— y se ignoran los que
+                // devolvió para cambiar, que ya no se entregan.
+                //
+                // Acá no se respeta lo fijado a propósito: si uno pide ver por
+                // urgencia y algo fijado se cuela arriba sin que le toque, la
+                // lista deja de responder a la pregunta que se le hizo.
+                $fecha = '(SELECT MAX(oi.fecha_entrega_prom) FROM orden_items oi
+                           WHERE oi.orden_id = ordenes.id AND oi.devuelto_en IS NULL)';
+
+                $q->whereNotIn('estado', ['entregado', 'cancelado', 'borrador', 'cotizacion'])
+                  // Las que todavía no tienen fecha van al final: no se sabe
+                  // cuándo salen, así que no pueden encabezar una lista de
+                  // urgencias. En MySQL un NULL se ordenaría primero.
+                  ->orderByRaw("$fecha IS NULL")
+                  ->orderByRaw("$fecha ASC");
+            }, function ($q) use ($uid) {
+                $q->orderByRaw('(SELECT 1 FROM orden_fijadas f WHERE f.orden_id = ordenes.id AND f.usuario_id = ?) IS NOT NULL DESC', [$uid])
+                  // Un borrador completado hoy es una venta de hoy, aunque se
+                  // haya empezado hace dos semanas: si se ordenara por
+                  // `created_at` caería al fondo y nadie lo vería.
+                  ->orderByRaw('COALESCE(confirmada_en, created_at) DESC');
+            })
             ->paginate(20);
 
         $hoy = now()->startOfDay();
@@ -187,7 +210,10 @@ class OrdenController extends Controller
             // conclusión era "solo me deja crear la orden con el 50%".
             'anticipo_pct'                  => 'nullable|numeric|min:0|max:100',
             'descuento_total'               => 'nullable|numeric|min:0',
-            'fecha_sugerida_vendedor'       => 'nullable|date',
+            // `after` ademas de `date`: un ano mal tecleado —"0026" por
+            // "2026"— pasa como fecha valida y queda guardado, y luego
+            // encabeza cualquier lista ordenada por entrega.
+            'fecha_sugerida_vendedor'       => 'nullable|date|after:2020-01-01|before:2100-01-01',
             'notas'                              => 'nullable|string|max:1000',
             'factura_foto_url'                   => 'nullable|string|max:500',
             'firma_url'                          => 'nullable|string|max:500',
@@ -1026,7 +1052,7 @@ class OrdenController extends Controller
             'items.*.id'                    => 'required_with:items|integer|exists:orden_items,id',
             'items.*.specs_personalizacion' => 'sometimes|nullable|array',
             'items.*.precio_unitario'       => 'sometimes|nullable|numeric|min:0',
-            'items.*.fecha_entrega_prom'    => 'sometimes|nullable|date',
+            'items.*.fecha_entrega_prom'    => 'sometimes|nullable|date|after:2020-01-01|before:2100-01-01',
             'items.*.cantidad'              => 'sometimes|nullable|integer|min:1',
             'items.*.producto_id'           => 'sometimes|nullable|exists:productos,id',
             // Bocetos de un ítem que ya existe: la lista que se manda reemplaza
@@ -2577,7 +2603,7 @@ class OrdenController extends Controller
         $data = $request->validate([
             'items'         => 'required|array|min:1',
             'items.*.id'    => 'required|integer|exists:orden_items,id',
-            'items.*.fecha' => 'required|date',
+            'items.*.fecha' => 'required|date|after:2020-01-01|before:2100-01-01',
         ]);
 
         $orden = Orden::with(['items', 'cliente:id,nombre', 'vendedor:id,nombre,independiente'])->findOrFail($id);

@@ -4,7 +4,7 @@ import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { seVolvioAtras } from '@/router'
 import { useTiposProceso } from '@/composables/useTiposProceso'
 import { useRouter } from 'vue-router'
-import { MagnifyingGlassIcon, Cog6ToothIcon, ArrowDownTrayIcon, MapPinIcon } from '@heroicons/vue/24/outline'
+import { MagnifyingGlassIcon, Cog6ToothIcon, ArrowDownTrayIcon, MapPinIcon, CalendarIcon } from '@heroicons/vue/24/outline'
 import { XMarkIcon, MapPinIcon as MapPinSolid } from '@heroicons/vue/24/solid'
 import { getOrdenes, getTiendas, fijarOrden, quitarFijada } from '@/api/ordenes'
 import { useRealtime } from '@/composables/useRealtime'
@@ -38,6 +38,15 @@ const currentPage = ref(1)
 const exportando = ref(false)
 
 const showFilters = ref(false)
+
+// Ordenar por lo que se entrega primero, de lo más próximo a lo más lejano.
+// Solo lo que sigue pendiente: lo entregado ya no se espera.
+const porEntregar = ref(false)
+
+function alternarPorEntregar() {
+  porEntregar.value = !porEntregar.value
+  fetchOrdenes(1)
+}
 const tiendas = ref([])
 const busqueda = ref('')
 
@@ -107,6 +116,9 @@ async function fetchOrdenes(page = 1, append = false) {
     if (filtros.value.hasta) params.hasta = filtros.value.hasta
     if (filtros.value.serie) params.serie = filtros.value.serie
     if (busqueda.value) params.search = busqueda.value
+    // Por lo que se entrega primero. El backend deja fuera lo entregado y lo
+    // cancelado: la pregunta es qué falta por salir.
+    if (porEntregar.value) params.orden = 'entrega'
 
     const { data } = await getOrdenes(params)
 
@@ -342,6 +354,17 @@ onUnmounted(() => {
       >
         <ArrowDownTrayIcon class="w-4 h-4 inline-block mr-1" />
         {{ exportando ? 'Generando...' : 'Excel' }}
+      </button>
+      <button
+        @click="alternarPorEntregar"
+        :title="porEntregar ? 'Volver al orden normal' : 'Ver primero lo que se entrega antes'"
+        :class="['text-sm font-medium px-3 py-1.5 rounded-lg border transition-colors',
+          porEntregar
+            ? 'bg-amber-500 text-white border-amber-500 hover:bg-amber-600'
+            : 'text-amber-700 border-amber-200 hover:bg-amber-50']"
+      >
+        <CalendarIcon class="w-4 h-4 inline-block mr-1" />
+        Por entregar
       </button>
       <button
         @click="showFilters = !showFilters"

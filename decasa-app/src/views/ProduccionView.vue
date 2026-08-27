@@ -13,6 +13,7 @@ import {
   ExclamationTriangleIcon,
   XCircleIcon,
   NoSymbolIcon,
+  CalendarDaysIcon,
 } from '@heroicons/vue/24/outline'
 import { getProduccion, updateProduccion } from '@/api/produccion'
 import { useToast } from '@/composables/useToast'
@@ -34,6 +35,16 @@ const loadingMore = ref(false)
 const hasMore = ref(true)
 const currentPage = ref(1)
 const showFilters = ref(false)
+
+// Ordenar por lo que se entrega antes, de lo más próximo a lo más lejano, sin
+// agrupar por estado: agrupando, lo de mañana que ya está en proceso queda
+// debajo de lo de dentro de un mes que sigue pendiente.
+const porEntregar = ref(false)
+
+function alternarPorEntregar() {
+  porEntregar.value = !porEntregar.value
+  fetchProduccion(1)
+}
 const busqueda = ref('')
 
 const sentinel = ref(null)
@@ -217,6 +228,9 @@ async function fetchProduccion(page = 1, append = false) {
     if (filtros.value.estado) params.estado = filtros.value.estado
     if (filtros.value.tienda_id) params.tienda_id = filtros.value.tienda_id
     if (busqueda.value) params.search = busqueda.value
+    // Por lo que se entrega primero, sin agrupar por estado: la pregunta es
+    // qué sale esta semana. El backend deja fuera lo ya entregado.
+    if (porEntregar.value) params.orden = 'entrega'
 
     const { data } = await getProduccion(params)
 
@@ -381,6 +395,17 @@ onUnmounted(() => {
     <!-- Header -->
     <div class="flex items-center gap-2">
       <h2 class="text-lg font-bold text-gray-800 flex-1">Producción</h2>
+      <button
+        @click="alternarPorEntregar"
+        :title="porEntregar ? 'Volver al orden por estado' : 'Ver primero lo que se entrega antes'"
+        :class="['text-sm font-medium px-3 py-1.5 rounded-lg border transition-colors flex items-center gap-1',
+          porEntregar
+            ? 'bg-amber-500 text-white border-amber-500 hover:bg-amber-600'
+            : 'text-amber-700 border-amber-200 hover:bg-amber-50']"
+      >
+        <CalendarDaysIcon class="w-4 h-4" />
+        Por entregar
+      </button>
       <button
         @click="showFilters = !showFilters"
         class="text-sm text-blue-600 font-medium px-3 py-1.5 rounded-lg border border-blue-200 hover:bg-blue-50 transition-colors flex items-center gap-1"

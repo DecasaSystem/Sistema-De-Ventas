@@ -367,7 +367,7 @@ class CotizacionController extends Controller
             'notas'               => 'nullable|string|max:1000',
             // Lo que se le promete al cliente al cerrar. Pasa a ser la fecha
             // de entrega de la orden, igual que en una venta directa.
-            'fecha_sugerida_vendedor' => 'nullable|date',
+            'fecha_sugerida_vendedor' => 'nullable|date|after:2020-01-01|before:2100-01-01',
 
             // El vendedor confirma que vio las advertencias de precio.
             'aceptar_cambios_precio' => 'nullable|boolean',
