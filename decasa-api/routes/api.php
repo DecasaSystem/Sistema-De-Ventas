@@ -272,6 +272,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/ordenes/{id}/confirmar-cotizacion',   [OrdenController::class, 'confirmarCotizacion']);
     Route::post('/ordenes/{id}/completar-borrador',     [OrdenController::class, 'completarBorrador']);
     Route::get('/ordenes/{id}/pdf',                     [OrdenController::class, 'pdf']);
+    // El cliente devuelve algo ya entregado y lo cambia por otra cosa: la
+    // orden se reabre y el producto nuevo se agrega con la edición normal.
+    Route::post('/ordenes/{id}/cambiar-producto',       [OrdenController::class, 'cambiarProducto'])->whereNumber('id');
     // Acta de satisfacción firmada por quien recibió la entrega
     Route::get('/ordenes/{id}/acta-entrega',            [DespachoController::class, 'actaEntrega'])->whereNumber('id');
     Route::post('/ordenes/{id}/reenviar-cotizacion',    [OrdenController::class, 'reenviarCotizacion']);

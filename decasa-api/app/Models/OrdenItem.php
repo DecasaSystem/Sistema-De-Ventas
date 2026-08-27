@@ -34,6 +34,10 @@ class OrdenItem extends Model
         'boceto_url',
         'boceto_fotos',
         'fecha_entrega_prom',
+        // El cliente lo devolvió para cambiarlo por otro. Se queda en la orden
+        // como rastro, pero deja de sumar al total.
+        'devuelto_en',
+        'motivo_devolucion',
     ];
 
     protected function casts(): array
@@ -48,6 +52,7 @@ class OrdenItem extends Model
             'specs_personalizacion' => 'array',
             'boceto_fotos'          => 'array',
             'fecha_entrega_prom'    => 'date',
+            'devuelto_en'           => 'date',
         ];
     }
 
@@ -122,6 +127,18 @@ class OrdenItem extends Model
     public function comboConfig()
     {
         return $this->belongsTo(ProductoVarianteConfig::class, 'combo_config_id');
+    }
+
+    /** ¿Sigue siendo parte de lo que el cliente va a recibir? */
+    public function estaVivo(): bool
+    {
+        return $this->devuelto_en === null;
+    }
+
+    /** Los que cuentan para el total: lo devuelto ya no se cobra. */
+    public function scopeVivos($query)
+    {
+        return $query->whereNull('devuelto_en');
     }
 
     public function orden()

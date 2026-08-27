@@ -32,6 +32,12 @@ export const quitarFijada = (id) => api.delete(`/ordenes/${id}/fijar`)
 export const revertirEntrega = (id, motivo) =>
   api.patch(`/ordenes/${id}/revertir-entrega`, { motivo })
 
+// El cliente devuelve algo ya entregado y lo cambia por otra cosa. Reabre la
+// orden: lo devuelto deja de cobrarse, lo que ya pagó queda a su favor y el
+// producto nuevo se agrega despues con la edicion normal.
+export const cambiarProductoEntregado = (id, payload) =>
+  api.post(`/ordenes/${id}/cambiar-producto`, payload)
+
 // ── Numeración (solo supervisor) ─────────────────────────────────────────────
 // Convertir una orden a serie (FV2/R) y, si se pide, correr los consecutivos
 // de las siguientes para no dejar el hueco. Se previsualiza antes de aplicar:

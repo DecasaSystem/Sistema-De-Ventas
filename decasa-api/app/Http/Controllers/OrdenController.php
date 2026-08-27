@@ -15,6 +15,7 @@ use App\Models\InventarioVarianteCombinacion;
 use App\Models\Comision;
 use App\Models\Orden;
 use App\Models\OrdenItem;
+use App\Models\OrdenMensaje;
 use App\Models\Produccion;
 use App\Models\Producto;
 use App\Models\ProductoVariante;
@@ -1530,7 +1531,9 @@ class OrdenController extends Controller
             // cualquier cosa de una orden que lo tuviera se lo borraba del
             // total en silencio y el precio le subía al cliente.
             $orden->refresh()->load('items');
-            $subtotal  = $orden->items->sum(fn ($i) => $i->cantidad * $i->precio_unitario);
+            // Lo que el cliente devolvió para cambiarlo ya no se cobra.
+            $subtotal  = $orden->items->filter->estaVivo()
+                ->sum(fn ($i) => $i->cantidad * $i->precio_unitario);
             $descuento = array_key_exists('descuento_total', $data) && $data['descuento_total'] !== null
                 ? min((float) $data['descuento_total'], $subtotal)
                 : min((float) $orden->descuento_total, $subtotal);
@@ -1976,6 +1979,171 @@ class OrdenController extends Controller
      * fotos y quién recibió. Deshacer eso a mano dejaría el acta contradiciendo
      * al sistema, así que se manda a Despacho.
      */
+    /**
+     * POST /api/ordenes/{id}/cambiar-producto
+     *
+     * El cliente devuelve algo que ya se le entregó y lo cambia por otra cosa.
+     *
+     * La señora recibió la mesa, a los dos días la devolvió y quiere otra que
+     * cuesta más. Como ya pagó la primera, esa plata se le abona: no vuelve a
+     * pagar desde cero, solo la diferencia. Hasta ahora no había por dónde —una
+     * orden entregada no se puede editar— y tocaba abrir otra orden a mano,
+     * dejando la plata pagada colgando en la vieja.
+     *
+     * Acá solo se DEVUELVE: el producto nuevo se agrega después con la edición
+     * normal de la orden, que ya sabe reservar stock, mandar a producción y
+     * ponerle fecha. Separarlo evita reescribir todo eso, y deja que el
+     * vendedor arme el reemplazo con calma —a veces hay que cotizarlo primero—.
+     */
+    public function cambiarProducto(Request $request, int $id)
+    {
+        $usuario = $request->user();
+
+        if ($usuario->rol !== 'supervisor') {
+            return response()->json(['message' => 'Solo un supervisor puede reabrir una orden entregada.'], 403);
+        }
+
+        $data = $request->validate([
+            'orden_item_id' => 'required|integer|exists:orden_items,id',
+            'motivo'        => 'required|string|min:3|max:1000',
+            'foto_url'      => 'nullable|string|max:500',
+            'fecha'         => 'nullable|date',
+            // Lo devuelto vuelve al inventario salvo que llegue dañado: ahí es
+            // merma y ponerlo a la venta otra vez sería vender un producto roto.
+            'vuelve_al_stock' => 'boolean',
+        ], [
+            'motivo.required' => 'Escribe por qué lo devuelve.',
+        ]);
+
+        $orden = Orden::with(['items', 'cliente:id,nombre'])->findOrFail($id);
+
+        if ($orden->estado !== 'entregado') {
+            return response()->json([
+                'message' => 'Esto es para cambiar algo ya entregado. Esta orden está en "' . $orden->estado . '".',
+            ], 422);
+        }
+
+        $item = $orden->items->firstWhere('id', $data['orden_item_id']);
+
+        if (! $item) {
+            return response()->json(['message' => 'Ese producto no es de esta orden.'], 422);
+        }
+        if (! $item->estaVivo()) {
+            return response()->json(['message' => 'Ese producto ya se había devuelto.'], 422);
+        }
+        if ($orden->items->where('devuelto_en', null)->count() <= 1) {
+            // Si se devuelve lo único que quedaba, no es un cambio: es una
+            // orden sin nada, y eso se resuelve cancelándola y devolviendo la
+            // plata, no dejándola viva y vacía.
+            return response()->json([
+                'message' => 'Es lo único que queda en la orden. Si el cliente no quiere nada más, '
+                           . 'cancélala y devuélvele la plata en vez de dejarla vacía.',
+            ], 422);
+        }
+
+        $fecha = $data['fecha'] ?? now()->toDateString();
+
+        DB::transaction(function () use ($orden, $item, $data, $fecha, $usuario, $request) {
+            // 1. Queda escrito qué se devolvió y por qué.
+            $item->update([
+                'devuelto_en'       => $fecha,
+                'motivo_devolucion' => $data['motivo'],
+            ]);
+
+            \App\Models\Devolucion::create([
+                'orden_id'         => $orden->id,
+                'orden_item_id'    => $item->id,
+                'cantidad'         => $item->cantidad,
+                'motivo'           => $data['motivo'],
+                'foto_url'         => $data['foto_url'] ?? null,
+                'fecha'            => $fecha,
+                'reportado_por_id' => $usuario->id,
+                // Ya está resuelta: se cambia por otro producto. No espera que
+                // nadie decida nada, a diferencia de la que llega dañada.
+                'estado'           => 'cambio',
+                'decidido_por_id'  => $usuario->id,
+                'decidido_at'      => now(),
+                'notas_decision'   => 'El cliente lo cambia por otro producto.',
+            ]);
+
+            // 2. El producto vuelve al inventario si está para vender.
+            if ($request->boolean('vuelve_al_stock', true) && ! $item->es_personalizado && $item->producto_id) {
+                $tiendaId = $item->tienda_origen_id ?? $orden->tienda_id;
+
+                Inventario::where('producto_id', $item->producto_id)->where('tienda_id', $tiendaId)
+                    ->increment('cantidad_disponible', $item->cantidad);
+
+                if ($item->variante_id) {
+                    InventarioVariante::where('variante_id', $item->variante_id)->where('tienda_id', $tiendaId)
+                        ->increment('cantidad_disponible', $item->cantidad);
+                }
+
+                InventarioMovimiento::create([
+                    'producto_id' => $item->producto_id,
+                    'tienda_id'   => $tiendaId,
+                    'tipo'        => 'entrada',
+                    'cantidad'    => $item->cantidad,
+                    'motivo'      => "Devolución para cambio — orden {$orden->referencia}",
+                    'usuario_id'  => $usuario->id,
+                ]);
+            }
+
+            // 3. Lo que se devolvió deja de cobrarse. Lo ya pagado no se toca:
+            //    esa plata queda a favor del cliente contra el total nuevo, que
+            //    es justo lo que hace que no pague dos veces.
+            $orden->refresh()->load('items');
+            $this->recalcularTotalOrden($orden);
+
+            // 4. La orden vuelve a estar viva para poder ponerle el reemplazo.
+            $orden->update(['estado' => 'pendiente_anticipo']);
+
+            OrdenMensaje::create([
+                'orden_id'   => $orden->id,
+                'usuario_id' => $usuario->id,
+                'mensaje'    => "🔁 Se devolvió {$item->cantidad} × "
+                              . ($item->nombre_custom ?: ($item->producto?->nombre ?? 'un producto'))
+                              . " el " . \Carbon\Carbon::parse($fecha)->format('d/m/Y')
+                              . ". Motivo: {$data['motivo']}. La orden vuelve a estar abierta para el cambio.",
+                'imagen_url' => $data['foto_url'] ?? null,
+            ]);
+        });
+
+        $orden->refresh()->load(['items.producto:id,nombre', 'pagos']);
+
+        // El valor de la orden cambió: la comisión tiene que seguirlo.
+        ComisionController::sincronizarValorOrden($orden);
+
+        return response()->json([
+            'message'        => 'Orden reabierta. Ya puedes agregarle el producto nuevo desde Editar.',
+            'valor_total'    => (float) $orden->valor_total,
+            'total_pagado'   => $orden->totalPagado(),
+            'saldo_pendiente'=> $orden->saldoPendiente(),
+        ]);
+    }
+
+    /**
+     * Vuelve a sacar el total de la orden a partir de lo que sigue vivo.
+     *
+     * Lo devuelto no se cobra, así que no puede seguir sumando. Los descuentos
+     * se topan contra el subtotal nuevo: si el descuento era mayor que lo que
+     * quedó, dejarlo tal cual daría un total negativo.
+     */
+    private function recalcularTotalOrden(Orden $orden): void
+    {
+        $subtotal = $orden->items->filter->estaVivo()
+            ->sum(fn ($i) => $i->cantidad * $i->precio_unitario);
+
+        $descuento    = min((float) $orden->descuento_total, $subtotal);
+        $baseCond     = max(0, $subtotal - $descuento);
+        $condicionado = min((float) $orden->descuento_condicionado, $baseCond);
+
+        $orden->update([
+            'descuento_total'        => $descuento,
+            'descuento_condicionado' => $condicionado,
+            'valor_total'            => $baseCond - $condicionado,
+        ]);
+    }
+
     public function revertirEntrega(Request $request, int $id)
     {
         $usuario = $request->user();

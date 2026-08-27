@@ -56,7 +56,8 @@
          por ítem para deducirla. --}}
     @php
         $fechaEntrega = $orden->fechaEntregaEstimada();
-        $variasFechas = $orden->items->pluck('fecha_entrega_prom')->filter()
+        $itemsVivos   = $orden->items->filter->estaVivo();
+        $variasFechas = $itemsVivos->pluck('fecha_entrega_prom')->filter()
             ->map(fn ($f) => \Carbon\Carbon::parse($f)->toDateString())->unique()->count() > 1;
     @endphp
     {{-- La fecha que el vendedor le prometió al cliente NO va acá a propósito:
@@ -134,7 +135,7 @@
 
     <!-- Ítems -->
     <div style="margin-bottom: 10px;">
-        <p style="font-size: 9px; font-weight: bold; color: #6b7280; text-transform: uppercase; margin: 0 0 4px 0;">Ítems ({{ count($orden->items) }})</p>
+        <p style="font-size: 9px; font-weight: bold; color: #6b7280; text-transform: uppercase; margin: 0 0 4px 0;">Ítems ({{ $itemsVivos->count() }})</p>
         <table style="width: 100%; border-collapse: collapse; font-size: 10px;">
             <thead>
                 <tr style="background-color: #2563eb; color: white;">
@@ -147,7 +148,9 @@
                 </tr>
             </thead>
             <tbody>
-                @foreach($orden->items as $idx => $item)
+                {{-- Lo devuelto para cambio no va: esta hoja es el comprobante
+                     de lo que el cliente recibe, no el historial de la orden. --}}
+                @foreach($itemsVivos as $idx => $item)
                     <tr style="border-bottom: 1px solid #e5e7eb; {{ $loop->even ? 'background-color:#f9fafb;' : '' }}">
                         <td style="padding: 4px 5px; text-align: center; color: #6b7280; font-size: 9px;">{{ $idx + 1 }}</td>
                         <td style="padding: 4px 5px;">
@@ -252,7 +255,7 @@
         // Solo los que tienen algo que detallar: un personalizado sin specs, sin
         // notas y sin boceto solo repetía el nombre que ya está en la tabla de
         // arriba y gastaba una línea.
-        $itemsPersonalizados = $orden->items
+        $itemsPersonalizados = $itemsVivos
             ->where('es_personalizado', true)
             ->filter(function ($i) {
                 $s = $i->specs_personalizacion ?? [];

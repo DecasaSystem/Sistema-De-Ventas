@@ -6,7 +6,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
-import { getOrden, updateEstado, revertirEntrega, descargarPdfOrden, descargarActaEntrega, reenviarCotizacion, asignarFechasEntrega, confirmarCotizacion, editarPago, completarBorrador as completarBorradorApi, eliminarBorrador as eliminarBorradorApi, previsualizarNumeracion, convertirSerie, cambiarNumeroOrden } from '@/api/ordenes'
+import { getOrden, updateEstado, revertirEntrega, descargarPdfOrden, descargarActaEntrega, reenviarCotizacion, asignarFechasEntrega, confirmarCotizacion, editarPago, completarBorrador as completarBorradorApi, eliminarBorrador as eliminarBorradorApi, previsualizarNumeracion, convertirSerie, cambiarNumeroOrden, cambiarProductoEntregado } from '@/api/ordenes'
 import api from '@/api'
 import { useTiposProceso } from '@/composables/useTiposProceso'
 import { updateCliente } from '@/api/clientes'
@@ -79,9 +79,10 @@ const puedeEditar = computed(() => {
   return true
 })
 
-const todasFechasAsignadas = computed(() =>
-  (orden.value?.items?.length ?? 0) > 0 && (orden.value?.items?.every(i => i.fecha_entrega_prom) ?? false)
-)
+const todasFechasAsignadas = computed(() => {
+  const vivos = (orden.value?.items ?? []).filter(i => !i.devuelto_en)
+  return vivos.length > 0 && vivos.every(i => i.fecha_entrega_prom)
+})
 
 /**
  * ¿Lo que está puesto sigue siendo lo que se le prometió al cliente?
@@ -769,6 +770,55 @@ async function doRevertirEntrega() {
     toast.error(e.response?.data?.message ?? 'No se pudo revertir la entrega.')
   } finally {
     revirtiendo.value = false
+  }
+}
+
+// ── Cambiar un producto ya entregado ─────────────────────────────────────────
+// La señora recibio la mesa, la devolvio y quiere otra. Lo que ya pago queda a
+// su favor: reabrimos la orden y el reemplazo se agrega con "Editar orden",
+// que ya sabe mandar a produccion y reservar stock.
+const showCambio     = ref(false)
+const cambioItemId   = ref(null)
+const cambioMotivo   = ref('')
+const cambioAlStock  = ref(true)
+const cambiando      = ref(false)
+
+// Lo que todavia se le puede devolver: lo que sigue vivo en la orden.
+const itemsCambiables = computed(() =>
+  (orden.value?.items ?? []).filter(i => !i.devuelto_en)
+)
+
+function abrirCambio() {
+  cambioItemId.value  = itemsCambiables.value[0]?.id ?? null
+  cambioMotivo.value  = ''
+  cambioAlStock.value = true
+  showCambio.value    = true
+}
+
+async function doCambiarProducto() {
+  if (!cambioItemId.value) return toast.error('Elige qué producto devuelve.')
+  if (cambioMotivo.value.trim().length < 3) return toast.error('Escribe por qué lo devuelve.')
+
+  cambiando.value = true
+  try {
+    const { data } = await cambiarProductoEntregado(orden.value.id, {
+      orden_item_id: cambioItemId.value,
+      motivo: cambioMotivo.value.trim(),
+      vuelve_al_stock: cambioAlStock.value,
+    })
+    showCambio.value = false
+    await cargarOrden()
+    const aFavor = -Math.round(Number(data.saldo_pendiente) || 0)
+    toast.success(
+      aFavor > 0
+        ? `Listo. Le quedan $${aFavor.toLocaleString('es-CO')} a favor. Agrégale el producto nuevo desde Editar.`
+        : 'Listo. Agrégale el producto nuevo desde Editar.',
+      9000,
+    )
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudo reabrir la orden.', 7000)
+  } finally {
+    cambiando.value = false
   }
 }
 
@@ -1795,10 +1845,21 @@ onMounted(() => { cargarTipos(); cargarOrden() })
           <span class="text-gray-500">Pagado</span>
           <span class="font-medium text-green-600"><MoneyDisplay :amount="orden.total_pagado" /></span>
         </div>
+        <!-- Tras devolver algo para cambiarlo, el cliente puede quedar con
+             plata a favor. "Saldo: -$800.000" se lee como una deuda al revés;
+             lo que pasa es que ya tiene pagado de más. -->
         <div class="flex justify-between text-sm">
-          <span class="text-gray-500">Saldo</span>
-          <span class="font-bold text-red-600"><MoneyDisplay :amount="orden.saldo_pendiente" /></span>
+          <span class="text-gray-500">{{ Number(orden.saldo_pendiente) < 0 ? 'A favor del cliente' : 'Saldo' }}</span>
+          <span
+            class="font-bold"
+            :class="Number(orden.saldo_pendiente) < 0 ? 'text-blue-600' : 'text-red-600'"
+          >
+            <MoneyDisplay :amount="Math.abs(Number(orden.saldo_pendiente) || 0)" />
+          </span>
         </div>
+        <p v-if="Number(orden.saldo_pendiente) < 0" class="text-[11px] text-blue-700 bg-blue-50 rounded-lg px-2.5 py-1.5">
+          Ya pagó de más por lo que devolvió. Ese valor se le descuenta de lo que agregue.
+        </p>
         <!-- Barra progreso -->
         <div class="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
           <div
@@ -1837,12 +1898,23 @@ onMounted(() => { cargarTipos(); cargarOrden() })
 
       <!-- Ítems -->
       <div class="bg-white rounded-xl shadow-sm p-4 space-y-3">
-        <p class="text-xs font-semibold text-gray-500 uppercase">Ítems ({{ orden.items?.length ?? 0 }})</p>
+        <p class="text-xs font-semibold text-gray-500 uppercase">Ítems ({{ itemsCambiables.length }})</p>
         <div
           v-for="(item, idx) in orden.items"
           :key="idx"
-          class="border-b border-gray-100 last:border-0 pb-3 last:pb-0"
+          :class="['border-b border-gray-100 last:border-0 pb-3 last:pb-0',
+                   item.devuelto_en ? 'opacity-60' : '']"
         >
+          <!-- Devuelto para cambio: se queda a la vista porque es parte de lo
+               que paso con esta orden, pero ya no se cobra ni se entrega. -->
+          <div v-if="item.devuelto_en" class="mb-1.5 flex items-start gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
+            <span class="text-xs">🔁</span>
+            <p class="text-[11px] text-amber-900 leading-snug">
+              <span class="font-semibold">Devuelto el {{ formatFecha(item.devuelto_en) }}</span>
+              — ya no se cobra.
+              <span v-if="item.motivo_devolucion" class="block text-amber-700">{{ item.motivo_devolucion }}</span>
+            </p>
+          </div>
           <div class="flex justify-between items-start gap-3">
             <!-- Foto del producto -->
             <img
@@ -2293,7 +2365,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         </div>
 
         <div
-          v-for="item in orden.items"
+          v-for="item in itemsCambiables"
           :key="item.id"
           class="space-y-1"
         >
@@ -2542,6 +2614,55 @@ onMounted(() => { cargarTipos(); cargarOrden() })
           <div>
             <p class="text-sm font-semibold text-purple-800">Estado gestionado desde Producción</p>
             <p class="text-xs text-purple-600 mt-0.5">Esta orden tiene ítems personalizados. El estado se actualiza automáticamente al cambiar el avance en el módulo de Producción.</p>
+          </div>
+        </div>
+
+        <!-- El cliente devuelve algo y lo cambia por otra cosa. Distinto de
+             revertir: acá la entrega sí ocurrió, y lo que pagó se le abona al
+             producto nuevo. -->
+        <div v-if="auth.isSupervisor && orden.estado === 'entregado' && itemsCambiables.length > 1" class="space-y-2">
+          <button
+            v-if="!showCambio"
+            @click="abrirCambio"
+            class="w-full text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-xl py-2.5 hover:bg-amber-100 transition-colors"
+          >El cliente devolvió algo y lo quiere cambiar</button>
+
+          <div v-else class="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2.5">
+            <p class="text-xs font-semibold text-amber-900">¿Qué devuelve?</p>
+
+            <select v-model="cambioItemId" class="w-full rounded-lg border border-amber-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+              <option v-for="i in itemsCambiables" :key="i.id" :value="i.id">
+                {{ i.cantidad }} × {{ i.producto?.nombre ?? i.nombre_custom ?? 'Producto' }}
+              </option>
+            </select>
+
+            <textarea
+              v-model="cambioMotivo"
+              rows="2"
+              placeholder="Por qué lo devuelve. Ej: no le gustó el color, lo quiere más grande"
+              class="w-full rounded-lg border border-amber-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+            />
+
+            <label class="flex items-start gap-2 cursor-pointer">
+              <input type="checkbox" v-model="cambioAlStock" class="mt-0.5 rounded border-gray-300 text-amber-600 focus:ring-amber-500" />
+              <span class="text-[11px] text-amber-900">
+                Vuelve al inventario para vender. Desmárcalo si llegó dañado.
+              </span>
+            </label>
+
+            <p class="text-[11px] text-amber-800 bg-amber-100 rounded-lg px-2.5 py-2">
+              Lo que ya pagó queda a su favor: el producto devuelto deja de cobrarse y la orden
+              vuelve a estar abierta. El reemplazo se agrega desde <strong>Editar orden</strong>,
+              y si hay que fabricarlo entra a producción con su fecha.
+            </p>
+
+            <div class="flex gap-2">
+              <button @click="showCambio = false" class="flex-1 bg-white text-gray-700 border border-gray-300 rounded-lg py-2 text-xs font-semibold">Cancelar</button>
+              <button
+                @click="doCambiarProducto" :disabled="cambiando"
+                class="flex-1 bg-amber-600 text-white rounded-lg py-2 text-xs font-semibold hover:bg-amber-700 disabled:opacity-50"
+              >{{ cambiando ? 'Guardando...' : 'Reabrir para el cambio' }}</button>
+            </div>
           </div>
         </div>
 

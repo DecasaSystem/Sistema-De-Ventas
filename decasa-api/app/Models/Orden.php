@@ -102,7 +102,9 @@ class Orden extends Model
      */
     public function fechaEntregaEstimada(): ?\Carbon\Carbon
     {
-        $items = $this->items;
+        // Solo lo que el cliente va a recibir: lo que devolvió para cambiarlo
+        // ya no se entrega, y mirarlo dejaría la orden sin fecha para siempre.
+        $items = $this->items->filter->estaVivo();
 
         if ($items->isEmpty() || $items->contains(fn ($i) => empty($i->fecha_entrega_prom))) {
             return null;
