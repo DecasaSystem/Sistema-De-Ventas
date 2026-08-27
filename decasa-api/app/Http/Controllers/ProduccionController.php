@@ -124,6 +124,11 @@ class ProduccionController extends Controller
         ])
         ->whereIn('tipo_proceso', $tiposProceso)
         ->where('estado', 'en_proceso')
+        // Y que la pieza siga viva. Mirar solo el estado del paso hacía que una
+        // pieza cancelada siguiera apareciéndole al ebanista como trabajo
+        // pendiente. Se comprueba acá además de al cancelar: cualquier otro
+        // camino que deje un paso huérfano se topa con esto.
+        ->whereHas('produccion', fn ($q) => $q->whereNotIn('estado', ['cancelado', 'entregado']))
         ->orderBy('orden')
         ->get();
 
@@ -181,6 +186,16 @@ class ProduccionController extends Controller
 
         if ($paso->estado !== 'en_proceso') {
             return response()->json(['message' => 'Solo se puede completar un paso activo.'], 422);
+        }
+
+        // Último candado: la pieza tiene que seguir viva. Si se canceló, este
+        // paso no es trabajo de nadie —aunque se hubiera quedado en la pantalla
+        // del ebanista de antes de recargar— y completarlo la haría avanzar al
+        // paso siguiente como si nada hubiera pasado.
+        if (in_array($paso->produccion?->estado, ['cancelado', 'entregado'], true)) {
+            return response()->json([
+                'message' => 'Esta pieza ya no está en producción: se canceló. Actualiza la pantalla.',
+            ], 422);
         }
 
         $participantes = $this->validarParticipantes($request, exigirAlMenosUno: true);
@@ -470,6 +485,18 @@ class ProduccionController extends Controller
         }
 
         $produccion->update($updates);
+
+        // Cancelar una pieza tiene que sacarla del taller de verdad.
+        //
+        // Antes solo se le cambiaba el estado a ella y sus pasos seguían como
+        // estaban, así que el paso en curso continuaba saliendo en "Mis pasos"
+        // y el ebanista lo podía avanzar. Lo ya completado se conserva —ese
+        // trabajo se hizo— y se cancela lo que quedaba por delante.
+        if ($data['estado'] === 'cancelado') {
+            ProduccionPaso::where('produccion_id', $produccion->id)
+                ->whereIn('estado', ['pendiente', 'en_proceso'])
+                ->update(['estado' => 'cancelado']);
+        }
 
         // Si cambia a en_proceso: crear pasos
         if ($data['estado'] === 'en_proceso' && ! empty($data['pasos'])) {

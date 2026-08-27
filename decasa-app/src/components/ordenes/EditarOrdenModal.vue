@@ -157,8 +157,16 @@ const totalEditEnCero = computed(() =>
 // ── Eliminar ítem existente ──────────────────────────────────────────────────
 function marcarEliminar(item) {
   const prod = item._produccion
-  if (prod && prod.pasos?.some(p => ['en_proceso', 'completado'].includes(p.estado))) {
-    toast.error(`"${item.producto_nombre || item.nombre_custom || 'Este ítem'}" ya está en producción y no se puede quitar.`)
+  // Una pieza cancelada ya no está en el taller, y quitarla de la orden es
+  // justo lo que uno va a hacer después de cancelarla: se mandó a fabricar
+  // algo que no había que fabricar. Lo que sigue bloqueado es el trabajo de
+  // verdad en curso.
+  const enCurso = prod
+    && prod.estado !== 'cancelado'
+    && prod.pasos?.some(p => ['en_proceso', 'completado'].includes(p.estado))
+  if (enCurso) {
+    toast.error(`"${item.producto_nombre || item.nombre_custom || 'Este ítem'}" ya está en producción. `
+      + 'Si fue un error, cancélalo primero desde Producción.')
     return
   }
   itemsEliminar.value.push(item.id)

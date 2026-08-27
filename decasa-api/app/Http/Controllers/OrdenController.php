@@ -1395,13 +1395,22 @@ class OrdenController extends Controller
                     $nombreProd = $item->producto?->nombre ?? $item->nombre_custom ?? "Ítem #{$item->id}";
                     $origenId   = $item->tienda_origen_id ?? $orden->tienda_id;
 
-                    // Bloquear si la producción ya avanzó
+                    // Bloquear si la producción ya avanzó.
+                    //
+                    // Salvo que esté cancelada: si se canceló es porque no
+                    // había que fabricarla —el vendedor marcó "para fabricar"
+                    // un producto que estaba en la tienda— y quitarla de la
+                    // orden es exactamente lo que hay que poder hacer después.
+                    // Antes el ítem quedaba atrapado: ni salía del taller ni se
+                    // podía sacar de la orden.
                     if ($item->produccion) {
-                        $avanzado = $item->produccion->pasos->contains(
+                        $cancelada = $item->produccion->estado === 'cancelado';
+                        $avanzado  = ! $cancelada && $item->produccion->pasos->contains(
                             fn ($p) => in_array($p->estado, ['en_proceso', 'completado'])
                         );
                         if ($avanzado) {
-                            abort(422, "No se puede quitar \"{$nombreProd}\" porque su producción ya está en curso.");
+                            abort(422, "No se puede quitar \"{$nombreProd}\" porque su producción ya está en curso. "
+                                     . "Si fue un error, cancélala primero desde Producción.");
                         }
                         $item->produccion->pasos()->delete();
                         $item->produccion->delete();

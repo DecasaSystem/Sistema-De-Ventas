@@ -527,9 +527,12 @@ onUnmounted(() => {
                   'inline-block w-5 h-1.5 rounded-full',
                   paso.estado === 'completado' ? 'bg-green-400' :
                   paso.estado === 'en_proceso'  ? 'bg-blue-400' :
+                  paso.estado === 'cancelado'   ? 'bg-red-200' :
                   'bg-gray-200'
                 ]"
-                :title="labelProceso(paso.tipo_proceso) + (paso.trabajadores?.length ? ': ' + paso.trabajadores.join(', ') : '')"
+                :title="labelProceso(paso.tipo_proceso)
+                  + (paso.estado === 'cancelado' ? ' (cancelado)' : '')
+                  + (paso.trabajadores?.length ? ': ' + paso.trabajadores.join(', ') : '')"
               />
             </div>
           </div>
