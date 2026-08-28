@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import api from '@/api'
-import { login as apiLogin, logout as apiLogout } from '@/api/auth'
+import { login as apiLogin, loginGoogle as apiLoginGoogle, logout as apiLogout } from '@/api/auth'
 
 // 'perfilAlt' guarda la sesion del segundo perfil para que no se pierda
 // cuando la sesion se cae sola (un 401, un token vencido). Al cerrar sesion a
@@ -194,7 +194,15 @@ export const useAuthStore = defineStore('auth', () => {
 
   // ── Acciones de sesión ────────────────────────────────────────────────────
   async function login(email, password) {
-    const { data } = await apiLogin(email, password)
+    _abrirSesion(await apiLogin(email, password))
+  }
+
+  /** Entrar con Google. Del lado de acá la sesión que llega es la misma. */
+  async function loginConGoogle(credential) {
+    _abrirSesion(await apiLoginGoogle(credential))
+  }
+
+  function _abrirSesion({ data }) {
     const u = _buildUsuario(data)
 
     // Restaurar perfil alternativo si sobrevivió al logout/401
@@ -330,7 +338,7 @@ export const useAuthStore = defineStore('auth', () => {
     puedeCostos, puedeProveedores, puedeDespacho, puedeProduccion, gestionaProduccion, puedeReserva, puedeNomina, puedeCompras,
     puedeEncargos, revisaEncargos, llevaEncargos, veTodasOrdenes, soloVeSusOrdenes,
     tienePerfilAlternativo, perfilAlternativo, perfilActivoIdx, perfilAlternoRecordado,
-    login, fetchMe, setFirma, setEmail, logout, clearSession,
+    login, loginConGoogle, fetchMe, setFirma, setEmail, logout, clearSession,
     loginPerfilAlternativo, cambiarPerfil, eliminarPerfilAlternativo,
   }
 })

@@ -34,6 +34,8 @@ class Usuario extends Authenticatable
         'nombre',
         'email',
         'password',
+        // Con qué cuenta de Google entra, si es que usa ese botón.
+        'google_id',
         'rol',
         'rol_id',
         'facturacion',

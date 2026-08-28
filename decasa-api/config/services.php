@@ -35,6 +35,13 @@ return [
         ],
     ],
 
+    // "Entrar con Google". Sólo el client_id: el ID token se verifica contra
+    // Google y no hay secreto que guardar. Si no está puesto, la app no ofrece
+    // el botón y todo el mundo sigue entrando con su contraseña.
+    'google' => [
+        'client_id' => env('GOOGLE_CLIENT_ID'),
+    ],
+
     'cloudinary' => [
         'cloud_name' => env('CLOUDINARY_CLOUD_NAME'),
         'api_key'    => env('CLOUDINARY_API_KEY'),

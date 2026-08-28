@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
@@ -24,6 +24,71 @@ async function submit() {
     loading.value = false
   }
 }
+
+// ── Entrar con Google ────────────────────────────────────────────────────────
+//
+// El botón lo dibuja Google, no nosotros: es el que la gente reconoce y el
+// único que se puede usar según sus reglas de marca. Sin la clave configurada
+// no aparece nada, y se entra con la contraseña de siempre.
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? ''
+const botonGoogle      = ref(null)
+const googleListo      = ref(false)
+
+function cargarScriptGoogle() {
+  return new Promise((resolve, reject) => {
+    if (window.google?.accounts?.id) return resolve()
+    const existente = document.getElementById('gsi-client')
+    if (existente) {
+      existente.addEventListener('load', () => resolve())
+      existente.addEventListener('error', reject)
+      return
+    }
+    const s = document.createElement('script')
+    s.id     = 'gsi-client'
+    s.src    = 'https://accounts.google.com/gsi/client'
+    s.async  = true
+    s.defer  = true
+    s.onload  = () => resolve()
+    s.onerror = reject
+    document.head.appendChild(s)
+  })
+}
+
+async function entrarConGoogle(respuesta) {
+  error.value   = ''
+  loading.value = true
+  try {
+    await auth.loginConGoogle(respuesta.credential)
+    router.push({ name: 'dashboard' })
+  } catch (e) {
+    // El servidor dice exactamente qué pasó —correo sin cuenta, cuenta
+    // inactiva—, y eso es más útil que un "no se pudo" genérico.
+    error.value = e.response?.data?.message ?? 'No se pudo entrar con Google.'
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(async () => {
+  if (!GOOGLE_CLIENT_ID) return
+  try {
+    await cargarScriptGoogle()
+    window.google.accounts.id.initialize({
+      client_id: GOOGLE_CLIENT_ID,
+      callback:  entrarConGoogle,
+    })
+    window.google.accounts.id.renderButton(botonGoogle.value, {
+      theme: 'outline', size: 'large', width: 320,
+      text: 'signin_with', shape: 'pill', locale: 'es',
+    })
+    googleListo.value = true
+  } catch {
+    // Sin internet hacia Google o con el script bloqueado: no se muestra el
+    // botón y la contraseña sigue funcionando. Entrar nunca puede depender
+    // de que un tercero responda.
+    googleListo.value = false
+  }
+})
 </script>
 
 <template>
@@ -83,6 +148,21 @@ async function submit() {
         >
           {{ loading ? 'Ingresando...' : 'Ingresar' }}
         </button>
+
+        <!-- Entrar con Google. El div lo llena Google con su propio botón; si
+             no está configurado o no carga, esta parte no existe y nadie se
+             queda sin poder entrar. -->
+        <div v-show="googleListo" class="pt-1 space-y-3">
+          <div class="flex items-center gap-3">
+            <span class="h-px bg-gray-200 flex-1" />
+            <span class="text-xs text-gray-400">o</span>
+            <span class="h-px bg-gray-200 flex-1" />
+          </div>
+          <div ref="botonGoogle" class="flex justify-center" />
+          <p class="text-[11px] text-gray-400 text-center">
+            Con el mismo correo que tienes registrado en el programa.
+          </p>
+        </div>
       </form>
     </div>
   </div>

@@ -58,7 +58,8 @@ use App\Http\Controllers\NominaAusenciaController;
 use Illuminate\Support\Facades\Route;
 
 // ── Auth (público) ────────────────────────────────────────────────────────────
-Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:10,1');
+Route::post('/auth/login',  [AuthController::class, 'login'])->middleware('throttle:10,1');
+Route::post('/auth/google', [AuthController::class, 'loginGoogle'])->middleware('throttle:10,1');
 
 // ── Webhook del agente WA (público con token secreto) ────────────────────────
 Route::post('/redes/webhook', [RedesController::class, 'webhook'])->middleware('throttle:60,1');

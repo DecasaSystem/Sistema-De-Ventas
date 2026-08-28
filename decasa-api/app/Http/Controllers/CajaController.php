@@ -38,6 +38,7 @@ class CajaController extends Controller
         return $q->where('independiente', true);
     }
 
+
     /**
      * Pagos en efectivo que entraron a la caja de una tienda.
      *
