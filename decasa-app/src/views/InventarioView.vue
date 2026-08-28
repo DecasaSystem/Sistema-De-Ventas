@@ -1286,8 +1286,33 @@ const combModalCatalogoTelas  = ref([])          // todos los telas del catálog
 const combModalSelectedTelaId = ref(null)        // catalogo_telas.id seleccionado
 const combModalModo           = ref('agregar')   // 'agregar' | 'quitar'
 
+/**
+ * Cuánto queda del producto sin repartir entre telas.
+ *
+ * Es el mismo tope que aplica el servidor: el stock base menos todo lo que ya
+ * está asignado a alguna tela (esté o no dentro de una medida).
+ */
+const combModalSinAsignar = computed(() => {
+  if (!combModalProdId.value) return 0
+  const base = combModalItem.value?.cantidad_disponible ?? 0
+  const asignado = (variantesData.value[combModalProdId.value] ?? [])
+    .reduce((s, v) => s + (v.stock_disponible ?? 0), 0)
+  return Math.max(0, base - asignado)
+})
+
+/** Lo que hay de esta tela suelta, fuera de cualquier medida. */
+const combModalSueltasDeLaTela = computed(() => {
+  if (!combModalVarianteId.value || !combModalProdId.value) return 0
+  const entry = (variantesData.value[combModalProdId.value] ?? []).find(
+    v => v.id === combModalVarianteId.value && !v._config_id
+  )
+  return entry?.stock_libre ?? 0
+})
+
 const combModalQuitarMax = computed(() => {
-  if (!combModalVarianteId.value || !combModalConfigId.value || !combModalProdId.value) return 0
+  if (!combModalVarianteId.value || !combModalProdId.value) return 0
+  // Sin medida se quita de lo que la tela tiene suelto.
+  if (!combModalConfigId.value) return combModalSueltasDeLaTela.value
   const entry = (variantesData.value[combModalProdId.value] ?? []).find(
     c => c.id === combModalVarianteId.value && c._config_id === combModalConfigId.value
   )
@@ -1305,7 +1330,9 @@ function seleccionarCatalogoTela(ct) {
 }
 
 const combModalMaxCant = computed(() => {
-  if (!combModalConfigId.value || !combModalProdId.value) return 0
+  if (!combModalProdId.value) return 0
+  // Sin medida el tope es lo que quede del producto sin repartir.
+  if (!combModalConfigId.value) return combModalSinAsignar.value
   const vcGroups = vcConfigsCard.value[combModalProdId.value] ?? []
   let customTotal = 0
   for (const g of vcGroups) {
@@ -1346,7 +1373,6 @@ async function abrirCombModal(variante, item) {
 async function guardarCombinacion() {
   combModalError.value = ''
   if (!combModalSelectedTelaId.value) { combModalError.value = 'Selecciona un tipo de tela.'; return }
-  if (!combModalConfigId.value)        { combModalError.value = 'Selecciona la variante.'; return }
   if (combModalCant.value < 1)         { combModalError.value = 'Cantidad inválida.'; return }
   combModalLoad.value = true
   try {
@@ -1362,12 +1388,16 @@ async function guardarCombinacion() {
       combModalVarianteId.value = varianteId
     }
 
-    const endpoint = combModalModo.value === 'quitar'
-      ? '/inventario/variante-combinaciones/salida'
-      : '/inventario/variante-combinaciones/entrada'
+    // Sin opción elegida la tela va al producto tal cual, no a una medida:
+    // ése es otro par de endpoints, los de la variante suelta.
+    const alProductoBase = !combModalConfigId.value
+    const endpoint = alProductoBase
+      ? (combModalModo.value === 'quitar' ? '/inventario/variantes/salida' : '/inventario/variantes/entrada')
+      : (combModalModo.value === 'quitar' ? '/inventario/variante-combinaciones/salida' : '/inventario/variante-combinaciones/entrada')
+
     await api.post(endpoint, {
       variante_id: varianteId,
-      config_id:   combModalConfigId.value,
+      config_id:   alProductoBase ? undefined : combModalConfigId.value,
       tienda_id:   tiendaId.value,
       cantidad:    combModalCant.value,
       motivo:      combModalMotivo.value || undefined,
@@ -3014,8 +3044,10 @@ onMounted(async () => {
         <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-4 max-h-[88vh] overflow-y-auto">
           <div class="flex items-center justify-between">
             <div>
-              <h3 class="text-base font-bold text-gray-800">{{ combModalModo === 'agregar' ? 'Asignar' : 'Quitar' }} tela × variante</h3>
-              <p class="text-xs text-indigo-600 mt-0.5">Combinación tela/color · opción de variante</p>
+              <h3 class="text-base font-bold text-gray-800">{{ combModalModo === 'agregar' ? 'Asignar' : 'Quitar' }} stock de tela</h3>
+              <p class="text-xs text-indigo-600 mt-0.5">
+                {{ combModalConfigId ? 'Tela dentro de una medida' : 'Tela del producto, sin medida' }}
+              </p>
             </div>
             <button @click="combModal = false" class="text-gray-400 text-2xl leading-none">&times;</button>
           </div>
@@ -3059,7 +3091,24 @@ onMounted(async () => {
 
             <!-- Seleccionar variante personalizada -->
             <div>
-              <p class="text-sm font-semibold text-gray-700 mb-2">Variante personalizada</p>
+              <p class="text-sm font-semibold text-gray-700 mb-2">¿A qué variante va?</p>
+
+              <!-- Que el producto tenga medidas no obliga a que toda su tela sea
+                   de alguna: el sofá puede entrar con la tela del producto de
+                   siempre, como se creó al principio. -->
+              <button
+                @click="combModalConfigId = null; combModalCant = 1"
+                :class="['w-full text-left px-3 py-2 rounded-lg border text-sm transition-colors mb-3',
+                  !combModalConfigId
+                    ? 'border-green-500 bg-green-50 text-green-800 font-medium'
+                    : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50']"
+              >
+                Ninguna — va al producto tal cual
+                <span class="block text-xs font-normal opacity-70 mt-0.5">
+                  Para la tela que no pertenece a ninguna medida
+                </span>
+              </button>
+
               <template v-for="grupo in (vcConfigsCard[combModalProdId] ?? [])" :key="grupo.tipo_variante_id">
                 <p class="text-xs font-bold text-gray-400 uppercase tracking-wide mb-1">{{ grupo.tipo.nombre }}</p>
                 <div class="space-y-1.5 mb-3">
@@ -3080,9 +3129,10 @@ onMounted(async () => {
             </div>
 
             <!-- Info de capacidad -->
-            <template v-if="combModalConfigId && combModalSelectedTelaId">
+            <template v-if="combModalSelectedTelaId">
               <div v-if="combModalModo === 'agregar'" class="bg-indigo-50 rounded-lg px-3 py-2 text-xs text-indigo-700">
-                Disponible para asignar en esta opción: <strong>{{ combModalMaxCant }}</strong>
+                {{ combModalConfigId ? 'Disponible para asignar en esta opción' : 'Del producto, sin repartir todavía' }}:
+                <strong>{{ combModalMaxCant }}</strong>
               </div>
               <div v-else class="bg-red-50 rounded-lg px-3 py-2 text-xs text-red-700">
                 Stock disponible en esta combinación: <strong>{{ combModalQuitarMax }}</strong>
@@ -3108,7 +3158,7 @@ onMounted(async () => {
             <p v-if="combModalError" class="text-xs text-red-600">{{ combModalError }}</p>
             <button
               @click="guardarCombinacion"
-              :disabled="combModalLoad || !combModalSelectedTelaId || !combModalConfigId || (combModalModo === 'agregar' ? combModalMaxCant === 0 : combModalQuitarMax === 0)"
+              :disabled="combModalLoad || !combModalSelectedTelaId || (combModalModo === 'agregar' ? combModalMaxCant === 0 : combModalQuitarMax === 0)"
               :class="['w-full text-white rounded-lg py-2.5 text-sm font-semibold disabled:opacity-50', combModalModo === 'agregar' ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-red-600 hover:bg-red-700']"
             >
               {{ combModalLoad ? 'Guardando...' : combModalModo === 'agregar' ? 'Asignar' : 'Quitar' }}

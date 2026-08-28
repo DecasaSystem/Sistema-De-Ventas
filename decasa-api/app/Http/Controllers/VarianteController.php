@@ -68,6 +68,30 @@ class VarianteController extends Controller
                             $entry['stock_libre']      = max(0, ($combo?->cantidad_disponible ?? 0) - ($combo?->cantidad_reservada ?? 0));
                             $result->push($entry);
                         }
+
+                        // Lo que hay de esta tela sin pertenecer a ninguna opción.
+                        // Que el producto tenga medidas no significa que toda su
+                        // tela sea de alguna: un sofá puede entrar con la tela del
+                        // producto de siempre, como se creó al principio. Sin esta
+                        // fila ese stock existía en la base pero no se veía por
+                        // ningún lado, y no había forma de sacarlo ni venderlo.
+                        $inv       = $stocks->get($v->id);
+                        $enCombos  = (int) $combosDeVariante->sum('cantidad_disponible');
+                        $resCombos = (int) $combosDeVariante->sum('cantidad_reservada');
+                        $sueltas   = (int) ($inv?->cantidad_disponible ?? 0) - $enCombos;
+
+                        if ($sueltas > 0) {
+                            $reservado = max(0, (int) ($inv?->cantidad_reservada ?? 0) - $resCombos);
+                            $entry = $v->toArray();
+                            $entry['_combo_id']        = null;
+                            $entry['_config_id']       = null;
+                            $entry['_config_label']    = null;
+                            $entry['_tipo_nombre']     = null;
+                            $entry['stock_disponible'] = $sueltas;
+                            $entry['stock_reservado']  = $reservado;
+                            $entry['stock_libre']      = max(0, $sueltas - $reservado);
+                            $result->push($entry);
+                        }
                     }
                     return response()->json($result->values());
                 }
