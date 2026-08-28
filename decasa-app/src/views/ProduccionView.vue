@@ -448,6 +448,8 @@ function filaExcel(p) {
     'Orden':            p.orden_item?.orden?.referencia ?? ('#' + (p.orden_item?.orden?.numero_orden ?? p.orden_item?.orden?.id ?? '')),
     'Cliente':          p.orden_item?.orden?.cliente?.nombre ?? '',
     'Producto':         p.orden_item?.producto?.nombre || p.orden_item?.nombre_custom || '',
+    // La medida o la tela que se vendió: "CAMA MIAMI" sola no se puede fabricar.
+    'Variante':         p.orden_item?.variante_texto ?? '',
     'Cantidad':         Number(p.orden_item?.cantidad) || 1,
     'Paso actual':      pasoTextoExcel(p),
     'Avance':           avanceTexto(p),

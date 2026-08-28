@@ -190,7 +190,7 @@ function nuevoItemVacio() {
     // Obsequio: el ítem vale $0 pero igual sale del inventario
     _regalo: false,
     modo: 'stock',              // 'stock' | 'personalizado' | 'fabricar' (para productos de catálogo)
-    variante_id: null, variante_label: '',
+    variante_id: null, variante_label: '', combo_config_id: null,
     cantidad: 1, precio_unitario: '', stock_libre: null,
     specs: {}, specs_notas: '', _telaSelections: {},
     boceto_urls: [], _subiendo: false,
@@ -264,6 +264,7 @@ function elegirOpcionVC(grupo, item) {
   nuevoVCSelec.value = {
     ...nuevoVCSelec.value,
     [grupo.tipo_variante_id]: {
+      config_id: item.id,
       opcion_nombre: item.opcion_nombre,
       tipo_nombre: grupo.tipo?.nombre ?? '',
       precio_adicional: Number(item.precio_adicional ?? 0),
@@ -278,7 +279,12 @@ function elegirOpcionVC(grupo, item) {
 function aplicarVCaItem() {
   const sels = Object.values(nuevoVCSelec.value)
   if (!sels.length) return
-  nuevoItem.value.variante_label = sels.map(s => `${s.tipo_nombre}: ${s.opcion_nombre}`).join(' / ')
+  // Sólo el valor ("1.60"): el tipo se llama "Cama Miami medidas" y repetirlo
+  // al lado del producto estorba. Igual que en Nueva Orden.
+  nuevoItem.value.variante_label = sels.map(s => s.opcion_nombre).join(' · ')
+  // La casilla de la orden admite una sola opción; con dos elegidas se guarda
+  // sólo el texto, que sí las lleva todas.
+  nuevoItem.value.combo_config_id = sels.length === 1 ? (sels[0].config_id ?? null) : null
   const adic = sels.reduce((sum, s) => sum + (s.precio_adicional || 0), 0)
   if (adic > 0) nuevoItem.value.precio_unitario = adic
 }
@@ -578,6 +584,7 @@ function agregarNuevo() {
     producto_id:      n.es_custom ? null : n.producto_id,
     variante_id:      !esPersonalizado ? (n.variante_id || null) : null,
     variante_label:   !esPersonalizado ? (n.variante_label || '') : '',
+    combo_config_id:  !esPersonalizado ? (n.combo_config_id || null) : null,
     nombre_custom:    n.es_custom ? n.nombre_custom.trim() : null,
     categoria_custom: n.es_custom ? (n.categoria_custom || null) : null,
     producto_nombre:  n.es_custom ? n.nombre_custom.trim() : n.producto_nombre,
@@ -993,6 +1000,10 @@ async function guardar() {
         ? itemsNuevos.value.map(i => ({
             producto_id:      i.producto_id ?? undefined,
             variante_id:      i.variante_id ?? undefined,
+            // La variante elegida, igual que al crear la orden: agregando un
+            // ítem desde aquí se perdía qué medida o qué tela era.
+            combo_config_id:  i.combo_config_id ?? undefined,
+            variante_detalle: i.variante_label || undefined,
             nombre_custom:    i.nombre_custom ?? undefined,
             categoria_custom: i.categoria_custom ?? undefined,
             tienda_origen_id: i.tienda_origen_id ?? undefined,

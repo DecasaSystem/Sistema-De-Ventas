@@ -681,12 +681,18 @@ function confirmarVCPickerOrden() {
   const prod = vcPickerProd.value
   const selecciones = Object.values(vcPickerSelec.value)
   if (selecciones.length === 0) return
-  const label = selecciones.map(s => `${s.tipo_nombre}: ${s.opcion_nombre}`).join(' / ')
+  // Sólo el valor elegido —"1.60"—, no el nombre del tipo: el tipo se llama
+  // "Cama Miami medidas" y al lado de CAMA MIAMI en la orden no dice nada.
+  const label = selecciones.map(s => s.opcion_nombre).join(' · ')
   const precioAdicional = selecciones.reduce((sum, s) => sum + Number(s.precio_adicional ?? 0), 0)
+  // El id de la opción sólo cuando es una: en la orden hay una sola casilla
+  // para engancharla, y con dos elegidas guardar la primera sería mentir. El
+  // texto sí las lleva todas.
+  const configId = selecciones.length === 1 ? (selecciones[0].config_id ?? null) : null
   if (vcPickerEsFabrica.value) {
-    _pushItemFabricaVC(prod, label, precioAdicional)
+    _pushItemFabricaVC(prod, label, precioAdicional, configId)
   } else {
-    _pushItemVC(prod, label, precioAdicional)
+    _pushItemVC(prod, label, precioAdicional, configId)
   }
   mostrarVCPicker.value = false
 }
@@ -804,12 +810,12 @@ function _pushItemFabrica(producto, variante) {
   fabricaStock.value = {}
 }
 
-function _pushItemVC(producto, varianteLabel, precioAdicional) {
+function _pushItemVC(producto, varianteLabel, precioAdicional, configId = null) {
   const esOtraTienda = tiendaBusqueda.value && tiendaBusqueda.value != tiendaId.value
   const existe = items.value.find(i => i.producto_id === producto.id && i.variante_label === varianteLabel && !i._fabricar_pedido)
   if (existe) { existe.cantidad++; return }
   items.value.push({
-    producto_id: producto.id, variante_id: null,
+    producto_id: producto.id, variante_id: null, _config_id: configId,
     tienda_origen_id: esOtraTienda ? (tiendaBusqueda.value ?? null) : null,
     nombre: producto.nombre, categoria: producto.categoria,
     variante_label: varianteLabel,
@@ -826,11 +832,11 @@ function _pushItemVC(producto, varianteLabel, precioAdicional) {
   productoQuery.value = ''
 }
 
-function _pushItemFabricaVC(producto, varianteLabel, precioAdicional) {
+function _pushItemFabricaVC(producto, varianteLabel, precioAdicional, configId = null) {
   const existe = items.value.find(i => i.producto_id === producto.id && i.variante_label === varianteLabel && i.tienda_origen_id === fabricaId.value && !i._fabricar_pedido)
   if (existe) { existe.cantidad++; return }
   items.value.push({
-    producto_id: producto.id, variante_id: null,
+    producto_id: producto.id, variante_id: null, _config_id: configId,
     tienda_origen_id: fabricaId.value,
     nombre: producto.nombre, categoria: producto.categoria,
     variante_label: varianteLabel,
@@ -1619,6 +1625,9 @@ async function submit() {
         categoria_custom:        i.categoria_custom || undefined,
         variante_id:             i.variante_id || undefined,
         combo_config_id:         i._config_id  || undefined,
+        // Qué se eligió, escrito: la medida de la cama, la tela. Sin esto la
+        // orden y el PDF salían con el nombre del mueble a secas.
+        variante_detalle:        i.variante_label || undefined,
         tienda_origen_id:        i.tienda_origen_id || undefined,
         cantidad:                i.cantidad,
         precio_unitario:         i._cotizarPrecio ? 0 : precioEfectivo(i),
@@ -1760,6 +1769,7 @@ async function submitCotizacion() {
         categoria_custom:      i.categoria_custom || undefined,
         variante_id:           i.variante_id || undefined,
         combo_config_id:       i._config_id || undefined,
+        variante_detalle:      i.variante_label || undefined,
         tienda_origen_id:      i.tienda_origen_id || undefined,
         cantidad:              i.cantidad,
         precio_unitario:       precioEfectivo(i),

@@ -106,6 +106,12 @@
                             @if($tipoBadge)
                                 <span style="display: inline-block; padding: 1px 6px; background-color: {{ $tipoBadge[1] }}; color: {{ $tipoBadge[2] }}; font-size: 9px; border-radius: 8px; margin-left: 4px;">{{ $tipoBadge[0] }}</span>
                             @endif
+                            {{-- Qué variante se está cotizando. El cliente compara
+                                 precios: una cama de 1.40 y una de 1.80 no valen
+                                 lo mismo y el papel tiene que decir cuál es. --}}
+                            @if($item->variante_texto)
+                                <br><span style="font-size: 9px; font-weight: bold; color: #dc2626;">{{ $item->variante_texto }}</span>
+                            @endif
                             @php
                                 $specs = $item->specs_personalizacion ?? [];
                                 $marca = $specs['variante_marca'] ?? null;

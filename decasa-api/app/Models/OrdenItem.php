@@ -22,6 +22,7 @@ class OrdenItem extends Model
         'categoria_custom',
         'variante_id',
         'combo_config_id',
+        'variante_detalle',
         'tienda_origen_id',
         'cantidad',
         'precio_unitario',
@@ -95,6 +96,13 @@ class OrdenItem extends Model
      */
     public function getVarianteTextoAttribute(): ?string
     {
+        // Lo que se eligió al vender, palabra por palabra. Manda sobre todo lo
+        // demás: si mañana alguien renombra la opción en el catálogo, la orden
+        // tiene que seguir diciendo lo que se le vendió al cliente.
+        if (($this->variante_detalle ?? '') !== '') {
+            return $this->variante_detalle;
+        }
+
         $partes = [];
 
         if ($this->relationLoaded('variante') ? $this->variante : ($this->variante_id ? $this->variante : null)) {
@@ -103,11 +111,11 @@ class OrdenItem extends Model
         }
 
         // La combinación añade la medida/talla concreta dentro de esa tela.
+        // Sólo el valor: el tipo se llama "Cama Miami medidas" y al lado del
+        // nombre del producto no aporta nada, estorba.
         if ($this->combo_config_id && $this->comboConfig) {
-            $cfg   = $this->comboConfig;
-            $tipo  = $cfg->tipo->nombre ?? null;
-            $opcion = $cfg->opcion->nombre ?? null;
-            if ($opcion) $partes[] = trim(($tipo ? "$tipo " : '').$opcion);
+            $opcion = $this->comboConfig->opcion->nombre ?? null;
+            if ($opcion) $partes[] = $opcion;
         }
 
         // Los personalizados no llevan variante de catálogo: la tela elegida
@@ -122,6 +130,38 @@ class OrdenItem extends Model
 
         $texto = trim(implode(' · ', $partes));
         return $texto !== '' ? $texto : null;
+    }
+
+    /**
+     * El texto de variante que se guarda al crear un ítem.
+     *
+     * Lo normal es que lo mande la pantalla, que es la que sabe todo lo que se
+     * eligió (un producto puede llevar medida y color a la vez). Si no viene
+     * —una app abierta desde antes, o la orden creada desde otro lado— se
+     * reconstruye de la opción o de la tela, para que el ítem no se guarde
+     * mudo teniendo el dato a mano.
+     */
+    public static function detalleDeVariante(?string $detalle, $comboConfigId = null, $varianteId = null): ?string
+    {
+        $detalle = trim((string) $detalle);
+        if ($detalle !== '') {
+            return mb_substr($detalle, 0, 200);
+        }
+
+        if ($comboConfigId && $cfg = ProductoVarianteConfig::with('opcion')->find($comboConfigId)) {
+            if ($cfg->opcion?->nombre) {
+                return $cfg->opcion->nombre;
+            }
+        }
+
+        if ($varianteId && $v = ProductoVariante::find($varianteId)) {
+            $texto = trim(implode(' · ', array_filter([$v->marca, $v->marca_tela, $v->nombre_color, $v->medida])));
+            if ($texto !== '') {
+                return $texto;
+            }
+        }
+
+        return null;
     }
 
     public function comboConfig()

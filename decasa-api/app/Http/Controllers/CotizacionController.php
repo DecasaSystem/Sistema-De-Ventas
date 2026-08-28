@@ -121,7 +121,8 @@ class CotizacionController extends Controller
             'items.*.nombre_custom'              => 'required_without:items.*.producto_id|nullable|string|max:200',
             'items.*.categoria_custom'           => 'nullable|string|max:100',
             'items.*.variante_id'                => 'nullable|integer|exists:producto_variantes,id',
-            'items.*.combo_config_id'            => 'nullable|integer',
+            'items.*.combo_config_id'            => 'nullable|integer|exists:producto_variante_configs,id',
+            'items.*.variante_detalle'           => 'nullable|string|max:200',
             'items.*.tienda_origen_id'           => 'nullable|integer|exists:tiendas,id',
             'items.*.cantidad'                   => 'required|integer|min:1',
             'items.*.precio_unitario'            => 'required|numeric|min:0',
@@ -182,6 +183,11 @@ class CotizacionController extends Controller
                     'categoria_custom'      => $esProductoCustom ? ($itemData['categoria_custom'] ?? null) : null,
                     'variante_id'           => $varianteId,
                     'combo_config_id'       => $itemData['combo_config_id'] ?? null,
+                    'variante_detalle'      => OrdenItem::detalleDeVariante(
+                        $itemData['variante_detalle'] ?? null,
+                        $itemData['combo_config_id'] ?? null,
+                        $varianteId
+                    ),
                     'tienda_origen_id'      => $origenTiendaId !== $tiendaId ? $origenTiendaId : null,
                     'cantidad'              => $itemData['cantidad'],
                     'precio_unitario'       => $itemData['precio_unitario'],

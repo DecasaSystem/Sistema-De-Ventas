@@ -247,6 +247,11 @@ class OrdenController extends Controller
             'items.*.nombre_custom'              => 'required_without:items.*.producto_id|nullable|string|max:200',
             'items.*.categoria_custom'           => 'nullable|string|max:100',
             'items.*.variante_id'                => 'nullable|exists:producto_variantes,id',
+            // La opción elegida (la medida de la cama, el color). Faltaba en las
+            // reglas, así que aunque la pantalla la mandara, validate() la
+            // descartaba y el ítem se guardaba sin decir cuál era.
+            'items.*.combo_config_id'            => 'nullable|integer|exists:producto_variante_configs,id',
+            'items.*.variante_detalle'           => 'nullable|string|max:200',
             'items.*.tienda_origen_id'           => 'nullable|exists:tiendas,id',
             'items.*.cantidad'                   => 'required|integer|min:1',
             'items.*.precio_unitario'            => 'required|numeric|min:0',
@@ -515,6 +520,9 @@ class OrdenController extends Controller
                     'categoria_custom'      => $esProductoCustom ? ($itemData['categoria_custom'] ?? null) : null,
                     'variante_id'           => $varianteId,
                     'combo_config_id'       => $comboConfigId,
+                    'variante_detalle'      => OrdenItem::detalleDeVariante(
+                        $itemData['variante_detalle'] ?? null, $comboConfigId, $varianteId
+                    ),
                     'tienda_origen_id'      => $origenTiendaId !== $tiendaId ? $origenTiendaId : null,
                     'cantidad'              => $itemData['cantidad'],
                     'precio_unitario'       => $itemData['precio_unitario'],
@@ -1064,6 +1072,8 @@ class OrdenController extends Controller
             'items_nuevos'                       => 'sometimes|nullable|array',
             'items_nuevos.*.producto_id'         => 'nullable|integer|exists:productos,id',
             'items_nuevos.*.variante_id'         => 'nullable|integer|exists:producto_variantes,id',
+            'items_nuevos.*.combo_config_id'     => 'nullable|integer|exists:producto_variante_configs,id',
+            'items_nuevos.*.variante_detalle'    => 'nullable|string|max:200',
             'items_nuevos.*.tienda_origen_id'    => 'nullable|integer|exists:tiendas,id',
             'items_nuevos.*.nombre_custom'       => 'required_without:items_nuevos.*.producto_id|nullable|string|max:200',
             'items_nuevos.*.categoria_custom'    => 'nullable|string|max:100',
@@ -1477,6 +1487,14 @@ class OrdenController extends Controller
                         'orden_id'              => $orden->id,
                         'producto_id'           => $productoId,
                         'variante_id'           => $varianteId,
+                        // Agregar un ítem al editar tiene que guardar la variante
+                        // igual que al crear la orden: antes se perdía.
+                        'combo_config_id'       => $esCustom ? null : ($nuevoData['combo_config_id'] ?? null),
+                        'variante_detalle'      => $esCustom ? null : OrdenItem::detalleDeVariante(
+                            $nuevoData['variante_detalle'] ?? null,
+                            $nuevoData['combo_config_id'] ?? null,
+                            $varianteId
+                        ),
                         'nombre_custom'         => $esCustom ? ($nuevoData['nombre_custom'] ?? null) : null,
                         'categoria_custom'      => $esCustom ? ($nuevoData['categoria_custom'] ?? null) : null,
                         'cantidad'              => $cantidad,
