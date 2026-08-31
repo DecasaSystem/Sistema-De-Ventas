@@ -35,6 +35,29 @@ class OrdenController extends Controller
     use ConvierteImagenesPdf;
 
     /**
+     * Órdenes que ya salieron: se corrigen los papeles, no el negocio.
+     *
+     * Antes no se podían tocar en absoluto, y eso dejaba una orden entregada
+     * con la foto de la factura borrosa sin forma de arreglarla. Ahora se
+     * entra a editar igual, pero sólo a lo que no mueve nada: fotos, notas,
+     * datos de contacto y las specs y bocetos de lo que se fabricó.
+     */
+    private const ESTADOS_SOLO_PAPELES = ['listo_entrega', 'en_camino', 'entregado'];
+
+    /**
+     * Lo que no se toca cuando la orden ya salió: esto ya se cobró, ya
+     * descontó bodega y ya calculó comisión. Cambiar un producto entregado
+     * tiene su propio camino (`cambiarProductoEntregado`), que sabe no
+     * cobrarlo dos veces.
+     */
+    private const CAMPOS_QUE_MUEVEN_PLATA = [
+        'descuento_total', 'descuento_condicionado_monto', 'anticipo_pct',
+        'vendedor_id', 'tienda_id', 'tienda_abonada_id', 'covendedor_id', 'es_compartida',
+    ];
+
+    private const CAMPOS_ITEM_QUE_MUEVEN_PLATA = ['precio_unitario', 'cantidad', 'producto_id'];
+
+    /**
      * GET /api/ordenes
      * Vendedor: solo las suyas. Supervisor: todas.
      * Filtros: estado, tienda_id, desde, hasta.
@@ -1099,10 +1122,39 @@ class OrdenController extends Controller
         // dejó activada la consulta de costo sin querer. El vendedor le pone el
         // precio él mismo y la orden sigue su curso, en vez de quedarse trabada
         // esperando a un supervisor que no tiene nada que cotizar.
-        if (! in_array($orden->estado, ['borrador', 'pendiente_anticipo', 'en_produccion', 'pendiente_cotizacion'])) {
+        $abierta = in_array($orden->estado, ['borrador', 'pendiente_anticipo', 'en_produccion', 'pendiente_cotizacion'], true);
+        $cerrada = in_array($orden->estado, self::ESTADOS_SOLO_PAPELES, true);
+
+        if (! $abierta && ! $cerrada) {
             return response()->json([
                 'message' => 'No se puede editar una orden en estado "' . $orden->estado . '".',
             ], 422);
+        }
+
+        // Una orden que ya salió se sigue pudiendo corregir, pero sólo en lo
+        // que no toca plata ni bodega: la foto de la factura salió borrosa, el
+        // anexo firmado no se subió, la dirección quedó mal escrita. Cambiarle
+        // el precio o los productos es otra cosa —eso ya se cobró, ya descontó
+        // inventario y ya calculó comisión— y tiene su propio camino.
+        if ($cerrada) {
+            $prohibidos = array_values(array_intersect(array_keys($data), self::CAMPOS_QUE_MUEVEN_PLATA));
+
+            if (! empty($data['items_nuevos']))  $prohibidos[] = 'items_nuevos';
+            if (! empty($data['items_eliminar'])) $prohibidos[] = 'items_eliminar';
+
+            foreach ($data['items'] ?? [] as $item) {
+                foreach (self::CAMPOS_ITEM_QUE_MUEVEN_PLATA as $campo) {
+                    if (array_key_exists($campo, $item)) $prohibidos[] = "items.{$campo}";
+                }
+            }
+
+            if ($prohibidos) {
+                return response()->json([
+                    'message' => 'Esta orden ya se entregó: de aquí en adelante sólo se corrigen fotos, notas y datos de contacto. '
+                        . 'Para cambiar un producto entregado hay una opción aparte en el detalle de la orden.',
+                    'campos'  => array_values(array_unique($prohibidos)),
+                ], 422);
+            }
         }
 
         $camposReasignacion = ['vendedor_id', 'tienda_id', 'covendedor_id', 'es_compartida', 'tienda_abonada_id'];

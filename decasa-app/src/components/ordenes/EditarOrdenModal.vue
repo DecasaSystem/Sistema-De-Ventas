@@ -10,7 +10,7 @@ import { useTelas } from '@/composables/useTelas'
 import TelaPicker from '@/components/ordenes/TelaPicker.vue'
 import InputPesos from '@/components/common/InputPesos.vue'
 import { pctDeMonto, montoDePct, formatPct } from '@/utils/descuentos'
-import { PencilSquareIcon, XMarkIcon, SparklesIcon, MagnifyingGlassIcon, TrashIcon, PlusIcon, PhotoIcon, WrenchScrewdriverIcon, GiftIcon, BuildingStorefrontIcon } from '@heroicons/vue/24/outline'
+import { PencilSquareIcon, XMarkIcon, SparklesIcon, MagnifyingGlassIcon, TrashIcon, PlusIcon, PhotoIcon, WrenchScrewdriverIcon, GiftIcon, BuildingStorefrontIcon, ExclamationTriangleIcon } from '@heroicons/vue/24/outline'
 import { comprimirImagen } from '@/utils/comprimirImagen'
 import { cloudinaryOpt } from '@/utils/cloudinary'
 import IconoS from '@/components/common/IconoS.vue'
@@ -20,6 +20,16 @@ import api from '@/api'
 const props = defineProps({
   show: Boolean,
   orden: { type: Object, required: true },
+  /**
+   * La orden ya salió: sólo se corrigen los papeles.
+   *
+   * Se puede cambiar la foto de la factura, el anexo, las notas, la dirección
+   * y lo que describe cada pieza; no el precio, la cantidad, los descuentos ni
+   * qué productos lleva, porque eso ya se cobró, ya descontó bodega y ya
+   * calculó comisión. El servidor lo rechaza igual: esto es para no ofrecer
+   * campos que no se van a poder guardar.
+   */
+  soloPapeles: { type: Boolean, default: false },
 })
 const emit = defineEmits(['close', 'guardado'])
 const toast = useToast()
@@ -954,9 +964,14 @@ async function guardar() {
       canal:           canal.value,
       direccion_envio: direccionEnvio.value || null,
       ciudad_envio:    ciudadEnvio.value    || null,
-      anticipo_pct:    anticipoPct.value !== '' && anticipoPct.value !== null ? Number(anticipoPct.value) : undefined,
-      descuento_total: Number(descuentoTotalEdit.value) || 0,
-      descuento_condicionado_monto: Number(descCondEdit.value) || 0,
+      // Con la orden ya entregada esto no viaja: no es que el servidor lo
+      // ignore, es que lo rechaza entero, así que mandarlo sin querer dejaría
+      // sin guardar también la foto que sí se venía a cambiar.
+      ...(props.soloPapeles ? {} : {
+        anticipo_pct:    anticipoPct.value !== '' && anticipoPct.value !== null ? Number(anticipoPct.value) : undefined,
+        descuento_total: Number(descuentoTotalEdit.value) || 0,
+        descuento_condicionado_monto: Number(descCondEdit.value) || 0,
+      }),
       fecha_sugerida_vendedor: fechaSugeridaVendedor.value || null,
       // null explícito para poder QUITAR una foto, no solo reemplazarla
       ...(facturaFotoUrl.value !== (props.orden.factura_foto_url ?? '')
@@ -967,12 +982,17 @@ async function guardar() {
       items: items.value
         .filter(item => !itemsEliminar.value.includes(item.id))
         .map(item => {
-          const out = {
-            id:               item.id,
-            precio_unitario:  precioEfectivo(item),
-            fecha_entrega_prom: item.fecha_entrega_prom || null,
-            es_regalo:        !!item._regalo,
-          }
+          // De una orden entregada sólo viaja lo que describe la pieza: las
+          // specs y los bocetos que ve el taller. El precio y la cantidad ya
+          // están cobrados.
+          const out = props.soloPapeles
+            ? { id: item.id }
+            : {
+                id:               item.id,
+                precio_unitario:  precioEfectivo(item),
+                fecha_entrega_prom: item.fecha_entrega_prom || null,
+                es_regalo:        !!item._regalo,
+              }
           if (item.es_personalizado) {
             const s = { ...item.specs }
             for (const key of Object.keys(item._telaSelections ?? {})) {
@@ -989,14 +1009,14 @@ async function guardar() {
             if (JSON.stringify(antes) !== JSON.stringify(ahora)) {
               out.boceto_urls = ahora
             }
-          } else {
+          } else if (! props.soloPapeles) {
             out.cantidad    = parseInt(item.cantidad)
             out.producto_id = item.producto_id
           }
           return out
         }),
-      items_eliminar: itemsEliminar.value.length ? itemsEliminar.value : undefined,
-      items_nuevos: itemsNuevos.value.length
+      items_eliminar: (! props.soloPapeles && itemsEliminar.value.length) ? itemsEliminar.value : undefined,
+      items_nuevos: (! props.soloPapeles && itemsNuevos.value.length)
         ? itemsNuevos.value.map(i => ({
             producto_id:      i.producto_id ?? undefined,
             variante_id:      i.variante_id ?? undefined,
@@ -1059,6 +1079,20 @@ async function guardar() {
           </div>
 
           <div class="p-5 space-y-5 overflow-y-auto">
+            <!-- Por qué esta orden se edita a medias -->
+            <div v-if="soloPapeles" class="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5">
+              <ExclamationTriangleIcon class="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+              <div class="min-w-0">
+                <p class="text-xs font-semibold text-amber-800">Esta orden ya salió</p>
+                <p class="text-xs text-amber-700 mt-0.5 leading-snug">
+                  Se pueden corregir las fotos, las notas, la dirección y lo que describe
+                  cada pieza. El precio, la cantidad y los productos no: eso ya se cobró y
+                  ya descontó bodega. Para cambiar un producto entregado hay un botón
+                  aparte en el detalle de la orden.
+                </p>
+              </div>
+            </div>
+
             <!-- Orden -->
             <div class="space-y-3">
               <p class="text-xs font-semibold text-gray-500 uppercase">Información general</p>
@@ -1220,7 +1254,7 @@ async function guardar() {
             </div>
 
             <!-- Anticipo -->
-            <div v-if="pagoAnticipo" class="space-y-3 border border-amber-200 bg-amber-50 rounded-xl p-4">
+            <div v-if="pagoAnticipo && !soloPapeles" class="space-y-3 border border-amber-200 bg-amber-50 rounded-xl p-4">
               <p class="text-xs font-semibold text-amber-700 uppercase">Anticipo</p>
               <div class="grid grid-cols-2 gap-3">
                 <div>
@@ -1256,7 +1290,7 @@ async function guardar() {
             </div>
 
             <!-- Reasignación (solo supervisor) -->
-            <div v-if="esSupervisor" class="space-y-3 border border-blue-200 bg-blue-50 rounded-xl p-4">
+            <div v-if="esSupervisor && !soloPapeles" class="space-y-3 border border-blue-200 bg-blue-50 rounded-xl p-4">
               <p class="text-xs font-semibold text-blue-700 uppercase">Reasignar</p>
               <p class="text-[11px] text-blue-700">Cambiar el vendedor o la tienda afecta el cálculo de comisiones de esta orden.</p>
               <div>
@@ -1319,7 +1353,7 @@ async function guardar() {
                 <p class="font-medium text-sm text-gray-800 truncate flex-1">{{ item.producto_nombre }}</p>
                 <!-- Botón quitar ítem -->
                 <button
-                  v-if="!itemsEliminar.includes(item.id)"
+                  v-if="!itemsEliminar.includes(item.id) && !soloPapeles"
                   type="button"
                   @click="marcarEliminar(item)"
                   class="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors flex-shrink-0"
@@ -1368,7 +1402,7 @@ async function guardar() {
               </div>
 
               <!-- Precio + fecha -->
-              <div class="grid grid-cols-2 gap-3">
+              <div v-if="!soloPapeles" class="grid grid-cols-2 gap-3">
                 <div>
                   <label class="block text-xs font-medium text-gray-600 mb-1">Precio unitario</label>
                   <InputPesos
@@ -1392,7 +1426,7 @@ async function guardar() {
 
               <!-- Obsequiar este ítem. Queda en $0 pero se entrega igual, así
                    que sigue descontando del inventario. -->
-              <label class="flex items-center gap-2 cursor-pointer select-none">
+              <label v-if="!soloPapeles" class="flex items-center gap-2 cursor-pointer select-none">
                 <button
                   type="button"
                   @click="toggleRegaloItem(item)"
@@ -1409,7 +1443,7 @@ async function guardar() {
               </label>
 
               <!-- Descuento — en pesos o en %. No aplica a un obsequio. -->
-              <div v-if="!item._regalo" class="flex items-center gap-2 flex-wrap">
+              <div v-if="!item._regalo && !soloPapeles" class="flex items-center gap-2 flex-wrap">
                 <label class="text-xs text-gray-500 flex-shrink-0">Descuento c/u</label>
 
                 <div class="flex items-center gap-1">
@@ -1454,7 +1488,7 @@ async function guardar() {
               </div>
 
               <!-- No personalizado: producto + cantidad -->
-              <template v-if="!item.es_personalizado">
+              <template v-if="!item.es_personalizado && !soloPapeles">
                 <div>
                   <label class="block text-xs font-medium text-gray-600 mb-1">Cantidad</label>
                   <input
@@ -1641,7 +1675,7 @@ async function guardar() {
             </div>
 
             <!-- Agregar ítem nuevo -->
-            <div class="border-2 border-dashed border-blue-200 rounded-xl p-4 space-y-3 bg-blue-50/40">
+            <div v-if="!soloPapeles" class="border-2 border-dashed border-blue-200 rounded-xl p-4 space-y-3 bg-blue-50/40">
               <p class="text-xs font-semibold text-blue-700 uppercase flex items-center gap-1.5">
                 <PlusIcon class="w-3.5 h-3.5" /> Agregar producto a la orden
               </p>

@@ -73,9 +73,19 @@ const pruebaEntregaVisible = computed(() =>
   orden.value?.estado === 'entregado' && despachoEntrega.value
 )
 
+/**
+ * Una orden que ya salió se sigue pudiendo corregir, pero sólo en los papeles:
+ * la foto de la factura salió borrosa, falta el anexo firmado, la dirección
+ * quedó mal escrita. Lo que ya se cobró y ya descontó bodega no se toca desde
+ * aquí — cambiar un producto entregado tiene su propio botón.
+ */
+const SOLO_PAPELES = ['listo_entrega', 'en_camino', 'entregado']
+
+const soloPapeles = computed(() => SOLO_PAPELES.includes(orden.value?.estado))
+
 const puedeEditar = computed(() => {
   if (!orden.value) return false
-  if (['entregado', 'cancelado', 'listo_entrega', 'en_camino'].includes(orden.value.estado)) return false
+  if (orden.value.estado === 'cancelado') return false
   if (auth.soloVeSusOrdenes && Number(orden.value.vendedor_id) !== Number(auth.usuario.id)) return false
   return true
 })
@@ -2808,6 +2818,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
       v-if="orden"
       :show="showEditarModal"
       :orden="orden"
+      :solo-papeles="soloPapeles"
       @close="showEditarModal = false"
       @guardado="onOrdenEditada"
     />
