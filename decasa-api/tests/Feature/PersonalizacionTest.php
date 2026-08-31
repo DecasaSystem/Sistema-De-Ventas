@@ -33,7 +33,16 @@ class PersonalizacionTest extends TestCase
             $t->unsignedBigInteger('tienda_default_id')->nullable();
             $t->timestamp('created_at')->nullable();
         });
-        Schema::create('roles', function (Blueprint $t) { $t->id(); $t->string('nombre'); });
+        Schema::create('roles', function (Blueprint $t) {
+            $t->id(); $t->string('clave')->unique(); $t->string('nombre'); $t->string('arquetipo');
+            $t->boolean('activo')->default(true); $t->unsignedSmallInteger('orden')->default(0);
+            $t->boolean('acceso_redes')->default(false); $t->boolean('acceso_comisiones')->default(false);
+            $t->boolean('recarga_telas')->default(false); $t->boolean('acceso_surtir')->default(false);
+            $t->boolean('acceso_costos')->default(false); $t->boolean('acceso_proveedores')->default(false);
+            $t->boolean('acceso_despacho')->default(false); $t->boolean('acceso_produccion')->default(false);
+            $t->boolean('acceso_reserva')->default(false); $t->boolean('acceso_nomina')->default(false);
+            $t->boolean('acceso_compras')->default(false); $t->timestamps();
+        });
         Schema::create('modulos', function (Blueprint $t) {
             $t->id(); $t->string('clave')->unique(); $t->string('nombre'); $t->string('icono');
             $t->boolean('visible')->default(true); $t->unsignedSmallInteger('orden')->default(0); $t->timestamps();
@@ -44,6 +53,13 @@ class PersonalizacionTest extends TestCase
             $t->string('tipo')->default('texto'); $t->text('contenido');
             $t->string('subtitulo')->nullable(); $t->string('icono')->nullable();
             $t->boolean('activo')->default(true); $t->unsignedSmallInteger('orden')->default(0); $t->timestamps();
+        });
+        // Las mira el payload de la sesión para saber si alguien lleva pasos.
+        Schema::create('tipos_proceso', function (Blueprint $t) {
+            $t->id(); $t->string('clave'); $t->string('nombre'); $t->boolean('activo')->default(true);
+        });
+        Schema::create('proceso_trabajadores', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('usuario_id'); $t->unsignedBigInteger('tipo_proceso_id');
         });
         Schema::create('personal_access_tokens', function (Blueprint $t) {
             $t->id(); $t->morphs('tokenable'); $t->string('name'); $t->string('token', 64)->unique();
@@ -232,6 +248,58 @@ class PersonalizacionTest extends TestCase
 
         $res = $this->actingAs($this->vendedor())->getJson('/api/redes/catalogos')->assertOk();
         $this->assertSame('https://nuevo.example/camas.pdf', $res->json('camas'));
+    }
+
+    // ── Roles: el nombre es de la empresa, la clave es del código ────────────
+
+    /**
+     * Lo que sostiene que renombrar un rol sea seguro.
+     *
+     * Una empresa que no trabaja madera le dirá "Operario" a lo que aquí se
+     * llama "Ebanista". El nombre tiene que cambiar en todas las pantallas,
+     * pero la clave no: hay cuarenta sitios que preguntan si alguien es
+     * `ebanista` para darle su pantalla y sus pasos del taller. Si renombrar
+     * moviera la clave, ese trabajador se quedaría sin nada de un momento a
+     * otro y sin que nadie lo hubiera pedido.
+     */
+    public function test_renombrar_un_rol_no_le_cambia_la_clave(): void
+    {
+        $rol = \App\Models\Rol::create([
+            'clave' => 'ebanista', 'nombre' => 'Ebanista', 'arquetipo' => 'taller',
+        ]);
+        $trabajador = Usuario::create([
+            'nombre' => 'Henry', 'email' => 'henry@empresa.com',
+            'password' => Hash::make('x'), 'rol_id' => $rol->id,
+        ]);
+
+        $this->actingAs($this->jefe())
+            ->patchJson("/api/roles/{$rol->id}", ['nombre' => 'Operario de planta'])
+            ->assertOk();
+
+        $this->assertSame('Operario de planta', $rol->fresh()->nombre);
+        $this->assertSame('ebanista', $rol->fresh()->clave);
+        // Y quien lo tiene sigue siendo lo que el código reconoce.
+        $this->assertSame('ebanista', $trabajador->fresh()->rol);
+    }
+
+    /** El nombre nuevo es el que ve la persona al entrar. */
+    public function test_el_nombre_nuevo_del_rol_viaja_en_la_sesion(): void
+    {
+        $rol = \App\Models\Rol::create([
+            'clave' => 'ebanista', 'nombre' => 'Ebanista', 'arquetipo' => 'taller',
+        ]);
+        $trabajador = Usuario::create([
+            'nombre' => 'Henry', 'email' => 'henry@empresa.com',
+            'password' => Hash::make('x'), 'rol_id' => $rol->id,
+        ]);
+
+        $this->actingAs($this->jefe())
+            ->patchJson("/api/roles/{$rol->id}", ['nombre' => 'Operario de planta'])->assertOk();
+
+        $res = $this->actingAs($trabajador->fresh())->getJson('/api/auth/me')->assertOk();
+
+        $this->assertSame('Operario de planta', $res->json('rol_nombre'));
+        $this->assertSame('ebanista', $res->json('rol'));
     }
 
     /** Un catálogo apagado deja de ofrecerse, también por esa puerta. */

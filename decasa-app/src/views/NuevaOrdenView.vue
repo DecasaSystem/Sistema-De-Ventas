@@ -3406,7 +3406,7 @@ function removeFacturaFoto() {
                 <input type="radio" :value="r.id" v-model="cotizarReceptorId" class="accent-violet-600" />
                 <div>
                   <p class="text-sm font-semibold text-gray-800">{{ r.nombre }}</p>
-                  <p class="text-xs text-gray-400 capitalize">{{ r.rol }}</p>
+                  <p :class="['text-xs text-gray-400', r.rol_nombre ? '' : 'capitalize']">{{ r.rol_nombre ?? r.rol }}</p>
                 </div>
               </label>
               <p v-if="!receptoresCotizar.length" class="text-xs text-gray-400">No hay supervisores ni ebanistas activos.</p>
@@ -3961,7 +3961,7 @@ function removeFacturaFoto() {
               <input type="radio" :value="r.id" v-model="cotizarReceptorId" class="accent-violet-600" />
               <div>
                 <p class="text-sm font-semibold text-gray-800">{{ r.nombre }}</p>
-                <p class="text-xs text-gray-400 capitalize">{{ r.rol }}</p>
+                <p :class="['text-xs text-gray-400', r.rol_nombre ? '' : 'capitalize']">{{ r.rol_nombre ?? r.rol }}</p>
               </div>
             </label>
             <p v-if="!receptoresCotizar.length" class="text-xs text-gray-400">No hay supervisores ni ebanistas activos.</p>

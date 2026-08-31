@@ -26,11 +26,20 @@ class ConsultaCostoController extends Controller
         // nombre que tuviera la persona.
         $usuarios = Usuario::where('acceso_costos', true)
             ->where('activo', true)
+            ->with('rolAsignado:id,nombre')
             ->orderBy('rol')
             ->orderBy('nombre')
-            ->get(['id', 'nombre', 'rol']);
+            ->get(['id', 'nombre', 'rol', 'rol_id']);
 
-        return response()->json($usuarios);
+        // Se manda cómo se llama el puesto en esta empresa, no la clave con la
+        // que el código lo reconoce: en la lista tiene que decir "Ebanista" o
+        // lo que la empresa haya puesto, no un nombre interno.
+        return response()->json($usuarios->map(fn ($u) => [
+            'id'         => $u->id,
+            'nombre'     => $u->nombre,
+            'rol'        => $u->rol,
+            'rol_nombre' => $u->rolAsignado?->nombre,
+        ]));
     }
 
     /**

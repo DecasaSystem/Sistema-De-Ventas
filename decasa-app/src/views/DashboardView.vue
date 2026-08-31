@@ -206,7 +206,13 @@ const accesosAdmin = computed(() => {
     >
       <p class="text-sm opacity-80">Bienvenido</p>
       <p class="text-xl font-bold pr-10">{{ auth.usuario?.nombre }}</p>
-      <p class="text-xs opacity-70 mt-1 capitalize">{{ auth.usuario?.rol }}</p>
+      <!-- Cómo se llama su puesto en esta empresa, no la clave con la que el
+           código lo reconoce: si el rol se renombró en Gestión, aquí se lee el
+           nombre nuevo. El capitalize sólo aplica al repuesto, que viene en
+           minúscula; un nombre puesto a mano se respeta tal como se escribió. -->
+      <p :class="['text-xs opacity-70 mt-1', auth.usuario?.rol_nombre ? '' : 'capitalize']">
+        {{ auth.usuario?.rol_nombre ?? auth.usuario?.rol }}
+      </p>
       <UserCircleIcon class="w-8 h-8 absolute top-4 right-4 opacity-80" />
     </div>
 

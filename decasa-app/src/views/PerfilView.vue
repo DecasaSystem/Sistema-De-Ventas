@@ -161,9 +161,17 @@ async function activarPerfilAlternativo() {
   }
 }
 
-function rolLabel(rol) {
+/**
+ * Cómo se llama el puesto de alguien.
+ *
+ * Manda el nombre que le puso la empresa: renombrar "Ebanista" a lo que sea en
+ * Gestión tiene que verse también aquí. La lista de abajo es sólo el repuesto
+ * para una sesión guardada de antes de que el nombre viajara.
+ */
+function rolLabel(usuario) {
+  if (usuario?.rol_nombre) return usuario.rol_nombre
   const map = { supervisor: 'Supervisor', vendedor: 'Vendedor', conductor: 'Conductor', ebanista: 'Ebanista', despachador: 'Despachador', costurero: 'Costurero' }
-  return map[rol] ?? rol
+  return map[usuario?.rol] ?? usuario?.rol ?? ''
 }
 </script>
 
@@ -185,7 +193,9 @@ function rolLabel(rol) {
       </div>
       <div class="flex justify-between text-sm">
         <span class="text-gray-500">Rol</span>
-        <span class="capitalize font-medium text-gray-800">{{ auth.usuario?.rol }}</span>
+        <span :class="['font-medium text-gray-800', auth.usuario?.rol_nombre ? '' : 'capitalize']">
+          {{ auth.usuario?.rol_nombre ?? auth.usuario?.rol }}
+        </span>
       </div>
     </div>
 
@@ -496,7 +506,7 @@ function rolLabel(rol) {
             <p class="text-sm font-semibold text-gray-800 truncate">
               {{ idx === 0 ? auth.usuario?.nombre : auth.perfilAlternativo?.nombre }}
             </p>
-            <p class="text-xs text-gray-500">{{ rolLabel(idx === 0 ? auth.usuario?.rol : auth.perfilAlternativo?.rol) }}</p>
+            <p class="text-xs text-gray-500">{{ rolLabel(idx === 0 ? auth.usuario : auth.perfilAlternativo) }}</p>
           </div>
           <span v-if="auth.perfilActivoIdx === idx" class="text-xs bg-blue-600 text-white px-2 py-0.5 rounded-full font-semibold flex-shrink-0">
             Activo
