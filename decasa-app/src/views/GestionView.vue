@@ -16,11 +16,22 @@ import {
   WrenchScrewdriverIcon,
   UserGroupIcon,
 } from '@heroicons/vue/24/outline'
+import ModulosPanel from '@/components/gestion/ModulosPanel.vue'
+import HerramientasPanel from '@/components/gestion/HerramientasPanel.vue'
 
 const router = useRouter()
 const toast  = useToast()
 
 const tab = ref('roles')
+
+// Roles y Tiendas son quién trabaja y dónde; Módulos y Herramientas son cómo
+// se llama y qué dice el programa en esta empresa.
+const TABS = [
+  { valor: 'roles',        label: 'Roles' },
+  { valor: 'tiendas',      label: 'Tiendas' },
+  { valor: 'modulos',      label: 'Módulos' },
+  { valor: 'herramientas', label: 'Herram.' },
+]
 
 // ── Roles (puestos de trabajo) ────────────────────────────────────────────
 const ARQUETIPOS = [
@@ -226,20 +237,22 @@ const inactivas = computed(() => tiendas.value.filter(t => !t.activa))
     </div>
 
     <!-- Tabs -->
-    <div class="flex gap-2 mb-4 bg-gray-100 rounded-xl p-1">
+    <div class="flex gap-1 mb-4 bg-gray-100 rounded-xl p-1">
       <button
-        @click="tab = 'roles'"
-        :class="['flex-1 text-sm font-semibold rounded-lg py-2 transition-colors', tab === 'roles' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500']"
+        v-for="t in TABS" :key="t.valor"
+        @click="tab = t.valor"
+        :class="['flex-1 text-xs sm:text-sm font-semibold rounded-lg py-2 transition-colors',
+          tab === t.valor ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500']"
       >
-        Roles
-      </button>
-      <button
-        @click="tab = 'tiendas'"
-        :class="['flex-1 text-sm font-semibold rounded-lg py-2 transition-colors', tab === 'tiendas' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500']"
-      >
-        Tiendas
+        {{ t.label }}
       </button>
     </div>
+
+    <!-- Cómo se llama cada módulo en esta empresa -->
+    <ModulosPanel v-if="tab === 'modulos'" />
+
+    <!-- Lo que el asesor copia mientras atiende -->
+    <HerramientasPanel v-if="tab === 'herramientas'" />
 
     <template v-if="tab === 'roles'">
       <div class="flex items-center justify-between mb-3">

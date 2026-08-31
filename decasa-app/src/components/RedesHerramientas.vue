@@ -1,29 +1,31 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+/**
+ * Lo que el asesor tiene a mano mientras atiende: direcciones, horarios,
+ * formas de pago, enlaces.
+ *
+ * Antes esto era una lista escrita aquí adentro —las cinco sedes, el envío
+ * gratis en el Quindío—, así que sólo servía para una empresa. Ahora cada
+ * negocio arma la suya desde Gestión y esta pantalla sólo la muestra.
+ *
+ * Los catálogos siguen viniendo del módulo de Redes: los mantiene el bot, no
+ * tiene sentido copiarlos a mano en dos sitios.
+ */
+import { ref, computed, onMounted } from 'vue'
 import { useToast } from '@/composables/useToast'
+import { useModulosStore } from '@/stores/modulos'
+import { iconoPorNombre } from '@/constants/iconos'
 import api from '@/api'
 import {
-  XMarkIcon, MapPinIcon, ClockIcon, DocumentTextIcon,
-  CreditCardIcon, TruckIcon, ClipboardDocumentIcon, ArrowTopRightOnSquareIcon,
+  XMarkIcon, DocumentTextIcon, ClipboardDocumentIcon,
+  ArrowTopRightOnSquareIcon, Squares2X2Icon,
 } from '@heroicons/vue/24/outline'
 
 defineEmits(['close'])
-const toast = useToast()
+const toast   = useToast()
+const modulos = useModulosStore()
 
-// ── Datos fijos del negocio (coinciden con lo que maneja el bot) ──────────────
-const sedes = [
-  { nombre: 'Av. Bolívar', direccion: 'Avenida Bolívar # 16 N 26, Armenia, Quindío' },
-  { nombre: 'Vía El Edén', direccion: 'Km 2 vía El Edén, Armenia, Quindío' },
-  { nombre: 'Vía Jardines', direccion: 'Km 1 vía Jardines, Armenia, Quindío' },
-  { nombre: 'Unicentro Pereira', direccion: 'C.C. Unicentro, Pereira, Risaralda' },
-  { nombre: 'Cra. 14 Pereira', direccion: 'Cra. 14 #11-93, Pereira, Risaralda' },
-]
-
-const horario = 'Nuestro horario de atención es:\nLunes a Viernes: 8:00 am – 5:00 pm\nSábados: 8:00 am – 12:00 pm 😊'
-
-const pagos = 'Formas de pago: efectivo, transferencia bancaria, tarjeta de crédito/débito y ADDI (crédito) 💳\nLos descuentos aplican solo con pago en efectivo o transferencia.'
-
-const envios = 'Envío GRATIS en todo el Quindío y en Pereira (Risaralda) 🚚\nPara destinos fuera de esas zonas hay un costo adicional de transportadora — con gusto te lo cotizamos.'
+const herramientas = ref([])
+const cargando     = ref(true)
 
 // Nombres legibles de cada catálogo
 const NOMBRES_CAT = {
@@ -39,7 +41,22 @@ const NOMBRES_CAT = {
 const catalogos = ref([])
 const cargandoCat = ref(true)
 
+/** Agrupadas por sección, en el orden que les puso la empresa. */
+const secciones = computed(() => {
+  const mapa = new Map()
+  for (const h of herramientas.value) {
+    if (!mapa.has(h.seccion)) mapa.set(h.seccion, [])
+    mapa.get(h.seccion).push(h)
+  }
+  return [...mapa.entries()].map(([nombre, items]) => ({ nombre, items }))
+})
+
 onMounted(async () => {
+  api.get('/herramientas')
+    .then(({ data }) => { herramientas.value = Array.isArray(data) ? data : [] })
+    .catch(() => { herramientas.value = [] })
+    .finally(() => { cargando.value = false })
+
   try {
     const { data } = await api.get('/redes/catalogos')
     catalogos.value = Object.entries(data)
@@ -49,7 +66,7 @@ onMounted(async () => {
       .map(([key, url]) => ({ key, url, nombre: NOMBRES_CAT[key] || key }))
       .sort((a, b) => a.nombre.localeCompare(b.nombre))
   } catch {
-    toast.error?.('No se pudieron cargar los catálogos')
+    catalogos.value = []
   } finally {
     cargandoCat.value = false
   }
@@ -65,7 +82,18 @@ async function copiar(texto, aviso = 'Copiado ✅') {
 }
 
 function mapsUrl(direccion) {
-  return 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent('DeCasa ' + direccion)
+  return 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(direccion)
+}
+
+/** A dónde lleva el botón de abrir, según lo que sea. */
+function enlaceDe(h) {
+  if (h.tipo === 'direccion') return mapsUrl(h.contenido)
+  if (h.tipo === 'enlace')    return h.contenido
+  return null
+}
+
+function iconoDe(h) {
+  return iconoPorNombre(h.icono) ?? Squares2X2Icon
 }
 </script>
 
@@ -76,7 +104,7 @@ function mapsUrl(direccion) {
       <!-- Header -->
       <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-white sm:rounded-t-2xl">
         <h2 class="font-bold text-gray-800 flex items-center gap-2">
-          🧰 Herramientas del asesor
+          🧰 {{ modulos.nombre('herramientas', 'Herramientas') }}
         </h2>
         <button @click="$emit('close')" class="p-1 text-gray-400 hover:text-gray-600">
           <XMarkIcon class="w-6 h-6" />
@@ -87,52 +115,38 @@ function mapsUrl(direccion) {
 
       <div class="overflow-y-auto px-4 py-3 space-y-4">
 
-        <!-- Sedes -->
-        <section>
-          <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
-            <MapPinIcon class="w-4 h-4" /> Sedes
-          </h3>
+        <div v-if="cargando" class="text-xs text-gray-400 py-3 text-center">Cargando…</div>
+
+        <!-- Lo que armó la empresa -->
+        <section v-for="s in secciones" :key="s.nombre">
+          <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">{{ s.nombre }}</h3>
           <div class="space-y-2">
-            <div v-for="s in sedes" :key="s.nombre" class="bg-white rounded-xl p-3 shadow-sm">
-              <p class="text-sm font-semibold text-gray-800">{{ s.nombre }}</p>
-              <p class="text-xs text-gray-500 mb-2">{{ s.direccion }}</p>
-              <div class="flex gap-2">
-                <button @click="copiar(s.direccion, 'Dirección copiada ✅')"
+            <div v-for="h in s.items" :key="h.id" class="bg-white rounded-xl p-3 shadow-sm">
+              <p class="text-sm font-semibold text-gray-800 flex items-center gap-1.5">
+                <component :is="iconoDe(h)" class="w-4 h-4 text-gray-400 shrink-0" />
+                {{ h.titulo }}
+              </p>
+              <p v-if="h.subtitulo" class="text-xs text-gray-400 mt-0.5">{{ h.subtitulo }}</p>
+              <p class="text-xs text-gray-500 mt-1 whitespace-pre-line break-words">{{ h.contenido }}</p>
+
+              <div class="flex gap-2 mt-2">
+                <button @click="copiar(h.contenido, h.titulo + ' copiado ✅')"
                   class="flex-1 flex items-center justify-center gap-1 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg py-1.5">
                   <ClipboardDocumentIcon class="w-4 h-4" /> Copiar
                 </button>
-                <a :href="mapsUrl(s.direccion)" target="_blank" rel="noopener"
+                <a v-if="enlaceDe(h)" :href="enlaceDe(h)" target="_blank" rel="noopener"
                   class="flex-1 flex items-center justify-center gap-1 text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg py-1.5">
-                  <ArrowTopRightOnSquareIcon class="w-4 h-4" /> Maps
+                  <ArrowTopRightOnSquareIcon class="w-4 h-4" />
+                  {{ h.tipo === 'direccion' ? 'Maps' : 'Abrir' }}
                 </a>
               </div>
             </div>
           </div>
         </section>
 
-        <!-- Textos rápidos -->
-        <section>
-          <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
-            <ClockIcon class="w-4 h-4" /> Textos rápidos
-          </h3>
-          <div class="space-y-2">
-            <button @click="copiar(horario, 'Horario copiado ✅')"
-              class="w-full text-left bg-white rounded-xl p-3 shadow-sm hover:bg-blue-50 transition-colors">
-              <p class="text-sm font-semibold text-gray-800 flex items-center gap-1.5"><ClockIcon class="w-4 h-4 text-gray-400" /> Horario de atención</p>
-              <p class="text-xs text-gray-500 mt-1 whitespace-pre-line">{{ horario }}</p>
-            </button>
-            <button @click="copiar(pagos, 'Formas de pago copiadas ✅')"
-              class="w-full text-left bg-white rounded-xl p-3 shadow-sm hover:bg-blue-50 transition-colors">
-              <p class="text-sm font-semibold text-gray-800 flex items-center gap-1.5"><CreditCardIcon class="w-4 h-4 text-gray-400" /> Formas de pago</p>
-              <p class="text-xs text-gray-500 mt-1 whitespace-pre-line">{{ pagos }}</p>
-            </button>
-            <button @click="copiar(envios, 'Info de envío copiada ✅')"
-              class="w-full text-left bg-white rounded-xl p-3 shadow-sm hover:bg-blue-50 transition-colors">
-              <p class="text-sm font-semibold text-gray-800 flex items-center gap-1.5"><TruckIcon class="w-4 h-4 text-gray-400" /> Envíos</p>
-              <p class="text-xs text-gray-500 mt-1 whitespace-pre-line">{{ envios }}</p>
-            </button>
-          </div>
-        </section>
+        <p v-if="!cargando && !secciones.length" class="text-xs text-gray-400 text-center py-3">
+          Todavía no hay nada aquí. Se arma desde Gestión → Herramientas.
+        </p>
 
         <!-- Catálogos -->
         <section>

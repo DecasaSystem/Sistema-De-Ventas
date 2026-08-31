@@ -10,6 +10,7 @@ use App\Http\Controllers\OrdenController;
 use App\Http\Controllers\OrdenMensajeController;
 use App\Http\Controllers\OrdenFijadaController;
 use App\Http\Controllers\PagoController;
+use App\Http\Controllers\PersonalizacionController;
 use App\Http\Controllers\ProduccionController;
 use App\Http\Controllers\ProductoController;
 use App\Http\Controllers\ProveedorController;
@@ -89,6 +90,18 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Tiendas (solo lectura — usada por el selector de tienda en la orden)
     Route::get('/tiendas', [TiendaController::class, 'index']);
+
+    // Cómo se llama cada cosa en esta empresa. Leerlo lo necesita cualquiera
+    // que entre —son los nombres de su propia pantalla—; cambiarlo, no.
+    Route::get('/modulos',      [PersonalizacionController::class, 'modulos']);
+    Route::get('/herramientas', [PersonalizacionController::class, 'herramientas']);
+
+    Route::middleware('role:supervisor')->group(function () {
+        Route::patch('/modulos',            [PersonalizacionController::class, 'guardarModulos']);
+        Route::post('/herramientas',        [PersonalizacionController::class, 'crearHerramienta']);
+        Route::patch('/herramientas/{id}',  [PersonalizacionController::class, 'actualizarHerramienta'])->whereNumber('id');
+        Route::delete('/herramientas/{id}', [PersonalizacionController::class, 'eliminarHerramienta'])->whereNumber('id');
+    });
 
     // Gestión de tiendas (crear, editar, eliminar) — solo supervisor
     Route::middleware('role:supervisor')->group(function () {

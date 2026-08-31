@@ -9,6 +9,7 @@ import { useDespachoStore } from '@/stores/despacho'
 import { useSurtidosStore } from '@/stores/surtidos'
 import { usePasosStore } from '@/stores/pasos'
 import { useConsultasStore } from '@/stores/consultas'
+import { useModulosStore } from '@/stores/modulos'
 import { useSurtidosSocket } from '@/composables/useSurtidosSocket'
 import { useCargaGlobal } from '@/composables/useCargaGlobal'
 import { registrarPush, cancelarPush } from '@/composables/usePushNotifications'
@@ -68,6 +69,8 @@ const despacho = useDespachoStore()
 const surtidos = useSurtidosStore()
 const pasos    = usePasosStore()
 const consultasStore = useConsultasStore()
+// Cómo llama esta empresa a cada módulo. Se pide una vez y queda guardado.
+const modulos = useModulosStore()
 const { conectar: conectarSurtidos } = useSurtidosSocket()
 
 // El catálogo público es una página para el cliente: no lleva el menú del
@@ -136,6 +139,7 @@ function abrirDesdeNotificacionInicial() {
 }
 
 onMounted(() => {
+  if (auth.isAuthenticated) modulos.cargar()
   auth.fetchMe().finally(abrirDesdeNotificacionInicial)
   document.addEventListener('visibilitychange', refrescarPermisos)
   window.addEventListener('focus', refrescarPermisos)
@@ -149,6 +153,7 @@ onUnmounted(() => {
 
 watch(() => auth.isAuthenticated, (isAuth) => {
   if (!isAuth) return
+  modulos.cargar()
   notif.cargar()
   registrarPush()
   cargarCatalogoDB(api)
@@ -235,73 +240,81 @@ watch(() => auth.usuario?.id, (id, oldId) => {
   window.Echo.channel('redes').listen('.conversacion.actualizada', cargarRedesPendientes)
 }, { immediate: true })
 
+/**
+ * La barra de abajo.
+ *
+ * El `label` y el `icon` que van escritos son el repuesto: si esta empresa le
+ * cambió el nombre al módulo, `soloVisibles` los reemplaza por los suyos, y si
+ * lo apagó, el acceso no aparece. Lo que NO cambia es quién ve qué: eso lo
+ * siguen decidiendo los permisos, no la personalización.
+ */
 const navItems = computed(() => {
   if (auth.isSupervisor) {
     const items = [
-      { name: 'dashboard',  label: 'Inicio',       icon: HomeIcon },
-      { name: 'ordenes',    label: 'Órdenes',      icon: ClipboardDocumentListIcon },
-      { name: 'produccion', label: 'Producción',   icon: WrenchScrewdriverIcon },
-      { name: 'despacho',   label: 'Despacho',     icon: TruckIcon, badge: despacho.ordenesPendientes },
+      { name: 'dashboard',  modulo: 'dashboard',    label: 'Inicio',       icon: HomeIcon },
+      { name: 'ordenes',    modulo: 'ordenes',      label: 'Órdenes',      icon: ClipboardDocumentListIcon },
+      { name: 'produccion', modulo: 'produccion',   label: 'Producción',   icon: WrenchScrewdriverIcon },
+      { name: 'despacho',   modulo: 'despacho',     label: 'Despacho',     icon: TruckIcon, badge: despacho.ordenesPendientes },
       // Lleva el contador igual que los demás: el supervisor también puede
       // quedar como validador de un surtido y necesita verlo sin abrir el menú.
-      { name: 'inventario', label: 'Inventario',   icon: ArchiveBoxIcon, badge: surtidos.pendientesCount },
-      { name: 'reportes',   label: 'Reportes',     icon: ChartBarIcon },
-      { name: 'cotizaciones', label: 'Cotizaciones',   icon: DocumentTextIcon },
-      { name: 'consultas',  label: 'Consultar costo', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
+      { name: 'inventario', modulo: 'inventario',   label: 'Inventario',   icon: ArchiveBoxIcon, badge: surtidos.pendientesCount },
+      { name: 'reportes',   modulo: 'reportes',     label: 'Reportes',     icon: ChartBarIcon },
+      { name: 'cotizaciones', modulo: 'cotizaciones', label: 'Cotizaciones',   icon: DocumentTextIcon },
+      { name: 'consultas',  modulo: 'consultas',    label: 'Consultar costo', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
     ]
     // "Mis pasos" sale si de verdad lleva pasos, sin importar el cargo.
     if (auth.tieneAccesoPasos) {
-      items.unshift({ name: 'mis-pasos', label: 'Mis pasos', icon: ClipboardDocumentCheckIcon, badge: pasos.pendientesCount })
+      items.unshift({ name: 'mis-pasos', modulo: 'mis-pasos', label: 'Mis pasos', icon: ClipboardDocumentCheckIcon, badge: pasos.pendientesCount })
     }
     if (auth.tieneAccesoRedes) {
-      items.push({ name: 'redes', label: 'Redes', icon: ChatBubbleLeftRightIcon, badge: redesPendientes.value })
+      items.push({ name: 'redes', modulo: 'redes', label: 'Redes', icon: ChatBubbleLeftRightIcon, badge: redesPendientes.value })
     }
     if (auth.tieneAccesoComisiones) {
-      items.push({ name: 'comisiones', label: 'Comisiones', icon: ReceiptPercentIcon })
+      items.push({ name: 'comisiones', modulo: 'comisiones', label: 'Comisiones', icon: ReceiptPercentIcon })
     }
     // Telas y Métricas se movieron a módulos del home (Dashboard) para aligerar el nav.
-    return items
+    return modulos.soloVisibles(items)
   }
   if (auth.puedeUsarTelas && !auth.isSupervisor) {
-    return [
-      { name: 'telas', label: 'Telas', icon: SwatchIcon },
-    ]
+    return modulos.soloVisibles([
+      { name: 'telas', modulo: 'telas', label: 'Telas', icon: SwatchIcon },
+    ])
   }
   if (auth.usuario?.rol === 'conductor') {
-    return [
-      { name: 'mis-entregas',        label: 'Entregas',  icon: TruckIcon, badge: despacho.misEntregasPendientes },
-      { name: 'mis-stats-conductor', label: 'Estadíst.', icon: PresentationChartLineIcon },
-    ]
+    return modulos.soloVisibles([
+      { name: 'mis-entregas',        modulo: 'mis-entregas', label: 'Entregas',  icon: TruckIcon, badge: despacho.misEntregasPendientes },
+      { name: 'mis-stats-conductor', modulo: 'mis-stats',    label: 'Estadíst.', icon: PresentationChartLineIcon },
+    ])
   }
   if (auth.isFacturador) {
-    return [
-      { name: 'dashboard',    label: 'Inicio',       icon: HomeIcon },
-      { name: 'facturacion',  label: 'Facturación',  icon: DocumentCurrencyDollarIcon, badge: abonosNoLeidos.value },
-      { name: 'ordenes',      label: 'Órdenes',      icon: ClipboardDocumentListIcon },
-      { name: 'clientes',     label: 'Clientes',     icon: UserGroupIcon },
-      { name: 'cotizaciones', label: 'Cotizaciones', icon: DocumentTextIcon },
-      { name: 'consultas',    label: 'Consultar costo', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
-      { name: 'inventario',   label: 'Inventario',   icon: ArchiveBoxIcon, badge: surtidos.pendientesCount },
-      { name: 'reserva',      label: 'Fábrica',      icon: BuildingOffice2Icon },
-      ...(auth.tieneAccesoRedes ? [{ name: 'redes', label: 'Redes', icon: ChatBubbleLeftRightIcon, badge: redesPendientes.value }] : []),
-      ...(auth.puedeRecargarTelas ? [{ name: 'telas', label: 'Telas', icon: SwatchIcon }] : []),
-      { name: 'mis-stats',    label: 'Estadíst.',    icon: PresentationChartLineIcon },
-    ]
+    return modulos.soloVisibles([
+      { name: 'dashboard',    modulo: 'dashboard',    label: 'Inicio',       icon: HomeIcon },
+      { name: 'facturacion',  modulo: 'facturacion',  label: 'Facturación',  icon: DocumentCurrencyDollarIcon, badge: abonosNoLeidos.value },
+      { name: 'ordenes',      modulo: 'ordenes',      label: 'Órdenes',      icon: ClipboardDocumentListIcon },
+      { name: 'clientes',     modulo: 'clientes',     label: 'Clientes',     icon: UserGroupIcon },
+      { name: 'cotizaciones', modulo: 'cotizaciones', label: 'Cotizaciones', icon: DocumentTextIcon },
+      { name: 'consultas',    modulo: 'consultas',    label: 'Consultar costo', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
+      { name: 'inventario',   modulo: 'inventario',   label: 'Inventario',   icon: ArchiveBoxIcon, badge: surtidos.pendientesCount },
+      { name: 'reserva',      modulo: 'fabrica',      label: 'Fábrica',      icon: BuildingOffice2Icon },
+      ...(auth.tieneAccesoRedes ? [{ name: 'redes', modulo: 'redes', label: 'Redes', icon: ChatBubbleLeftRightIcon, badge: redesPendientes.value }] : []),
+      ...(auth.puedeRecargarTelas ? [{ name: 'telas', modulo: 'telas', label: 'Telas', icon: SwatchIcon }] : []),
+      { name: 'mis-stats',    modulo: 'mis-stats',    label: 'Estadíst.',    icon: PresentationChartLineIcon },
+    ])
   }
   // Vendedor regular — primeros 4 siempre visibles, resto en "Más"
-  return [
-    { name: 'dashboard',  label: 'Inicio',       icon: HomeIcon },
-    { name: 'ordenes',    label: 'Órdenes',      icon: ClipboardDocumentListIcon },
-    { name: 'clientes',   label: 'Clientes',     icon: UserGroupIcon },
-    { name: 'cotizaciones', label: 'Cotizaciones', icon: DocumentTextIcon },
-    { name: 'consultas',  label: 'Consultar costo', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
-    { name: 'inventario', label: 'Inventario',   icon: ArchiveBoxIcon, badge: surtidos.pendientesCount },
-    { name: 'reserva',    label: 'Fábrica',      icon: BuildingOffice2Icon },
-    { name: 'surtir',     label: 'Traslado',     icon: ArrowPathIcon },
-    ...(auth.tieneAccesoRedes ? [{ name: 'redes', label: 'Redes', icon: ChatBubbleLeftRightIcon, badge: redesPendientes.value }] : []),
-    ...(auth.puedeRecargarTelas ? [{ name: 'telas', label: 'Telas', icon: SwatchIcon }] : []),
-    { name: 'mis-stats',  label: 'Estadíst.',    icon: PresentationChartLineIcon },
-  ]
+  return modulos.soloVisibles([
+    { name: 'dashboard',  modulo: 'dashboard',    label: 'Inicio',       icon: HomeIcon },
+    { name: 'ordenes',    modulo: 'ordenes',      label: 'Órdenes',      icon: ClipboardDocumentListIcon },
+    { name: 'clientes',   modulo: 'clientes',     label: 'Clientes',     icon: UserGroupIcon },
+    { name: 'cotizaciones', modulo: 'cotizaciones', label: 'Cotizaciones', icon: DocumentTextIcon },
+    { name: 'consultas',  modulo: 'consultas',    label: 'Consultar costo', icon: CurrencyDollarIcon, badge: consultasStore.pendientesCount },
+    { name: 'inventario', modulo: 'inventario',   label: 'Inventario',   icon: ArchiveBoxIcon, badge: surtidos.pendientesCount },
+    { name: 'reserva',    modulo: 'fabrica',      label: 'Fábrica',      icon: BuildingOffice2Icon },
+    { name: 'surtir',     modulo: 'traslado',     label: 'Traslado',     icon: ArrowPathIcon },
+    ...(auth.tieneAccesoRedes ? [{ name: 'redes', modulo: 'redes', label: 'Redes', icon: ChatBubbleLeftRightIcon, badge: redesPendientes.value }] : []),
+    ...(auth.puedeRecargarTelas ? [{ name: 'telas', modulo: 'telas', label: 'Telas', icon: SwatchIcon }] : []),
+    { name: 'mis-stats',  modulo: 'mis-stats',    label: 'Estadíst.',    icon: PresentationChartLineIcon },
+  ])
 })
 
 // Conductor y roles con ≤4 items: todos visibles. Supervisor/facturador/vendedor: 4 + "Más"
