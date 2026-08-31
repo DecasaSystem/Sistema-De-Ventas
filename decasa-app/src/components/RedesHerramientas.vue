@@ -1,14 +1,12 @@
 <script setup>
 /**
  * Lo que el asesor tiene a mano mientras atiende: direcciones, horarios,
- * formas de pago, enlaces.
+ * formas de pago, catálogos.
  *
  * Antes esto era una lista escrita aquí adentro —las cinco sedes, el envío
- * gratis en el Quindío—, así que sólo servía para una empresa. Ahora cada
- * negocio arma la suya desde Gestión y esta pantalla sólo la muestra.
- *
- * Los catálogos siguen viniendo del módulo de Redes: los mantiene el bot, no
- * tiene sentido copiarlos a mano en dos sitios.
+ * gratis en el Quindío— más los catálogos, que venían de otro lado y no se
+ * podían editar desde ninguna pantalla. Ahora todo sale del mismo sitio y todo
+ * se arma desde Gestión: esta pantalla sólo lo muestra.
  */
 import { ref, computed, onMounted } from 'vue'
 import { useToast } from '@/composables/useToast'
@@ -16,7 +14,7 @@ import { useModulosStore } from '@/stores/modulos'
 import { iconoPorNombre } from '@/constants/iconos'
 import api from '@/api'
 import {
-  XMarkIcon, DocumentTextIcon, ClipboardDocumentIcon,
+  XMarkIcon, ClipboardDocumentIcon,
   ArrowTopRightOnSquareIcon, Squares2X2Icon,
 } from '@heroicons/vue/24/outline'
 
@@ -26,20 +24,6 @@ const modulos = useModulosStore()
 
 const herramientas = ref([])
 const cargando     = ref(true)
-
-// Nombres legibles de cada catálogo
-const NOMBRES_CAT = {
-  bases_comedores: 'Bases de comedor', sillas_comedor: 'Sillas de comedor',
-  sillas_auxiliares: 'Sillas auxiliares', sillas_barra: 'Sillas de barra',
-  mesas_centro: 'Mesas de centro', mesas_auxiliares: 'Mesas auxiliares',
-  mesas_noche: 'Mesas de noche', mesas_tv: 'Mesas de TV',
-  sofas: 'Sofás', sofas_modulares: 'Sofás modulares', sofas_camas: 'Sofá camas',
-  camas: 'Camas', colchones: 'Colchones', cajoneros_bifes: 'Cajoneros / Bifés',
-  escritorios: 'Escritorios',
-}
-
-const catalogos = ref([])
-const cargandoCat = ref(true)
 
 /** Agrupadas por sección, en el orden que les puso la empresa. */
 const secciones = computed(() => {
@@ -52,23 +36,13 @@ const secciones = computed(() => {
 })
 
 onMounted(async () => {
-  api.get('/herramientas')
-    .then(({ data }) => { herramientas.value = Array.isArray(data) ? data : [] })
-    .catch(() => { herramientas.value = [] })
-    .finally(() => { cargando.value = false })
-
   try {
-    const { data } = await api.get('/redes/catalogos')
-    catalogos.value = Object.entries(data)
-      // La promoción del 20% venció: no mostramos catálogos de descuento aunque
-      // quedara alguno en la configuración.
-      .filter(([key]) => !key.startsWith('descuento'))
-      .map(([key, url]) => ({ key, url, nombre: NOMBRES_CAT[key] || key }))
-      .sort((a, b) => a.nombre.localeCompare(b.nombre))
+    const { data } = await api.get('/herramientas')
+    herramientas.value = Array.isArray(data) ? data : []
   } catch {
-    catalogos.value = []
+    herramientas.value = []
   } finally {
-    cargandoCat.value = false
+    cargando.value = false
   }
 })
 
@@ -127,7 +101,12 @@ function iconoDe(h) {
                 {{ h.titulo }}
               </p>
               <p v-if="h.subtitulo" class="text-xs text-gray-400 mt-0.5">{{ h.subtitulo }}</p>
-              <p class="text-xs text-gray-500 mt-1 whitespace-pre-line break-words">{{ h.contenido }}</p>
+              <!-- Un enlace largo de Drive ocuparía tres líneas y no dice nada:
+                   se recorta. Lo que se copia es la dirección entera igual. -->
+              <p
+                :class="['text-xs text-gray-500 mt-1 break-words',
+                  h.tipo === 'enlace' ? 'truncate' : 'whitespace-pre-line']"
+              >{{ h.contenido }}</p>
 
               <div class="flex gap-2 mt-2">
                 <button @click="copiar(h.contenido, h.titulo + ' copiado ✅')"
@@ -147,30 +126,6 @@ function iconoDe(h) {
         <p v-if="!cargando && !secciones.length" class="text-xs text-gray-400 text-center py-3">
           Todavía no hay nada aquí. Se arma desde Gestión → Herramientas.
         </p>
-
-        <!-- Catálogos -->
-        <section>
-          <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
-            <DocumentTextIcon class="w-4 h-4" /> Catálogos (PDF)
-          </h3>
-          <div v-if="cargandoCat" class="text-xs text-gray-400 py-3 text-center">Cargando catálogos…</div>
-          <div v-else-if="!catalogos.length" class="text-xs text-gray-400 py-3 text-center">No hay catálogos disponibles.</div>
-          <div v-else class="grid grid-cols-2 gap-2">
-            <div v-for="c in catalogos" :key="c.key" class="bg-white rounded-xl p-2.5 shadow-sm">
-              <p class="text-xs font-semibold text-gray-700 mb-1.5 truncate">{{ c.nombre }}</p>
-              <div class="flex gap-1.5">
-                <button @click="copiar(c.url, 'Enlace copiado ✅')"
-                  class="flex-1 flex items-center justify-center gap-1 text-[11px] font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg py-1">
-                  <ClipboardDocumentIcon class="w-3.5 h-3.5" /> Enlace
-                </button>
-                <a :href="c.url" target="_blank" rel="noopener"
-                  class="flex items-center justify-center text-gray-500 bg-gray-100 hover:bg-gray-200 rounded-lg px-2">
-                  <ArrowTopRightOnSquareIcon class="w-3.5 h-3.5" />
-                </a>
-              </div>
-            </div>
-          </div>
-        </section>
 
       </div>
     </div>

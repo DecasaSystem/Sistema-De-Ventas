@@ -39,7 +39,8 @@ class PersonalizacionTest extends TestCase
             $t->boolean('visible')->default(true); $t->unsignedSmallInteger('orden')->default(0); $t->timestamps();
         });
         Schema::create('herramientas', function (Blueprint $t) {
-            $t->id(); $t->string('seccion')->default('General'); $t->string('titulo');
+            $t->id(); $t->string('clave')->nullable()->unique();
+            $t->string('seccion')->default('General'); $t->string('titulo');
             $t->string('tipo')->default('texto'); $t->text('contenido');
             $t->string('subtitulo')->nullable(); $t->string('icono')->nullable();
             $t->boolean('activo')->default(true); $t->unsignedSmallInteger('orden')->default(0); $t->timestamps();
@@ -191,5 +192,58 @@ class PersonalizacionTest extends TestCase
         $this->actingAs($this->jefe())->postJson('/api/herramientas', [
             'seccion' => 'S', 'titulo' => 'X', 'tipo' => 'video', 'contenido' => 'x',
         ])->assertStatus(422);
+    }
+
+    // ── Catálogos: son herramientas, pero el bot los busca por su clave ──────
+
+    /**
+     * Editar el enlace de un catálogo no puede quitarle la clave: el bot lo
+     * busca por ahí y se quedaría sin qué mandarle al cliente.
+     */
+    public function test_editar_un_catalogo_no_le_borra_la_clave(): void
+    {
+        $cat = Herramienta::create([
+            'seccion' => 'Catálogos', 'titulo' => 'Sofás', 'tipo' => 'enlace',
+            'contenido' => 'https://viejo.example/sofas.pdf',
+        ]);
+        $cat->forceFill(['clave' => 'catalogo_sofas'])->save();
+
+        $this->actingAs($this->jefe())->patchJson("/api/herramientas/{$cat->id}", [
+            'contenido' => 'https://nuevo.example/sofas.pdf',
+        ])->assertOk();
+
+        $cat->refresh();
+        $this->assertSame('catalogo_sofas', $cat->clave);
+        $this->assertSame('https://nuevo.example/sofas.pdf', $cat->contenido);
+    }
+
+    /** Y lo que se cambie aquí es lo que sale por donde el bot los pide. */
+    public function test_el_bot_recibe_el_enlace_ya_cambiado(): void
+    {
+        $cat = Herramienta::create([
+            'seccion' => 'Catálogos', 'titulo' => 'Camas', 'tipo' => 'enlace',
+            'contenido' => 'https://viejo.example/camas.pdf',
+        ]);
+        $cat->forceFill(['clave' => 'catalogo_camas'])->save();
+
+        $this->actingAs($this->jefe())->patchJson("/api/herramientas/{$cat->id}", [
+            'contenido' => 'https://nuevo.example/camas.pdf',
+        ])->assertOk();
+
+        $res = $this->actingAs($this->vendedor())->getJson('/api/redes/catalogos')->assertOk();
+        $this->assertSame('https://nuevo.example/camas.pdf', $res->json('camas'));
+    }
+
+    /** Un catálogo apagado deja de ofrecerse, también por esa puerta. */
+    public function test_un_catalogo_apagado_no_se_le_manda_a_nadie(): void
+    {
+        $cat = Herramienta::create([
+            'seccion' => 'Catálogos', 'titulo' => 'Colchones', 'tipo' => 'enlace',
+            'contenido' => 'https://x.example/colchones.pdf', 'activo' => false,
+        ]);
+        $cat->forceFill(['clave' => 'catalogo_colchones'])->save();
+
+        $res = $this->actingAs($this->vendedor())->getJson('/api/redes/catalogos')->assertOk();
+        $this->assertNull($res->json('colchones'));
     }
 }

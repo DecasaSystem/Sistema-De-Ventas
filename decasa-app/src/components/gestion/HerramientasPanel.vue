@@ -163,7 +163,15 @@ onMounted(cargar)
           <div class="flex-1 min-w-0">
             <p class="text-sm font-semibold text-gray-800">{{ h.titulo }}</p>
             <p class="text-xs text-gray-500 mt-0.5 line-clamp-2 whitespace-pre-line break-words">{{ h.contenido }}</p>
-            <span class="inline-block mt-1 text-[10px] font-semibold text-gray-400 uppercase">{{ h.tipo }}</span>
+            <div class="flex items-center gap-2 mt-1">
+              <span class="text-[10px] font-semibold text-gray-400 uppercase">{{ h.tipo }}</span>
+              <!-- Los catálogos los busca el bot de WhatsApp por su nombre
+                   interno: cambiar el enlace está bien, borrarlos lo deja sin
+                   qué mandar. -->
+              <span v-if="h.clave" class="text-[10px] font-semibold text-amber-600 bg-amber-50 rounded px-1.5 py-0.5">
+                la usa el bot
+              </span>
+            </div>
           </div>
 
           <div class="flex flex-col gap-1 shrink-0">
@@ -282,6 +290,11 @@ onMounted(cargar)
         <div class="absolute inset-0 bg-black/40" />
         <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-4">
           <h3 class="text-base font-bold text-gray-800">¿Eliminar "{{ porBorrar.titulo }}"?</h3>
+          <p v-if="porBorrar.clave" class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            El bot de WhatsApp busca esta por su nombre interno para mandársela a
+            los clientes. Si la borras, deja de tener qué mandar; si sólo quieres
+            que no le salga al asesor, apágala con el ojo.
+          </p>
           <p class="text-xs text-gray-500">
             Se borra para siempre. Si sólo quieres que deje de salirle al asesor,
             apágala con el ojo y el texto se queda guardado.

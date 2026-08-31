@@ -15,6 +15,11 @@ class Herramienta extends Model
     /** Qué se puede hacer con el contenido, además de copiarlo. */
     public const TIPOS = ['texto', 'direccion', 'enlace'];
 
+    /**
+     * `clave` no está: la ponen las migraciones para lo que algo más busca por
+     * nombre (los catálogos que consume el bot). Una herramienta creada desde
+     * Gestión va sin clave, y una que ya la tiene no la pierde al editarla.
+     */
     protected $fillable = [
         'seccion', 'titulo', 'tipo', 'contenido', 'subtitulo', 'icono', 'activo', 'orden',
     ];

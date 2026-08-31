@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Events\NuevaConversacionWa;
 use App\Models\Cita;
 use App\Models\ConversacionWa;
+use App\Models\Herramienta;
 use App\Models\Usuario;
 use App\Services\NotificacionService;
 use Carbon\Carbon;
@@ -397,16 +398,26 @@ class RedesController extends Controller
         ]);
     }
 
-    // GET /api/redes/catalogos — enlaces de catálogos (PDF) para el panel de
-    // herramientas del asesor. Viven en la tabla configuracion (clave catalogo_*),
-    // compartida con los agentes de IA.
+    /**
+     * GET /api/redes/catalogos — los enlaces de los catálogos.
+     *
+     * Ahora salen de `herramientas`, que es donde se editan: antes vivían en
+     * `configuracion` y no había pantalla para cambiarlos. Se responde igual
+     * que siempre —{clave_corta: url}— y con la misma clave de antes, para que
+     * lo que ya consumía esto no note el cambio.
+     */
     public function catalogos()
     {
-        $rows = DB::table('configuracion')->where('clave', 'like', 'catalogo_%')->get(['clave', 'valor']);
+        $filas = Herramienta::where('activo', true)
+            ->where('clave', 'like', 'catalogo_%')
+            ->orderBy('orden')
+            ->get(['clave', 'contenido']);
+
         $out = [];
-        foreach ($rows as $r) {
-            $out[str_replace('catalogo_', '', $r->clave)] = $r->valor;
+        foreach ($filas as $f) {
+            $out[str_replace('catalogo_', '', $f->clave)] = $f->contenido;
         }
+
         return response()->json($out);
     }
 
