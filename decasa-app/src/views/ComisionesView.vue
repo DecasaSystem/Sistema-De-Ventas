@@ -21,6 +21,7 @@ import {
 } from '@heroicons/vue/24/outline'
 import { exportarExcel } from '@/utils/exportarExcel'
 import InputPesos from '@/components/common/InputPesos.vue'
+import DesgloseComision from '@/components/comisiones/DesgloseComision.vue'
 import { formatPct } from '@/utils/descuentos'
 
 const router = useRouter()
@@ -88,6 +89,84 @@ async function cargarMetas() {
   metas.value = data
   // Número, no texto: InputPesos trabaja con números y es quien pone los puntos.
   metaEdits.value = Object.fromEntries(data.map(m => [m.tienda_id, m.meta != null ? Number(m.meta) : '']))
+  await cargarReemplazos()
+}
+
+// ── Reemplazos entre tiendas ──────────────────────────────────────────────────
+// Alguien se va tres días o un mes a cubrir a otra tienda. Mientras está allá
+// vende para esa tienda, así que reparte SU pool por los días que estuvo, y a
+// quien cubre le descuenta esos mismos días.
+const reemplazos       = ref([])
+const repartoPorTienda = ref({})
+const nuevoReemplazo   = ref({})
+const guardandoReemp   = ref(null)
+const abrirReemplazo   = ref({})
+
+async function cargarReemplazos() {
+  try {
+    const { data } = await api.get('/comisiones/reemplazos', { params: { mes: mesActual.value } })
+    reemplazos.value = data.reemplazos ?? []
+    repartoPorTienda.value = Object.fromEntries((data.reparto ?? []).map(r => [r.tienda_id, r]))
+  } catch {
+    reemplazos.value = []
+    repartoPorTienda.value = {}
+  }
+}
+
+function reemplazosDe(tiendaId) {
+  return reemplazos.value.filter(r => r.tienda_id === tiendaId)
+}
+
+/** Los días del mes que se está viendo, para proponer el reemplazo completo. */
+function rangoDelMes() {
+  const [a, m] = mesActual.value.split('-').map(Number)
+  return {
+    desde: `${mesActual.value}-01`,
+    hasta: `${mesActual.value}-${String(new Date(a, m, 0).getDate()).padStart(2, '0')}`,
+  }
+}
+
+function empezarReemplazo(tiendaId) {
+  abrirReemplazo.value = { ...abrirReemplazo.value, [tiendaId]: true }
+  if (! nuevoReemplazo.value[tiendaId]) {
+    nuevoReemplazo.value[tiendaId] = { usuario_id: null, reemplaza_a_id: null, ...rangoDelMes() }
+  }
+}
+
+async function agregarReemplazo(tiendaId) {
+  const f = nuevoReemplazo.value[tiendaId]
+  if (!f?.usuario_id || !f.desde) { toast.error('Elige quién va y desde cuándo.'); return }
+  // A quién cubre no es opcional: es lo que hace que se lleve SU parte y que
+  // al resto del equipo no le baje la comisión.
+  if (!f.reemplaza_a_id) { toast.error('Dinos a quién está cubriendo.'); return }
+
+  guardandoReemp.value = tiendaId
+  try {
+    await api.post('/comisiones/reemplazos', {
+      tienda_id:      tiendaId,
+      usuario_id:     f.usuario_id,
+      reemplaza_a_id: f.reemplaza_a_id || undefined,
+      desde:          f.desde,
+      hasta:          f.hasta || undefined,
+    })
+    nuevoReemplazo.value[tiendaId] = { usuario_id: null, reemplaza_a_id: null, ...rangoDelMes() }
+    abrirReemplazo.value = { ...abrirReemplazo.value, [tiendaId]: false }
+    await cargarReemplazos()
+    toast.success('Reemplazo registrado.')
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo registrar.')
+  } finally {
+    guardandoReemp.value = null
+  }
+}
+
+async function quitarReemplazo(id) {
+  try {
+    await api.delete(`/comisiones/reemplazos/${id}`)
+    await cargarReemplazos()
+  } catch {
+    toast.error('No se pudo quitar.')
+  }
 }
 
 async function cargarResumen() {
@@ -194,33 +273,21 @@ function formaPago(c) {
   return FORMAS_PAGO[c?.forma_pago] ?? FORMAS_PAGO.pool
 }
 
-// De dónde sale cada peso de lo que se le va a pagar a alguien. Solo salen las
-// líneas que traen plata: listarlas todas con ceros llena la ficha de ruido y
-// deja de leerse de un vistazo, que es justo lo que se venía a arreglar.
-const ETIQUETAS_DESGLOSE = {
-  pool:             'Su parte del pool',
-  parte_equipo:     'Su parte (no vendió este mes)',
-  restauraciones:   'Restauraciones (5% directo)',
-  de_independiente: 'Le dejó un independiente',
-  individual:       'Sus ventas al 5%',
+// El desglose de cada quien lo pinta DesgloseComision: la lista de renglones
+// que había aquí se volvió dos barras, y las etiquetas viven con ellas.
+
+/**
+ * Una tarjeta del resumen es una persona EN UNA TIENDA.
+ *
+ * Quien pasa parte del mes cubriendo en otra tienda tiene comisiones en las
+ * dos, y cada una es un reparto distinto: su pool, su equipo y su meta no son
+ * los mismos. Con el id de la persona sola, las dos tarjetas compartían clave
+ * y se pisaban al expandir o al pagar.
+ */
+function claveFila(r) {
+  return `${r.vendedor_id}_${r.tienda_id}`
 }
 
-function lineasDesglose(r) {
-  const d = r?.desglose
-  if (!d) return []
-
-  return Object.keys(ETIQUETAS_DESGLOSE)
-    .filter(k => (d[k]?.comision ?? 0) > 0)
-    .map(k => ({
-      clave:    k,
-      label:    ETIQUETAS_DESGLOSE[k],
-      comision: d[k].comision,
-      // Cuántas órdenes y sobre qué base, para poder rehacer la cuenta.
-      detalle:  d[k].base > 0
-        ? `· ${d[k].ordenes} ${d[k].ordenes === 1 ? 'orden' : 'órdenes'} sobre ${cop(d[k].base)}`
-        : '',
-    }))
-}
 // La meta es requisito para todo lo que sale del pool, se haya vendido o no.
 function dependeDeLaMeta(c) {
   return ['pool', 'parte_pool'].includes(c?.forma_pago ?? 'pool')
@@ -229,9 +296,12 @@ function dependeDeLaMeta(c) {
 async function pagarTodasListas(r) {
   const total = totalListasVendedor(r)
   if (!confirm(`¿Marcar ${r.listas} comisión${r.listas > 1 ? 'es' : ''} de ${r.vendedor_nombre} como pagadas?\nTotal: ${cop(total)}`)) return
-  pagandoListas.value = r.vendedor_id
+  pagandoListas.value = claveFila(r)
   try {
-    const { data } = await api.post('/comisiones/pagar-listas', { vendedor_id: r.vendedor_id, mes: mesActual.value })
+    // Con la tienda: si estuvo en dos, se paga la tarjeta que se pulsó.
+    const { data } = await api.post('/comisiones/pagar-listas', {
+      vendedor_id: r.vendedor_id, mes: mesActual.value, tienda_id: r.tienda_id,
+    })
     toast.success(`${data.pagadas} comisión${data.pagadas !== 1 ? 'es' : ''} marcada${data.pagadas !== 1 ? 's' : ''} como pagada${data.pagadas !== 1 ? 's' : ''}`)
     await cargar()
     await cargarResumen()
@@ -708,6 +778,111 @@ onMounted(async () => {
               </button>
             </div>
           </div>
+
+          <!-- ── Reemplazos ────────────────────────────────────────────────
+               Quien va a cubrir reparte el pool por los días que estuvo, y a
+               quien cubre se le descuentan esos mismos días. -->
+          <div class="mt-3 pt-3 border-t border-gray-100">
+            <p class="text-[10px] text-gray-400 mb-1.5 font-medium uppercase tracking-wide">
+              Reemplazos del mes
+            </p>
+
+            <div v-if="reemplazosDe(m.tienda_id).length" class="space-y-1.5 mb-2">
+              <div
+                v-for="r in reemplazosDe(m.tienda_id)"
+                :key="r.id"
+                class="flex items-center gap-2 text-[11px] bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-1.5"
+              >
+                <span class="flex-1 min-w-0 text-amber-800">
+                  <span class="font-semibold">{{ r.usuario_nombre }}</span>
+                  cubre a <span class="font-semibold">{{ r.reemplaza_a }}</span>
+                  <span class="text-amber-600">
+                    · {{ fechaCorta(r.desde) }}{{ r.hasta ? ' a ' + fechaCorta(r.hasta) : ' (sin fecha de regreso)' }}
+                  </span>
+                </span>
+                <button
+                  @click="quitarReemplazo(r.id)"
+                  class="w-4 h-4 flex items-center justify-center rounded-full text-amber-600 hover:bg-amber-200"
+                >
+                  <XMarkIcon class="w-3 h-3" />
+                </button>
+              </div>
+            </div>
+
+            <!-- Cómo queda el reparto con esos días puestos -->
+            <div
+              v-if="repartoPorTienda[m.tienda_id]?.partes?.length"
+              class="flex flex-wrap gap-1.5 mb-2"
+            >
+              <span
+                v-for="p in repartoPorTienda[m.tienda_id].partes"
+                :key="p.usuario_id"
+                class="text-[10px] bg-gray-50 border border-gray-200 rounded-full px-2 py-0.5 text-gray-600"
+              >
+                {{ p.nombre }} · {{ p.dias }}d · {{ p.porcentaje }}%
+              </span>
+            </div>
+
+            <button
+              v-if="!abrirReemplazo[m.tienda_id]"
+              @click="empezarReemplazo(m.tienda_id)"
+              class="text-[11px] font-medium text-amber-700 hover:text-amber-900"
+            >+ Registrar un reemplazo</button>
+
+            <div v-else class="space-y-1.5 bg-amber-50/50 border border-amber-100 rounded-lg p-2">
+              <select
+                v-model="nuevoReemplazo[m.tienda_id].usuario_id"
+                class="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white"
+              >
+                <option :value="null">¿Quién va a la tienda?</option>
+                <option v-for="v in todosVendedores" :key="v.id" :value="v.id">
+                  {{ v.nombre }} ({{ v.tienda }})
+                </option>
+              </select>
+
+              <select
+                v-model="nuevoReemplazo[m.tienda_id].reemplaza_a_id"
+                class="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white"
+              >
+                <option :value="null">¿A quién cubre?</option>
+                <option v-for="a in (m.asesores ?? [])" :key="a.id" :value="a.vendedor_id ?? a.id">
+                  {{ a.nombre }}
+                </option>
+              </select>
+
+              <div class="grid grid-cols-2 gap-1.5">
+                <div>
+                  <p class="text-[10px] text-gray-400 mb-0.5">Desde</p>
+                  <input type="date" v-model="nuevoReemplazo[m.tienda_id].desde"
+                    class="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5" />
+                </div>
+                <div>
+                  <p class="text-[10px] text-gray-400 mb-0.5">Hasta <span class="text-gray-300">— opcional</span></p>
+                  <input type="date" v-model="nuevoReemplazo[m.tienda_id].hasta"
+                    class="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5" />
+                </div>
+              </div>
+
+              <p class="text-[10px] text-gray-400 leading-snug">
+                El que llega ocupa el puesto del que no está: se lleva su parte
+                por los días que lo cubre. Al resto del equipo no le cambia
+                nada. Si viene solo a ayudar, sin cubrir a nadie, no hace falta
+                registrarlo.
+              </p>
+
+              <div class="flex gap-1.5">
+                <button
+                  @click="abrirReemplazo[m.tienda_id] = false"
+                  class="flex-1 text-xs py-1.5 rounded-lg bg-white border border-gray-200 text-gray-600"
+                >Cancelar</button>
+                <button
+                  @click="agregarReemplazo(m.tienda_id)"
+                  :disabled="guardandoReemp === m.tienda_id"
+                  class="flex-1 text-xs font-semibold py-1.5 rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-40"
+                >{{ guardandoReemp === m.tienda_id ? '…' : 'Guardar' }}</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -887,9 +1062,12 @@ onMounted(async () => {
             <p class="text-lg font-bold text-green-800">{{ cop(totalGeneral.comision) }}</p>
           </div>
 
+          <!-- La clave lleva la tienda: quien pasó parte del mes cubriendo en
+               otra tiene una tarjeta por cada una, y con la misma clave se
+               pisaban entre ellas. -->
           <div
             v-for="r in resumenData"
-            :key="r.vendedor_id"
+            :key="claveFila(r)"
             class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden"
           >
             <div class="p-4">
@@ -904,39 +1082,16 @@ onMounted(async () => {
                 </div>
               </div>
 
-              <!-- De dónde sale cada peso. Antes había un solo número y para
-                   comprobarlo tocaba abrir las órdenes una por una y sumar de
-                   cabeza. Solo se pintan las líneas que traen plata: en un mes
-                   normal son una o dos. -->
-              <div v-if="!r.es_independiente && lineasDesglose(r).length" class="mb-2 rounded-lg bg-gray-50 border border-gray-100 px-3 py-2 text-xs">
-                <div
-                  v-for="l in lineasDesglose(r)" :key="l.clave"
-                  class="flex items-center justify-between py-0.5"
-                >
-                  <span class="text-gray-600">
-                    {{ l.label }}
-                    <span v-if="l.detalle" class="text-gray-400">{{ l.detalle }}</span>
-                  </span>
-                  <span class="font-semibold text-gray-700 shrink-0 ml-2">{{ cop(l.comision) }}</span>
-                </div>
-
-                <!-- Lo que se llevó la franquicia: es lo que explica por qué la
-                     base no cuadra con lo vendido. -->
-                <div v-if="r.desglose?.pagado_tarjeta > 0" class="border-t border-gray-200 mt-1.5 pt-1.5 space-y-0.5">
-                  <div class="flex items-center justify-between text-[11px]">
-                    <span class="text-gray-500">Cobrado con tarjeta</span>
-                    <span class="text-gray-500">{{ cop(r.desglose.pagado_tarjeta) }}</span>
-                  </div>
-                  <div class="flex items-center justify-between text-[11px]">
-                    <span class="text-gray-400">Se llevó el datáfono (5,5%)</span>
-                    <span class="text-gray-400">− {{ cop(r.desglose.costo_datafono) }}</span>
-                  </div>
-                  <div class="flex items-center justify-between text-[11px]">
-                    <span class="text-gray-500">En efectivo o transferencia</span>
-                    <span class="text-gray-500">{{ cop(r.desglose.sin_tarjeta) }}</span>
-                  </div>
-                </div>
-              </div>
+              <!-- De dónde sale cada peso, y cómo entró la plata de esas
+                   ventas. Antes era un número suelto y para comprobarlo tocaba
+                   abrir las órdenes una por una y sumar de cabeza. -->
+              <DesgloseComision
+                v-if="!r.es_independiente"
+                :desglose="r.desglose"
+                :total="r.comision_total"
+                :ventas="r.total_ventas"
+                class="mb-2"
+              />
 
               <!-- Un independiente cobra sus ventas solo (nadie mas las toca) mas
                    su parte del bolson de restauraciones, que si se reparte con el
@@ -995,8 +1150,8 @@ onMounted(async () => {
                   </span>
                   <span class="text-xs text-gray-400">{{ r.total_ordenes }} orden{{ r.total_ordenes !== 1 ? 'es' : '' }}</span>
                 </div>
-                <button @click="toggleExpandRes(r.vendedor_id)" class="text-gray-300 hover:text-gray-500">
-                  <ChevronUpIcon v-if="expandidosRes.has(r.vendedor_id)" class="w-4 h-4" />
+                <button @click="toggleExpandRes(claveFila(r))" class="text-gray-300 hover:text-gray-500">
+                  <ChevronUpIcon v-if="expandidosRes.has(claveFila(r))" class="w-4 h-4" />
                   <ChevronDownIcon v-else class="w-4 h-4" />
                 </button>
               </div>
@@ -1005,18 +1160,18 @@ onMounted(async () => {
               <button
                 v-if="r.listas > 0"
                 @click="pagarTodasListas(r)"
-                :disabled="pagandoListas === r.vendedor_id"
+                :disabled="pagandoListas === claveFila(r)"
                 class="mt-3 w-full flex items-center justify-between bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded-xl px-4 py-2.5 transition-colors"
               >
                 <span class="text-xs font-semibold">
-                  {{ pagandoListas === r.vendedor_id ? 'Pagando…' : `Pagar ${r.listas} comisión${r.listas > 1 ? 'es' : ''} listas` }}
+                  {{ pagandoListas === claveFila(r) ? 'Pagando…' : `Pagar ${r.listas} comisión${r.listas > 1 ? 'es' : ''} listas` }}
                 </span>
                 <span class="text-sm font-bold">{{ cop(totalListasVendedor(r)) }}</span>
               </button>
             </div>
 
             <!-- Detalle órdenes -->
-            <div v-if="expandidosRes.has(r.vendedor_id)" class="border-t border-gray-50 bg-gray-50 px-4 py-3">
+            <div v-if="expandidosRes.has(claveFila(r))" class="border-t border-gray-50 bg-gray-50 px-4 py-3">
               <div class="grid grid-cols-3 gap-2 mb-3">
                 <div class="bg-orange-50 rounded-lg p-2 text-center">
                   <p class="text-sm font-bold text-orange-600">{{ r.pendientes }}</p>

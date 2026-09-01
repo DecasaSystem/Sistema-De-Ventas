@@ -7,6 +7,7 @@ use App\Models\MetaTienda;
 use App\Models\Orden;
 use App\Models\Tienda;
 use App\Models\TiendaAsesor;
+use App\Models\TiendaReemplazo;
 use App\Models\Usuario;
 use App\Services\NotificacionService;
 use Carbon\Carbon;
@@ -124,6 +125,16 @@ class ComisionController extends Controller
             return response()->json(['error' => 'Ya está pagada.'], 409);
         }
 
+        // Poner al día los renglones del mes ANTES de pagar. La limpieza de
+        // los que sobran —el de "no vendió" de alguien que después sí vendió—
+        // solo corría al abrir el resumen, así que pagando desde otra pantalla
+        // se podía pagar un renglón duplicado.
+        $this->asegurarPartesDePool($comision->mes_venta);
+
+        if (! $comision->fresh()) {
+            return response()->json(['error' => 'Ese renglón ya no corresponde: vuelve a mirar el mes.'], 409);
+        }
+
         // Calcular estado real en el momento del pago (no depender del campo guardado en BD)
         [$metas, $totalesTienda, $totalesVendedor] = $this->cargarTotales();
         $poolsTrimestrales = $this->cargarPoolsTrimestrales($metas, $totalesTienda);
@@ -160,10 +171,12 @@ class ComisionController extends Controller
         $metas   = MetaTienda::vigentesEn($mes);
 
         try {
-            $asesoresAsignados = TiendaAsesor::with('vendedor:id,nombre')
-                ->where('mes', $mes)
-                ->get()
-                ->groupBy('tienda_id');
+            // El equipo también se arrastra, igual que la meta: se registra una
+            // vez y sigue rigiendo. Pidiéndolo por el mes exacto, en cuanto
+            // pasaba el mes en que se armó la pantalla mostraba todas las
+            // tiendas sin gente —y el reparto no se puede explicar sin saber
+            // entre quiénes va.
+            $asesoresAsignados = collect(TiendaAsesor::vigentesEn($mes));
         } catch (\Exception $e) {
             $asesoresAsignados = collect([]);
         }
@@ -221,7 +234,12 @@ class ComisionController extends Controller
 
         $enriquecidas = $comisiones->map(fn($c) => $this->enriquecer($c, $metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, $hoy));
 
-        $grouped = $enriquecidas->groupBy('vendedor_id')->map(function ($items) {
+        // Por vendedor Y TIENDA, no solo por vendedor. Quien pasa parte del mes
+        // cubriendo en otra tienda tiene comisiones en las dos, y agrupándolas
+        // juntas salía una sola tarjeta con la tienda de la primera orden, el
+        // pool de una mezclado con el de la otra y una "parte del asesor" que
+        // no era la de ninguna. Cada tienda es un reparto distinto.
+        $grouped = $enriquecidas->groupBy(fn ($i) => $i['vendedor_id'] . '_' . $i['tienda_id'])->map(function ($items) {
             $first = $items->first();
             return [
                 'vendedor_id'     => (int) $first['vendedor_id'],
@@ -261,7 +279,7 @@ class ComisionController extends Controller
                     'fecha_venta'    => $i['fecha_venta'],
                 ])->values(),
             ];
-        })->keyBy('vendedor_id');
+        })->keyBy(fn ($f) => $f['vendedor_id'] . '_' . $f['tienda_id']);
 
         // Los independientes no van por este camino: no tienen meta ni pool, y
         // sobre todo REPARTEN entre ellos, así que su cifra no sale de sus
@@ -270,9 +288,13 @@ class ComisionController extends Controller
         // aquí lo suyo, y en el bloque de independientes lo que de verdad cobra.
         $indep = \App\Services\ComisionIndependientes::delMes($mes);
         foreach ($indep['independientes'] as $i) {
-            if (! $grouped->has($i['vendedor_id'])) continue;
+            // Un independiente no pertenece a una tienda con pool, así que
+            // tiene una sola fila; se busca por vendedor porque la clave ahora
+            // lleva la tienda pegada.
+            $clave = $grouped->keys()->first(fn ($k) => (int) explode('_', $k)[0] === (int) $i['vendedor_id']);
+            if ($clave === null) continue;
 
-            $fila  = $grouped[$i['vendedor_id']];
+            $fila  = $grouped[$clave];
             $suyas = collect($indep['ordenes'])->where('vendedor_id', $i['vendedor_id']);
 
             // Las órdenes salen del servicio, no de comisiones: ahí una venta
@@ -310,7 +332,7 @@ class ComisionController extends Controller
             $fila['de_restauraciones_compartidas'] = round($i['comision_restauraciones']);
             $fila['pendientes'] = $suyas->where('lista', false)->count();
             $fila['listas']     = $suyas->where('lista', true)->count();
-            $grouped[$i['vendedor_id']] = $fila;
+            $grouped[$clave]    = $fila;
         }
 
         $grouped = $grouped->sortByDesc('comision_total')->values();
@@ -536,6 +558,123 @@ class ComisionController extends Controller
     }
 
     /**
+     * GET /api/comisiones/reemplazos?mes=YYYY-MM
+     *
+     * Quién estuvo cubriendo en otra tienda ese mes, y cuánto pesa cada quien
+     * en el reparto. Se devuelven los días para poder explicar la cuenta sin
+     * rehacerla a mano.
+     */
+    public function getReemplazos(Request $request)
+    {
+        if (! $request->user()->acceso_comisiones) {
+            return response()->json(['error' => 'Sin acceso'], 403);
+        }
+
+        $mes    = $request->query('mes', Carbon::now()->format('Y-m'));
+        $inicio = Carbon::parse($mes . '-01')->startOfMonth();
+        $fin    = $inicio->copy()->endOfMonth();
+
+        $reemplazos = TiendaReemplazo::with([
+                'tienda:id,nombre', 'usuario:id,nombre', 'reemplazaA:id,nombre',
+            ])
+            ->whereDate('desde', '<=', $fin->toDateString())
+            ->where(fn ($q) => $q->whereNull('hasta')->orWhereDate('hasta', '>=', $inicio->toDateString()))
+            ->orderByDesc('desde')
+            ->get()
+            ->map(fn ($r) => [
+                'id'              => $r->id,
+                'tienda_id'       => $r->tienda_id,
+                'tienda_nombre'   => $r->tienda?->nombre,
+                'usuario_id'      => $r->usuario_id,
+                'usuario_nombre'  => $r->usuario?->nombre,
+                'reemplaza_a_id'  => $r->reemplaza_a_id,
+                'reemplaza_a'     => $r->reemplazaA?->nombre,
+                'desde'           => $r->desde?->toDateString(),
+                'hasta'           => $r->hasta?->toDateString(),
+                'nota'            => $r->nota,
+            ]);
+
+        // Cómo queda el reparto de cada tienda con esos días puestos.
+        TiendaReemplazo::olvidarCache();
+        $equipos = TiendaAsesor::vigentesEn($mes);
+        $nombres = Usuario::whereIn('id', TiendaReemplazo::query()->pluck('usuario_id')
+                ->merge(collect($equipos)->flatten(1)->pluck('vendedor_id')))
+            ->pluck('nombre', 'id');
+
+        $reparto = [];
+        foreach (MetaTienda::vigentesEn($mes) as $tiendaId => $meta) {
+            $base  = collect($equipos[$tiendaId] ?? [])->pluck('vendedor_id')->all();
+            $pesos = TiendaReemplazo::pesosDelMes((int) $tiendaId, $mes, $base);
+            $total = array_sum($pesos) ?: 1;
+
+            $reparto[] = [
+                'tienda_id' => (int) $tiendaId,
+                'dias_mes'  => $inicio->copy()->endOfMonth()->day,
+                'partes'    => collect($pesos)->map(fn ($dias, $uid) => [
+                    'usuario_id' => (int) $uid,
+                    'nombre'     => $nombres[$uid] ?? "#$uid",
+                    'dias'       => (int) $dias,
+                    'porcentaje' => round($dias / $total * 100, 1),
+                ])->values(),
+            ];
+        }
+
+        return response()->json(['reemplazos' => $reemplazos, 'reparto' => $reparto]);
+    }
+
+    /** POST /api/comisiones/reemplazos */
+    public function addReemplazo(Request $request)
+    {
+        if (! $request->user()->acceso_comisiones) {
+            return response()->json(['error' => 'Sin acceso'], 403);
+        }
+
+        $data = $request->validate([
+            'tienda_id'      => 'required|integer|exists:tiendas,id',
+            'usuario_id'     => 'required|integer|exists:usuarios,id',
+            'reemplaza_a_id' => 'required|integer|exists:usuarios,id|different:usuario_id',
+            'desde'          => 'required|date',
+            'hasta'          => 'nullable|date|after_or_equal:desde',
+            'nota'           => 'nullable|string|max:200',
+        ]);
+
+        // A quién se cubre tiene que ser del equipo de esa tienda. Es lo que
+        // mantiene la cuenta como debe ser: el pool se sigue partiendo entre
+        // los mismos, y el reemplazo se lleva la parte del que no estuvo. Si
+        // se pudiera cubrir a alguien de fuera, se estaría sumando una parte
+        // más y a todo el equipo le bajaría la comisión sin razón.
+        $mes    = Carbon::parse($data['desde'])->format('Y-m');
+        $equipo = collect(TiendaAsesor::vigentesEn($mes)[$data['tienda_id']] ?? [])
+            ->pluck('vendedor_id')->map(fn ($v) => (int) $v);
+
+        if (! $equipo->contains((int) $data['reemplaza_a_id'])) {
+            return response()->json([
+                'message' => 'A quien se reemplaza tiene que ser del equipo de esa tienda. '
+                           . 'Si va a ayudar sin cubrir a nadie, no hace falta registrarlo: '
+                           . 'sus ventas empujan la meta igual y cobra su 5%.',
+            ], 422);
+        }
+
+        $reemplazo = TiendaReemplazo::create($data);
+        TiendaReemplazo::olvidarCache();
+
+        return response()->json($reemplazo->load('tienda:id,nombre', 'usuario:id,nombre', 'reemplazaA:id,nombre'), 201);
+    }
+
+    /** DELETE /api/comisiones/reemplazos/{id} */
+    public function removeReemplazo(Request $request, int $id)
+    {
+        if (! $request->user()->acceso_comisiones) {
+            return response()->json(['error' => 'Sin acceso'], 403);
+        }
+
+        TiendaReemplazo::findOrFail($id)->delete();
+        TiendaReemplazo::olvidarCache();
+
+        return response()->json(['message' => 'Reemplazo eliminado.']);
+    }
+
+    /**
      * El divisor es cuánta gente hay en el equipo ese mes.
      *
      * Se guarda en la meta del mes, y si esa meta todavía no existe se crea
@@ -623,15 +762,31 @@ class ComisionController extends Controller
 
         $finDeMes = Carbon::parse($mes . '-01')->endOfMonth();
 
-        foreach ($equipos as $tiendaId => $integrantes) {
+        // Quién reparte en cada tienda: el equipo, más quien llegó a cubrir,
+        // menos quien no estuvo. Se mira por días para no abrirle renglón a
+        // quien pasó el mes entero de vacaciones —no le toca— ni dejar sin él
+        // a quien vino a reemplazar y no alcanzó a vender nada.
+        $tiendas = array_unique(array_merge(
+            array_keys($equipos),
+            TiendaReemplazo::where('tienda_id', '!=', 0)->pluck('tienda_id')->map(fn ($v) => (int) $v)->all(),
+        ));
+
+        $reparten = [];   // [tienda_id][vendedor_id] => true
+
+        foreach ($tiendas as $tiendaId) {
             if (! isset($conMeta[$tiendaId])) continue;
 
-            foreach ($integrantes as $asesor) {
-                if ($conRenglon->has($asesor->vendedor_id . '_' . $tiendaId)) continue;
+            $equipoBase = collect($equipos[$tiendaId] ?? [])->pluck('vendedor_id')->all();
+            $pesos      = TiendaReemplazo::pesosDelMes($tiendaId, $mes, $equipoBase);
+
+            foreach (array_keys($pesos) as $vendedorId) {
+                $reparten[$tiendaId][$vendedorId] = true;
+
+                if ($conRenglon->has($vendedorId . '_' . $tiendaId)) continue;
 
                 Comision::create([
                     'orden_id'         => null,
-                    'vendedor_id'      => $asesor->vendedor_id,
+                    'vendedor_id'      => $vendedorId,
                     'tienda_id'        => $tiendaId,
                     'origen'           => self::ORIGEN_PARTE_POOL,
                     'mes_venta'        => $mes,
@@ -640,6 +795,54 @@ class ComisionController extends Controller
                     'fecha_disponible' => self::calcularFechaDisponible($finDeMes, $tiendaId),
                     'estado'           => 'pendiente',
                 ]);
+            }
+        }
+
+        $this->limpiarPartesQueSobran($mes, $reparten);
+    }
+
+    /**
+     * Quitar los renglones de "no vendió" que ya no corresponden.
+     *
+     * El renglón se abre en cuanto alguien mira la pantalla, cuando todavía no
+     * hay ventas del mes. Si esa persona vende después, nadie lo quitaba: se
+     * quedaba ahí y cobraba su parte del pool DOS veces —la de sus órdenes y
+     * la de no haber vendido—. Le pasó a Marta en agosto: $561.064 de más.
+     *
+     * Un abono de un independiente no cuenta como haber vendido: esa plata no
+     * pasa por el pool, así que quien solo tiene eso sigue siendo alguien que
+     * no vendió y su renglón se queda.
+     *
+     * Lo ya pagado no se toca: corregir el pasado es una decisión de quien
+     * paga, no algo que deba hacer una pantalla al abrirse.
+     *
+     * @param array<int,array<int,bool>> $reparten [tienda][vendedor] => true
+     */
+    private function limpiarPartesQueSobran(string $mes, array $reparten): void
+    {
+        $sobrantes = Comision::where('mes_venta', $mes)
+            ->where('origen', self::ORIGEN_PARTE_POOL)
+            ->where('estado', '!=', 'pagada')
+            ->get();
+
+        if ($sobrantes->isEmpty()) return;
+
+        // Quién tiene ventas que SÍ pasan por el pool.
+        $restauraciones = $this->idsDeRestauracion();
+        $conVentas = Comision::where('mes_venta', $mes)
+            ->whereNotNull('orden_id')
+            ->where('origen', '!=', self::ORIGEN_ABONO)
+            ->get(['vendedor_id', 'tienda_id', 'orden_id'])
+            ->reject(fn ($c) => isset($restauraciones[(int) $c->orden_id]))
+            ->map(fn ($c) => $c->vendedor_id . '_' . $c->tienda_id)
+            ->flip();
+
+        foreach ($sobrantes as $fila) {
+            $vendio   = $conVentas->has($fila->vendedor_id . '_' . $fila->tienda_id);
+            $reparteYa = isset($reparten[$fila->tienda_id][$fila->vendedor_id]);
+
+            if ($vendio || ! $reparteYa) {
+                $fila->delete();
             }
         }
     }
@@ -701,7 +904,14 @@ class ComisionController extends Controller
         $data = $request->validate([
             'vendedor_id' => 'required|integer|exists:usuarios,id',
             'mes'         => 'required|string|regex:/^\d{4}-\d{2}$/',
+            // Quien trabajó en dos tiendas el mismo mes tiene una tarjeta por
+            // cada una: se paga la que se pulsó, no las dos.
+            'tienda_id'   => 'nullable|integer|exists:tiendas,id',
         ]);
+
+        // Igual que al pagar una suelta: primero se limpian los renglones que
+        // ya no corresponden, y después se paga lo que quede.
+        $this->asegurarPartesDePool($data['mes']);
 
         [$metas, $totalesTienda, $totalesVendedor] = $this->cargarTotales();
         $poolsTrimestrales = $this->cargarPoolsTrimestrales($metas, $totalesTienda);
@@ -711,6 +921,7 @@ class ComisionController extends Controller
         Comision::with('orden.pagos')
             ->where('vendedor_id', $data['vendedor_id'])
             ->where('mes_venta', $data['mes'])
+            ->when($data['tienda_id'] ?? null, fn ($q, $t) => $q->where('tienda_id', $t))
             ->where('estado', '!=', 'pagada')
             ->get()
             ->each(function ($c) use ($metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, $hoy, $usuario, &$pagadas) {
@@ -747,6 +958,14 @@ class ComisionController extends Controller
             ->each(function ($orden) use (&$revaluadas) {
                 $revaluadas += self::sincronizarValorOrden($orden);
             });
+
+        // Y poner al día los renglones de equipo de cada mes abierto: abrir el
+        // que falte y quitar el que sobre. Recalcular es LA acción para dejar
+        // el mes cuadrado, así que no puede depender de que alguien haya
+        // pasado antes por la pantalla del resumen.
+        Comision::where('estado', '!=', 'pagada')
+            ->distinct()->pluck('mes_venta')
+            ->each(fn ($m) => $this->asegurarPartesDePool($m));
 
         [$metas, $totalesTienda, $totalesVendedor] = $this->cargarTotales();
         // La unica que guarda: es la accion que existe para poner al dia.
@@ -1279,8 +1498,22 @@ class ComisionController extends Controller
      * orden, y un supervisor que escogiera una tienda con meta se llevaba una
      * parte de un pool ajeno.
      */
-    private function cobraIndividual(int $vendedorId, string $mes): bool
+    private function cobraIndividual(int $vendedorId, string $mes, ?int $tiendaId = null): bool
     {
+        // Quien fue a cubrir a esta tienda cobra de SU pool mientras estuvo
+        // allá: sus ventas empujan esa meta y arman ese pool, así que dejarlo
+        // fuera del reparto era cobrarle el trabajo a los demás. Sin esto, un
+        // reemplazo le subía el divisor al equipo y él seguía con su 5%.
+        if ($tiendaId && in_array($tiendaId, TiendaReemplazo::tiendasDe($vendedorId, $mes), true)) {
+            return false;
+        }
+
+        // Y si está en el equipo de esa tienda ese mes, aunque su tienda fija
+        // sea otra. Es el caso de quien figura en un equipo por acuerdo viejo.
+        if ($tiendaId && isset($this->equipos[$mes][$tiendaId][$vendedorId])) {
+            return false;
+        }
+
         // Por mes, y se descarta en cargarTotales() por lo mismo que la lista de
         // restauraciones: el controlador sobrevive al request.
         if (! isset($this->individuales[$mes])) {
@@ -1296,6 +1529,60 @@ class ComisionController extends Controller
 
     /** Quién cobra por fuera del pool, por mes. Ver cobraIndividual(). */
     private array $individuales = [];
+
+    /** [mes][tienda_id][usuario_id] => true. El equipo fijo de cada tienda. */
+    private array $equipos = [];
+
+    /** [mes][tienda_id] => [usuario_id => días]. Ver TiendaReemplazo. */
+    private array $pesos = [];
+
+    /**
+     * Cuánto pesa esta persona en el reparto de la tienda, y cuánto pesa el
+     * equipo entero.
+     *
+     * Se devuelven los dos para que la comisión salga de una proporción y no
+     * de una división: con reemplazos, "cuántos son" deja de ser un número
+     * redondo.
+     *
+     * @return array{0: float, 1: float}  [su peso, peso de todos]
+     */
+    private function parteDelPool(int $tiendaId, string $mes, int $vendedorId, int $divisor): array
+    {
+        if (! isset($this->pesos[$mes][$tiendaId])) {
+            $equipo = array_keys($this->equipoDe($mes, $tiendaId));
+            $this->pesos[$mes][$tiendaId] = TiendaReemplazo::pesosDelMes($tiendaId, $mes, $equipo);
+        }
+
+        $pesos = $this->pesos[$mes][$tiendaId];
+
+        // Sin equipo registrado no hay días que repartir: se cae al divisor de
+        // la meta, que es como funcionaba antes de que existieran los equipos.
+        if (empty($pesos)) {
+            return [1.0, (float) max(1, $divisor)];
+        }
+
+        $suyo = (float) ($pesos[$vendedorId] ?? 0);
+
+        // Vendió en esta tienda sin estar en su equipo ni figurar como
+        // reemplazo: no reparte pool (cobra individual), pero tampoco puede
+        // salir con una división por cero.
+        return [$suyo, (float) array_sum($pesos)];
+    }
+
+    /** El equipo fijo de una tienda ese mes, cacheado. */
+    private function equipoDe(string $mes, int $tiendaId): array
+    {
+        if (! isset($this->equipos[$mes])) {
+            $this->equipos[$mes] = [];
+            foreach (TiendaAsesor::vigentesEn($mes) as $tid => $gente) {
+                foreach ($gente as $a) {
+                    $this->equipos[$mes][(int) $tid][(int) $a->vendedor_id] = true;
+                }
+            }
+        }
+
+        return $this->equipos[$mes][$tiendaId] ?? [];
+    }
 
     /**
      * Lo que lleva vendido una tienda contra su meta, por mes.
@@ -1322,6 +1609,9 @@ class ComisionController extends Controller
         // Arranca un cálculo nuevo: lo de la pasada anterior ya no sirve.
         $this->idsRestauracion = null;
         $this->individuales    = [];
+        $this->equipos         = [];
+        $this->pesos           = [];
+        TiendaReemplazo::olvidarCache();
 
         // Los meses que hay que resolver salen de las comisiones que existen;
         // para cada uno rige la ultima meta cargada hasta ese mes.
@@ -1377,10 +1667,18 @@ class ComisionController extends Controller
             }
         }
 
+        // Sobre qué se prorratea la parte del pool de cada quien. Solo entran
+        // las ventas que SE PAGAN por pool: una restauración se cobra al 5%
+        // aparte, así que si contara aquí se llevaría un pedazo de la parte del
+        // pool que después nadie le paga. A Paola le costaba $3.443 en agosto.
         $totalesVendedor = DB::table('comisiones as c')
             ->join('ordenes as o', 'o.id', '=', 'c.orden_id')
             ->whereNotIn('o.estado', self::ESTADOS_SIN_VENTA)
             ->where('c.origen', '!=', self::ORIGEN_ABONO)
+            ->whereNotIn('c.orden_id', function ($q) {
+                $q->from('orden_items')->select('orden_id')
+                  ->groupBy('orden_id')->havingRaw('COUNT(*) = SUM(es_restauracion)');
+            })
             ->selectRaw('c.vendedor_id, c.tienda_id, c.mes_venta, SUM(c.valor_orden) as total')
             ->groupBy('c.vendedor_id', 'c.tienda_id', 'c.mes_venta')
             ->get()
@@ -1435,8 +1733,15 @@ class ComisionController extends Controller
             $comisionPool = $metaCumplida ? ($totalTienda - $meta) / 1.19 * 0.05 : 0;
         }
 
-        // Comisión de cada asesor = pool / divisor
-        $comisionAsesor = $divisor > 0 ? $comisionPool / $divisor : $comisionPool;
+        // Comisión de cada asesor: su parte del pool.
+        //
+        // Se reparte por los DÍAS que estuvo cada quien en la tienda, no en
+        // partes iguales. Mientras nadie registre un reemplazo todos pesan el
+        // mes entero y sale lo mismo que antes (pool / divisor); en cuanto
+        // alguien va a cubrir tres días o quince, cada uno se lleva lo que le
+        // corresponde por el tiempo que de verdad estuvo.
+        [$parte, $partes] = $this->parteDelPool((int) $c->tienda_id, $c->mes_venta, (int) $c->vendedor_id, $divisor);
+        $comisionAsesor   = $partes > 0 ? $comisionPool * ($parte / $partes) : 0;
 
         // Cómo se paga depende de qué se vendió y de si su tienda tiene meta:
         //
@@ -1451,7 +1756,16 @@ class ComisionController extends Controller
         // está en una tienda con meta cobra individual, caiga donde caiga la
         // orden. Al revés no: nadie pasa a cobrar por pool por dónde vendió.
         $esRestauracion = isset($idsRestauracion[(int) $c->orden_id]);
-        $tieneMeta      = $meta > 0 && ! $this->cobraIndividual((int) $c->vendedor_id, $c->mes_venta);
+        $tieneMeta      = $meta > 0
+            && ! $this->cobraIndividual((int) $c->vendedor_id, $c->mes_venta, (int) $c->tienda_id);
+
+        // Vendió en esta tienda pero no le toca parte del reparto: no está en
+        // el equipo del mes ni fue a cubrir. Cobra su 5% como cualquiera de
+        // fuera —nunca cero—: un equipo mal registrado no puede dejar a nadie
+        // trabajando gratis.
+        if ($tieneMeta && $parte <= 0 && $c->origen !== self::ORIGEN_PARTE_POOL) {
+            $tieneMeta = false;
+        }
 
         // Su parte del 5% que dejó un independiente al compartir con su tienda.
         // Nunca por el pool: esa venta no es del equipo, solo pasaron el

@@ -592,6 +592,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/recalcular',               [ComisionController::class, 'recalcular'])->middleware('role:supervisor');
         Route::post('/asesores-asignados',       [ComisionController::class, 'addAsesor'])->middleware('role:supervisor');
         Route::delete('/asesores-asignados/{id}',[ComisionController::class, 'removeAsesor'])->middleware('role:supervisor')->whereNumber('id');
+        // Quién fue a cubrir a otra tienda y por cuántos días: es lo que
+        // reparte el pool cuando alguien reemplaza.
+        Route::get('/reemplazos',                [ComisionController::class, 'getReemplazos']);
+        Route::post('/reemplazos',               [ComisionController::class, 'addReemplazo'])->middleware('role:supervisor');
+        Route::delete('/reemplazos/{id}',        [ComisionController::class, 'removeReemplazo'])->middleware('role:supervisor')->whereNumber('id');
         Route::post('/pagar-listas',             [ComisionController::class, 'pagarListas'])->middleware('role:supervisor');
         Route::post('/{id}/pagar',               [ComisionController::class, 'marcarPagada'])->middleware('role:supervisor');
     });
