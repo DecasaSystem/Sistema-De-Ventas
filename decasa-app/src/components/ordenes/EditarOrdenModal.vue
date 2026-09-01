@@ -1552,7 +1552,7 @@ async function guardar() {
                      se ofrece en restauraciones, que son un mueble del cliente
                      y no tienen equivalente en catálogo. -->
                 <div
-                  v-if="item._tipo_item !== 'restauracion' && !itemsEliminar.includes(item.id)"
+                  v-if="!['restauracion', 'producto_unico'].includes(item._tipo_item) && !itemsEliminar.includes(item.id)"
                   class="bg-emerald-50 border border-emerald-200 rounded-lg p-2.5 space-y-1.5"
                 >
                   <p class="text-[11px] text-emerald-800 leading-snug">
@@ -1569,7 +1569,11 @@ async function guardar() {
                   </button>
                 </div>
 
-                <div class="space-y-3 pt-1 border-t border-purple-100">
+                <!-- El mueble único no lleva especificaciones: son las que
+                     tiene el mueble que está en el local, no algo que se le
+                     pida a nadie. Pedirlas invita a llenar campos que no
+                     va a leer ningún taller. -->
+                <div v-if="item._tipo_item !== 'producto_unico'" class="space-y-3 pt-1 border-t border-purple-100">
                   <p class="text-xs font-medium text-purple-600">Especificaciones — {{ getTemplate(item).titulo }}</p>
 
                   <div class="grid grid-cols-2 gap-3">

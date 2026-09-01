@@ -128,6 +128,7 @@ class CotizacionController extends Controller
             'items.*.precio_unitario'            => 'required|numeric|min:0',
             'items.*.es_personalizado'           => 'nullable|boolean',
             'items.*.fabricar_pedido'            => 'nullable|boolean',
+            'items.*.producto_unico'             => 'nullable|boolean',
             'items.*.specs_personalizacion'      => 'nullable|array',
             'items.*.boceto_url'                 => 'nullable|string|max:500',
             'items.*.boceto_urls'                => 'nullable|array',
@@ -193,6 +194,9 @@ class CotizacionController extends Controller
                     'precio_unitario'       => $itemData['precio_unitario'],
                     'es_personalizado'      => $esPersonalizado || $esProductoCustom,
                     'fabricar_pedido'       => (bool) ($itemData['fabricar_pedido'] ?? false) && ! $esProductoCustom,
+                    // Un mueble que ya está hecho: la marca viaja para que al
+                    // aceptar la cotización la orden tampoco lo mande al taller.
+                    'producto_unico'        => (bool) ($itemData['producto_unico'] ?? false),
                     'specs_personalizacion' => $specsExtra,
                     'boceto_url'            => isset($itemData['boceto_urls'])
                         ? (array_values(array_filter($itemData['boceto_urls']))[0] ?? null)
@@ -467,8 +471,9 @@ class CotizacionController extends Controller
                 $cotizacion->items()->update(['fecha_entrega_prom' => $fechaPrometida]);
             }
 
-            // 3. Producción para los ítems personalizados
-            foreach ($cotizacion->items->where('es_personalizado', true) as $item) {
+            // 3. Producción para los ítems personalizados. El mueble único no:
+            //    ya está hecho, y aceptar la cotización no lo cambia.
+            foreach ($cotizacion->items->where('es_personalizado', true)->where('producto_unico', false) as $item) {
                 if (! $item->produccion) {
                     Produccion::create([
                         'orden_item_id'    => $item->id,

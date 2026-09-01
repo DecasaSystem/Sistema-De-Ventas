@@ -1951,6 +1951,11 @@ onMounted(() => { cargarTipos(); cargarOrden() })
               <p v-if="item.tipo_item === 'personalizado'" class="text-xs text-purple-600 mt-1 flex items-center gap-1">
                 <SparklesIcon class="w-3.5 h-3.5" /> Personalizado
               </p>
+              <p v-else-if="item.tipo_item === 'producto_unico'" class="text-xs text-emerald-600 mt-1 flex items-center gap-1">
+                <!-- Que no vaya al taller es lo que hay que ver de un vistazo:
+                     si no, se pregunta por él en producción y no está. -->
+                <SparklesIcon class="w-3.5 h-3.5" /> Mueble único — ya hecho, no pasa por el taller
+              </p>
               <p v-else-if="item.tipo_item === 'diseno_especial'" class="text-xs text-indigo-600 mt-1 flex items-center gap-1">
                 <SwatchIcon class="w-3.5 h-3.5" /> Diseño especial
               </p>

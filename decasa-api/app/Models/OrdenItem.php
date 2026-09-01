@@ -29,6 +29,9 @@ class OrdenItem extends Model
         'es_personalizado',
         'fabricar_pedido',
         'es_restauracion',
+        // Un mueble que ya existe y del que solo hay uno: no está en el
+        // catálogo y tampoco pasa por el taller, porque ya está hecho.
+        'producto_unico',
         'es_regalo',
         'usa_stock_tienda',
         'specs_personalizacion',
@@ -48,6 +51,7 @@ class OrdenItem extends Model
             'es_personalizado'      => 'boolean',
             'fabricar_pedido'       => 'boolean',
             'es_restauracion'       => 'boolean',
+            'producto_unico'        => 'boolean',
             'es_regalo'             => 'boolean',
             'usa_stock_tienda'      => 'boolean',
             'specs_personalizacion' => 'array',
@@ -60,6 +64,7 @@ class OrdenItem extends Model
     /**
      * Clasifica el ítem para mostrarlo distinto en la orden:
      *   catalogo        → producto de inventario (sale de stock)
+     *   producto_unico  → mueble que ya existe, fuera de catálogo, no va al taller
      *   diseno_especial → producto que no existe en catálogo (a fabricar desde cero)
      *   fabricar        → producto del catálogo sin stock, mandado a producción
      *   personalizado   → producto existente al que se le cambian detalles
@@ -69,6 +74,10 @@ class OrdenItem extends Model
         // Va antes que 'diseno_especial': una restauración también es un
         // personalizado sin producto_id, y sin esta marca se confundirían.
         if ($this->es_restauracion)      return 'restauracion';
+        // Lo mismo el mueble único: por dentro es un personalizado sin
+        // catálogo, y si no se mirara aquí saldría como "diseño especial",
+        // que es exactamente lo contrario —algo que hay que fabricar—.
+        if ($this->producto_unico)       return 'producto_unico';
         if (! $this->es_personalizado)   return 'catalogo';
         if ($this->producto_id === null) return 'diseno_especial';
         if ($this->fabricar_pedido)      return 'fabricar';

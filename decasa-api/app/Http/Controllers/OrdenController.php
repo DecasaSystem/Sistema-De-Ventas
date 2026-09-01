@@ -281,6 +281,7 @@ class OrdenController extends Controller
             'items.*.es_personalizado'           => 'nullable|boolean',
             'items.*.fabricar_pedido'            => 'nullable|boolean',
             'items.*.es_restauracion'            => 'nullable|boolean',
+            'items.*.producto_unico'             => 'nullable|boolean',
             'items.*.es_regalo'                  => 'nullable|boolean',
             'items.*.usa_stock_tienda'           => 'nullable|boolean',
             'items.*.specs_personalizacion'      => 'nullable|array',
@@ -339,8 +340,12 @@ class OrdenController extends Controller
         $quiereEntregaInmediata = $request->boolean('entrega_inmediata', false);
         $entregaInmediata       = ! $guardarBorrador && $quiereEntregaInmediata;
         if ($quiereEntregaInmediata) {
+            // El mueble único no estorba aquí: está hecho y está ahí, que es
+            // justo lo que pide una entrega inmediata. No tiene stock que
+            // descontar porque nunca hubo registro suyo.
             $tienePersonalizados = collect($data['items'])->contains(
-                fn($i) => ($i['es_personalizado'] ?? false) || empty($i['producto_id'])
+                fn($i) => ! ($i['producto_unico'] ?? false)
+                          && (($i['es_personalizado'] ?? false) || empty($i['producto_id']))
             );
             if ($tienePersonalizados) {
                 return response()->json([
@@ -408,6 +413,9 @@ class OrdenController extends Controller
             fn($i) => ($i['es_personalizado'] ?? false)
                       && (($i['precio_unitario'] ?? 0) == 0)
                       && ! ($i['es_regalo'] ?? false)
+                      // Un mueble que ya está hecho no tiene nada que cotizar:
+                      // su precio se pone al venderlo, no lo calcula el taller.
+                      && ! ($i['producto_unico'] ?? false)
         );
 
         if (! $guardarBorrador) {
@@ -521,6 +529,9 @@ class OrdenController extends Controller
             foreach ($data['items'] as $itemData) {
                 $esPersonalizado  = (bool) ($itemData['es_personalizado'] ?? false);
                 $esProductoCustom = empty($itemData['producto_id']); // no existe en catálogo
+                // Ya está hecho: no está en catálogo (así que no toca stock)
+                // pero tampoco hay nada que fabricar.
+                $esProductoUnico  = (bool) ($itemData['producto_unico'] ?? false);
 
                 $varianteId     = $itemData['variante_id']      ?? null;
                 $comboConfigId  = $itemData['combo_config_id']  ?? null;
@@ -552,6 +563,7 @@ class OrdenController extends Controller
                     'es_personalizado'      => $esPersonalizado || $esProductoCustom,
                     'fabricar_pedido'       => (bool) ($itemData['fabricar_pedido'] ?? false) && ! $esProductoCustom,
                     'es_restauracion'       => (bool) ($itemData['es_restauracion'] ?? false),
+                    'producto_unico'        => $esProductoUnico,
                     'es_regalo'             => (bool) ($itemData['es_regalo'] ?? false),
                     'specs_personalizacion' => $specsExtra,
                     'boceto_url'            => isset($itemData['boceto_urls'])
@@ -567,7 +579,12 @@ class OrdenController extends Controller
                     'fecha_entrega_prom'    => $fechaEntregaInicial,
                 ]);
 
-                if ($esPersonalizado || $esProductoCustom) {
+                // El mueble único cae aquí —no tiene stock que reservar— pero
+                // se queda sin producción: mandarlo al taller sería inventarle
+                // un trabajo a alguien sobre un mueble que ya está terminado.
+                if ($esProductoUnico) {
+                    // Nada que hacer: ni inventario ni taller.
+                } elseif ($esPersonalizado || $esProductoCustom) {
                     // Solo crear producción si la orden es confirmada, no si es borrador
                     if (! $guardarBorrador) {
                         Produccion::create([
@@ -1510,6 +1527,7 @@ class OrdenController extends Controller
             if (! empty($data['items_nuevos'])) {
                 foreach ($data['items_nuevos'] as $nuevoData) {
                     $esCustom        = empty($nuevoData['producto_id']);                 // diseño especial (fuera de catálogo)
+                    $esUnico         = (bool) ($nuevoData['producto_unico'] ?? false);   // ya hecho: ni stock ni taller
                     $esPersonalizado = (bool) ($nuevoData['es_personalizado'] ?? false) || $esCustom;
                     $fabricarPedido  = (bool) ($nuevoData['fabricar_pedido'] ?? false) && ! $esCustom;
                     $productoId      = $esCustom ? null : (int) $nuevoData['producto_id'];
@@ -1554,6 +1572,7 @@ class OrdenController extends Controller
                         'es_personalizado'      => $esPersonalizado,
                         'fabricar_pedido'       => $fabricarPedido,
                         'es_restauracion'       => (bool) ($nuevoData['es_restauracion'] ?? false),
+                        'producto_unico'        => $esUnico,
                         'es_regalo'             => (bool) ($nuevoData['es_regalo'] ?? false),
                         'tienda_origen_id'      => $esPersonalizado ? null : ($origenId !== (int) $orden->tienda_id ? $origenId : null),
                         'specs_personalizacion' => $nuevoData['specs_personalizacion'] ?? null,
@@ -1562,7 +1581,10 @@ class OrdenController extends Controller
                         'fecha_entrega_prom'    => $nuevoData['fecha_entrega_prom'] ?? null,
                     ]);
 
-                    if ($esPersonalizado) {
+                    if ($esUnico) {
+                        // Ya está hecho y no sale de inventario: no hay stock
+                        // que reservar ni trabajo que mandar al taller.
+                    } elseif ($esPersonalizado) {
                         // Ítem a producción: crear su registro (supervisor asigna fecha después).
                         Produccion::create([
                             'orden_item_id'    => $nuevoItem->id,
@@ -1939,8 +1961,11 @@ class OrdenController extends Controller
                     ->update(['fecha_entrega_prom' => $fechaBorrador]);
             }
 
-            // Crear registros de producción para los items personalizados del borrador
-            foreach ($orden->items->where('es_personalizado', true) as $item) {
+            // Crear registros de producción para los items personalizados del
+            // borrador. El mueble único queda fuera: ya está hecho, y darle
+            // producción al completar el borrador sería meterlo al taller por
+            // la puerta de atrás.
+            foreach ($orden->items->where('es_personalizado', true)->where('producto_unico', false) as $item) {
                 if (! $item->produccion) {
                     Produccion::create([
                         'orden_item_id'    => $item->id,
@@ -1994,7 +2019,7 @@ class OrdenController extends Controller
         // normal, esperando un despacho que nunca iba a pasar.
         if ($orden->entrega_inmediata && $ordenFresh->estado === 'pendiente_anticipo') {
             $tienePersonalizados = $orden->items->contains(
-                fn ($i) => $i->es_personalizado || ! $i->producto_id
+                fn ($i) => ! $i->producto_unico && ($i->es_personalizado || ! $i->producto_id)
             );
 
             if ($tienePersonalizados) {

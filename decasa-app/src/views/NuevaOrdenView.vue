@@ -439,7 +439,9 @@ function agregarItemRestauracion() {
 
 // Producto no catalogado
 const modoProductoCustom = ref(false)
-const productoCustomForm = ref({ nombre: '', categoria: '', precio_unitario: 0, cantidad: 1 })
+// `unico` = el mueble ya está hecho y solo hay uno. No está en el catálogo
+// —no paga meterlo, porque no se va a fabricar más— pero tampoco va al taller.
+const productoCustomForm = ref({ nombre: '', categoria: '', precio_unitario: 0, cantidad: 1, unico: false })
 
 // ── Crear producto nuevo desde la orden ───────────────────────────────────────
 const busquedaHecha        = ref(false)
@@ -568,7 +570,10 @@ function agregarProductoCustom() {
     personalizable: false,
     cantidad: f.cantidad,
     precio_unitario: f.precio_unitario,
+    // Sigue siendo personalizado —no sale de inventario, porque no hay
+    // registro suyo—; lo que cambia es que el único no genera producción.
     es_personalizado: true,
+    _producto_unico: f.unico,
     specs: {},
     specs_notas: '',
     tienda_origen: null,
@@ -583,7 +588,7 @@ function agregarProductoCustom() {
     _precioReferencia:   null,
     _telaSelections:     {},
   })
-  productoCustomForm.value = { nombre: '', categoria: '', precio_unitario: 0, cantidad: 1 }
+  productoCustomForm.value = { nombre: '', categoria: '', precio_unitario: 0, cantidad: 1, unico: false }
   modoProductoCustom.value = false
 }
 
@@ -1616,10 +1621,11 @@ const hayItemsCotizar = computed(() =>
   items.value.some(i => i._cotizarPrecio)
 )
 
-// Venta directa solo aplica si todos los ítems son de inventario (nada
-// personalizado, diseño especial ni para fabricar).
+// Venta directa solo aplica si todos los ítems están hechos y se pueden
+// entregar ya: los de inventario, y el mueble único, que está en el local
+// aunque no tenga registro de stock.
 const puedeEntregaInmediata = computed(() =>
-  items.value.length > 0 && items.value.every(i => !i.es_personalizado)
+  items.value.length > 0 && items.value.every(i => !i.es_personalizado || i._producto_unico)
 )
 
 // Si el carrito deja de ser 100% inventario, se apaga la venta directa.
@@ -1809,6 +1815,8 @@ async function submit() {
         es_personalizado:        i.es_personalizado,
         fabricar_pedido:         i._fabricar_pedido || undefined,
         es_restauracion:         i._es_restauracion || undefined,
+        // Ya está hecho: el backend lo guarda sin crearle producción.
+        producto_unico:          i._producto_unico || undefined,
         // El obsequio se manda, no se deduce del precio: en $0 tambien esta
         // lo que todavia espera cotizacion, y son cosas distintas.
         es_regalo:               i._regalo || undefined,
@@ -1950,6 +1958,7 @@ async function submitCotizacion() {
         precio_unitario:       precioEfectivo(i),
         es_personalizado:      i.es_personalizado,
         fabricar_pedido:       i._fabricar_pedido || undefined,
+        producto_unico:        i._producto_unico || undefined,
         specs_personalizacion: i.es_personalizado
           ? (() => {
               const s = { ...i.specs }
@@ -2721,17 +2730,39 @@ function removeFacturaFoto() {
           + Producto no está en el catálogo
         </button>
 
-        <div v-else class="bg-purple-50 border border-purple-200 rounded-xl p-4 space-y-3">
+        <div
+          :class="['border rounded-xl p-4 space-y-3',
+            productoCustomForm.unico ? 'bg-emerald-50 border-emerald-200' : 'bg-purple-50 border-purple-200']"
+          v-else
+        >
           <div class="flex items-center justify-between">
-            <p class="text-sm font-semibold text-purple-800">Producto personalizado</p>
+            <p :class="['text-sm font-semibold', productoCustomForm.unico ? 'text-emerald-800' : 'text-purple-800']">
+              {{ productoCustomForm.unico ? 'Mueble único — ya está hecho' : 'Producto personalizado' }}
+            </p>
             <button @click="modoProductoCustom = false" class="text-purple-400 hover:text-purple-600">
               <XMarkIcon class="w-4 h-4" />
             </button>
           </div>
+
+          <!-- Modelos que salieron una sola vez: no paga meterlos al catálogo
+               ni al inventario, pero tampoco pueden irse al taller, porque el
+               mueble ya está terminado y no se va a fabricar otro. -->
+          <label class="flex items-center gap-2.5 cursor-pointer select-none">
+            <div
+              @click="productoCustomForm.unico = !productoCustomForm.unico"
+              :class="['w-10 h-5 rounded-full transition-colors relative flex-shrink-0', productoCustomForm.unico ? 'bg-emerald-500' : 'bg-gray-300']"
+            >
+              <div :class="['absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform', productoCustomForm.unico ? 'translate-x-5' : 'translate-x-0.5']" />
+            </div>
+            <span class="text-xs text-gray-600">
+              Ya lo tenemos hecho — <span class="font-medium">no va a producción</span>
+            </span>
+          </label>
+
           <input
             v-model="productoCustomForm.nombre"
             class="input text-sm"
-            placeholder="Nombre del producto *"
+            :placeholder="productoCustomForm.unico ? 'Nombre del mueble *' : 'Nombre del producto *'"
           />
           <input
             v-model="productoCustomForm.categoria"
@@ -2744,7 +2775,11 @@ function removeFacturaFoto() {
               <input v-model.number="productoCustomForm.cantidad" type="number" min="1" class="input text-sm" />
             </div>
           </div>
-          <p class="text-xs text-amber-600">El precio se define después con el cotizador IA o manualmente.</p>
+          <p v-if="productoCustomForm.unico" class="text-xs text-emerald-700">
+            No entra al catálogo ni al inventario, y el taller no lo ve. Le pones
+            el precio y las fotos abajo, en el carrito.
+          </p>
+          <p v-else class="text-xs text-amber-600">El precio se define después con el cotizador IA o manualmente.</p>
           <div class="flex gap-2">
             <button @click="modoProductoCustom = false" class="btn-secondary flex-1 text-sm">Cancelar</button>
             <button
@@ -2965,6 +3000,10 @@ function removeFacturaFoto() {
                   class="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full text-xs font-semibold">
                   🔨 Para fabricar
                 </span>
+                <span v-else-if="item._producto_unico"
+                  class="bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full text-xs font-semibold">
+                  🏷️ Único — ya hecho
+                </span>
                 <span v-else-if="item.producto_id === null && item.es_personalizado"
                   class="bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full text-xs font-semibold">
                   ✏️ Diseño especial
@@ -3103,9 +3142,10 @@ function removeFacturaFoto() {
             </div>
           </div>
 
-          <!-- Toggle consultar precio — para cualquier ítem personalizado -->
+          <!-- Toggle consultar precio — para cualquier ítem personalizado.
+               El mueble único no: no hay nada que cotizar, ya está hecho. -->
           <label
-            v-if="item.es_personalizado && !item._regalo"
+            v-if="item.es_personalizado && !item._regalo && !item._producto_unico"
             class="flex items-center gap-2.5 cursor-pointer select-none mt-0.5"
           >
             <div
@@ -3121,11 +3161,12 @@ function removeFacturaFoto() {
 
           <!-- Advertencia precio vacío — solo si no está en modo cotizar -->
           <p v-if="item.es_personalizado && !item._fabricar_pedido && !item.precio_unitario && !item._cotizarPrecio && !item._regalo" class="text-xs text-amber-600 mt-0.5">
-            Sin precio — usa el cotizador IA o ingrésalo manualmente
+            {{ item._producto_unico ? 'Ponle el precio de venta' : 'Sin precio — usa el cotizador IA o ingrésalo manualmente' }}
           </p>
 
-          <!-- Personalizado flag — oculto para fabricar bajo pedido -->
-          <label v-if="!item._es_restauracion && !item._fabricar_pedido" :class="['flex items-center gap-2 text-sm text-gray-600', item.producto_id === null ? 'opacity-60 cursor-default' : 'cursor-pointer']">
+          <!-- Personalizado flag — oculto para fabricar bajo pedido y para el
+               mueble único, que no es algo que se vaya a personalizar. -->
+          <label v-if="!item._es_restauracion && !item._fabricar_pedido && !item._producto_unico" :class="['flex items-center gap-2 text-sm text-gray-600', item.producto_id === null ? 'opacity-60 cursor-default' : 'cursor-pointer']">
             <input
               type="checkbox"
               :checked="item.es_personalizado"
@@ -3198,8 +3239,11 @@ function removeFacturaFoto() {
             </div>
           </template>
 
-          <!-- ── Personalización de producto NUEVO (sin catálogo): form completo ── -->
-          <template v-else-if="item.es_personalizado && !item.producto_id && !item._es_restauracion">
+          <!-- ── Personalización de producto NUEVO (sin catálogo): form completo ──
+               El mueble único queda fuera: sus especificaciones son las que
+               tenga el mueble que ya está en el local, no algo que se le pida
+               al taller. -->
+          <template v-else-if="item.es_personalizado && !item.producto_id && !item._es_restauracion && !item._producto_unico">
             <div class="space-y-2">
               <p class="text-xs font-semibold text-purple-700">
                 Especificaciones — {{ getTemplate(item).titulo }}
@@ -3246,7 +3290,10 @@ function removeFacturaFoto() {
             <!-- Modo venta: boceto + fotos adicionales -->
             <div v-if="!item._es_restauracion" class="space-y-1.5">
               <p class="text-xs font-medium text-purple-700">
-                Boceto / Fotos
+                <!-- Del mueble único no hay foto en ninguna parte, porque no
+                     está en el catálogo: la de aquí es la que le dice a quien
+                     despacha cuál es, y la que queda en el acta. -->
+                {{ item._producto_unico ? 'Fotos del mueble' : 'Boceto / Fotos' }}
                 <span class="text-gray-400 font-normal">(opcional)</span>
               </p>
 
@@ -3269,9 +3316,10 @@ function removeFacturaFoto() {
                 </div>
               </div>
 
-              <!-- Canvas de boceto cuando no hay foto en el slot 0 -->
+              <!-- Canvas de boceto cuando no hay foto en el slot 0. No para el
+                   mueble único: no hay nada que dibujarle a alguien, existe. -->
               <BocetoCanvas
-                v-if="!item.boceto_previews[0]"
+                v-if="!item.boceto_previews[0] && !item._producto_unico"
                 :modelValue="item.boceto_blobs[0] ?? null"
                 @update:modelValue="onBocetoUpdate(item, $event)"
               />
@@ -3342,8 +3390,9 @@ function removeFacturaFoto() {
 
           </template>
 
-          <!-- Cotizador de precio con IA -->
-          <div v-if="item.es_personalizado">
+          <!-- Cotizador de precio con IA. El mueble único no lo lleva: no se
+               estima lo que cuesta fabricar algo que ya está fabricado. -->
+          <div v-if="item.es_personalizado && !item._producto_unico">
             <button
               type="button"
               @click="item._mostrarCalculadora = !item._mostrarCalculadora"
