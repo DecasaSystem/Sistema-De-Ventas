@@ -88,8 +88,21 @@ function sinCubrir(obj) {
   if (!separaRestauraciones.value) return conAcceso.length ? [] : ['ambas']
 
   return ['normal', 'restauracion'].filter(linea =>
-    !conAcceso.some(w => [linea, 'ambas'].includes(obj._lineas?.[w.id] ?? 'ambas'))
+    !conAcceso.some(w => [linea, 'ambas'].includes(lineaDe(obj, w.id)))
   )
+}
+
+/**
+ * La línea de una persona en este proceso.
+ *
+ * Cae a lo que vino del servidor si el mapa de la pantalla todavía no está
+ * armado. Sin ese respaldo, guardar sin haber normalizado mandaría a todo el
+ * mundo a "las dos" y borraría el reparto en silencio.
+ */
+function lineaDe(obj, id) {
+  return obj._lineas?.[id]
+    ?? (obj.lineas ?? []).find(l => l.usuario_id === id)?.linea
+    ?? 'ambas'
 }
 
 function nadieAsignado(obj) {
@@ -100,7 +113,7 @@ function nadieAsignado(obj) {
 function trabajadoresParaGuardar(obj) {
   return (obj.trabajador_ids ?? []).map(id => ({
     id,
-    linea: obj._lineas?.[id] ?? 'ambas',
+    linea: lineaDe(obj, id),
   }))
 }
 
