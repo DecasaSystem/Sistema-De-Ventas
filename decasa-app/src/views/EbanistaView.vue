@@ -8,6 +8,7 @@ import { CheckCircleIcon, WrenchScrewdriverIcon, ClockIcon, ArrowTopRightOnSquar
 import { getMisPasos, completarPaso, getHistorialPasos, devolverPaso, asignarTrabajadoresPaso } from '@/api/produccion'
 import { useToast } from '@/composables/useToast'
 import { formatoDuracion } from '@/utils/duracion'
+import { sinPerderElSitio } from '@/utils/scroll'
 import { useRealtime } from '@/composables/useRealtime'
 import { usePasosStore } from '@/stores/pasos'
 import EmptyState from '@/components/common/EmptyState.vue'
@@ -70,7 +71,7 @@ async function confirmarDevolver() {
     })
     mostrarModalDevolver.value = false
     toast.success('Paso devuelto para corrección.')
-    await cargar()
+    await sinPerderElSitio(cargar)
   } catch (e) {
     toast.error(e.response?.data?.message ?? 'Error al devolver el paso.')
   } finally {
@@ -89,7 +90,10 @@ const PROCESO_COLOR = {
 }
 
 async function cargar() {
-  loading.value = true
+  // El spinner solo si no hay nada en pantalla. Al recargar por un aviso del
+  // taller la lista no se oculta: si se ocultara, la página se quedaría sin
+  // altura y el navegador te devolvería al principio.
+  if (! pasos.value.length) loading.value = true
   try {
     const { data } = await getMisPasos()
     pasos.value = Array.isArray(data) ? data : []
@@ -137,7 +141,9 @@ async function guardarTrabajadores(trabajadores) {
       toast.success('Trabajadores asignados.')
     }
     mostrarModal.value = false
-    await Promise.all([cargar(), cargarHistorial()])
+    // Quien tiene varios pasos abiertos suele estar a media pantalla: cerrar
+    // uno no debe devolverlo al principio para buscar el siguiente.
+    await sinPerderElSitio(() => Promise.all([cargar(), cargarHistorial()]))
   } catch (e) {
     toast.error(e.response?.data?.message ?? 'No se pudo guardar.')
   } finally {
@@ -187,7 +193,8 @@ const { listen } = useRealtime()
 onMounted(async () => {
   cargarTipos()   // nombres y colores de los procesos
   await Promise.all([cargar(), cargarHistorial()])
-  listen('produccion', 'produccion.actualizada', cargar)
+  // Sin sacar de su sitio a quien esté mirando otro paso más abajo.
+  listen('produccion', 'produccion.actualizada', () => sinPerderElSitio(cargar))
 })
 </script>
 

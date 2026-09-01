@@ -17,6 +17,7 @@ import {
   TableCellsIcon,
 } from '@heroicons/vue/24/outline'
 import { getProduccion, updateProduccion } from '@/api/produccion'
+import { sinPerderElSitio, tamanoParaRecargar } from '@/utils/scroll'
 import { formatoDuracion } from '@/utils/duracion'
 import { exportarExcel } from '@/utils/exportarExcel'
 import { useToast } from '@/composables/useToast'
@@ -212,22 +213,33 @@ async function toggleFijada(p) {
   try {
     if (antes) await quitarFijada(ordenId)
     else       await fijarOrden(ordenId)
-    await fetchProduccion(1, false)
+    await refrescarEnElSitio()
   } catch {
     p.fijada = antes
     toast.error('No se pudo cambiar la fijacion.')
   }
 }
 
-async function fetchProduccion(page = 1, append = false) {
-  if (page === 1) {
+/**
+ * @param {number}  page     Página a pedir.
+ * @param {boolean} append   Sumar al final (scroll infinito) o reemplazar.
+ * @param {number}  porPagina  Cuántos traer; más de 20 sirve para rehacer de
+ *   una sola vez lo que el usuario ya había bajado.
+ */
+async function fetchProduccion(page = 1, append = false, porPagina = 20) {
+  // El spinner de pantalla completa solo cuando no hay nada que mostrar. Si
+  // se pusiera siempre, la lista desaparecería un instante, la página se
+  // quedaría sin altura y el navegador devolvería el scroll a cero: es lo que
+  // te sacaba del sitio cada vez que guardabas algo.
+  if (page === 1 && ! producciones.value.length) {
     loading.value = true
-  } else {
+  } else if (page > 1) {
     loadingMore.value = true
   }
 
   try {
     const params = { page }
+    if (porPagina !== 20) params.per_page = porPagina
     if (filtros.value.estado) params.estado = filtros.value.estado
     if (filtros.value.tienda_id) params.tienda_id = filtros.value.tienda_id
     if (busqueda.value) params.search = busqueda.value
@@ -245,13 +257,29 @@ async function fetchProduccion(page = 1, append = false) {
     }
 
     hasMore.value = data.current_page < data.last_page
-    currentPage.value = data.current_page
+    // Al pedir varias páginas de golpe, la "página actual" pasa a ser la
+    // última que ya se tiene; si no, el scroll infinito volvería a pedir las
+    // que acaba de traer.
+    currentPage.value = Math.ceil(producciones.value.length / 20) || 1
   } catch {
-    if (page === 1) producciones.value = []
+    if (page === 1 && ! producciones.value.length) producciones.value = []
   } finally {
     loading.value = false
     loadingMore.value = false
   }
+}
+
+/**
+ * Volver a pedir la lista dejando la pantalla donde estaba.
+ *
+ * Se piden de una vez todas las páginas que el usuario ya había bajado: si se
+ * le devolvieran solo las primeras 20, el sitio donde iba dejaría de existir.
+ */
+async function refrescarEnElSitio() {
+  await sinPerderElSitio(() =>
+    fetchProduccion(1, false, tamanoParaRecargar(currentPage.value))
+  )
+  setupObserver()
 }
 
 function setupObserver() {
@@ -308,10 +336,26 @@ async function guardarEstado() {
     if (nuevoEstado.value === 'en_proceso') {
       data.pasos = pasosSeleccionados.value
     }
-    await updateProduccion(produccionSeleccionada.value.id, data)
+    const { data: actualizada } = await updateProduccion(produccionSeleccionada.value.id, data)
     mostrarModal.value = false
-    await fetchProduccion(1, false)
-    setupObserver()
+
+    // Se retoca la fila en su sitio en vez de recargar la lista entera. Antes
+    // se volvía a pedir todo, y quien había bajado a buscar una pieza acababa
+    // arriba del todo y tenía que volver a bajar. Solo se copia lo que el
+    // guardado pudo cambiar: el resto de la tarjeta —el vendedor, la marca de
+    // fijada— no viene en esta respuesta y se perdería.
+    const fila = producciones.value.find(p => p.id === produccionSeleccionada.value.id)
+    if (fila && actualizada) {
+      Object.assign(fila, {
+        estado:          actualizada.estado,
+        pasos:           actualizada.pasos ?? fila.pasos,
+        fecha_real:      actualizada.fecha_real,
+        motivo_retraso:  actualizada.motivo_retraso,
+        dias_restantes:  actualizada.dias_restantes ?? fila.dias_restantes,
+      })
+    } else {
+      await refrescarEnElSitio()
+    }
   } catch (e) {
     toast.error(e.response?.data?.message ?? 'Error al actualizar el estado.')
   } finally {
@@ -555,10 +599,9 @@ onMounted(async () => {
   await fetchProduccion(1, false)
   setupObserver()
 
-  listen('produccion', 'produccion.actualizada', () => {
-    fetchProduccion(1, false)
-    setupObserver()
-  })
+  // Un cambio de otra persona no puede sacarte de donde estabas mirando: se
+  // refresca por debajo y la pantalla se queda donde está.
+  listen('produccion', 'produccion.actualizada', () => refrescarEnElSitio())
 })
 
 onUnmounted(() => {

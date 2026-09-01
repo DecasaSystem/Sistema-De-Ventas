@@ -91,7 +91,9 @@ class ProduccionController extends Controller
                   ->orderByRaw("FIELD(estado, 'pendiente', 'retrasado', 'en_proceso', 'pendiente_despachador', 'listo', 'entregado')")
                   ->orderBy('fecha_compromiso');
             })
-            ->paginate(20)
+            // Como en órdenes: se puede pedir más de una página de golpe para
+            // que al recargar no se pierda lo que ya se había bajado.
+            ->paginate(min((int) $request->query('per_page', 20) ?: 20, 200))
             ->through(function ($p) {
                 $p = $this->conDiasRestantes($p);
                 $p->fijada = (bool) $p->fijada;

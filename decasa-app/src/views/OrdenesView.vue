@@ -10,6 +10,7 @@ import { getOrdenes, getTiendas, fijarOrden, quitarFijada } from '@/api/ordenes'
 import { useRealtime } from '@/composables/useRealtime'
 import { useToast } from '@/composables/useToast'
 import { exportarExcel } from '@/utils/exportarExcel'
+import { sinPerderElSitio, tamanoParaRecargar } from '@/utils/scroll'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
@@ -101,15 +102,23 @@ async function loadTiendas() {
   } catch {}
 }
 
-async function fetchOrdenes(page = 1, append = false) {
-  if (page === 1) {
+/**
+ * @param {number}  porPagina  Cuántas traer; más de 20 sirve para rehacer de
+ *   una vez lo que el usuario ya había bajado con el scroll.
+ */
+async function fetchOrdenes(page = 1, append = false, porPagina = 20) {
+  // Sin lista que mostrar, el spinner. Con lista, se recarga por debajo: si se
+  // ocultara, la página se quedaría sin altura y el navegador devolvería el
+  // scroll a cero.
+  if (page === 1 && ! ordenes.value.length) {
     loading.value = true
-  } else {
+  } else if (page > 1) {
     loadingMore.value = true
   }
 
   try {
     const params = { page }
+    if (porPagina !== 20) params.per_page = porPagina
     if (filtros.value.estado) params.estado = filtros.value.estado
     if (filtros.value.tienda_id) params.tienda_id = filtros.value.tienda_id
     if (filtros.value.desde) params.desde = filtros.value.desde
@@ -130,13 +139,28 @@ async function fetchOrdenes(page = 1, append = false) {
     }
 
     hasMore.value = data.current_page < data.last_page
-    currentPage.value = data.current_page
+    // Con varias páginas de golpe, la actual es la última que ya se tiene: si
+    // no, el scroll infinito volvería a pedir las que acaba de traer.
+    currentPage.value = Math.ceil(ordenes.value.length / 20) || 1
   } catch (e) {
-    if (page === 1) ordenes.value = []
+    if (page === 1 && ! ordenes.value.length) ordenes.value = []
   } finally {
     loading.value = false
     loadingMore.value = false
   }
+}
+
+/**
+ * Volver a pedir la lista sin sacar al usuario de donde estaba.
+ *
+ * Se piden todas las páginas que ya había bajado: devolverle solo las primeras
+ * 20 haría desaparecer el sitio donde iba.
+ */
+async function refrescarEnElSitio() {
+  await sinPerderElSitio(() =>
+    fetchOrdenes(1, false, tamanoParaRecargar(currentPage.value))
+  )
+  setupObserver()
 }
 
 function applyFilters() {
@@ -254,8 +278,9 @@ async function toggleFijada(o) {
   try {
     if (antes) await quitarFijada(o.id)
     else       await fijarOrden(o.id)
-    currentPage.value = 1
-    await fetchOrdenes(1, false)
+    // La orden sube arriba, pero la pantalla se queda donde estaba: fijar algo
+    // no es motivo para mandar al usuario al principio de la lista.
+    await refrescarEnElSitio()
   } catch {
     o.fijada = antes
     toast.error('No se pudo cambiar la fijacion.')
@@ -308,9 +333,14 @@ onMounted(async () => {
     filtros.value     = { ...dondeIba.filtros }
     busqueda.value    = dondeIba.busqueda
     loading.value     = false
+    // Dos pasadas: con una sola, el navegador todavía no ha medido las
+    // tarjetas y recorta el salto a la altura que tenía la página vacía.
     const y = dondeIba.scrollY
     await nextTick()
-    window.scrollTo({ top: y, behavior: 'instant' })
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: y, behavior: 'instant' })
+      requestAnimationFrame(() => window.scrollTo({ top: y, behavior: 'instant' }))
+    })
   } else {
     dondeIba = null
     await fetchOrdenes(1, false)
@@ -318,10 +348,9 @@ onMounted(async () => {
 
   setupObserver()
 
-  listen('ordenes', 'orden.actualizada', () => {
-    fetchOrdenes(1, false)
-    setupObserver()
-  })
+  // Que otra persona mueva una orden no puede mandarte al principio de la
+  // lista mientras estás mirando: se refresca por debajo, sin moverte.
+  listen('ordenes', 'orden.actualizada', () => refrescarEnElSitio())
 })
 
 onUnmounted(() => {

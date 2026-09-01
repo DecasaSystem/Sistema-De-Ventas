@@ -173,7 +173,10 @@ class OrdenController extends Controller
                   // `created_at` caería al fondo y nadie lo vería.
                   ->orderByRaw('COALESCE(confirmada_en, created_at) DESC');
             })
-            ->paginate(20);
+            // La página normal son 20. Se deja pedir más para que quien ya
+            // había bajado por la lista pueda recargarla entera de una: si se
+            // le devolvieran solo las primeras 20, perdería el sitio donde iba.
+            ->paginate(min((int) $request->query('per_page', 20) ?: 20, 200));
 
         $hoy = now()->startOfDay();
 
