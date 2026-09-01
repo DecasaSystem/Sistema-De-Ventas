@@ -109,9 +109,7 @@ class ProduccionController extends Controller
     {
         $usuario = $request->user();
 
-        $tiposProceso = $this->tiposParaRol($usuario);
-
-        if (empty($tiposProceso)) {
+        if (empty($usuario->procesosQuePuedeTrabajar())) {
             return response()->json(['message' => 'Sin acceso a pasos de producción.'], 403);
         }
 
@@ -123,7 +121,7 @@ class ProduccionController extends Controller
             'produccion.pasos.participantes.usuario:id,nombre',
             'participantes.usuario:id,nombre',
         ])
-        ->whereIn('tipo_proceso', $tiposProceso)
+        ->tap(fn ($q) => $this->soloSusPasos($q, $usuario))
         ->where('estado', 'en_proceso')
         // Y que la pieza siga viva. Mirar solo el estado del paso hacía que una
         // pieza cancelada siguiera apareciéndole al ebanista como trabajo
@@ -143,9 +141,8 @@ class ProduccionController extends Controller
     public function historialPasos(Request $request)
     {
         $usuario = $request->user();
-        $tiposProceso = $this->tiposParaRol($usuario);
 
-        if (empty($tiposProceso)) {
+        if (empty($usuario->procesosQuePuedeTrabajar())) {
             return response()->json(['message' => 'Sin acceso a pasos de producción.'], 403);
         }
 
@@ -156,7 +153,7 @@ class ProduccionController extends Controller
             'produccion.ordenItem.orden.tienda:id,nombre',
             'participantes.usuario:id,nombre',
         ])
-        ->whereIn('tipo_proceso', $tiposProceso)
+        ->tap(fn ($q) => $this->soloSusPasos($q, $usuario))
         ->where('estado', 'completado')
         ->where('completado_por', $usuario->id)
         ->orderByDesc('completado_at')
@@ -175,10 +172,11 @@ class ProduccionController extends Controller
         $usuario = $request->user();
         $paso    = ProduccionPaso::with('produccion.ordenItem.orden')->findOrFail($id);
 
-        // Verificar que el usuario puede completar este tipo de paso
-        $tiposPermitidos = $this->tiposParaRol($usuario);
-        if (! in_array($paso->tipo_proceso, $tiposPermitidos)) {
-            return response()->json(['message' => 'No autorizado para este proceso.'], 403);
+        // Verificar que el usuario puede completar este tipo de paso, en la
+        // línea de esta pieza: si el taller lleva las restauraciones aparte,
+        // el encargado de lo nuevo no cierra el tapizado de una restauración.
+        if (! $this->puedeTrabajar($usuario, $paso)) {
+            return response()->json(['message' => $this->porQueNoPuede($paso)], 403);
         }
 
         if ($paso->estado === 'completado') {
@@ -240,7 +238,7 @@ class ProduccionController extends Controller
             }
 
             // Notificar trabajadores del siguiente paso
-            $this->notificarTrabajadores($siguientePaso->tipo_proceso, $produccion->id, $orden->id, $productoNombre);
+            $this->notificarTrabajadores($siguientePaso->tipo_proceso, $siguientePaso->linea, $produccion->id, $orden->id, $productoNombre);
 
             // Notificar al vendedor sobre el cambio de etapa
             NotificacionService::crear(
@@ -282,8 +280,8 @@ class ProduccionController extends Controller
         // cualquier producción. Se pide lo mismo que para completar: poder
         // trabajar el paso desde el que se devuelve. La pantalla ya lo usa así
         // (solo se devuelve desde un paso propio), así que no cambia el flujo.
-        if (! in_array($pasoOrigen->tipo_proceso, $this->tiposParaRol($usuario))) {
-            return response()->json(['message' => 'No autorizado para este proceso.'], 403);
+        if (! $this->puedeTrabajar($usuario, $pasoOrigen)) {
+            return response()->json(['message' => $this->porQueNoPuede($pasoOrigen)], 403);
         }
 
         // Validaciones
@@ -332,6 +330,7 @@ class ProduccionController extends Controller
         // Notificar a los trabajadores del paso devuelto
         $this->notificarTrabajadores(
             $pasoDestino->tipo_proceso,
+            $pasoDestino->linea,
             $produccion->id,
             $orden->id,
             $productoNombre
@@ -519,10 +518,16 @@ class ProduccionController extends Controller
                 'orden'        => (int) $delTaller->max('orden') + 1,
             ]);
 
+            // De qué es la pieza se decide UNA vez, aquí, y queda escrito en
+            // cada paso: es lo que después reparte el trabajo entre el
+            // encargado de restauraciones y el de lo nuevo.
+            $linea = TipoProceso::lineaDe((bool) $produccion->ordenItem->es_restauracion);
+
             foreach ($pasosOrdenados as $paso) {
                 ProduccionPaso::create([
                     'produccion_id' => $produccion->id,
                     'tipo_proceso'  => $paso['tipo_proceso'],
+                    'linea'         => $linea,
                     'orden'         => $paso['orden'],
                     'estado'        => 'pendiente',
                 ]);
@@ -540,7 +545,7 @@ class ProduccionController extends Controller
                 $labelPaso      = ProduccionPaso::labelProceso($primerPaso->tipo_proceso);
                 $vendedorId     = $produccion->ordenItem->orden->vendedor_id;
 
-                $this->notificarTrabajadores($primerPaso->tipo_proceso, $produccion->id, $produccion->ordenItem->orden->id, $productoNombre);
+                $this->notificarTrabajadores($primerPaso->tipo_proceso, $primerPaso->linea, $produccion->id, $produccion->ordenItem->orden->id, $productoNombre);
 
                 // Notificar al vendedor: producción iniciada
                 NotificacionService::crear(
@@ -659,6 +664,11 @@ class ProduccionController extends Controller
     public function trabajadores(Request $request)
     {
         $proceso = $request->query('proceso');
+        // La línea del paso, para que "del proceso" signifique lo mismo que en
+        // "Mis pasos": en una restauración salen primero sus encargados.
+        $linea   = in_array($request->query('linea'), TipoProceso::LINEAS, true)
+            ? $request->query('linea')
+            : null;
 
         $usuarios = Usuario::where('activo', true)->aptoProduccion()
             ->with('rolAsignado:id,nombre')
@@ -666,14 +676,14 @@ class ProduccionController extends Controller
             ->get();
 
         return response()->json(
-            $usuarios->map(function (Usuario $u) use ($proceso) {
+            $usuarios->map(function (Usuario $u) use ($proceso, $linea) {
                 $d = $u->desempenoTaller();
 
                 return [
                     'id'               => $u->id,
                     'nombre'           => $u->nombre,
                     'rol'              => $u->rolAsignado?->nombre ?? $u->rol,
-                    'del_proceso'      => $proceso ? in_array($proceso, $u->procesosQuePuedeTrabajar(), true) : false,
+                    'del_proceso'      => $proceso ? in_array($proceso, $u->procesosQuePuedeTrabajar($linea), true) : false,
                     'calidad_promedio' => $d['calidad_promedio'],
                     'calificaciones'   => $d['calificaciones'],
                     'pasos'            => $d['pasos'],
@@ -706,9 +716,8 @@ class ProduccionController extends Controller
         // El encargado del paso, o quien gestione el taller. Antes se pedía ser
         // supervisor, y eso dejaba fuera a cualquier otro rol al que se le
         // hubiera activado el permiso.
-        if (! in_array($paso->tipo_proceso, $this->tiposParaRol($usuario))
-            && ! $usuario->gestionaProduccion()) {
-            return response()->json(['message' => 'No autorizado para este proceso.'], 403);
+        if (! $this->puedeTrabajar($usuario, $paso) && ! $usuario->gestionaProduccion()) {
+            return response()->json(['message' => $this->porQueNoPuede($paso)], 403);
         }
 
         if ($paso->estado === 'completado') {
@@ -885,16 +894,49 @@ class ProduccionController extends Controller
         ])->values()->all();
     }
 
-    private function tiposParaRol(Usuario $usuario): array
+    /**
+     * ¿Este paso es trabajo de esta persona?
+     *
+     * El proceso y la línea van juntos siempre: son las dos mitades de la
+     * misma pregunta, y separarlas es lo que dejaría a "Mis pasos" mostrando
+     * algo que luego no se puede cerrar.
+     */
+    private function puedeTrabajar(Usuario $usuario, ProduccionPaso $paso): bool
     {
-        // Que procesos toca cada quien sale de su especialidad MAS lo que se
-        // le haya asignado a dedo. La regla vive en el modelo para que
-        // "Mis pasos", el permiso de completar y las notificaciones no
-        // puedan quedar diciendo cosas distintas.
-        return $usuario->procesosQuePuedeTrabajar();
+        return in_array(
+            $paso->tipo_proceso,
+            $usuario->procesosQuePuedeTrabajar($paso->linea),
+            true,
+        );
     }
 
-    private function notificarTrabajadores(string $tipoProceso, int $produccionId, int $ordenId, string $productoNombre): void
+    /** Un "no autorizado" que explique cuál de las dos cosas falló. */
+    private function porQueNoPuede(ProduccionPaso $paso): string
+    {
+        if (TipoProceso::separaRestauraciones() && $paso->esRestauracion()) {
+            return 'Este paso es de una restauración y las lleva otro encargado.';
+        }
+
+        return 'No autorizado para este proceso.';
+    }
+
+    /** Los pasos que le tocan: su proceso y, si se separan, su línea. */
+    private function soloSusPasos($query, Usuario $usuario)
+    {
+        if (! TipoProceso::separaRestauraciones()) {
+            return $query->whereIn('tipo_proceso', $usuario->procesosQuePuedeTrabajar());
+        }
+
+        return $query->where(function ($q) use ($usuario) {
+            foreach (TipoProceso::LINEAS as $linea) {
+                $q->orWhere(fn ($sub) => $sub
+                    ->where('linea', $linea)
+                    ->whereIn('tipo_proceso', $usuario->procesosQuePuedeTrabajar($linea)));
+            }
+        });
+    }
+
+    private function notificarTrabajadores(string $tipoProceso, string $linea, int $produccionId, int $ordenId, string $productoNombre): void
     {
         $label = ProduccionPaso::labelProceso($tipoProceso);
 
@@ -903,7 +945,17 @@ class ProduccionController extends Controller
         // además con el "perfil" de la persona, que era lo que obligaba a
         // darle un rol de taller a quien solo estaba encargado de un paso.
         $usuariosANotificar = Usuario::where('activo', true)->usaElPrograma()->aptoProduccion()
-            ->whereHas('procesosAsignados', fn ($p) => $p->where('clave', $tipoProceso))
+            ->whereHas('procesosAsignados', function ($p) use ($tipoProceso, $linea) {
+                $p->where('clave', $tipoProceso);
+                // Y en la línea de la pieza: avisarle al encargado de lo nuevo
+                // de una restauración que no va a poder tocar es ruido.
+                if (TipoProceso::separaRestauraciones()) {
+                    // Sobre la tabla pivote a mano: dentro de un whereHas el
+                    // callback trae un Builder normal, no la relación, así que
+                    // wherePivotIn no existe aquí.
+                    $p->whereIn('proceso_trabajadores.linea', [TipoProceso::LINEA_AMBAS, $linea]);
+                }
+            })
             ->get();
 
         foreach ($usuariosANotificar->unique('id') as $trabajador) {

@@ -20,6 +20,9 @@ class ProduccionPaso extends Model
     protected $fillable = [
         'produccion_id',
         'tipo_proceso',
+        // De qué es la pieza: restauración o mueble nuevo. Se copia al armar el
+        // flujo; ver TipoProceso::LINEA_*.
+        'linea',
         'orden',
         'estado',
         'iniciado_at',
@@ -45,6 +48,11 @@ class ProduccionPaso extends Model
     public function produccion()
     {
         return $this->belongsTo(Produccion::class, 'produccion_id');
+    }
+
+    public function esRestauracion(): bool
+    {
+        return $this->linea === TipoProceso::LINEA_RESTAURACION;
     }
 
     /** Quién autorizó que el paso siguiera al siguiente. */

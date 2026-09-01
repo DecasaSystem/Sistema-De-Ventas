@@ -53,6 +53,7 @@ class CancelarProduccionTest extends TestCase
             $t->string('nombre_custom')->nullable(); $t->unsignedBigInteger('variante_id')->nullable();
             $t->unsignedBigInteger('tienda_origen_id')->nullable(); $t->integer('cantidad')->default(1);
             $t->decimal('precio_unitario', 12, 2)->default(0); $t->boolean('es_personalizado')->default(true);
+            $t->boolean('es_restauracion')->default(false);
             $t->date('fecha_entrega_prom')->nullable(); $t->date('devuelto_en')->nullable();
             $t->text('motivo_devolucion')->nullable(); $t->timestamps();
         });
@@ -64,6 +65,7 @@ class CancelarProduccionTest extends TestCase
         });
         Schema::create('produccion_pasos', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('produccion_id'); $t->string('tipo_proceso');
+            $t->string('linea')->default('normal');
             $t->unsignedTinyInteger('orden')->default(1); $t->string('estado')->default('pendiente');
             $t->timestamp('iniciado_at')->nullable(); $t->timestamp('completado_at')->nullable();
             $t->unsignedBigInteger('completado_por')->nullable(); $t->decimal('horas', 8, 2)->nullable();
@@ -71,6 +73,10 @@ class CancelarProduccionTest extends TestCase
         });
         Schema::create('proceso_trabajadores', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('usuario_id'); $t->unsignedBigInteger('tipo_proceso_id');
+            $t->string('linea')->default('ambas');
+        });
+        Schema::create('configuracion', function (Blueprint $t) {
+            $t->string('clave')->primary(); $t->text('valor');
         });
         Schema::create('tipos_proceso', function (Blueprint $t) {
             $t->id(); $t->string('clave'); $t->string('nombre'); $t->boolean('activo')->default(true);

@@ -116,6 +116,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // lo valida el controlador.
     Route::get('/tipos-proceso',           [TipoProcesoController::class, 'index']);
     Route::post('/tipos-proceso',          [TipoProcesoController::class, 'store']);
+    Route::patch('/tipos-proceso/ajustes', [TipoProcesoController::class, 'ajustes']);
     Route::patch('/tipos-proceso/{id}',    [TipoProcesoController::class, 'update'])->whereNumber('id');
     Route::delete('/tipos-proceso/{id}',   [TipoProcesoController::class, 'destroy'])->whereNumber('id');
 

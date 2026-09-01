@@ -47,7 +47,7 @@ const esTerminar = computed(() => props.modo === 'terminar')
 async function cargarCatalogo() {
   cargando.value = true
   try {
-    const { data } = await getTrabajadoresTaller(props.paso?.tipo_proceso)
+    const { data } = await getTrabajadoresTaller(props.paso?.tipo_proceso, props.paso?.linea)
     catalogo.value = Array.isArray(data) ? data : []
   } catch {
     catalogo.value = []

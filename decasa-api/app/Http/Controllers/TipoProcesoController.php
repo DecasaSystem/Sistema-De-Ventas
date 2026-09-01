@@ -34,8 +34,21 @@ class TipoProcesoController extends Controller
             'tipos'    => $tipos->map(function (TipoProceso $t) {
                 $data = $t->toArray();
                 $data['trabajador_ids'] = $t->trabajadores->pluck('id')->all();
+                // Y para cuál de las dos líneas está cada uno. Va como lista de
+                // pares —y no como mapa por id— porque un mapa con claves
+                // numéricas viaja unas veces como objeto y otras como arreglo.
+                // Aparte de `trabajador_ids` para que lo que ya lo lee siga
+                // sirviendo.
+                $data['lineas'] = $t->trabajadores
+                    ->map(fn ($w) => [
+                        'usuario_id' => $w->id,
+                        'linea'      => $w->pivot->linea ?? TipoProceso::LINEA_AMBAS,
+                    ])->values()->all();
                 return $data;
             }),
+            // ¿El taller lleva las restauraciones aparte de los muebles nuevos?
+            // Apagado, la línea de cada quien no decide nada.
+            'separa_restauraciones' => TipoProceso::separaRestauraciones(),
             // Quiénes trabajan este proceso. Una sola lista que se lee de dos
             // maneras: los que entran al programa son además los encargados —ven
             // el paso y lo confirman—, y los de fábrica no lo ven pero salen de
@@ -59,11 +72,9 @@ class TipoProcesoController extends Controller
             'nombre'         => 'required|string|max:60',
             'descripcion'    => 'nullable|string|max:160',
             'color'          => ['nullable', Rule::in(TipoProceso::COLORES)],
-            'trabajadores'   => 'nullable|array',
-            'trabajadores.*' => ['integer', Rule::exists('usuarios', 'id')->where('apto_produccion', true)],
         ]);
 
-        $trabajadores = $data['trabajadores'] ?? [];
+        $trabajadores = $this->leerTrabajadores($request);
         $this->exigirAlguien($trabajadores);
 
         // La clave sale del nombre y ya no cambia nunca: es lo que queda escrito
@@ -97,14 +108,14 @@ class TipoProcesoController extends Controller
             'nombre'         => 'sometimes|required|string|max:60',
             'descripcion'    => 'sometimes|nullable|string|max:160',
             'color'          => ['sometimes', Rule::in(TipoProceso::COLORES)],
-            'trabajadores'   => 'sometimes|array',
-            'trabajadores.*' => ['integer', Rule::exists('usuarios', 'id')->where('apto_produccion', true)],
             'orden'          => 'sometimes|integer|min:0|max:9999',
             'activo'         => 'sometimes|boolean',
         ]);
 
-        if (array_key_exists('trabajadores', $data)) {
-            $this->exigirAlguien($data['trabajadores']);
+        $trabajadores = $request->has('trabajadores') ? $this->leerTrabajadores($request) : null;
+
+        if ($trabajadores !== null) {
+            $this->exigirAlguien($trabajadores);
         }
 
         // Apagar un proceso que hay gente trabajando ahora mismo dejaría ese
@@ -120,18 +131,94 @@ class TipoProcesoController extends Controller
             }
         }
 
-        if (array_key_exists('trabajadores', $data)) {
-            $tipo->trabajadores()->sync($data['trabajadores']);
+        if ($trabajadores !== null) {
+            $tipo->trabajadores()->sync($trabajadores);
         }
-
-        // 'trabajadores' vive en su propia tabla, no en una columna: si se
-        // deja en $data, update() intentaría escribir una columna que no existe.
-        unset($data['trabajadores']);
 
         $tipo->update($data);
         TipoProceso::olvidarCache();
 
         return response()->json($tipo->fresh('trabajadores'));
+    }
+
+    /**
+     * PATCH /api/tipos-proceso/ajustes
+     *
+     * Encender o apagar que las restauraciones se lleven aparte de lo nuevo.
+     *
+     * Encenderlo no mueve a nadie: todo el mundo arranca en "las dos", así que
+     * el taller sigue igual hasta que el supervisor reparta proceso por
+     * proceso. Y apagarlo devuelve las cosas a como estaban sin perder el
+     * reparto, por si mañana se vuelve a encender.
+     */
+    public function ajustes(Request $request)
+    {
+        if ($request->user()->rol !== 'supervisor') {
+            return response()->json(['message' => 'Solo un supervisor puede cambiar esto.'], 403);
+        }
+
+        $data = $request->validate([
+            'separa_restauraciones' => 'required|boolean',
+        ]);
+
+        TipoProceso::definirSeparacion($data['separa_restauraciones']);
+
+        // Al encender puede quedar algún proceso con una línea sin encargado
+        // —no se bloquea, pero hay que decirlo: sus pasos quedarían en curso y
+        // sin nadie que los vea.
+        $sinCubrir = [];
+        if ($data['separa_restauraciones']) {
+            foreach (TipoProceso::where('activo', true)->with('trabajadores:id')->get() as $tipo) {
+                foreach ($this->lineasSinEncargado($this->comoSync($tipo)) as $linea) {
+                    $sinCubrir[] = ['proceso' => $tipo->nombre, 'linea' => $linea];
+                }
+            }
+        }
+
+        return response()->json([
+            'separa_restauraciones' => $data['separa_restauraciones'],
+            'sin_cubrir'            => $sinCubrir,
+            'message'               => $data['separa_restauraciones']
+                ? 'Las restauraciones se llevan aparte. Reparte los encargados en cada proceso.'
+                : 'Las restauraciones vuelven a ir con todo lo demás.',
+        ]);
+    }
+
+    /**
+     * A quién se le asigna el proceso y en qué línea, tal como llega.
+     *
+     * Acepta las dos formas: la lista de ids de siempre —que deja a todos en
+     * "las dos", igual que antes— y la nueva con línea por persona. Una app
+     * que lleve abierta desde antes del cambio sigue guardando bien.
+     *
+     * @return array<int, array{linea:string}>  listo para sync()
+     */
+    private function leerTrabajadores(Request $request): array
+    {
+        $crudo = $request->input('trabajadores', []);
+        $conLinea = is_array($crudo) && ! empty($crudo) && is_array(reset($crudo));
+
+        if (! $conLinea) {
+            $data = $request->validate([
+                'trabajadores'   => 'nullable|array',
+                'trabajadores.*' => ['integer', Rule::exists('usuarios', 'id')->where('apto_produccion', true)],
+            ]);
+
+            return array_fill_keys($data['trabajadores'] ?? [], ['linea' => TipoProceso::LINEA_AMBAS]);
+        }
+
+        $data = $request->validate([
+            'trabajadores'         => 'array',
+            'trabajadores.*.id'    => ['required', 'integer', Rule::exists('usuarios', 'id')->where('apto_produccion', true)],
+            'trabajadores.*.linea' => ['nullable', Rule::in([TipoProceso::LINEA_AMBAS, ...TipoProceso::LINEAS])],
+        ]);
+
+        $sync = [];
+        foreach ($data['trabajadores'] as $t) {
+            $sync[(int) $t['id']] = ['linea' => $t['linea'] ?? TipoProceso::LINEA_AMBAS];
+        }
+
+        return $sync;
     }
 
     /**
@@ -142,6 +229,12 @@ class TipoProcesoController extends Controller
      * solo hay gente de fábrica deja sus pasos en curso pero invisibles para
      * todos, y las piezas se quedan paradas esperando a alguien que no puede
      * llegar. Pasó de verdad con Despacho.
+     *
+     * Con las restauraciones aparte hay que comprobarlo LÍNEA POR LÍNEA: un
+     * proceso donde todos los encargados quedaron en "muebles nuevos" deja los
+     * pasos de las restauraciones exactamente igual de huérfanos.
+     *
+     * @param array<int, array{linea:string}> $trabajadores
      */
     private function exigirAlguien(array $trabajadores): void
     {
@@ -151,10 +244,13 @@ class TipoProcesoController extends Controller
             ]);
         }
 
-        $puedenVerlo = Usuario::whereIn('id', $trabajadores)
-            ->where('activo', true)->usaElPrograma()->count();
+        $sinCubrir = $this->lineasSinEncargado($trabajadores);
 
-        if ($puedenVerlo === 0) {
+        if (empty($sinCubrir)) {
+            return;
+        }
+
+        if (! TipoProceso::separaRestauraciones()) {
             throw ValidationException::withMessages([
                 'trabajadores' => [
                     'Falta alguien que pueda confirmar este paso. Los que marcaste no entran '
@@ -163,6 +259,59 @@ class TipoProcesoController extends Controller
                 ],
             ]);
         }
+
+        $quePasa = array_map(
+            fn ($l) => $l === TipoProceso::LINEA_RESTAURACION ? 'las restauraciones' : 'los muebles nuevos',
+            $sinCubrir,
+        );
+
+        throw ValidationException::withMessages([
+            'trabajadores' => [
+                'Falta un encargado con acceso al programa para ' . implode(' y ', $quePasa) . '. '
+                . 'Sin él esos pasos quedarían en curso y sin que nadie los vea. Marca a alguien '
+                . 'en esa línea, o déjalo en "las dos".',
+            ],
+        ]);
+    }
+
+    /**
+     * De qué líneas se quedaría el proceso sin nadie que confirme el paso.
+     *
+     * Con el interruptor apagado solo hay una bolsa, así que se comprueba una
+     * vez: o hay alguien con acceso, o no.
+     *
+     * @param array<int, array{linea:string}> $trabajadores
+     * @return array<int, string>
+     */
+    private function lineasSinEncargado(array $trabajadores): array
+    {
+        $conAcceso = Usuario::whereIn('id', array_keys($trabajadores))
+            ->where('activo', true)->usaElPrograma()->pluck('id')->all();
+
+        if (! TipoProceso::separaRestauraciones()) {
+            return empty($conAcceso) ? [TipoProceso::LINEA_AMBAS] : [];
+        }
+
+        $sinCubrir = [];
+        foreach (TipoProceso::LINEAS as $linea) {
+            $hay = collect($conAcceso)->contains(
+                fn ($id) => in_array($trabajadores[$id]['linea'] ?? TipoProceso::LINEA_AMBAS,
+                                     [TipoProceso::LINEA_AMBAS, $linea], true)
+            );
+            if (! $hay) {
+                $sinCubrir[] = $linea;
+            }
+        }
+
+        return $sinCubrir;
+    }
+
+    /** Lo que ya está guardado, con la forma que espera lineasSinEncargado(). */
+    private function comoSync(TipoProceso $tipo): array
+    {
+        return $tipo->trabajadores
+            ->mapWithKeys(fn ($w) => [$w->id => ['linea' => $w->pivot->linea ?? TipoProceso::LINEA_AMBAS]])
+            ->all();
     }
 
     /**

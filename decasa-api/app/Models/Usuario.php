@@ -318,10 +318,24 @@ class Usuario extends Authenticatable
      * especialidad, y eso era lo que obligaba a ponerle a Henry el rol de
      * Ebanista para que le llegaran sus pasos, cuando lo que él es de verdad
      * es un vendedor independiente encargado de esos pasos.
+     *
+     * Si se pide una línea (restauración o mueble nuevo) y el taller las lleva
+     * aparte, salen solo los procesos que trabaja EN ESA línea. Quien quedó en
+     * 'ambas' aparece en las dos: separar es para donde hay dos encargados
+     * distintos, no para obligar a repartir todo el taller.
+     *
+     * Sin línea —o con el interruptor apagado— devuelve todo lo suyo, que es
+     * lo que necesita "¿ve el tablero de producción?".
      */
-    public function procesosQuePuedeTrabajar(): array
+    public function procesosQuePuedeTrabajar(?string $linea = null): array
     {
-        return $this->procesosAsignados()->where('activo', true)->pluck('clave')->all();
+        $query = $this->procesosAsignados()->where('activo', true);
+
+        if ($linea !== null && TipoProceso::separaRestauraciones()) {
+            $query->wherePivotIn('linea', [TipoProceso::LINEA_AMBAS, $linea]);
+        }
+
+        return $query->pluck('clave')->all();
     }
 
     // ── Encargos ─────────────────────────────────────────────────────────────

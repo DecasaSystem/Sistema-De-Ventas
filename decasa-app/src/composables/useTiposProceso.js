@@ -12,6 +12,9 @@ const tipos    = ref([])
 // A quién se le puede asignar un proceso a dedo, aparte de por especialidad.
 const trabajadores = ref([])
 const colores  = ref([])
+// ¿El taller lleva las restauraciones aparte de los muebles nuevos? Apagado,
+// la línea de cada trabajador no decide nada y la pantalla ni la muestra.
+const separaRestauraciones = ref(false)
 const cargados = ref(false)
 let enVuelo    = null
 
@@ -43,6 +46,7 @@ export function useTiposProceso() {
         tipos.value        = data.tipos ?? []
         trabajadores.value = data.trabajadores ?? []
         colores.value      = data.colores ?? []
+        separaRestauraciones.value = !!data.separa_restauraciones
         cargados.value = true
         return tipos.value
       })
@@ -66,5 +70,5 @@ export function useTiposProceso() {
     return CLASES[color] ?? CLASES.slate
   }
 
-  return { tipos, trabajadores, colores, cargados, cargar, nombre, clases, clasesDeColor, CLASES }
+  return { tipos, trabajadores, colores, separaRestauraciones, cargados, cargar, nombre, clases, clasesDeColor, CLASES }
 }

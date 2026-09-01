@@ -719,7 +719,16 @@ onUnmounted(() => {
                 </button>
                 {{ p.orden_item?.producto?.nombre || p.orden_item?.nombre_custom }}
               </p>
-              <p class="text-xs text-gray-400">{{ p.orden_item?.producto?.categoria || p.orden_item?.categoria_custom }}</p>
+              <p class="text-xs text-gray-400 flex items-center gap-1.5 flex-wrap">
+                {{ p.orden_item?.producto?.categoria || p.orden_item?.categoria_custom }}
+                <!-- Restaurar el mueble del cliente no es hacer uno nuevo, y
+                     desde que cada línea puede tener su encargado hay que
+                     distinguirlas de un vistazo en el tablero. -->
+                <span v-if="p.orden_item?.es_restauracion"
+                  class="inline-block text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
+                  🛠️ Restauración
+                </span>
+              </p>
               <p v-if="specsResumen(p.orden_item)" class="text-xs text-indigo-600 mt-0.5 truncate">{{ specsResumen(p.orden_item) }}</p>
             </div>
             <span

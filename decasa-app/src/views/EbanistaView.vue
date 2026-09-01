@@ -165,6 +165,17 @@ function formatFecha(dateStr) {
   return d.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
+/**
+ * ¿Es el mueble del cliente, o uno nuevo?
+ *
+ * La línea la trae el paso desde que se armó el flujo; se mira también el ítem
+ * por los pasos de antes de que existiera la columna.
+ */
+function esRestauracion(paso) {
+  return paso.linea === 'restauracion'
+    || !!paso.produccion?.orden_item?.es_restauracion
+}
+
 function progresoTexto(pasoActual) {
   const todos = pasoActual.produccion?.pasos ?? []
   const completados = todos.filter(p => p.estado === 'completado').length
@@ -246,9 +257,18 @@ onMounted(async () => {
 
             <div class="flex-1 min-w-0">
               <div class="flex items-start justify-between gap-1">
-                <span :class="['inline-block text-xs font-bold px-2.5 py-1 rounded-full mb-1', PROCESO_COLOR[paso.tipo_proceso]]">
-                  {{ PROCESO_LABEL[paso.tipo_proceso] }}
-                </span>
+                <div class="flex flex-wrap items-center gap-1 mb-1">
+                  <span :class="['inline-block text-xs font-bold px-2.5 py-1 rounded-full', PROCESO_COLOR[paso.tipo_proceso]]">
+                    {{ PROCESO_LABEL[paso.tipo_proceso] }}
+                  </span>
+                  <!-- Restaurar el mueble del cliente no es lo mismo que hacer
+                       uno nuevo, y desde que cada línea puede tener su propio
+                       encargado hay que verlo sin abrir la orden. -->
+                  <span v-if="esRestauracion(paso)"
+                    class="inline-block text-xs font-bold px-2.5 py-1 rounded-full bg-amber-100 text-amber-700">
+                    🛠️ Restauración
+                  </span>
+                </div>
                 <span class="text-xs bg-blue-50 text-blue-600 font-medium px-2 py-0.5 rounded-full flex-shrink-0">
                   Paso {{ paso.orden }}
                 </span>
@@ -405,9 +425,15 @@ onMounted(async () => {
             </div>
             <div class="flex-1 min-w-0">
               <div class="flex items-start justify-between gap-1">
-                <span :class="['inline-block text-xs font-bold px-2.5 py-1 rounded-full mb-1', PROCESO_COLOR[paso.tipo_proceso]]">
-                  {{ PROCESO_LABEL[paso.tipo_proceso] }}
-                </span>
+                <div class="flex flex-wrap items-center gap-1 mb-1">
+                  <span :class="['inline-block text-xs font-bold px-2.5 py-1 rounded-full', PROCESO_COLOR[paso.tipo_proceso]]">
+                    {{ PROCESO_LABEL[paso.tipo_proceso] }}
+                  </span>
+                  <span v-if="esRestauracion(paso)"
+                    class="inline-block text-xs font-bold px-2.5 py-1 rounded-full bg-amber-100 text-amber-700">
+                    🛠️ Restauración
+                  </span>
+                </div>
                 <span class="text-xs text-green-600 font-semibold flex items-center gap-1 flex-shrink-0">
                   <CheckCircleIcon class="w-3.5 h-3.5" />
                   Completado

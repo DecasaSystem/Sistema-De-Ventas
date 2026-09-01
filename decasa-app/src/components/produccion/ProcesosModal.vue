@@ -10,13 +10,14 @@ import api from '@/api'
 import { useToast } from '@/composables/useToast'
 import { useTiposProceso } from '@/composables/useTiposProceso'
 import IconoS from '@/components/common/IconoS.vue'
+import EncargadosProceso from '@/components/produccion/EncargadosProceso.vue'
 import { XMarkIcon, PlusIcon, TrashIcon } from '@heroicons/vue/24/outline'
 
 const props = defineProps({ show: Boolean })
 const emit  = defineEmits(['close', 'cambiado'])
 
 const toast = useToast()
-const { tipos, trabajadores, colores, cargar, clasesDeColor } = useTiposProceso()
+const { tipos, trabajadores, colores, separaRestauraciones, cargar, clasesDeColor } = useTiposProceso()
 
 const cargando = ref(false)
 const guardando = ref(null)   // id o 'nuevo'
@@ -26,82 +27,97 @@ watch(() => props.show, async (abierto) => {
   if (!abierto) return
   cargando.value = true
   // Con inactivos: aquí es donde se vuelven a encender
-  try { await cargar(true, true) } finally { cargando.value = false }
+  try { await recargar() } finally { cargando.value = false }
   nuevo.value = null
 })
+
+/**
+ * La línea de cada trabajador llega como lista de pares; la pantalla la
+ * maneja como un mapa id → línea, que es lo que necesita para pintar el
+ * reparto sin recorrerla en cada clic.
+ */
+async function recargar() {
+  await cargar(true, true)
+  for (const t of tipos.value) {
+    t._lineas = Object.fromEntries((t.lineas ?? []).map(l => [l.usuario_id, l.linea]))
+  }
+}
+
+// ── Llevar las restauraciones aparte ──────────────────────────────────────────
+// Encenderlo no mueve a nadie: todos arrancan en "las dos" y el taller sigue
+// igual hasta que aquí se reparta proceso por proceso.
+const cambiandoAjuste = ref(false)
+
+async function alternarSeparacion() {
+  cambiandoAjuste.value = true
+  try {
+    const { data } = await api.patch('/tipos-proceso/ajustes', {
+      separa_restauraciones: !separaRestauraciones.value,
+    })
+    await recargar()
+    toast.success(data.message ?? 'Listo.')
+    for (const f of data.sin_cubrir ?? []) {
+      toast.error(`"${f.proceso}" no tiene encargado para ${f.linea === 'restauracion' ? 'las restauraciones' : 'los muebles nuevos'}.`)
+    }
+    emit('cambiado')
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudo cambiar.')
+  } finally { cambiandoAjuste.value = false }
+}
 
 const ordenados = computed(() =>
   [...tipos.value].sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0) || a.nombre.localeCompare(b.nombre, 'es'))
 )
 
 function empezarNuevo() {
-  nuevo.value = { nombre: '', descripcion: '', color: 'slate', trabajador_ids: [] }
+  nuevo.value = { nombre: '', descripcion: '', color: 'slate', trabajador_ids: [], _lineas: {} }
 }
 
-
-// Quién hace este proceso. Se elige persona por persona: ya no hay
-// "especialidades" que repartan el trabajo en bloque, porque eso obligaba a
-// darle un rol de taller a quien solo estaba encargado de un paso.
-function alternarTrabajador(obj, id) {
-  if (!Array.isArray(obj.trabajador_ids)) obj.trabajador_ids = []
-  const i = obj.trabajador_ids.indexOf(id)
-  if (i === -1) obj.trabajador_ids.push(id)
-  else obj.trabajador_ids.splice(i, 1)
-}
-
-// Sin nadie asignado el proceso queda sin quien lo vea, y los pasos que lo
-// usen se quedan colgados en silencio.
 /**
- * ¿Hay alguien que pueda CONFIRMAR el paso?
+ * ¿Hay alguien que pueda CONFIRMAR el paso, en cada línea?
  *
  * La gente de fábrica se encasilla para poder anotarla como que hizo el
  * trabajo, pero no entra al programa: un proceso donde solo hay fábrica deja
- * sus pasos invisibles y las piezas paradas.
+ * sus pasos invisibles y las piezas paradas. Con las restauraciones aparte,
+ * la cuenta va por línea — es la misma que hace el servidor.
  */
-/**
- * La lista se parte en dos porque son dos papeles distintos.
- *
- * Juntos no servian: los 4 encargados se perdian entre 32 de fabrica, y la
- * pantalla se veia igual que antes de filtrar nada.
- */
-const encargadosPosibles = computed(() => trabajadores.value.filter(w => !w.no_usa_programa))
-const fabricaPosible     = computed(() => trabajadores.value.filter(w => w.no_usa_programa))
-
-/** El equipo de fabrica va plegado: es largo, y no es lo que uno viene a hacer. */
-const verFabrica = ref({})
-function alternarVerFabrica(clave) {
-  verFabrica.value = { ...verFabrica.value, [clave]: ! verFabrica.value[clave] }
-}
-/** Cuantos de fabrica lleva marcados, para verlo sin desplegar. */
-function fabricaMarcada(obj) {
+function sinCubrir(obj) {
   const ids = obj.trabajador_ids ?? []
-  return fabricaPosible.value.filter(w => ids.includes(w.id)).length
-}
+  const conAcceso = trabajadores.value.filter(w => ids.includes(w.id) && !w.no_usa_programa)
 
-function sinQuienConfirme(obj) {
-  const ids = obj.trabajador_ids ?? []
-  if (!ids.length) return false
-  return !trabajadores.value.some(w => ids.includes(w.id) && !w.no_usa_programa)
+  if (!separaRestauraciones.value) return conAcceso.length ? [] : ['ambas']
+
+  return ['normal', 'restauracion'].filter(linea =>
+    !conAcceso.some(w => [linea, 'ambas'].includes(obj._lineas?.[w.id] ?? 'ambas'))
+  )
 }
 
 function nadieAsignado(obj) {
   return !(obj.trabajador_ids ?? []).length
 }
 
+/** Lo que espera el servidor: cada persona con la línea que le tocó. */
+function trabajadoresParaGuardar(obj) {
+  return (obj.trabajador_ids ?? []).map(id => ({
+    id,
+    linea: obj._lineas?.[id] ?? 'ambas',
+  }))
+}
+
 async function crear() {
   const n = nuevo.value
   if (!n.nombre.trim())  { toast.error('Ponle un nombre al proceso.'); return }
   if (nadieAsignado(n))  { toast.error('Elige al menos un trabajador que haga este proceso.'); return }
-  if (sinQuienConfirme(n)) { toast.error('Falta un encargado con acceso al programa: los de fábrica no ven el paso.'); return }
+  if (sinCubrir(n).length) { toast.error(faltaEncargado(n)); return }
   guardando.value = 'nuevo'
   try {
     await api.post('/tipos-proceso', {
       nombre: n.nombre.trim(),
       descripcion: n.descripcion.trim() || undefined,
       color: n.color,
-      trabajadores: n.trabajador_ids,
+      trabajadores: trabajadoresParaGuardar(n),
     })
-    await cargar(true, true)
+    await recargar()
     nuevo.value = null
     toast.success('Proceso creado.')
     emit('cambiado')
@@ -113,24 +129,36 @@ async function crear() {
 async function guardar(t) {
   if (!t.nombre.trim())  { toast.error('El nombre no puede quedar vacío.'); return }
   if (nadieAsignado(t))  { toast.error('Elige al menos un trabajador que haga este proceso.'); return }
-  if (sinQuienConfirme(t)) { toast.error('Falta un encargado con acceso al programa: los de fábrica no ven el paso.'); return }
+  if (sinCubrir(t).length) { toast.error(faltaEncargado(t)); return }
   guardando.value = t.id
   try {
     await api.patch(`/tipos-proceso/${t.id}`, {
       nombre: t.nombre.trim(),
       descripcion: t.descripcion?.trim() ?? null,
       color: t.color,
-      trabajadores: t.trabajador_ids ?? [],
+      trabajadores: trabajadoresParaGuardar(t),
       orden: Number(t.orden) || 0,
       activo: !!t.activo,
     })
-    await cargar(true, true)
+    await recargar()
     toast.success('Guardado.')
     emit('cambiado')
   } catch (e) {
     toast.error(e.response?.data?.message ?? 'No se pudo guardar.')
-    await cargar(true, true)
+    await recargar()
   } finally { guardando.value = null }
+}
+
+/** El aviso, diciendo cuál de las dos líneas se quedó sin nadie. */
+function faltaEncargado(obj) {
+  const faltan = sinCubrir(obj)
+  if (!separaRestauraciones.value || faltan.includes('ambas')) {
+    return 'Falta un encargado con acceso al programa: los de fábrica no ven el paso.'
+  }
+  const texto = faltan
+    .map(l => l === 'restauracion' ? 'las restauraciones' : 'los muebles nuevos')
+    .join(' y ')
+  return `Falta un encargado con acceso al programa para ${texto}.`
 }
 
 async function quitar(t) {
@@ -138,7 +166,7 @@ async function quitar(t) {
   guardando.value = t.id
   try {
     const { data } = await api.delete(`/tipos-proceso/${t.id}`)
-    await cargar(true, true)
+    await recargar()
     toast.success(data.message ?? 'Listo.')
     emit('cambiado')
   } catch (e) {
@@ -170,6 +198,34 @@ async function quitar(t) {
             <div v-if="cargando" class="flex justify-center py-8"><IconoS class="w-8 h-8" /></div>
 
             <template v-else>
+              <!-- Restauraciones aparte: un interruptor, no una estructura
+                   nueva. Esto puede cambiar, y volver atrás cuesta un clic. -->
+              <div class="rounded-xl border border-gray-200 p-3">
+                <div class="flex items-start gap-3">
+                  <div class="flex-1 min-w-0">
+                    <p class="text-sm font-semibold text-gray-800">Llevar las restauraciones aparte</p>
+                    <p class="text-[11px] text-gray-500 mt-0.5 leading-snug">
+                      Los pasos son los mismos, pero cada proceso puede tener un
+                      encargado para el mueble del cliente y otro para los nuevos.
+                      Cada quien ve en "Mis pasos" solo lo suyo.
+                    </p>
+                  </div>
+                  <button
+                    type="button" @click="alternarSeparacion" :disabled="cambiandoAjuste"
+                    :class="['relative w-11 h-6 rounded-full transition-colors flex-shrink-0 disabled:opacity-50',
+                      separaRestauraciones ? 'bg-blue-600' : 'bg-gray-300']"
+                    :title="separaRestauraciones ? 'Desactivar' : 'Activar'"
+                  >
+                    <span :class="['absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all',
+                      separaRestauraciones ? 'left-[22px]' : 'left-0.5']" />
+                  </button>
+                </div>
+                <p v-if="separaRestauraciones" class="text-[11px] text-blue-700 bg-blue-50 border border-blue-100 rounded-lg px-2.5 py-1.5 mt-2">
+                  Reparte abajo, en cada proceso. Quien quede en "las dos" sigue
+                  viéndolo todo, como antes.
+                </p>
+              </div>
+
               <div
                 v-for="t in ordenados"
                 :key="t.id"
@@ -207,46 +263,14 @@ async function quitar(t) {
                 </div>
 
 
-                <div>
-                  <label class="block text-[11px] text-gray-500 mb-1">Encargados — ven el paso y lo confirman</label>
-                  <div class="flex flex-wrap gap-1.5">
-                    <button
-                      v-for="w in encargadosPosibles" :key="w.id" type="button" @click="alternarTrabajador(t, w.id)"
-                      :class="['px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors',
-                        (t.trabajador_ids ?? []).includes(w.id) ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-gray-200 bg-white text-gray-500 hover:border-emerald-300']"
-                    >{{ w.nombre }}</button>
-                  </div>
-
-                  <button type="button" @click="alternarVerFabrica('t' + t.id)"
-                    class="mt-2 text-[11px] text-gray-500 hover:text-gray-700">
-                    Equipo de fábrica — quiénes lo hacen
-                    <span v-if="fabricaMarcada(t)" class="text-emerald-600 font-semibold">({{ fabricaMarcada(t) }})</span>
-                    <span class="ml-1 opacity-60">{{ verFabrica['t' + t.id] ? '▲' : '▼' }}</span>
-                  </button>
-                  <div v-if="verFabrica['t' + t.id]" class="flex flex-wrap gap-1.5 mt-1.5">
-                    <button
-                      v-for="w in fabricaPosible" :key="w.id" type="button" @click="alternarTrabajador(t, w.id)"
-                      :class="['px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors',
-                        (t.trabajador_ids ?? []).includes(w.id) ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-gray-200 bg-white text-gray-500 hover:border-emerald-300']"
-                    >{{ w.nombre }}</button>
-                  </div>
-                  <p v-if="verFabrica['t' + t.id]" class="text-[11px] text-gray-400 mt-1">
-                    No entran al programa: no ven el paso, pero salen de primeros al anotar
-                    quién hizo el trabajo.
-                  </p>
-                  <p class="text-[11px] text-gray-400 mt-1">
-                    Los que entran al programa VEN el paso en "Mis pasos" y lo confirman.
-                    Los de fábrica no lo ven, pero salen de primeros al anotar quién hizo
-                    el trabajo, en vez de tener que buscarlos entre todo el taller.
-                  </p>
-                  <p v-if="nadieAsignado(t)" class="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 mt-1.5">
-                    Nadie puede hacer este proceso: sus pasos quedarían en curso pero invisibles para todos.
-                  </p>
-                  <p v-else-if="sinQuienConfirme(t)" class="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 mt-1.5">
-                    Solo marcaste gente de fábrica. Ellos no entran al programa, así que nadie
-                    vería este paso para confirmarlo y las piezas se quedarían paradas.
-                  </p>
-                </div>
+                <EncargadosProceso
+                  :ids="t.trabajador_ids ?? []"
+                  :lineas="t._lineas ?? {}"
+                  :trabajadores="trabajadores"
+                  :separa="separaRestauraciones"
+                  @update:ids="v => t.trabajador_ids = v"
+                  @update:lineas="v => t._lineas = v"
+                />
 
                 <div>
                   <label class="block text-[11px] text-gray-500 mb-1">Color</label>
@@ -278,40 +302,14 @@ async function quitar(t) {
                   class="w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 <input v-model="nuevo.descripcion" type="text" maxlength="160" placeholder="Descripción (opcional)"
                   class="w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                <div>
-                  <label class="block text-[11px] text-gray-500 mb-1">Encargados — ven el paso y lo confirman</label>
-                  <div class="flex flex-wrap gap-1.5">
-                    <button
-                      v-for="w in encargadosPosibles" :key="w.id" type="button" @click="alternarTrabajador(nuevo, w.id)"
-                      :class="['px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors',
-                        (nuevo.trabajador_ids ?? []).includes(w.id) ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-gray-200 bg-white text-gray-500']"
-                    >{{ w.nombre }}</button>
-                  </div>
-
-                  <button type="button" @click="alternarVerFabrica('nuevo')"
-                    class="mt-2 text-[11px] text-gray-500 hover:text-gray-700">
-                    Equipo de fábrica — quiénes lo hacen
-                    <span v-if="fabricaMarcada(nuevo)" class="text-emerald-600 font-semibold">({{ fabricaMarcada(nuevo) }})</span>
-                    <span class="ml-1 opacity-60">{{ verFabrica['nuevo'] ? '▲' : '▼' }}</span>
-                  </button>
-                  <div v-if="verFabrica['nuevo']" class="flex flex-wrap gap-1.5 mt-1.5">
-                    <button
-                      v-for="w in fabricaPosible" :key="w.id" type="button" @click="alternarTrabajador(nuevo, w.id)"
-                      :class="['px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors',
-                        (nuevo.trabajador_ids ?? []).includes(w.id) ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-gray-200 bg-white text-gray-500']"
-                    >{{ w.nombre }}</button>
-                  </div>
-                  <p v-if="verFabrica['nuevo']" class="text-[11px] text-gray-400 mt-1">
-                    No entran al programa: no ven el paso, pero salen de primeros al anotar
-                    quién hizo el trabajo.
-                  </p>
-                  <p class="text-[11px] text-gray-400 mt-1">
-                    Los del programa lo ven y lo confirman; los de fábrica salen al anotar quién lo hizo.
-                  </p>
-                  <p v-if="nadieAsignado(nuevo)" class="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 mt-1.5">
-                    Elige al menos una persona.
-                  </p>
-                </div>
+                <EncargadosProceso
+                  :ids="nuevo.trabajador_ids ?? []"
+                  :lineas="nuevo._lineas ?? {}"
+                  :trabajadores="trabajadores"
+                  :separa="separaRestauraciones"
+                  @update:ids="v => nuevo.trabajador_ids = v"
+                  @update:lineas="v => nuevo._lineas = v"
+                />
                 <div>
                   <label class="block text-[11px] text-gray-500 mb-1">Color</label>
                   <div class="flex flex-wrap gap-1.5">
