@@ -287,6 +287,88 @@ class Orden extends Model
         return $this->belongsTo(Tienda::class, 'tienda_abonada_id');
     }
 
+    /**
+     * Las órdenes que esta persona puede ver.
+     *
+     * Quien no está limitado a lo suyo —un supervisor— las ve todas. Al
+     * vendedor le salen las que vendió y, además, aquellas en las que le toca
+     * parte:
+     *
+     *  - Las que le compartieron como covendedor. Comisiona la mitad de esa
+     *    venta, así que no puede ser invisible para él.
+     *  - Las que un independiente le abonó a SU tienda. Ahí la mitad de la
+     *    comisión se reparte entre todos los que trabajan en la tienda
+     *    (ver ComisionController::sincronizarAbonoAlmacen), así que la orden
+     *    es tan suya como del que la vendió. El borrador no cuenta: todavía
+     *    se está armando y no se ha compartido con nadie.
+     *  - Si lleva facturación, las entregadas de su tienda, que es lo que
+     *    tiene que facturar.
+     *
+     * La regla vive aquí y no en cada controlador porque estaba copiada en
+     * tres sitios: la lista, el detalle y el módulo de restauraciones. Ahora
+     * los tres responden lo mismo, que es lo mínimo para que una orden no
+     * aparezca en una pantalla y dé "no autorizado" en la siguiente.
+     */
+    public function scopeVisiblesPara($query, Usuario $usuario)
+    {
+        if (! $usuario->soloVeSusOrdenes()) {
+            return $query;
+        }
+
+        return $query->where(function ($q) use ($usuario) {
+            $q->where('vendedor_id', $usuario->id)
+              ->orWhere('covendedor_id', $usuario->id);
+
+            if (! $usuario->tienda_default_id) {
+                return;
+            }
+
+            $q->orWhere(fn ($q2) => $q2
+                ->where('tienda_abonada_id', $usuario->tienda_default_id)
+                ->where('estado', '!=', 'borrador'));
+
+            if ($usuario->facturacion) {
+                $q->orWhere(fn ($q2) => $q2
+                    ->where('tienda_id', $usuario->tienda_default_id)
+                    ->where('estado', 'entregado'));
+            }
+        });
+    }
+
+    /**
+     * ¿Puede cobrarle a esta orden: registrar un abono, verificarlo o
+     * corregirle el medio de pago?
+     *
+     * Hoy es la misma respuesta que "¿puede verla?", y a propósito: si la
+     * venta se comparte con una tienda, el cliente puede llegar a esa tienda
+     * a abonar, y quien lo atienda tiene que poder recibirle la plata. Va
+     * aparte de laPuedeVer() porque es un permiso sobre dinero: si algún día
+     * se separan, se cambia aquí y no hay que buscarlo por los controladores.
+     */
+    public function laPuedeCobrar(Usuario $usuario): bool
+    {
+        return $this->laPuedeVer($usuario);
+    }
+
+    /** La misma regla, para una orden concreta. */
+    public function laPuedeVer(Usuario $usuario): bool
+    {
+        if (! $usuario->soloVeSusOrdenes())                    return true;
+        if ((int) $this->vendedor_id   === (int) $usuario->id) return true;
+        if ((int) $this->covendedor_id === (int) $usuario->id) return true;
+
+        $tienda = (int) $usuario->tienda_default_id;
+        if (! $tienda) return false;
+
+        if ((int) $this->tienda_abonada_id === $tienda && $this->estado !== 'borrador') {
+            return true;
+        }
+
+        return (bool) $usuario->facturacion
+            && (int) $this->tienda_id === $tienda
+            && $this->estado === 'entregado';
+    }
+
     public function items()
     {
         return $this->hasMany(OrdenItem::class, 'orden_id');

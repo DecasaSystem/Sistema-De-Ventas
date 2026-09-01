@@ -990,10 +990,8 @@ class DespachoController extends Controller
 
         $orden = $item->orden;
 
-        if ($usuario->soloVeSusOrdenes()
-            && $orden->vendedor_id !== $usuario->id
-            && ! $usuario->facturacion
-        ) {
+        // El acta es un papel de la orden: quien puede verla, la imprime.
+        if (! $orden->laPuedeVer($usuario) && ! $usuario->facturacion) {
             return response()->json(['message' => 'No autorizado.'], 403);
         }
 

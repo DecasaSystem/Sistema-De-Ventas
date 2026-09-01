@@ -36,9 +36,10 @@ class RestauracionController extends Controller
         })
         ->withSum('pagos', 'monto');
 
-        if ($usuario->soloVeSusOrdenes()) {
-            $query->where('vendedor_id', $usuario->id);
-        }
+        // Una restauración compartida —con otro vendedor o abonada a una
+        // tienda— le sale a todos los que comisionan por ella, igual que en
+        // el módulo de órdenes.
+        $query->visiblesPara($usuario);
 
         if ($estado = $request->query('estado')) {
             $query->where('estado', $estado);

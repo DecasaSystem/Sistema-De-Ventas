@@ -75,19 +75,8 @@ class OrdenController extends Controller
             // Las cotizaciones tienen su propio módulo: no se mezclan con órdenes.
             ->where('estado', '!=', 'cotizacion');
 
-        if ($usuario->soloVeSusOrdenes()) {
-            if ($usuario->facturacion) {
-                $query->where(function ($q) use ($usuario) {
-                    $q->where('vendedor_id', $usuario->id)
-                      ->orWhere(function ($q2) use ($usuario) {
-                          $q2->where('tienda_id', $usuario->tienda_default_id)
-                              ->where('estado', 'entregado');
-                      });
-                });
-            } else {
-                $query->where('vendedor_id', $usuario->id);
-            }
-        }
+        // Lo suyo, lo que le compartieron y lo que le abonaron a su tienda.
+        $query->visiblesPara($usuario);
 
         if ($v = $request->query('estado')) {
             $query->where('estado', $v);
@@ -934,10 +923,9 @@ class OrdenController extends Controller
             'ediciones.usuario:id,nombre',
         ])->findOrFail($id);
 
-        if ($usuario->soloVeSusOrdenes() && $orden->vendedor_id !== $usuario->id) {
-            if (! $usuario->facturacion) {
-                return response()->json(['message' => 'No autorizado.'], 403);
-            }
+        // La misma regla que la lista: si le sale ahí, tiene que poder abrirla.
+        if (! $orden->laPuedeVer($usuario)) {
+            return response()->json(['message' => 'No autorizado.'], 403);
         }
 
         $orden->total_pagado    = $orden->totalPagado();
@@ -2767,10 +2755,9 @@ class OrdenController extends Controller
             'pagos',
         ])->findOrFail($id);
 
-        if ($usuario->soloVeSusOrdenes() && $orden->vendedor_id !== $usuario->id) {
-            if (! $usuario->facturacion) {
-                return response()->json(['message' => 'No autorizado.'], 403);
-            }
+        // El PDF es leer la orden: quien la ve, la puede imprimir.
+        if (! $orden->laPuedeVer($usuario)) {
+            return response()->json(['message' => 'No autorizado.'], 403);
         }
 
         $orden->total_pagado    = $orden->totalPagado();

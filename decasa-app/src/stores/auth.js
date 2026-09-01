@@ -133,6 +133,11 @@ export const useAuthStore = defineStore('auth', () => {
   const tieneAccesoPasos   = computed(() => !!usuario.value?.tiene_pasos_produccion)
 
   const isFacturador       = computed(() => usuario.value?.rol === 'vendedor' && !!usuario.value?.facturacion)
+  // La misma regla que el backend (Usuario::soloVeSusOrdenes): solo ve lo
+  // suyo y lo que le compartieron, no la operación entera.
+  const esVendedorLimitado = computed(() =>
+    usuario.value?.rol === 'vendedor' && ! usuario.value?.ve_todas_ordenes
+  )
   // Vende por su cuenta: no pertenece a ninguna tienda y lleva caja propia.
   const isIndependiente    = computed(() => !!usuario.value?.independiente)
   const llevaCajaPropia    = computed(() => isIndependiente.value)
@@ -334,7 +339,7 @@ export const useAuthStore = defineStore('auth', () => {
     isAuthenticated, isSupervisor,
     isIndependiente, llevaCajaPropia,
     tieneAccesoPasos,
-    isFacturador, tieneAccesoRedes, tieneAccesoComisiones, puedeRecargarTelas, puedeUsarTelas, puedeSurtir,
+    isFacturador, esVendedorLimitado, tieneAccesoRedes, tieneAccesoComisiones, puedeRecargarTelas, puedeUsarTelas, puedeSurtir,
     puedeCostos, puedeProveedores, puedeDespacho, puedeProduccion, gestionaProduccion, puedeReserva, puedeNomina, puedeCompras,
     puedeEncargos, revisaEncargos, llevaEncargos, veTodasOrdenes, soloVeSusOrdenes,
     tienePerfilAlternativo, perfilAlternativo, perfilActivoIdx, perfilAlternoRecordado,

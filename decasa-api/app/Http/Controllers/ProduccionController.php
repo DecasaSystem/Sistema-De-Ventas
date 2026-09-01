@@ -43,7 +43,9 @@ class ProduccionController extends Controller
         ]);
 
         if ($usuario->soloVeSusOrdenes()) {
-            $query->whereHas('ordenItem.orden', fn($q) => $q->where('vendedor_id', $usuario->id));
+            // Las mismas órdenes que ve en su lista: si una compartida le sale
+            // ahí, poder seguirla en el taller es parte de lo mismo.
+            $query->whereHas('ordenItem.orden', fn ($q) => $q->visiblesPara($usuario));
         }
 
         if ($estado = $request->query('estado')) {

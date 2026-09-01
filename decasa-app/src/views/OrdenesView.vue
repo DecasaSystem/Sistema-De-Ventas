@@ -2,6 +2,7 @@
 import IconoS from '@/components/common/IconoS.vue'
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { seVolvioAtras } from '@/router'
+import { useAuthStore } from '@/stores/auth'
 import { useTiposProceso } from '@/composables/useTiposProceso'
 import { useRouter } from 'vue-router'
 import { MagnifyingGlassIcon, Cog6ToothIcon, ArrowDownTrayIcon, MapPinIcon, CalendarIcon } from '@heroicons/vue/24/outline'
@@ -17,6 +18,7 @@ import EmptyState from '@/components/common/EmptyState.vue'
 
 const router = useRouter()
 const toast = useToast()
+const auth = useAuthStore()
 
 /**
  * Dónde iba el usuario la última vez que estuvo en esta lista.
@@ -304,6 +306,16 @@ function formatFecha(dateStr) {
   return d.toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })
 }
 
+/**
+ * ¿Esta orden llegó por compartirla, y no porque la vendiera uno?
+ *
+ * A un supervisor le salen todas, y marcarlas todas seria ruido: el aviso es
+ * para el vendedor, que solo ve las suyas y las que le tocan.
+ */
+function esDeOtro(o) {
+  return auth.esVendedorLimitado && o.vendedor_id && o.vendedor_id !== auth.usuario?.id
+}
+
 // Los pasos del taller salen del catalogo; el de despacho es propio de aqui.
 const { cargar: cargarTipos, nombre: nombreProceso, clases: clasesProceso } = useTiposProceso()
 const PASO_FIJO = {
@@ -582,6 +594,12 @@ onUnmounted(() => {
               </div>
               <p class="text-sm text-gray-600 truncate">{{ o.cliente?.nombre }}</p>
               <p class="text-xs text-gray-400 mt-0.5">{{ o.tienda?.nombre }} · {{ formatFecha(fechaVenta(o)) }}</p>
+              <!-- Una venta compartida le sale a todos los que cobran por ella.
+                   Sin decir de quién es, a uno le aparecen ordenes que no
+                   vendió y no entiende por qué están ahí. -->
+              <p v-if="esDeOtro(o)" class="text-xs text-emerald-600 mt-0.5 font-medium">
+                🤝 Compartida por {{ o.vendedor?.nombre }}
+              </p>
               <span
                 v-if="o.paso_produccion_actual && pasoInfo(o.paso_produccion_actual)"
                 :class="['inline-block mt-1.5 text-xs font-semibold px-2 py-0.5 rounded-full', pasoInfo(o.paso_produccion_actual).cls]"

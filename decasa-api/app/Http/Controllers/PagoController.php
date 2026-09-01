@@ -20,7 +20,7 @@ class PagoController extends Controller
         $usuario = $request->user();
         $orden   = Orden::findOrFail($id);
 
-        if ($usuario->soloVeSusOrdenes() && $orden->vendedor_id !== $usuario->id) {
+        if (! $orden->laPuedeVer($usuario)) {
             return response()->json(['message' => 'No autorizado.'], 403);
         }
 
@@ -46,7 +46,9 @@ class PagoController extends Controller
         $usuario = $request->user();
         $orden   = Orden::with('items')->findOrFail($id);
 
-        if ($usuario->soloVeSusOrdenes() && $orden->vendedor_id !== $usuario->id) {
+        // Quien comparte la venta tambien la cobra: si el cliente llega a la
+        // tienda con la que se compartió, ahí tienen que poder recibirle.
+        if (! $orden->laPuedeCobrar($usuario)) {
             return response()->json(['message' => 'No autorizado.'], 403);
         }
 
@@ -181,7 +183,7 @@ class PagoController extends Controller
         $usuario = $request->user();
         $orden   = Orden::findOrFail($id);
 
-        if ($usuario->soloVeSusOrdenes() && $orden->vendedor_id !== $usuario->id) {
+        if (! $orden->laPuedeCobrar($usuario)) {
             return response()->json(['message' => 'No autorizado.'], 403);
         }
 
@@ -216,7 +218,7 @@ class PagoController extends Controller
         $pago    = Pago::with('orden')->findOrFail($id);
         $orden   = $pago->orden;
 
-        if ($usuario->soloVeSusOrdenes() && $orden->vendedor_id !== $usuario->id) {
+        if (! $orden->laPuedeCobrar($usuario)) {
             return response()->json(['message' => 'No autorizado.'], 403);
         }
 
