@@ -772,9 +772,8 @@ function _pushItemFabrica(producto, variante) {
     i.tienda_origen_id === fabricaId.value &&
     !i._fabricar_pedido
   )
-  if (existe) { existe.cantidad++; return }
 
-  items.value.push({
+  if (! _colocarItem({
     producto_id: producto.id,
     variante_id: variante?.id ?? null,
     _combo_id:   variante?._combo_id ?? null,
@@ -804,7 +803,7 @@ function _pushItemFabrica(producto, variante) {
     _precioCalc:         null,
     _precioReferencia:   null,
     _telaSelections:     {},
-  })
+  }, existe)) return
   productoResultados.value = []
   productoQuery.value = ''
   fabricaStock.value = {}
@@ -813,8 +812,7 @@ function _pushItemFabrica(producto, variante) {
 function _pushItemVC(producto, varianteLabel, precioAdicional, configId = null) {
   const esOtraTienda = tiendaBusqueda.value && tiendaBusqueda.value != tiendaId.value
   const existe = items.value.find(i => i.producto_id === producto.id && i.variante_label === varianteLabel && !i._fabricar_pedido)
-  if (existe) { existe.cantidad++; return }
-  items.value.push({
+  if (! _colocarItem({
     producto_id: producto.id, variante_id: null, _config_id: configId,
     tienda_origen_id: esOtraTienda ? (tiendaBusqueda.value ?? null) : null,
     nombre: producto.nombre, categoria: producto.categoria,
@@ -827,15 +825,14 @@ function _pushItemVC(producto, varianteLabel, precioAdicional, configId = null) 
     fecha_entrega_prometida: null, boceto_blobs: [], boceto_urls: [], boceto_previews: [],
     _fabricar_pedido: false, _cotizarPrecio: false, _descuento_modo: 'monto', _descuento_valor: 0,
     _mostrarCalculadora: false, _calculandoPrecio: false, _precioCalc: null, _precioReferencia: null, _telaSelections: {},
-  })
+  }, existe)) return
   productoResultados.value = []
   productoQuery.value = ''
 }
 
 function _pushItemFabricaVC(producto, varianteLabel, precioAdicional, configId = null) {
   const existe = items.value.find(i => i.producto_id === producto.id && i.variante_label === varianteLabel && i.tienda_origen_id === fabricaId.value && !i._fabricar_pedido)
-  if (existe) { existe.cantidad++; return }
-  items.value.push({
+  if (! _colocarItem({
     producto_id: producto.id, variante_id: null, _config_id: configId,
     tienda_origen_id: fabricaId.value,
     nombre: producto.nombre, categoria: producto.categoria,
@@ -848,7 +845,7 @@ function _pushItemFabricaVC(producto, varianteLabel, precioAdicional, configId =
     fecha_entrega_prometida: null, boceto_blobs: [], boceto_urls: [], boceto_previews: [],
     _fabricar_pedido: false, _cotizarPrecio: false, _descuento_modo: 'monto', _descuento_valor: 0,
     _mostrarCalculadora: false, _calculandoPrecio: false, _precioCalc: null, _precioReferencia: null, _telaSelections: {},
-  })
+  }, existe)) return
   productoResultados.value = []
   productoQuery.value = ''
   fabricaStock.value = {}
@@ -868,6 +865,173 @@ const cargandoVariantes = ref(false)
 // 0 de 68 ítems, ni siquiera vendiendo un SOFA CAMA ROMA que tiene 4.
 const varianteSeleccionada = ref(undefined)
 const NO_ELEGIDA = undefined
+
+// ── Corregir un ítem que ya está en el carrito ────────────────────────────────
+/**
+ * Qué ítem se está corrigiendo, si se entró por "Cambiar" en vez de por la
+ * búsqueda. Los selectores de tela y de medida son los mismos; lo único que
+ * cambia es que al confirmar el ítem se reemplaza en su sitio en vez de
+ * agregarse uno nuevo.
+ */
+const editandoIdx    = ref(null)
+const abriendoCambio = ref(null)   // idx mientras se cargan las variantes
+
+/**
+ * Deja el ítem donde va: encima del que se está corrigiendo, o al final.
+ *
+ * Al corregir se conserva todo lo que el vendedor ya había ajustado —cantidad,
+ * descuento, regalo, specs, fotos—: equivocarse de tela no puede costar volver
+ * a escribirlo todo. El precio sí es el de la selección nueva, que es a lo que
+ * se vino; si cambia, se avisa para que nadie lo descubra en el total.
+ */
+function _colocarItem(nuevo, existente = null) {
+  if (editandoIdx.value === null) {
+    // Devuelve false cuando solo sumó cantidad a uno que ya estaba: quien
+    // llama deja entonces la búsqueda como está, para seguir agregando de la
+    // misma lista.
+    if (existente) { existente.cantidad++; return false }
+    items.value.push(nuevo)
+    return true
+  }
+
+  const idx   = editandoIdx.value
+  const viejo = items.value[idx]
+
+  items.value[idx] = {
+    ...nuevo,
+    cantidad:         viejo.cantidad,
+    es_personalizado: viejo.es_personalizado,
+    specs:            viejo.specs,
+    specs_notas:      viejo.specs_notas,
+    boceto_blobs:     viejo.boceto_blobs,
+    boceto_urls:      viejo.boceto_urls,
+    boceto_previews:  viejo.boceto_previews,
+    fecha_entrega_prometida: viejo.fecha_entrega_prometida,
+    _descuento_modo:  viejo._descuento_modo,
+    _descuento_valor: viejo._descuento_valor,
+    _regalo:          viejo._regalo,
+    _cotizarPrecio:   viejo._cotizarPrecio,
+    _telaSelections:  viejo._telaSelections,
+    // De qué tienda sale no lo decide este selector: eso se cambia aparte, y
+    // tomarlo de la búsqueda mudaría el ítem de tienda sin avisar.
+    tienda_origen_id: viejo.tienda_origen_id,
+    tienda_origen:    viejo.tienda_origen,
+  }
+
+  if (Number(viejo.precio_unitario) !== Number(nuevo.precio_unitario)) {
+    toast.info(`Precio actualizado a $${pesos(nuevo.precio_unitario)} por la nueva selección.`)
+  }
+
+  editandoIdx.value = null
+  return true
+}
+
+/**
+ * Volver a elegir la tela o la medida de un ítem del carrito.
+ *
+ * Se pregunta por las variantes en vez de mirar las banderas del producto: lo
+ * que importa es qué hay para elegir en esa tienda ahora mismo.
+ */
+async function cambiarVariante(idx) {
+  const item = items.value[idx]
+  if (!item.producto_id) return
+
+  const deFabrica = !!fabricaId.value && item.tienda_origen_id === fabricaId.value
+  const tienda    = item.tienda_origen_id || tiendaBusqueda.value || tiendaId.value
+
+  abriendoCambio.value = idx
+  try {
+    const [producto, telas] = await Promise.all([
+      api.get(`/productos/${item.producto_id}`, { params: { tienda_id: tienda } }).then(r => r.data),
+      getVariantes(item.producto_id, tienda).then(r => r.data).catch(() => []),
+    ])
+
+    editandoIdx.value = idx
+
+    if (telas.length) {
+      productoParaVariante.value  = producto
+      variantesDisponibles.value  = telas
+      varianteSeleccionada.value  = NO_ELEGIDA
+      cargandoVariantes.value     = false
+      mostrarVariantePicker.value = true
+      return
+    }
+
+    const configs = await api
+      .get(`/productos/${item.producto_id}/variante-configs`, { params: { tienda_id: tienda } })
+      .then(r => r.data).catch(() => [])
+    const conStock = configs.filter(g => g.items.some(i => (i.stock_disponible ?? 0) > 0))
+
+    if (conStock.length) {
+      vcPickerProd.value      = producto
+      vcPickerSelec.value     = {}
+      vcPickerGrupos.value    = conStock
+      vcPickerEsFabrica.value = deFabrica
+      vcPickerCargando.value  = false
+      mostrarVCPicker.value   = true
+      return
+    }
+
+    editandoIdx.value = null
+    toast.info('Este producto no tiene telas ni medidas registradas en esa tienda.')
+  } catch {
+    editandoIdx.value = null
+    toast.error('No se pudo abrir el selector.')
+  } finally {
+    abriendoCambio.value = null
+  }
+}
+
+/**
+ * De qué tienda sale el producto, ya estando en el carrito.
+ *
+ * Se vuelve a preguntar el stock: el de la tienda anterior no dice nada de la
+ * nueva, y dejarlo puesto haría que la pantalla permitiera vender lo que no
+ * hay.
+ */
+async function cambiarTiendaItem(idx, valor) {
+  const item = items.value[idx]
+  if (!item.producto_id) return
+
+  const nuevaId       = valor ? Number(valor) : Number(tiendaId.value)
+  const esLaDeLaOrden = nuevaId === Number(tiendaId.value)
+
+  abriendoCambio.value = idx
+  try {
+    const { data: producto } = await api.get(`/productos/${item.producto_id}`, { params: { tienda_id: nuevaId } })
+
+    item.tienda_origen_id = esLaDeLaOrden ? null : nuevaId
+    item.tienda_origen    = esLaDeLaOrden ? null : (tiendas.value.find(t => t.id === nuevaId)?.nombre ?? null)
+    item.stock_libre      = stockLibre(producto)
+
+    // No se baja la cantidad sola —eso es del vendedor—, pero tampoco se calla:
+    // la tienda nueva puede tener menos.
+    if (!item.es_personalizado && item.cantidad > item.stock_libre) {
+      toast.error(`Ahí solo hay ${item.stock_libre} disponible(s) y llevas ${item.cantidad}.`)
+    }
+
+    // El stock de una tela es el de SU tienda: la que estaba elegida puede no
+    // existir aquí. Se vuelve a elegir en vez de arrastrar una que quizá no hay.
+    if (item.variante_id || item.variante_label) {
+      toast.info('Elige de nuevo la tela o la medida: el stock cambia de una tienda a otra.')
+      await cambiarVariante(idx)
+    }
+  } catch {
+    toast.error('No se pudo cambiar la tienda.')
+  } finally {
+    abriendoCambio.value = null
+  }
+}
+
+/**
+ * Cerrar un selector sin elegir deja de estar corrigiendo.
+ *
+ * Si no, el siguiente producto que se buscara entraría encima del ítem que se
+ * abandonó a medias.
+ */
+watch([mostrarVariantePicker, mostrarVCPicker, mostrarFabricaVariantePicker], ([tela, vc, fab]) => {
+  if (!tela && !vc && !fab) editandoIdx.value = null
+})
 
 async function agregarItem(producto) {
   const tiendaConsulta = tiendaBusqueda.value || tiendaId.value
@@ -950,9 +1114,8 @@ function _pushItem(producto, variante) {
   const existe = items.value.find((i) =>
     i.producto_id === producto.id && i.variante_id === (variante?.id ?? null) && i._combo_id === comboKey && !i._fabricar_pedido
   )
-  if (existe) { existe.cantidad++; return }
 
-  items.value.push({
+  if (! _colocarItem({
     producto_id: producto.id,
     variante_id: variante?.id ?? null,
     _combo_id:   variante?._combo_id ?? null,
@@ -982,7 +1145,7 @@ function _pushItem(producto, variante) {
     _precioCalc:         null,
     _precioReferencia:   null,
     _telaSelections:     {},
-  })
+  }, existe)) return
   productoResultados.value = []
   productoQuery.value = ''
 }
@@ -1071,6 +1234,18 @@ function quitarItem(idx) {
   const item = items.value[idx]
   item.boceto_previews.forEach(p => { if (p) URL.revokeObjectURL(p) })
   items.value.splice(idx, 1)
+}
+
+/**
+ * Corregir el nombre de un ítem que escribió el vendedor.
+ *
+ * Va a los dos sitios: `nombre` es lo que se ve en el carrito y
+ * `nombre_custom` lo que viaja al servidor. Si solo se cambiara uno, la
+ * pantalla diría una cosa y la orden llegaría con otra.
+ */
+function renombrarItem(item, valor) {
+  item.nombre        = valor
+  item.nombre_custom = valor
 }
 
 function togglePersonalizado(item) {
@@ -2771,7 +2946,20 @@ function removeFacturaFoto() {
             <div class="flex-1 min-w-0">
               <!-- Número de orden de compra -->
               <p class="text-[10px] font-bold text-blue-500 tracking-wide mb-0.5">ÍTEM #{{ idx + 1 }}</p>
-              <p class="font-medium text-sm text-gray-800 truncate">{{ item.nombre }}</p>
+              <!-- El nombre se corrige aquí mismo cuando lo escribió el
+                   vendedor (restauración, diseño especial, producto sin
+                   catálogo). Equivocarse en una letra no puede obligar a
+                   borrar el ítem y volverlo a armar entero. El del catálogo
+                   no se toca: ese nombre es el del producto. -->
+              <input
+                v-if="item.producto_id === null"
+                :value="item.nombre"
+                @input="renombrarItem(item, $event.target.value)"
+                type="text"
+                placeholder="Nombre del mueble"
+                class="w-full font-medium text-sm text-gray-800 bg-transparent border-b border-dashed border-gray-300 focus:border-blue-500 focus:outline-none py-0.5"
+              />
+              <p v-else class="font-medium text-sm text-gray-800 truncate">{{ item.nombre }}</p>
               <div class="flex flex-wrap items-center gap-1 mt-0.5">
                 <span v-if="item._fabricar_pedido"
                   class="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full text-xs font-semibold">
@@ -2795,6 +2983,38 @@ function removeFacturaFoto() {
               </div>
             </div>
             <button @click="quitarItem(idx)" class="text-red-400 hover:text-red-600 ml-2"><XMarkIcon class="w-5 h-5" /></button>
+          </div>
+
+          <!-- Corregir la tela/medida y de dónde sale, sin sacarlo del carrito.
+               Equivocarse de tela es el error más fácil de cometer vendiendo, y
+               antes costaba borrar el ítem y volver a armarlo con su cantidad,
+               su descuento y sus fotos. -->
+          <div
+            v-if="item.producto_id && !item._fabricar_pedido && !item.es_personalizado"
+            class="flex flex-wrap items-center gap-2"
+          >
+            <button
+              type="button"
+              @click="cambiarVariante(idx)"
+              :disabled="abriendoCambio === idx"
+              class="inline-flex items-center gap-1 text-xs font-medium text-purple-600 hover:text-purple-800 disabled:opacity-40"
+            >
+              <SwatchIcon class="w-3.5 h-3.5" />
+              {{ abriendoCambio === idx ? 'Abriendo...' : (item.variante_label ? 'Cambiar tela / medida' : 'Elegir tela / medida') }}
+            </button>
+
+            <div class="flex items-center gap-1 ml-auto">
+              <MapPinIcon class="w-3.5 h-3.5 text-gray-400" />
+              <select
+                :value="item.tienda_origen_id ?? tiendaId"
+                @change="cambiarTiendaItem(idx, $event.target.value)"
+                :disabled="abriendoCambio === idx"
+                class="text-xs text-gray-600 bg-transparent border border-gray-200 rounded-lg px-1.5 py-1 focus:outline-none focus:border-blue-400 disabled:opacity-40"
+              >
+                <option v-for="t in tiendasConStock" :key="t.id" :value="t.id">{{ t.nombre }}</option>
+              </select>
+              <span class="text-xs text-gray-400 whitespace-nowrap">{{ item.stock_libre ?? 0 }} disp.</span>
+            </div>
           </div>
 
           <div class="grid grid-cols-2 gap-2">
@@ -3064,13 +3284,25 @@ function removeFacturaFoto() {
               </label>
             </div>
 
-            <!-- Modo restauración: fotos múltiples -->
+            <!-- Modo restauración: trabajo, notas y fotos -->
             <div v-else class="space-y-1.5">
-              <div
-                v-if="item.specs?.descripcion_trabajo"
-                class="text-xs text-indigo-700 font-medium bg-indigo-50 rounded-lg px-3 py-2"
-              >
-                Trabajo: {{ item.specs.descripcion_trabajo }}
+              <!-- Antes esto era texto fijo: si el trabajo quedaba mal escrito
+                   había que borrar el ítem y volver a armarlo. Es justo lo que
+                   más se corrige, porque se escribe con el cliente delante. -->
+              <div class="space-y-1.5">
+                <label class="text-xs font-medium text-indigo-700">Trabajo a realizar</label>
+                <textarea
+                  v-model="item.specs.descripcion_trabajo"
+                  rows="2"
+                  placeholder="Qué hay que hacerle al mueble"
+                  class="input text-sm resize-none bg-indigo-50 border-indigo-200"
+                />
+                <textarea
+                  v-model="item.specs_notas"
+                  rows="2"
+                  placeholder="Notas adicionales (opcional)"
+                  class="input text-sm resize-none"
+                />
               </div>
               <p class="text-xs font-medium text-gray-600">
                 Fotos del mueble <span class="font-normal text-gray-400">(opcional)</span>
@@ -4108,7 +4340,7 @@ function removeFacturaFoto() {
           :disabled="varianteSeleccionada === undefined"
           class="w-full bg-blue-600 text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
         >
-          Agregar al carrito
+          {{ editandoIdx !== null ? 'Guardar cambio' : 'Agregar al carrito' }}
         </button>
       </div>
     </div>
@@ -4163,7 +4395,7 @@ function removeFacturaFoto() {
           :disabled="!vcPickerValido"
           class="w-full bg-indigo-600 text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-indigo-700 disabled:opacity-40"
         >
-          Agregar al pedido
+          {{ editandoIdx !== null ? 'Guardar cambio' : 'Agregar al pedido' }}
         </button>
       </div>
     </div>
@@ -4230,7 +4462,7 @@ function removeFacturaFoto() {
           :disabled="!fabricaVarianteSeleccionada"
           class="w-full bg-purple-600 text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-purple-700 disabled:opacity-40"
         >
-          Tomar de fábrica
+          {{ editandoIdx !== null ? 'Guardar cambio' : 'Tomar de fábrica' }}
         </button>
       </div>
     </div>
