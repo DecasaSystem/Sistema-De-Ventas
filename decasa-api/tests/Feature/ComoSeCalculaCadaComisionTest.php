@@ -342,15 +342,33 @@ class ComoSeCalculaCadaComisionTest extends TestCase
         $this->assertEqualsWithDelta(397_059, $cobra['Manuela'], 2);
     }
 
-    public function test_restauracion_sin_meta_tampoco_se_parte_si_esta_sola(): void
+    public function test_una_restauracion_sin_meta_no_se_parte_con_nadie(): void
     {
+        // En Tienda Virtual hay más gente —Nicolás y Juan David—, pero esa
+        // tienda no tiene meta: ahí no hay pool ni se parten las
+        // restauraciones. Cada uno cobra lo suyo.
+        DB::table('usuarios')->insert([
+            ['id' => 7, 'nombre' => 'Nicolás',    'rol' => 'supervisor',
+             'tienda_default_id' => self::VIRTUAL, 'created_at' => now()],
+            ['id' => 8, 'nombre' => 'Juan David', 'rol' => 'supervisor',
+             'tienda_default_id' => self::VIRTUAL, 'created_at' => now()],
+        ]);
+        foreach ([self::MANUELA, 7, 8] as $quien) {
+            DB::table('tienda_asesores_comision')->insert([
+                'tienda_id' => self::VIRTUAL, 'mes' => self::MES, 'vendedor_id' => $quien,
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+        \App\Models\TiendaAsesor::olvidarCache();
+
         $this->orden(self::MANUELA, self::VIRTUAL, 1_000_000, restauracion: true);
 
-        // Está sola en Tienda Virtual: no hay con quién partir, y además esa
-        // tienda no tiene equipo registrado. Se lleva el 5% completo.
         $cobra = $this->loQueCobraCadaUno();
 
+        // El 5% completo para ella, aunque estén los tres registrados.
         $this->assertEquals(50_000, $cobra['Manuela']);
+        $this->assertArrayNotHasKey('Nicolás', $cobra);
+        $this->assertArrayNotHasKey('Juan David', $cobra);
     }
 
     public function test_pago_mitad_efectivo_mitad_tarjeta_solo_descuenta_lo_de_la_tarjeta(): void

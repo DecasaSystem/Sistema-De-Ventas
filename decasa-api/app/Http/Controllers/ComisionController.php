@@ -1327,8 +1327,16 @@ class ComisionController extends Controller
         if (! self::esRestauracionCompleta($orden)) return [];
 
         $fechaVenta = Carbon::parse($orden->created_at)->setTimezone(StatsController::TZ_NEGOCIO);
+        $mes        = $fechaVenta->format('Y-m');
 
-        $base = collect(TiendaAsesor::vigentesEn($fechaVenta->format('Y-m'))[$orden->tienda_id] ?? [])
+        // Sin meta no se reparte nada. Una tienda sin meta no tiene pool, y
+        // tampoco parte las restauraciones: ahí cada uno cobra lo suyo. Tienda
+        // Virtual tiene gente registrada como equipo y sin esto le habria
+        // partido la restauracion entre cuatro.
+        $meta = MetaTienda::vigentesEn($mes)[$orden->tienda_id] ?? null;
+        if (! $meta || (float) $meta->meta <= 0) return [];
+
+        $base = collect(TiendaAsesor::vigentesEn($mes)[$orden->tienda_id] ?? [])
             ->pluck('vendedor_id')->map(fn ($v) => (int) $v)->all();
 
         $equipo = TiendaReemplazo::equipoElDia(

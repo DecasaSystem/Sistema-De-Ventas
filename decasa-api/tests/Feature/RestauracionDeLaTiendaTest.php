@@ -90,6 +90,15 @@ class RestauracionDeLaTiendaTest extends TestCase
             ['id' => 2, 'nombre' => 'Decasa Vía El Edén', 'activa' => true],
         ]);
 
+        // Las dos con meta: sin meta no hay reparto de ninguna clase, ni del
+        // pool ni de las restauraciones.
+        DB::table('metas_tienda')->insert([
+            ['tienda_id' => 1, 'mes' => self::MES, 'meta' => 40_000_000,
+             'divisor_asesores' => 3, 'created_at' => now(), 'updated_at' => now()],
+            ['tienda_id' => 2, 'mes' => self::MES, 'meta' => 20_000_000,
+             'divisor_asesores' => 2, 'created_at' => now(), 'updated_at' => now()],
+        ]);
+
         foreach ([[1, 'Paola', 1], [2, 'Marta', 1], [3, 'NN', 1],
                   [4, 'Gladys', 2], [5, 'Sebastián', 2]] as [$id, $nombre, $tienda]) {
             DB::table('usuarios')->insert([
