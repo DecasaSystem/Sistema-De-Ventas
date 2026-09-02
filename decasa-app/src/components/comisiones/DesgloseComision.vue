@@ -36,7 +36,9 @@ const props = defineProps({
 const ORIGENES = [
   { clave: 'pool',             label: 'Su parte del pool',     color: '#2a78d6' },
   { clave: 'parte_equipo',     label: 'Su parte del equipo',   color: '#eb6834' },
-  { clave: 'restauraciones',   label: 'Restauraciones (5%)',   color: '#1baf7a' },
+  // Sin el "(5%)": en una tienda ese 5% se parte entre los que estaban, así
+  // que lo que le queda a cada uno no es el 5% del valor.
+  { clave: 'restauraciones',   label: 'Restauraciones',        color: '#1baf7a' },
   { clave: 'de_independiente', label: 'De un independiente',   color: '#eda100' },
   { clave: 'individual',       label: 'Sus ventas al 5%',      color: '#e87ba4' },
 ]

@@ -97,6 +97,64 @@ class TiendaReemplazo extends Model
     }
 
     /**
+     * Quiénes estaban en la tienda un día concreto.
+     *
+     * El pool se reparte por días porque es la cuenta de todo un mes. Una
+     * restauración no: se hizo un día, y ese 5% es de quienes estaban ahí ese
+     * día. Repartirla por los días del mes le habría dado a Genesis el 14% de
+     * una restauración que hizo ella, por haber llegado a la tienda el 27.
+     *
+     * Sale del equipo fijo, quitando a quien ese día andaba cubriendo en otra
+     * parte y a quien estaba siendo cubierto, y sumando a quien había venido
+     * —de reemplazo o trasladado—.
+     *
+     * @param  array<int> $equipoBase  ids del equipo fijo de la tienda
+     * @return array<int>              ids de quienes estaban ese día
+     */
+    public static function equipoElDia(int $tiendaId, string $fecha, array $equipoBase): array
+    {
+        $dia = Carbon::parse($fecha)->startOfDay();
+        $mes = $dia->copy()->startOfMonth();
+
+        $equipo = [];
+        foreach ($equipoBase as $uid) {
+            $equipo[(int) $uid] = (int) $uid;
+        }
+
+        foreach (self::queSolapan($mes, $mes->copy()->endOfMonth()) as $r) {
+            if (! self::cubreElDia($r, $dia)) continue;
+
+            $quien = (int) $r->usuario_id;
+
+            if ((int) $r->tienda_id === $tiendaId) {
+                $equipo[$quien] = $quien;
+
+                // Al que vino a cubrir le pertenece el puesto ese día, así que
+                // el cubierto no cuenta: si contaran los dos, el 5% se partiría
+                // entre uno más de los que de verdad estaban.
+                if ($cubierto = (int) $r->reemplaza_a_id) {
+                    unset($equipo[$cubierto]);
+                }
+            } else {
+                // Ese día estaba en otra tienda.
+                unset($equipo[$quien]);
+            }
+        }
+
+        return array_values($equipo);
+    }
+
+    /** Si este movimiento estaba vigente ese día. Sin `hasta`, sigue abierto. */
+    private static function cubreElDia($r, Carbon $dia): bool
+    {
+        if (Carbon::parse($r->desde)->startOfDay()->gt($dia)) {
+            return false;
+        }
+
+        return $r->hasta === null || Carbon::parse($r->hasta)->startOfDay()->gte($dia);
+    }
+
+    /**
      * En qué tiendas le toca pool a alguien ese mes por haber ido a cubrir.
      *
      * @return array<int>  ids de tienda

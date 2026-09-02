@@ -255,6 +255,11 @@ const FORMAS_PAGO = {
     resumen:  '5% del valor. No pasa por el pool ni le suma a la meta.',
     clase:    'bg-purple-100 text-purple-700',
   },
+  restauracion_equipo: {
+    etiqueta: 'Restauración de la tienda',
+    resumen:  'El 5% de la restauración se parte entre los que estaban en la tienda ese día: si son dos, 2,5% para cada uno. No le suma a la meta.',
+    clase:    'bg-purple-100 text-purple-700',
+  },
   sin_meta_5: {
     etiqueta: 'Individual',
     resumen:  'Sin meta no hay pool: cobra el 5% de lo suyo, sin dividir.',

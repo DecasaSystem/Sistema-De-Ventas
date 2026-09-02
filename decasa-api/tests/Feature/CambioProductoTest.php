@@ -50,6 +50,10 @@ class CambioProductoTest extends TestCase
         });
         Schema::create('orden_items', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('orden_id'); $t->unsignedBigInteger('producto_id')->nullable();
+            // La tabla real siempre la tiene, y de ella sale si una orden es
+            // restauracion: sin la columna, cualquier cosa que toque comisiones
+            // revienta aqui y no en el codigo que se esta probando.
+            $t->boolean('es_restauracion')->default(false);
             $t->string('nombre_custom')->nullable(); $t->unsignedBigInteger('variante_id')->nullable();
             $t->unsignedBigInteger('tienda_origen_id')->nullable(); $t->integer('cantidad')->default(1);
             $t->decimal('precio_unitario', 12, 2)->default(0); $t->boolean('es_personalizado')->default(false);

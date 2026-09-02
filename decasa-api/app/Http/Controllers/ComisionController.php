@@ -387,6 +387,7 @@ class ComisionController extends Controller
 
         $explica = [
             'restauracion_5' => 'restauración: 5% del valor, aparte del pool y sin depender de la meta',
+            'restauracion_equipo' => 'restauración de la tienda: ese 5% se parte entre quienes estaban ese día',
             'sin_meta_5'     => 'no está en una tienda con meta: valor ÷ 1,19 × 5%, sin dividir con nadie',
             'pool'           => 'por el pool de la tienda, a prorrata de lo que vendió ese mes',
             'abono_almacen'  => 'su parte del 5% que dejó un independiente al compartir una venta con su tienda',
@@ -778,7 +779,21 @@ class ComisionController extends Controller
         $delMes = Comision::where('mes_venta', $mes)
             ->get(['id', 'vendedor_id', 'tienda_id', 'origen', 'orden_id', 'estado']);
 
+        // Quién ya tiene por dónde cobrar su parte del pool. No vale cualquier
+        // fila: una restauración y lo que deja un independiente se pagan por
+        // fuera del pool, así que quien solo tiene eso sigue necesitando su
+        // renglón. Contarlas dejaba a Marta sin su parte del pool el mes en que
+        // Paola hiciera una restauración —el reparto le abre fila a Marta— y ya
+        // pasaba igual con los abonos.
+        //
+        // Es el mismo criterio con el que se limpian los renglones que sobran;
+        // si los dos lados no miran lo mismo, uno abre lo que el otro borra.
+        $restauraciones = $this->idsDeRestauracion();
         $conRenglon = $delMes
+            ->filter(fn ($c) => $c->origen === self::ORIGEN_PARTE_POOL
+                || ($c->orden_id !== null
+                    && ! in_array($c->origen, self::ORIGENES_REPARTIDOS, true)
+                    && ! isset($restauraciones[(int) $c->orden_id])))
             ->map(fn ($c) => $c->vendedor_id . '_' . $c->tienda_id)
             ->flip();
 
@@ -862,7 +877,8 @@ class ComisionController extends Controller
         // filas que ya se trajeron, sin volver a preguntar.
         $restauraciones = $this->idsDeRestauracion();
         $conVentas = $delMes
-            ->filter(fn ($c) => $c->orden_id !== null && $c->origen !== self::ORIGEN_ABONO)
+            ->filter(fn ($c) => $c->orden_id !== null
+                && ! in_array($c->origen, self::ORIGENES_REPARTIDOS, true))
             ->reject(fn ($c) => isset($restauraciones[(int) $c->orden_id]))
             ->map(fn ($c) => $c->vendedor_id . '_' . $c->tienda_id)
             ->flip();
@@ -1057,11 +1073,15 @@ class ComisionController extends Controller
 
         $cambiadas = 0;
         self::sincronizarAbonoAlmacen($orden);
+        self::sincronizarRestauracionEquipo($orden);
 
-        // El reparto del almacen lleva su propia base (el pedazo de cada uno),
-        // asi que no puede recibir el valor de la orden entera.
+        // Los repartos llevan su propia base (el pedazo de cada uno), asi que
+        // no pueden recibir el valor de la orden entera. Se pregunta también
+        // por el nulo: una comision vieja puede no tener origen, y un `!=` en
+        // SQL deja fuera los nulos —se quedarian sin actualizar—.
         foreach (Comision::where('orden_id', $orden->id)
-                     ->where('origen', '!=', self::ORIGEN_ABONO)
+                     ->where(fn ($q) => $q->whereNull('origen')
+                                          ->orWhereNotIn('origen', self::ORIGENES_REPARTIDOS))
                      ->where('estado', '!=', 'pagada')->get() as $c) {
             if (abs((float) $c->valor_orden - $valor) < 0.01) continue;
             $c->update(['valor_orden' => $valor]);
@@ -1105,6 +1125,9 @@ class ComisionController extends Controller
         );
 
         self::sincronizarAbonoAlmacen($orden);
+        // Va después de crear la del vendedor: el reparto la convierte en su
+        // parte en vez de abrirle otra.
+        self::sincronizarRestauracionEquipo($orden);
 
         // Registro del co-vendedor si la venta es compartida
         if ($esCompartida && $covendedorId) {
@@ -1137,6 +1160,23 @@ class ComisionController extends Controller
      * caso que antes se quedaba sin pagar.
      */
     public const ORIGEN_PARTE_POOL = 'parte_pool';
+
+    /**
+     * El pedazo de una restauración que le toca a cada uno de la tienda.
+     *
+     * Una restauración se paga al 5% del valor, sin IVA de por medio y sin
+     * depender de la meta. Lo que se corrigió es de quién es ese 5%: se estaba
+     * pagando entero a quien la hizo, y en una tienda es del equipo, igual que
+     * el pool y que lo que deja un independiente. Si hay dos les toca 2,5% a
+     * cada uno; si hay tres, el 5% partido en tres.
+     *
+     * Quien trabaja por su cuenta no reparte con nadie: sigue cobrando el 5%
+     * completo.
+     */
+    public const ORIGEN_RESTAURACION_EQUIPO = 'restauracion_equipo';
+
+    /** Los orígenes en los que `valor_orden` es un pedazo, no la orden entera. */
+    public const ORIGENES_REPARTIDOS = [self::ORIGEN_ABONO, self::ORIGEN_RESTAURACION_EQUIPO];
 
     /**
      * Le arma (o le pone al día) su fila a cada persona del almacén con el que
@@ -1198,6 +1238,122 @@ class ComisionController extends Controller
                 ]
             );
         }
+    }
+
+    /**
+     * Le arma (o le pone al día) su fila a cada uno del equipo cuando la
+     * restauración la hizo alguien de una tienda.
+     *
+     * Mismo mecanismo que el reparto del almacén: a cada uno se le guarda su
+     * pedazo como `valor_orden` y la cuenta de siempre —5% a la restauración,
+     * sin quitarle IVA— le saca lo suyo. Dos personas, 2,5% cada una.
+     *
+     * La fila de quien la hizo no se duplica: se convierte en su parte del
+     * reparto. Si la orden deja de ser restauración, o el equipo se queda en
+     * uno, el camino de vuelta le devuelve el 5% entero.
+     */
+    public static function sincronizarRestauracionEquipo(Orden $orden): void
+    {
+        $existentes = Comision::where('orden_id', $orden->id)
+            ->where('origen', self::ORIGEN_RESTAURACION_EQUIPO)->get();
+
+        // Lo que ya se pagó no se vuelve a repartir: alguien cobró el 5%
+        // entero y quitárselo ahora sería cobrarle plata que ya recibió.
+        $yaPagada = Comision::where('orden_id', $orden->id)
+            ->where('vendedor_id', $orden->vendedor_id)
+            ->where('estado', 'pagada')->exists();
+
+        if ($yaPagada) return;
+
+        $equipo = self::equipoQueReparteRestauracion($orden);
+
+        if (! $equipo) {
+            // Ya no aplica —cambió de tipo, se canceló o el equipo se quedó en
+            // uno—: lo repartido vuelve a ser de quien la hizo.
+            $valor = self::valorComisionable($orden);
+            foreach ($existentes->where('estado', '!=', 'pagada') as $c) {
+                if ((int) $c->vendedor_id === (int) $orden->vendedor_id) {
+                    $c->update(['origen' => 'venta', 'valor_orden' => $valor]);
+                } else {
+                    $c->delete();
+                }
+            }
+
+            return;
+        }
+
+        $fechaVenta = Carbon::parse($orden->created_at)->setTimezone(StatsController::TZ_NEGOCIO);
+        $porCabeza  = round(self::valorComisionable($orden) / count($equipo));
+
+        // Al que ya no está en la tienda se le quita, salvo que ya se le pagara.
+        $existentes->whereNotIn('vendedor_id', $equipo)
+            ->where('estado', '!=', 'pagada')->each->delete();
+
+        foreach ($equipo as $vendedorId) {
+            $fila = Comision::where('orden_id', $orden->id)
+                ->where('vendedor_id', $vendedorId)->first();
+
+            if ($fila?->estado === 'pagada') continue;
+
+            Comision::updateOrCreate(
+                ['orden_id' => $orden->id, 'vendedor_id' => $vendedorId],
+                [
+                    'origen'           => self::ORIGEN_RESTAURACION_EQUIPO,
+                    'tienda_id'        => $orden->tienda_id,
+                    'mes_venta'        => $fechaVenta->format('Y-m'),
+                    'valor_orden'      => $porCabeza,
+                    'fecha_venta'      => $fechaVenta->toDateString(),
+                    'fecha_disponible' => self::calcularFechaDisponible($fechaVenta, $orden->tienda_id),
+                    'estado'           => $fila->estado ?? 'pendiente',
+                ]
+            );
+        }
+    }
+
+    /**
+     * Entre quiénes se parte el 5% de esta restauración. Vacío = no se parte.
+     *
+     * Solo reparte quien es de la tienda ese día. Un supervisor que escogió
+     * esta tienda al crear la orden, o alguien de fuera, no entra en el
+     * reparto del equipo: cobra su 5%, la misma regla que en el pool. Y un
+     * independiente no tiene equipo detrás, así que tampoco.
+     *
+     * @return array<int>
+     */
+    private static function equipoQueReparteRestauracion(Orden $orden): array
+    {
+        if (! $orden->tienda_id || ! $orden->vendedor_id) return [];
+        if (in_array($orden->estado, self::ESTADOS_SIN_VENTA, true)) return [];
+        if (! self::esRestauracionCompleta($orden)) return [];
+
+        $fechaVenta = Carbon::parse($orden->created_at)->setTimezone(StatsController::TZ_NEGOCIO);
+
+        $base = collect(TiendaAsesor::vigentesEn($fechaVenta->format('Y-m'))[$orden->tienda_id] ?? [])
+            ->pluck('vendedor_id')->map(fn ($v) => (int) $v)->all();
+
+        $equipo = TiendaReemplazo::equipoElDia(
+            (int) $orden->tienda_id, $fechaVenta->toDateString(), $base
+        );
+
+        if (! in_array((int) $orden->vendedor_id, $equipo, true)) return [];
+
+        // Solo él en la tienda: no hay con quién partir.
+        return count($equipo) >= 2 ? $equipo : [];
+    }
+
+    /**
+     * Si la orden entera es restauración.
+     *
+     * Es la misma regla que usa el resto del módulo —todos los ítems tienen
+     * que serlo—, pero preguntada por una sola orden: esto corre al guardar un
+     * pago o al editar, donde no hay por qué traerse la tabla completa.
+     */
+    private static function esRestauracionCompleta(Orden $orden): bool
+    {
+        $fila = DB::table('orden_items')->where('orden_id', $orden->id)
+            ->selectRaw('COUNT(*) as n, SUM(es_restauracion) as r')->first();
+
+        return $fila && (int) $fila->n > 0 && (int) $fila->n === (int) $fila->r;
     }
 
     /**
@@ -1845,7 +2001,15 @@ class ComisionController extends Controller
         // ha abonado la mitad, esa venta no paga comisión. Una parte de pool no
         // tiene orden detrás —sale de lo que vendió el equipo, que ya cumplió
         // ese filtro cada una por su lado—, así que no le aplica.
-        $req50     = $esPartePool || $pagado >= ((float) $c->valor_orden * 0.5);
+        //
+        // Y se mide contra la orden, no contra el renglón: en un reparto el
+        // `valor_orden` es el pedazo de cada uno, así que comparar el abono
+        // del cliente con un tercio del valor daba por cumplida la mitad
+        // cuando apenas llevaba pagado el 17%.
+        $baseReq50 = in_array($c->origen, self::ORIGENES_REPARTIDOS, true)
+            ? (float) ($c->orden?->valor_total ?? $c->valor_orden)
+            : (float) $c->valor_orden;
+        $req50     = $esPartePool || $pagado >= ($baseReq50 * 0.5);
         $reqVencio = $hoy->gte(Carbon::parse($c->fecha_disponible));
 
         // En tiendas trimestrales el déficit ya quedó neteado en $comisionPool
@@ -1876,7 +2040,10 @@ class ComisionController extends Controller
             'es_restauracion'  => $esRestauracion,
             'forma_pago'       => $esPartePool ? self::ORIGEN_PARTE_POOL
                                   : ($esAbono ? self::ORIGEN_ABONO
-                                  : ($esRestauracion ? 'restauracion_5'
+                                  : ($esRestauracion
+                                        ? ($c->origen === self::ORIGEN_RESTAURACION_EQUIPO
+                                            ? self::ORIGEN_RESTAURACION_EQUIPO
+                                            : 'restauracion_5')
                                   : (! $tieneMeta ? 'sin_meta_5' : 'pool'))),
             'abono_de_almacen' => $esAbono,
             'trimestre'        => $esTrimestral ? self::trimestreDeMes($c->mes_venta) : null,
