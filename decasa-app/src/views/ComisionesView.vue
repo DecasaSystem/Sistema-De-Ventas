@@ -208,7 +208,10 @@ async function cargarIndependientes() {
 async function cargarTodosVendedores() {
   if (todosVendedores.value.length > 0) return
   try {
-    const { data } = await api.get('/asesores')
+    // Con uno mismo incluido: acá se arma el equipo de una tienda, y quien
+    // mira la pantalla también puede ser del equipo. Por defecto la lista se
+    // excluye a sí misma porque su otro uso es compartir una venta.
+    const { data } = await api.get('/asesores', { params: { incluirme: 1 } })
     todosVendedores.value = data
   } catch { /* silencioso */ }
 }

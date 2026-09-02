@@ -497,10 +497,19 @@ class UsuarioController extends Controller
     {
         $yo = $request->user();
 
+        // Uno no sale en su propia lista porque esto nació para compartir una
+        // venta, y nadie la comparte consigo mismo.
+        //
+        // Pero la misma lista arma el equipo de una tienda en comisiones, y
+        // ahí sí hay que poder agregarse: Juan David es el único de Tienda
+        // Virtual con acceso a comisiones, así que era justo el que no podía
+        // meterse a ningún equipo —no se veía en el selector—. Por eso se pide
+        // aparte y no se quita el filtro: dejarlo por defecto es lo que impide
+        // que una venta se comparta con uno mismo.
         return response()->json(
             Usuario::whereIn('rol', ['vendedor', 'supervisor'])
                 ->where('activo', true)
-                ->where('id', '!=', $yo->id)
+                ->when(! $request->boolean('incluirme'), fn ($q) => $q->where('id', '!=', $yo->id))
                 ->with('tiendaDefault:id,nombre')
                 ->select('id', 'nombre', 'tienda_default_id', 'independiente')
                 ->orderBy('nombre')
