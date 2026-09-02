@@ -591,6 +591,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/metas',                    [ComisionController::class, 'setMeta'])->middleware('role:supervisor');
         Route::post('/recalcular',               [ComisionController::class, 'recalcular'])->middleware('role:supervisor');
         Route::post('/asesores-asignados',       [ComisionController::class, 'addAsesor'])->middleware('role:supervisor');
+        // Si en esa tienda la comision es del equipo o de cada quien.
+        Route::patch('/tiendas/{id}/compartidas', [ComisionController::class, 'setComisionesCompartidas'])
+            ->middleware('role:supervisor')->whereNumber('id');
         Route::delete('/asesores-asignados/{id}',[ComisionController::class, 'removeAsesor'])->middleware('role:supervisor')->whereNumber('id');
         // Quién fue a cubrir a otra tienda y por cuántos días: es lo que
         // reparte el pool cuando alguien reemplaza.

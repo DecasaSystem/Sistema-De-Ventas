@@ -30,7 +30,7 @@ class ReemplazoEntreTiendasTest extends TestCase
     {
         parent::setUp();
 
-        Schema::create('tiendas', function (Blueprint $t) { $t->id(); $t->string('nombre'); });
+        Schema::create('tiendas', function (Blueprint $t) { $t->id(); $t->string('nombre'); $t->boolean('comisiones_compartidas')->default(false); });
         Schema::create('usuarios', function (Blueprint $t) {
             $t->id(); $t->string('nombre'); $t->timestamp('created_at')->nullable();
         });

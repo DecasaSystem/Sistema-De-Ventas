@@ -34,6 +34,9 @@ class SelectorDeAsesoresTest extends TestCase
         });
         Schema::create('tiendas', function (Blueprint $t) {
             $t->id(); $t->string('nombre'); $t->boolean('activa')->default(true);
+            // La tabla real la tiene: de ella sale si la comision es del
+            // equipo o de cada quien.
+            $t->boolean('comisiones_compartidas')->default(false);
         });
 
         DB::table('tiendas')->insert(['id' => 7, 'nombre' => 'Tienda Virtual', 'activa' => true]);

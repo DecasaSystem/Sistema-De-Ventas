@@ -8,7 +8,8 @@ class Tienda extends Model
 {
     const UPDATED_AT = null;
 
-    protected $fillable = ['nombre', 'ciudad', 'direccion', 'telefono', 'activa', 'es_fabrica', 'es_independientes'];
+    protected $fillable = ['nombre', 'ciudad', 'direccion', 'telefono', 'activa', 'es_fabrica',
+                           'es_independientes', 'comisiones_compartidas'];
 
     protected function casts(): array
     {
@@ -16,6 +17,9 @@ class Tienda extends Model
             'activa'            => 'boolean',
             'es_fabrica'        => 'boolean',
             'es_independientes' => 'boolean',
+            // Si aqui la comision es del equipo o de cada quien. Ver la
+            // migracion `cada_tienda_decide_si_comparte_comisiones`.
+            'comisiones_compartidas' => 'boolean',
         ];
     }
 

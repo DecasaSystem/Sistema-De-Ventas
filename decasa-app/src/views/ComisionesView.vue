@@ -50,6 +50,7 @@ const metas        = ref([])
 const todosVendedores  = ref([])   // lista para el select
 const agregandoAsesor  = ref({})   // tienda_id → vendedor_id seleccionado
 const guardandoAsesor  = ref(null) // tienda_id en proceso
+const guardandoCompartidas = ref(null) // tienda_id en proceso
 const removiendoAsesor = ref(null) // registro id en proceso
 
 // ── Carga ──────────────────────────────────────────────────────────────────────
@@ -345,6 +346,30 @@ async function guardarMeta(tiendaId) {
     toast.error('Error guardando meta')
   } finally {
     guardandoMeta.value = null
+  }
+}
+
+/**
+ * Prende o apaga el reparto de una tienda.
+ *
+ * Cambia lo que cobra su gente, así que se recarga todo: las tarjetas del
+ * resumen se calculan con esto y quedarían mostrando la cuenta vieja.
+ */
+async function cambiarCompartidas(meta, comparte) {
+  guardandoCompartidas.value = meta.tienda_id
+  try {
+    await api.patch(`/comisiones/tiendas/${meta.tienda_id}/compartidas`, { comparte })
+    meta.comisiones_compartidas = comparte
+    toast.success(comparte
+      ? `${meta.nombre}: el 5% ahora se reparte entre el equipo`
+      : `${meta.nombre}: cada uno cobra el 5% de lo suyo`)
+    await cargar()
+    if (vistaTab.value === 'resumen') await cargarResumen()
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo cambiar')
+    await cargarMetas()
+  } finally {
+    guardandoCompartidas.value = null
   }
 }
 
@@ -748,6 +773,37 @@ onMounted(async () => {
               >{{ guardandoMeta === m.tienda_id ? '…' : 'OK' }}</button>
             </div>
           </div>
+
+          <!-- ── Si aquí la comisión es del equipo o de cada quien ──────────
+               Lo dice la tienda, no su meta: son dos cosas distintas y antes
+               una se deducía de la otra. -->
+          <label
+            class="flex items-start gap-2.5 mb-3 p-2.5 rounded-lg cursor-pointer transition-colors"
+            :class="m.comisiones_compartidas ? 'bg-indigo-50/60' : 'bg-gray-50'"
+          >
+            <input
+              type="checkbox"
+              :checked="m.comisiones_compartidas"
+              :disabled="guardandoCompartidas === m.tienda_id"
+              @change="cambiarCompartidas(m, $event.target.checked)"
+              class="mt-0.5 w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 disabled:opacity-40"
+            />
+            <span class="min-w-0">
+              <span class="block text-xs font-semibold text-gray-700">
+                Comisiones compartidas
+                <span v-if="guardandoCompartidas === m.tienda_id" class="text-gray-400 font-normal">· guardando…</span>
+              </span>
+              <span class="block text-[11px] text-gray-500 leading-snug">
+                <template v-if="m.comisiones_compartidas">
+                  El 5% es del equipo: el pool se parte entre todos, las restauraciones también,
+                  y quien no vendió cobra su parte igual.
+                </template>
+                <template v-else>
+                  Cada uno cobra el 5% de lo suyo y las restauraciones enteras. No se reparte nada.
+                </template>
+              </span>
+            </span>
+          </label>
 
           <!-- Asesores asignados -->
           <div>

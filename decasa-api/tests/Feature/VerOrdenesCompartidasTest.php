@@ -38,7 +38,7 @@ class VerOrdenesCompartidasTest extends TestCase
             $t->boolean('facturacion')->default(false);
             $t->unsignedBigInteger('tienda_default_id')->nullable(); $t->timestamp('created_at')->nullable();
         });
-        Schema::create('tiendas', function (Blueprint $t) { $t->id(); $t->string('nombre'); });
+        Schema::create('tiendas', function (Blueprint $t) { $t->id(); $t->string('nombre'); $t->boolean('comisiones_compartidas')->default(false); });
         Schema::create('clientes', function (Blueprint $t) { $t->id(); $t->string('nombre'); $t->timestamps(); });
         Schema::create('productos', function (Blueprint $t) { $t->id(); $t->string('nombre'); $t->string('categoria')->nullable(); });
         Schema::create('ordenes', function (Blueprint $t) {

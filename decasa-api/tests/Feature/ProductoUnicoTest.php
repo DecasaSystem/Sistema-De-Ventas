@@ -41,6 +41,9 @@ class ProductoUnicoTest extends TestCase
         });
         Schema::create('tiendas', function (Blueprint $t) {
             $t->id(); $t->string('nombre'); $t->boolean('es_fabrica')->default(false);
+            // La tabla real la tiene: de ella sale si la comision es del
+            // equipo o de cada quien.
+            $t->boolean('comisiones_compartidas')->default(false);
         });
         Schema::create('clientes', function (Blueprint $t) { $t->id(); $t->string('nombre'); $t->timestamps(); });
         Schema::create('productos', function (Blueprint $t) { $t->id(); $t->string('nombre'); $t->string('categoria')->nullable(); });

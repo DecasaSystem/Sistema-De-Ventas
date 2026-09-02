@@ -31,7 +31,7 @@ class ReporteDesglosePorTipoTest extends TestCase
             $t->boolean('acceso_reportes')->default(true);
             $t->unsignedBigInteger('tienda_default_id')->nullable(); $t->timestamp('created_at')->nullable();
         });
-        Schema::create('tiendas', function (Blueprint $t) { $t->id(); $t->string('nombre'); $t->boolean('activa')->default(true); });
+        Schema::create('tiendas', function (Blueprint $t) { $t->id(); $t->string('nombre'); $t->boolean('activa')->default(true); $t->boolean('comisiones_compartidas')->default(false); });
         Schema::create('ordenes', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('tienda_id')->nullable(); $t->unsignedBigInteger('vendedor_id')->nullable();
             $t->string('estado')->default('entregado'); $t->string('serie')->nullable();

@@ -202,6 +202,8 @@ class ComisionController extends Controller
                 'meta'             => isset($metas[$t->id]) ? (float) $metas[$t->id]->meta : null,
                 'divisor_asesores' => $divisor,
                 'asesores'         => $asesores,
+                // Si aquí la comisión es del equipo o de cada quien.
+                'comisiones_compartidas' => (bool) $t->comisiones_compartidas,
             ];
         }));
     }
@@ -502,6 +504,33 @@ class ComisionController extends Controller
     }
 
     // POST /api/comisiones/asesores-asignados
+    /**
+     * PATCH /api/comisiones/tiendas/{id}/compartidas
+     *
+     * Prende o apaga el reparto de una tienda. No toca lo ya pagado: cambia
+     * cómo se calcula de aquí en adelante y lo que todavía está pendiente.
+     */
+    public function setComisionesCompartidas(Request $request, int $tiendaId)
+    {
+        $usuario = $request->user();
+        if (! $usuario->acceso_comisiones) {
+            return response()->json(['error' => 'Sin acceso'], 403);
+        }
+
+        $data = $request->validate(['comparte' => 'required|boolean']);
+
+        $tienda = Tienda::findOrFail($tiendaId);
+        $tienda->update(['comisiones_compartidas' => $data['comparte']]);
+
+        self::olvidarQuienComparte();
+
+        return response()->json([
+            'tienda_id'              => $tienda->id,
+            'nombre'                 => $tienda->nombre,
+            'comisiones_compartidas' => (bool) $tienda->comisiones_compartidas,
+        ]);
+    }
+
     public function addAsesor(Request $request)
     {
         $usuario = $request->user();
@@ -821,6 +850,9 @@ class ComisionController extends Controller
         foreach ($tiendas as $tiendaId) {
             if (! isset($conMeta[$tiendaId])) continue;
             if (! $abiertas->has($tiendaId)) continue;
+            // Donde no se comparte no hay parte que abrirle a nadie: quien no
+            // vendió no cobra, porque no hay pool del que sacarlo.
+            if (! self::tiendaComparte((int) $tiendaId)) continue;
 
             $equipoBase = collect($equipos[$tiendaId] ?? [])->pluck('vendedor_id')->all();
             $pesos      = TiendaReemplazo::pesosDelMes($tiendaId, $mes, $equipoBase);
@@ -1329,12 +1361,9 @@ class ComisionController extends Controller
         $fechaVenta = Carbon::parse($orden->created_at)->setTimezone(StatsController::TZ_NEGOCIO);
         $mes        = $fechaVenta->format('Y-m');
 
-        // Sin meta no se reparte nada. Una tienda sin meta no tiene pool, y
-        // tampoco parte las restauraciones: ahí cada uno cobra lo suyo. Tienda
-        // Virtual tiene gente registrada como equipo y sin esto le habria
-        // partido la restauracion entre cuatro.
-        $meta = MetaTienda::vigentesEn($mes)[$orden->tienda_id] ?? null;
-        if (! $meta || (float) $meta->meta <= 0) return [];
+        // Lo dice la tienda. Donde no se comparte, la restauración es entera
+        // de quien la hizo, tenga la tienda meta o no.
+        if (! self::tiendaComparte((int) $orden->tienda_id)) return [];
 
         $base = collect(TiendaAsesor::vigentesEn($mes)[$orden->tienda_id] ?? [])
             ->pluck('vendedor_id')->map(fn ($v) => (int) $v)->all();
@@ -1697,6 +1726,13 @@ class ComisionController extends Controller
      */
     private function cobraIndividual(int $vendedorId, string $mes, ?int $tiendaId = null): bool
     {
+        // Si la tienda no comparte, ahí no hay nada que repartir y da igual
+        // quién sea: cada uno cobra el 5% de lo suyo. Va de primero porque es
+        // la decisión de la tienda y manda sobre todo lo demás.
+        if ($tiendaId && ! self::tiendaComparte($tiendaId)) {
+            return true;
+        }
+
         // Quien fue a cubrir a esta tienda cobra de SU pool mientras estuvo
         // allá: sus ventas empujan esa meta y arman ese pool, así que dejarlo
         // fuera del reparto era cobrarle el trabajo a los demás. Sin esto, un
@@ -1726,6 +1762,37 @@ class ComisionController extends Controller
 
     /** Quién cobra por fuera del pool, por mes. Ver cobraIndividual(). */
     private array $individuales = [];
+
+    /**
+     * ¿En esta tienda la comisión es del equipo o de cada quien?
+     *
+     * Lo dice la tienda, no su meta. Antes se deducía de tener meta puesta, y
+     * son dos cosas distintas: la meta es una cifra de ventas y compartir es
+     * un acuerdo con la gente. Tienda Virtual lo dejó claro —cuatro personas
+     * registradas como equipo y sin meta— y había que adivinar qué hacer con
+     * una restauración de allá.
+     *
+     * Se pregunta una vez y se guarda: esto se consulta por cada comisión.
+     */
+    public static function tiendaComparte(?int $tiendaId): bool
+    {
+        if (! $tiendaId) return false;
+
+        self::$comparten ??= DB::table('tiendas')
+            ->pluck('comisiones_compartidas', 'id')
+            ->map(fn ($v) => (bool) $v)->all();
+
+        return self::$comparten[$tiendaId] ?? false;
+    }
+
+    /** Se vuelve a preguntar a la base: alguien movió el interruptor. */
+    public static function olvidarQuienComparte(): void
+    {
+        self::$comparten = null;
+    }
+
+    /** [tienda_id => comparte]. Ver tiendaComparte(). */
+    private static ?array $comparten = null;
 
     /** [mes][tienda_id][usuario_id] => true. El equipo fijo de cada tienda. */
     private array $equipos = [];

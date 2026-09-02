@@ -41,6 +41,9 @@ class RestauracionDeLaTiendaTest extends TestCase
         });
         Schema::create('tiendas', function (Blueprint $t) {
             $t->id(); $t->string('nombre'); $t->boolean('activa')->default(true);
+            // La tabla real la tiene: de ella sale si la comision es del
+            // equipo o de cada quien.
+            $t->boolean('comisiones_compartidas')->default(false);
         });
         Schema::create('metas_tienda', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('tienda_id'); $t->char('mes', 7);
@@ -85,9 +88,10 @@ class RestauracionDeLaTiendaTest extends TestCase
             $t->string('metodo')->nullable(); $t->timestamp('created_at')->nullable();
         });
 
+        // Las dos reparten: es de lo que trata la prueba.
         DB::table('tiendas')->insert([
-            ['id' => 1, 'nombre' => 'Decasa Norte', 'activa' => true],
-            ['id' => 2, 'nombre' => 'Decasa Vía El Edén', 'activa' => true],
+            ['id' => 1, 'nombre' => 'Decasa Norte', 'activa' => true, 'comisiones_compartidas' => true],
+            ['id' => 2, 'nombre' => 'Decasa Vía El Edén', 'activa' => true, 'comisiones_compartidas' => true],
         ]);
 
         // Las dos con meta: sin meta no hay reparto de ninguna clase, ni del

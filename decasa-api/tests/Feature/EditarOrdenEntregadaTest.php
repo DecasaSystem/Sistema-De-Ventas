@@ -35,7 +35,7 @@ class EditarOrdenEntregadaTest extends TestCase
             $t->boolean('ve_todas_ordenes')->default(true); $t->boolean('facturacion')->default(false);
             $t->timestamp('created_at')->nullable();
         });
-        Schema::create('tiendas', function (Blueprint $t) { $t->id(); $t->string('nombre'); });
+        Schema::create('tiendas', function (Blueprint $t) { $t->id(); $t->string('nombre'); $t->boolean('comisiones_compartidas')->default(false); });
         Schema::create('clientes', function (Blueprint $t) { $t->id(); $t->string('nombre'); $t->timestamps(); });
         Schema::create('productos', function (Blueprint $t) { $t->id(); $t->string('nombre'); });
         Schema::create('ordenes', function (Blueprint $t) {

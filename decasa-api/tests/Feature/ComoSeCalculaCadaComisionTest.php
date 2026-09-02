@@ -50,6 +50,9 @@ class ComoSeCalculaCadaComisionTest extends TestCase
         });
         Schema::create('tiendas', function (Blueprint $t) {
             $t->id(); $t->string('nombre'); $t->boolean('activa')->default(true);
+            // La tabla real la tiene: de ella sale si la comision es del
+            // equipo o de cada quien.
+            $t->boolean('comisiones_compartidas')->default(false);
         });
         Schema::create('metas_tienda', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('tienda_id'); $t->char('mes', 7);
@@ -111,10 +114,12 @@ class ComoSeCalculaCadaComisionTest extends TestCase
             $t->timestamps();
         });
 
+        // Norte y El Edén reparten entre su equipo; Tienda Virtual no: ahí
+        // cada uno cobra lo suyo.
         DB::table('tiendas')->insert([
-            ['id' => self::NORTE,   'nombre' => 'Decasa Norte',       'activa' => true],
-            ['id' => self::EDEN,    'nombre' => 'Decasa Vía El Edén', 'activa' => true],
-            ['id' => self::VIRTUAL, 'nombre' => 'Tienda Virtual',     'activa' => true],
+            ['id' => self::NORTE,   'nombre' => 'Decasa Norte',       'activa' => true, 'comisiones_compartidas' => true],
+            ['id' => self::EDEN,    'nombre' => 'Decasa Vía El Edén', 'activa' => true, 'comisiones_compartidas' => true],
+            ['id' => self::VIRTUAL, 'nombre' => 'Tienda Virtual',     'activa' => true, 'comisiones_compartidas' => false],
         ]);
 
         // Norte y El Edén tienen meta; Tienda Virtual no.
@@ -151,34 +156,6 @@ class ComoSeCalculaCadaComisionTest extends TestCase
         \App\Models\TiendaReemplazo::olvidarCache();
 
         $this->prestarleASqliteLoQueEsDeMysql();
-    }
-
-    /**
-     * Lo que le abona un independiente a un almacén se agrupa por mes con
-     * CONVERT_TZ y DATE_FORMAT, que son de MySQL. Sin ellas no se puede probar
-     * nada que toque la meta de una tienda.
-     *
-     * Se registran en la conexión en vez de esquivar la consulta: lo que se
-     * quiere comprobar es la cuenta de verdad, no una parecida.
-     */
-    private function prestarleASqliteLoQueEsDeMysql(): void
-    {
-        $pdo = DB::connection()->getPdo();
-
-        $pdo->sqliteCreateFunction('CONVERT_TZ', function ($fecha, $desde, $hasta) {
-            if ($fecha === null) return null;
-            $horas = (int) substr($hasta, 0, 3) - (int) substr($desde, 0, 3);
-
-            return \Carbon\Carbon::parse($fecha)->addHours($horas)->format('Y-m-d H:i:s');
-        }, 3);
-
-        $pdo->sqliteCreateFunction('DATE_FORMAT', function ($fecha, $formato) {
-            if ($fecha === null) return null;
-
-            return \Carbon\Carbon::parse($fecha)->format(
-                str_replace(['%Y', '%m', '%d'], ['Y', 'm', 'd'], $formato)
-            );
-        }, 2);
     }
 
     /**

@@ -47,7 +47,7 @@ class LoginGoogleTest extends TestCase
             $t->unsignedBigInteger('perfil_alterno_id')->nullable();
             $t->string('firma_url')->nullable(); $t->timestamp('created_at')->nullable();
         });
-        Schema::create('tiendas', function (Blueprint $t) { $t->id(); $t->string('nombre'); $t->string('ciudad')->nullable(); });
+        Schema::create('tiendas', function (Blueprint $t) { $t->id(); $t->string('nombre'); $t->string('ciudad')->nullable(); $t->boolean('comisiones_compartidas')->default(false); });
         Schema::create('roles', function (Blueprint $t) { $t->id(); $t->string('nombre'); });
         Schema::create('tipos_proceso', function (Blueprint $t) {
             $t->id(); $t->string('clave'); $t->string('nombre'); $t->boolean('activo')->default(true);

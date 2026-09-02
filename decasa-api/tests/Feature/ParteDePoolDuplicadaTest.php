@@ -39,6 +39,9 @@ class ParteDePoolDuplicadaTest extends TestCase
         });
         Schema::create('tiendas', function (Blueprint $t) {
             $t->id(); $t->string('nombre'); $t->boolean('activa')->default(true);
+            // La tabla real la tiene: de ella sale si la comision es del
+            // equipo o de cada quien.
+            $t->boolean('comisiones_compartidas')->default(false);
         });
         Schema::create('metas_tienda', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('tienda_id'); $t->char('mes', 7);
@@ -88,7 +91,9 @@ class ParteDePoolDuplicadaTest extends TestCase
             $t->string('metodo')->nullable(); $t->timestamp('created_at')->nullable();
         });
 
-        DB::table('tiendas')->insert(['id' => 1, 'nombre' => 'Decasa Norte', 'activa' => true]);
+        DB::table('tiendas')->insert(['id' => 1, 'nombre' => 'Decasa Norte', 'activa' => true,
+            // Aqui la comision es del equipo: es de lo que trata la prueba.
+            'comisiones_compartidas' => true]);
         DB::table('metas_tienda')->insert([
             'tienda_id' => 1, 'mes' => self::MES, 'meta' => 40000000, 'divisor_asesores' => 3,
             'created_at' => now(), 'updated_at' => now(),
