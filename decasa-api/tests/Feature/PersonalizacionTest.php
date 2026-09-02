@@ -60,6 +60,8 @@ class PersonalizacionTest extends TestCase
         });
         Schema::create('proceso_trabajadores', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('usuario_id'); $t->unsignedBigInteger('tipo_proceso_id');
+            // Cada quien lleva su linea: 'ambas', o solo una de las dos.
+            $t->string('linea')->default('ambas');
         });
         Schema::create('personal_access_tokens', function (Blueprint $t) {
             $t->id(); $t->morphs('tokenable'); $t->string('name'); $t->string('token', 64)->unique();

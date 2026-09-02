@@ -37,6 +37,15 @@ const guardandoModal = ref(false)
 
 const historial        = ref([])
 const loadingHistorial = ref(false)
+// El historial se pide al abrir su pestaña, no cada vez que se cierra un paso:
+// esa segunda petición doblaba la espera para llenar algo que no se está
+// mirando. Al cerrar un paso queda marcado como desactualizado.
+const historialAlDia   = ref(false)
+
+function verHistorial() {
+  tab.value = 'historial'
+  if (! historialAlDia.value) cargarHistorial()
+}
 
 // Los nombres salen del catalogo que mantiene el taller, no de una lista fija
 const { tipos: tiposProceso, cargar: cargarTipos, nombre: nombreProceso, clases: clasesProceso } = useTiposProceso()
@@ -110,6 +119,7 @@ async function cargarHistorial() {
   try {
     const { data } = await getHistorialPasos()
     historial.value = Array.isArray(data) ? data : []
+    historialAlDia.value = true
   } catch {
     historial.value = []
   } finally {
@@ -143,7 +153,14 @@ async function guardarTrabajadores(trabajadores) {
     mostrarModal.value = false
     // Quien tiene varios pasos abiertos suele estar a media pantalla: cerrar
     // uno no debe devolverlo al principio para buscar el siguiente.
-    await sinPerderElSitio(() => Promise.all([cargar(), cargarHistorial()]))
+    //
+    // Y solo se recarga lo que se está viendo: pedir también el historial
+    // duplicaba la espera del que acaba de cerrar un paso, para llenar una
+    // pestaña que no tiene abierta. Se marca para que se refresque cuando la
+    // abra.
+    await sinPerderElSitio(cargar)
+    if (tab.value === 'historial') cargarHistorial()
+    else historialAlDia.value = false
   } catch (e) {
     toast.error(e.response?.data?.message ?? 'No se pudo guardar.')
   } finally {
@@ -192,7 +209,8 @@ const { listen } = useRealtime()
 
 onMounted(async () => {
   cargarTipos()   // nombres y colores de los procesos
-  await Promise.all([cargar(), cargarHistorial()])
+  // Al abrir, solo lo que se ve: el historial espera a que se pida su pestaña.
+  await cargar()
   // Sin sacar de su sitio a quien esté mirando otro paso más abajo.
   listen('produccion', 'produccion.actualizada', () => sinPerderElSitio(cargar))
 })
@@ -222,7 +240,7 @@ onMounted(async () => {
         <span v-if="pasos.length" class="ml-1 inline-flex items-center justify-center w-5 h-5 text-xs bg-orange-100 text-orange-700 rounded-full font-bold">{{ pasos.length }}</span>
       </button>
       <button
-        @click="tab = 'historial'"
+        @click="verHistorial"
         :class="['flex-1 py-1.5 text-sm font-medium rounded-lg transition-colors', tab === 'historial' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500']"
       >
         Historial

@@ -3,9 +3,9 @@
 namespace App\Services;
 
 use App\Events\NuevaNotificacion;
+use App\Jobs\EnviarPush;
 use App\Models\Notificacion;
 use App\Models\Usuario;
-use App\Services\PushService;
 
 class NotificacionService
 {
@@ -57,9 +57,13 @@ class NotificacionService
 
         if ($usuarioId) {
             try {
-                PushService::enviarAUsuario($usuarioId, $titulo, $mensaje, $datos, $tipo);
+                // A la cola: hablar con el servidor de push es una petición
+                // HTTP por cada teléfono, y hacerla aquí dejaba esperando a
+                // quien acaba de pulsar el botón. Lo que le importa a él ya
+                // está guardado; el aviso sale detrás.
+                EnviarPush::dispatch($usuarioId, $titulo, $mensaje, $datos, $tipo);
             } catch (\Throwable $e) {
-                \Log::warning("Push notification fallida para usuario {$usuarioId}", [
+                \Log::warning("No se pudo encolar el push para el usuario {$usuarioId}", [
                     'tipo'  => $tipo,
                     'error' => $e->getMessage(),
                 ]);

@@ -122,7 +122,11 @@ class ProduccionController extends Controller
             'produccion.ordenItem.orden.cliente:id,nombre,telefono',
             'produccion.ordenItem.orden.vendedor:id,nombre',
             'produccion.ordenItem.orden.tienda:id,nombre',
-            'produccion.pasos.participantes.usuario:id,nombre',
+            // De los otros pasos de la pieza solo se pinta la barrita de
+            // progreso y la lista para devolver: hacen falta el estado y el
+            // proceso, no quién los hizo. Traer sus participantes eran dos
+            // consultas más por cada vez que alguien abre "Mis pasos".
+            'produccion.pasos:id,produccion_id,tipo_proceso,orden,estado',
             'participantes.usuario:id,nombre',
         ])
         ->tap(fn ($q) => $this->soloSusPasos($q, $usuario))

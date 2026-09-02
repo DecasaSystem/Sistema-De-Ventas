@@ -395,93 +395,36 @@ class StatsController extends Controller
         $ventasParaMeta = ComisionController::ventasParaMeta();
         $porSuCuenta = $this->idsPorSuCuenta();
 
-        $resultado = $tiendas->map(function ($t) use ($rango, $desde, $hasta, $mesActual, $porSuCuenta, $metasVigentes, $ventasParaMeta) {
-            $rangoCreacion = $this->rangoUtc($desde, $hasta);
+        // Todo lo de todas las tiendas, de una vez. Antes se pedía ocho veces
+        // por cada tienda —cincuenta y seis consultas, casi veinte segundos de
+        // espera— y ahora son cinco para todas.
+        $cobros   = $this->cobrosPorTienda($rango, $porSuCuenta);
+        $carteras = $this->carteraPorTienda($this->rangoUtc($desde, $hasta), $porSuCuenta);
+        $ordenes  = $this->ordenesPorTienda($rango, $porSuCuenta);
+        $tops     = $this->mejorVendedorPorTienda($rango, $porSuCuenta);
 
-            // Ingresos: el dinero se le acredita a la tienda que lo recibió, que
-            // puede no ser la de la orden (el cliente abona en otra sede).
-            // Se piden de una vez el total y su reparto por tipo de orden, con
-            // la MISMA expresión de monto: así los tres cajones suman siempre
-            // el ingreso de la tienda y no hay que cuadrar diferencias.
-            $montoPpal = 'CASE WHEN o.es_compartida = 1 THEN p.monto / 2 ELSE p.monto END';
-            $ppal = DB::table('pagos as p')
-                ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
-                ->whereRaw('COALESCE(p.tienda_id, o.tienda_id) = ?', [$t->id])
-                ->whereBetween('p.created_at', $rango)
-                // Lo que vende quien va por su cuenta no es de esta tienda
-                ->when($porSuCuenta, fn($q) => $q->whereNotIn('o.vendedor_id', $porSuCuenta))
-                ->selectRaw("SUM($montoPpal) as total, " . Orden::selectMontosPorTipo($montoPpal))
-                ->first();
-
-            $co = DB::table('pagos as p')
-                ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
-                ->join('usuarios as u', 'u.id', '=', 'o.covendedor_id')
-                ->where('u.tienda_default_id', $t->id)->where('o.es_compartida', true)
-                ->whereBetween('p.created_at', $rango)
-                ->when($porSuCuenta, fn($q) => $q->whereNotIn('o.vendedor_id', $porSuCuenta))
-                ->selectRaw('SUM(p.monto / 2) as total, ' . Orden::selectMontosPorTipo('p.monto / 2'))
-                ->first();
-
-            $ingresosPpal = (float) ($ppal->total ?? 0);
-            $ingresosCo   = (float) ($co->total ?? 0);
+        $resultado = $tiendas->map(function ($t) use ($mesActual, $metasVigentes, $ventasParaMeta, $cobros, $carteras, $ordenes, $tops) {
+            // Todo esto viene ya resuelto de una sola pasada, agrupado por
+            // tienda: antes eran ocho consultas por cada una.
+            $ingresosPpal = (float) ($cobros['ppal'][$t->id]['total'] ?? 0);
+            $ingresosCo   = (float) ($cobros['co'][$t->id]['total'] ?? 0);
             $ingresos     = $ingresosPpal + $ingresosCo;
 
             $porTipo = [
-                'venta'        => (float) ($ppal->monto_venta ?? 0)        + (float) ($co->monto_venta ?? 0),
-                'restauracion' => (float) ($ppal->monto_restauracion ?? 0) + (float) ($co->monto_restauracion ?? 0),
-                'fv2'          => (float) ($ppal->monto_fv2 ?? 0)          + (float) ($co->monto_fv2 ?? 0),
+                'venta'        => (float) ($cobros['ppal'][$t->id]['venta'] ?? 0)
+                                + (float) ($cobros['co'][$t->id]['venta'] ?? 0),
+                'restauracion' => (float) ($cobros['ppal'][$t->id]['restauracion'] ?? 0)
+                                + (float) ($cobros['co'][$t->id]['restauracion'] ?? 0),
+                'fv2'          => (float) ($cobros['ppal'][$t->id]['fv2'] ?? 0)
+                                + (float) ($cobros['co'][$t->id]['fv2'] ?? 0),
             ];
 
-            // Cartera: misma lógica
-            $carteraPpal = (float) DB::table('v_saldo_ordenes as vs')
-                ->join('ordenes as o', 'o.id', '=', 'vs.orden_id')
-                ->where('o.tienda_id', $t->id)->whereBetween('o.created_at', $rangoCreacion)
-                ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES)
-                ->when($porSuCuenta, fn($q) => $q->whereNotIn('o.vendedor_id', $porSuCuenta))
-                ->selectRaw('SUM(CASE WHEN o.es_compartida = 1 THEN vs.saldo_pendiente / 2 ELSE vs.saldo_pendiente END) as total')
-                ->value('total') ?? 0;
+            $cartera = (float) ($carteras[$t->id] ?? 0);
 
-            $carteraCo = (float) DB::table('v_saldo_ordenes as vs')
-                ->join('ordenes as o', 'o.id', '=', 'vs.orden_id')
-                ->join('usuarios as u', 'u.id', '=', 'o.covendedor_id')
-                ->where('u.tienda_default_id', $t->id)->where('o.es_compartida', true)
-                ->whereBetween('o.created_at', $rangoCreacion)
-                ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES)
-                ->when($porSuCuenta, fn($q) => $q->whereNotIn('o.vendedor_id', $porSuCuenta))
-                ->selectRaw('SUM(vs.saldo_pendiente / 2) as total')
-                ->value('total') ?? 0;
+            $totalOrd   = (int) ($ordenes[$t->id]['total'] ?? 0);
+            $entregadas = (int) ($ordenes[$t->id]['entregadas'] ?? 0);
 
-            $cartera = $carteraPpal + $carteraCo;
-
-            // Órdenes: propias + compartidas donde es co-tienda
-            $ordPpal = DB::table('ordenes')->where('tienda_id', $t->id)
-                ->whereBetween('created_at', $rango)
-                ->whereNotIn('estado', Orden::ESTADOS_NO_COMERCIALES)
-                ->when($porSuCuenta, fn($q) => $q->whereNotIn('vendedor_id', $porSuCuenta))
-                ->selectRaw('COUNT(*) AS total, SUM(estado = "entregado") AS entregadas')
-                ->first();
-
-            $ordCo = DB::table('ordenes as o')
-                ->join('usuarios as u', 'u.id', '=', 'o.covendedor_id')
-                ->where('u.tienda_default_id', $t->id)->where('o.es_compartida', true)
-                ->whereBetween('o.created_at', $rango)
-                ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES)
-                ->when($porSuCuenta, fn($q) => $q->whereNotIn('o.vendedor_id', $porSuCuenta))
-                ->selectRaw('COUNT(*) AS total, SUM(o.estado = "entregado") AS entregadas')
-                ->first();
-
-            $totalOrd   = (int) ($ordPpal->total     ?? 0) + (int) ($ordCo->total     ?? 0);
-            $entregadas = (int) ($ordPpal->entregadas ?? 0) + (int) ($ordCo->entregadas ?? 0);
-
-            $top = DB::table('pagos as p')
-                ->join('ordenes as o',  'o.id',  '=', 'p.orden_id')
-                ->join('usuarios as u', 'u.id',  '=', 'o.vendedor_id')
-                ->whereRaw('COALESCE(p.tienda_id, o.tienda_id) = ?', [$t->id])
-                ->whereBetween('p.created_at', $rango)
-                ->when($porSuCuenta, fn($q) => $q->whereNotIn('o.vendedor_id', $porSuCuenta))
-                ->selectRaw('u.id, u.nombre, SUM(CASE WHEN o.es_compartida = 1 THEN p.monto / 2 ELSE p.monto END) AS ingresos')
-                ->groupBy('u.id', 'u.nombre')->orderByDesc('ingresos')
-                ->first();
+            $top = $tops[$t->id] ?? null;
 
             // La meta se arrastra: rige la ultima cargada hasta este mes.
             $metaReg        = $metasVigentes[$t->id] ?? null;
@@ -508,11 +451,7 @@ class StatsController extends Controller
                 'ordenes_totales'    => $totalOrd,
                 'ordenes_entregadas' => $entregadas,
                 'ticket_promedio'    => $entregadas > 0 ? round($ingresos / $entregadas) : 0,
-                'vendedor_destacado' => $top ? [
-                    'id'       => $top->id,
-                    'nombre'   => $top->nombre,
-                    'ingresos' => (float) $top->ingresos,
-                ] : null,
+                'vendedor_destacado' => $top,
                 'meta_mes' => [
                     'mes'          => $mesActual,
                     'meta'         => $metaVal,
@@ -543,38 +482,43 @@ class StatsController extends Controller
     {
         $rangoCreacion = $this->rangoUtc($desde, $hasta);
 
-        return DB::table('usuarios')
-            ->where('activo', true)
-            ->where('independiente', true)
-            ->orderBy('nombre')
-            ->get()
-            ->map(function ($u) use ($rango, $rangoCreacion) {
-                // El total y su reparto por tipo, de la misma suma: en esta
-                // pantalla los independientes son una fila más, así que su
-                // desglose tiene que estar como el de cualquier tienda.
-                $cobro = DB::table('pagos as p')
-                    ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
-                    ->where('o.vendedor_id', $u->id)
-                    ->whereBetween('p.created_at', $rango)
-                    ->selectRaw('SUM(p.monto) as total, ' . Orden::selectMontosPorTipo('p.monto'))
-                    ->first();
+        $gente = DB::table('usuarios')
+            ->where('activo', true)->where('independiente', true)
+            ->orderBy('nombre')->get();
 
-                $ingresos = (float) ($cobro->total ?? 0);
+        if ($gente->isEmpty()) return collect();
 
-                $cartera = (float) DB::table('v_saldo_ordenes as vs')
-                    ->join('ordenes as o', 'o.id', '=', 'vs.orden_id')
-                    ->where('o.vendedor_id', $u->id)
-                    ->whereBetween('o.created_at', $rangoCreacion)
-                    ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES)
-                    ->sum('vs.saldo_pendiente');
+        // Los tres datos de todos ellos, de una vez. Antes eran tres consultas
+        // por cada independiente dentro del bucle.
+        $ids = $gente->pluck('id')->all();
 
-                $ord = DB::table('ordenes')
-                    ->where('vendedor_id', $u->id)
-                    ->whereBetween('created_at', $rango)
-                    ->whereNotIn('estado', Orden::ESTADOS_NO_COMERCIALES)
-                    ->selectRaw('COUNT(*) AS total, SUM(estado = "entregado") AS entregadas')
-                    ->first();
+        $cobros = DB::table('pagos as p')->join('ordenes as o', 'o.id', '=', 'p.orden_id')
+            ->whereIn('o.vendedor_id', $ids)
+            ->whereBetween('p.created_at', $rango)
+            ->selectRaw('o.vendedor_id AS quien, SUM(p.monto) as total, ' . Orden::selectMontosPorTipo('p.monto'))
+            ->groupBy('o.vendedor_id')->get()->keyBy('quien');
 
+        $carteras = DB::table('v_saldo_ordenes as vs')->join('ordenes as o', 'o.id', '=', 'vs.orden_id')
+            ->whereIn('o.vendedor_id', $ids)
+            ->whereBetween('o.created_at', $rangoCreacion)
+            ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES)
+            ->selectRaw('o.vendedor_id AS quien, SUM(vs.saldo_pendiente) AS total')
+            ->groupBy('o.vendedor_id')->get()->keyBy('quien');
+
+        $ordenes = DB::table('ordenes')
+            ->whereIn('vendedor_id', $ids)
+            ->whereBetween('created_at', $rango)
+            ->whereNotIn('estado', Orden::ESTADOS_NO_COMERCIALES)
+            ->selectRaw("vendedor_id AS quien, COUNT(*) AS total, SUM(estado='entregado') AS entregadas")
+            ->groupBy('vendedor_id')->get()->keyBy('quien');
+
+        return $gente
+            ->map(function ($u) use ($cobros, $carteras, $ordenes) {
+                $cobro = $cobros[$u->id] ?? null;
+                $ord   = $ordenes[$u->id] ?? null;
+
+                $ingresos   = (float) ($cobro->total ?? 0);
+                $cartera    = (float) ($carteras[$u->id]->total ?? 0);
                 $entregadas = (int) ($ord->entregadas ?? 0);
 
                 return [
@@ -602,6 +546,245 @@ class StatsController extends Controller
             });
     }
 
+    /**
+     * Lo cobrado por cada tienda, con su reparto por tipo.
+     *
+     * Dos grupos, que se suman después: lo que entró por sus propias órdenes
+     * —acreditado a la tienda que RECIBIÓ la plata, que puede no ser la de la
+     * orden— y la mitad de las compartidas donde el covendedor es de esa
+     * tienda.
+     *
+     * @return array{ppal: array<int,array>, co: array<int,array>}
+     */
+    private function cobrosPorTienda(array $rango, array $porSuCuenta): array
+    {
+        $monto = 'CASE WHEN o.es_compartida = 1 THEN p.monto / 2 ELSE p.monto END';
+
+        $ppal = DB::table('pagos as p')->join('ordenes as o', 'o.id', '=', 'p.orden_id')
+            ->whereBetween('p.created_at', $rango)
+            // Lo que vende quien va por su cuenta no es de esta tienda
+            ->when($porSuCuenta, fn ($q) => $q->whereNotIn('o.vendedor_id', $porSuCuenta))
+            ->selectRaw("COALESCE(p.tienda_id, o.tienda_id) AS quien, SUM($monto) as total, "
+                        . Orden::selectMontosPorTipo($monto))
+            ->groupByRaw('COALESCE(p.tienda_id, o.tienda_id)')->get();
+
+        $co = DB::table('pagos as p')->join('ordenes as o', 'o.id', '=', 'p.orden_id')
+            ->join('usuarios as u', 'u.id', '=', 'o.covendedor_id')
+            ->where('o.es_compartida', true)
+            ->whereBetween('p.created_at', $rango)
+            ->when($porSuCuenta, fn ($q) => $q->whereNotIn('o.vendedor_id', $porSuCuenta))
+            ->selectRaw('u.tienda_default_id AS quien, SUM(p.monto / 2) as total, '
+                        . Orden::selectMontosPorTipo('p.monto / 2'))
+            ->groupBy('u.tienda_default_id')->get();
+
+        $mapear = fn ($filas) => collect($filas)->keyBy('quien')->map(fn ($f) => [
+            'total'        => (float) $f->total,
+            'venta'        => (float) $f->monto_venta,
+            'restauracion' => (float) $f->monto_restauracion,
+            'fv2'          => (float) $f->monto_fv2,
+        ])->all();
+
+        return ['ppal' => $mapear($ppal), 'co' => $mapear($co)];
+    }
+
+    /** El saldo vivo de cada tienda, propio y como co-tienda. @return array<int,float> */
+    private function carteraPorTienda(array $rangoCreacion, array $porSuCuenta): array
+    {
+        $saldo = 'CASE WHEN o.es_compartida = 1 THEN vs.saldo_pendiente / 2 ELSE vs.saldo_pendiente END';
+
+        $ppal = DB::table('v_saldo_ordenes as vs')->join('ordenes as o', 'o.id', '=', 'vs.orden_id')
+            ->whereBetween('o.created_at', $rangoCreacion)
+            ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES)
+            ->when($porSuCuenta, fn ($q) => $q->whereNotIn('o.vendedor_id', $porSuCuenta))
+            ->selectRaw("o.tienda_id AS quien, SUM($saldo) AS total")
+            ->groupBy('o.tienda_id')->get();
+
+        $co = DB::table('v_saldo_ordenes as vs')->join('ordenes as o', 'o.id', '=', 'vs.orden_id')
+            ->join('usuarios as u', 'u.id', '=', 'o.covendedor_id')
+            ->where('o.es_compartida', true)
+            ->whereBetween('o.created_at', $rangoCreacion)
+            ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES)
+            ->when($porSuCuenta, fn ($q) => $q->whereNotIn('o.vendedor_id', $porSuCuenta))
+            ->selectRaw('u.tienda_default_id AS quien, SUM(vs.saldo_pendiente / 2) AS total')
+            ->groupBy('u.tienda_default_id')->get();
+
+        $out = [];
+        foreach ([$ppal, $co] as $conjunto) {
+            foreach ($conjunto as $f) {
+                $out[(int) $f->quien] = ($out[(int) $f->quien] ?? 0) + (float) $f->total;
+            }
+        }
+
+        return $out;
+    }
+
+    /** Cuántas órdenes tiene cada tienda en el rango. @return array<int,array> */
+    private function ordenesPorTienda(array $rango, array $porSuCuenta): array
+    {
+        $ppal = DB::table('ordenes as o')->whereBetween('o.created_at', $rango)
+            ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES)
+            ->when($porSuCuenta, fn ($q) => $q->whereNotIn('o.vendedor_id', $porSuCuenta))
+            ->selectRaw("o.tienda_id AS quien, COUNT(*) AS total, SUM(o.estado='entregado') AS entregadas")
+            ->groupBy('o.tienda_id')->get();
+
+        $co = DB::table('ordenes as o')->join('usuarios as u', 'u.id', '=', 'o.covendedor_id')
+            ->where('o.es_compartida', true)
+            ->whereBetween('o.created_at', $rango)
+            ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES)
+            ->when($porSuCuenta, fn ($q) => $q->whereNotIn('o.vendedor_id', $porSuCuenta))
+            ->selectRaw("u.tienda_default_id AS quien, COUNT(*) AS total, SUM(o.estado='entregado') AS entregadas")
+            ->groupBy('u.tienda_default_id')->get();
+
+        $out = [];
+        foreach ([$ppal, $co] as $conjunto) {
+            foreach ($conjunto as $f) {
+                $id = (int) $f->quien;
+                $out[$id]['total']      = ($out[$id]['total']      ?? 0) + (int) $f->total;
+                $out[$id]['entregadas'] = ($out[$id]['entregadas'] ?? 0) + (int) $f->entregadas;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Quién cobró más en cada tienda. Se traen todos de una vez y se queda el
+     * primero de cada una, en vez de preguntar tienda por tienda.
+     *
+     * @return array<int, array{id:int, nombre:string, ingresos:float}>
+     */
+    private function mejorVendedorPorTienda(array $rango, array $porSuCuenta): array
+    {
+        $filas = DB::table('pagos as p')
+            ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
+            ->join('usuarios as u', 'u.id', '=', 'o.vendedor_id')
+            ->whereBetween('p.created_at', $rango)
+            ->when($porSuCuenta, fn ($q) => $q->whereNotIn('o.vendedor_id', $porSuCuenta))
+            ->selectRaw('COALESCE(p.tienda_id, o.tienda_id) AS tienda, u.id, u.nombre,
+                         SUM(CASE WHEN o.es_compartida = 1 THEN p.monto / 2 ELSE p.monto END) AS ingresos')
+            ->groupByRaw('COALESCE(p.tienda_id, o.tienda_id), u.id, u.nombre')
+            ->orderByDesc('ingresos')
+            ->get();
+
+        $out = [];
+        foreach ($filas as $f) {
+            // Vienen ordenadas de mayor a menor: el primero de cada tienda gana.
+            $out[(int) $f->tienda] ??= [
+                'id' => (int) $f->id, 'nombre' => $f->nombre, 'ingresos' => (float) $f->ingresos,
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Lo cobrado por cada vendedor en el rango, con su reparto por tipo.
+     *
+     * Dos consultas: lo de sus propias órdenes y la mitad que le toca de las
+     * compartidas donde figura como covendedor. Se suman por persona.
+     *
+     * @return array<int, array{total:float, venta:float, restauracion:float, fv2:float}>
+     */
+    private function cobrosPorVendedor(array $rango): array
+    {
+        $suyas = 'CASE WHEN o.es_compartida = 1 THEN p.monto / 2 ELSE p.monto END';
+
+        $filas = DB::table('pagos as p')->join('ordenes as o', 'o.id', '=', 'p.orden_id')
+            ->whereBetween('p.created_at', $rango)
+            ->whereNotNull('o.vendedor_id')
+            ->selectRaw("o.vendedor_id AS quien, SUM($suyas) as total, " . Orden::selectMontosPorTipo($suyas))
+            ->groupBy('o.vendedor_id')->get();
+
+        $comoCo = DB::table('pagos as p')->join('ordenes as o', 'o.id', '=', 'p.orden_id')
+            ->whereBetween('p.created_at', $rango)
+            ->where('o.es_compartida', true)->whereNotNull('o.covendedor_id')
+            ->selectRaw('o.covendedor_id AS quien, SUM(p.monto / 2) as total, ' . Orden::selectMontosPorTipo('p.monto / 2'))
+            ->groupBy('o.covendedor_id')->get();
+
+        $out = [];
+        foreach ([$filas, $comoCo] as $conjunto) {
+            foreach ($conjunto as $f) {
+                $id = (int) $f->quien;
+                $out[$id]['total']        = ($out[$id]['total']        ?? 0) + (float) $f->total;
+                $out[$id]['venta']        = ($out[$id]['venta']        ?? 0) + (float) $f->monto_venta;
+                $out[$id]['restauracion'] = ($out[$id]['restauracion'] ?? 0) + (float) $f->monto_restauracion;
+                $out[$id]['fv2']          = ($out[$id]['fv2']          ?? 0) + (float) $f->monto_fv2;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Cuántas órdenes y cuánto vendió cada uno en el rango.
+     *
+     * @return array<int, array{total:int, entregadas:int, canceladas:int, vendido:float}>
+     */
+    private function ordenesPorVendedor(array $rango): array
+    {
+        $valor = 'CASE WHEN es_compartida = 1 THEN valor_total / 2 ELSE valor_total END';
+        $cols  = "COUNT(*) AS total, SUM(estado='entregado') AS entregadas,
+                  SUM(estado='cancelado') AS canceladas, SUM($valor) AS vendido";
+
+        $suyas = DB::table('ordenes')->whereBetween('created_at', $rango)
+            ->whereNotIn('estado', Orden::ESTADOS_NO_COMERCIALES)
+            ->whereNotNull('vendedor_id')
+            ->selectRaw("vendedor_id AS quien, $cols")
+            ->groupBy('vendedor_id')->get();
+
+        $comoCo = DB::table('ordenes')->whereBetween('created_at', $rango)
+            ->whereNotIn('estado', Orden::ESTADOS_NO_COMERCIALES)
+            ->where('es_compartida', true)->whereNotNull('covendedor_id')
+            ->selectRaw("covendedor_id AS quien, $cols")
+            ->groupBy('covendedor_id')->get();
+
+        $out = [];
+        foreach ([$suyas, $comoCo] as $conjunto) {
+            foreach ($conjunto as $f) {
+                $id = (int) $f->quien;
+                $out[$id]['total']      = ($out[$id]['total']      ?? 0) + (int) $f->total;
+                $out[$id]['entregadas'] = ($out[$id]['entregadas'] ?? 0) + (int) $f->entregadas;
+                $out[$id]['canceladas'] = ($out[$id]['canceladas'] ?? 0) + (int) $f->canceladas;
+                $out[$id]['vendido']    = ($out[$id]['vendido']    ?? 0) + (float) $f->vendido;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * El saldo vivo de cada vendedor. Sin filtro de fecha a propósito: es un
+     * saldo, no un movimiento del período.
+     *
+     * @return array<int, float>
+     */
+    private function carteraPorVendedor(): array
+    {
+        $saldo   = 'CASE WHEN o.es_compartida = 1 THEN vs.saldo_pendiente / 2 ELSE vs.saldo_pendiente END';
+        $estados = array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES);
+
+        $suyas = DB::table('v_saldo_ordenes as vs')->join('ordenes as o', 'o.id', '=', 'vs.orden_id')
+            ->where('vs.saldo_pendiente', '>', 0)->whereNotIn('o.estado', $estados)
+            ->whereNotNull('o.vendedor_id')
+            ->selectRaw("o.vendedor_id AS quien, SUM($saldo) AS total")
+            ->groupBy('o.vendedor_id')->get();
+
+        $comoCo = DB::table('v_saldo_ordenes as vs')->join('ordenes as o', 'o.id', '=', 'vs.orden_id')
+            ->where('vs.saldo_pendiente', '>', 0)->whereNotIn('o.estado', $estados)
+            ->where('o.es_compartida', true)->whereNotNull('o.covendedor_id')
+            ->selectRaw('o.covendedor_id AS quien, SUM(vs.saldo_pendiente / 2) AS total')
+            ->groupBy('o.covendedor_id')->get();
+
+        $out = [];
+        foreach ([$suyas, $comoCo] as $conjunto) {
+            foreach ($conjunto as $f) {
+                $out[(int) $f->quien] = ($out[(int) $f->quien] ?? 0) + (float) $f->total;
+            }
+        }
+
+        return $out;
+    }
+
     // ─── GET /api/stats/vendedores  (solo supervisor) ─────────────────────────
 
     public function vendedores(Request $request)
@@ -617,68 +800,26 @@ class StatsController extends Controller
             ->selectRaw('u.id, u.nombre, u.rol, t.nombre AS tienda, t.id AS tienda_id')
             ->get();
 
-        $resultado = $vendedores->map(function ($v) use ($rango) {
-            // Ingresos: órdenes propias (compartidas → mitad) + compartidas como co-vendedor (mitad)
-            $monto = 'CASE WHEN o.es_compartida = 1 THEN p.monto / 2 ELSE p.monto END';
-            $cobro = DB::table('pagos as p')
-                ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
-                ->where(function ($q) use ($v) {
-                    $q->where('o.vendedor_id', $v->id)
-                      ->orWhere(function ($q2) use ($v) {
-                          $q2->where('o.covendedor_id', $v->id)->where('o.es_compartida', true);
-                      });
-                })
-                ->whereBetween('p.created_at', $rango)
-                // El total y su reparto por tipo salen de la misma suma, así
-                // que los tres cajones dan justo el ingreso de la persona.
-                ->selectRaw("SUM($monto) as total, " . Orden::selectMontosPorTipo($monto))
-                ->first();
+        // Todo de una vez, agrupado por persona, en vez de cuatro consultas por
+        // cada vendedor. Con 18 vendedores eran 73 consultas y veinte segundos
+        // de espera; así son cinco.
+        //
+        // Cada cifra se pide dos veces —una por lo que vendió él y otra por lo
+        // que le toca como covendedor— porque "suyo o compartido conmigo" no se
+        // puede agrupar por una sola columna. Se suman en PHP.
+        $porVendedor = $this->cobrosPorVendedor($rango);
+        $porOrdenes  = $this->ordenesPorVendedor($rango);
+        $porCartera  = $this->carteraPorVendedor();
 
-            $ingresos = (float) ($cobro->total ?? 0);
+        $resultado = $vendedores->map(function ($v) use ($porVendedor, $porOrdenes, $porCartera) {
+            $cobro = $porVendedor[$v->id] ?? null;
+            $ord   = $porOrdenes[$v->id]  ?? null;
 
-            $ord = DB::table('ordenes')
-                ->where(function ($q) use ($v) {
-                    $q->where('vendedor_id', $v->id)
-                      ->orWhere(function ($q2) use ($v) {
-                          $q2->where('covendedor_id', $v->id)->where('es_compartida', true);
-                      });
-                })
-                ->whereBetween('created_at', $rango)
-                ->whereNotIn('estado', Orden::ESTADOS_NO_COMERCIALES)
-                ->selectRaw('COUNT(*) AS total, SUM(estado="entregado") AS entregadas, SUM(estado="cancelado") AS canceladas')
-                ->first();
-
-            $entregadas     = (int) ($ord->entregadas ?? 0);
-            $ordenesTotales = (int) ($ord->total ?? 0);
-
-            // Lo vendido en el período. Igual que en el panel: antes era
-            // "ingresos + cartera" con la cartera sin filtro de fecha, así que
-            // a cada vendedor se le sumaba toda la deuda que arrastraba de
-            // meses anteriores y sus ventas del mes salían infladas.
-            $totalVendido = (float) DB::table('ordenes')
-                ->where(function ($q) use ($v) {
-                    $q->where('vendedor_id', $v->id)
-                      ->orWhere(function ($q2) use ($v) {
-                          $q2->where('covendedor_id', $v->id)->where('es_compartida', true);
-                      });
-                })
-                ->whereBetween('created_at', $rango)
-                ->whereNotIn('estado', Orden::ESTADOS_NO_COMERCIALES)
-                ->selectRaw('SUM(CASE WHEN es_compartida = 1 THEN valor_total / 2 ELSE valor_total END) as total')
-                ->value('total') ?? 0;
-
-            $cartera = (float) DB::table('v_saldo_ordenes as vs')
-                ->join('ordenes as o', 'o.id', '=', 'vs.orden_id')
-                ->where(function ($q) use ($v) {
-                    $q->where('o.vendedor_id', $v->id)
-                      ->orWhere(function ($q2) use ($v) {
-                          $q2->where('o.covendedor_id', $v->id)->where('o.es_compartida', true);
-                      });
-                })
-                ->where('vs.saldo_pendiente', '>', 0)
-                ->whereNotIn('o.estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES))
-                ->selectRaw('SUM(CASE WHEN o.es_compartida = 1 THEN vs.saldo_pendiente / 2 ELSE vs.saldo_pendiente END) as total')
-                ->value('total') ?? 0;
+            $ingresos       = (float) ($cobro['total'] ?? 0);
+            $entregadas     = (int)   ($ord['entregadas'] ?? 0);
+            $ordenesTotales = (int)   ($ord['total'] ?? 0);
+            $totalVendido   = (float) ($ord['vendido'] ?? 0);
+            $cartera        = (float) ($porCartera[$v->id] ?? 0);
 
             return [
                 'id'                 => $v->id,
@@ -689,9 +830,9 @@ class StatsController extends Controller
                 'ingresos'           => $ingresos,
                 // De qué tipo de orden viene lo que cobró. Suman `ingresos`.
                 'ingresos_por_tipo'  => [
-                    'venta'        => (float) ($cobro->monto_venta ?? 0),
-                    'restauracion' => (float) ($cobro->monto_restauracion ?? 0),
-                    'fv2'          => (float) ($cobro->monto_fv2 ?? 0),
+                    'venta'        => (float) ($cobro['venta'] ?? 0),
+                    'restauracion' => (float) ($cobro['restauracion'] ?? 0),
+                    'fv2'          => (float) ($cobro['fv2'] ?? 0),
                 ],
                 'total_vendido'      => $totalVendido,
                 'ordenes_totales'    => $ordenesTotales,

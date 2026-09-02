@@ -329,14 +329,27 @@ class Usuario extends Authenticatable
      */
     public function procesosQuePuedeTrabajar(?string $linea = null): array
     {
-        $query = $this->procesosAsignados()->where('activo', true);
+        // Sus procesos se piden UNA vez con la línea de cada uno, y el filtro
+        // se hace en memoria. La misma pregunta se repite varias veces por
+        // petición —al comprobar el acceso, al armar el filtro de cada línea,
+        // al notificar— y cada una era un viaje a la base.
+        $this->procesosCache ??= $this->procesosAsignados()
+            ->where('activo', true)
+            ->pluck('proceso_trabajadores.linea', 'clave')
+            ->all();
 
-        if ($linea !== null && TipoProceso::separaRestauraciones()) {
-            $query->wherePivotIn('linea', [TipoProceso::LINEA_AMBAS, $linea]);
+        if ($linea === null || ! TipoProceso::separaRestauraciones()) {
+            return array_keys($this->procesosCache);
         }
 
-        return $query->pluck('clave')->all();
+        return array_keys(array_filter(
+            $this->procesosCache,
+            fn ($suya) => in_array($suya ?? TipoProceso::LINEA_AMBAS, [TipoProceso::LINEA_AMBAS, $linea], true)
+        ));
     }
+
+    /** [clave del proceso => su línea]. Se resuelve una vez por petición. */
+    private ?array $procesosCache = null;
 
     // ── Encargos ─────────────────────────────────────────────────────────────
 
