@@ -1943,8 +1943,10 @@ class ComisionController extends Controller
 
         // Cómo se paga depende de qué se vendió y de si su tienda tiene meta:
         //
-        //   restauración        -> 5% del valor, solo para quien la hizo. No
-        //                          pasa por el pool ni depende de la meta.
+        //   restauración        -> 5% del valor. No pasa por el pool ni depende
+        //                          de la meta. En una tienda ese 5% ya viene
+        //                          partido entre el equipo: cada fila trae su
+        //                          pedazo como `valor_orden`.
         //   venta sin meta      -> valor / 1,19 x 5%, igual que un independiente
         //   venta con meta      -> su parte del pool, prorrateada
         //
