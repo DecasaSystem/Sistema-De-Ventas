@@ -12,6 +12,7 @@ import {
 import api from '@/api'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
+import DesglosePorTipo from '@/components/reportes/DesglosePorTipo.vue'
 import { formatPct } from '@/utils/descuentos'
 import { useAuthStore } from '@/stores/auth'
 import { StarIcon } from '@heroicons/vue/24/solid'
@@ -571,6 +572,15 @@ onBeforeUnmount(() => {
             <p :class="['text-xs mt-2', varColor(panel.comparativa?.variacion_pct)]">
               {{ varLabel(panel.comparativa?.variacion_pct) }}
             </p>
+
+            <!-- De qué tipo de orden viene lo vendido. Los tres suman el
+                 número grande de arriba. -->
+            <DesglosePorTipo
+              v-if="panel.por_tipo"
+              :datos="panel.por_tipo"
+              titulo="De qué es lo vendido"
+              class="mt-3"
+            />
           </div>
           <div class="bg-white rounded-xl shadow-sm p-4">
             <p class="text-xs text-gray-400 mb-1">Órdenes totales</p>
@@ -649,6 +659,13 @@ onBeforeUnmount(() => {
               class="text-xs text-blue-600 font-medium hover:underline disabled:opacity-50 disabled:no-underline"
             >{{ exportandoTipo === 'vendedores' ? 'Exportando...' : 'Exportar' }}</button>
           </div>
+          <!-- Qué significa cada color de las barritas de "Cobrado". Va una
+               sola vez: repetirla por fila sería ruido. -->
+          <div class="flex flex-wrap items-center gap-3 px-3 pb-2 text-[11px] text-gray-500">
+            <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-sm" style="background:#2a78d6" /> Ventas</span>
+            <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-sm" style="background:#eb6834" /> Restauraciones</span>
+            <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-sm" style="background:#1baf7a" /> FV2</span>
+          </div>
           <div class="overflow-x-auto">
             <table class="w-full text-sm">
               <thead class="bg-gray-50 text-xs text-gray-500">
@@ -681,7 +698,13 @@ onBeforeUnmount(() => {
                   </td>
                   <td class="px-3 py-2.5 text-gray-500 text-xs">{{ v.tienda }}</td>
                   <td class="px-3 py-2.5 text-right font-bold text-green-700">{{ cop(v.total_vendido) }}</td>
-                  <td class="px-3 py-2.5 text-right font-semibold text-blue-600">{{ cop(v.ingresos) }}</td>
+                  <td class="px-3 py-2.5 text-right font-semibold text-blue-600">
+                    {{ cop(v.ingresos) }}
+                    <!-- De qué es lo que cobró. La leyenda está encima de la
+                         tabla; aquí el detalle va en el tooltip para no
+                         ensanchar la fila. -->
+                    <DesglosePorTipo v-if="v.ingresos_por_tipo" :datos="v.ingresos_por_tipo" solo-barra />
+                  </td>
                   <td class="px-3 py-2.5 text-right text-gray-600">{{ v.ordenes_totales }}</td>
                   <td class="px-3 py-2.5 text-right text-red-500 text-xs">{{ cop(v.cartera_pendiente) }}</td>
                 </tr>
@@ -752,6 +775,15 @@ onBeforeUnmount(() => {
                 <p class="text-gray-400">Ticket</p>
               </div>
             </div>
+
+            <!-- De qué es lo que cobró la tienda -->
+            <DesglosePorTipo
+              v-if="t.ingresos_por_tipo"
+              :datos="t.ingresos_por_tipo"
+              titulo="De qué es lo cobrado"
+              class="mt-3"
+            />
+
             <!-- Barra meta mensual -->
             <div v-if="t.meta_mes?.meta" class="mt-3 pt-3 border-t border-gray-100">
               <div class="flex items-center justify-between mb-1">

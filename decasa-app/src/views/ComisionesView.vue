@@ -129,27 +129,34 @@ function rangoDelMes() {
 function empezarReemplazo(tiendaId) {
   abrirReemplazo.value = { ...abrirReemplazo.value, [tiendaId]: true }
   if (! nuevoReemplazo.value[tiendaId]) {
-    nuevoReemplazo.value[tiendaId] = { usuario_id: null, reemplaza_a_id: null, ...rangoDelMes() }
+    nuevoReemplazo.value[tiendaId] = {
+      tipo: 'reemplazo', usuario_id: null, reemplaza_a_id: null, ...rangoDelMes(),
+    }
   }
 }
 
 async function agregarReemplazo(tiendaId) {
   const f = nuevoReemplazo.value[tiendaId]
   if (!f?.usuario_id || !f.desde) { toast.error('Elige quién va y desde cuándo.'); return }
-  // A quién cubre no es opcional: es lo que hace que se lleve SU parte y que
-  // al resto del equipo no le baje la comisión.
-  if (!f.reemplaza_a_id) { toast.error('Dinos a quién está cubriendo.'); return }
+  // En un reemplazo, a quién cubre no es opcional: es lo que hace que se lleve
+  // SU parte y que al resto del equipo no le baje la comisión. En un traslado
+  // no cubre a nadie, entra como uno más.
+  if (f.tipo === 'reemplazo' && !f.reemplaza_a_id) {
+    toast.error('Dinos a quién está cubriendo.')
+    return
+  }
 
   guardandoReemp.value = tiendaId
   try {
     await api.post('/comisiones/reemplazos', {
       tienda_id:      tiendaId,
+      tipo:           f.tipo,
       usuario_id:     f.usuario_id,
-      reemplaza_a_id: f.reemplaza_a_id || undefined,
+      reemplaza_a_id: f.tipo === 'reemplazo' ? f.reemplaza_a_id : undefined,
       desde:          f.desde,
       hasta:          f.hasta || undefined,
     })
-    nuevoReemplazo.value[tiendaId] = { usuario_id: null, reemplaza_a_id: null, ...rangoDelMes() }
+    nuevoReemplazo.value[tiendaId] = { tipo: 'reemplazo', usuario_id: null, reemplaza_a_id: null, ...rangoDelMes() }
     abrirReemplazo.value = { ...abrirReemplazo.value, [tiendaId]: false }
     await cargarReemplazos()
     toast.success('Reemplazo registrado.')
@@ -795,7 +802,8 @@ onMounted(async () => {
               >
                 <span class="flex-1 min-w-0 text-amber-800">
                   <span class="font-semibold">{{ r.usuario_nombre }}</span>
-                  cubre a <span class="font-semibold">{{ r.reemplaza_a }}</span>
+                  <template v-if="r.tipo === 'traslado'">se trasladó aquí</template>
+                  <template v-else>cubre a <span class="font-semibold">{{ r.reemplaza_a }}</span></template>
                   <span class="text-amber-600">
                     · {{ fechaCorta(r.desde) }}{{ r.hasta ? ' a ' + fechaCorta(r.hasta) : ' (sin fecha de regreso)' }}
                   </span>
@@ -830,6 +838,18 @@ onMounted(async () => {
             >+ Registrar un reemplazo</button>
 
             <div v-else class="space-y-1.5 bg-amber-50/50 border border-amber-100 rounded-lg p-2">
+              <!-- Dos cosas distintas: cubrir a alguien no cambia el tamaño
+                   del reparto; trasladarse sí, porque el equipo crece. -->
+              <div class="flex rounded-lg border border-gray-200 overflow-hidden">
+                <button
+                  v-for="t in [{ v: 'reemplazo', t: 'Cubre a alguien' }, { v: 'traslado', t: 'Se trasladó' }]"
+                  :key="t.v" type="button"
+                  @click="nuevoReemplazo[m.tienda_id].tipo = t.v"
+                  :class="['flex-1 py-1.5 text-[11px] font-medium transition-colors',
+                    nuevoReemplazo[m.tienda_id].tipo === t.v ? 'bg-amber-600 text-white' : 'bg-white text-gray-500']"
+                >{{ t.t }}</button>
+              </div>
+
               <select
                 v-model="nuevoReemplazo[m.tienda_id].usuario_id"
                 class="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white"
@@ -841,6 +861,7 @@ onMounted(async () => {
               </select>
 
               <select
+                v-if="nuevoReemplazo[m.tienda_id].tipo === 'reemplazo'"
                 v-model="nuevoReemplazo[m.tienda_id].reemplaza_a_id"
                 class="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white"
               >
@@ -863,11 +884,16 @@ onMounted(async () => {
                 </div>
               </div>
 
-              <p class="text-[10px] text-gray-400 leading-snug">
+              <p v-if="nuevoReemplazo[m.tienda_id].tipo === 'reemplazo'" class="text-[10px] text-gray-400 leading-snug">
                 El que llega ocupa el puesto del que no está: se lleva su parte
                 por los días que lo cubre. Al resto del equipo no le cambia
                 nada. Si viene solo a ayudar, sin cubrir a nadie, no hace falta
                 registrarlo.
+              </p>
+              <p v-else class="text-[10px] text-gray-400 leading-snug">
+                Se cambió de tienda: desde ese día es uno más del equipo y el
+                pool se parte entre más gente. Si además viene de otra tienda
+                con meta, allá deja de contar esos mismos días.
               </p>
 
               <div class="flex gap-1.5">

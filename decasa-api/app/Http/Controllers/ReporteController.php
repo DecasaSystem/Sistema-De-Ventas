@@ -346,6 +346,12 @@ class ReporteController extends Controller
 
     // ─── Data builders (JSON) ─────────────────────────────────────────────────
 
+    /** Cómo se parte la plata por tipo de orden. La regla vive en el modelo. */
+    private static function selectPorTipo(string $monto): string
+    {
+        return Orden::selectMontosPorTipo($monto);
+    }
+
     private function buildVentas(Request $r): array
     {
         [$desde, $hasta] = $this->rango($r);
@@ -360,9 +366,38 @@ class ReporteController extends Controller
             ->selectRaw('
                 COUNT(DISTINCT o.id)  AS total_ordenes,
                 SUM(p.monto)          AS total_cobrado,
-                SUM(o.valor_total)    AS valor_bruto,
-                AVG(o.valor_total)    AS ticket_promedio
-            ')->first();
+            ' . self::selectPorTipo('p.monto'))
+            ->first();
+
+        // El valor de las órdenes se cuenta una vez cada una. Salía del mismo
+        // join con pagos, así que una orden con tres abonos sumaba su valor
+        // tres veces: el "valor bruto" y el ticket promedio salían inflados.
+        $valores = DB::table('ordenes as o')
+            ->whereIn('o.id', (clone $base)->select('o.id')->distinct())
+            ->selectRaw('SUM(o.valor_total) AS valor_bruto, AVG(o.valor_total) AS ticket_promedio')
+            ->first();
+
+        $resumen->valor_bruto     = $valores->valor_bruto ?? 0;
+        $resumen->ticket_promedio = $valores->ticket_promedio ?? 0;
+
+        // Cuántas órdenes de cada tipo, para poder leer el desglose junto a la
+        // plata ("tres restauraciones por $2.000.000").
+        //
+        // En una sola fila y sin GROUP BY: agrupar por el CASE —o por su
+        // alias— lo rechaza MySQL con only_full_group_by, que no lo reconoce
+        // como dependencia funcional y pide meter `serie` en el GROUP BY. El
+        // DISTINCT sigue haciendo falta porque el join con pagos repite la
+        // orden una vez por abono.
+        $tipo = Orden::sqlTipo();
+        $ordenesPorTipo = (clone $base)->selectRaw("
+            COUNT(DISTINCT CASE WHEN ($tipo) = 'venta'        THEN o.id END) AS venta,
+            COUNT(DISTINCT CASE WHEN ($tipo) = 'restauracion' THEN o.id END) AS restauracion,
+            COUNT(DISTINCT CASE WHEN ($tipo) = 'fv2'          THEN o.id END) AS fv2
+        ")->first();
+
+        $resumen->ordenes_venta        = (int) ($ordenesPorTipo->venta ?? 0);
+        $resumen->ordenes_restauracion = (int) ($ordenesPorTipo->restauracion ?? 0);
+        $resumen->ordenes_fv2          = (int) ($ordenesPorTipo->fv2 ?? 0);
 
         $porDia = (clone $base)
             ->selectRaw('DATE(p.created_at) AS fecha, SUM(p.monto) AS monto')
@@ -372,7 +407,7 @@ class ReporteController extends Controller
 
         $porTienda = (clone $base)
             ->join('tiendas as t', 't.id', '=', 'o.tienda_id')
-            ->selectRaw('t.nombre AS tienda, SUM(p.monto) AS monto')
+            ->selectRaw('t.nombre AS tienda, SUM(p.monto) AS monto, ' . self::selectPorTipo('p.monto'))
             ->groupBy('t.id', 't.nombre')
             ->orderByDesc('monto')
             ->get();
@@ -384,10 +419,12 @@ class ReporteController extends Controller
     {
         [$desde, $hasta] = $this->rango($r);
 
+        $rango = [$desde . ' 00:00:00', $hasta . ' 23:59:59'];
+
         return DB::table('usuarios as u')
             ->leftJoin('ordenes as o', fn($j) => $j
                 ->on('o.vendedor_id', '=', 'u.id')
-                ->whereBetween('o.created_at', [$desde . ' 00:00:00', $hasta . ' 23:59:59'])
+                ->whereBetween('o.created_at', $rango)
             )
             ->leftJoin('pagos as p', 'p.orden_id', '=', 'o.id')
             ->whereIn('u.rol', ['vendedor', 'supervisor'])
@@ -398,8 +435,17 @@ class ReporteController extends Controller
                 u.rol           AS rol,
                 COUNT(DISTINCT o.id)  AS total_ordenes,
                 COALESCE(SUM(p.monto), 0)  AS total_cobrado,
-                COALESCE(AVG(o.valor_total), 0) AS ticket_promedio
-            ')
+            ' . self::selectPorTipo('p.monto'))
+            // El ticket promedio, aparte: en esta consulta cada orden aparece
+            // una vez por cada pago, así que un AVG sobre ella daba el
+            // promedio pesado por cuántos abonos hizo cada cliente.
+            ->selectSub(
+                DB::table('ordenes as o2')
+                    ->whereColumn('o2.vendedor_id', 'u.id')
+                    ->whereBetween('o2.created_at', $rango)
+                    ->selectRaw('COALESCE(AVG(o2.valor_total), 0)'),
+                'ticket_promedio'
+            )
             ->groupBy('u.id', 'u.nombre', 'u.rol')
             ->orderByDesc('total_cobrado')
             ->get()

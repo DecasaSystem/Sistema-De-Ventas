@@ -17,7 +17,13 @@ class TiendaReemplazo extends Model
 {
     protected $table = 'tienda_reemplazos';
 
-    protected $fillable = ['tienda_id', 'usuario_id', 'reemplaza_a_id', 'desde', 'hasta', 'nota'];
+    /** Ocupa el puesto de alguien: lo que gana uno lo pierde el otro. */
+    public const REEMPLAZO = 'reemplazo';
+
+    /** Se cambió de tienda: desde ese día el equipo es uno más grande. */
+    public const TRASLADO = 'traslado';
+
+    protected $fillable = ['tienda_id', 'tipo', 'usuario_id', 'reemplaza_a_id', 'desde', 'hasta', 'nota'];
 
     protected function casts(): array
     {
@@ -32,12 +38,16 @@ class TiendaReemplazo extends Model
      * Cuánto pesa cada persona en el reparto de una tienda ese mes, en días.
      *
      * Quien está en el equipo pesa el mes entero; de ahí se le restan los días
-     * que lo cubrieron y los días que él estuvo cubriendo en otra tienda. Quien
-     * llega a reemplazar suma los días que estuvo.
+     * que lo cubrieron y los días que él estuvo en otra tienda. Quien llega
+     * suma los días que estuvo.
      *
-     * Como el reemplazo siempre ocupa el puesto de alguien del equipo, la suma
-     * de las partes no cambia: si eran tres, se sigue partiendo en tres. Lo
-     * único que se mueve es de quién es cada parte.
+     * La diferencia entre las dos formas de llegar:
+     *
+     *   reemplazo → ocupa el puesto de alguien del equipo, así que la suma de
+     *               las partes no cambia: si eran tres, se sigue partiendo en
+     *               tres y lo único que se mueve es de quién es cada parte.
+     *   traslado  → se cambió de tienda y no cubre a nadie: desde ese día el
+     *               equipo es uno más grande y el pool se parte entre más.
      *
      * El peso nunca pasa del mes completo ni baja de cero.
      *
@@ -73,6 +83,9 @@ class TiendaReemplazo extends Model
             // esos días es de quien la reemplazó. Es lo que mantiene la cuenta
             // cuadrada —lo que pierde uno lo gana el otro— y por eso el total
             // repartido no cambia.
+            //
+            // En un traslado no hay nadie a quien cubrir: la columna viene
+            // vacía, no se le resta a nadie y el equipo queda uno más grande.
             $cubierto = (int) $r->reemplaza_a_id;
             if ($cubierto && (int) $r->tienda_id === $tiendaId && isset($pesos[$cubierto])) {
                 $pesos[$cubierto] = max(0, $pesos[$cubierto] - $dias);

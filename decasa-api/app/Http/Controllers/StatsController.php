@@ -86,12 +86,24 @@ class StatsController extends Controller
         // llevaba filtro de fecha: era toda la deuda histórica. Al mes de 4 días
         // eso daba $56.543.534 cuando lo vendido eran $18.340.000 — tres veces
         // más, porque venía arrastrando lo que se debía de meses anteriores.
-        $vendidoQ = DB::table('ordenes')
+        $vendidoQ = DB::table('ordenes as o')
             ->whereBetween('created_at', $rango)
             ->whereNotIn('estado', Orden::ESTADOS_NO_COMERCIALES);
         if ($tiendaId)   $vendidoQ->where('tienda_id',   $tiendaId);
         if ($vendedorId) $vendidoQ->where('vendedor_id', $vendedorId);
-        $totalVendido = (float) $vendidoQ->sum('valor_total');
+        $totalVendido = (float) (clone $vendidoQ)->sum('valor_total');
+
+        // De qué es esa plata: venta, restauración o la serie con descuento.
+        // Se pregunta sobre lo MISMO que ya se sumó, así que los tres cajones
+        // dan justo el total de arriba.
+        $porTipo = (clone $vendidoQ)
+            ->selectRaw(Orden::selectMontosPorTipo('o.valor_total'))
+            ->selectRaw('
+                SUM(CASE WHEN (' . Orden::sqlTipo() . ") = 'venta'        THEN 1 ELSE 0 END) AS ordenes_venta,
+                SUM(CASE WHEN (" . Orden::sqlTipo() . ") = 'restauracion' THEN 1 ELSE 0 END) AS ordenes_restauracion,
+                SUM(CASE WHEN (" . Orden::sqlTipo() . ") = 'fv2'          THEN 1 ELSE 0 END) AS ordenes_fv2
+            ")
+            ->first();
 
         // Cartera pendiente: saldo vivo de hoy, sin filtro de fecha a propósito
         // (es un saldo, no un movimiento del período). Incluye las entregadas
@@ -117,6 +129,23 @@ class StatsController extends Controller
             // hubiera vendido de sobra.
             'ticket_promedio'    => $ordenesTotales > 0 ? round($totalVendido / $ordenesTotales) : 0,
             'cartera_pendiente'  => $cartera,
+            // De qué tipo de orden viene lo vendido. Los tres suman
+            // `total_vendido`, así que el desglose siempre cuadra con el
+            // número grande de arriba.
+            'por_tipo' => [
+                'venta' => [
+                    'monto'   => (float) ($porTipo->monto_venta ?? 0),
+                    'ordenes' => (int)   ($porTipo->ordenes_venta ?? 0),
+                ],
+                'restauracion' => [
+                    'monto'   => (float) ($porTipo->monto_restauracion ?? 0),
+                    'ordenes' => (int)   ($porTipo->ordenes_restauracion ?? 0),
+                ],
+                'fv2' => [
+                    'monto'   => (float) ($porTipo->monto_fv2 ?? 0),
+                    'ordenes' => (int)   ($porTipo->ordenes_fv2 ?? 0),
+                ],
+            ],
         ];
     }
 
@@ -347,8 +376,18 @@ class StatsController extends Controller
 
         // La sede de los independientes no es una tienda: sus ventas van en la
         // fila de cada vendedor, no en una sede.
-        $tiendas = DB::table('tiendas')->where('activa', true)
-            ->where('es_independientes', false)->get();
+        //
+        // Una tienda cerrada sigue saliendo en los meses en que operó: si
+        // desapareciera del reporte, la suma de las tiendas dejaría de dar el
+        // total de esos meses y nadie entendería el hueco.
+        $conMovimiento = DB::table('ordenes')->whereBetween('created_at', $rango)
+            ->distinct()->pluck('tienda_id')->filter()->all();
+
+        $tiendas = DB::table('tiendas')
+            ->where('es_independientes', false)
+            ->where(fn ($q) => $q->where('activa', true)
+                                 ->orWhereIn('id', $conMovimiento ?: [0]))
+            ->get();
 
         $mesActual = Carbon::now(self::TZ_NEGOCIO)->format('Y-m');
         $metasVigentes = \App\Models\MetaTienda::vigentesEn($mesActual);
@@ -361,25 +400,37 @@ class StatsController extends Controller
 
             // Ingresos: el dinero se le acredita a la tienda que lo recibió, que
             // puede no ser la de la orden (el cliente abona en otra sede).
-            $ingresosPpal = (float) DB::table('pagos as p')
+            // Se piden de una vez el total y su reparto por tipo de orden, con
+            // la MISMA expresión de monto: así los tres cajones suman siempre
+            // el ingreso de la tienda y no hay que cuadrar diferencias.
+            $montoPpal = 'CASE WHEN o.es_compartida = 1 THEN p.monto / 2 ELSE p.monto END';
+            $ppal = DB::table('pagos as p')
                 ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
                 ->whereRaw('COALESCE(p.tienda_id, o.tienda_id) = ?', [$t->id])
                 ->whereBetween('p.created_at', $rango)
                 // Lo que vende quien va por su cuenta no es de esta tienda
                 ->when($porSuCuenta, fn($q) => $q->whereNotIn('o.vendedor_id', $porSuCuenta))
-                ->selectRaw('SUM(CASE WHEN o.es_compartida = 1 THEN p.monto / 2 ELSE p.monto END) as total')
-                ->value('total') ?? 0;
+                ->selectRaw("SUM($montoPpal) as total, " . Orden::selectMontosPorTipo($montoPpal))
+                ->first();
 
-            $ingresosCo = (float) DB::table('pagos as p')
+            $co = DB::table('pagos as p')
                 ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
                 ->join('usuarios as u', 'u.id', '=', 'o.covendedor_id')
                 ->where('u.tienda_default_id', $t->id)->where('o.es_compartida', true)
                 ->whereBetween('p.created_at', $rango)
                 ->when($porSuCuenta, fn($q) => $q->whereNotIn('o.vendedor_id', $porSuCuenta))
-                ->selectRaw('SUM(p.monto / 2) as total')
-                ->value('total') ?? 0;
+                ->selectRaw('SUM(p.monto / 2) as total, ' . Orden::selectMontosPorTipo('p.monto / 2'))
+                ->first();
 
-            $ingresos = $ingresosPpal + $ingresosCo;
+            $ingresosPpal = (float) ($ppal->total ?? 0);
+            $ingresosCo   = (float) ($co->total ?? 0);
+            $ingresos     = $ingresosPpal + $ingresosCo;
+
+            $porTipo = [
+                'venta'        => (float) ($ppal->monto_venta ?? 0)        + (float) ($co->monto_venta ?? 0),
+                'restauracion' => (float) ($ppal->monto_restauracion ?? 0) + (float) ($co->monto_restauracion ?? 0),
+                'fv2'          => (float) ($ppal->monto_fv2 ?? 0)          + (float) ($co->monto_fv2 ?? 0),
+            ];
 
             // Cartera: misma lógica
             $carteraPpal = (float) DB::table('v_saldo_ordenes as vs')
@@ -449,6 +500,9 @@ class StatsController extends Controller
                 'es_fabrica'         => (bool) $t->es_fabrica,
                 'es_independiente'   => false,
                 'ingresos'           => $ingresos,
+                // De qué tipo de orden viene lo que cobró la tienda. Los tres
+                // suman `ingresos`.
+                'ingresos_por_tipo'  => $porTipo,
                 'cartera_pendiente'  => $cartera,
                 'total_vendido'      => $ingresos + $cartera,
                 'ordenes_totales'    => $totalOrd,
@@ -495,11 +549,17 @@ class StatsController extends Controller
             ->orderBy('nombre')
             ->get()
             ->map(function ($u) use ($rango, $rangoCreacion) {
-                $ingresos = (float) DB::table('pagos as p')
+                // El total y su reparto por tipo, de la misma suma: en esta
+                // pantalla los independientes son una fila más, así que su
+                // desglose tiene que estar como el de cualquier tienda.
+                $cobro = DB::table('pagos as p')
                     ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
                     ->where('o.vendedor_id', $u->id)
                     ->whereBetween('p.created_at', $rango)
-                    ->sum('p.monto');
+                    ->selectRaw('SUM(p.monto) as total, ' . Orden::selectMontosPorTipo('p.monto'))
+                    ->first();
+
+                $ingresos = (float) ($cobro->total ?? 0);
 
                 $cartera = (float) DB::table('v_saldo_ordenes as vs')
                     ->join('ordenes as o', 'o.id', '=', 'vs.orden_id')
@@ -526,6 +586,11 @@ class StatsController extends Controller
                     // Vende por su cuenta: su plata no entra a ninguna tienda.
                     'es_independiente'   => true,
                     'ingresos'           => $ingresos,
+                    'ingresos_por_tipo'  => [
+                        'venta'        => (float) ($cobro->monto_venta ?? 0),
+                        'restauracion' => (float) ($cobro->monto_restauracion ?? 0),
+                        'fv2'          => (float) ($cobro->monto_fv2 ?? 0),
+                    ],
                     'cartera_pendiente'  => $cartera,
                     'total_vendido'      => $ingresos + $cartera,
                     'ordenes_totales'    => (int) ($ord->total ?? 0),
@@ -554,7 +619,8 @@ class StatsController extends Controller
 
         $resultado = $vendedores->map(function ($v) use ($rango) {
             // Ingresos: órdenes propias (compartidas → mitad) + compartidas como co-vendedor (mitad)
-            $ingresos = (float) DB::table('pagos as p')
+            $monto = 'CASE WHEN o.es_compartida = 1 THEN p.monto / 2 ELSE p.monto END';
+            $cobro = DB::table('pagos as p')
                 ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
                 ->where(function ($q) use ($v) {
                     $q->where('o.vendedor_id', $v->id)
@@ -563,8 +629,12 @@ class StatsController extends Controller
                       });
                 })
                 ->whereBetween('p.created_at', $rango)
-                ->selectRaw('SUM(CASE WHEN o.es_compartida = 1 THEN p.monto / 2 ELSE p.monto END) as total')
-                ->value('total') ?? 0;
+                // El total y su reparto por tipo salen de la misma suma, así
+                // que los tres cajones dan justo el ingreso de la persona.
+                ->selectRaw("SUM($monto) as total, " . Orden::selectMontosPorTipo($monto))
+                ->first();
+
+            $ingresos = (float) ($cobro->total ?? 0);
 
             $ord = DB::table('ordenes')
                 ->where(function ($q) use ($v) {
@@ -617,6 +687,12 @@ class StatsController extends Controller
                 'tienda'             => $v->tienda,
                 'tienda_id'          => $v->tienda_id,
                 'ingresos'           => $ingresos,
+                // De qué tipo de orden viene lo que cobró. Suman `ingresos`.
+                'ingresos_por_tipo'  => [
+                    'venta'        => (float) ($cobro->monto_venta ?? 0),
+                    'restauracion' => (float) ($cobro->monto_restauracion ?? 0),
+                    'fv2'          => (float) ($cobro->monto_fv2 ?? 0),
+                ],
                 'total_vendido'      => $totalVendido,
                 'ordenes_totales'    => $ordenesTotales,
                 'ordenes_entregadas' => $entregadas,

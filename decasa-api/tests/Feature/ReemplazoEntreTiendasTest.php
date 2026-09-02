@@ -35,7 +35,8 @@ class ReemplazoEntreTiendasTest extends TestCase
             $t->id(); $t->string('nombre'); $t->timestamp('created_at')->nullable();
         });
         Schema::create('tienda_reemplazos', function (Blueprint $t) {
-            $t->id(); $t->unsignedBigInteger('tienda_id'); $t->unsignedBigInteger('usuario_id');
+            $t->id(); $t->unsignedBigInteger('tienda_id'); $t->string('tipo')->default('reemplazo');
+            $t->unsignedBigInteger('usuario_id');
             $t->unsignedBigInteger('reemplaza_a_id')->nullable();
             $t->date('desde'); $t->date('hasta')->nullable();
             $t->string('nota')->nullable(); $t->timestamps();
@@ -189,6 +190,42 @@ class ReemplazoEntreTiendasTest extends TestCase
 
         $this->assertSame(now()->day, $pesos[4]);
         $this->assertLessThanOrEqual(now()->daysInMonth, $pesos[4]);
+    }
+
+    public function test_un_traslado_a_mitad_de_mes_entra_como_uno_mas(): void
+    {
+        // El caso de Genesis: cerraron su tienda y se pasó a otra el día 27.
+        // No cubre a nadie —el equipo de allá crece— y cuenta solo los días
+        // que lleva.
+        TiendaReemplazo::create([
+            'tienda_id' => 1, 'tipo' => TiendaReemplazo::TRASLADO, 'usuario_id' => 4,
+            'desde' => '2026-09-27', 'hasta' => '2026-09-30',
+        ]);
+
+        $pesos = $this->pesos();
+
+        $this->assertSame(4, $pesos[4], 'del 27 al 30 son cuatro días');
+        // Nadie del equipo pierde nada: no está cubriendo a ninguno.
+        $this->assertSame(self::DIAS, $pesos[1]);
+        $this->assertSame(self::DIAS, $pesos[2]);
+        $this->assertSame(self::DIAS, $pesos[3]);
+        // Y el reparto ahora se hace entre más: el pool se parte en 94 días.
+        $this->assertSame(self::DIAS * 3 + 4, (int) array_sum($pesos));
+    }
+
+    public function test_al_trasladarse_deja_de_contar_en_la_tienda_de_origen(): void
+    {
+        // Marta, del equipo de la tienda 1, se traslada a la 2 el día 21.
+        TiendaReemplazo::create([
+            'tienda_id' => 2, 'tipo' => TiendaReemplazo::TRASLADO, 'usuario_id' => 2,
+            'desde' => '2026-09-21', 'hasta' => '2026-09-30',
+        ]);
+
+        $pesos = $this->pesos();
+
+        // 20 días aquí; los otros 10 los estuvo en la otra tienda.
+        $this->assertSame(20, $pesos[2]);
+        $this->assertSame(self::DIAS, $pesos[1], 'a los demás no les cambia nada');
     }
 
     public function test_cubrir_dentro_de_la_propia_tienda_no_paga_dos_veces(): void

@@ -281,6 +281,55 @@ class Orden extends Model
         return $this->belongsTo(Tienda::class, 'tienda_id');
     }
 
+    /**
+     * De qué tipo es una orden, en SQL, para partir la plata en los reportes.
+     *
+     * Tres cajones que no se solapan, para que la suma de los tres dé
+     * exactamente el total y nadie tenga que cuadrar diferencias a mano:
+     *
+     *   fv2          → la serie con descuento especial. Manda sobre lo demás,
+     *                  igual que al numerarla: si lleva FV2 impreso, es FV2.
+     *   restauracion → el mueble es del cliente. Se reconoce por la serie R o
+     *                  porque TODOS sus ítems son restauración; una que mezcla
+     *                  un comedor con una restauración es una venta, que es
+     *                  como se numera y como se comisiona.
+     *   venta        → todo lo demás.
+     *
+     * Vive aquí y no repetida en cada consulta porque el resumen, las tiendas,
+     * los vendedores y el Excel tienen que partir la plata igual: si una lo
+     * hiciera distinto, los reportes dejarían de cuadrar entre ellos.
+     */
+    public static function sqlTipo(string $alias = 'o'): string
+    {
+        return "
+            CASE
+                WHEN {$alias}.serie = '" . self::SERIE_FV2 . "' THEN 'fv2'
+                WHEN {$alias}.serie = '" . self::SERIE_RESTAURACION . "' THEN 'restauracion'
+                WHEN {$alias}.id IN (
+                    SELECT oi.orden_id FROM orden_items oi
+                    GROUP BY oi.orden_id HAVING COUNT(*) = SUM(oi.es_restauracion)
+                ) THEN 'restauracion'
+                ELSE 'venta'
+            END
+        ";
+    }
+
+    /**
+     * Las tres columnas de plata por tipo, para meter en un SELECT.
+     *
+     * @param string $monto  qué se suma: el pago cobrado o el valor de la orden
+     */
+    public static function selectMontosPorTipo(string $monto, string $alias = 'o'): string
+    {
+        $tipo = self::sqlTipo($alias);
+
+        return "
+            COALESCE(SUM(CASE WHEN ($tipo) = 'venta'        THEN $monto ELSE 0 END), 0) AS monto_venta,
+            COALESCE(SUM(CASE WHEN ($tipo) = 'restauracion' THEN $monto ELSE 0 END), 0) AS monto_restauracion,
+            COALESCE(SUM(CASE WHEN ($tipo) = 'fv2'          THEN $monto ELSE 0 END), 0) AS monto_fv2
+        ";
+    }
+
     /** La tienda que ayudo con el contacto y se lleva la mitad de la venta. */
     public function tiendaAbonada()
     {

@@ -585,6 +585,7 @@ class ComisionController extends Controller
                 'id'              => $r->id,
                 'tienda_id'       => $r->tienda_id,
                 'tienda_nombre'   => $r->tienda?->nombre,
+                'tipo'            => $r->tipo,
                 'usuario_id'      => $r->usuario_id,
                 'usuario_nombre'  => $r->usuario?->nombre,
                 'reemplaza_a_id'  => $r->reemplaza_a_id,
@@ -631,28 +632,36 @@ class ComisionController extends Controller
 
         $data = $request->validate([
             'tienda_id'      => 'required|integer|exists:tiendas,id',
+            'tipo'           => 'required|in:' . TiendaReemplazo::REEMPLAZO . ',' . TiendaReemplazo::TRASLADO,
             'usuario_id'     => 'required|integer|exists:usuarios,id',
-            'reemplaza_a_id' => 'required|integer|exists:usuarios,id|different:usuario_id',
+            'reemplaza_a_id' => 'nullable|integer|exists:usuarios,id|different:usuario_id',
             'desde'          => 'required|date',
             'hasta'          => 'nullable|date|after_or_equal:desde',
             'nota'           => 'nullable|string|max:200',
         ]);
 
-        // A quién se cubre tiene que ser del equipo de esa tienda. Es lo que
-        // mantiene la cuenta como debe ser: el pool se sigue partiendo entre
-        // los mismos, y el reemplazo se lleva la parte del que no estuvo. Si
-        // se pudiera cubrir a alguien de fuera, se estaría sumando una parte
-        // más y a todo el equipo le bajaría la comisión sin razón.
-        $mes    = Carbon::parse($data['desde'])->format('Y-m');
-        $equipo = collect(TiendaAsesor::vigentesEn($mes)[$data['tienda_id']] ?? [])
-            ->pluck('vendedor_id')->map(fn ($v) => (int) $v);
+        if ($data['tipo'] === TiendaReemplazo::REEMPLAZO) {
+            // A quién se cubre tiene que ser del equipo de esa tienda. Es lo
+            // que mantiene la cuenta como debe ser: el pool se sigue partiendo
+            // entre los mismos, y el reemplazo se lleva la parte del que no
+            // estuvo. Si se pudiera cubrir a alguien de fuera, se estaría
+            // sumando una parte más y a todo el equipo le bajaría la comisión.
+            $mes    = Carbon::parse($data['desde'])->format('Y-m');
+            $equipo = collect(TiendaAsesor::vigentesEn($mes)[$data['tienda_id']] ?? [])
+                ->pluck('vendedor_id')->map(fn ($v) => (int) $v);
 
-        if (! $equipo->contains((int) $data['reemplaza_a_id'])) {
-            return response()->json([
-                'message' => 'A quien se reemplaza tiene que ser del equipo de esa tienda. '
-                           . 'Si va a ayudar sin cubrir a nadie, no hace falta registrarlo: '
-                           . 'sus ventas empujan la meta igual y cobra su 5%.',
-            ], 422);
+            if (! $equipo->contains((int) ($data['reemplaza_a_id'] ?? 0))) {
+                return response()->json([
+                    'message' => 'A quien se reemplaza tiene que ser del equipo de esa tienda. '
+                               . 'Si la persona se cambió de tienda, regístralo como traslado; '
+                               . 'y si solo va a ayudar sin cubrir a nadie, no hace falta '
+                               . 'registrar nada: sus ventas empujan la meta igual y cobra su 5%.',
+                ], 422);
+            }
+        } else {
+            // Un traslado no cubre a nadie: entra como una parte más del
+            // equipo desde el día que llegó.
+            $data['reemplaza_a_id'] = null;
         }
 
         $reemplazo = TiendaReemplazo::create($data);
@@ -773,8 +782,14 @@ class ComisionController extends Controller
 
         $reparten = [];   // [tienda_id][vendedor_id] => true
 
+        // Una tienda cerrada no abre renglones nuevos: su equipo ya no está
+        // ahí. Lo que se calculó cuando operaba se queda como está.
+        $abiertas = DB::table('tiendas')->where('activa', true)
+            ->pluck('id')->map(fn ($v) => (int) $v)->flip();
+
         foreach ($tiendas as $tiendaId) {
             if (! isset($conMeta[$tiendaId])) continue;
+            if (! $abiertas->has($tiendaId)) continue;
 
             $equipoBase = collect($equipos[$tiendaId] ?? [])->pluck('vendedor_id')->all();
             $pesos      = TiendaReemplazo::pesosDelMes($tiendaId, $mes, $equipoBase);
