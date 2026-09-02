@@ -497,20 +497,52 @@ class ComoSeCalculaCadaComisionTest extends TestCase
         $this->assertEquals(250_000, $cobra['Sebastián']);
     }
 
-    public function test_al_independiente_no_se_le_descuenta_el_datafono(): void
+    public function test_al_independiente_tambien_se_le_descuenta_el_datafono(): void
     {
-        // Misma venta, una en efectivo y otra con tarjeta.
         $this->orden(self::HENRY, null, 10_000_000, comoPago: 'tarjeta');
 
         $r = ComisionIndependientes::delMes(self::MES);
         $suyo = collect($r['independientes'])->firstWhere('vendedor_id', self::HENRY);
 
-        // Cobra lo mismo que si hubiera sido en efectivo: su cuenta sale de
-        // `valor_total` y nunca mira los pagos. En una tienda, la misma venta
-        // habría comisionado sobre $9.450.000.
-        //
-        // Queda fijado tal como está hoy, no porque esté bien: es una
-        // diferencia real entre los dos caminos.
-        $this->assertEqualsWithDelta(420_168, $suyo['comision'], 2);
+        // (10.000.000 − 5,5%) ÷ 1,19 × 5% = 9.450.000 ÷ 1,19 × 5% = $397.059,
+        // exactamente lo mismo que cobraría alguien de una tienda sin meta.
+        $this->assertEqualsWithDelta(397_059, $suyo['comision'], 2);
+    }
+
+    public function test_a_la_restauracion_de_un_independiente_tambien(): void
+    {
+        $this->orden(self::HENRY, null, 10_000_000, restauracion: true, comoPago: 'tarjeta');
+
+        $r = ComisionIndependientes::delMes(self::MES);
+        $suyo = collect($r['independientes'])->firstWhere('vendedor_id', self::HENRY);
+
+        // 9.450.000 × 5% = $472.500. El datáfono sí se quita; el IVA no.
+        $this->assertEquals(472_500, $suyo['comision']);
+    }
+
+    public function test_pago_mixto_de_un_independiente(): void
+    {
+        $this->orden(self::HENRY, null, 10_000_000, comoPago: 'mitad');
+
+        $r = ComisionIndependientes::delMes(self::MES);
+        $suyo = collect($r['independientes'])->firstWhere('vendedor_id', self::HENRY);
+
+        // Solo los 5.000.000 de tarjeta pagan el 5,5%: −275.000.
+        // (10.000.000 − 275.000) ÷ 1,19 × 5% = $408.613
+        $this->assertEqualsWithDelta(408_613, $suyo['comision'], 2);
+    }
+
+    public function test_el_almacen_que_ayudo_tambien_comisiona_sobre_lo_que_entro(): void
+    {
+        $this->orden(self::HENRY, null, 10_000_000, comoPago: 'tarjeta', abonaA: self::EDEN);
+
+        $r = ComisionIndependientes::delMes(self::MES);
+        $almacen = collect($r['almacenes'])->firstWhere('tienda_id', self::EDEN);
+
+        // El almacén cobra sobre la misma base neta: $397.059.
+        $this->assertEqualsWithDelta(397_059, $almacen['comision'], 2);
+
+        // Y a su meta le entra la mitad de lo neto: 9.450.000 ÷ 2.
+        $this->assertEquals(4_725_000, $almacen['suma_a_meta']);
     }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Http\Controllers\ComisionController;
 use App\Http\Controllers\StatsController;
 use App\Models\Orden;
 use App\Models\Usuario;
@@ -31,6 +32,10 @@ use Illuminate\Support\Facades\DB;
  * Lo de las mitades es otra cosa: a la META del almacén le suma la mitad de
  * la venta, y solo si es venta —una restauración compartida le paga su 5% al
  * almacén pero no le cuenta para la meta.
+ *
+ * Sobre qué se saca ese 5% lo decide `conLaBaseQueDeVerdadComisiona()`: el
+ * valor de la orden menos lo que se llevó la franquicia de la tarjeta. Es la
+ * misma regla de las tiendas, y hasta ahora no estaba de este lado.
  */
 class ComisionIndependientes
 {
@@ -42,6 +47,37 @@ class ComisionIndependientes
      * no. Son cosas distintas: en la restauración se cobra mano de obra.
      */
     public const IVA = 1.19;
+
+    /**
+     * Deja la fila con la base sobre la que de verdad se comisiona.
+     *
+     * Dos cosas se le quitan al valor de la orden, en este orden:
+     *
+     *   1. Lo que se llevó la franquicia de la tarjeta. De cada peso cobrado
+     *      por datáfono a la empresa le entra el 94,5%, y sobre lo que nunca
+     *      llegó a la caja no comisiona nadie. Esto no estaba: la cuenta salía
+     *      de `valor_total` a secas y nunca miraba cómo había pagado el
+     *      cliente, así que la misma venta pagaba distinto según quién la
+     *      hiciera —un independiente cobraba sobre los $10.000.000 y alguien
+     *      de tienda sobre $9.450.000—.
+     *   2. La mitad, si la venta se comparte con otro asesor.
+     *
+     * `valor_orden` se guarda aparte porque el requisito de que el cliente
+     * haya pagado el 50% se mide contra la orden de verdad, no contra la base
+     * ya recortada.
+     */
+    private static function conLaBaseQueDeVerdadComisiona(object $o): object
+    {
+        $o->valor_orden = (float) $o->valor_orden;
+
+        $base = $o->valor_orden - round(
+            (float) $o->con_tarjeta * ComisionController::COSTO_TARJETA
+        );
+
+        $o->valor_total = $o->es_compartida ? round($base / 2) : $base;
+
+        return $o;
+    }
 
     /**
      * @return array{
@@ -72,9 +108,7 @@ class ComisionIndependientes
             ->whereNotIn('o.estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES))
             ->select(
                 'o.id', 'o.numero_orden', 'o.serie', 'o.serie_numero',
-                // Si la comparte con otro asesor, solo la mitad es suya: es el
-                // mismo criterio que usan sus estadisticas y su comision.
-                DB::raw('CASE WHEN o.es_compartida = 1 THEN o.valor_total / 2 ELSE o.valor_total END as valor_total'),
+                'o.valor_total as valor_orden', 'o.es_compartida',
                 'o.estado', 'o.created_at', 'o.tienda_abonada_id',
                 'u.nombre as vendedor', 'o.vendedor_id',
                 't.nombre as almacen', 'c.nombre as cliente'
@@ -83,8 +117,14 @@ class ComisionIndependientes
                 DB::table('pagos')->selectRaw('COALESCE(SUM(monto),0)')->whereColumn('orden_id','o.id'),
                 'pagado'
             )
+            ->selectSub(
+                DB::table('pagos')->selectRaw('COALESCE(SUM(monto),0)')
+                    ->whereColumn('orden_id', 'o.id')->where('metodo', 'tarjeta'),
+                'con_tarjeta'
+            )
             ->orderBy('o.created_at')
-            ->get();
+            ->get()
+            ->map(fn ($o) => self::conLaBaseQueDeVerdadComisiona($o));
 
         // Una restauración no le suma a la meta del almacén aunque se comparta.
         $idsRestauracion = self::idsDeRestauracion($ordenes->pluck('id')->all());
@@ -95,8 +135,12 @@ class ComisionIndependientes
         $seCobraEl = Carbon::parse($mes . '-01')->addMonth()->day(20);
         $llegoLaFecha = $hoy->gte($seCobraEl);
 
+        // Contra el valor de la ORDEN, no contra la base que comisiona: esa ya
+        // viene sin el datáfono y partida por la mitad si es compartida, así
+        // que comparar el abono del cliente con ella daba por cumplida la
+        // mitad cuando llevaba pagado bastante menos.
         $listas = $ordenes->filter(fn ($o) =>
-            $llegoLaFecha && (float) $o->pagado >= (float) $o->valor_total / 2
+            $llegoLaFecha && (float) $o->pagado >= (float) $o->valor_orden / 2
         );
 
         /** Lo que paga un grupo de órdenes, mezclando venta y restauración — para el almacén, que cobra igual sobre las dos. */
@@ -222,7 +266,7 @@ class ComisionIndependientes
                 'suma_a_meta'    => ($o->tienda_abonada_id && ! in_array($o->id, $idsRestauracion, true))
                                     ? (float) $o->valor_total / 2 : 0.0,
                 'pagado'         => (float) $o->pagado,
-                'pago_completo'  => (float) $o->pagado >= (float) $o->valor_total / 2,
+                'pago_completo'  => (float) $o->pagado >= (float) $o->valor_orden / 2,
                 'lista'          => $listas->contains('id', $o->id),
                 'paga'           => round(in_array($o->id, $idsRestauracion, true)
                                     ? (float) $o->valor_total * self::PORCENTAJE
@@ -307,7 +351,13 @@ class ComisionIndependientes
             })
             ->selectRaw(
                 "tienda_abonada_id, DATE_FORMAT(CONVERT_TZ(created_at,'+00:00','-05:00'),'%Y-%m') as mes, " .
-                'SUM(valor_total) / 2 as total'
+                // Sin lo que se llevó el datáfono, igual que las ventas propias
+                // de la tienda: lo que suman las comisiones ya viene neto, y si
+                // esto entrara bruto la meta se movería según quién vendió.
+                'SUM(valor_total - ROUND(COALESCE(' .
+                '  (SELECT SUM(p.monto) FROM pagos p' .
+                "   WHERE p.orden_id = ordenes.id AND p.metodo = 'tarjeta'), 0) * " .
+                ComisionController::COSTO_TARJETA . ')) / 2 as total'
             )
             ->groupBy('tienda_abonada_id', 'mes')
             ->get()
