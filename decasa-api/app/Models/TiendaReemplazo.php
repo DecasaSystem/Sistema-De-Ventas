@@ -112,6 +112,20 @@ class TiendaReemplazo extends Model
             ->pluck('tienda_id')->map(fn ($v) => (int) $v)->unique()->values()->all();
     }
 
+    /**
+     * En qué tiendas hubo movimiento ese mes —alguien llegó a cubrir o se
+     * trasladó—. Sale de lo que ya está cargado, sin otra consulta.
+     *
+     * @return array<int>
+     */
+    public static function tiendasConMovimiento(string $mes): array
+    {
+        $inicio = Carbon::parse($mes . '-01')->startOfMonth();
+
+        return self::queSolapan($inicio, $inicio->copy()->endOfMonth())
+            ->pluck('tienda_id')->map(fn ($v) => (int) $v)->unique()->values()->all();
+    }
+
     /** Los reemplazos que tocan esta ventana. Se piden una vez por mes. */
     private static array $cache = [];
 

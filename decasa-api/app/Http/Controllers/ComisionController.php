@@ -216,6 +216,16 @@ class ComisionController extends Controller
 
         $mes = $request->query('mes', Carbon::now()->format('Y-m'));
 
+        // Los totales van primero a propósito: dejan listos los cachés del
+        // cálculo (restauraciones, reemplazos, equipos) y todo lo que sigue los
+        // reutiliza. Al revés se preguntaba dos veces por lo mismo, y son las
+        // consultas más caras de la pantalla.
+        //
+        // No se pierde nada por adelantarlos: los renglones que abre el paso
+        // siguiente valen $0 y no tienen orden, así que no entran en ninguna
+        // de estas sumas.
+        [$metas, $totalesTienda, $totalesVendedor] = $this->cargarTotales();
+
         // Le abre su renglón a quien no vendió: en una tienda con meta el pool
         // se parte entre todos los integrantes, venda cada uno o no.
         $this->asegurarPartesDePool($mes);
@@ -228,7 +238,6 @@ class ComisionController extends Controller
             return response()->json([]);
         }
 
-        [$metas, $totalesTienda, $totalesVendedor] = $this->cargarTotales();
         $poolsTrimestrales = $this->cargarPoolsTrimestrales($metas, $totalesTienda);
         $hoy = Carbon::today();
 
@@ -763,9 +772,13 @@ class ComisionController extends Controller
 
         $equipos = TiendaAsesor::vigentesEn($mes);
 
-        // Quién ya tiene renglón este mes, para no duplicarlo.
-        $conRenglon = Comision::where('mes_venta', $mes)
-            ->get(['vendedor_id', 'tienda_id'])
+        // Las comisiones del mes, una sola vez: de aquí sale quién ya tiene
+        // renglón, quién vendió de verdad y cuáles sobran. Antes se preguntaba
+        // por la misma tabla y el mismo mes cuatro veces seguidas.
+        $delMes = Comision::where('mes_venta', $mes)
+            ->get(['id', 'vendedor_id', 'tienda_id', 'origen', 'orden_id', 'estado']);
+
+        $conRenglon = $delMes
             ->map(fn ($c) => $c->vendedor_id . '_' . $c->tienda_id)
             ->flip();
 
@@ -775,9 +788,12 @@ class ComisionController extends Controller
         // menos quien no estuvo. Se mira por días para no abrirle renglón a
         // quien pasó el mes entero de vacaciones —no le toca— ni dejar sin él
         // a quien vino a reemplazar y no alcanzó a vender nada.
+        //
+        // Las tiendas con reemplazo salen de los que ya están cargados en
+        // memoria, sin otra consulta.
         $tiendas = array_unique(array_merge(
             array_keys($equipos),
-            TiendaReemplazo::where('tienda_id', '!=', 0)->pluck('tienda_id')->map(fn ($v) => (int) $v)->all(),
+            TiendaReemplazo::tiendasConMovimiento($mes),
         ));
 
         $reparten = [];   // [tienda_id][vendedor_id] => true
@@ -813,7 +829,7 @@ class ComisionController extends Controller
             }
         }
 
-        $this->limpiarPartesQueSobran($mes, $reparten);
+        $this->limpiarPartesQueSobran($delMes, $reparten);
     }
 
     /**
@@ -831,23 +847,22 @@ class ComisionController extends Controller
      * Lo ya pagado no se toca: corregir el pasado es una decisión de quien
      * paga, no algo que deba hacer una pantalla al abrirse.
      *
-     * @param array<int,array<int,bool>> $reparten [tienda][vendedor] => true
+     * @param \Illuminate\Support\Collection $delMes    comisiones del mes, ya cargadas
+     * @param array<int,array<int,bool>>     $reparten  [tienda][vendedor] => true
      */
-    private function limpiarPartesQueSobran(string $mes, array $reparten): void
+    private function limpiarPartesQueSobran($delMes, array $reparten): void
     {
-        $sobrantes = Comision::where('mes_venta', $mes)
+        $sobrantes = $delMes
             ->where('origen', self::ORIGEN_PARTE_POOL)
-            ->where('estado', '!=', 'pagada')
-            ->get();
+            ->where('estado', '!=', 'pagada');
 
         if ($sobrantes->isEmpty()) return;
 
-        // Quién tiene ventas que SÍ pasan por el pool.
+        // Quién tiene ventas que SÍ pasan por el pool. Sale de las mismas
+        // filas que ya se trajeron, sin volver a preguntar.
         $restauraciones = $this->idsDeRestauracion();
-        $conVentas = Comision::where('mes_venta', $mes)
-            ->whereNotNull('orden_id')
-            ->where('origen', '!=', self::ORIGEN_ABONO)
-            ->get(['vendedor_id', 'tienda_id', 'orden_id'])
+        $conVentas = $delMes
+            ->filter(fn ($c) => $c->orden_id !== null && $c->origen !== self::ORIGEN_ABONO)
             ->reject(fn ($c) => isset($restauraciones[(int) $c->orden_id]))
             ->map(fn ($c) => $c->vendedor_id . '_' . $c->tienda_id)
             ->flip();
@@ -1621,12 +1636,21 @@ class ComisionController extends Controller
 
     private function cargarTotales(): array
     {
-        // Arranca un cálculo nuevo: lo de la pasada anterior ya no sirve.
+        // Arranca un cálculo nuevo: lo de la pasada anterior ya no sirve. El
+        // controlador sobrevive al request (ver idsDeRestauracion), así que
+        // esto no es opcional: sin ello, una restauración o un reemplazo
+        // creados después se seguirían calculando con la lista vieja.
+        //
+        // Por eso mismo cargarTotales() va ANTES de tocar nada en las
+        // pantallas: así los cachés se llenan una vez y todo lo que viene
+        // detrás los reutiliza, en vez de volver a preguntar por toda la tabla
+        // de ítems y por todos los reemplazos.
         $this->idsRestauracion = null;
         $this->individuales    = [];
         $this->equipos         = [];
         $this->pesos           = [];
         TiendaReemplazo::olvidarCache();
+        TiendaAsesor::olvidarCache();
 
         // Los meses que hay que resolver salen de las comisiones que existen;
         // para cada uno rige la ultima meta cargada hasta ese mes.

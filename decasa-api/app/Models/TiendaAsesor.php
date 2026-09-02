@@ -37,6 +37,13 @@ class TiendaAsesor extends Model
      */
     public static function vigentesEn(string $mes): array
     {
+        // La misma pregunta se hace varias veces por petición —al abrir los
+        // renglones del equipo, al repartir el pool, al pintar las metas— y es
+        // una consulta a toda la tabla cada vez. Se resuelve una y se guarda.
+        if (isset(self::$cache[$mes])) {
+            return self::$cache[$mes];
+        }
+
         $filas = static::with('vendedor:id,nombre')
             ->where('mes', '<=', $mes)->orderBy('mes')->get();
 
@@ -54,7 +61,16 @@ class TiendaAsesor extends Model
             }
         }
 
-        return array_map(fn ($v) => collect($v), $out);
+        return self::$cache[$mes] = array_map(fn ($v) => collect($v), $out);
+    }
+
+    /** [mes => equipos]. Ver vigentesEn(). */
+    private static array $cache = [];
+
+    /** Se vuelve a preguntar: el equipo cambió. */
+    public static function olvidarCache(): void
+    {
+        self::$cache = [];
     }
 
     /**
@@ -78,5 +94,7 @@ class TiendaAsesor extends Model
                 'vendedor_id' => $fila->vendedor_id,
             ]);
         }
+
+        self::olvidarCache();
     }
 }
