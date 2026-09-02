@@ -982,8 +982,11 @@ class ComisionController extends Controller
         // Primero poner al día el valor de las órdenes que cambiaron de precio
         // después de creadas; si no, se recalcula sobre cifras viejas. Va antes
         // de cargarTotales() porque esos totales salen de valor_orden.
+        // Los pagos se traen de una: el valor comisionable descuenta el datáfono
+        // y eso obliga a mirar con qué pagaron. Pidiéndolos orden por orden eran
+        // noventa y tantas consultas —veintitrés segundos— para lo mismo.
         $revaluadas = 0;
-        Comision::with('orden')->where('estado', '!=', 'pagada')
+        Comision::with('orden.pagos')->where('estado', '!=', 'pagada')
             ->get()->pluck('orden')->filter()->unique('id')
             ->each(function ($orden) use (&$revaluadas) {
                 $revaluadas += self::sincronizarValorOrden($orden);

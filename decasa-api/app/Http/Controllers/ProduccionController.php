@@ -16,6 +16,20 @@ use Illuminate\Support\Facades\DB;
 class ProduccionController extends Controller
 {
     /**
+     * De la orden, en el taller solo se lee la cabecera: de quién es, de qué
+     * tienda y con qué número. Traerla entera metía en cada pieza las notas,
+     * la firma y las fotos de factura —la tercera parte de todo lo que viaja
+     * al celular del ebanista— para no pintar ni uno de esos campos.
+     *
+     * Lo que va aquí no es solo lo que se pinta: `referencia`, `esta_vencida`
+     * y `contacto_display` se calculan al serializar, así que sus columnas
+     * tienen que venir o salen vacías.
+     */
+    private const CABECERA_ORDEN = 'id,numero_orden,serie,serie_numero,cotizacion_numero,'
+        . 'cotizacion_estado,cotizacion_valida_hasta,estado,contacto_nombre,'
+        . 'cliente_id,vendedor_id,tienda_id';
+
+    /**
      * GET /api/produccion
      * Supervisor: todos. Vendedor: solo los suyos. Ebanista/tapicero/despachador: no accede aquí.
      */
@@ -33,6 +47,7 @@ class ProduccionController extends Controller
 
         $query = Produccion::with([
             'ordenItem.producto:id,nombre,categoria,foto_url',
+            'ordenItem.orden:' . self::CABECERA_ORDEN,
             'ordenItem.orden.cliente:id,nombre,telefono',
             'ordenItem.orden.vendedor:id,nombre',
             'ordenItem.orden.tienda:id,nombre',
@@ -119,6 +134,7 @@ class ProduccionController extends Controller
 
         $pasos = ProduccionPaso::with([
             'produccion.ordenItem.producto:id,nombre,categoria,foto_url',
+            'produccion.ordenItem.orden:' . self::CABECERA_ORDEN,
             'produccion.ordenItem.orden.cliente:id,nombre,telefono',
             'produccion.ordenItem.orden.vendedor:id,nombre',
             'produccion.ordenItem.orden.tienda:id,nombre',
@@ -156,6 +172,7 @@ class ProduccionController extends Controller
 
         $pasos = ProduccionPaso::with([
             'produccion.ordenItem.producto:id,nombre,categoria,foto_url',
+            'produccion.ordenItem.orden:' . self::CABECERA_ORDEN,
             'produccion.ordenItem.orden.cliente:id,nombre,telefono',
             'produccion.ordenItem.orden.vendedor:id,nombre',
             'produccion.ordenItem.orden.tienda:id,nombre',

@@ -428,8 +428,26 @@ class Orden extends Model
         return $this->hasMany(Pago::class, 'orden_id');
     }
 
+    /**
+     * Lo que lleva pagado el cliente.
+     *
+     * Si los pagos ya vienen cargados se suman en memoria. Preguntarlo otra
+     * vez a la base es un viaje por cada llamada, y esto se llama dos veces
+     * seguidas en el detalle de la orden —una por el total y otra por el
+     * saldo— y una vez por orden en las listas que ya las traen con sus pagos.
+     *
+     * OJO al registrar un pago: quien haya cargado la relación antes se queda
+     * con la foto vieja y acá saldría un total de menos. Después de crear o
+     * corregir un pago hay que pasar por `fresh()` —o volver a cargar `pagos`—
+     * antes de preguntar. Es lo que hacen hoy los dos caminos de cobro, el de
+     * PagoController y el del conductor en DespachoController.
+     */
     public function totalPagado(): float
     {
+        if ($this->relationLoaded('pagos')) {
+            return (float) $this->pagos->sum('monto');
+        }
+
         return (float) $this->pagos()->sum('monto');
     }
 
@@ -443,6 +461,13 @@ class Orden extends Model
      */
     public function pagadoConTarjeta(): float
     {
+        // Igual que totalPagado(): con los pagos en memoria no hace falta
+        // volver a preguntar. En el cálculo de comisiones esto se llama por
+        // cada orden del mes.
+        if ($this->relationLoaded('pagos')) {
+            return (float) $this->pagos->where('metodo', 'tarjeta')->sum('monto');
+        }
+
         return (float) $this->pagos()->where('metodo', 'tarjeta')->sum('monto');
     }
 
