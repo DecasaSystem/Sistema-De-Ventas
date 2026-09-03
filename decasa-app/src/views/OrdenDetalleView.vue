@@ -151,11 +151,23 @@ const numYaEsSerie = computed(() => {
   return numSerie.value === 'NORMAL' ? !orden.value.serie : orden.value.serie === numSerie.value
 })
 
-// "Correr las siguientes" solo aplica al convertir A una serie: ahí sí se
-// libera un número de la numeración normal y deja hueco. Volver a NORMAL no
-// libera nada de ese lado —la orden nunca ocupó un consecutivo de tienda—,
-// así que la opción no tiene sentido ahí y se oculta.
-const numAplicaCorrer = computed(() => numSerie.value !== 'NORMAL')
+// "Correr las siguientes" depende de lo que la orden YA ERA, no de a qué se
+// convierte: solo libera un hueco de numeración normal si venía con número
+// normal (sin serie). Una orden que ya es FV2 o R nunca ocupó un consecutivo
+// de tienda —vaya a la otra serie o a Venta normal—, así que no hay nada que
+// correr y la opción no tiene sentido ahí. El backend ya lo ignora si no
+// aplica (necesita numero_orden y grupo_secuencia), pero mostrarla igual
+// insinúa un efecto que no existe.
+const numAplicaCorrer = computed(() => !orden.value?.serie)
+
+// El placeholder del motivo guiaba solo el caso original (marcar FV2 de más);
+// con R y Venta normal como destino también, ese texto ya no le calza a los
+// otros dos.
+const numMotivoPlaceholder = computed(() => ({
+  FV2:    'Se le olvidó marcarla como descuento especial',
+  R:      'Se le olvidó marcarla como restauración',
+  NORMAL: 'Se marcó como especial por error: es una venta normal',
+}[numSerie.value]))
 
 async function abrirNumeracion() {
   // Si ya tiene serie, lo más probable es que se le haya puesto de más:
@@ -189,8 +201,8 @@ watch([numSerie, numCorrer], () => { if (mostrarNumeracion.value) cargarPreviaNu
 
 async function aplicarConversion() {
   const n = numPrevia.value?.corridas?.length ?? 0
-  const aviso = numSerie.value === 'NORMAL'
-    ? `Se convierte a ${numPrevia.value.orden.a} (número normal de su tienda). Esto NO se deshace con un botón. ¿Seguro?`
+  const aviso = !numAplicaCorrer.value
+    ? `Se convierte a ${numPrevia.value.orden.a}. Esto NO se deshace con un botón. ¿Seguro?`
     : n
       ? `Se convierte a ${numPrevia.value.orden.a} y se corren ${n} orden(es).\n\nEsto NO se deshace con un botón. ¿Seguro?`
       : `Se convierte a ${numPrevia.value.orden.a} sin correr las siguientes (queda el hueco). ¿Seguro?`
@@ -3554,7 +3566,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
 
             <div>
               <label class="block text-xs font-semibold text-gray-500 mb-1.5">Motivo (queda en el historial)</label>
-              <input v-model="numMotivo" placeholder="Se le olvidó marcarla como descuento especial" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <input v-model="numMotivo" :placeholder="numMotivoPlaceholder" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
 
             <!-- Vista previa -->
