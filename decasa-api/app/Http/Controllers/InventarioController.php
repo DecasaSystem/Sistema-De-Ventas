@@ -538,8 +538,15 @@ class InventarioController extends Controller
 
             if ($nuevoDisponible < $maxAsignado) {
                 $puedeQuitar = $inv->cantidad_disponible - $maxAsignado;
+                if ($puedeQuitar <= 0) {
+                    throw new \RuntimeException(
+                        "Las {$maxAsignado} unidad(es) de este producto ya están asignadas a una tela/opción concreta. ".
+                        "Para quitar esta unidad, primero quita el stock desde la pastilla de esa tela/opción y luego vuelve a intentarlo aquí."
+                    );
+                }
                 throw new \RuntimeException(
-                    "Hay {$maxAsignado} unidad(es) asignadas a variantes. Solo puedes quitar hasta {$puedeQuitar}."
+                    "Hay {$maxAsignado} unidad(es) asignadas a una tela/opción concreta y no se pueden quitar desde aquí. ".
+                    "Solo puedes quitar hasta {$puedeQuitar} (lo que no está asignado)."
                 );
             }
 

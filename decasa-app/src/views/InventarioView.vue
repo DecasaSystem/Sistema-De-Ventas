@@ -130,6 +130,27 @@ const quitarStockMotivo = ref('')
 const quitarStockError  = ref('')
 const quitarStockLoad   = ref(false)
 
+/**
+ * Cuánto del stock base está "comprometido" con una tela u opción concreta:
+ * el mismo máximo que valida el servidor (no se suman los dos ejes, cada uno
+ * es un reparto distinto del mismo total). Se muestra ANTES de intentar
+ * quitar, para no dejar que el mensaje de error sea la primera noticia.
+ */
+const quitarStockAsignado = computed(() => {
+  if (!itemGestionar.value) return 0
+  const pid = itemGestionar.value.producto_id
+  const asignadoVariantes = (variantesData.value[pid] ?? [])
+    .reduce((s, v) => s + (v.stock_disponible ?? 0), 0)
+  const asignadoConfigs = (vcConfigsCard.value[pid] ?? [])
+    .reduce((s, g) => s + g.items.reduce((s2, it) => s2 + (it.stock_disponible ?? 0), 0), 0)
+  return Math.max(asignadoVariantes, asignadoConfigs)
+})
+
+const quitarStockMax = computed(() => {
+  if (!itemGestionar.value) return 0
+  return Math.max(0, (itemGestionar.value.cantidad_disponible ?? 0) - quitarStockAsignado.value)
+})
+
 const eliminarConfirm  = ref(false)
 const eliminarLoading  = ref(false)
 
@@ -1138,9 +1159,14 @@ async function cargarVCConfigsCard(item) {
 }
 
 // ── Variantes ─────────────────────────────────────────────────────────────────
-const variantesAbiertas  = ref({})   // { producto_id: bool }
+const variantesCardAbiertas = ref({})   // { producto_id: bool } — chips desplegados en la tarjeta
 const variantesData      = ref({})   // { producto_id: Variante[] }
 const varianteCargando   = ref({})   // { producto_id: bool }
+
+// En la tarjeta, colapsado, solo se muestran las primeras N variantes (las de
+// más stock). Un tapizado puede tener decenas de telas × colores × medidas y
+// pintarlas todas convierte la tarjeta en un muro de pastillas.
+const PREVIEW_VARIANTES = 6
 
 const mostrarStockVariante   = ref(false)
 const varianteStockItem      = ref(null)   // { variante, productoId }
@@ -1239,12 +1265,81 @@ async function cargarVariantes(item) {
   }
 }
 
-async function toggleVariantes(item) {
-  const pid = item.producto_id
-  variantesAbiertas.value[pid] = !variantesAbiertas.value[pid]
-  if (!variantesData.value[pid]) {
-    await cargarVariantes(item)
+function toggleVariantesCard(pid) {
+  variantesCardAbiertas.value[pid] = !variantesCardAbiertas.value[pid]
+}
+
+// Con stock primero y de más a menos; se desempata por tela y color para que el
+// orden no baile entre recargas.
+const _ordenVariante = (a, b) =>
+  (b.stock_libre ?? 0) - (a.stock_libre ?? 0)
+  || (a.marca_tela ?? '').localeCompare(b.marca_tela ?? '', 'es')
+  || (a.nombre_color ?? a.medida ?? '').localeCompare(b.nombre_color ?? b.medida ?? '', 'es')
+
+function variantesOrdenadas(item) {
+  return [...(variantesData.value[item.producto_id] ?? [])].sort(_ordenVariante)
+}
+
+function variantesConStock(item) {
+  return (variantesData.value[item.producto_id] ?? []).filter(v => (v.stock_libre ?? 0) > 0).length
+}
+
+function varianteKey(v) {
+  return (v._config_id !== undefined && v._config_id !== null)
+    ? `cfg-${v._config_id}-v${v.id}`
+    : `var-${v.id}`
+}
+
+function etiquetaBaseVariante(v, item) {
+  return esTalla(item) ? v.medida : [v.marca_tela, v.nombre_color].filter(Boolean).join(' · ')
+}
+
+function tituloVariante(v, item) {
+  const nombre = esTalla(item)
+    ? v.medida
+    : [v.marca, v.marca_tela, v.nombre_color, v._config_label].filter(Boolean).join(' · ')
+  return nombre + ((!esVistaGlobal.value && puedeGestionar.value) ? ' — clic para agregar stock' : '')
+}
+
+/**
+ * Variantes de tela agrupadas por tipo de tela (Chenille, Lino…), cada grupo
+ * con las que tienen stock primero. Los productos por talla no se agrupan.
+ * Si al final solo hay un tipo, se quita el encabezado: no distingue nada.
+ */
+function gruposVariante(item) {
+  const lista = variantesOrdenadas(item)
+  if (esTalla(item)) return [{ nombre: '', items: lista }]
+  const mapa = new Map()
+  for (const v of lista) {
+    const clave = v.marca_tela || v.marca || 'Otras'
+    if (!mapa.has(clave)) mapa.set(clave, [])
+    mapa.get(clave).push(v)
   }
+  const grupos = [...mapa.entries()]
+    .map(([nombre, items]) => ({
+      nombre,
+      items,
+      libre: items.reduce((s, v) => s + Math.max(0, v.stock_libre ?? 0), 0),
+    }))
+    .sort((a, b) => b.libre - a.libre || a.nombre.localeCompare(b.nombre, 'es'))
+  if (grupos.length === 1) grupos[0].nombre = ''
+  return grupos
+}
+
+/**
+ * Lo que se pinta en la tarjeta: colapsada, un solo bloque con las primeras
+ * PREVIEW_VARIANTES y un "+N más"; abierta, los grupos por tipo de tela.
+ */
+function variantesTarjeta(item) {
+  const lista = variantesOrdenadas(item)
+  if (!variantesCardAbiertas.value[item.producto_id] && lista.length > PREVIEW_VARIANTES) {
+    return [{
+      nombre: '',
+      items: lista.slice(0, PREVIEW_VARIANTES),
+      resto: lista.length - PREVIEW_VARIANTES,
+    }]
+  }
+  return gruposVariante(item)
 }
 
 const varianteStockSinAsignar = computed(() => {
@@ -1592,7 +1687,7 @@ onMounted(async () => {
     if (tiendaActual === 'todas' || tiendaActual === String(e.tienda_id)) {
       // Limpiar cache de variantes para que se recarguen al expandir
       variantesData.value = {}
-      variantesAbiertas.value = {}
+      variantesCardAbiertas.value = {}
       vcConfigsCard.value = {}
       cargarInventario(true)
     }
@@ -2066,43 +2161,64 @@ onMounted(async () => {
 
           <!-- Variantes tela/color o talla — para productos tapizados o con tallas -->
           <div v-if="esTapizado(item) || esTalla(item)" class="border-t border-gray-100 pt-2">
-            <div class="flex items-center gap-2">
-              <span class="text-xs text-blue-600 font-medium">{{ esTalla(item) ? 'Variantes por talla' : 'Variantes de tela/color' }}</span>
+            <button
+              type="button"
+              @click="toggleVariantesCard(item.producto_id)"
+              class="w-full flex items-center gap-2 text-left"
+            >
+              <span class="text-xs text-blue-600 font-medium">
+                {{ esTalla(item) ? 'Variantes por talla' : 'Variantes de tela/color' }}
+              </span>
               <span v-if="variantesData[item.producto_id]?.length"
                 class="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full text-xs font-bold">
                 {{ variantesData[item.producto_id].length }}
               </span>
-            </div>
+              <span v-if="variantesData[item.producto_id]?.length" class="text-xs text-gray-400">
+                · {{ variantesConStock(item) }} con stock
+              </span>
+              <ChevronDownIcon
+                v-if="(variantesData[item.producto_id]?.length ?? 0) > PREVIEW_VARIANTES"
+                class="w-4 h-4 text-gray-400 ml-auto shrink-0 transition-transform"
+                :class="{ 'rotate-180': variantesCardAbiertas[item.producto_id] }"
+              />
+            </button>
 
-            <div class="mt-2 space-y-2">
+            <div class="mt-2 space-y-2.5">
               <div v-if="varianteCargando[item.producto_id]" class="text-xs text-gray-400">Cargando...</div>
-              <template v-else-if="variantesData[item.producto_id]">
-                <!-- Chips de variantes -->
-                <div class="flex flex-wrap gap-1.5">
-                  <button
-                    v-for="v in variantesData[item.producto_id]"
-                    :key="v._config_id !== undefined ? 'cfg-' + v._config_id + '-v' + v.id : 'var-' + v.id"
-                    @click="!esVistaGlobal && puedeGestionar && abrirStockVariante(v, item)"
-                    :class="['px-2.5 py-1 rounded-full text-xs font-medium border transition-colors',
-                      v.stock_libre > 0
-                        ? (v._config_label ? 'bg-indigo-50 border-indigo-300 text-indigo-800' : 'bg-green-50 border-green-300 text-green-800')
-                        : 'bg-gray-50 border-gray-200 text-gray-400',
-                      puedeGestionar ? 'cursor-pointer hover:opacity-75' : 'cursor-default']"
-                    :title="(esTalla(item) ? v.medida : [v.marca, v.marca_tela, v.nombre_color, v._config_label].filter(Boolean).join(' · ')) + (puedeGestionar ? ' — clic para agregar stock' : '')"
-                  >
-                    <template v-if="esTalla(item)">
-                      {{ v.medida }}
+
+              <template v-else-if="variantesData[item.producto_id]?.length">
+                <div v-for="grupo in variantesTarjeta(item)" :key="grupo.nombre || '_'">
+                  <p v-if="grupo.nombre" class="text-[11px] uppercase tracking-wide text-gray-400 font-medium mb-1">
+                    {{ grupo.nombre }} <span class="text-gray-300">· {{ grupo.items.length }}</span>
+                  </p>
+                  <div class="flex flex-wrap gap-1.5">
+                    <button
+                      v-for="v in grupo.items"
+                      :key="varianteKey(v)"
+                      @click="!esVistaGlobal && puedeGestionar && abrirStockVariante(v, item)"
+                      :class="[
+                        'inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border transition-colors',
+                        (v.stock_libre ?? 0) > 0
+                          ? (v._config_label ? 'bg-indigo-50 border-indigo-300 text-indigo-800' : 'bg-green-50 border-green-300 text-green-800')
+                          : 'bg-gray-50 border-gray-200 text-gray-400',
+                        (!esVistaGlobal && puedeGestionar) ? 'cursor-pointer hover:opacity-75' : 'cursor-default',
+                      ]"
+                      :title="tituloVariante(v, item)"
+                    >
+                      {{ etiquetaBaseVariante(v, item) }}<span v-if="!esTalla(item) && v._config_label" class="text-indigo-500"> · {{ v._config_label }}</span>
                       <span v-if="v.precio_variante" class="ml-1 text-emerald-600 font-semibold">{{ pesos(v.precio_variante) }}</span>
-                    </template>
-                    <template v-else>
-                      {{ [v.marca_tela, v.nombre_color].filter(Boolean).join(' · ') }}<span v-if="v._config_label" class="text-indigo-600"> · {{ v._config_label }}</span>
-                      <span v-if="v.precio_variante" class="ml-1 text-emerald-600 font-semibold">{{ pesos(v.precio_variante) }}</span>
-                    </template>
-                    <span class="ml-1 font-bold">{{ v.stock_libre ?? '—' }}</span>
-                  </button>
-                  <span v-if="!variantesData[item.producto_id]?.length" class="text-xs text-gray-400 italic">
-                    Sin variantes registradas
-                  </span>
+                      <span class="ml-1 font-bold">{{ v.stock_libre ?? '—' }}</span>
+                    </button>
+
+                    <button
+                      v-if="grupo.resto"
+                      type="button"
+                      @click="toggleVariantesCard(item.producto_id)"
+                      class="px-2.5 py-1 rounded-full text-xs font-medium border border-dashed border-gray-300 text-gray-500 hover:bg-gray-50"
+                    >
+                      +{{ grupo.resto }} más
+                    </button>
+                  </div>
                 </div>
 
                 <button
@@ -2113,6 +2229,18 @@ onMounted(async () => {
                   {{ esTalla(item) ? '+ Nueva talla' : '+ Nueva variante' }}
                 </button>
               </template>
+
+              <template v-else-if="variantesData[item.producto_id]">
+                <p class="text-xs text-gray-400 italic">Sin variantes registradas</p>
+                <button
+                  v-if="(auth.isSupervisor || !esVistaGlobal) && puedeGestionar"
+                  @click="abrirNuevaVariante(item)"
+                  class="text-xs text-blue-500 font-medium hover:text-blue-700"
+                >
+                  {{ esTalla(item) ? '+ Nueva talla' : '+ Nueva variante' }}
+                </button>
+              </template>
+
               <div v-else class="text-xs text-gray-400 italic">Cargando variantes...</div>
             </div>
           </div>
@@ -2781,18 +2909,27 @@ onMounted(async () => {
             <template v-if="!esVistaGlobal">
               <div class="border-t border-gray-100" />
               <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Quitar stock</label>
+                <label class="block text-sm font-medium text-gray-700 mb-1">
+                  Quitar stock
+                  <span v-if="quitarStockAsignado > 0" class="text-gray-400 font-normal">(máx {{ quitarStockMax }})</span>
+                </label>
+                <p v-if="quitarStockAsignado > 0" class="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2 mb-2">
+                  {{ quitarStockMax === 0
+                    ? `Las ${quitarStockAsignado} unidad(es) de este producto ya están asignadas a una tela/opción concreta. Para quitar de aquí, primero quita stock en su pastilla (arriba) y luego vuelve aquí.`
+                    : `${quitarStockAsignado} unidad(es) ya están asignadas a una tela/opción y no se pueden quitar desde aquí — solo hay ${quitarStockMax} sin asignar.` }}
+                </p>
                 <div class="flex gap-2">
                   <input
                     v-model.number="quitarStockCant"
                     type="number"
                     min="1"
+                    :max="quitarStockAsignado > 0 ? quitarStockMax : undefined"
                     class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
                     placeholder="Cantidad a quitar"
                   />
                   <button
                     @click="quitarStock"
-                    :disabled="quitarStockLoad"
+                    :disabled="quitarStockLoad || (quitarStockAsignado > 0 && quitarStockMax === 0)"
                     class="bg-red-500 text-white rounded-lg px-4 py-2 text-sm font-semibold hover:bg-red-600 disabled:opacity-50 flex items-center gap-1"
                   >
                     <XMarkIcon class="w-4 h-4" />
