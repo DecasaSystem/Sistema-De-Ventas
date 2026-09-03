@@ -157,6 +157,48 @@ class NumeracionVentaNormalTest extends TestCase
         $this->assertSame('venta', $orden->fresh()->tipo);
     }
 
+    /**
+     * El pedido explícito: si se corrige R-1103 y había R-1104 y R-1105
+     * detrás, esas dos tienen que bajar a R-1103 y R-1104 -- si no, el
+     * consecutivo de la serie R se queda con un hueco para siempre.
+     */
+    public function test_al_volver_a_normal_se_puede_correr_el_hueco_que_deja_en_la_serie(): void
+    {
+        DB::table('orden_secuencias')->insert(['grupo' => 'pereira', 'ultimo_numero' => 1241]);
+        DB::table('orden_secuencias')->insert(['grupo' => 'r', 'ultimo_numero' => 1105]);
+
+        $r1103 = $this->ordenRestauracion('Decasa Unicentro Pereira'); // serie_numero 1103
+        $r1104 = $this->otraRestauracion(1104);
+        $r1105 = $this->otraRestauracion(1105);
+
+        $resp = $this->actingAs($this->supervisor())->postJson("/api/ordenes/{$r1103->id}/numeracion/convertir", [
+            'serie'  => 'NORMAL',
+            'correr' => true,
+        ])->assertOk();
+
+        $resp->assertJsonCount(2, 'corridas');
+
+        $this->assertSame(1242, $r1103->fresh()->numero_orden);
+        $this->assertSame(1103, $r1104->fresh()->serie_numero);
+        $this->assertSame(1104, $r1105->fresh()->serie_numero);
+        // El contador de la serie R también baja: la próxima restauración
+        // toma 1105, no repite un número que ya se corrió.
+        $this->assertSame(1104, DB::table('orden_secuencias')->where('grupo', 'r')->value('ultimo_numero'));
+    }
+
+    /** Otra restauración cualquiera, para armar el "detrás de la que se corrige". */
+    private function otraRestauracion(int $serieNumero): Orden
+    {
+        $tiendaId = DB::table('tiendas')->insertGetId(['nombre' => 'Decasa Vía El Edén']);
+        $clienteId = DB::table('clientes')->insertGetId(['nombre' => 'Otro cliente', 'created_at' => now(), 'updated_at' => now()]);
+
+        return Orden::create([
+            'cliente_id' => $clienteId, 'tienda_id' => $tiendaId, 'vendedor_id' => 1,
+            'estado' => 'entregado', 'valor_total' => 200000, 'tipo' => 'restauracion',
+            'serie' => Orden::SERIE_RESTAURACION, 'serie_numero' => $serieNumero,
+        ]);
+    }
+
     public function test_al_convertir_una_normal_a_r_tambien_se_le_pone_el_tipo_restauracion(): void
     {
         DB::table('orden_secuencias')->insert(['grupo' => 'armenia', 'ultimo_numero' => 100]);

@@ -151,15 +151,6 @@ const numYaEsSerie = computed(() => {
   return numSerie.value === 'NORMAL' ? !orden.value.serie : orden.value.serie === numSerie.value
 })
 
-// "Correr las siguientes" depende de lo que la orden YA ERA, no de a qué se
-// convierte: solo libera un hueco de numeración normal si venía con número
-// normal (sin serie). Una orden que ya es FV2 o R nunca ocupó un consecutivo
-// de tienda —vaya a la otra serie o a Venta normal—, así que no hay nada que
-// correr y la opción no tiene sentido ahí. El backend ya lo ignora si no
-// aplica (necesita numero_orden y grupo_secuencia), pero mostrarla igual
-// insinúa un efecto que no existe.
-const numAplicaCorrer = computed(() => !orden.value?.serie)
-
 // El placeholder del motivo guiaba solo el caso original (marcar FV2 de más);
 // con R y Venta normal como destino también, ese texto ya no le calza a los
 // otros dos.
@@ -168,6 +159,11 @@ const numMotivoPlaceholder = computed(() => ({
   R:      'Se le olvidó marcarla como restauración',
   NORMAL: 'Se marcó como especial por error: es una venta normal',
 }[numSerie.value]))
+
+// Cómo se escribe el número que la orden tiene AHORA (antes de convertir):
+// "#4289" si es normal, "R-1103" si es de serie. Para mostrar bien de dónde
+// queda el hueco cuando no se corre nada detrás.
+const numPrefijoActual = computed(() => orden.value?.serie ? `${orden.value.serie}-` : '#')
 
 async function abrirNumeracion() {
   // Si ya tiene serie, lo más probable es que se le haya puesto de más:
@@ -201,18 +197,16 @@ watch([numSerie, numCorrer], () => { if (mostrarNumeracion.value) cargarPreviaNu
 
 async function aplicarConversion() {
   const n = numPrevia.value?.corridas?.length ?? 0
-  const aviso = !numAplicaCorrer.value
-    ? `Se convierte a ${numPrevia.value.orden.a}. Esto NO se deshace con un botón. ¿Seguro?`
-    : n
-      ? `Se convierte a ${numPrevia.value.orden.a} y se corren ${n} orden(es).\n\nEsto NO se deshace con un botón. ¿Seguro?`
-      : `Se convierte a ${numPrevia.value.orden.a} sin correr las siguientes (queda el hueco). ¿Seguro?`
+  const aviso = n
+    ? `Se convierte a ${numPrevia.value.orden.a} y se corren ${n} orden(es).\n\nEsto NO se deshace con un botón. ¿Seguro?`
+    : `Se convierte a ${numPrevia.value.orden.a} sin correr las siguientes (queda el hueco). ¿Seguro?`
   if (!confirm(aviso)) return
 
   numAplicando.value = true
   try {
     const { data } = await convertirSerie(orden.value.id, {
       serie: numSerie.value,
-      correr: numAplicaCorrer.value && numCorrer.value,
+      correr: numCorrer.value,
       motivo: numMotivo.value.trim() || null,
     })
     toast.success(`Ahora es ${data.referencia}${data.corridas.length ? ` · ${data.corridas.length} orden(es) corridas` : ''}`)
@@ -3555,12 +3549,12 @@ onMounted(() => { cargarTipos(); cargarOrden() })
               >Venta normal</button>
             </div>
 
-            <label v-if="numAplicaCorrer" class="flex items-start gap-2.5 cursor-pointer">
+            <label class="flex items-start gap-2.5 cursor-pointer">
               <input type="checkbox" v-model="numCorrer" class="mt-0.5 w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
               <span class="text-xs text-gray-600 leading-snug">
                 <span class="font-semibold text-gray-700">Correr las siguientes para cerrar el hueco.</span>
-                Al salir de la numeración normal, su número queda libre. Esto baja en 1 las órdenes posteriores
-                de la misma tienda, para que el sistema siga cuadrando con el talonario.
+                Al salir de {{ orden?.referencia }}, ese número queda libre. Esto baja en 1 las que venían
+                después en esa misma numeración, para que el consecutivo no se quede con un hueco para siempre.
               </span>
             </label>
 
@@ -3607,7 +3601,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
                 </p>
               </template>
               <p v-else class="text-[11px] text-gray-500">
-                No se corre ninguna otra orden<span v-if="numPrevia.hueco">: queda libre el #{{ numPrevia.hueco }}</span>.
+                No se corre ninguna otra orden<span v-if="numPrevia.hueco">: queda libre el {{ numPrefijoActual }}{{ numPrevia.hueco }}</span>.
               </p>
             </div>
 

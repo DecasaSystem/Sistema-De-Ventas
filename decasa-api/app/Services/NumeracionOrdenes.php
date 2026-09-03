@@ -18,12 +18,18 @@ use Illuminate\Validation\ValidationException;
  * hueco (la 4289 desaparece y quedan 4290, 4291, 4292), así que el sistema se
  * desalinea del talonario de papel. Correr las siguientes cierra ese hueco.
  *
- * El caso contrario también pasa: se marcó FV2 o R de más y en realidad era
- * una venta normal. Ahí no hay hueco que cerrar (esa orden nunca ocupó un
- * consecutivo de tienda) — lo único que hace falta es darle el siguiente
- * número normal de SU tienda, y Pereira lleva su propio consecutivo aparte de
- * Armenia, así que no vale con tomar cualquier número: sale del grupo que le
- * corresponde a `orden->tienda_id` (ver OrdenController::grupoDeTienda()).
+ * Lo mismo pasa al revés (una R o FV2 que en realidad era venta normal) y
+ * entre dos series (R que en realidad era FV2): la orden sale de un "espacio"
+ * de numeración —normal de una tienda, o el de una serie— y entra a otro.
+ * Cualquiera de los dos lados puede quedar con un hueco, así que "correr" se
+ * le aplica siempre al de SALIDA, sea cual sea, no solo al normal: si no, el
+ * consecutivo de esa serie se queda corrido para siempre en vez de reflejar
+ * lo que de verdad se vendió.
+ *
+ * A dónde entra: la NORMAL sale del grupo que le toca a su tienda —Pereira
+ * lleva su propio consecutivo aparte de Armenia (ver
+ * OrdenController::grupoDeTienda())—, y una serie sale de su propio contador
+ * global.
  *
  * Dos cosas hacen que esto sea viable sin tocar medio sistema:
  *
@@ -55,40 +61,32 @@ class NumeracionOrdenes
     {
         self::exigirConvertible($orden, $destino);
 
+        $espacio  = self::espacioActual($orden);
+        $corridas = ($correr && $espacio) ? self::ordenesACorrer($espacio) : collect();
+
         if ($destino === Orden::SERIE_NORMAL) {
-            $grupo = self::grupoParaVentaNormal($orden);
-
-            return [
-                'orden' => [
-                    'id'      => $orden->id,
-                    'de'      => $orden->referencia,
-                    'a'       => '#' . self::proximoDeSerie($grupo),
-                    'cliente' => $orden->cliente?->nombre,
-                ],
-                'serie_numero'  => null,
-                'hueco'         => null,
-                'corridas'      => [],
-                'ya_entregadas' => 0,
-            ];
+            $numeroNuevo = self::proximoNumero(self::grupoParaVentaNormal($orden));
+            $a           = '#' . $numeroNuevo;
+            $serieNumero = null;
+        } else {
+            $numeroNuevo = self::proximoNumero(strtolower($destino));
+            $a           = $destino . '-' . $numeroNuevo;
+            $serieNumero = $numeroNuevo;
         }
-
-        $hueco    = $orden->numero_orden;
-        $grupo    = $orden->grupo_secuencia;
-        $corridas = ($correr && $hueco && $grupo) ? self::ordenesACorrer($grupo, $hueco) : collect();
 
         return [
             'orden' => [
-                'id'         => $orden->id,
-                'de'         => $orden->referencia,
-                'a'          => $destino . '-' . (self::proximoDeSerie($destino) ?: '?'),
-                'cliente'    => $orden->cliente?->nombre,
+                'id'      => $orden->id,
+                'de'      => $orden->referencia,
+                'a'       => $a,
+                'cliente' => $orden->cliente?->nombre,
             ],
-            'serie_numero'  => self::proximoDeSerie($destino),
-            'hueco'         => $hueco,
+            'serie_numero'  => $serieNumero,
+            'hueco'         => $espacio['hueco'] ?? null,
             'corridas'      => $corridas->map(fn (Orden $o) => [
                 'id'      => $o->id,
-                'de'      => '#' . $o->numero_orden,
-                'a'       => '#' . ($o->numero_orden - 1),
+                'de'      => $espacio['prefijo'] . $o->{$espacio['columnaNumero']},
+                'a'       => $espacio['prefijo'] . ($o->{$espacio['columnaNumero']} - 1),
                 'cliente' => $o->cliente?->nombre,
                 'estado'  => $o->estado,
                 'entregada' => $o->estado === 'entregado',
@@ -105,60 +103,60 @@ class NumeracionOrdenes
     {
         self::exigirConvertible($orden, $destino);
 
-        if ($destino === Orden::SERIE_NORMAL) {
-            return self::convertirANormal($orden, $usuario, $motivo);
-        }
-
-        $serie = $destino;
-
-        return DB::transaction(function () use ($orden, $serie, $correr, $usuario, $motivo) {
+        return DB::transaction(function () use ($orden, $destino, $correr, $usuario, $motivo) {
             $refAntes = $orden->referencia;
-            $hueco    = $orden->numero_orden;
-            $grupo    = $orden->grupo_secuencia;
+            // El espacio que la orden ocupaba ANTES de tocar nada: de ahí sale
+            // el hueco a correr, y hay que leerlo antes del update de abajo.
+            $espacio  = self::espacioActual($orden);
 
-            // El número de la serie sale de su propio contador, bloqueado.
-            $claveSerie = strtolower($serie);
-            $actual = DB::table('orden_secuencias')->where('grupo', $claveSerie)
-                ->lockForUpdate()->value('ultimo_numero');
-            if ($actual === null) {
-                DB::table('orden_secuencias')->insert(['grupo' => $claveSerie, 'ultimo_numero' => 0]);
-                $actual = 0;
+            if ($destino === Orden::SERIE_NORMAL) {
+                $grupo  = self::grupoParaVentaNormal($orden);
+                $numero = self::tomarSiguienteNumero($grupo);
+
+                $orden->update([
+                    'serie'           => null,
+                    'serie_numero'    => null,
+                    'numero_orden'    => $numero,
+                    'grupo_secuencia' => $grupo,
+                    'motivo_serie'    => null,
+                    // `tipo` se guarda aparte de `serie` desde que se creó la
+                    // orden (el carrito lo dedujo: "restauracion" solo si TODO
+                    // era mueble del cliente) y nada la mantenía sincronizada
+                    // después. Si no se corrige acá, la etiqueta de la lista
+                    // queda pegada al tipo viejo aunque la numeración ya cambió.
+                    'tipo'            => 'venta',
+                ]);
+                $refDespues = '#' . $numero;
+                $label      = 'Convertida a venta normal' . ($motivo ? " ({$motivo})" : '');
+            } else {
+                $numeroSerie = self::tomarSiguienteNumero(strtolower($destino));
+
+                $orden->update([
+                    'serie'           => $destino,
+                    'serie_numero'    => $numeroSerie,
+                    'numero_orden'    => null,
+                    'grupo_secuencia' => null,
+                    'motivo_serie'    => $motivo,
+                    'tipo'            => $destino === Orden::SERIE_RESTAURACION ? 'restauracion' : 'venta',
+                ]);
+                $refDespues = $destino . '-' . $numeroSerie;
+                $label      = 'Convertida a serie ' . $destino;
             }
-            $numeroSerie = $actual + 1;
-            DB::table('orden_secuencias')->where('grupo', $claveSerie)
-                ->update(['ultimo_numero' => $numeroSerie]);
 
-            $orden->update([
-                'serie'           => $serie,
-                'serie_numero'    => $numeroSerie,
-                'numero_orden'    => null,
-                'grupo_secuencia' => null,
-                'motivo_serie'    => $motivo,
-                // `tipo` se guarda aparte de `serie` desde que se creó la orden
-                // (el carrito lo dedujo: "restauracion" solo si TODO era mueble
-                // del cliente) y nada la mantenía sincronizada con la serie
-                // después. Si no se corrige acá, la etiqueta de la lista queda
-                // pegada al tipo viejo aunque la numeración ya cambió.
-                'tipo'            => $serie === Orden::SERIE_RESTAURACION ? 'restauracion' : 'venta',
-            ]);
-
-            $corridas = [];
-            if ($correr && $hueco && $grupo) {
-                $corridas = self::correrHaciaAbajo($grupo, $hueco);
-            }
+            $corridas = ($correr && $espacio) ? self::correrHaciaAbajo($espacio) : [];
 
             self::anotar($orden, $usuario, [[
                 'campo'   => 'numeracion',
-                'label'   => 'Convertida a serie ' . $serie,
+                'label'   => $label,
                 'antes'   => $refAntes,
-                'despues' => $serie . '-' . $numeroSerie,
+                'despues' => $refDespues,
             ]]);
 
             foreach ($corridas as $c) {
                 $movida = Orden::find($c['id']);
                 self::anotar($movida, $usuario, [[
                     'campo'   => 'numeracion',
-                    'label'   => 'Número corrido al convertir ' . $refAntes . ' a ' . $serie,
+                    'label'   => 'Número corrido al convertir ' . $refAntes . ' a ' . $refDespues,
                     'antes'   => $c['de'],
                     'despues' => $c['a'],
                 ]]);
@@ -172,7 +170,44 @@ class NumeracionOrdenes
     }
 
     /**
-     * Baja en 1 todas las órdenes del grupo con número mayor a $hueco.
+     * El espacio de numeración que la orden ocupa AHORA MISMO: normal (de su
+     * tienda) o el de una serie. Nunca los dos a la vez. Null solo si la orden
+     * todavía no tiene consecutivo —exigirConvertible() ya bloqueó ese caso
+     * antes de llegar acá, así que en la práctica siempre hay uno.
+     *
+     * `claveContador` es la fila de `orden_secuencias` que gobierna ese
+     * espacio: el nombre del grupo para lo normal, la serie en minúscula para
+     * una serie. `prefijo` es cómo se escribe un número de ese espacio
+     * ("#4289" vs "R-1103"), para las columnas de la vista previa.
+     */
+    private static function espacioActual(Orden $orden): ?array
+    {
+        if ($orden->serie && $orden->serie_numero) {
+            return [
+                'columnaGrupo'  => 'serie',
+                'valorGrupo'    => $orden->serie,
+                'columnaNumero' => 'serie_numero',
+                'claveContador' => strtolower($orden->serie),
+                'hueco'         => (int) $orden->serie_numero,
+                'prefijo'       => $orden->serie . '-',
+            ];
+        }
+        if ($orden->grupo_secuencia && $orden->numero_orden) {
+            return [
+                'columnaGrupo'  => 'grupo_secuencia',
+                'valorGrupo'    => $orden->grupo_secuencia,
+                'columnaNumero' => 'numero_orden',
+                'claveContador' => $orden->grupo_secuencia,
+                'hueco'         => (int) $orden->numero_orden,
+                'prefijo'       => '#',
+            ];
+        }
+
+        return null;
+    }
+
+    /**
+     * Baja en 1 todas las órdenes del espacio con número mayor al hueco.
      *
      * En orden ASCENDENTE a propósito: el destino de cada una es el número que
      * acaba de quedar libre, así nunca hay dos órdenes con el mismo número ni
@@ -180,29 +215,34 @@ class NumeracionOrdenes
      *
      * @return array<int, array{id: int, de: string, a: string}>
      */
-    private static function correrHaciaAbajo(string $grupo, int $hueco): array
+    private static function correrHaciaAbajo(array $espacio): array
     {
+        [$columnaGrupo, $valorGrupo, $columnaNumero, $claveContador, $prefijo] = [
+            $espacio['columnaGrupo'], $espacio['valorGrupo'], $espacio['columnaNumero'],
+            $espacio['claveContador'], $espacio['prefijo'],
+        ];
+
         // Se bloquea el contador ANTES de mover nada: si alguien está
         // numerando una orden nueva en este momento, espera su turno y no se
         // lleva un número que estamos a punto de reutilizar.
-        $ultimo = DB::table('orden_secuencias')->where('grupo', $grupo)
+        $ultimo = DB::table('orden_secuencias')->where('grupo', $claveContador)
             ->lockForUpdate()->value('ultimo_numero');
 
-        $aCorrer = self::ordenesACorrer($grupo, $hueco, bloquear: true);
+        $aCorrer = self::ordenesACorrer($espacio, bloquear: true);
         $movidas = [];
 
         foreach ($aCorrer as $o) {
-            $de = (int) $o->numero_orden;
-            $o->update(['numero_orden' => $de - 1]);
-            $movidas[] = ['id' => $o->id, 'de' => '#' . $de, 'a' => '#' . ($de - 1)];
+            $de = (int) $o->{$columnaNumero};
+            $o->update([$columnaNumero => $de - 1]);
+            $movidas[] = ['id' => $o->id, 'de' => $prefijo . $de, 'a' => $prefijo . ($de - 1)];
         }
 
         // El contador baja solo si lo que se corrió llega hasta arriba. Si la
         // última orden movida no era la del tope, bajarlo repartiría un número
         // que ya está en uso.
-        $maxAhora = (int) Orden::where('grupo_secuencia', $grupo)->max('numero_orden');
+        $maxAhora = (int) Orden::where($columnaGrupo, $valorGrupo)->max($columnaNumero);
         if ($ultimo !== null && $maxAhora > 0 && $maxAhora < $ultimo) {
-            DB::table('orden_secuencias')->where('grupo', $grupo)
+            DB::table('orden_secuencias')->where('grupo', $claveContador)
                 ->update(['ultimo_numero' => $maxAhora]);
         }
 
@@ -210,18 +250,18 @@ class NumeracionOrdenes
     }
 
     /**
-     * Las órdenes del grupo posteriores al hueco, de menor a mayor.
+     * Las órdenes del espacio posteriores al hueco, de menor a mayor.
      *
      * `$bloquear` solo al aplicar de verdad: en la vista previa no hay nada
      * que proteger y un bloqueo suelto fuera de transacción no sirve de nada.
      */
-    private static function ordenesACorrer(string $grupo, int $hueco, bool $bloquear = false)
+    private static function ordenesACorrer(array $espacio, bool $bloquear = false)
     {
         $q = Orden::with('cliente:id,nombre')
-            ->where('grupo_secuencia', $grupo)
-            ->whereNotNull('numero_orden')
-            ->where('numero_orden', '>', $hueco)
-            ->orderBy('numero_orden');
+            ->where($espacio['columnaGrupo'], $espacio['valorGrupo'])
+            ->whereNotNull($espacio['columnaNumero'])
+            ->where($espacio['columnaNumero'], '>', $espacio['hueco'])
+            ->orderBy($espacio['columnaNumero']);
 
         if ($bloquear) {
             $q->lockForUpdate();
@@ -303,9 +343,29 @@ class NumeracionOrdenes
         }
     }
 
-    private static function proximoDeSerie(string $grupo): int
+    private static function proximoNumero(string $clave): int
     {
-        return ((int) DB::table('orden_secuencias')->where('grupo', strtolower($grupo))->value('ultimo_numero')) + 1;
+        return ((int) DB::table('orden_secuencias')->where('grupo', $clave)->value('ultimo_numero')) + 1;
+    }
+
+    /**
+     * Toma el siguiente número de un contador y lo deja reservado (bloqueado
+     * mientras dura la transacción). Lo usan tanto una serie (clave = "fv2",
+     * "r") como la numeración normal (clave = "armenia", "pereira"): es el
+     * mismo contador, solo cambia qué fila de `orden_secuencias` gobiernan.
+     */
+    private static function tomarSiguienteNumero(string $clave): int
+    {
+        $actual = DB::table('orden_secuencias')->where('grupo', $clave)
+            ->lockForUpdate()->value('ultimo_numero');
+        if ($actual === null) {
+            DB::table('orden_secuencias')->insert(['grupo' => $clave, 'ultimo_numero' => 0]);
+            $actual = 0;
+        }
+        $nuevo = $actual + 1;
+        DB::table('orden_secuencias')->where('grupo', $clave)->update(['ultimo_numero' => $nuevo]);
+
+        return $nuevo;
     }
 
     /**
@@ -328,53 +388,6 @@ class NumeracionOrdenes
         ]);
 
         return 'armenia';
-    }
-
-    /**
-     * Saca la orden de FV2/R y le da el siguiente número normal DE SU TIENDA.
-     * No hay hueco que correr del lado de la serie: esa orden nunca ocupó un
-     * consecutivo de venta, así que no deja nada pendiente al salir de ahí.
-     */
-    private static function convertirANormal(Orden $orden, Usuario $usuario, ?string $motivo): array
-    {
-        return DB::transaction(function () use ($orden, $usuario, $motivo) {
-            $refAntes = $orden->referencia;
-            $grupo    = self::grupoParaVentaNormal($orden);
-
-            $actual = DB::table('orden_secuencias')->where('grupo', $grupo)
-                ->lockForUpdate()->value('ultimo_numero');
-            if ($actual === null) {
-                DB::table('orden_secuencias')->insert(['grupo' => $grupo, 'ultimo_numero' => 0]);
-                $actual = 0;
-            }
-            $numero = $actual + 1;
-            DB::table('orden_secuencias')->where('grupo', $grupo)
-                ->update(['ultimo_numero' => $numero]);
-
-            $orden->update([
-                'serie'           => null,
-                'serie_numero'    => null,
-                'numero_orden'    => $numero,
-                'grupo_secuencia' => $grupo,
-                'motivo_serie'    => null,
-                // Igual que al convertir a serie: `tipo` no se sigue solo, hay
-                // que corregirlo con la numeración o la etiqueta de la lista
-                // ("Restauración") le queda pegada a una orden que ya es venta.
-                'tipo'            => 'venta',
-            ]);
-
-            self::anotar($orden, $usuario, [[
-                'campo'   => 'numeracion',
-                'label'   => 'Convertida a venta normal' . ($motivo ? " ({$motivo})" : ''),
-                'antes'   => $refAntes,
-                'despues' => '#' . $numero,
-            ]]);
-
-            return [
-                'referencia' => $orden->fresh()->referencia,
-                'corridas'   => [],
-            ];
-        });
     }
 
     private static function anotar(Orden $orden, Usuario $usuario, array $cambios): void
