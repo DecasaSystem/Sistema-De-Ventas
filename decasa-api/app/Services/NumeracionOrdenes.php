@@ -134,6 +134,12 @@ class NumeracionOrdenes
                 'numero_orden'    => null,
                 'grupo_secuencia' => null,
                 'motivo_serie'    => $motivo,
+                // `tipo` se guarda aparte de `serie` desde que se creó la orden
+                // (el carrito lo dedujo: "restauracion" solo si TODO era mueble
+                // del cliente) y nada la mantenía sincronizada con la serie
+                // después. Si no se corrige acá, la etiqueta de la lista queda
+                // pegada al tipo viejo aunque la numeración ya cambió.
+                'tipo'            => $serie === Orden::SERIE_RESTAURACION ? 'restauracion' : 'venta',
             ]);
 
             $corridas = [];
@@ -351,6 +357,10 @@ class NumeracionOrdenes
                 'numero_orden'    => $numero,
                 'grupo_secuencia' => $grupo,
                 'motivo_serie'    => null,
+                // Igual que al convertir a serie: `tipo` no se sigue solo, hay
+                // que corregirlo con la numeración o la etiqueta de la lista
+                // ("Restauración") le queda pegada a una orden que ya es venta.
+                'tipo'            => 'venta',
             ]);
 
             self::anotar($orden, $usuario, [[

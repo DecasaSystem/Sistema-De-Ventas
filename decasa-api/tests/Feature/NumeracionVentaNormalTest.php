@@ -39,6 +39,7 @@ class NumeracionVentaNormalTest extends TestCase
             $t->id(); $t->unsignedBigInteger('cliente_id')->nullable(); $t->unsignedBigInteger('tienda_id')->nullable();
             $t->unsignedBigInteger('vendedor_id')->nullable();
             $t->string('estado')->default('entregado'); $t->decimal('valor_total', 12, 2)->default(0);
+            $t->string('tipo')->default('venta');
             $t->unsignedInteger('numero_orden')->nullable(); $t->string('grupo_secuencia', 50)->nullable();
             $t->string('serie')->nullable(); $t->unsignedInteger('serie_numero')->nullable();
             $t->string('motivo_serie')->nullable(); $t->unsignedInteger('cotizacion_numero')->nullable();
@@ -66,8 +67,21 @@ class NumeracionVentaNormalTest extends TestCase
 
         return Orden::create([
             'cliente_id' => $clienteId, 'tienda_id' => $tiendaId, 'vendedor_id' => 1,
-            'estado' => 'entregado', 'valor_total' => 500000,
+            'estado' => 'entregado', 'valor_total' => 500000, 'tipo' => 'venta',
             'serie' => Orden::SERIE_FV2, 'serie_numero' => 7, 'motivo_serie' => 'familiar de los dueños',
+        ]);
+    }
+
+    /** Una restauración de verdad: el carrito la marcó 'restauracion' al crearla. */
+    private function ordenRestauracion(string $tienda): Orden
+    {
+        $tiendaId = DB::table('tiendas')->insertGetId(['nombre' => $tienda]);
+        $clienteId = DB::table('clientes')->insertGetId(['nombre' => 'Karolay', 'created_at' => now(), 'updated_at' => now()]);
+
+        return Orden::create([
+            'cliente_id' => $clienteId, 'tienda_id' => $tiendaId, 'vendedor_id' => 1,
+            'estado' => 'entregado', 'valor_total' => 300000, 'tipo' => 'restauracion',
+            'serie' => Orden::SERIE_RESTAURACION, 'serie_numero' => 1103,
         ]);
     }
 
@@ -122,6 +136,42 @@ class NumeracionVentaNormalTest extends TestCase
 
         $this->assertSame(100, DB::table('orden_secuencias')->where('grupo', 'armenia')->value('ultimo_numero'));
         $this->assertSame(Orden::SERIE_FV2, $orden->fresh()->serie);
+    }
+
+    /**
+     * `tipo` se guarda aparte de `serie` desde que se creó la orden y nada la
+     * mantenía sincronizada: si no se corrige junto con el número, la lista
+     * le sigue mostrando la etiqueta "Restauración" a una orden que ya se
+     * corrigió como venta normal. Es el caso real de la orden R-1103.
+     */
+    public function test_al_volver_a_normal_una_r_de_verdad_tambien_se_le_corrige_el_tipo(): void
+    {
+        DB::table('orden_secuencias')->insert(['grupo' => 'pereira', 'ultimo_numero' => 1241]);
+        $orden = $this->ordenRestauracion('Decasa Unicentro Pereira');
+        $this->assertSame('restauracion', $orden->tipo);
+
+        $this->actingAs($this->supervisor())->postJson("/api/ordenes/{$orden->id}/numeracion/convertir", [
+            'serie' => 'NORMAL',
+        ])->assertOk()->assertJson(['referencia' => '#1242']);
+
+        $this->assertSame('venta', $orden->fresh()->tipo);
+    }
+
+    public function test_al_convertir_una_normal_a_r_tambien_se_le_pone_el_tipo_restauracion(): void
+    {
+        DB::table('orden_secuencias')->insert(['grupo' => 'armenia', 'ultimo_numero' => 100]);
+        DB::table('orden_secuencias')->insert(['grupo' => 'r', 'ultimo_numero' => 5]);
+        $tiendaId = DB::table('tiendas')->insertGetId(['nombre' => 'Decasa Norte']);
+        $orden = Orden::create([
+            'tienda_id' => $tiendaId, 'vendedor_id' => 1, 'estado' => 'entregado', 'tipo' => 'venta',
+            'valor_total' => 300000, 'numero_orden' => 101, 'grupo_secuencia' => 'armenia',
+        ]);
+
+        $this->actingAs($this->supervisor())->postJson("/api/ordenes/{$orden->id}/numeracion/convertir", [
+            'serie' => 'R',
+        ])->assertOk();
+
+        $this->assertSame('restauracion', $orden->fresh()->tipo);
     }
 
     public function test_una_orden_que_ya_es_normal_no_se_puede_volver_a_convertir_a_normal(): void
