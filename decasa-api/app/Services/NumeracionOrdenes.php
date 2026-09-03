@@ -2,10 +2,12 @@
 
 namespace App\Services;
 
+use App\Http\Controllers\OrdenController;
 use App\Models\Orden;
 use App\Models\OrdenEdicion;
 use App\Models\Usuario;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -15,6 +17,13 @@ use Illuminate\Validation\ValidationException;
  * ya se hicieron órdenes encima. Convertirla libera su consecutivo y deja un
  * hueco (la 4289 desaparece y quedan 4290, 4291, 4292), así que el sistema se
  * desalinea del talonario de papel. Correr las siguientes cierra ese hueco.
+ *
+ * El caso contrario también pasa: se marcó FV2 o R de más y en realidad era
+ * una venta normal. Ahí no hay hueco que cerrar (esa orden nunca ocupó un
+ * consecutivo de tienda) — lo único que hace falta es darle el siguiente
+ * número normal de SU tienda, y Pereira lleva su propio consecutivo aparte de
+ * Armenia, así que no vale con tomar cualquier número: sale del grupo que le
+ * corresponde a `orden->tienda_id` (ver OrdenController::grupoDeTienda()).
  *
  * Dos cosas hacen que esto sea viable sin tocar medio sistema:
  *
@@ -36,13 +45,32 @@ use Illuminate\Validation\ValidationException;
 class NumeracionOrdenes
 {
     /**
-     * Qué pasaría al convertir esta orden a una serie, sin tocar nada.
+     * Qué pasaría al convertir esta orden, sin tocar nada. `$destino` es
+     * Orden::SERIE_FV2, Orden::SERIE_RESTAURACION, o Orden::SERIE_NORMAL para
+     * volver a numeración normal de tienda.
      *
-     * @return array{orden: array, corridas: array, hueco: ?int, ya_entregadas: int, serie_numero: int}
+     * @return array{orden: array, corridas: array, hueco: ?int, ya_entregadas: int, serie_numero: ?int}
      */
-    public static function previsualizarConversion(Orden $orden, string $serie, bool $correr): array
+    public static function previsualizarConversion(Orden $orden, string $destino, bool $correr): array
     {
-        self::exigirConvertible($orden, $serie);
+        self::exigirConvertible($orden, $destino);
+
+        if ($destino === Orden::SERIE_NORMAL) {
+            $grupo = self::grupoParaVentaNormal($orden);
+
+            return [
+                'orden' => [
+                    'id'      => $orden->id,
+                    'de'      => $orden->referencia,
+                    'a'       => '#' . self::proximoDeSerie($grupo),
+                    'cliente' => $orden->cliente?->nombre,
+                ],
+                'serie_numero'  => null,
+                'hueco'         => null,
+                'corridas'      => [],
+                'ya_entregadas' => 0,
+            ];
+        }
 
         $hueco    = $orden->numero_orden;
         $grupo    = $orden->grupo_secuencia;
@@ -52,10 +80,10 @@ class NumeracionOrdenes
             'orden' => [
                 'id'         => $orden->id,
                 'de'         => $orden->referencia,
-                'a'          => $serie . '-' . (self::proximoDeSerie($serie) ?: '?'),
+                'a'          => $destino . '-' . (self::proximoDeSerie($destino) ?: '?'),
                 'cliente'    => $orden->cliente?->nombre,
             ],
-            'serie_numero'  => self::proximoDeSerie($serie),
+            'serie_numero'  => self::proximoDeSerie($destino),
             'hueco'         => $hueco,
             'corridas'      => $corridas->map(fn (Orden $o) => [
                 'id'      => $o->id,
@@ -73,9 +101,15 @@ class NumeracionOrdenes
      * Convierte de verdad. Todo dentro de una transacción con el contador
      * bloqueado: si alguien está creando una orden al mismo tiempo, espera.
      */
-    public static function convertir(Orden $orden, string $serie, bool $correr, Usuario $usuario, ?string $motivo = null): array
+    public static function convertir(Orden $orden, string $destino, bool $correr, Usuario $usuario, ?string $motivo = null): array
     {
-        self::exigirConvertible($orden, $serie);
+        self::exigirConvertible($orden, $destino);
+
+        if ($destino === Orden::SERIE_NORMAL) {
+            return self::convertirANormal($orden, $usuario, $motivo);
+        }
+
+        $serie = $destino;
 
         return DB::transaction(function () use ($orden, $serie, $correr, $usuario, $motivo) {
             $refAntes = $orden->referencia;
@@ -244,11 +278,17 @@ class NumeracionOrdenes
 
     private static function exigirConvertible(Orden $orden, string $serie): void
     {
-        if (! in_array($serie, [Orden::SERIE_FV2, Orden::SERIE_RESTAURACION], true)) {
+        $destinos = [Orden::SERIE_FV2, Orden::SERIE_RESTAURACION, Orden::SERIE_NORMAL];
+        if (! in_array($serie, $destinos, true)) {
             throw ValidationException::withMessages(['serie' => ['Serie no reconocida.']]);
         }
-        if ($orden->serie === $serie) {
-            throw ValidationException::withMessages(['serie' => ["Esta orden ya es {$serie}."]]);
+
+        // "Ya es NORMAL" se detecta por ausencia de serie: NORMAL nunca se
+        // guarda en la columna, así que no hay con qué compararla directo.
+        $yaEsDestino = $serie === Orden::SERIE_NORMAL ? ! $orden->serie : $orden->serie === $serie;
+        if ($yaEsDestino) {
+            $nombre = $serie === Orden::SERIE_NORMAL ? 'una venta normal' : "de serie {$serie}";
+            throw ValidationException::withMessages(['serie' => ["Esta orden ya es {$nombre}."]]);
         }
         if (in_array($orden->estado, ['borrador', 'cotizacion', 'pendiente_cotizacion'], true)) {
             throw ValidationException::withMessages([
@@ -257,9 +297,74 @@ class NumeracionOrdenes
         }
     }
 
-    private static function proximoDeSerie(string $serie): int
+    private static function proximoDeSerie(string $grupo): int
     {
-        return ((int) DB::table('orden_secuencias')->where('grupo', strtolower($serie))->value('ultimo_numero')) + 1;
+        return ((int) DB::table('orden_secuencias')->where('grupo', strtolower($grupo))->value('ultimo_numero')) + 1;
+    }
+
+    /**
+     * A qué grupo de consecutivo normal (armenia/pereira) le toca el próximo
+     * número de esta orden, según su tienda. Mismo criterio que usa
+     * OrdenController::asignarNumeroOrden() al numerar una orden nueva —
+     * incluida la reserva de más abajo para una tienda sin grupo asignado,
+     * para no repetir la desalineación que ya pasó una vez con Independientes.
+     */
+    private static function grupoParaVentaNormal(Orden $orden): string
+    {
+        $grupo = OrdenController::grupoDeTienda($orden->tienda_id);
+        if ($grupo) {
+            return $grupo;
+        }
+
+        Log::warning('Orden de una tienda sin grupo de consecutivo: se numera con el de Armenia', [
+            'orden_id'  => $orden->id,
+            'tienda_id' => $orden->tienda_id,
+        ]);
+
+        return 'armenia';
+    }
+
+    /**
+     * Saca la orden de FV2/R y le da el siguiente número normal DE SU TIENDA.
+     * No hay hueco que correr del lado de la serie: esa orden nunca ocupó un
+     * consecutivo de venta, así que no deja nada pendiente al salir de ahí.
+     */
+    private static function convertirANormal(Orden $orden, Usuario $usuario, ?string $motivo): array
+    {
+        return DB::transaction(function () use ($orden, $usuario, $motivo) {
+            $refAntes = $orden->referencia;
+            $grupo    = self::grupoParaVentaNormal($orden);
+
+            $actual = DB::table('orden_secuencias')->where('grupo', $grupo)
+                ->lockForUpdate()->value('ultimo_numero');
+            if ($actual === null) {
+                DB::table('orden_secuencias')->insert(['grupo' => $grupo, 'ultimo_numero' => 0]);
+                $actual = 0;
+            }
+            $numero = $actual + 1;
+            DB::table('orden_secuencias')->where('grupo', $grupo)
+                ->update(['ultimo_numero' => $numero]);
+
+            $orden->update([
+                'serie'           => null,
+                'serie_numero'    => null,
+                'numero_orden'    => $numero,
+                'grupo_secuencia' => $grupo,
+                'motivo_serie'    => null,
+            ]);
+
+            self::anotar($orden, $usuario, [[
+                'campo'   => 'numeracion',
+                'label'   => 'Convertida a venta normal' . ($motivo ? " ({$motivo})" : ''),
+                'antes'   => $refAntes,
+                'despues' => '#' . $numero,
+            ]]);
+
+            return [
+                'referencia' => $orden->fresh()->referencia,
+                'corridas'   => [],
+            ];
+        });
     }
 
     private static function anotar(Orden $orden, Usuario $usuario, array $cambios): void

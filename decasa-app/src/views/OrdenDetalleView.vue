@@ -123,11 +123,16 @@ const fechaEntregaOrden = computed(() => {
     .at(-1)
 })
 
-// ── Numeración: convertir a serie y corregir consecutivos ──────────────────
+// ── Numeración: convertir a serie (o volver a normal) y corregir consecutivos ──
 // El caso real: al vendedor se le olvidó marcar la venta como FV2 y ya se
 // hicieron órdenes encima. Convertirla libera su número y deja un hueco, así
 // que se ofrece correr las siguientes para que el sistema siga alineado con
 // el talonario de papel.
+//
+// El caso contrario también pasa: se marcó FV2 o R por error y en realidad
+// era una venta normal. Ahí "NORMAL" le pide al backend el siguiente número
+// normal DE SU TIENDA — Pereira lleva su propio consecutivo aparte de Armenia,
+// así que el número correcto sale solo, no hay que elegirlo a mano.
 const mostrarNumeracion = ref(false)
 const numSerie          = ref('FV2')
 const numCorrer         = ref(true)
@@ -138,13 +143,24 @@ const numAplicando      = ref(false)
 const numNuevoNumero    = ref('')
 const numGuardandoNum   = ref(false)
 
-// Una orden ya convertida no se puede volver a convertir a la misma serie.
+// Una orden ya convertida no se puede volver a convertir a lo mismo que ya es.
 // Preguntarlo igual solo produce un error, así que la vista previa ni se pide.
-const numYaEsSerie = computed(() => orden.value?.serie === numSerie.value)
+// "NORMAL" no se guarda en `serie`: ya es normal cuando no tiene ninguna.
+const numYaEsSerie = computed(() => {
+  if (!orden.value) return false
+  return numSerie.value === 'NORMAL' ? !orden.value.serie : orden.value.serie === numSerie.value
+})
+
+// "Correr las siguientes" solo aplica al convertir A una serie: ahí sí se
+// libera un número de la numeración normal y deja hueco. Volver a NORMAL no
+// libera nada de ese lado —la orden nunca ocupó un consecutivo de tienda—,
+// así que la opción no tiene sentido ahí y se oculta.
+const numAplicaCorrer = computed(() => numSerie.value !== 'NORMAL')
 
 async function abrirNumeracion() {
-  // Si ya es FV2, abrir en FV2 sería ofrecer algo imposible: se arranca en la otra.
-  numSerie.value = orden.value?.serie === 'FV2' ? 'R' : 'FV2'
+  // Si ya tiene serie, lo más probable es que se le haya puesto de más:
+  // arranca ofreciendo volverla a venta normal. Si no tiene, arranca en FV2.
+  numSerie.value = orden.value?.serie ? 'NORMAL' : 'FV2'
   numCorrer.value = true
   numMotivo.value = ''
   numNuevoNumero.value = orden.value?.numero_orden ?? ''
@@ -173,16 +189,18 @@ watch([numSerie, numCorrer], () => { if (mostrarNumeracion.value) cargarPreviaNu
 
 async function aplicarConversion() {
   const n = numPrevia.value?.corridas?.length ?? 0
-  const aviso = n
-    ? `Se convierte a ${numPrevia.value.orden.a} y se corren ${n} orden(es).\n\nEsto NO se deshace con un botón. ¿Seguro?`
-    : `Se convierte a ${numPrevia.value.orden.a} sin correr las siguientes (queda el hueco). ¿Seguro?`
+  const aviso = numSerie.value === 'NORMAL'
+    ? `Se convierte a ${numPrevia.value.orden.a} (número normal de su tienda). Esto NO se deshace con un botón. ¿Seguro?`
+    : n
+      ? `Se convierte a ${numPrevia.value.orden.a} y se corren ${n} orden(es).\n\nEsto NO se deshace con un botón. ¿Seguro?`
+      : `Se convierte a ${numPrevia.value.orden.a} sin correr las siguientes (queda el hueco). ¿Seguro?`
   if (!confirm(aviso)) return
 
   numAplicando.value = true
   try {
     const { data } = await convertirSerie(orden.value.id, {
       serie: numSerie.value,
-      correr: numCorrer.value,
+      correr: numAplicaCorrer.value && numCorrer.value,
       motivo: numMotivo.value.trim() || null,
     })
     toast.success(`Ahora es ${data.referencia}${data.corridas.length ? ` · ${data.corridas.length} orden(es) corridas` : ''}`)
@@ -3506,9 +3524,9 @@ onMounted(() => { cargarTipos(); cargarOrden() })
             </button>
           </div>
 
-          <!-- Convertir a serie -->
+          <!-- Convertir a serie (o de vuelta a venta normal) -->
           <div class="p-5 space-y-4 border-b border-gray-100">
-            <p class="text-xs font-semibold text-gray-500 uppercase">Convertir a serie</p>
+            <p class="text-xs font-semibold text-gray-500 uppercase">Convertir a</p>
 
             <div class="flex gap-2 bg-gray-100 rounded-xl p-1">
               <button
@@ -3519,9 +3537,13 @@ onMounted(() => { cargarTipos(); cargarOrden() })
                 type="button" @click="numSerie = 'R'"
                 :class="['flex-1 text-xs font-semibold rounded-lg py-1.5 transition-colors', numSerie === 'R' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500']"
               >R — restauración</button>
+              <button
+                type="button" @click="numSerie = 'NORMAL'"
+                :class="['flex-1 text-xs font-semibold rounded-lg py-1.5 transition-colors', numSerie === 'NORMAL' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500']"
+              >Venta normal</button>
             </div>
 
-            <label class="flex items-start gap-2.5 cursor-pointer">
+            <label v-if="numAplicaCorrer" class="flex items-start gap-2.5 cursor-pointer">
               <input type="checkbox" v-model="numCorrer" class="mt-0.5 w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
               <span class="text-xs text-gray-600 leading-snug">
                 <span class="font-semibold text-gray-700">Correr las siguientes para cerrar el hueco.</span>
@@ -3539,7 +3561,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
             <div v-if="numYaEsSerie" class="bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2.5">
               <p class="text-xs text-emerald-800 leading-snug">
                 Esta orden <span class="font-semibold">ya es {{ orden?.referencia }}</span>.
-                Para moverla a la otra serie, elígela arriba.
+                Elige otro destino arriba.
               </p>
             </div>
 

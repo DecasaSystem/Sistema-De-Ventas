@@ -2943,7 +2943,7 @@ class OrdenController extends Controller
         $orden = $this->ordenParaNumeracion($request, $id);
 
         $data = $request->validate([
-            'serie'  => ['required', Rule::in([Orden::SERIE_FV2, Orden::SERIE_RESTAURACION])],
+            'serie'  => ['required', Rule::in([Orden::SERIE_FV2, Orden::SERIE_RESTAURACION, Orden::SERIE_NORMAL])],
             'correr' => 'nullable|boolean',
         ]);
 
@@ -2958,7 +2958,7 @@ class OrdenController extends Controller
         $orden = $this->ordenParaNumeracion($request, $id);
 
         $data = $request->validate([
-            'serie'  => ['required', Rule::in([Orden::SERIE_FV2, Orden::SERIE_RESTAURACION])],
+            'serie'  => ['required', Rule::in([Orden::SERIE_FV2, Orden::SERIE_RESTAURACION, Orden::SERIE_NORMAL])],
             'correr' => 'nullable|boolean',
             'motivo' => 'nullable|string|max:300',
         ]);

@@ -179,6 +179,15 @@ class Orden extends Model
     public const SERIE_RESTAURACION = 'R';
 
     /**
+     * No es una serie real: nunca se guarda en `serie`. Es el valor que se le
+     * manda a NumeracionOrdenes::convertir() para decir "sácala de FV2/R y
+     * dale número de venta normal de su tienda" — el otro sentido de la
+     * corrección, para cuando la equivocación fue marcarla como serie
+     * especial de más.
+     */
+    public const SERIE_NORMAL = 'NORMAL';
+
+    /**
      * Cómo se nombra esta orden donde sea que se muestre: "FV2-3" si es de
      * serie especial, "#4261" si es una orden normal. Evita que las FV2
      * aparezcan como "#" vacío por no tener numero_orden.
