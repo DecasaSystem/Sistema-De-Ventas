@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Models\Inventario;
 use App\Models\InventarioMovimiento;
 use App\Models\Traslado;
+use App\Services\AvisoTraslado;
 use App\Services\NotificacionService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -96,6 +97,10 @@ class EjecutarTrasladoProgramado implements ShouldQueue
             });
 
             Log::info("[TRASLADO_PROG] Traslado #{$traslado->id} ejecutado correctamente ({$nombreOrigen} → {$nombreDestino}).");
+
+            // Un traslado programado cae solo, a la hora que sea: si no se avisa,
+            // la tienda destino es la última en enterarse de lo que ya tiene.
+            AvisoTraslado::llegada($traslado, $traslado->supervisor_id);
 
             NotificacionService::crear(
                 'traslado_completado',

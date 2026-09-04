@@ -384,8 +384,14 @@ function destinoNotificacion(tipo, datos) {
   // Un surtido por validar se acepta en Inventario, sea quien sea.
   if (datos.surtido_id)       return { name: 'inventario' }
   if (tipo === 'stock_agotado') return { name: auth.isSupervisor ? 'surtir' : 'inventario' }
-  // Validador (traslado_pendiente) → inventario; iniciador → surtir.
-  if (datos.traslado_id)      return { name: tipo === 'traslado_pendiente' ? 'inventario' : 'surtir' }
+  // Al que valida (traslado_pendiente) y a la tienda que lo recibe
+  // (traslado_recibido) les sirve el inventario, abierto en lo que llegó;
+  // al que lo inició, surtir.
+  if (datos.traslado_id) {
+    if (tipo !== 'traslado_pendiente' && tipo !== 'traslado_recibido') return { name: 'surtir' }
+    const ids = datos.productos
+    return { name: 'inventario', query: ids?.length ? { abrir: ids.join(',') } : {} }
+  }
   if (datos.compra_id)        return { name: 'compras' }
   if (datos.cita_id)          return { name: 'citas' }
   if (datos.conversacion_id || tipo === 'redes')     return { name: 'redes' }
@@ -423,6 +429,7 @@ function tipoIcono(tipo) {
     surtido_aceptado:   CheckCircleIcon,
     surtido_rechazado:  XCircleIcon,
     traslado_pendiente: ArrowPathIcon,
+    traslado_recibido:  ArchiveBoxArrowDownIcon,
     traslado_aceptado:  CheckCircleIcon,
     traslado_rechazado: XCircleIcon,
     facturar:           ClipboardDocumentListIcon,

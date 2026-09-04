@@ -7,6 +7,7 @@ use App\Models\Inventario;
 use App\Models\InventarioMovimiento;
 use App\Models\Traslado;
 use App\Models\TrasladoItem;
+use App\Services\AvisoTraslado;
 use App\Services\NotificacionService;
 use App\Support\StockVariantes;
 use Illuminate\Http\Request;
@@ -205,6 +206,13 @@ class TrasladoController extends Controller
 
         $traslado->load($this->withRelaciones());
 
+        // El supervisor mueve el stock en el acto: no hay nada que aceptar, pero
+        // la tienda destino tiene que enterarse de que le llegó mercancía. Sin
+        // esto aparecía sola en su inventario y parecía un error del programa.
+        if ($ejecutaInmediato) {
+            AvisoTraslado::llegada($traslado, $user->id);
+        }
+
         // Notificar al validador cuando el vendedor crea un traslado pendiente
         if ($esVendedor && $traslado->vendedor_validador_id) {
             $cantItems = count($data['items']);
@@ -347,6 +355,10 @@ class TrasladoController extends Controller
         } catch (\RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
+
+        // Sin aviso: quien recibe acaba de aceptarlo con el dedo y ya lo sabe.
+        // La tienda de origen no, y a ella le bajó el stock.
+        AvisoTraslado::refrescarInventario($traslado);
 
         $aceptadosParcial = $cantidadesMap->isNotEmpty() && $traslado->items->some(
             fn($i) => $cantidadesMap->has($i->id) && $cantidadesMap[$i->id] < $i->cantidad
