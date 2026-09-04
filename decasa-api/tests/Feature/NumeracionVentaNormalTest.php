@@ -52,6 +52,29 @@ class NumeracionVentaNormalTest extends TestCase
             $t->id(); $t->unsignedBigInteger('orden_id'); $t->unsignedBigInteger('usuario_id')->nullable();
             $t->json('cambios')->nullable(); $t->timestamps();
         });
+        Schema::create('orden_items', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('orden_id'); $t->unsignedBigInteger('producto_id')->nullable();
+            $t->boolean('es_personalizado')->default(false); $t->boolean('es_restauracion')->default(false);
+            $t->decimal('precio_unitario', 12, 2)->default(0); $t->timestamps();
+        });
+    }
+
+    /** Un mueble dentro de la orden. Sin producto_id = no salió de inventario. */
+    private function item(Orden $orden, bool $restauracion, ?int $productoId = null): int
+    {
+        return DB::table('orden_items')->insertGetId([
+            'orden_id'         => $orden->id,
+            'producto_id'      => $productoId,
+            'es_personalizado' => true,
+            'es_restauracion'  => $restauracion,
+            'precio_unitario'  => 250000,
+            'created_at'       => now(), 'updated_at' => now(),
+        ]);
+    }
+
+    private function esRestauracion(int $itemId): bool
+    {
+        return (bool) DB::table('orden_items')->where('id', $itemId)->value('es_restauracion');
     }
 
     private function supervisor(): Usuario
@@ -214,6 +237,90 @@ class NumeracionVentaNormalTest extends TestCase
         ])->assertOk();
 
         $this->assertSame('restauracion', $orden->fresh()->tipo);
+    }
+
+    /**
+     * El caso real de la #1242, y la parte que faltaba.
+     *
+     * Corregir la numeración no basta: comisiones, reportes y el taller no
+     * miran ni la serie ni `tipo`, deducen la restauración de que TODOS los
+     * muebles sean del cliente. La R-1103 se corrigió a #1242 y sus muebles
+     * se quedaron marcados, así que la orden siguió cobrándose como
+     * restauración —al 5% aparte y sin sumarle a la meta de la tienda— con un
+     * número de venta normal.
+     */
+    public function test_al_volver_a_normal_los_muebles_dejan_de_ser_restauracion(): void
+    {
+        DB::table('orden_secuencias')->insert(['grupo' => 'pereira', 'ultimo_numero' => 1241]);
+        $orden = $this->ordenRestauracion('Decasa Unicentro Pereira');
+        $mueble = $this->item($orden, restauracion: true);
+        $otro   = $this->item($orden, restauracion: true);
+
+        $this->actingAs($this->supervisor())->postJson("/api/ordenes/{$orden->id}/numeracion/convertir", [
+            'serie' => 'NORMAL',
+        ])->assertOk()->assertJson(['referencia' => '#1242', 'items_tocados' => 2]);
+
+        $this->assertFalse($this->esRestauracion($mueble));
+        $this->assertFalse($this->esRestauracion($otro));
+    }
+
+    /** Y al revés: la que sí era restauración y se numeró como venta normal. */
+    public function test_al_convertir_a_r_los_muebles_pasan_a_ser_del_cliente(): void
+    {
+        DB::table('orden_secuencias')->insert(['grupo' => 'armenia', 'ultimo_numero' => 100]);
+        DB::table('orden_secuencias')->insert(['grupo' => 'r', 'ultimo_numero' => 5]);
+        $tiendaId = DB::table('tiendas')->insertGetId(['nombre' => 'Decasa Norte']);
+        $orden = Orden::create([
+            'tienda_id' => $tiendaId, 'vendedor_id' => 1, 'estado' => 'entregado', 'tipo' => 'venta',
+            'valor_total' => 300000, 'numero_orden' => 100, 'grupo_secuencia' => 'armenia',
+        ]);
+        $mueble = $this->item($orden, restauracion: false);
+
+        $this->actingAs($this->supervisor())->postJson("/api/ordenes/{$orden->id}/numeracion/convertir", [
+            'serie' => 'R',
+        ])->assertOk();
+
+        $this->assertTrue($this->esRestauracion($mueble));
+    }
+
+    /**
+     * Una restauración es el mueble del cliente: no sale de inventario. Si la
+     * orden lleva productos del catálogo, marcarlos como del cliente mentiría
+     * sobre un stock que ya se descontó. Es la misma regla que impide mezclar
+     * venta y restauración al crear la orden.
+     */
+    public function test_no_se_convierte_a_r_una_orden_con_productos_del_inventario(): void
+    {
+        DB::table('orden_secuencias')->insert(['grupo' => 'armenia', 'ultimo_numero' => 100]);
+        DB::table('orden_secuencias')->insert(['grupo' => 'r', 'ultimo_numero' => 5]);
+        $tiendaId = DB::table('tiendas')->insertGetId(['nombre' => 'Decasa Norte']);
+        $orden = Orden::create([
+            'tienda_id' => $tiendaId, 'vendedor_id' => 1, 'estado' => 'entregado', 'tipo' => 'venta',
+            'valor_total' => 300000, 'numero_orden' => 100, 'grupo_secuencia' => 'armenia',
+        ]);
+        $item = $this->item($orden, restauracion: false, productoId: 77);
+
+        $this->actingAs($this->supervisor())->postJson("/api/ordenes/{$orden->id}/numeracion/convertir", [
+            'serie' => 'R',
+        ])->assertStatus(422);
+
+        $this->assertFalse($this->esRestauracion($item));
+        $this->assertNull($orden->fresh()->serie);
+    }
+
+    /** La vista previa avisa cuántos muebles cambian de bando, sin tocarlos. */
+    public function test_la_vista_previa_avisa_cuantos_muebles_cambian(): void
+    {
+        DB::table('orden_secuencias')->insert(['grupo' => 'pereira', 'ultimo_numero' => 1241]);
+        $orden  = $this->ordenRestauracion('Decasa Unicentro Pereira');
+        $mueble = $this->item($orden, restauracion: true);
+
+        $this->actingAs($this->supervisor())
+            ->getJson("/api/ordenes/{$orden->id}/numeracion?serie=NORMAL")
+            ->assertOk()
+            ->assertJson(['items_a_tocar' => 1]);
+
+        $this->assertTrue($this->esRestauracion($mueble));
     }
 
     public function test_una_orden_que_ya_es_normal_no_se_puede_volver_a_convertir_a_normal(): void

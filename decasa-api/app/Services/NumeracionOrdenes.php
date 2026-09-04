@@ -42,6 +42,12 @@ use Illuminate\Validation\ValidationException;
  *    se está convirtiendo, nunca "todos los huecos": barrer los viejos movería
  *    órdenes a través de rangos que se saltaron a propósito.
  *
+ * Lo que sí hay que mover a mano es la CLASIFICACIÓN, porque no sale del
+ * número: la etiqueta vive en `ordenes.tipo` y el resto del sistema
+ * —comisiones, reportes, stats, el taller— la deduce de si todos los ítems
+ * son `es_restauracion`. Las tres se corrigen juntas o la orden queda como
+ * quedó la #1242: numerada como venta y cobrada como restauración.
+ *
  * Lo que NO se reescribe es el texto ya escrito: las notificaciones y los
  * mensajes que dicen "#4290" quedan como están. Son el registro de lo que se
  * dijo en su momento, y la tabla de notificaciones ni siquiera guarda a qué
@@ -55,7 +61,7 @@ class NumeracionOrdenes
      * Orden::SERIE_FV2, Orden::SERIE_RESTAURACION, o Orden::SERIE_NORMAL para
      * volver a numeración normal de tienda.
      *
-     * @return array{orden: array, corridas: array, hueco: ?int, ya_entregadas: int, serie_numero: ?int}
+     * @return array{orden: array, corridas: array, hueco: ?int, ya_entregadas: int, serie_numero: ?int, items_a_tocar: int}
      */
     public static function previsualizarConversion(Orden $orden, string $destino, bool $correr): array
     {
@@ -63,6 +69,14 @@ class NumeracionOrdenes
 
         $espacio  = self::espacioActual($orden);
         $corridas = ($correr && $espacio) ? self::ordenesACorrer($espacio) : collect();
+
+        // Cuántos muebles cambian de bando. Se avisa ANTES de aplicar porque
+        // es lo que mueve la plata: una orden que deja de ser restauración
+        // pasa a comisionar por el pool y a sumarle a la meta de la tienda.
+        $itemsATocar = DB::table('orden_items')
+            ->where('orden_id', $orden->id)
+            ->where('es_restauracion', $destino === Orden::SERIE_RESTAURACION ? 0 : 1)
+            ->count();
 
         if ($destino === Orden::SERIE_NORMAL) {
             $numeroNuevo = self::proximoNumero(self::grupoParaVentaNormal($orden));
@@ -82,6 +96,7 @@ class NumeracionOrdenes
                 'cliente' => $orden->cliente?->nombre,
             ],
             'serie_numero'  => $serieNumero,
+            'items_a_tocar' => $itemsATocar,
             'hueco'         => $espacio['hueco'] ?? null,
             'corridas'      => $corridas->map(fn (Orden $o) => [
                 'id'      => $o->id,
@@ -143,14 +158,42 @@ class NumeracionOrdenes
                 $label      = 'Convertida a serie ' . $destino;
             }
 
+            // Que una orden sea restauración se decide en DOS capas, y la
+            // corrección tiene que mover las dos. Arriba está la etiqueta
+            // (`ordenes.tipo`), que es la que se ve en la lista. Abajo están
+            // los ítems: comisiones, reportes, stats y el taller no miran ni
+            // la serie ni el tipo, deducen la restauración de que TODOS los
+            // ítems tengan `es_restauracion` (Orden::sqlTipo(),
+            // ComisionController::idsDeRestauracion()).
+            //
+            // Mover solo la de arriba fue lo que dejó a la #1242 con número
+            // de venta normal y cobrada como restauración: al 5% aparte, sin
+            // sumarle a la meta de la tienda y saliendo como restauración en
+            // los reportes.
+            $itemsTocados = self::sincronizarItems($orden, $destino);
+
             $corridas = ($correr && $espacio) ? self::correrHaciaAbajo($espacio) : [];
 
-            self::anotar($orden, $usuario, [[
+            $cambios = [[
                 'campo'   => 'numeracion',
                 'label'   => $label,
                 'antes'   => $refAntes,
                 'despues' => $refDespues,
-            ]]);
+            ]];
+
+            if ($itemsTocados) {
+                $aRestauracion = $destino === Orden::SERIE_RESTAURACION;
+                $cambios[] = [
+                    'campo'   => 'items_restauracion',
+                    'label'   => $aRestauracion
+                        ? "{$itemsTocados} mueble(s) pasan a ser del cliente"
+                        : "{$itemsTocados} mueble(s) dejan de ser restauración",
+                    'antes'   => $aRestauracion ? 'Venta' : 'Restauración',
+                    'despues' => $aRestauracion ? 'Restauración' : 'Venta',
+                ];
+            }
+
+            self::anotar($orden, $usuario, $cambios);
 
             foreach ($corridas as $c) {
                 $movida = Orden::find($c['id']);
@@ -163,10 +206,36 @@ class NumeracionOrdenes
             }
 
             return [
-                'referencia' => $orden->fresh()->referencia,
-                'corridas'   => $corridas,
+                'referencia'    => $orden->fresh()->referencia,
+                'corridas'      => $corridas,
+                'items_tocados' => $itemsTocados,
             ];
         });
+    }
+
+    /**
+     * Pone los ítems de acuerdo con lo que la orden pasó a ser.
+     *
+     * `orden_items.es_restauracion` significa "este mueble es del cliente, no
+     * salió de inventario", y la orden entera es de una cosa o de la otra
+     * (OrdenController::store() no deja mezclarlas). Así que corregir la
+     * clasificación es corregir todos los ítems de una vez:
+     *
+     *   → a serie R : todos pasan a ser del cliente.
+     *   → a NORMAL o FV2 : ninguno lo es. El ítem queda como personalizado
+     *     sin producto de catálogo, que es lo que ya era por dentro; no toca
+     *     inventario porque nunca hubo un producto que descontar.
+     *
+     * @return int cuántos ítems cambiaron (0 si ya estaban como debían)
+     */
+    private static function sincronizarItems(Orden $orden, string $destino): int
+    {
+        $debenSerRestauracion = $destino === Orden::SERIE_RESTAURACION;
+
+        return DB::table('orden_items')
+            ->where('orden_id', $orden->id)
+            ->where('es_restauracion', $debenSerRestauracion ? 0 : 1)
+            ->update(['es_restauracion' => $debenSerRestauracion]);
     }
 
     /**
@@ -340,6 +409,22 @@ class NumeracionOrdenes
             throw ValidationException::withMessages([
                 'serie' => ['Esta orden todavía no tiene consecutivo: se le asigna la serie cuando se confirme.'],
             ]);
+        }
+
+        // Una restauración es el mueble del cliente: no sale de inventario. Si
+        // la orden lleva productos del catálogo, marcarlos como del cliente
+        // sería mentir sobre un stock que ya se descontó, así que se para acá
+        // —la misma regla que impide mezclar venta y restauración al crearla,
+        // en OrdenController::store()—.
+        if ($serie === Orden::SERIE_RESTAURACION) {
+            $deCatalogo = DB::table('orden_items')->where('orden_id', $orden->id)
+                ->whereNotNull('producto_id')->count();
+
+            if ($deCatalogo) {
+                throw ValidationException::withMessages([
+                    'serie' => ["Esta orden lleva {$deCatalogo} producto(s) del inventario y una restauración es el mueble del cliente. Sácalos de la orden antes de convertirla."],
+                ]);
+            }
         }
     }
 

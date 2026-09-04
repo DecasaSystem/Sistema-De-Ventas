@@ -197,9 +197,17 @@ watch([numSerie, numCorrer], () => { if (mostrarNumeracion.value) cargarPreviaNu
 
 async function aplicarConversion() {
   const n = numPrevia.value?.corridas?.length ?? 0
-  const aviso = n
-    ? `Se convierte a ${numPrevia.value.orden.a} y se corren ${n} orden(es).\n\nEsto NO se deshace con un botón. ¿Seguro?`
-    : `Se convierte a ${numPrevia.value.orden.a} sin correr las siguientes (queda el hueco). ¿Seguro?`
+  // El número es lo de menos: si los muebles cambian de bando, cambia lo que
+  // la orden paga de comisión y lo que le suma a la meta. Va en el aviso.
+  const m = numPrevia.value?.items_a_tocar ?? 0
+  const porItems = m
+    ? `\n\n${m} mueble(s) ${numSerie.value === 'R' ? 'pasan a ser del cliente' : 'dejan de ser restauración'}: cambia cómo se comisiona esta orden.`
+    : ''
+  const aviso = (n
+    ? `Se convierte a ${numPrevia.value.orden.a} y se corren ${n} orden(es).`
+    : `Se convierte a ${numPrevia.value.orden.a} sin correr las siguientes (queda el hueco).`)
+    + porItems
+    + '\n\nEsto NO se deshace con un botón. ¿Seguro?'
   if (!confirm(aviso)) return
 
   numAplicando.value = true
@@ -3602,6 +3610,20 @@ onMounted(() => { cargarTipos(); cargarOrden() })
               </template>
               <p v-else class="text-[11px] text-gray-500">
                 No se corre ninguna otra orden<span v-if="numPrevia.hueco">: queda libre el {{ numPrefijoActual }}{{ numPrevia.hueco }}</span>.
+              </p>
+
+              <!-- Lo que mueve plata, no solo el número: comisiones y reportes
+                   no miran la serie, miran si los muebles son del cliente. -->
+              <p v-if="numPrevia.items_a_tocar" class="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 leading-snug">
+                <template v-if="numSerie === 'R'">
+                  {{ numPrevia.items_a_tocar }} mueble(s) pasan a ser del cliente: la orden se cobra
+                  como restauración —5% aparte— y deja de sumarle a la meta de la tienda.
+                </template>
+                <template v-else>
+                  {{ numPrevia.items_a_tocar }} mueble(s) dejan de estar marcados como restauración:
+                  la orden pasa a comisionar como venta normal, le suma a la meta de la tienda y en el
+                  taller entra por la línea de mueble nuevo.
+                </template>
               </p>
             </div>
 
