@@ -6,6 +6,12 @@ export const getInventario  = (tiendaId, search = '', page = 1, categoria = '', 
 export const getDesgloseVariantes = (tiendaId) =>
   api.get('/inventario/desglose-variantes', { params: { tienda_id: tiendaId } })
 
+// El total de una categoría (y, en "todas las tiendas", cuánto hay en cada
+// una). Va aparte del listado porque este llega paginado y sumarlo en el
+// front daría un total incompleto mientras no se haya cargado todo.
+export const getResumenCategoria = (tiendaId, categoria) =>
+  api.get('/inventario/resumen-categoria', { params: { tienda_id: tiendaId, categoria } })
+
 export const addStock    = (data) => api.post('/inventario/entrada', data)
 export const removeStock = (data) => api.post('/inventario/salida',  data)
 

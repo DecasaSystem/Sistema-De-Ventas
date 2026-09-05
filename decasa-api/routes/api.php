@@ -339,6 +339,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // Inventario
     Route::get('/inventario',                              [InventarioController::class, 'index']);
     Route::get('/inventario/desglose-variantes',           [InventarioController::class, 'desgloseVariantes']);
+    Route::get('/inventario/resumen-categoria',            [InventarioController::class, 'resumenCategoria']);
     Route::get('/inventario/{productoId}/movimientos',     [InventarioController::class, 'movimientos'])->whereNumber('productoId');
     // Entrada y salida de stock: vendedor puede operar en su propia tienda (controllers validan tienda_id)
     Route::middleware('role:supervisor,vendedor')->group(function () {

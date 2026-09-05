@@ -138,6 +138,79 @@ class InventarioController extends Controller
     }
 
     /**
+     * GET /api/inventario/resumen-categoria?tienda_id=1|todas&categoria=sofas
+     *
+     * El total de una categoría, para ponerlo arriba de la lista: "127 Sofás"
+     * y, en la vista de todas las tiendas, cuántos hay en cada una. La lista
+     * de productos llega paginada (20 en 20), así que sumar lo cargado en
+     * pantalla daría un total incompleto mientras no se haya bajado hasta el
+     * final — esto se resuelve aparte, en una sola consulta contra toda la
+     * categoría.
+     *
+     * Mismo criterio que stockPorTienda(): solo tiendas activas, y con
+     * cantidad_disponible/cantidad_reservada/stock_libre nombrados igual que
+     * el desglose por producto para que el front reutilice el mismo formato.
+     */
+    public function resumenCategoria(Request $request)
+    {
+        $request->validate([
+            'tienda_id' => 'required',
+            'categoria' => 'required|string',
+        ]);
+
+        $tiendaId  = $request->query('tienda_id');
+        $categoria = $request->query('categoria');
+        $todas     = $tiendaId === 'todas';
+
+        if (! $todas) {
+            $request->validate(['tienda_id' => 'exists:tiendas,id']);
+            $tid = (int) $tiendaId;
+        }
+
+        $porTienda = DB::table('inventario as inv')
+            ->join('productos as p', 'p.id', '=', 'inv.producto_id')
+            ->join('tiendas as t', 't.id', '=', 'inv.tienda_id')
+            ->where('p.activo', true)
+            ->where('p.categoria', $categoria)
+            ->where('t.activa', true)
+            ->when(! $todas, fn ($q) => $q->where('inv.tienda_id', $tid))
+            ->groupBy('inv.tienda_id', 't.nombre')
+            ->select(
+                'inv.tienda_id',
+                't.nombre as tienda_nombre',
+                DB::raw('SUM(inv.cantidad_disponible) as cantidad_disponible'),
+                DB::raw('SUM(inv.cantidad_reservada) as cantidad_reservada'),
+            )
+            ->get()
+            ->map(fn ($r) => [
+                'tienda_id'           => (int) $r->tienda_id,
+                'tienda_nombre'       => $r->tienda_nombre,
+                'cantidad_disponible' => (int) $r->cantidad_disponible,
+                'cantidad_reservada'  => (int) $r->cantidad_reservada,
+                'stock_libre'         => (int) $r->cantidad_disponible - (int) $r->cantidad_reservada,
+            ])
+            ->sortByDesc('stock_libre')
+            ->values();
+
+        // Cuántos productos hay en la categoría, tenga o no tenga inventario
+        // todavía: uno recién creado sin stock cuenta para el catálogo aunque
+        // no sume nada al total de unidades.
+        $productos = DB::table('productos')
+            ->where('activo', true)
+            ->where('categoria', $categoria)
+            ->count();
+
+        return response()->json([
+            'categoria'           => $categoria,
+            'productos'           => $productos,
+            'cantidad_disponible' => (int) $porTienda->sum('cantidad_disponible'),
+            'cantidad_reservada'  => (int) $porTienda->sum('cantidad_reservada'),
+            'stock_libre'         => (int) $porTienda->sum('stock_libre'),
+            'por_tienda'          => $porTienda,
+        ]);
+    }
+
+    /**
      * GET /api/inventario?tienda_id=1&search=sofa
      * GET /api/inventario?tienda_id=todas&search=sofa
      *

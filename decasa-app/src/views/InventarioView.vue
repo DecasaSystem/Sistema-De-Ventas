@@ -21,7 +21,7 @@ import {
   ArrowDownTrayIcon,
 } from '@heroicons/vue/24/outline'
 import { exportarExcelHojas } from '@/utils/exportarExcel'
-import { getInventario, getDesgloseVariantes, addStock, removeStock, getVariantes, crearVariante, addStockVariante, getMovimientos, getVarianteUso, eliminarVariante } from '@/api/inventario'
+import { getInventario, getDesgloseVariantes, getResumenCategoria, addStock, removeStock, getVariantes, crearVariante, addStockVariante, getMovimientos, getVarianteUso, eliminarVariante } from '@/api/inventario'
 import SurtidosPendientesPanel from '@/components/inventario/SurtidosPendientesPanel.vue'
 import ModalVariantes from '@/components/inventario/ModalVariantes.vue'
 import { getTrasladosPendientes, aceptarTraslado, rechazarTraslado } from '@/api/traslados'
@@ -520,6 +520,31 @@ async function cargarCategorias() {
 function seleccionarCategoria(cat) {
   categoriaFiltro.value = cat
   cargarInventario(true)
+  cargarResumenCategoria()
+}
+
+// ── Total de la categoría, arriba de la lista ─────────────────────────────
+// La lista llega paginada (20 en 20): sumar lo que ya se cargó en pantalla
+// daría un total incompleto hasta que se haga scroll hasta el final. El
+// total sale aparte, de una sola consulta contra toda la categoría.
+const resumenCategoria         = ref(null)
+const cargandoResumenCategoria = ref(false)
+
+async function cargarResumenCategoria() {
+  resumenCategoria.value = null
+  if (!tiendaId.value || !categoriaFiltro.value) return
+
+  cargandoResumenCategoria.value = true
+  try {
+    const { data } = await getResumenCategoria(tiendaId.value, categoriaFiltro.value)
+    // Puede haber cambiado de categoría mientras la respuesta viajaba; si ya
+    // no es la que se está mirando, se descarta para no pisar la correcta.
+    if (categoriaFiltro.value === data.categoria) resumenCategoria.value = data
+  } catch {
+    resumenCategoria.value = null
+  } finally {
+    cargandoResumenCategoria.value = false
+  }
 }
 
 async function cargarInventario(reset = false) {
@@ -1749,7 +1774,7 @@ onMounted(async () => {
       <label class="block text-xs font-medium text-gray-500 mb-1">Tienda</label>
       <select
         v-model="tiendaId"
-        @change="categoriaFiltro = ''; cargarInventario(true)"
+        @change="categoriaFiltro = ''; resumenCategoria = null; cargarInventario(true)"
         class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
       >
         <option value="">Seleccionar tienda...</option>
@@ -1815,6 +1840,65 @@ onMounted(async () => {
       >
         {{ CATEGORY_LABELS[cat] ?? cat }}
       </button>
+    </div>
+
+    <!-- Total de la categoría: la lista de abajo llega paginada, así que este
+         número no sale de sumar lo que ya cargó en pantalla -- es una consulta
+         aparte contra toda la categoría (ver cargarResumenCategoria). -->
+    <div v-if="categoriaFiltro" class="bg-white border border-gray-200 rounded-xl p-3">
+      <div v-if="cargandoResumenCategoria" class="flex items-center gap-2 text-xs text-gray-400 py-1">
+        <span class="w-3.5 h-3.5 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin" />
+        Calculando el total...
+      </div>
+      <template v-else-if="resumenCategoria">
+        <p class="text-sm font-semibold text-gray-800">
+          {{ CATEGORY_LABELS[categoriaFiltro] ?? categoriaFiltro }}
+          <span class="font-normal text-gray-400">
+            · {{ resumenCategoria.productos }} producto{{ resumenCategoria.productos === 1 ? '' : 's' }}
+          </span>
+        </p>
+        <div class="grid grid-cols-3 gap-2 text-center mt-2">
+          <div class="bg-gray-50 rounded-lg p-1.5">
+            <p class="text-lg font-bold text-gray-800">{{ resumenCategoria.cantidad_disponible }}</p>
+            <p class="text-xs text-gray-400">Disponible</p>
+          </div>
+          <div class="bg-gray-50 rounded-lg p-1.5">
+            <p class="text-lg font-bold text-gray-500">{{ resumenCategoria.cantidad_reservada }}</p>
+            <p class="text-xs text-gray-400">Reservado</p>
+          </div>
+          <div class="bg-gray-50 rounded-lg p-1.5">
+            <p class="text-lg font-bold text-green-600">{{ resumenCategoria.stock_libre }}</p>
+            <p class="text-xs text-gray-400">Libre</p>
+          </div>
+        </div>
+
+        <!-- Cuánto hay en cada tienda: mismo formato que ya usa cada tarjeta
+             de producto en la vista global, para que se lea igual. -->
+        <div v-if="esVistaGlobal && resumenCategoria.por_tienda.length" class="mt-2 space-y-1">
+          <p class="text-xs text-gray-400">En cada tienda</p>
+          <div class="flex flex-wrap gap-1.5">
+            <span
+              v-for="t in resumenCategoria.por_tienda"
+              :key="t.tienda_id"
+              :class="[
+                'inline-flex items-baseline gap-1 px-2 py-1 rounded-lg text-xs border',
+                t.stock_libre > 0
+                  ? 'bg-green-50 border-green-200 text-green-800'
+                  : 'bg-gray-50 border-gray-200 text-gray-400',
+              ]"
+              :title="t.cantidad_reservada > 0
+                ? `${t.cantidad_disponible} en bodega · ${t.cantidad_reservada} apartado(s)`
+                : `${t.cantidad_disponible} disponible(s)`"
+            >
+              <span class="font-semibold">{{ nombreCorto(t.tienda_nombre) }}</span>
+              <span class="font-bold">{{ t.stock_libre }}</span>
+              <span v-if="t.cantidad_reservada > 0" class="text-[10px] opacity-70">
+                (+{{ t.cantidad_reservada }} apartado{{ t.cantidad_reservada === 1 ? '' : 's' }})
+              </span>
+            </span>
+          </div>
+        </div>
+      </template>
     </div>
 
     <!-- Compartir la sección con un cliente -->
