@@ -4306,7 +4306,13 @@ function removeFacturaFoto() {
   <Transition name="fade">
     <div v-if="mostrarVariantePicker" class="fixed inset-0 z-[70] flex items-end sm:items-center justify-center" @click.self="mostrarVariantePicker = false">
       <div class="absolute inset-0 bg-black/50" @click="mostrarVariantePicker = false" />
-      <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-4">
+      <!-- Se topa en la pantalla y rueda la LISTA, no el modal entero: un
+           producto con muchas telas crecía hasta salirse, y como en el celular
+           el modal se ancla abajo, lo que quedaba fuera era lo de arriba --
+           justo donde está "Sin especificar tela". Sin poder alcanzarla, y con
+           el botón de agregar bloqueado hasta elegir algo, no había forma de
+           vender sin decir la tela. El botón queda siempre a la vista. -->
+      <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 flex flex-col gap-4 max-h-[85vh]">
         <div class="flex items-center justify-between">
           <div>
             <h3 class="text-base font-bold text-gray-800">Seleccionar variante</h3>
@@ -4317,7 +4323,7 @@ function removeFacturaFoto() {
 
         <div v-if="cargandoVariantes" class="text-center py-6 text-gray-400 text-sm">Cargando variantes...</div>
 
-        <div v-else class="space-y-2">
+        <div v-else class="space-y-2 flex-1 min-h-0 overflow-y-auto -mx-1 px-1">
           <!-- Opción sin variante (solo para tapizado, no para tallas) -->
           <button
             v-if="!productoParaVariante?.tiene_tallas"
@@ -4400,7 +4406,9 @@ function removeFacturaFoto() {
     <!-- ── Picker variantes personalizadas (custom) ── -->
     <div v-if="mostrarVCPicker" class="fixed inset-0 z-[70] flex items-end sm:items-center justify-center" @click.self="mostrarVCPicker = false">
       <div class="absolute inset-0 bg-black/50" @click="mostrarVCPicker = false" />
-      <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-4 max-h-[80vh] overflow-y-auto">
+      <!-- Tenía scroll, pero del modal entero: con varios grupos el botón de
+           agregar se iba hasta el fondo. Ahora rueda solo la lista. -->
+      <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 flex flex-col gap-4 max-h-[85vh]">
         <div class="flex items-center justify-between">
           <div>
             <h3 class="text-base font-bold text-gray-800">Selecciona variantes</h3>
@@ -4411,7 +4419,7 @@ function removeFacturaFoto() {
 
         <div v-if="vcPickerCargando" class="text-center py-6 text-gray-400 text-sm">Cargando variantes...</div>
 
-        <template v-else>
+        <div v-else class="space-y-4 flex-1 min-h-0 overflow-y-auto -mx-1 px-1">
           <div v-for="grupo in vcPickerGrupos" :key="grupo.tipo_variante_id" class="space-y-2">
             <p class="text-xs font-bold text-gray-500 uppercase tracking-wide">{{ grupo.tipo.nombre }}</p>
             <div class="space-y-1.5">
@@ -4437,7 +4445,7 @@ function removeFacturaFoto() {
               </button>
             </div>
           </div>
-        </template>
+        </div>
 
         <button
           @click="confirmarVCPickerOrden"
@@ -4453,7 +4461,9 @@ function removeFacturaFoto() {
   <Transition name="fade">
     <div v-if="mostrarFabricaVariantePicker" class="fixed inset-0 z-[70] flex items-end sm:items-center justify-center" @click.self="mostrarFabricaVariantePicker = false">
       <div class="absolute inset-0 bg-black/50" @click="mostrarFabricaVariantePicker = false" />
-      <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-4">
+      <!-- Mismo tope y misma lista que ruedan que en el selector de tienda:
+           la reserva de fábrica también tiene productos con muchas variantes. -->
+      <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 flex flex-col gap-4 max-h-[85vh]">
         <div class="flex items-center justify-between">
           <div>
             <h3 class="text-base font-bold text-gray-800">Variante de fábrica</h3>
@@ -4464,7 +4474,7 @@ function removeFacturaFoto() {
 
         <div v-if="cargandoFabricaVariantes" class="text-center py-6 text-gray-400 text-sm">Cargando variantes...</div>
 
-        <div v-else class="space-y-2">
+        <div v-else class="space-y-2 flex-1 min-h-0 overflow-y-auto -mx-1 px-1">
           <button
             v-for="v in fabricaVariantesDisponibles"
             :key="v._config_id ? 'c' + v._config_id + '-v' + v.id : 'var-' + v.id"

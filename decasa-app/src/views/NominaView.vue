@@ -265,6 +265,28 @@ function porFrecuencia(valorDia, frecuencia) {
   return (Number(valorDia) || 0) * (DIAS_POR_FRECUENCIA[frecuencia] ?? 15)
 }
 
+/**
+ * Texto "X día · Y semana · Z quincena · W mes" para la vista previa de un
+ * sueldo. El día va primero y con su nombre propio -- antes, en un sueldo
+ * por hora, quedaba al final de la frase como "jornada completa", después de
+ * semana/quincena/mes. Leído de corrido eso hacía parecer que el primer
+ * número era el del día (cuando era el de la semana), y comparado a mano
+ * contra una calculadora no cuadraba con nada: no había ningún cálculo mal,
+ * el que se estaba comparando era el número equivocado.
+ *
+ * Por día no hace falta repetirlo: ya es el valor que se escribió arriba.
+ */
+function resumenFrecuencias(valor, unidad, horasDia) {
+  const dia = valorDiaEquivalente(valor, unidad, horasDia)
+  const partes = unidad === 'hora' ? [['día', dia]] : []
+  partes.push(
+    ['semana', porFrecuencia(dia, 'semanal')],
+    ['quincena', porFrecuencia(dia, 'quincenal')],
+    ['mes', porFrecuencia(dia, 'mensual')],
+  )
+  return partes.map(([label, monto]) => `${formatoPesos(monto)} ${label}`).join(' · ')
+}
+
 // ── Bonificaciones por producción ─────────────────────────────────────────
 const bonificaciones       = ref([])
 const cargandoBonos        = ref(true)
@@ -1323,9 +1345,7 @@ async function quitarAjuste(id) {
                   <span v-if="s.unidad === 'hora'">({{ s.horas_dia }}h/día)</span>
                 </p>
                 <p class="text-[11px] text-gray-400 mt-0.5">
-                  {{ formatoPesos(porFrecuencia(valorDiaEquivalente(s.valor, s.unidad, s.horas_dia), 'semanal')) }} semana ·
-                  {{ formatoPesos(porFrecuencia(valorDiaEquivalente(s.valor, s.unidad, s.horas_dia), 'quincenal')) }} quincena ·
-                  {{ formatoPesos(porFrecuencia(valorDiaEquivalente(s.valor, s.unidad, s.horas_dia), 'mensual')) }} mes
+                  {{ resumenFrecuencias(s.valor, s.unidad, s.horas_dia) }}
                 </p>
               </div>
             </div>
@@ -1404,10 +1424,7 @@ async function quitarAjuste(id) {
                   </div>
                 </div>
                 <p class="text-[11px] text-gray-400 -mt-2">
-                  = {{ formatoPesos(porFrecuencia(valorDiaEquivalente(formSueldo.valor, formSueldo.unidad, formSueldo.horas_dia), 'semanal')) }} semana ·
-                  {{ formatoPesos(porFrecuencia(valorDiaEquivalente(formSueldo.valor, formSueldo.unidad, formSueldo.horas_dia), 'quincenal')) }} quincena ·
-                  {{ formatoPesos(porFrecuencia(valorDiaEquivalente(formSueldo.valor, formSueldo.unidad, formSueldo.horas_dia), 'mensual')) }} mes
-                  <span v-if="formSueldo.unidad === 'hora'">· jornada completa = {{ formatoPesos(valorDiaEquivalente(formSueldo.valor, formSueldo.unidad, formSueldo.horas_dia)) }}/día</span>
+                  = {{ resumenFrecuencias(formSueldo.valor, formSueldo.unidad, formSueldo.horas_dia) }}
                 </p>
                 <p class="text-[11px] text-gray-400">
                   Las horas por día también se usan para descontar faltas parciales (media jornada, una cita médica).
