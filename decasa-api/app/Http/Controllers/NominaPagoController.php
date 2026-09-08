@@ -217,6 +217,10 @@ class NominaPagoController extends Controller
             'dias'             => $l['dias'],
             'subtotal'         => $l['subtotal'],
             'descuento_faltas' => $l['descuento_faltas'],
+            // Se congela el auxilio del día junto con el descuento total: si el
+            // decreto lo cambia el año que viene, este pago no se mueve.
+            'valor_auxilio_dia'     => $l['valor_auxilio_dia'],
+            'descuento_incapacidad' => $l['descuento_incapacidad'],
             'total_ajustes'    => $l['total_ajustes'],
             'produccion_total' => $l['produccion_total'],
             'bonificacion'     => $l['bonificacion'],
@@ -325,6 +329,8 @@ class NominaPagoController extends Controller
             'dias'               => (float) $p->dias,
             'subtotal'            => (float) $p->subtotal,
             'descuento_faltas'    => (float) $p->descuento_faltas,
+            'valor_auxilio_dia'      => (float) $p->valor_auxilio_dia,
+            'descuento_incapacidad'  => (float) $p->descuento_incapacidad,
             'total_ajustes'       => (float) $p->total_ajustes,
             'produccion_total'    => (float) $p->produccion_total,
             'bonificacion'         => (float) $p->bonificacion,
@@ -333,13 +339,23 @@ class NominaPagoController extends Controller
             'total'               => (float) $p->total,
             'observaciones'      => $p->observaciones,
             'pagado_at'          => $p->pagado_at?->toIso8601String(),
-            'faltas'             => $p->ausencias->map(fn (NominaAusencia $a) => [
-                'id'     => $a->id,
-                'fecha'  => $a->fecha->toDateString(),
-                'horas'  => (float) $a->horas,
-                'motivo' => $a->motivo,
-                'monto'  => round((float) $a->horas * (float) $p->valor_hora),
-            ])->values(),
+            'faltas'             => $p->ausencias
+                ->filter(fn (NominaAusencia $a) => ! $a->esIncapacidad())
+                ->map(fn (NominaAusencia $a) => [
+                    'id'     => $a->id,
+                    'fecha'  => $a->fecha->toDateString(),
+                    'horas'  => (float) $a->horas,
+                    'motivo' => $a->motivo,
+                    'monto'  => round((float) $a->horas * (float) $p->valor_hora),
+                ])->values(),
+            'incapacidades'      => $p->ausencias
+                ->filter(fn (NominaAusencia $a) => $a->esIncapacidad())
+                ->map(fn (NominaAusencia $a) => [
+                    'id'     => $a->id,
+                    'fecha'  => $a->fecha->toDateString(),
+                    'motivo' => $a->motivo,
+                    'monto'  => round((float) $p->valor_auxilio_dia),
+                ])->values(),
             'ajustes' => $p->ajustes->map(fn (NominaAjuste $a) => [
                 'id'     => $a->id,
                 'fecha'  => $a->fecha->toDateString(),

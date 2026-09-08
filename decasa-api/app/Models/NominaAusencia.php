@@ -5,17 +5,21 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 
 /**
- * Una falta con fecha real y horas (para faltas parciales). Se registra
- * contra el trabajador y una fecha, y cae sola en el ciclo que contenga esa
- * fecha — incluido uno futuro: si alguien avisa hoy que va a faltar la
- * quincena que viene, la falta espera con `nomina_pago_id` en null y se
- * descuenta cuando esa quincena se cobre.
+ * Un día que el trabajador no trabajó. Se registra contra el trabajador y
+ * una fecha, y cae sola en el ciclo que contenga esa fecha — incluido uno
+ * futuro: si alguien avisa hoy que va a faltar la quincena que viene, espera
+ * con `nomina_pago_id` en null y se descuenta cuando esa quincena se cobre.
+ *
+ * `tipo` decide cómo pega en el pago:
+ *  - 'falta': se pierde el día — se descuenta `horas × valor_hora`.
+ *  - 'incapacidad': el día se paga completo y solo se descuenta el auxilio
+ *    de transporte (un valor fijo por día). `horas` no se usa.
  */
 class NominaAusencia extends Model
 {
     protected $table = 'nomina_ausencias';
 
-    protected $fillable = ['usuario_id', 'nomina_pago_id', 'fecha', 'horas', 'motivo'];
+    protected $fillable = ['usuario_id', 'nomina_pago_id', 'tipo', 'fecha', 'horas', 'motivo'];
 
     protected function casts(): array
     {
@@ -38,5 +42,10 @@ class NominaAusencia extends Model
     public function estaPagada(): bool
     {
         return $this->nomina_pago_id !== null;
+    }
+
+    public function esIncapacidad(): bool
+    {
+        return $this->tipo === 'incapacidad';
     }
 }

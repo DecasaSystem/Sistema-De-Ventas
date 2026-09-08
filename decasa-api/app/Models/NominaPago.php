@@ -20,7 +20,8 @@ class NominaPago extends Model
     protected $fillable = [
         'usuario_id', 'periodicidad', 'fecha_inicio', 'fecha_fin', 'sueldo_nombre',
         'valor_dia', 'valor_hora', 'horas_dia', 'dias', 'subtotal',
-        'descuento_faltas', 'total_ajustes', 'produccion_total', 'bonificacion',
+        'descuento_faltas', 'valor_auxilio_dia', 'descuento_incapacidad',
+        'total_ajustes', 'produccion_total', 'bonificacion',
         'bonificacion_nombre', 'bonificacion_detalle', 'total', 'observaciones', 'pagado_at',
     ];
 
@@ -33,9 +34,11 @@ class NominaPago extends Model
             'valor_hora'       => 'decimal:2',
             'horas_dia'        => 'decimal:2',
             'dias'             => 'decimal:2',
-            'subtotal'         => 'decimal:2',
-            'descuento_faltas' => 'decimal:2',
-            'total_ajustes'    => 'decimal:2',
+            'subtotal'              => 'decimal:2',
+            'descuento_faltas'      => 'decimal:2',
+            'valor_auxilio_dia'     => 'decimal:2',
+            'descuento_incapacidad' => 'decimal:2',
+            'total_ajustes'         => 'decimal:2',
             'produccion_total' => 'decimal:2',
             'bonificacion'     => 'decimal:2',
             'total'            => 'decimal:2',

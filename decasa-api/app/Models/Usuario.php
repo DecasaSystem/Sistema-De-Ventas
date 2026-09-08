@@ -189,6 +189,12 @@ class Usuario extends Authenticatable
         return (float) ($this->sueldo?->horas_dia ?? 8);
     }
 
+    /** Auxilio de transporte por día — lo que se resta por día de incapacidad. */
+    public function valorAuxilioDiaEfectivo(): float
+    {
+        return $this->sueldo?->valorAuxilioDia() ?? 0.0;
+    }
+
     /** El nombre del sueldo que tiene asignado. */
     public function labelEfectivo(): string
     {

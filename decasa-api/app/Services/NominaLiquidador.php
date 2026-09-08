@@ -73,23 +73,35 @@ class NominaLiquidador
         $diasCiclo    = CicloNomina::diasPagados($empleado->periodicidad);
         $dias         = min($diasCorridos, $diasCiclo);
 
-        $valorDia  = $empleado->valorDiaEfectivo();
-        $valorHora = $empleado->valorHoraEfectivo();
-        $subtotal  = round($valorDia * $dias);
+        $valorDia        = $empleado->valorDiaEfectivo();
+        $valorHora       = $empleado->valorHoraEfectivo();
+        $valorAuxilioDia = $empleado->valorAuxilioDiaEfectivo();
+        $subtotal        = round($valorDia * $dias);
 
         // Lo ya corrido se descuenta; lo que la persona avisó que va a
         // faltar más adelante en este mismo ciclo se muestra aparte, para
         // no bajar hoy un devengado que todavía no se perdió. Al cerrar el
         // ciclo `hasta` llega a `fin` y todo entra por el mismo lado.
-        $faltas      = self::enVentana($empleado->ausencias, $inicio, $hasta);
-        $programadas = $hasta->lessThan($fin)
+        //
+        // Falta e incapacidad viven en la misma tabla: se parten por `tipo`
+        // porque el dinero se cuenta distinto — la falta pierde el día, la
+        // incapacidad solo el auxilio de transporte.
+        $ausenciasCiclo = self::enVentana($empleado->ausencias, $inicio, $hasta);
+        $faltas         = $ausenciasCiclo->filter(fn (NominaAusencia $a) => ! $a->esIncapacidad())->values();
+        $incapacidades  = $ausenciasCiclo->filter(fn (NominaAusencia $a) => $a->esIncapacidad())->values();
+
+        $ausenciasFuturas = $hasta->lessThan($fin)
             ? self::enVentana($empleado->ausencias, $hasta->copy()->addDay(), $fin)
             : new Collection();
+        $programadas               = $ausenciasFuturas->filter(fn (NominaAusencia $a) => ! $a->esIncapacidad())->values();
+        $incapacidadesProgramadas  = $ausenciasFuturas->filter(fn (NominaAusencia $a) => $a->esIncapacidad())->values();
 
         $ajustes = self::enVentana($empleado->ajustes, $inicio, $hasta);
 
-        $descuentoFaltas = $faltas->sum(fn (NominaAusencia $a) => round((float) $a->horas * $valorHora));
-        $totalAjustes    = $ajustes->sum(fn (NominaAjuste $a) => (float) $a->monto);
+        $descuentoFaltas       = $faltas->sum(fn (NominaAusencia $a) => round((float) $a->horas * $valorHora));
+        // Cada fila de incapacidad es un día (el controlador expande el rango).
+        $descuentoIncapacidad  = round($incapacidades->count() * $valorAuxilioDia);
+        $totalAjustes          = $ajustes->sum(fn (NominaAjuste $a) => (float) $a->monto);
 
         // Los préstamos se descuentan solos: una cuota por pago, hasta saldar.
         // Se calculan aquí y no se guardan, para que lo que se ve antes de
@@ -119,9 +131,11 @@ class NominaLiquidador
             'valor_dia'          => $valorDia,
             'valor_hora'         => $valorHora,
             'horas_dia'          => $empleado->horasDiaEfectivo(),
-            'subtotal'           => $subtotal,
-            'descuento_faltas'   => (float) $descuentoFaltas,
-            'total_ajustes'      => (float) $totalAjustes,
+            'subtotal'              => $subtotal,
+            'descuento_faltas'      => (float) $descuentoFaltas,
+            'valor_auxilio_dia'     => (float) $valorAuxilioDia,
+            'descuento_incapacidad' => (float) $descuentoIncapacidad,
+            'total_ajustes'         => (float) $totalAjustes,
             'produccion_total'   => $produccionTotal,
             'bonificacion'       => $bono['monto'],
             'bono'               => $bono,
@@ -144,10 +158,12 @@ class NominaLiquidador
                 'saldo'       => $pr->saldo(),
                 'cuota_ahora' => $pr->cuotaDelProximoPago(),
             ])->values(),
-            'total'              => $subtotal - (float) $descuentoFaltas + (float) $totalAjustes
-                                    + $bono['monto'] - (float) $totalCuotas,
+            'total'              => $subtotal - (float) $descuentoFaltas - (float) $descuentoIncapacidad
+                                    + (float) $totalAjustes + $bono['monto'] - (float) $totalCuotas,
             'faltas'             => $faltas->map(fn (NominaAusencia $a) => self::faltaComoJson($a, $valorHora))->values(),
             'faltas_programadas' => $programadas->map(fn (NominaAusencia $a) => self::faltaComoJson($a, $valorHora))->values(),
+            'incapacidades'      => $incapacidades->map(fn (NominaAusencia $a) => self::incapacidadComoJson($a, $valorAuxilioDia))->values(),
+            'incapacidades_programadas' => $incapacidadesProgramadas->map(fn (NominaAusencia $a) => self::incapacidadComoJson($a, $valorAuxilioDia))->values(),
             'ajustes'            => $ajustes->map(fn (NominaAjuste $a) => [
                 'id'     => $a->id,
                 'nombre' => $a->nombre,
@@ -427,6 +443,18 @@ class NominaLiquidador
             'motivo'        => $a->motivo,
             'registrada_en' => $a->created_at->toIso8601String(),
             'monto'         => round((float) $a->horas * $valorHora),
+        ];
+    }
+
+    private static function incapacidadComoJson(NominaAusencia $a, float $valorAuxilioDia): array
+    {
+        return [
+            'id'            => $a->id,
+            'fecha'         => $a->fecha->toDateString(),
+            'motivo'        => $a->motivo,
+            'registrada_en' => $a->created_at->toIso8601String(),
+            // El día se paga completo; esto es solo el auxilio que no devengó.
+            'monto'         => round($valorAuxilioDia),
         ];
     }
 }

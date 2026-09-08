@@ -27,9 +27,20 @@ class NominaAusenciaController extends Controller
         $pago  = $a->relationLoaded('pago') ? $a->pago : null;
         $valor = $valorHora ?? ($pago ? (float) $pago->valor_hora : $a->trabajador?->valorHoraEfectivo() ?? 0.0);
 
+        // Una incapacidad no descuenta el día: solo el auxilio de transporte,
+        // congelado en el pago si ya se cobró.
+        $auxilioDia = $pago
+            ? (float) $pago->valor_auxilio_dia
+            : ($a->trabajador?->valorAuxilioDiaEfectivo() ?? 0.0);
+
+        $monto = $a->esIncapacidad()
+            ? round($auxilioDia)
+            : round((float) $a->horas * $valor);
+
         return [
             'id'            => $a->id,
             'usuario_id'   => $a->usuario_id,
+            'tipo'          => $a->tipo,
             'fecha'         => $a->fecha->toDateString(),
             'horas'         => (float) $a->horas,
             'motivo'        => $a->motivo,
@@ -37,7 +48,7 @@ class NominaAusenciaController extends Controller
             'registrada_en' => $a->created_at->toIso8601String(),
             'pago_id'       => $a->nomina_pago_id,
             'ciclo'         => $pago?->nombreCiclo() ?? $this->cicloDe($a),
-            'monto'         => round((float) $a->horas * $valor),
+            'monto'         => $monto,
         ];
     }
 
@@ -75,11 +86,16 @@ class NominaAusenciaController extends Controller
      * Un rango de fechas (o una sola, dejando fecha_fin vacío) se expande
      * en una fila por día. Si el rango cruza varios ciclos, cada fecha se
      * descuenta en el suyo.
+     *
+     * `tipo` = 'falta' (default) o 'incapacidad'. La incapacidad siempre es
+     * de días completos: `horas` se ignora y el descuento es el auxilio de
+     * transporte, no el día.
      */
     public function store(Request $request)
     {
         $data = $request->validate([
             'usuario_id'  => 'required|exists:usuarios,id',
+            'tipo'         => 'nullable|in:falta,incapacidad',
             'fecha_inicio' => 'required|date',
             'fecha_fin'    => 'nullable|date|after_or_equal:fecha_inicio',
             'horas'        => 'nullable|numeric|min:0.25|max:24',
@@ -90,7 +106,12 @@ class NominaAusenciaController extends Controller
         ]);
 
         $empleado = Usuario::with('sueldo')->findOrFail($data['usuario_id']);
-        $horas    = $data['horas'] ?? $empleado->horasDiaEfectivo();
+        $tipo     = $data['tipo'] ?? 'falta';
+        // La incapacidad es día completo; se guarda la jornada solo para que
+        // la columna (NOT NULL) tenga un valor con sentido — el monto no la usa.
+        $horas    = $tipo === 'incapacidad'
+            ? $empleado->horasDiaEfectivo()
+            : ($data['horas'] ?? $empleado->horasDiaEfectivo());
 
         $inicio = CicloNomina::fecha($data['fecha_inicio']);
         $fin    = isset($data['fecha_fin']) ? CicloNomina::fecha($data['fecha_fin']) : $inicio->copy();
@@ -124,7 +145,7 @@ class NominaAusenciaController extends Controller
 
             $ausencia = NominaAusencia::updateOrCreate(
                 ['usuario_id' => $empleado->id, 'fecha' => $fecha->toDateString()],
-                ['horas' => $horas, 'motivo' => $data['motivo'] ?? null, 'nomina_pago_id' => null]
+                ['tipo' => $tipo, 'horas' => $horas, 'motivo' => $data['motivo'] ?? null, 'nomina_pago_id' => null]
             );
             $ausencia->setRelation('trabajador', $empleado);
             $ausencia->setRelation('pago', null);
@@ -144,8 +165,10 @@ class NominaAusenciaController extends Controller
         $ausencia = NominaAusencia::with('pago')->findOrFail($id);
 
         if ($ausencia->estaPagada()) {
+            $que = $ausencia->esIncapacidad() ? 'Esa incapacidad' : 'Esa falta';
+
             return response()->json([
-                'message' => 'Esa falta ya se descontó en un pago (' . $ausencia->pago->nombreCiclo() . ') y no se puede quitar.',
+                'message' => "{$que} ya se descontó en un pago ({$ausencia->pago->nombreCiclo()}) y no se puede quitar.",
             ], 422);
         }
 

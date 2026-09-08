@@ -8,7 +8,7 @@ import { getPrestamos, crearPrestamo, editarPrestamo, borrarPrestamo } from '@/a
 import {
   getSueldos, crearSueldo, actualizarSueldo, eliminarSueldo,
   getPagosPendientes, pagar, pagarLote, getHistorialPagos, deshacerPago,
-  crearAusencia, getAusencias, eliminarAusencia,
+  crearAusencia, crearIncapacidad, getAusencias, eliminarAusencia,
   getAjustes, crearAjuste, eliminarAjuste,
   getProducciones, crearProduccion, eliminarProduccion,
   getBonificaciones, crearBonificacion, actualizarBonificacion, eliminarBonificacion,
@@ -65,7 +65,7 @@ const pagandoClave   = ref(null)
 const pagandoTodos   = ref(false)
 const pagoAbierto    = ref(null)
 
-const clave = (p) => `${p.empleado_id}|${p.fecha_inicio}`
+const clave = (p) => `${p.usuario_id}|${p.fecha_inicio}`
 
 async function cargarPendientes() {
   cargandoPagos.value = true
@@ -99,7 +99,7 @@ const gruposPagos = computed(() => {
 async function pagarUno(p) {
   pagandoClave.value = clave(p)
   try {
-    await pagar(p.empleado_id, p.fecha_inicio)
+    await pagar(p.usuario_id, p.fecha_inicio)
     toast.success(`${p.empleado_nombre}: ${formatoPesos(p.total)} pagado`)
     empleadosCargados = false
     await cargarPendientes()
@@ -118,7 +118,7 @@ async function pagarTodos() {
     // Se manda la lista exacta que está en pantalla: nunca se cobra algo
     // que el usuario no llegó a ver.
     const { data } = await pagarLote(
-      pendientes.value.map(p => ({ empleado_id: p.empleado_id, fecha_inicio: p.fecha_inicio }))
+      pendientes.value.map(p => ({ usuario_id: p.usuario_id, fecha_inicio: p.fecha_inicio }))
     )
     if (data.omitidos?.length) {
       toast.error(`${data.pagados.length} pagados, ${data.omitidos.length} omitidos (${data.omitidos[0].motivo})`)
@@ -169,7 +169,8 @@ const sueldos           = ref([])
 const cargandoSueldos   = ref(true)
 const mostrarFormSueldo = ref(false)
 const editandoSueldo    = ref(null)
-const formSueldo        = ref({ nombre: '', valor: 0, unidad: 'dia', horas_dia: 8 })
+const AUXILIO_DIA_DEFECTO = 8303
+const formSueldo        = ref({ nombre: '', valor: 0, unidad: 'dia', horas_dia: 8, valor_auxilio_dia: AUXILIO_DIA_DEFECTO })
 const guardandoSueldo   = ref(false)
 
 async function cargarSueldos() {
@@ -186,7 +187,7 @@ async function cargarSueldos() {
 
 function abrirNuevoSueldo() {
   editandoSueldo.value = null
-  formSueldo.value = { nombre: '', valor: 0, unidad: 'dia', horas_dia: 8 }
+  formSueldo.value = { nombre: '', valor: 0, unidad: 'dia', horas_dia: 8, valor_auxilio_dia: AUXILIO_DIA_DEFECTO }
   mostrarFormSueldo.value = true
 }
 
@@ -197,6 +198,7 @@ function abrirEditarSueldo(s) {
     valor: Number(s.valor) || 0,
     unidad: s.unidad || 'dia',
     horas_dia: Number(s.horas_dia) || 8,
+    valor_auxilio_dia: Number(s.valor_auxilio_dia) || 0,
   }
   mostrarFormSueldo.value = true
 }
@@ -213,6 +215,7 @@ async function guardarSueldo() {
       valor: formSueldo.value.valor,
       unidad: formSueldo.value.unidad,
       horas_dia: formSueldo.value.horas_dia,
+      valor_auxilio_dia: Number(formSueldo.value.valor_auxilio_dia) || 0,
     }
     if (editandoSueldo.value) {
       await actualizarSueldo(editandoSueldo.value, payload)
@@ -696,10 +699,12 @@ const mostrarNovedades  = ref(false)
 const empleadoNovedades = ref(null)
 const novedadTab        = ref('produccion')
 const formFalta         = ref({ fecha_inicio: '', fecha_fin: '', horas: 8, motivo: '' })
+const formIncapacidad   = ref({ fecha_inicio: '', fecha_fin: '', motivo: '' })
 const formAjuste        = ref({ fecha: '', nombre: '', monto: 0, signo: 1 })
 const formProduccion    = ref({ fecha: '', concepto: '', valor_unitario: 0, cantidad: 1 })
 const guardandoNovedad  = ref(false)
-const historialFaltas   = ref([])
+const historialFaltas        = ref([])
+const historialIncapacidades = ref([])
 const historialAjustes  = ref([])
 const historialProd     = ref([])
 const cargandoHistorial = ref(false)
@@ -720,9 +725,10 @@ async function abrirNovedades(e) {
 
 function resetFormsNovedad() {
   const e = empleadoNovedades.value
-  formFalta.value      = { fecha_inicio: hoyISO(), fecha_fin: '', horas: Number(e?.horas_dia_efectivo) || 8, motivo: '' }
-  formAjuste.value     = { fecha: hoyISO(), nombre: '', monto: 0, signo: 1 }
-  formProduccion.value = { fecha: hoyISO(), concepto: '', valor_unitario: 0, cantidad: 1 }
+  formFalta.value       = { fecha_inicio: hoyISO(), fecha_fin: '', horas: Number(e?.horas_dia_efectivo) || 8, motivo: '' }
+  formIncapacidad.value = { fecha_inicio: hoyISO(), fecha_fin: '', motivo: '' }
+  formAjuste.value      = { fecha: hoyISO(), nombre: '', monto: 0, signo: 1 }
+  formProduccion.value  = { fecha: hoyISO(), concepto: '', valor_unitario: 0, cantidad: 1 }
 }
 
 const totalProduccionForm = computed(() =>
@@ -734,11 +740,12 @@ async function cargarNovedades() {
   cargandoHistorial.value = true
   try {
     const [f, a, p] = await Promise.all([
-      getAusencias({ empleado_id: empleadoNovedades.value.id }),
-      getAjustes({ empleado_id: empleadoNovedades.value.id }),
-      getProducciones({ empleado_id: empleadoNovedades.value.id }),
+      getAusencias({ usuario_id: empleadoNovedades.value.id }),
+      getAjustes({ usuario_id: empleadoNovedades.value.id }),
+      getProducciones({ usuario_id: empleadoNovedades.value.id }),
     ])
-    historialFaltas.value  = f.data
+    historialFaltas.value        = f.data.filter(x => x.tipo !== 'incapacidad')
+    historialIncapacidades.value = f.data.filter(x => x.tipo === 'incapacidad')
     historialAjustes.value = a.data
     historialProd.value    = p.data
   } catch {
@@ -764,7 +771,7 @@ async function guardarProduccion() {
   guardandoNovedad.value = true
   try {
     await crearProduccion({
-      empleado_id: empleadoNovedades.value.id,
+      usuario_id: empleadoNovedades.value.id,
       fecha: formProduccion.value.fecha,
       concepto: formProduccion.value.concepto.trim(),
       valor_unitario: formProduccion.value.valor_unitario,
@@ -797,7 +804,7 @@ async function guardarFalta() {
   guardandoNovedad.value = true
   try {
     const { data } = await crearAusencia({
-      empleado_id: empleadoNovedades.value.id,
+      usuario_id: empleadoNovedades.value.id,
       fecha_inicio: formFalta.value.fecha_inicio,
       fecha_fin: formFalta.value.fecha_fin || null,
       horas: formFalta.value.horas,
@@ -817,6 +824,33 @@ async function guardarFalta() {
   }
 }
 
+async function guardarIncapacidad() {
+  if (!formIncapacidad.value.fecha_inicio) {
+    toast.error('Elige la fecha')
+    return
+  }
+  guardandoNovedad.value = true
+  try {
+    const { data } = await crearIncapacidad({
+      usuario_id: empleadoNovedades.value.id,
+      fecha_inicio: formIncapacidad.value.fecha_inicio,
+      fecha_fin: formIncapacidad.value.fecha_fin || null,
+      motivo: formIncapacidad.value.motivo.trim() || null,
+    })
+    if (data.no_aplicadas?.length) {
+      toast.error(`${data.no_aplicadas.length} día(s) ya estaban pagados y no se aplicaron`)
+    } else {
+      toast.success(data.guardadas.length > 1 ? `Incapacidad de ${data.guardadas.length} días registrada` : 'Incapacidad registrada')
+    }
+    resetFormsNovedad()
+    await Promise.all([cargarNovedades(), cargarPendientes(), cargarEmpleados()])
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo registrar la incapacidad')
+  } finally {
+    guardandoNovedad.value = false
+  }
+}
+
 async function guardarAjuste() {
   if (!formAjuste.value.nombre.trim()) {
     toast.error('Ponle un nombre al ajuste')
@@ -829,7 +863,7 @@ async function guardarAjuste() {
   guardandoNovedad.value = true
   try {
     await crearAjuste({
-      empleado_id: empleadoNovedades.value.id,
+      usuario_id: empleadoNovedades.value.id,
       fecha: formAjuste.value.fecha,
       nombre: formAjuste.value.nombre.trim(),
       monto: Number(formAjuste.value.monto) * formAjuste.value.signo,
@@ -961,6 +995,7 @@ async function quitarAjuste(id) {
                     <p class="text-xs text-gray-400 mt-0.5">
                       {{ p.dias }} de {{ p.dias_ciclo }} días × {{ formatoPesos(p.valor_dia) }}
                       <span v-if="p.descuento_faltas" class="text-red-500 font-medium">· −{{ formatoPesos(p.descuento_faltas) }} faltas</span>
+                      <span v-if="p.descuento_incapacidad" class="text-red-500 font-medium">· −{{ formatoPesos(p.descuento_incapacidad) }} incap.</span>
                       <span v-if="p.total_ajustes" :class="p.total_ajustes > 0 ? 'text-green-600 font-medium' : 'text-red-500 font-medium'">
                         · {{ p.total_ajustes > 0 ? '+' : '' }}{{ formatoPesos(p.total_ajustes) }} ajustes
                       </span>
@@ -983,6 +1018,14 @@ async function quitarAjuste(id) {
                     <p class="text-[11px] font-semibold text-gray-400 uppercase mb-1">Faltas ({{ formatoPesos(p.valor_hora) }}/hora)</p>
                     <div v-for="f in p.faltas" :key="f.id" class="flex justify-between text-xs bg-amber-50 rounded-lg px-2.5 py-1.5 mb-1">
                       <span class="text-gray-600 truncate">{{ formatoFechaCorta(f.fecha) }} · {{ f.horas }}h<span v-if="f.motivo"> · {{ f.motivo }}</span></span>
+                      <span class="text-red-600 font-semibold shrink-0 ml-2">−{{ formatoPesos(f.monto) }}</span>
+                    </div>
+                  </div>
+
+                  <div v-if="p.incapacidades?.length">
+                    <p class="text-[11px] font-semibold text-gray-400 uppercase mb-1">Incapacidad — solo auxilio ({{ formatoPesos(p.valor_auxilio_dia) }}/día)</p>
+                    <div v-for="f in p.incapacidades" :key="f.id" class="flex justify-between text-xs bg-teal-50 rounded-lg px-2.5 py-1.5 mb-1">
+                      <span class="text-gray-600 truncate">{{ formatoFechaCorta(f.fecha) }}<span v-if="f.motivo"> · {{ f.motivo }}</span></span>
                       <span class="text-red-600 font-semibold shrink-0 ml-2">−{{ formatoPesos(f.monto) }}</span>
                     </div>
                   </div>
@@ -1166,6 +1209,7 @@ async function quitarAjuste(id) {
                 <p class="text-xs text-gray-600 mt-0.5">
                   Lleva <span class="font-semibold text-gray-800">{{ e.ciclo.dias }}</span> de {{ e.ciclo.dias_ciclo }} días
                   <span v-if="e.ciclo.descuento_faltas" class="text-red-500">· −{{ formatoPesos(e.ciclo.descuento_faltas) }} faltas</span>
+                  <span v-if="e.ciclo.descuento_incapacidad" class="text-red-500">· −{{ formatoPesos(e.ciclo.descuento_incapacidad) }} incap.</span>
                   <span v-if="e.ciclo.total_ajustes" :class="e.ciclo.total_ajustes > 0 ? 'text-green-600' : 'text-red-500'">
                     · {{ e.ciclo.total_ajustes > 0 ? '+' : '' }}{{ formatoPesos(e.ciclo.total_ajustes) }}
                   </span>
@@ -1204,8 +1248,12 @@ async function quitarAjuste(id) {
               {{ e.ciclo.faltas_programadas.length }} falta(s) avisada(s) en este ciclo, aún sin descontar
               (−{{ formatoPesos(e.ciclo.faltas_programadas.reduce((s, f) => s + f.monto, 0)) }})
             </p>
+            <p v-if="e.ciclo.incapacidades_programadas?.length" class="text-[11px] text-teal-600 mt-1">
+              {{ e.ciclo.incapacidades_programadas.length }} día(s) de incapacidad avisados en este ciclo
+              (−{{ formatoPesos(e.ciclo.incapacidades_programadas.reduce((s, f) => s + f.monto, 0)) }} de auxilio)
+            </p>
             <p v-if="e.faltas_futuras" class="text-[11px] text-gray-400 mt-1">
-              {{ e.faltas_futuras }} falta(s) avisada(s) para ciclos siguientes.
+              {{ e.faltas_futuras }} novedad(es) avisada(s) para ciclos siguientes.
             </p>
           </div>
         </div>
@@ -1343,6 +1391,7 @@ async function quitarAjuste(id) {
                 <p class="text-xs text-gray-500 mt-0.5">
                   {{ formatoPesos(s.valor) }}/{{ s.unidad === 'hora' ? 'hora' : 'día' }}
                   <span v-if="s.unidad === 'hora'">({{ s.horas_dia }}h/día)</span>
+                  <span v-if="Number(s.valor_auxilio_dia)" class="text-gray-400">· auxilio {{ formatoPesos(s.valor_auxilio_dia) }}/día</span>
                 </p>
                 <p class="text-[11px] text-gray-400 mt-0.5">
                   {{ resumenFrecuencias(s.valor, s.unidad, s.horas_dia) }}
@@ -1426,6 +1475,14 @@ async function quitarAjuste(id) {
                 <p class="text-[11px] text-gray-400 -mt-2">
                   = {{ resumenFrecuencias(formSueldo.valor, formSueldo.unidad, formSueldo.horas_dia) }}
                 </p>
+
+                <div>
+                  <label class="block text-xs font-semibold text-gray-500 mb-1.5">Auxilio de transporte por día</label>
+                  <InputPesos v-model="formSueldo.valor_auxilio_dia" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow" />
+                  <p class="text-[11px] text-gray-400 mt-1">
+                    Es lo único que se descuenta por un día de incapacidad. Déjalo en 0 para quien no tiene derecho a auxilio.
+                  </p>
+                </div>
                 <p class="text-[11px] text-gray-400">
                   Las horas por día también se usan para descontar faltas parciales (media jornada, una cita médica).
                   Cambiar el valor mueve lo que todavía no se ha cobrado; lo ya pagado no se toca.
@@ -1685,9 +1742,13 @@ async function quitarAjuste(id) {
                   :class="['flex-1 text-xs font-semibold rounded-lg py-1.5 transition-colors', novedadTab === 'falta' ? 'bg-white text-amber-600 shadow-sm' : 'text-gray-500']"
                 >Falta</button>
                 <button
+                  type="button" @click="novedadTab = 'incapacidad'"
+                  :class="['flex-1 text-xs font-semibold rounded-lg py-1.5 transition-colors', novedadTab === 'incapacidad' ? 'bg-white text-teal-600 shadow-sm' : 'text-gray-500']"
+                >Incapacidad</button>
+                <button
                   type="button" @click="novedadTab = 'ajuste'"
                   :class="['flex-1 text-xs font-semibold rounded-lg py-1.5 transition-colors', novedadTab === 'ajuste' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500']"
-                >Bono / préstamo</button>
+                >Bono</button>
               </div>
             </div>
 
@@ -1770,6 +1831,41 @@ async function quitarAjuste(id) {
               </button>
             </div>
 
+            <!-- Registrar incapacidad -->
+            <div v-else-if="novedadTab === 'incapacidad'" class="p-5 space-y-4 border-b border-gray-100">
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-xs font-semibold text-gray-500 mb-1.5">Desde *</label>
+                  <input v-model="formIncapacidad.fecha_inicio" type="date" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow" />
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-gray-500 mb-1.5">Hasta</label>
+                  <input v-model="formIncapacidad.fecha_fin" type="date" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow" />
+                </div>
+              </div>
+              <p class="text-[11px] text-gray-400 -mt-2">
+                Deja "Hasta" vacío si es un solo día. Cada día cae en el ciclo que le toque, igual que una falta.
+              </p>
+              <div>
+                <label class="block text-xs font-semibold text-gray-500 mb-1.5">Motivo</label>
+                <input v-model="formIncapacidad.motivo" placeholder="Incapacidad EPS, accidente..." class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow" />
+              </div>
+              <p class="text-[11px] text-teal-700 bg-teal-50 rounded-lg px-2.5 py-2 -mt-1">
+                El día se paga completo. Solo se descuenta el auxilio de transporte:
+                <span class="font-semibold">−{{ formatoPesos(empleadoNovedades?.valor_auxilio_dia_efectivo || 0) }} por día</span>.
+                <template v-if="!(empleadoNovedades?.valor_auxilio_dia_efectivo)">
+                  Este sueldo no tiene auxilio configurado, así que no se descuenta nada.
+                </template>
+              </p>
+              <button
+                @click="guardarIncapacidad" :disabled="guardandoNovedad"
+                class="w-full bg-teal-600 text-white text-sm font-semibold rounded-xl px-4 py-2.5 hover:bg-teal-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
+              >
+                <span v-if="guardandoNovedad" class="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                {{ guardandoNovedad ? 'Registrando...' : 'Registrar incapacidad' }}
+              </button>
+            </div>
+
             <!-- Registrar bono o descuento -->
             <div v-else class="p-5 space-y-4 border-b border-gray-100">
               <div class="flex gap-2 bg-gray-100 rounded-xl p-1">
@@ -1825,7 +1921,7 @@ async function quitarAjuste(id) {
               </div>
 
               <template v-else>
-                <p v-if="!historialFaltas.length && !historialAjustes.length && !historialProd.length" class="text-center py-6 text-gray-400 text-sm">
+                <p v-if="!historialFaltas.length && !historialIncapacidades.length && !historialAjustes.length && !historialProd.length" class="text-center py-6 text-gray-400 text-sm">
                   Sin producción, faltas ni ajustes registrados todavía.
                 </p>
 
@@ -1867,6 +1963,26 @@ async function quitarAjuste(id) {
                     </div>
                   </div>
                   <p class="text-[11px] font-semibold mt-1.5" :class="a.pagada ? 'text-green-600' : 'text-blue-500'">
+                    {{ a.pagada ? `Ya descontada · ${a.ciclo}` : `Se descuenta en: ${a.ciclo}` }}
+                  </p>
+                </div>
+
+                <div v-for="a in historialIncapacidades" :key="'i' + a.id" class="bg-teal-50/70 rounded-xl px-3.5 py-3">
+                  <div class="flex items-start justify-between gap-2">
+                    <div class="min-w-0">
+                      <p class="text-sm font-semibold text-gray-800">Incapacidad · {{ formatoFecha(a.fecha) }}</p>
+                      <p v-if="a.motivo" class="text-xs text-gray-500 italic mt-0.5">{{ a.motivo }}</p>
+                      <p class="text-[11px] text-gray-400 mt-1">Registrada el {{ formatoFechaHora(a.registrada_en) }}</p>
+                    </div>
+                    <div class="flex flex-col items-end gap-1 shrink-0">
+                      <p class="text-sm font-semibold text-red-600">−{{ formatoPesos(a.monto) }}</p>
+                      <button v-if="!a.pagada" @click="quitarFalta(a.id)" class="text-gray-300 hover:text-red-600 transition-colors">
+                        <XMarkIcon class="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                  <p class="text-[11px] text-gray-500 mt-1">Solo auxilio de transporte — el día se paga completo.</p>
+                  <p class="text-[11px] font-semibold mt-1" :class="a.pagada ? 'text-green-600' : 'text-blue-500'">
                     {{ a.pagada ? `Ya descontada · ${a.ciclo}` : `Se descuenta en: ${a.ciclo}` }}
                   </p>
                 </div>
@@ -1935,6 +2051,7 @@ async function quitarAjuste(id) {
                     <p class="text-[11px] text-gray-400 mt-0.5">
                       {{ p.dias }} días × {{ formatoPesos(p.valor_dia) }}
                       <span v-if="p.descuento_faltas">· −{{ formatoPesos(p.descuento_faltas) }} faltas</span>
+                      <span v-if="p.descuento_incapacidad">· −{{ formatoPesos(p.descuento_incapacidad) }} incap.</span>
                       <span v-if="p.total_ajustes">· {{ p.total_ajustes > 0 ? '+' : '' }}{{ formatoPesos(p.total_ajustes) }} ajustes</span>
                       <span v-if="p.bonificacion">· +{{ formatoPesos(p.bonificacion) }} bono</span>
                     </p>

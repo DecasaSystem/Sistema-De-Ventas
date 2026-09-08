@@ -40,9 +40,10 @@ class EmpleadoController extends Controller
             'periodicidad'       => $e->periodicidad,
             'periodicidad_label' => $e->labelPeriodicidad(),
             'activo'             => (bool) $e->activo,
-            'valor_dia_efectivo'  => $e->valorDiaEfectivo(),
-            'valor_hora_efectivo' => $e->valorHoraEfectivo(),
-            'horas_dia_efectivo'  => $e->horasDiaEfectivo(),
+            'valor_dia_efectivo'          => $e->valorDiaEfectivo(),
+            'valor_hora_efectivo'         => $e->valorHoraEfectivo(),
+            'horas_dia_efectivo'          => $e->horasDiaEfectivo(),
+            'valor_auxilio_dia_efectivo'  => $e->valorAuxilioDiaEfectivo(),
             'label_efectivo'      => $e->labelEfectivo(),
         ];
 

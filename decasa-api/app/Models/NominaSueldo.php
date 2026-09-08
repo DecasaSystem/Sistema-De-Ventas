@@ -13,17 +13,31 @@ use Illuminate\Database\Eloquent\Model;
  */
 class NominaSueldo extends Model
 {
+    /**
+     * Auxilio de transporte por día que trae un sueldo nuevo. Es el valor
+     * nacional 2026 prorrateado; cambia por decreto cada año y se edita
+     * desde la pantalla de Sueldos.
+     */
+    public const AUXILIO_DIA_DEFECTO = 8303;
+
     protected $table = 'nomina_sueldos';
 
-    protected $fillable = ['nombre', 'valor', 'unidad', 'horas_dia', 'activo'];
+    protected $fillable = ['nombre', 'valor', 'unidad', 'horas_dia', 'valor_auxilio_dia', 'activo'];
 
     protected function casts(): array
     {
         return [
-            'valor'     => 'decimal:2',
-            'horas_dia' => 'decimal:2',
-            'activo'    => 'boolean',
+            'valor'             => 'decimal:2',
+            'horas_dia'         => 'decimal:2',
+            'valor_auxilio_dia' => 'decimal:2',
+            'activo'            => 'boolean',
         ];
+    }
+
+    /** Lo que se descuenta por cada día de incapacidad. 0 = sin auxilio. */
+    public function valorAuxilioDia(): float
+    {
+        return (float) $this->valor_auxilio_dia;
     }
 
     public function trabajadores()
