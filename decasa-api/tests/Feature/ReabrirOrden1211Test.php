@@ -94,16 +94,17 @@ class ReabrirOrden1211Test extends TestCase
         DB::table('inventario')->insert(['producto_id' => 5, 'tienda_id' => 1, 'cantidad_disponible' => 3, 'cantidad_reservada' => 0]);
         // Producción cerrada por la "entrega".
         DB::table('produccion')->insert(['orden_item_id' => 2, 'estado' => 'entregado', 'fecha_real' => now()->toDateString()]);
-        // El abono real + el saldo_final que creó la entrega.
+        // Anticipo mal cargado ($800k, debía ser $700k) + saldo_final de la
+        // falsa entrega.
         DB::table('pagos')->insert([
-            ['orden_id' => 1211, 'tipo' => 'anticipo', 'monto' => 700000, 'metodo' => 'efectivo', 'created_at' => now()->subDays(4)],
-            ['orden_id' => 1211, 'tipo' => 'saldo_final', 'monto' => 1300000, 'metodo' => 'transferencia', 'created_at' => now()],
+            ['orden_id' => 1211, 'tipo' => 'anticipo', 'monto' => 800000, 'metodo' => 'efectivo', 'created_at' => now()->subDays(4)],
+            ['orden_id' => 1211, 'tipo' => 'saldo_final', 'monto' => 2700000, 'metodo' => 'efectivo', 'created_at' => now()],
         ]);
         $dId = DB::table('despachos')->insertGetId(['estado' => 'completado', 'created_at' => now(), 'updated_at' => now()]);
         DB::table('despacho_items')->insert(['despacho_id' => $dId, 'orden_id' => 1211, 'estado' => 'entregado']);
     }
 
-    public function test_reabre_la_orden_y_deja_el_abono_real(): void
+    public function test_reabre_la_orden_borra_la_entrega_y_deja_700k(): void
     {
         $this->sembrarOrdenEntregadaPorError();
 
@@ -121,9 +122,13 @@ class ReabrirOrden1211Test extends TestCase
         // Producción reabierta.
         $this->assertSame('listo', DB::table('produccion')->where('orden_item_id', 2)->value('estado'));
 
-        // Solo queda el abono real.
-        $this->assertSame(700000.0, (float) DB::table('pagos')->where('orden_id', 1211)->sum('monto'));
+        // Saldo final borrado y anticipo bajado de $800k a $700k.
         $this->assertSame(0, DB::table('pagos')->where('orden_id', 1211)->where('tipo', 'saldo_final')->count());
+        $this->assertSame(700000.0, (float) DB::table('pagos')->where('orden_id', 1211)->sum('monto'));
+        $this->assertSame(700000.0, (float) DB::table('pagos')->where('orden_id', 1211)->where('tipo', 'anticipo')->value('monto'));
+
+        // El total de la orden NO cambia.
+        $this->assertSame(2000000.0, (float) $orden->valor_total);
 
         // El despacho/acta de la entrega que no pasó, fuera.
         $this->assertSame(0, DB::table('despacho_items')->where('orden_id', 1211)->count());
@@ -134,7 +139,7 @@ class ReabrirOrden1211Test extends TestCase
         $this->assertSame(1, DB::table('orden_ediciones')->where('orden_id', 1211)->count());
     }
 
-    public function test_no_borra_pagos_si_la_cuenta_no_cuadra_exacto(): void
+    public function test_si_quedan_varios_pagos_no_ajusta_y_avisa(): void
     {
         DB::table('ordenes')->insert([
             'id' => 1211, 'tienda_id' => 1, 'estado' => 'entregado', 'valor_total' => 2000000,
@@ -143,17 +148,19 @@ class ReabrirOrden1211Test extends TestCase
         DB::table('orden_items')->insert(['id' => 1, 'orden_id' => 1211, 'producto_id' => 5, 'cantidad' => 1,
             'es_personalizado' => false, 'tienda_origen_id' => 1, 'variante_id' => null, 'combo_config_id' => null]);
         DB::table('inventario')->insert(['producto_id' => 5, 'tienda_id' => 1, 'cantidad_disponible' => 0, 'cantidad_reservada' => 0]);
-        // Total 900.000; quitar el saldo_final dejaría 400.000, no 700.000 → no se toca.
+        // Tras borrar el saldo_final quedan 2 pagos (800k) — no se ajusta ninguno.
         DB::table('pagos')->insert([
-            ['orden_id' => 1211, 'tipo' => 'abono', 'monto' => 400000, 'created_at' => now()->subDays(3)],
-            ['orden_id' => 1211, 'tipo' => 'saldo_final', 'monto' => 500000, 'created_at' => now()],
+            ['orden_id' => 1211, 'tipo' => 'anticipo', 'monto' => 400000, 'created_at' => now()->subDays(3)],
+            ['orden_id' => 1211, 'tipo' => 'abono', 'monto' => 400000, 'created_at' => now()->subDays(2)],
+            ['orden_id' => 1211, 'tipo' => 'saldo_final', 'monto' => 800000, 'created_at' => now()],
         ]);
 
         $this->correrMigracion();
 
-        // La orden se reabre igual, pero los pagos quedan intactos para revisar.
+        // La orden se reabre; el saldo_final se borra; los otros quedan intactos.
         $this->assertSame('listo_entrega', DB::table('ordenes')->where('id', 1211)->value('estado'));
-        $this->assertSame(900000.0, (float) DB::table('pagos')->where('orden_id', 1211)->sum('monto'));
+        $this->assertSame(0, DB::table('pagos')->where('orden_id', 1211)->where('tipo', 'saldo_final')->count());
+        $this->assertSame(800000.0, (float) DB::table('pagos')->where('orden_id', 1211)->sum('monto'));
     }
 
     public function test_es_idempotente_si_la_orden_ya_no_esta_entregada(): void

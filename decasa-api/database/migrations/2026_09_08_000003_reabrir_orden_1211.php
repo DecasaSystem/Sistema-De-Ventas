@@ -7,11 +7,17 @@ use Illuminate\Support\Facades\DB;
  * Arreglo puntual de datos: la orden 1211 se marcó ENTREGADA por error.
  * No ha salido y el cliente solo ha abonado $700.000.
  *
+ * Confirmado con el usuario: el cliente solo dio $700.000 de anticipo. En el
+ * sistema quedó un anticipo de $800.000 (08-jul) y un `saldo_final` de
+ * $2.700.000 creado en la falsa entrega (05-ago, por "Conductor Prueba").
+ * El total de la orden ($3.500.000) no cambia; la BASE MADRID vuelve
+ * reservada para esta orden.
+ *
  * Deshace lo que hace una entrega, igual que el botón "Revertir entrega":
  *   - devuelve al inventario los ítems de stock (disponible + reservada)
  *   - reabre la producción de los personalizados que quedó cerrada
- *   - borra los pagos `saldo_final` que haya creado la entrega (el abono real
- *     de $700.000 es de otro tipo y no se toca)
+ *   - borra el pago `saldo_final` de la falsa entrega y deja el anticipo en
+ *     $700.000
  *   - quita el despacho_item / acta de esa entrega que no ocurrió
  *   - deja la orden en `listo_entrega` (lista, sin entregar)
  *
@@ -124,25 +130,28 @@ return new class extends Migration
                     : 'en_produccion');
             echo "[1211] Estado destino: {$estadoDestino} (producciones: " . $estadosProd->implode(',') . ")\n";
 
-            // 3) Pagos. El cliente solo abonó $700.000; lo que sobre lo creó la
-            //    entrega (pago `saldo_final`). PERO un `saldo_final` también
-            //    puede ser un pago manual legítimo, así que solo se borran si
-            //    la cuenta cuadra EXACTO: quitarlos deja el total en $700.000.
-            $abonadoReal   = 700000;
-            $totalPagos    = (float) DB::table('pagos')->where('orden_id', $id)->sum('monto');
-            $saldoFinal    = DB::table('pagos')->where('orden_id', $id)->where('tipo', 'saldo_final')->get();
-            $sumaSaldoFin  = (float) $saldoFinal->sum('monto');
+            // 3) Pagos: el abono real es $700.000. Se borra el `saldo_final`
+            //    que creó la falsa entrega y se deja el anticipo en $700.000.
+            $objetivo = 700000;
 
-            if ($saldoFinal->isNotEmpty() && abs(($totalPagos - $sumaSaldoFin) - $abonadoReal) < 1) {
-                foreach ($saldoFinal as $p) {
-                    echo "[1211] Borrando pago de la entrega: #{$p->id} {$p->tipo} \$" . number_format((float) $p->monto, 0, ',', '.') . " ({$p->metodo})\n";
-                }
-                DB::table('pagos')->where('orden_id', $id)->where('tipo', 'saldo_final')->delete();
-            } elseif (abs($totalPagos - $abonadoReal) < 1) {
-                echo "[1211] Pagos ya cuadran en \$700.000. No se toca ninguno.\n";
+            foreach (DB::table('pagos')->where('orden_id', $id)->where('tipo', 'saldo_final')->get() as $p) {
+                echo "[1211] Borrando pago de la falsa entrega: #{$p->id} {$p->tipo} \$" . number_format((float) $p->monto, 0, ',', '.') . " ({$p->metodo})\n";
+            }
+            DB::table('pagos')->where('orden_id', $id)->where('tipo', 'saldo_final')->delete();
+
+            $restantes    = DB::table('pagos')->where('orden_id', $id)->get();
+            $sumaRestante = (float) $restantes->sum('monto');
+
+            if (abs($sumaRestante - $objetivo) < 1) {
+                echo "[1211] El abono restante ya es \$" . number_format($objetivo, 0, ',', '.') . ". No se ajusta más.\n";
+            } elseif ($restantes->count() === 1) {
+                $unico = $restantes->first();
+                echo "[1211] Ajustando pago #{$unico->id} ({$unico->tipo}) de \$" . number_format((float) $unico->monto, 0, ',', '.')
+                   . " a \$" . number_format($objetivo, 0, ',', '.') . "\n";
+                DB::table('pagos')->where('id', $unico->id)->update(['monto' => $objetivo]);
             } else {
-                echo "[1211] ⚠ Los pagos suman \$" . number_format($totalPagos, 0, ',', '.')
-                   . " y quitar los 'saldo_final' no deja \$700.000 exacto. NO se borró ningún pago — revisar a mano.\n";
+                echo "[1211] ⚠ Quedan {$restantes->count()} pagos sumando \$" . number_format($sumaRestante, 0, ',', '.')
+                   . " (esperado \$700.000). NO se ajustó ninguno — revisar a mano.\n";
             }
 
             // 4) Despacho/acta de la entrega que no ocurrió. Se registran las
