@@ -105,12 +105,18 @@ class StatsController extends Controller
             ")
             ->first();
 
-        // Cartera pendiente: saldo vivo de hoy, sin filtro de fecha a propósito
-        // (es un saldo, no un movimiento del período). Incluye las entregadas
-        // que todavía deben: el mueble ya salió pero la plata sigue debiéndose,
-        // y dejarlas fuera escondía deuda real del reporte.
+        // Cartera pendiente del período: lo que falta por cobrar de las órdenes
+        // vendidas DENTRO del rango. Se acota por `o.created_at` igual que
+        // `total_vendido` para que el recuadro de Resumen cuadre entre sí
+        // (vendido, cobrado y saldo del mismo período). El saldo vivo total a
+        // hoy —sin filtro de fecha— sigue estando en GET /api/stats/cartera,
+        // que es la pestaña "Cartera".
+        //
+        // Incluye las entregadas que todavía deben: el mueble ya salió pero la
+        // plata sigue debiéndose, y dejarlas fuera escondía deuda real.
         $carteraQ = DB::table('v_saldo_ordenes as v')
             ->join('ordenes as o', 'o.id', '=', 'v.orden_id')
+            ->whereBetween('o.created_at', $rango)
             ->where('v.saldo_pendiente', '>', 0)
             ->whereNotIn('o.estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES));
         if ($tiendaId)   $carteraQ->where('o.tienda_id',   $tiendaId);

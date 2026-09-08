@@ -565,7 +565,7 @@ onBeforeUnmount(() => {
                 <p class="text-sm font-semibold text-blue-600">{{ cop(panel.ingresos_totales) }}</p>
               </div>
               <div class="text-right">
-                <p class="text-[11px] text-gray-400">Cartera</p>
+                <p class="text-[11px] text-gray-400">Por cobrar</p>
                 <p class="text-sm font-semibold text-red-500">{{ cop(panel.cartera_pendiente) }}</p>
               </div>
             </div>
@@ -595,8 +595,9 @@ onBeforeUnmount(() => {
             <p class="text-lg font-bold text-gray-800 leading-tight">{{ cop(panel.ticket_promedio) }}</p>
           </div>
           <div class="bg-white rounded-xl shadow-sm p-4">
-            <p class="text-xs text-gray-400 mb-1">Cartera pendiente</p>
+            <p class="text-xs text-gray-400 mb-1">Por cobrar del período</p>
             <p class="text-lg font-bold text-red-500 leading-tight">{{ cop(panel.cartera_pendiente) }}</p>
+            <p class="text-[11px] text-gray-400 mt-1">Saldo de lo vendido en el rango. La deuda total a hoy está en la pestaña Cartera.</p>
           </div>
           <div class="bg-white rounded-xl shadow-sm p-4">
             <p class="text-xs text-gray-400 mb-1">Pendientes</p>
