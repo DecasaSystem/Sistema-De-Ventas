@@ -124,6 +124,13 @@ class NominaPagoController extends Controller
                     'usuario_id' => $fila['usuario_id'],
                     'motivo'      => collect($e->errors())->flatten()->first(),
                 ];
+            } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
+                // Alguien pagó ese ciclo entre que se armó la lista y esta fila.
+                // No tumba el lote: se salta y sigue con el resto.
+                $omitidos[] = [
+                    'usuario_id' => $fila['usuario_id'],
+                    'motivo'      => 'Ese ciclo ya estaba pagado.',
+                ];
             }
         }
 
