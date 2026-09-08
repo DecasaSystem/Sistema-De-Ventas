@@ -427,6 +427,33 @@ class Orden extends Model
             && $this->estado === 'entregado';
     }
 
+    /**
+     * ¿Este usuario puede hacerle una ENTREGA DIRECTA a esta orden?
+     *
+     * La entrega directa es el camino corto —sin ruta ni conductor— para
+     * cuando los conductores no están usando el programa. Exige el permiso
+     * `acceso_entregas` y que la orden ya esté lista (los personalizados con
+     * su producción terminada; eso es lo que la pone en `listo_entrega`).
+     *
+     *  - Supervisor: cualquier orden dentro de su alcance normal.
+     *  - Vendedor: solo si es suya (la vendió o es covendedor) Y salió de su
+     *    tienda — no puede despachar mercancía de otra sede.
+     */
+    public function laPuedeEntregarDirecto(Usuario $usuario): bool
+    {
+        if (! $usuario->acceso_entregas)      return false;
+        if ($this->estado !== 'listo_entrega') return false;
+
+        if ($usuario->rol === 'supervisor') {
+            return $this->laPuedeVer($usuario);
+        }
+
+        $esSuya = (int) $this->vendedor_id   === (int) $usuario->id
+               || (int) $this->covendedor_id === (int) $usuario->id;
+
+        return $esSuya && (int) $this->tienda_id === (int) $usuario->tienda_default_id;
+    }
+
     public function items()
     {
         return $this->hasMany(OrdenItem::class, 'orden_id');

@@ -50,7 +50,7 @@
                         <strong>Fecha:</strong>
                         {{ $item->entregado_at ? \Carbon\Carbon::parse($item->entregado_at)->format('d/m/Y H:i') : '—' }}
                     </p>
-                    <p style="margin: 3px 0; font-size: 11px;"><strong>Transportador:</strong> {{ $item->despacho->conductor->nombre ?? '—' }}</p>
+                    <p style="margin: 3px 0; font-size: 11px;"><strong>{{ $item->despacho->tipo === 'directa' ? 'Entregó' : 'Transportador' }}:</strong> {{ $item->despacho->conductor->nombre ?? $item->despacho->entregadoPor->nombre ?? '—' }}</p>
                     <p style="margin: 3px 0; font-size: 11px;"><strong>Tienda:</strong> {{ $orden->tienda->nombre ?? '—' }}</p>
                 </div>
             </td>
@@ -129,8 +129,8 @@
             <td style="width: 45%; text-align: center; vertical-align: bottom;">
                 <div style="height: 55px;"></div>
                 <div style="border-top: 1px solid #9ca3af; margin: 4px 20px 0 20px; padding-top: 5px;">
-                    <p style="font-size: 11px; color: #374151; margin: 0;">{{ $item->despacho->conductor->nombre ?? '' }}</p>
-                    <p style="font-size: 9px; color: #9ca3af; margin: 2px 0 0 0;">Transportador</p>
+                    <p style="font-size: 11px; color: #374151; margin: 0;">{{ $item->despacho->conductor->nombre ?? $item->despacho->entregadoPor->nombre ?? '' }}</p>
+                    <p style="font-size: 9px; color: #9ca3af; margin: 2px 0 0 0;">{{ $item->despacho->tipo === 'directa' ? 'Entregó' : 'Transportador' }}</p>
                 </div>
             </td>
         </tr>

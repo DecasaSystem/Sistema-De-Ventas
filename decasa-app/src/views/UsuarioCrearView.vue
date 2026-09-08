@@ -53,6 +53,7 @@ const form = ref({
   revisa_encargos: false,
   acceso_costos: false,
   acceso_despacho: false,
+  acceso_entregas: false,
   acceso_produccion: false,
   gestiona_produccion: false,
   acceso_nomina: false,
@@ -154,6 +155,7 @@ async function submit() {
       acceso_costos: form.value.acceso_costos,
       acceso_proveedores: form.value.acceso_proveedores,
       acceso_despacho: arquetipo.value === 'supervisor' ? form.value.acceso_despacho : false,
+      acceso_entregas: ['vendedor', 'supervisor'].includes(arquetipo.value) ? form.value.acceso_entregas : false,
       acceso_produccion: form.value.acceso_produccion,
       gestiona_produccion: form.value.acceso_produccion && form.value.gestiona_produccion,
       acceso_nomina: arquetipo.value === 'supervisor' ? form.value.acceso_nomina : false,
@@ -511,6 +513,24 @@ async function submit() {
         <div>
           <label for="acceso_costos" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a módulo de Costos</label>
           <p class="text-xs text-gray-500 mt-0.5">Podrá ver fichas técnicas y configuración de costos de producción.</p>
+        </div>
+      </div>
+
+      <!-- Entrega directa (vendedor y supervisor) -->
+      <div v-if="['vendedor', 'supervisor'].includes(arquetipo)" class="flex items-start gap-3 py-2">
+        <input
+          id="acceso_entregas"
+          type="checkbox"
+          v-model="form.acceso_entregas"
+          class="mt-0.5 rounded border-gray-300 text-green-600 focus:ring-green-500"
+        />
+        <div>
+          <label for="acceso_entregas" class="text-sm font-medium text-gray-700 cursor-pointer">Puede entregar sus órdenes (entrega directa)</label>
+          <p class="text-xs text-gray-500 mt-0.5">
+            Marcar como entregada una orden suya de su tienda, sin conductor: se le pide la foto del
+            producto, el comprobante de pago y el acta de quien recibe. Medida temporal mientras los
+            conductores no usan el programa.
+          </p>
         </div>
       </div>
 

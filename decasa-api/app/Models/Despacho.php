@@ -11,9 +11,11 @@ class Despacho extends Model
     protected $fillable = [
         'camion_id',
         'conductor_id',
+        'entregado_por_id',
         'supervisor_id',
         'fecha_despacho',
         'estado',
+        'tipo',
         'notas',
         'nombre_ruta',
         'instrucciones',
@@ -32,6 +34,23 @@ class Despacho extends Model
     public function conductor()
     {
         return $this->belongsTo(Usuario::class, 'conductor_id');
+    }
+
+    /** Quien entrega cuando es una entrega directa (vendedor/supervisor, sin ruta). */
+    public function entregadoPor()
+    {
+        return $this->belongsTo(Usuario::class, 'entregado_por_id');
+    }
+
+    public function esDirecta(): bool
+    {
+        return $this->tipo === 'directa';
+    }
+
+    /** El nombre de quien hizo la entrega, sea conductor o entrega directa. */
+    public function quienEntrega(): ?string
+    {
+        return $this->conductor?->nombre ?? $this->entregadoPor?->nombre;
     }
 
     public function supervisor()

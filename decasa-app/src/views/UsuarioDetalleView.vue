@@ -40,7 +40,7 @@ const editForm = ref({
   nombre: '', email: '', rol_id: '', facturacion: false, independiente: false,
   notif_asignar_fecha: true, notif_stock: false, acceso_redes: false, acceso_comisiones: false,
   recarga_telas: false, acceso_telas: false, acceso_surtir: false, acceso_costos: false, acceso_proveedores: false,
-  acceso_despacho: false, acceso_produccion: false, gestiona_produccion: false, acceso_nomina: false, acceso_reserva: false,
+  acceso_despacho: false, acceso_entregas: false, acceso_produccion: false, gestiona_produccion: false, acceso_nomina: false, acceso_reserva: false,
   acceso_compras: false,
   lleva_encargos: false, acceso_encargos: false, revisa_encargos: false,
   ve_todas_ordenes: false, tienda_default_id: '',
@@ -137,6 +137,7 @@ function openEditModal() {
     acceso_costos: usuario.value.acceso_costos ?? false,
     acceso_proveedores: usuario.value.acceso_proveedores ?? false,
     acceso_despacho: usuario.value.acceso_despacho ?? false,
+    acceso_entregas: usuario.value.acceso_entregas ?? false,
     acceso_produccion: usuario.value.acceso_produccion ?? false,
     gestiona_produccion: usuario.value.gestiona_produccion ?? false,
     acceso_nomina: usuario.value.acceso_nomina ?? false,
@@ -191,6 +192,7 @@ async function submitEdit() {
       acceso_costos: editForm.value.acceso_costos,
       acceso_proveedores: editForm.value.acceso_proveedores,
       acceso_despacho: editArquetipo.value === 'supervisor' ? editForm.value.acceso_despacho : false,
+      acceso_entregas: ['vendedor', 'supervisor'].includes(editArquetipo.value) ? editForm.value.acceso_entregas : false,
       acceso_produccion: editForm.value.acceso_produccion,
       gestiona_produccion: editForm.value.acceso_produccion && editForm.value.gestiona_produccion,
       acceso_nomina: editArquetipo.value === 'supervisor' ? editForm.value.acceso_nomina : false,
@@ -352,6 +354,15 @@ onMounted(async () => {
           <div>
             <p class="text-xs text-gray-400">Módulo de Costos</p>
             <p class="font-medium text-blue-700">Acceso habilitado</p>
+          </div>
+        </div>
+        <div v-if="usuario.acceso_entregas" class="flex items-center gap-3">
+          <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
+            <span class="text-sm">🚚</span>
+          </div>
+          <div>
+            <p class="text-xs text-gray-400">Entrega directa</p>
+            <p class="font-medium text-green-700">Puede entregar sus órdenes</p>
           </div>
         </div>
         <div v-if="usuario.acceso_proveedores" class="flex items-center gap-3">
@@ -883,6 +894,22 @@ onMounted(async () => {
               <div>
                 <label for="edit-acceso-reserva" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a Reserva / Fábrica</label>
                 <p class="text-xs text-gray-500 mt-0.5">Podrá consultar y mover el inventario que está en fábrica/reserva.</p>
+              </div>
+            </div>
+            <div v-if="['vendedor', 'supervisor'].includes(editArquetipo)" class="flex items-start gap-3 py-1">
+              <input
+                id="edit-acceso-entregas"
+                type="checkbox"
+                v-model="editForm.acceso_entregas"
+                class="mt-0.5 rounded border-gray-300 text-green-600 focus:ring-green-500"
+              />
+              <div>
+                <label for="edit-acceso-entregas" class="text-sm font-medium text-gray-700 cursor-pointer">Puede entregar sus órdenes (entrega directa)</label>
+                <p class="text-xs text-gray-500 mt-0.5">
+                  Marcar entregada una orden suya de su tienda sin conductor: pide foto del producto,
+                  comprobante de pago y acta de quien recibe. Medida temporal mientras los conductores
+                  no usan el programa.
+                </p>
               </div>
             </div>
             <div v-if="editArquetipo === 'vendedor'" class="flex items-start gap-3 py-1">

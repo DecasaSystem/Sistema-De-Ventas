@@ -10,7 +10,8 @@ import { getOrden, updateEstado, revertirEntrega, descargarPdfOrden, descargarAc
 import api from '@/api'
 import { useTiposProceso } from '@/composables/useTiposProceso'
 import { updateCliente } from '@/api/clientes'
-import { despachoPorOrden } from '@/api/despacho'
+import { despachoPorOrden, crearEntregaDirecta, cancelarEntregaDirecta } from '@/api/despacho'
+import EntregaDetalleModal from '@/components/despacho/EntregaDetalleModal.vue'
 import { getDevoluciones } from '@/api/devoluciones'
 import { tomarFacturacion, marcarFacturada } from '@/api/pagos'
 import { getReceptores, crearConsulta, getConsultas, ajustarPrecio as ajustarPrecioApi } from '@/api/consultas'
@@ -72,6 +73,70 @@ const cargandoDespacho = ref(false)
 const pruebaEntregaVisible = computed(() =>
   orden.value?.estado === 'entregado' && despachoEntrega.value
 )
+
+// ── Entrega directa (sin conductor) ────────────────────────────────────────
+// Medida temporal mientras los conductores no usan el programa: el vendedor
+// o supervisor dueño entrega su propia orden con la misma pantalla del
+// conductor (foto, comprobante, acta, devoluciones).
+const entregaModalId  = ref(null)
+const abriendoEntrega = ref(false)
+
+// La entrega directa que YO empecé y no he terminado (para "Continuar" / "Cancelar").
+const miEntregaDirectaPendiente = computed(() => {
+  const d = despachoEntrega.value
+  return d && d.despacho?.tipo === 'directa' && d.estado === 'pendiente'
+    && d.despacho?.entregado_por?.id === auth.usuario?.id
+    ? d : null
+})
+
+// ¿Mostrar el botón de "Entregar ahora"? Orden lista, con permiso y sin
+// nadie más despachándola.
+const puedeEntregarDirecto = computed(() =>
+  orden.value?.estado === 'listo_entrega'
+  && auth.puedeEntregar
+  && orden.value?.puede_entregar_directo
+  && !despachoEntrega.value   // ni ruta ni una directa ya abierta
+)
+
+async function abrirEntregaDirecta() {
+  if (abriendoEntrega.value) return
+  abriendoEntrega.value = true
+  try {
+    const { data } = await crearEntregaDirecta(orden.value.id)
+    entregaModalId.value = data.despacho_item_id
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo abrir la entrega.')
+  } finally {
+    abriendoEntrega.value = false
+  }
+}
+
+function continuarEntregaDirecta() {
+  if (miEntregaDirectaPendiente.value) entregaModalId.value = miEntregaDirectaPendiente.value.id
+}
+
+async function cancelarMiEntregaDirecta() {
+  if (!confirm('¿Cancelar esta entrega? La orden vuelve a quedar lista para despachar.')) return
+  try {
+    await cancelarEntregaDirecta(orden.value.id)
+    toast.success('Entrega cancelada.')
+    await cargarOrden()
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo cancelar.')
+  }
+}
+
+async function trasEntregaDirecta() {
+  entregaModalId.value = null
+  await cargarOrden()
+}
+
+// Al cerrar sin terminar: recargar para que aparezca "Continuar / Cancelar".
+async function cerrarEntregaModal() {
+  const estaba = entregaModalId.value
+  entregaModalId.value = null
+  if (estaba) await cargarOrden()
+}
 
 /**
  * Una orden que ya salió se sigue pudiendo corregir, pero sólo en los papeles:
@@ -746,7 +811,7 @@ async function cargarOrden() {
     }
     fechasEdicion.value = edicion
 
-    if (data.estado === 'entregado') {
+    if (['listo_entrega', 'en_camino', 'entregado', 'devuelto'].includes(data.estado)) {
       cargarDespachoEntrega(data.id)
     }
 
@@ -2173,8 +2238,8 @@ onMounted(() => { cargarTipos(); cargarOrden() })
           </div>
 
           <div class="flex items-center justify-between text-sm pt-2 border-t border-gray-100">
-            <span class="text-gray-500">Conductor</span>
-            <span class="font-medium text-gray-800">{{ despachoEntrega.despacho?.conductor?.nombre }}</span>
+            <span class="text-gray-500">{{ despachoEntrega.despacho?.tipo === 'directa' ? 'Entregó' : 'Conductor' }}</span>
+            <span class="font-medium text-gray-800">{{ despachoEntrega.despacho?.conductor?.nombre ?? despachoEntrega.despacho?.entregado_por?.nombre ?? '—' }}</span>
           </div>
           <div v-if="despachoEntrega.entregado_at" class="flex items-center justify-between text-sm">
             <span class="text-gray-500">Entregado el</span>
@@ -2718,14 +2783,57 @@ onMounted(() => { cargarTipos(); cargarOrden() })
       </div>
 
       <!-- Aviso: orden en despacho -->
-      <div
-        v-if="orden.estado === 'listo_entrega'"
-        class="bg-purple-50 border border-purple-200 rounded-xl px-4 py-3 flex items-start gap-3"
-      >
-        <TruckIcon class="w-5 h-5 mt-0.5 text-purple-600 flex-shrink-0" />
-        <div>
-          <p class="text-sm font-semibold text-purple-800">Orden en cola de despacho</p>
-          <p class="text-xs text-purple-600 mt-0.5">Esta orden está lista para entregar. El supervisor debe asignarla a un conductor desde el módulo de Despacho.</p>
+      <div v-if="orden.estado === 'listo_entrega'" class="space-y-2">
+        <!-- Entrega directa: continuar la que ya empecé -->
+        <div v-if="miEntregaDirectaPendiente" class="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 space-y-2">
+          <div class="flex items-start gap-3">
+            <TruckIcon class="w-5 h-5 mt-0.5 text-blue-600 flex-shrink-0" />
+            <div>
+              <p class="text-sm font-semibold text-blue-800">Entrega en curso</p>
+              <p class="text-xs text-blue-600 mt-0.5">Empezaste una entrega directa de esta orden. Continúa para registrar el pago, las fotos y el acta.</p>
+            </div>
+          </div>
+          <div class="flex gap-2">
+            <button
+              @click="continuarEntregaDirecta"
+              class="flex-1 bg-blue-600 text-white rounded-lg py-2 text-sm font-semibold hover:bg-blue-700 transition-colors"
+            >Continuar entrega</button>
+            <button
+              @click="cancelarMiEntregaDirecta"
+              class="rounded-lg border border-gray-300 text-gray-600 px-3 py-2 text-sm font-medium hover:bg-gray-50 transition-colors"
+            >Cancelar</button>
+          </div>
+        </div>
+
+        <!-- Entrega directa: empezarla -->
+        <div v-else-if="puedeEntregarDirecto" class="bg-green-50 border border-green-200 rounded-xl px-4 py-3 space-y-2">
+          <div class="flex items-start gap-3">
+            <TruckIcon class="w-5 h-5 mt-0.5 text-green-600 flex-shrink-0" />
+            <div>
+              <p class="text-sm font-semibold text-green-800">Lista para entregar</p>
+              <p class="text-xs text-green-700 mt-0.5">Puedes entregarla tú mismo: se pide la foto del producto, el comprobante de pago y el acta de quien recibe — igual que un conductor.</p>
+            </div>
+          </div>
+          <button
+            @click="abrirEntregaDirecta"
+            :disabled="abriendoEntrega"
+            class="w-full bg-green-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-green-700 disabled:opacity-50 transition-colors"
+          >{{ abriendoEntrega ? 'Abriendo...' : 'Entregar ahora' }}</button>
+        </div>
+
+        <!-- Sin entrega directa: espera al conductor -->
+        <div v-else class="bg-purple-50 border border-purple-200 rounded-xl px-4 py-3 flex items-start gap-3">
+          <TruckIcon class="w-5 h-5 mt-0.5 text-purple-600 flex-shrink-0" />
+          <div>
+            <p class="text-sm font-semibold text-purple-800">
+              {{ despachoEntrega ? 'Orden asignada a una ruta' : 'Orden en cola de despacho' }}
+            </p>
+            <p class="text-xs text-purple-600 mt-0.5">
+              {{ despachoEntrega
+                ? 'Ya está en una ruta de entrega. El estado se actualizará cuando se registre la entrega.'
+                : 'Esta orden está lista para entregar. El supervisor debe asignarla a un conductor desde el módulo de Despacho.' }}
+            </p>
+          </div>
         </div>
       </div>
 
@@ -2838,6 +2946,14 @@ onMounted(() => { cargarTipos(); cargarOrden() })
     </Transition>
 
     <!-- Modal de pago -->
+    <!-- Entrega directa: la misma pantalla del conductor -->
+    <EntregaDetalleModal
+      v-if="entregaModalId"
+      :despacho-item-id="entregaModalId"
+      @cerrar="cerrarEntregaModal"
+      @entregado="trasEntregaDirecta"
+    />
+
     <RegistroPagoModal
       v-if="orden"
       :show="showPagoModal"

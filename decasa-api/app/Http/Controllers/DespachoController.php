@@ -333,7 +333,7 @@ class DespachoController extends Controller
             'orden.tienda:id,nombre',
             'orden.pagos:id,orden_id,monto',
         ])->whereHas('despacho', function ($q) use ($camionId, $desde, $hasta) {
-            $q->whereIn('estado', ['asignado', 'en_ruta']);
+            $q->whereIn('estado', ['asignado', 'en_ruta'])->where('tipo', 'ruta');
             if ($camionId) $q->where('camion_id', $camionId);
             if ($desde)    $q->whereDate('fecha_despacho', '>=', $desde);
             if ($hasta)    $q->whereDate('fecha_despacho', '<=', $hasta);
@@ -474,7 +474,7 @@ class DespachoController extends Controller
             'camion:id,nombre,placa',
             'conductor:id,nombre',
             'items.orden.cliente:id,nombre',
-        ])->where('estado', 'completado');
+        ])->where('estado', 'completado')->where('tipo', 'ruta');
 
         if ($v = $request->query('camion_id')) {
             $query->where('camion_id', $v);
@@ -519,14 +519,122 @@ class DespachoController extends Controller
     {
         $item = DespachoItem::with([
             'despacho.conductor:id,nombre',
+            'despacho.entregadoPor:id,nombre',
             'despacho.supervisor:id,nombre',
-        ])->where('orden_id', $ordenId)->first();
+        ])->where('orden_id', $ordenId)->latest('id')->first();
 
         if (! $item) {
             return response()->json(null);
         }
 
         return response()->json($item);
+    }
+
+    // ── Entrega directa (sin ruta ni conductor) ───────────────────────────────
+
+    /**
+     * POST /api/despacho/entrega-directa  { orden_id }
+     *
+     * El camino corto para cuando los conductores no usan el programa: el
+     * vendedor o supervisor dueño de la orden abre la entrega él mismo.
+     *
+     * Crea un despacho sintético (tipo=directa, sin camión ni conductor, con
+     * `entregado_por_id`) y su item. De ahí en adelante la entrega corre por
+     * exactamente los mismos endpoints y la misma pantalla que la de un
+     * conductor — mismo descuento de inventario, mismo cierre de producción,
+     * misma acta. El permiso `acceso_entregas` ya lo validó el middleware.
+     */
+    public function crearEntregaDirecta(Request $request)
+    {
+        $data    = $request->validate(['orden_id' => 'required|exists:ordenes,id']);
+        $usuario = $request->user();
+
+        $item = DB::transaction(function () use ($data, $usuario) {
+            $orden = Orden::lockForUpdate()->findOrFail($data['orden_id']);
+
+            if (! $orden->laPuedeEntregarDirecto($usuario)) {
+                $motivo = $orden->estado !== 'listo_entrega'
+                    ? 'La orden todavía no está lista para entrega.'
+                    : 'Esta orden no es tuya o salió de otra tienda.';
+                throw new \Illuminate\Http\Exceptions\HttpResponseException(
+                    response()->json(['message' => $motivo], 422)
+                );
+            }
+
+            // ¿Ya la está despachando alguien? (un conductor con su ruta, u otra
+            // entrega directa)
+            $yaActiva = DespachoItem::with('despacho')
+                ->where('orden_id', $orden->id)
+                ->whereHas('despacho', fn ($q) => $q->whereIn('estado', ['borrador', 'asignado', 'en_ruta']))
+                ->first();
+
+            if ($yaActiva) {
+                // Si es una entrega directa mía sin terminar, se reusa: el
+                // vendedor volvió a abrir la pantalla, no se duplica.
+                if ($yaActiva->despacho->esDirecta()
+                    && (int) $yaActiva->despacho->entregado_por_id === (int) $usuario->id) {
+                    return $yaActiva;
+                }
+                throw new \Illuminate\Http\Exceptions\HttpResponseException(
+                    response()->json(['message' => 'Esta orden ya está en un despacho activo.'], 422)
+                );
+            }
+
+            $despacho = Despacho::create([
+                'tipo'             => 'directa',
+                'entregado_por_id' => $usuario->id,
+                'supervisor_id'    => $usuario->id,
+                'estado'           => 'en_ruta',
+                'fecha_despacho'   => now()->toDateString(),
+            ]);
+
+            return DespachoItem::create([
+                'despacho_id' => $despacho->id,
+                'orden_id'    => $orden->id,
+                'posicion'    => 1,
+                'estado'      => 'pendiente',
+            ]);
+        });
+
+        return response()->json(['despacho_item_id' => $item->id], 201);
+    }
+
+    /**
+     * DELETE /api/despacho/entrega-directa/{ordenId}
+     *
+     * Cancela una entrega directa empezada y no terminada — la orden vuelve
+     * a la cola. Solo quien la abrió o un supervisor, y solo si todavía no
+     * se registró el pago/las fotos (después de eso hay plata y acta de por
+     * medio: se completa la entrega o un supervisor la revierte).
+     */
+    public function cancelarEntregaDirecta(Request $request, int $ordenId)
+    {
+        $usuario = $request->user();
+
+        $item = DespachoItem::with('despacho')
+            ->where('orden_id', $ordenId)
+            ->where('estado', 'pendiente')
+            ->whereHas('despacho', fn ($q) => $q->where('tipo', 'directa'))
+            ->firstOrFail();
+
+        $esSuya = (int) $item->despacho->entregado_por_id === (int) $usuario->id;
+        if (! $esSuya && $usuario->rol !== 'supervisor') {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+
+        if ($item->foto_producto !== null) {
+            return response()->json([
+                'message' => 'Ya registraste el pago y las fotos. Completa la entrega o pide a un supervisor que la revierta.',
+            ], 422);
+        }
+
+        DB::transaction(function () use ($item) {
+            $despacho = $item->despacho;
+            $item->delete();
+            $despacho->delete();
+        });
+
+        return response()->json(['ok' => true]);
     }
 
     /**
@@ -624,6 +732,18 @@ class DespachoController extends Controller
     }
 
     /**
+     * ¿Este usuario puede operar esta entrega?
+     *
+     * El conductor al que se le asignó la ruta, o —cuando es una entrega
+     * directa— quien la abrió (vendedor/supervisor).
+     */
+    private function puedeOperarEntrega(DespachoItem $item, Usuario $usuario): bool
+    {
+        return (int) $item->despacho->conductor_id     === (int) $usuario->id
+            || (int) $item->despacho->entregado_por_id === (int) $usuario->id;
+    }
+
+    /**
      * GET /api/despacho/mis-entregas/{despachoItemId}
      */
     public function showEntrega(Request $request, int $despachoItemId)
@@ -631,7 +751,7 @@ class DespachoController extends Controller
         $usuario = $request->user();
 
         $item = DespachoItem::with([
-            'despacho:id,conductor_id,notas',
+            'despacho:id,conductor_id,entregado_por_id,notas',
             'orden.cliente:id,nombre,telefono,direccion',
             'orden.tienda:id,nombre',
             'orden.items.producto:id,nombre,foto_url',
@@ -639,7 +759,7 @@ class DespachoController extends Controller
             'orden.pagos:id,orden_id,monto,metodo,referencia,created_at',
         ])->findOrFail($despachoItemId);
 
-        if ($item->despacho->conductor_id !== $usuario->id) {
+        if (! $this->puedeOperarEntrega($item, $usuario)) {
             return response()->json(['message' => 'No autorizado.'], 403);
         }
 
@@ -675,7 +795,7 @@ class DespachoController extends Controller
         $usuario = $request->user();
         $item    = DespachoItem::with('despacho', 'orden')->findOrFail($despachoItemId);
 
-        if ($item->despacho->conductor_id !== $usuario->id) {
+        if (! $this->puedeOperarEntrega($item, $usuario)) {
             return response()->json(['message' => 'No autorizado.'], 403);
         }
         if ($item->estado === 'entregado') {
@@ -974,6 +1094,7 @@ class DespachoController extends Controller
 
         $item = DespachoItem::with([
             'despacho.conductor:id,nombre',
+            'despacho.entregadoPor:id,nombre',
             'orden.cliente:id,nombre,telefono,cedula',
             'orden.tienda:id,nombre',
             'orden.items.producto:id,nombre',
@@ -1014,10 +1135,11 @@ class DespachoController extends Controller
 
         $item = DespachoItem::with([
             'despacho.conductor:id,nombre',
+            'despacho.entregadoPor:id,nombre',
             'orden.cliente:id,nombre',
         ])->findOrFail($despachoItemId);
 
-        if ($item->despacho->conductor_id !== $usuario->id) {
+        if (! $this->puedeOperarEntrega($item, $usuario)) {
             return response()->json(['message' => 'No autorizado.'], 403);
         }
         if ($item->estado === 'entregado') {
@@ -1041,7 +1163,13 @@ class DespachoController extends Controller
 
         $hayDevolucion = $devueltoPorItem->isNotEmpty();
 
-        DB::transaction(function () use ($item, $orden, $devueltoPorItem, $hayDevolucion) {
+        // Conductor de ruta, o quien la abrió si fue entrega directa.
+        $esDirecta      = $item->despacho->esDirecta();
+        $quienEntregaId = $item->despacho->conductor_id ?? $item->despacho->entregado_por_id ?? $usuario->id;
+        $quienEntrega   = $item->despacho->quienEntrega() ?? $usuario->nombre;
+        $etiquetaCanal  = $esDirecta ? 'entrega directa' : 'conductor';
+
+        DB::transaction(function () use ($item, $orden, $devueltoPorItem, $hayDevolucion, $quienEntregaId, $etiquetaCanal) {
             $now = now();
 
             // Si volvió TODO, esta entrega no se hizo: se devolvió.
@@ -1117,8 +1245,8 @@ class DespachoController extends Controller
                     'tienda_id'   => $origenId,
                     'tipo'        => 'salida',
                     'cantidad'    => $entregadas,
-                    'motivo'      => "Entrega orden #{$orden->id} — conductor",
-                    'usuario_id'  => $item->despacho->conductor_id,
+                    'motivo'      => "Entrega orden #{$orden->id} — {$etiquetaCanal}",
+                    'usuario_id'  => $quienEntregaId,
                 ]);
 
                 // Aquí es donde el producto sale de verdad del inventario. Este
@@ -1147,14 +1275,14 @@ class DespachoController extends Controller
         event(new OrdenEntregada(
             $item->orden_id,
             $item->orden->cliente->nombre,
-            $item->despacho->conductor->nombre,
+            $quienEntrega,
             $item->orden->referencia,
         ));
 
         NotificacionService::crear(
             'entregado',
-            'Orden entregada por conductor',
-            "Orden {$item->orden->referencia} de {$item->orden->cliente->nombre} fue entregada por {$item->despacho->conductor->nombre}",
+            $esDirecta ? 'Orden entregada' : 'Orden entregada por conductor',
+            "Orden {$item->orden->referencia} de {$item->orden->cliente->nombre} fue entregada por {$quienEntrega}",
             ['orden_id' => $item->orden_id],
         );
 

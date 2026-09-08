@@ -936,6 +936,10 @@ class OrdenController extends Controller
                 $item->fecha_entrega_prom->lt(now()->startOfDay())
             );
 
+        // ¿Puede este usuario entregarla él mismo, sin conductor? (permiso
+        // `acceso_entregas`, orden lista, y suya / de su tienda si es vendedor)
+        $orden->puede_entregar_directo = $orden->laPuedeEntregarDirecto($usuario);
+
         return response()->json($orden);
     }
 
@@ -2281,8 +2285,16 @@ class OrdenController extends Controller
             ], 422);
         }
 
-        $porConductor = DB::table('despacho_items')->where('orden_id', $id)->exists();
-        if ($porConductor) {
+        // La entregó un conductor con su ruta: tiene acta firmada y se corrige
+        // desde Despacho, no por aquí. Una entrega directa (vendedor/supervisor)
+        // sí se puede revertir acá: el inventario vuelve y el pago que se haya
+        // cobrado queda registrado en la orden.
+        $entregaEnRuta = DB::table('despacho_items as di')
+            ->join('despachos as d', 'd.id', '=', 'di.despacho_id')
+            ->where('di.orden_id', $id)
+            ->where('d.tipo', 'ruta')
+            ->exists();
+        if ($entregaEnRuta) {
             return response()->json([
                 'message' => 'Esta entrega la hizo un conductor y tiene acta firmada. Se corrige desde el módulo de Despacho.',
             ], 422);

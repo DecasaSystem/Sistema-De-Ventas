@@ -28,3 +28,9 @@ export const marcarEntregado         = (id)     => api.patch(`/despacho/mis-entr
 export const iniciarRuta             = (id)     => api.patch(`/despacho/mis-entregas/rutas/${id}/iniciar`)
 export const reprogramarRuta         = (id, d)  => api.patch(`/despacho/${id}/reprogramar`, d)
 export const despachoPorOrden        = (id)     => api.get(`/despacho/por-orden/${id}`)
+
+// Entrega directa: el vendedor/supervisor dueño entrega su propia orden sin
+// ruta ni conductor. Devuelve { despacho_item_id } para abrir la misma
+// pantalla de entrega del conductor.
+export const crearEntregaDirecta     = (ordenId) => api.post('/despacho/entrega-directa', { orden_id: ordenId })
+export const cancelarEntregaDirecta  = (ordenId) => api.delete(`/despacho/entrega-directa/${ordenId}`)

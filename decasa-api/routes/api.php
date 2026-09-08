@@ -533,6 +533,14 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/mis-entregas/{despachoItemId}',         [DespachoController::class, 'showEntrega']);
         Route::post('/mis-entregas/{despachoItemId}/pago',   [DespachoController::class, 'registrarPago']);
         Route::patch('/mis-entregas/{despachoItemId}/entregar', [DespachoController::class, 'entregar']);
+
+        // Entrega directa: el vendedor/supervisor dueño de la orden entrega
+        // sin ruta ni conductor. Abre un despacho sintético y de ahí sigue
+        // por los endpoints de arriba (showEntrega/pago/entregar).
+        Route::middleware('permiso:acceso_entregas')->group(function () {
+            Route::post('/entrega-directa',             [DespachoController::class, 'crearEntregaDirecta']);
+            Route::delete('/entrega-directa/{ordenId}', [DespachoController::class, 'cancelarEntregaDirecta'])->whereNumber('ordenId');
+        });
     });
 
     // Materiales (catálogo maestro)

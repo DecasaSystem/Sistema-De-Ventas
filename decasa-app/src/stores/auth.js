@@ -98,6 +98,7 @@ export const useAuthStore = defineStore('auth', () => {
       acceso_costos:      data.acceso_costos      ?? false,
       acceso_proveedores: data.acceso_proveedores ?? false,
       acceso_despacho:    data.acceso_despacho    ?? false,
+      acceso_entregas:    data.acceso_entregas    ?? false,
       acceso_produccion:  data.acceso_produccion  ?? false,
       acceso_reserva:     data.acceso_reserva     ?? false,
       acceso_nomina:      data.acceso_nomina      ?? false,
@@ -159,6 +160,10 @@ export const useAuthStore = defineStore('auth', () => {
   // crear/editar. Predeterminado para supervisor, activable para el resto.
   const puedeProveedores      = computed(() => isSupervisor.value || !!usuario.value?.acceso_proveedores)
   const puedeDespacho         = computed(() => !!usuario.value?.acceso_despacho)
+  // Entrega directa: entregar su propia orden sin conductor. Medida temporal
+  // mientras los conductores no usan el programa. Por trabajador; los
+  // supervisores la traen encendida desde la migración.
+  const puedeEntregar         = computed(() => !!usuario.value?.acceso_entregas)
   // Ver el taller y mandar en el taller son dos permisos. El backend ya manda
   // `ve_produccion` resuelto —cubre tener el permiso o llevar algún paso—, así
   // que la pantalla no tiene que volver a deducirlo.
@@ -340,7 +345,7 @@ export const useAuthStore = defineStore('auth', () => {
     isIndependiente, llevaCajaPropia,
     tieneAccesoPasos,
     isFacturador, esVendedorLimitado, tieneAccesoRedes, tieneAccesoComisiones, puedeRecargarTelas, puedeUsarTelas, puedeSurtir,
-    puedeCostos, puedeProveedores, puedeDespacho, puedeProduccion, gestionaProduccion, puedeReserva, puedeNomina, puedeCompras,
+    puedeCostos, puedeProveedores, puedeDespacho, puedeEntregar, puedeProduccion, gestionaProduccion, puedeReserva, puedeNomina, puedeCompras,
     puedeEncargos, revisaEncargos, llevaEncargos, veTodasOrdenes, soloVeSusOrdenes,
     tienePerfilAlternativo, perfilAlternativo, perfilActivoIdx, perfilAlternoRecordado,
     login, loginConGoogle, fetchMe, setFirma, setEmail, logout, clearSession,
