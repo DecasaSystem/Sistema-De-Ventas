@@ -552,31 +552,31 @@ class DespachoController extends Controller
         $item = DB::transaction(function () use ($data, $usuario) {
             $orden = Orden::lockForUpdate()->findOrFail($data['orden_id']);
 
-            if (! $orden->laPuedeEntregarDirecto($usuario)) {
-                $motivo = $orden->estado !== 'listo_entrega'
-                    ? 'La orden todavía no está lista para entrega.'
-                    : 'Esta orden no es tuya o salió de otra tienda.';
-                throw new \Illuminate\Http\Exceptions\HttpResponseException(
-                    response()->json(['message' => $motivo], 422)
-                );
-            }
-
             // ¿Ya la está despachando alguien? (un conductor con su ruta, u otra
-            // entrega directa)
+            // entrega directa). Se mira antes que el permiso porque la mía sin
+            // terminar se reusa: el vendedor volvió a abrir la pantalla y no hay
+            // que duplicarle el despacho.
             $yaActiva = DespachoItem::with('despacho')
                 ->where('orden_id', $orden->id)
                 ->whereHas('despacho', fn ($q) => $q->whereIn('estado', ['borrador', 'asignado', 'en_ruta']))
                 ->first();
 
             if ($yaActiva) {
-                // Si es una entrega directa mía sin terminar, se reusa: el
-                // vendedor volvió a abrir la pantalla, no se duplica.
                 if ($yaActiva->despacho->esDirecta()
                     && (int) $yaActiva->despacho->entregado_por_id === (int) $usuario->id) {
                     return $yaActiva;
                 }
                 throw new \Illuminate\Http\Exceptions\HttpResponseException(
                     response()->json(['message' => 'Esta orden ya está en un despacho activo.'], 422)
+                );
+            }
+
+            if (! $orden->laPuedeEntregarDirecto($usuario)) {
+                $motivo = $orden->estado !== 'listo_entrega'
+                    ? 'La orden todavía no está lista para entrega.'
+                    : 'Esta orden no es tuya o salió de otra tienda.';
+                throw new \Illuminate\Http\Exceptions\HttpResponseException(
+                    response()->json(['message' => $motivo], 422)
                 );
             }
 

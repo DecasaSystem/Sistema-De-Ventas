@@ -438,6 +438,7 @@ class Orden extends Model
      *  - Supervisor: cualquier orden dentro de su alcance normal.
      *  - Vendedor: solo si es suya (la vendió o es covendedor) Y salió de su
      *    tienda — no puede despachar mercancía de otra sede.
+     *  - Y en los dos casos: que nadie más la esté despachando ya.
      */
     public function laPuedeEntregarDirecto(Usuario $usuario): bool
     {
@@ -445,13 +446,33 @@ class Orden extends Model
         if ($this->estado !== 'listo_entrega') return false;
 
         if ($usuario->rol === 'supervisor') {
-            return $this->laPuedeVer($usuario);
+            if (! $this->laPuedeVer($usuario)) return false;
+        } else {
+            $esSuya = (int) $this->vendedor_id   === (int) $usuario->id
+                   || (int) $this->covendedor_id === (int) $usuario->id;
+
+            if (! $esSuya) return false;
+            if ((int) $this->tienda_id !== (int) $usuario->tienda_default_id) return false;
         }
 
-        $esSuya = (int) $this->vendedor_id   === (int) $usuario->id
-               || (int) $this->covendedor_id === (int) $usuario->id;
+        return ! $this->tieneDespachoActivo();
+    }
 
-        return $esSuya && (int) $this->tienda_id === (int) $usuario->tienda_default_id;
+    /**
+     * ¿Ya la está despachando alguien más? Un conductor que la lleva en su ruta,
+     * o una entrega directa que otro abrió y todavía no termina.
+     *
+     * Solo cuentan los despachos vivos. Los que ya se cerraron —una ruta que se
+     * completó sin entregar esta orden, o una entrega que después se revirtió—
+     * dejan su fila ahí para siempre, y esa fila vieja no puede seguir
+     * bloqueando la orden: por eso se mira el estado del despacho y no la sola
+     * existencia del item.
+     */
+    public function tieneDespachoActivo(): bool
+    {
+        return DespachoItem::where('orden_id', $this->id)
+            ->whereHas('despacho', fn ($q) => $q->whereIn('estado', ['borrador', 'asignado', 'en_ruta']))
+            ->exists();
     }
 
     public function items()

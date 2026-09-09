@@ -230,4 +230,44 @@ class EntregaDirectaTest extends TestCase
         $this->actingAs($v)->deleteJson("/api/despacho/entrega-directa/{$orden->id}")->assertStatus(422);
         $this->assertSame(1, DespachoItem::where('orden_id', $orden->id)->count());
     }
+
+    // ── Despachos viejos que ya no la tienen tomada ──────────────────────────
+    // La orden guarda su fila de despacho para siempre. Si la ruta se cerró sin
+    // entregarla —o la entrega se revirtió— esa fila vieja no puede seguir
+    // tapando el botón: es lo que dejaba órdenes sin forma de entregarse.
+
+    public function test_una_ruta_ya_cerrada_no_bloquea_la_entrega_directa(): void
+    {
+        $v = $this->usuario('vendedor', ['acceso_entregas' => true, 'tienda_default_id' => 1]);
+        $orden = $this->orden(['vendedor_id' => $v->id]);
+
+        $ruta = Despacho::create(['tipo' => 'ruta', 'estado' => 'completado', 'fecha_despacho' => now()->toDateString()]);
+        DespachoItem::create(['despacho_id' => $ruta->id, 'orden_id' => $orden->id, 'posicion' => 1, 'estado' => 'no_entregado']);
+
+        $this->assertTrue($orden->fresh()->laPuedeEntregarDirecto($v));
+        $this->abrir($v, $orden->id)->assertCreated();
+    }
+
+    public function test_una_ruta_viva_si_la_bloquea(): void
+    {
+        $v = $this->usuario('vendedor', ['acceso_entregas' => true, 'tienda_default_id' => 1]);
+        $orden = $this->orden(['vendedor_id' => $v->id]);
+
+        $ruta = Despacho::create(['tipo' => 'ruta', 'estado' => 'en_ruta', 'fecha_despacho' => now()->toDateString()]);
+        DespachoItem::create(['despacho_id' => $ruta->id, 'orden_id' => $orden->id, 'posicion' => 1, 'estado' => 'pendiente']);
+
+        $this->assertFalse($orden->fresh()->laPuedeEntregarDirecto($v));
+    }
+
+    public function test_la_entrega_directa_de_otro_bloquea(): void
+    {
+        $v    = $this->usuario('vendedor', ['acceso_entregas' => true, 'tienda_default_id' => 1]);
+        $otro = $this->usuario('vendedor', ['acceso_entregas' => true, 'tienda_default_id' => 1]);
+        $orden = $this->orden(['vendedor_id' => $v->id, 'covendedor_id' => $otro->id]);
+
+        $this->abrir($otro, $orden->id)->assertCreated();
+
+        $this->assertFalse($orden->fresh()->laPuedeEntregarDirecto($v));
+        $this->abrir($v, $orden->id)->assertStatus(422);
+    }
 }

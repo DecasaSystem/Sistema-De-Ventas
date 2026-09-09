@@ -89,13 +89,23 @@ const miEntregaDirectaPendiente = computed(() => {
     ? d : null
 })
 
+// El despacho que de verdad la tiene tomada. Una orden puede arrastrar el
+// despacho de una ruta que ya se cerró sin entregarla, o de una entrega que
+// se revirtió; esa fila vieja no la está despachando nadie y no debe tapar el
+// botón. Es el mismo criterio del backend.
+const ESTADOS_DESPACHO_VIVO = ['borrador', 'asignado', 'en_ruta']
+const despachoActivo = computed(() => {
+  const d = despachoEntrega.value
+  return d && ESTADOS_DESPACHO_VIVO.includes(d.despacho?.estado) ? d : null
+})
+
 // ¿Mostrar el botón de "Entregar ahora"? Orden lista, con permiso y sin
-// nadie más despachándola.
+// nadie más despachándola — lo de "nadie más" ya viene resuelto en
+// `puede_entregar_directo`.
 const puedeEntregarDirecto = computed(() =>
   orden.value?.estado === 'listo_entrega'
   && auth.puedeEntregar
   && orden.value?.puede_entregar_directo
-  && !despachoEntrega.value   // ni ruta ni una directa ya abierta
 )
 
 async function abrirEntregaDirecta() {
@@ -2826,10 +2836,10 @@ onMounted(() => { cargarTipos(); cargarOrden() })
           <TruckIcon class="w-5 h-5 mt-0.5 text-purple-600 flex-shrink-0" />
           <div>
             <p class="text-sm font-semibold text-purple-800">
-              {{ despachoEntrega ? 'Orden asignada a una ruta' : 'Orden en cola de despacho' }}
+              {{ despachoActivo ? 'Orden asignada a una ruta' : 'Orden en cola de despacho' }}
             </p>
             <p class="text-xs text-purple-600 mt-0.5">
-              {{ despachoEntrega
+              {{ despachoActivo
                 ? 'Ya está en una ruta de entrega. El estado se actualizará cuando se registre la entrega.'
                 : 'Esta orden está lista para entregar. El supervisor debe asignarla a un conductor desde el módulo de Despacho.' }}
             </p>
