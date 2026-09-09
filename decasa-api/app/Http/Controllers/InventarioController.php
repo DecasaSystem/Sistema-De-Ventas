@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Events\InventarioActualizado;
 use App\Models\Inventario;
 use App\Models\InventarioMovimiento;
+use App\Models\InventarioVariante;
 use App\Models\OrdenItem;
 use App\Models\SurtidoTienda;
 use App\Models\Tienda;
@@ -772,6 +773,7 @@ class InventarioController extends Controller
 
         return response()->json([
             'reservados'             => $this->calcularReservadosFantasma(),
+            'reservados_variante'    => $this->calcularReservadosFantasmaVariante(),
             'entregas_sin_descontar' => $this->calcularEntregasSinDescontar(),
         ]);
     }
@@ -824,6 +826,52 @@ class InventarioController extends Controller
                 return [
                     'producto_id'     => $inv->producto_id,
                     'producto_nombre' => $inv->producto->nombre ?? '—',
+                    'tienda_id'       => $inv->tienda_id,
+                    'tienda_nombre'   => $inv->tienda->nombre ?? '—',
+                    'contador'        => (int) $inv->cantidad_reservada,
+                    'real'            => $real,
+                    'diferencia'      => (int) $inv->cantidad_reservada - $real,
+                ];
+            })
+            ->filter(fn ($r) => $r['diferencia'] !== 0)
+            ->sortByDesc(fn ($r) => abs($r['diferencia']))
+            ->values();
+    }
+
+    /**
+     * Lo mismo que `calcularReservadosFantasma()`, pero para
+     * `inventario_variantes` — la tabla que guarda cuánto hay reservado de
+     * UNA tela/medida puntual, aparte del total del producto. Es un
+     * contador propio que se mueve solo (increment/decrement) en los mismos
+     * sitios donde se toca el del producto, así que se puede desincronizar
+     * igual, y ninguna de las auditorías anteriores lo revisaba: solo
+     * miraban `inventario`, nunca `inventario_variantes`.
+     */
+    private function calcularReservadosFantasmaVariante(): \Illuminate\Support\Collection
+    {
+        $reales = OrdenItem::with(['orden:id,estado,tienda_id'])
+            ->where('es_personalizado', false)
+            ->where('producto_unico', false)
+            ->whereNotNull('variante_id')
+            ->whereNull('devuelto_en')
+            ->whereHas('orden', fn ($q) => $q->whereNotIn('estado', ['entregado', 'cancelado', 'devuelto']))
+            ->get()
+            ->filter(fn ($item) => $item->orden !== null)
+            ->groupBy(fn ($item) => $item->variante_id . '-' . ($item->tienda_origen_id ?? $item->orden->tienda_id))
+            ->map(fn ($items) => (int) $items->sum('cantidad'));
+
+        return InventarioVariante::where('cantidad_reservada', '<>', 0)
+            ->with('variante:id,producto_id,marca,marca_tela,nombre_color,medida', 'variante.producto:id,nombre', 'tienda:id,nombre')
+            ->get()
+            ->map(function ($inv) use ($reales) {
+                $real     = (int) ($reales[$inv->variante_id . '-' . $inv->tienda_id] ?? 0);
+                $variante = $inv->variante;
+                return [
+                    'variante_id'     => $inv->variante_id,
+                    'producto_nombre' => $variante?->producto?->nombre ?? '—',
+                    'variante_nombre' => trim(implode(' · ', array_filter([
+                        $variante?->marca, $variante?->marca_tela, $variante?->nombre_color, $variante?->medida,
+                    ]))) ?: 'Sin nombre',
                     'tienda_id'       => $inv->tienda_id,
                     'tienda_nombre'   => $inv->tienda->nombre ?? '—',
                     'contador'        => (int) $inv->cantidad_reservada,
@@ -921,14 +969,16 @@ class InventarioController extends Controller
 
     /**
      * POST /api/inventario/descuadres/corregir
-     * body: { tipo: 'reservado'|'entrega', producto_id, tienda_id } → uno solo
-     *       { todos: true }                                        → los dos
-     *       tipos, todo lo que salga en ese momento
+     * body: { tipo: 'reservado'|'reservado_variante'|'entrega', producto_id
+     *         O variante_id, tienda_id } → uno solo
+     *       { todos: true }              → las tres categorías, todo lo que
+     *         salga en ese momento
      *
-     * `reservado` solo toca `cantidad_reservada` — la unidad nunca salió de
-     * la tienda. `entrega` baja Disponible Y Reservado juntos — la unidad sí
-     * salió, se está completando una entrega que quedó a medias. Cada una
-     * queda anotada como un movimiento más, con quién la corrigió.
+     * `reservado` y `reservado_variante` solo tocan `cantidad_reservada`
+     * (del producto o de la variante) — la unidad nunca salió de la tienda.
+     * `entrega` baja Disponible Y Reservado juntos — la unidad sí salió, se
+     * está completando una entrega que quedó a medias. Cada una queda
+     * anotada como un movimiento más, con quién la corrigió.
      */
     public function corregirDescuadre(Request $request)
     {
@@ -938,8 +988,9 @@ class InventarioController extends Controller
         }
 
         $data = $request->validate([
-            'tipo'        => 'required_without:todos|in:reservado,entrega',
-            'producto_id' => 'required_without:todos|integer',
+            'tipo'        => 'required_without:todos|in:reservado,reservado_variante,entrega',
+            'producto_id' => 'required_if:tipo,reservado,entrega|integer',
+            'variante_id' => 'required_if:tipo,reservado_variante|integer',
             'tienda_id'   => 'required_without:todos|integer',
             'todos'       => 'nullable|boolean',
         ]);
@@ -947,6 +998,7 @@ class InventarioController extends Controller
         $todos = $data['todos'] ?? false;
 
         $reservados = $this->calcularReservadosFantasma();
+        $reservadosVariante = $this->calcularReservadosFantasmaVariante();
         $entregas   = $this->calcularEntregasSinDescontar();
 
         if (! $todos) {
@@ -954,20 +1006,28 @@ class InventarioController extends Controller
                 $reservados = $reservados->filter(fn ($d) =>
                     (int) $d['producto_id'] === (int) $data['producto_id'] && (int) $d['tienda_id'] === (int) $data['tienda_id']
                 );
+                $reservadosVariante = collect();
+                $entregas = collect();
+            } elseif ($data['tipo'] === 'reservado_variante') {
+                $reservadosVariante = $reservadosVariante->filter(fn ($d) =>
+                    (int) $d['variante_id'] === (int) $data['variante_id'] && (int) $d['tienda_id'] === (int) $data['tienda_id']
+                );
+                $reservados = collect();
                 $entregas = collect();
             } else {
                 $entregas = $entregas->filter(fn ($d) =>
                     (int) $d['producto_id'] === (int) $data['producto_id'] && (int) $d['tienda_id'] === (int) $data['tienda_id']
                 );
                 $reservados = collect();
+                $reservadosVariante = collect();
             }
 
-            if ($reservados->isEmpty() && $entregas->isEmpty()) {
+            if ($reservados->isEmpty() && $reservadosVariante->isEmpty() && $entregas->isEmpty()) {
                 return response()->json(['message' => 'Ese producto ya no tiene descuadre — puede que ya se haya corregido.'], 422);
             }
         }
 
-        $corregidos = DB::transaction(function () use ($reservados, $entregas, $usuario) {
+        $corregidos = DB::transaction(function () use ($reservados, $reservadosVariante, $entregas, $usuario) {
             foreach ($reservados as $d) {
                 Inventario::where('producto_id', $d['producto_id'])
                     ->where('tienda_id', $d['tienda_id'])
@@ -982,6 +1042,22 @@ class InventarioController extends Controller
                     'tipo'        => $d['diferencia'] > 0 ? 'liberacion' : 'reserva',
                     'cantidad'    => abs($d['diferencia']),
                     'motivo'      => "Corrección de descuadre: reservado pasó de {$d['contador']} a {$d['real']} ({$usuario->nombre})",
+                    'usuario_id'  => $usuario->id,
+                ]);
+            }
+
+            foreach ($reservadosVariante as $d) {
+                InventarioVariante::where('variante_id', $d['variante_id'])
+                    ->where('tienda_id', $d['tienda_id'])
+                    ->update(['cantidad_reservada' => $d['real']]);
+
+                InventarioMovimiento::create([
+                    'producto_id' => \App\Models\ProductoVariante::find($d['variante_id'])?->producto_id,
+                    'tienda_id'   => $d['tienda_id'],
+                    'variante_id' => $d['variante_id'],
+                    'tipo'        => $d['diferencia'] > 0 ? 'liberacion' : 'reserva',
+                    'cantidad'    => abs($d['diferencia']),
+                    'motivo'      => "Corrección de descuadre (variante {$d['variante_nombre']}): reservado pasó de {$d['contador']} a {$d['real']} ({$usuario->nombre})",
                     'usuario_id'  => $usuario->id,
                 ]);
             }
@@ -1020,7 +1096,7 @@ class InventarioController extends Controller
                 }
             }
 
-            return $reservados->count() + $entregas->count();
+            return $reservados->count() + $reservadosVariante->count() + $entregas->count();
         });
 
         return response()->json(['corregidos' => $corregidos]);

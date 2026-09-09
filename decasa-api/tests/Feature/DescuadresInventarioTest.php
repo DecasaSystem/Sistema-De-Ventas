@@ -50,6 +50,7 @@ class DescuadresInventarioTest extends TestCase
         });
         Schema::create('orden_items', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('orden_id'); $t->unsignedBigInteger('producto_id')->nullable();
+            $t->unsignedBigInteger('variante_id')->nullable();
             $t->unsignedBigInteger('tienda_origen_id')->nullable();
             $t->integer('cantidad')->default(1); $t->decimal('precio_unitario', 12, 2)->default(0);
             $t->boolean('es_personalizado')->default(false); $t->boolean('producto_unico')->default(false);
@@ -58,6 +59,15 @@ class DescuadresInventarioTest extends TestCase
         });
         Schema::create('inventario', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('producto_id'); $t->unsignedBigInteger('tienda_id');
+            $t->integer('cantidad_disponible')->default(0); $t->integer('cantidad_reservada')->default(0);
+        });
+        Schema::create('producto_variantes', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('producto_id');
+            $t->string('marca')->nullable(); $t->string('marca_tela')->nullable();
+            $t->string('nombre_color')->nullable(); $t->string('medida')->nullable();
+        });
+        Schema::create('inventario_variantes', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('variante_id'); $t->unsignedBigInteger('tienda_id');
             $t->integer('cantidad_disponible')->default(0); $t->integer('cantidad_reservada')->default(0);
         });
         Schema::create('inventario_movimientos', function (Blueprint $t) {
@@ -176,6 +186,59 @@ class DescuadresInventarioTest extends TestCase
 
         $this->assertCount(1, $r->json('reservados'));
         $this->assertSame(3, $r->json('reservados')[0]['diferencia']);
+    }
+
+    // ── Reservado a nivel de variante (tela/medida) ─────────────────────────
+    // El caso real que lo destapó: BASE 2K tiene la variante "120x90", y
+    // `inventario_variantes` es un contador APARTE del producto — nadie lo
+    // auditaba. Corregir el del producto no dice nada de si el de la
+    // variante también quedó mal.
+
+    public function test_reporta_una_variante_reservada_sin_orden_que_la_sostenga(): void
+    {
+        DB::table('producto_variantes')->insert(['id' => 50, 'producto_id' => 5, 'medida' => '120x90']);
+        DB::table('inventario_variantes')->insert(['variante_id' => 50, 'tienda_id' => 2, 'cantidad_disponible' => 1, 'cantidad_reservada' => 1]);
+
+        $r = $this->actingAs($this->supervisor())->getJson('/api/inventario/descuadres')->assertOk();
+
+        $data = $r->json('reservados_variante');
+        $this->assertCount(1, $data);
+        $this->assertSame('Base 2K', $data[0]['producto_nombre']);
+        $this->assertSame('120x90', $data[0]['variante_nombre']);
+        $this->assertSame('Decasa Norte', $data[0]['tienda_nombre']);
+        $this->assertSame(1, $data[0]['diferencia']);
+    }
+
+    public function test_no_reporta_una_variante_con_una_orden_activa_que_la_sostiene(): void
+    {
+        DB::table('producto_variantes')->insert(['id' => 50, 'producto_id' => 5, 'medida' => '120x90']);
+        DB::table('inventario_variantes')->insert(['variante_id' => 50, 'tienda_id' => 2, 'cantidad_disponible' => 1, 'cantidad_reservada' => 1]);
+
+        $orden = Orden::create(['cliente_id' => 1, 'tienda_id' => 2, 'estado' => 'pendiente_anticipo', 'valor_total' => 100]);
+        OrdenItem::create(['orden_id' => $orden->id, 'producto_id' => 5, 'variante_id' => 50, 'cantidad' => 1, 'es_personalizado' => false, 'producto_unico' => false]);
+
+        $r = $this->actingAs($this->supervisor())->getJson('/api/inventario/descuadres')->assertOk();
+
+        $this->assertCount(0, $r->json('reservados_variante'));
+    }
+
+    public function test_corregir_variante_no_toca_el_contador_del_producto_base(): void
+    {
+        DB::table('producto_variantes')->insert(['id' => 50, 'producto_id' => 5, 'medida' => '120x90']);
+        DB::table('inventario_variantes')->insert(['variante_id' => 50, 'tienda_id' => 2, 'cantidad_disponible' => 1, 'cantidad_reservada' => 1]);
+        // El producto base está bien — corregir la variante no debe dañarlo.
+        DB::table('inventario')->insert(['producto_id' => 5, 'tienda_id' => 2, 'cantidad_disponible' => 1, 'cantidad_reservada' => 0]);
+
+        $this->actingAs($this->supervisor())
+            ->postJson('/api/inventario/descuadres/corregir', ['tipo' => 'reservado_variante', 'variante_id' => 50, 'tienda_id' => 2])
+            ->assertOk()
+            ->assertJson(['corregidos' => 1]);
+
+        $invVar = DB::table('inventario_variantes')->where('variante_id', 50)->where('tienda_id', 2)->first();
+        $this->assertSame(0, $invVar->cantidad_reservada);
+
+        $inv = DB::table('inventario')->where('producto_id', 5)->where('tienda_id', 2)->first();
+        $this->assertSame(0, $inv->cantidad_reservada);
     }
 
     // ── Entregas que nunca descontaron inventario ──────────────────────────

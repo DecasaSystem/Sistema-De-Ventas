@@ -385,27 +385,31 @@ function irAOrdenReservada(r) {
 //    bajan Disponible y Reservado juntos, completando la entrega.
 const mostrarDescuadres = ref(false)
 const descuadresReservados = ref([])
+const descuadresVariante = ref([])
 const descuadresEntregas = ref([])
 const descuadresLoading = ref(false)
 
 async function abrirDescuadres() {
   descuadresReservados.value = []
+  descuadresVariante.value = []
   descuadresEntregas.value = []
   descuadresLoading.value = true
   mostrarDescuadres.value = true
   try {
     const { data } = await getDescuadres()
     descuadresReservados.value = data.reservados ?? []
+    descuadresVariante.value = data.reservados_variante ?? []
     descuadresEntregas.value = data.entregas_sin_descontar ?? []
   } catch {
     descuadresReservados.value = []
+    descuadresVariante.value = []
     descuadresEntregas.value = []
   } finally {
     descuadresLoading.value = false
   }
 }
 
-const totalDescuadres = computed(() => descuadresReservados.value.length + descuadresEntregas.value.length)
+const totalDescuadres = computed(() => descuadresReservados.value.length + descuadresVariante.value.length + descuadresEntregas.value.length)
 
 const corrigiendoDescuadre = ref(false)
 
@@ -418,7 +422,11 @@ async function corregirDescuadre(d = null, tipo = 'reservado') {
   if (corrigiendoDescuadre.value) return
   corrigiendoDescuadre.value = true
   try {
-    await postCorregirDescuadre(d ? { tipo, producto_id: d.producto_id, tienda_id: d.tienda_id } : { todos: true })
+    // La variante se identifica por variante_id, no por producto_id.
+    const payload = !d ? { todos: true }
+      : tipo === 'reservado_variante' ? { tipo, variante_id: d.variante_id, tienda_id: d.tienda_id }
+      : { tipo, producto_id: d.producto_id, tienda_id: d.tienda_id }
+    await postCorregirDescuadre(payload)
     toast.success(d ? 'Corregido.' : 'Todos los descuadres se corrigieron.')
     await abrirDescuadres() // recarga la lista — ya sin lo que se acaba de corregir
     await cargarInventario(true) // el número de la tarjeta que se estaba viendo también cambió
@@ -3367,6 +3375,28 @@ onMounted(async () => {
                     :disabled="corrigiendoDescuadre"
                     @click="corregirDescuadre(d, 'reservado')"
                     class="flex-shrink-0 text-xs font-semibold text-amber-700 border border-amber-300 bg-amber-50 px-2.5 py-1.5 rounded-lg hover:bg-amber-100 disabled:opacity-50 transition-colors"
+                  >Corregir</button>
+                </div>
+              </div>
+
+              <!-- Reservado a nivel de UNA variante (tela/medida), aparte del
+                   total del producto — el mismo problema, pero en la otra
+                   tabla que nadie más auditaba. -->
+              <div v-if="descuadresVariante.length" class="space-y-2">
+                <p class="text-xs font-semibold text-violet-700 uppercase">Reservado en una variante, sin orden ({{ descuadresVariante.length }})</p>
+                <div v-for="d in descuadresVariante" :key="'v-' + d.variante_id + '-' + d.tienda_id" class="flex items-center justify-between gap-3 py-2 border-b border-gray-50 last:border-0">
+                  <div class="flex-1 min-w-0">
+                    <p class="text-sm font-semibold text-gray-800 truncate">{{ d.producto_nombre }} <span class="text-gray-400 font-normal">· {{ d.variante_nombre }}</span></p>
+                    <p class="text-xs text-gray-500">{{ d.tienda_nombre }}</p>
+                    <p class="text-xs text-gray-400">Contador {{ d.contador }} · Real {{ d.real }}
+                      <span class="font-semibold" :class="d.diferencia > 0 ? 'text-violet-600' : 'text-red-600'">({{ d.diferencia > 0 ? '+' : '' }}{{ d.diferencia }})</span>
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    :disabled="corrigiendoDescuadre"
+                    @click="corregirDescuadre(d, 'reservado_variante')"
+                    class="flex-shrink-0 text-xs font-semibold text-violet-700 border border-violet-300 bg-violet-50 px-2.5 py-1.5 rounded-lg hover:bg-violet-100 disabled:opacity-50 transition-colors"
                   >Corregir</button>
                 </div>
               </div>
