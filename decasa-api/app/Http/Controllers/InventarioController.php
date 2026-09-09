@@ -747,17 +747,22 @@ class InventarioController extends Controller
     /**
      * GET /api/inventario/descuadres
      *
-     * `cantidad_reservada` es un contador que se mueve a mano en cada sitio
-     * que toca inventario (crear orden, cancelar, entregar, cambiar producto,
-     * surtir desde fábrica...). Si algún camino se queda sin soltar lo que
-     * reservó —o suelta de más— el contador se desincroniza de lo que
-     * realmente hay comprometido, y eso es lo que reporta esta pantalla: cada
-     * producto+tienda donde el número guardado no coincide con lo real.
+     * Dos formas distintas de que el inventario mienta, y hay que
+     * distinguirlas porque se corrigen de maneras distintas:
      *
-     * "Real" se calcula igual que en `reservas()` —sumando `orden_items`
-     * activos— más lo que un surtido de fábrica todavía no aceptado/rechazado
-     * tiene retenido en el inventario de la fábrica (esa reserva no nace de
-     * ninguna orden, así que `reservas()` no la ve).
+     *  - `reservados`: `cantidad_reservada` no coincide con ninguna orden
+     *    real que lo tenga apartado (se canceló, se borró, se le cambió el
+     *    producto...). Ahí la unidad NUNCA salió de la tienda — se corrige
+     *    soltando el número, sin tocar cuánto hay.
+     *  - `entregas_sin_descontar`: la orden SÍ se entregó (su estado ya dice
+     *    `entregado`), pero el paso que descuenta inventario nunca corrió —
+     *    no hay un movimiento de salida que lo respalde. Ahí la unidad SÍ
+     *    salió de la tienda de verdad; se corrige bajando Disponible Y
+     *    Reservado juntos, como si la entrega se completara ahora.
+     *
+     * Confundir una con la otra es el error real: soltar solo el Reservado
+     * de una entrega ya hecha deja el Disponible mintiendo para siempre —
+     * la tienda queda "con" una unidad que en realidad ya se vendió.
      */
     public function descuadres(Request $request)
     {
@@ -765,7 +770,10 @@ class InventarioController extends Controller
             return response()->json(['message' => 'No autorizado.'], 403);
         }
 
-        return response()->json($this->calcularDescuadres());
+        return response()->json([
+            'reservados'             => $this->calcularReservadosFantasma(),
+            'entregas_sin_descontar' => $this->calcularEntregasSinDescontar(),
+        ]);
     }
 
     /**
@@ -774,7 +782,7 @@ class InventarioController extends Controller
      * `descuadres()` para reportar y `corregirDescuadre()` para saber a qué
      * número dejar el contador — así las dos nunca se desincronizan entre sí.
      */
-    private function calcularDescuadres(): \Illuminate\Support\Collection
+    private function calcularReservadosFantasma(): \Illuminate\Support\Collection
     {
         // Cuánto debería estar reservado, sumado por producto+tienda.
         $reales = OrdenItem::with(['orden:id,estado,tienda_id'])
@@ -829,14 +837,86 @@ class InventarioController extends Controller
     }
 
     /**
+     * Órdenes ya `entregado` cuyo ítem de stock nunca generó el movimiento de
+     * salida que debía descontar inventario — la prueba de que el paso que
+     * descuenta (`descontarStockPorEntrega` o `DespachoController::entregar`)
+     * no corrió para ese ítem. Se detecta por ausencia, no por sospecha:
+     * ambos caminos anotan siempre un `InventarioMovimiento` tipo `salida`
+     * con motivo que empieza en "Entrega orden #{id}"; si no existe ese
+     * movimiento para el producto+tienda exactos del ítem, la entrega nunca
+     * tocó el inventario.
+     */
+    private function calcularEntregasSinDescontar(): \Illuminate\Support\Collection
+    {
+        $itemsEntregados = OrdenItem::with(['orden:id,estado,tienda_id,numero_orden,serie,serie_numero,cotizacion_numero'])
+            ->where('es_personalizado', false)
+            ->where('producto_unico', false)
+            ->whereNotNull('producto_id')
+            ->whereNull('devuelto_en')
+            ->whereHas('orden', fn ($q) => $q->where('estado', 'entregado'))
+            ->get()
+            ->filter(fn ($item) => $item->orden !== null);
+
+        if ($itemsEntregados->isEmpty()) {
+            return collect();
+        }
+
+        // Todo movimiento de entrega ya hecho, indexado por orden+producto+
+        // tienda — así each ítem se pregunta "¿el mío ya está aquí?" sin
+        // volver a la base de datos por cada uno.
+        $cubiertos = [];
+        InventarioMovimiento::where('tipo', 'salida')
+            ->where('motivo', 'like', 'Entrega orden #%')
+            ->get(['producto_id', 'tienda_id', 'motivo'])
+            ->each(function ($m) use (&$cubiertos) {
+                if (preg_match('/^Entrega orden #(\d+)/', $m->motivo, $match)) {
+                    $cubiertos["{$match[1]}-{$m->producto_id}-{$m->tienda_id}"] = true;
+                }
+            });
+
+        return $itemsEntregados
+            ->filter(function ($item) use ($cubiertos) {
+                $tienda = $item->tienda_origen_id ?? $item->orden->tienda_id;
+                return ! isset($cubiertos["{$item->orden_id}-{$item->producto_id}-{$tienda}"]);
+            })
+            ->groupBy(fn ($item) => $item->producto_id . '-' . ($item->tienda_origen_id ?? $item->orden->tienda_id))
+            ->map(function ($items) {
+                $primero = $items->first();
+                $tienda  = $primero->tienda_origen_id ?? $primero->orden->tienda_id;
+                $inv     = Inventario::where('producto_id', $primero->producto_id)->where('tienda_id', $tienda)->first();
+
+                return [
+                    'producto_id'         => $primero->producto_id,
+                    'tienda_id'           => $tienda,
+                    'cantidad_pendiente'  => (int) $items->sum('cantidad'),
+                    'disponible_actual'   => (int) ($inv->cantidad_disponible ?? 0),
+                    'ordenes'             => $items->map(fn ($i) => $i->orden->referencia)->unique()->values()->all(),
+                ];
+            })
+            ->values()
+            ->map(function ($fila) {
+                $prod   = \App\Models\Producto::find($fila['producto_id']);
+                $tienda = Tienda::find($fila['tienda_id']);
+                return array_merge($fila, [
+                    'producto_nombre' => $prod->nombre ?? '—',
+                    'tienda_nombre'   => $tienda->nombre ?? '—',
+                    'disponible_despues' => max(0, $fila['disponible_actual'] - $fila['cantidad_pendiente']),
+                ]);
+            })
+            ->sortByDesc('cantidad_pendiente')
+            ->values();
+    }
+
+    /**
      * POST /api/inventario/descuadres/corregir
-     * body: { producto_id, tienda_id } → corrige solo ese
-     *       { todos: true }             → corrige todos los que salgan ahora
+     * body: { tipo: 'reservado'|'entrega', producto_id, tienda_id } → uno solo
+     *       { todos: true }                                        → los dos
+     *       tipos, todo lo que salga en ese momento
      *
-     * Deja `cantidad_reservada` en lo que de verdad hay comprometido (lo que
-     * ya calcula `descuadres()`) y lo deja anotado como un movimiento más,
-     * para que quede timbrado quién lo corrigió y a partir de qué número —
-     * no es un valor que se pierde silenciosamente.
+     * `reservado` solo toca `cantidad_reservada` — la unidad nunca salió de
+     * la tienda. `entrega` baja Disponible Y Reservado juntos — la unidad sí
+     * salió, se está completando una entrega que quedó a medias. Cada una
+     * queda anotada como un movimiento más, con quién la corrigió.
      */
     public function corregirDescuadre(Request $request)
     {
@@ -846,26 +926,37 @@ class InventarioController extends Controller
         }
 
         $data = $request->validate([
+            'tipo'        => 'required_without:todos|in:reservado,entrega',
             'producto_id' => 'required_without:todos|integer',
             'tienda_id'   => 'required_without:todos|integer',
             'todos'       => 'nullable|boolean',
         ]);
 
-        $descuadres = $this->calcularDescuadres();
+        $todos = $data['todos'] ?? false;
 
-        if (! ($data['todos'] ?? false)) {
-            $descuadres = $descuadres->filter(fn ($d) =>
-                (int) $d['producto_id'] === (int) $data['producto_id']
-                && (int) $d['tienda_id']   === (int) $data['tienda_id']
-            );
+        $reservados = $this->calcularReservadosFantasma();
+        $entregas   = $this->calcularEntregasSinDescontar();
 
-            if ($descuadres->isEmpty()) {
+        if (! $todos) {
+            if ($data['tipo'] === 'reservado') {
+                $reservados = $reservados->filter(fn ($d) =>
+                    (int) $d['producto_id'] === (int) $data['producto_id'] && (int) $d['tienda_id'] === (int) $data['tienda_id']
+                );
+                $entregas = collect();
+            } else {
+                $entregas = $entregas->filter(fn ($d) =>
+                    (int) $d['producto_id'] === (int) $data['producto_id'] && (int) $d['tienda_id'] === (int) $data['tienda_id']
+                );
+                $reservados = collect();
+            }
+
+            if ($reservados->isEmpty() && $entregas->isEmpty()) {
                 return response()->json(['message' => 'Ese producto ya no tiene descuadre — puede que ya se haya corregido.'], 422);
             }
         }
 
-        $corregidos = DB::transaction(function () use ($descuadres, $usuario) {
-            foreach ($descuadres as $d) {
+        $corregidos = DB::transaction(function () use ($reservados, $entregas, $usuario) {
+            foreach ($reservados as $d) {
                 Inventario::where('producto_id', $d['producto_id'])
                     ->where('tienda_id', $d['tienda_id'])
                     ->update(['cantidad_reservada' => $d['real']]);
@@ -883,7 +974,33 @@ class InventarioController extends Controller
                 ]);
             }
 
-            return $descuadres->count();
+            foreach ($entregas as $d) {
+                // `disponible_despues` ya viene calculado (y topado en 0) desde
+                // `calcularEntregasSinDescontar()` — se usa ese número fijo en
+                // vez de una resta en SQL para que la misma sentencia sirva en
+                // MySQL (producción) y SQLite (tests): ninguno de los dos tiene
+                // una función de "máximo" compatible con el otro.
+                Inventario::where('producto_id', $d['producto_id'])
+                    ->where('tienda_id', $d['tienda_id'])
+                    ->update([
+                        'cantidad_disponible' => $d['disponible_despues'],
+                        // El "real" de reservado ya excluye las órdenes entregadas
+                        // (`calcularReservadosFantasma` las descarta), así que no
+                        // hay que restarle nada aparte aquí — solo bajar disponible
+                        // completa lo que la entrega no alcanzó a descontar.
+                    ]);
+
+                InventarioMovimiento::create([
+                    'producto_id' => $d['producto_id'],
+                    'tienda_id'   => $d['tienda_id'],
+                    'tipo'        => 'salida',
+                    'cantidad'    => $d['cantidad_pendiente'],
+                    'motivo'      => "Completando entrega ya realizada de " . implode(', ', $d['ordenes']) . " ({$usuario->nombre})",
+                    'usuario_id'  => $usuario->id,
+                ]);
+            }
+
+            return $reservados->count() + $entregas->count();
         });
 
         return response()->json(['corregidos' => $corregidos]);

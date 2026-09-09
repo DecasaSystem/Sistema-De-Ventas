@@ -43,7 +43,10 @@ class DescuadresInventarioTest extends TestCase
             $t->id(); $t->unsignedBigInteger('cliente_id')->nullable(); $t->unsignedBigInteger('tienda_id')->nullable();
             $t->unsignedBigInteger('vendedor_id')->nullable(); $t->unsignedBigInteger('covendedor_id')->nullable();
             $t->string('estado')->default('pendiente_anticipo'); $t->decimal('valor_total', 12, 2)->default(0);
-            $t->unsignedInteger('numero_orden')->nullable(); $t->timestamps();
+            $t->unsignedInteger('numero_orden')->nullable();
+            $t->string('serie')->nullable(); $t->unsignedInteger('serie_numero')->nullable();
+            $t->unsignedInteger('cotizacion_numero')->nullable();
+            $t->timestamps();
         });
         Schema::create('orden_items', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('orden_id'); $t->unsignedBigInteger('producto_id')->nullable();
@@ -80,6 +83,7 @@ class DescuadresInventarioTest extends TestCase
         DB::table('tiendas')->insert([
             ['id' => 1, 'nombre' => 'Bodega Fábrica', 'es_fabrica' => true],
             ['id' => 2, 'nombre' => 'Decasa Norte', 'es_fabrica' => false],
+            ['id' => 3, 'nombre' => 'Tienda Virtual', 'es_fabrica' => false],
         ]);
         DB::table('productos')->insert(['id' => 5, 'nombre' => 'Base 2K']);
         DB::table('clientes')->insert(['id' => 1, 'nombre' => 'Cliente', 'created_at' => now(), 'updated_at' => now()]);
@@ -98,7 +102,7 @@ class DescuadresInventarioTest extends TestCase
 
         $r = $this->actingAs($this->supervisor())->getJson('/api/inventario/descuadres')->assertOk();
 
-        $this->assertCount(0, $r->json());
+        $this->assertCount(0, $r->json('reservados'));
     }
 
     public function test_un_item_devuelto_para_cambiarlo_no_infla_lo_real(): void
@@ -127,7 +131,7 @@ class DescuadresInventarioTest extends TestCase
 
         $r = $this->actingAs($this->supervisor())->getJson('/api/inventario/descuadres')->assertOk();
 
-        $this->assertCount(0, $r->json());
+        $this->assertCount(0, $r->json('reservados'));
     }
 
     public function test_reporta_un_contador_sin_ninguna_orden_que_lo_sostenga(): void
@@ -138,7 +142,7 @@ class DescuadresInventarioTest extends TestCase
 
         $r = $this->actingAs($this->supervisor())->getJson('/api/inventario/descuadres')->assertOk();
 
-        $data = $r->json();
+        $data = $r->json('reservados');
         $this->assertCount(1, $data);
         $this->assertSame('Base 2K', $data[0]['producto_nombre']);
         $this->assertSame('Decasa Norte', $data[0]['tienda_nombre']);
@@ -157,7 +161,7 @@ class DescuadresInventarioTest extends TestCase
 
         $r = $this->actingAs($this->supervisor())->getJson('/api/inventario/descuadres')->assertOk();
 
-        $this->assertCount(0, $r->json());
+        $this->assertCount(0, $r->json('reservados'));
     }
 
     public function test_un_surtido_de_fabrica_ya_respondido_no_cuenta_como_reserva_viva(): void
@@ -170,8 +174,98 @@ class DescuadresInventarioTest extends TestCase
 
         $r = $this->actingAs($this->supervisor())->getJson('/api/inventario/descuadres')->assertOk();
 
-        $this->assertCount(1, $r->json());
-        $this->assertSame(3, $r->json()[0]['diferencia']);
+        $this->assertCount(1, $r->json('reservados'));
+        $this->assertSame(3, $r->json('reservados')[0]['diferencia']);
+    }
+
+    // ── Entregas que nunca descontaron inventario ──────────────────────────
+
+    public function test_reporta_una_entrega_sin_su_movimiento_de_salida(): void
+    {
+        // Exactamente el caso de la orden #4308: se entregó (estado
+        // "entregado"), pero nunca quedó el movimiento de salida que debía
+        // descontar el inventario — ni Disponible ni Reservado bajaron.
+        $orden = Orden::create(['cliente_id' => 1, 'tienda_id' => 3, 'estado' => 'entregado', 'valor_total' => 100, 'numero_orden' => 4308]);
+        OrdenItem::create(['orden_id' => $orden->id, 'producto_id' => 5, 'cantidad' => 1, 'tienda_origen_id' => 2, 'es_personalizado' => false, 'producto_unico' => false]);
+        DB::table('inventario')->insert(['producto_id' => 5, 'tienda_id' => 2, 'cantidad_disponible' => 1, 'cantidad_reservada' => 1]);
+
+        $r = $this->actingAs($this->supervisor())->getJson('/api/inventario/descuadres')->assertOk();
+
+        $data = $r->json('entregas_sin_descontar');
+        $this->assertCount(1, $data);
+        $this->assertSame('Base 2K', $data[0]['producto_nombre']);
+        $this->assertSame('Decasa Norte', $data[0]['tienda_nombre']);
+        $this->assertSame(1, $data[0]['cantidad_pendiente']);
+        $this->assertSame(1, $data[0]['disponible_actual']);
+        $this->assertSame(0, $data[0]['disponible_despues']);
+        $this->assertSame(['#4308'], $data[0]['ordenes']);
+    }
+
+    public function test_no_reporta_una_entrega_que_si_dejo_su_movimiento(): void
+    {
+        $orden = Orden::create(['cliente_id' => 1, 'tienda_id' => 2, 'estado' => 'entregado', 'valor_total' => 100]);
+        OrdenItem::create(['orden_id' => $orden->id, 'producto_id' => 5, 'cantidad' => 1, 'es_personalizado' => false, 'producto_unico' => false]);
+        DB::table('inventario')->insert(['producto_id' => 5, 'tienda_id' => 2, 'cantidad_disponible' => 0, 'cantidad_reservada' => 0]);
+        DB::table('inventario_movimientos')->insert([
+            'producto_id' => 5, 'tienda_id' => 2, 'tipo' => 'salida', 'cantidad' => 1,
+            'motivo' => "Entrega orden #{$orden->id} — conductor", 'created_at' => now(),
+        ]);
+
+        $r = $this->actingAs($this->supervisor())->getJson('/api/inventario/descuadres')->assertOk();
+
+        $this->assertCount(0, $r->json('entregas_sin_descontar'));
+    }
+
+    public function test_una_orden_cancelada_no_cuenta_como_entrega_sin_descontar(): void
+    {
+        $orden = Orden::create(['cliente_id' => 1, 'tienda_id' => 2, 'estado' => 'cancelado', 'valor_total' => 100]);
+        OrdenItem::create(['orden_id' => $orden->id, 'producto_id' => 5, 'cantidad' => 1, 'es_personalizado' => false, 'producto_unico' => false]);
+        DB::table('inventario')->insert(['producto_id' => 5, 'tienda_id' => 2, 'cantidad_disponible' => 0, 'cantidad_reservada' => 0]);
+
+        $r = $this->actingAs($this->supervisor())->getJson('/api/inventario/descuadres')->assertOk();
+
+        $this->assertCount(0, $r->json('entregas_sin_descontar'));
+    }
+
+    public function test_corregir_entrega_baja_disponible_y_reservado_juntos(): void
+    {
+        $orden = Orden::create(['cliente_id' => 1, 'tienda_id' => 2, 'estado' => 'entregado', 'valor_total' => 100, 'numero_orden' => 4308]);
+        OrdenItem::create(['orden_id' => $orden->id, 'producto_id' => 5, 'cantidad' => 1, 'es_personalizado' => false, 'producto_unico' => false]);
+        DB::table('inventario')->insert(['producto_id' => 5, 'tienda_id' => 2, 'cantidad_disponible' => 1, 'cantidad_reservada' => 1]);
+
+        $this->actingAs($this->supervisor())
+            ->postJson('/api/inventario/descuadres/corregir', ['tipo' => 'entrega', 'producto_id' => 5, 'tienda_id' => 2])
+            ->assertOk()
+            ->assertJson(['corregidos' => 1]);
+
+        $inv = DB::table('inventario')->where('producto_id', 5)->where('tienda_id', 2)->first();
+        $this->assertSame(0, $inv->cantidad_disponible);
+
+        $mov = DB::table('inventario_movimientos')->where('producto_id', 5)->where('tienda_id', 2)->first();
+        $this->assertSame('salida', $mov->tipo);
+        $this->assertSame(1, $mov->cantidad);
+    }
+
+    public function test_corregir_todos_arregla_reservado_y_entrega_a_la_vez(): void
+    {
+        // El caso mixto que de verdad importa: 20 disponibles, 6 "reservadas"
+        // que en realidad ya se entregaron (el bug) y 4 reservadas de una
+        // orden activa de verdad. Al corregir todo debe quedar en
+        // 14 disponibles / 4 reservadas / 10 libres — nunca en 0.
+        $ordenEntregada = Orden::create(['cliente_id' => 1, 'tienda_id' => 2, 'estado' => 'entregado', 'valor_total' => 100]);
+        OrdenItem::create(['orden_id' => $ordenEntregada->id, 'producto_id' => 5, 'cantidad' => 6, 'es_personalizado' => false, 'producto_unico' => false]);
+        $ordenActiva = Orden::create(['cliente_id' => 1, 'tienda_id' => 2, 'estado' => 'pendiente_anticipo', 'valor_total' => 100]);
+        OrdenItem::create(['orden_id' => $ordenActiva->id, 'producto_id' => 5, 'cantidad' => 4, 'es_personalizado' => false, 'producto_unico' => false]);
+
+        DB::table('inventario')->insert(['producto_id' => 5, 'tienda_id' => 2, 'cantidad_disponible' => 20, 'cantidad_reservada' => 10]);
+
+        $this->actingAs($this->supervisor())
+            ->postJson('/api/inventario/descuadres/corregir', ['todos' => true])
+            ->assertOk();
+
+        $inv = DB::table('inventario')->where('producto_id', 5)->where('tienda_id', 2)->first();
+        $this->assertSame(14, $inv->cantidad_disponible);
+        $this->assertSame(4, $inv->cantidad_reservada);
     }
 
     public function test_solo_el_supervisor_puede_verlo(): void
@@ -188,7 +282,7 @@ class DescuadresInventarioTest extends TestCase
         DB::table('inventario')->insert(['producto_id' => 5, 'tienda_id' => 2, 'cantidad_disponible' => 1, 'cantidad_reservada' => 1]);
 
         $this->actingAs($this->supervisor())
-            ->postJson('/api/inventario/descuadres/corregir', ['producto_id' => 5, 'tienda_id' => 2])
+            ->postJson('/api/inventario/descuadres/corregir', ['tipo' => 'reservado', 'producto_id' => 5, 'tienda_id' => 2])
             ->assertOk()
             ->assertJson(['corregidos' => 1]);
 
@@ -208,12 +302,12 @@ class DescuadresInventarioTest extends TestCase
         DB::table('inventario')->insert(['producto_id' => 6, 'tienda_id' => 2, 'cantidad_disponible' => 2, 'cantidad_reservada' => 2]);
 
         $this->actingAs($this->supervisor())
-            ->postJson('/api/inventario/descuadres/corregir', ['producto_id' => 5, 'tienda_id' => 2])
+            ->postJson('/api/inventario/descuadres/corregir', ['tipo' => 'reservado', 'producto_id' => 5, 'tienda_id' => 2])
             ->assertOk();
 
         $r = $this->actingAs($this->supervisor())->getJson('/api/inventario/descuadres')->assertOk();
-        $this->assertCount(1, $r->json());
-        $this->assertSame(6, $r->json()[0]['producto_id']);
+        $this->assertCount(1, $r->json('reservados'));
+        $this->assertSame(6, $r->json('reservados')[0]['producto_id']);
     }
 
     public function test_corregir_todos_los_arregla_de_una(): void
@@ -228,7 +322,7 @@ class DescuadresInventarioTest extends TestCase
             ->assertJson(['corregidos' => 2]);
 
         $r = $this->actingAs($this->supervisor())->getJson('/api/inventario/descuadres')->assertOk();
-        $this->assertCount(0, $r->json());
+        $this->assertCount(0, $r->json('reservados'));
     }
 
     public function test_corregir_un_producto_ya_cuadrado_avisa_en_vez_de_fallar_en_silencio(): void
@@ -236,7 +330,7 @@ class DescuadresInventarioTest extends TestCase
         DB::table('inventario')->insert(['producto_id' => 5, 'tienda_id' => 2, 'cantidad_disponible' => 1, 'cantidad_reservada' => 0]);
 
         $this->actingAs($this->supervisor())
-            ->postJson('/api/inventario/descuadres/corregir', ['producto_id' => 5, 'tienda_id' => 2])
+            ->postJson('/api/inventario/descuadres/corregir', ['tipo' => 'reservado', 'producto_id' => 5, 'tienda_id' => 2])
             ->assertStatus(422);
     }
 
@@ -246,7 +340,7 @@ class DescuadresInventarioTest extends TestCase
         DB::table('inventario')->insert(['producto_id' => 5, 'tienda_id' => 2, 'cantidad_disponible' => 1, 'cantidad_reservada' => 1]);
 
         $this->actingAs($vendedor)
-            ->postJson('/api/inventario/descuadres/corregir', ['producto_id' => 5, 'tienda_id' => 2])
+            ->postJson('/api/inventario/descuadres/corregir', ['tipo' => 'reservado', 'producto_id' => 5, 'tienda_id' => 2])
             ->assertStatus(403);
     }
 }

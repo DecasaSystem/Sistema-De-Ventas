@@ -376,34 +376,49 @@ function irAOrdenReservada(r) {
 }
 
 // ── Auditoría de descuadres (solo supervisor) ───────────────────────────────
-// La misma pregunta que un "Reservado" vacío, pero para todo el catálogo de
-// una vez: qué producto+tienda tiene el contador desincronizado de lo real.
+// Dos formas distintas de que el inventario mienta, y no se corrigen igual:
+//  - `reservados`: el contador de Reservado no tiene ninguna orden real
+//    detrás (se canceló, se borró...). La unidad nunca salió de la tienda —
+//    se suelta el número, sin tocar cuánto hay.
+//  - `entregasSinDescontar`: la orden SÍ se entregó, pero el paso que
+//    descuenta inventario nunca corrió. La unidad SÍ salió de verdad — se
+//    bajan Disponible y Reservado juntos, completando la entrega.
 const mostrarDescuadres = ref(false)
-const descuadres = ref([])
+const descuadresReservados = ref([])
+const descuadresEntregas = ref([])
 const descuadresLoading = ref(false)
 
 async function abrirDescuadres() {
-  descuadres.value = []
+  descuadresReservados.value = []
+  descuadresEntregas.value = []
   descuadresLoading.value = true
   mostrarDescuadres.value = true
   try {
     const { data } = await getDescuadres()
-    descuadres.value = data
+    descuadresReservados.value = data.reservados ?? []
+    descuadresEntregas.value = data.entregas_sin_descontar ?? []
   } catch {
-    descuadres.value = []
+    descuadresReservados.value = []
+    descuadresEntregas.value = []
   } finally {
     descuadresLoading.value = false
   }
 }
 
+const totalDescuadres = computed(() => descuadresReservados.value.length + descuadresEntregas.value.length)
+
 const corrigiendoDescuadre = ref(false)
 
-/** Deja el contador de UNO en lo real. `null` cuando se corrigen todos. */
-async function corregirDescuadre(d = null) {
+/**
+ * @param d    La fila a corregir. `null` cuando se corrigen todos.
+ * @param tipo 'reservado' (solo suelta el contador) o 'entrega' (baja
+ *             Disponible y Reservado juntos). Se ignora si `d` es null.
+ */
+async function corregirDescuadre(d = null, tipo = 'reservado') {
   if (corrigiendoDescuadre.value) return
   corrigiendoDescuadre.value = true
   try {
-    await postCorregirDescuadre(d ? { producto_id: d.producto_id, tienda_id: d.tienda_id } : { todos: true })
+    await postCorregirDescuadre(d ? { tipo, producto_id: d.producto_id, tienda_id: d.tienda_id } : { todos: true })
     toast.success(d ? 'Corregido.' : 'Todos los descuadres se corrigieron.')
     await abrirDescuadres() // recarga la lista — ya sin lo que se acaba de corregir
     await cargarInventario(true) // el número de la tarjeta que se estaba viendo también cambió
@@ -414,12 +429,16 @@ async function corregirDescuadre(d = null) {
   }
 }
 
-/** Desde el aviso de descuadre en el modal de "Reservado": corrige ESE y cierra. */
+/**
+ * Desde el aviso de descuadre en el modal de "Reservado": corrige SOLO el
+ * contador (nunca sabemos aquí si además hay una entrega sin descontar —
+ * eso solo lo dice el panel completo de "Descuadres").
+ */
 async function corregirDesdeReservas() {
   if (!itemReservas.value || corrigiendoDescuadre.value) return
   corrigiendoDescuadre.value = true
   try {
-    await postCorregirDescuadre({ producto_id: itemReservas.value.producto_id, tienda_id: itemReservas.value.tienda_id })
+    await postCorregirDescuadre({ tipo: 'reservado', producto_id: itemReservas.value.producto_id, tienda_id: itemReservas.value.tienda_id })
     toast.success('Corregido.')
     mostrarReservas.value = false
     await cargarInventario(true)
@@ -3239,8 +3258,10 @@ onMounted(async () => {
               <p>
                 <span class="font-semibold">Descuadre:</span> la tarjeta dice
                 {{ itemReservas.esperado }} reservado, pero ninguna orden lo tiene apartado.
-                Probablemente quedó de una orden vieja que no liberó su reserva
-                al cerrarse.
+                Puede ser una orden vieja que se canceló sin liberar (ahí solo
+                sobra el Reservado), o una que ya se entregó y nunca descontó
+                (ahí Disponible también está mal). Este botón solo corrige lo
+                primero — para saber cuál es tu caso, revisa el panel completo.
               </p>
               <div v-if="auth.isSupervisor" class="flex items-center gap-3 flex-wrap">
                 <button
@@ -3249,7 +3270,7 @@ onMounted(async () => {
                   :disabled="corrigiendoDescuadre"
                   @click="corregirDesdeReservas"
                   class="bg-amber-600 text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-amber-700 disabled:opacity-50 transition-colors"
-                >{{ corrigiendoDescuadre ? 'Corrigiendo...' : 'Corregir este descuadre ahora' }}</button>
+                >{{ corrigiendoDescuadre ? 'Corrigiendo...' : 'Corregir solo el Reservado' }}</button>
                 <button type="button" @click="mostrarReservas = false; abrirDescuadres()" class="text-amber-900 font-medium underline text-xs">
                   Revisar todos los descuadres del catálogo →
                 </button>
@@ -3291,36 +3312,65 @@ onMounted(async () => {
           <div class="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100 flex-shrink-0">
             <div>
               <h3 class="text-lg font-bold text-gray-800">Descuadres de inventario</h3>
-              <p class="text-xs text-gray-500 mt-0.5">Productos donde "Reservado" no coincide con lo real</p>
+              <p class="text-xs text-gray-500 mt-0.5">Dos tipos: reservas fantasma y entregas que no descontaron</p>
             </div>
             <button @click="mostrarDescuadres = false" class="text-gray-400 text-2xl leading-none">&times;</button>
           </div>
-          <div v-if="descuadres.length > 0" class="px-5 pt-3 flex-shrink-0">
+          <div v-if="totalDescuadres > 0" class="px-5 pt-3 flex-shrink-0">
             <button
               type="button"
               :disabled="corrigiendoDescuadre"
               @click="corregirDescuadre()"
               class="w-full bg-amber-600 text-white text-sm font-semibold py-2 rounded-lg hover:bg-amber-700 disabled:opacity-50 transition-colors"
-            >{{ corrigiendoDescuadre ? 'Corrigiendo...' : `Corregir los ${descuadres.length} de una vez` }}</button>
+            >{{ corrigiendoDescuadre ? 'Corrigiendo...' : `Corregir los ${totalDescuadres} de una vez` }}</button>
           </div>
-          <div class="overflow-y-auto flex-1 px-5 py-4 space-y-2">
+          <div class="overflow-y-auto flex-1 px-5 py-4 space-y-4">
             <div v-if="descuadresLoading" class="text-sm text-gray-400 text-center py-8">Buscando en todo el catálogo...</div>
-            <div v-else-if="descuadres.length === 0" class="text-sm text-gray-400 text-center py-8">Ningún descuadre — todo cuadra</div>
-            <div v-else v-for="d in descuadres" :key="d.producto_id + '-' + d.tienda_id" class="flex items-center justify-between gap-3 py-2.5 border-b border-gray-50 last:border-0">
-              <div class="flex-1 min-w-0">
-                <p class="text-sm font-semibold text-gray-800 truncate">{{ d.producto_nombre }}</p>
-                <p class="text-xs text-gray-500">{{ d.tienda_nombre }}</p>
-                <p class="text-xs text-gray-400">Contador {{ d.contador }} · Real {{ d.real }}
-                  <span class="font-semibold" :class="d.diferencia > 0 ? 'text-amber-600' : 'text-red-600'">({{ d.diferencia > 0 ? '+' : '' }}{{ d.diferencia }})</span>
-                </p>
+            <template v-else>
+              <div v-if="totalDescuadres === 0" class="text-sm text-gray-400 text-center py-8">Ningún descuadre — todo cuadra</div>
+
+              <!-- Entregas que nunca descontaron: la unidad SÍ salió de la
+                   tienda — baja Disponible y Reservado juntos. Va primero
+                   porque es la más delicada: mientras no se corrija, la
+                   tienda cree tener stock que ya vendió. -->
+              <div v-if="descuadresEntregas.length" class="space-y-2">
+                <p class="text-xs font-semibold text-red-700 uppercase">Ya se entregaron, nunca descontaron ({{ descuadresEntregas.length }})</p>
+                <div v-for="d in descuadresEntregas" :key="'e-' + d.producto_id + '-' + d.tienda_id" class="flex items-center justify-between gap-3 py-2 border-b border-gray-50 last:border-0">
+                  <div class="flex-1 min-w-0">
+                    <p class="text-sm font-semibold text-gray-800 truncate">{{ d.producto_nombre }}</p>
+                    <p class="text-xs text-gray-500">{{ d.tienda_nombre }} · {{ d.ordenes.join(', ') }}</p>
+                    <p class="text-xs text-gray-400">Disponible {{ d.disponible_actual }} → <span class="font-semibold text-red-600">{{ d.disponible_despues }}</span></p>
+                  </div>
+                  <button
+                    type="button"
+                    :disabled="corrigiendoDescuadre"
+                    @click="corregirDescuadre(d, 'entrega')"
+                    class="flex-shrink-0 text-xs font-semibold text-red-700 border border-red-300 bg-red-50 px-2.5 py-1.5 rounded-lg hover:bg-red-100 disabled:opacity-50 transition-colors"
+                  >Corregir</button>
+                </div>
               </div>
-              <button
-                type="button"
-                :disabled="corrigiendoDescuadre"
-                @click="corregirDescuadre(d)"
-                class="flex-shrink-0 text-xs font-semibold text-amber-700 border border-amber-300 bg-amber-50 px-2.5 py-1.5 rounded-lg hover:bg-amber-100 disabled:opacity-50 transition-colors"
-              >Corregir</button>
-            </div>
+
+              <!-- Reservado sin ninguna orden real detrás: la unidad nunca
+                   salió — solo se suelta el contador. -->
+              <div v-if="descuadresReservados.length" class="space-y-2">
+                <p class="text-xs font-semibold text-amber-700 uppercase">Reservado sin orden que lo sostenga ({{ descuadresReservados.length }})</p>
+                <div v-for="d in descuadresReservados" :key="'r-' + d.producto_id + '-' + d.tienda_id" class="flex items-center justify-between gap-3 py-2 border-b border-gray-50 last:border-0">
+                  <div class="flex-1 min-w-0">
+                    <p class="text-sm font-semibold text-gray-800 truncate">{{ d.producto_nombre }}</p>
+                    <p class="text-xs text-gray-500">{{ d.tienda_nombre }}</p>
+                    <p class="text-xs text-gray-400">Contador {{ d.contador }} · Real {{ d.real }}
+                      <span class="font-semibold" :class="d.diferencia > 0 ? 'text-amber-600' : 'text-red-600'">({{ d.diferencia > 0 ? '+' : '' }}{{ d.diferencia }})</span>
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    :disabled="corrigiendoDescuadre"
+                    @click="corregirDescuadre(d, 'reservado')"
+                    class="flex-shrink-0 text-xs font-semibold text-amber-700 border border-amber-300 bg-amber-50 px-2.5 py-1.5 rounded-lg hover:bg-amber-100 disabled:opacity-50 transition-colors"
+                  >Corregir</button>
+                </div>
+              </div>
+            </template>
           </div>
         </div>
       </div>
