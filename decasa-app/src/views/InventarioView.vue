@@ -17,11 +17,12 @@ import {
   XCircleIcon,
   ChevronDownIcon,
   ChevronUpIcon,
+  ChevronRightIcon,
   ArrowRightIcon,
   ArrowDownTrayIcon,
 } from '@heroicons/vue/24/outline'
 import { exportarExcelHojas } from '@/utils/exportarExcel'
-import { getInventario, getDesgloseVariantes, getResumenCategoria, addStock, removeStock, getVariantes, crearVariante, addStockVariante, getMovimientos, getVarianteUso, eliminarVariante } from '@/api/inventario'
+import { getInventario, getDesgloseVariantes, getResumenCategoria, addStock, removeStock, getVariantes, crearVariante, addStockVariante, getMovimientos, getReservas, getVarianteUso, eliminarVariante } from '@/api/inventario'
 import SurtidosPendientesPanel from '@/components/inventario/SurtidosPendientesPanel.vue'
 import ModalVariantes from '@/components/inventario/ModalVariantes.vue'
 import { getTrasladosPendientes, aceptarTraslado, rechazarTraslado } from '@/api/traslados'
@@ -33,6 +34,7 @@ import { useToast } from '@/composables/useToast'
 import { getTiendas } from '@/api/ordenes'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
+import BadgeEstado from '@/components/common/BadgeEstado.vue'
 import api from '@/api'
 import { comprimirImagen } from '@/utils/comprimirImagen'
 import { pesos } from '@/utils/pesos'
@@ -329,6 +331,41 @@ const mostrarHistorial = ref(false)
 const itemHistorial = ref(null)
 const movimientos = ref([])
 const movimientosLoading = ref(false)
+
+// ── Quién tiene reservado cada unidad ───────────────────────────────────────
+// El número de la tarjeta ("Reservado: 3") no dice de quién son esas 3
+// unidades. Este modal reconstruye la lista: orden, tienda, vendedor y cliente.
+const mostrarReservas = ref(false)
+const itemReservas = ref(null)
+const reservas = ref([])
+const reservasLoading = ref(false)
+
+/**
+ * @param item        La tarjeta del producto (trae producto_id y nombre).
+ * @param tiendaId    Si se abrió desde el desglose de UNA tienda, solo esa.
+ *                     Si se abrió desde el total (que puede sumar varias
+ *                     tiendas en la vista "todas"), null: salen todas.
+ * @param tiendaNombre Solo para el título del modal.
+ */
+async function abrirReservas(item, tiendaId = null, tiendaNombre = null) {
+  itemReservas.value = { producto_nombre: item.producto?.nombre, tienda_nombre: tiendaNombre }
+  reservas.value = []
+  reservasLoading.value = true
+  mostrarReservas.value = true
+  try {
+    const { data } = await getReservas(item.producto_id, tiendaId)
+    reservas.value = data
+  } catch {
+    reservas.value = []
+  } finally {
+    reservasLoading.value = false
+  }
+}
+
+function irAOrdenReservada(r) {
+  mostrarReservas.value = false
+  router.push({ name: 'orden-detalle', params: { id: r.orden_id } })
+}
 
 function verFoto(producto) {
   fotoProducto.value = producto
@@ -2167,10 +2204,15 @@ onMounted(async () => {
               <p class="text-lg font-bold text-gray-800">{{ item.cantidad_disponible }}</p>
               <p class="text-xs text-gray-400">Disponible</p>
             </div>
-            <div class="bg-gray-50 rounded-lg p-1.5">
+            <button
+              type="button"
+              @click="abrirReservas(item, esVistaGlobal ? null : tiendaId, esVistaGlobal ? null : tiendas.find(t => t.id == tiendaId)?.nombre)"
+              class="bg-gray-50 rounded-lg p-1.5 hover:bg-gray-100 transition-colors"
+              title="Ver quién tiene esto reservado"
+            >
               <p class="text-lg font-bold text-gray-500">{{ item.cantidad_reservada }}</p>
-              <p class="text-xs text-gray-400">Reservado</p>
-            </div>
+              <p class="text-xs text-gray-400 underline">Reservado</p>
+            </button>
             <div class="bg-gray-50 rounded-lg p-1.5">
               <p class="text-lg font-bold text-green-600">{{ item.stock_libre }}</p>
               <p class="text-xs text-gray-400">Libre</p>
@@ -2185,17 +2227,19 @@ onMounted(async () => {
           <div v-if="esVistaGlobal && item.por_tienda?.length" class="mt-2 space-y-1">
             <p class="text-xs text-gray-400">En cada tienda</p>
             <div class="flex flex-wrap gap-1.5">
-              <span
+              <button
                 v-for="t in item.por_tienda"
                 :key="t.tienda_id"
+                type="button"
+                @click="abrirReservas(item, t.tienda_id, t.tienda_nombre)"
                 :class="[
-                  'inline-flex items-baseline gap-1 px-2 py-1 rounded-lg text-xs border',
+                  'inline-flex items-baseline gap-1 px-2 py-1 rounded-lg text-xs border transition-colors',
                   t.stock_libre > 0
-                    ? 'bg-green-50 border-green-200 text-green-800'
-                    : 'bg-gray-50 border-gray-200 text-gray-400',
+                    ? 'bg-green-50 border-green-200 text-green-800 hover:bg-green-100'
+                    : 'bg-gray-50 border-gray-200 text-gray-400 hover:bg-gray-100',
                 ]"
                 :title="t.cantidad_reservada > 0
-                  ? `${t.cantidad_disponible} en bodega · ${t.cantidad_reservada} apartado(s)`
+                  ? `${t.cantidad_disponible} en bodega · ${t.cantidad_reservada} apartado(s) — clic para ver quién`
                   : `${t.cantidad_disponible} disponible(s)`"
               >
                 <span class="font-semibold">{{ nombreCorto(t.tienda_nombre) }}</span>
@@ -2203,7 +2247,7 @@ onMounted(async () => {
                 <span v-if="t.cantidad_reservada > 0" class="text-[10px] opacity-70">
                   (+{{ t.cantidad_reservada }} apartado{{ t.cantidad_reservada === 1 ? '' : 's' }})
                 </span>
-              </span>
+              </button>
             </div>
           </div>
 
@@ -3096,6 +3140,50 @@ onMounted(async () => {
                 <p class="text-xs text-gray-400">{{ new Date(m.created_at).toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) }}</p>
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- Modal: quién tiene reservado -->
+    <Transition name="fade">
+      <div v-if="mostrarReservas" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="mostrarReservas = false">
+        <div class="absolute inset-0 bg-black/40" />
+        <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md max-h-[80vh] flex flex-col">
+          <div class="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100 flex-shrink-0">
+            <div>
+              <h3 class="text-lg font-bold text-gray-800">Reservado</h3>
+              <p class="text-xs text-gray-500 mt-0.5">
+                {{ itemReservas?.producto_nombre }}<span v-if="itemReservas?.tienda_nombre"> · {{ itemReservas.tienda_nombre }}</span>
+              </p>
+            </div>
+            <button @click="mostrarReservas = false" class="text-gray-400 text-2xl leading-none">&times;</button>
+          </div>
+          <div class="overflow-y-auto flex-1 px-5 py-4 space-y-2">
+            <div v-if="reservasLoading" class="text-sm text-gray-400 text-center py-8">Cargando...</div>
+            <div v-else-if="reservas.length === 0" class="text-sm text-gray-400 text-center py-8">No hay nada reservado</div>
+            <button
+              v-else
+              v-for="r in reservas"
+              :key="r.orden_id"
+              type="button"
+              @click="irAOrdenReservada(r)"
+              class="w-full text-left flex items-start gap-3 py-2.5 border-b border-gray-50 last:border-0 hover:bg-gray-50 rounded-lg px-1 -mx-1 transition-colors"
+            >
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="text-sm font-semibold text-gray-800">{{ r.orden_referencia }}</span>
+                  <BadgeEstado :estado="r.estado" />
+                  <span class="text-xs text-gray-400">{{ r.cantidad }} unidad{{ r.cantidad === 1 ? '' : 'es' }}</span>
+                </div>
+                <p class="text-xs text-gray-600 truncate mt-0.5">{{ r.cliente_nombre ?? 'Sin cliente' }}</p>
+                <p class="text-xs text-gray-400 truncate">
+                  {{ r.vendedor_nombre ?? 'Sin vendedor' }}<span v-if="r.covendedor_nombre"> + {{ r.covendedor_nombre }}</span>
+                  <span v-if="!itemReservas?.tienda_nombre && r.tienda_nombre"> · {{ r.tienda_nombre }}</span>
+                </p>
+              </div>
+              <ChevronRightIcon class="w-4 h-4 text-gray-300 flex-shrink-0 mt-1" />
+            </button>
           </div>
         </div>
       </div>

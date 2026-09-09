@@ -34,3 +34,8 @@ export const addStockVariante = (data) => api.post('/inventario/variantes/entrad
 
 export const getMovimientos = (productoId, tiendaId = null) =>
   api.get(`/inventario/${productoId}/movimientos`, { params: { tienda_id: tiendaId } })
+
+// Quién tiene reservado cada unidad: orden, tienda, vendedor y cliente.
+// Sin tiendaId salen las de cualquier tienda (para el total de "todas").
+export const getReservas = (productoId, tiendaId = null) =>
+  api.get(`/inventario/${productoId}/reservas`, { params: { tienda_id: tiendaId } })

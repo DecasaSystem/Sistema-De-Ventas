@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Events\InventarioActualizado;
 use App\Models\Inventario;
 use App\Models\InventarioMovimiento;
+use App\Models\OrdenItem;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -662,5 +663,76 @@ class InventarioController extends Controller
             ->get();
 
         return response()->json($movimientos);
+    }
+
+    /**
+     * GET /api/inventario/{productoId}/reservas?tienda_id=1
+     *
+     * El "Reservado" de la tarjeta es un contador (`cantidad_reservada`) que
+     * no dice de quién es cada unidad. Esto reconstruye la lista completa:
+     * qué orden tiene apartada cada unidad, de qué tienda, para qué cliente
+     * y de qué vendedor.
+     *
+     * Una unidad está reservada mientras exista su `orden_item` y la orden
+     * todavía no se haya cerrado (entregado/cancelado/devuelto) — es
+     * exactamente la condición contraria a cuando el código de la orden le
+     * resta a `cantidad_reservada`. Los ítems personalizados o de mueble
+     * único no cuentan: nunca reservan stock de catálogo.
+     *
+     * `tienda_id` es opcional: sin él salen las de cualquier tienda (para el
+     * total de la vista "todas"); con él, solo las de esa tienda — la misma
+     * cuenta con la que sale el desglose "en cada tienda" de la tarjeta.
+     */
+    public function reservas(Request $request, int $productoId)
+    {
+        $usuario = $request->user();
+
+        // Mismo criterio que `movimientos`: un vendedor solo ve lo suyo (su
+        // tienda), sin importar qué tienda_id le pida a la URL. Solo el
+        // supervisor puede pedir otra tienda puntual, o ninguna (todas).
+        if ($usuario->rol === 'supervisor') {
+            $tiendaParam = $request->query('tienda_id');
+            $tiendaId    = ($tiendaParam && $tiendaParam !== 'todas') ? (int) $tiendaParam : null;
+        } else {
+            $tiendaId = (int) $usuario->tienda_default_id;
+        }
+
+        $items = OrdenItem::with([
+                'orden:id,numero_orden,serie,serie_numero,cotizacion_numero,estado,tienda_id,vendedor_id,covendedor_id,cliente_id',
+                'orden.cliente:id,nombre',
+                'orden.vendedor:id,nombre',
+                'orden.covendedor:id,nombre',
+                'orden.tienda:id,nombre',
+                'tiendaOrigen:id,nombre',
+            ])
+            ->where('producto_id', $productoId)
+            ->where('es_personalizado', false)
+            ->where('producto_unico', false)
+            ->whereHas('orden', fn ($q) => $q->whereNotIn('estado', ['entregado', 'cancelado', 'devuelto']))
+            ->orderBy('created_at')
+            ->get()
+            ->filter(fn ($item) => $item->orden !== null);
+
+        $reservas = $items
+            // La tienda real es la de origen si viajó de otra sede; si no,
+            // la de la orden misma — igual que al reservar (ver Orden::store).
+            ->map(function ($item) {
+                $tienda = $item->tiendaOrigen ?? $item->orden->tienda;
+                return [
+                    'orden_id'         => $item->orden->id,
+                    'orden_referencia' => $item->orden->referencia,
+                    'estado'           => $item->orden->estado,
+                    'cantidad'         => (int) $item->cantidad,
+                    'tienda_id'        => $tienda?->id,
+                    'tienda_nombre'    => $tienda?->nombre,
+                    'vendedor_nombre'  => $item->orden->vendedor?->nombre,
+                    'covendedor_nombre' => $item->orden->covendedor?->nombre,
+                    'cliente_nombre'   => $item->orden->cliente?->nombre,
+                ];
+            })
+            ->when($tiendaId, fn ($c) => $c->where('tienda_id', $tiendaId))
+            ->values();
+
+        return response()->json($reservas);
     }
 }
