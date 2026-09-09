@@ -50,6 +50,7 @@ class DescuadresInventarioTest extends TestCase
             $t->unsignedBigInteger('tienda_origen_id')->nullable();
             $t->integer('cantidad')->default(1); $t->decimal('precio_unitario', 12, 2)->default(0);
             $t->boolean('es_personalizado')->default(false); $t->boolean('producto_unico')->default(false);
+            $t->date('devuelto_en')->nullable();
             $t->timestamps();
         });
         Schema::create('inventario', function (Blueprint $t) {
@@ -93,6 +94,35 @@ class DescuadresInventarioTest extends TestCase
     {
         $orden = Orden::create(['cliente_id' => 1, 'tienda_id' => 2, 'estado' => 'pendiente_anticipo', 'valor_total' => 100]);
         OrdenItem::create(['orden_id' => $orden->id, 'producto_id' => 5, 'cantidad' => 1, 'es_personalizado' => false, 'producto_unico' => false]);
+        DB::table('inventario')->insert(['producto_id' => 5, 'tienda_id' => 2, 'cantidad_disponible' => 1, 'cantidad_reservada' => 1]);
+
+        $r = $this->actingAs($this->supervisor())->getJson('/api/inventario/descuadres')->assertOk();
+
+        $this->assertCount(0, $r->json());
+    }
+
+    public function test_un_item_devuelto_para_cambiarlo_no_infla_lo_real(): void
+    {
+        // El supervisor cambió el producto de una orden ya entregada
+        // (OrdenController::cambiarProducto): el ítem viejo queda
+        // `devuelto_en` y la orden reabre a `pendiente_anticipo`, pero ya
+        // liberó su reserva al entregarse la primera vez — el inventario no
+        // le debe nada más.
+        //
+        // Se prueba junto a una reserva de verdad del MISMO producto+tienda
+        // (otra orden, activa) para que el riesgo quede claro: si el ítem
+        // devuelto se contara, "real" saldría en 2 aunque el contador (1, la
+        // reserva de verdad) esté perfectamente bien — y "Corregir" habría
+        // terminado RESERVANDO una unidad de más que sí se puede vender.
+        $ordenVieja = Orden::create(['cliente_id' => 1, 'tienda_id' => 2, 'estado' => 'pendiente_anticipo', 'valor_total' => 100]);
+        OrdenItem::create([
+            'orden_id' => $ordenVieja->id, 'producto_id' => 5, 'cantidad' => 1,
+            'es_personalizado' => false, 'producto_unico' => false,
+            'devuelto_en' => now()->toDateString(),
+        ]);
+        $ordenActiva = Orden::create(['cliente_id' => 1, 'tienda_id' => 2, 'estado' => 'pendiente_anticipo', 'valor_total' => 100]);
+        OrdenItem::create(['orden_id' => $ordenActiva->id, 'producto_id' => 5, 'cantidad' => 1, 'es_personalizado' => false, 'producto_unico' => false]);
+
         DB::table('inventario')->insert(['producto_id' => 5, 'tienda_id' => 2, 'cantidad_disponible' => 1, 'cantidad_reservada' => 1]);
 
         $r = $this->actingAs($this->supervisor())->getJson('/api/inventario/descuadres')->assertOk();

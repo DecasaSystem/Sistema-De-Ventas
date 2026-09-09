@@ -45,6 +45,7 @@ class ReservasInventarioTest extends TestCase
             $t->unsignedBigInteger('tienda_origen_id')->nullable();
             $t->integer('cantidad')->default(1); $t->decimal('precio_unitario', 12, 2)->default(0);
             $t->boolean('es_personalizado')->default(false); $t->boolean('producto_unico')->default(false);
+            $t->date('devuelto_en')->nullable();
             $t->timestamps();
         });
 
@@ -172,5 +173,21 @@ class ReservasInventarioTest extends TestCase
 
         $rTodas = $this->actingAs($vendedor)->getJson('/api/inventario/5/reservas?tienda_id=todas')->assertOk();
         $this->assertCount(1, $rTodas->json());
+    }
+
+    public function test_un_item_devuelto_para_cambiarlo_no_cuenta_aunque_la_orden_reabra(): void
+    {
+        DB::table('clientes')->insert(['id' => 1, 'nombre' => 'Cliente', 'created_at' => now(), 'updated_at' => now()]);
+
+        // El supervisor reabre una orden entregada para cambiar el producto
+        // (OrdenController::cambiarProducto): el ítem queda `devuelto_en` y la
+        // orden vuelve a `pendiente_anticipo` — pero ese ítem ya se liberó al
+        // entregarse la primera vez, no hay que volver a contarlo.
+        $item = $this->ordenConItem(['estado' => 'pendiente_anticipo'], ['devuelto_en' => now()->toDateString()]);
+
+        $sup = $this->usuario();
+        $r = $this->actingAs($sup)->getJson('/api/inventario/5/reservas')->assertOk();
+
+        $this->assertCount(0, $r->json());
     }
 }

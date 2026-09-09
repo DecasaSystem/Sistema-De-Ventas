@@ -710,6 +710,12 @@ class InventarioController extends Controller
             ->where('producto_id', $productoId)
             ->where('es_personalizado', false)
             ->where('producto_unico', false)
+            // Un ítem que el supervisor devolvió para cambiarlo por otro
+            // (`cambiarProducto`) reabre la orden a `pendiente_anticipo` pero
+            // el ítem viejo se queda ahí marcado `devuelto_en` — ya se liberó
+            // al entregarse la primera vez y no vuelve a reservar nada.
+            // Contarlo aquí inventaría una reserva que no existe.
+            ->whereNull('devuelto_en')
             ->whereHas('orden', fn ($q) => $q->whereNotIn('estado', ['entregado', 'cancelado', 'devuelto']))
             ->orderBy('created_at')
             ->get()
@@ -775,6 +781,10 @@ class InventarioController extends Controller
             ->where('es_personalizado', false)
             ->where('producto_unico', false)
             ->whereNotNull('producto_id')
+            // Igual que en `reservas()`: un ítem devuelto para cambiarlo por
+            // otro (`cambiarProducto`) ya liberó su reserva al entregarse; que
+            // la orden haya reabierto a `pendiente_anticipo` no lo revive.
+            ->whereNull('devuelto_en')
             ->whereHas('orden', fn ($q) => $q->whereNotIn('estado', ['entregado', 'cancelado', 'devuelto']))
             ->get()
             ->filter(fn ($item) => $item->orden !== null)
