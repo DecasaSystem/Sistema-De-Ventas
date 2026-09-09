@@ -1,6 +1,6 @@
 // Subir este número en cada cambio del service worker: al activarse borra los
 // caches con otro nombre, y así no queda nada de la versión anterior.
-const CACHE_NAME = 'decasa-v17'
+const CACHE_NAME = 'decasa-v18'
 
 // ── Push notifications ────────────────────────────────────────────────────────
 self.addEventListener('push', (event) => {
@@ -38,8 +38,6 @@ self.addEventListener('notificationclick', (event) => {
         clients.openWindow(url)
       }
     })
-  )
-})
   )
 })
 
