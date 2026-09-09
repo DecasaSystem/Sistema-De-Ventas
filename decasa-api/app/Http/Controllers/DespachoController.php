@@ -485,6 +485,12 @@ class DespachoController extends Controller
         if ($v = $request->query('hasta')) {
             $query->whereDate('fecha_despacho', '<=', $v);
         }
+        // Búsqueda por nombre de conductor — para encontrar, por ejemplo,
+        // todas las entregas de una cuenta de prueba y confirmar cuáles
+        // fueron reales.
+        if ($v = $request->query('conductor')) {
+            $query->whereHas('conductor', fn ($q) => $q->where('nombre', 'like', "%{$v}%"));
+        }
 
         return response()->json($query->orderByDesc('fecha_despacho')->paginate(20));
     }

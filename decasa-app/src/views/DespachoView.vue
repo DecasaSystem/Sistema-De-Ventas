@@ -215,7 +215,7 @@ const hayFiltrosAsignados = computed(() =>
 // ── Historial ────────────────────────────────────────────────────────────────
 const historial = ref([])
 const cargandoHistorial = ref(false)
-const filtrosHistorial = ref({ camion_id: '', desde: '', hasta: '' })
+const filtrosHistorial = ref({ camion_id: '', desde: '', hasta: '', conductor: '' })
 const historialPaginacion = ref(null)
 const detalleExpandido = ref(null)
 const detalleExpandidoAsignado = ref(null)
@@ -229,6 +229,7 @@ async function cargarHistorial() {
     if (filtrosHistorial.value.camion_id) params.camion_id = filtrosHistorial.value.camion_id
     if (filtrosHistorial.value.desde) params.desde = filtrosHistorial.value.desde
     if (filtrosHistorial.value.hasta) params.hasta = filtrosHistorial.value.hasta
+    if (filtrosHistorial.value.conductor) params.conductor = filtrosHistorial.value.conductor
     const { data } = await historialDespacho(params)
     historial.value = data.data
     historialPaginacion.value = {
@@ -477,6 +478,7 @@ async function cargarPagina(page) {
     if (filtrosHistorial.value.camion_id) params.camion_id = filtrosHistorial.value.camion_id
     if (filtrosHistorial.value.desde) params.desde = filtrosHistorial.value.desde
     if (filtrosHistorial.value.hasta) params.hasta = filtrosHistorial.value.hasta
+    if (filtrosHistorial.value.conductor) params.conductor = filtrosHistorial.value.conductor
     const { data } = await historialDespacho(params)
     historial.value = data.data
     historialPaginacion.value = {
@@ -1193,6 +1195,12 @@ onBeforeUnmount(() => {
           <option value="">Todos los camiones</option>
           <option v-for="c in camionesList" :key="c.id" :value="c.id">{{ c.nombre ?? `Camión ${c.id}` }}</option>
         </select>
+        <input
+          v-model="filtrosHistorial.conductor"
+          type="text"
+          placeholder="Buscar por nombre de conductor..."
+          class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
         <div class="flex gap-2">
           <input
             v-model="filtrosHistorial.desde"
