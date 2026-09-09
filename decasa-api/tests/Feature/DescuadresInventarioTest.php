@@ -246,6 +246,25 @@ class DescuadresInventarioTest extends TestCase
         $this->assertSame(1, $mov->cantidad);
     }
 
+    public function test_corregir_entrega_no_lo_vuelve_a_reportar_al_auditar_otra_vez(): void
+    {
+        // El bug real que se reportó: "Corregir" bajaba Disponible, pero el
+        // movimiento que dejaba no tenía el formato "Entrega orden #{id}" que
+        // `calcularEntregasSinDescontar` busca — así que la orden seguía
+        // saliendo como "sin descontar" para siempre, sin importar cuántas
+        // veces se le diera "Corregir".
+        $orden = Orden::create(['cliente_id' => 1, 'tienda_id' => 2, 'estado' => 'entregado', 'valor_total' => 100, 'numero_orden' => 4308]);
+        OrdenItem::create(['orden_id' => $orden->id, 'producto_id' => 5, 'cantidad' => 1, 'es_personalizado' => false, 'producto_unico' => false]);
+        DB::table('inventario')->insert(['producto_id' => 5, 'tienda_id' => 2, 'cantidad_disponible' => 1, 'cantidad_reservada' => 1]);
+
+        $this->actingAs($this->supervisor())
+            ->postJson('/api/inventario/descuadres/corregir', ['tipo' => 'entrega', 'producto_id' => 5, 'tienda_id' => 2])
+            ->assertOk();
+
+        $r = $this->actingAs($this->supervisor())->getJson('/api/inventario/descuadres')->assertOk();
+        $this->assertCount(0, $r->json('entregas_sin_descontar'));
+    }
+
     public function test_corregir_todos_arregla_reservado_y_entrega_a_la_vez(): void
     {
         // El caso mixto que de verdad importa: 20 disponibles, 6 "reservadas"

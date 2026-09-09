@@ -891,6 +891,18 @@ class InventarioController extends Controller
                     'cantidad_pendiente'  => (int) $items->sum('cantidad'),
                     'disponible_actual'   => (int) ($inv->cantidad_disponible ?? 0),
                     'ordenes'             => $items->map(fn ($i) => $i->orden->referencia)->unique()->values()->all(),
+                    // Una fila puede juntar varias órdenes (el mismo producto+
+                    // tienda sin descontar en más de una). `corregirDescuadre`
+                    // necesita el detalle por orden, no solo el total: cada
+                    // una se anota con SU propio movimiento "Entrega orden
+                    // #{id}" — el mismo formato que ya busca este método — así
+                    // una vez corregida, la próxima auditoría la ve cubierta y
+                    // no la vuelve a reportar.
+                    'detalle'             => $items->groupBy('orden_id')->map(fn ($g, $ordenId) => [
+                        'orden_id'   => (int) $ordenId,
+                        'referencia' => $g->first()->orden->referencia,
+                        'cantidad'   => (int) $g->sum('cantidad'),
+                    ])->values()->all(),
                 ];
             })
             ->values()
@@ -990,14 +1002,22 @@ class InventarioController extends Controller
                         // completa lo que la entrega no alcanzó a descontar.
                     ]);
 
-                InventarioMovimiento::create([
-                    'producto_id' => $d['producto_id'],
-                    'tienda_id'   => $d['tienda_id'],
-                    'tipo'        => 'salida',
-                    'cantidad'    => $d['cantidad_pendiente'],
-                    'motivo'      => "Completando entrega ya realizada de " . implode(', ', $d['ordenes']) . " ({$usuario->nombre})",
-                    'usuario_id'  => $usuario->id,
-                ]);
+                // Un movimiento POR ORDEN, no uno solo agrupado — y con el
+                // mismo formato ("Entrega orden #{id}") que
+                // `calcularEntregasSinDescontar()` busca para saber que una
+                // orden ya quedó cubierta. Sin esto, la próxima auditoría
+                // seguía viendo estas mismas órdenes como "sin descontar" —
+                // "Corregir" bajaba el número pero nunca se daba por hecho.
+                foreach ($d['detalle'] as $orden) {
+                    InventarioMovimiento::create([
+                        'producto_id' => $d['producto_id'],
+                        'tienda_id'   => $d['tienda_id'],
+                        'tipo'        => 'salida',
+                        'cantidad'    => $orden['cantidad'],
+                        'motivo'      => "Entrega orden #{$orden['orden_id']} — corrección de descuadre ({$usuario->nombre})",
+                        'usuario_id'  => $usuario->id,
+                    ]);
+                }
             }
 
             return $reservados->count() + $entregas->count();
