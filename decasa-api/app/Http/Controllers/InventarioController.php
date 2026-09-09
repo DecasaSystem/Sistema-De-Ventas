@@ -759,6 +759,17 @@ class InventarioController extends Controller
             return response()->json(['message' => 'No autorizado.'], 403);
         }
 
+        return response()->json($this->calcularDescuadres());
+    }
+
+    /**
+     * Cuánto debería estar reservado por producto+tienda ("real"), y con eso
+     * cada fila de `inventario` donde el contador no coincide. La usan
+     * `descuadres()` para reportar y `corregirDescuadre()` para saber a qué
+     * número dejar el contador — así las dos nunca se desincronizan entre sí.
+     */
+    private function calcularDescuadres(): \Illuminate\Support\Collection
+    {
         // Cuánto debería estar reservado, sumado por producto+tienda.
         $reales = OrdenItem::with(['orden:id,estado,tienda_id'])
             ->where('es_personalizado', false)
@@ -787,7 +798,7 @@ class InventarioController extends Controller
                 });
         }
 
-        $descuadres = Inventario::where('cantidad_reservada', '<>', 0)
+        return Inventario::where('cantidad_reservada', '<>', 0)
             ->with('producto:id,nombre', 'tienda:id,nombre')
             ->get()
             ->map(function ($inv) use ($reales) {
@@ -805,7 +816,66 @@ class InventarioController extends Controller
             ->filter(fn ($r) => $r['diferencia'] !== 0)
             ->sortByDesc(fn ($r) => abs($r['diferencia']))
             ->values();
+    }
 
-        return response()->json($descuadres);
+    /**
+     * POST /api/inventario/descuadres/corregir
+     * body: { producto_id, tienda_id } → corrige solo ese
+     *       { todos: true }             → corrige todos los que salgan ahora
+     *
+     * Deja `cantidad_reservada` en lo que de verdad hay comprometido (lo que
+     * ya calcula `descuadres()`) y lo deja anotado como un movimiento más,
+     * para que quede timbrado quién lo corrigió y a partir de qué número —
+     * no es un valor que se pierde silenciosamente.
+     */
+    public function corregirDescuadre(Request $request)
+    {
+        $usuario = $request->user();
+        if ($usuario->rol !== 'supervisor') {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+
+        $data = $request->validate([
+            'producto_id' => 'required_without:todos|integer',
+            'tienda_id'   => 'required_without:todos|integer',
+            'todos'       => 'nullable|boolean',
+        ]);
+
+        $descuadres = $this->calcularDescuadres();
+
+        if (! ($data['todos'] ?? false)) {
+            $descuadres = $descuadres->filter(fn ($d) =>
+                (int) $d['producto_id'] === (int) $data['producto_id']
+                && (int) $d['tienda_id']   === (int) $data['tienda_id']
+            );
+
+            if ($descuadres->isEmpty()) {
+                return response()->json(['message' => 'Ese producto ya no tiene descuadre — puede que ya se haya corregido.'], 422);
+            }
+        }
+
+        $corregidos = DB::transaction(function () use ($descuadres, $usuario) {
+            foreach ($descuadres as $d) {
+                Inventario::where('producto_id', $d['producto_id'])
+                    ->where('tienda_id', $d['tienda_id'])
+                    ->update(['cantidad_reservada' => $d['real']]);
+
+                InventarioMovimiento::create([
+                    'producto_id' => $d['producto_id'],
+                    'tienda_id'   => $d['tienda_id'],
+                    // Casi siempre se está soltando de más de lo que hay
+                    // comprometido; si por algún otro bug fuera al revés, el
+                    // motivo lo deja explícito de todas formas.
+                    'tipo'        => $d['diferencia'] > 0 ? 'liberacion' : 'reserva',
+                    'cantidad'    => abs($d['diferencia']),
+                    'motivo'      => "Corrección de descuadre: reservado pasó de {$d['contador']} a {$d['real']} ({$usuario->nombre})",
+                    'usuario_id'  => $usuario->id,
+                ]);
+            }
+
+            return $descuadres->count();
+        });
+
+        return response()->json(['corregidos' => $corregidos]);
     }
 }

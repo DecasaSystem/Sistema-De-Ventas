@@ -56,6 +56,12 @@ class DescuadresInventarioTest extends TestCase
             $t->id(); $t->unsignedBigInteger('producto_id'); $t->unsignedBigInteger('tienda_id');
             $t->integer('cantidad_disponible')->default(0); $t->integer('cantidad_reservada')->default(0);
         });
+        Schema::create('inventario_movimientos', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('producto_id'); $t->unsignedBigInteger('tienda_id');
+            $t->unsignedBigInteger('variante_id')->nullable();
+            $t->string('tipo'); $t->integer('cantidad'); $t->string('motivo')->nullable();
+            $t->unsignedBigInteger('usuario_id')->nullable(); $t->timestamp('created_at')->nullable();
+        });
         Schema::create('surtidos', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('supervisor_id')->nullable();
             $t->string('estado')->default('enviado'); $t->boolean('fuente_fabrica')->default(false);
@@ -143,5 +149,74 @@ class DescuadresInventarioTest extends TestCase
         $vendedor = Usuario::create(['nombre' => 'V', 'rol' => 'vendedor', 'created_at' => now()]);
 
         $this->actingAs($vendedor)->getJson('/api/inventario/descuadres')->assertStatus(403);
+    }
+
+    // ── Corregir ─────────────────────────────────────────────────────────────
+
+    public function test_corregir_uno_deja_el_contador_en_lo_real(): void
+    {
+        DB::table('inventario')->insert(['producto_id' => 5, 'tienda_id' => 2, 'cantidad_disponible' => 1, 'cantidad_reservada' => 1]);
+
+        $this->actingAs($this->supervisor())
+            ->postJson('/api/inventario/descuadres/corregir', ['producto_id' => 5, 'tienda_id' => 2])
+            ->assertOk()
+            ->assertJson(['corregidos' => 1]);
+
+        $inv = DB::table('inventario')->where('producto_id', 5)->where('tienda_id', 2)->first();
+        $this->assertSame(0, $inv->cantidad_reservada);
+
+        $mov = DB::table('inventario_movimientos')->where('producto_id', 5)->where('tienda_id', 2)->first();
+        $this->assertNotNull($mov);
+        $this->assertSame('liberacion', $mov->tipo);
+        $this->assertSame(1, $mov->cantidad);
+    }
+
+    public function test_corregir_uno_no_toca_los_demas_descuadres(): void
+    {
+        DB::table('inventario')->insert(['producto_id' => 5, 'tienda_id' => 2, 'cantidad_disponible' => 1, 'cantidad_reservada' => 1]);
+        DB::table('productos')->insert(['id' => 6, 'nombre' => 'Otro producto']);
+        DB::table('inventario')->insert(['producto_id' => 6, 'tienda_id' => 2, 'cantidad_disponible' => 2, 'cantidad_reservada' => 2]);
+
+        $this->actingAs($this->supervisor())
+            ->postJson('/api/inventario/descuadres/corregir', ['producto_id' => 5, 'tienda_id' => 2])
+            ->assertOk();
+
+        $r = $this->actingAs($this->supervisor())->getJson('/api/inventario/descuadres')->assertOk();
+        $this->assertCount(1, $r->json());
+        $this->assertSame(6, $r->json()[0]['producto_id']);
+    }
+
+    public function test_corregir_todos_los_arregla_de_una(): void
+    {
+        DB::table('inventario')->insert(['producto_id' => 5, 'tienda_id' => 2, 'cantidad_disponible' => 1, 'cantidad_reservada' => 1]);
+        DB::table('productos')->insert(['id' => 6, 'nombre' => 'Otro producto']);
+        DB::table('inventario')->insert(['producto_id' => 6, 'tienda_id' => 2, 'cantidad_disponible' => 2, 'cantidad_reservada' => 2]);
+
+        $this->actingAs($this->supervisor())
+            ->postJson('/api/inventario/descuadres/corregir', ['todos' => true])
+            ->assertOk()
+            ->assertJson(['corregidos' => 2]);
+
+        $r = $this->actingAs($this->supervisor())->getJson('/api/inventario/descuadres')->assertOk();
+        $this->assertCount(0, $r->json());
+    }
+
+    public function test_corregir_un_producto_ya_cuadrado_avisa_en_vez_de_fallar_en_silencio(): void
+    {
+        DB::table('inventario')->insert(['producto_id' => 5, 'tienda_id' => 2, 'cantidad_disponible' => 1, 'cantidad_reservada' => 0]);
+
+        $this->actingAs($this->supervisor())
+            ->postJson('/api/inventario/descuadres/corregir', ['producto_id' => 5, 'tienda_id' => 2])
+            ->assertStatus(422);
+    }
+
+    public function test_solo_el_supervisor_puede_corregir(): void
+    {
+        $vendedor = Usuario::create(['nombre' => 'V', 'rol' => 'vendedor', 'created_at' => now()]);
+        DB::table('inventario')->insert(['producto_id' => 5, 'tienda_id' => 2, 'cantidad_disponible' => 1, 'cantidad_reservada' => 1]);
+
+        $this->actingAs($vendedor)
+            ->postJson('/api/inventario/descuadres/corregir', ['producto_id' => 5, 'tienda_id' => 2])
+            ->assertStatus(403);
     }
 }

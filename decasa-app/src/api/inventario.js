@@ -43,3 +43,7 @@ export const getReservas = (productoId, tiendaId = null) =>
 // Auditoría completa: cada producto+tienda donde "Reservado" no coincide con
 // lo que de verdad hay comprometido. Solo supervisor.
 export const getDescuadres = () => api.get('/inventario/descuadres')
+
+// Deja "Reservado" en lo real. { producto_id, tienda_id } corrige uno solo;
+// { todos: true } corrige todos los que salgan en ese momento.
+export const corregirDescuadre = (payload) => api.post('/inventario/descuadres/corregir', payload)

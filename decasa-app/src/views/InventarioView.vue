@@ -22,7 +22,7 @@ import {
   ArrowDownTrayIcon,
 } from '@heroicons/vue/24/outline'
 import { exportarExcelHojas } from '@/utils/exportarExcel'
-import { getInventario, getDesgloseVariantes, getResumenCategoria, addStock, removeStock, getVariantes, crearVariante, addStockVariante, getMovimientos, getReservas, getDescuadres, getVarianteUso, eliminarVariante } from '@/api/inventario'
+import { getInventario, getDesgloseVariantes, getResumenCategoria, addStock, removeStock, getVariantes, crearVariante, addStockVariante, getMovimientos, getReservas, getDescuadres, corregirDescuadre as postCorregirDescuadre, getVarianteUso, eliminarVariante } from '@/api/inventario'
 import SurtidosPendientesPanel from '@/components/inventario/SurtidosPendientesPanel.vue'
 import ModalVariantes from '@/components/inventario/ModalVariantes.vue'
 import { getTrasladosPendientes, aceptarTraslado, rechazarTraslado } from '@/api/traslados'
@@ -353,7 +353,10 @@ const reservasLoading = ref(false)
  *                     así en vez de dejarlo leerse como "no hay reservas".
  */
 async function abrirReservas(item, tiendaId = null, tiendaNombre = null, esperado = 0) {
-  itemReservas.value = { producto_nombre: item.producto?.nombre, tienda_nombre: tiendaNombre, esperado }
+  // tienda_id va aparte de tiendaId: solo se guarda cuando de verdad se sabe
+  // cuál es (una tienda puntual) — con el total global (tiendaId null en
+  // vista "todas") no hay una sola tienda a la que corregirle el contador.
+  itemReservas.value = { producto_id: item.producto_id, producto_nombre: item.producto?.nombre, tienda_id: tiendaId, tienda_nombre: tiendaNombre, esperado }
   reservas.value = []
   reservasLoading.value = true
   mostrarReservas.value = true
@@ -390,6 +393,40 @@ async function abrirDescuadres() {
     descuadres.value = []
   } finally {
     descuadresLoading.value = false
+  }
+}
+
+const corrigiendoDescuadre = ref(false)
+
+/** Deja el contador de UNO en lo real. `null` cuando se corrigen todos. */
+async function corregirDescuadre(d = null) {
+  if (corrigiendoDescuadre.value) return
+  corrigiendoDescuadre.value = true
+  try {
+    await postCorregirDescuadre(d ? { producto_id: d.producto_id, tienda_id: d.tienda_id } : { todos: true })
+    toast.success(d ? 'Corregido.' : 'Todos los descuadres se corrigieron.')
+    await abrirDescuadres() // recarga la lista — ya sin lo que se acaba de corregir
+    await cargarInventario(true) // el número de la tarjeta que se estaba viendo también cambió
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudo corregir.')
+  } finally {
+    corrigiendoDescuadre.value = false
+  }
+}
+
+/** Desde el aviso de descuadre en el modal de "Reservado": corrige ESE y cierra. */
+async function corregirDesdeReservas() {
+  if (!itemReservas.value || corrigiendoDescuadre.value) return
+  corrigiendoDescuadre.value = true
+  try {
+    await postCorregirDescuadre({ producto_id: itemReservas.value.producto_id, tienda_id: itemReservas.value.tienda_id })
+    toast.success('Corregido.')
+    mostrarReservas.value = false
+    await cargarInventario(true)
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudo corregir.')
+  } finally {
+    corrigiendoDescuadre.value = false
   }
 }
 
@@ -3205,9 +3242,18 @@ onMounted(async () => {
                 Probablemente quedó de una orden vieja que no liberó su reserva
                 al cerrarse.
               </p>
-              <button v-if="auth.isSupervisor" type="button" @click="mostrarReservas = false; abrirDescuadres()" class="text-amber-900 font-medium underline">
-                Revisar todos los descuadres del catálogo →
-              </button>
+              <div v-if="auth.isSupervisor" class="flex items-center gap-3 flex-wrap">
+                <button
+                  v-if="itemReservas?.tienda_id"
+                  type="button"
+                  :disabled="corrigiendoDescuadre"
+                  @click="corregirDesdeReservas"
+                  class="bg-amber-600 text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-amber-700 disabled:opacity-50 transition-colors"
+                >{{ corrigiendoDescuadre ? 'Corrigiendo...' : 'Corregir este descuadre ahora' }}</button>
+                <button type="button" @click="mostrarReservas = false; abrirDescuadres()" class="text-amber-900 font-medium underline text-xs">
+                  Revisar todos los descuadres del catálogo →
+                </button>
+              </div>
             </div>
             <div v-else-if="reservas.length === 0" class="text-sm text-gray-400 text-center py-8">No hay nada reservado</div>
             <button
@@ -3249,20 +3295,31 @@ onMounted(async () => {
             </div>
             <button @click="mostrarDescuadres = false" class="text-gray-400 text-2xl leading-none">&times;</button>
           </div>
+          <div v-if="descuadres.length > 0" class="px-5 pt-3 flex-shrink-0">
+            <button
+              type="button"
+              :disabled="corrigiendoDescuadre"
+              @click="corregirDescuadre()"
+              class="w-full bg-amber-600 text-white text-sm font-semibold py-2 rounded-lg hover:bg-amber-700 disabled:opacity-50 transition-colors"
+            >{{ corrigiendoDescuadre ? 'Corrigiendo...' : `Corregir los ${descuadres.length} de una vez` }}</button>
+          </div>
           <div class="overflow-y-auto flex-1 px-5 py-4 space-y-2">
             <div v-if="descuadresLoading" class="text-sm text-gray-400 text-center py-8">Buscando en todo el catálogo...</div>
             <div v-else-if="descuadres.length === 0" class="text-sm text-gray-400 text-center py-8">Ningún descuadre — todo cuadra</div>
-            <div v-else v-for="d in descuadres" :key="d.producto_id + '-' + d.tienda_id" class="flex items-start justify-between gap-3 py-2.5 border-b border-gray-50 last:border-0">
+            <div v-else v-for="d in descuadres" :key="d.producto_id + '-' + d.tienda_id" class="flex items-center justify-between gap-3 py-2.5 border-b border-gray-50 last:border-0">
               <div class="flex-1 min-w-0">
                 <p class="text-sm font-semibold text-gray-800 truncate">{{ d.producto_nombre }}</p>
                 <p class="text-xs text-gray-500">{{ d.tienda_nombre }}</p>
-              </div>
-              <div class="text-right flex-shrink-0">
-                <p class="text-xs text-gray-400">Contador {{ d.contador }} · Real {{ d.real }}</p>
-                <p class="text-sm font-bold" :class="d.diferencia > 0 ? 'text-amber-600' : 'text-red-600'">
-                  {{ d.diferencia > 0 ? '+' : '' }}{{ d.diferencia }}
+                <p class="text-xs text-gray-400">Contador {{ d.contador }} · Real {{ d.real }}
+                  <span class="font-semibold" :class="d.diferencia > 0 ? 'text-amber-600' : 'text-red-600'">({{ d.diferencia > 0 ? '+' : '' }}{{ d.diferencia }})</span>
                 </p>
               </div>
+              <button
+                type="button"
+                :disabled="corrigiendoDescuadre"
+                @click="corregirDescuadre(d)"
+                class="flex-shrink-0 text-xs font-semibold text-amber-700 border border-amber-300 bg-amber-50 px-2.5 py-1.5 rounded-lg hover:bg-amber-100 disabled:opacity-50 transition-colors"
+              >Corregir</button>
             </div>
           </div>
         </div>
