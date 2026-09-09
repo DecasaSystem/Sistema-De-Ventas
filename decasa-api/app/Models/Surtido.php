@@ -8,9 +8,9 @@ class Surtido extends Model
 {
     protected $table = 'surtidos';
 
-    protected $fillable = ['supervisor_id', 'notas', 'estado', 'programado_para'];
+    protected $fillable = ['supervisor_id', 'notas', 'estado', 'programado_para', 'fuente_fabrica'];
 
-    protected $casts = ['programado_para' => 'datetime'];
+    protected $casts = ['programado_para' => 'datetime', 'fuente_fabrica' => 'boolean'];
 
     public function supervisor()
     {

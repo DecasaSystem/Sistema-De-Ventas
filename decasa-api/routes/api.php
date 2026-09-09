@@ -342,6 +342,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/inventario/resumen-categoria',            [InventarioController::class, 'resumenCategoria']);
     Route::get('/inventario/{productoId}/movimientos',     [InventarioController::class, 'movimientos'])->whereNumber('productoId');
     Route::get('/inventario/{productoId}/reservas',        [InventarioController::class, 'reservas'])->whereNumber('productoId');
+    // Auditoría de todo el catálogo: el controlador exige supervisor (ve
+    // reservas de cualquier tienda, no solo la propia).
+    Route::get('/inventario/descuadres',                    [InventarioController::class, 'descuadres']);
     // Entrada y salida de stock: vendedor puede operar en su propia tienda (controllers validan tienda_id)
     Route::middleware('role:supervisor,vendedor')->group(function () {
         Route::post('/inventario/entrada',                             [InventarioController::class, 'entrada']);

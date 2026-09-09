@@ -22,7 +22,7 @@ import {
   ArrowDownTrayIcon,
 } from '@heroicons/vue/24/outline'
 import { exportarExcelHojas } from '@/utils/exportarExcel'
-import { getInventario, getDesgloseVariantes, getResumenCategoria, addStock, removeStock, getVariantes, crearVariante, addStockVariante, getMovimientos, getReservas, getVarianteUso, eliminarVariante } from '@/api/inventario'
+import { getInventario, getDesgloseVariantes, getResumenCategoria, addStock, removeStock, getVariantes, crearVariante, addStockVariante, getMovimientos, getReservas, getDescuadres, getVarianteUso, eliminarVariante } from '@/api/inventario'
 import SurtidosPendientesPanel from '@/components/inventario/SurtidosPendientesPanel.vue'
 import ModalVariantes from '@/components/inventario/ModalVariantes.vue'
 import { getTrasladosPendientes, aceptarTraslado, rechazarTraslado } from '@/api/traslados'
@@ -346,9 +346,14 @@ const reservasLoading = ref(false)
  *                     Si se abrió desde el total (que puede sumar varias
  *                     tiendas en la vista "todas"), null: salen todas.
  * @param tiendaNombre Solo para el título del modal.
+ * @param esperado    Lo que decía el contador de la tarjeta al momento del
+ *                     clic. Si la lista sale vacía pero esto era > 0, no es
+ *                     que no haya nada — es un descuadre (el número no
+ *                     coincide con ninguna orden real), y el modal lo aclara
+ *                     así en vez de dejarlo leerse como "no hay reservas".
  */
-async function abrirReservas(item, tiendaId = null, tiendaNombre = null) {
-  itemReservas.value = { producto_nombre: item.producto?.nombre, tienda_nombre: tiendaNombre }
+async function abrirReservas(item, tiendaId = null, tiendaNombre = null, esperado = 0) {
+  itemReservas.value = { producto_nombre: item.producto?.nombre, tienda_nombre: tiendaNombre, esperado }
   reservas.value = []
   reservasLoading.value = true
   mostrarReservas.value = true
@@ -365,6 +370,27 @@ async function abrirReservas(item, tiendaId = null, tiendaNombre = null) {
 function irAOrdenReservada(r) {
   mostrarReservas.value = false
   router.push({ name: 'orden-detalle', params: { id: r.orden_id } })
+}
+
+// ── Auditoría de descuadres (solo supervisor) ───────────────────────────────
+// La misma pregunta que un "Reservado" vacío, pero para todo el catálogo de
+// una vez: qué producto+tienda tiene el contador desincronizado de lo real.
+const mostrarDescuadres = ref(false)
+const descuadres = ref([])
+const descuadresLoading = ref(false)
+
+async function abrirDescuadres() {
+  descuadres.value = []
+  descuadresLoading.value = true
+  mostrarDescuadres.value = true
+  try {
+    const { data } = await getDescuadres()
+    descuadres.value = data
+  } catch {
+    descuadres.value = []
+  } finally {
+    descuadresLoading.value = false
+  }
 }
 
 function verFoto(producto) {
@@ -1798,6 +1824,15 @@ onMounted(async () => {
         Variantes
       </button>
       <button
+        v-if="auth.isSupervisor"
+        @click="abrirDescuadres"
+        title="Productos donde &quot;Reservado&quot; no coincide con lo real"
+        class="flex-shrink-0 flex items-center gap-1.5 bg-white border border-gray-300 text-gray-700 text-sm font-semibold px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors whitespace-nowrap"
+      >
+        <ExclamationTriangleIcon class="w-4 h-4 flex-shrink-0" />
+        Descuadres
+      </button>
+      <button
         @click="abrirAgregarProducto"
         class="flex-shrink-0 flex items-center gap-1.5 bg-blue-600 text-white text-sm font-semibold px-3 py-2 rounded-lg hover:bg-blue-700 transition-colors whitespace-nowrap"
       >
@@ -2206,7 +2241,7 @@ onMounted(async () => {
             </div>
             <button
               type="button"
-              @click="abrirReservas(item, esVistaGlobal ? null : tiendaId, esVistaGlobal ? null : tiendas.find(t => t.id == tiendaId)?.nombre)"
+              @click="abrirReservas(item, esVistaGlobal ? null : tiendaId, esVistaGlobal ? null : tiendas.find(t => t.id == tiendaId)?.nombre, item.cantidad_reservada)"
               class="bg-gray-50 rounded-lg p-1.5 hover:bg-gray-100 transition-colors"
               title="Ver quién tiene esto reservado"
             >
@@ -2231,7 +2266,7 @@ onMounted(async () => {
                 v-for="t in item.por_tienda"
                 :key="t.tienda_id"
                 type="button"
-                @click="abrirReservas(item, t.tienda_id, t.tienda_nombre)"
+                @click="abrirReservas(item, t.tienda_id, t.tienda_nombre, t.cantidad_reservada)"
                 :class="[
                   'inline-flex items-baseline gap-1 px-2 py-1 rounded-lg text-xs border transition-colors',
                   t.stock_libre > 0
@@ -3161,6 +3196,19 @@ onMounted(async () => {
           </div>
           <div class="overflow-y-auto flex-1 px-5 py-4 space-y-2">
             <div v-if="reservasLoading" class="text-sm text-gray-400 text-center py-8">Cargando...</div>
+            <!-- El contador decía algo > 0 y no encontramos ninguna orden que lo
+                 sostenga: no es que no haya nada, es que el número está mal. -->
+            <div v-else-if="reservas.length === 0 && itemReservas?.esperado > 0" class="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-3 space-y-2">
+              <p>
+                <span class="font-semibold">Descuadre:</span> la tarjeta dice
+                {{ itemReservas.esperado }} reservado, pero ninguna orden lo tiene apartado.
+                Probablemente quedó de una orden vieja que no liberó su reserva
+                al cerrarse.
+              </p>
+              <button v-if="auth.isSupervisor" type="button" @click="mostrarReservas = false; abrirDescuadres()" class="text-amber-900 font-medium underline">
+                Revisar todos los descuadres del catálogo →
+              </button>
+            </div>
             <div v-else-if="reservas.length === 0" class="text-sm text-gray-400 text-center py-8">No hay nada reservado</div>
             <button
               v-else
@@ -3184,6 +3232,38 @@ onMounted(async () => {
               </div>
               <ChevronRightIcon class="w-4 h-4 text-gray-300 flex-shrink-0 mt-1" />
             </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- Modal: descuadres de todo el catálogo (solo supervisor) -->
+    <Transition name="fade">
+      <div v-if="mostrarDescuadres" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="mostrarDescuadres = false">
+        <div class="absolute inset-0 bg-black/40" />
+        <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md max-h-[80vh] flex flex-col">
+          <div class="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100 flex-shrink-0">
+            <div>
+              <h3 class="text-lg font-bold text-gray-800">Descuadres de inventario</h3>
+              <p class="text-xs text-gray-500 mt-0.5">Productos donde "Reservado" no coincide con lo real</p>
+            </div>
+            <button @click="mostrarDescuadres = false" class="text-gray-400 text-2xl leading-none">&times;</button>
+          </div>
+          <div class="overflow-y-auto flex-1 px-5 py-4 space-y-2">
+            <div v-if="descuadresLoading" class="text-sm text-gray-400 text-center py-8">Buscando en todo el catálogo...</div>
+            <div v-else-if="descuadres.length === 0" class="text-sm text-gray-400 text-center py-8">Ningún descuadre — todo cuadra</div>
+            <div v-else v-for="d in descuadres" :key="d.producto_id + '-' + d.tienda_id" class="flex items-start justify-between gap-3 py-2.5 border-b border-gray-50 last:border-0">
+              <div class="flex-1 min-w-0">
+                <p class="text-sm font-semibold text-gray-800 truncate">{{ d.producto_nombre }}</p>
+                <p class="text-xs text-gray-500">{{ d.tienda_nombre }}</p>
+              </div>
+              <div class="text-right flex-shrink-0">
+                <p class="text-xs text-gray-400">Contador {{ d.contador }} · Real {{ d.real }}</p>
+                <p class="text-sm font-bold" :class="d.diferencia > 0 ? 'text-amber-600' : 'text-red-600'">
+                  {{ d.diferencia > 0 ? '+' : '' }}{{ d.diferencia }}
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       </div>

@@ -39,3 +39,7 @@ export const getMovimientos = (productoId, tiendaId = null) =>
 // Sin tiendaId salen las de cualquier tienda (para el total de "todas").
 export const getReservas = (productoId, tiendaId = null) =>
   api.get(`/inventario/${productoId}/reservas`, { params: { tienda_id: tiendaId } })
+
+// Auditoría completa: cada producto+tienda donde "Reservado" no coincide con
+// lo que de verdad hay comprometido. Solo supervisor.
+export const getDescuadres = () => api.get('/inventario/descuadres')

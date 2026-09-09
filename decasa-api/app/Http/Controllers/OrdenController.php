@@ -1406,7 +1406,22 @@ class OrdenController extends Controller
                                 abort(422, "Stock insuficiente para el nuevo producto. Stock libre: {$stockLibre}, necesario: {$cantNueva}.");
                             }
 
-                            // Liberar reserva del producto anterior
+                            // Liberar reserva del producto anterior. Si tenía una
+                            // variante (tela/medida) puntual, también hay que
+                            // soltarle la suya — si no, esa variante se queda
+                            // reservada para siempre: el item ya no le apunta a
+                            // nada, y nada más la va a liberar.
+                            if ($item->variante_id) {
+                                InventarioVariante::where('variante_id', $item->variante_id)
+                                    ->where('tienda_id', $origenId)
+                                    ->decrement('cantidad_reservada', (int) $item->cantidad);
+                                if ($item->combo_config_id) {
+                                    InventarioVarianteCombinacion::where('variante_id', $item->variante_id)
+                                        ->where('config_id', $item->combo_config_id)
+                                        ->where('tienda_id', $origenId)
+                                        ->decrement('cantidad_reservada', (int) $item->cantidad);
+                                }
+                            }
                             Inventario::where('producto_id', $item->producto_id)->where('tienda_id', $origenId)->decrement('cantidad_reservada', (int) $item->cantidad);
                             InventarioMovimiento::create(['producto_id' => $item->producto_id, 'tienda_id' => $origenId, 'tipo' => 'liberacion', 'cantidad' => (int) $item->cantidad, 'motivo' => "Edición orden #{$orden->id} — cambio de producto", 'usuario_id' => $usuario->id]);
 

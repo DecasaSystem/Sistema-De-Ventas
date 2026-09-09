@@ -6,6 +6,8 @@ use App\Events\InventarioActualizado;
 use App\Models\Inventario;
 use App\Models\InventarioMovimiento;
 use App\Models\OrdenItem;
+use App\Models\SurtidoTienda;
+use App\Models\Tienda;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -734,5 +736,76 @@ class InventarioController extends Controller
             ->values();
 
         return response()->json($reservas);
+    }
+
+    /**
+     * GET /api/inventario/descuadres
+     *
+     * `cantidad_reservada` es un contador que se mueve a mano en cada sitio
+     * que toca inventario (crear orden, cancelar, entregar, cambiar producto,
+     * surtir desde fábrica...). Si algún camino se queda sin soltar lo que
+     * reservó —o suelta de más— el contador se desincroniza de lo que
+     * realmente hay comprometido, y eso es lo que reporta esta pantalla: cada
+     * producto+tienda donde el número guardado no coincide con lo real.
+     *
+     * "Real" se calcula igual que en `reservas()` —sumando `orden_items`
+     * activos— más lo que un surtido de fábrica todavía no aceptado/rechazado
+     * tiene retenido en el inventario de la fábrica (esa reserva no nace de
+     * ninguna orden, así que `reservas()` no la ve).
+     */
+    public function descuadres(Request $request)
+    {
+        if ($request->user()->rol !== 'supervisor') {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+
+        // Cuánto debería estar reservado, sumado por producto+tienda.
+        $reales = OrdenItem::with(['orden:id,estado,tienda_id'])
+            ->where('es_personalizado', false)
+            ->where('producto_unico', false)
+            ->whereNotNull('producto_id')
+            ->whereHas('orden', fn ($q) => $q->whereNotIn('estado', ['entregado', 'cancelado', 'devuelto']))
+            ->get()
+            ->filter(fn ($item) => $item->orden !== null)
+            ->groupBy(fn ($item) => $item->producto_id . '-' . ($item->tienda_origen_id ?? $item->orden->tienda_id))
+            ->map(fn ($items) => (int) $items->sum('cantidad'));
+
+        // Lo que un surtido de fábrica aún pendiente tiene retenido — vive en
+        // el inventario de la fábrica, no en ninguna orden.
+        $fabricaId = Tienda::where('es_fabrica', true)->value('id');
+        if ($fabricaId) {
+            SurtidoTienda::where('estado', 'pendiente')
+                ->whereHas('surtido', fn ($q) => $q->where('fuente_fabrica', true))
+                ->with('items:surtido_tienda_id,producto_id,cantidad')
+                ->get()
+                ->flatMap(fn ($st) => $st->items)
+                ->groupBy('producto_id')
+                ->map(fn ($items) => (int) $items->sum('cantidad'))
+                ->each(function ($cant, $productoId) use (&$reales, $fabricaId) {
+                    $key = $productoId . '-' . $fabricaId;
+                    $reales[$key] = ($reales[$key] ?? 0) + $cant;
+                });
+        }
+
+        $descuadres = Inventario::where('cantidad_reservada', '<>', 0)
+            ->with('producto:id,nombre', 'tienda:id,nombre')
+            ->get()
+            ->map(function ($inv) use ($reales) {
+                $real = (int) ($reales[$inv->producto_id . '-' . $inv->tienda_id] ?? 0);
+                return [
+                    'producto_id'     => $inv->producto_id,
+                    'producto_nombre' => $inv->producto->nombre ?? '—',
+                    'tienda_id'       => $inv->tienda_id,
+                    'tienda_nombre'   => $inv->tienda->nombre ?? '—',
+                    'contador'        => (int) $inv->cantidad_reservada,
+                    'real'            => $real,
+                    'diferencia'      => (int) $inv->cantidad_reservada - $real,
+                ];
+            })
+            ->filter(fn ($r) => $r['diferencia'] !== 0)
+            ->sortByDesc(fn ($r) => abs($r['diferencia']))
+            ->values();
+
+        return response()->json($descuadres);
     }
 }
