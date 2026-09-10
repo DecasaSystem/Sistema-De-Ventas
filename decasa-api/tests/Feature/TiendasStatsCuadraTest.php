@@ -128,4 +128,24 @@ class TiendasStatsCuadraTest extends TestCase
         // Ticket = vendido / órdenes del período (1), no cobrado / entregadas.
         $this->assertEquals(10_000_000, $norte['ticket_promedio']);
     }
+
+    public function test_una_orden_cancelada_no_cuenta_como_cartera_de_la_tienda(): void
+    {
+        $esteMes = Carbon::now('America/Bogota')->startOfDay()->addHours(12)->setTimezone('UTC');
+
+        // Vendida y sin pagar → 5M de cartera real.
+        $this->orden($esteMes, 5_000_000);
+        // Cancelada con saldo: NO es deuda.
+        $cancelada = $this->orden($esteMes, 9_000_000);
+        DB::table('ordenes')->where('id', $cancelada)->update(['estado' => 'cancelado']);
+
+        $jefe = Usuario::create([
+            'nombre' => 'Jefa', 'email' => 'j@d.com', 'password' => 'x', 'rol' => 'supervisor', 'created_at' => now(),
+        ]);
+
+        $filas = $this->actingAs($jefe)->getJson('/api/stats/tiendas?periodo=mes')->assertOk()->json();
+        $norte = collect($filas)->firstWhere('tienda_id', 1);
+
+        $this->assertEquals(5_000_000, $norte['cartera_pendiente'], 'la cancelada no suma');
+    }
 }

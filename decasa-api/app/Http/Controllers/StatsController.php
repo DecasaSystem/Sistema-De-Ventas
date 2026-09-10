@@ -541,7 +541,8 @@ class StatsController extends Controller
         $carteras = DB::table('v_saldo_ordenes as vs')->join('ordenes as o', 'o.id', '=', 'vs.orden_id')
             ->whereIn('o.vendedor_id', $ids)
             ->whereBetween('o.created_at', $rangoCreacion)
-            ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES)
+            ->where('vs.saldo_pendiente', '>', 0)
+            ->whereNotIn('o.estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES))
             ->selectRaw('o.vendedor_id AS quien, SUM(vs.saldo_pendiente) AS total')
             ->groupBy('o.vendedor_id')->get()->keyBy('quien');
 
@@ -631,14 +632,25 @@ class StatsController extends Controller
         return ['ppal' => $mapear($ppal), 'co' => $mapear($co)];
     }
 
-    /** El saldo vivo de cada tienda, propio y como co-tienda. @return array<int,float> */
+    /**
+     * El saldo vivo de cada tienda, propio y como co-tienda.
+     *
+     * Mismo criterio que la pestaña Cartera y el Resumen: fuera las canceladas
+     * (una orden cancelada no es deuda) y solo saldo positivo (una sobrepagada
+     * no resta). Antes esta consulta no lo hacía y la cartera de Tiendas no
+     * coincidía con la de la pestaña Cartera.
+     *
+     * @return array<int,float>
+     */
     private function carteraPorTienda(array $rangoCreacion, array $porSuCuenta): array
     {
-        $saldo = 'CASE WHEN o.es_compartida = 1 THEN vs.saldo_pendiente / 2 ELSE vs.saldo_pendiente END';
+        $saldo   = 'CASE WHEN o.es_compartida = 1 THEN vs.saldo_pendiente / 2 ELSE vs.saldo_pendiente END';
+        $estados = array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES);
 
         $ppal = DB::table('v_saldo_ordenes as vs')->join('ordenes as o', 'o.id', '=', 'vs.orden_id')
             ->whereBetween('o.created_at', $rangoCreacion)
-            ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES)
+            ->where('vs.saldo_pendiente', '>', 0)
+            ->whereNotIn('o.estado', $estados)
             ->when($porSuCuenta, fn ($q) => $q->whereNotIn('o.vendedor_id', $porSuCuenta))
             ->selectRaw("o.tienda_id AS quien, SUM($saldo) AS total")
             ->groupBy('o.tienda_id')->get();
@@ -647,7 +659,8 @@ class StatsController extends Controller
             ->join('usuarios as u', 'u.id', '=', 'o.covendedor_id')
             ->where('o.es_compartida', true)
             ->whereBetween('o.created_at', $rangoCreacion)
-            ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES)
+            ->where('vs.saldo_pendiente', '>', 0)
+            ->whereNotIn('o.estado', $estados)
             ->when($porSuCuenta, fn ($q) => $q->whereNotIn('o.vendedor_id', $porSuCuenta))
             ->selectRaw('u.tienda_default_id AS quien, SUM(vs.saldo_pendiente / 2) AS total')
             ->groupBy('u.tienda_default_id')->get();
