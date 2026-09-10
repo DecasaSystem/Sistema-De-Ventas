@@ -3455,6 +3455,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
               v-model:departamento="borradorForm.departamento_envio"
               v-model:ciudad="borradorForm.ciudad_envio"
               v-model:direccion="borradorForm.direccion_envio"
+              :sugerencia="orden?.cliente?.direccion || ''"
             />
           </div>
 

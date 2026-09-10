@@ -8,6 +8,9 @@ const props = defineProps({
   ciudad:        { type: String, default: '' },
   direccion:     { type: String, default: '' },
   requerida:     { type: Boolean, default: false },
+  // Dirección del cliente: se ofrece como atajo para no volver a escribirla.
+  sugerencia:    { type: String, default: '' },
+  sugerenciaLabel: { type: String, default: 'Usar la dirección del cliente' },
 })
 
 const emit = defineEmits(['update:departamento', 'update:ciudad', 'update:direccion'])
@@ -39,6 +42,18 @@ function onCiudad(e) {
 
 function onDir(e) {
   dirLocal.value = e.target.value
+  emit('update:direccion', dirLocal.value)
+}
+
+// Atajo: usar la dirección registrada del cliente. Solo se ofrece si hay una y
+// no coincide ya con lo escrito.
+const mostrarSugerencia = computed(() => {
+  const s = props.sugerencia.trim()
+  return !!s && s !== dirLocal.value.trim()
+})
+
+function usarSugerencia() {
+  dirLocal.value = props.sugerencia.trim()
   emit('update:direccion', dirLocal.value)
 }
 </script>
@@ -95,9 +110,21 @@ function onDir(e) {
 
     <!-- Dirección específica -->
     <div class="space-y-1">
-      <label class="text-xs font-medium text-gray-500 uppercase tracking-wide">
-        Dirección específica<span v-if="requerida" class="text-red-500 ml-0.5">*</span>
-      </label>
+      <div class="flex items-center justify-between gap-2">
+        <label class="text-xs font-medium text-gray-500 uppercase tracking-wide">
+          Dirección específica<span v-if="requerida" class="text-red-500 ml-0.5">*</span>
+        </label>
+        <button
+          v-if="mostrarSugerencia"
+          type="button"
+          @click="usarSugerencia"
+          class="flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700 hover:underline"
+          :title="sugerencia"
+        >
+          <MapPinIcon class="w-3.5 h-3.5" />
+          {{ sugerenciaLabel }}
+        </button>
+      </div>
       <input
         :value="dirLocal"
         @input="onDir"

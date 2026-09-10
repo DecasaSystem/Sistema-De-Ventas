@@ -4125,6 +4125,7 @@ function removeFacturaFoto() {
         v-model:departamento="departamentoEnvio"
         v-model:ciudad="ciudadEnvio"
         v-model:direccion="direccionEnvio"
+        :sugerencia="clienteSeleccionado?.direccion || ''"
       />
 
       <!-- Foto del anexo firmado — solo cuando la compra es presencial -->
