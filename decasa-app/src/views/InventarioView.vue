@@ -796,8 +796,8 @@ async function hojasDeVariantes(tienda) {
           'Categoría':  f.categoria ?? '',
           'Tipo':       f.tipo,
           'Variante':   f.variante,
-          'Disponible': Number(f.disponible) || 0,
-          'Reservado':  Number(f.reservado) || 0,
+          'En tienda':  Number(f.disponible) || 0,
+          'Apartado':   Number(f.reservado) || 0,
           // Precio de venta de ESTA variante: el tapizado con precio propio
           // reemplaza al base; la medida/talla le suma su adicional.
           'Precio':     Number(f.precio) || 0,
@@ -812,8 +812,8 @@ async function hojasDeVariantes(tienda) {
         'Categoría':  ej.categoria ?? '',
         'Tipo':       ej.tipo,
         'Variante':   total - asignado < 0 ? '⚠ FALTAN UNIDADES' : 'Sin asignar',
-        'Disponible': total - asignado,
-        'Reservado':  '',
+        'En tienda':  total - asignado,
+        'Apartado':   '',
         // Sin variante decidida se vende al precio base del producto.
         'Precio':     Number(ej.precio_base) || 0,
       })
@@ -870,14 +870,14 @@ async function exportarExcelInventario() {
 
     const aFila = it => ({
       'Producto':   it.producto?.nombre ?? '',
-      'Disponible': num(it.cantidad_disponible),
-      'Reservado':  num(it.cantidad_reservada),
-      'Libre':      num(it.stock_libre),
+      'En tienda':  num(it.cantidad_disponible),
+      'Apartado':   num(it.cantidad_reservada),
+      'Disponible': num(it.stock_libre),
       // En la vista global el mínimo no existe (viene en 0 para todos); en su
       // lugar interesa en cuántas tiendas está repartido.
       ...(global ? { 'En tiendas': num(it.tiendas_count) } : { 'Mínimo': num(it.stock_minimo) }),
       'Precio':     num(it.producto?.precio_base),
-      'Valor disponible': num(it.producto?.precio_base) * num(it.cantidad_disponible),
+      'Valor en tienda': num(it.producto?.precio_base) * num(it.cantidad_disponible),
     })
 
     const grupos = new Map()
@@ -902,20 +902,20 @@ async function exportarExcelInventario() {
     const resumen = categorias.map(g => ({
       'Categoría':  g.cat,
       'Productos':  g.items.length,
-      'Disponible': g.disponible,
-      'Reservado':  g.reservado,
-      'Libre':      g.libre,
+      'En tienda':  g.disponible,
+      'Apartado':   g.reservado,
+      'Disponible': g.libre,
       'Sin stock':  g.agotados,
-      'Valor disponible': g.valor,
+      'Valor en tienda': g.valor,
     }))
     resumen.push({
       'Categoría':  'TOTAL',
       'Productos':  todos.length,
-      'Disponible': categorias.reduce((s, g) => s + g.disponible, 0),
-      'Reservado':  categorias.reduce((s, g) => s + g.reservado, 0),
-      'Libre':      categorias.reduce((s, g) => s + g.libre, 0),
+      'En tienda':  categorias.reduce((s, g) => s + g.disponible, 0),
+      'Apartado':   categorias.reduce((s, g) => s + g.reservado, 0),
+      'Disponible': categorias.reduce((s, g) => s + g.libre, 0),
       'Sin stock':  categorias.reduce((s, g) => s + g.agotados, 0),
-      'Valor disponible': categorias.reduce((s, g) => s + g.valor, 0),
+      'Valor en tienda': categorias.reduce((s, g) => s + g.valor, 0),
     })
 
     const { variantes, descuadres } = await hojasDeVariantes(tiendaId.value)
@@ -934,11 +934,11 @@ async function exportarExcelInventario() {
             'Producto':   it.producto?.nombre ?? '',
             'Categoría':  it.producto?.categoria ?? '',
             'Tienda':     t.tienda_nombre ?? '',
-            'Disponible': disp,
-            'Reservado':  num(t.cantidad_reservada),
-            'Libre':      disp - num(t.cantidad_reservada),
+            'En tienda':  disp,
+            'Apartado':   num(t.cantidad_reservada),
+            'Disponible': disp - num(t.cantidad_reservada),
             'Precio':     precio,
-            'Valor disponible': precio * disp,
+            'Valor en tienda': precio * disp,
           })
         }
       }
@@ -951,10 +951,10 @@ async function exportarExcelInventario() {
         ...porTienda,
         {
           'Producto':          'TOTAL',
+          'En tienda':         porTienda.reduce((s, f) => s + f['En tienda'], 0),
+          'Apartado':          porTienda.reduce((s, f) => s + f['Apartado'], 0),
           'Disponible':        porTienda.reduce((s, f) => s + f['Disponible'], 0),
-          'Reservado':         porTienda.reduce((s, f) => s + f['Reservado'], 0),
-          'Libre':             porTienda.reduce((s, f) => s + f['Libre'], 0),
-          'Valor disponible':  porTienda.reduce((s, f) => s + f['Valor disponible'], 0),
+          'Valor en tienda':   porTienda.reduce((s, f) => s + f['Valor en tienda'], 0),
         },
       ] }] : []),
       ...(variantes.length  ? [{ nombre: 'Variantes',  filas: variantes  }] : []),
@@ -962,7 +962,7 @@ async function exportarExcelInventario() {
         nombre: g.cat,
         filas: [
           ...g.items.map(aFila),
-          { 'Producto': `TOTAL ${g.cat}`, 'Disponible': g.disponible, 'Reservado': g.reservado, 'Libre': g.libre, 'Valor disponible': g.valor },
+          { 'Producto': `TOTAL ${g.cat}`, 'En tienda': g.disponible, 'Apartado': g.reservado, 'Disponible': g.libre, 'Valor en tienda': g.valor },
         ],
       })),
     ]
@@ -1929,7 +1929,7 @@ onMounted(async () => {
       <button
         v-if="auth.isSupervisor"
         @click="abrirDescuadres"
-        title="Productos donde &quot;Reservado&quot; no coincide con lo real"
+        title="Productos donde &quot;Apartado&quot; no coincide con lo real"
         class="flex-shrink-0 flex items-center gap-1.5 bg-white border border-gray-300 text-gray-700 text-sm font-semibold px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors whitespace-nowrap"
       >
         <ExclamationTriangleIcon class="w-4 h-4 flex-shrink-0" />
@@ -2035,15 +2035,15 @@ onMounted(async () => {
         <div class="grid grid-cols-3 gap-2 text-center mt-2">
           <div class="bg-gray-50 rounded-lg p-1.5">
             <p class="text-lg font-bold text-gray-800">{{ resumenCategoria.cantidad_disponible }}</p>
-            <p class="text-xs text-gray-400">Disponible</p>
+            <p class="text-xs text-gray-400">En tienda</p>
           </div>
           <div class="bg-gray-50 rounded-lg p-1.5">
             <p class="text-lg font-bold text-gray-500">{{ resumenCategoria.cantidad_reservada }}</p>
-            <p class="text-xs text-gray-400">Reservado</p>
+            <p class="text-xs text-gray-400">Apartado</p>
           </div>
           <div class="bg-gray-50 rounded-lg p-1.5">
             <p class="text-lg font-bold text-green-600">{{ resumenCategoria.stock_libre }}</p>
-            <p class="text-xs text-gray-400">Libre</p>
+            <p class="text-xs text-gray-400">Disponible</p>
           </div>
         </div>
 
@@ -2062,7 +2062,7 @@ onMounted(async () => {
                   : 'bg-gray-50 border-gray-200 text-gray-400',
               ]"
               :title="t.cantidad_reservada > 0
-                ? `${t.cantidad_disponible} en bodega · ${t.cantidad_reservada} apartado(s)`
+                ? `${t.cantidad_disponible} en tienda · ${t.cantidad_reservada} apartado(s)`
                 : `${t.cantidad_disponible} disponible(s)`"
             >
               <span class="font-semibold">{{ nombreCorto(t.tienda_nombre) }}</span>
@@ -2336,24 +2336,26 @@ onMounted(async () => {
             </div>
           </div>
 
-          <!-- Stock -->
+          <!-- Stock. "En tienda" es el total físico; de ese total, "Apartado"
+               es lo que ya tienen las órdenes y "Disponible" lo que de verdad
+               se puede vender. En tienda = Apartado + Disponible. -->
           <div :class="esVistaGlobal ? 'grid grid-cols-3 gap-2 text-center' : 'grid grid-cols-4 gap-2 text-center'">
             <div class="bg-gray-50 rounded-lg p-1.5">
               <p class="text-lg font-bold text-gray-800">{{ item.cantidad_disponible }}</p>
-              <p class="text-xs text-gray-400">Disponible</p>
+              <p class="text-xs text-gray-400">En tienda</p>
             </div>
             <button
               type="button"
               @click="abrirReservas(item, esVistaGlobal ? null : tiendaId, esVistaGlobal ? null : tiendas.find(t => t.id == tiendaId)?.nombre)"
               class="bg-gray-50 rounded-lg p-1.5 hover:bg-gray-100 transition-colors"
-              title="Ver quién tiene esto reservado"
+              title="Ver qué órdenes lo tienen apartado"
             >
               <p class="text-lg font-bold text-gray-500">{{ item.cantidad_reservada }}</p>
-              <p class="text-xs text-gray-400 underline">Reservado</p>
+              <p class="text-xs text-gray-400 underline">Apartado</p>
             </button>
             <div class="bg-gray-50 rounded-lg p-1.5">
               <p class="text-lg font-bold text-green-600">{{ item.stock_libre }}</p>
-              <p class="text-xs text-gray-400">Libre</p>
+              <p class="text-xs text-gray-400">Disponible</p>
             </div>
             <div v-if="!esVistaGlobal" class="bg-gray-50 rounded-lg p-1.5">
               <p class="text-lg font-bold text-gray-600">{{ item.stock_minimo }}</p>
@@ -2377,7 +2379,7 @@ onMounted(async () => {
                     : 'bg-gray-50 border-gray-200 text-gray-400 hover:bg-gray-100',
                 ]"
                 :title="t.cantidad_reservada > 0
-                  ? `${t.cantidad_disponible} en bodega · ${t.cantidad_reservada} apartado(s) — clic para ver quién`
+                  ? `${t.cantidad_disponible} en tienda · ${t.cantidad_reservada} apartado(s) — clic para ver quién`
                   : `${t.cantidad_disponible} disponible(s)`"
               >
                 <span class="font-semibold">{{ nombreCorto(t.tienda_nombre) }}</span>
@@ -3290,7 +3292,7 @@ onMounted(async () => {
         <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md max-h-[80vh] flex flex-col">
           <div class="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100 flex-shrink-0">
             <div>
-              <h3 class="text-lg font-bold text-gray-800">Reservado</h3>
+              <h3 class="text-lg font-bold text-gray-800">Apartado</h3>
               <p class="text-xs text-gray-500 mt-0.5">
                 {{ itemReservas?.producto_nombre }}<span v-if="itemReservas?.tienda_nombre"> · {{ itemReservas.tienda_nombre }}</span>
               </p>
@@ -3305,10 +3307,10 @@ onMounted(async () => {
             <div v-else-if="reservas.length === 0 && itemReservas?.reservado_actual > 0" class="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-3 space-y-2">
               <p>
                 <span class="font-semibold">Descuadre:</span> el inventario dice
-                {{ itemReservas.reservado_actual }} reservado, pero ninguna orden lo tiene apartado.
+                {{ itemReservas.reservado_actual }} apartado, pero ninguna orden lo sostiene.
                 Puede ser una orden vieja que se canceló sin liberar (ahí solo
-                sobra el Reservado), o una que ya se entregó y nunca descontó
-                (ahí Disponible también está mal). Este botón solo corrige lo
+                sobra el Apartado), o una que ya se entregó y nunca descontó
+                (ahí el "En tienda" también está mal). Este botón solo corrige lo
                 primero — para saber cuál es tu caso, revisa el panel completo.
               </p>
               <div v-if="auth.isSupervisor" class="flex items-center gap-3 flex-wrap">
@@ -3318,13 +3320,13 @@ onMounted(async () => {
                   :disabled="corrigiendoDescuadre"
                   @click="corregirDesdeReservas"
                   class="bg-amber-600 text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-amber-700 disabled:opacity-50 transition-colors"
-                >{{ corrigiendoDescuadre ? 'Corrigiendo...' : 'Corregir solo el Reservado' }}</button>
+                >{{ corrigiendoDescuadre ? 'Corrigiendo...' : 'Corregir solo el Apartado' }}</button>
                 <button type="button" @click="mostrarReservas = false; abrirDescuadres()" class="text-amber-900 font-medium underline text-xs">
                   Revisar todos los descuadres del catálogo →
                 </button>
               </div>
             </div>
-            <div v-else-if="reservas.length === 0" class="text-sm text-gray-400 text-center py-8">No hay nada reservado</div>
+            <div v-else-if="reservas.length === 0" class="text-sm text-gray-400 text-center py-8">No hay nada apartado</div>
             <button
               v-else
               v-for="r in reservas"
@@ -3387,7 +3389,7 @@ onMounted(async () => {
                   <div class="flex-1 min-w-0">
                     <p class="text-sm font-semibold text-gray-800 truncate">{{ d.producto_nombre }}</p>
                     <p class="text-xs text-gray-500">{{ d.tienda_nombre }} · {{ d.ordenes.join(', ') }}</p>
-                    <p class="text-xs text-gray-400">Disponible {{ d.disponible_actual }} → <span class="font-semibold text-red-600">{{ d.disponible_despues }}</span></p>
+                    <p class="text-xs text-gray-400">En tienda {{ d.disponible_actual }} → <span class="font-semibold text-red-600">{{ d.disponible_despues }}</span></p>
                   </div>
                   <button
                     type="button"
@@ -3401,7 +3403,7 @@ onMounted(async () => {
               <!-- Reservado sin ninguna orden real detrás: la unidad nunca
                    salió — solo se suelta el contador. -->
               <div v-if="descuadresReservados.length" class="space-y-2">
-                <p class="text-xs font-semibold text-amber-700 uppercase">Reservado sin orden que lo sostenga ({{ descuadresReservados.length }})</p>
+                <p class="text-xs font-semibold text-amber-700 uppercase">Apartado sin orden que lo sostenga ({{ descuadresReservados.length }})</p>
                 <div v-for="d in descuadresReservados" :key="'r-' + d.producto_id + '-' + d.tienda_id" class="flex items-center justify-between gap-3 py-2 border-b border-gray-50 last:border-0">
                   <div class="flex-1 min-w-0">
                     <p class="text-sm font-semibold text-gray-800 truncate">{{ d.producto_nombre }}</p>
@@ -3423,7 +3425,7 @@ onMounted(async () => {
                    total del producto — el mismo problema, pero en la otra
                    tabla que nadie más auditaba. -->
               <div v-if="descuadresVariante.length" class="space-y-2">
-                <p class="text-xs font-semibold text-violet-700 uppercase">Reservado en una variante, sin orden ({{ descuadresVariante.length }})</p>
+                <p class="text-xs font-semibold text-violet-700 uppercase">Apartado en una variante, sin orden ({{ descuadresVariante.length }})</p>
                 <div v-for="d in descuadresVariante" :key="'v-' + d.variante_id + '-' + d.tienda_id" class="flex items-center justify-between gap-3 py-2 border-b border-gray-50 last:border-0">
                   <div class="flex-1 min-w-0">
                     <p class="text-sm font-semibold text-gray-800 truncate">{{ d.producto_nombre }} <span class="text-gray-400 font-normal">· {{ d.variante_nombre }}</span></p>
