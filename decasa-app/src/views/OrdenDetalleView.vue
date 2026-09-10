@@ -158,6 +158,14 @@ const SOLO_PAPELES = ['listo_entrega', 'en_camino', 'entregado']
 
 const soloPapeles = computed(() => SOLO_PAPELES.includes(orden.value?.estado))
 
+// Etiqueta del tipo de cliente para el bloque "Datos del cliente".
+const clienteTipo = computed(() => {
+  const t = orden.value?.cliente?.tipo
+  if (t === 'interesado') return { label: 'Interesado', clase: 'bg-amber-100 text-amber-700' }
+  if (t === 'oficial')    return { label: 'Oficial',     clase: 'bg-emerald-100 text-emerald-700' }
+  return null
+})
+
 const puedeEditar = computed(() => {
   if (!orden.value) return false
   if (orden.value.estado === 'cancelado') return false
@@ -1668,9 +1676,51 @@ onMounted(() => { cargarTipos(); cargarOrden() })
             >Corregir</button>
           </span>
         </div>
-        <div class="flex justify-between">
-          <span class="text-gray-500">Cliente</span>
-          <span class="font-medium text-gray-800">{{ orden.cliente?.nombre }}</span>
+        <div class="pt-1">
+          <div class="flex items-center justify-between mb-1.5">
+            <p class="text-xs font-semibold text-gray-500 uppercase">Datos del cliente</p>
+            <span
+              v-if="clienteTipo"
+              class="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded"
+              :class="clienteTipo.clase"
+            >{{ clienteTipo.label }}</span>
+            <span
+              v-else-if="!orden.cliente"
+              class="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded bg-gray-100 text-gray-500"
+            >Sin registrar</span>
+          </div>
+          <div class="bg-gray-50 border border-gray-100 rounded-lg px-3 py-2 space-y-1">
+            <div class="flex justify-between gap-3">
+              <span class="text-gray-500">Nombre</span>
+              <span class="font-medium text-gray-800 text-right">{{ orden.cliente?.nombre || orden.contacto_nombre || '—' }}</span>
+            </div>
+            <div class="flex justify-between gap-3">
+              <span class="text-gray-500">Cédula / NIT</span>
+              <span class="font-medium text-gray-800 text-right">{{ orden.cliente?.cedula || '—' }}</span>
+            </div>
+            <div class="flex justify-between gap-3">
+              <span class="text-gray-500">Teléfono</span>
+              <a
+                v-if="orden.cliente?.telefono || orden.contacto_telefono"
+                :href="`tel:${orden.cliente?.telefono || orden.contacto_telefono}`"
+                class="font-medium text-blue-600 text-right"
+              >{{ orden.cliente?.telefono || orden.contacto_telefono }}</a>
+              <span v-else class="font-medium text-gray-800">—</span>
+            </div>
+            <div class="flex justify-between gap-3">
+              <span class="text-gray-500 shrink-0">Email</span>
+              <a
+                v-if="orden.cliente?.email || orden.contacto_email"
+                :href="`mailto:${orden.cliente?.email || orden.contacto_email}`"
+                class="font-medium text-blue-600 text-right break-all"
+              >{{ orden.cliente?.email || orden.contacto_email }}</a>
+              <span v-else class="font-medium text-gray-800">—</span>
+            </div>
+            <div class="flex justify-between gap-3">
+              <span class="text-gray-500 shrink-0">Dirección</span>
+              <span class="font-medium text-gray-800 text-right">{{ orden.cliente?.direccion || '—' }}</span>
+            </div>
+          </div>
         </div>
         <div class="flex justify-between">
           <span class="text-gray-500">Tienda</span>
