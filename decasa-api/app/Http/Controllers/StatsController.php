@@ -1011,12 +1011,15 @@ class StatsController extends Controller
                 ->whereBetween('di.entregado_at', $rango)
                 ->count();
 
+            // Un abono cuenta UNA vez aunque la orden lleve varios renglones de
+            // despacho: con el join, una orden partida en dos entregas sumaba
+            // su pago dos veces.
             $cobrado = (float) DB::table('pagos as p')
-                ->join('ordenes as o',        'o.id',  '=', 'p.orden_id')
-                ->join('despacho_items as di', 'di.orden_id', '=', 'o.id')
-                ->join('despachos as d',       'd.id',  '=', 'di.despacho_id')
-                ->where('d.conductor_id', $c->id)
                 ->whereBetween('p.created_at', $rango)
+                ->whereExists(fn ($q) => $q->from('despacho_items as di')
+                    ->join('despachos as d', 'd.id', '=', 'di.despacho_id')
+                    ->whereColumn('di.orden_id', 'p.orden_id')
+                    ->where('d.conductor_id', $c->id))
                 ->sum('p.monto');
 
             $pendientes = (int) DB::table('despacho_items as di')
@@ -1053,12 +1056,14 @@ class StatsController extends Controller
             ->whereBetween('di.entregado_at', $rango)
             ->count();
 
+        // Un abono cuenta UNA vez aunque la orden lleve varios renglones de
+        // despacho (ver conductores()).
         $cobrado = (float) DB::table('pagos as p')
-            ->join('ordenes as o',        'o.id',  '=', 'p.orden_id')
-            ->join('despacho_items as di', 'di.orden_id', '=', 'o.id')
-            ->join('despachos as d',       'd.id',  '=', 'di.despacho_id')
-            ->where('d.conductor_id', $conductor->id)
             ->whereBetween('p.created_at', $rango)
+            ->whereExists(fn ($q) => $q->from('despacho_items as di')
+                ->join('despachos as d', 'd.id', '=', 'di.despacho_id')
+                ->whereColumn('di.orden_id', 'p.orden_id')
+                ->where('d.conductor_id', $conductor->id))
             ->sum('p.monto');
 
         $pendientes = DB::table('despacho_items as di')
