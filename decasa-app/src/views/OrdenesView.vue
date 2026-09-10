@@ -242,6 +242,7 @@ async function exportarExcelOrdenes() {
       'Tipo':             o.tipo === 'restauracion' ? 'Restauración' : 'Venta',
       'Cliente':          o.cliente?.nombre ?? '',
       'Tienda':           o.tienda?.nombre ?? '',
+      'Vendedor':         o.vendedor?.nombre ?? '',
       'Fecha':            fechaVenta(o) ? new Date(fechaVenta(o)).toLocaleDateString('es-CO') : '',
       'Valor total':      Number(o.valor_total) || 0,
       'Saldo pendiente':  Number(o.saldo_pendiente) || 0,
@@ -593,7 +594,9 @@ onUnmounted(() => {
                 >Restauración</span>
               </div>
               <p class="text-sm text-gray-600 truncate">{{ o.cliente?.nombre }}</p>
-              <p class="text-xs text-gray-400 mt-0.5">{{ o.tienda?.nombre }} · {{ formatFecha(fechaVenta(o)) }}</p>
+              <p class="text-xs text-gray-400 mt-0.5 truncate">
+                {{ [o.tienda?.nombre, o.vendedor?.nombre, formatFecha(fechaVenta(o))].filter(Boolean).join(' · ') }}
+              </p>
               <!-- Una venta compartida le sale a todos los que cobran por ella.
                    Sin decir de quién es, a uno le aparecen ordenes que no
                    vendió y no entiende por qué están ahí. -->
