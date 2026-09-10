@@ -766,6 +766,7 @@ onBeforeUnmount(() => {
               <div class="text-right">
                 <p class="text-lg font-bold text-green-700">{{ cop(t.total_vendido) }}</p>
                 <p class="text-xs text-gray-400">Cobrado {{ cop(t.ingresos) }} · Cartera {{ cop(t.cartera_pendiente) }}</p>
+                <p v-if="t.cobranza_periodo != null" class="text-[11px] text-gray-300">Caja del período {{ cop(t.cobranza_periodo) }}</p>
               </div>
             </div>
             <div class="grid grid-cols-3 gap-2 text-center text-xs">
