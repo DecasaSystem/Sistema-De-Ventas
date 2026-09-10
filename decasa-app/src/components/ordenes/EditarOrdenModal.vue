@@ -332,6 +332,16 @@ const tiendasAbonables = computed(() =>
   tiendasLista.value.filter(t => !t.es_fabrica && !t.es_independientes && t.id !== tiendaId.value)
 )
 
+// Abonarle la mitad de la venta a un almacén no cambia de quién es la venta,
+// así que el propio vendedor independiente puede fijarlo/quitarlo si se le
+// olvidó al crear la orden. El supervisor lo hace desde "Reasignar".
+const puedeEditarAbonoTienda = computed(() =>
+  !props.soloPapeles
+  && !esSupervisor.value
+  && vendedorEsIndependiente.value
+  && props.orden?.vendedor_id === auth.usuario?.id
+)
+
 const tiendasOrigen = computed(() =>
   tiendasLista.value.filter(t => !t.es_independientes)
 )
@@ -1044,8 +1054,11 @@ async function guardar() {
       if (tiendaId.value !== (props.orden.tienda_id ?? null)) payload.tienda_id = tiendaId.value
       if (covendedorId.value !== (props.orden.covendedor_id ?? null)) payload.covendedor_id = covendedorId.value
       if (esCompartida.value !== !!props.orden.es_compartida) payload.es_compartida = esCompartida.value
-      if ((tiendaAbonadaId.value ?? null) !== (props.orden.tienda_abonada_id ?? null))
-        payload.tienda_abonada_id = tiendaAbonadaId.value || null
+    }
+
+    if ((esSupervisor.value || puedeEditarAbonoTienda.value)
+        && (tiendaAbonadaId.value ?? null) !== (props.orden.tienda_abonada_id ?? null)) {
+      payload.tienda_abonada_id = tiendaAbonadaId.value || null
     }
 
     const { data } = await editarOrden(props.orden.id, payload)
@@ -1340,6 +1353,27 @@ async function guardar() {
                   <option v-for="v in opcionesVendedor" :key="v.id" :value="v.id">{{ v.nombre }}</option>
                 </select>
               </div>
+            </div>
+
+            <!-- Compartir la venta con un almacén: el propio vendedor
+                 independiente, si se le olvidó al crear la orden -->
+            <div v-if="puedeEditarAbonoTienda" class="space-y-2 border border-emerald-200 bg-emerald-50 rounded-xl p-4">
+              <p class="text-xs font-semibold text-emerald-700 uppercase">Venta compartida con un almacén</p>
+              <p class="text-[11px] text-emerald-700">
+                Si un almacén te pasó el contacto, la mitad de la venta se le abona a esa tienda para su meta.
+                Cambiar esto recalcula la comisión de la orden.
+              </p>
+              <select
+                v-model.number="tiendaAbonadaId"
+                :disabled="esCompartida"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:bg-gray-100 disabled:text-gray-400"
+              >
+                <option :value="null">Sin compartir — la venta entera es tuya</option>
+                <option v-for="t in tiendasAbonables" :key="t.id" :value="t.id">{{ t.nombre }}</option>
+              </select>
+              <p v-if="esCompartida" class="text-[11px] text-amber-700">
+                Esta orden ya está compartida con otro asesor: no se puede además abonar a un almacén.
+              </p>
             </div>
 
             <!-- Ítems -->

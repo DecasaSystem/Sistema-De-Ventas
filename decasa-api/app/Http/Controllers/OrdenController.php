@@ -1169,25 +1169,37 @@ class OrdenController extends Controller
             }
         }
 
-        $camposReasignacion = ['vendedor_id', 'tienda_id', 'covendedor_id', 'es_compartida', 'tienda_abonada_id'];
+        // Reasignar de quién es la venta (vendedor, tienda, co-vendedor) es
+        // cosa de supervisores. Abonarle la mitad a una tienda NO cambia el
+        // dueño de la venta —solo a quién se le acredita la otra mitad y para
+        // la meta de qué tienda cuenta—, así que eso también lo puede corregir
+        // el propio vendedor de la orden si se le olvidó marcarlo al crearla.
+        $camposReasignacion = ['vendedor_id', 'tienda_id', 'covendedor_id', 'es_compartida'];
         $reasignando        = collect($camposReasignacion)->contains(fn ($c) => array_key_exists($c, $data));
+        $ajustandoAbono     = array_key_exists('tienda_abonada_id', $data);
 
-        if ($reasignando) {
-            if ($usuario->rol !== 'supervisor') {
-                return response()->json(['message' => 'Solo un supervisor puede reasignar vendedor/tienda.'], 403);
-            }
+        if ($reasignando && $usuario->rol !== 'supervisor') {
+            return response()->json(['message' => 'Solo un supervisor puede reasignar vendedor/tienda.'], 403);
+        }
 
+        if ($ajustandoAbono
+            && $usuario->rol !== 'supervisor'
+            && (int) $orden->vendedor_id !== (int) $usuario->id) {
+            return response()->json(['message' => 'Solo el vendedor de la orden o un supervisor puede cambiar la tienda con la que se comparte la venta.'], 403);
+        }
+
+        if ($reasignando || $ajustandoAbono) {
             $comisionLiquidada = Comision::where('orden_id', $orden->id)
                 ->whereIn('estado', ['lista', 'pagada'])
                 ->exists();
             if ($comisionLiquidada) {
-                return response()->json(['message' => 'No se puede reasignar: la comisión de esta orden ya está lista o pagada.'], 422);
+                return response()->json(['message' => 'No se puede cambiar la asignación: la comisión de esta orden ya está lista o pagada.'], 422);
             }
         }
 
         $cambios = [];
 
-        DB::transaction(function () use ($data, $orden, $usuario, &$cambios, $reasignando) {
+        DB::transaction(function () use ($data, $orden, $usuario, &$cambios, $reasignando, $ajustandoAbono) {
             $updateOrden = [];
 
             // ── Cambios a nivel de orden ──────────────────────────────────────
@@ -1260,8 +1272,9 @@ class OrdenController extends Controller
                 $updateOrden['anticipo_pct'] = $data['anticipo_pct'];
             }
 
-            // ── Reasignación de vendedor/tienda (solo supervisor) ──────────────
-            if ($reasignando) {
+            // ── Reasignación de vendedor/tienda (solo supervisor) y abono a
+            //    una tienda (supervisor o el propio vendedor) ────────────────
+            if ($reasignando || $ajustandoAbono) {
                 if (array_key_exists('vendedor_id', $data) && (int) $data['vendedor_id'] !== (int) $orden->vendedor_id) {
                     $nombreAntes  = Usuario::find($orden->vendedor_id)?->nombre ?? $orden->vendedor_id;
                     $nombreDespues = Usuario::find($data['vendedor_id'])?->nombre ?? $data['vendedor_id'];
@@ -1290,16 +1303,16 @@ class OrdenController extends Controller
                     // el supervisor que la esta corrigiendo.
                     $vendedorFinal = Usuario::find($updateOrden['vendedor_id'] ?? $orden->vendedor_id);
                     if ($data['tienda_abonada_id'] && ! $vendedorFinal?->independiente) {
-                        throw new \RuntimeException('Solo un vendedor independiente puede abonarle la venta a una tienda.');
+                        abort(422, 'Solo un vendedor independiente puede abonarle la venta a una tienda.');
                     }
                     if ($data['tienda_abonada_id']
                         && (int) $data['tienda_abonada_id'] === (int) ($updateOrden['tienda_id'] ?? $orden->tienda_id)) {
-                        throw new \RuntimeException('La tienda que se lleva la mitad no puede ser la misma de la orden.');
+                        abort(422, 'La tienda que se lleva la mitad no puede ser la misma de la orden.');
                     }
                     $compartidaFinal = array_key_exists('es_compartida', $data)
                         ? (bool) $data['es_compartida'] : (bool) $orden->es_compartida;
                     if ($data['tienda_abonada_id'] && $compartidaFinal) {
-                        throw new \RuntimeException('Una venta se comparte con otro asesor o con un almacén, no con los dos.');
+                        abort(422, 'Una venta se comparte con otro asesor o con un almacén, no con los dos.');
                     }
                     $nombreAntes   = $orden->tienda_abonada_id ? (Tienda::find($orden->tienda_abonada_id)?->nombre ?? $orden->tienda_abonada_id) : null;
                     $nombreDespues = $data['tienda_abonada_id'] ? (Tienda::find($data['tienda_abonada_id'])?->nombre ?? $data['tienda_abonada_id']) : null;
@@ -1727,7 +1740,7 @@ class OrdenController extends Controller
 
             $tocoAsignacion = collect(['vendedor_id', 'tienda_id', 'covendedor_id', 'es_compartida', 'tienda_abonada_id'])
                 ->contains(fn ($c) => array_key_exists($c, $updateOrden));
-            if ($reasignando && $tocoAsignacion) {
+            if (($reasignando || $ajustandoAbono) && $tocoAsignacion) {
                 Comision::where('orden_id', $orden->id)->delete();
                 ComisionController::crearParaOrden($orden->fresh());
             } elseif (array_key_exists('valor_total', $updateOrden)) {
