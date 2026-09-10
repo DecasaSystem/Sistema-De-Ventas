@@ -2320,8 +2320,31 @@ class AgentService
 
     // ─── Dispatcher de tool calls ─────────────────────────────────────────────
 
+    /**
+     * Herramientas cuyo equivalente REST es `role:supervisor` (rendimiento
+     * comparativo de vendedores, análisis de demanda de toda la empresa,
+     * padrón de trabajadores). Defensa en profundidad: aunque un vendedor
+     * llegue hasta acá, el chat no le abre lo que la API le niega.
+     */
+    private const TOOLS_SOLO_SUPERVISOR = [
+        'reporte_vendedores',
+        'consultar_interesados',
+        'consultar_trabajadores',
+    ];
+
     private function ejecutarTool(string $toolName, array $args, Usuario $usuario): array
     {
+        if (in_array($toolName, self::TOOLS_SOLO_SUPERVISOR, true) && $usuario->rol !== 'supervisor') {
+            return ['error' => 'Esa información solo está disponible para supervisores.'];
+        }
+
+        // El resumen de TODAS las cajas equivale a `caja/resumen-tiendas`, que
+        // es solo de supervisor. Una caja puntual sí la puede ver un vendedor,
+        // pero el propio handler la fuerza a su tienda.
+        if ($toolName === 'consultar_caja' && ! empty($args['todas']) && $usuario->rol !== 'supervisor') {
+            return ['error' => 'El resumen de todas las cajas solo está disponible para supervisores.'];
+        }
+
         return match ($toolName) {
             'obtener_ficha_tecnica'        => $this->handleObtenerFichaTecnica($args),
             'buscar_fichas_por_categoria'  => $this->handleBuscarFichasPorCategoria($args),
@@ -2797,8 +2820,20 @@ class AgentService
 
     // ─── Loop principal del agente ────────────────────────────────────────────
 
+    /**
+     * Roles a los que sirve el asistente: los mismos que ven el botón en la app
+     * (App.vue). El chat consulta ventas, caja, producción y nómina indirecta —
+     * el resto de las pantallas se lo niega a un conductor o a un ebanista, y
+     * el chat no puede ser la puerta lateral que se salte esa regla.
+     */
+    private const ROLES_CON_ASISTENTE = ['supervisor', 'vendedor'];
+
     public function chat(array $messages, Usuario $usuario): string
     {
+        if (! in_array($usuario->rol, self::ROLES_CON_ASISTENTE, true)) {
+            return 'El asistente de negocios solo está disponible para vendedores y supervisores.';
+        }
+
         $tiendaInfo = $usuario->tienda_default_id
             ? DB::table('tiendas')->where('id', $usuario->tienda_default_id)->value('nombre')
             : 'todas las tiendas';

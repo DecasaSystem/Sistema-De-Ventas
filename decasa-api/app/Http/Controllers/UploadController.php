@@ -16,7 +16,9 @@ class UploadController extends Controller
     public function foto(Request $request)
     {
         $request->validate([
-            'foto'  => 'required|file|image|max:10240',
+            // `image` a secas también acepta SVG, y un SVG es HTML con <script>
+            // adentro. Solo fotos rasterizadas — que es lo único que la app sube.
+            'foto'  => 'required|file|mimes:jpg,jpeg,png,gif,bmp,webp|max:10240',
             'folder' => 'nullable|string|in:productos,facturas,firmas,bocetos,comprobantes,telas,anexos,compras,catalogos',
         ]);
 

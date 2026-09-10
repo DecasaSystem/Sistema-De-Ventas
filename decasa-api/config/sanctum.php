@@ -48,16 +48,21 @@ return [
     */
 
     /*
-     * Sesenta días, y no "para siempre".
+     * Treinta días, y no "para siempre".
      *
      * Con `null` un token no caducaba nunca: el que se emitió en junio seguía
      * sirviendo, y uno robado —de un celular perdido, de una sesión abierta en
-     * un computador ajeno— servía igual para siempre. Sesenta días es holgado
-     * para quien entra todos los días y acota la ventana de lo que se pierde.
+     * un computador ajeno, de un XSS que se lleve el localStorage— servía igual
+     * para siempre. Se bajó de sesenta a treinta días: sigue siendo holgado
+     * para quien entra todos los días y recorta a la mitad la ventana de lo
+     * que un token perdido deja abierto.
+     *
+     * Los tokens vencidos se barren cada noche con `sanctum:prune-expired`
+     * (ver routes/console.php); si no, la tabla crece sin control.
      *
      * Se puede ajustar sin tocar código con SANCTUM_EXPIRATION (en minutos).
      */
-    'expiration' => (int) env('SANCTUM_EXPIRATION', 60 * 24 * 60),
+    'expiration' => (int) env('SANCTUM_EXPIRATION', 60 * 24 * 30),
 
     /*
     |--------------------------------------------------------------------------

@@ -25,3 +25,10 @@ _ide_helper.php
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+# Volcados de datos — nunca al repo: traen hashes de contraseñas y datos de
+# clientes. Se importan a mano una vez y se guardan fuera del control de versiones.
+/costos_seed.sql
+*_export.sql
+*_dump.sql
+*.dump

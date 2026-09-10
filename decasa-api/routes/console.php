@@ -57,6 +57,15 @@ Schedule::command('respaldo:base')
     ->withoutOverlapping()
     ->emailOutputOnFailure(config('mail.from.address'));
 
+// Barrer los tokens de API ya vencidos (Sanctum). Sin esto la tabla
+// personal_access_tokens crece para siempre: un token por login y por cada
+// cambio de perfil. --hours=24 deja un día de gracia por si hay que auditar.
+Schedule::command('sanctum:prune-expired --hours=24')
+    ->dailyAt('03:30')
+    ->timezone('America/Bogota')
+    ->name('podar-tokens-vencidos')
+    ->withoutOverlapping();
+
 // ── Comando manual (útil en desarrollo y soporte) ─────────────────────────────
 // Uso: php artisan produccion:revisar-retrasos
 

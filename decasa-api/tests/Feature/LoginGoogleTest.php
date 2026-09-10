@@ -80,6 +80,8 @@ class LoginGoogleTest extends TestCase
         Http::fake([
             'oauth2.googleapis.com/*' => Http::response(array_merge([
                 'aud'            => self::CLIENT_ID,
+                'iss'            => 'https://accounts.google.com',
+                'exp'            => (string) (time() + 3600),
                 'sub'            => 'google-9988',
                 'email'          => 'monica@decasa.com',
                 'email_verified' => 'true',
@@ -118,6 +120,24 @@ class LoginGoogleTest extends TestCase
     {
         $this->vendedora();
         $this->googleResponde(['email_verified' => 'false']);
+
+        $this->postJson('/api/auth/google', ['credential' => 'token'])->assertStatus(401);
+    }
+
+    /** Un token ya vencido no entra, aunque el endpoint responda 200. */
+    public function test_un_token_vencido_no_entra(): void
+    {
+        $this->vendedora();
+        $this->googleResponde(['exp' => (string) (time() - 60)]);
+
+        $this->postJson('/api/auth/google', ['credential' => 'token'])->assertStatus(401);
+    }
+
+    /** El token tiene que venir de Google, no de otro emisor. */
+    public function test_un_token_de_otro_emisor_no_entra(): void
+    {
+        $this->vendedora();
+        $this->googleResponde(['iss' => 'https://evil.example.com']);
 
         $this->postJson('/api/auth/google', ['credential' => 'token'])->assertStatus(401);
     }

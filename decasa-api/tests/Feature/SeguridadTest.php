@@ -68,10 +68,25 @@ class SeguridadTest extends TestCase
         $this->assertContains('api', $ruta->gatherMiddleware());
     }
 
+    public function test_las_respuestas_traen_cabeceras_de_seguridad(): void
+    {
+        // La API solo devuelve JSON y archivos: un CSP cerrado y sin permiso de
+        // que la embeban en un iframe corta el margen de un XSS o un clickjack.
+        $res = $this->getJson('/api/push/vapid-key');
+
+        $res->assertHeader('X-Content-Type-Options', 'nosniff');
+        $res->assertHeader('X-Frame-Options', 'DENY');
+        $this->assertStringContainsString("frame-ancestors 'none'", $res->headers->get('Content-Security-Policy'));
+        $this->assertStringContainsString("default-src 'none'", $res->headers->get('Content-Security-Policy'));
+    }
+
     public function test_los_tokens_caducan(): void
     {
-        // Con `null` un token servía para siempre, también uno robado.
+        // Con `null` un token servía para siempre, también uno robado. Treinta
+        // días es el tope por defecto; se puede bajar con SANCTUM_EXPIRATION.
         $this->assertNotNull(config('sanctum.expiration'));
-        $this->assertSame(60 * 24 * 60, config('sanctum.expiration'));
+        $this->assertSame(60 * 24 * 30, config('sanctum.expiration'));
+        $this->assertLessThanOrEqual(60 * 24 * 30, config('sanctum.expiration'),
+            'La ventana de un token perdido no debería pasar de 30 días.');
     }
 }

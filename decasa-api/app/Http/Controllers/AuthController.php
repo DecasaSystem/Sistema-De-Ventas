@@ -104,8 +104,10 @@ class AuthController extends Controller
      * Se le pregunta a Google en vez de validar la firma aquí para no sumar
      * una dependencia entera por un puñado de entradas al día: Google revisa
      * firma y vencimiento, y de este lado queda comprobar que el token sea
-     * para ESTA aplicación y que el correo esté verificado. Sin lo primero,
-     * cualquiera podría entrar con un token sacado de otra app.
+     * para ESTA aplicación, que lo haya emitido Google, que no esté vencido y
+     * que el correo esté verificado. Sin lo primero, cualquiera podría entrar
+     * con un token sacado de otra app; lo demás es no fiarse a ciegas de que
+     * el endpoint respondió 200.
      */
     private function verificarTokenGoogle(string $credential, string $clientId): ?array
     {
@@ -123,8 +125,12 @@ class AuthController extends Controller
 
         $datos = $res->json();
         $verificado = $datos['email_verified'] ?? false;
+        $emisor     = $datos['iss'] ?? null;
+        $expira     = isset($datos['exp']) ? (int) $datos['exp'] : 0;
 
         if (($datos['aud'] ?? null) !== $clientId
+            || ! in_array($emisor, ['accounts.google.com', 'https://accounts.google.com'], true)
+            || $expira < time()
             || empty($datos['email'])
             || empty($datos['sub'])
             || ! in_array($verificado, [true, 'true'], true)) {
