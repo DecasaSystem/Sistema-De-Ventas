@@ -347,9 +347,12 @@ onBeforeUnmount(() => {
         </ul>
       </div>
 
-      <!-- Órdenes recientes -->
+      <!-- Órdenes del período: las que suman "Total vendido" -->
       <div v-if="stats.ordenes_recientes?.length" class="bg-white rounded-xl shadow-sm p-4">
-        <p class="text-sm font-semibold text-gray-700 mb-3">Órdenes recientes</p>
+        <p class="text-sm font-semibold text-gray-700">Órdenes del período</p>
+        <p class="text-[11px] text-gray-400 mb-3">
+          Las {{ stats.ordenes_creadas }} creadas en el rango. En las compartidas, a esta persona se le acredita la mitad.
+        </p>
         <ul class="space-y-1">
           <li
             v-for="o in stats.ordenes_recientes" :key="o.id"
@@ -360,6 +363,7 @@ onBeforeUnmount(() => {
               <p class="text-sm font-medium text-gray-800 truncate">{{ o.cliente }}</p>
               <p class="text-xs text-gray-400">
                 {{ o.serie ? `${o.serie}-${o.serie_numero}` : `#${o.numero_orden ?? o.id}` }}
+                <span v-if="o.es_compartida" class="text-indigo-500 font-medium">· compartida</span>
               </p>
             </div>
             <div class="flex items-center gap-2 ml-2 flex-shrink-0">

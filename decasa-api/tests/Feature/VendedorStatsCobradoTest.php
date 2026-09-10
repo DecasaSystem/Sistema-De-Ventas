@@ -108,5 +108,11 @@ class VendedorStatsCobradoTest extends TestCase
 
         // La caja real del mes: 2M de la nueva + 5M de la vieja.
         $this->assertEquals(7_000_000, $r['cobranza_periodo']);
+
+        // "Órdenes del período" trae solo las del rango: la de mes pasado no
+        // sale, y el conteo cuadra con "órdenes creadas".
+        $this->assertCount(1, $r['ordenes_recientes']);
+        $this->assertEquals($r['ordenes_creadas'], count($r['ordenes_recientes']));
+        $this->assertEquals($nueva, $r['ordenes_recientes'][0]['id']);
     }
 }

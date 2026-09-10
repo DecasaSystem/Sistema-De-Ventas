@@ -1156,10 +1156,14 @@ class StatsController extends Controller
             ->groupBy('p.id', 'p.nombre', 'p.categoria')
             ->orderByDesc('valor_total')->limit(5)->get();
 
-        // Órdenes recientes
+        // Órdenes del período: las mismas que cuenta "N órdenes en el período"
+        // y suman "Total vendido". Antes esto traía las últimas 5 sin filtro de
+        // fecha, así que salían órdenes de otros meses y no cuadraba con el
+        // número de arriba.
         $recientesBase = DB::table('ordenes as o')
             ->join('clientes as c', 'c.id', '=', 'o.cliente_id')
             ->leftJoin('v_saldo_ordenes as v', 'v.orden_id', '=', 'o.id')
+            ->whereBetween('o.created_at', $rango)
             ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES);
 
         if ($esVendedor) $recientesBase->where($whereVendedorO);
@@ -1169,7 +1173,7 @@ class StatsController extends Controller
             // serie/serie_numero: las FV2 no tienen numero_orden y sin esto se
             // mostrarían con el id interno de la tabla.
             ->selectRaw('o.id, o.numero_orden, o.serie, o.serie_numero, c.nombre AS cliente, o.estado, o.valor_total, COALESCE(v.saldo_pendiente, o.valor_total) AS saldo_pendiente, o.created_at, o.es_compartida')
-            ->orderByDesc('o.created_at')->limit(5)->get();
+            ->orderByDesc('o.created_at')->limit(50)->get();
 
         // Canales
         $canalesBase = DB::table('ordenes')
