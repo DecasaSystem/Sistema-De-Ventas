@@ -300,6 +300,12 @@ onBeforeUnmount(() => {
         <div class="bg-white rounded-xl shadow-sm p-4">
           <p class="text-xs text-gray-400 mb-1">Dinero cobrado</p>
           <p class="text-xl font-bold text-blue-600 leading-tight">{{ cop(stats.dinero_vendido) }}</p>
+          <p class="text-[11px] text-gray-400 mt-1">De las órdenes vendidas en el período.</p>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm p-4">
+          <p class="text-xs text-gray-400 mb-1">Cobranza del período</p>
+          <p class="text-xl font-bold text-blue-500 leading-tight">{{ cop(stats.cobranza_periodo) }}</p>
+          <p class="text-[11px] text-gray-400 mt-1">Todo lo que entró en el rango, incluidos abonos de órdenes de otros meses.</p>
         </div>
         <div class="bg-white rounded-xl shadow-sm p-4">
           <p class="text-xs text-gray-400 mb-1">Órdenes creadas</p>
@@ -320,6 +326,7 @@ onBeforeUnmount(() => {
         <div class="bg-white rounded-xl shadow-sm p-4">
           <p class="text-xs text-gray-400 mb-1">Cartera pendiente</p>
           <p class="text-xl font-bold text-red-500 leading-tight">{{ cop(stats.cartera_pendiente) }}</p>
+          <p class="text-[11px] text-gray-400 mt-1">Saldo vivo de tus órdenes a hoy, sin filtro de período.</p>
         </div>
       </div>
 

@@ -908,8 +908,10 @@ class StatsController extends Controller
                 'promedio_ingresos' => $nVendedores > 0 ? round($totalEquipo / $nVendedores) : 0,
                 'total_equipo'      => $totalEquipo,
                 'num_vendedores'    => $nVendedores,
+                // Se compara flujo de caja contra flujo de caja: lo que entró
+                // por esta persona vs. lo que entró en toda la empresa.
                 'pct_del_total'     => $totalEquipo > 0
-                    ? round($perfil['dinero_vendido'] / $totalEquipo * 100, 1)
+                    ? round($perfil['cobranza_periodo'] / $totalEquipo * 100, 1)
                     : 0,
             ];
         }
@@ -1059,20 +1061,32 @@ class StatsController extends Controller
               });
         };
 
-        // Ingresos: para vendedor incluye co-ventas a mitad; para tienda, monto completo
-        if ($esVendedor) {
-            $ingresos = (float) DB::table('pagos as p')
-                ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
-                ->where($whereVendedorO)
-                ->whereBetween('p.created_at', $rango)
-                ->selectRaw('SUM(CASE WHEN o.es_compartida = 1 THEN p.monto / 2 ELSE p.monto END) as total')
-                ->value('total') ?? 0;
-        } else {
-            $ingresos = (float) DB::table('pagos as p')
-                ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
-                ->where("o.$columna", $valor)->whereBetween('p.created_at', $rango)
-                ->sum('p.monto');
-        }
+        // El monto: para vendedor, las co-ventas cuentan a mitad; para tienda,
+        // completo. Se filtra siempre por las órdenes de este vendedor/tienda.
+        $montoExpr  = $esVendedor
+            ? 'SUM(CASE WHEN o.es_compartida = 1 THEN p.monto / 2 ELSE p.monto END) as total'
+            : 'SUM(p.monto) as total';
+        $filtroVend = fn ($q) => $esVendedor
+            ? $q->where($whereVendedorO)
+            : $q->where("o.$columna", $valor);
+        $pagosBase  = fn () => $filtroVend(
+            DB::table('pagos as p')->join('ordenes as o', 'o.id', '=', 'p.orden_id')
+        );
+
+        // Cobranza del período: TODO lo que entró en el rango, sin importar de
+        // qué mes es la orden. Es flujo de caja.
+        $cobranzaPeriodo = (float) $pagosBase()
+            ->whereBetween('p.created_at', $rango)
+            ->selectRaw($montoExpr)->value('total') ?? 0;
+
+        // Cobrado DE LO VENDIDO EN EL PERÍODO: abonos de órdenes creadas dentro
+        // del rango. Este es el que va pegado a "Total vendido" para que el
+        // recuadro cuadre. Antes aquí iba la cobranza de arriba y salía "más
+        // cobrado que vendido" cuando el mes recibía plata de órdenes viejas.
+        $ingresos = (float) $pagosBase()
+            ->whereBetween('o.created_at', $rango)
+            ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES)
+            ->selectRaw($montoExpr)->value('total') ?? 0;
 
         // Conteo de órdenes
         $ordBase = $esVendedor
@@ -1167,7 +1181,8 @@ class StatsController extends Controller
         $canales = $canalesBase->selectRaw('canal, COUNT(*) AS total')->groupBy('canal')->get();
 
         return [
-            'dinero_vendido'     => $ingresos,   // en realidad es lo COBRADO en el período
+            'dinero_vendido'     => $ingresos,          // lo cobrado DE las órdenes del período
+            'cobranza_periodo'   => $cobranzaPeriodo,   // todo lo que entró en el rango (flujo de caja)
             'total_vendido'      => $totalVendido,
             'ordenes_creadas'    => $ordenesCreadas,
             'ordenes_entregadas' => $entregadas,
