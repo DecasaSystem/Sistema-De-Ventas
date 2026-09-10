@@ -627,6 +627,14 @@ class OrdenController extends Controller
                         'motivo'      => "Venta directa orden #{$orden->id}",
                         'usuario_id'  => $request->user()->id,
                     ]);
+                } elseif ($guardarBorrador) {
+                    // Un borrador NO reserva stock — es un boceto de venta, no
+                    // una venta. La reserva se hace al confirmarlo
+                    // (completarBorrador), igual que una cotización solo toca
+                    // inventario cuando se convierte. Reservar aquí dejaba
+                    // stock bloqueado por borradores que a veces ni se
+                    // completan, y si se borraban o se abandonaban la reserva
+                    // quedaba huérfana.
                 } else {
                     // Reservar stock en la tienda de origen (puede ser otra tienda)
                     $varianteMarca = $specsExtra['variante_marca'] ?? '';
@@ -1412,35 +1420,39 @@ class OrdenController extends Controller
                         $cambiaCantidad = $cantNueva !== (int) $item->cantidad;
 
                         if ($cambiaProducto) {
-                            // Verificar stock del nuevo producto
-                            $invNuevo   = Inventario::where('producto_id', $prodNuevoId)->where('tienda_id', $origenId)->lockForUpdate()->first();
-                            $stockLibre = $invNuevo ? ($invNuevo->cantidad_disponible - $invNuevo->cantidad_reservada) : 0;
-                            if ($stockLibre < $cantNueva) {
-                                abort(422, "Stock insuficiente para el nuevo producto. Stock libre: {$stockLibre}, necesario: {$cantNueva}.");
-                            }
+                            // Un borrador no tiene stock reservado — solo se
+                            // cambia el ítem. El inventario se toca al confirmarlo.
+                            if ($orden->estado !== 'borrador') {
+                                // Verificar stock del nuevo producto
+                                $invNuevo   = Inventario::where('producto_id', $prodNuevoId)->where('tienda_id', $origenId)->lockForUpdate()->first();
+                                $stockLibre = $invNuevo ? ($invNuevo->cantidad_disponible - $invNuevo->cantidad_reservada) : 0;
+                                if ($stockLibre < $cantNueva) {
+                                    abort(422, "Stock insuficiente para el nuevo producto. Stock libre: {$stockLibre}, necesario: {$cantNueva}.");
+                                }
 
-                            // Liberar reserva del producto anterior. Si tenía una
-                            // variante (tela/medida) puntual, también hay que
-                            // soltarle la suya — si no, esa variante se queda
-                            // reservada para siempre: el item ya no le apunta a
-                            // nada, y nada más la va a liberar.
-                            if ($item->variante_id) {
-                                InventarioVariante::where('variante_id', $item->variante_id)
-                                    ->where('tienda_id', $origenId)
-                                    ->decrement('cantidad_reservada', (int) $item->cantidad);
-                                if ($item->combo_config_id) {
-                                    InventarioVarianteCombinacion::where('variante_id', $item->variante_id)
-                                        ->where('config_id', $item->combo_config_id)
+                                // Liberar reserva del producto anterior. Si tenía una
+                                // variante (tela/medida) puntual, también hay que
+                                // soltarle la suya — si no, esa variante se queda
+                                // reservada para siempre: el item ya no le apunta a
+                                // nada, y nada más la va a liberar.
+                                if ($item->variante_id) {
+                                    InventarioVariante::where('variante_id', $item->variante_id)
                                         ->where('tienda_id', $origenId)
                                         ->decrement('cantidad_reservada', (int) $item->cantidad);
+                                    if ($item->combo_config_id) {
+                                        InventarioVarianteCombinacion::where('variante_id', $item->variante_id)
+                                            ->where('config_id', $item->combo_config_id)
+                                            ->where('tienda_id', $origenId)
+                                            ->decrement('cantidad_reservada', (int) $item->cantidad);
+                                    }
                                 }
-                            }
-                            Inventario::where('producto_id', $item->producto_id)->where('tienda_id', $origenId)->decrement('cantidad_reservada', (int) $item->cantidad);
-                            InventarioMovimiento::create(['producto_id' => $item->producto_id, 'tienda_id' => $origenId, 'tipo' => 'liberacion', 'cantidad' => (int) $item->cantidad, 'motivo' => "Edición orden #{$orden->id} — cambio de producto", 'usuario_id' => $usuario->id]);
+                                Inventario::where('producto_id', $item->producto_id)->where('tienda_id', $origenId)->decrement('cantidad_reservada', (int) $item->cantidad);
+                                InventarioMovimiento::create(['producto_id' => $item->producto_id, 'tienda_id' => $origenId, 'tipo' => 'liberacion', 'cantidad' => (int) $item->cantidad, 'motivo' => "Edición orden #{$orden->id} — cambio de producto", 'usuario_id' => $usuario->id]);
 
-                            // Reservar nuevo producto
-                            Inventario::where('producto_id', $prodNuevoId)->where('tienda_id', $origenId)->increment('cantidad_reservada', $cantNueva);
-                            InventarioMovimiento::create(['producto_id' => $prodNuevoId, 'tienda_id' => $origenId, 'tipo' => 'reserva', 'cantidad' => $cantNueva, 'motivo' => "Edición orden #{$orden->id} — nuevo producto", 'usuario_id' => $usuario->id]);
+                                // Reservar nuevo producto
+                                Inventario::where('producto_id', $prodNuevoId)->where('tienda_id', $origenId)->increment('cantidad_reservada', $cantNueva);
+                                InventarioMovimiento::create(['producto_id' => $prodNuevoId, 'tienda_id' => $origenId, 'tipo' => 'reserva', 'cantidad' => $cantNueva, 'motivo' => "Edición orden #{$orden->id} — nuevo producto", 'usuario_id' => $usuario->id]);
+                            }
 
                             $nombreNuevo = \App\Models\Producto::find($prodNuevoId)?->nombre ?? "Producto #{$prodNuevoId}";
                             $cambios[]   = ['campo' => "item_{$item->id}_producto", 'label' => "Producto cambiado", 'antes' => $nombreProd, 'despues' => $nombreNuevo];
@@ -1452,17 +1464,19 @@ class OrdenController extends Controller
                             }
                         } elseif ($cambiaCantidad) {
                             $diff = $cantNueva - (int) $item->cantidad;
-                            if ($diff > 0) {
-                                $inv        = Inventario::where('producto_id', $item->producto_id)->where('tienda_id', $origenId)->lockForUpdate()->first();
-                                $stockLibre = $inv ? ($inv->cantidad_disponible - $inv->cantidad_reservada) : 0;
-                                if ($stockLibre < $diff) {
-                                    abort(422, "Stock insuficiente. Stock libre: {$stockLibre}, necesita {$diff} adicionales.");
+                            if ($orden->estado !== 'borrador') {
+                                if ($diff > 0) {
+                                    $inv        = Inventario::where('producto_id', $item->producto_id)->where('tienda_id', $origenId)->lockForUpdate()->first();
+                                    $stockLibre = $inv ? ($inv->cantidad_disponible - $inv->cantidad_reservada) : 0;
+                                    if ($stockLibre < $diff) {
+                                        abort(422, "Stock insuficiente. Stock libre: {$stockLibre}, necesita {$diff} adicionales.");
+                                    }
+                                    Inventario::where('producto_id', $item->producto_id)->where('tienda_id', $origenId)->increment('cantidad_reservada', $diff);
+                                    InventarioMovimiento::create(['producto_id' => $item->producto_id, 'tienda_id' => $origenId, 'tipo' => 'reserva', 'cantidad' => $diff, 'motivo' => "Edición orden #{$orden->id} — ajuste cantidad", 'usuario_id' => $usuario->id]);
+                                } else {
+                                    Inventario::where('producto_id', $item->producto_id)->where('tienda_id', $origenId)->decrement('cantidad_reservada', abs($diff));
+                                    InventarioMovimiento::create(['producto_id' => $item->producto_id, 'tienda_id' => $origenId, 'tipo' => 'liberacion', 'cantidad' => abs($diff), 'motivo' => "Edición orden #{$orden->id} — ajuste cantidad", 'usuario_id' => $usuario->id]);
                                 }
-                                Inventario::where('producto_id', $item->producto_id)->where('tienda_id', $origenId)->increment('cantidad_reservada', $diff);
-                                InventarioMovimiento::create(['producto_id' => $item->producto_id, 'tienda_id' => $origenId, 'tipo' => 'reserva', 'cantidad' => $diff, 'motivo' => "Edición orden #{$orden->id} — ajuste cantidad", 'usuario_id' => $usuario->id]);
-                            } else {
-                                Inventario::where('producto_id', $item->producto_id)->where('tienda_id', $origenId)->decrement('cantidad_reservada', abs($diff));
-                                InventarioMovimiento::create(['producto_id' => $item->producto_id, 'tienda_id' => $origenId, 'tipo' => 'liberacion', 'cantidad' => abs($diff), 'motivo' => "Edición orden #{$orden->id} — ajuste cantidad", 'usuario_id' => $usuario->id]);
                             }
                             $cambios[] = ['campo' => "item_{$item->id}_cantidad", 'label' => "{$nombreProd} — cantidad", 'antes' => (int) $item->cantidad, 'despues' => $cantNueva];
                             $updateItem['cantidad'] = $cantNueva;
@@ -1518,8 +1532,10 @@ class OrdenController extends Controller
                         $item->produccion->delete();
                     }
 
-                    // Liberar reserva de inventario (solo ítems no personalizados)
-                    if (! $item->es_personalizado && $item->producto_id) {
+                    // Liberar reserva de inventario (solo ítems no personalizados).
+                    // Un borrador nunca reservó nada, así que quitarle un ítem
+                    // tampoco suelta stock.
+                    if (! $item->es_personalizado && $item->producto_id && $orden->estado !== 'borrador') {
                         Inventario::where('producto_id', $item->producto_id)
                             ->where('tienda_id', $origenId)
                             ->decrement('cantidad_reservada', max(0, (int) $item->cantidad));
@@ -1561,8 +1577,10 @@ class OrdenController extends Controller
 
                     $bocetos = array_values(array_filter($nuevoData['boceto_urls'] ?? []));
 
-                    // Solo los ítems de stock verifican y reservan inventario.
-                    if (! $esPersonalizado) {
+                    // Solo los ítems de stock verifican y reservan inventario —
+                    // y no en un borrador, que no aparta nada hasta que se
+                    // confirma.
+                    if (! $esPersonalizado && $orden->estado !== 'borrador') {
                         if ($varianteId) {
                             $invV       = InventarioVariante::where('variante_id', $varianteId)->where('tienda_id', $origenId)->lockForUpdate()->first();
                             $stockLibre = $invV ? ($invV->cantidad_disponible - $invV->cantidad_reservada) : 0;
@@ -1615,6 +1633,9 @@ class OrdenController extends Controller
                             'fecha_compromiso' => null,
                             'estado'           => 'pendiente',
                         ]);
+                    } elseif ($orden->estado === 'borrador') {
+                        // Un borrador no reserva: la reserva se hace toda junta
+                        // al confirmarlo (completarBorrador).
                     } else {
                         // Reservar variante (si aplica) + stock base, notificar a la tienda.
                         if ($varianteId) {
@@ -1997,6 +2018,38 @@ class OrdenController extends Controller
                         'estado'           => 'pendiente',
                     ]);
                 }
+            }
+
+            // Reservar el stock de los ítems de catálogo — AHORA, no cuando se
+            // guardó el borrador. Un borrador no reservaba nada; al confirmarse
+            // pasa a ser una venta y aparta su mercancía como cualquier orden
+            // nueva. (La entrega inmediata se maneja más abajo: reserva aquí y
+            // `descontarStockPorEntrega` la suelta al descontar, neto correcto.)
+            foreach ($orden->items->where('es_personalizado', false)->where('producto_unico', false)->where('es_restauracion', false) as $item) {
+                if (! $item->producto_id) continue;
+                $origenId = $item->tienda_origen_id ?? $orden->tienda_id;
+
+                if ($item->variante_id) {
+                    InventarioVariante::where('variante_id', $item->variante_id)->where('tienda_id', $origenId)
+                        ->increment('cantidad_reservada', $item->cantidad);
+                    if ($item->combo_config_id) {
+                        InventarioVarianteCombinacion::where('variante_id', $item->variante_id)
+                            ->where('config_id', $item->combo_config_id)->where('tienda_id', $origenId)
+                            ->increment('cantidad_reservada', $item->cantidad);
+                    }
+                }
+                Inventario::where('producto_id', $item->producto_id)->where('tienda_id', $origenId)
+                    ->increment('cantidad_reservada', $item->cantidad);
+
+                InventarioMovimiento::create([
+                    'producto_id' => $item->producto_id,
+                    'tienda_id'   => $origenId,
+                    'variante_id' => $item->variante_id,
+                    'tipo'        => 'reserva',
+                    'cantidad'    => $item->cantidad,
+                    'motivo'      => "Orden #{$orden->id} (borrador confirmado)",
+                    'usuario_id'  => $usuario->id,
+                ]);
             }
 
             if (($data['anticipo_monto'] ?? 0) > 0) {
@@ -2541,7 +2594,8 @@ class OrdenController extends Controller
 
                 if ($estadoNuevo === 'entregado') {
                     // (el descuento real lo hace descontarStockPorEntrega, abajo)
-                } elseif ($estadoNuevo === 'cancelado' && $estadoAnterior !== 'cancelado') {
+                } elseif ($estadoNuevo === 'cancelado' && ! in_array($estadoAnterior, ['cancelado', 'borrador'], true)) {
+                    // Un borrador nunca reservó nada — cancelarlo no suelta stock.
                     if ($item->variante_id) {
                         InventarioVariante::where('variante_id', $item->variante_id)
                             ->where('tienda_id', $origenId)
@@ -2919,11 +2973,17 @@ class OrdenController extends Controller
             return response()->json(['message' => 'Solo puedes eliminar tus propios borradores.'], 403);
         }
 
-        DB::transaction(function () use ($orden, $usuario, $borradorCancelado) {
+        // Un borrador propiamente dicho (todavía en estado `borrador`) nunca
+        // reservó nada — no hay que soltar. Solo se libera si es un ex-borrador
+        // que se confirmó y luego se canceló SIN que la cancelación ya lo
+        // hubiera soltado; ese caso ya lo cubre `$borradorCancelado`.
+        $noSuelta = $borradorCancelado || $orden->estado === 'borrador';
+
+        DB::transaction(function () use ($orden, $usuario, $noSuelta) {
             // Devolver al stock lo que el borrador tenía apartado. Si ya estaba
             // cancelado la reserva se liberó en ese momento: hacerlo otra vez
             // dejaría el cantidad_reservada en negativo.
-            foreach ($borradorCancelado ? [] : $orden->items as $item) {
+            foreach ($noSuelta ? [] : $orden->items as $item) {
                 if ($item->es_personalizado || ! $item->producto_id) continue;
 
                 $origenId = $item->tienda_origen_id ?? $orden->tienda_id;
