@@ -754,7 +754,19 @@ class InventarioController extends Controller
             ->when($tiendaId, fn ($c) => $c->where('tienda_id', $tiendaId))
             ->values();
 
-        return response()->json($reservas);
+        // Cuánto dice AHORA MISMO el contador de inventario para este
+        // producto (en la tienda pedida, o en todas). El front lo usa para
+        // decidir si mostrar el aviso de "descuadre" contra la realidad
+        // fresca, no contra el número que tenía cacheado en la tarjeta —
+        // que puede haber quedado viejo si un borrador se acaba de liberar.
+        $reservadoActual = (int) Inventario::where('producto_id', $productoId)
+            ->when($tiendaId, fn ($q) => $q->where('tienda_id', $tiendaId))
+            ->sum('cantidad_reservada');
+
+        return response()->json([
+            'ordenes'          => $reservas,
+            'reservado_actual' => $reservadoActual,
+        ]);
     }
 
     /**

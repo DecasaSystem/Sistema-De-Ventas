@@ -346,23 +346,23 @@ const reservasLoading = ref(false)
  *                     Si se abrió desde el total (que puede sumar varias
  *                     tiendas en la vista "todas"), null: salen todas.
  * @param tiendaNombre Solo para el título del modal.
- * @param esperado    Lo que decía el contador de la tarjeta al momento del
- *                     clic. Si la lista sale vacía pero esto era > 0, no es
- *                     que no haya nada — es un descuadre (el número no
- *                     coincide con ninguna orden real), y el modal lo aclara
- *                     así en vez de dejarlo leerse como "no hay reservas".
+ * @param tiendaNombre Solo para el título del modal.
  */
-async function abrirReservas(item, tiendaId = null, tiendaNombre = null, esperado = 0) {
+async function abrirReservas(item, tiendaId = null, tiendaNombre = null) {
   // tienda_id va aparte de tiendaId: solo se guarda cuando de verdad se sabe
   // cuál es (una tienda puntual) — con el total global (tiendaId null en
   // vista "todas") no hay una sola tienda a la que corregirle el contador.
-  itemReservas.value = { producto_id: item.producto_id, producto_nombre: item.producto?.nombre, tienda_id: tiendaId, tienda_nombre: tiendaNombre, esperado }
+  itemReservas.value = { producto_id: item.producto_id, producto_nombre: item.producto?.nombre, tienda_id: tiendaId, tienda_nombre: tiendaNombre, reservado_actual: 0 }
   reservas.value = []
   reservasLoading.value = true
   mostrarReservas.value = true
   try {
     const { data } = await getReservas(item.producto_id, tiendaId)
-    reservas.value = data
+    reservas.value = data.ordenes ?? []
+    // El contador fresco que devuelve el backend — NO el que tenía la
+    // tarjeta cacheada. Si un borrador se acaba de liberar, la tarjeta
+    // puede decir "1" cuando ya es 0, y no queremos gritar "descuadre".
+    itemReservas.value.reservado_actual = data.reservado_actual ?? 0
   } catch {
     reservas.value = []
   } finally {
@@ -431,7 +431,15 @@ async function corregirDescuadre(d = null, tipo = 'reservado') {
     await abrirDescuadres() // recarga la lista — ya sin lo que se acaba de corregir
     await cargarInventario(true) // el número de la tarjeta que se estaba viendo también cambió
   } catch (e) {
-    toast.error(e.response?.data?.message ?? 'No se pudo corregir.')
+    if (e.response?.status === 422) {
+      // Ya no había descuadre (se resolvió solo entre que se cargó la lista
+      // y el clic). Solo recargar, sin marcarlo como error.
+      toast.success('Ese ya estaba corregido.')
+      await abrirDescuadres()
+      await cargarInventario(true)
+    } else {
+      toast.error(e.response?.data?.message ?? 'No se pudo corregir.')
+    }
   } finally {
     corrigiendoDescuadre.value = false
   }
@@ -451,7 +459,16 @@ async function corregirDesdeReservas() {
     mostrarReservas.value = false
     await cargarInventario(true)
   } catch (e) {
-    toast.error(e.response?.data?.message ?? 'No se pudo corregir.')
+    // 422 = "ya no tiene descuadre": el número que veía la tarjeta estaba
+    // viejo (un borrador se liberó, etc.) y ya está bien. No es un error —
+    // solo hay que refrescar para que se vea el número real.
+    if (e.response?.status === 422) {
+      toast.success('Ese número ya estaba bien — la tarjeta estaba desactualizada.')
+      mostrarReservas.value = false
+      await cargarInventario(true)
+    } else {
+      toast.error(e.response?.data?.message ?? 'No se pudo corregir.')
+    }
   } finally {
     corrigiendoDescuadre.value = false
   }
@@ -2327,7 +2344,7 @@ onMounted(async () => {
             </div>
             <button
               type="button"
-              @click="abrirReservas(item, esVistaGlobal ? null : tiendaId, esVistaGlobal ? null : tiendas.find(t => t.id == tiendaId)?.nombre, item.cantidad_reservada)"
+              @click="abrirReservas(item, esVistaGlobal ? null : tiendaId, esVistaGlobal ? null : tiendas.find(t => t.id == tiendaId)?.nombre)"
               class="bg-gray-50 rounded-lg p-1.5 hover:bg-gray-100 transition-colors"
               title="Ver quién tiene esto reservado"
             >
@@ -2352,7 +2369,7 @@ onMounted(async () => {
                 v-for="t in item.por_tienda"
                 :key="t.tienda_id"
                 type="button"
-                @click="abrirReservas(item, t.tienda_id, t.tienda_nombre, t.cantidad_reservada)"
+                @click="abrirReservas(item, t.tienda_id, t.tienda_nombre)"
                 :class="[
                   'inline-flex items-baseline gap-1 px-2 py-1 rounded-lg text-xs border transition-colors',
                   t.stock_libre > 0
@@ -3282,12 +3299,13 @@ onMounted(async () => {
           </div>
           <div class="overflow-y-auto flex-1 px-5 py-4 space-y-2">
             <div v-if="reservasLoading" class="text-sm text-gray-400 text-center py-8">Cargando...</div>
-            <!-- El contador decía algo > 0 y no encontramos ninguna orden que lo
-                 sostenga: no es que no haya nada, es que el número está mal. -->
-            <div v-else-if="reservas.length === 0 && itemReservas?.esperado > 0" class="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-3 space-y-2">
+            <!-- El contador de inventario (fresco, no el de la tarjeta) dice
+                 > 0 y no encontramos ninguna orden que lo sostenga: no es que
+                 no haya nada, es que el número está mal. -->
+            <div v-else-if="reservas.length === 0 && itemReservas?.reservado_actual > 0" class="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-3 space-y-2">
               <p>
-                <span class="font-semibold">Descuadre:</span> la tarjeta dice
-                {{ itemReservas.esperado }} reservado, pero ninguna orden lo tiene apartado.
+                <span class="font-semibold">Descuadre:</span> el inventario dice
+                {{ itemReservas.reservado_actual }} reservado, pero ninguna orden lo tiene apartado.
                 Puede ser una orden vieja que se canceló sin liberar (ahí solo
                 sobra el Reservado), o una que ya se entregó y nunca descontó
                 (ahí Disponible también está mal). Este botón solo corrige lo

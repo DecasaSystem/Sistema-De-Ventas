@@ -49,6 +49,11 @@ class ReservasInventarioTest extends TestCase
             $t->timestamps();
         });
 
+        Schema::create('inventario', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('producto_id'); $t->unsignedBigInteger('tienda_id');
+            $t->integer('cantidad_disponible')->default(0); $t->integer('cantidad_reservada')->default(0);
+        });
+
         DB::table('tiendas')->insert([
             ['id' => 1, 'nombre' => 'Norte'],
             ['id' => 2, 'nombre' => 'Sur'],
@@ -86,7 +91,7 @@ class ReservasInventarioTest extends TestCase
         $sup = $this->usuario();
         $r = $this->actingAs($sup)->getJson('/api/inventario/5/reservas')->assertOk();
 
-        $data = $r->json();
+        $data = $r->json('ordenes');
         $this->assertCount(1, $data);
         $this->assertSame('#4325', $data[0]['orden_referencia']);
         $this->assertSame('Norte', $data[0]['tienda_nombre']);
@@ -107,7 +112,7 @@ class ReservasInventarioTest extends TestCase
         $sup = $this->usuario();
         $r = $this->actingAs($sup)->getJson('/api/inventario/5/reservas')->assertOk();
 
-        $this->assertCount(1, $r->json());
+        $this->assertCount(1, $r->json('ordenes'));
     }
 
     public function test_no_cuenta_items_personalizados_ni_muebles_unicos(): void
@@ -120,7 +125,7 @@ class ReservasInventarioTest extends TestCase
         $sup = $this->usuario();
         $r = $this->actingAs($sup)->getJson('/api/inventario/5/reservas')->assertOk();
 
-        $this->assertCount(0, $r->json());
+        $this->assertCount(0, $r->json('ordenes'));
     }
 
     public function test_la_tienda_es_la_de_origen_cuando_viaja_de_otra_sede(): void
@@ -133,7 +138,7 @@ class ReservasInventarioTest extends TestCase
         $sup = $this->usuario();
         $r = $this->actingAs($sup)->getJson('/api/inventario/5/reservas')->assertOk();
 
-        $this->assertSame('Sur', $r->json()[0]['tienda_nombre']);
+        $this->assertSame('Sur', $r->json('ordenes')[0]['tienda_nombre']);
     }
 
     public function test_filtra_por_tienda_cuando_se_pide(): void
@@ -146,15 +151,15 @@ class ReservasInventarioTest extends TestCase
         $sup = $this->usuario();
 
         $r1 = $this->actingAs($sup)->getJson('/api/inventario/5/reservas?tienda_id=1')->assertOk();
-        $this->assertCount(1, $r1->json());
-        $this->assertSame('Norte', $r1->json()[0]['tienda_nombre']);
+        $this->assertCount(1, $r1->json('ordenes'));
+        $this->assertSame('Norte', $r1->json('ordenes')[0]['tienda_nombre']);
 
         $r2 = $this->actingAs($sup)->getJson('/api/inventario/5/reservas?tienda_id=2')->assertOk();
-        $this->assertCount(1, $r2->json());
-        $this->assertSame('Sur', $r2->json()[0]['tienda_nombre']);
+        $this->assertCount(1, $r2->json('ordenes'));
+        $this->assertSame('Sur', $r2->json('ordenes')[0]['tienda_nombre']);
 
         $rTodas = $this->actingAs($sup)->getJson('/api/inventario/5/reservas?tienda_id=todas')->assertOk();
-        $this->assertCount(2, $rTodas->json());
+        $this->assertCount(2, $rTodas->json('ordenes'));
     }
 
     public function test_un_vendedor_solo_ve_su_propia_tienda_aunque_pida_otra(): void
@@ -168,11 +173,11 @@ class ReservasInventarioTest extends TestCase
 
         // Aunque pida explícitamente la tienda 2 (o "todas"), solo ve la suya.
         $r = $this->actingAs($vendedor)->getJson('/api/inventario/5/reservas?tienda_id=2')->assertOk();
-        $this->assertCount(1, $r->json());
-        $this->assertSame('Norte', $r->json()[0]['tienda_nombre']);
+        $this->assertCount(1, $r->json('ordenes'));
+        $this->assertSame('Norte', $r->json('ordenes')[0]['tienda_nombre']);
 
         $rTodas = $this->actingAs($vendedor)->getJson('/api/inventario/5/reservas?tienda_id=todas')->assertOk();
-        $this->assertCount(1, $rTodas->json());
+        $this->assertCount(1, $rTodas->json('ordenes'));
     }
 
     public function test_un_item_devuelto_para_cambiarlo_no_cuenta_aunque_la_orden_reabra(): void
@@ -188,6 +193,38 @@ class ReservasInventarioTest extends TestCase
         $sup = $this->usuario();
         $r = $this->actingAs($sup)->getJson('/api/inventario/5/reservas')->assertOk();
 
-        $this->assertCount(0, $r->json());
+        $this->assertCount(0, $r->json('ordenes'));
+    }
+
+    public function test_devuelve_el_contador_fresco_de_reservado(): void
+    {
+        // El caso que confundía: la tarjeta del front decía "1 reservado"
+        // (cacheado) pero el borrador que lo tenía ya se liberó. El endpoint
+        // devuelve el número REAL de ahora — 0 — para que el front no grite
+        // "descuadre" contra un valor viejo.
+        DB::table('clientes')->insert(['id' => 1, 'nombre' => 'Cliente', 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('inventario')->insert(['producto_id' => 5, 'tienda_id' => 1, 'cantidad_disponible' => 1, 'cantidad_reservada' => 0]);
+
+        $sup = $this->usuario();
+        $r = $this->actingAs($sup)->getJson('/api/inventario/5/reservas?tienda_id=1')->assertOk();
+
+        $this->assertCount(0, $r->json('ordenes'));
+        $this->assertSame(0, $r->json('reservado_actual'));
+    }
+
+    public function test_el_contador_fresco_suma_todas_las_tiendas_sin_filtro(): void
+    {
+        DB::table('inventario')->insert([
+            ['producto_id' => 5, 'tienda_id' => 1, 'cantidad_disponible' => 0, 'cantidad_reservada' => 2],
+            ['producto_id' => 5, 'tienda_id' => 2, 'cantidad_disponible' => 0, 'cantidad_reservada' => 1],
+        ]);
+
+        $sup = $this->usuario();
+
+        $todas = $this->actingAs($sup)->getJson('/api/inventario/5/reservas')->assertOk();
+        $this->assertSame(3, $todas->json('reservado_actual'));
+
+        $unaTienda = $this->actingAs($sup)->getJson('/api/inventario/5/reservas?tienda_id=1')->assertOk();
+        $this->assertSame(2, $unaTienda->json('reservado_actual'));
     }
 }
