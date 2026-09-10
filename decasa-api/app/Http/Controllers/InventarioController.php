@@ -53,15 +53,17 @@ class InventarioController extends Controller
             ->join('tiendas as t', 't.id', '=', 'iv.tienda_id')
             ->where('p.activo', true)
             ->when(! $todas, fn ($q) => $q->where('iv.tienda_id', $tid))
-            ->groupBy('pv.producto_id', 'p.nombre', 'p.categoria', 'iv.tienda_id', 't.nombre',
-                      'pv.id', 'pv.marca', 'pv.marca_tela', 'pv.nombre_color', 'pv.medida')
+            ->groupBy('pv.producto_id', 'p.nombre', 'p.categoria', 'p.precio_base', 'iv.tienda_id', 't.nombre',
+                      'pv.id', 'pv.marca', 'pv.marca_tela', 'pv.nombre_color', 'pv.medida', 'pv.precio_variante')
             ->select(
                 'pv.producto_id',
                 'p.nombre as producto',
                 'p.categoria',
+                'p.precio_base',
                 'iv.tienda_id',
                 't.nombre as tienda',
                 'pv.marca', 'pv.marca_tela', 'pv.nombre_color', 'pv.medida',
+                'pv.precio_variante',
                 DB::raw('SUM(iv.cantidad_disponible) as disponible'),
                 DB::raw('SUM(iv.cantidad_reservada) as reservado'),
             )
@@ -78,6 +80,11 @@ class InventarioController extends Controller
                 ]))) ?: 'Sin nombre',
                 'disponible'  => (int) $r->disponible,
                 'reservado'   => (int) $r->reservado,
+                // El tapizado con precio propio reemplaza al precio_base; si no
+                // tiene, el producto se vende a su precio base (misma regla que
+                // usa la cotización).
+                'precio_base' => (float) $r->precio_base,
+                'precio'      => (float) ($r->precio_variante ?? $r->precio_base),
             ]);
 
         // Por medida/talla u otro tipo configurable (producto_variante_configs)
@@ -89,16 +96,18 @@ class InventarioController extends Controller
             ->join('tiendas as t', 't.id', '=', 'ivc.tienda_id')
             ->where('p.activo', true)
             ->when(! $todas, fn ($q) => $q->where('ivc.tienda_id', $tid))
-            ->groupBy('pvc.producto_id', 'p.nombre', 'p.categoria', 'ivc.tienda_id', 't.nombre',
-                      'tv.nombre', 'tvo.nombre')
+            ->groupBy('pvc.producto_id', 'p.nombre', 'p.categoria', 'p.precio_base', 'ivc.tienda_id', 't.nombre',
+                      'tv.nombre', 'tvo.nombre', 'pvc.precio_adicional')
             ->select(
                 'pvc.producto_id',
                 'p.nombre as producto',
                 'p.categoria',
+                'p.precio_base',
                 'ivc.tienda_id',
                 't.nombre as tienda',
                 'tv.nombre as tipo',
                 'tvo.nombre as opcion',
+                'pvc.precio_adicional',
                 DB::raw('SUM(ivc.cantidad_disponible) as disponible'),
                 DB::raw('SUM(ivc.cantidad_reservada) as reservado'),
             )
@@ -113,6 +122,9 @@ class InventarioController extends Controller
                 'variante'    => $r->opcion,
                 'disponible'  => (int) $r->disponible,
                 'reservado'   => (int) $r->reservado,
+                // Medida/talla: el precio adicional se suma al precio base.
+                'precio_base' => (float) $r->precio_base,
+                'precio'      => (float) $r->precio_base + (float) ($r->precio_adicional ?? 0),
             ]);
 
         $filas = $porTapizado->concat($porConfig)->values();

@@ -781,6 +781,9 @@ async function hojasDeVariantes(tienda) {
           'Variante':   f.variante,
           'Disponible': Number(f.disponible) || 0,
           'Reservado':  Number(f.reservado) || 0,
+          // Precio de venta de ESTA variante: el tapizado con precio propio
+          // reemplaza al base; la medida/talla le suma su adicional.
+          'Precio':     Number(f.precio) || 0,
         })
       }
 
@@ -794,6 +797,8 @@ async function hojasDeVariantes(tienda) {
         'Variante':   total - asignado < 0 ? '⚠ FALTAN UNIDADES' : 'Sin asignar',
         'Disponible': total - asignado,
         'Reservado':  '',
+        // Sin variante decidida se vende al precio base del producto.
+        'Precio':     Number(ej.precio_base) || 0,
       })
 
       if (asignado > total) {
@@ -855,6 +860,7 @@ async function exportarExcelInventario() {
       // lugar interesa en cuántas tiendas está repartido.
       ...(global ? { 'En tiendas': num(it.tiendas_count) } : { 'Mínimo': num(it.stock_minimo) }),
       'Precio':     num(it.producto?.precio_base),
+      'Valor disponible': num(it.producto?.precio_base) * num(it.cantidad_disponible),
     })
 
     const grupos = new Map()
@@ -872,6 +878,7 @@ async function exportarExcelInventario() {
         reservado:  items.reduce((s, i) => s + num(i.cantidad_reservada), 0),
         libre:      items.reduce((s, i) => s + num(i.stock_libre), 0),
         agotados:   items.filter(i => num(i.cantidad_disponible) === 0).length,
+        valor:      items.reduce((s, i) => s + num(i.producto?.precio_base) * num(i.cantidad_disponible), 0),
       }))
       .sort((a, b) => b.disponible - a.disponible || a.cat.localeCompare(b.cat, 'es'))
 
@@ -882,6 +889,7 @@ async function exportarExcelInventario() {
       'Reservado':  g.reservado,
       'Libre':      g.libre,
       'Sin stock':  g.agotados,
+      'Valor disponible': g.valor,
     }))
     resumen.push({
       'Categoría':  'TOTAL',
@@ -890,6 +898,7 @@ async function exportarExcelInventario() {
       'Reservado':  categorias.reduce((s, g) => s + g.reservado, 0),
       'Libre':      categorias.reduce((s, g) => s + g.libre, 0),
       'Sin stock':  categorias.reduce((s, g) => s + g.agotados, 0),
+      'Valor disponible': categorias.reduce((s, g) => s + g.valor, 0),
     })
 
     const { variantes, descuadres } = await hojasDeVariantes(tiendaId.value)
@@ -902,13 +911,17 @@ async function exportarExcelInventario() {
       for (const it of [...todos].sort((a, b) =>
         (a.producto?.nombre ?? '').localeCompare(b.producto?.nombre ?? '', 'es'))) {
         for (const t of (it.por_tienda ?? [])) {
+          const precio = num(it.producto?.precio_base)
+          const disp   = num(t.cantidad_disponible)
           porTienda.push({
             'Producto':   it.producto?.nombre ?? '',
             'Categoría':  it.producto?.categoria ?? '',
             'Tienda':     t.tienda_nombre ?? '',
-            'Disponible': num(t.cantidad_disponible),
+            'Disponible': disp,
             'Reservado':  num(t.cantidad_reservada),
-            'Libre':      num(t.cantidad_disponible) - num(t.cantidad_reservada),
+            'Libre':      disp - num(t.cantidad_reservada),
+            'Precio':     precio,
+            'Valor disponible': precio * disp,
           })
         }
       }
@@ -917,13 +930,22 @@ async function exportarExcelInventario() {
     const hojas = [
       { nombre: 'Resumen', filas: resumen },
       ...(descuadres.length ? [{ nombre: 'Descuadres', filas: descuadres }] : []),
-      ...(porTienda.length  ? [{ nombre: 'Por tienda', filas: porTienda  }] : []),
+      ...(porTienda.length  ? [{ nombre: 'Por tienda', filas: [
+        ...porTienda,
+        {
+          'Producto':          'TOTAL',
+          'Disponible':        porTienda.reduce((s, f) => s + f['Disponible'], 0),
+          'Reservado':         porTienda.reduce((s, f) => s + f['Reservado'], 0),
+          'Libre':             porTienda.reduce((s, f) => s + f['Libre'], 0),
+          'Valor disponible':  porTienda.reduce((s, f) => s + f['Valor disponible'], 0),
+        },
+      ] }] : []),
       ...(variantes.length  ? [{ nombre: 'Variantes',  filas: variantes  }] : []),
       ...categorias.map(g => ({
         nombre: g.cat,
         filas: [
           ...g.items.map(aFila),
-          { 'Producto': `TOTAL ${g.cat}`, 'Disponible': g.disponible, 'Reservado': g.reservado, 'Libre': g.libre },
+          { 'Producto': `TOTAL ${g.cat}`, 'Disponible': g.disponible, 'Reservado': g.reservado, 'Libre': g.libre, 'Valor disponible': g.valor },
         ],
       })),
     ]
