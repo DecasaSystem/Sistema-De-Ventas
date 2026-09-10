@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Catalogo;
+use App\Models\CatalogoPagina;
 use App\Models\Producto;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -67,6 +69,60 @@ class CatalogoPublicoController extends Controller
                 'medidas'     => $p->medidas,
                 'material'    => $p->material,
                 'descripcion' => $p->descripcion,
+            ])->values(),
+        ]);
+    }
+
+    /**
+     * GET /api/c — público
+     * La portada: todas las categorías con catálogo visual activo.
+     */
+    public function visuales()
+    {
+        $catalogos = Catalogo::where('activo', true)
+            ->withCount('paginas')
+            ->orderBy('orden')
+            ->orderBy('nombre')
+            ->get()
+            ->filter(fn (Catalogo $c) => $c->paginas_count > 0)
+            ->values();
+
+        return response()->json([
+            'catalogos' => $catalogos->map(fn (Catalogo $c) => [
+                'nombre'      => $c->nombre,
+                'slug'        => $c->slug,
+                'descripcion' => $c->descripcion,
+                'paginas'     => $c->paginas_count,
+                'portada_url' => $c->portadaResuelta(),
+            ])->values(),
+        ]);
+    }
+
+    /**
+     * GET /api/c/{slug} — público
+     * Un catálogo visual con sus páginas en orden.
+     */
+    public function visual(string $slug)
+    {
+        $catalogo = Catalogo::where('slug', $slug)->where('activo', true)->first();
+
+        if (! $catalogo) {
+            return response()->json(['message' => 'Catálogo no encontrado.'], 404);
+        }
+
+        $paginas = $catalogo->paginas()->get(['imagen_url', 'nota']);
+
+        if ($paginas->isEmpty()) {
+            return response()->json(['message' => 'Catálogo no encontrado.'], 404);
+        }
+
+        return response()->json([
+            'nombre'      => $catalogo->nombre,
+            'slug'        => $catalogo->slug,
+            'descripcion' => $catalogo->descripcion,
+            'paginas'     => $paginas->map(fn (CatalogoPagina $p) => [
+                'imagen_url' => $p->imagen_url,
+                'nota'       => $p->nota,
             ])->values(),
         ]);
     }

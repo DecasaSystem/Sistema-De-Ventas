@@ -47,6 +47,7 @@ use App\Http\Controllers\TipoVarianteController;
 use App\Http\Controllers\ProductoVarianteConfigController;
 use App\Http\Controllers\CajaController;
 use App\Http\Controllers\CatalogoPublicoController;
+use App\Http\Controllers\CatalogoVisualController;
 use App\Http\Controllers\ComisionController;
 use App\Http\Controllers\EmpleadoController;
 use App\Http\Controllers\NominaPagoController;
@@ -71,6 +72,11 @@ Route::post('/redes/webhook', [RedesController::class, 'webhook'])->middleware('
 // internet. Solo lectura y solo de una sección.
 Route::get('/catalogo/{seccion}', [CatalogoPublicoController::class, 'seccion'])
     ->middleware('throttle:60,1');
+
+// Catálogos visuales: el material de diseño maquetado hoja por hoja. La
+// portada lista las categorías; cada slug es un catálogo. También público.
+Route::get('/c', [CatalogoPublicoController::class, 'visuales'])->middleware('throttle:60,1');
+Route::get('/c/{slug}', [CatalogoPublicoController::class, 'visual'])->middleware('throttle:60,1');
 
 // ── VAPID public key (público — necesario antes de login para suscribir) ─────
 Route::get('/push/vapid-key', [PushSubscriptionController::class, 'vapidKey']);
@@ -101,6 +107,17 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/herramientas',        [PersonalizacionController::class, 'crearHerramienta']);
         Route::patch('/herramientas/{id}',  [PersonalizacionController::class, 'actualizarHerramienta'])->whereNumber('id');
         Route::delete('/herramientas/{id}', [PersonalizacionController::class, 'eliminarHerramienta'])->whereNumber('id');
+
+        // Catálogos visuales (Gestión → Catálogos)
+        Route::get('/catalogos-visuales',                        [CatalogoVisualController::class, 'index']);
+        Route::post('/catalogos-visuales',                       [CatalogoVisualController::class, 'store']);
+        Route::get('/catalogos-visuales/{id}',                   [CatalogoVisualController::class, 'show'])->whereNumber('id');
+        Route::patch('/catalogos-visuales/{id}',                 [CatalogoVisualController::class, 'update'])->whereNumber('id');
+        Route::delete('/catalogos-visuales/{id}',                [CatalogoVisualController::class, 'destroy'])->whereNumber('id');
+        Route::post('/catalogos-visuales/{id}/paginas',          [CatalogoVisualController::class, 'agregarPaginas'])->whereNumber('id');
+        Route::patch('/catalogos-visuales/{id}/paginas/orden',   [CatalogoVisualController::class, 'reordenarPaginas'])->whereNumber('id');
+        Route::patch('/catalogos-visuales/{id}/paginas/{pid}',   [CatalogoVisualController::class, 'actualizarPagina'])->whereNumber('id')->whereNumber('pid');
+        Route::delete('/catalogos-visuales/{id}/paginas/{pid}',  [CatalogoVisualController::class, 'eliminarPagina'])->whereNumber('id')->whereNumber('pid');
     });
 
     // Gestión de tiendas (crear, editar, eliminar) — solo supervisor
