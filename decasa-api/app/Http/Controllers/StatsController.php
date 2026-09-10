@@ -53,15 +53,31 @@ class StatsController extends Controller
     {
         $rango = $this->rangoUtc($desde, $hasta);
 
-        // Ingresos reales cobrados en el período
-        $ingresosQ = DB::table('pagos as p')
+        // Cobranza del período: TODO el dinero que entró en el rango, sin
+        // importar de qué mes sea la orden. Un abono de septiembre sobre una
+        // restauración de julio entra aquí. Es flujo de caja, no "cuánto de lo
+        // que vendimos este mes ya está cobrado".
+        $cobranzaQ = DB::table('pagos as p')
             ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
             ->whereBetween('p.created_at', $rango);
         // El ingreso se le acredita a la tienda que recibió el dinero, que puede
         // no ser la de la orden. Los pagos viejos sin tienda caen a la de su orden.
-        if ($tiendaId)   $ingresosQ->whereRaw('COALESCE(p.tienda_id, o.tienda_id) = ?', [$tiendaId]);
-        if ($vendedorId) $ingresosQ->where('o.vendedor_id', $vendedorId);
-        $ingresos = (float) $ingresosQ->sum('p.monto');
+        if ($tiendaId)   $cobranzaQ->whereRaw('COALESCE(p.tienda_id, o.tienda_id) = ?', [$tiendaId]);
+        if ($vendedorId) $cobranzaQ->where('o.vendedor_id', $vendedorId);
+        $cobranzaPeriodo = (float) $cobranzaQ->sum('p.monto');
+
+        // Cobrado DE LO VENDIDO EN EL PERÍODO: abonos de órdenes creadas dentro
+        // del rango. Este es el que va pegado a "Total vendido", para que el
+        // recuadro cuadre: vendido = cobrado + por cobrar. Antes aquí iba la
+        // cobranza de arriba y salía "más cobrado que vendido" cuando el mes
+        // recibía plata de órdenes viejas.
+        $cobradoVendidoQ = DB::table('pagos as p')
+            ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
+            ->whereBetween('o.created_at', $rango)
+            ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES);
+        if ($tiendaId)   $cobradoVendidoQ->where('o.tienda_id',   $tiendaId);
+        if ($vendedorId) $cobradoVendidoQ->where('o.vendedor_id', $vendedorId);
+        $ingresos = (float) $cobradoVendidoQ->sum('p.monto');
 
         // Conteos de órdenes creadas en el período (sin cotizaciones ni borradores:
         // todavía no son ventas)
@@ -125,6 +141,7 @@ class StatsController extends Controller
 
         return [
             'ingresos_totales'   => $ingresos,
+            'cobranza_periodo'   => $cobranzaPeriodo,
             'total_vendido'      => $totalVendido,
             'ordenes_totales'    => $ordenesTotales,
             'ordenes_entregadas' => $entregadas,
@@ -167,16 +184,20 @@ class StatsController extends Controller
         $actual   = $this->kpis($f['desde'],         $f['hasta'],         $tiendaId, $vendedorId);
         $anterior = $this->kpis($f['desdeAnterior'], $f['hastaAnterior'], $tiendaId, $vendedorId);
 
-        $varPct = $anterior['ingresos_totales'] > 0
-            ? round(($actual['ingresos_totales'] - $anterior['ingresos_totales'])
-                    / $anterior['ingresos_totales'] * 100, 1)
+        // El "% vs período anterior" va debajo de "Total vendido", así que se
+        // compara lo vendido —no lo cobrado—, que es lo que el número de arriba
+        // dice.
+        $varPct = $anterior['total_vendido'] > 0
+            ? round(($actual['total_vendido'] - $anterior['total_vendido'])
+                    / $anterior['total_vendido'] * 100, 1)
             : null;
 
         return response()->json([
             'periodo'    => ['desde' => $f['desde'], 'hasta' => $f['hasta']],
             ...$actual,
             'comparativa' => [
-                'ingresos_anterior' => $anterior['ingresos_totales'],
+                'vendido_anterior'  => $anterior['total_vendido'],
+                'cobranza_anterior' => $anterior['cobranza_periodo'],
                 'variacion_pct'     => $varPct,
             ],
         ]);

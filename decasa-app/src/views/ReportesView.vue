@@ -569,6 +569,7 @@ onBeforeUnmount(() => {
                 <p class="text-sm font-semibold text-red-500">{{ cop(panel.cartera_pendiente) }}</p>
               </div>
             </div>
+            <p class="text-[11px] text-gray-400 mt-1">Cobrado y por cobrar son de lo vendido en este rango. El dinero que entró en el mes (incluidas órdenes anteriores) está en “Cobranza del período”.</p>
             <p :class="['text-xs mt-2', varColor(panel.comparativa?.variacion_pct)]">
               {{ varLabel(panel.comparativa?.variacion_pct) }}
             </p>
@@ -581,6 +582,11 @@ onBeforeUnmount(() => {
               titulo="De qué es lo vendido"
               class="mt-3"
             />
+          </div>
+          <div class="bg-white rounded-xl shadow-sm p-4 col-span-2">
+            <p class="text-xs text-gray-400 mb-1">Cobranza del período</p>
+            <p class="text-xl font-bold text-blue-600 leading-tight">{{ cop(panel.cobranza_periodo) }}</p>
+            <p class="text-[11px] text-gray-400 mt-1">Todo el dinero que entró en el rango, incluidos abonos a órdenes de meses anteriores. Por eso puede ser mayor que lo vendido.</p>
           </div>
           <div class="bg-white rounded-xl shadow-sm p-4">
             <p class="text-xs text-gray-400 mb-1">Órdenes totales</p>

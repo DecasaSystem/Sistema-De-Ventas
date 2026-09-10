@@ -87,6 +87,14 @@ class PanelCarteraDelPeriodoTest extends TestCase
         return $id;
     }
 
+    /** Registra un abono en una fecha distinta a la de la orden. */
+    private function abono(int $ordenId, Carbon $fecha, float $monto): void
+    {
+        DB::table('pagos')->insert([
+            'orden_id' => $ordenId, 'monto' => $monto, 'created_at' => $fecha, 'updated_at' => $fecha,
+        ]);
+    }
+
     private function panel(string $periodo): array
     {
         $jefe = Usuario::create([
@@ -115,6 +123,30 @@ class PanelCarteraDelPeriodoTest extends TestCase
         $this->assertEquals(5_000_000, $anterior['total_vendido']);
         $this->assertEquals(1_000_000, $anterior['ingresos_totales']);
         $this->assertEquals(4_000_000, $anterior['cartera_pendiente'], 'el filtro sí cambia el saldo');
+    }
+
+    public function test_cobrar_de_ordenes_viejas_no_hace_que_cobrado_supere_lo_vendido(): void
+    {
+        $esteMes   = Carbon::now('America/Bogota')->startOfDay()->addHours(12)->setTimezone('UTC');
+        $mesPasado = Carbon::now('America/Bogota')->subMonthNoOverflow()->startOfMonth()->addDays(10)->setTimezone('UTC');
+
+        // Vendido este mes: 20M, con 5M abonados el mismo día.
+        $this->orden($esteMes, 20_000_000, [5_000_000]);
+
+        // Restauración de mes pasado (10M): el cliente termina de pagar ESTE mes.
+        $vieja = $this->orden($mesPasado, 10_000_000, [2_000_000]);
+        $this->abono($vieja, $esteMes, 8_000_000);
+
+        $mes = $this->panel('mes');
+
+        // "Cobrado" del recuadro: solo lo de las órdenes vendidas este mes.
+        $this->assertEquals(20_000_000, $mes['total_vendido']);
+        $this->assertEquals(5_000_000,  $mes['ingresos_totales'], 'cobrado de lo vendido en el rango');
+        $this->assertEquals(15_000_000, $mes['cartera_pendiente']);
+        $this->assertLessThanOrEqual($mes['total_vendido'], $mes['ingresos_totales']);
+
+        // Cobranza real del mes: 5M de la nueva + 8M de la vieja = 13M.
+        $this->assertEquals(13_000_000, $mes['cobranza_periodo']);
     }
 
     public function test_una_orden_del_periodo_ya_pagada_no_suma_a_la_cartera(): void
