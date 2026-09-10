@@ -18,6 +18,7 @@ import {
 } from '@heroicons/vue/24/outline'
 import ModulosPanel from '@/components/gestion/ModulosPanel.vue'
 import HerramientasPanel from '@/components/gestion/HerramientasPanel.vue'
+import CatalogosPanel from '@/components/gestion/CatalogosPanel.vue'
 
 const router = useRouter()
 const toast  = useToast()
@@ -31,6 +32,7 @@ const TABS = [
   { valor: 'tiendas',      label: 'Tiendas' },
   { valor: 'modulos',      label: 'Módulos' },
   { valor: 'herramientas', label: 'Herram.' },
+  { valor: 'catalogos',    label: 'Catálogos' },
 ]
 
 // ── Roles (puestos de trabajo) ────────────────────────────────────────────
@@ -253,6 +255,9 @@ const inactivas = computed(() => tiendas.value.filter(t => !t.activa))
 
     <!-- Lo que el asesor copia mientras atiende -->
     <HerramientasPanel v-if="tab === 'herramientas'" />
+
+    <!-- Catálogos visuales: el PDF de diseño hoja por hoja, dentro del sistema -->
+    <CatalogosPanel v-if="tab === 'catalogos'" />
 
     <template v-if="tab === 'roles'">
       <div class="flex items-center justify-between mb-3">

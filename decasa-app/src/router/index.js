@@ -6,6 +6,10 @@ const routes = [
   // Catálogo público: el link que se le manda a un cliente. Sin `requiresAuth`
   // ni `guest`, porque lo abre cualquiera —tenga o no sesión abierta—.
   { path: '/catalogo/:seccion', name: 'catalogo-publico', component: () => import('@/views/CatalogoPublicoView.vue') },
+  // Catálogos visuales públicos: la portada con todas las categorías y el
+  // visor tipo revista de cada una. También sin sesión.
+  { path: '/c', name: 'catalogos-portada', component: () => import('@/views/CatalogosPortadaView.vue') },
+  { path: '/c/:slug', name: 'catalogo-visor', component: () => import('@/views/CatalogoVisorView.vue') },
   { path: '/',        name: 'dashboard',  component: () => import('@/views/DashboardView.vue'),  meta: { requiresAuth: true } },
   { path: '/ordenes', name: 'ordenes',    component: () => import('@/views/OrdenesView.vue'),    meta: { requiresAuth: true, restauraSolo: true } },
   { path: '/ordenes/:id', name: 'orden-detalle', component: () => import('@/views/OrdenDetalleView.vue'), meta: { requiresAuth: true } },

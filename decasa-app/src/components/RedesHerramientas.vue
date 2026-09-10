@@ -15,7 +15,7 @@ import { iconoPorNombre } from '@/constants/iconos'
 import api from '@/api'
 import {
   XMarkIcon, ClipboardDocumentIcon,
-  ArrowTopRightOnSquareIcon, Squares2X2Icon,
+  ArrowTopRightOnSquareIcon, Squares2X2Icon, BookOpenIcon,
 } from '@heroicons/vue/24/outline'
 
 defineEmits(['close'])
@@ -35,6 +35,8 @@ const secciones = computed(() => {
   return [...mapa.entries()].map(([nombre, items]) => ({ nombre, items }))
 })
 
+const catalogosVisuales = ref([])
+
 onMounted(async () => {
   try {
     const { data } = await api.get('/herramientas')
@@ -44,7 +46,17 @@ onMounted(async () => {
   } finally {
     cargando.value = false
   }
+
+  // Catálogos visuales: se muestran para copiar el link o abrirlos.
+  try {
+    const { data } = await api.get('/c')
+    catalogosVisuales.value = data.catalogos ?? []
+  } catch {
+    catalogosVisuales.value = []
+  }
 })
+
+const linkCatalogo = (slug) => `${window.location.origin}/c/${slug}`
 
 async function copiar(texto, aviso = 'Copiado ✅') {
   try {
@@ -123,7 +135,34 @@ function iconoDe(h) {
           </div>
         </section>
 
-        <p v-if="!cargando && !secciones.length" class="text-xs text-gray-400 text-center py-3">
+        <!-- Catálogos visuales: el link abre el visor tipo revista -->
+        <section v-if="catalogosVisuales.length">
+          <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Catálogos</h3>
+          <div class="space-y-2">
+            <div v-for="c in catalogosVisuales" :key="c.slug" class="bg-white rounded-xl p-3 shadow-sm flex items-center gap-3">
+              <div class="w-10 h-12 rounded bg-gray-100 shrink-0 overflow-hidden flex items-center justify-center">
+                <img v-if="c.portada_url" :src="c.portada_url" alt="" class="w-full h-full object-cover" />
+                <BookOpenIcon v-else class="w-4 h-4 text-gray-300" />
+              </div>
+              <div class="flex-1 min-w-0">
+                <p class="text-sm font-semibold text-gray-800 truncate">{{ c.nombre }}</p>
+                <p class="text-[11px] text-gray-400">{{ c.paginas }} página{{ c.paginas === 1 ? '' : 's' }}</p>
+              </div>
+              <div class="flex gap-1.5 shrink-0">
+                <button @click="copiar(linkCatalogo(c.slug), c.nombre + ': link copiado ✅')"
+                  class="flex items-center gap-1 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg px-2.5 py-1.5">
+                  <ClipboardDocumentIcon class="w-4 h-4" /> Link
+                </button>
+                <a :href="linkCatalogo(c.slug)" target="_blank" rel="noopener"
+                  class="flex items-center gap-1 text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg px-2.5 py-1.5">
+                  <ArrowTopRightOnSquareIcon class="w-4 h-4" /> Ver
+                </a>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <p v-if="!cargando && !secciones.length && !catalogosVisuales.length" class="text-xs text-gray-400 text-center py-3">
           Todavía no hay nada aquí. Se arma desde Gestión → Herramientas.
         </p>
 

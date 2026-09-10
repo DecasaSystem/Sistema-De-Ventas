@@ -75,7 +75,7 @@ const { conectar: conectarSurtidos } = useSurtidosSocket()
 
 // El catálogo público es una página para el cliente: no lleva el menú del
 // programa aunque quien la abra tenga sesión iniciada.
-const SIN_MENU = ['login', 'catalogo-publico']
+const SIN_MENU = ['login', 'catalogo-publico', 'catalogos-portada', 'catalogo-visor']
 const showNav       = computed(() => auth.isAuthenticated && !SIN_MENU.includes(route.name))
 const abrirNotif    = ref(false)
 const abrirMas      = ref(false)
