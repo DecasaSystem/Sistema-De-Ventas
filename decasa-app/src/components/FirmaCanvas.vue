@@ -58,9 +58,10 @@ function initCanvasExpandido() {
   ctxExp.lineCap     = 'round'
   ctxExp.lineJoin    = 'round'
 
-  // Copiar firma existente del canvas pequeño al expandido
+  // Copiar firma existente del canvas pequeño al expandido, conservando su
+  // proporción (sin estirarla al nuevo tamaño de pantalla)
   if (hayFirma.value && canvasRef.value) {
-    ctxExp.drawImage(canvasRef.value, 0, 0, w, h)
+    dibujarProporcional(ctxExp, canvasRef.value, w, h)
     hayFirmaExp.value = true
   }
 }
@@ -148,12 +149,15 @@ function limpiarExpandido() {
 function confirmarExpandido() {
   const expCanvas = canvasExpandido.value
   const peqCanvas = canvasRef.value
-  // Copiar firma del canvas grande al pequeño
+  // Vista previa en el canvas pequeño: se dibuja conservando la proporción del
+  // canvas grande (letterbox), solo para que se vea en el formulario.
   ctx.fillStyle = '#ffffff'
   ctx.fillRect(0, 0, peqCanvas.offsetWidth, peqCanvas.offsetHeight)
-  ctx.drawImage(expCanvas, 0, 0, peqCanvas.offsetWidth, peqCanvas.offsetHeight)
+  dibujarProporcional(ctx, expCanvas, peqCanvas.offsetWidth, peqCanvas.offsetHeight)
   hayFirma.value = hayFirmaExp.value
-  if (hayFirmaExp.value) emitBlob(peqCanvas)
+  // La firma que se guarda sale del canvas GRANDE a resolución completa (no del
+  // preview pequeño), así no se comprime ni se deforma en el PDF.
+  if (hayFirmaExp.value) emitBlob(expCanvas)
   modoExpandido.value = false
 }
 
@@ -163,8 +167,64 @@ async function abrirExpandido() {
   initCanvasExpandido()
 }
 
+// Dibuja `src` dentro del contexto destino conservando su proporción (sin
+// deformar), centrado en un área de destW×destH px CSS.
+function dibujarProporcional(destCtx, src, destW, destH) {
+  const escala = Math.min(destW / src.width, destH / src.height)
+  const dw = src.width  * escala
+  const dh = src.height * escala
+  destCtx.drawImage(
+    src, 0, 0, src.width, src.height,
+    (destW - dw) / 2, (destH - dh) / 2, dw, dh,
+  )
+}
+
+// Recorta el canvas a la caja que realmente contiene la firma, conservando su
+// proporción real. Así el PDF la escala sin aplastarla ni dejar franjas blancas.
+function recortarFirma(canvas) {
+  const { width, height } = canvas
+  let data
+  try {
+    data = canvas.getContext('2d').getImageData(0, 0, width, height).data
+  } catch {
+    return null
+  }
+  let minX = width, minY = height, maxX = -1, maxY = -1
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4
+      // Fondo blanco: cuenta como tinta cualquier pixel que no sea casi-blanco.
+      if (data[i] < 245 || data[i + 1] < 245 || data[i + 2] < 245) {
+        if (x < minX) minX = x
+        if (x > maxX) maxX = x
+        if (y < minY) minY = y
+        if (y > maxY) maxY = y
+      }
+    }
+  }
+  if (maxX < 0) return null // canvas vacío
+
+  const pad = Math.round(12 * ratio)
+  minX = Math.max(0, minX - pad)
+  minY = Math.max(0, minY - pad)
+  maxX = Math.min(width  - 1, maxX + pad)
+  maxY = Math.min(height - 1, maxY + pad)
+  const w = maxX - minX + 1
+  const h = maxY - minY + 1
+
+  const out  = document.createElement('canvas')
+  out.width  = w
+  out.height = h
+  const octx = out.getContext('2d')
+  octx.fillStyle = '#ffffff'
+  octx.fillRect(0, 0, w, h)
+  octx.drawImage(canvas, minX, minY, w, h, 0, 0, w, h)
+  return out
+}
+
 function emitBlob(canvas) {
-  canvas.toBlob(blob => emit('update:modelValue', blob), 'image/png')
+  const salida = recortarFirma(canvas) || canvas
+  salida.toBlob(blob => emit('update:modelValue', blob), 'image/png')
 }
 
 function onArchivoChange(e) {
