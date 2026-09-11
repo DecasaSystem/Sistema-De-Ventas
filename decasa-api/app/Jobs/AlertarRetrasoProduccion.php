@@ -38,9 +38,12 @@ class AlertarRetrasoProduccion implements ShouldQueue, ShouldBeUnique
             $prod->update(['estado' => 'retrasado']);
 
             $orden   = $prod->ordenItem->orden;
-            $cliente = $orden->cliente->nombre;
-            $producto = $prod->ordenItem->producto->nombre;
-            $dias    = now()->diffInDays($prod->fecha_compromiso);
+            $cliente = $orden->cliente?->nombre ?? 'Cliente';
+            $producto = $prod->ordenItem->producto?->nombre ?? 'Producto';
+            // Carbon 3 cambió el default de diffInDays() de absoluto a con
+            // signo: sin el `true`, una fecha pasada da un número NEGATIVO
+            // ("-9 días de retraso" en vez de "9"). Hay que pedirlo explícito.
+            $dias    = now()->diffInDays($prod->fecha_compromiso, true);
 
             NotificacionService::crear(
                 'retrasado',
@@ -59,9 +62,9 @@ class AlertarRetrasoProduccion implements ShouldQueue, ShouldBeUnique
             Log::warning("[DECASA] Producción #{$prod->id} RETRASADA", [
                 'producto'        => $producto,
                 'cliente'         => $cliente,
-                'telefono'        => $orden->cliente->telefono,
-                'vendedor'        => $orden->vendedor->nombre,
-                'tienda'          => $orden->tienda->nombre,
+                'telefono'        => $orden->cliente?->telefono,
+                'vendedor'        => $orden->vendedor?->nombre,
+                'tienda'          => $orden->tienda?->nombre,
                 'fecha_compromiso'=> $prod->fecha_compromiso,
                 'dias_retraso'    => $dias,
                 'orden_id'        => $orden->id,
@@ -84,24 +87,25 @@ class AlertarRetrasoProduccion implements ShouldQueue, ShouldBeUnique
                 ->diffInDays(\Carbon\Carbon::parse($prod->fecha_compromiso)->startOfDay(), false);
 
             $orden   = $prod->ordenItem->orden;
-            $cliente = $orden->cliente->nombre;
+            $cliente = $orden->cliente?->nombre ?? 'Cliente';
+            $productoNombre = $prod->ordenItem->producto?->nombre ?? 'Producto';
 
             NotificacionService::crear(
                 'por_vencer',
                 "Entrega próxima ({$diasRestantes}d)",
-                "{$prod->ordenItem->producto->nombre} para {$cliente} — vence en {$diasRestantes} día(s)",
+                "{$productoNombre} para {$cliente} — vence en {$diasRestantes} día(s)",
                 ['produccion_id' => $prod->id, 'orden_id' => $orden->id, 'dias_restantes' => $diasRestantes],
             );
             NotificacionService::crear(
                 'por_vencer',
                 'Tu pedido vence pronto',
-                "{$prod->ordenItem->producto->nombre} para {$cliente} — vence en {$diasRestantes} día(s)",
+                "{$productoNombre} para {$cliente} — vence en {$diasRestantes} día(s)",
                 ['produccion_id' => $prod->id, 'orden_id' => $orden->id, 'dias_restantes' => $diasRestantes],
                 $orden->vendedor_id,
             );
 
             Log::info("[DECASA] Producción #{$prod->id} vence en {$diasRestantes} día(s)", [
-                'producto'        => $prod->ordenItem->producto->nombre,
+                'producto'        => $productoNombre,
                 'cliente'         => $cliente,
                 'fecha_compromiso'=> $prod->fecha_compromiso,
                 'orden_id'        => $orden->id,
@@ -121,8 +125,8 @@ class AlertarRetrasoProduccion implements ShouldQueue, ShouldBeUnique
 
         foreach ($entregasHoy as $prod) {
             $orden    = $prod->ordenItem->orden;
-            $producto = $prod->ordenItem->producto->nombre;
-            $cliente  = $orden->cliente->nombre;
+            $producto = $prod->ordenItem->producto?->nombre ?? 'Producto';
+            $cliente  = $orden->cliente?->nombre ?? 'Cliente';
 
             NotificacionService::crear(
                 'entrega_hoy',
@@ -141,9 +145,9 @@ class AlertarRetrasoProduccion implements ShouldQueue, ShouldBeUnique
             Log::info("[DECASA] Producción #{$prod->id} — entrega HOY", [
                 'producto'        => $producto,
                 'cliente'         => $cliente,
-                'telefono'        => $orden->cliente->telefono,
-                'vendedor'        => $orden->vendedor->nombre,
-                'tienda'          => $orden->tienda->nombre,
+                'telefono'        => $orden->cliente?->telefono,
+                'vendedor'        => $orden->vendedor?->nombre,
+                'tienda'          => $orden->tienda?->nombre,
                 'orden_id'        => $orden->id,
             ]);
         }
@@ -151,6 +155,16 @@ class AlertarRetrasoProduccion implements ShouldQueue, ShouldBeUnique
         // ── 4. Atrasados por fecha_entrega_prom (stock o listos para despacho) ─────
         // Cubre items sin producción (stock) y con producción en pendiente/listo/pendiente_despachador.
         // Los items 'en_proceso' ya son detectados por la sección 1.
+        //
+        // A diferencia de la 1, aquí nada cambia de estado al avisar: un item
+        // "listo" esperando que lo despachen se queda "listo" días, así que
+        // sin filtro esto le mandaba la misma alerta a soporte y al vendedor
+        // TODOS los días, para siempre, mientras nadie lo despachara. Mismo
+        // criterio que AvisarRevisionesEncargos: recién atrasado se avisa
+        // siempre, lo que ya llevaba días atrasado se recuerda una vez por
+        // semana, los lunes, para no volver ruido la lista de atrasados.
+        $esLunes = now()->isMonday();
+
         $itemsEntregaAtrasada = OrdenItem::whereDate('fecha_entrega_prom', '<', $hoy)
             ->whereHas('orden', fn($q) => $q->whereNotIn('estado', ['entregado', 'cancelado']))
             ->where(function ($q) {
@@ -170,10 +184,15 @@ class AlertarRetrasoProduccion implements ShouldQueue, ShouldBeUnique
         foreach ($itemsEntregaAtrasada as $item) {
             $orden    = $item->orden;
             $producto = $item->producto?->nombre ?? $item->nombre_custom ?? 'Producto';
-            $cliente  = $orden->cliente->nombre;
+            $cliente  = $orden->cliente?->nombre ?? 'Cliente';
+            // Mismo cambio de Carbon 3: sin `true` esto daba negativo para
+            // una fecha ya pasada, y de paso dejaba sin efecto el freno de
+            // abajo (un negativo nunca es > 1).
             $dias     = (int) now()->startOfDay()->diffInDays(
-                \Carbon\Carbon::parse($item->fecha_entrega_prom)->startOfDay()
+                \Carbon\Carbon::parse($item->fecha_entrega_prom)->startOfDay(), true
             );
+
+            if ($dias > 1 && ! $esLunes) continue;
 
             NotificacionService::crear(
                 'retrasado',
@@ -193,9 +212,9 @@ class AlertarRetrasoProduccion implements ShouldQueue, ShouldBeUnique
                 'orden_item_id'     => $item->id,
                 'producto'          => $producto,
                 'cliente'           => $cliente,
-                'telefono'          => $orden->cliente->telefono,
-                'vendedor'          => $orden->vendedor->nombre,
-                'tienda'            => $orden->tienda->nombre,
+                'telefono'          => $orden->cliente?->telefono,
+                'vendedor'          => $orden->vendedor?->nombre,
+                'tienda'            => $orden->tienda?->nombre,
                 'fecha_entrega_prom'=> $item->fecha_entrega_prom,
                 'dias_retraso'      => $dias,
                 'orden_id'          => $orden->id,
