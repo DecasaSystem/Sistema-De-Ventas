@@ -4,12 +4,18 @@ namespace App\Http\Controllers;
 
 use App\Events\OrdenListaParaEntrega;
 use App\Events\ProduccionActualizada;
+use App\Models\Inventario;
+use App\Models\InventarioVariante;
+use App\Models\OrdenItem;
 use App\Models\PasoTrabajador;
 use App\Models\Produccion;
 use App\Models\ProduccionPaso;
+use App\Models\Producto;
+use App\Models\ProductoVariante;
 use App\Models\TipoProceso;
 use App\Models\Usuario;
 use App\Services\NotificacionService;
+use App\Services\ReservaDeposito;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -51,6 +57,12 @@ class ProduccionController extends Controller
             'ordenItem.orden.cliente:id,nombre,telefono',
             'ordenItem.orden.vendedor:id,nombre',
             'ordenItem.orden.tienda:id,nombre',
+            // Lo que se produce cuando la pieza es para la Reserva y no hay orden.
+            'producto:id,nombre,categoria,foto_url',
+            'variante:id,marca,marca_tela,nombre_color,medida',
+            'comboConfig:id,producto_id,tipo_variante_id,opcion_id',
+            'comboConfig.opcion:id,nombre',
+            'creador:id,nombre',
             // Quién está haciendo cada paso: sin esto el tablero no puede
             // mostrar al responsable mientras la pieza sigue en el taller.
             'pasos.participantes.usuario:id,nombre',
@@ -138,6 +150,10 @@ class ProduccionController extends Controller
             'produccion.ordenItem.orden.cliente:id,nombre,telefono',
             'produccion.ordenItem.orden.vendedor:id,nombre',
             'produccion.ordenItem.orden.tienda:id,nombre',
+            // Piezas para la Reserva: no hay orden, el producto cuelga directo.
+            'produccion.producto:id,nombre,categoria,foto_url',
+            'produccion.variante:id,marca,marca_tela,nombre_color,medida',
+            'produccion.comboConfig.opcion:id,nombre',
             // De los otros pasos de la pieza solo se pinta la barrita de
             // progreso y la lista para devolver: hacen falta el estado y el
             // proceso, no quién los hizo. Traer sus participantes eran dos
@@ -151,7 +167,7 @@ class ProduccionController extends Controller
         // pieza cancelada siguiera apareciéndole al ebanista como trabajo
         // pendiente. Se comprueba acá además de al cancelar: cualquier otro
         // camino que deje un paso huérfano se topa con esto.
-        ->whereHas('produccion', fn ($q) => $q->whereNotIn('estado', ['cancelado', 'entregado']))
+        ->whereHas('produccion', fn ($q) => $q->whereNotIn('estado', ['cancelado', 'entregado', 'en_reserva']))
         ->orderBy('orden')
         ->get();
 
@@ -176,6 +192,9 @@ class ProduccionController extends Controller
             'produccion.ordenItem.orden.cliente:id,nombre,telefono',
             'produccion.ordenItem.orden.vendedor:id,nombre',
             'produccion.ordenItem.orden.tienda:id,nombre',
+            'produccion.producto:id,nombre,categoria,foto_url',
+            'produccion.variante:id,marca,marca_tela,nombre_color,medida',
+            'produccion.comboConfig.opcion:id,nombre',
             'participantes.usuario:id,nombre',
         ])
         ->tap(fn ($q) => $this->soloSusPasos($q, $usuario))
@@ -239,7 +258,9 @@ class ProduccionController extends Controller
         $this->guardarParticipantes($paso, $participantes, $usuario, conCalificacion: true);
 
         $produccion = $paso->produccion;
-        $orden      = $produccion->ordenItem->orden;
+        // Las piezas para la Reserva no tienen orden ni vendedor.
+        $orden      = $produccion->ordenItem?->orden;
+        $ordenId    = $orden?->id;
 
         // Buscar siguiente paso pendiente
         $siguientePaso = ProduccionPaso::where('produccion_id', $produccion->id)
@@ -247,8 +268,8 @@ class ProduccionController extends Controller
             ->orderBy('orden')
             ->first();
 
-        $productoNombre = $produccion->ordenItem->producto->nombre ?? 'Producto';
-        $vendedorId     = $orden->vendedor_id;
+        $productoNombre = $produccion->productoNombre() ?? 'Producto';
+        $vendedorId     = $orden?->vendedor_id;
 
         if ($siguientePaso) {
             $siguientePaso->update(['estado' => 'en_proceso', 'iniciado_at' => now()]);
@@ -259,20 +280,27 @@ class ProduccionController extends Controller
             // pantalla aparte, no el estado.
             if ($siguientePaso->tipo_proceso === ProduccionPaso::DESPACHO) {
                 $produccion->update(['estado' => 'pendiente_despachador']);
-                event(new ProduccionActualizada($produccion->id, $orden->id, 'pendiente_despachador'));
+                event(new ProduccionActualizada($produccion->id, $ordenId, 'pendiente_despachador'));
             }
 
             // Notificar trabajadores del siguiente paso
-            $this->notificarTrabajadores($siguientePaso->tipo_proceso, $siguientePaso->linea, $produccion->id, $orden->id, $productoNombre);
+            $this->notificarTrabajadores($siguientePaso->tipo_proceso, $siguientePaso->linea, $produccion->id, $ordenId, $productoNombre);
 
-            // Notificar al vendedor sobre el cambio de etapa
-            NotificacionService::crear(
-                'paso_produccion',
-                'Tu pedido avanzó en producción',
-                "\"{$productoNombre}\" paso a {$labelSiguiente}",
-                ['produccion_id' => $produccion->id, 'orden_id' => $orden->id],
-                $vendedorId,
-            );
+            // Notificar sobre el cambio de etapa: al vendedor si hay orden, a
+            // quien pidió producir si es para la Reserva.
+            $avisarA = $vendedorId ?? $produccion->creado_por;
+            if ($avisarA) {
+                NotificacionService::crear(
+                    'paso_produccion',
+                    $orden ? 'Tu pedido avanzó en producción' : 'La producción para reserva avanzó',
+                    "\"{$productoNombre}\" paso a {$labelSiguiente}",
+                    ['produccion_id' => $produccion->id, 'orden_id' => $ordenId],
+                    $avisarA,
+                );
+            }
+        } elseif ($produccion->esReserva()) {
+            // No quedan pasos y la pieza es para stock: entra a la Reserva.
+            $this->depositarEnReserva($produccion, $usuario, $productoNombre);
         } else {
             // No quedan pasos. El último es siempre el de despacho, así que
             // llegar aquí significa que la pieza ya salió del taller.
@@ -296,7 +324,7 @@ class ProduccionController extends Controller
             'motivo'          => 'required|string|max:500',
         ]);
 
-        $pasoOrigen  = ProduccionPaso::with('produccion.ordenItem.producto', 'produccion.ordenItem.orden')->findOrFail($id);
+        $pasoOrigen  = ProduccionPaso::with('produccion.ordenItem.producto', 'produccion.ordenItem.orden', 'produccion.producto')->findOrFail($id);
         $pasoDestino = ProduccionPaso::findOrFail($data['paso_destino_id']);
 
         // Devolver es tan delicado como completar —resetea todos los pasos
@@ -321,8 +349,9 @@ class ProduccionController extends Controller
         }
 
         $produccion     = $pasoOrigen->produccion;
-        $productoNombre = $produccion->ordenItem->producto->nombre ?? 'Producto';
-        $orden          = $produccion->ordenItem->orden;
+        $productoNombre = $produccion->productoNombre() ?? 'Producto';
+        $orden          = $produccion->ordenItem?->orden;
+        $ordenId        = $orden?->id;
 
         DB::transaction(function () use ($pasoOrigen, $pasoDestino, $produccion, $usuario, $data) {
             // Registrar el rechazo en el paso con el defecto (destino)
@@ -357,7 +386,7 @@ class ProduccionController extends Controller
             $pasoDestino->tipo_proceso,
             $pasoDestino->linea,
             $produccion->id,
-            $orden->id,
+            $ordenId,
             $productoNombre
         );
 
@@ -369,19 +398,22 @@ class ProduccionController extends Controller
             'paso_produccion',
             'Paso devuelto en producción',
             "\"{$productoNombre}\": {$labelOrigen} devolvió {$labelDestino} — {$data['motivo']}",
-            ['produccion_id' => $produccion->id, 'orden_id' => $orden->id],
+            ['produccion_id' => $produccion->id, 'orden_id' => $ordenId],
         );
 
-        // Notificar al vendedor
-        NotificacionService::crear(
-            'paso_produccion',
-            'Corrección en tu pedido',
-            "\"{$productoNombre}\" regresó a {$labelDestino} para corrección",
-            ['produccion_id' => $produccion->id, 'orden_id' => $orden->id],
-            $orden->vendedor_id,
-        );
+        // Notificar al vendedor (o a quien pidió producir, si es para reserva)
+        $avisarA = $orden?->vendedor_id ?? $produccion->creado_por;
+        if ($avisarA) {
+            NotificacionService::crear(
+                'paso_produccion',
+                $orden ? 'Corrección en tu pedido' : 'Corrección en la producción para reserva',
+                "\"{$productoNombre}\" regresó a {$labelDestino} para corrección",
+                ['produccion_id' => $produccion->id, 'orden_id' => $ordenId],
+                $avisarA,
+            );
+        }
 
-        event(new ProduccionActualizada($produccion->id, $orden->id, 'en_proceso'));
+        event(new ProduccionActualizada($produccion->id, $ordenId, 'en_proceso'));
 
         return response()->json(['message' => "Paso devuelto a {$labelDestino} correctamente."]);
     }
@@ -445,6 +477,51 @@ class ProduccionController extends Controller
     }
 
     /**
+     * La pieza es para stock: al terminar los pasos entra a la Reserva de
+     * Fábrica en vez de a "listo para entrega". No hay orden, ni despacho, ni
+     * acta —solo sube el inventario de fábrica con su desglose de tela/medida—.
+     */
+    private function depositarEnReserva(Produccion $produccion, Usuario $usuario, string $productoNombre): void
+    {
+        ReservaDeposito::depositar(
+            $produccion->producto_id,
+            (int) $produccion->cantidad,
+            $produccion->variante_id,
+            $produccion->combo_config_id,
+            "Producción interna #{$produccion->id}",
+            $usuario->id,
+        );
+
+        $produccion->update([
+            'estado'        => 'en_reserva',
+            'fecha_real'    => now()->toDateString(),
+            'depositado_at' => now(),
+        ]);
+
+        $detalle = $produccion->variante_detalle ? " ({$produccion->variante_detalle})" : '';
+
+        if ($produccion->creado_por) {
+            NotificacionService::crear(
+                'entregado',
+                'Producción para reserva lista',
+                "\"{$productoNombre}\"{$detalle} x{$produccion->cantidad} entró a la Reserva de Fábrica",
+                ['produccion_id' => $produccion->id],
+                $produccion->creado_por,
+            );
+        }
+
+        // A los supervisores, como con cualquier producción que se cierra.
+        NotificacionService::crear(
+            'paso_produccion',
+            'Producción para reserva completada',
+            "\"{$productoNombre}\"{$detalle} x{$produccion->cantidad} quedó en la Reserva de Fábrica",
+            ['produccion_id' => $produccion->id],
+        );
+
+        event(new ProduccionActualizada($produccion->id, null, 'en_reserva'));
+    }
+
+    /**
      * PATCH /api/produccion/{id}
      * Supervisor cambia estado. Si cambia a en_proceso, debe enviar los pasos.
      */
@@ -462,9 +539,10 @@ class ProduccionController extends Controller
             ], 403);
         }
 
-        // Vendedor solo puede actualizar sus propios pedidos (para otros estados, no en_proceso)
+        // Vendedor solo puede actualizar sus propios pedidos (para otros estados,
+        // no en_proceso). Las piezas para la Reserva no son de ningún vendedor.
         if ($usuario->soloVeSusOrdenes() &&
-            $produccion->ordenItem->orden->vendedor_id !== $usuario->id) {
+            $produccion->ordenItem?->orden?->vendedor_id !== $usuario->id) {
             return response()->json(['message' => 'No autorizado.'], 403);
         }
 
@@ -523,100 +601,70 @@ class ProduccionController extends Controller
                 ->update(['estado' => 'cancelado']);
         }
 
-        // Si cambia a en_proceso: crear pasos
+        // Si cambia a en_proceso: crear pasos. Las piezas para la Reserva no
+        // llevan paso de despacho (no hay entrega).
         if ($data['estado'] === 'en_proceso' && ! empty($data['pasos'])) {
-            // Eliminar pasos anteriores si los hubiera (reinicio de flujo)
-            ProduccionPaso::where('produccion_id', $produccion->id)->delete();
-
-            // El despacho cierra siempre: se añade solo al final, para que no
-            // dependa de que quien arma el flujo se acuerde de ponerlo.
-            $delTaller = collect($data['pasos'])
-                ->reject(fn ($p) => $p['tipo_proceso'] === ProduccionPaso::DESPACHO)
-                ->sortBy('orden')
-                ->values();
-
-            // El orden es un número pequeño (la columna es un tinyint), así que
-            // el despacho se numera justo después del último, no con un número
-            // alto simbólico.
-            $pasosOrdenados = $delTaller->push([
-                'tipo_proceso' => ProduccionPaso::DESPACHO,
-                'orden'        => (int) $delTaller->max('orden') + 1,
-            ]);
-
-            // De qué es la pieza se decide UNA vez, aquí, y queda escrito en
-            // cada paso: es lo que después reparte el trabajo entre el
-            // encargado de restauraciones y el de lo nuevo.
-            $linea = TipoProceso::lineaDe((bool) $produccion->ordenItem->es_restauracion);
-
-            foreach ($pasosOrdenados as $paso) {
-                ProduccionPaso::create([
-                    'produccion_id' => $produccion->id,
-                    'tipo_proceso'  => $paso['tipo_proceso'],
-                    'linea'         => $linea,
-                    'orden'         => $paso['orden'],
-                    'estado'        => 'pendiente',
-                ]);
-            }
-
-            // Activar el primer paso
-            $primerPaso = ProduccionPaso::where('produccion_id', $produccion->id)
-                ->orderBy('orden')
-                ->first();
+            $linea = TipoProceso::lineaDe((bool) ($produccion->ordenItem?->es_restauracion ?? false));
+            $primerPaso = $this->crearPasos($produccion, $data['pasos'], $linea, conDespacho: ! $produccion->esReserva());
 
             if ($primerPaso) {
-                $primerPaso->update(['estado' => 'en_proceso', 'iniciado_at' => now()]);
-                $produccion->load(['ordenItem.producto:id,nombre', 'ordenItem.orden.vendedor:id']);
-                $productoNombre = $produccion->ordenItem->producto->nombre ?? 'Producto';
+                $produccion->load(['ordenItem.producto:id,nombre', 'ordenItem.orden.vendedor:id', 'producto:id,nombre']);
+                $productoNombre = $produccion->productoNombre() ?? 'Producto';
                 $labelPaso      = ProduccionPaso::labelProceso($primerPaso->tipo_proceso);
-                $vendedorId     = $produccion->ordenItem->orden->vendedor_id;
+                $ordenId        = $produccion->ordenItem?->orden?->id;
+                $avisarA        = $produccion->ordenItem?->orden?->vendedor_id ?? $produccion->creado_por;
 
-                $this->notificarTrabajadores($primerPaso->tipo_proceso, $primerPaso->linea, $produccion->id, $produccion->ordenItem->orden->id, $productoNombre);
+                $this->notificarTrabajadores($primerPaso->tipo_proceso, $primerPaso->linea, $produccion->id, $ordenId, $productoNombre);
 
-                // Notificar al vendedor: producción iniciada
-                NotificacionService::crear(
-                    'en_produccion',
-                    'Tu pedido entró a producción',
-                    "\"{$productoNombre}\" comenzo en {$labelPaso}",
-                    ['produccion_id' => $produccion->id, 'orden_id' => $produccion->ordenItem->orden->id],
-                    $vendedorId,
-                );
+                if ($avisarA) {
+                    NotificacionService::crear(
+                        'en_produccion',
+                        $produccion->ordenItem ? 'Tu pedido entró a producción' : 'La producción para reserva arrancó',
+                        "\"{$productoNombre}\" comenzo en {$labelPaso}",
+                        ['produccion_id' => $produccion->id, 'orden_id' => $ordenId],
+                        $avisarA,
+                    );
+                }
             }
         }
 
-        // Sincronizar estado de la orden según todos sus ítems de producción
-        $orden = $produccion->ordenItem->orden;
-        $orden->loadMissing('items.produccion');
+        // Sincronizar estado de la orden según todos sus ítems de producción.
+        // Las piezas para la Reserva no tienen orden que poner al día.
+        $orden = $produccion->ordenItem?->orden;
+        if ($orden) {
+            $orden->loadMissing('items.produccion');
 
-        $estadosProduccion = $orden->items
-            ->map(fn($item) => optional($item->produccion)->estado)
-            ->filter();
+            $estadosProduccion = $orden->items
+                ->map(fn($item) => optional($item->produccion)->estado)
+                ->filter();
 
-        if ($estadosProduccion->isNotEmpty()) {
-            if ($estadosProduccion->every(fn($e) => $e === 'entregado')) {
-                $orden->update(['estado' => 'entregado']);
-            } elseif ($estadosProduccion->every(fn($e) => in_array($e, ['listo', 'entregado']))) {
-                if ($orden->estado !== 'listo_entrega') {
-                    $orden->update(['estado' => 'listo_entrega', 'listo_entrega_at' => now()]);
-                    try { event(new OrdenListaParaEntrega($orden->id)); } catch (\Throwable) {}
-                    $produccion->loadMissing('ordenItem.producto:id,nombre');
-                    $nomProd = $produccion->ordenItem->producto->nombre ?? 'Producto';
-                    NotificacionService::crear(
-                        'listo_entrega',
-                        'Tu pedido está listo para entrega',
-                        "\"{$nomProd}\" completó producción y está en espera de despacho",
-                        ['orden_id' => $orden->id],
-                        $orden->vendedor_id,
-                    );
+            if ($estadosProduccion->isNotEmpty()) {
+                if ($estadosProduccion->every(fn($e) => $e === 'entregado')) {
+                    $orden->update(['estado' => 'entregado']);
+                } elseif ($estadosProduccion->every(fn($e) => in_array($e, ['listo', 'entregado']))) {
+                    if ($orden->estado !== 'listo_entrega') {
+                        $orden->update(['estado' => 'listo_entrega', 'listo_entrega_at' => now()]);
+                        try { event(new OrdenListaParaEntrega($orden->id)); } catch (\Throwable) {}
+                        $produccion->loadMissing('ordenItem.producto:id,nombre');
+                        $nomProd = $produccion->ordenItem->producto->nombre ?? 'Producto';
+                        NotificacionService::crear(
+                            'listo_entrega',
+                            'Tu pedido está listo para entrega',
+                            "\"{$nomProd}\" completó producción y está en espera de despacho",
+                            ['orden_id' => $orden->id],
+                            $orden->vendedor_id,
+                        );
+                    }
+                } else {
+                    $orden->update(['estado' => 'en_produccion']);
                 }
-            } else {
-                $orden->update(['estado' => 'en_produccion']);
             }
         }
 
         try {
             event(new ProduccionActualizada(
                 $produccion->id,
-                $produccion->ordenItem->orden->id,
+                $produccion->ordenItem?->orden?->id,
                 $data['estado'],
             ));
         } catch (\Throwable) {}
@@ -625,45 +673,289 @@ class ProduccionController extends Controller
             'ordenItem.producto:id,nombre,categoria',
             'ordenItem.orden.cliente:id,nombre,telefono',
             'ordenItem.orden.tienda:id,nombre',
+            'producto:id,nombre,categoria',
+            'variante:id,marca,marca_tela,nombre_color,medida',
+            'comboConfig.opcion:id,nombre',
             'pasos',
         ]);
 
-        $productoNombre = $produccion->ordenItem->producto->nombre ?? 'Producto';
-        $clienteNombre  = $produccion->ordenItem->orden->cliente->nombre ?? '';
-        $tiendaNombre   = $produccion->ordenItem->orden->tienda->nombre ?? '';
-        $ordenId        = $produccion->ordenItem->orden->id;
-        $numeroOrden    = $produccion->ordenItem->orden->numero_orden ?? $ordenId;
-        $vendedorId     = $produccion->ordenItem->orden->vendedor_id;
+        $productoNombre = $produccion->productoNombre() ?? 'Producto';
+        $clienteNombre  = $produccion->ordenItem?->orden?->cliente?->nombre ?? '';
+        $tiendaNombre   = $produccion->ordenItem?->orden?->tienda?->nombre ?? '';
+        $ordenId        = $produccion->ordenItem?->orden?->id;
+        $numeroOrden    = $produccion->ordenItem?->orden?->numero_orden ?? $ordenId;
+        $vendedorId     = $produccion->ordenItem?->orden?->vendedor_id;
 
         if ($data['estado'] === 'retrasado') {
             NotificacionService::crear('retrasado', 'Producción retrasada',
-                "{$productoNombre} — {$clienteNombre} ({$tiendaNombre})",
+                trim("{$productoNombre} — {$clienteNombre} ({$tiendaNombre})"),
                 ['produccion_id' => $produccion->id, 'orden_id' => $ordenId],
             );
-            NotificacionService::crear('retrasado', 'Tu pedido está atrasado',
-                "{$productoNombre} para {$clienteNombre} ha superado el tiempo comprometido",
-                ['produccion_id' => $produccion->id, 'orden_id' => $ordenId],
-                $vendedorId,
-            );
+            if ($vendedorId) {
+                NotificacionService::crear('retrasado', 'Tu pedido está atrasado',
+                    "{$productoNombre} para {$clienteNombre} ha superado el tiempo comprometido",
+                    ['produccion_id' => $produccion->id, 'orden_id' => $ordenId],
+                    $vendedorId,
+                );
+            }
         } elseif ($data['estado'] === 'entregado') {
             NotificacionService::crear('entregado', 'Producto entregado',
                 "Orden #{$numeroOrden} — {$productoNombre} · {$clienteNombre}",
                 ['produccion_id' => $produccion->id, 'orden_id' => $ordenId],
             );
-            NotificacionService::crear('entregado', 'Tu pedido fue entregado',
-                "{$productoNombre} para {$clienteNombre} ha sido entregado",
-                ['produccion_id' => $produccion->id, 'orden_id' => $ordenId],
-                $vendedorId,
-            );
+            if ($vendedorId) {
+                NotificacionService::crear('entregado', 'Tu pedido fue entregado',
+                    "{$productoNombre} para {$clienteNombre} ha sido entregado",
+                    ['produccion_id' => $produccion->id, 'orden_id' => $ordenId],
+                    $vendedorId,
+                );
+            }
         }
 
         return response()->json($this->conDiasRestantes($produccion));
+    }
+
+    /**
+     * POST /api/produccion/producir
+     *
+     * Fabricar contra stock: se elige un producto (del catálogo o uno nuevo),
+     * la cantidad, la tela/medida y las especificaciones, y arranca el mismo
+     * flujo de pasos que cualquier producción. Al terminar el último paso las
+     * unidades entran a la Reserva de Fábrica (ver depositarEnReserva()); no hay
+     * cliente, ni orden, ni despacho.
+     */
+    public function producir(Request $request)
+    {
+        $usuario = $request->user();
+        if (! $usuario->gestionaProduccion()) {
+            return response()->json(['message' => 'No tienes permiso para arrancar producción.'], 403);
+        }
+
+        $data = $request->validate([
+            'modo'                => 'required|in:catalogo,nuevo',
+            'producto_id'         => 'required_if:modo,catalogo|nullable|exists:productos,id',
+            'nuevo'               => 'required_if:modo,nuevo|array',
+            'nuevo.nombre'        => 'required_if:modo,nuevo|string|max:150',
+            'nuevo.categoria'     => 'nullable|string|max:80',
+            'nuevo.precio_base'   => 'required_if:modo,nuevo|numeric|min:0',
+            'nuevo.es_tapizado'   => 'boolean',
+            'nuevo.tiene_tallas'  => 'boolean',
+            'cantidad'            => 'required|integer|min:1|max:9999',
+            'fecha_compromiso'    => 'nullable|date',
+            'variante_id'         => 'nullable|exists:producto_variantes,id',
+            'variante_nueva'      => 'nullable|array',
+            'variante_nueva.marca'           => 'nullable|string|max:100',
+            'variante_nueva.marca_tela'      => 'nullable|string|max:100',
+            'variante_nueva.nombre_color'    => 'nullable|string|max:100',
+            'variante_nueva.medida'          => 'nullable|string|max:50',
+            'variante_nueva.precio_variante' => 'nullable|numeric|min:0',
+            'combo_config_id'     => 'nullable|exists:producto_variante_configs,id',
+            'variante_detalle'    => 'nullable|string|max:200',
+            'specs'               => 'nullable|array',
+            'pasos'               => 'required|array|min:1',
+            'pasos.*.tipo_proceso' => 'required|exists:tipos_proceso,clave',
+            'pasos.*.orden'        => 'required|integer|min:1',
+        ]);
+
+        // Al menos un paso de taller: si solo mandan "despacho" la pieza se
+        // quedaría en_proceso sin nada que hacer.
+        if (! collect($data['pasos'])->contains(fn ($p) => $p['tipo_proceso'] !== ProduccionPaso::DESPACHO)) {
+            return response()->json(['message' => 'Elige al menos un paso de taller.'], 422);
+        }
+
+        [$produccion, $producto, $primerPaso] = DB::transaction(function () use ($data, $usuario) {
+            // 1. Producto: del catálogo o uno nuevo.
+            if ($data['modo'] === 'nuevo') {
+                $producto = Producto::create([
+                    'nombre'       => $data['nuevo']['nombre'],
+                    'categoria'    => $data['nuevo']['categoria'] ?? null,
+                    'precio_base'  => $data['nuevo']['precio_base'],
+                    'es_tapizado'  => (bool) ($data['nuevo']['es_tapizado'] ?? false),
+                    'tiene_tallas' => (bool) ($data['nuevo']['tiene_tallas'] ?? false),
+                    'activo'       => true,
+                ]);
+                Inventario::firstOrCreate(
+                    ['producto_id' => $producto->id, 'tienda_id' => ReservaDeposito::fabrica()->id],
+                    ['cantidad_disponible' => 0, 'cantidad_reservada' => 0, 'stock_minimo' => 0],
+                );
+            } else {
+                $producto = Producto::findOrFail($data['producto_id']);
+            }
+
+            // 2. Variante de tela/color o de talla: existente o a crear.
+            $varianteId = $data['variante_id'] ?? null;
+            if (! $varianteId && ! empty($data['variante_nueva'])) {
+                $vn          = $data['variante_nueva'];
+                $tieneTela   = ! empty($vn['marca_tela']) && ! empty($vn['nombre_color']);
+                $tieneMedida = ! empty($vn['medida']);
+                if ($tieneTela || $tieneMedida) {
+                    $varianteId = $this->resolverVarianteNueva($producto->id, $vn, $tieneTela, $tieneMedida);
+                }
+            }
+
+            // 3. La opción de medida configurable tiene que ser de este producto.
+            $comboConfigId = $data['combo_config_id'] ?? null;
+            if ($comboConfigId) {
+                $cfg = \App\Models\ProductoVarianteConfig::find($comboConfigId);
+                if (! $cfg || (int) $cfg->producto_id !== (int) $producto->id) {
+                    abort(422, 'La medida elegida no pertenece a este producto.');
+                }
+            }
+
+            $detalle = OrdenItem::detalleDeVariante(
+                $data['variante_detalle'] ?? null, $comboConfigId, $varianteId,
+            );
+
+            // 4. La producción, ya arrancada.
+            $produccion = Produccion::create([
+                'orden_item_id'    => null,
+                'destino'          => 'reserva',
+                'producto_id'      => $producto->id,
+                'variante_id'      => $varianteId,
+                'combo_config_id'  => $comboConfigId,
+                'variante_detalle' => $detalle,
+                'cantidad'         => $data['cantidad'],
+                'specs'            => ! empty($data['specs']) ? $data['specs'] : null,
+                'creado_por'       => $usuario->id,
+                'fecha_inicio'     => now()->toDateString(),
+                'fecha_compromiso' => $data['fecha_compromiso'] ?? null,
+                'estado'           => 'en_proceso',
+            ]);
+
+            // 5. Pasos (sin despacho) + activar el primero.
+            $primerPaso = $this->crearPasos($produccion, $data['pasos'], TipoProceso::LINEA_NORMAL, conDespacho: false);
+
+            return [$produccion, $producto, $primerPaso];
+        });
+
+        if ($primerPaso) {
+            $this->notificarTrabajadores($primerPaso->tipo_proceso, $primerPaso->linea, $produccion->id, null, $producto->nombre);
+        }
+
+        NotificacionService::crear(
+            'en_produccion',
+            'Nueva producción para la Reserva',
+            "\"{$producto->nombre}\" x{$produccion->cantidad} entró al taller para stock de fábrica",
+            ['produccion_id' => $produccion->id],
+        );
+
+        try { event(new ProduccionActualizada($produccion->id, null, 'en_proceso')); } catch (\Throwable) {}
+
+        $produccion->load([
+            'producto:id,nombre,categoria,foto_url',
+            'variante:id,marca,marca_tela,nombre_color,medida',
+            'comboConfig.opcion:id,nombre',
+            'creador:id,nombre',
+            'pasos',
+        ]);
+
+        return response()->json($this->conDiasRestantes($produccion), 201);
     }
 
 
     // ──────────────────────────────────────────────────────────────────────────
     // Helpers privados
     // ──────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Arma el flujo de pasos de una producción y activa el primero.
+     *
+     * Es la lógica que comparten "arrancar producción" (update) y "Producir"
+     * para la Reserva. El paso de despacho se añade solo cuando la pieza va a
+     * salir del taller ($conDespacho); las de Reserva no lo llevan.
+     */
+    private function crearPasos(Produccion $produccion, array $pasos, string $linea, bool $conDespacho): ?ProduccionPaso
+    {
+        ProduccionPaso::where('produccion_id', $produccion->id)->delete();
+
+        $delTaller = collect($pasos)
+            ->reject(fn ($p) => $p['tipo_proceso'] === ProduccionPaso::DESPACHO)
+            ->sortBy('orden')
+            ->values();
+
+        $ordenados = $conDespacho
+            ? $delTaller->push([
+                'tipo_proceso' => ProduccionPaso::DESPACHO,
+                'orden'        => (int) $delTaller->max('orden') + 1,
+            ])
+            : $delTaller;
+
+        if ($ordenados->isEmpty()) {
+            return null;
+        }
+
+        foreach ($ordenados as $paso) {
+            ProduccionPaso::create([
+                'produccion_id' => $produccion->id,
+                'tipo_proceso'  => $paso['tipo_proceso'],
+                'linea'         => $linea,
+                'orden'         => $paso['orden'],
+                'estado'        => 'pendiente',
+            ]);
+        }
+
+        $primerPaso = ProduccionPaso::where('produccion_id', $produccion->id)
+            ->orderBy('orden')
+            ->first();
+
+        $primerPaso?->update(['estado' => 'en_proceso', 'iniciado_at' => now()]);
+
+        return $primerPaso;
+    }
+
+    /**
+     * Crea (o reutiliza) una ProductoVariante de tela o de talla y le arma el
+     * inventario en las tiendas del producto. Espejo de VarianteController::store.
+     */
+    private function resolverVarianteNueva(int $productoId, array $vn, bool $tieneTela, bool $tieneMedida): int
+    {
+        if ($tieneTela && ! $tieneMedida) {
+            $v = ProductoVariante::firstOrCreate(
+                ['producto_id' => $productoId, 'marca_tela' => $vn['marca_tela'], 'nombre_color' => $vn['nombre_color']],
+                [
+                    'marca'           => $vn['marca'] ?? null,
+                    'medida'          => null,
+                    'precio_variante' => $vn['precio_variante'] ?? null,
+                    'activo'          => true,
+                ],
+            );
+            if (! $v->activo) {
+                $v->update(['activo' => true]);
+            }
+        } else {
+            $v = ProductoVariante::create([
+                'producto_id'     => $productoId,
+                'marca'           => $vn['marca'] ?? null,
+                'marca_tela'      => $vn['marca_tela'] ?? null,
+                'nombre_color'    => $vn['nombre_color'] ?? null,
+                'medida'          => $vn['medida'] ?? null,
+                'precio_variante' => $vn['precio_variante'] ?? null,
+                'activo'          => true,
+            ]);
+        }
+
+        foreach (Inventario::where('producto_id', $productoId)->pluck('tienda_id') as $tiendaId) {
+            InventarioVariante::firstOrCreate(
+                ['variante_id' => $v->id, 'tienda_id' => $tiendaId],
+                ['cantidad_disponible' => 0, 'cantidad_reservada' => 0, 'stock_minimo' => 0],
+            );
+        }
+
+        if ($tieneTela && ! empty($vn['marca'])) {
+            DB::table('catalogo_telas')->insertOrIgnore([
+                'marca'              => $vn['marca'],
+                'tipo'               => $vn['marca_tela'],
+                'color'              => $vn['nombre_color'],
+                'activo'             => true,
+                'metros_disponibles' => 0,
+                'metros_reservados'  => 0,
+                'created_at'         => now(),
+                'updated_at'         => now(),
+            ]);
+        }
+
+        return $v->id;
+    }
 
     private function conDiasRestantes(Produccion $p): Produccion
     {
@@ -961,7 +1253,7 @@ class ProduccionController extends Controller
         });
     }
 
-    private function notificarTrabajadores(string $tipoProceso, string $linea, int $produccionId, int $ordenId, string $productoNombre): void
+    private function notificarTrabajadores(string $tipoProceso, string $linea, int $produccionId, ?int $ordenId, string $productoNombre): void
     {
         $label = ProduccionPaso::labelProceso($tipoProceso);
 

@@ -12,6 +12,15 @@ class Produccion extends Model
 
     protected $fillable = [
         'orden_item_id',
+        'destino',
+        'producto_id',
+        'variante_id',
+        'combo_config_id',
+        'variante_detalle',
+        'cantidad',
+        'specs',
+        'creado_por',
+        'depositado_at',
         'fecha_inicio',
         'fecha_compromiso',
         'fecha_real',
@@ -26,6 +35,8 @@ class Produccion extends Model
             'fecha_inicio'      => 'date',
             'fecha_compromiso'  => 'date',
             'fecha_real'        => 'date',
+            'specs'             => 'array',
+            'depositado_at'     => 'datetime',
         ];
     }
 
@@ -49,6 +60,41 @@ class Produccion extends Model
     public function despachador()
     {
         return $this->belongsTo(Usuario::class, 'despachado_por');
+    }
+
+    /** Lo que se produce cuando la pieza no viene de una venta (destino=reserva). */
+    public function producto()
+    {
+        return $this->belongsTo(Producto::class, 'producto_id');
+    }
+
+    public function variante()
+    {
+        return $this->belongsTo(ProductoVariante::class, 'variante_id');
+    }
+
+    public function comboConfig()
+    {
+        return $this->belongsTo(ProductoVarianteConfig::class, 'combo_config_id');
+    }
+
+    public function creador()
+    {
+        return $this->belongsTo(Usuario::class, 'creado_por');
+    }
+
+    /** ¿Se fabrica para la Reserva de Fábrica en vez de para una orden? */
+    public function esReserva(): bool
+    {
+        return $this->destino === 'reserva';
+    }
+
+    /** El nombre del producto, venga de la orden o de las columnas directas. */
+    public function productoNombre(): ?string
+    {
+        return $this->ordenItem?->producto?->nombre
+            ?? $this->ordenItem?->nombre_custom
+            ?? $this->producto?->nombre;
     }
 
     public function diasRestantes(): int

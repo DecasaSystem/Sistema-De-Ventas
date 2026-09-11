@@ -465,6 +465,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Producción — listado y gestión (supervisor y vendedor)
     Route::get('/produccion',        [ProduccionController::class, 'index']);
+    // Fabricar contra stock: crea una producción para la Reserva de Fábrica.
+    Route::post('/produccion/producir', [ProduccionController::class, 'producir']);
     Route::patch('/produccion/{id}', [ProduccionController::class, 'update'])->whereNumber('id');
 
     // Producción — flujo de pasos (ebanista y tapicero-supervisor)

@@ -13,7 +13,7 @@ class ProduccionActualizada implements ShouldBroadcastNow
 
     public function __construct(
         public int    $produccionId,
-        public int    $ordenId,
+        public ?int   $ordenId,
         public string $estado,
     ) {}
 
