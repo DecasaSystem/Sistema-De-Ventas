@@ -44,6 +44,7 @@ class EntregaPorProductoTest extends TestCase
             $t->string('rol')->nullable(); $t->boolean('activo')->default(true);
             $t->boolean('ve_todas_ordenes')->default(true); $t->boolean('independiente')->default(false);
             $t->boolean('acceso_entregas')->default(false); $t->boolean('facturacion')->default(false);
+            $t->boolean('acceso_despacho')->default(false);
             $t->boolean('notif_stock')->default(false);
             $t->string('firma_url')->nullable();
             $t->unsignedBigInteger('tienda_default_id')->nullable(); $t->timestamp('created_at')->nullable();
@@ -456,5 +457,98 @@ class EntregaPorProductoTest extends TestCase
 
         $this->assertSame('listo_entrega', $orden->fresh()->estado, 'nadie la ha entregado');
         $this->assertSame([3, 1], $this->stockReloj());
+    }
+
+    // ── Rutas de conductor por producto (fase D) ─────────────────────────────
+
+    private function despachadora(): Usuario
+    {
+        return Usuario::create([
+            'nombre' => 'Despacha', 'email' => 'd' . rand() . '@d.com', 'password' => 'x', 'rol' => 'supervisor',
+            'acceso_despacho' => true, 'acceso_entregas' => true, 'firma_url' => 'x', 'created_at' => now(),
+        ]);
+    }
+
+    public function test_la_cola_muestra_la_orden_del_taller_que_ya_tiene_algo_listo(): void
+    {
+        $orden = $this->venderRelojYMueble($this->vendedora(), relojSeLoLleva: false);
+        $this->assertNotSame('listo_entrega', $orden->estado, 'el comedor sigue en el taller');
+
+        $cola = $this->actingAs($this->despachadora())->getJson('/api/despacho/cola')->assertOk()->json();
+
+        $this->assertCount(1, $cola);
+        $this->assertSame($orden->id, $cola[0]['id']);
+        // Y dice qué se puede subir al camión y qué no.
+        $items = collect($cola[0]['items'])->keyBy('id');
+        $this->assertTrue($items[$this->reloj($orden)->id]['entregable']);
+        $this->assertFalse($items[$this->mueble($orden)->id]['entregable']);
+    }
+
+    public function test_una_orden_del_taller_sin_nada_listo_no_sale_en_la_cola(): void
+    {
+        $orden = $this->venderRelojYMueble($this->vendedora(), relojSeLoLleva: true);
+        $this->assertSame('en_produccion', $orden->fresh()->estado);
+
+        $this->actingAs($this->despachadora())->getJson('/api/despacho/cola')->assertOk()->assertJsonCount(0);
+    }
+
+    public function test_la_ruta_lleva_solo_lo_que_se_marco_y_el_conductor_entrega_eso(): void
+    {
+        $orden = $this->venderRelojYMueble($this->vendedora(), relojSeLoLleva: false);
+        $jefa  = $this->despachadora();
+
+        $ruta = $this->actingAs($jefa)->postJson('/api/despacho/rutas', [
+            'nombre_ruta' => 'Norte', 'fecha_despacho' => now()->toDateString(),
+        ])->assertStatus(201)->json();
+
+        // El comedor no se puede subir: sigue en el taller.
+        $this->actingAs($jefa)->postJson("/api/despacho/rutas/{$ruta['id']}/ordenes", [
+            'orden_id' => $orden->id,
+            'lineas'   => [['orden_item_id' => $this->mueble($orden)->id, 'cantidad' => 1]],
+        ])->assertStatus(422);
+
+        // El reloj sí.
+        $agregada = $this->actingAs($jefa)->postJson("/api/despacho/rutas/{$ruta['id']}/ordenes", [
+            'orden_id' => $orden->id,
+            'lineas'   => [['orden_item_id' => $this->reloj($orden)->id, 'cantidad' => 1]],
+        ])->assertStatus(201)->json();
+        $this->assertCount(1, $agregada['lineas']);
+        $this->assertSame($this->reloj($orden)->id, $agregada['lineas'][0]['orden_item_id']);
+
+        // La ruta sale con un conductor (se simula el envío: no hay camiones en la prueba).
+        $conductor = Usuario::create(['nombre' => 'Conduce', 'email' => 'c@d.com', 'password' => 'x',
+                                      'rol' => 'conductor', 'created_at' => now()]);
+        DB::table('despachos')->where('id', $ruta['id'])->update(['estado' => 'en_ruta', 'conductor_id' => $conductor->id]);
+        $entregaId = $agregada['id'];
+
+        // El conductor no marca nada en particular: se entrega lo que se cargó.
+        $this->actingAs($conductor)->post("/api/despacho/mis-entregas/{$entregaId}/pago", [
+            'firma_omitida_motivo' => 'prueba', 'monto' => 0,
+            'foto_producto' => UploadedFile::fake()->image('p.jpg'),
+        ], ['Accept' => 'application/json'])->assertOk();
+        $this->actingAs($conductor)->patchJson("/api/despacho/mis-entregas/{$entregaId}/entregar")->assertOk();
+
+        $orden->refresh();
+        $this->assertSame(1, (int) $this->reloj($orden)->cantidad_entregada);
+        $this->assertSame(0, (int) $this->mueble($orden)->cantidad_entregada);
+        $this->assertSame('en_produccion', $orden->estado, 'el comedor sigue en el taller');
+        $this->assertSame('completado', DB::table('despachos')->where('id', $ruta['id'])->value('estado'));
+
+        // Y el saldo no se le exigió: le falta recibir el comedor.
+        $this->assertSame(0, $orden->pagos()->count());
+    }
+
+    public function test_al_terminar_el_taller_la_orden_vuelve_a_la_cola_con_lo_que_falta(): void
+    {
+        $orden = $this->venderRelojYMueble($this->vendedora(), relojSeLoLleva: true);
+        Produccion::query()->update(['estado' => 'listo']);
+        $orden->update(['estado' => 'listo_entrega']);
+
+        $cola = $this->actingAs($this->despachadora())->getJson('/api/despacho/cola')->assertOk()->json();
+        $this->assertCount(1, $cola);
+        $this->assertTrue($cola[0]['entrega']['parcial']);
+        $items = collect($cola[0]['items'])->keyBy('id');
+        $this->assertSame(0, $items[$this->reloj($orden)->id]['pendiente_entregar']);
+        $this->assertSame(1, $items[$this->mueble($orden)->id]['pendiente_entregar']);
     }
 }

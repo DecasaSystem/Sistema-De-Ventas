@@ -38,10 +38,14 @@ export const useDespachoStore = defineStore('despacho', () => {
     await Promise.all([cargarCola(), cargarAsignados()])
   }
 
-  function agregarACola(orden) {
-    const idx = cola.value.findIndex(o => o.id === orden.orden_id)
+  // Llegó una orden lista por el socket: el aviso trae lo básico, sin los
+  // productos ni cuánto falta de cada uno, y la cola necesita eso para
+  // marcar qué va en el camión. Se recarga de la API en vez de pegar lo que
+  // llegó.
+  async function agregarACola(orden) {
+    const idx = cola.value.findIndex(o => o.id === (orden.orden_id ?? orden.id))
     if (idx === -1) {
-      cola.value.push(orden)
+      await cargarCola()
     }
   }
 

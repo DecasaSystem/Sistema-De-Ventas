@@ -1,6 +1,6 @@
 # Entregas parciales, daños en la entrega y varios comprobantes
 
-**Estado:** fases A, B y C implementadas (rama `feat/entregas-parciales`); D (rutas por ítem) pendiente.
+**Estado:** fases A, B, C y D implementadas.
 
 ## El caso
 

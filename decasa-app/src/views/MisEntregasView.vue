@@ -1,4 +1,17 @@
 <script setup>
+/** Qué productos van en esta entrega: los cargados en la ruta, o lo que falte. */
+function nombresDeEntrega(item) {
+  const items = item.orden?.items ?? []
+  const nombre = i => i.producto?.nombre || i.nombre_custom
+  const cargados = (item.lineas ?? []).filter(l => l.resultado !== 'devuelto').map(l => l.orden_item_id)
+  const base = cargados.length
+    ? items.filter(i => cargados.includes(i.id))
+    : items.filter(i => (Number(i.cantidad_entregada) || 0) < i.cantidad)
+  const lista = (base.length ? base : items).map(nombre).filter(Boolean).join(', ')
+  return cargados.length && cargados.length < items.filter(i => !i.devuelto_en).length
+    ? `${lista} (${cargados.length} de ${items.filter(i => !i.devuelto_en).length})`
+    : lista
+}
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useDespachoSocket } from '@/composables/useDespachoSocket'
 import { misEntregas, historialMisEntregas, iniciarRuta as apiIniciarRuta } from '@/api/despacho'
@@ -398,7 +411,7 @@ function pendientesRuta(items) {
                     <span class="truncate">{{ item.orden?.direccion_envio || item.orden?.cliente?.direccion }}</span>
                   </div>
                   <p v-if="item.orden?.items?.length" class="text-xs text-gray-400 mt-1 truncate">
-                    {{ (item.orden.items.filter(i => (Number(i.cantidad_entregada) || 0) < i.cantidad).map(i => i.producto?.nombre || i.nombre_custom).filter(Boolean).join(', ')) || item.orden.items.map(i => i.producto?.nombre || i.nombre_custom).filter(Boolean).join(', ') }}
+                    {{ nombresDeEntrega(item) }}
                   </p>
                   <div class="flex items-center gap-3 mt-2 text-sm">
                     <span class="text-gray-600"><MoneyDisplay :amount="item.orden?.valor_total" /></span>
@@ -442,7 +455,7 @@ function pendientesRuta(items) {
                 {{ item.orden?.cliente?.direccion }}
               </p>
               <p v-if="item.orden?.items?.length" class="text-xs text-gray-400 mt-1 truncate">
-                {{ (item.orden.items.filter(i => (Number(i.cantidad_entregada) || 0) < i.cantidad).map(i => i.producto?.nombre || i.nombre_custom).filter(Boolean).join(', ')) || item.orden.items.map(i => i.producto?.nombre || i.nombre_custom).filter(Boolean).join(', ') }}
+                {{ nombresDeEntrega(item) }}
               </p>
               <div class="flex items-center justify-between mt-2">
                 <span class="text-sm text-gray-600"><MoneyDisplay :amount="item.orden?.valor_total" /></span>
