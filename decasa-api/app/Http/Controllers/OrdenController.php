@@ -2506,11 +2506,23 @@ class OrdenController extends Controller
             'estado' => 'required|in:pendiente_anticipo,en_produccion,listo_entrega,en_camino,entregado,cancelado',
         ]);
 
-        if ($usuario->rol === 'vendedor') {
-            return response()->json(['message' => 'Solo el supervisor puede cambiar el estado de las órdenes.'], 403);
-        }
+        $orden = Orden::with('items.produccion')->findOrFail($id);
 
-        $orden = Orden::with('items')->findOrFail($id);
+        // El vendedor no cambia estados, con una excepción: si tiene permiso
+        // de entregar, puede dar por LISTA una orden suya de su tienda cuando
+        // la mercancía ya le llegó del almacén. Es el paso previo a entregarla
+        // él mismo, y sin esto dependía de que un supervisor lo hiciera.
+        if ($usuario->rol === 'vendedor') {
+            $esSuya = (int) $orden->vendedor_id === (int) $usuario->id
+                   || (int) $orden->covendedor_id === (int) $usuario->id;
+            $puedeMarcarLista = $data['estado'] === 'listo_entrega'
+                && $usuario->acceso_entregas && $esSuya
+                && (int) $orden->tienda_id === (int) $usuario->tienda_default_id;
+
+            if (! $puedeMarcarLista) {
+                return response()->json(['message' => 'Solo el supervisor puede cambiar el estado de las órdenes.'], 403);
+            }
+        }
 
         // Regla 8: Bloquear cambios si está en listo_entrega o en_camino
         if (in_array($orden->estado, ['listo_entrega', 'en_camino'])) {
@@ -2655,6 +2667,16 @@ class OrdenController extends Controller
             $updateData = ['estado' => $estadoNuevo];
             if ($estadoNuevo === 'listo_entrega') {
                 $updateData['listo_entrega_at'] = now();
+
+                // "Lista para entrega" a mano quiere decir que la mercancía ya
+                // está: lo que el taller tuviera abierto se da por terminado.
+                // Sin esto la orden decía lista pero ningún producto fabricado
+                // se podía entregar, porque cada uno mira su propia producción.
+                foreach ($orden->items as $item) {
+                    if ($item->produccion && in_array($item->produccion->estado, ['pendiente', 'en_proceso', 'retrasado', 'pendiente_despachador'], true)) {
+                        $item->produccion->update(['estado' => 'listo', 'fecha_real' => now()->toDateString()]);
+                    }
+                }
             }
             $orden->update($updateData);
         });

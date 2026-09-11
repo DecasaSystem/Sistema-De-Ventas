@@ -551,4 +551,33 @@ class EntregaPorProductoTest extends TestCase
         $this->assertSame(0, $items[$this->reloj($orden)->id]['pendiente_entregar']);
         $this->assertSame(1, $items[$this->mueble($orden)->id]['pendiente_entregar']);
     }
+
+    // ── El vendedor da la orden por lista cuando le llega la mercancía ───────
+
+    public function test_el_vendedor_con_permiso_marca_lista_su_orden_y_lo_fabricado_queda_entregable(): void
+    {
+        $v     = $this->vendedora();
+        $orden = $this->venderRelojYMueble($v, relojSeLoLleva: true);
+        $this->assertSame('pendiente', Produccion::first()->estado);
+
+        // Le llegó el comedor del almacén: lo da por listo él mismo.
+        $this->actingAs($v)->patchJson("/api/ordenes/{$orden->id}/estado", ['estado' => 'listo_entrega'])->assertOk();
+
+        $orden->refresh();
+        $this->assertSame('listo_entrega', $orden->estado);
+        $this->assertSame('listo', Produccion::first()->estado, 'lo del taller se da por terminado');
+        $this->assertTrue($this->mueble($orden)->fresh()->estaListoParaEntregar());
+        $this->assertTrue($orden->laPuedeEntregarDirecto($v));
+    }
+
+    public function test_el_vendedor_no_puede_cambiar_otros_estados_ni_ordenes_ajenas(): void
+    {
+        $v     = $this->vendedora();
+        $orden = $this->venderRelojYMueble($v, relojSeLoLleva: false);
+
+        $this->actingAs($v)->patchJson("/api/ordenes/{$orden->id}/estado", ['estado' => 'cancelado'])->assertStatus(403);
+
+        $otra = $this->vendedora();
+        $this->actingAs($otra)->patchJson("/api/ordenes/{$orden->id}/estado", ['estado' => 'listo_entrega'])->assertStatus(403);
+    }
 }
