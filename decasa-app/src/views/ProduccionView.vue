@@ -15,6 +15,7 @@ import {
   NoSymbolIcon,
   CalendarDaysIcon,
   TableCellsIcon,
+  ArchiveBoxIcon,
 } from '@heroicons/vue/24/outline'
 import { getProduccion, updateProduccion } from '@/api/produccion'
 import { sinPerderElSitio, tamanoParaRecargar } from '@/utils/scroll'
@@ -25,6 +26,7 @@ import { getTiendas, fijarOrden, quitarFijada } from '@/api/ordenes'
 import { useRealtime } from '@/composables/useRealtime'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ProcesosModal from '@/components/produccion/ProcesosModal.vue'
+import ProducirModal from '@/components/produccion/ProducirModal.vue'
 import DevolucionesPendientes from '@/components/produccion/DevolucionesPendientes.vue'
 import { SPECS_TEMPLATES, resolverCategoria } from '@/constants/specsConfig'
 
@@ -75,6 +77,7 @@ const PROCESOS_DISPONIBLES = computed(() =>
     .map(t => ({ tipo: t.clave, label: t.nombre, desc: t.descripcion ?? '' }))
 )
 const showProcesos = ref(false)
+const showProducir = ref(false)
 const pasosSeleccionados = ref([]) // [{tipo_proceso, orden}] en orden de selección
 const pasoSelectorRef   = ref(null)
 
@@ -105,11 +108,13 @@ const estadosOpts = [
   { value: 'en_proceso',           label: 'En proceso' },
   { value: 'pendiente_despachador',label: 'En despacho prod.' },
   { value: 'listo',                label: 'Listo' },
+  { value: 'en_reserva',           label: 'En reserva' },
   { value: 'retrasado',            label: 'Retrasado' },
   { value: 'entregado',            label: 'Entregado' },
   { value: 'cancelado',            label: 'Cancelado' },
 ]
 
+/** Las specs de un ítem de orden o, si es para la Reserva, las de la producción. */
 function specsResumen(item) {
   const specs = item?.specs_personalizacion
   if (!specs) return ''
@@ -121,6 +126,21 @@ function specsResumen(item) {
     if (val === null || val === undefined || val === '') continue
     // Sin unidad: el valor guardado no siempre está en la unidad del template
     // (a veces se digita en metros aunque el campo se llame "_cm").
+    partes.push(`${campo.label}: ${val}`)
+  }
+  if (specs.notas) partes.push(`Notas: ${specs.notas}`)
+  return partes.join(' · ')
+}
+
+function specsResumenReserva(p) {
+  const specs = p?.specs
+  if (!specs) return ''
+  const cat      = p.producto?.categoria
+  const template = SPECS_TEMPLATES[resolverCategoria(cat)] ?? SPECS_TEMPLATES['generico']
+  const partes   = []
+  for (const campo of template.campos) {
+    const val = specs[campo.key]
+    if (val === null || val === undefined || val === '') continue
     partes.push(`${campo.label}: ${val}`)
   }
   if (specs.notas) partes.push(`Notas: ${specs.notas}`)
@@ -181,6 +201,7 @@ function badgeInfo(p) {
   const labels = {
     en_proceso: { label: 'En proceso',       cls: 'bg-green-100 text-green-700' },
     listo:      { label: 'Listo p/ entrega', cls: 'bg-blue-100 text-blue-700' },
+    en_reserva: { label: 'En reserva',       cls: 'bg-purple-100 text-purple-700' },
     entregado:  { label: 'Entregado',        cls: 'bg-gray-100 text-gray-500' },
   }
   return labels[p.estado] || { label: p.estado, cls: 'bg-gray-100 text-gray-500' }
@@ -188,7 +209,7 @@ function badgeInfo(p) {
 
 function estadoIcon(p) {
   if (p.estado === 'cancelado') return NoSymbolIcon
-  if (p.estado === 'entregado' || p.estado === 'listo') return CheckCircleIcon
+  if (p.estado === 'entregado' || p.estado === 'listo' || p.estado === 'en_reserva') return CheckCircleIcon
   if (p.estado === 'retrasado' || (p.estado === 'en_proceso' && p.dias_restantes !== null && p.dias_restantes < 0)) return ExclamationTriangleIcon
   return ClockIcon
 }
@@ -488,20 +509,21 @@ function fechaCorta(dateStr) {
 }
 
 function filaExcel(p) {
+  const esReserva = p.destino === 'reserva'
   return {
-    'Orden':            p.orden_item?.orden?.referencia ?? ('#' + (p.orden_item?.orden?.numero_orden ?? p.orden_item?.orden?.id ?? '')),
-    'Cliente':          p.orden_item?.orden?.cliente?.nombre ?? '',
-    'Producto':         p.orden_item?.producto?.nombre || p.orden_item?.nombre_custom || '',
+    'Orden':            esReserva ? 'Reserva de Fábrica' : (p.orden_item?.orden?.referencia ?? ('#' + (p.orden_item?.orden?.numero_orden ?? p.orden_item?.orden?.id ?? ''))),
+    'Cliente':          esReserva ? '' : (p.orden_item?.orden?.cliente?.nombre ?? ''),
+    'Producto':         p.orden_item?.producto?.nombre || p.orden_item?.nombre_custom || p.producto?.nombre || '',
     // La medida o la tela que se vendió: "CAMA MIAMI" sola no se puede fabricar.
-    'Variante':         p.orden_item?.variante_texto ?? '',
-    'Cantidad':         Number(p.orden_item?.cantidad) || 1,
+    'Variante':         p.orden_item?.variante_texto ?? p.variante_detalle ?? '',
+    'Cantidad':         Number(p.orden_item?.cantidad ?? p.cantidad) || 1,
     'Paso actual':      pasoTextoExcel(p),
     'Avance':           avanceTexto(p),
     'Fecha de entrega': fechaCorta(p.fecha_compromiso),
     'Estado':           badgeInfo(p).label,
-    'Tienda':           p.orden_item?.orden?.tienda?.nombre ?? '',
+    'Tienda':           esReserva ? 'Fábrica' : (p.orden_item?.orden?.tienda?.nombre ?? ''),
     // Medidas y acabados: sin esto el papel no sirve para fabricar.
-    'Detalle':          specsResumen(p.orden_item),
+    'Detalle':          specsResumen(p.orden_item) || specsResumenReserva(p),
   }
 }
 
@@ -649,6 +671,15 @@ onUnmounted(() => {
         <Cog6ToothIcon class="w-4 h-4" />
         Procesos
       </button>
+      <button
+        v-if="auth.gestionaProduccion"
+        @click="showProducir = true"
+        class="text-sm text-white font-medium px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 transition-colors flex items-center gap-1"
+        title="Fabricar contra stock, para la Reserva de Fábrica"
+      >
+        <ArchiveBoxIcon class="w-4 h-4" />
+        Producir
+      </button>
     </div>
 
     <!-- Lo que volvió del camión y espera decisión. Va arriba de todo: mientras
@@ -760,10 +791,10 @@ onUnmounted(() => {
                   <MapPinSolid v-if="p.fijada" class="w-4 h-4" />
                   <MapPinIcon v-else class="w-4 h-4" />
                 </button>
-                {{ p.orden_item?.producto?.nombre || p.orden_item?.nombre_custom }}
+                {{ p.orden_item?.producto?.nombre || p.orden_item?.nombre_custom || p.producto?.nombre }}
               </p>
               <p class="text-xs text-gray-400 flex items-center gap-1.5 flex-wrap">
-                {{ p.orden_item?.producto?.categoria || p.orden_item?.categoria_custom }}
+                {{ p.orden_item?.producto?.categoria || p.orden_item?.categoria_custom || p.producto?.categoria }}
                 <!-- Restaurar el mueble del cliente no es hacer uno nuevo, y
                      desde que cada línea puede tener su encargado hay que
                      distinguirlas de un vistazo en el tablero. -->
@@ -771,8 +802,17 @@ onUnmounted(() => {
                   class="inline-block text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
                   🛠️ Restauración
                 </span>
+                <!-- Para la Reserva no hay orden: se fabrica contra stock, no
+                     contra un cliente, y eso tiene que verse de entrada. -->
+                <span v-if="p.destino === 'reserva'"
+                  class="inline-block text-[11px] font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">
+                  🏭 Para Reserva de Fábrica{{ p.cantidad > 1 ? ` · x${p.cantidad}` : '' }}
+                </span>
               </p>
-              <p v-if="specsResumen(p.orden_item)" class="text-xs text-indigo-600 mt-0.5 truncate">{{ specsResumen(p.orden_item) }}</p>
+              <p v-if="p.destino === 'reserva' && p.variante_detalle" class="text-xs text-purple-700 mt-0.5 truncate">{{ p.variante_detalle }}</p>
+              <p v-if="specsResumen(p.orden_item) || specsResumenReserva(p)" class="text-xs text-indigo-600 mt-0.5 truncate">
+                {{ specsResumen(p.orden_item) || specsResumenReserva(p) }}
+              </p>
             </div>
             <span
               :class="['inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium flex-shrink-0 ml-2', badgeInfo(p).cls]"
@@ -831,8 +871,8 @@ onUnmounted(() => {
             </template>
           </div>
 
-          <!-- Info -->
-          <div class="grid grid-cols-2 gap-2 text-xs text-gray-500">
+          <!-- Info: para una venta, quién la pidió; para la Reserva, quién la mandó producir. -->
+          <div v-if="p.destino !== 'reserva'" class="grid grid-cols-2 gap-2 text-xs text-gray-500">
             <div>
               <p class="text-gray-400">Cliente</p>
               <p class="font-medium text-gray-700">{{ p.orden_item?.orden?.cliente?.nombre }}</p>
@@ -850,6 +890,16 @@ onUnmounted(() => {
               <p class="font-medium text-gray-700">{{ p.orden_item?.orden?.tienda?.nombre }}</p>
             </div>
           </div>
+          <div v-else class="grid grid-cols-2 gap-2 text-xs text-gray-500">
+            <div>
+              <p class="text-gray-400">Pedido por</p>
+              <p class="font-medium text-gray-700">{{ p.creador?.nombre ?? '—' }}</p>
+            </div>
+            <div>
+              <p class="text-gray-400">Destino</p>
+              <p class="font-medium text-purple-700">Reserva de Fábrica</p>
+            </div>
+          </div>
 
           <!-- Fechas + días restantes -->
           <div class="flex justify-between items-center text-xs pt-1 border-t border-gray-100">
@@ -861,7 +911,7 @@ onUnmounted(() => {
             <span v-else-if="p.estado === 'entregado'" class="text-gray-400 italic">Entregado</span>
           </div>
           <button
-            v-if="auth.gestionaProduccion && !modoElegir && !['entregado', 'cancelado'].includes(p.estado)"
+            v-if="auth.gestionaProduccion && !modoElegir && !['entregado', 'cancelado', 'en_reserva'].includes(p.estado)"
             @click.stop="openModal(p)"
             class="w-full mt-2 text-blue-600 text-xs font-medium text-center py-1.5 rounded-lg border border-blue-200 hover:bg-blue-50 transition-colors"
           >
@@ -1020,6 +1070,12 @@ onUnmounted(() => {
     :show="showProcesos"
     @close="showProcesos = false"
     @cambiado="cargarTipos(true)"
+  />
+
+  <ProducirModal
+    :show="showProducir"
+    @close="showProducir = false"
+    @creada="refrescarEnElSitio"
   />
 </template>
 

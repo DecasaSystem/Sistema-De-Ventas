@@ -199,6 +199,13 @@ function esRestauracion(paso) {
     || !!paso.produccion?.orden_item?.es_restauracion
 }
 
+/** El nombre del producto, venga de una venta o de una producción para la Reserva. */
+function nombreProducto(paso) {
+  return paso.produccion?.orden_item?.producto?.nombre
+    || paso.produccion?.orden_item?.nombre_custom
+    || paso.produccion?.producto?.nombre
+}
+
 function progresoTexto(pasoActual) {
   const todos = pasoActual.produccion?.pasos ?? []
   const completados = todos.filter(p => p.estado === 'completado').length
@@ -271,9 +278,9 @@ onMounted(async () => {
           <div class="flex items-start gap-3">
             <!-- Foto del producto -->
             <img
-              v-if="paso.produccion?.orden_item?.producto?.foto_url"
-              :src="cloudinaryOpt(paso.produccion.orden_item.producto.foto_url, 200)"
-              :alt="paso.produccion.orden_item.producto.nombre"
+              v-if="paso.produccion?.orden_item?.producto?.foto_url || paso.produccion?.producto?.foto_url"
+              :src="cloudinaryOpt(paso.produccion.orden_item?.producto?.foto_url ?? paso.produccion.producto?.foto_url, 200)"
+              :alt="nombreProducto(paso)"
               class="w-16 h-16 rounded-xl object-cover flex-shrink-0 border border-gray-100"
             />
             <div v-else class="w-16 h-16 rounded-xl bg-gray-100 flex-shrink-0 flex items-center justify-center">
@@ -293,13 +300,18 @@ onMounted(async () => {
                     class="inline-block text-xs font-bold px-2.5 py-1 rounded-full bg-amber-100 text-amber-700">
                     🛠️ Restauración
                   </span>
+                  <!-- Para la Reserva no hay cliente: se fabrica contra stock. -->
+                  <span v-if="paso.produccion?.destino === 'reserva'"
+                    class="inline-block text-xs font-bold px-2.5 py-1 rounded-full bg-purple-100 text-purple-700">
+                    🏭 Para stock de fábrica
+                  </span>
                 </div>
                 <span class="text-xs bg-blue-50 text-blue-600 font-medium px-2 py-0.5 rounded-full flex-shrink-0">
                   Paso {{ paso.orden }}
                 </span>
               </div>
-              <p class="font-semibold text-sm text-gray-800 truncate">{{ paso.produccion?.orden_item?.producto?.nombre }}</p>
-              <p class="text-xs text-gray-400">{{ paso.produccion?.orden_item?.producto?.categoria }}</p>
+              <p class="font-semibold text-sm text-gray-800 truncate">{{ nombreProducto(paso) }}</p>
+              <p class="text-xs text-gray-400">{{ paso.produccion?.orden_item?.producto?.categoria ?? paso.produccion?.producto?.categoria }}</p>
             </div>
           </div>
 
@@ -321,8 +333,8 @@ onMounted(async () => {
             </div>
           </div>
 
-          <!-- Info del cliente -->
-          <div class="grid grid-cols-2 gap-2 text-xs text-gray-500">
+          <!-- Info del cliente, o de la Reserva si no hay orden -->
+          <div v-if="paso.produccion?.destino !== 'reserva'" class="grid grid-cols-2 gap-2 text-xs text-gray-500">
             <div>
               <p class="text-gray-400">Cliente</p>
               <p class="font-medium text-gray-700">{{ paso.produccion?.orden_item?.orden?.cliente?.nombre }}</p>
@@ -344,14 +356,24 @@ onMounted(async () => {
               <p class="font-medium text-gray-700">{{ formatFecha(paso.produccion.fecha_compromiso) }}</p>
             </div>
           </div>
+          <div v-else class="grid grid-cols-2 gap-2 text-xs text-gray-500">
+            <div>
+              <p class="text-gray-400">Cantidad</p>
+              <p class="font-medium text-gray-700">{{ paso.produccion?.cantidad }}</p>
+            </div>
+            <div v-if="paso.produccion?.variante_detalle">
+              <p class="text-gray-400">Variante</p>
+              <p class="font-medium text-gray-700">{{ paso.produccion.variante_detalle }}</p>
+            </div>
+          </div>
 
           <!-- Specs del producto si hay -->
           <div
-            v-if="paso.produccion?.orden_item?.specs_personalizacion"
+            v-if="paso.produccion?.orden_item?.specs_personalizacion || paso.produccion?.specs"
             class="bg-gray-50 rounded-lg px-3 py-2 text-xs text-gray-600 space-y-0.5"
           >
             <p
-              v-for="(val, key) in paso.produccion.orden_item.specs_personalizacion"
+              v-for="(val, key) in (paso.produccion?.orden_item?.specs_personalizacion ?? paso.produccion?.specs)"
               :key="key"
             >
               <span class="text-gray-400 capitalize">{{ key }}:</span> {{ val }}
@@ -392,6 +414,7 @@ onMounted(async () => {
           <!-- Botones -->
           <div class="flex gap-2">
             <button
+              v-if="paso.produccion?.destino !== 'reserva'"
               @click="verOrden(paso)"
               class="flex-1 bg-gray-100 text-gray-700 rounded-xl py-2.5 text-sm font-semibold hover:bg-gray-200 transition-colors flex items-center justify-center gap-1.5"
             >
@@ -440,9 +463,9 @@ onMounted(async () => {
           <!-- Foto + nombre -->
           <div class="flex items-start gap-3">
             <img
-              v-if="paso.produccion?.orden_item?.producto?.foto_url"
-              :src="cloudinaryOpt(paso.produccion.orden_item.producto.foto_url, 200)"
-              :alt="paso.produccion.orden_item.producto.nombre"
+              v-if="paso.produccion?.orden_item?.producto?.foto_url || paso.produccion?.producto?.foto_url"
+              :src="cloudinaryOpt(paso.produccion.orden_item?.producto?.foto_url ?? paso.produccion.producto?.foto_url, 200)"
+              :alt="nombreProducto(paso)"
               class="w-16 h-16 rounded-xl object-cover flex-shrink-0 border border-gray-100"
             />
             <div v-else class="w-16 h-16 rounded-xl bg-gray-100 flex-shrink-0 flex items-center justify-center">
@@ -458,35 +481,51 @@ onMounted(async () => {
                     class="inline-block text-xs font-bold px-2.5 py-1 rounded-full bg-amber-100 text-amber-700">
                     🛠️ Restauración
                   </span>
+                  <span v-if="paso.produccion?.destino === 'reserva'"
+                    class="inline-block text-xs font-bold px-2.5 py-1 rounded-full bg-purple-100 text-purple-700">
+                    🏭 Para stock de fábrica
+                  </span>
                 </div>
                 <span class="text-xs text-green-600 font-semibold flex items-center gap-1 flex-shrink-0">
                   <CheckCircleIcon class="w-3.5 h-3.5" />
                   Completado
                 </span>
               </div>
-              <p class="font-semibold text-sm text-gray-800 truncate">{{ paso.produccion?.orden_item?.producto?.nombre }}</p>
-              <p class="text-xs text-gray-400">{{ paso.produccion?.orden_item?.producto?.categoria }}</p>
+              <p class="font-semibold text-sm text-gray-800 truncate">{{ nombreProducto(paso) }}</p>
+              <p class="text-xs text-gray-400">{{ paso.produccion?.orden_item?.producto?.categoria ?? paso.produccion?.producto?.categoria }}</p>
             </div>
           </div>
 
           <!-- Info -->
           <div class="grid grid-cols-2 gap-2 text-xs text-gray-500">
-            <div>
-              <p class="text-gray-400">Cliente</p>
-              <p class="font-medium text-gray-700">{{ paso.produccion?.orden_item?.orden?.cliente?.nombre }}</p>
-            </div>
-            <div>
-              <p class="text-gray-400">Teléfono</p>
-              <p class="font-medium text-gray-700">{{ paso.produccion?.orden_item?.orden?.cliente?.telefono ?? '—' }}</p>
-            </div>
-            <div>
-              <p class="text-gray-400">Vendedor</p>
-              <p class="font-medium text-gray-700">{{ paso.produccion?.orden_item?.orden?.vendedor?.nombre }}</p>
-            </div>
-            <div>
-              <p class="text-gray-400">Tienda</p>
-              <p class="font-medium text-gray-700">{{ paso.produccion?.orden_item?.orden?.tienda?.nombre }}</p>
-            </div>
+            <template v-if="paso.produccion?.destino !== 'reserva'">
+              <div>
+                <p class="text-gray-400">Cliente</p>
+                <p class="font-medium text-gray-700">{{ paso.produccion?.orden_item?.orden?.cliente?.nombre }}</p>
+              </div>
+              <div>
+                <p class="text-gray-400">Teléfono</p>
+                <p class="font-medium text-gray-700">{{ paso.produccion?.orden_item?.orden?.cliente?.telefono ?? '—' }}</p>
+              </div>
+              <div>
+                <p class="text-gray-400">Vendedor</p>
+                <p class="font-medium text-gray-700">{{ paso.produccion?.orden_item?.orden?.vendedor?.nombre }}</p>
+              </div>
+              <div>
+                <p class="text-gray-400">Tienda</p>
+                <p class="font-medium text-gray-700">{{ paso.produccion?.orden_item?.orden?.tienda?.nombre }}</p>
+              </div>
+            </template>
+            <template v-else>
+              <div>
+                <p class="text-gray-400">Cantidad</p>
+                <p class="font-medium text-gray-700">{{ paso.produccion?.cantidad }}</p>
+              </div>
+              <div v-if="paso.produccion?.variante_detalle">
+                <p class="text-gray-400">Variante</p>
+                <p class="font-medium text-gray-700">{{ paso.produccion.variante_detalle }}</p>
+              </div>
+            </template>
             <div class="col-span-2">
               <p class="text-gray-400">Completado</p>
               <p class="font-medium text-gray-700 flex items-center gap-1">
@@ -517,6 +556,7 @@ onMounted(async () => {
 
           <!-- Ver orden -->
           <button
+            v-if="paso.produccion?.destino !== 'reserva'"
             @click="verOrden(paso)"
             class="w-full bg-gray-100 text-gray-700 rounded-xl py-2.5 text-sm font-semibold hover:bg-gray-200 transition-colors flex items-center justify-center gap-1.5"
           >

@@ -3,6 +3,10 @@ import api from './index'
 export const getProduccion = (params = {}) =>
   api.get('/produccion', { params })
 
+// Fabricar contra stock: crea una producción para la Reserva de Fábrica.
+export const producir = (data) =>
+  api.post('/produccion/producir', data)
+
 export const updateProduccion = (id, data) =>
   api.patch(`/produccion/${id}`, data)
 
