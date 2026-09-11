@@ -534,6 +534,35 @@ const subtotalBruto = computed(() => {
     + Number(orden.value.descuento_condicionado || 0)
 })
 
+// ¿Puede dar la orden por lista para entregar? El supervisor siempre; el
+// vendedor con permiso de entregar, si es suya y de su tienda. Es el paso
+// previo a "Entregar ahora" cuando lo fabricado ya llegó del almacén y
+// nadie en el taller lo marcó.
+const puedeMarcarLista = computed(() => {
+  if (!orden.value) return false
+  if (!['pendiente_anticipo', 'en_produccion'].includes(orden.value.estado)) return false
+  if (orden.value.entrega?.completa) return false
+  if (auth.isSupervisor) return true
+  const yo = auth.usuario?.id
+  const esMia = orden.value.vendedor_id === yo || orden.value.covendedor_id === yo
+  return auth.puedeEntregar && esMia && orden.value.tienda_id === auth.usuario?.tienda_default_id
+})
+const marcandoLista = ref(false)
+
+async function marcarListaParaEntrega() {
+  if (!confirm('¿Ya está toda la mercancía de esta orden en la tienda? Quedará lista para entregar.')) return
+  marcandoLista.value = true
+  try {
+    await updateEstado(orden.value.id, 'listo_entrega')
+    toast.success('Orden lista para entregar')
+    await cargarOrden()
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo marcar')
+  } finally {
+    marcandoLista.value = false
+  }
+}
+
 const puedeCambiarEstado = computed(() => {
   if (!orden.value) return false
   if (!auth.isSupervisor) return false
@@ -2980,7 +3009,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
       </div>
 
       <!-- Entrega: directa (vendedor/supervisor) o en cola para el conductor -->
-      <div v-if="orden.estado === 'listo_entrega' || miEntregaDirectaPendiente || puedeEntregarDirecto" class="space-y-2">
+      <div v-if="orden.estado === 'listo_entrega' || miEntregaDirectaPendiente || puedeEntregarDirecto || puedeMarcarLista" class="space-y-2">
         <!-- Entrega directa: continuar la que ya empecé -->
         <div v-if="miEntregaDirectaPendiente" class="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 space-y-2">
           <div class="flex items-start gap-3">
@@ -3002,8 +3031,22 @@ onMounted(() => { cargarTipos(); cargarOrden() })
           </div>
         </div>
 
+        <!-- Ya llegó todo del almacén: darla por lista para que se pueda
+             entregar completa (lo fabricado sin marcar en el taller incluido). -->
+        <div v-if="puedeMarcarLista && orden.estado !== 'listo_entrega'" class="bg-white border border-gray-200 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+          <div class="min-w-0">
+            <p class="text-sm font-semibold text-gray-800">¿Ya llegó todo a la tienda?</p>
+            <p class="text-[11px] text-gray-500">Márcala lista para entregar y podrás entregarla completa.</p>
+          </div>
+          <button
+            @click="marcarListaParaEntrega"
+            :disabled="marcandoLista"
+            class="shrink-0 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 hover:bg-emerald-100 disabled:opacity-50"
+          >{{ marcandoLista ? '…' : 'Lista para entregar' }}</button>
+        </div>
+
         <!-- Entrega directa: empezarla -->
-        <div v-else-if="puedeEntregarDirecto" class="bg-green-50 border border-green-200 rounded-xl px-4 py-3 space-y-2">
+        <div v-if="!miEntregaDirectaPendiente && puedeEntregarDirecto" class="bg-green-50 border border-green-200 rounded-xl px-4 py-3 space-y-2">
           <div class="flex items-start gap-3">
             <TruckIcon class="w-5 h-5 mt-0.5 text-green-600 flex-shrink-0" />
             <div>
@@ -3026,7 +3069,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         </div>
 
         <!-- Sin entrega directa: espera al conductor -->
-        <div v-else-if="orden.estado === 'listo_entrega'" class="bg-purple-50 border border-purple-200 rounded-xl px-4 py-3 flex items-start gap-3">
+        <div v-if="!miEntregaDirectaPendiente && !puedeEntregarDirecto && orden.estado === 'listo_entrega'" class="bg-purple-50 border border-purple-200 rounded-xl px-4 py-3 flex items-start gap-3">
           <TruckIcon class="w-5 h-5 mt-0.5 text-purple-600 flex-shrink-0" />
           <div>
             <p class="text-sm font-semibold text-purple-800">
