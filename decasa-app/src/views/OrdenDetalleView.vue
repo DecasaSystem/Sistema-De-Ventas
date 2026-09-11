@@ -383,7 +383,20 @@ const danoMotivo     = ref('')
 const danoCantidad   = ref(1)
 const danoPreferencia = ref('')
 const danoFotoFile   = ref(null)
+const danoFotoPreview = ref('')
 const danoGuardando  = ref(false)
+
+function onDanoFoto(e) {
+  const f = e.target.files?.[0] ?? null
+  if (danoFotoPreview.value) URL.revokeObjectURL(danoFotoPreview.value)
+  danoFotoFile.value    = f
+  danoFotoPreview.value = f ? URL.createObjectURL(f) : ''
+}
+function quitarDanoFoto() {
+  if (danoFotoPreview.value) URL.revokeObjectURL(danoFotoPreview.value)
+  danoFotoFile.value = null
+  danoFotoPreview.value = ''
+}
 const PREFERENCIAS_DANO = [
   { v: 'arreglar',      t: 'Que lo arreglen',            d: 'Vuelve al taller y se le entrega el mismo, reparado.' },
   { v: 'cambiar_mismo', t: 'Otro igual',                 d: 'Se le cambia por otra unidad del mismo producto.' },
@@ -404,7 +417,7 @@ function abrirDano(item) {
   danoMotivo.value = ''
   danoCantidad.value = 1
   danoPreferencia.value = ''
-  danoFotoFile.value = null
+  quitarDanoFoto()
 }
 
 async function guardarDano() {
@@ -2204,11 +2217,17 @@ onMounted(() => { cargarTipos(); cargarOrden() })
                 v-if="entregaDeItem(item)"
                 :class="['inline-block mt-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border', entregaDeItem(item).cls]"
               >{{ entregaDeItem(item).texto }}</span>
+              <!-- Es una acción (reportar), no un estado: si dijera "dañado" a
+                   secas parecería que el mueble ya está roto. -->
               <button
                 v-if="puedeDanarse(item)"
                 @click="abrirDano(item)"
-                class="block mt-1 text-[11px] font-medium text-orange-700 hover:text-orange-900 underline underline-offset-2"
-              >⚠ Producto dañado</button>
+                type="button"
+                class="inline-flex items-center gap-1 mt-1.5 text-[11px] font-medium text-gray-500 border border-dashed border-gray-300 rounded-full px-2 py-0.5 hover:text-orange-700 hover:border-orange-400 hover:bg-orange-50 transition-colors"
+              >
+                <ExclamationTriangleIcon class="w-3 h-3" />
+                ¿Se dañó? Reportarlo
+              </button>
               <p v-if="origenInventario(item)" class="text-xs text-emerald-600 mt-1 flex items-center gap-1">
                 <BuildingOffice2Icon class="w-3.5 h-3.5" /> Inventario {{ origenInventario(item) }}
               </p>
@@ -3081,62 +3100,110 @@ onMounted(() => { cargarTipos(); cargarOrden() })
       </div>
     </template>
 
-    <!-- Modal: producto dañado antes de entregarlo -->
-    <Transition name="fade">
-      <div v-if="danoItem" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="danoItem = null">
-        <div class="absolute inset-0 bg-black/40" />
-        <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-3 max-h-[90vh] overflow-y-auto">
-          <h3 class="text-lg font-bold text-gray-800">Producto dañado</h3>
-          <p class="text-sm text-gray-500">
-            <strong>{{ danoItem.producto?.nombre ?? danoItem.nombre_custom }}</strong>. Queda registrado y
-            producción decide qué se hace.
-          </p>
+    <!-- Modal: reportar un producto dañado antes de entregarlo -->
+    <Teleport to="body">
+      <Transition
+        enter-active-class="transition-opacity duration-200" enter-from-class="opacity-0"
+        leave-active-class="transition-opacity duration-150" leave-to-class="opacity-0"
+      >
+        <div v-if="danoItem" class="fixed inset-0 bg-black/50 backdrop-blur-[2px] z-50 flex items-end sm:items-center justify-center" @click.self="danoItem = null">
+          <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full sm:max-w-md shadow-2xl max-h-[92vh] flex flex-col">
+            <!-- Encabezado -->
+            <div class="flex items-center gap-3 px-5 py-4 border-b border-gray-100">
+              <div class="w-10 h-10 rounded-xl bg-orange-100 flex items-center justify-center shrink-0">
+                <ExclamationTriangleIcon class="w-5 h-5 text-orange-700" />
+              </div>
+              <div class="min-w-0 flex-1">
+                <p class="font-semibold text-gray-800 truncate">Reportar producto dañado</p>
+                <p class="text-[11px] text-gray-400 truncate">{{ danoItem.producto?.nombre ?? danoItem.nombre_custom }} · {{ orden.referencia }}</p>
+              </div>
+              <button @click="danoItem = null" class="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors shrink-0">
+                <XMarkIcon class="w-5 h-5" />
+              </button>
+            </div>
 
-          <div v-if="danoItem.cantidad > 1">
-            <label class="text-xs text-gray-500">¿Cuántas unidades?</label>
-            <input v-model.number="danoCantidad" type="number" min="1" :max="danoItem.cantidad" class="input" />
-          </div>
+            <div class="p-5 space-y-4 overflow-y-auto">
+              <p class="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 leading-snug">
+                Queda registrado en la orden y le llega a producción, que decide si se arregla, se cambia por otro igual o por otro producto. El producto no se entrega hasta que se decida.
+              </p>
 
-          <div>
-            <label class="text-xs text-gray-500">¿Qué le pasó? *</label>
-            <textarea v-model="danoMotivo" rows="2" class="input" placeholder="Ej. llegó del taller con la laca rayada en la tapa" />
-          </div>
+              <!-- Cuántas -->
+              <div v-if="danoItem.cantidad > 1">
+                <label class="block text-xs font-semibold text-gray-500 mb-1.5">¿Cuántas unidades se dañaron?</label>
+                <div class="flex items-center gap-2">
+                  <button type="button" @click="danoCantidad = Math.max(1, danoCantidad - 1)" class="w-9 h-9 rounded-xl border border-gray-200 text-gray-600 font-bold hover:bg-gray-50">−</button>
+                  <span class="w-10 text-center text-sm font-bold text-gray-800">{{ danoCantidad }}</span>
+                  <button type="button" @click="danoCantidad = Math.min(danoItem.cantidad, danoCantidad + 1)" class="w-9 h-9 rounded-xl border border-gray-200 text-gray-600 font-bold hover:bg-gray-50">+</button>
+                  <span class="text-[11px] text-gray-400 ml-1">de {{ danoItem.cantidad }}</span>
+                </div>
+              </div>
 
-          <div>
-            <label class="text-xs text-gray-500">Foto del daño (opcional)</label>
-            <input type="file" accept="image/*" capture="environment" @change="e => { danoFotoFile = e.target.files?.[0] ?? null }" class="block w-full text-xs text-gray-500" />
-          </div>
+              <!-- Qué pasó -->
+              <div>
+                <label class="block text-xs font-semibold text-gray-500 mb-1.5">¿Qué le pasó? <span class="text-red-500">*</span></label>
+                <textarea
+                  v-model="danoMotivo"
+                  rows="2"
+                  placeholder="Ej. llegó del taller con la laca rayada en la tapa"
+                  class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 resize-none focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent"
+                />
+              </div>
 
-          <div>
-            <p class="text-xs text-gray-500 mb-1">¿Qué prefiere el cliente? (si ya se le preguntó)</p>
-            <div class="space-y-1">
-              <label
-                v-for="op in PREFERENCIAS_DANO" :key="op.v"
-                :class="['flex items-start gap-2 rounded-lg px-2 py-1.5 border cursor-pointer',
-                  danoPreferencia === op.v ? 'bg-orange-50 border-orange-400' : 'border-gray-200']"
+              <!-- Foto -->
+              <div>
+                <label class="block text-xs font-semibold text-gray-500 mb-1.5">Foto del daño <span class="font-normal text-gray-400">— opcional, pero ayuda a decidir</span></label>
+                <div v-if="danoFotoPreview" class="relative">
+                  <img :src="danoFotoPreview" class="w-full h-40 object-cover rounded-xl border border-gray-200" />
+                  <button type="button" @click="quitarDanoFoto" class="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1.5 shadow">
+                    <XMarkIcon class="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <label v-else class="flex flex-col items-center gap-1.5 border-2 border-dashed border-orange-200 rounded-xl p-4 cursor-pointer hover:border-orange-400 hover:bg-orange-50/50 transition-colors">
+                  <span class="text-2xl">📷</span>
+                  <span class="text-xs text-gray-500">Toca para tomar o subir una foto</span>
+                  <input type="file" accept="image/*" capture="environment" @change="onDanoFoto" class="hidden" />
+                </label>
+              </div>
+
+              <!-- Qué prefiere el cliente -->
+              <div>
+                <label class="block text-xs font-semibold text-gray-500 mb-1.5">
+                  ¿Qué prefiere el cliente? <span class="font-normal text-gray-400">— si ya se le preguntó</span>
+                </label>
+                <div class="grid grid-cols-1 gap-1.5">
+                  <button
+                    v-for="op in PREFERENCIAS_DANO" :key="op.v"
+                    type="button"
+                    @click="danoPreferencia = danoPreferencia === op.v ? '' : op.v"
+                    :class="['text-left rounded-xl px-3 py-2.5 border-2 transition-colors',
+                      danoPreferencia === op.v ? 'bg-orange-50 border-orange-400' : 'bg-white border-gray-200 hover:border-gray-300']"
+                  >
+                    <span class="flex items-center gap-2">
+                      <span :class="['w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center', danoPreferencia === op.v ? 'border-orange-500' : 'border-gray-300']">
+                        <span v-if="danoPreferencia === op.v" class="w-2 h-2 rounded-full bg-orange-500" />
+                      </span>
+                      <span class="text-sm font-semibold text-gray-800">{{ op.t }}</span>
+                    </span>
+                    <span class="block text-[11px] text-gray-500 leading-snug mt-0.5 ml-6">{{ op.d }}</span>
+                  </button>
+                </div>
+                <p class="text-[11px] text-gray-400 mt-1.5">Sin marcar nada, producción decide. Lo que escoja el cliente es una sugerencia: la decisión es del supervisor.</p>
+              </div>
+            </div>
+
+            <div class="flex gap-2.5 p-5 pt-3 border-t border-gray-100">
+              <button @click="danoItem = null" class="flex-1 bg-gray-100 text-gray-700 text-sm font-semibold rounded-xl px-4 py-2.5 hover:bg-gray-200 transition-colors">Cancelar</button>
+              <button
+                @click="guardarDano" :disabled="danoGuardando || danoMotivo.trim().length < 3"
+                class="flex-1 bg-orange-600 text-white text-sm font-semibold rounded-xl px-4 py-2.5 hover:bg-orange-700 transition-colors disabled:opacity-50"
               >
-                <input type="radio" :value="op.v" v-model="danoPreferencia" class="mt-0.5 text-orange-600" />
-                <span class="min-w-0">
-                  <span class="block text-xs font-semibold text-gray-800">{{ op.t }}</span>
-                  <span class="block text-[11px] text-gray-500 leading-snug">{{ op.d }}</span>
-                </span>
-              </label>
-              <label :class="['flex items-center gap-2 rounded-lg px-2 py-1.5 border cursor-pointer', danoPreferencia === '' ? 'bg-orange-50 border-orange-400' : 'border-gray-200']">
-                <input type="radio" value="" v-model="danoPreferencia" class="text-orange-600" />
-                <span class="text-xs text-gray-600">Todavía no se le pregunta</span>
-              </label>
+                {{ danoGuardando ? 'Guardando...' : 'Reportar daño' }}
+              </button>
             </div>
           </div>
-
-          <div class="flex gap-2">
-            <button @click="danoItem = null" class="btn-secondary flex-1">Cancelar</button>
-            <button @click="guardarDano" :disabled="danoGuardando" class="btn-primary flex-1 disabled:opacity-50">
-              {{ danoGuardando ? 'Guardando...' : 'Registrar' }}
-            </button>
-          </div>
         </div>
-      </div>
-    </Transition>
+      </Transition>
+    </Teleport>
 
     <!-- Modal: corregir el medio de un pago -->
     <Transition name="fade">
