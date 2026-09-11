@@ -40,19 +40,64 @@ const item      = ref(null)
 const cargando  = ref(true)
 const registrando = ref(false)
 
-const esEntregado = computed(() => item.value?.estado === 'entregado')
+const esEntregado = computed(() => ['entregado', 'devuelto'].includes(item.value?.estado))
 const tieneSaldo  = computed(() => (item.value?.orden?.saldo_pendiente ?? 0) > 0.01)
+
+// ── Qué se entrega hoy ───────────────────────────────────────────────────────
+// Se entregan productos, no órdenes: el reloj hoy, el mueble cuando el taller
+// lo termine. Cada ítem trae del servidor cuánto le falta por entregar y si
+// ya se puede (lo de catálogo siempre; lo fabricado, cuando está listo).
+// { [orden_item_id]: cantidad que va en ESTA entrega }
+const llevar = ref({})
+
+const itemsOrden = computed(() => item.value?.orden?.items ?? [])
+
+const entregables = computed(() =>
+  itemsOrden.value.filter(oi => oi.entregable && (oi.pendiente_entregar ?? 0) > 0)
+)
+const noEntregables = computed(() =>
+  itemsOrden.value.filter(oi => !oi.entregable || (oi.pendiente_entregar ?? 0) <= 0)
+)
+
+function alternarLlevar(oi) {
+  if (llevar.value[oi.id]) delete llevar.value[oi.id]
+  else llevar.value[oi.id] = oi.pendiente_entregar
+}
+
+const lineas = computed(() =>
+  Object.entries(llevar.value)
+    .filter(([, c]) => Number(c) > 0)
+    .map(([id, c]) => ({ orden_item_id: Number(id), cantidad: Number(c) }))
+)
+const hayAlgoQueEntregar = computed(() => lineas.value.length > 0)
+
+// ¿Con esto el cliente queda con todo lo que compró? Es lo que decide si se
+// le cobra el saldo hoy o en la próxima entrega.
+const esLaUltimaEntrega = computed(() =>
+  itemsOrden.value.every(oi =>
+    (oi.pendiente_entregar ?? 0) <= (Number(llevar.value[oi.id]) || 0) - (Number(devueltos.value[oi.id]) || 0)
+  )
+)
+const esParcial = computed(() => hayAlgoQueEntregar.value && !esLaUltimaEntrega.value)
+
+// El pago solo es obligatorio en la última entrega con saldo. En una parcial
+// se puede abonar, pero no se exige: al cliente aún le falta recibir algo.
+const seExigePago = computed(() => tieneSaldo.value && esLaUltimaEntrega.value && !devuelveTodo.value)
+const quiereAbonar = ref(false)
+const traePago = computed(() => seExigePago.value || (esParcial.value && quiereAbonar.value))
 
 // Formulario de pago
 const monto      = ref(0)
 const metodo     = ref('efectivo')
 const referencia = ref('')
 const fotoProducto        = ref(null)
-const fotoPago            = ref(null)
 const fotoAnexo           = ref(null)
 const fotoProductoPreview = ref(null)
-const fotoPagoPreview     = ref(null)
 const fotoAnexoPreview    = ref(null)
+// Varias fotos del comprobante: dos transferencias, o el pantallazo que no
+// cabe en una sola captura.
+const fotosPago           = ref([])   // [{ blob, preview }]
+const fotoPagoPreview     = computed(() => fotosPago.value[0]?.preview ?? null)
 
 // ── Acta de satisfacción ─────────────────────────────────────────────────────
 // Quien recibe firma que el producto llegó y en qué estado. No siempre es el
@@ -88,7 +133,8 @@ const fotoDevolucionPreview = ref(null)
 // { [orden_item_id]: cantidad que vuelve }
 const devueltos = ref({})
 
-const itemsOrden = computed(() => item.value?.orden?.items ?? [])
+// Solo puede volver lo que iba en esta entrega.
+const itemsQueVan = computed(() => entregables.value.filter(oi => Number(llevar.value[oi.id]) > 0))
 
 function alternarDevuelto(oi) {
   if (devueltos.value[oi.id]) {
@@ -96,7 +142,7 @@ function alternarDevuelto(oi) {
   } else {
     // Casi siempre vuelve todo lo de esa línea; si vuelve solo una de dos, se
     // baja a mano.
-    devueltos.value[oi.id] = oi.cantidad
+    devueltos.value[oi.id] = Number(llevar.value[oi.id]) || oi.pendiente_entregar
   }
 }
 
@@ -104,14 +150,19 @@ function nombreItem(oi) {
   return oi.nombre_custom || oi.producto?.nombre || 'Producto'
 }
 
+/** La línea de esta entrega para un producto (modo lectura). */
+function lineaDe(oi) {
+  return (item.value?.lineas ?? []).find(l => l.orden_item_id === oi.id) ?? null
+}
+
 const piezasDevueltas = computed(() =>
   Object.values(devueltos.value).reduce((s, n) => s + (Number(n) || 0), 0)
 )
 
-// Si vuelve absolutamente todo, no hay nada que cobrarle al cliente.
+// Si vuelve absolutamente todo lo que iba, no hay nada que cobrarle al cliente.
 const devuelveTodo = computed(() => {
-  if (!hayDevolucion.value || !itemsOrden.value.length) return false
-  return itemsOrden.value.every(oi => (Number(devueltos.value[oi.id]) || 0) >= oi.cantidad)
+  if (!hayDevolucion.value || !itemsQueVan.value.length) return false
+  return itemsQueVan.value.every(oi => (Number(devueltos.value[oi.id]) || 0) >= (Number(llevar.value[oi.id]) || 0))
 })
 
 const devolucionCompleta = computed(() => {
@@ -147,30 +198,33 @@ const montoACobrar = computed(() =>
 )
 
 // Al cambiar el método el monto se recalcula solo: con tarjeta queda bloqueado
-// en el total sin descuento para que no se cobre de menos.
-watch([metodo, descuentoCond], () => {
+// en el total sin descuento para que no se cobre de menos. En una entrega
+// parcial el monto es un abono libre: se deja como lo escriba quien cobra.
+watch([metodo, descuentoCond, esLaUltimaEntrega], () => {
   if (esEntregado.value) return
-  monto.value = montoACobrar.value
+  if (esLaUltimaEntrega.value) monto.value = montoACobrar.value
 })
 
 const puedeEntregar = computed(() => {
+  if (!hayAlgoQueEntregar.value) return false
   if (!fotoProductoPreview.value) return false
   if (!actaCompleta.value) return false
   if (!devolucionCompleta.value) return false
   // Si vuelve todo, no se le cobra nada: no se le puede pedir al conductor un
   // comprobante de un pago que no existe.
   if (devuelveTodo.value) return true
-  if (tieneSaldo.value) return !!fotoPagoPreview.value && monto.value > 0
-  return true  // sin saldo: foto del producto y acta firmada
+  if (traePago.value) return !!fotoPagoPreview.value && monto.value > 0
+  return true  // sin saldo, o entrega parcial sin abono: foto y acta bastan
 })
 
 const mensajeBoton = computed(() => {
+  if (!hayAlgoQueEntregar.value)  return 'Marca qué se entrega hoy'
   if (!fotoProductoPreview.value) return 'Sube la foto del producto para continuar'
   if (hayDevolucion.value) {
     if (!piezasDevueltas.value)              return 'Marca qué se devuelve'
     if (motivoDevolucion.value.trim().length < 3) return 'Escribe por qué se devuelve'
   }
-  if (tieneSaldo.value && !devuelveTodo.value) {
+  if (traePago.value && !devuelveTodo.value) {
     if (!fotoPagoPreview.value) return 'Sube la foto del comprobante de pago'
     if (!(monto.value > 0))     return 'Ingresa el monto cobrado'
   }
@@ -207,6 +261,12 @@ async function cargar(id) {
     const { data } = await detalleEntrega(id)
     item.value = data
     if (!esEntregado.value) {
+      // Por defecto va todo lo que se pueda entregar hoy; se desmarca lo que no.
+      const marcado = {}
+      for (const oi of data.orden?.items ?? []) {
+        if (oi.entregable && (oi.pendiente_entregar ?? 0) > 0) marcado[oi.id] = oi.pendiente_entregar
+      }
+      llevar.value = marcado
       monto.value = data.orden?.saldo_pendiente || 0
       // Se precarga el cliente: en la mayoría de entregas recibe él mismo, y si
       // no, el conductor lo cambia por quien esté firmando.
@@ -235,11 +295,17 @@ async function onFotoProducto(e) {
 }
 
 async function onFotoPago(e) {
-  const file = e.target.files[0]
-  if (!file) return
-  const blob = await compressImage(file)
-  fotoPago.value = blob
-  fotoPagoPreview.value = _createPreviewUrl(blob)
+  const files = Array.from(e.target.files ?? [])
+  for (const file of files) {
+    if (fotosPago.value.length >= 6) break
+    const blob = await compressImage(file)
+    fotosPago.value.push({ blob, preview: _createPreviewUrl(blob) })
+  }
+  e.target.value = ''
+}
+
+function quitarFotoPago(i) {
+  fotosPago.value.splice(i, 1)
 }
 
 async function onFotoAnexo(e) {
@@ -265,6 +331,9 @@ async function guardarPagoYEntregar() {
     const fd = new FormData()
     fd.append('foto_producto', fotoProducto.value, 'foto_producto.jpg')
 
+    // ── Qué va en esta entrega ──────────────────────────────────────────────
+    fd.append('lineas', JSON.stringify(lineas.value))
+
     // ── Lo que se regresa en el camión ──────────────────────────────────────
     // Va antes del pago porque lo cambia: si vuelve todo, no se cobra nada.
     if (hayDevolucion.value && piezasDevueltas.value) {
@@ -280,11 +349,11 @@ async function guardarPagoYEntregar() {
       if (fotoDevolucion.value) fd.append('foto_devolucion', fotoDevolucion.value, 'foto_devolucion.jpg')
     }
 
-    if (tieneSaldo.value && !devuelveTodo.value) {
+    if (traePago.value && !devuelveTodo.value && monto.value > 0) {
       fd.append('monto', monto.value)
       fd.append('metodo', metodo.value)
       if (referencia.value) fd.append('referencia', referencia.value)
-      fd.append('foto_pago', fotoPago.value, 'foto_pago.jpg')
+      fotosPago.value.forEach((f, i) => fd.append('fotos_pago[]', f.blob, `foto_pago_${i + 1}.jpg`))
     } else {
       fd.append('monto', '0')
     }
@@ -306,7 +375,9 @@ async function guardarPagoYEntregar() {
 
     await registrarPagoEntrega(props.despachoItemId, fd)
     await marcarEntregado(props.despachoItemId)
-    toast.success('Entrega completada exitosamente')
+    toast.success(esParcial.value
+      ? 'Entrega parcial registrada. Lo demás queda pendiente.'
+      : 'Entrega completada exitosamente')
     emit('entregado')
     emit('cerrar')
   } catch (e) {
@@ -377,9 +448,9 @@ async function guardarPagoYEntregar() {
             <p class="text-sm text-amber-800">{{ item.despacho.notas }}</p>
           </div>
 
-          <!-- Productos -->
-          <div v-if="item.orden?.items?.length">
-            <h4 class="text-sm font-semibold text-gray-700 mb-2">Productos</h4>
+          <!-- Productos: en modo lectura, lo que fue en esta entrega -->
+          <div v-if="esEntregado && item.orden?.items?.length">
+            <h4 class="text-sm font-semibold text-gray-700 mb-2">Productos de esta entrega</h4>
             <div class="space-y-2">
               <div v-for="p in item.orden.items" :key="p.id" class="flex items-center gap-3">
                 <img
@@ -389,12 +460,92 @@ async function guardarPagoYEntregar() {
                   class="w-12 h-12 rounded-lg object-cover border border-gray-100 flex-shrink-0"
                 />
                 <div v-else class="w-12 h-12 rounded-lg bg-gray-100 flex-shrink-0" />
-                <div>
-                  <p class="text-sm font-medium text-gray-800">{{ p.producto?.nombre }}</p>
-                  <p class="text-xs text-gray-400">x{{ p.cantidad }}</p>
+                <div class="min-w-0">
+                  <p class="text-sm font-medium text-gray-800 truncate">{{ nombreItem(p) }}</p>
+                  <p class="text-xs text-gray-400">
+                    <template v-if="lineaDe(p)">{{ lineaDe(p).cantidad }} de {{ p.cantidad }}</template>
+                    <template v-else>x{{ p.cantidad }}</template>
+                    <span v-if="lineaDe(p)?.resultado === 'devuelto'" class="text-orange-600 font-semibold"> · se devolvió</span>
+                  </p>
                 </div>
               </div>
             </div>
+          </div>
+
+          <!-- ═══════════ QUÉ SE ENTREGA HOY ═══════════
+               Se entregan productos, no órdenes: el reloj hoy, el mueble
+               cuando el taller lo termine. Lo que no se pueda entregar se ve,
+               pero no se puede marcar. -->
+          <div v-else-if="item.orden?.items?.length" class="space-y-2">
+            <div class="flex items-baseline justify-between">
+              <h4 class="text-sm font-bold text-gray-800">¿Qué se entrega hoy? <span class="text-red-500">*</span></h4>
+              <span v-if="item.orden?.entrega?.entregados" class="text-[11px] text-gray-500">
+                ya entregados: {{ item.orden.entrega.entregados }} de {{ item.orden.entrega.total }}
+              </span>
+            </div>
+
+            <div v-if="!entregables.length" class="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-xs text-amber-800">
+              No hay nada que se pueda entregar hoy: lo de catálogo ya se entregó y lo demás sigue en el taller.
+            </div>
+
+            <div class="space-y-1.5">
+              <label
+                v-for="p in entregables" :key="p.id"
+                :class="['flex items-center gap-3 rounded-xl px-3 py-2 border-2 cursor-pointer transition-colors',
+                  llevar[p.id] ? 'bg-emerald-50 border-emerald-400' : 'bg-white border-gray-200']"
+              >
+                <input
+                  type="checkbox"
+                  :checked="!!llevar[p.id]"
+                  @change="alternarLlevar(p)"
+                  class="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                />
+                <img
+                  v-if="p.producto?.foto_url"
+                  :src="cloudinaryOpt(p.producto.foto_url, 96)"
+                  class="w-10 h-10 rounded-lg object-cover border border-gray-100 flex-shrink-0"
+                />
+                <div v-else class="w-10 h-10 rounded-lg bg-gray-100 flex-shrink-0" />
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm font-medium text-gray-800 truncate">{{ nombreItem(p) }}</p>
+                  <p class="text-[11px] text-gray-500">
+                    {{ p.pendiente_entregar < p.cantidad ? `faltan ${p.pendiente_entregar} de ${p.cantidad}` : `x${p.cantidad}` }}
+                  </p>
+                </div>
+                <!-- De dos relojes se puede llevar uno -->
+                <input
+                  v-if="llevar[p.id] && p.pendiente_entregar > 1"
+                  v-model.number="llevar[p.id]"
+                  @click.stop
+                  type="number" min="1" :max="p.pendiente_entregar"
+                  class="w-14 border border-emerald-300 rounded-lg px-1.5 py-1 text-xs text-center focus:ring-2 focus:ring-emerald-500 outline-none"
+                />
+              </label>
+
+              <!-- Lo que hoy no sale -->
+              <div
+                v-for="p in noEntregables" :key="'no-' + p.id"
+                class="flex items-center gap-3 rounded-xl px-3 py-2 border border-dashed border-gray-200 bg-gray-50 opacity-80"
+              >
+                <span class="w-4 h-4 flex-shrink-0" />
+                <img
+                  v-if="p.producto?.foto_url"
+                  :src="cloudinaryOpt(p.producto.foto_url, 96)"
+                  class="w-10 h-10 rounded-lg object-cover border border-gray-100 flex-shrink-0 grayscale"
+                />
+                <div v-else class="w-10 h-10 rounded-lg bg-gray-100 flex-shrink-0" />
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm font-medium text-gray-600 truncate">{{ nombreItem(p) }}</p>
+                  <p class="text-[11px]" :class="p.pendiente_entregar <= 0 ? 'text-emerald-700' : 'text-purple-700'">
+                    {{ p.pendiente_entregar <= 0 ? '✓ Ya entregado' : 'En el taller: se entrega cuando esté listo' }}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <p v-if="esParcial" class="text-[11px] text-blue-800 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+              Entrega parcial: lo demás queda pendiente y se entrega después. El saldo no se exige hoy.
+            </p>
           </div>
 
           <!-- ── MODO LECTURA (entregado) ─────────────────────────────────── -->
@@ -426,10 +577,10 @@ async function guardarPagoYEntregar() {
                     <img :src="cloudinaryOpt(item.foto_producto, 600)" class="w-full h-28 object-cover rounded-xl border border-gray-100" />
                   </a>
                 </div>
-                <div v-if="item.foto_pago">
-                  <p class="text-xs text-gray-500 mb-1">Comprobante</p>
-                  <a :href="item.foto_pago" target="_blank">
-                    <img :src="cloudinaryOpt(item.foto_pago, 600)" class="w-full h-28 object-cover rounded-xl border border-gray-100" />
+                <div v-for="(url, i) in (item.fotos_pago?.length ? item.fotos_pago : (item.foto_pago ? [item.foto_pago] : []))" :key="url">
+                  <p class="text-xs text-gray-500 mb-1">Comprobante{{ item.fotos_pago?.length > 1 ? ' ' + (i + 1) : '' }}</p>
+                  <a :href="url" target="_blank">
+                    <img :src="cloudinaryOpt(url, 600)" class="w-full h-28 object-cover rounded-xl border border-gray-100" />
                   </a>
                 </div>
               </div>
@@ -458,13 +609,25 @@ async function guardarPagoYEntregar() {
               </label>
             </div>
 
-            <!-- Sección de pago — solo cuando hay saldo pendiente -->
-            <template v-if="tieneSaldo">
+            <!-- Sección de pago — obligatoria en la última entrega con saldo;
+                 en una parcial es un abono opcional -->
+            <template v-if="tieneSaldo && !devuelveTodo">
               <div class="border-t border-gray-100 pt-4">
-                <h4 class="text-sm font-semibold text-gray-700 mb-3">
+                <template v-if="esParcial">
+                  <label class="flex items-start gap-3 cursor-pointer mb-3">
+                    <input type="checkbox" v-model="quiereAbonar" class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                    <span>
+                      <span class="text-sm font-semibold text-gray-800">El cliente abona algo hoy</span>
+                      <span class="block text-[11px] text-gray-500">
+                        Opcional: todavía le falta recibir parte del pedido. Debe <MoneyDisplay :amount="item.orden?.saldo_pendiente" />.
+                      </span>
+                    </span>
+                  </label>
+                </template>
+                <h4 v-if="!esParcial" class="text-sm font-semibold text-gray-700 mb-3">
                   Registrar cobro <span class="text-red-500">*</span>
                 </h4>
-                <div class="space-y-3">
+                <div v-if="traePago" class="space-y-3">
                   <div>
                     <label class="text-xs text-gray-500">Método de pago</label>
                     <select v-model="metodo" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
@@ -514,17 +677,24 @@ async function guardarPagoYEntregar() {
                     <input v-model="referencia" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
                   </div>
 
-                  <!-- Foto del comprobante — solo cuando hay saldo -->
+                  <!-- Fotos del comprobante: una o varias -->
                   <div>
                     <label class="text-xs text-gray-500 block mb-1">
                       Foto del comprobante de pago <span class="text-red-500">*</span>
+                      <span class="text-gray-400">— puedes subir varias</span>
                     </label>
-                    <label class="block border-2 border-dashed rounded-xl p-3 text-center cursor-pointer transition-colors"
+                    <div v-if="fotosPago.length" class="grid grid-cols-3 gap-2 mb-2">
+                      <div v-for="(f, i) in fotosPago" :key="f.preview" class="relative">
+                        <img :src="f.preview" class="w-full h-20 object-cover rounded-lg border border-gray-200" />
+                        <button type="button" @click="quitarFotoPago(i)"
+                          class="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 text-xs leading-5 text-center shadow">&times;</button>
+                      </div>
+                    </div>
+                    <label v-if="fotosPago.length < 6" class="block border-2 border-dashed rounded-xl p-3 text-center cursor-pointer transition-colors"
                       :class="fotoPagoPreview ? 'border-green-400' : 'border-gray-300 hover:border-blue-400'"
                     >
-                      <input type="file" accept="image/*" class="hidden" @change="onFotoPago" />
-                      <img v-if="fotoPagoPreview" :src="fotoPagoPreview" class="w-full h-28 object-cover rounded-lg" />
-                      <span v-else class="text-sm text-gray-400">📷 Foto o pantallazo del comprobante</span>
+                      <input type="file" accept="image/*" multiple class="hidden" @change="onFotoPago" />
+                      <span class="text-sm text-gray-400">📷 {{ fotosPago.length ? 'Agregar otra foto' : 'Foto o pantallazo del comprobante' }}</span>
                     </label>
                   </div>
                 </div>
@@ -532,7 +702,7 @@ async function guardarPagoYEntregar() {
             </template>
 
             <!-- Sin saldo: mensaje informativo -->
-            <div v-else class="bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-sm text-green-700 font-medium text-center">
+            <div v-else-if="!tieneSaldo" class="bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-sm text-green-700 font-medium text-center">
               ✓ Esta orden ya está completamente pagada — solo sube la foto del producto
             </div>
 
@@ -690,7 +860,7 @@ async function guardarPagoYEntregar() {
 
                 <div class="space-y-1.5">
                   <div
-                    v-for="oi in itemsOrden" :key="oi.id"
+                    v-for="oi in itemsQueVan" :key="oi.id"
                     :class="['flex items-center gap-2 rounded-lg px-2 py-1.5 border transition-colors',
                       devueltos[oi.id] ? 'bg-white border-orange-400' : 'bg-white/60 border-transparent']"
                   >
@@ -702,13 +872,13 @@ async function guardarPagoYEntregar() {
                     />
                     <span class="flex-1 min-w-0 text-xs text-gray-800 truncate">
                       {{ nombreItem(oi) }}
-                      <span class="text-gray-400">({{ oi.cantidad }})</span>
+                      <span class="text-gray-400">({{ llevar[oi.id] }})</span>
                     </span>
                     <!-- De dos mesas puede volver una sola -->
                     <input
-                      v-if="devueltos[oi.id] && oi.cantidad > 1"
+                      v-if="devueltos[oi.id] && llevar[oi.id] > 1"
                       v-model.number="devueltos[oi.id]"
-                      type="number" min="1" :max="oi.cantidad"
+                      type="number" min="1" :max="llevar[oi.id]"
                       class="w-14 border border-orange-300 rounded-lg px-1.5 py-1 text-xs text-center focus:ring-2 focus:ring-orange-500 outline-none"
                     />
                   </div>
@@ -751,6 +921,7 @@ async function guardarPagoYEntregar() {
             >
               <template v-if="registrando">Procesando...</template>
               <template v-else-if="mensajeBoton">{{ mensajeBoton }}</template>
+              <template v-else-if="esParcial">✓ Entregar {{ lineas.length }} de {{ itemsOrden.length }} productos</template>
               <template v-else>✓ Marcar como entregado</template>
             </button>
           </template>

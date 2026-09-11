@@ -127,6 +127,8 @@ class BorradorNoReservaTest extends TestCase
             $t->id(); $t->unsignedBigInteger('orden_id'); $t->timestamps();
         });
 
+        $this->completarEsquemaDeEntregas();
+
         DB::table('tiendas')->insert(['id' => 1, 'nombre' => 'Decasa Norte']);
         DB::table('clientes')->insert(['id' => 1, 'nombre' => 'Cliente', 'created_at' => now(), 'updated_at' => now()]);
         DB::table('productos')->insert(['id' => 5, 'nombre' => 'Mesa', 'categoria' => 'comedores']);

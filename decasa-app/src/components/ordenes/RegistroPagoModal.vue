@@ -55,9 +55,11 @@ onMounted(async () => {
 const loading       = ref(false)
 const error         = ref('')
 
-const comprobanteFile    = ref(null)
-const comprobanteUrl     = ref('')
-const comprobantePreview = ref('')
+// Una o varias fotos del comprobante: dos transferencias, o el pantallazo
+// que no cabe en una sola captura. [{ file, preview, url }]
+const comprobantes       = ref([])
+const comprobanteFile    = computed(() => comprobantes.value[0]?.file ?? null)
+const comprobanteUrl     = computed(() => comprobantes.value[0]?.url ?? '')
 
 // ── Descuento condicionado al medio de pago ───────────────────────────────────
 // Algunas órdenes tienen descuento por pagar en efectivo o transferencia. Si el
@@ -100,10 +102,8 @@ watch(() => props.show, (val) => {
     error.value            = ''
     avisoDescuento.value   = null
     tiendaId.value         = props.tiendaOrdenId
-    comprobanteFile.value  = null
-    comprobanteUrl.value   = ''
-    if (comprobantePreview.value) URL.revokeObjectURL(comprobantePreview.value)
-    comprobantePreview.value = ''
+    comprobantes.value.forEach(c => c.preview && URL.revokeObjectURL(c.preview))
+    comprobantes.value = []
   }
 })
 
@@ -112,19 +112,16 @@ function money(v) {
 }
 
 function onComprobanteChange(e) {
-  const file = e.target.files[0]
-  if (!file) return
-  if (comprobantePreview.value) URL.revokeObjectURL(comprobantePreview.value)
-  comprobanteFile.value    = file
-  comprobanteUrl.value     = ''
-  comprobantePreview.value = URL.createObjectURL(file)
+  for (const file of Array.from(e.target.files ?? [])) {
+    if (comprobantes.value.length >= 10) break
+    comprobantes.value.push({ file, preview: URL.createObjectURL(file), url: '' })
+  }
+  e.target.value = ''
 }
 
-function quitarComprobante() {
-  if (comprobantePreview.value) URL.revokeObjectURL(comprobantePreview.value)
-  comprobanteFile.value    = null
-  comprobanteUrl.value     = ''
-  comprobantePreview.value = ''
+function quitarComprobante(i = 0) {
+  const [q] = comprobantes.value.splice(i, 1)
+  if (q?.preview) URL.revokeObjectURL(q.preview)
 }
 
 function closeModal() {
@@ -155,13 +152,15 @@ async function submit() {
 
   loading.value = true
   try {
-    // Subir comprobante si es un archivo nuevo
-    if (comprobanteFile.value && !comprobanteUrl.value) {
+    // Subir las fotos que falten, una por una: si se cae la red a mitad,
+    // las que ya subieron se quedan.
+    for (const c of comprobantes.value) {
+      if (c.url) continue
       const fd = new FormData()
-      fd.append('foto', await comprimirImagen(comprobanteFile.value), 'comprobante.jpg')
+      fd.append('foto', await comprimirImagen(c.file), 'comprobante.jpg')
       fd.append('folder', 'comprobantes')
       const { data: up } = await api.post('/upload/foto', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-      comprobanteUrl.value = up.url
+      c.url = up.url
     }
 
     await registrarPago(props.ordenId, {
@@ -170,6 +169,7 @@ async function submit() {
       referencia:       referencia.value || undefined,
       notas:            notas.value || undefined,
       comprobante_url:  comprobanteUrl.value,
+      comprobante_fotos: comprobantes.value.map(c => c.url).filter(Boolean),
       tienda_id:        tiendaId.value || undefined,
       // El vendedor ya vio el aviso y le informó al cliente
       aceptar_perdida_descuento: avisoDescuento.value ? true : undefined,
@@ -301,19 +301,25 @@ async function submit() {
           <label class="block text-sm font-medium text-gray-700 mb-1">
             Foto del comprobante <span class="text-red-500">*</span>
           </label>
-          <div v-if="comprobanteFile" class="space-y-1.5">
-            <div class="relative">
-              <img :src="comprobantePreview" class="w-full rounded-xl border-2 border-gray-200 object-contain bg-gray-50 max-h-40" />
-              <button @click="quitarComprobante" class="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1.5 shadow">
-                <XMarkIcon class="w-3.5 h-3.5" />
-              </button>
+          <div v-if="comprobantes.length" class="space-y-1.5">
+            <div :class="comprobantes.length > 1 ? 'grid grid-cols-2 gap-2' : ''">
+              <div v-for="(c, i) in comprobantes" :key="c.preview" class="relative">
+                <img :src="c.preview" :class="['w-full rounded-xl border-2 border-gray-200 bg-gray-50', comprobantes.length > 1 ? 'h-28 object-cover' : 'object-contain max-h-40']" />
+                <button @click="quitarComprobante(i)" class="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1.5 shadow">
+                  <XMarkIcon class="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
-            <p class="text-xs text-gray-400 truncate">{{ comprobanteFile.name }}</p>
+            <label v-if="comprobantes.length < 10" class="flex items-center justify-center gap-1.5 border border-dashed border-gray-300 rounded-lg py-1.5 cursor-pointer text-xs text-gray-500 hover:border-blue-400">
+              <PhotoIcon class="w-4 h-4 text-gray-400" /> Agregar otra foto
+              <input type="file" accept="image/*" multiple @change="onComprobanteChange" class="hidden" />
+            </label>
           </div>
           <label v-else class="flex flex-col items-center gap-2 border-2 border-dashed border-amber-300 rounded-xl p-4 cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors">
             <PhotoIcon class="w-7 h-7 text-amber-300" />
             <span class="text-sm text-gray-500">Toca para adjuntar comprobante</span>
-            <input type="file" accept="image/*" @change="onComprobanteChange" class="hidden" />
+            <span class="text-xs text-gray-400">puedes subir varias fotos</span>
+            <input type="file" accept="image/*" multiple @change="onComprobanteChange" class="hidden" />
           </label>
         </div>
 

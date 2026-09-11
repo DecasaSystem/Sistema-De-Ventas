@@ -583,7 +583,7 @@ onUnmounted(() => {
                   v-else-if="o.serie"
                   class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700"
                 >Descuento</span>
-                <BadgeEstado :estado="o.estado" />
+                <BadgeEstado :estado="o.estado" :entrega="o.entrega" />
                 <span
                   v-if="o.atrasado"
                   class="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-700"

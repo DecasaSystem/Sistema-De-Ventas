@@ -99,14 +99,23 @@ const despachoActivo = computed(() => {
   return d && ESTADOS_DESPACHO_VIVO.includes(d.despacho?.estado) ? d : null
 })
 
-// ¿Mostrar el botón de "Entregar ahora"? Orden lista, con permiso y sin
-// nadie más despachándola — lo de "nadie más" ya viene resuelto en
-// `puede_entregar_directo`.
+// ¿Mostrar el botón de "Entregar ahora"? Con permiso, algo que ya se pueda
+// entregar (lo de catálogo siempre; lo fabricado cuando el taller lo dé por
+// listo) y sin nadie más despachándola — todo eso ya viene resuelto en
+// `puede_entregar_directo`. Ya no espera a que la orden entera esté lista:
+// el reloj se entrega hoy y el mueble cuando salga.
 const puedeEntregarDirecto = computed(() =>
-  orden.value?.estado === 'listo_entrega'
-  && auth.puedeEntregar
-  && orden.value?.puede_entregar_directo
+  auth.puedeEntregar && orden.value?.puede_entregar_directo
 )
+
+/** Cómo va la entrega de un producto, para el renglón del ítem. */
+function entregaDeItem(item) {
+  const hechas = Number(item.cantidad_entregada) || 0
+  if (item.devuelto_en) return null
+  if (hechas <= 0) return null
+  if (hechas >= item.cantidad) return { texto: '✓ Entregado', cls: 'text-emerald-700 bg-emerald-50 border-emerald-200' }
+  return { texto: `✓ Entregados ${hechas} de ${item.cantidad}`, cls: 'text-teal-700 bg-teal-50 border-teal-200' }
+}
 
 async function abrirEntregaDirecta() {
   if (abriendoEntrega.value) return
@@ -364,6 +373,20 @@ const estadosLabel = {
   entregado: 'Entregado',
   cancelado: 'Cancelado',
 }
+
+/** Las fotos del comprobante de un pago; los viejos traen una sola. */
+function fotosDePago(pago) {
+  const lista = pago?.comprobante_fotos
+  if (Array.isArray(lista) && lista.length) return lista.filter(Boolean)
+  return pago?.comprobante_url ? [pago.comprobante_url] : []
+}
+
+/** Todas las fotos del comprobante; las órdenes viejas traen una sola. */
+const fotosComprobante = computed(() => {
+  const lista = orden.value?.factura_fotos
+  if (Array.isArray(lista) && lista.length) return lista.filter(Boolean)
+  return orden.value?.factura_foto_url ? [orden.value.factura_foto_url] : []
+})
 
 const porcentajePagado = computed(() => {
   if (!orden.value || !orden.value.valor_total) return 0
@@ -796,15 +819,12 @@ const opcionesNuevoEstado = computed(() => {
     .filter((e) => {
       if (e === 'en_produccion' && !tienePersonalizados.value) return false
       if (e === 'listo_entrega' && tienePersonalizados.value && orden.value.estado === 'pendiente_anticipo') return false
-      // Una pieza que todavía se está fabricando no se pudo haber llevado
-      if (e === 'entregado' && tienePersonalizados.value) return false
+      // Entregar ya no es cambiar un estado: es una entrega —con quién, qué
+      // y cuándo— y va por "Entregar ahora", que deja todo eso escrito.
+      if (e === 'entregado') return false
       return true
     })
-    .map((e) => ({
-      value: e,
-      // Se aclara porque no es la entrega normal: aquí no hubo transporte
-      label: e === 'entregado' ? 'Entregado — se lo llevó de la tienda' : (estadosLabel[e] ?? e),
-    }))
+    .map((e) => ({ value: e, label: estadosLabel[e] ?? e }))
 })
 
 function fmtFechaCorta(f) {
@@ -1622,7 +1642,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         <DocumentIcon v-else class="w-4 h-4" />
         {{ descargandoPdf ? 'Generando...' : 'PDF' }}
       </button>
-      <BadgeEstado v-if="orden" :estado="orden.estado" />
+      <BadgeEstado v-if="orden" :estado="orden.estado" :entrega="orden.entrega" />
       <span
         v-if="orden?.atrasado"
         class="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-700"
@@ -1939,12 +1959,15 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         </div>
       </div>
 
-      <!-- Foto de factura -->
-      <div v-if="orden.factura_foto_url" class="bg-white rounded-xl shadow-sm p-4 space-y-2">
+      <!-- Fotos del comprobante: una o varias -->
+      <div v-if="fotosComprobante.length" class="bg-white rounded-xl shadow-sm p-4 space-y-2">
         <div class="flex items-center justify-between mb-2">
-          <p class="text-xs font-semibold text-gray-500 uppercase">Comprobante</p>
+          <p class="text-xs font-semibold text-gray-500 uppercase">
+            Comprobante{{ fotosComprobante.length > 1 ? `s (${fotosComprobante.length})` : '' }}
+          </p>
           <a
-            :href="orden.factura_foto_url"
+            v-if="fotosComprobante.length === 1"
+            :href="fotosComprobante[0]"
             target="_blank"
             rel="noopener"
             class="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium"
@@ -1954,11 +1977,22 @@ onMounted(() => { cargarTipos(); cargarOrden() })
           </a>
         </div>
         <img
-          :src="cloudinaryOpt(orden.factura_foto_url, 800)"
+          v-if="fotosComprobante.length === 1"
+          :src="cloudinaryOpt(fotosComprobante[0], 800)"
           alt="Comprobante"
           class="w-full rounded-lg border border-gray-200 object-contain max-h-72 cursor-pointer"
-          @click="verFactura = orden.factura_foto_url"
+          @click="verFactura = fotosComprobante[0]"
         />
+        <div v-else class="grid grid-cols-2 gap-2">
+          <img
+            v-for="(url, i) in fotosComprobante"
+            :key="url"
+            :src="cloudinaryOpt(url, 600)"
+            :alt="`Comprobante ${i + 1}`"
+            class="w-full h-40 rounded-lg border border-gray-200 object-cover cursor-pointer"
+            @click="verFactura = url"
+          />
+        </div>
       </div>
 
       <!-- Foto del anexo firmado -->
@@ -2102,6 +2136,10 @@ onMounted(() => { cargarTipos(); cargarOrden() })
               </p>
               <p class="text-xs text-gray-400">{{ item.producto?.categoria ?? item.categoria_custom ?? 'personalizado' }}</p>
               <p class="text-xs text-gray-500 mt-0.5">Cantidad: {{ item.cantidad }}</p>
+              <span
+                v-if="entregaDeItem(item)"
+                :class="['inline-block mt-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border', entregaDeItem(item).cls]"
+              >{{ entregaDeItem(item).texto }}</span>
               <p v-if="origenInventario(item)" class="text-xs text-emerald-600 mt-1 flex items-center gap-1">
                 <BuildingOffice2Icon class="w-3.5 h-3.5" /> Inventario {{ origenInventario(item) }}
               </p>
@@ -2452,16 +2490,19 @@ onMounted(() => { cargarTipos(); cargarOrden() })
                 por {{ correccionDe(pago).usuario }} · {{ formatDateTime(correccionDe(pago).fecha) }}
               </p>
               <p v-if="pago.notas" class="text-xs text-gray-400">{{ pago.notas }}</p>
-              <a
-                v-if="pago.comprobante_url"
-                :href="pago.comprobante_url"
-                target="_blank"
-                rel="noopener"
-                class="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline mt-0.5"
-              >
-                <ArrowDownTrayIcon class="w-3 h-3" />
-                Ver comprobante
-              </a>
+              <span v-if="fotosDePago(pago).length" class="inline-flex flex-wrap gap-x-2 mt-0.5">
+                <a
+                  v-for="(url, i) in fotosDePago(pago)"
+                  :key="url"
+                  :href="url"
+                  target="_blank"
+                  rel="noopener"
+                  class="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
+                >
+                  <ArrowDownTrayIcon class="w-3 h-3" />
+                  {{ fotosDePago(pago).length > 1 ? `Comprobante ${i + 1}` : 'Ver comprobante' }}
+                </a>
+              </span>
             </div>
             <div class="text-right">
               <p class="text-sm font-semibold text-green-600"><MoneyDisplay :amount="pago.monto" /></p>
@@ -2842,8 +2883,8 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         </button>
       </div>
 
-      <!-- Aviso: orden en despacho -->
-      <div v-if="orden.estado === 'listo_entrega'" class="space-y-2">
+      <!-- Entrega: directa (vendedor/supervisor) o en cola para el conductor -->
+      <div v-if="orden.estado === 'listo_entrega' || miEntregaDirectaPendiente || puedeEntregarDirecto" class="space-y-2">
         <!-- Entrega directa: continuar la que ya empecé -->
         <div v-if="miEntregaDirectaPendiente" class="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 space-y-2">
           <div class="flex items-start gap-3">
@@ -2870,8 +2911,15 @@ onMounted(() => { cargarTipos(); cargarOrden() })
           <div class="flex items-start gap-3">
             <TruckIcon class="w-5 h-5 mt-0.5 text-green-600 flex-shrink-0" />
             <div>
-              <p class="text-sm font-semibold text-green-800">Lista para entregar</p>
-              <p class="text-xs text-green-700 mt-0.5">Puedes entregarla tú mismo: se pide la foto del producto, el comprobante de pago y el acta de quien recibe — igual que un conductor.</p>
+              <p class="text-sm font-semibold text-green-800">
+                {{ orden.entrega?.parcial ? 'Falta por entregar' : (orden.estado === 'listo_entrega' ? 'Lista para entregar' : 'Hay productos para entregar') }}
+              </p>
+              <p class="text-xs text-green-700 mt-0.5">
+                <template v-if="orden.estado !== 'listo_entrega'">
+                  Lo de catálogo ya se puede entregar aunque el resto siga en el taller.
+                </template>
+                Puedes entregarla tú mismo: eliges qué va hoy, se pide la foto del producto, el acta de quien recibe y — solo en la última entrega — el saldo.
+              </p>
             </div>
           </div>
           <button
@@ -2882,7 +2930,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         </div>
 
         <!-- Sin entrega directa: espera al conductor -->
-        <div v-else class="bg-purple-50 border border-purple-200 rounded-xl px-4 py-3 flex items-start gap-3">
+        <div v-else-if="orden.estado === 'listo_entrega'" class="bg-purple-50 border border-purple-200 rounded-xl px-4 py-3 flex items-start gap-3">
           <TruckIcon class="w-5 h-5 mt-0.5 text-purple-600 flex-shrink-0" />
           <div>
             <p class="text-sm font-semibold text-purple-800">

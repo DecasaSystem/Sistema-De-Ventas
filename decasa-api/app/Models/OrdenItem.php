@@ -25,6 +25,8 @@ class OrdenItem extends Model
         'variante_detalle',
         'tienda_origen_id',
         'cantidad',
+        // Cuántas ya se entregaron. Caché de entrega_lineas: ver EntregaLinea.
+        'cantidad_entregada',
         'precio_unitario',
         'es_personalizado',
         'fabricar_pedido',
@@ -34,6 +36,9 @@ class OrdenItem extends Model
         'producto_unico',
         'es_regalo',
         'usa_stock_tienda',
+        // "Se lo lleva de una": el cliente sale de la tienda con esto en la
+        // mano. Por producto, no por orden: el reloj se lo lleva, el mueble no.
+        'llevar_ahora',
         'specs_personalizacion',
         'boceto_url',
         'boceto_fotos',
@@ -54,6 +59,8 @@ class OrdenItem extends Model
             'producto_unico'        => 'boolean',
             'es_regalo'             => 'boolean',
             'usa_stock_tienda'      => 'boolean',
+            'llevar_ahora'          => 'boolean',
+            'cantidad_entregada'    => 'integer',
             'specs_personalizacion' => 'array',
             'boceto_fotos'          => 'array',
             'fecha_entrega_prom'    => 'date',
@@ -182,6 +189,43 @@ class OrdenItem extends Model
     public function estaVivo(): bool
     {
         return $this->devuelto_en === null;
+    }
+
+    /**
+     * Cuántas unidades le faltan al cliente por recibir de este producto.
+     * Lo devuelto para cambio ya no cuenta: no es de la orden.
+     */
+    public function pendienteEntregar(): int
+    {
+        if (! $this->estaVivo()) return 0;
+
+        return max(0, (int) $this->cantidad - (int) $this->cantidad_entregada);
+    }
+
+    /**
+     * ¿Se puede entregar hoy?
+     *
+     * Lo de catálogo sí siempre (está apartado en la tienda), lo que ya está
+     * hecho también; lo que se fabrica, solo cuando el taller lo dio por
+     * listo. Antes la orden entera esperaba a que TODO estuviera listo, y el
+     * reloj se quedaba en la tienda hasta que saliera el mueble.
+     */
+    public function estaListoParaEntregar(): bool
+    {
+        if ($this->pendienteEntregar() <= 0) return false;
+        if ($this->producto_unico)            return true;
+        if (! $this->es_personalizado)        return true;
+
+        $produccion = $this->relationLoaded('produccion') ? $this->produccion : $this->produccion()->first();
+
+        // Sin producción —una orden vieja, o todavía en cotización— no hay
+        // quién la haya dado por lista.
+        return $produccion !== null && $produccion->estado === 'listo';
+    }
+
+    public function lineasEntrega()
+    {
+        return $this->hasMany(EntregaLinea::class, 'orden_item_id');
     }
 
     /** Los que cuentan para el total: lo devuelto ya no se cobra. */

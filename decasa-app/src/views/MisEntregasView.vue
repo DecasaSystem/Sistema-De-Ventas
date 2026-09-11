@@ -398,7 +398,7 @@ function pendientesRuta(items) {
                     <span class="truncate">{{ item.orden?.direccion_envio || item.orden?.cliente?.direccion }}</span>
                   </div>
                   <p v-if="item.orden?.items?.length" class="text-xs text-gray-400 mt-1 truncate">
-                    {{ item.orden.items.map(i => i.producto?.nombre).filter(Boolean).join(', ') }}
+                    {{ (item.orden.items.filter(i => (Number(i.cantidad_entregada) || 0) < i.cantidad).map(i => i.producto?.nombre || i.nombre_custom).filter(Boolean).join(', ')) || item.orden.items.map(i => i.producto?.nombre || i.nombre_custom).filter(Boolean).join(', ') }}
                   </p>
                   <div class="flex items-center gap-3 mt-2 text-sm">
                     <span class="text-gray-600"><MoneyDisplay :amount="item.orden?.valor_total" /></span>
@@ -442,7 +442,7 @@ function pendientesRuta(items) {
                 {{ item.orden?.cliente?.direccion }}
               </p>
               <p v-if="item.orden?.items?.length" class="text-xs text-gray-400 mt-1 truncate">
-                {{ item.orden.items.map(i => i.producto?.nombre).filter(Boolean).join(', ') }}
+                {{ (item.orden.items.filter(i => (Number(i.cantidad_entregada) || 0) < i.cantidad).map(i => i.producto?.nombre || i.nombre_custom).filter(Boolean).join(', ')) || item.orden.items.map(i => i.producto?.nombre || i.nombre_custom).filter(Boolean).join(', ') }}
               </p>
               <div class="flex items-center justify-between mt-2">
                 <span class="text-sm text-gray-600"><MoneyDisplay :amount="item.orden?.valor_total" /></span>

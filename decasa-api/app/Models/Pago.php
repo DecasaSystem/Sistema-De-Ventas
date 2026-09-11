@@ -35,12 +35,15 @@ class Pago extends Model
         'referencia',
         'notas',
         'comprobante_url',
+        // Todas las fotos del comprobante; comprobante_url lleva la primera.
+        'comprobante_fotos',
     ];
 
     protected function casts(): array
     {
         return [
             'monto'               => 'decimal:2',
+            'comprobante_fotos'   => 'array',
             'facturacion_hecha_at' => 'datetime',
         ];
     }
