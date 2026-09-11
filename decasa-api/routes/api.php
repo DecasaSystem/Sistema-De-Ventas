@@ -632,6 +632,7 @@ Route::middleware('auth:sanctum')->group(function () {
         // reparte el pool cuando alguien reemplaza.
         Route::get('/reemplazos',                [ComisionController::class, 'getReemplazos']);
         Route::post('/reemplazos',               [ComisionController::class, 'addReemplazo'])->middleware('role:supervisor');
+        Route::put('/reemplazos/{id}',           [ComisionController::class, 'editReemplazo'])->middleware('role:supervisor')->whereNumber('id');
         Route::delete('/reemplazos/{id}',        [ComisionController::class, 'removeReemplazo'])->middleware('role:supervisor')->whereNumber('id');
         Route::post('/pagar-listas',             [ComisionController::class, 'pagarListas'])->middleware('role:supervisor');
         Route::post('/{id}/pagar',               [ComisionController::class, 'marcarPagada'])->middleware('role:supervisor');
