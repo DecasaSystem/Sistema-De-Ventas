@@ -709,6 +709,40 @@ class ComisionController extends Controller
         return response()->json($reemplazo->load('tienda:id,nombre', 'usuario:id,nombre', 'reemplazaA:id,nombre'), 201);
     }
 
+    /**
+     * PUT /api/comisiones/reemplazos/{id}
+     *
+     * Cambiar las fechas (o la nota) de un reemplazo ya registrado. Existe
+     * porque la fecha de vuelta casi nunca es la que se anotó al principio:
+     * alguien llega antes de lo previsto, o el regreso se corre. Antes la
+     * única forma de corregirlo era borrar el reemplazo y crear uno nuevo,
+     * lo que de paso le cambiaba el id y perdía el historial.
+     */
+    public function editReemplazo(Request $request, int $id)
+    {
+        if (! $request->user()->acceso_comisiones) {
+            return response()->json(['error' => 'Sin acceso'], 403);
+        }
+
+        $reemplazo = TiendaReemplazo::findOrFail($id);
+
+        $data = $request->validate([
+            'desde' => 'sometimes|date',
+            'hasta' => 'nullable|date',
+            'nota'  => 'nullable|string|max:200',
+        ]);
+
+        $desde = $data['desde'] ?? $reemplazo->desde->toDateString();
+        if (! empty($data['hasta']) && Carbon::parse($data['hasta'])->lt(Carbon::parse($desde))) {
+            return response()->json(['message' => 'La fecha de regreso no puede ser antes de que empezó.'], 422);
+        }
+
+        $reemplazo->update($data);
+        TiendaReemplazo::olvidarCache();
+
+        return response()->json($reemplazo->fresh()->load('tienda:id,nombre', 'usuario:id,nombre', 'reemplazaA:id,nombre'));
+    }
+
     /** DELETE /api/comisiones/reemplazos/{id} */
     public function removeReemplazo(Request $request, int $id)
     {
@@ -1235,14 +1269,24 @@ class ComisionController extends Controller
             return;
         }
 
-        $gente = Usuario::where('tienda_default_id', $orden->tienda_abonada_id)
+        $fechaVenta = Carbon::parse($orden->created_at)->setTimezone(StatsController::TZ_NEGOCIO);
+
+        $base = Usuario::where('tienda_default_id', $orden->tienda_abonada_id)
             ->where('activo', true)
             ->whereIn('rol', ['vendedor', 'supervisor'])
-            ->pluck('id');
+            ->pluck('id')->map(fn ($v) => (int) $v)->all();
+
+        // Igual que la restauración de equipo: quien ese día estaba cubriendo
+        // o siendo cubierto no se reparte por planta, sino por quién de
+        // verdad estaba ahí. Sin esto, alguien de vacaciones o cubierto por
+        // un reemplazo se seguía llevando su parte del abono del almacén
+        // aunque el pool del mes ya lo hubiera dejado en cero.
+        $gente = collect(TiendaReemplazo::equipoElDia(
+            (int) $orden->tienda_abonada_id, $fechaVenta->toDateString(), $base
+        ));
 
         if ($gente->isEmpty()) return;
 
-        $fechaVenta = Carbon::parse($orden->created_at)->setTimezone(StatsController::TZ_NEGOCIO);
         // Su pedazo del valor de la orden, ya sin lo que se llevó el datáfono.
         // El 5% se lo saca enriquecer() con la misma regla que a todo lo demás,
         // así que basta con darle la base.

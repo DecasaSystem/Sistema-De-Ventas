@@ -18,6 +18,7 @@ import {
   XMarkIcon,
   ChartBarIcon,
   ArrowDownTrayIcon,
+  PencilIcon,
 } from '@heroicons/vue/24/outline'
 import { exportarExcel } from '@/utils/exportarExcel'
 import InputPesos from '@/components/common/InputPesos.vue'
@@ -174,6 +175,45 @@ async function quitarReemplazo(id) {
     await cargarReemplazos()
   } catch {
     toast.error('No se pudo quitar.')
+  }
+}
+
+// ── Editar fechas de un reemplazo ya registrado ─────────────────────────────
+// La fecha de vuelta casi nunca es la que se anotó al principio —llega antes,
+// o se corre—, así que tiene que poderse cambiar sin borrar el reemplazo y
+// crear uno nuevo.
+const editandoReemplazo = ref(null)   // id del reemplazo que se está editando
+const edicionReemplazo  = ref({})     // { desde, hasta }
+
+function empezarEdicionReemplazo(r) {
+  editandoReemplazo.value = r.id
+  edicionReemplazo.value  = { desde: r.desde, hasta: r.hasta || '' }
+}
+
+function cancelarEdicionReemplazo() {
+  editandoReemplazo.value = null
+}
+
+async function guardarEdicionReemplazo(id) {
+  const f = edicionReemplazo.value
+  if (f.hasta && f.hasta < f.desde) {
+    toast.error('La fecha de regreso no puede ser antes de que empezó.')
+    return
+  }
+
+  guardandoReemp.value = id
+  try {
+    await api.put(`/comisiones/reemplazos/${id}`, {
+      desde: f.desde,
+      hasta: f.hasta || null,
+    })
+    editandoReemplazo.value = null
+    await cargarReemplazos()
+    toast.success('Fechas actualizadas.')
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo actualizar.')
+  } finally {
+    guardandoReemp.value = null
   }
 }
 
@@ -862,22 +902,65 @@ onMounted(async () => {
               <div
                 v-for="r in reemplazosDe(m.tienda_id)"
                 :key="r.id"
-                class="flex items-center gap-2 text-[11px] bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-1.5"
+                class="bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-1.5"
               >
-                <span class="flex-1 min-w-0 text-amber-800">
-                  <span class="font-semibold">{{ r.usuario_nombre }}</span>
-                  <template v-if="r.tipo === 'traslado'">se trasladó aquí</template>
-                  <template v-else>cubre a <span class="font-semibold">{{ r.reemplaza_a }}</span></template>
-                  <span class="text-amber-600">
-                    · {{ fechaCorta(r.desde) }}{{ r.hasta ? ' a ' + fechaCorta(r.hasta) : ' (sin fecha de regreso)' }}
+                <div v-if="editandoReemplazo !== r.id" class="flex items-center gap-2 text-[11px]">
+                  <span class="flex-1 min-w-0 text-amber-800">
+                    <span class="font-semibold">{{ r.usuario_nombre }}</span>
+                    <template v-if="r.tipo === 'traslado'">se trasladó aquí</template>
+                    <template v-else>cubre a <span class="font-semibold">{{ r.reemplaza_a }}</span></template>
+                    <span class="text-amber-600">
+                      · {{ fechaCorta(r.desde) }}{{ r.hasta ? ' a ' + fechaCorta(r.hasta) : ' (sin fecha de regreso)' }}
+                    </span>
                   </span>
-                </span>
-                <button
-                  @click="quitarReemplazo(r.id)"
-                  class="w-4 h-4 flex items-center justify-center rounded-full text-amber-600 hover:bg-amber-200"
-                >
-                  <XMarkIcon class="w-3 h-3" />
-                </button>
+                  <button
+                    @click="empezarEdicionReemplazo(r)"
+                    title="Cambiar fechas"
+                    class="w-4 h-4 flex items-center justify-center rounded-full text-amber-600 hover:bg-amber-200"
+                  >
+                    <PencilIcon class="w-3 h-3" />
+                  </button>
+                  <button
+                    @click="quitarReemplazo(r.id)"
+                    title="Quitar reemplazo"
+                    class="w-4 h-4 flex items-center justify-center rounded-full text-amber-600 hover:bg-amber-200"
+                  >
+                    <XMarkIcon class="w-3 h-3" />
+                  </button>
+                </div>
+
+                <!-- Cambiar las fechas: la de vuelta casi nunca es la que se
+                     anotó al principio —llega antes, o se corre—. -->
+                <div v-else class="space-y-1.5">
+                  <p class="text-[11px] text-amber-800">
+                    <span class="font-semibold">{{ r.usuario_nombre }}</span>
+                    <template v-if="r.tipo === 'traslado'"> se trasladó aquí</template>
+                    <template v-else> cubre a <span class="font-semibold">{{ r.reemplaza_a }}</span></template>
+                  </p>
+                  <div class="grid grid-cols-2 gap-1.5">
+                    <div>
+                      <p class="text-[10px] text-amber-600 mb-0.5">Desde</p>
+                      <input type="date" v-model="edicionReemplazo.desde"
+                        class="w-full text-xs border border-amber-200 rounded-lg px-2 py-1.5 bg-white" />
+                    </div>
+                    <div>
+                      <p class="text-[10px] text-amber-600 mb-0.5">Hasta <span class="text-amber-300">— opcional</span></p>
+                      <input type="date" v-model="edicionReemplazo.hasta"
+                        class="w-full text-xs border border-amber-200 rounded-lg px-2 py-1.5 bg-white" />
+                    </div>
+                  </div>
+                  <div class="flex gap-1.5">
+                    <button
+                      @click="cancelarEdicionReemplazo"
+                      class="flex-1 text-xs py-1.5 rounded-lg bg-white border border-gray-200 text-gray-600"
+                    >Cancelar</button>
+                    <button
+                      @click="guardarEdicionReemplazo(r.id)"
+                      :disabled="guardandoReemp === r.id"
+                      class="flex-1 text-xs font-semibold py-1.5 rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-40"
+                    >{{ guardandoReemp === r.id ? '…' : 'Guardar' }}</button>
+                  </div>
+                </div>
               </div>
             </div>
 
