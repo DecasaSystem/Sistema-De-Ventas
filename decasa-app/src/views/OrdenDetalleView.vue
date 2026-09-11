@@ -6,7 +6,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
-import { getOrden, updateEstado, revertirEntrega, descargarPdfOrden, descargarActaEntrega, reenviarCotizacion, asignarFechasEntrega, confirmarCotizacion, editarPago, completarBorrador as completarBorradorApi, eliminarBorrador as eliminarBorradorApi, previsualizarNumeracion, convertirSerie, cambiarNumeroOrden, cambiarProductoEntregado } from '@/api/ordenes'
+import { getOrden, updateEstado, revertirEntrega, descargarPdfOrden, descargarActaEntrega, descargarOrdenEntrega, reenviarCotizacion, asignarFechasEntrega, confirmarCotizacion, editarPago, completarBorrador as completarBorradorApi, eliminarBorrador as eliminarBorradorApi, previsualizarNumeracion, convertirSerie, cambiarNumeroOrden, cambiarProductoEntregado } from '@/api/ordenes'
 import api from '@/api'
 import { useTiposProceso } from '@/composables/useTiposProceso'
 import { updateCliente } from '@/api/clientes'
@@ -556,6 +556,8 @@ async function marcarListaParaEntrega() {
     await updateEstado(orden.value.id, 'listo_entrega')
     toast.success('Orden lista para entregar')
     await cargarOrden()
+    // Y la hoja de entrega sale de una: es lo que se imprime para quien la lleva.
+    descargarHojaEntrega()
   } catch (e) {
     toast.error(e.response?.data?.message || 'No se pudo marcar')
   } finally {
@@ -1241,6 +1243,32 @@ function origenInventario(item) {
 // usuario vuelve a tocar y se generan dos.
 const descargandoPdf  = ref(false)
 const descargandoActa = ref(false)
+const descargandoHojaEntrega = ref(false)
+
+/** Abre en otra pestaña el PDF que devuelva `pedir()`. */
+async function abrirPdf(pedir, errorMsg) {
+  const response = await pedir()
+  const blob = new Blob([response.data], { type: 'application/pdf' })
+  const url  = window.URL.createObjectURL(blob)
+  const win  = window.open(url, '_blank')
+  if (!win) toast.error(errorMsg)
+  setTimeout(() => window.URL.revokeObjectURL(url), 10000)
+}
+
+// La hoja que se lleva quien entrega (la de siempre, a mano): lo que va,
+// total, abonos y lo que se cobra contra entrega.
+async function descargarHojaEntrega() {
+  if (descargandoHojaEntrega.value) return
+  descargandoHojaEntrega.value = true
+  try {
+    await abrirPdf(() => descargarOrdenEntrega(orden.value.id, miEntregaDirectaPendiente.value?.id),
+      'El navegador bloqueó la ventana del PDF. Permite las ventanas emergentes.')
+  } catch {
+    toast.error('No se pudo generar la orden de entrega.')
+  } finally {
+    descargandoHojaEntrega.value = false
+  }
+}
 
 async function descargarPdf() {
   if (descargandoPdf.value) return
@@ -3010,6 +3038,18 @@ onMounted(() => { cargarTipos(); cargarOrden() })
 
       <!-- Entrega: directa (vendedor/supervisor) o en cola para el conductor -->
       <div v-if="orden.estado === 'listo_entrega' || miEntregaDirectaPendiente || puedeEntregarDirecto || puedeMarcarLista" class="space-y-2">
+        <!-- La hoja de entrega para imprimir: la que se lleva el conductor o el
+             asesor, con lo que va y lo que se cobra. -->
+        <button
+          v-if="orden.estado === 'listo_entrega' || puedeEntregarDirecto || miEntregaDirectaPendiente"
+          @click="descargarHojaEntrega"
+          :disabled="descargandoHojaEntrega"
+          class="w-full flex items-center justify-center gap-2 border border-gray-300 bg-white text-gray-700 rounded-xl py-2.5 text-sm font-semibold hover:bg-gray-50 disabled:opacity-50 transition-colors"
+        >
+          <IconoS v-if="descargandoHojaEntrega" class="w-4 h-4" />
+          <DocumentIcon v-else class="w-4 h-4" />
+          {{ descargandoHojaEntrega ? 'Generando...' : 'Imprimir orden de entrega' }}
+        </button>
         <!-- Entrega directa: continuar la que ya empecé -->
         <div v-if="miEntregaDirectaPendiente" class="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 space-y-2">
           <div class="flex items-start gap-3">

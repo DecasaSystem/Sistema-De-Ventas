@@ -1303,6 +1303,161 @@ class DespachoController extends Controller
     }
 
     /**
+     * GET /api/ordenes/{ordenId}/orden-entrega
+     *
+     * La hoja que se lleva quien entrega: la que antes se hacía a mano.
+     * Datos del cliente, lo que va, el total, lo abonado y lo que hay que
+     * cobrar contra entrega, y espacio para la firma de quien recibe.
+     *
+     * Lista lo que FALTA por entregar. Si se pide con `?entrega=` (id de una
+     * entrega abierta), lista lo que se cargó en esa.
+     */
+    public function ordenEntrega(Request $request, int $ordenId)
+    {
+        $usuario = $request->user();
+
+        $orden = Orden::with([
+            'cliente:id,nombre,telefono,direccion,cedula', 'vendedor:id,nombre', 'tienda:id,nombre',
+            'items.producto:id,nombre', 'items.produccion:id,orden_item_id,estado',
+            'items.variante', 'items.comboConfig.tipo', 'items.comboConfig.opcion',
+            'pagos',
+        ])->findOrFail($ordenId);
+
+        if (! $orden->laPuedeVer($usuario) && ! $usuario->acceso_despacho && ! $usuario->facturacion) {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+
+        $entrega = null;
+        if ($request->query('entrega')) {
+            $entrega = DespachoItem::with('despacho.conductor:id,nombre', 'despacho.entregadoPor:id,nombre', 'lineas')
+                ->where('orden_id', $orden->id)->find($request->query('entrega'));
+        }
+
+        [$lineas, $yaEntregado] = $this->lineasParaHoja($orden, $entrega);
+        $parcial = $lineas->isNotEmpty() && $orden->items->filter->estaVivo()
+            ->contains(fn ($i) => $i->pendienteEntregar() > (int) ($lineas->firstWhere('id', $i->id)['cantidad'] ?? 0));
+
+        $abonos = $orden->totalPagado();
+        $pdf = Pdf::loadView('pdf.orden_entrega', [
+            'orden'       => $orden,
+            'lineas'      => $lineas,
+            'yaEntregado' => $yaEntregado,
+            'parcial'     => $parcial,
+            'totalPedido' => (float) $orden->valor_total,
+            'abonos'      => $abonos,
+            'saldo'       => max(0, (float) $orden->valor_total - $abonos),
+            'entregador'  => $entrega?->despacho?->quienEntrega(),
+            'logoBase64'  => $this->avifToPngBase64(public_path('img/logo.avif')),
+        ]);
+        $pdf->setPaper('letter');
+
+        return $pdf->download('orden-entrega-' . strtolower(str_replace('#', '', $orden->referencia)) . '.pdf');
+    }
+
+    /**
+     * Qué renglones van en una hoja de entrega, y qué ya se entregó antes.
+     *
+     * @return array{0: \Illuminate\Support\Collection, 1: \Illuminate\Support\Collection}
+     */
+    private function lineasParaHoja(Orden $orden, ?DespachoItem $entrega): array
+    {
+        $nombre = fn ($i) => $i->producto->nombre ?? $i->nombre_custom ?? 'Producto';
+
+        // Lo cargado en la entrega, si la hay y trae líneas.
+        $cargado = $entrega
+            ? $entrega->lineas->whereIn('resultado', EntregaLinea::SE_QUEDO)
+                ->groupBy('orden_item_id')->map(fn ($g) => (int) $g->sum('cantidad'))
+            : collect();
+
+        $lineas = $orden->items->filter->estaVivo()
+            ->map(function ($i) use ($cargado, $nombre) {
+                $cant = $cargado->isNotEmpty() ? (int) ($cargado[$i->id] ?? 0) : $i->pendienteEntregar();
+                return [
+                    'id' => $i->id, 'nombre' => $nombre($i), 'variante' => $i->variante_texto,
+                    'cantidad' => $cant, 'valor' => $cant * (float) $i->precio_unitario,
+                ];
+            })
+            ->filter(fn ($l) => $l['cantidad'] > 0)->values();
+
+        // Orden sin nada pendiente (ya entregada, o lista sin líneas): va todo.
+        if ($lineas->isEmpty()) {
+            $lineas = $orden->items->filter->estaVivo()->map(fn ($i) => [
+                'id' => $i->id, 'nombre' => $nombre($i), 'variante' => $i->variante_texto,
+                'cantidad' => (int) $i->cantidad, 'valor' => (int) $i->cantidad * (float) $i->precio_unitario,
+            ])->values();
+        }
+
+        $yaEntregado = $orden->items->filter(fn ($i) => (int) $i->cantidad_entregada > 0)
+            ->map(fn ($i) => ['nombre' => $nombre($i), 'cantidad' => (int) $i->cantidad_entregada])->values();
+
+        return [$lineas, $yaEntregado];
+    }
+
+    /**
+     * GET /api/despacho/{id}/hoja-ruta
+     *
+     * La hoja del conductor: las paradas en orden, a quién y dónde, qué se
+     * baja en cada una y cuánto cobrar. Al final, cuánto debe volver.
+     */
+    public function hojaRuta(Request $request, int $id)
+    {
+        $usuario  = $request->user();
+        $despacho = Despacho::with([
+            'conductor:id,nombre', 'supervisor:id,nombre', 'camion:id,nombre,placa',
+            'items' => fn ($q) => $q->orderBy('posicion'),
+            'items.lineas',
+            'items.orden.cliente:id,nombre,telefono,direccion,cedula',
+            'items.orden.vendedor:id,nombre',
+            'items.orden.items.producto:id,nombre',
+            'items.orden.items.variante', 'items.orden.items.comboConfig.tipo', 'items.orden.items.comboConfig.opcion',
+            'items.orden.pagos',
+        ])->findOrFail($id);
+
+        $esSuya = (int) $despacho->conductor_id === (int) $usuario->id;
+        if (! $esSuya && ! $usuario->acceso_despacho && $usuario->rol !== 'supervisor') {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+
+        $paradas = $despacho->items->map(function (DespachoItem $item) {
+            $orden = $item->orden;
+            [$lineas] = $this->lineasParaHoja($orden, $item);
+            $vivos   = $orden->items->filter->estaVivo();
+            $parcial = $vivos->contains(fn ($i) => $i->pendienteEntregar() > (int) ($lineas->firstWhere('id', $i->id)['cantidad'] ?? 0));
+            $abonado = $orden->totalPagado();
+
+            return [
+                'posicion'   => $item->posicion,
+                'referencia' => $orden->referencia,
+                'cliente'    => $orden->cliente->nombre ?? '—',
+                'cedula'     => $orden->cliente->cedula ?? null,
+                'telefono'   => $orden->cliente->telefono ?? null,
+                'direccion'  => $orden->direccion_envio ?: ($orden->cliente->direccion ?? null),
+                'ciudad'     => $orden->ciudad_envio,
+                'asesor'     => $orden->vendedor->nombre ?? null,
+                'lineas'     => $lineas->all(),
+                'parcial'    => $parcial,
+                'total'      => (float) $orden->valor_total,
+                'abonado'    => $abonado,
+                'saldo'      => max(0, (float) $orden->valor_total - $abonado),
+                'notas'      => $orden->notas,
+            ];
+        })->values();
+
+        $pdf = Pdf::loadView('pdf.hoja_ruta', [
+            'despacho'    => $despacho,
+            'paradas'     => $paradas,
+            // Solo lo que se cobra hoy: en una parcial el saldo espera.
+            'totalCobrar' => $paradas->reject(fn ($p) => $p['parcial'])->sum('saldo'),
+            'logoBase64'  => $this->avifToPngBase64(public_path('img/logo.avif')),
+        ]);
+        $pdf->setPaper('letter');
+
+        $nombre = $despacho->nombre_ruta ? \Illuminate\Support\Str::slug($despacho->nombre_ruta) : 'ruta-' . $despacho->id;
+
+        return $pdf->download("hoja-ruta-{$nombre}.pdf");
+    }
+
+    /**
      * GET /api/ordenes/{ordenId}/acta-entrega
      * PDF del acta de satisfacción firmada por quien recibió.
      */

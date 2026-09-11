@@ -309,6 +309,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/ordenes/{id}/cambiar-producto',       [OrdenController::class, 'cambiarProducto'])->whereNumber('id');
     // Acta de satisfacción firmada por quien recibió la entrega
     Route::get('/ordenes/{id}/acta-entrega',            [DespachoController::class, 'actaEntrega'])->whereNumber('id');
+    // La hoja de entrega para imprimir: lo que va, el total y lo que se cobra.
+    Route::get('/ordenes/{id}/orden-entrega',           [DespachoController::class, 'ordenEntrega'])->whereNumber('id');
     Route::post('/ordenes/{id}/reenviar-cotizacion',    [OrdenController::class, 'reenviarCotizacion']);
     Route::patch('/ordenes/{id}/fechas-entrega',        [OrdenController::class, 'asignarFechas']);
 
@@ -552,6 +554,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // Conductor (autenticado)
         Route::patch('/mis-entregas/rutas/{despachoId}/iniciar', [DespachoController::class, 'iniciarRuta'])->whereNumber('despachoId');
+        // La hoja de ruta para imprimir: paradas, productos y cobros.
+        Route::get('/{id}/hoja-ruta',                        [DespachoController::class, 'hojaRuta'])->whereNumber('id');
         Route::get('/mis-entregas',                          [DespachoController::class, 'misEntregas']);
         Route::get('/mis-entregas/historial',                [DespachoController::class, 'misHistorial']);
         Route::get('/mis-entregas/{despachoItemId}',         [DespachoController::class, 'showEntrega']);
