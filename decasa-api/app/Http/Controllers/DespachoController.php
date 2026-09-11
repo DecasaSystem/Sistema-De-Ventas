@@ -1008,6 +1008,7 @@ class DespachoController extends Controller
                     'despacho_item_id' => $item->id,
                     'cantidad'         => $d['cantidad'],
                     'motivo'           => $d['motivo'],
+                    'preferencia_cliente' => $d['preferencia'] ?? null,
                     'foto_url'         => $fotoDevolucion,
                     'fecha'            => now()->toDateString(),
                     'reportado_por_id' => $usuario->id,
@@ -1121,6 +1122,10 @@ class DespachoController extends Controller
             $itemId   = (int) ($d['orden_item_id'] ?? 0);
             $cantidad = (int) ($d['cantidad'] ?? 0);
             $motivo   = trim((string) ($d['motivo'] ?? ''));
+            // Qué prefiere el cliente (arreglar / otra igual / otro producto).
+            // Lo anota quien entrega; decide el supervisor.
+            $prefiere = in_array($d['preferencia'] ?? null, ['arreglar', 'cambiar_mismo', 'cambiar_otro'], true)
+                ? $d['preferencia'] : null;
 
             if ($cantidad < 1) continue;
 
@@ -1144,7 +1149,7 @@ class DespachoController extends Controller
                 ], 422);
             }
 
-            $limpias[] = ['orden_item_id' => $itemId, 'cantidad' => $cantidad, 'motivo' => $motivo];
+            $limpias[] = ['orden_item_id' => $itemId, 'cantidad' => $cantidad, 'motivo' => $motivo, 'preferencia' => $prefiere];
         }
 
         return $limpias;

@@ -12,7 +12,7 @@ import { useTiposProceso } from '@/composables/useTiposProceso'
 import { updateCliente } from '@/api/clientes'
 import { despachoPorOrden, crearEntregaDirecta, cancelarEntregaDirecta } from '@/api/despacho'
 import EntregaDetalleModal from '@/components/despacho/EntregaDetalleModal.vue'
-import { getDevoluciones } from '@/api/devoluciones'
+import { getDevoluciones, crearDevolucion } from '@/api/devoluciones'
 import { tomarFacturacion, marcarFacturada } from '@/api/pagos'
 import { getReceptores, crearConsulta, getConsultas, ajustarPrecio as ajustarPrecioApi } from '@/api/consultas'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
@@ -372,6 +372,70 @@ const estadosLabel = {
   listo_entrega: 'Listo entrega',
   entregado: 'Entregado',
   cancelado: 'Cancelado',
+}
+
+// ── Producto dañado (antes de entregarlo) ───────────────────────────────────
+// Se rayó en la tienda o llegó golpeado del taller. Se registra como una
+// devolución sin entrega: queda esperando que producción decida si se
+// arregla, se cambia por otro igual o por otro producto.
+const danoItem       = ref(null)
+const danoMotivo     = ref('')
+const danoCantidad   = ref(1)
+const danoPreferencia = ref('')
+const danoFotoFile   = ref(null)
+const danoGuardando  = ref(false)
+const PREFERENCIAS_DANO = [
+  { v: 'arreglar',      t: 'Que lo arreglen',            d: 'Vuelve al taller y se le entrega el mismo, reparado.' },
+  { v: 'cambiar_mismo', t: 'Otro igual',                 d: 'Se le cambia por otra unidad del mismo producto.' },
+  { v: 'cambiar_otro',  t: 'Otro producto',              d: 'Escoge otro; si vale más paga la diferencia, si vale menos queda a favor.' },
+]
+
+const puedeReportarDano = computed(() =>
+  orden.value && !['entregado', 'cancelado', 'borrador', 'cotizacion', 'pendiente_cotizacion', 'devuelto'].includes(orden.value.estado)
+)
+
+function puedeDanarse(item) {
+  return puedeReportarDano.value && !item.devuelto_en
+    && (Number(item.pendiente_entregar ?? (item.cantidad - (item.cantidad_entregada || 0))) > 0)
+}
+
+function abrirDano(item) {
+  danoItem.value = item
+  danoMotivo.value = ''
+  danoCantidad.value = 1
+  danoPreferencia.value = ''
+  danoFotoFile.value = null
+}
+
+async function guardarDano() {
+  if (!danoItem.value) return
+  if (danoMotivo.value.trim().length < 3) { toast.error('Escribe qué le pasó al producto.'); return }
+  danoGuardando.value = true
+  try {
+    let fotoUrl = null
+    if (danoFotoFile.value) {
+      const fd = new FormData()
+      fd.append('foto', await comprimirImagen(danoFotoFile.value), 'dano.jpg')
+      fd.append('folder', 'devoluciones')
+      const { data: up } = await api.post('/upload/foto', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      fotoUrl = up.url
+    }
+    await crearDevolucion({
+      orden_item_id: danoItem.value.id,
+      cantidad: Number(danoCantidad.value) || 1,
+      motivo: danoMotivo.value.trim(),
+      foto_url: fotoUrl,
+      fecha: new Date().toISOString().slice(0, 10),
+      preferencia_cliente: danoPreferencia.value || undefined,
+    })
+    toast.success('Registrado. Producción decide si se arregla o se cambia.')
+    danoItem.value = null
+    await cargarOrden()
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo registrar.')
+  } finally {
+    danoGuardando.value = false
+  }
 }
 
 /** Las fotos del comprobante de un pago; los viejos traen una sola. */
@@ -2140,6 +2204,11 @@ onMounted(() => { cargarTipos(); cargarOrden() })
                 v-if="entregaDeItem(item)"
                 :class="['inline-block mt-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border', entregaDeItem(item).cls]"
               >{{ entregaDeItem(item).texto }}</span>
+              <button
+                v-if="puedeDanarse(item)"
+                @click="abrirDano(item)"
+                class="block mt-1 text-[11px] font-medium text-orange-700 hover:text-orange-900 underline underline-offset-2"
+              >⚠ Producto dañado</button>
               <p v-if="origenInventario(item)" class="text-xs text-emerald-600 mt-1 flex items-center gap-1">
                 <BuildingOffice2Icon class="w-3.5 h-3.5" /> Inventario {{ origenInventario(item) }}
               </p>
@@ -2431,18 +2500,26 @@ onMounted(() => { cargarTipos(); cargarOrden() })
               <p class="text-xs text-gray-600 mt-0.5">{{ d.motivo }}</p>
               <p class="text-[11px] text-gray-400 mt-0.5">
                 Devuelto el {{ fmtFechaCorta(d.fecha) }}<span v-if="d.reportado_por"> · lo trajo {{ d.reportado_por }}</span>
+                <span v-if="d.preferencia_cliente"> · el cliente prefiere {{ ({ arreglar: 'que lo arreglen', cambiar_mismo: 'otro igual', cambiar_otro: 'otro producto' })[d.preferencia_cliente] }}</span>
               </p>
               <p
                 class="text-[11px] font-medium mt-1"
                 :class="{
                   'text-orange-700': d.estado === 'pendiente',
                   'text-blue-700':   d.estado === 'a_produccion',
+                  'text-teal-700':   d.estado === 'cambio_mismo' || d.estado === 'cambio',
                   'text-red-700':    d.estado === 'reembolsada',
                 }"
               >
                 <template v-if="d.estado === 'pendiente'">Esperando que producción decida</template>
                 <template v-else-if="d.estado === 'a_produccion'">
                   Volvió al taller para arreglo<span v-if="d.decidido_por"> — {{ d.decidido_por }}</span>
+                </template>
+                <template v-else-if="d.estado === 'cambio_mismo'">
+                  Se cambió por otra unidad igual<span v-if="d.decidido_por"> — {{ d.decidido_por }}</span>
+                </template>
+                <template v-else-if="d.estado === 'cambio'">
+                  Se cambia por otro producto<span v-if="d.decidido_por"> — {{ d.decidido_por }}</span>
                 </template>
                 <template v-else>
                   Se canceló y se devolvieron ${{ Math.round(d.monto_devuelto ?? 0).toLocaleString('es-CO') }}<span v-if="d.decidido_por"> — {{ d.decidido_por }}</span>
@@ -3003,6 +3080,63 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         </div>
       </div>
     </template>
+
+    <!-- Modal: producto dañado antes de entregarlo -->
+    <Transition name="fade">
+      <div v-if="danoItem" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="danoItem = null">
+        <div class="absolute inset-0 bg-black/40" />
+        <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-3 max-h-[90vh] overflow-y-auto">
+          <h3 class="text-lg font-bold text-gray-800">Producto dañado</h3>
+          <p class="text-sm text-gray-500">
+            <strong>{{ danoItem.producto?.nombre ?? danoItem.nombre_custom }}</strong>. Queda registrado y
+            producción decide qué se hace.
+          </p>
+
+          <div v-if="danoItem.cantidad > 1">
+            <label class="text-xs text-gray-500">¿Cuántas unidades?</label>
+            <input v-model.number="danoCantidad" type="number" min="1" :max="danoItem.cantidad" class="input" />
+          </div>
+
+          <div>
+            <label class="text-xs text-gray-500">¿Qué le pasó? *</label>
+            <textarea v-model="danoMotivo" rows="2" class="input" placeholder="Ej. llegó del taller con la laca rayada en la tapa" />
+          </div>
+
+          <div>
+            <label class="text-xs text-gray-500">Foto del daño (opcional)</label>
+            <input type="file" accept="image/*" capture="environment" @change="e => { danoFotoFile = e.target.files?.[0] ?? null }" class="block w-full text-xs text-gray-500" />
+          </div>
+
+          <div>
+            <p class="text-xs text-gray-500 mb-1">¿Qué prefiere el cliente? (si ya se le preguntó)</p>
+            <div class="space-y-1">
+              <label
+                v-for="op in PREFERENCIAS_DANO" :key="op.v"
+                :class="['flex items-start gap-2 rounded-lg px-2 py-1.5 border cursor-pointer',
+                  danoPreferencia === op.v ? 'bg-orange-50 border-orange-400' : 'border-gray-200']"
+              >
+                <input type="radio" :value="op.v" v-model="danoPreferencia" class="mt-0.5 text-orange-600" />
+                <span class="min-w-0">
+                  <span class="block text-xs font-semibold text-gray-800">{{ op.t }}</span>
+                  <span class="block text-[11px] text-gray-500 leading-snug">{{ op.d }}</span>
+                </span>
+              </label>
+              <label :class="['flex items-center gap-2 rounded-lg px-2 py-1.5 border cursor-pointer', danoPreferencia === '' ? 'bg-orange-50 border-orange-400' : 'border-gray-200']">
+                <input type="radio" value="" v-model="danoPreferencia" class="text-orange-600" />
+                <span class="text-xs text-gray-600">Todavía no se le pregunta</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="flex gap-2">
+            <button @click="danoItem = null" class="btn-secondary flex-1">Cancelar</button>
+            <button @click="guardarDano" :disabled="danoGuardando" class="btn-primary flex-1 disabled:opacity-50">
+              {{ danoGuardando ? 'Guardando...' : 'Registrar' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
 
     <!-- Modal: corregir el medio de un pago -->
     <Transition name="fade">

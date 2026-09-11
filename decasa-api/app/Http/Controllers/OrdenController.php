@@ -2312,7 +2312,7 @@ class OrdenController extends Controller
             //    esa plata queda a favor del cliente contra el total nuevo, que
             //    es justo lo que hace que no pague dos veces.
             $orden->refresh()->load('items');
-            $this->recalcularTotalOrden($orden);
+            $orden->recalcularTotal();
 
             // 4. La orden vuelve a estar viva para poder ponerle el reemplazo.
             $orden->update(['estado' => 'pendiente_anticipo']);
@@ -2341,29 +2341,6 @@ class OrdenController extends Controller
             'valor_total'    => (float) $orden->valor_total,
             'total_pagado'   => $orden->totalPagado(),
             'saldo_pendiente'=> $orden->saldoPendiente(),
-        ]);
-    }
-
-    /**
-     * Vuelve a sacar el total de la orden a partir de lo que sigue vivo.
-     *
-     * Lo devuelto no se cobra, así que no puede seguir sumando. Los descuentos
-     * se topan contra el subtotal nuevo: si el descuento era mayor que lo que
-     * quedó, dejarlo tal cual daría un total negativo.
-     */
-    private function recalcularTotalOrden(Orden $orden): void
-    {
-        $subtotal = $orden->items->filter->estaVivo()
-            ->sum(fn ($i) => $i->cantidad * $i->precio_unitario);
-
-        $descuento    = min((float) $orden->descuento_total, $subtotal);
-        $baseCond     = max(0, $subtotal - $descuento);
-        $condicionado = min((float) $orden->descuento_condicionado, $baseCond);
-
-        $orden->update([
-            'descuento_total'        => $descuento,
-            'descuento_condicionado' => $condicionado,
-            'valor_total'            => $baseCond - $condicionado,
         ]);
     }
 

@@ -53,10 +53,16 @@ abstract class TestCase extends BaseTestCase
         $agregar('orden_items',    'cantidad_entregada', fn ($t) => $t->unsignedInteger('cantidad_entregada')->default(0));
         $agregar('orden_items',    'llevar_ahora',       fn ($t) => $t->boolean('llevar_ahora')->default(false));
         $agregar('orden_items',    'devuelto_en',        fn ($t) => $t->date('devuelto_en')->nullable());
+        $agregar('orden_items',    'motivo_devolucion',  fn ($t) => $t->text('motivo_devolucion')->nullable());
+        $agregar('ordenes',        'descuento_total',    fn ($t) => $t->decimal('descuento_total', 15, 2)->default(0));
+        $agregar('ordenes',        'descuento_condicionado', fn ($t) => $t->decimal('descuento_condicionado', 15, 2)->default(0));
+        $agregar('ordenes',        'tienda_abonada_id',  fn ($t) => $t->unsignedBigInteger('tienda_abonada_id')->nullable());
+        $agregar('ordenes',        'covendedor_id',      fn ($t) => $t->unsignedBigInteger('covendedor_id')->nullable());
         $agregar('orden_items',    'producto_unico',     fn ($t) => $t->boolean('producto_unico')->default(false));
         $agregar('pagos',          'comprobante_url',    fn ($t) => $t->string('comprobante_url')->nullable());
         $agregar('pagos',          'comprobante_fotos',  fn ($t) => $t->json('comprobante_fotos')->nullable());
         $agregar('despacho_items', 'fotos_pago',         fn ($t) => $t->json('fotos_pago')->nullable());
+        $agregar('devoluciones',   'preferencia_cliente', fn ($t) => $t->string('preferencia_cliente')->nullable());
         $agregar('despacho_items', 'firma_omitida_motivo', fn ($t) => $t->string('firma_omitida_motivo')->nullable());
 
         // Vender con "se lo lleva ahora" abre una entrega de mostrador, así
@@ -119,6 +125,28 @@ abstract class TestCase extends BaseTestCase
             }
         }
 
+        // Cambiar un producto recalcula la comisión de la orden: mira estas dos.
+        if (! \Illuminate\Support\Facades\Schema::hasTable('comisiones')) {
+            \Illuminate\Support\Facades\Schema::create('comisiones', function ($t) {
+                $t->id(); $t->unsignedBigInteger('orden_id')->nullable(); $t->unsignedBigInteger('vendedor_id');
+                $t->unsignedBigInteger('tienda_id')->nullable(); $t->string('origen')->default('venta'); $t->char('mes_venta', 7);
+                $t->decimal('valor_orden', 15, 2)->default(0); $t->date('fecha_venta')->nullable();
+                $t->date('fecha_disponible')->nullable(); $t->string('estado')->default('pendiente');
+                $t->decimal('monto_comision', 15, 2)->nullable(); $t->timestamp('fecha_pago')->nullable();
+                $t->unsignedBigInteger('pagada_por')->nullable(); $t->boolean('notificado_lista')->default(false);
+                $t->timestamps();
+            });
+        }
+        if (! \Illuminate\Support\Facades\Schema::hasTable('pagos')) {
+            \Illuminate\Support\Facades\Schema::create('pagos', function ($t) {
+                $t->id(); $t->unsignedBigInteger('orden_id'); $t->unsignedBigInteger('vendedor_id')->nullable();
+                $t->unsignedBigInteger('tienda_id')->nullable(); $t->string('tipo')->nullable();
+                $t->decimal('monto', 15, 2)->default(0); $t->string('metodo')->nullable();
+                $t->string('referencia')->nullable(); $t->text('notas')->nullable();
+                $t->string('comprobante_url')->nullable(); $t->json('comprobante_fotos')->nullable();
+                $t->timestamp('created_at')->nullable();
+            });
+        }
         if (! \Illuminate\Support\Facades\Schema::hasTable('entrega_lineas')) {
             \Illuminate\Support\Facades\Schema::create('entrega_lineas', function ($t) {
                 $t->id(); $t->unsignedBigInteger('despacho_item_id'); $t->unsignedBigInteger('orden_item_id');

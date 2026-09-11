@@ -128,6 +128,14 @@ const actaCompleta = computed(() => {
 // llevar la cama y dos mesas y volver solo la cama.
 const hayDevolucion   = ref(false)
 const motivoDevolucion = ref('')
+// Lo que el cliente prefiere que se haga con lo que devuelve. Quien entrega
+// le da las opciones y anota la respuesta; decide el supervisor después.
+const preferencia      = ref('')
+const PREFERENCIAS     = [
+  { v: 'arreglar',      t: 'Que lo arreglen',            d: 'Vuelve al taller y se le entrega el mismo, reparado.' },
+  { v: 'cambiar_mismo', t: 'Otro igual',                 d: 'Se le cambia por otra unidad del mismo producto.' },
+  { v: 'cambiar_otro',  t: 'Otro producto',              d: 'Escoge otro; si vale más paga la diferencia, si vale menos queda a favor.' },
+]
 const fotoDevolucion        = ref(null)
 const fotoDevolucionPreview = ref(null)
 // { [orden_item_id]: cantidad que vuelve }
@@ -344,6 +352,7 @@ async function guardarPagoYEntregar() {
             orden_item_id: Number(ordenItemId),
             cantidad: Number(cant),
             motivo: motivoDevolucion.value.trim(),
+            preferencia: preferencia.value || undefined,
           }))
       ))
       if (fotoDevolucion.value) fd.append('foto_devolucion', fotoDevolucion.value, 'foto_devolucion.jpg')
@@ -894,6 +903,29 @@ async function guardarPagoYEntregar() {
                     placeholder="Ej. la cama llegó con la madera partida en el espaldar"
                     class="w-full border border-orange-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-orange-500 outline-none"
                   />
+                </div>
+
+                <!-- Las dos (tres) salidas se le ofrecen al cliente ahí mismo;
+                     lo que escoja queda anotado y el supervisor decide. -->
+                <div>
+                  <p class="text-xs font-semibold text-orange-900 mb-1">¿Qué prefiere el cliente?</p>
+                  <div class="space-y-1">
+                    <label
+                      v-for="op in PREFERENCIAS" :key="op.v"
+                      :class="['flex items-start gap-2 rounded-lg px-2 py-1.5 border cursor-pointer',
+                        preferencia === op.v ? 'bg-white border-orange-400' : 'bg-white/60 border-transparent']"
+                    >
+                      <input type="radio" :value="op.v" v-model="preferencia" class="mt-0.5 text-orange-600 focus:ring-orange-500" />
+                      <span class="min-w-0">
+                        <span class="block text-xs font-semibold text-gray-800">{{ op.t }}</span>
+                        <span class="block text-[11px] text-gray-500 leading-snug">{{ op.d }}</span>
+                      </span>
+                    </label>
+                    <label :class="['flex items-center gap-2 rounded-lg px-2 py-1.5 border cursor-pointer', preferencia === '' ? 'bg-white border-orange-400' : 'bg-white/60 border-transparent']">
+                      <input type="radio" value="" v-model="preferencia" class="text-orange-600 focus:ring-orange-500" />
+                      <span class="text-xs text-gray-600">No sabe todavía — que decida producción</span>
+                    </label>
+                  </div>
                 </div>
 
                 <label class="block border-2 border-dashed border-orange-300 rounded-xl p-2 text-center cursor-pointer">

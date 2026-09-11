@@ -510,6 +510,32 @@ class Orden extends Model
         ];
     }
 
+    /**
+     * Vuelve a sacar el total de la orden a partir de lo que sigue vivo.
+     *
+     * Lo devuelto no se cobra, así que no puede seguir sumando. Los descuentos
+     * se topan contra el subtotal nuevo: si el descuento era mayor que lo que
+     * quedó, dejarlo tal cual daría un total negativo. Lo ya pagado no se
+     * toca: queda a favor del cliente contra el total nuevo.
+     */
+    public function recalcularTotal(): void
+    {
+        $this->load('items');
+
+        $subtotal = $this->items->filter->estaVivo()
+            ->sum(fn ($i) => $i->cantidad * $i->precio_unitario);
+
+        $descuento    = min((float) $this->descuento_total, $subtotal);
+        $baseCond     = max(0, $subtotal - $descuento);
+        $condicionado = min((float) $this->descuento_condicionado, $baseCond);
+
+        $this->update([
+            'descuento_total'        => $descuento,
+            'descuento_condicionado' => $condicionado,
+            'valor_total'            => $baseCond - $condicionado,
+        ]);
+    }
+
     /** ¿Ya recibió el cliente todo lo que compró? */
     public function todoEntregado(): bool
     {

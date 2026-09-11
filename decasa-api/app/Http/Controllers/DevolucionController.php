@@ -50,6 +50,10 @@ class DevolucionController extends Controller
             'cantidad'       => (int) $d->cantidad,
             'motivo'         => $d->motivo,
             'foto_url'       => $d->foto_url,
+            // Lo que el vendedor le ofreció al cliente y este prefirió. Es
+            // una sugerencia para quien decide, no la decisión.
+            'preferencia_cliente' => $d->preferencia_cliente,
+            'orden_estado'   => $d->orden?->estado,
             'fecha'          => $d->fecha->toDateString(),
             'reportado_por'  => $d->reportadoPor?->nombre,
             'estado'         => $d->estado,
@@ -101,21 +105,32 @@ class DevolucionController extends Controller
     {
         $usuario = $request->user();
 
-        if (! $this->puedeDecidir($usuario) && ! $usuario->acceso_despacho) {
-            return response()->json(['message' => 'No autorizado.'], 403);
-        }
-
         $data = $request->validate([
             'orden_item_id' => 'required|exists:orden_items,id',
             'cantidad'      => 'required|integer|min:1',
             'motivo'        => 'required|string|min:3|max:1000',
             'foto_url'      => 'nullable|string|max:500',
             'fecha'         => 'required|date',
+            // Qué prefiere el cliente: arreglarlo, otra unidad igual, u otro
+            // producto. El vendedor lo anota; el supervisor decide.
+            'preferencia_cliente' => 'nullable|in:arreglar,cambiar_mismo,cambiar_otro',
         ], [
             'motivo.required' => 'Escribe por qué se devolvió.',
         ]);
 
         $item = \App\Models\OrdenItem::with('orden')->findOrFail($data['orden_item_id']);
+
+        // Lo registra quien decide, quien despacha, o quien puede ver la
+        // orden: el vendedor que vio el mueble rayado en la tienda antes de
+        // entregarlo también tiene que poder reportarlo.
+        if (! $this->puedeDecidir($usuario) && ! $usuario->acceso_despacho
+            && ! $item->orden->laPuedeVer($usuario)) {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+
+        if ($item->orden->estado === 'cancelado' || ! $item->estaVivo()) {
+            return response()->json(['message' => 'Ese producto ya no está vivo en la orden.'], 422);
+        }
 
         if ($data['cantidad'] > $item->cantidad) {
             return response()->json([
@@ -163,7 +178,7 @@ class DevolucionController extends Controller
         }
 
         $data = $request->validate([
-            'decision' => 'required|in:a_produccion,reembolso',
+            'decision' => 'required|in:a_produccion,reembolso,cambio_mismo,cambio_otro',
             'notas'    => 'nullable|string|max:1000',
             // Solo para el reembolso. Se sugiere lo que pagó por esas unidades,
             // pero manda lo que se escriba: a veces se devuelve de más por el
@@ -180,11 +195,12 @@ class DevolucionController extends Controller
                 'notas_decision'  => $data['notas'] ?? null,
             ]);
 
-            if ($data['decision'] === 'a_produccion') {
-                $this->mandarAProduccion($devolucion, $usuario);
-            } else {
-                $this->reembolsar($devolucion, (float) $data['monto'], $usuario);
-            }
+            match ($data['decision']) {
+                'a_produccion' => $this->mandarAProduccion($devolucion, $usuario),
+                'cambio_mismo' => $this->cambiarPorElMismo($devolucion, $usuario),
+                'cambio_otro'  => $this->cambiarPorOtro($devolucion, $usuario),
+                default        => $this->reembolsar($devolucion, (float) $data['monto'], $usuario),
+            };
 
             $devolucion->save();
         });
@@ -235,6 +251,135 @@ class DevolucionController extends Controller
             $devolucion,
             $usuario,
             'vuelve al taller para arreglo',
+        );
+    }
+
+    /**
+     * Se cambia por otra unidad de lo mismo. La orden no cambia de valor.
+     *
+     * De catálogo: la dañada sale del inventario como merma y se aparta otra
+     * igual para volverla a entregar. Si no hay otra en la tienda, no se
+     * puede por aquí: se cambia por otro producto o se manda a fabricar.
+     * Fabricado: se hace de nuevo. Es la misma producción vuelta a empezar,
+     * para que el mueble conserve su historia.
+     */
+    private function cambiarPorElMismo(Devolucion $devolucion, Usuario $usuario): void
+    {
+        $item  = $devolucion->item;
+        $orden = $devolucion->orden;
+
+        if ($item->es_personalizado && ! $item->producto_unico) {
+            $produccion = Produccion::where('orden_item_id', $item->id)->first();
+            if ($produccion) {
+                $produccion->update([
+                    'estado'         => 'pendiente',
+                    'fecha_real'     => null,
+                    'motivo_retraso' => 'Se hace de nuevo: ' . $devolucion->motivo,
+                ]);
+            } else {
+                Produccion::create([
+                    'orden_item_id'    => $item->id,
+                    'fecha_inicio'     => now()->toDateString(),
+                    'fecha_compromiso' => null,
+                    'estado'           => 'pendiente',
+                    'motivo_retraso'   => 'Se hace de nuevo: ' . $devolucion->motivo,
+                ]);
+            }
+            $orden->update(['estado' => 'en_produccion']);
+        } else {
+            $tiendaId = $item->tienda_origen_id ?? $orden->tienda_id;
+            $cant     = (int) $devolucion->cantidad;
+
+            // ¿Hay otra igual? Lo apartado por esta misma orden no cuenta
+            // como libre.
+            $inv   = Inventario::where('producto_id', $item->producto_id)->where('tienda_id', $tiendaId)->first();
+            $libre = $inv ? (int) $inv->cantidad_disponible - (int) $inv->cantidad_reservada : 0;
+            if ($libre < $cant) {
+                throw new \Illuminate\Http\Exceptions\HttpResponseException(response()->json([
+                    'message' => 'No hay otra unidad igual en la tienda. Cámbialo por otro producto o regístralo para fabricar.',
+                ], 422));
+            }
+
+            // La dañada sale como merma...
+            $this->sacarDeInventario($devolucion, $usuario);
+            // ...y se aparta otra para esta orden.
+            Inventario::where('producto_id', $item->producto_id)->where('tienda_id', $tiendaId)
+                ->increment('cantidad_reservada', $cant);
+            if ($item->variante_id) {
+                InventarioVariante::where('variante_id', $item->variante_id)->where('tienda_id', $tiendaId)
+                    ->increment('cantidad_reservada', $cant);
+            }
+            InventarioMovimiento::create([
+                'producto_id' => $item->producto_id,
+                'tienda_id'   => $tiendaId,
+                'tipo'        => 'reserva',
+                'cantidad'    => $cant,
+                'motivo'      => "Cambio por otra unidad — orden {$orden->referencia}",
+                'usuario_id'  => $usuario->id,
+            ]);
+
+            $orden->refresh()->load('items.produccion');
+            $orden->update(['estado' => $orden->estadoTrasEntrega()]);
+        }
+
+        $devolucion->estado = 'cambio_mismo';
+
+        $this->anotarEnLaOrden($devolucion, $usuario, 'se cambia por otra unidad igual');
+    }
+
+    /**
+     * Se cambia por otro producto, que puede valer más, menos o lo mismo.
+     *
+     * Lo devuelto deja de cobrarse —si era todo el renglón se marca devuelto,
+     * si era parte se descuenta—, la orden vuelve a estar abierta y el
+     * vendedor agrega el producto nuevo desde Editar. El saldo se recalcula
+     * contra lo ya pagado: si el nuevo vale más, paga la diferencia; si vale
+     * menos, queda a favor. Es la misma cuenta que un cambio después de
+     * entregada.
+     */
+    private function cambiarPorOtro(Devolucion $devolucion, Usuario $usuario): void
+    {
+        $item  = $devolucion->item;
+        $orden = $devolucion->orden;
+        $cant  = (int) $devolucion->cantidad;
+
+        // La dañada no vuelve a la venta.
+        $this->sacarDeInventario($devolucion, $usuario);
+
+        if ($item->es_personalizado && ! $item->producto_unico) {
+            Produccion::where('orden_item_id', $item->id)
+                ->whereNotIn('estado', ['cancelado', 'entregado'])
+                ->update(['estado' => 'cancelado']);
+        }
+
+        if ($cant >= (int) $item->cantidad) {
+            $item->update([
+                'devuelto_en'       => $devolucion->fecha,
+                'motivo_devolucion' => $devolucion->motivo,
+            ]);
+        } else {
+            // Vuelve solo parte: esas unidades salen del renglón. Lo que ya
+            // se le entregó de este mismo renglón se queda como está.
+            $item->update([
+                'cantidad'           => (int) $item->cantidad - $cant,
+                'cantidad_entregada' => min((int) $item->cantidad_entregada, (int) $item->cantidad - $cant),
+            ]);
+        }
+
+        $orden->refresh();
+        $orden->recalcularTotal();
+
+        // Abierta para el reemplazo.
+        $orden->update(['estado' => 'pendiente_anticipo']);
+
+        // El valor cambió: la comisión lo sigue.
+        \App\Http\Controllers\ComisionController::sincronizarValorOrden($orden->fresh());
+
+        $devolucion->estado = 'cambio';
+
+        $this->anotarEnLaOrden(
+            $devolucion, $usuario,
+            'se cambia por otro producto. La orden queda abierta: agrégale el nuevo desde Editar y el saldo se ajusta solo',
         );
     }
 

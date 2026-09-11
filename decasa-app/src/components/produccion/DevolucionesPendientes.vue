@@ -18,8 +18,14 @@ import InputPesos from '@/components/common/InputPesos.vue'
 import { getDevoluciones, decidirDevolucion } from '@/api/devoluciones'
 import {
   ArrowUturnLeftIcon, WrenchScrewdriverIcon, BanknotesIcon,
-  XMarkIcon, ChevronDownIcon, ChevronUpIcon,
+  XMarkIcon, ChevronDownIcon, ChevronUpIcon, ArrowPathIcon, ArrowsRightLeftIcon,
 } from '@heroicons/vue/24/outline'
+
+const PREFERENCIA_LABEL = {
+  arreglar:      'que lo arreglen',
+  cambiar_mismo: 'otro igual',
+  cambiar_otro:  'cambiarlo por otro producto',
+}
 
 const emit = defineEmits(['resuelta'])
 
@@ -62,6 +68,28 @@ async function aProduccion(d) {
   try {
     await decidirDevolucion(d.id, { decision: 'a_produccion' })
     toast.success('Vuelve al taller: ya aparece en el tablero')
+    await cargar()
+    emit('resuelta')
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo guardar')
+  } finally {
+    enviando.value = null
+  }
+}
+
+// ── Se cambia: por otra unidad igual, o por otro producto ──────────────────
+// Lo que el cliente prefirió viene anotado desde la entrega; aquí se decide.
+async function cambiar(d, decision) {
+  const pregunta = decision === 'cambio_mismo'
+    ? `¿"${d.producto}" se cambia por otra unidad igual? ${d.es_personalizado ? 'Se fabrica de nuevo.' : 'Se aparta otra del inventario y la dañada sale como merma.'}`
+    : `¿"${d.producto}" se cambia por otro producto? Deja de cobrarse y la orden queda abierta para que el vendedor agregue el nuevo (si vale más paga la diferencia, si vale menos queda a favor).`
+  if (!confirm(pregunta)) return
+  enviando.value = d.id
+  try {
+    await decidirDevolucion(d.id, { decision })
+    toast.success(decision === 'cambio_mismo'
+      ? (d.es_personalizado ? 'Se fabrica de nuevo: ya aparece en el tablero' : 'Se apartó otra unidad para la orden')
+      : 'La orden quedó abierta para agregar el producto nuevo')
     await cargar()
     emit('resuelta')
   } catch (e) {
@@ -117,7 +145,7 @@ async function confirmarReembolso() {
             {{ pendientes.length === 1 ? 'producto devuelto' : 'productos devueltos' }}
           </p>
           <p class="text-[11px] text-orange-700">
-            {{ puedeDecidir ? 'Hay que decidir si se arregla o se cancela.' : 'Esperando que producción decida.' }}
+            {{ puedeDecidir ? 'Hay que decidir: se arregla, se cambia o se cancela.' : 'Esperando que producción decida.' }}
           </p>
         </div>
         <component :is="abierto ? ChevronUpIcon : ChevronDownIcon" class="w-4 h-4 text-orange-600 shrink-0" />
@@ -143,22 +171,44 @@ async function confirmarReembolso() {
               <p class="text-[11px] text-gray-400 mt-0.5">
                 Devuelto el {{ formatoFecha(d.fecha) }}<span v-if="d.reportado_por"> · lo trajo {{ d.reportado_por }}</span>
               </p>
+              <p v-if="d.preferencia_cliente" class="text-[11px] font-semibold text-orange-800 mt-1 bg-orange-50 rounded px-1.5 py-0.5 inline-block">
+                El cliente prefiere: {{ PREFERENCIA_LABEL[d.preferencia_cliente] ?? d.preferencia_cliente }}
+              </p>
             </div>
           </div>
 
-          <div v-if="puedeDecidir" class="flex gap-2 mt-3">
+          <div v-if="puedeDecidir" class="grid grid-cols-2 gap-2 mt-3">
             <!-- Es lo que pasa casi siempre, así que va primero y en color -->
             <button
               @click="aProduccion(d)"
               :disabled="enviando === d.id"
-              class="flex-1 bg-blue-600 text-white text-xs font-semibold rounded-lg px-2 py-2 hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
+              :class="['text-xs font-semibold rounded-lg px-2 py-2 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5',
+                d.preferencia_cliente === 'arreglar' ? 'bg-blue-600 text-white hover:bg-blue-700 ring-2 ring-blue-300' : 'bg-blue-600 text-white hover:bg-blue-700']"
             >
               <WrenchScrewdriverIcon class="w-4 h-4" />
-              {{ enviando === d.id ? 'Guardando...' : 'Vuelve al taller' }}
+              {{ enviando === d.id ? 'Guardando...' : 'Arreglar' }}
+            </button>
+            <button
+              @click="cambiar(d, 'cambio_mismo')"
+              :disabled="enviando === d.id"
+              :class="['text-xs font-semibold rounded-lg px-2 py-2 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5 bg-teal-600 text-white hover:bg-teal-700',
+                d.preferencia_cliente === 'cambiar_mismo' ? 'ring-2 ring-teal-300' : '']"
+            >
+              <ArrowPathIcon class="w-4 h-4" />
+              Cambiar por otro igual
+            </button>
+            <button
+              @click="cambiar(d, 'cambio_otro')"
+              :disabled="enviando === d.id"
+              :class="['text-xs font-semibold rounded-lg px-2 py-2 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5 bg-indigo-600 text-white hover:bg-indigo-700',
+                d.preferencia_cliente === 'cambiar_otro' ? 'ring-2 ring-indigo-300' : '']"
+            >
+              <ArrowsRightLeftIcon class="w-4 h-4" />
+              Cambiar por otro producto
             </button>
             <button
               @click="abrirReembolso(d)"
-              class="flex-1 bg-gray-100 text-gray-700 text-xs font-semibold rounded-lg px-2 py-2 hover:bg-gray-200 transition-colors flex items-center justify-center gap-1.5"
+              class="bg-gray-100 text-gray-700 text-xs font-semibold rounded-lg px-2 py-2 hover:bg-gray-200 transition-colors flex items-center justify-center gap-1.5"
             >
               <BanknotesIcon class="w-4 h-4" />
               Cancelar y devolver
