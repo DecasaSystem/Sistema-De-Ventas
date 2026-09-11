@@ -178,18 +178,20 @@ class ReemplazoEntreTiendasTest extends TestCase
     public function test_un_reemplazo_sin_fecha_de_regreso_cuenta_hasta_hoy(): void
     {
         // Abierto: no se sabe cuándo vuelve. No puede cobrar por adelantado
-        // días que todavía no han pasado.
-        $mesActual = now()->format('Y-m');
+        // días que todavía no han pasado. "Hoy" es el de Colombia, no el del
+        // reloj UTC del servidor.
+        $hoy       = \App\Http\Controllers\ComisionController::hoy();
+        $mesActual = $hoy->format('Y-m');
         TiendaReemplazo::create([
             'tienda_id' => 1, 'usuario_id' => 4, 'reemplaza_a_id' => 1,
-            'desde' => now()->startOfMonth()->toDateString(), 'hasta' => null,
+            'desde' => $hoy->copy()->startOfMonth()->toDateString(), 'hasta' => null,
         ]);
 
         TiendaReemplazo::olvidarCache();
         $pesos = TiendaReemplazo::pesosDelMes(1, $mesActual, $this->equipo());
 
-        $this->assertSame(now()->day, $pesos[4]);
-        $this->assertLessThanOrEqual(now()->daysInMonth, $pesos[4]);
+        $this->assertSame($hoy->day, $pesos[4]);
+        $this->assertLessThanOrEqual($hoy->daysInMonth, $pesos[4]);
     }
 
     public function test_un_traslado_a_mitad_de_mes_entra_como_uno_mas(): void

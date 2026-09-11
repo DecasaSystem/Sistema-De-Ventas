@@ -119,6 +119,17 @@ function reemplazosDe(tiendaId) {
   return reemplazos.value.filter(r => r.tienda_id === tiendaId)
 }
 
+/**
+ * Cambió quién reparte —un reemplazo, alguien que entra o sale del equipo—,
+ * así que cambia lo que cobra cada uno: se recarga todo, no solo la lista de
+ * reemplazos. Antes se recargaba solo esa lista y las tarjetas del resumen
+ * seguían mostrando a Paola cobrando su parte estando de vacaciones.
+ */
+async function recargarPorCambioDeReparto() {
+  await cargar()
+  if (vistaTab.value === 'resumen') await cargarResumen()
+}
+
 /** Los días del mes que se está viendo, para proponer el reemplazo completo. */
 function rangoDelMes() {
   const [a, m] = mesActual.value.split('-').map(Number)
@@ -160,7 +171,7 @@ async function agregarReemplazo(tiendaId) {
     })
     nuevoReemplazo.value[tiendaId] = { tipo: 'reemplazo', usuario_id: null, reemplaza_a_id: null, ...rangoDelMes() }
     abrirReemplazo.value = { ...abrirReemplazo.value, [tiendaId]: false }
-    await cargarReemplazos()
+    await recargarPorCambioDeReparto()
     toast.success('Reemplazo registrado.')
   } catch (e) {
     toast.error(e.response?.data?.message || 'No se pudo registrar.')
@@ -172,7 +183,7 @@ async function agregarReemplazo(tiendaId) {
 async function quitarReemplazo(id) {
   try {
     await api.delete(`/comisiones/reemplazos/${id}`)
-    await cargarReemplazos()
+    await recargarPorCambioDeReparto()
   } catch {
     toast.error('No se pudo quitar.')
   }
@@ -208,7 +219,7 @@ async function guardarEdicionReemplazo(id) {
       hasta: f.hasta || null,
     })
     editandoReemplazo.value = null
-    await cargarReemplazos()
+    await recargarPorCambioDeReparto()
     toast.success('Fechas actualizadas.')
   } catch (e) {
     toast.error(e.response?.data?.message || 'No se pudo actualizar.')
@@ -344,6 +355,26 @@ function claveFila(r) {
   return `${r.vendedor_id}_${r.tienda_id}`
 }
 
+/**
+ * Cómo se parte el pool, dicho con los días de verdad.
+ *
+ * Decía "÷ 4 asesores" leyendo el divisor de la meta, que ni sabe de
+ * reemplazos ni se pone al día solo. El servidor manda el peso real: los
+ * días suyos sobre los días de todo el equipo (en Pereira y Circunvalar,
+ * los del trimestre entero, que es lo que hace que el pool se pague una
+ * sola vez y no una por mes).
+ */
+function parteDelEquipo(c) {
+  const todos = Number(c.partes_dias) || 0
+  const suyos = Number(c.parte_dias) || 0
+  if (todos <= 0) {
+    return c.divisor_asesores > 1 ? `÷ ${c.divisor_asesores} asesores` : 'Todo el pool'
+  }
+  const pct = Math.round(suyos / todos * 1000) / 10
+  const de  = c.periodicidad === 'trimestral' ? 'del trimestre' : 'del mes'
+  return `Su parte: ${suyos} de ${todos} días ${de} (${pct}%)`
+}
+
 // La meta es requisito para todo lo que sale del pool, se haya vendido o no.
 function dependeDeLaMeta(c) {
   return ['pool', 'parte_pool'].includes(c?.forma_pago ?? 'pool')
@@ -424,7 +455,7 @@ async function agregarAsesor(tiendaId) {
       vendedor_id: vendedorId,
     })
     agregandoAsesor.value[tiendaId] = null
-    await cargarMetas()
+    await recargarPorCambioDeReparto()
   } catch (e) {
     toast.error(e.response?.data?.message || 'Error agregando asesor')
   } finally {
@@ -438,7 +469,7 @@ async function quitarAsesor(asesorId) {
     // Va el mes que se está viendo: la lista puede venir arrastrada de un mes
     // anterior, y sin esto se le quitaría el asesor a ese mes ya pagado.
     await api.delete(`/comisiones/asesores-asignados/${asesorId}`, { params: { mes: mesActual.value } })
-    await cargarMetas()
+    await recargarPorCambioDeReparto()
   } catch {
     toast.error('Error eliminando asesor')
   } finally {
@@ -1591,8 +1622,8 @@ onMounted(async () => {
               <p class="font-semibold text-gray-600 mb-1">Cálculo (trimestre {{ c.trimestre }})</p>
               <p v-if="c.deficit_inicial > 0" class="text-red-500">Déficit arrastrado del trimestre anterior: − {{ cop(c.deficit_inicial) }}</p>
               <p>Pool trimestral (después de déficit): {{ cop(c.comision_pool) }}</p>
-              <p v-if="c.divisor_asesores > 1">÷ {{ c.divisor_asesores }} asesores: {{ cop(c.comision_asesor) }}</p>
-              <p class="font-semibold text-green-700 border-t border-gray-100 pt-0.5 mt-0.5">Comisión asesor: {{ cop(c.comision_asesor) }}</p>
+              <p>{{ parteDelEquipo(c) }}: {{ cop(c.comision_asesor) }}</p>
+              <p class="font-semibold text-green-700 border-t border-gray-100 pt-0.5 mt-0.5">Su parte este mes: {{ cop(c.comision_asesor) }}</p>
               <p>Ventas propias mes: {{ cop(c.total_vendedor_mes) }} ({{ c.total_vendedor_mes > 0 ? Math.round(c.valor_orden / c.total_vendedor_mes * 100) : 0 }}% esta orden)</p>
               <p class="font-bold text-green-700">Comisión esta orden: {{ cop(c.monto_comision) }}</p>
               <p v-if="c.deficit_final > 0" class="text-red-500 font-semibold">Queda debiendo {{ cop(c.deficit_final) }} para el próximo trimestre</p>
@@ -1603,7 +1634,7 @@ onMounted(async () => {
               <p>Meta tienda: − {{ cop(c.meta_tienda) }}</p>
               <p>Sin IVA (÷1.19): {{ cop(Math.max(0, (c.total_tienda_mes - c.meta_tienda) / 1.19)) }}</p>
               <p>Pool 5%: {{ cop(c.comision_pool) }}</p>
-              <p v-if="c.divisor_asesores > 1">÷ {{ c.divisor_asesores }} asesores: {{ cop(c.comision_asesor) }}</p>
+              <p>{{ parteDelEquipo(c) }}: {{ cop(c.comision_asesor) }}</p>
               <p class="font-semibold text-green-700 border-t border-gray-100 pt-0.5 mt-0.5">Comisión asesor: {{ cop(c.comision_asesor) }}</p>
               <p>Ventas propias mes: {{ cop(c.total_vendedor_mes) }} ({{ c.total_vendedor_mes > 0 ? Math.round(c.valor_orden / c.total_vendedor_mes * 100) : 0 }}% esta orden)</p>
               <p class="font-bold text-green-700">Comisión esta orden: {{ cop(c.monto_comision) }}</p>
