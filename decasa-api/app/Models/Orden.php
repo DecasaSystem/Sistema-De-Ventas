@@ -48,6 +48,8 @@ class Orden extends Model
         'es_compartida',
         'covendedor_id',
         'factura_foto_url',
+        // Todas las fotos del comprobante; factura_foto_url lleva la primera.
+        'factura_fotos',
         'firma_url',
         'anexo_foto_url',
         'direccion_envio',
@@ -76,6 +78,7 @@ class Orden extends Model
             'es_compartida'    => 'boolean',
             'entrega_inmediata' => 'boolean',
             'listo_entrega_at' => 'datetime',
+            'factura_fotos'    => 'array',
             'confirmada_en'    => 'datetime',
             'cotizacion_valida_hasta' => 'date',
             'fecha_sugerida_vendedor' => 'date',
@@ -432,8 +435,10 @@ class Orden extends Model
      *
      * La entrega directa es el camino corto —sin ruta ni conductor— para
      * cuando los conductores no están usando el programa. Exige el permiso
-     * `acceso_entregas` y que la orden ya esté lista (los personalizados con
-     * su producción terminada; eso es lo que la pone en `listo_entrega`).
+     * `acceso_entregas` y que haya ALGO que entregar hoy: un producto de
+     * catálogo apartado, o uno fabricado que el taller ya dio por listo. Ya
+     * no hace falta que la orden entera esté en `listo_entrega`: el reloj
+     * se entrega el día de la venta y el mueble cuando salga.
      *
      *  - Supervisor: cualquier orden dentro de su alcance normal.
      *  - Vendedor: solo si es suya (la vendió o es covendedor) Y salió de su
@@ -443,7 +448,7 @@ class Orden extends Model
     public function laPuedeEntregarDirecto(Usuario $usuario): bool
     {
         if (! $usuario->acceso_entregas)      return false;
-        if ($this->estado !== 'listo_entrega') return false;
+        if (! $this->tieneAlgoParaEntregar()) return false;
 
         if ($usuario->rol === 'supervisor') {
             if (! $this->laPuedeVer($usuario)) return false;
@@ -456,6 +461,114 @@ class Orden extends Model
         }
 
         return ! $this->tieneDespachoActivo();
+    }
+
+    /** Los estados en los que una orden es una venta viva con algo por entregar. */
+    public const ESTADOS_ENTREGABLES = ['pendiente_anticipo', 'en_produccion', 'listo_entrega'];
+
+    /** ¿Hay al menos un producto que se pueda entregar hoy? */
+    public function tieneAlgoParaEntregar(): bool
+    {
+        if (! in_array($this->estado, self::ESTADOS_ENTREGABLES, true)) return false;
+
+        return $this->itemsEntregables()->isNotEmpty();
+    }
+
+    /**
+     * Los productos que se pueden entregar hoy, con cuántas unidades faltan.
+     *
+     * @return \Illuminate\Support\Collection<int, OrdenItem>
+     */
+    public function itemsEntregables()
+    {
+        $this->loadMissing('items.produccion');
+
+        return $this->items->filter(fn ($i) => $i->estaListoParaEntregar())->values();
+    }
+
+    /**
+     * Cómo va la entrega: cuántas unidades se han entregado de las que van.
+     *
+     * Es lo que pinta "entrega parcial 1/2" en la orden y en las listas. No
+     * es un estado nuevo: la orden se queda en el suyo (en producción, lista)
+     * y esto la acompaña.
+     *
+     * @return array{total:int, entregados:int, pendientes:int, parcial:bool, completa:bool}
+     */
+    public function resumenEntrega(): array
+    {
+        $vivos = $this->items->filter->estaVivo();
+        $total = (int) $vivos->sum('cantidad');
+        $hecho = (int) $vivos->sum('cantidad_entregada');
+
+        return [
+            'total'      => $total,
+            'entregados' => min($hecho, $total),
+            'pendientes' => max(0, $total - $hecho),
+            'parcial'    => $hecho > 0 && $hecho < $total,
+            'completa'   => $total > 0 && $hecho >= $total,
+        ];
+    }
+
+    /**
+     * Vuelve a sacar el total de la orden a partir de lo que sigue vivo.
+     *
+     * Lo devuelto no se cobra, así que no puede seguir sumando. Los descuentos
+     * se topan contra el subtotal nuevo: si el descuento era mayor que lo que
+     * quedó, dejarlo tal cual daría un total negativo. Lo ya pagado no se
+     * toca: queda a favor del cliente contra el total nuevo.
+     */
+    public function recalcularTotal(): void
+    {
+        $this->load('items');
+
+        $subtotal = $this->items->filter->estaVivo()
+            ->sum(fn ($i) => $i->cantidad * $i->precio_unitario);
+
+        $descuento    = min((float) $this->descuento_total, $subtotal);
+        $baseCond     = max(0, $subtotal - $descuento);
+        $condicionado = min((float) $this->descuento_condicionado, $baseCond);
+
+        $this->update([
+            'descuento_total'        => $descuento,
+            'descuento_condicionado' => $condicionado,
+            'valor_total'            => $baseCond - $condicionado,
+        ]);
+    }
+
+    /** ¿Ya recibió el cliente todo lo que compró? */
+    public function todoEntregado(): bool
+    {
+        return $this->resumenEntrega()['completa'];
+    }
+
+    /**
+     * En qué estado queda la orden después de entregar parte (o todo).
+     *
+     *  - Todo entregado: `entregado`.
+     *  - Algo volvió y espera decisión: `devuelto`.
+     *  - Queda algo por fabricar: `en_produccion`.
+     *  - Queda algo ya listo o de catálogo: `listo_entrega` si la orden ya
+     *    había llegado ahí (o iba en camión); si no, se queda como estaba —el
+     *    supervisor la pone lista cuando corresponda, como siempre—.
+     */
+    public function estadoTrasEntrega(bool $hayDevolucionPendiente = false): string
+    {
+        if ($this->todoEntregado()) return 'entregado';
+        if ($hayDevolucionPendiente) return 'devuelto';
+
+        $this->loadMissing('items.produccion');
+        $pendientes = $this->items->filter(fn ($i) => $i->pendienteEntregar() > 0);
+
+        $hayEnTaller = $pendientes->contains(fn ($i) =>
+            $i->es_personalizado && ! $i->producto_unico
+            && ($i->produccion === null || ! in_array($i->produccion->estado, ['listo', 'entregado'], true))
+        );
+        if ($hayEnTaller) return 'en_produccion';
+
+        if (in_array($this->estado, ['listo_entrega', 'en_camino', 'devuelto'], true)) return 'listo_entrega';
+
+        return $this->estado;
     }
 
     /**
@@ -536,6 +649,12 @@ class Orden extends Model
     public function despachoItem()
     {
         return $this->hasOne(DespachoItem::class, 'orden_id');
+    }
+
+    /** Todas las entregas que ha tenido: con parciales puede haber varias. */
+    public function entregas()
+    {
+        return $this->hasMany(DespachoItem::class, 'orden_id');
     }
 
     public function ediciones()

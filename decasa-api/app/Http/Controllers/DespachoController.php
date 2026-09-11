@@ -16,6 +16,7 @@ use App\Models\Pago;
 use App\Models\Produccion;
 use App\Models\Usuario;
 use App\Services\DescuentoCondicionadoService;
+use App\Services\EntregaService;
 use App\Services\NotificacionService;
 use App\Support\ConvierteImagenesPdf;
 use App\Support\StockVariantes;
@@ -578,28 +579,15 @@ class DespachoController extends Controller
             }
 
             if (! $orden->laPuedeEntregarDirecto($usuario)) {
-                $motivo = $orden->estado !== 'listo_entrega'
-                    ? 'La orden todavía no está lista para entrega.'
+                $motivo = ! $orden->tieneAlgoParaEntregar()
+                    ? 'Todavía no hay nada que entregar: lo de catálogo ya se entregó y lo demás sigue en el taller.'
                     : 'Esta orden no es tuya o salió de otra tienda.';
                 throw new \Illuminate\Http\Exceptions\HttpResponseException(
                     response()->json(['message' => $motivo], 422)
                 );
             }
 
-            $despacho = Despacho::create([
-                'tipo'             => 'directa',
-                'entregado_por_id' => $usuario->id,
-                'supervisor_id'    => $usuario->id,
-                'estado'           => 'en_ruta',
-                'fecha_despacho'   => now()->toDateString(),
-            ]);
-
-            return DespachoItem::create([
-                'despacho_id' => $despacho->id,
-                'orden_id'    => $orden->id,
-                'posicion'    => 1,
-                'estado'      => 'pendiente',
-            ]);
+            return EntregaService::abrirDirecta($orden, $usuario);
         });
 
         return response()->json(['despacho_item_id' => $item->id], 201);
@@ -758,11 +746,13 @@ class DespachoController extends Controller
 
         $item = DespachoItem::with([
             'despacho:id,conductor_id,entregado_por_id,notas',
-            'orden.cliente:id,nombre,telefono,direccion',
+            'orden.cliente:id,nombre,telefono,direccion,cedula',
             'orden.tienda:id,nombre',
             'orden.items.producto:id,nombre,foto_url',
+            'orden.items.produccion:id,orden_item_id,estado',
             'orden.items.variante', 'orden.items.comboConfig.tipo', 'orden.items.comboConfig.opcion',
             'orden.pagos:id,orden_id,monto,metodo,referencia,created_at',
+            'lineas',
         ])->findOrFail($despachoItemId);
 
         if (! $this->puedeOperarEntrega($item, $usuario)) {
@@ -771,6 +761,17 @@ class DespachoController extends Controller
 
         $item->orden->total_pagado    = $item->orden->totalPagado();
         $item->orden->saldo_pendiente = $item->orden->saldoPendiente();
+
+        // Qué se puede entregar hoy y cuánto falta de cada cosa: el
+        // formulario deja escoger qué va en ESTA entrega. Lo que ya se
+        // entregó o sigue en el taller se ve, pero no se puede marcar.
+        $item->orden->items->each(function ($oi) {
+            $oi->pendiente_entregar = $oi->pendienteEntregar();
+            $oi->entregable         = $oi->estaListoParaEntregar();
+            $oi->produccion_estado  = $oi->produccion?->estado;
+            unset($oi->produccion);
+        });
+        $item->orden->entrega = $item->orden->resumenEntrega();
 
         // Descuento que se pierde si el cliente paga con tarjeta: el conductor
         // necesita saber cuánto tendría que cobrar en ese caso y por qué, para
@@ -809,28 +810,46 @@ class DespachoController extends Controller
         }
 
         $saldoPendiente = $item->orden->saldoPendiente();
-        $requierePago   = $saldoPendiente > 0.01;
+
+        // ── Qué va en esta entrega ───────────────────────────────────────────
+        // Por producto: el reloj hoy, el mueble cuando salga. Sin lista, va
+        // todo lo que falte y se pueda entregar (así funcionaban las entregas
+        // antes de las parciales, y así sigue funcionando la del conductor).
+        $lineas = $this->leerLineas($request, $item);
+        if ($lineas instanceof \Illuminate\Http\JsonResponse) {
+            return $lineas;
+        }
 
         // ── Lo que se devuelve ───────────────────────────────────────────────
         // Se lee antes de validar el resto porque cambia las reglas: si el
         // cliente devuelve todo no hay nada que cobrar, y exigirle el pago al
         // conductor lo dejaría trabado en la puerta de la casa.
-        $devoluciones = $this->leerDevoluciones($request, $item);
+        $devoluciones = $this->leerDevoluciones($request, $item, $lineas);
         if ($devoluciones instanceof \Illuminate\Http\JsonResponse) {
             return $devoluciones;
         }
 
-        $devuelveTodo = $devoluciones && $this->devuelveTodaLaOrden($item->orden, $devoluciones);
-        if ($devuelveTodo) {
-            $requierePago = false;
-        }
+        $devueltoPorItem = collect($devoluciones)->groupBy('orden_item_id')
+            ->map(fn ($g) => (int) collect($g)->sum('cantidad'))->all();
+        $devuelveTodo = $devoluciones && $this->devuelveTodoLoQueVa($lineas, $devueltoPorItem);
+
+        // El saldo se cobra cuando el cliente queda con TODO lo que compró.
+        // En una entrega parcial todavía le falta recibir algo, así que el
+        // pago es opcional: puede abonar, no se le exige.
+        $esLaUltima   = $this->completaLaOrden($item->orden, $lineas, $devueltoPorItem);
+        $requierePago = $saldoPendiente > 0.01 && $esLaUltima && ! $devuelveTodo;
+        $traePago     = $requierePago || ((float) $request->input('monto', 0) > 0);
 
         $data = $request->validate([
             'monto'         => $requierePago ? 'required|numeric|min:1'                         : 'nullable|numeric|min:0',
-            'metodo'        => $requierePago ? 'required|in:efectivo,transferencia,tarjeta,otro' : 'nullable|in:efectivo,transferencia,tarjeta,otro',
+            'metodo'        => $traePago     ? 'required|in:efectivo,transferencia,tarjeta,otro' : 'nullable|in:efectivo,transferencia,tarjeta,otro',
             'referencia'    => 'nullable|string|max:100',
             'foto_producto' => 'required|image|max:10240',
-            'foto_pago'     => $requierePago ? 'required|image|max:10240' : 'nullable|image|max:10240',
+            // Una o varias fotos del comprobante: `foto_pago` (una) o
+            // `fotos_pago[]` (lista). Obligatoria si hay pago.
+            'foto_pago'     => 'nullable|image|max:10240',
+            'fotos_pago'    => 'nullable|array|max:6',
+            'fotos_pago.*'  => 'image|max:10240',
             'foto_anexo'    => 'nullable|image|max:10240',
 
             // ── Acta de satisfacción ─────────────────────────────────────────
@@ -852,6 +871,17 @@ class DespachoController extends Controller
         ]);
 
         $conforme = $request->has('conforme') ? $request->boolean('conforme') : null;
+
+        $archivosPago = $request->hasFile('fotos_pago')
+            ? array_values((array) $request->file('fotos_pago'))
+            : ($request->hasFile('foto_pago') ? [$request->file('foto_pago')] : []);
+
+        if ($traePago && ! $archivosPago) {
+            return response()->json([
+                'message' => 'Falta la foto del comprobante de pago.',
+                'errors'  => ['foto_pago' => ['Sube la foto o el pantallazo del comprobante.']],
+            ], 422);
+        }
 
         if (! $request->hasFile('firma_recibido') && empty($data['firma_omitida_motivo'])) {
             return response()->json([
@@ -881,7 +911,7 @@ class DespachoController extends Controller
         // transferencia: hay que quitarlo ANTES de validar el monto, porque el
         // saldo a cobrar sube y con el saldo viejo se rechazaría el pago correcto.
         $orden = $item->orden;
-        $pierdeDescuento = $requierePago
+        $pierdeDescuento = $traePago
             && $orden->tieneDescuentoCondicionadoVivo()
             && Orden::metodoPierdeDescuento($data['metodo']);
 
@@ -889,7 +919,9 @@ class DespachoController extends Controller
             $saldoExigido = round($orden->valorSinDescuentoCondicionado() - $orden->totalPagado(), 2);
 
             // Con tarjeta no se puede cobrar menos: el descuento ya no aplica.
-            if ($data['monto'] < $saldoExigido - 0.01) {
+            // Solo en la última entrega: en una parcial es un abono y el
+            // descuento se pierde igual, pero el saldo se cobra al final.
+            if ($requierePago && $data['monto'] < $saldoExigido - 0.01) {
                 return response()->json([
                     'message' => 'Al pagar con ' . $data['metodo'] . ' el descuento no aplica: debes cobrar '
                         . '$' . number_format($saldoExigido, 0, ',', '.') . '.',
@@ -907,16 +939,15 @@ class DespachoController extends Controller
             $saldoPendiente = $orden->saldoPendiente();
         }
 
-        if ($requierePago && $data['monto'] > $saldoPendiente + 0.01) {
+        if ($traePago && $data['monto'] > $saldoPendiente + 0.01) {
             return response()->json([
                 'message' => "El monto ({$data['monto']}) supera el saldo pendiente (" . round($saldoPendiente, 2) . ").",
             ], 422);
         }
 
         $fotoProducto = $this->subirCloudinary($request->file('foto_producto'));
-        $fotoPago     = $request->hasFile('foto_pago')
-            ? $this->subirCloudinary($request->file('foto_pago'))
-            : null;
+        $fotosPago    = array_map(fn ($f) => $this->subirCloudinary($f), $archivosPago);
+        $fotoPago     = $fotosPago[0] ?? null;
         $fotoAnexo    = $request->hasFile('foto_anexo')
             ? $this->subirCloudinary($request->file('foto_anexo'))
             : null;
@@ -930,10 +961,11 @@ class DespachoController extends Controller
             ? $this->subirCloudinary($request->file('foto_devolucion'))
             : null;
 
-        DB::transaction(function () use ($item, $data, $usuario, $fotoProducto, $fotoPago, $fotoAnexo, $requierePago, $firmaRecibido, $fotoNovedad, $conforme, $devoluciones, $fotoDevolucion) {
+        DB::transaction(function () use ($item, $data, $usuario, $fotoProducto, $fotoPago, $fotosPago, $fotoAnexo, $traePago, $esLaUltima, $firmaRecibido, $fotoNovedad, $conforme, $devoluciones, $fotoDevolucion, $lineas, $devueltoPorItem) {
             $item->update([
                 'foto_producto' => $fotoProducto,
                 'foto_pago'     => $fotoPago,
+                'fotos_pago'    => $fotosPago ?: null,
 
                 // Acta de satisfacción
                 'firma_recibido_url'    => $firmaRecibido,
@@ -949,14 +981,20 @@ class DespachoController extends Controller
                 $item->orden->update(['anexo_foto_url' => $fotoAnexo]);
             }
 
-            if ($requierePago) {
+            // Qué se llevó el cliente en esta entrega, y qué volvió.
+            EntregaService::fijarLineas($item, $lineas, $devueltoPorItem);
+
+            if ($traePago && (float) $data['monto'] > 0) {
                 Pago::create([
                     'orden_id'    => $item->orden_id,
                     'vendedor_id' => $usuario->id,
-                    'tipo'        => 'saldo_final',
+                    // En la última entrega es el saldo; en una parcial, un abono.
+                    'tipo'        => $esLaUltima ? 'saldo_final' : 'abono',
                     'monto'       => $data['monto'],
                     'metodo'      => $data['metodo'],
                     'referencia'  => $data['referencia'] ?? null,
+                    'comprobante_url'   => $fotoPago,
+                    'comprobante_fotos' => $fotosPago ?: null,
                 ]);
             }
 
@@ -970,6 +1008,7 @@ class DespachoController extends Controller
                     'despacho_item_id' => $item->id,
                     'cantidad'         => $d['cantidad'],
                     'motivo'           => $d['motivo'],
+                    'preferencia_cliente' => $d['preferencia'] ?? null,
                     'foto_url'         => $fotoDevolucion,
                     'fecha'            => now()->toDateString(),
                     'reportado_por_id' => $usuario->id,
@@ -1017,15 +1056,52 @@ class DespachoController extends Controller
     }
 
     /**
+     * Qué productos van en esta entrega, ya comprobados.
+     *
+     * Llega como JSON dentro del multipart: [{orden_item_id, cantidad}]. Sin
+     * lista, va todo lo que falte y se pueda entregar hoy.
+     *
+     * @return array<int,int>|\Illuminate\Http\JsonResponse  [orden_item_id => cantidad]
+     */
+    private function leerLineas(Request $request, DespachoItem $item)
+    {
+        $orden = $item->orden()->with('items.produccion', 'items.producto:id,nombre')->first();
+        $crudo = $request->input('lineas');
+
+        if (! $crudo) {
+            $todo = EntregaService::entregablesDe($orden);
+            if (! $todo) {
+                return response()->json([
+                    'message' => 'No hay nada que entregar: lo de catálogo ya se entregó y lo demás sigue en el taller.',
+                ], 422);
+            }
+            return $todo;
+        }
+
+        $lista = is_array($crudo) ? $crudo : json_decode($crudo, true);
+        if (! is_array($lista)) {
+            return response()->json(['message' => 'No se entendió qué se entrega.'], 422);
+        }
+
+        $limpias = EntregaService::validarLineas($orden, $lista);
+        if (is_string($limpias)) {
+            return response()->json(['message' => $limpias, 'errors' => ['lineas' => [$limpias]]], 422);
+        }
+
+        return $limpias;
+    }
+
+    /**
      * Lo que el conductor marcó como devuelto, ya comprobado.
      *
      * Llega como JSON dentro del multipart porque el formulario sube fotos.
      * Devuelve la lista limpia, o una respuesta de error si algo no cuadra —
-     * un ítem que no es de esta orden, o más unidades de las que se llevaron.
+     * un ítem que no iba en esta entrega, o más unidades de las que iban.
      *
+     * @param  array<int,int> $lineas  lo que va en esta entrega
      * @return array<int, array{orden_item_id:int, cantidad:int, motivo:string}>|\Illuminate\Http\JsonResponse
      */
-    private function leerDevoluciones(Request $request, DespachoItem $item)
+    private function leerDevoluciones(Request $request, DespachoItem $item, array $lineas)
     {
         $crudo = $request->input('devoluciones');
 
@@ -1046,19 +1122,23 @@ class DespachoController extends Controller
             $itemId   = (int) ($d['orden_item_id'] ?? 0);
             $cantidad = (int) ($d['cantidad'] ?? 0);
             $motivo   = trim((string) ($d['motivo'] ?? ''));
+            // Qué prefiere el cliente (arreglar / otra igual / otro producto).
+            // Lo anota quien entrega; decide el supervisor.
+            $prefiere = in_array($d['preferencia'] ?? null, ['arreglar', 'cambiar_mismo', 'cambiar_otro'], true)
+                ? $d['preferencia'] : null;
 
             if ($cantidad < 1) continue;
 
             $ordenItem = $itemsOrden->get($itemId);
-            if (! $ordenItem) {
+            if (! $ordenItem || ! isset($lineas[$itemId])) {
                 return response()->json([
-                    'message' => 'Se está devolviendo algo que no es de esta orden.',
+                    'message' => 'Se está devolviendo algo que no iba en esta entrega.',
                 ], 422);
             }
-            if ($cantidad > (int) $ordenItem->cantidad) {
+            if ($cantidad > $lineas[$itemId]) {
                 $nombre = $ordenItem->nombre_custom ?: ($ordenItem->producto?->nombre ?? 'ese producto');
                 return response()->json([
-                    'message' => "No se pueden devolver {$cantidad} de {$nombre}: se llevaron {$ordenItem->cantidad}.",
+                    'message' => "No se pueden devolver {$cantidad} de {$nombre}: iban {$lineas[$itemId]}.",
                 ], 422);
             }
             // Sin motivo la devolución no sirve para decidir nada después.
@@ -1069,20 +1149,35 @@ class DespachoController extends Controller
                 ], 422);
             }
 
-            $limpias[] = ['orden_item_id' => $itemId, 'cantidad' => $cantidad, 'motivo' => $motivo];
+            $limpias[] = ['orden_item_id' => $itemId, 'cantidad' => $cantidad, 'motivo' => $motivo, 'preferencia' => $prefiere];
         }
 
         return $limpias;
     }
 
-    /** ¿Se regresó absolutamente todo lo que llevaba la orden? */
-    private function devuelveTodaLaOrden(Orden $orden, array $devoluciones): bool
+    /** ¿Se regresó absolutamente todo lo que iba en esta entrega? */
+    private function devuelveTodoLoQueVa(array $lineas, array $devueltoPorItem): bool
     {
-        $porItem = collect($devoluciones)->groupBy('orden_item_id')
-            ->map(fn ($g) => collect($g)->sum('cantidad'));
+        foreach ($lineas as $itemId => $cant) {
+            if ((int) $cant > (int) ($devueltoPorItem[$itemId] ?? 0)) {
+                return false;
+            }
+        }
 
+        return true;
+    }
+
+    /**
+     * ¿Con esta entrega el cliente queda con todo lo que compró?
+     *
+     * Lo que ya tenía, más lo que va ahora y se queda, contra lo que lleva la
+     * orden. Es lo que decide si se le cobra el saldo o no.
+     */
+    private function completaLaOrden(Orden $orden, array $lineas, array $devueltoPorItem): bool
+    {
         foreach ($orden->items as $item) {
-            if ((int) $item->cantidad > (int) ($porItem[$item->id] ?? 0)) {
+            $seQueda = (int) ($lineas[$item->id] ?? 0) - (int) ($devueltoPorItem[$item->id] ?? 0);
+            if ($item->pendienteEntregar() > max(0, $seQueda)) {
                 return false;
             }
         }
@@ -1134,6 +1229,10 @@ class DespachoController extends Controller
     /**
      * PATCH /api/despacho/mis-entregas/{despachoItemId}/entregar
      * Marca como entregado — requiere fotos + pago previos.
+     *
+     * Lo que pasa de verdad (stock, producción, estado de la orden) vive en
+     * EntregaService: es la misma puerta por la que sale el reloj que el
+     * cliente se lleva del mostrador y el mueble que lleva el conductor.
      */
     public function entregar(Request $request, int $despachoItemId)
     {
@@ -1148,7 +1247,7 @@ class DespachoController extends Controller
         if (! $this->puedeOperarEntrega($item, $usuario)) {
             return response()->json(['message' => 'No autorizado.'], 403);
         }
-        if ($item->estado === 'entregado') {
+        if (in_array($item->estado, ['entregado', 'devuelto'], true)) {
             return response()->json(['message' => 'Ya fue entregada.'], 422);
         }
         if (! $item->puedeEntregar()) {
@@ -1157,154 +1256,56 @@ class DespachoController extends Controller
             ], 422);
         }
 
-        $orden = $item->orden()->with(['items' => fn($q) => $q->where('es_personalizado', false)])->first();
-
-        // Lo que se regresó en el camión, anotado un momento antes al subir el
-        // acta. Esas unidades no se entregaron: ni salen del inventario ni
-        // cierran su producción.
-        $devueltoPorItem = Devolucion::where('despacho_item_id', $item->id)
-            ->get()
-            ->groupBy('orden_item_id')
-            ->map(fn ($g) => (int) $g->sum('cantidad'));
-
-        $hayDevolucion = $devueltoPorItem->isNotEmpty();
-
         // Conductor de ruta, o quien la abrió si fue entrega directa.
         $esDirecta      = $item->despacho->esDirecta();
         $quienEntregaId = $item->despacho->conductor_id ?? $item->despacho->entregado_por_id ?? $usuario->id;
         $quienEntrega   = $item->despacho->quienEntrega() ?? $usuario->nombre;
         $etiquetaCanal  = $esDirecta ? 'entrega directa' : 'conductor';
 
-        DB::transaction(function () use ($item, $orden, $devueltoPorItem, $hayDevolucion, $quienEntregaId, $etiquetaCanal) {
-            $now = now();
+        $resultado = EntregaService::entregar($item, (int) $quienEntregaId, $etiquetaCanal);
 
-            // Si volvió TODO, esta entrega no se hizo: se devolvió.
-            $seDevolvioTodo = $hayDevolucion && $this->devuelveTodaLaOrden(
-                $item->orden()->with('items')->first(),
-                $devueltoPorItem->map(fn ($c, $id) => ['orden_item_id' => $id, 'cantidad' => $c])->values()->all(),
-            );
+        $item->refresh()->load('orden.cliente:id,nombre', 'orden.items', 'lineas');
+        $orden   = $item->orden;
+        $entrega = $orden->resumenEntrega();
+        $parcial = $entrega['parcial'];
+        $item->orden->entrega = $entrega;
 
-            $item->update([
-                'estado'       => $seDevolvioTodo ? 'devuelto' : 'entregado',
-                'entregado_at' => $now,
-            ]);
-
-            // Con algo devuelto la orden no está entregada: queda esperando que
-            // decidan si se arregla o se cancela.
-            $orden->update(['estado' => $hayDevolucion ? 'devuelto' : 'entregado']);
-
-            // Lo devuelto queda fuera: su produccion no se cierra porque esa
-            // pieza no llego a la casa, y si se decide arreglarla hay que
-            // poder reabrirla donde estaba.
-            Produccion::whereIn('orden_item_id', function ($q) use ($item) {
-                $q->select('id')
-                    ->from('orden_items')
-                    ->where('orden_id', $item->orden_id)
-                    ->where('es_personalizado', true);
-            })
-                ->whereNotIn('orden_item_id', $devueltoPorItem->keys()->all() ?: [0])
-                ->whereIn('estado', ['pendiente', 'en_proceso', 'listo', 'retrasado'])
-                ->update([
-                    'estado'     => 'entregado',
-                    'fecha_real' => $now->toDateString(),
-                ]);
-
-            // Decrementar inventario de los ítems de stock (no personalizados)
-            foreach ($orden->items as $ordenItem) {
-                // Lo que volvio en el camion no salio del inventario: sigue
-                // reservado para esta orden hasta que se decida que hacer.
-                // Descontarlo aca lo daria por vendido y la pieza esta en la
-                // bodega, rota.
-                $devueltas = (int) ($devueltoPorItem[$ordenItem->id] ?? 0);
-                $entregadas = (int) $ordenItem->cantidad - $devueltas;
-                if ($entregadas <= 0) continue;
-
-                $origenId = $ordenItem->tienda_origen_id ?? $orden->tienda_id;
-                if ($ordenItem->variante_id) {
-                    InventarioVariante::where('variante_id', $ordenItem->variante_id)
-                        ->where('tienda_id', $origenId)
-                        ->update([
-                            'cantidad_disponible' => DB::raw("cantidad_disponible - {$entregadas}"),
-                            'cantidad_reservada'  => DB::raw("cantidad_reservada - {$entregadas}"),
-                        ]);
-                    Inventario::where('producto_id', $ordenItem->producto_id)
-                        ->where('tienda_id', $origenId)
-                        ->update([
-                            'cantidad_disponible' => DB::raw("cantidad_disponible - {$entregadas}"),
-                            'cantidad_reservada'  => DB::raw("cantidad_reservada - {$entregadas}"),
-                        ]);
-                } else {
-                    Inventario::where('producto_id', $ordenItem->producto_id)
-                        ->where('tienda_id', $origenId)
-                        ->update([
-                            'cantidad_disponible' => DB::raw("cantidad_disponible - {$entregadas}"),
-                            'cantidad_reservada'  => DB::raw("cantidad_reservada - {$entregadas}"),
-                        ]);
-                }
-                // Bajó el stock base: el reparto por tela/medida tiene que
-                // seguir cabiendo dentro de lo que quedó.
-                StockVariantes::cuadrar(
-                    (int) $ordenItem->producto_id, (int) $origenId, "Entrega orden #{$orden->id}"
-                );
-                InventarioMovimiento::create([
-                    'producto_id' => $ordenItem->producto_id,
-                    'tienda_id'   => $origenId,
-                    'tipo'        => 'salida',
-                    'cantidad'    => $entregadas,
-                    'motivo'      => "Entrega orden #{$orden->id} — {$etiquetaCanal}",
-                    'usuario_id'  => $quienEntregaId,
-                ]);
-
-                // Aquí es donde el producto sale de verdad del inventario. Este
-                // camino —el del conductor— nunca avisaba, y es por el que pasa
-                // casi toda la mercancía: el aviso de "se vendió el último" no
-                // llegaba nunca.
-                if (! $ordenItem->es_personalizado && $ordenItem->producto_id) {
-                    OrdenController::notificarSiSeAcabo(
-                        (int) $ordenItem->producto_id,
-                        (int) $origenId,
-                        $entregadas,
-                    );
-                }
-            }
-
-            $completados = DespachoItem::where('despacho_id', $item->despacho_id)
-                ->where('estado', 'entregado')
-                ->count();
-            $total = DespachoItem::where('despacho_id', $item->despacho_id)->count();
-
-            if ($completados >= $total) {
-                $item->despacho()->update(['estado' => 'completado']);
-            }
-        });
+        $queSeEntrego = $parcial
+            ? " ({$entrega['entregados']} de {$entrega['total']} productos; falta el resto)"
+            : '';
 
         event(new OrdenEntregada(
             $item->orden_id,
-            $item->orden->cliente->nombre,
+            $orden->cliente->nombre,
             $quienEntrega,
-            $item->orden->referencia,
+            $orden->referencia,
         ));
 
         NotificacionService::crear(
             'entregado',
-            $esDirecta ? 'Orden entregada' : 'Orden entregada por conductor',
-            "Orden {$item->orden->referencia} de {$item->orden->cliente->nombre} fue entregada por {$quienEntrega}",
+            ($parcial ? 'Entrega parcial' : 'Orden entregada') . ($esDirecta ? '' : ' por conductor'),
+            "Orden {$orden->referencia} de {$orden->cliente->nombre}: "
+                . ($parcial ? 'se entregó parte' : 'fue entregada') . " por {$quienEntrega}{$queSeEntrego}",
             ['orden_id' => $item->orden_id],
         );
 
-        $facturacionVendedores = Usuario::where('rol', 'vendedor')
-            ->where('facturacion', true)
-            ->where('tienda_default_id', $item->orden->tienda_id)
-            ->get();
+        // Facturar cuando el cliente ya tiene todo: una entrega parcial no
+        // cierra la venta.
+        if (! $parcial && $resultado['estado_orden'] === 'entregado') {
+            $facturacionVendedores = Usuario::where('rol', 'vendedor')
+                ->where('facturacion', true)
+                ->where('tienda_default_id', $orden->tienda_id)
+                ->get();
 
-        foreach ($facturacionVendedores as $vendedor) {
-            NotificacionService::crear(
-                'facturar',
-                'Orden pendiente de facturación',
-                "Orden {$item->orden->referencia} de {$item->orden->cliente->nombre} fue entregada — pendiente de facturación",
-                ['orden_id' => $item->orden_id],
-                $vendedor->id,
-            );
+            foreach ($facturacionVendedores as $vendedor) {
+                NotificacionService::crear(
+                    'facturar',
+                    'Orden pendiente de facturación',
+                    "Orden {$orden->referencia} de {$orden->cliente->nombre} fue entregada — pendiente de facturación",
+                    ['orden_id' => $item->orden_id],
+                    $vendedor->id,
+                );
+            }
         }
 
         return response()->json($item);

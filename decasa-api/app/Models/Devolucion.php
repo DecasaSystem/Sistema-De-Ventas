@@ -20,7 +20,7 @@ class Devolucion extends Model
 
     protected $fillable = [
         'orden_id', 'orden_item_id', 'despacho_item_id', 'cantidad',
-        'motivo', 'foto_url', 'fecha', 'reportado_por_id', 'estado',
+        'motivo', 'foto_url', 'preferencia_cliente', 'fecha', 'reportado_por_id', 'estado',
         'decidido_por_id', 'decidido_at', 'notas_decision',
         'monto_devuelto', 'caja_movimiento_id',
     ];

@@ -125,6 +125,8 @@ class ProductoUnicoTest extends TestCase
             $t->timestamp('created_at')->nullable();
         });
 
+        $this->completarEsquemaDeEntregas();
+
         DB::table('tiendas')->insert(['id' => 1, 'nombre' => 'Decasa Norte']);
         DB::table('clientes')->insert(['id' => 1, 'nombre' => 'Cliente', 'created_at' => now(), 'updated_at' => now()]);
     }
@@ -203,15 +205,23 @@ class ProductoUnicoTest extends TestCase
         $this->assertSame(0, Produccion::count());
     }
 
-    public function test_un_diseno_especial_sigue_bloqueando_la_entrega_en_el_acto(): void
+    public function test_un_diseno_especial_no_se_lleva_en_el_acto_pero_no_tumba_la_venta(): void
     {
+        // Antes la orden entera se rechazaba. Ahora "se lo lleva" es por
+        // producto: lo que hay que fabricar simplemente no sale hoy, y la
+        // venta se crea igual, esperando al taller.
         $this->actingAs($this->vendedor())
             ->postJson('/api/ordenes', $this->payload([[
                 'nombre_custom'   => 'Comedor a la medida',
                 'cantidad'        => 1,
                 'precio_unitario' => 3000000,
             ]], ['entrega_inmediata' => true]))
-            ->assertStatus(422);
+            ->assertCreated();
+
+        $orden = Orden::first();
+        $this->assertNotSame('entregado', $orden->estado);
+        $this->assertFalse((bool) $orden->items()->first()->llevar_ahora);
+        $this->assertSame(0, (int) $orden->items()->first()->cantidad_entregada);
     }
 
     public function test_sin_precio_no_queda_esperando_una_cotizacion(): void

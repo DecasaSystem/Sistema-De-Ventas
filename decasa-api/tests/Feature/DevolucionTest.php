@@ -105,6 +105,8 @@ class DevolucionTest extends TestCase
             $t->text('notas_decision')->nullable(); $t->decimal('monto_devuelto', 12, 2)->nullable();
             $t->unsignedBigInteger('caja_movimiento_id')->nullable(); $t->timestamps();
         });
+
+        $this->completarEsquemaDeEntregas();
     }
 
     private function jefa(): Usuario
@@ -295,5 +297,112 @@ class DevolucionTest extends TestCase
         $this->actingAs($this->jefa())
             ->postJson("/api/devoluciones/{$devolucion->id}/decidir", ['decision' => 'reembolso'])
             ->assertStatus(422);
+    }
+
+    // ── Cambiar: por otro igual, o por otro producto ─────────────────────────
+
+    public function test_cambiar_por_otro_igual_aparta_otra_unidad_y_la_danada_es_merma(): void
+    {
+        [$orden, , $mesas] = $this->ordenConTresCosas();
+        $devolucion = $this->devolver($orden, $mesas);
+
+        $this->actingAs($this->jefa())
+            ->postJson("/api/devoluciones/{$devolucion->id}/decidir", ['decision' => 'cambio_mismo'])
+            ->assertOk()->assertJsonPath('estado', 'cambio_mismo');
+
+        // Había 5 disponibles con 2 apartadas: la rota sale (4) y se aparta
+        // otra para esta orden (las 2 apartadas siguen siendo 2).
+        $inv = DB::table('inventario')->where('producto_id', 7)->first();
+        $this->assertSame(4, (int) $inv->cantidad_disponible);
+        $this->assertSame(2, (int) $inv->cantidad_reservada);
+
+        // La orden no cambia de valor ni de renglones.
+        $orden->refresh();
+        $this->assertSame(2600000.0, (float) $orden->valor_total);
+        $this->assertSame(2, (int) $mesas->fresh()->cantidad);
+        $this->assertNotSame('devuelto', $orden->estado);
+    }
+
+    public function test_cambiar_por_otro_igual_sin_stock_no_se_puede(): void
+    {
+        [$orden, , $mesas] = $this->ordenConTresCosas();
+        DB::table('inventario')->where('producto_id', 7)->update(['cantidad_disponible' => 2, 'cantidad_reservada' => 2]);
+        $devolucion = $this->devolver($orden, $mesas);
+
+        $this->actingAs($this->jefa())
+            ->postJson("/api/devoluciones/{$devolucion->id}/decidir", ['decision' => 'cambio_mismo'])
+            ->assertStatus(422);
+
+        $this->assertSame('pendiente', $devolucion->fresh()->estado);
+    }
+
+    public function test_cambiar_por_otro_igual_lo_fabricado_se_hace_de_nuevo(): void
+    {
+        [$orden, $cama] = $this->ordenConTresCosas();
+        $devolucion = $this->devolver($orden, $cama);
+
+        $this->actingAs($this->jefa())
+            ->postJson("/api/devoluciones/{$devolucion->id}/decidir", ['decision' => 'cambio_mismo'])
+            ->assertOk();
+
+        $produccion = Produccion::where('orden_item_id', $cama->id)->first();
+        $this->assertSame('pendiente', $produccion->estado);
+        $this->assertStringContainsString('Se hace de nuevo', $produccion->motivo_retraso);
+        $this->assertSame('en_produccion', $orden->fresh()->estado);
+    }
+
+    public function test_cambiar_por_otro_producto_deja_de_cobrarlo_y_abre_la_orden(): void
+    {
+        [$orden, $cama] = $this->ordenConTresCosas();
+        // Se dañó en la bodega, antes de salir: el taller la tenía lista.
+        Produccion::where('orden_item_id', $cama->id)->update(['estado' => 'listo']);
+        $devolucion = $this->devolver($orden, $cama);
+
+        $this->actingAs($this->jefa())
+            ->postJson("/api/devoluciones/{$devolucion->id}/decidir", ['decision' => 'cambio_otro'])
+            ->assertOk()->assertJsonPath('estado', 'cambio');
+
+        $orden->refresh();
+        // La cama ($2M) deja de cobrarse: quedan las dos mesas.
+        $this->assertNotNull($cama->fresh()->devuelto_en);
+        $this->assertSame(600000.0, (float) $orden->valor_total);
+        // Abierta para que el vendedor agregue el producto nuevo.
+        $this->assertSame('pendiente_anticipo', $orden->estado);
+        // Y el taller deja de trabajar en la vieja.
+        $this->assertSame('cancelado', Produccion::where('orden_item_id', $cama->id)->first()->estado);
+    }
+
+    public function test_cambiar_por_otro_producto_una_de_dos_solo_quita_esa(): void
+    {
+        [$orden, , $mesas] = $this->ordenConTresCosas();
+        $devolucion = $this->devolver($orden, $mesas, 1);
+
+        $this->actingAs($this->jefa())
+            ->postJson("/api/devoluciones/{$devolucion->id}/decidir", ['decision' => 'cambio_otro'])
+            ->assertOk();
+
+        // Vuelve una mesa: el renglón queda con una, y la rota es merma.
+        $this->assertSame(1, (int) $mesas->fresh()->cantidad);
+        $this->assertNull($mesas->fresh()->devuelto_en);
+        $this->assertSame(2300000.0, (float) $orden->fresh()->valor_total);
+        $inv = DB::table('inventario')->where('producto_id', 7)->first();
+        $this->assertSame(4, (int) $inv->cantidad_disponible);
+        $this->assertSame(1, (int) $inv->cantidad_reservada);
+    }
+
+    public function test_el_vendedor_registra_el_dano_con_lo_que_prefiere_el_cliente(): void
+    {
+        [$orden, , $mesas] = $this->ordenConTresCosas();
+        $vendedor = Usuario::create(['nombre' => 'Vende', 'email' => 'v@d.com', 'password' => 'x',
+                                     'rol' => 'vendedor', 'created_at' => now()]);
+        $orden->update(['estado' => 'pendiente_anticipo', 'vendedor_id' => $vendedor->id]);
+
+        $this->actingAs($vendedor)->postJson('/api/devoluciones', [
+            'orden_item_id' => $mesas->id, 'cantidad' => 1, 'motivo' => 'Se rayó en la tienda',
+            'fecha' => '2026-09-10', 'preferencia_cliente' => 'cambiar_otro',
+        ])->assertStatus(201)->assertJsonPath('preferencia_cliente', 'cambiar_otro');
+
+        // Queda esperando decisión, y la orden lo dice.
+        $this->assertSame('devuelto', $orden->fresh()->estado);
     }
 }

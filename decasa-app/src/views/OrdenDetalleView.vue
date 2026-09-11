@@ -12,7 +12,7 @@ import { useTiposProceso } from '@/composables/useTiposProceso'
 import { updateCliente } from '@/api/clientes'
 import { despachoPorOrden, crearEntregaDirecta, cancelarEntregaDirecta } from '@/api/despacho'
 import EntregaDetalleModal from '@/components/despacho/EntregaDetalleModal.vue'
-import { getDevoluciones } from '@/api/devoluciones'
+import { getDevoluciones, crearDevolucion } from '@/api/devoluciones'
 import { tomarFacturacion, marcarFacturada } from '@/api/pagos'
 import { getReceptores, crearConsulta, getConsultas, ajustarPrecio as ajustarPrecioApi } from '@/api/consultas'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
@@ -99,14 +99,23 @@ const despachoActivo = computed(() => {
   return d && ESTADOS_DESPACHO_VIVO.includes(d.despacho?.estado) ? d : null
 })
 
-// ¿Mostrar el botón de "Entregar ahora"? Orden lista, con permiso y sin
-// nadie más despachándola — lo de "nadie más" ya viene resuelto en
-// `puede_entregar_directo`.
+// ¿Mostrar el botón de "Entregar ahora"? Con permiso, algo que ya se pueda
+// entregar (lo de catálogo siempre; lo fabricado cuando el taller lo dé por
+// listo) y sin nadie más despachándola — todo eso ya viene resuelto en
+// `puede_entregar_directo`. Ya no espera a que la orden entera esté lista:
+// el reloj se entrega hoy y el mueble cuando salga.
 const puedeEntregarDirecto = computed(() =>
-  orden.value?.estado === 'listo_entrega'
-  && auth.puedeEntregar
-  && orden.value?.puede_entregar_directo
+  auth.puedeEntregar && orden.value?.puede_entregar_directo
 )
+
+/** Cómo va la entrega de un producto, para el renglón del ítem. */
+function entregaDeItem(item) {
+  const hechas = Number(item.cantidad_entregada) || 0
+  if (item.devuelto_en) return null
+  if (hechas <= 0) return null
+  if (hechas >= item.cantidad) return { texto: '✓ Entregado', cls: 'text-emerald-700 bg-emerald-50 border-emerald-200' }
+  return { texto: `✓ Entregados ${hechas} de ${item.cantidad}`, cls: 'text-teal-700 bg-teal-50 border-teal-200' }
+}
 
 async function abrirEntregaDirecta() {
   if (abriendoEntrega.value) return
@@ -364,6 +373,84 @@ const estadosLabel = {
   entregado: 'Entregado',
   cancelado: 'Cancelado',
 }
+
+// ── Producto dañado (antes de entregarlo) ───────────────────────────────────
+// Se rayó en la tienda o llegó golpeado del taller. Se registra como una
+// devolución sin entrega: queda esperando que producción decida si se
+// arregla, se cambia por otro igual o por otro producto.
+const danoItem       = ref(null)
+const danoMotivo     = ref('')
+const danoCantidad   = ref(1)
+const danoPreferencia = ref('')
+const danoFotoFile   = ref(null)
+const danoGuardando  = ref(false)
+const PREFERENCIAS_DANO = [
+  { v: 'arreglar',      t: 'Que lo arreglen',            d: 'Vuelve al taller y se le entrega el mismo, reparado.' },
+  { v: 'cambiar_mismo', t: 'Otro igual',                 d: 'Se le cambia por otra unidad del mismo producto.' },
+  { v: 'cambiar_otro',  t: 'Otro producto',              d: 'Escoge otro; si vale más paga la diferencia, si vale menos queda a favor.' },
+]
+
+const puedeReportarDano = computed(() =>
+  orden.value && !['entregado', 'cancelado', 'borrador', 'cotizacion', 'pendiente_cotizacion', 'devuelto'].includes(orden.value.estado)
+)
+
+function puedeDanarse(item) {
+  return puedeReportarDano.value && !item.devuelto_en
+    && (Number(item.pendiente_entregar ?? (item.cantidad - (item.cantidad_entregada || 0))) > 0)
+}
+
+function abrirDano(item) {
+  danoItem.value = item
+  danoMotivo.value = ''
+  danoCantidad.value = 1
+  danoPreferencia.value = ''
+  danoFotoFile.value = null
+}
+
+async function guardarDano() {
+  if (!danoItem.value) return
+  if (danoMotivo.value.trim().length < 3) { toast.error('Escribe qué le pasó al producto.'); return }
+  danoGuardando.value = true
+  try {
+    let fotoUrl = null
+    if (danoFotoFile.value) {
+      const fd = new FormData()
+      fd.append('foto', await comprimirImagen(danoFotoFile.value), 'dano.jpg')
+      fd.append('folder', 'devoluciones')
+      const { data: up } = await api.post('/upload/foto', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      fotoUrl = up.url
+    }
+    await crearDevolucion({
+      orden_item_id: danoItem.value.id,
+      cantidad: Number(danoCantidad.value) || 1,
+      motivo: danoMotivo.value.trim(),
+      foto_url: fotoUrl,
+      fecha: new Date().toISOString().slice(0, 10),
+      preferencia_cliente: danoPreferencia.value || undefined,
+    })
+    toast.success('Registrado. Producción decide si se arregla o se cambia.')
+    danoItem.value = null
+    await cargarOrden()
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo registrar.')
+  } finally {
+    danoGuardando.value = false
+  }
+}
+
+/** Las fotos del comprobante de un pago; los viejos traen una sola. */
+function fotosDePago(pago) {
+  const lista = pago?.comprobante_fotos
+  if (Array.isArray(lista) && lista.length) return lista.filter(Boolean)
+  return pago?.comprobante_url ? [pago.comprobante_url] : []
+}
+
+/** Todas las fotos del comprobante; las órdenes viejas traen una sola. */
+const fotosComprobante = computed(() => {
+  const lista = orden.value?.factura_fotos
+  if (Array.isArray(lista) && lista.length) return lista.filter(Boolean)
+  return orden.value?.factura_foto_url ? [orden.value.factura_foto_url] : []
+})
 
 const porcentajePagado = computed(() => {
   if (!orden.value || !orden.value.valor_total) return 0
@@ -796,15 +883,12 @@ const opcionesNuevoEstado = computed(() => {
     .filter((e) => {
       if (e === 'en_produccion' && !tienePersonalizados.value) return false
       if (e === 'listo_entrega' && tienePersonalizados.value && orden.value.estado === 'pendiente_anticipo') return false
-      // Una pieza que todavía se está fabricando no se pudo haber llevado
-      if (e === 'entregado' && tienePersonalizados.value) return false
+      // Entregar ya no es cambiar un estado: es una entrega —con quién, qué
+      // y cuándo— y va por "Entregar ahora", que deja todo eso escrito.
+      if (e === 'entregado') return false
       return true
     })
-    .map((e) => ({
-      value: e,
-      // Se aclara porque no es la entrega normal: aquí no hubo transporte
-      label: e === 'entregado' ? 'Entregado — se lo llevó de la tienda' : (estadosLabel[e] ?? e),
-    }))
+    .map((e) => ({ value: e, label: estadosLabel[e] ?? e }))
 })
 
 function fmtFechaCorta(f) {
@@ -1622,7 +1706,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         <DocumentIcon v-else class="w-4 h-4" />
         {{ descargandoPdf ? 'Generando...' : 'PDF' }}
       </button>
-      <BadgeEstado v-if="orden" :estado="orden.estado" />
+      <BadgeEstado v-if="orden" :estado="orden.estado" :entrega="orden.entrega" />
       <span
         v-if="orden?.atrasado"
         class="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-700"
@@ -1939,12 +2023,15 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         </div>
       </div>
 
-      <!-- Foto de factura -->
-      <div v-if="orden.factura_foto_url" class="bg-white rounded-xl shadow-sm p-4 space-y-2">
+      <!-- Fotos del comprobante: una o varias -->
+      <div v-if="fotosComprobante.length" class="bg-white rounded-xl shadow-sm p-4 space-y-2">
         <div class="flex items-center justify-between mb-2">
-          <p class="text-xs font-semibold text-gray-500 uppercase">Comprobante</p>
+          <p class="text-xs font-semibold text-gray-500 uppercase">
+            Comprobante{{ fotosComprobante.length > 1 ? `s (${fotosComprobante.length})` : '' }}
+          </p>
           <a
-            :href="orden.factura_foto_url"
+            v-if="fotosComprobante.length === 1"
+            :href="fotosComprobante[0]"
             target="_blank"
             rel="noopener"
             class="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium"
@@ -1954,11 +2041,22 @@ onMounted(() => { cargarTipos(); cargarOrden() })
           </a>
         </div>
         <img
-          :src="cloudinaryOpt(orden.factura_foto_url, 800)"
+          v-if="fotosComprobante.length === 1"
+          :src="cloudinaryOpt(fotosComprobante[0], 800)"
           alt="Comprobante"
           class="w-full rounded-lg border border-gray-200 object-contain max-h-72 cursor-pointer"
-          @click="verFactura = orden.factura_foto_url"
+          @click="verFactura = fotosComprobante[0]"
         />
+        <div v-else class="grid grid-cols-2 gap-2">
+          <img
+            v-for="(url, i) in fotosComprobante"
+            :key="url"
+            :src="cloudinaryOpt(url, 600)"
+            :alt="`Comprobante ${i + 1}`"
+            class="w-full h-40 rounded-lg border border-gray-200 object-cover cursor-pointer"
+            @click="verFactura = url"
+          />
+        </div>
       </div>
 
       <!-- Foto del anexo firmado -->
@@ -2102,6 +2200,15 @@ onMounted(() => { cargarTipos(); cargarOrden() })
               </p>
               <p class="text-xs text-gray-400">{{ item.producto?.categoria ?? item.categoria_custom ?? 'personalizado' }}</p>
               <p class="text-xs text-gray-500 mt-0.5">Cantidad: {{ item.cantidad }}</p>
+              <span
+                v-if="entregaDeItem(item)"
+                :class="['inline-block mt-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border', entregaDeItem(item).cls]"
+              >{{ entregaDeItem(item).texto }}</span>
+              <button
+                v-if="puedeDanarse(item)"
+                @click="abrirDano(item)"
+                class="block mt-1 text-[11px] font-medium text-orange-700 hover:text-orange-900 underline underline-offset-2"
+              >⚠ Producto dañado</button>
               <p v-if="origenInventario(item)" class="text-xs text-emerald-600 mt-1 flex items-center gap-1">
                 <BuildingOffice2Icon class="w-3.5 h-3.5" /> Inventario {{ origenInventario(item) }}
               </p>
@@ -2393,18 +2500,26 @@ onMounted(() => { cargarTipos(); cargarOrden() })
               <p class="text-xs text-gray-600 mt-0.5">{{ d.motivo }}</p>
               <p class="text-[11px] text-gray-400 mt-0.5">
                 Devuelto el {{ fmtFechaCorta(d.fecha) }}<span v-if="d.reportado_por"> · lo trajo {{ d.reportado_por }}</span>
+                <span v-if="d.preferencia_cliente"> · el cliente prefiere {{ ({ arreglar: 'que lo arreglen', cambiar_mismo: 'otro igual', cambiar_otro: 'otro producto' })[d.preferencia_cliente] }}</span>
               </p>
               <p
                 class="text-[11px] font-medium mt-1"
                 :class="{
                   'text-orange-700': d.estado === 'pendiente',
                   'text-blue-700':   d.estado === 'a_produccion',
+                  'text-teal-700':   d.estado === 'cambio_mismo' || d.estado === 'cambio',
                   'text-red-700':    d.estado === 'reembolsada',
                 }"
               >
                 <template v-if="d.estado === 'pendiente'">Esperando que producción decida</template>
                 <template v-else-if="d.estado === 'a_produccion'">
                   Volvió al taller para arreglo<span v-if="d.decidido_por"> — {{ d.decidido_por }}</span>
+                </template>
+                <template v-else-if="d.estado === 'cambio_mismo'">
+                  Se cambió por otra unidad igual<span v-if="d.decidido_por"> — {{ d.decidido_por }}</span>
+                </template>
+                <template v-else-if="d.estado === 'cambio'">
+                  Se cambia por otro producto<span v-if="d.decidido_por"> — {{ d.decidido_por }}</span>
                 </template>
                 <template v-else>
                   Se canceló y se devolvieron ${{ Math.round(d.monto_devuelto ?? 0).toLocaleString('es-CO') }}<span v-if="d.decidido_por"> — {{ d.decidido_por }}</span>
@@ -2452,16 +2567,19 @@ onMounted(() => { cargarTipos(); cargarOrden() })
                 por {{ correccionDe(pago).usuario }} · {{ formatDateTime(correccionDe(pago).fecha) }}
               </p>
               <p v-if="pago.notas" class="text-xs text-gray-400">{{ pago.notas }}</p>
-              <a
-                v-if="pago.comprobante_url"
-                :href="pago.comprobante_url"
-                target="_blank"
-                rel="noopener"
-                class="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline mt-0.5"
-              >
-                <ArrowDownTrayIcon class="w-3 h-3" />
-                Ver comprobante
-              </a>
+              <span v-if="fotosDePago(pago).length" class="inline-flex flex-wrap gap-x-2 mt-0.5">
+                <a
+                  v-for="(url, i) in fotosDePago(pago)"
+                  :key="url"
+                  :href="url"
+                  target="_blank"
+                  rel="noopener"
+                  class="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
+                >
+                  <ArrowDownTrayIcon class="w-3 h-3" />
+                  {{ fotosDePago(pago).length > 1 ? `Comprobante ${i + 1}` : 'Ver comprobante' }}
+                </a>
+              </span>
             </div>
             <div class="text-right">
               <p class="text-sm font-semibold text-green-600"><MoneyDisplay :amount="pago.monto" /></p>
@@ -2842,8 +2960,8 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         </button>
       </div>
 
-      <!-- Aviso: orden en despacho -->
-      <div v-if="orden.estado === 'listo_entrega'" class="space-y-2">
+      <!-- Entrega: directa (vendedor/supervisor) o en cola para el conductor -->
+      <div v-if="orden.estado === 'listo_entrega' || miEntregaDirectaPendiente || puedeEntregarDirecto" class="space-y-2">
         <!-- Entrega directa: continuar la que ya empecé -->
         <div v-if="miEntregaDirectaPendiente" class="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 space-y-2">
           <div class="flex items-start gap-3">
@@ -2870,8 +2988,15 @@ onMounted(() => { cargarTipos(); cargarOrden() })
           <div class="flex items-start gap-3">
             <TruckIcon class="w-5 h-5 mt-0.5 text-green-600 flex-shrink-0" />
             <div>
-              <p class="text-sm font-semibold text-green-800">Lista para entregar</p>
-              <p class="text-xs text-green-700 mt-0.5">Puedes entregarla tú mismo: se pide la foto del producto, el comprobante de pago y el acta de quien recibe — igual que un conductor.</p>
+              <p class="text-sm font-semibold text-green-800">
+                {{ orden.entrega?.parcial ? 'Falta por entregar' : (orden.estado === 'listo_entrega' ? 'Lista para entregar' : 'Hay productos para entregar') }}
+              </p>
+              <p class="text-xs text-green-700 mt-0.5">
+                <template v-if="orden.estado !== 'listo_entrega'">
+                  Lo de catálogo ya se puede entregar aunque el resto siga en el taller.
+                </template>
+                Puedes entregarla tú mismo: eliges qué va hoy, se pide la foto del producto, el acta de quien recibe y — solo en la última entrega — el saldo.
+              </p>
             </div>
           </div>
           <button
@@ -2882,7 +3007,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         </div>
 
         <!-- Sin entrega directa: espera al conductor -->
-        <div v-else class="bg-purple-50 border border-purple-200 rounded-xl px-4 py-3 flex items-start gap-3">
+        <div v-else-if="orden.estado === 'listo_entrega'" class="bg-purple-50 border border-purple-200 rounded-xl px-4 py-3 flex items-start gap-3">
           <TruckIcon class="w-5 h-5 mt-0.5 text-purple-600 flex-shrink-0" />
           <div>
             <p class="text-sm font-semibold text-purple-800">
@@ -2955,6 +3080,63 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         </div>
       </div>
     </template>
+
+    <!-- Modal: producto dañado antes de entregarlo -->
+    <Transition name="fade">
+      <div v-if="danoItem" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="danoItem = null">
+        <div class="absolute inset-0 bg-black/40" />
+        <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-3 max-h-[90vh] overflow-y-auto">
+          <h3 class="text-lg font-bold text-gray-800">Producto dañado</h3>
+          <p class="text-sm text-gray-500">
+            <strong>{{ danoItem.producto?.nombre ?? danoItem.nombre_custom }}</strong>. Queda registrado y
+            producción decide qué se hace.
+          </p>
+
+          <div v-if="danoItem.cantidad > 1">
+            <label class="text-xs text-gray-500">¿Cuántas unidades?</label>
+            <input v-model.number="danoCantidad" type="number" min="1" :max="danoItem.cantidad" class="input" />
+          </div>
+
+          <div>
+            <label class="text-xs text-gray-500">¿Qué le pasó? *</label>
+            <textarea v-model="danoMotivo" rows="2" class="input" placeholder="Ej. llegó del taller con la laca rayada en la tapa" />
+          </div>
+
+          <div>
+            <label class="text-xs text-gray-500">Foto del daño (opcional)</label>
+            <input type="file" accept="image/*" capture="environment" @change="e => { danoFotoFile = e.target.files?.[0] ?? null }" class="block w-full text-xs text-gray-500" />
+          </div>
+
+          <div>
+            <p class="text-xs text-gray-500 mb-1">¿Qué prefiere el cliente? (si ya se le preguntó)</p>
+            <div class="space-y-1">
+              <label
+                v-for="op in PREFERENCIAS_DANO" :key="op.v"
+                :class="['flex items-start gap-2 rounded-lg px-2 py-1.5 border cursor-pointer',
+                  danoPreferencia === op.v ? 'bg-orange-50 border-orange-400' : 'border-gray-200']"
+              >
+                <input type="radio" :value="op.v" v-model="danoPreferencia" class="mt-0.5 text-orange-600" />
+                <span class="min-w-0">
+                  <span class="block text-xs font-semibold text-gray-800">{{ op.t }}</span>
+                  <span class="block text-[11px] text-gray-500 leading-snug">{{ op.d }}</span>
+                </span>
+              </label>
+              <label :class="['flex items-center gap-2 rounded-lg px-2 py-1.5 border cursor-pointer', danoPreferencia === '' ? 'bg-orange-50 border-orange-400' : 'border-gray-200']">
+                <input type="radio" value="" v-model="danoPreferencia" class="text-orange-600" />
+                <span class="text-xs text-gray-600">Todavía no se le pregunta</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="flex gap-2">
+            <button @click="danoItem = null" class="btn-secondary flex-1">Cancelar</button>
+            <button @click="guardarDano" :disabled="danoGuardando" class="btn-primary flex-1 disabled:opacity-50">
+              {{ danoGuardando ? 'Guardando...' : 'Registrar' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
 
     <!-- Modal: corregir el medio de un pago -->
     <Transition name="fade">

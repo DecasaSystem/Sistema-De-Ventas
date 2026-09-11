@@ -108,6 +108,8 @@ class VerOrdenesCompartidasTest extends TestCase
             $t->json('cambios')->nullable(); $t->timestamps();
         });
 
+        $this->completarEsquemaDeEntregas();
+
         DB::table('tiendas')->insert([
             ['id' => 1, 'nombre' => 'Decasa Norte'],
             ['id' => 2, 'nombre' => 'Independientes'],

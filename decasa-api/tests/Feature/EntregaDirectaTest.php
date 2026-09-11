@@ -79,6 +79,8 @@ class EntregaDirectaTest extends TestCase
             $t->text('mensaje'); $t->boolean('leida')->default(false); $t->json('datos')->nullable(); $t->timestamps();
         });
 
+        $this->completarEsquemaDeEntregas();
+
         DB::table('tiendas')->insert([
             ['id' => 1, 'nombre' => 'Norte'],
             ['id' => 2, 'nombre' => 'Sur'],
@@ -153,12 +155,29 @@ class EntregaDirectaTest extends TestCase
         $this->abrir($v, $orden->id)->assertStatus(422);
     }
 
-    public function test_no_puede_si_todavia_no_esta_lista(): void
+    public function test_no_puede_si_todavia_no_hay_nada_listo(): void
     {
+        // Lo único que lleva la orden se está fabricando: no hay qué entregar.
         $v = $this->usuario('vendedor', ['acceso_entregas' => true, 'tienda_default_id' => 1]);
-        $orden = $this->orden(['vendedor_id' => $v->id, 'estado' => 'en_produccion']);
+        $orden = Orden::create(['cliente_id' => 1, 'tienda_id' => 1, 'vendedor_id' => $v->id,
+                                'estado' => 'en_produccion', 'valor_total' => 500000]);
+        $item  = OrdenItem::create(['orden_id' => $orden->id, 'nombre_custom' => 'Comedor', 'cantidad' => 1,
+                                    'precio_unitario' => 500000, 'es_personalizado' => true]);
+        DB::table('produccion')->insert(['orden_item_id' => $item->id, 'estado' => 'en_proceso']);
 
         $this->abrir($v, $orden->id)->assertStatus(422);
+    }
+
+    public function test_lo_de_catalogo_se_entrega_aunque_el_resto_siga_en_el_taller(): void
+    {
+        // El reloj sale hoy; el mueble, cuando el taller lo dé por listo.
+        $v = $this->usuario('vendedor', ['acceso_entregas' => true, 'tienda_default_id' => 1]);
+        $orden = $this->orden(['vendedor_id' => $v->id, 'estado' => 'en_produccion']);
+        $item  = OrdenItem::create(['orden_id' => $orden->id, 'nombre_custom' => 'Comedor', 'cantidad' => 1,
+                                    'precio_unitario' => 500000, 'es_personalizado' => true]);
+        DB::table('produccion')->insert(['orden_item_id' => $item->id, 'estado' => 'en_proceso']);
+
+        $this->abrir($v, $orden->id)->assertStatus(201);
     }
 
     public function test_no_puede_si_ya_esta_en_una_ruta_de_conductor(): void

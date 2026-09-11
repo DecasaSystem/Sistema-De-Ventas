@@ -1435,10 +1435,14 @@ const borradorEmailInput       = ref('')
 const borradorTelefonoInput    = ref('')
 const guardandoContactoBorrador = ref(false)
 
-const facturaFotoFile      = ref(null)
-const facturaFotoUrl       = ref('')
-const facturaFotoPreview   = ref('')
+// Fotos del comprobante de pago: una o varias (dos transferencias, un
+// pantallazo que no cabe en una captura). Cada una lleva su archivo, su
+// vista previa y —cuando ya se subió— su url.
+const facturaFotos         = ref([])   // [{ file, preview, url }]
 const subiendoFactura      = ref(false)
+// La primera, para lo que sigue esperando "la foto del comprobante".
+const facturaFotoFile      = computed(() => facturaFotos.value[0]?.file ?? null)
+const facturaFotoUrl       = computed(() => facturaFotos.value[0]?.url ?? '')
 
 const firmaBlob            = ref(null)
 const firmaUrl             = ref('')
@@ -1455,10 +1459,6 @@ watch(anexoFotoFile, (file) => {
   anexoFotoUrl.value = ''
 })
 
-watch(facturaFotoFile, (file, oldFile) => {
-  if (facturaFotoPreview.value) URL.revokeObjectURL(facturaFotoPreview.value)
-  facturaFotoPreview.value = file ? URL.createObjectURL(file) : ''
-})
 
 const departamentoEnvio    = ref('')
 const ciudadEnvio          = ref('')
@@ -1621,15 +1621,30 @@ const hayItemsCotizar = computed(() =>
   items.value.some(i => i._cotizarPrecio)
 )
 
-// Venta directa solo aplica si todos los ítems están hechos y se pueden
-// entregar ya: los de inventario, y el mueble único, que está en el local
-// aunque no tenga registro de stock.
-const puedeEntregaInmediata = computed(() =>
-  items.value.length > 0 && items.value.every(i => !i.es_personalizado || i._producto_unico)
+// "Se lo lleva ahora" es por producto: lo que ya existe —de inventario, o el
+// mueble único que está en el local— puede salir con el cliente hoy; lo que
+// hay que fabricar, no. Antes era de toda la orden y bloqueaba la venta si
+// había algo para fabricar (el reloj con el comedor).
+function sePuedeLlevar(i) {
+  return !!i._producto_unico || (!i.es_personalizado && !!i.producto_id)
+}
+const itemsQueSePuedenLlevar = computed(() => items.value.filter(sePuedeLlevar))
+const puedeEntregaInmediata  = computed(() => itemsQueSePuedenLlevar.value.length > 0)
+const seLlevaTodo = computed(() =>
+  items.value.length > 0 && items.value.every(i => sePuedeLlevar(i) && i._llevar_ahora)
 )
+const seLlevaAlgo = computed(() => items.value.some(i => sePuedeLlevar(i) && i._llevar_ahora))
 
-// Si el carrito deja de ser 100% inventario, se apaga la venta directa.
-watch(puedeEntregaInmediata, (ok) => { if (!ok) entregaInmediata.value = false })
+// El interruptor de arriba marca (o desmarca) todo lo que se pueda llevar.
+function marcarTodoParaLlevar(si) {
+  entregaInmediata.value = si
+  for (const i of items.value) if (sePuedeLlevar(i)) i._llevar_ahora = si
+}
+// Y si se desmarca uno a mano, el interruptor deja de decir "todo".
+watch(() => items.value.map(i => sePuedeLlevar(i) && i._llevar_ahora), () => {
+  const marcables = itemsQueSePuedenLlevar.value
+  entregaInmediata.value = marcables.length > 0 && marcables.every(i => i._llevar_ahora)
+}, { deep: true })
 
 watch(esCompartida, async (val) => {
   if (val && !vendedoresLista.value.length) {
@@ -1710,16 +1725,20 @@ async function submit() {
 
   submitting.value = true
   try {
-    // Subir foto de factura si se seleccionó (no aplica para borrador)
-    if (!modoGuardarBorrador.value && facturaFotoFile.value && !facturaFotoUrl.value) {
+    // Subir las fotos del comprobante que falten (no aplica para borrador).
+    // Una por una: si se cae la red a mitad, las que ya subieron se quedan.
+    if (!modoGuardarBorrador.value && facturaFotos.value.some(f => !f.url)) {
       subiendoFactura.value = true
-      const fd = new FormData()
-      fd.append('foto', await comprimirImagen(facturaFotoFile.value), 'factura.jpg')
-      fd.append('folder', 'facturas')
-      const { data: uploadData } = await api.post('/upload/foto', fd, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
-      facturaFotoUrl.value = uploadData.url
+      for (const f of facturaFotos.value) {
+        if (f.url) continue
+        const fd = new FormData()
+        fd.append('foto', await comprimirImagen(f.file), 'factura.jpg')
+        fd.append('folder', 'facturas')
+        const { data: uploadData } = await api.post('/upload/foto', fd, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        })
+        f.url = uploadData.url
+      }
       subiendoFactura.value = false
     }
 
@@ -1787,7 +1806,9 @@ async function submit() {
       descuento_condicionado_monto: Number(descuentoCondicionado.value) > 0
         ? Number(descuentoCondicionado.value)
         : undefined,
-      entrega_inmediata:    (entregaInmediata.value && puedeEntregaInmediata.value) || undefined,
+      // Solo cuando se lo lleva TODO (la marca vieja de toda la orden); lo
+      // demás va producto por producto en `llevar_ahora`.
+      entrega_inmediata:    seLlevaTodo.value || undefined,
       descuento_total:      Number(descuentoTotal.value) > 0 ? Number(descuentoTotal.value) : undefined,
       notas:                notas.value || undefined,
       fecha_sugerida_vendedor: fechaSugeridaVendedor.value || undefined,
@@ -1795,6 +1816,7 @@ async function submit() {
       tienda_abonada_id:    (auth.isIndependiente && tiendaAbonadaId.value) ? tiendaAbonadaId.value : undefined,
       covendedor_id:        (esCompartida.value && covendedorId.value) ? covendedorId.value : undefined,
       factura_foto_url:     facturaFotoUrl.value  || undefined,
+      factura_fotos:        facturaFotos.value.map(f => f.url).filter(Boolean),
       firma_url:            firmaUrl.value        || undefined,
       anexo_foto_url:       anexoFotoUrl.value    || undefined,
       departamento_envio:   departamentoEnvio.value || undefined,
@@ -1817,6 +1839,8 @@ async function submit() {
         es_restauracion:         i._es_restauracion || undefined,
         // Ya está hecho: el backend lo guarda sin crearle producción.
         producto_unico:          i._producto_unico || undefined,
+        // Sale con el cliente hoy. Por producto: el reloj sí, el comedor no.
+        llevar_ahora:            (sePuedeLlevar(i) && i._llevar_ahora) || undefined,
         // El obsequio se manda, no se deduce del precio: en $0 tambien esta
         // lo que todavia espera cotizacion, y son cosas distintas.
         es_regalo:               i._regalo || undefined,
@@ -2057,16 +2081,16 @@ async function guardarContactoYBorrador() {
 }
 
 function onFacturaFotoChange(e) {
-  const file = e.target.files[0]
-  if (file) {
-    facturaFotoFile.value = file
-    facturaFotoUrl.value = '' // Reset URL para forzar nueva subida
+  for (const file of Array.from(e.target.files ?? [])) {
+    if (facturaFotos.value.length >= 10) break
+    facturaFotos.value.push({ file, preview: URL.createObjectURL(file), url: '' })
   }
+  e.target.value = ''
 }
 
-function removeFacturaFoto() {
-  facturaFotoFile.value = null
-  facturaFotoUrl.value = ''
+function removeFacturaFoto(i = 0) {
+  const [quitada] = facturaFotos.value.splice(i, 1)
+  if (quitada?.preview) URL.revokeObjectURL(quitada.preview)
 }
 </script>
 
@@ -3024,6 +3048,17 @@ function removeFacturaFoto() {
             <button @click="quitarItem(idx)" class="text-red-400 hover:text-red-600 ml-2"><XMarkIcon class="w-5 h-5" /></button>
           </div>
 
+          <!-- Se lo lleva ahora: solo lo que ya existe. El reloj sí, el comedor no. -->
+          <label
+            v-if="sePuedeLlevar(item)"
+            :class="['flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs cursor-pointer select-none border',
+              item._llevar_ahora ? 'bg-green-50 border-green-300 text-green-800' : 'bg-gray-50 border-gray-200 text-gray-600']"
+          >
+            <input type="checkbox" v-model="item._llevar_ahora" class="rounded border-gray-300 text-green-600 focus:ring-green-500" />
+            <span class="font-medium">🛍️ Se lo lleva ahora</span>
+            <span class="text-gray-400">— sale de la tienda con el cliente</span>
+          </label>
+
           <!-- Corregir la tela/medida y de dónde sale, sin sacarlo del carrito.
                Equivocarse de tela es el error más fácil de cometer vendiendo, y
                antes costaba borrar el ítem y volver a armarlo con su cantidad,
@@ -3860,22 +3895,30 @@ function removeFacturaFoto() {
         </div>
       </div>
 
-      <!-- Entrega inmediata (venta directa) — solo si todo es de inventario -->
+      <!-- "Se lo lleva ahora": por producto. El interruptor marca todo lo que
+           está en la tienda; cada ítem del carrito tiene su propia casilla. -->
       <div v-if="puedeEntregaInmediata" class="rounded-xl border p-3"
-        :class="entregaInmediata ? 'border-green-300 bg-green-50' : 'border-gray-200 bg-white'">
+        :class="seLlevaAlgo ? 'border-green-300 bg-green-50' : 'border-gray-200 bg-white'">
         <label class="flex items-center gap-2.5 cursor-pointer select-none">
           <div
-            @click="entregaInmediata = !entregaInmediata"
+            @click="marcarTodoParaLlevar(!entregaInmediata)"
             :class="['w-10 h-5 rounded-full transition-colors relative flex-shrink-0', entregaInmediata ? 'bg-green-600' : 'bg-gray-300']"
           >
             <div :class="['absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform', entregaInmediata ? 'translate-x-5' : 'translate-x-0.5']" />
           </div>
           <span class="text-sm font-medium text-gray-700 flex items-center gap-1">
-            🛍️ Entrega inmediata — el cliente se lleva los productos ahora
+            🛍️ Se lleva ahora todo lo que está en la tienda
+            <span class="text-xs text-gray-400 font-normal">({{ itemsQueSePuedenLlevar.length }} de {{ items.length }})</span>
           </span>
         </label>
-        <p v-if="entregaInmediata" class="text-xs text-green-700 mt-1.5 ml-[52px]">
-          La orden se marcará como <strong>entregada</strong> y se descontará el inventario de una. No pasa por supervisor ni despacho. Si el cliente no paga todo, el saldo queda pendiente y lo cobras luego desde el detalle.
+        <p v-if="seLlevaTodo" class="text-xs text-green-700 mt-1.5 ml-[52px]">
+          La orden quedará <strong>entregada</strong> y el inventario se descuenta de una. Si el cliente no paga todo, el saldo queda pendiente y lo cobras luego desde el detalle.
+        </p>
+        <p v-else-if="seLlevaAlgo" class="text-xs text-green-700 mt-1.5 ml-[52px]">
+          Lo marcado sale hoy; el resto sigue su camino (taller o despacho) y la orden mostrará <strong>entrega parcial</strong>. El saldo se cobra en la última entrega.
+        </p>
+        <p v-else class="text-xs text-gray-400 mt-1.5 ml-[52px]">
+          También puedes marcarlo producto por producto en el carrito: "Se lo lleva ahora".
         </p>
       </div>
 
@@ -4173,31 +4216,37 @@ function removeFacturaFoto() {
           Foto del comprobante
           <span class="text-red-500 ml-0.5">*</span>
         </label>
-        <div v-if="facturaFotoFile" class="space-y-2">
-          <div class="relative">
-            <img
-              :src="facturaFotoUrl || facturaFotoPreview"
-              alt="Vista previa comprobante"
-              class="w-full rounded-xl border-2 border-gray-200 object-contain bg-gray-50"
-              style="max-height: 240px;"
-            />
-            <button
-              @click="removeFacturaFoto"
-              class="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1.5 shadow-lg"
-            >
-              <XMarkIcon class="w-4 h-4" />
-            </button>
+        <div v-if="facturaFotos.length" class="space-y-2">
+          <div :class="facturaFotos.length > 1 ? 'grid grid-cols-2 gap-2' : ''">
+            <div v-for="(f, i) in facturaFotos" :key="f.preview" class="relative">
+              <img
+                :src="f.url || f.preview"
+                :alt="`Comprobante ${i + 1}`"
+                :class="['w-full rounded-xl border-2 border-gray-200 bg-gray-50', facturaFotos.length > 1 ? 'h-32 object-cover' : 'object-contain']"
+                :style="facturaFotos.length > 1 ? '' : 'max-height: 240px;'"
+              />
+              <button
+                @click="removeFacturaFoto(i)"
+                class="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1.5 shadow-lg"
+              >
+                <XMarkIcon class="w-4 h-4" />
+              </button>
+            </div>
           </div>
-          <p class="text-xs text-gray-400 truncate">{{ facturaFotoFile.name }}</p>
-          <p v-if="subiendoFactura" class="text-xs text-blue-600">Subiendo imagen...</p>
+          <p v-if="subiendoFactura" class="text-xs text-blue-600">Subiendo imágenes...</p>
+          <label v-if="facturaFotos.length < 10" class="flex items-center justify-center gap-1.5 border border-dashed border-gray-300 rounded-lg py-2 cursor-pointer text-xs text-gray-500 hover:border-blue-400">
+            <PhotoIcon class="w-4 h-4 text-gray-400" /> Agregar otra foto del comprobante
+            <input type="file" accept="image/*" multiple @change="onFacturaFotoChange" class="hidden" />
+          </label>
         </div>
         <label v-else class="flex flex-col items-center gap-2 border-2 border-dashed border-amber-300 rounded-xl p-6 cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors">
           <PhotoIcon class="w-8 h-8 text-amber-300" />
           <span class="text-sm text-gray-500">Toca para adjuntar foto del comprobante</span>
-          <span class="text-xs text-gray-400">JPG, PNG — máx 5 MB</span>
+          <span class="text-xs text-gray-400">JPG, PNG — puedes subir varias</span>
           <input
             type="file"
             accept="image/*"
+            multiple
             @change="onFacturaFotoChange"
             class="hidden"
           />
@@ -4287,7 +4336,7 @@ function removeFacturaFoto() {
          class="btn-primary w-full text-base py-3 flex items-center justify-center gap-2"
        >
          <IconoS v-if="submitting && !modoGuardarBorrador" class="w-5 h-5" />
-         {{ subiendoFactura ? 'Subiendo foto...' : (submitting && !modoGuardarBorrador) ? 'Guardando...' : cooldown > 0 ? `Reintentar en ${cooldown}s...` : (entregaInmediata && puedeEntregaInmediata) ? 'Registrar venta directa (entregada)' : 'Crear orden' }}
+         {{ subiendoFactura ? 'Subiendo foto...' : (submitting && !modoGuardarBorrador) ? 'Guardando...' : cooldown > 0 ? `Reintentar en ${cooldown}s...` : seLlevaTodo ? 'Registrar venta directa (entregada)' : seLlevaAlgo ? 'Crear orden y entregar lo marcado' : 'Crear orden' }}
        </button>
 
        <button

@@ -68,7 +68,11 @@ class PagoController extends Controller
             'metodo'          => 'required|in:efectivo,transferencia,tarjeta,otro',
             'referencia'      => 'nullable|string|max:100',
             'notas'           => 'nullable|string|max:500',
-            'comprobante_url' => 'required|string|max:500',
+            // Una o varias fotos del comprobante: `comprobante_url` (una) o
+            // `comprobante_fotos` (lista). La primera de la lista es la de siempre.
+            'comprobante_url'    => 'required_without:comprobante_fotos|nullable|string|max:500',
+            'comprobante_fotos'  => 'nullable|array|max:10',
+            'comprobante_fotos.*'=> 'string|max:500',
             // Tienda donde se recibe el dinero: puede no ser la de la orden y es
             // la que determina a qué caja entra el efectivo.
             'tienda_id'       => 'nullable|exists:tiendas,id',
@@ -118,6 +122,11 @@ class PagoController extends Controller
         // Determinar tipo de pago
         $tipoPago = abs($data['monto'] - $saldoPendiente) < 0.01 ? 'saldo_final' : 'abono';
 
+        $fotosComprobante = array_values(array_filter($data['comprobante_fotos'] ?? []));
+        if (! $fotosComprobante && ! empty($data['comprobante_url'])) {
+            $fotosComprobante = [$data['comprobante_url']];
+        }
+
         $pago = $orden->pagos()->create([
             'vendedor_id'    => $usuario->id,
             'tienda_id'      => $data['tienda_id'] ?? $orden->tienda_id,
@@ -126,7 +135,8 @@ class PagoController extends Controller
             'metodo'         => $data['metodo'],
             'referencia'     => $data['referencia'] ?? null,
             'notas'          => $data['notas'] ?? null,
-            'comprobante_url' => $data['comprobante_url'],
+            'comprobante_url' => $fotosComprobante[0] ?? null,
+            'comprobante_fotos' => $fotosComprobante ?: null,
         ]);
 
         // La comisión se calcula sobre lo que de verdad le entra a la empresa,
@@ -135,11 +145,9 @@ class PagoController extends Controller
         // la venta, cuando todavía no se sabía cómo iba a pagar el cliente.
         ComisionController::sincronizarValorOrden($orden->fresh());
 
-        // Si saldo queda en cero y la orden está lista para entregar → entregado
-        $nuevoSaldo = $orden->saldoPendiente();
-        if ($nuevoSaldo <= 0 && $orden->estado === 'listo_entrega') {
-            $orden->update(['estado' => 'entregado']);
-        }
+        // Pagar no es entregar. Antes, si el saldo llegaba a cero con la orden
+        // lista, se marcaba entregada sola: sin bajar el stock, sin cerrar la
+        // producción y sin acta. La entrega la registra quien entrega.
 
         // Notificar a todos los facturadores activos (cubren todas las tiendas)
         $facturadores = Usuario::where('facturacion', true)

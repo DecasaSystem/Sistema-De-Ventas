@@ -443,7 +443,10 @@ class ProduccionController extends Controller
                 ->filter();
 
             if ($estadosProduccion->isNotEmpty()) {
-                if ($estadosProduccion->every(fn($e) => $e === 'entregado')) {
+                // "Entregado" es de la orden entera —también lo de catálogo—,
+                // no solo de lo fabricado: con entregas por producto la
+                // producción puede estar entregada y quedar un reloj sin salir.
+                if ($orden->todoEntregado()) {
                     $orden->update(['estado' => 'entregado']);
                 } elseif ($estadosProduccion->every(fn($e) => in_array($e, ['listo', 'entregado']))) {
                     $orden->update([
@@ -639,7 +642,8 @@ class ProduccionController extends Controller
                 ->filter();
 
             if ($estadosProduccion->isNotEmpty()) {
-                if ($estadosProduccion->every(fn($e) => $e === 'entregado')) {
+                // Igual que arriba: entregado solo cuando TODO se entregó.
+                if ($orden->todoEntregado()) {
                     $orden->update(['estado' => 'entregado']);
                 } elseif ($estadosProduccion->every(fn($e) => in_array($e, ['listo', 'entregado']))) {
                     if ($orden->estado !== 'listo_entrega') {
