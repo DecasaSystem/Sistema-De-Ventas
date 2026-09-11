@@ -580,4 +580,37 @@ class EntregaPorProductoTest extends TestCase
         $otra = $this->vendedora();
         $this->actingAs($otra)->patchJson("/api/ordenes/{$orden->id}/estado", ['estado' => 'listo_entrega'])->assertStatus(403);
     }
+
+    // ── Los papeles para imprimir ────────────────────────────────────────────
+
+    public function test_la_orden_de_entrega_se_imprime_con_lo_que_falta(): void
+    {
+        $v     = $this->vendedora();
+        $orden = $this->venderRelojYMueble($v, relojSeLoLleva: true);
+
+        $r = $this->actingAs($v)->get("/api/ordenes/{$orden->id}/orden-entrega");
+        $r->assertOk();
+        $this->assertStringContainsString('application/pdf', $r->headers->get('content-type'));
+    }
+
+    public function test_la_hoja_de_ruta_se_imprime(): void
+    {
+        $orden = $this->venderRelojYMueble($this->vendedora(), relojSeLoLleva: false);
+        $jefa  = $this->despachadora();
+
+        $ruta = $this->actingAs($jefa)->postJson('/api/despacho/rutas', [
+            'nombre_ruta' => 'Norte', 'fecha_despacho' => now()->toDateString(),
+        ])->json();
+        $this->actingAs($jefa)->postJson("/api/despacho/rutas/{$ruta['id']}/ordenes", [
+            'orden_id' => $orden->id,
+            'lineas'   => [['orden_item_id' => $this->reloj($orden)->id, 'cantidad' => 1]],
+        ])->assertStatus(201);
+
+        $r = $this->actingAs($jefa)->get("/api/despacho/{$ruta['id']}/hoja-ruta");
+        $r->assertOk();
+        $this->assertStringContainsString('application/pdf', $r->headers->get('content-type'));
+
+        // El vendedor, que no despacha, no la ve.
+        $this->actingAs($this->vendedora())->get("/api/despacho/{$ruta['id']}/hoja-ruta")->assertStatus(403);
+    }
 }

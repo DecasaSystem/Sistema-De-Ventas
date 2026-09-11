@@ -10,6 +10,8 @@ export const descargarPdfOrden = (id) => api.get(`/ordenes/${id}/pdf`, { respons
 
 /** Acta de satisfacción firmada por quien recibió la entrega. */
 export const descargarActaEntrega = (id) => api.get(`/ordenes/${id}/acta-entrega`, { responseType: 'blob' })
+// La hoja de entrega para imprimir: lo que va, el total y lo que se cobra.
+export const descargarOrdenEntrega = (id, entregaId) => api.get(`/ordenes/${id}/orden-entrega`, { responseType: 'blob', params: entregaId ? { entrega: entregaId } : {} })
 export const reenviarCotizacion = (id, email = null) =>
   api.post(`/ordenes/${id}/reenviar-cotizacion`, email ? { email } : {})
 export const asignarFechasEntrega = (id, items) =>

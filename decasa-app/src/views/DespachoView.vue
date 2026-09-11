@@ -9,6 +9,7 @@ import { asignar, asignados, historialDespacho, detalleDespacho, camiones as get
 import { useToast } from '@/composables/useToast'
 import { ChevronDownIcon, XMarkIcon, ArrowTopRightOnSquareIcon, TruckIcon, PencilSquareIcon, CheckIcon, TrashIcon, ExclamationTriangleIcon } from '@heroicons/vue/24/outline'
 import DespachoCard from '@/components/despacho/DespachoCard.vue'
+import { descargarHojaRuta } from '@/api/despacho'
 import ProductosParaRuta from '@/components/despacho/ProductosParaRuta.vue'
 import ColaCamionesModal from '@/components/despacho/ColaCamionesModal.vue'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
@@ -475,6 +476,24 @@ async function confirmarEnvioRuta() {
   }
 }
 
+// La hoja de ruta para imprimir y darle al conductor.
+const imprimiendoRuta = ref(null)
+async function imprimirHojaRuta(despachoId) {
+  if (imprimiendoRuta.value) return
+  imprimiendoRuta.value = despachoId
+  try {
+    const response = await descargarHojaRuta(despachoId)
+    const blob = new Blob([response.data], { type: 'application/pdf' })
+    const url  = window.URL.createObjectURL(blob)
+    if (!window.open(url, '_blank')) toast.error('El navegador bloqueó la ventana del PDF.')
+    setTimeout(() => window.URL.revokeObjectURL(url), 10000)
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo generar la hoja de ruta')
+  } finally {
+    imprimiendoRuta.value = null
+  }
+}
+
 function fmtFechaCorta(f) {
   if (!f) return ''
   return new Date(f + 'T12:00:00').toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' })
@@ -883,6 +902,15 @@ onBeforeUnmount(() => {
           </button>
           <button
             v-if="ruta.items?.length > 0"
+            @click="imprimirHojaRuta(ruta.id)"
+            :disabled="imprimiendoRuta === ruta.id"
+            title="Hoja de ruta para imprimir"
+            class="border border-gray-300 text-gray-700 rounded-lg px-3 py-2 text-xs font-semibold hover:bg-gray-50 disabled:opacity-50 transition-colors"
+          >
+            {{ imprimiendoRuta === ruta.id ? '…' : '🖨 Hoja' }}
+          </button>
+          <button
+            v-if="ruta.items?.length > 0"
             @click="rutaEnviando = ruta; camionEnvio = camionesList[0]?.id ?? ''; editNombreRuta = ruta.nombre_ruta ?? ''; editInstrucciones = ruta.instrucciones ?? ''"
             class="flex-1 bg-green-600 text-white rounded-lg py-2 text-xs font-semibold hover:bg-green-700 transition-colors"
           >
@@ -1199,6 +1227,11 @@ onBeforeUnmount(() => {
             class="flex items-center gap-2 cursor-pointer hover:bg-gray-50 transition-colors -mx-4 px-4 pb-2 pt-2 border-t border-gray-100 mt-2"
           >
             <span class="text-xs text-blue-600 font-medium flex-1">Ver detalle del despacho</span>
+            <button
+              @click.stop="imprimirHojaRuta(grupo[0]?.despacho_id)"
+              :disabled="imprimiendoRuta === grupo[0]?.despacho_id"
+              class="text-xs font-semibold text-gray-600 border border-gray-300 rounded-lg px-2.5 py-1 hover:bg-gray-100 disabled:opacity-50"
+            >{{ imprimiendoRuta === grupo[0]?.despacho_id ? '…' : '🖨 Hoja de ruta' }}</button>
             <ChevronDownIcon
               class="w-4 h-4 text-gray-400 transition-transform"
               :class="detalleExpandidoAsignado?.id === grupo[0]?.despacho_id ? 'rotate-180' : ''"

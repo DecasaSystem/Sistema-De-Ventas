@@ -27,6 +27,8 @@ export const registrarPagoEntrega    = (id, fd) => api.post(`/despacho/mis-entre
 export const marcarEntregado         = (id)     => api.patch(`/despacho/mis-entregas/${id}/entregar`)
 export const iniciarRuta             = (id)     => api.patch(`/despacho/mis-entregas/rutas/${id}/iniciar`)
 export const reprogramarRuta         = (id, d)  => api.patch(`/despacho/${id}/reprogramar`, d)
+// La hoja de ruta para imprimir: paradas, productos y cobros.
+export const descargarHojaRuta       = (id)     => api.get(`/despacho/${id}/hoja-ruta`, { responseType: 'blob' })
 export const despachoPorOrden        = (id)     => api.get(`/despacho/por-orden/${id}`)
 
 // Entrega directa: el vendedor/supervisor dueño entrega su propia orden sin
