@@ -36,14 +36,27 @@ class AlertarRutasAtrasadas implements ShouldQueue, ShouldBeUnique
 
         $supervisores = Usuario::where('rol', 'supervisor')->where('activo', true)->get();
 
+        // Nada aquí cambia el estado del despacho al avisar, así que sin
+        // filtro esto le repetía a cada supervisor la misma ruta atrasada
+        // TODOS los días mientras nadie la marcara como salida. Mismo
+        // criterio que el resto de alertas de atraso: recién atrasada se
+        // avisa siempre, la que ya llevaba días se recuerda una vez por
+        // semana, los lunes.
+        $esLunes = now()->isMonday();
+
         foreach ($atrasadas as $despacho) {
             $nombreRuta   = $despacho->nombre_ruta ?? "Ruta #{$despacho->id}";
             $nombreCamion = $despacho->camion?->nombre ?? "Camión #{$despacho->camion_id}";
             $conductor    = $despacho->conductor?->nombre ?? 'Conductor';
             $fechaFmt     = \Carbon\Carbon::parse($despacho->fecha_despacho)->locale('es')->isoFormat('D [de] MMMM');
+            // Carbon 3 cambió el default de diffInDays() de absoluto a con
+            // signo: sin `true`, una fecha pasada daba negativo — "-9 días
+            // de retraso" en vez de "9" — y de paso anulaba el freno de abajo.
             $diasRetraso  = (int) now()->startOfDay()->diffInDays(
-                \Carbon\Carbon::parse($despacho->fecha_despacho)->startOfDay()
+                \Carbon\Carbon::parse($despacho->fecha_despacho)->startOfDay(), true
             );
+
+            if ($diasRetraso > 1 && ! $esLunes) continue;
 
             foreach ($supervisores as $sup) {
                 NotificacionService::crear(
