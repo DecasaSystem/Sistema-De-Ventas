@@ -170,20 +170,6 @@ class TiendaReemplazo extends Model
             ->pluck('tienda_id')->map(fn ($v) => (int) $v)->unique()->values()->all();
     }
 
-    /**
-     * En qué tiendas hubo movimiento ese mes —alguien llegó a cubrir o se
-     * trasladó—. Sale de lo que ya está cargado, sin otra consulta.
-     *
-     * @return array<int>
-     */
-    public static function tiendasConMovimiento(string $mes): array
-    {
-        $inicio = Carbon::parse($mes . '-01')->startOfMonth();
-
-        return self::queSolapan($inicio, $inicio->copy()->endOfMonth())
-            ->pluck('tienda_id')->map(fn ($v) => (int) $v)->unique()->values()->all();
-    }
-
     /** Los reemplazos que tocan esta ventana. Se piden una vez por mes. */
     private static array $cache = [];
 
@@ -209,15 +195,16 @@ class TiendaReemplazo extends Model
      *
      * Sin `hasta` sigue abierto: cuenta hasta hoy, no hasta fin de mes, para
      * que un reemplazo en curso no cobre por adelantado días que todavía no
-     * han pasado.
+     * han pasado. "Hoy" es el de Colombia: con el reloj UTC del servidor, de
+     * 7 p.m. en adelante ya contaba el día siguiente.
      */
     private static function diasDentro($r, Carbon $inicio, Carbon $fin): int
     {
         $desde = Carbon::parse($r->desde)->startOfDay()->max($inicio);
         $hasta = $r->hasta
             ? Carbon::parse($r->hasta)->startOfDay()->min($fin)
-            : Carbon::now()->startOfDay()->min($fin);
+            : \App\Http\Controllers\ComisionController::hoy()->min($fin);
 
-        return $hasta->lt($desde) ? 0 : $desde->diffInDays($hasta) + 1;
+        return $hasta->lt($desde) ? 0 : (int) $desde->diffInDays($hasta) + 1;
     }
 }

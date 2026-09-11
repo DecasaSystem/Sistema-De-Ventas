@@ -78,8 +78,13 @@ class VerOrdenesCompartidasTest extends TestCase
         Schema::create('orden_fijadas', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('orden_id'); $t->unsignedBigInteger('usuario_id');
         });
-        // El abono a un almacén ahora mira reemplazos para saber quién de
-        // verdad estaba: sin esta tabla, sincronizarAbonoAlmacen() no arranca.
+        // El abono a un almacén se reparte entre el equipo registrado y mira
+        // los reemplazos para saber quién de verdad estaba: sin estas tablas,
+        // sincronizarAbonoAlmacen() no arranca.
+        Schema::create('tienda_asesores_comision', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('tienda_id'); $t->char('mes', 7);
+            $t->unsignedBigInteger('vendedor_id'); $t->timestamps();
+        });
         Schema::create('tienda_reemplazos', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('tienda_id'); $t->string('tipo')->default('reemplazo');
             $t->unsignedBigInteger('usuario_id'); $t->unsignedBigInteger('reemplaza_a_id')->nullable();

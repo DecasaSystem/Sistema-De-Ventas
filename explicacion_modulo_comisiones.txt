@@ -230,3 +230,68 @@ SÍ cambia solo para Decasa Unicentro Pereira y Decasa Circunvalar:
     meses), no cada mes.
   - Si un trimestre completo queda en déficit, esa deuda se resta del
     trimestre siguiente hasta saldarse.
+
+
+7. QUIÉN REPARTE: EL EQUIPO Y LOS REEMPLAZOS
+--------------------------------------------
+Hay UNA sola lista que dice entre quiénes se reparte lo de una tienda: el
+"Equipo comisiones" que se registra en Metas y equipos por tienda. Se
+arrastra de mes a mes hasta que alguien lo cambie. De esa lista salen los
+tres repartos:
+
+  - El pool de la meta (punto 2).
+  - El 5% de una restauración hecha en la tienda (se parte entre los que
+    estaban ese día).
+  - El 5% que deja un independiente al compartir una venta con la tienda.
+
+Tener la tienda como "sede" en el perfil de usuario NO mete a nadie en el
+reparto: un supervisor con sede en Norte que no está en el equipo no cobra
+parte de Norte, salvo que esté cubriendo a alguien.
+
+7.1 Reemplazos
+    Cuando alguien del equipo se va (vacaciones, incapacidad) y otra persona
+    lo cubre, se registra un REEMPLAZO: quién cubre, a quién, desde y hasta
+    cuándo. La regla es que el que llega OCUPA EL PUESTO del que no está:
+
+      - El pool se reparte por DÍAS. Cada uno del equipo pesa los días del
+        mes que estuvo; el reemplazo pesa los días que cubrió, y el cubierto
+        pierde esos mismos días. La suma de las partes no cambia: si eran
+        tres, se sigue partiendo en tres.
+      - Ejemplo: Manuela cubre a Paola del 1 al 30 de septiembre en Norte.
+        Reparto: NN 30 días, Marta 30 días, Manuela 30 días. Paola 0: no
+        cobra nada de septiembre. Si Paola vuelve el 15, se corrige la fecha
+        de regreso (lápiz junto al reemplazo) y queda: Paola 16 días,
+        Manuela 14, Marta 30, NN 30.
+      - Las restauraciones y lo que deja un independiente miran el DÍA de
+        la orden: se reparten entre los que estaban en la tienda ese día.
+      - Sin fecha de regreso, el reemplazo cuenta hasta hoy (no cobra por
+        adelantado días que no han pasado).
+
+    Al registrar, corregir o quitar un reemplazo —o al meter o sacar a
+    alguien del equipo— el sistema rehace de inmediato los repartos ya
+    escritos de ese mes (lo pendiente; lo pagado no se toca). No hace falta
+    pulsar Recalcular para eso.
+
+    Una persona no puede tener dos movimientos que se crucen en fechas, ni
+    puede haber dos personas cubriendo a la misma al tiempo: el sistema lo
+    rechaza al guardar.
+
+7.2 Traslados
+    Si alguien se cambia de tienda de forma definitiva no cubre a nadie: se
+    registra como TRASLADO y desde ese día es uno más del equipo (el pool se
+    parte entre más gente). En su tienda de origen deja de contar esos días.
+
+7.3 Quien vende en una tienda sin ser del equipo ni reemplazo
+    Cobra el 5% de lo suyo (÷1,19), por fuera del pool. Sus ventas sí
+    empujan la meta de esa tienda.
+
+
+8. TRIMESTRAL: EL POOL SE PAGA UNA SOLA VEZ
+--------------------------------------------
+En Unicentro y Circunvalar el pool es UNO para los tres meses del trimestre.
+Se reparte por los días del TRIMESTRE entero: cada persona pesa los días que
+estuvo en julio + agosto + septiembre, y las órdenes de cada mes se llevan la
+parte de ese mes. Los tres meses juntos suman el pool exactamente una vez.
+(Antes cada mes se prorrateaba como si el pool fuera suyo, y el trimestre
+salía pagado tres veces. Se corrigió antes del primer pago trimestral, el 20
+de octubre de 2026.)
