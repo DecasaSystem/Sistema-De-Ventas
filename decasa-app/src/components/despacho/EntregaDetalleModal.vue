@@ -269,12 +269,22 @@ async function cargar(id) {
     const { data } = await detalleEntrega(id)
     item.value = data
     if (!esEntregado.value) {
-      // Por defecto va todo lo que se pueda entregar hoy; se desmarca lo que no.
+      // Por defecto va lo que se cargó al armar la ruta (si todavía se puede
+      // entregar); sin eso, todo lo que se pueda entregar hoy. Se desmarca
+      // lo que no.
+      const cargado = {}
+      for (const l of data.lineas ?? []) {
+        if (l.resultado !== 'devuelto') cargado[l.orden_item_id] = (cargado[l.orden_item_id] || 0) + Number(l.cantidad)
+      }
       const marcado = {}
       for (const oi of data.orden?.items ?? []) {
-        if (oi.entregable && (oi.pendiente_entregar ?? 0) > 0) marcado[oi.id] = oi.pendiente_entregar
+        if (!(oi.entregable && (oi.pendiente_entregar ?? 0) > 0)) continue
+        if (Object.keys(cargado).length && !cargado[oi.id]) continue
+        marcado[oi.id] = Math.min(oi.pendiente_entregar, cargado[oi.id] ?? oi.pendiente_entregar)
       }
-      llevar.value = marcado
+      llevar.value = Object.keys(marcado).length ? marcado : Object.fromEntries(
+        (data.orden?.items ?? []).filter(oi => oi.entregable && (oi.pendiente_entregar ?? 0) > 0).map(oi => [oi.id, oi.pendiente_entregar])
+      )
       monto.value = data.orden?.saldo_pendiente || 0
       // Se precarga el cliente: en la mayoría de entregas recibe él mismo, y si
       // no, el conductor lo cambia por quien esté firmando.

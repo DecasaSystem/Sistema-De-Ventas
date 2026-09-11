@@ -8,6 +8,7 @@ use App\Models\Camion;
 use App\Models\Despacho;
 use App\Models\DespachoItem;
 use App\Models\Devolucion;
+use App\Models\EntregaLinea;
 use App\Models\Inventario;
 use App\Models\InventarioMovimiento;
 use App\Models\InventarioVariante;
@@ -31,31 +32,103 @@ class DespachoController extends Controller
 
     /**
      * GET /api/despacho/cola
-     * Órdenes en listo_entrega SIN asignar a ninguna ruta/despacho activo.
+     *
+     * Lo que se puede subir a un camión y nadie está despachando: las órdenes
+     * listas para entrega, y también las que siguen en el taller pero ya
+     * tienen algo que entregar —el reloj mientras se fabrica el comedor—. En
+     * esas la ruta lleva solo lo que está; lo demás vuelve a la cola cuando
+     * el taller lo termine.
+     *
+     * Cada orden trae sus productos con cuánto falta y si ya se puede.
      */
     public function cola(Request $request)
     {
         $ordenes = Orden::with([
             'cliente:id,nombre,telefono,direccion',
             'tienda:id,nombre',
+            'items.producto:id,nombre,foto_url',
+            'items.produccion:id,orden_item_id,estado',
         ])->withSum('pagos', 'monto')
-            ->where('estado', 'listo_entrega')
+            ->whereIn('estado', ['listo_entrega', 'en_produccion', 'pendiente_anticipo'])
             ->whereDoesntHave('despachoItem', fn($q) =>
                 $q->whereHas('despacho', fn($q2) =>
                     $q2->whereIn('estado', ['borrador', 'asignado', 'en_ruta'])
                 )
             )
+            // Lo listo primero, y dentro de eso lo que lleva más tiempo esperando.
+            ->orderByRaw("estado = 'listo_entrega' DESC")
             ->orderBy('listo_entrega_at')
-            ->get();
+            ->orderBy('created_at')
+            ->get()
+            // Del taller solo entra lo que tiene algo listo para hoy.
+            ->filter(fn ($o) => self::cabeEnRuta($o))
+            ->values();
 
         $ordenes->transform(function ($o) {
             $o->total_pagado    = (float) ($o->pagos_sum_monto ?? 0);
             $o->saldo_pendiente = (float) $o->valor_total - $o->total_pagado;
             unset($o->pagos_sum_monto);
+            self::anotarEntregables($o);
             return $o;
         });
 
         return response()->json($ordenes);
+    }
+
+    /** Deja en cada producto cuánto falta por entregar y si ya se puede. */
+    private static function anotarEntregables(Orden $orden): void
+    {
+        $orden->items->each(function ($oi) {
+            $oi->pendiente_entregar = $oi->pendienteEntregar();
+            $oi->entregable         = $oi->estaListoParaEntregar();
+            $oi->produccion_estado  = $oi->produccion?->estado;
+            unset($oi->produccion);
+        });
+        $orden->entrega = $orden->resumenEntrega();
+    }
+
+    /**
+     * Lo que va en una entrega de ruta, leído de la petición: [{orden_item_id,
+     * cantidad}]. Sin lista, todo lo que se pueda entregar hoy. Devuelve el
+     * mapa limpio o el mensaje de por qué no cuadra.
+     *
+     * @return array<int,int>|string
+     */
+    private function lineasParaRuta(Request $request, Orden $orden): array|string
+    {
+        $orden->loadMissing('items.produccion', 'items.producto:id,nombre');
+        $crudo = $request->input('lineas');
+
+        if (! $crudo) {
+            $todo = EntregaService::entregablesDe($orden);
+            return $todo ?: 'Esta orden no tiene nada que se pueda entregar todavía.';
+        }
+
+        $lista = is_array($crudo) ? $crudo : json_decode($crudo, true);
+        if (! is_array($lista)) return 'No se entendió qué va en la ruta.';
+
+        return EntregaService::validarLineas($orden, $lista);
+    }
+
+    /**
+     * ¿Se puede subir esta orden a un camión?
+     *
+     * Lista para entrega, como siempre. O una orden MIXTA —algo de catálogo y
+     * algo que se fabrica— que todavía espera al taller pero ya tiene lo de
+     * catálogo listo: el reloj sale hoy y el comedor cuando esté. Una orden
+     * solo de catálogo no entra por aquí: esa la pone lista el supervisor.
+     */
+    private static function cabeEnRuta(Orden $orden): bool
+    {
+        if ($orden->estado === 'listo_entrega') return true;
+        if (! in_array($orden->estado, ['en_produccion', 'pendiente_anticipo'], true)) return false;
+
+        $orden->loadMissing('items.produccion');
+        $esperaTaller = $orden->items->contains(fn ($i) =>
+            $i->es_personalizado && ! $i->producto_unico && $i->pendienteEntregar() > 0 && ! $i->estaListoParaEntregar()
+        );
+
+        return $esperaTaller && $orden->itemsEntregables()->isNotEmpty();
     }
 
     // ── Rutas (borradores) ────────────────────────────────────────────────────
@@ -98,9 +171,12 @@ class DespachoController extends Controller
         $rutas = Despacho::with([
             'camion:id,nombre',
             'items' => fn($q) => $q->orderBy('posicion'),
-            'items.orden:id,cliente_id,valor_total',
+            'items.orden:id,cliente_id,valor_total,estado',
             'items.orden.cliente:id,nombre,telefono,direccion',
             'items.orden.pagos:id,orden_id,monto',
+            'items.orden.items:id,orden_id,producto_id,nombre_custom,cantidad,cantidad_entregada,devuelto_en',
+            'items.orden.items.producto:id,nombre',
+            'items.lineas',
         ])->where('estado', 'borrador')
             ->orderBy('fecha_despacho')
             ->orderByDesc('created_at')
@@ -180,11 +256,16 @@ class DespachoController extends Controller
      */
     public function agregarOrdenARuta(Request $request, int $id)
     {
-        $data  = $request->validate(['orden_id' => 'required|exists:ordenes,id']);
+        $data  = $request->validate([
+            'orden_id' => 'required|exists:ordenes,id',
+            // Qué productos van en el camión: [{orden_item_id, cantidad}].
+            // Sin lista, todo lo que se pueda entregar hoy.
+            'lineas'   => 'nullable',
+        ]);
         $ruta  = Despacho::where('estado', 'borrador')->findOrFail($id);
-        $orden = Orden::findOrFail($data['orden_id']);
+        $orden = Orden::with('items.produccion')->findOrFail($data['orden_id']);
 
-        if ($orden->estado !== 'listo_entrega') {
+        if (! self::cabeEnRuta($orden)) {
             return response()->json(['message' => 'La orden no está en cola de entrega.'], 422);
         }
 
@@ -196,6 +277,11 @@ class DespachoController extends Controller
             return response()->json(['message' => 'Esta orden ya está en una ruta activa.'], 422);
         }
 
+        $lineas = $this->lineasParaRuta($request, $orden);
+        if (is_string($lineas)) {
+            return response()->json(['message' => $lineas], 422);
+        }
+
         $posicion = $ruta->items()->count() + 1;
 
         $item = DespachoItem::create([
@@ -204,8 +290,13 @@ class DespachoController extends Controller
             'posicion'    => $posicion,
             'estado'      => 'pendiente',
         ]);
+        EntregaService::fijarLineas($item, $lineas);
 
-        $item->load('orden:id,cliente_id,valor_total', 'orden.cliente:id,nombre,telefono,direccion', 'orden.pagos:id,orden_id,monto');
+        $item->load(
+            'orden:id,cliente_id,valor_total,estado', 'orden.cliente:id,nombre,telefono,direccion', 'orden.pagos:id,orden_id,monto',
+            'orden.items:id,orden_id,producto_id,nombre_custom,cantidad,cantidad_entregada,devuelto_en', 'orden.items.producto:id,nombre',
+            'lineas',
+        );
         if ($item->orden) {
             $pagado = (float) $item->orden->pagos->sum('monto');
             $item->orden->saldo_pendiente = (float) $item->orden->valor_total - $pagado;
@@ -223,6 +314,7 @@ class DespachoController extends Controller
     {
         $ruta = Despacho::where('estado', 'borrador')->findOrFail($id);
         $item = DespachoItem::where('despacho_id', $ruta->id)->findOrFail($itemId);
+        $item->lineas()->delete();
         $item->delete();
 
         // Reindexar posiciones
@@ -333,6 +425,9 @@ class DespachoController extends Controller
             'orden.cliente:id,nombre,telefono,direccion',
             'orden.tienda:id,nombre',
             'orden.pagos:id,orden_id,monto',
+            'orden.items:id,orden_id,producto_id,nombre_custom,cantidad,cantidad_entregada,devuelto_en',
+            'orden.items.producto:id,nombre',
+            'lineas',
         ])->whereHas('despacho', function ($q) use ($camionId, $desde, $hasta) {
             $q->whereIn('estado', ['asignado', 'en_ruta'])->where('tipo', 'ruta');
             if ($camionId) $q->where('camion_id', $camionId);
@@ -369,6 +464,8 @@ class DespachoController extends Controller
             'ordenes'            => 'required|array|min:1',
             'ordenes.*.orden_id' => 'required|exists:ordenes,id',
             'ordenes.*.posicion' => 'required|integer|min:1',
+            // Qué va de cada orden; sin lista, todo lo que se pueda entregar.
+            'ordenes.*.lineas'   => 'nullable|array',
             'nombre_ruta'        => 'nullable|string|max:120',
             'instrucciones'      => 'nullable|string|max:2000',
             'notas'              => 'nullable|string|max:1000',
@@ -404,11 +501,18 @@ class DespachoController extends Controller
             ]);
 
             foreach ($data['ordenes'] as $item) {
-                $orden = Orden::lockForUpdate()->findOrFail($item['orden_id']);
+                $orden = Orden::with('items.produccion', 'items.producto:id,nombre')
+                    ->lockForUpdate()->findOrFail($item['orden_id']);
 
-                if ($orden->estado !== 'listo_entrega') {
-                    abort(422, "La orden {$orden->referencia} no está en estado listo_entrega.");
+                if (! self::cabeEnRuta($orden)) {
+                    abort(422, "La orden {$orden->referencia} no tiene nada listo para entregar.");
                 }
+
+                $lineas = ! empty($item['lineas'])
+                    ? EntregaService::validarLineas($orden, $item['lineas'])
+                    : EntregaService::entregablesDe($orden);
+                if (is_string($lineas)) abort(422, $lineas);
+                if (! $lineas) abort(422, "La orden {$orden->referencia} no tiene nada listo para entregar.");
 
                 $yaAsignada = DespachoItem::where('orden_id', $item['orden_id'])
                     ->whereHas('despacho', fn($q) => $q->whereIn('estado', ['borrador', 'asignado', 'en_ruta']))
@@ -418,12 +522,13 @@ class DespachoController extends Controller
                     abort(422, "La orden {$orden->referencia} ya está en un despacho activo.");
                 }
 
-                DespachoItem::create([
+                $entrega = DespachoItem::create([
                     'despacho_id' => $despacho->id,
                     'orden_id'    => $item['orden_id'],
                     'posicion'    => $item['posicion'],
                     'estado'      => 'pendiente',
                 ]);
+                EntregaService::fijarLineas($entrega, $lineas);
 
                 $orden->update(['estado' => 'en_camino']);
             }
@@ -507,6 +612,8 @@ class DespachoController extends Controller
             'items.orden.cliente:id,nombre,telefono,direccion',
             'items.orden.tienda:id,nombre',
             'items.orden.pagos',
+            'items.orden.items.producto:id,nombre',
+            'items.lineas',
         ])->findOrFail($id);
 
         $despacho->items->each(function ($item) {
@@ -683,6 +790,7 @@ class DespachoController extends Controller
             'orden.items.producto:id,nombre,foto_url',
             'orden.items.variante', 'orden.items.comboConfig.tipo', 'orden.items.comboConfig.opcion',
             'orden.pagos:id,orden_id,monto',
+            'lineas',
         ])->whereHas('despacho', function ($q) use ($usuario) {
             $q->where('conductor_id', $usuario->id)
                 ->whereIn('estado', ['asignado', 'en_ruta']);
@@ -1069,7 +1177,16 @@ class DespachoController extends Controller
         $crudo = $request->input('lineas');
 
         if (! $crudo) {
-            $todo = EntregaService::entregablesDe($orden);
+            // Lo que se cargó al armar la ruta, si todavía se puede entregar;
+            // si no se cargó nada en particular, todo lo que se pueda hoy.
+            $entregables = EntregaService::entregablesDe($orden);
+            $cargado     = $item->lineas()->whereIn('resultado', EntregaLinea::SE_QUEDO)->get()
+                ->groupBy('orden_item_id')->map(fn ($g) => (int) $g->sum('cantidad'));
+            $todo = [];
+            foreach ($cargado as $itemId => $cant) {
+                if (isset($entregables[$itemId])) $todo[$itemId] = min($cant, $entregables[$itemId]);
+            }
+            if (! $todo) $todo = $entregables;
             if (! $todo) {
                 return response()->json([
                     'message' => 'No hay nada que entregar: lo de catálogo ya se entregó y lo demás sigue en el taller.',

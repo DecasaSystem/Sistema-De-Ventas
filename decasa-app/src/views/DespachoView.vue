@@ -9,6 +9,7 @@ import { asignar, asignados, historialDespacho, detalleDespacho, camiones as get
 import { useToast } from '@/composables/useToast'
 import { ChevronDownIcon, XMarkIcon, ArrowTopRightOnSquareIcon, TruckIcon, PencilSquareIcon, CheckIcon, TrashIcon, ExclamationTriangleIcon } from '@heroicons/vue/24/outline'
 import DespachoCard from '@/components/despacho/DespachoCard.vue'
+import ProductosParaRuta from '@/components/despacho/ProductosParaRuta.vue'
 import ColaCamionesModal from '@/components/despacho/ColaCamionesModal.vue'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
@@ -23,6 +24,37 @@ const tab = ref('pendientes')
 
 // Selección de órdenes
 const seleccionadas = ref(new Map()) // ordenId → posicion (1-indexed)
+
+// Qué productos de cada orden van en el camión: { [ordenId]: { [itemId]: cantidad } }.
+// Por defecto todo lo que se pueda entregar hoy; se desmarca lo que no.
+const lineasPorOrden = ref({})
+
+function lineasPorDefecto(orden) {
+  const l = {}
+  for (const i of orden.items ?? []) {
+    if (i.entregable && (i.pendiente_entregar ?? 0) > 0) l[i.id] = i.pendiente_entregar
+  }
+  return l
+}
+function lineasDe(orden) {
+  if (!lineasPorOrden.value[orden.id]) lineasPorOrden.value[orden.id] = lineasPorDefecto(orden)
+  return lineasPorOrden.value[orden.id]
+}
+function comoLista(lineas) {
+  return Object.entries(lineas ?? {}).filter(([, c]) => Number(c) > 0)
+    .map(([id, c]) => ({ orden_item_id: Number(id), cantidad: Number(c) }))
+}
+/** "2 de 3 productos" para un renglón de ruta. */
+function resumenLineas(item) {
+  const lineas = (item.lineas ?? []).filter(l => l.resultado !== 'devuelto')
+  const total  = (item.orden?.items ?? []).filter(i => !i.devuelto_en).length
+  if (!lineas.length || !total) return null
+  const nombres = lineas.map(l => {
+    const it = (item.orden?.items ?? []).find(i => i.id === l.orden_item_id)
+    return it ? (it.producto?.nombre || it.nombre_custom) : null
+  }).filter(Boolean)
+  return { n: lineas.length, total, parcial: lineas.length < total, nombres }
+}
 
 const ordenesSeleccionadas = computed(() =>
   despacho.cola.filter(o => seleccionadas.value.has(o.id))
@@ -67,7 +99,16 @@ async function confirmarAsignacion({ camion, fecha, nombre_ruta, instrucciones }
     const ordenes = ordenesSeleccionadas.value.map(o => ({
       orden_id: o.id,
       posicion: seleccionadas.value.get(o.id),
+      // Sin la lista de productos (una orden que entró por el socket) se
+      // manda sin líneas y el servidor sube todo lo que se pueda entregar.
+      lineas:   o.items ? comoLista(lineasDe(o)) : undefined,
     }))
+    if (ordenes.some(o => o.lineas && !o.lineas.length)) {
+      toast.error('Hay una orden seleccionada sin ningún producto marcado para el camión.')
+      asignando.value = false
+      mostrarModalCamion.value = true
+      return
+    }
     await asignar({ camion_id: camion.id, fecha_despacho: fecha, nombre_ruta, instrucciones, ordenes })
     const nombreCamion = camion.nombre ?? `Camión ${camion.id}`
     toast.success(`Despacho asignado a ${nombreCamion} — ${camion.conductor?.nombre}`)
@@ -354,11 +395,16 @@ function colaDisponible(ruta) {
   return despacho.cola.filter(o => !idsEnRutas.has(o.id))
 }
 
+// En el panel de la ruta se marca qué va antes de agregar.
+const ordenAbriendo = ref(null)
+
 async function agregarOrden(ruta, orden) {
   if (agregandoOrdenId.value) return
+  const lineas = orden.items ? comoLista(lineasDe(orden)) : undefined
+  if (lineas && !lineas.length) { toast.error('Marca al menos un producto para el camión.'); return }
   agregandoOrdenId.value = orden.id
   try {
-    const { data } = await agregarOrdenARuta(ruta.id, { orden_id: orden.id })
+    const { data } = await agregarOrdenARuta(ruta.id, { orden_id: orden.id, lineas })
     ruta.items = [...(ruta.items ?? []), data]
     // quitar de la cola local
     despacho.quitarDeCola(orden.id)
@@ -592,6 +638,8 @@ onBeforeUnmount(() => {
           :orden="o"
           :seleccionado="seleccionadas.has(o.id)"
           :posicion="seleccionadas.get(o.id)"
+          :lineas="lineasDe(o)"
+          @update:lineas="v => { lineasPorOrden[o.id] = v }"
           @toggle="toggleSeleccion"
           @ver-detalle="verDetalle"
         />
@@ -757,8 +805,12 @@ onBeforeUnmount(() => {
             <div class="flex-1 min-w-0">
               <p class="text-sm font-medium text-gray-800 truncate">{{ item.orden?.cliente?.nombre }}</p>
               <p class="text-xs text-gray-400 truncate">{{ item.orden?.cliente?.direccion }}</p>
+              <p v-if="resumenLineas(item)" class="text-[11px] truncate" :class="resumenLineas(item).parcial ? 'text-teal-700 font-medium' : 'text-gray-500'">
+                {{ resumenLineas(item).parcial ? `Va ${resumenLineas(item).n} de ${resumenLineas(item).total}: ` : '' }}{{ resumenLineas(item).nombres.join(', ') }}
+              </p>
               <p v-if="item.orden?.saldo_pendiente > 0" class="text-xs text-orange-600 font-medium">
-                Cobra: ${{ fmtDinero(item.orden.saldo_pendiente) }}
+                {{ resumenLineas(item)?.parcial ? 'Debe' : 'Cobra' }}: ${{ fmtDinero(item.orden.saldo_pendiente) }}
+                <span v-if="resumenLineas(item)?.parcial" class="text-gray-400 font-normal">· el saldo se cobra en la última entrega</span>
               </p>
             </div>
             <!-- Botones subir/bajar/quitar -->
@@ -788,20 +840,37 @@ onBeforeUnmount(() => {
           <div v-if="colaDisponible(ruta).length === 0" class="text-xs text-gray-400 py-2 text-center">
             No hay órdenes disponibles en la cola.
           </div>
-          <button
+          <div
             v-for="orden in colaDisponible(ruta)"
             :key="orden.id"
-            @click="agregarOrden(ruta, orden)"
-            :disabled="agregandoOrdenId !== null"
-            class="w-full text-left px-3 py-2 rounded-lg border border-gray-200 bg-white hover:border-blue-400 hover:bg-blue-50 disabled:opacity-50 disabled:hover:border-gray-200 disabled:hover:bg-white transition-all"
+            class="rounded-lg border bg-white transition-all"
+            :class="ordenAbriendo === orden.id ? 'border-blue-400' : 'border-gray-200'"
           >
-            <p class="text-sm font-medium text-gray-800 flex items-center gap-1.5">
-              <IconoS v-if="agregandoOrdenId === orden.id" class="w-3.5 h-3.5 text-blue-600" />
-              {{ orden.cliente?.nombre }}
-            </p>
-            <p class="text-xs text-gray-400 truncate">{{ orden.cliente?.direccion }}</p>
-            <p class="text-xs text-orange-600 font-medium">Cobra: ${{ fmtDinero(orden.saldo_pendiente) }}</p>
-          </button>
+            <button
+              type="button"
+              @click="ordenAbriendo = ordenAbriendo === orden.id ? null : orden.id"
+              class="w-full text-left px-3 py-2"
+            >
+              <p class="text-sm font-medium text-gray-800 flex items-center gap-1.5">
+                {{ orden.cliente?.nombre }}
+                <span v-if="orden.entrega?.parcial" class="text-[10px] font-semibold text-teal-700 bg-teal-50 px-1.5 rounded-full">parcial {{ orden.entrega.entregados }}/{{ orden.entrega.total }}</span>
+                <span v-else-if="orden.estado !== 'listo_entrega'" class="text-[10px] font-semibold text-purple-700 bg-purple-50 px-1.5 rounded-full">parte en el taller</span>
+              </p>
+              <p class="text-xs text-gray-400 truncate">{{ orden.cliente?.direccion }}</p>
+              <p class="text-xs text-orange-600 font-medium">Debe: ${{ fmtDinero(orden.saldo_pendiente) }}</p>
+            </button>
+            <div v-if="ordenAbriendo === orden.id" class="px-3 pb-2 space-y-2">
+              <ProductosParaRuta :items="orden.items ?? []" :lineas="lineasDe(orden)" @update:lineas="v => { lineasPorOrden[orden.id] = v }" />
+              <button
+                @click="agregarOrden(ruta, orden)"
+                :disabled="agregandoOrdenId !== null"
+                class="w-full bg-blue-600 text-white rounded-lg py-1.5 text-xs font-semibold hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-1.5"
+              >
+                <IconoS v-if="agregandoOrdenId === orden.id" class="w-3.5 h-3.5" />
+                Agregar a la ruta
+              </button>
+            </div>
+          </div>
         </div>
 
         <!-- Acciones -->
