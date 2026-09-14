@@ -30,6 +30,9 @@ class Orden extends Model
         'serie_numero',
         'motivo_serie',
         'grupo_secuencia',
+        // La referencia que tenía una orden anulada cuyo número se soltó para
+        // correr las siguientes (ver NumeracionOrdenes::liberarYCorrer()).
+        'numero_anulado',
         'cotizacion_estado',
         'cotizacion_numero',
         'cotizacion_valida_hasta',
@@ -197,6 +200,11 @@ class Orden extends Model
      */
     public function getReferenciaAttribute(): string
     {
+        // Se anuló y su número se le dio a la siguiente: ya no es de nadie,
+        // pero hay que seguir sabiendo cuál era para encontrarla.
+        if ($this->numero_anulado) {
+            return 'Anulada (era ' . $this->numero_anulado . ')';
+        }
         if ($this->serie && $this->serie_numero) {
             return $this->serie . '-' . $this->serie_numero;
         }

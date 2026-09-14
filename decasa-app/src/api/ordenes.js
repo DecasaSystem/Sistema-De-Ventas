@@ -2,7 +2,9 @@ import api from './index'
 
 export const getOrdenes = (params = {}) => api.get('/ordenes', { params })
 export const getOrden = (id) => api.get(`/ordenes/${id}`)
-export const updateEstado = (id, estado) => api.patch(`/ordenes/${id}/estado`, { estado })
+export const updateEstado = (id, estado, extra = {}) => api.patch(`/ordenes/${id}/estado`, { estado, ...extra })
+/** Antes de cancelar: qué órdenes bajarían de número si se anula sin dejar hueco. */
+export const previsualizarAnulacion = (id) => api.get(`/ordenes/${id}/anulacion`)
 export const getPagos = (id) => api.get(`/ordenes/${id}/pagos`)
 export const registrarPago = (id, data) => api.post(`/ordenes/${id}/pagos`, data)
 export const editarPago = (pagoId, data) => api.patch(`/pagos/${pagoId}`, data)

@@ -113,7 +113,10 @@ class OrdenController extends Controller
 
             $query->where(function ($q) use ($term, $limpio, $serieNum) {
                 $q->whereHas('cliente', fn($c) => $c->whereRaw('LOWER(nombre) LIKE ?', [$term]))
-                  ->orWhereRaw('LOWER(numero_orden) LIKE ?', [$term]);
+                  ->orWhereRaw('LOWER(numero_orden) LIKE ?', [$term])
+                  // Una anulada que soltó su número se sigue buscando por el
+                  // que tenía: es el que está en el papel del cliente.
+                  ->orWhereRaw('LOWER(COALESCE(numero_anulado, "")) LIKE ?', [$term]);
                 if (is_numeric($limpio)) {
                     $q->orWhere('id', (int) $limpio);
                 }
@@ -2509,9 +2512,14 @@ class OrdenController extends Controller
 
         $data = $request->validate([
             'estado' => 'required|in:pendiente_anticipo,en_produccion,listo_entrega,en_camino,entregado,cancelado',
+            // Solo al cancelar: soltar el consecutivo y correr las siguientes
+            // para que no quede hueco (ver NumeracionOrdenes::liberarYCorrer).
+            // Sin esto, la orden se queda con su número quemado.
+            'correr_numeracion' => 'nullable|boolean',
         ]);
 
         $orden = Orden::with('items.produccion')->findOrFail($id);
+        $correrNumeracion = $data['estado'] === 'cancelado' && $request->boolean('correr_numeracion');
 
         // El vendedor no cambia estados, con una excepción: si tiene permiso
         // de entregar, puede dar por LISTA una orden suya de su tienda cuando
@@ -2605,7 +2613,12 @@ class OrdenController extends Controller
             );
         }
 
-        DB::transaction(function () use ($orden, $estadoNuevo, $estadoAnterior, $usuario) {
+        $corridas = [];
+        // Si se corre la numeración la orden pierde su número adentro de la
+        // transacción; el aviso de cancelación tiene que decir el que tenía.
+        $referenciaOriginal = $orden->referencia;
+
+        DB::transaction(function () use ($orden, $estadoNuevo, $estadoAnterior, $usuario, $correrNumeracion, &$corridas) {
 
             $itemsStock = $orden->items->where('es_personalizado', false);
 
@@ -2651,9 +2664,25 @@ class OrdenController extends Controller
                 // había trabajo vivo, y es justo lo que hay que decirle.
                 \App\Services\AvisoProduccion::ordenCancelada($orden, $usuario);
 
-                \App\Models\Produccion::whereHas('ordenItem', fn($q) => $q->where('orden_id', $orden->id))
-                    ->whereNotIn('estado', ['cancelado', 'completado'])
+                $produccionIds = \App\Models\Produccion::whereHas('ordenItem', fn($q) => $q->where('orden_id', $orden->id))
+                    ->whereNotIn('estado', ['cancelado', 'entregado'])
+                    ->pluck('id');
+
+                \App\Models\Produccion::whereIn('id', $produccionIds)->update(['estado' => 'cancelado']);
+
+                // Y sus pasos: si solo se cancela la pieza, el paso en curso
+                // seguía saliéndole al ebanista en "Mis pasos" (lo mismo que
+                // ya hace ProduccionController al cancelar desde el tablero).
+                \App\Models\ProduccionPaso::whereIn('produccion_id', $produccionIds)
+                    ->whereIn('estado', ['pendiente', 'en_proceso'])
                     ->update(['estado' => 'cancelado']);
+
+                // Sin hueco: la orden suelta su número y las siguientes bajan
+                // uno. Va aquí adentro para que, si algo falla, no quede el
+                // talonario corrido por una orden que siguió viva.
+                if ($correrNumeracion) {
+                    $corridas = \App\Services\NumeracionOrdenes::liberarYCorrer($orden, $usuario);
+                }
 
                 // Una venta cancelada no se comisiona. Quedaba la comisión viva
                 // y pagable, y peor: su valor le seguía sumando a la meta de la
@@ -2767,7 +2796,7 @@ class OrdenController extends Controller
             NotificacionService::crear(
                 'cancelado',
                 'Tu orden fue cancelada',
-                "Orden {$orden->referencia} — {$ordenFresh->cliente->nombre} fue cancelada",
+                "Orden {$referenciaOriginal} — {$ordenFresh->cliente->nombre} fue cancelada",
                 ['orden_id' => $orden->id],
                 $orden->vendedor_id,
             );
@@ -2781,7 +2810,7 @@ class OrdenController extends Controller
                     NotificacionService::crear(
                         'cancelado',
                         'Cotización cancelada',
-                        "La orden {$orden->referencia} de {$ordenFresh->cliente->nombre} fue cancelada. La consulta de costo ya no aplica.",
+                        "La orden {$referenciaOriginal} de {$ordenFresh->cliente->nombre} fue cancelada. La consulta de costo ya no aplica.",
                         ['consulta_id' => $consulta->id, 'orden_id' => $orden->id],
                         $consulta->asignado_a_id,
                     );
@@ -2801,7 +2830,23 @@ class OrdenController extends Controller
             }
         }
 
+        if ($corridas) {
+            $ordenFresh->corridas = $corridas;
+        }
+
         return response()->json($ordenFresh);
+    }
+
+    /**
+     * GET /api/ordenes/{id}/anulacion
+     * Qué pasaría al cancelar esta orden corriendo las siguientes: cuáles
+     * bajan de número y cuántas ya se entregaron. Solo mira, no toca nada.
+     */
+    public function previsualizarAnulacion(Request $request, int $id)
+    {
+        $orden = $this->ordenParaNumeracion($request, $id);
+
+        return response()->json(\App\Services\NumeracionOrdenes::previsualizarAnulacion($orden));
     }
 
     /**

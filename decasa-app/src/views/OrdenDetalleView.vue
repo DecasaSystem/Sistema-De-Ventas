@@ -6,7 +6,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
-import { getOrden, updateEstado, revertirEntrega, descargarPdfOrden, descargarActaEntrega, descargarOrdenEntrega, reenviarCotizacion, asignarFechasEntrega, confirmarCotizacion, editarPago, completarBorrador as completarBorradorApi, eliminarBorrador as eliminarBorradorApi, previsualizarNumeracion, convertirSerie, cambiarNumeroOrden, cambiarProductoEntregado } from '@/api/ordenes'
+import { getOrden, updateEstado, previsualizarAnulacion, revertirEntrega, descargarPdfOrden, descargarActaEntrega, descargarOrdenEntrega, reenviarCotizacion, asignarFechasEntrega, confirmarCotizacion, editarPago, completarBorrador as completarBorradorApi, eliminarBorrador as eliminarBorradorApi, previsualizarNumeracion, convertirSerie, cambiarNumeroOrden, cambiarProductoEntregado } from '@/api/ordenes'
 import api from '@/api'
 import { useTiposProceso } from '@/composables/useTiposProceso'
 import { updateCliente } from '@/api/clientes'
@@ -569,7 +569,9 @@ const puedeCambiarEstado = computed(() => {
   if (!orden.value) return false
   if (!auth.isSupervisor) return false
   if (['entregado', 'cancelado', 'listo_entrega', 'en_camino'].includes(orden.value.estado)) return false
-  if (tienePersonalizados.value) return false
+  // Con ítems personalizados el avance lo lleva Producción, pero cancelar la
+  // venta es decisión de la orden: antes se escondía todo el selector y no
+  // había forma de anular una orden con algo en el taller.
   return true
 })
 
@@ -925,8 +927,10 @@ const opcionesNuevoEstado = computed(() => {
   if (!orden.value) return []
   return (transicionesValidas[orden.value.estado] ?? [])
     .filter((e) => {
+      // Con algo en el taller, el avance lo marca Producción; desde aquí
+      // solo se cancela la venta.
+      if (tienePersonalizados.value && e !== 'cancelado') return false
       if (e === 'en_produccion' && !tienePersonalizados.value) return false
-      if (e === 'listo_entrega' && tienePersonalizados.value && orden.value.estado === 'pendiente_anticipo') return false
       // Entregar ya no es cambiar un estado: es una entrega —con quién, qué
       // y cuándo— y va por "Entregar ahora", que deja todo eso escrito.
       if (e === 'entregado') return false
@@ -1091,12 +1095,62 @@ async function cambiarEstado() {
     if (!confirm(aviso)) return
   }
 
+  // Cancelar tiene su propia ventana: hay que decidir qué pasa con el número.
+  if (nuevoEstado.value === 'cancelado') {
+    await abrirCancelar()
+    return
+  }
+
   changingEstado.value = true
   try {
     await updateEstado(orden.value.id, nuevoEstado.value)
     await cargarOrden()
   } catch (e) {
     toast.error(e.response?.data?.message ?? 'Error al cambiar el estado.')
+  } finally {
+    changingEstado.value = false
+  }
+}
+
+// ── Cancelar (anular) la orden ───────────────────────────────────────────────
+// Dos formas: dejar el número quemado (queda el hueco, como una factura
+// anulada en el talonario) o soltarlo y correr las siguientes para que no
+// quede hueco —para cuando se subió la misma venta dos veces—.
+const showCancelar     = ref(false)
+const cancelarPreview  = ref(null)   // { referencia, tiene_numero, corridas, ya_entregadas }
+const cancelarModo     = ref('hueco') // 'hueco' | 'correr'
+const cargandoCancelar = ref(false)
+
+async function abrirCancelar() {
+  cancelarModo.value    = 'hueco'
+  cancelarPreview.value = null
+  showCancelar.value    = true
+  cargandoCancelar.value = true
+  try {
+    const { data } = await previsualizarAnulacion(orden.value.id)
+    cancelarPreview.value = data
+  } catch (e) {
+    // Sin vista previa igual se puede cancelar dejando el hueco.
+    cancelarPreview.value = { referencia: orden.value.referencia, tiene_numero: false, corridas: [], ya_entregadas: 0 }
+  } finally {
+    cargandoCancelar.value = false
+  }
+}
+
+async function confirmarCancelar() {
+  changingEstado.value = true
+  try {
+    const correr = cancelarModo.value === 'correr' && cancelarPreview.value?.tiene_numero
+    const { data } = await updateEstado(orden.value.id, 'cancelado', { correr_numeracion: correr })
+    showCancelar.value = false
+    nuevoEstado.value  = ''
+    const n = data?.corridas?.length ?? 0
+    toast.success(correr
+      ? (n ? `Orden anulada. Se corrieron ${n} orden(es) para cerrar el hueco.` : 'Orden anulada.')
+      : 'Orden cancelada. Su número queda anulado.')
+    await cargarOrden()
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'Error al cancelar la orden.')
   } finally {
     changingEstado.value = false
   }
@@ -3155,13 +3209,13 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         >
           <BuildingOffice2Icon class="w-5 h-5 mt-0.5 text-purple-600 flex-shrink-0" />
           <div>
-            <p class="text-sm font-semibold text-purple-800">Estado gestionado desde Producción</p>
-            <p class="text-xs text-purple-600 mt-0.5">Esta orden tiene ítems personalizados. El estado se actualiza automáticamente al cambiar el avance en el módulo de Producción.</p>
+            <p class="text-sm font-semibold text-purple-800">Avance gestionado desde Producción</p>
+            <p class="text-xs text-purple-600 mt-0.5">Esta orden tiene ítems personalizados: el estado se actualiza solo con el avance del taller. Desde aquí solo se puede <strong>cancelar</strong> la orden (se cancela también lo que tenga en producción).</p>
           </div>
         </div>
 
 
-        <!-- Cambiar estado (solo órdenes sin personalizados) -->
+        <!-- Cambiar estado -->
         <div v-if="puedeCambiarEstado" class="space-y-2">
           <div class="flex gap-2">
             <select
@@ -4027,6 +4081,84 @@ onMounted(() => { cargarTipos(); cargarOrden() })
               class="flex-1 bg-red-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-red-700 disabled:opacity-50 transition-colors"
             >
               {{ descartandoBorrador ? 'Descartando...' : 'Sí, descartar' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- Cancelar (anular) la orden: qué pasa con el número -->
+    <Transition name="fade">
+      <div v-if="showCancelar" class="fixed inset-0 z-[70] flex items-end sm:items-center justify-center sm:p-6">
+        <div class="absolute inset-0 bg-black/50" @click="showCancelar = false" />
+        <div class="relative bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md p-5 space-y-4 max-h-[92vh] overflow-y-auto">
+          <div class="flex items-start gap-3">
+            <ExclamationTriangleIcon class="w-6 h-6 text-red-500 shrink-0" />
+            <div>
+              <p class="text-sm font-bold text-gray-900">Cancelar la orden {{ orden?.referencia }}</p>
+              <p class="text-xs text-gray-600 mt-1">
+                Se liberan los productos apartados y se cancela lo que tenga en el taller. No se puede deshacer.
+              </p>
+            </div>
+          </div>
+
+          <div v-if="cargandoCancelar" class="text-xs text-gray-400 text-center py-2">Revisando la numeración...</div>
+
+          <template v-else-if="cancelarPreview">
+            <div class="space-y-2">
+              <p class="text-xs font-semibold text-gray-500 uppercase">¿Qué pasa con el número?</p>
+
+              <button
+                type="button" @click="cancelarModo = 'hueco'"
+                :class="['w-full text-left rounded-xl border-2 px-3 py-3 transition-colors',
+                  cancelarModo === 'hueco' ? 'border-gray-800 bg-gray-50' : 'border-gray-200 hover:border-gray-300']"
+              >
+                <p class="text-sm font-bold text-gray-800">Dejar el hueco</p>
+                <p class="text-xs text-gray-500 leading-snug">
+                  La orden se queda con el {{ cancelarPreview.referencia }} anulado, como una factura anulada en el talonario. Las demás no se tocan.
+                </p>
+              </button>
+
+              <button
+                type="button" @click="cancelarModo = 'correr'"
+                :disabled="!cancelarPreview.tiene_numero"
+                :class="['w-full text-left rounded-xl border-2 px-3 py-3 transition-colors disabled:opacity-50',
+                  cancelarModo === 'correr' ? 'border-blue-600 bg-blue-50' : 'border-gray-200 hover:border-gray-300']"
+              >
+                <p class="text-sm font-bold text-gray-800">Correr las siguientes</p>
+                <p class="text-xs text-gray-500 leading-snug">
+                  <template v-if="!cancelarPreview.tiene_numero">Esta orden no tiene consecutivo que soltar.</template>
+                  <template v-else-if="!cancelarPreview.corridas.length">Es la última numerada: suelta el {{ cancelarPreview.referencia }} y la próxima venta lo toma.</template>
+                  <template v-else>
+                    Suelta el {{ cancelarPreview.referencia }} y las {{ cancelarPreview.corridas.length }} orden(es) posteriores bajan un número, para que no quede hueco.
+                  </template>
+                </p>
+              </button>
+            </div>
+
+            <div v-if="cancelarModo === 'correr' && cancelarPreview.corridas.length" class="space-y-1.5">
+              <p v-if="cancelarPreview.ya_entregadas" class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                ⚠️ {{ cancelarPreview.ya_entregadas }} de esas ya se entregaron: su papel impreso quedará con el número viejo.
+              </p>
+              <div class="max-h-40 overflow-y-auto rounded-lg border border-gray-200 divide-y text-xs">
+                <div v-for="c in cancelarPreview.corridas" :key="c.id" class="flex items-center justify-between px-3 py-1.5">
+                  <span class="truncate text-gray-700">{{ c.cliente || 'Sin cliente' }}</span>
+                  <span class="shrink-0 ml-2 font-mono text-gray-500">{{ c.de }} → <strong class="text-gray-800">{{ c.a }}</strong></span>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <div class="flex gap-3">
+            <button @click="showCancelar = false" class="flex-1 bg-gray-100 text-gray-700 rounded-lg py-2.5 text-sm font-semibold">
+              No, dejarla
+            </button>
+            <button
+              @click="confirmarCancelar"
+              :disabled="changingEstado || cargandoCancelar"
+              class="flex-1 bg-red-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-red-700 disabled:opacity-50 transition-colors"
+            >
+              {{ changingEstado ? 'Cancelando...' : (cancelarModo === 'correr' ? 'Anular y correr' : 'Sí, cancelar') }}
             </button>
           </div>
         </div>

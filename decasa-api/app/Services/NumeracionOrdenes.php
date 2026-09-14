@@ -214,6 +214,87 @@ class NumeracionOrdenes
     }
 
     /**
+     * Qué pasaría al anular esta orden corriendo las siguientes, sin tocar
+     * nada: cuáles bajan de número y cuántas de esas ya se entregaron (esas
+     * tienen papel impreso con el número viejo, y conviene saberlo antes).
+     *
+     * @return array{referencia: string, tiene_numero: bool, corridas: array, ya_entregadas: int}
+     */
+    public static function previsualizarAnulacion(Orden $orden): array
+    {
+        $espacio  = self::espacioActual($orden);
+        $corridas = $espacio ? self::ordenesACorrer($espacio) : collect();
+
+        return [
+            'referencia'    => $orden->referencia,
+            'tiene_numero'  => (bool) $espacio,
+            'corridas'      => $corridas->map(fn (Orden $o) => [
+                'id'        => $o->id,
+                'de'        => $espacio['prefijo'] . $o->{$espacio['columnaNumero']},
+                'a'         => $espacio['prefijo'] . ($o->{$espacio['columnaNumero']} - 1),
+                'cliente'   => $o->cliente?->nombre,
+                'estado'    => $o->estado,
+                'entregada' => $o->estado === 'entregado',
+            ])->values()->all(),
+            'ya_entregadas' => $corridas->where('estado', 'entregado')->count(),
+        ];
+    }
+
+    /**
+     * Anular sin dejar hueco: la orden suelta su consecutivo y las órdenes
+     * posteriores del mismo espacio bajan un número, de modo que la #4291 pasa
+     * a ser la #4290. Es para cuando se subió una venta dos veces y la
+     * repetida no debe gastar número.
+     *
+     * Va DENTRO de la transacción que cancela la orden: si se corre y la
+     * cancelación falla, el talonario quedaría movido por una orden viva.
+     *
+     * La alternativa —cancelar y dejar el hueco— no pasa por acá: la orden se
+     * queda con su número quemado, como una factura anulada en el talonario.
+     *
+     * @return array<int, array{id: int, de: string, a: string}> las que se movieron
+     */
+    public static function liberarYCorrer(Orden $orden, Usuario $usuario): array
+    {
+        $espacio = self::espacioActual($orden);
+        if (! $espacio) {
+            return [];
+        }
+
+        $refAntes = $orden->referencia;
+
+        // Soltar el número ANTES de correr: la siguiente va a tomar justo
+        // este, y con el índice único no pueden coincidir ni un instante. La
+        // serie se conserva (una R anulada sigue siendo restauración); solo se
+        // va el número.
+        $orden->update([
+            $espacio['columnaNumero'] => null,
+            'numero_anulado'          => $refAntes,
+        ]);
+
+        $corridas = self::correrHaciaAbajo($espacio);
+
+        self::anotar($orden, $usuario, [[
+            'campo'   => 'numeracion',
+            'label'   => 'Anulada: soltó su número y se corrieron las siguientes',
+            'antes'   => $refAntes,
+            'despues' => 'Sin número',
+        ]]);
+
+        foreach ($corridas as $c) {
+            $movida = Orden::find($c['id']);
+            self::anotar($movida, $usuario, [[
+                'campo'   => 'numeracion',
+                'label'   => 'Número corrido al anular ' . $refAntes,
+                'antes'   => $c['de'],
+                'despues' => $c['a'],
+            ]]);
+        }
+
+        return $corridas;
+    }
+
+    /**
      * Pone los ítems de acuerdo con lo que la orden pasó a ser.
      *
      * `orden_items.es_restauracion` significa "este mueble es del cliente, no
