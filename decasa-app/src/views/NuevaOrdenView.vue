@@ -1907,8 +1907,23 @@ async function submit() {
     }
     const errores = e.response?.data?.errors
     const detalle = errores ? ' · ' + Object.entries(errores).map(([k, v]) => `${k}: ${v[0]}`).join(', ') : ''
-    toast.error((e.response?.data?.message ?? 'Error al crear la orden') + detalle)
-    console.error('422 payload:', e.response?.data)
+    // Sin respuesta del servidor no es lo mismo que un 422: puede ser que la
+    // petición nunca salió (un error de JS armando la orden) o que se cortó
+    // por tiempo. Decir cuál es lo que permite saber dónde buscar.
+    let mensaje = e.response?.data?.message
+    if (!mensaje) {
+      if (e.response) {
+        mensaje = `Error del servidor (${e.response.status}) al crear la orden`
+      } else if (e.isAxiosError) {
+        mensaje = e.code === 'ECONNABORTED'
+          ? 'El servidor tardó demasiado en responder. Revisa en Órdenes si la orden quedó creada antes de reintentar.'
+          : `Sin conexión con el servidor (${e.code ?? e.message}). Revisa en Órdenes si la orden quedó creada antes de reintentar.`
+      } else {
+        mensaje = `Error en la pantalla al armar la orden: ${e.message}`
+      }
+    }
+    toast.error(mensaje + detalle)
+    console.error('Error al crear la orden:', e, e.response?.data)
     // Cooldown de 4 segundos para evitar doble envío accidental
     cooldown.value = 4
     clearInterval(cooldownTimer)

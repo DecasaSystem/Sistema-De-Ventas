@@ -43,6 +43,15 @@ return [
             ],
             'client_options' => [
                 // Guzzle client options: https://docs.guzzlephp.org/en/stable/request-options.html
+                //
+                // Los eventos se emiten en caliente (ShouldBroadcastNow) desde
+                // dentro de la petición: crear una orden manda uno por cada
+                // notificación y por cada ítem. Sin tope, si Reverb se traba
+                // cada uno espera 30 s y la petición entera se cuelga hasta
+                // que el proxy la corta. El aviso en vivo es un extra: si no
+                // sale en 3 s, se sigue.
+                'timeout'         => (float) env('REVERB_CLIENT_TIMEOUT', 3),
+                'connect_timeout' => 2.0,
             ],
         ],
 

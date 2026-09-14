@@ -784,7 +784,12 @@ class OrdenController extends Controller
                 $origenTiendaId = $itemData['tienda_origen_id'] ?? $tiendaId;
                 // Apartar producto no es venderlo: el aviso de "se acabó" sale
                 // cuando el producto sale del inventario, al entregarlo.
-                event(new InventarioActualizado((int) $origenTiendaId, (int) $itemData['producto_id'], 'reserva'));
+                //
+                // La orden ya está guardada: que Reverb no conteste no puede
+                // convertir la venta en un error para quien la acaba de hacer.
+                try {
+                    event(new InventarioActualizado((int) $origenTiendaId, (int) $itemData['producto_id'], 'reserva'));
+                } catch (\Throwable) {}
 
                 if ($fabricaId && (int) $origenTiendaId === (int) $fabricaId) {
                     $itemsFabrica[] = $itemData;
