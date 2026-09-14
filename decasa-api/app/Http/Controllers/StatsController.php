@@ -1310,11 +1310,20 @@ class StatsController extends Controller
         $mesActual  = Carbon::now(self::TZ_NEGOCIO)->format('Y-m');
         // La meta se arrastra: no hace falta volver a cargarla cada mes.
         $vigentes   = \App\Models\MetaTienda::vigentesEn($mesActual);
-        $metaReg    = $vendedor->tienda_id ? ($vigentes[$vendedor->tienda_id] ?? null) : null;
+
+        // La tienda contra la que se mide NO es la de su ficha: es la del
+        // equipo que cobra el pool (ver tiendaParaMetaDe). Antes se miraba
+        // tienda_default_id, y a quien estaba cubriendo en otra sede, o vendía
+        // desde otra tienda, le salía la meta y el "faltan" de una tienda que
+        // no era la suya —distintos a los del reporte por tienda, que sí van
+        // por donde entró la venta.
+        $tiendaMeta = $this->tiendaParaMetaDe($vendedorId, $vendedor->tienda_id, $mesActual);
+        $tiendaId   = $tiendaMeta['id'];
+        $metaReg    = $tiendaId ? ($vigentes[$tiendaId] ?? null) : null;
 
         // Lo mismo que ve la pantalla de comisiones, no una suma aparte.
-        $totalTiendaMes = $vendedor->tienda_id
-            ? (ComisionController::ventasParaMeta()[$vendedor->tienda_id . '_' . $mesActual] ?? 0.0)
+        $totalTiendaMes = $tiendaId
+            ? (ComisionController::ventasParaMeta()[$tiendaId . '_' . $mesActual] ?? 0.0)
             : 0;
 
         $meta = $metaReg ? (float) $metaReg->meta : null;
@@ -1322,6 +1331,9 @@ class StatsController extends Controller
 
         $data['meta_mes'] = [
             'mes'          => $mesActual,
+            'tienda_id'    => $tiendaId,
+            'tienda'       => $tiendaMeta['nombre'],
+            'por_que'      => $tiendaMeta['por_que'],
             'meta'         => $meta,
             'total_tienda' => $totalTiendaMes,
             'pct'          => $pct,
@@ -1329,5 +1341,69 @@ class StatsController extends Controller
         ];
 
         return $data;
+    }
+
+    /**
+     * Contra qué tienda se mide la meta de un vendedor este mes.
+     *
+     * La ficha del usuario (tienda_default_id) dice dónde suele estar, pero
+     * la meta y el pool se pagan por la tienda donde de verdad está: si fue a
+     * cubrir a otra sede, o se trasladó, ahí es donde le toca. Y si no está
+     * en ningún equipo, manda donde entraron sus ventas del mes —que es lo
+     * que el reporte por tienda le suma a esa tienda—. Solo al final se cae
+     * a la ficha.
+     *
+     * @return array{id: ?int, nombre: ?string, por_que: string}
+     */
+    private function tiendaParaMetaDe(int $vendedorId, ?int $tiendaDefault, string $mes): array
+    {
+        $hoy = Carbon::now(self::TZ_NEGOCIO)->toDateString();
+
+        // 1. Hoy está cubriendo en otra sede o se trasladó: ahí es donde está.
+        $movimiento = DB::table('tienda_reemplazos')
+            ->where('usuario_id', $vendedorId)
+            ->whereDate('desde', '<=', $hoy)
+            ->where(fn ($q) => $q->whereNull('hasta')->orWhereDate('hasta', '>=', $hoy))
+            ->orderByDesc('desde')
+            ->first();
+        if ($movimiento) {
+            return $this->tiendaConNombre((int) $movimiento->tienda_id,
+                $movimiento->tipo === \App\Models\TiendaReemplazo::TRASLADO ? 'trasladado a esta tienda' : 'cubriendo en esta tienda');
+        }
+
+        // 2. Es del equipo fijo de una tienda este mes.
+        foreach (\App\Models\TiendaAsesor::vigentesEn($mes) as $tid => $gente) {
+            if ($gente->contains(fn ($a) => (int) $a->vendedor_id === $vendedorId)) {
+                return $this->tiendaConNombre((int) $tid, 'equipo de la tienda');
+            }
+        }
+
+        // 3. Donde entraron sus ventas del mes (la misma fuente que la meta).
+        $conMasVentas = DB::table('comisiones as c')
+            ->join('ordenes as o', 'o.id', '=', 'c.orden_id')
+            ->where('c.vendedor_id', $vendedorId)
+            ->where('c.mes_venta', $mes)
+            ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES)
+            ->selectRaw('c.tienda_id, SUM(c.valor_orden) AS total')
+            ->groupBy('c.tienda_id')
+            ->orderByDesc('total')
+            ->value('tienda_id');
+        if ($conMasVentas) {
+            return $this->tiendaConNombre((int) $conMasVentas, 'donde entraron sus ventas del mes');
+        }
+
+        // 4. Lo que dice su ficha.
+        return $tiendaDefault
+            ? $this->tiendaConNombre($tiendaDefault, 'tienda de su ficha')
+            : ['id' => null, 'nombre' => null, 'por_que' => 'sin tienda'];
+    }
+
+    private function tiendaConNombre(int $tiendaId, string $porQue): array
+    {
+        return [
+            'id'      => $tiendaId,
+            'nombre'  => DB::table('tiendas')->where('id', $tiendaId)->value('nombre'),
+            'por_que' => $porQue,
+        ];
     }
 }

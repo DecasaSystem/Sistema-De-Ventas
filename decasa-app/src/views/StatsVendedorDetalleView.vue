@@ -261,7 +261,12 @@ onBeforeUnmount(() => {
       <!-- Barra de meta mensual -->
       <div v-if="stats.meta_mes?.meta" class="bg-white rounded-xl shadow-sm p-4">
         <div class="flex items-center justify-between mb-1">
-          <p class="text-sm font-semibold text-gray-700">Meta mensual · {{ stats.meta_mes.mes }}</p>
+          <div>
+            <p class="text-sm font-semibold text-gray-700">Meta mensual · {{ stats.meta_mes.mes }}</p>
+            <p v-if="stats.meta_mes.tienda" class="text-[11px] text-gray-400">
+              {{ stats.meta_mes.tienda }}<span v-if="stats.meta_mes.por_que"> · {{ stats.meta_mes.por_que }}</span>
+            </p>
+          </div>
           <span
             :class="[
               'text-xs font-bold px-2 py-0.5 rounded-full',
