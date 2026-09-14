@@ -80,6 +80,8 @@ class Usuario extends Authenticatable
         'perfil_alterno_id',
         'activo',
         'firma_url',
+        // Qué módulos puso cada quien en la barra de abajo (nombres de ruta).
+        'nav_favoritos',
         'created_at',
     ];
 
@@ -116,6 +118,7 @@ class Usuario extends Authenticatable
             'apto_comisiones'     => 'boolean',
             'apto_produccion'     => 'boolean',
             'nomina_desde'        => 'date',
+            'nav_favoritos'       => 'array',
         ];
     }
 

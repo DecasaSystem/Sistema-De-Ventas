@@ -196,7 +196,30 @@ class AuthController extends Controller
                    'email' => $usuario->perfilAlterno->email]
                 : null,
             'firma_url'          => $usuario->firma_url,
+            // Su barra de abajo, si la personalizó. Null = la de siempre.
+            'nav_favoritos'      => $usuario->nav_favoritos,
         ];
+    }
+
+    /**
+     * PATCH /api/auth/mi-nav
+     * Qué módulos van en la barra de abajo, en ese orden. Se guarda en la
+     * cuenta para que sea la misma en todos los aparatos. Mandar null vuelve
+     * a la barra de siempre. Qué puede ver cada quien lo siguen decidiendo
+     * los permisos: aquí solo se guarda el orden preferido, y la pantalla
+     * descarta lo que ya no le corresponda.
+     */
+    public function guardarNav(Request $request)
+    {
+        $data = $request->validate([
+            'nav_favoritos'   => 'nullable|array|max:4',
+            'nav_favoritos.*' => 'string|max:40|regex:/^[a-z0-9\-]+$/',
+        ]);
+
+        $lista = isset($data['nav_favoritos']) ? array_values(array_unique($data['nav_favoritos'])) : null;
+        $request->user()->update(['nav_favoritos' => $lista ?: null]);
+
+        return response()->json(['nav_favoritos' => $lista ?: null]);
     }
 
     public function logout(Request $request)

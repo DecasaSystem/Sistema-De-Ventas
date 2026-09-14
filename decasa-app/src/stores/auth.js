@@ -246,6 +246,16 @@ export const useAuthStore = defineStore('auth', () => {
     _syncStorage()
   }
 
+  // La barra de abajo que eligió: nombres de ruta en orden, o null.
+  function setNavFavoritos(lista) {
+    if (!usuario.value) return
+    usuario.value = { ...usuario.value, nav_favoritos: lista }
+    if (_perfiles.value[_perfilActivo.value]) {
+      _perfiles.value[_perfilActivo.value].usuario = usuario.value
+    }
+    _syncStorage()
+  }
+
   function setEmail(email) {
     if (!usuario.value) return
     usuario.value = { ...usuario.value, email }
@@ -348,7 +358,7 @@ export const useAuthStore = defineStore('auth', () => {
     puedeCostos, puedeProveedores, puedeDespacho, puedeEntregar, puedeProduccion, gestionaProduccion, puedeReserva, puedeNomina, puedeCompras,
     puedeEncargos, revisaEncargos, llevaEncargos, veTodasOrdenes, soloVeSusOrdenes,
     tienePerfilAlternativo, perfilAlternativo, perfilActivoIdx, perfilAlternoRecordado,
-    login, loginConGoogle, fetchMe, setFirma, setEmail, logout, clearSession,
+    login, loginConGoogle, fetchMe, setFirma, setNavFavoritos, setEmail, logout, clearSession,
     loginPerfilAlternativo, cambiarPerfil, eliminarPerfilAlternativo,
   }
 })

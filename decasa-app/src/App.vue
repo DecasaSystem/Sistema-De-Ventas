@@ -12,6 +12,7 @@ import { useConsultasStore } from '@/stores/consultas'
 import { useModulosStore } from '@/stores/modulos'
 import { useSurtidosSocket } from '@/composables/useSurtidosSocket'
 import { useCargaGlobal } from '@/composables/useCargaGlobal'
+import { useToast } from '@/composables/useToast'
 import { registrarPush, cancelarPush } from '@/composables/usePushNotifications'
 import { cargarCatalogoDB } from '@/data/telasCatalogo'
 import CargandoS from '@/components/common/CargandoS.vue'
@@ -58,11 +59,13 @@ import {
   SwatchIcon,
   Cog6ToothIcon,
   ArrowsRightLeftIcon,
+  AdjustmentsHorizontalIcon,
 } from '@heroicons/vue/24/outline'
 
 const route  = useRoute()
 const router = useRouter()
 const auth       = useAuthStore()
+const toast      = useToast()
 useAppearanceStore() // inicializa y aplica tema/fuente guardados
 const notif  = useNotificacionesStore()
 const despacho = useDespachoStore()
@@ -317,18 +320,77 @@ const navItems = computed(() => {
   ])
 })
 
-// Conductor y roles con ≤4 items: todos visibles. Supervisor/facturador/vendedor: 4 + "Más"
-const navPrimarios   = computed(() => {
+// Cuántos accesos caben en la fila de abajo además de "Más". Con cinco el
+// texto de "Consultar costo" ya no cabe en un celular angosto.
+const NAV_MAX_FIJOS = 4
+
+// La barra se puede personalizar solo cuando hay más módulos de los que
+// caben: al conductor, con dos, no hay nada que elegir.
+const navPersonalizable = computed(() => navItems.value.length > NAV_MAX_FIJOS)
+
+/**
+ * Los que van fijos en la barra. Si la persona eligió los suyos, van esos en
+ * su orden —descartando lo que ya no le corresponda ver, porque los permisos
+ * pueden haber cambiado desde que los eligió—; si no, los primeros de la
+ * lista del rol, como siempre.
+ */
+const navPrimarios = computed(() => {
   const items = navItems.value
-  if (auth.usuario?.rol === 'conductor') return items
-  if (auth.isSupervisor || auth.isFacturador || auth.usuario?.rol === 'vendedor') return items.slice(0, 4)
-  return items
+  if (!navPersonalizable.value) return items
+
+  const elegidos = Array.isArray(auth.usuario?.nav_favoritos) ? auth.usuario.nav_favoritos : null
+  if (elegidos?.length) {
+    const propios = elegidos
+      .map(name => items.find(i => i.name === name))
+      .filter(Boolean)
+      .slice(0, NAV_MAX_FIJOS)
+    if (propios.length) return propios
+  }
+  return items.slice(0, NAV_MAX_FIJOS)
 })
 const navSecundarios = computed(() => {
-  if (auth.usuario?.rol === 'conductor') return []
-  if (auth.isSupervisor || auth.isFacturador || auth.usuario?.rol === 'vendedor') return navItems.value.slice(4)
-  return []
+  if (!navPersonalizable.value) return []
+  const fijos = new Set(navPrimarios.value.map(i => i.name))
+  return navItems.value.filter(i => !fijos.has(i.name))
 })
+
+// ── Personalizar la barra ────────────────────────────────────────────────────
+const abrirPersonalizarNav = ref(false)
+const navSeleccion         = ref([])   // nombres de ruta, en el orden elegido
+const guardandoNav         = ref(false)
+
+function abrirPersonalizar() {
+  navSeleccion.value = navPrimarios.value.map(i => i.name)
+  abrirMas.value = false
+  abrirPersonalizarNav.value = true
+}
+
+function toggleNavItem(name) {
+  const i = navSeleccion.value.indexOf(name)
+  if (i !== -1) {
+    navSeleccion.value.splice(i, 1)
+  } else if (navSeleccion.value.length < NAV_MAX_FIJOS) {
+    navSeleccion.value.push(name)
+  }
+}
+const posicionNav = (name) => {
+  const i = navSeleccion.value.indexOf(name)
+  return i === -1 ? null : i + 1
+}
+
+async function guardarNav(restablecer = false) {
+  guardandoNav.value = true
+  try {
+    const lista = restablecer ? null : navSeleccion.value
+    await api.patch('/auth/mi-nav', { nav_favoritos: lista })
+    auth.setNavFavoritos(lista)
+    abrirPersonalizarNav.value = false
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudo guardar la barra.')
+  } finally {
+    guardandoNav.value = false
+  }
+}
 const masActivo      = computed(() => navSecundarios.value.some(i => i.name === route.name))
 
 // Pendientes que quedaron escondidos dentro de "Más". Sin esto, un badge de
@@ -651,6 +713,16 @@ function formatFecha(iso) {
             </div>
             <span class="w-full text-[10px] leading-tight text-center line-clamp-2">{{ item.label }}</span>
           </button>
+
+          <!-- Elegir qué va fijo abajo. Va dentro de "Más" porque es desde
+               donde uno se cansa de buscar el módulo que usa a diario. -->
+          <button
+            @click="abrirPersonalizar"
+            class="min-w-0 flex flex-col items-center justify-start py-3 px-1 gap-1 text-gray-400 hover:text-blue-600 transition-colors"
+          >
+            <AdjustmentsHorizontalIcon class="w-6 h-6" />
+            <span class="w-full text-[10px] leading-tight text-center line-clamp-2">Personalizar barra</span>
+          </button>
         </div>
       </Transition>
 
@@ -710,6 +782,73 @@ function formatFecha(iso) {
       @click="abrirMas = false"
     />
 
+    <!-- Personalizar la barra de abajo -->
+    <Transition name="fade">
+      <div v-if="abrirPersonalizarNav" class="fixed inset-0 z-[120] flex items-end sm:items-center justify-center" @click.self="abrirPersonalizarNav = false">
+        <div class="absolute inset-0 bg-black/40" />
+        <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md p-5 space-y-4 max-h-[88vh] overflow-y-auto pb-8">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <h3 class="text-lg font-bold text-gray-800">Personalizar barra</h3>
+              <p class="text-xs text-gray-500 mt-0.5">
+                Toca hasta <strong>{{ NAV_MAX_FIJOS }}</strong> módulos en el orden en que los quieres abajo. El resto queda en "Más".
+              </p>
+            </div>
+            <button @click="abrirPersonalizarNav = false" class="text-gray-400 text-2xl leading-none">&times;</button>
+          </div>
+
+          <!-- Vista previa de cómo queda -->
+          <div class="rounded-xl border border-gray-200 bg-gray-50 px-2 py-2">
+            <div class="flex items-stretch">
+              <div
+                v-for="name in navSeleccion" :key="name"
+                class="flex-1 min-w-0 flex flex-col items-center gap-1 py-1 text-blue-600"
+              >
+                <component :is="navItems.find(i => i.name === name)?.icon" class="w-5 h-5" />
+                <span class="w-full text-[10px] leading-tight text-center line-clamp-2">{{ navItems.find(i => i.name === name)?.label }}</span>
+              </div>
+              <div v-for="n in (NAV_MAX_FIJOS - navSeleccion.length)" :key="'vacio-' + n" class="flex-1 min-w-0 flex flex-col items-center gap-1 py-1 text-gray-300">
+                <div class="w-5 h-5 rounded-full border-2 border-dashed border-gray-300" />
+                <span class="text-[10px]">libre</span>
+              </div>
+              <div class="flex-1 min-w-0 flex flex-col items-center gap-1 py-1 text-gray-400">
+                <EllipsisHorizontalIcon class="w-5 h-5" />
+                <span class="text-[10px]">Más</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-1.5">
+            <button
+              v-for="item in navItems" :key="item.name" type="button"
+              @click="toggleNavItem(item.name)"
+              :disabled="!posicionNav(item.name) && navSeleccion.length >= NAV_MAX_FIJOS"
+              :class="['w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border-2 text-left transition-all disabled:opacity-40',
+                posicionNav(item.name) ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white hover:border-gray-300']"
+            >
+              <span :class="['w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0',
+                posicionNav(item.name) ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-400']">
+                {{ posicionNav(item.name) ?? '+' }}
+              </span>
+              <component :is="item.icon" class="w-5 h-5 text-gray-500 flex-shrink-0" />
+              <span class="text-sm font-medium text-gray-800">{{ item.label }}</span>
+            </button>
+          </div>
+
+          <div class="flex gap-3">
+            <button @click="guardarNav(true)" :disabled="guardandoNav"
+              class="flex-1 bg-gray-100 text-gray-700 rounded-lg py-2.5 text-sm font-semibold disabled:opacity-50">
+              Volver a la de siempre
+            </button>
+            <button @click="guardarNav(false)" :disabled="guardandoNav || !navSeleccion.length"
+              class="flex-1 bg-blue-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50">
+              {{ guardandoNav ? 'Guardando...' : 'Guardar' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
     <!-- Scroll to top -->
     <ScrollToTop />
 
@@ -725,6 +864,11 @@ function formatFecha(iso) {
 </template>
 
 <style scoped>
+.fade-enter-active,
+.fade-leave-active { transition: opacity 0.2s ease; }
+.fade-enter-from,
+.fade-leave-to { opacity: 0; }
+
 .slide-up-enter-active,
 .slide-up-leave-active {
   transition: transform 0.18s ease, opacity 0.18s ease;
