@@ -78,6 +78,14 @@ const crearForm  = ref({ marca: '', marcaNueva: '', tipo: '', color: '', referen
 const puedeRecargar  = computed(() => auth.puedeRecargarTelas)
 const puedeDescontar = computed(() => auth.puedeUsarTelas)
 
+// Metros con centímetros: "20.45" = 20 m 45 cm. Acepta coma o punto, máximo 2 decimales.
+function normalizarMetros(valor) {
+  let v = String(valor ?? '').replace(',', '.').replace(/[^\d.]/g, '')
+  const i = v.indexOf('.')
+  if (i !== -1) v = v.slice(0, i + 1) + v.slice(i + 1).replace(/\./g, '').slice(0, 2)
+  return v
+}
+
 const telasFiltradas = computed(() => {
   let lista = telas.value
   if (proveedorFiltro.value) {
@@ -136,7 +144,7 @@ async function crearTela() {
       referencia:       crearForm.value.referencia.trim() || undefined,
       textura:          crearForm.value.textura.trim() || undefined,
       foto_url:         crearForm.value.foto_url || undefined,
-      metros_iniciales: parseFloat(crearForm.value.metros) || 0,
+      metros_iniciales: Math.round((parseFloat(normalizarMetros(crearForm.value.metros)) || 0) * 100) / 100,
     }
     const { data } = await api.post('/catalogo-telas', payload)
     telas.value.unshift(data)
@@ -178,7 +186,7 @@ function abrirDescontar(tela) {
 
 async function confirmar() {
   modalError.value = ''
-  const m = parseFloat(metros.value)
+  const m = Math.round(parseFloat(normalizarMetros(metros.value)) * 100) / 100
   if (!m || m <= 0) { modalError.value = 'Ingresa una cantidad válida.'; return }
 
   guardando.value = true
@@ -464,13 +472,14 @@ onMounted(cargar)
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Metros iniciales</label>
               <input
-                v-model="crearForm.metros"
-                type="number"
-                min="0"
-                step="0.5"
+                :value="crearForm.metros"
+                @input="crearForm.metros = $event.target.value = normalizarMetros($event.target.value)"
+                type="text"
+                inputmode="decimal"
                 class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="0"
+                placeholder="0.00"
               />
+              <p class="mt-1 text-xs text-gray-400">Ej: 20.45 = 20 metros 45 centímetros</p>
             </div>
 
             <p v-if="crearError" class="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{{ crearError }}</p>
@@ -517,14 +526,14 @@ onMounted(cargar)
               Metros a {{ modalTipo === 'recargar' ? 'agregar' : 'descontar' }}
             </label>
             <input
-              v-model="metros"
-              type="number"
-              min="0.1"
-              step="0.5"
-              :max="modalTipo === 'descontar' ? telaActiva?.metros_libres : undefined"
-              placeholder="0.0"
+              :value="metros"
+              @input="metros = $event.target.value = normalizarMetros($event.target.value)"
+              type="text"
+              inputmode="decimal"
+              placeholder="0.00"
               class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
+            <p class="mt-1 text-xs text-gray-400">Ej: 20.45 = 20 metros 45 centímetros</p>
           </div>
 
           <div>

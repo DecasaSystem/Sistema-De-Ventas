@@ -90,7 +90,7 @@ class InventarioTelaController extends Controller
 
         $data = $request->validate([
             'id'     => 'required|integer|min:1',
-            'metros' => 'required|numeric|min:0.1',
+            'metros' => 'required|numeric|min:0.01',
             'nota'   => 'nullable|string|max:255',
         ]);
 
@@ -101,7 +101,7 @@ class InventarioTelaController extends Controller
 
         DB::table('catalogo_telas')
             ->where('id', $data['id'])
-            ->increment('metros_disponibles', $data['metros']);
+            ->increment('metros_disponibles', round((float) $data['metros'], 2));
 
         $cat    = DB::table('catalogo_telas')->where('id', $data['id'])->first();
         $nombre = "{$cat->marca} · {$cat->tipo} · {$cat->color}";
