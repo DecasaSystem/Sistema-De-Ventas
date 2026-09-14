@@ -185,6 +185,37 @@ function labelProceso(tipo) {
   return m[tipo] ?? tipo
 }
 
+/**
+ * De qué clase es la pieza, para verlo de un vistazo en la tarjeta:
+ *  - Fabricación: lo que se manda a fabricar (de una orden o desde "Producir").
+ *  - Personalizado: producto que existe pero con cambios.
+ *  - Diseño especial: no existe en catálogo, se hace desde cero.
+ *  - Restauración: el mueble del cliente.
+ */
+function tipoProduccion(p) {
+  if (p.destino === 'reserva') {
+    return { label: '🏭 Fabricación', cls: 'bg-purple-100 text-purple-700' }
+  }
+  const t = p.orden_item?.tipo_item
+  if (t === 'restauracion' || p.orden_item?.es_restauracion) {
+    return { label: '🛠️ Restauración', cls: 'bg-amber-100 text-amber-700' }
+  }
+  if (t === 'diseno_especial') return { label: '🎨 Diseño especial', cls: 'bg-pink-100 text-pink-700' }
+  if (t === 'personalizado')   return { label: '✏️ Personalizado',   cls: 'bg-indigo-100 text-indigo-700' }
+  return { label: '🔨 Fabricación', cls: 'bg-blue-100 text-blue-700' }
+}
+
+/**
+ * A dónde va una fabricación interna: se decide al cerrar el último paso del
+ * taller, así que hasta entonces está por definir.
+ */
+function destinoFabricacion(p) {
+  if (p.estado === 'en_reserva' || p.depositado_at) return 'Reserva de Fábrica'
+  if (p.estado === 'pendiente_despachador' || p.pasos?.some(x => x.tipo_proceso === 'despacho')) return 'Despacho'
+  if (p.estado === 'listo' || p.estado === 'entregado') return 'Despacho'
+  return 'Se elige al terminar (Reserva o Despacho)'
+}
+
 function badgeInfo(p) {
   if (p.estado === 'cancelado') {
     return { label: 'Cancelado', cls: 'bg-gray-100 text-gray-500' }
@@ -511,7 +542,8 @@ function fechaCorta(dateStr) {
 function filaExcel(p) {
   const esReserva = p.destino === 'reserva'
   return {
-    'Orden':            esReserva ? 'Reserva de Fábrica' : (p.orden_item?.orden?.referencia ?? ('#' + (p.orden_item?.orden?.numero_orden ?? p.orden_item?.orden?.id ?? ''))),
+    'Orden':            esReserva ? 'Fabricación interna' : (p.orden_item?.orden?.referencia ?? ('#' + (p.orden_item?.orden?.numero_orden ?? p.orden_item?.orden?.id ?? ''))),
+    'Tipo':             tipoProduccion(p).label.replace(/^\S+\s/, ''),
     'Cliente':          esReserva ? '' : (p.orden_item?.orden?.cliente?.nombre ?? ''),
     'Producto':         p.orden_item?.producto?.nombre || p.orden_item?.nombre_custom || p.producto?.nombre || '',
     // La medida o la tela que se vendió: "CAMA MIAMI" sola no se puede fabricar.
@@ -675,7 +707,7 @@ onUnmounted(() => {
         v-if="auth.gestionaProduccion"
         @click="showProducir = true"
         class="text-sm text-white font-medium px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 transition-colors flex items-center gap-1"
-        title="Fabricar contra stock, para la Reserva de Fábrica"
+        title="Fabricación interna sin orden: al terminar va a la Reserva o a despacho"
       >
         <ArchiveBoxIcon class="w-4 h-4" />
         Producir
@@ -795,19 +827,13 @@ onUnmounted(() => {
               </p>
               <p class="text-xs text-gray-400 flex items-center gap-1.5 flex-wrap">
                 {{ p.orden_item?.producto?.categoria || p.orden_item?.categoria_custom || p.producto?.categoria }}
-                <!-- Restaurar el mueble del cliente no es hacer uno nuevo, y
-                     desde que cada línea puede tener su encargado hay que
-                     distinguirlas de un vistazo en el tablero. -->
-                <span v-if="p.orden_item?.es_restauracion"
-                  class="inline-block text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
-                  🛠️ Restauración
+                <!-- Qué clase de pieza es (fabricación, personalizado, diseño
+                     especial, restauración): en el taller no se trabaja igual
+                     una cosa que otra, y tiene que verse de entrada. -->
+                <span :class="['inline-block text-[11px] font-bold px-2 py-0.5 rounded-full', tipoProduccion(p).cls]">
+                  {{ tipoProduccion(p).label }}{{ p.destino === 'reserva' && p.cantidad > 1 ? ` · x${p.cantidad}` : '' }}
                 </span>
-                <!-- Para la Reserva no hay orden: se fabrica contra stock, no
-                     contra un cliente, y eso tiene que verse de entrada. -->
-                <span v-if="p.destino === 'reserva'"
-                  class="inline-block text-[11px] font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">
-                  🏭 Para Reserva de Fábrica{{ p.cantidad > 1 ? ` · x${p.cantidad}` : '' }}
-                </span>
+                <span v-if="p.destino === 'reserva'" class="text-[11px] text-purple-600">sin orden</span>
               </p>
               <p v-if="p.destino === 'reserva' && p.variante_detalle" class="text-xs text-purple-700 mt-0.5 truncate">{{ p.variante_detalle }}</p>
               <p v-if="specsResumen(p.orden_item) || specsResumenReserva(p)" class="text-xs text-indigo-600 mt-0.5 truncate">
@@ -897,7 +923,7 @@ onUnmounted(() => {
             </div>
             <div>
               <p class="text-gray-400">Destino</p>
-              <p class="font-medium text-purple-700">Reserva de Fábrica</p>
+              <p class="font-medium text-purple-700">{{ destinoFabricacion(p) }}</p>
             </div>
           </div>
 
@@ -985,7 +1011,9 @@ onUnmounted(() => {
             <button @click="mostrarModal = false" class="text-gray-400 text-2xl leading-none">&times;</button>
           </div>
 
-          <p class="text-sm text-gray-600">{{ produccionSeleccionada?.orden_item?.producto?.nombre }}</p>
+          <p class="text-sm text-gray-600">
+            {{ produccionSeleccionada?.orden_item?.producto?.nombre || produccionSeleccionada?.orden_item?.nombre_custom || produccionSeleccionada?.producto?.nombre }}
+          </p>
           <p class="text-xs text-gray-400">Estado actual: <span class="font-medium text-gray-600">{{ produccionSeleccionada?.estado }}</span></p>
 
           <div>
@@ -1007,10 +1035,15 @@ onUnmounted(() => {
                 Selecciona los pasos de producción
                 <span class="text-red-500">*</span>
               </p>
-              <p class="text-xs text-gray-400 mb-3">Toca los procesos en el orden en que se deben realizar. El número indica la secuencia.</p>
+              <p class="text-xs text-gray-400 mb-3">
+                Toca los procesos en el orden en que se deben realizar. El número indica la secuencia.
+                <template v-if="produccionSeleccionada?.destino === 'reserva'">
+                  Al cerrar el último paso se elige si la pieza va a la Reserva o a despacho.
+                </template>
+              </p>
               <div class="space-y-2">
                 <button
-                  v-for="proc in PROCESOS_DISPONIBLES"
+                  v-for="proc in PROCESOS_DISPONIBLES.filter(x => produccionSeleccionada?.destino !== 'reserva' || x.tipo !== 'despacho')"
                   :key="proc.tipo"
                   type="button"
                   @click="togglePaso(proc.tipo)"

@@ -282,4 +282,71 @@ class ProducirParaReservaTest extends TestCase
             'pasos' => [['tipo_proceso' => 'despacho', 'orden' => 1]],
         ])->assertStatus(422);
     }
+
+    public function test_producir_sin_pasos_queda_pendiente_y_se_arranca_despues(): void
+    {
+        $producto = Producto::create(['nombre' => 'Consola', 'categoria' => 'consolas', 'precio_base' => 500000]);
+        $jefe     = $this->jefe();
+
+        $res = $this->actingAs($jefe)->postJson('/api/produccion/producir', [
+            'modo' => 'catalogo', 'producto_id' => $producto->id, 'cantidad' => 2,
+        ])->assertCreated();
+
+        $prodId = $res->json('id');
+        $this->assertSame('pendiente', $res->json('estado'));
+        $this->assertSame(0, ProduccionPaso::where('produccion_id', $prodId)->count());
+
+        // Los pasos se arman después desde el tablero, como con una pieza de orden.
+        $this->actingAs($jefe)->patchJson("/api/produccion/{$prodId}", [
+            'estado' => 'en_proceso',
+            'pasos'  => [['tipo_proceso' => 'ebanisteria', 'orden' => 1]],
+        ])->assertOk();
+
+        $this->assertSame('en_proceso', Produccion::find($prodId)->estado);
+        $pasos = ProduccionPaso::where('produccion_id', $prodId)->orderBy('orden')->get();
+        $this->assertCount(1, $pasos);
+        $this->assertSame('ebanisteria', $pasos[0]->tipo_proceso);
+        $this->assertSame('en_proceso', $pasos[0]->estado);
+    }
+
+    public function test_al_terminar_el_ultimo_paso_se_puede_mandar_a_despacho_en_vez_de_la_reserva(): void
+    {
+        $producto    = Producto::create(['nombre' => 'Consola', 'categoria' => 'consolas', 'precio_base' => 500000]);
+        $ebanista    = $this->trabajador([1]);
+        $despachador = $this->trabajador([3]);
+
+        $prodId = $this->actingAs($this->jefe())->postJson('/api/produccion/producir', [
+            'modo' => 'catalogo', 'producto_id' => $producto->id, 'cantidad' => 3,
+            'pasos' => [['tipo_proceso' => 'ebanisteria', 'orden' => 1]],
+        ])->json('id');
+
+        $pasoEbanisteria = ProduccionPaso::where('produccion_id', $prodId)->where('orden', 1)->first();
+
+        $this->actingAs($ebanista)->patchJson("/api/produccion/pasos/{$pasoEbanisteria->id}/completar", [
+            'trabajadores'  => [['usuario_id' => $ebanista->id, 'horas' => 4]],
+            'destino_final' => 'despacho',
+        ])->assertOk();
+
+        // No entró a la Reserva: se le enganchó el paso de despacho.
+        $prod = Produccion::find($prodId);
+        $this->assertSame('pendiente_despachador', $prod->estado);
+        $this->assertNull($prod->depositado_at);
+        $this->assertNull(Inventario::where('producto_id', $producto->id)->where('tienda_id', 1)->first());
+
+        $despacho = ProduccionPaso::where('produccion_id', $prodId)->where('tipo_proceso', 'despacho')->first();
+        $this->assertNotNull($despacho);
+        $this->assertSame('en_proceso', $despacho->estado);
+        $this->assertSame(2, (int) $despacho->orden);
+
+        // Al cerrar el despacho queda lista para entrega, sin tocar el stock.
+        $this->actingAs($despachador)->patchJson("/api/produccion/pasos/{$despacho->id}/completar", [
+            'trabajadores' => [['usuario_id' => $despachador->id, 'horas' => 1]],
+        ])->assertOk();
+
+        $prod = Produccion::find($prodId);
+        $this->assertSame('listo', $prod->estado);
+        $this->assertSame($despachador->id, (int) $prod->despachado_por);
+        $this->assertNull($prod->depositado_at);
+        $this->assertNull(Inventario::where('producto_id', $producto->id)->where('tienda_id', 1)->first());
+    }
 }

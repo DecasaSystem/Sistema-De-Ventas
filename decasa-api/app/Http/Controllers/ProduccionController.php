@@ -241,6 +241,14 @@ class ProduccionController extends Controller
             ], 422);
         }
 
+        // Una fabricación interna no tiene orden que le diga a dónde va: al
+        // cerrar el último paso del taller, quien lo cierra decide si entra a
+        // la Reserva o sale por despacho. Sin decir nada, va a la Reserva, que
+        // es lo que siempre hizo (y lo que manda una app sin actualizar).
+        $destinoFinal = $request->validate([
+            'destino_final' => 'nullable|in:reserva,despacho',
+        ])['destino_final'] ?? 'reserva';
+
         $participantes = $this->validarParticipantes($request, exigirAlMenosUno: true);
 
         // Completar el paso actual. `completado_por` es quien AUTORIZA que siga
@@ -299,8 +307,17 @@ class ProduccionController extends Controller
                 );
             }
         } elseif ($produccion->esReserva()) {
-            // No quedan pasos y la pieza es para stock: entra a la Reserva.
-            $this->depositarEnReserva($produccion, $usuario, $productoNombre);
+            if ($paso->tipo_proceso === ProduccionPaso::DESPACHO) {
+                // Ya pasó por despacho: salió del taller sin entrar al stock.
+                $this->cerrarProduccionReserva($produccion, $usuario, $productoNombre);
+            } elseif ($destinoFinal === 'despacho') {
+                // Se terminó el taller y la quieren afuera: se le engancha el
+                // paso de despacho igual que a una pieza de orden.
+                $this->mandarADespacho($produccion, $paso, $productoNombre);
+            } else {
+                // No quedan pasos y la pieza es para stock: entra a la Reserva.
+                $this->depositarEnReserva($produccion, $usuario, $productoNombre);
+            }
         } else {
             // No quedan pasos. El último es siempre el de despacho, así que
             // llegar aquí significa que la pieza ya salió del taller.
@@ -525,6 +542,73 @@ class ProduccionController extends Controller
     }
 
     /**
+     * Una fabricación interna que no va al stock sino afuera: se le añade el
+     * paso de despacho al final y la pieza queda esperando al despachador,
+     * igual que cualquier pieza de una orden.
+     */
+    private function mandarADespacho(Produccion $produccion, ProduccionPaso $ultimoPaso, string $productoNombre): void
+    {
+        $despacho = ProduccionPaso::create([
+            'produccion_id' => $produccion->id,
+            'tipo_proceso'  => ProduccionPaso::DESPACHO,
+            'linea'         => $ultimoPaso->linea,
+            'orden'         => (int) ProduccionPaso::where('produccion_id', $produccion->id)->max('orden') + 1,
+            'estado'        => 'en_proceso',
+            'iniciado_at'   => now(),
+        ]);
+
+        $produccion->update(['estado' => 'pendiente_despachador']);
+
+        $this->notificarTrabajadores($despacho->tipo_proceso, $despacho->linea, $produccion->id, null, $productoNombre);
+
+        if ($produccion->creado_por) {
+            NotificacionService::crear(
+                'paso_produccion',
+                'La fabricación pasó a despacho',
+                "\"{$productoNombre}\" x{$produccion->cantidad} terminó el taller y va a despacho, no a la Reserva",
+                ['produccion_id' => $produccion->id],
+                $produccion->creado_por,
+            );
+        }
+
+        event(new ProduccionActualizada($produccion->id, null, 'pendiente_despachador'));
+    }
+
+    /**
+     * La fabricación interna ya pasó por despacho: queda lista para entrega
+     * sin haber entrado a la Reserva. No hay orden que sincronizar.
+     */
+    private function cerrarProduccionReserva(Produccion $produccion, Usuario $usuario, string $productoNombre): void
+    {
+        $produccion->update([
+            'estado'         => 'listo',
+            'fecha_real'     => now()->toDateString(),
+            'despachado_por' => $usuario->id,
+        ]);
+
+        $detalle = $produccion->variante_detalle ? " ({$produccion->variante_detalle})" : '';
+
+        if ($produccion->creado_por) {
+            NotificacionService::crear(
+                'entregado',
+                'Fabricación lista para entrega',
+                "\"{$productoNombre}\"{$detalle} x{$produccion->cantidad} salió del taller y está lista para entrega",
+                ['produccion_id' => $produccion->id],
+                $produccion->creado_por,
+            );
+        }
+
+        NotificacionService::crear(
+            'paso_produccion',
+            'Fabricación despachada',
+            "\"{$productoNombre}\"{$detalle} x{$produccion->cantidad} salió del taller por despacho",
+            ['produccion_id' => $produccion->id],
+        );
+
+        event(new ProduccionActualizada($produccion->id, null, 'listo'));
+    }
+
+    /**
      * PATCH /api/produccion/{id}
      * Supervisor cambia estado. Si cambia a en_proceso, debe enviar los pasos.
      */
@@ -724,9 +808,10 @@ class ProduccionController extends Controller
      *
      * Fabricar contra stock: se elige un producto (del catálogo o uno nuevo),
      * la cantidad, la tela/medida y las especificaciones, y arranca el mismo
-     * flujo de pasos que cualquier producción. Al terminar el último paso las
-     * unidades entran a la Reserva de Fábrica (ver depositarEnReserva()); no hay
-     * cliente, ni orden, ni despacho.
+     * flujo de pasos que cualquier producción (o queda pendiente si los pasos
+     * se van a armar después). Al terminar el último paso del taller, quien lo
+     * cierra decide si las unidades entran a la Reserva de Fábrica (ver
+     * depositarEnReserva()) o salen por despacho (ver mandarADespacho()).
      */
     public function producir(Request $request)
     {
@@ -756,18 +841,23 @@ class ProduccionController extends Controller
             'combo_config_id'     => 'nullable|exists:producto_variante_configs,id',
             'variante_detalle'    => 'nullable|string|max:200',
             'specs'               => 'nullable|array',
-            'pasos'               => 'required|array|min:1',
+            // Los pasos son opcionales: se puede dejar la pieza creada y
+            // armarle el flujo después desde el tablero (Cambiar estado →
+            // En proceso), como con una pieza de orden.
+            'pasos'               => 'nullable|array',
             'pasos.*.tipo_proceso' => 'required|exists:tipos_proceso,clave',
             'pasos.*.orden'        => 'required|integer|min:1',
         ]);
 
-        // Al menos un paso de taller: si solo mandan "despacho" la pieza se
-        // quedaría en_proceso sin nada que hacer.
-        if (! collect($data['pasos'])->contains(fn ($p) => $p['tipo_proceso'] !== ProduccionPaso::DESPACHO)) {
+        $conPasos = ! empty($data['pasos']);
+
+        // Si mandan pasos, al menos uno de taller: solo "despacho" dejaría la
+        // pieza en_proceso sin nada que hacer.
+        if ($conPasos && ! collect($data['pasos'])->contains(fn ($p) => $p['tipo_proceso'] !== ProduccionPaso::DESPACHO)) {
             return response()->json(['message' => 'Elige al menos un paso de taller.'], 422);
         }
 
-        [$produccion, $producto, $primerPaso] = DB::transaction(function () use ($data, $usuario) {
+        [$produccion, $producto, $primerPaso] = DB::transaction(function () use ($data, $usuario, $conPasos) {
             // 1. Producto: del catálogo o uno nuevo.
             if ($data['modo'] === 'nuevo') {
                 $producto = Producto::create([
@@ -810,7 +900,7 @@ class ProduccionController extends Controller
                 $data['variante_detalle'] ?? null, $comboConfigId, $varianteId,
             );
 
-            // 4. La producción, ya arrancada.
+            // 4. La producción: arrancada si trae pasos, pendiente si no.
             $produccion = Produccion::create([
                 'orden_item_id'    => null,
                 'destino'          => 'reserva',
@@ -823,11 +913,13 @@ class ProduccionController extends Controller
                 'creado_por'       => $usuario->id,
                 'fecha_inicio'     => now()->toDateString(),
                 'fecha_compromiso' => $data['fecha_compromiso'] ?? null,
-                'estado'           => 'en_proceso',
+                'estado'           => $conPasos ? 'en_proceso' : 'pendiente',
             ]);
 
             // 5. Pasos (sin despacho) + activar el primero.
-            $primerPaso = $this->crearPasos($produccion, $data['pasos'], TipoProceso::LINEA_NORMAL, conDespacho: false);
+            $primerPaso = $conPasos
+                ? $this->crearPasos($produccion, $data['pasos'], TipoProceso::LINEA_NORMAL, conDespacho: false)
+                : null;
 
             return [$produccion, $producto, $primerPaso];
         });
@@ -838,12 +930,14 @@ class ProduccionController extends Controller
 
         NotificacionService::crear(
             'en_produccion',
-            'Nueva producción para la Reserva',
-            "\"{$producto->nombre}\" x{$produccion->cantidad} entró al taller para stock de fábrica",
+            $conPasos ? 'Nueva fabricación en el taller' : 'Nueva fabricación pendiente',
+            $conPasos
+                ? "\"{$producto->nombre}\" x{$produccion->cantidad} entró al taller"
+                : "\"{$producto->nombre}\" x{$produccion->cantidad} quedó creada sin pasos: hay que asignárselos desde Producción",
             ['produccion_id' => $produccion->id],
         );
 
-        try { event(new ProduccionActualizada($produccion->id, null, 'en_proceso')); } catch (\Throwable) {}
+        try { event(new ProduccionActualizada($produccion->id, null, $produccion->estado)); } catch (\Throwable) {}
 
         $produccion->load([
             'producto:id,nombre,categoria,foto_url',

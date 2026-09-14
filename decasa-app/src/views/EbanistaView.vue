@@ -137,15 +137,20 @@ function abrirModal(paso, modo) {
  * Un solo guardado para los dos momentos: apuntar quién empieza, o cerrar el
  * paso con horas y estrellas. La pantalla manda lo mismo; cambia el destino.
  */
-async function guardarTrabajadores(trabajadores) {
+async function guardarTrabajadores(trabajadores, extra = {}) {
   const paso = pasoConfirmar.value
   if (!paso || !trabajadores.length) return
   guardandoModal.value = true
   try {
     if (modoModal.value === 'terminar') {
       completandoId.value = paso.id
-      await completarPaso(paso.id, { trabajadores })
-      toast.success('¡Paso completado!')
+      const destino = extra?.destino_final || null
+      await completarPaso(paso.id, { trabajadores, ...(destino ? { destino_final: destino } : {}) })
+      toast.success(
+        destino === 'despacho' ? '¡Paso completado! La pieza pasó a despacho.'
+        : destino === 'reserva' ? '¡Paso completado! La pieza entró a la Reserva.'
+        : '¡Paso completado!'
+      )
     } else {
       await asignarTrabajadoresPaso(paso.id, trabajadores)
       toast.success('Trabajadores asignados.')
@@ -197,6 +202,19 @@ function formatFecha(dateStr) {
 function esRestauracion(paso) {
   return paso.linea === 'restauracion'
     || !!paso.produccion?.orden_item?.es_restauracion
+}
+
+/**
+ * ¿Al cerrar este paso hay que decir a dónde va la pieza?
+ *
+ * Solo para una fabricación sin orden (destino reserva) y solo en el último
+ * paso del taller: si aún quedan pasos pendientes, o este ya es el de
+ * despacho, no hay nada que elegir.
+ */
+function pideDestino(paso) {
+  if (!paso || paso.produccion?.destino !== 'reserva') return false
+  if (paso.tipo_proceso === 'despacho') return false
+  return !(paso.produccion?.pasos ?? []).some(x => x.id !== paso.id && x.estado === 'pendiente')
 }
 
 /** El nombre del producto, venga de una venta o de una producción para la Reserva. */
@@ -303,7 +321,7 @@ onMounted(async () => {
                   <!-- Para la Reserva no hay cliente: se fabrica contra stock. -->
                   <span v-if="paso.produccion?.destino === 'reserva'"
                     class="inline-block text-xs font-bold px-2.5 py-1 rounded-full bg-purple-100 text-purple-700">
-                    🏭 Para stock de fábrica
+                    🏭 Fabricación interna
                   </span>
                 </div>
                 <span class="text-xs bg-blue-50 text-blue-600 font-medium px-2 py-0.5 rounded-full flex-shrink-0">
@@ -483,7 +501,7 @@ onMounted(async () => {
                   </span>
                   <span v-if="paso.produccion?.destino === 'reserva'"
                     class="inline-block text-xs font-bold px-2.5 py-1 rounded-full bg-purple-100 text-purple-700">
-                    🏭 Para stock de fábrica
+                    🏭 Fabricación interna
                   </span>
                 </div>
                 <span class="text-xs text-green-600 font-semibold flex items-center gap-1 flex-shrink-0">
@@ -638,6 +656,7 @@ onMounted(async () => {
       :modo="modoModal"
       :proceso-label="PROCESO_LABEL[pasoConfirmar?.tipo_proceso]"
       :guardando="guardandoModal"
+      :pedir-destino="modoModal === 'terminar' && pideDestino(pasoConfirmar)"
       @cerrar="mostrarModal = false"
       @guardar="guardarTrabajadores"
     />

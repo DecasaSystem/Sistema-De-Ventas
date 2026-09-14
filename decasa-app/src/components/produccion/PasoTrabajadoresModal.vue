@@ -24,8 +24,16 @@ const props = defineProps({
   modo:    { type: String, default: 'terminar' },
   procesoLabel: { type: String, default: '' },
   guardando:    { type: Boolean, default: false },
+  /**
+   * Es el último paso del taller de una fabricación sin orden: al cerrarlo
+   * hay que decir si la pieza entra a la Reserva o sale por despacho.
+   */
+  pedirDestino: { type: Boolean, default: false },
 })
 const emit = defineEmits(['cerrar', 'guardar'])
+
+/** 'reserva' | 'despacho' — solo cuando pedirDestino. */
+const destinoFinal = ref('')
 
 const catalogo  = ref([])
 const cargando  = ref(false)
@@ -62,6 +70,7 @@ watch(() => props.abierto, async (abierto) => {
   if (!abierto) return
   busqueda.value = ''
   verTodos.value = false
+  destinoFinal.value = ''
   elegidos.value = (props.paso?.participantes ?? []).map(p => {
     // Lo guardado son horas; si son días redondos se vuelve a mostrar en días.
     const unidad = p.horas != null ? unidadSugerida(p.horas) : 'hora'
@@ -118,8 +127,10 @@ function quitar(usuarioId) {
   elegidos.value = elegidos.value.filter(e => e.usuario_id !== usuarioId)
 }
 
+const faltaDestino = computed(() => esTerminar.value && props.pedirDestino && !destinoFinal.value)
+
 function guardar() {
-  if (!elegidos.value.length) return
+  if (!elegidos.value.length || faltaDestino.value) return
   emit('guardar', elegidos.value.map(e => ({
     usuario_id: e.usuario_id,
     // En "empezar" no se manda nada de esto: todavía no se sabe.
@@ -129,7 +140,7 @@ function guardar() {
     unidad:     esTerminar.value ? e.unidad : null,
     calidad:    esTerminar.value ? e.calidad : null,
     comentario: esTerminar.value ? (e.comentario || null) : null,
-  })))
+  })), { destino_final: props.pedirDestino ? destinoFinal.value : null })
 }
 
 /** Estrellas ya puestas, para mostrar el ranking de cada quien en la lista. */
@@ -150,7 +161,7 @@ function estrellasDe(promedio) {
               {{ esTerminar ? 'Terminar paso' : 'Empezar paso' }}
             </h3>
             <p class="text-xs text-gray-500 mt-0.5">
-              {{ procesoLabel }} — {{ paso?.produccion?.orden_item?.producto?.nombre ?? 'Producto' }}
+              {{ procesoLabel }} — {{ paso?.produccion?.orden_item?.producto?.nombre ?? paso?.produccion?.orden_item?.nombre_custom ?? paso?.produccion?.producto?.nombre ?? 'Producto' }}
             </p>
           </div>
           <button @click="emit('cerrar')" class="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:bg-gray-100 shrink-0">
@@ -279,6 +290,31 @@ function estrellasDe(promedio) {
               </button>
             </p>
           </div>
+
+          <!-- Último paso de una fabricación sin orden: ¿a dónde va la pieza? -->
+          <div v-if="esTerminar && pedirDestino" class="border-t border-gray-100 pt-4 space-y-2">
+            <p class="text-sm font-semibold text-gray-800">
+              Es el último paso del taller. ¿A dónde va la pieza? <span class="text-red-500">*</span>
+            </p>
+            <div class="grid grid-cols-2 gap-2">
+              <button
+                type="button" @click="destinoFinal = 'reserva'"
+                :class="['rounded-xl border-2 px-3 py-3 text-left transition-colors',
+                  destinoFinal === 'reserva' ? 'border-purple-500 bg-purple-50' : 'border-gray-200 hover:border-gray-300']"
+              >
+                <p class="text-sm font-bold text-gray-800">🏭 A la Reserva</p>
+                <p class="text-[11px] text-gray-500 leading-snug">Entra al stock de la Reserva de Fábrica.</p>
+              </button>
+              <button
+                type="button" @click="destinoFinal = 'despacho'"
+                :class="['rounded-xl border-2 px-3 py-3 text-left transition-colors',
+                  destinoFinal === 'despacho' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300']"
+              >
+                <p class="text-sm font-bold text-gray-800">🚚 A despacho</p>
+                <p class="text-[11px] text-gray-500 leading-snug">Sale del taller para entregarse; no entra al stock.</p>
+              </button>
+            </div>
+          </div>
         </div>
 
         <div class="sticky bottom-0 bg-white/95 backdrop-blur-sm px-5 py-4 border-t border-gray-100 flex gap-3">
@@ -287,7 +323,7 @@ function estrellasDe(promedio) {
           </button>
           <button
             @click="guardar"
-            :disabled="!elegidos.length || guardando"
+            :disabled="!elegidos.length || faltaDestino || guardando"
             :class="['flex-1 text-white rounded-lg py-2.5 text-sm font-semibold disabled:opacity-40 transition-colors',
               esTerminar ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700']"
           >

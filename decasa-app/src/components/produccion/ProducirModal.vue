@@ -89,7 +89,8 @@ const listoParaProducir = computed(() => {
   if (modo.value === 'catalogo' && !productoSel.value) return false
   if (modo.value === 'nuevo' && (!nuevo.value.nombre.trim() || nuevo.value.precio_base === '')) return false
   if (!cantidad.value || cantidad.value < 1) return false
-  if (!pasosSel.value.length) return false
+  // Los pasos no son obligatorios: sin ellos la pieza queda pendiente y se
+  // le arma el flujo después desde el tablero.
   return true
 })
 
@@ -176,7 +177,7 @@ function detalleVariante() {
 // ── Enviar ───────────────────────────────────────────────────────────────────
 async function enviar() {
   error.value = ''
-  if (!listoParaProducir.value) { error.value = 'Completa el producto, la cantidad y al menos un paso.'; return }
+  if (!listoParaProducir.value) { error.value = 'Completa el producto y la cantidad.'; return }
 
   const specsLimpias = {}
   for (const [k, v] of Object.entries(specs.value)) {
@@ -224,7 +225,9 @@ async function enviar() {
   guardando.value = true
   try {
     const { data } = await producir(payload)
-    toast.success('Producción para la Reserva creada.')
+    toast.success(pasosSel.value.length
+      ? 'Fabricación creada y arrancada en el taller.'
+      : 'Fabricación creada. Queda pendiente: asígnale los pasos desde "Cambiar estado".')
     emit('creada', data)
     cerrar()
   } catch (e) {
@@ -268,8 +271,8 @@ watch(() => props.show, (v) => { if (v) resetear() })
       <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg p-5 space-y-4 max-h-[92vh] overflow-y-auto pb-8">
         <div class="flex items-center justify-between">
           <div>
-            <h3 class="text-lg font-bold text-gray-800">Producir para la Reserva</h3>
-            <p class="text-xs text-gray-500">Fabricar contra stock: al terminar los pasos, las unidades entran a la Reserva de Fábrica.</p>
+            <h3 class="text-lg font-bold text-gray-800">Producir</h3>
+            <p class="text-xs text-gray-500">Fabricación interna, sin orden. Al terminar el último paso se elige si va a la Reserva de Fábrica o a despacho.</p>
           </div>
           <button @click="cerrar" class="text-gray-400 text-2xl leading-none">&times;</button>
         </div>
@@ -432,8 +435,11 @@ watch(() => props.show, (v) => { if (v) resetear() })
 
         <!-- Pasos -->
         <div class="space-y-2 border-t border-gray-100 pt-3">
-          <p class="text-sm font-semibold text-gray-800">Pasos de producción <span class="text-red-500">*</span></p>
-          <p class="text-xs text-gray-400">Toca los procesos en el orden en que se hacen. No lleva paso de despacho.</p>
+          <p class="text-sm font-semibold text-gray-800">Pasos de producción <span class="text-gray-400 font-normal">(opcional)</span></p>
+          <p class="text-xs text-gray-400">
+            Toca los procesos en el orden en que se hacen. Si no eliges ninguno, la pieza queda
+            <strong>pendiente</strong> y le asignas los pasos después desde "Cambiar estado → En proceso".
+          </p>
           <div class="space-y-2">
             <button v-for="proc in PROCESOS" :key="proc.tipo" type="button" @click="togglePaso(proc.tipo)"
               :class="['w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border-2 transition-all text-left',
@@ -451,6 +457,7 @@ watch(() => props.show, (v) => { if (v) resetear() })
           <p v-if="pasosSel.length" class="text-xs text-blue-600">
             {{ pasosSel.map(p => labelProceso(p.tipo_proceso)).join(' → ') }}
           </p>
+          <p v-else class="text-xs text-amber-600">Sin pasos: se crea pendiente, sin arrancar el taller.</p>
         </div>
 
         <p v-if="error" class="text-xs text-red-600">{{ error }}</p>
@@ -459,7 +466,7 @@ watch(() => props.show, (v) => { if (v) resetear() })
           <button @click="cerrar" class="flex-1 bg-gray-100 text-gray-700 rounded-lg py-2.5 text-sm font-semibold">Cancelar</button>
           <button @click="enviar" :disabled="guardando || !listoParaProducir"
             class="flex-1 bg-blue-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50">
-            {{ guardando ? 'Creando...' : 'Producir' }}
+            {{ guardando ? 'Creando...' : (pasosSel.length ? 'Producir' : 'Crear pendiente') }}
           </button>
         </div>
       </div>
