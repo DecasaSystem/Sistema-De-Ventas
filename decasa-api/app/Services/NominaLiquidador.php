@@ -9,6 +9,7 @@ use App\Models\NominaAusencia;
 use App\Models\NominaBonificacion;
 use App\Models\NominaPago;
 use App\Models\NominaProduccion;
+use App\Models\NominaSueldo;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Collection;
 
@@ -76,7 +77,19 @@ class NominaLiquidador
         $valorDia        = $empleado->valorDiaEfectivo();
         $valorHora       = $empleado->valorHoraEfectivo();
         $valorAuxilioDia = $empleado->valorAuxilioDiaEfectivo();
+        $valorSeguridadSocialDia = $empleado->valorSeguridadSocialDiaEfectivo();
         $subtotal        = round($valorDia * $dias);
+
+        // El auxilio de transporte se SUMA por los días del ciclo y la
+        // seguridad social se RESTA, los dos prorrateados del valor mensual
+        // (× días / 30): una quincena del mínimo son 875.400 + 124.548 −
+        // 70.036. Antes el auxilio solo existía para descontarlo en las
+        // incapacidades y el pago salía con el sueldo base a secas.
+        //
+        // Se prorratea desde el valor mensual y se redondea UNA vez: sumar
+        // el valor por día ya redondeado daba 124.545 en vez de 124.548.
+        $auxilioTransporte = NominaSueldo::prorratear($empleado->valorAuxilioMesEfectivo(), $dias);
+        $seguridadSocial   = NominaSueldo::prorratear($empleado->valorSeguridadSocialMesEfectivo(), $dias);
 
         // Lo ya corrido se descuenta; lo que la persona avisó que va a
         // faltar más adelante en este mismo ciclo se muestra aparte, para
@@ -134,7 +147,12 @@ class NominaLiquidador
             'subtotal'              => $subtotal,
             'descuento_faltas'      => (float) $descuentoFaltas,
             'valor_auxilio_dia'     => (float) $valorAuxilioDia,
+            // Lo que se suma de auxilio por los días del ciclo (ya sin los
+            // días de incapacidad, que van aparte como descuento).
+            'auxilio_transporte'    => (float) $auxilioTransporte,
             'descuento_incapacidad' => (float) $descuentoIncapacidad,
+            'valor_seguridad_social_dia' => (float) $valorSeguridadSocialDia,
+            'descuento_seguridad_social' => (float) $seguridadSocial,
             'total_ajustes'         => (float) $totalAjustes,
             'produccion_total'   => $produccionTotal,
             'bonificacion'       => $bono['monto'],
@@ -158,7 +176,11 @@ class NominaLiquidador
                 'saldo'       => $pr->saldo(),
                 'cuota_ahora' => $pr->cuotaDelProximoPago(),
             ])->values(),
-            'total'              => $subtotal - (float) $descuentoFaltas - (float) $descuentoIncapacidad
+            // sueldo + auxilio − faltas − incapacidad (solo el auxilio de esos
+            // días) − seguridad social ± ajustes + bono − cuotas de préstamo.
+            'total'              => $subtotal + (float) $auxilioTransporte
+                                    - (float) $descuentoFaltas - (float) $descuentoIncapacidad
+                                    - (float) $seguridadSocial
                                     + (float) $totalAjustes + $bono['monto'] - (float) $totalCuotas,
             'faltas'             => $faltas->map(fn (NominaAusencia $a) => self::faltaComoJson($a, $valorHora))->values(),
             'faltas_programadas' => $programadas->map(fn (NominaAusencia $a) => self::faltaComoJson($a, $valorHora))->values(),

@@ -32,7 +32,8 @@ class NominaSueldoController extends Controller
             'valor'             => 'required|numeric|min:0',
             'unidad'            => 'nullable|in:dia,hora',
             'horas_dia'         => 'nullable|numeric|min:0.25|max:24',
-            'valor_auxilio_dia' => 'nullable|numeric|min:0',
+            'valor_auxilio_mes'          => 'nullable|numeric|min:0',
+            'valor_seguridad_social_mes' => 'nullable|numeric|min:0',
         ], [
             'nombre.required' => 'Ponle un nombre al sueldo.',
             'valor.required'  => 'El valor es obligatorio.',
@@ -43,7 +44,8 @@ class NominaSueldoController extends Controller
             'valor'             => $data['valor'],
             'unidad'            => $data['unidad'] ?? 'dia',
             'horas_dia'         => $data['horas_dia'] ?? 8,
-            'valor_auxilio_dia' => $data['valor_auxilio_dia'] ?? NominaSueldo::AUXILIO_DIA_DEFECTO,
+            'valor_auxilio_mes'          => $data['valor_auxilio_mes'] ?? NominaSueldo::AUXILIO_MES_DEFECTO,
+            'valor_seguridad_social_mes' => $data['valor_seguridad_social_mes'] ?? 0,
             'activo'            => true,
         ]);
 
@@ -66,7 +68,8 @@ class NominaSueldoController extends Controller
             'valor'             => 'sometimes|numeric|min:0',
             'unidad'            => 'sometimes|in:dia,hora',
             'horas_dia'         => 'sometimes|numeric|min:0.25|max:24',
-            'valor_auxilio_dia' => 'sometimes|numeric|min:0',
+            'valor_auxilio_mes'          => 'sometimes|numeric|min:0',
+            'valor_seguridad_social_mes' => 'sometimes|numeric|min:0',
             'activo'            => 'sometimes|boolean',
         ]);
 

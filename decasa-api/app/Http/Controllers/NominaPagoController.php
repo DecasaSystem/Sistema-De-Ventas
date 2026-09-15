@@ -228,6 +228,11 @@ class NominaPagoController extends Controller
             // decreto lo cambia el año que viene, este pago no se mueve.
             'valor_auxilio_dia'     => $l['valor_auxilio_dia'],
             'descuento_incapacidad' => $l['descuento_incapacidad'],
+            // Lo que se sumó de auxilio y lo que se restó de seguridad social,
+            // congelados igual: el decreto del año que viene no mueve este pago.
+            'auxilio_transporte'         => $l['auxilio_transporte'],
+            'valor_seguridad_social_dia' => $l['valor_seguridad_social_dia'],
+            'descuento_seguridad_social' => $l['descuento_seguridad_social'],
             'total_ajustes'    => $l['total_ajustes'],
             'produccion_total' => $l['produccion_total'],
             'bonificacion'     => $l['bonificacion'],
@@ -338,6 +343,9 @@ class NominaPagoController extends Controller
             'descuento_faltas'    => (float) $p->descuento_faltas,
             'valor_auxilio_dia'      => (float) $p->valor_auxilio_dia,
             'descuento_incapacidad'  => (float) $p->descuento_incapacidad,
+            'auxilio_transporte'         => (float) $p->auxilio_transporte,
+            'valor_seguridad_social_dia' => (float) $p->valor_seguridad_social_dia,
+            'descuento_seguridad_social' => (float) $p->descuento_seguridad_social,
             'total_ajustes'       => (float) $p->total_ajustes,
             'produccion_total'    => (float) $p->produccion_total,
             'bonificacion'         => (float) $p->bonificacion,

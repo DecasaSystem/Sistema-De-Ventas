@@ -44,6 +44,12 @@ class EmpleadoController extends Controller
             'valor_hora_efectivo'         => $e->valorHoraEfectivo(),
             'horas_dia_efectivo'          => $e->horasDiaEfectivo(),
             'valor_auxilio_dia_efectivo'  => $e->valorAuxilioDiaEfectivo(),
+            // Si le aplican, y cuánto es al mes en su sueldo (para que la
+            // ficha pueda decir "+124.548 de auxilio en la quincena").
+            'nomina_auxilio'              => $e->recibeAuxilio(),
+            'nomina_seguridad_social'     => $e->aportaSeguridadSocial(),
+            'valor_auxilio_mes_efectivo'          => $e->valorAuxilioMesEfectivo(),
+            'valor_seguridad_social_mes_efectivo' => $e->valorSeguridadSocialMesEfectivo(),
             'label_efectivo'      => $e->labelEfectivo(),
         ];
 
@@ -109,6 +115,10 @@ class EmpleadoController extends Controller
             // Se puede corregir a mano: si alguien entró el 20 y se carga el
             // 25, hay que poder decirlo para que la primera quincena cuadre.
             'nomina_desde'           => 'sometimes|nullable|date',
+            // Si le toca auxilio de transporte y si aporta seguridad social.
+            // El mismo sueldo lo comparten unos con y otros sin.
+            'nomina_auxilio'         => 'sometimes|boolean',
+            'nomina_seguridad_social' => 'sometimes|boolean',
         ]);
 
         // Entra a nómina ahora: desde hoy, salvo que se diga otra fecha. Sin

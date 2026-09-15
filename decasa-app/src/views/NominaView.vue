@@ -169,8 +169,16 @@ const sueldos           = ref([])
 const cargandoSueldos   = ref(true)
 const mostrarFormSueldo = ref(false)
 const editandoSueldo    = ref(null)
-const AUXILIO_DIA_DEFECTO = 8303
-const formSueldo        = ref({ nombre: '', valor: 0, unidad: 'dia', horas_dia: 8, valor_auxilio_dia: AUXILIO_DIA_DEFECTO })
+// Auxilio de transporte nacional 2026, AL MES: es como lo publica el decreto
+// y como se piensa ("249.095 al mes, 124.548 la quincena"). El sistema lo
+// prorratea por los días del ciclo (× días / 30).
+const AUXILIO_MES_DEFECTO = 249095
+const DIAS_MES = 30
+/** Un valor mensual llevado a los días de una frecuencia: × días / 30. */
+function prorratearMes(valorMes, frecuencia) {
+  return Math.round((Number(valorMes) || 0) * (DIAS_POR_FRECUENCIA[frecuencia] ?? 30) / DIAS_MES)
+}
+const formSueldo        = ref({ nombre: '', valor: 0, unidad: 'dia', horas_dia: 8, valor_auxilio_mes: AUXILIO_MES_DEFECTO, valor_seguridad_social_mes: 0 })
 const guardandoSueldo   = ref(false)
 
 async function cargarSueldos() {
@@ -187,7 +195,7 @@ async function cargarSueldos() {
 
 function abrirNuevoSueldo() {
   editandoSueldo.value = null
-  formSueldo.value = { nombre: '', valor: 0, unidad: 'dia', horas_dia: 8, valor_auxilio_dia: AUXILIO_DIA_DEFECTO }
+  formSueldo.value = { nombre: '', valor: 0, unidad: 'dia', horas_dia: 8, valor_auxilio_mes: AUXILIO_MES_DEFECTO, valor_seguridad_social_mes: 0 }
   mostrarFormSueldo.value = true
 }
 
@@ -198,7 +206,8 @@ function abrirEditarSueldo(s) {
     valor: Number(s.valor) || 0,
     unidad: s.unidad || 'dia',
     horas_dia: Number(s.horas_dia) || 8,
-    valor_auxilio_dia: Number(s.valor_auxilio_dia) || 0,
+    valor_auxilio_mes: Number(s.valor_auxilio_mes) || 0,
+    valor_seguridad_social_mes: Number(s.valor_seguridad_social_mes) || 0,
   }
   mostrarFormSueldo.value = true
 }
@@ -215,7 +224,8 @@ async function guardarSueldo() {
       valor: formSueldo.value.valor,
       unidad: formSueldo.value.unidad,
       horas_dia: formSueldo.value.horas_dia,
-      valor_auxilio_dia: Number(formSueldo.value.valor_auxilio_dia) || 0,
+      valor_auxilio_mes: Number(formSueldo.value.valor_auxilio_mes) || 0,
+      valor_seguridad_social_mes: Number(formSueldo.value.valor_seguridad_social_mes) || 0,
     }
     if (editandoSueldo.value) {
       await actualizarSueldo(editandoSueldo.value, payload)
@@ -456,6 +466,9 @@ const SIN_BONO = ''
 const formEmpleado        = ref({
   nombre: '', cedula: '', cargo: '', nomina_sueldo_id: '',
   nomina_bonificacion_id: SIN_BONO, periodicidad: 'quincenal',
+  // Si le toca auxilio de transporte y si aporta seguridad social. Los
+  // valores están en el sueldo; aquí solo si le aplican a esta persona.
+  nomina_auxilio: true, nomina_seguridad_social: true,
 })
 const guardandoEmpleado   = ref(false)
 
@@ -505,6 +518,8 @@ function abrirEditarEmpleado(e) {
     nomina_sueldo_id: e.nomina_sueldo_id ?? '',
     nomina_bonificacion_id: e.nomina_bonificacion_id ?? SIN_BONO,
     periodicidad: e.periodicidad || 'quincenal',
+    nomina_auxilio: e.nomina_auxilio !== false,
+    nomina_seguridad_social: e.nomina_seguridad_social !== false,
   }
   mostrarFormEmpleado.value = true
 }
@@ -524,6 +539,8 @@ async function guardarEmpleado() {
       // Vacío = no aplica para bonificación.
       nomina_bonificacion_id: formEmpleado.value.nomina_bonificacion_id || null,
       periodicidad: formEmpleado.value.periodicidad,
+      nomina_auxilio: !!formEmpleado.value.nomina_auxilio,
+      nomina_seguridad_social: !!formEmpleado.value.nomina_seguridad_social,
     })
     toast.success('Trabajador actualizado')
     mostrarFormEmpleado.value = false
@@ -995,7 +1012,9 @@ async function quitarAjuste(id) {
                     <p class="text-xs text-gray-400 mt-0.5">
                       {{ p.dias }} de {{ p.dias_ciclo }} días × {{ formatoPesos(p.valor_dia) }}
                       <span v-if="p.descuento_faltas" class="text-red-500 font-medium">· −{{ formatoPesos(p.descuento_faltas) }} faltas</span>
+                      <span v-if="p.auxilio_transporte" class="text-green-600 font-medium">· +{{ formatoPesos(p.auxilio_transporte) }} auxilio</span>
                       <span v-if="p.descuento_incapacidad" class="text-red-500 font-medium">· −{{ formatoPesos(p.descuento_incapacidad) }} incap.</span>
+                      <span v-if="p.descuento_seguridad_social" class="text-red-500 font-medium">· −{{ formatoPesos(p.descuento_seguridad_social) }} seg. social</span>
                       <span v-if="p.total_ajustes" :class="p.total_ajustes > 0 ? 'text-green-600 font-medium' : 'text-red-500 font-medium'">
                         · {{ p.total_ajustes > 0 ? '+' : '' }}{{ formatoPesos(p.total_ajustes) }} ajustes
                       </span>
@@ -1012,6 +1031,15 @@ async function quitarAjuste(id) {
                   <div class="flex justify-between text-xs">
                     <span class="text-gray-500">{{ p.sueldo_nombre }} · {{ p.dias }} días × {{ formatoPesos(p.valor_dia) }}</span>
                     <span class="text-gray-700 font-medium">{{ formatoPesos(p.subtotal) }}</span>
+                  </div>
+                  <!-- Auxilio y seguridad social, prorrateados del mes por los días del ciclo -->
+                  <div v-if="p.auxilio_transporte" class="flex justify-between text-xs">
+                    <span class="text-gray-500">Auxilio de transporte · {{ p.dias }} días × {{ formatoPesos(p.valor_auxilio_dia) }}</span>
+                    <span class="text-green-600 font-medium">+{{ formatoPesos(p.auxilio_transporte) }}</span>
+                  </div>
+                  <div v-if="p.descuento_seguridad_social" class="flex justify-between text-xs">
+                    <span class="text-gray-500">Seguridad social · {{ p.dias }} días × {{ formatoPesos(p.valor_seguridad_social_dia) }}</span>
+                    <span class="text-red-600 font-medium">−{{ formatoPesos(p.descuento_seguridad_social) }}</span>
                   </div>
 
                   <div v-if="p.faltas.length">
@@ -1181,6 +1209,12 @@ async function quitarAjuste(id) {
               <p class="text-xs mt-0.5" :class="e.nomina_sueldo_id ? 'text-gray-600' : 'text-amber-600 font-medium'">
                 {{ e.label_efectivo }}<span v-if="e.nomina_sueldo_id">: {{ formatoPesos(e.valor_dia_efectivo) }}/día · {{ formatoPesos(e.valor_hora_efectivo) }}/hora</span>
               </p>
+              <!-- Qué le aplica de lo que trae el sueldo: se ve de un vistazo a
+                   quién se le suma auxilio y a quién se le descuenta seguridad. -->
+              <p v-if="e.nomina_sueldo_id && (e.sueldo?.valor_auxilio_mes > 0 || e.sueldo?.valor_seguridad_social_mes > 0)" class="text-[11px] mt-0.5 flex flex-wrap gap-1">
+                <span v-if="e.sueldo?.valor_auxilio_mes > 0" :class="['rounded-full px-1.5 py-0.5', e.nomina_auxilio ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-400 line-through']">auxilio transporte</span>
+                <span v-if="e.sueldo?.valor_seguridad_social_mes > 0" :class="['rounded-full px-1.5 py-0.5', e.nomina_seguridad_social ? 'bg-red-50 text-red-700' : 'bg-gray-100 text-gray-400 line-through']">seg. social</span>
+              </p>
               <p v-if="e.bonificacion_nombre" class="text-[11px] text-purple-600 mt-0.5 flex items-center gap-1">
                 <TrophyIcon class="w-3 h-3 shrink-0" /> {{ e.bonificacion_nombre }}
               </p>
@@ -1209,7 +1243,9 @@ async function quitarAjuste(id) {
                 <p class="text-xs text-gray-600 mt-0.5">
                   Lleva <span class="font-semibold text-gray-800">{{ e.ciclo.dias }}</span> de {{ e.ciclo.dias_ciclo }} días
                   <span v-if="e.ciclo.descuento_faltas" class="text-red-500">· −{{ formatoPesos(e.ciclo.descuento_faltas) }} faltas</span>
+                  <span v-if="e.ciclo.auxilio_transporte" class="text-green-600">· +{{ formatoPesos(e.ciclo.auxilio_transporte) }} auxilio</span>
                   <span v-if="e.ciclo.descuento_incapacidad" class="text-red-500">· −{{ formatoPesos(e.ciclo.descuento_incapacidad) }} incap.</span>
+                  <span v-if="e.ciclo.descuento_seguridad_social" class="text-red-500">· −{{ formatoPesos(e.ciclo.descuento_seguridad_social) }} seg. social</span>
                   <span v-if="e.ciclo.total_ajustes" :class="e.ciclo.total_ajustes > 0 ? 'text-green-600' : 'text-red-500'">
                     · {{ e.ciclo.total_ajustes > 0 ? '+' : '' }}{{ formatoPesos(e.ciclo.total_ajustes) }}
                   </span>
@@ -1335,15 +1371,55 @@ async function quitarAjuste(id) {
                   </p>
                 </div>
 
+                <!-- Auxilio y seguridad social: el valor lo trae el sueldo,
+                     pero si le aplican a ESTA persona se decide aquí. El mismo
+                     "Mínimo" lo comparten unos con y otros sin. -->
+                <div v-if="sueldoElegido && (Number(sueldoElegido.valor_auxilio_mes) || Number(sueldoElegido.valor_seguridad_social_mes))" class="space-y-2">
+                  <label v-if="Number(sueldoElegido.valor_auxilio_mes)" class="flex items-center gap-2.5 cursor-pointer select-none">
+                    <button type="button" @click="formEmpleado.nomina_auxilio = !formEmpleado.nomina_auxilio"
+                      :class="['w-10 h-5 rounded-full transition-colors relative flex-shrink-0', formEmpleado.nomina_auxilio ? 'bg-green-600' : 'bg-gray-300']">
+                      <div :class="['absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform', formEmpleado.nomina_auxilio ? 'translate-x-5' : 'translate-x-0.5']" />
+                    </button>
+                    <span class="text-sm text-gray-700">
+                      Recibe auxilio de transporte
+                      <span class="text-xs text-gray-400">(+{{ formatoPesos(prorratearMes(sueldoElegido.valor_auxilio_mes, formEmpleado.periodicidad)) }} por ciclo)</span>
+                    </span>
+                  </label>
+                  <label v-if="Number(sueldoElegido.valor_seguridad_social_mes)" class="flex items-center gap-2.5 cursor-pointer select-none">
+                    <button type="button" @click="formEmpleado.nomina_seguridad_social = !formEmpleado.nomina_seguridad_social"
+                      :class="['w-10 h-5 rounded-full transition-colors relative flex-shrink-0', formEmpleado.nomina_seguridad_social ? 'bg-red-500' : 'bg-gray-300']">
+                      <div :class="['absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform', formEmpleado.nomina_seguridad_social ? 'translate-x-5' : 'translate-x-0.5']" />
+                    </button>
+                    <span class="text-sm text-gray-700">
+                      Se le descuenta seguridad social
+                      <span class="text-xs text-gray-400">(−{{ formatoPesos(prorratearMes(sueldoElegido.valor_seguridad_social_mes, formEmpleado.periodicidad)) }} por ciclo)</span>
+                    </span>
+                  </label>
+                </div>
+
                 <div v-if="sueldoElegido" class="bg-blue-50 border border-blue-100 rounded-xl px-3.5 py-2.5 text-xs text-blue-700 space-y-0.5">
                   <p class="font-semibold">
                     {{ formatoPesos(sueldoElegido.valor) }}/{{ sueldoElegido.unidad === 'hora' ? 'hora' : 'día' }}
                     <span v-if="sueldoElegido.unidad === 'hora'">· jornada de {{ sueldoElegido.horas_dia }}h</span>
                   </p>
                   <p>
-                    Cobra {{ formatoPesos(porFrecuencia(valorDiaEquivalente(sueldoElegido.valor, sueldoElegido.unidad, sueldoElegido.horas_dia), formEmpleado.periodicidad)) }}
+                    Sueldo {{ formatoPesos(porFrecuencia(valorDiaEquivalente(sueldoElegido.valor, sueldoElegido.unidad, sueldoElegido.horas_dia), formEmpleado.periodicidad)) }}
                     {{ PERIODICIDADES.find(p => p.value === formEmpleado.periodicidad)?.label.toLowerCase() }}
                     ({{ DIAS_POR_FRECUENCIA[formEmpleado.periodicidad] }} días × {{ formatoPesos(valorDiaEquivalente(sueldoElegido.valor, sueldoElegido.unidad, sueldoElegido.horas_dia)) }})
+                  </p>
+                  <!-- La misma cuenta que hace la liquidación, para que no haya sorpresa al pagar. -->
+                  <p v-if="formEmpleado.nomina_auxilio && Number(sueldoElegido.valor_auxilio_mes)">
+                    + {{ formatoPesos(prorratearMes(sueldoElegido.valor_auxilio_mes, formEmpleado.periodicidad)) }} auxilio de transporte
+                  </p>
+                  <p v-if="formEmpleado.nomina_seguridad_social && Number(sueldoElegido.valor_seguridad_social_mes)">
+                    − {{ formatoPesos(prorratearMes(sueldoElegido.valor_seguridad_social_mes, formEmpleado.periodicidad)) }} seguridad social
+                  </p>
+                  <p class="font-semibold pt-0.5 border-t border-blue-100">
+                    Cobra {{ formatoPesos(
+                      porFrecuencia(valorDiaEquivalente(sueldoElegido.valor, sueldoElegido.unidad, sueldoElegido.horas_dia), formEmpleado.periodicidad)
+                      + (formEmpleado.nomina_auxilio ? prorratearMes(sueldoElegido.valor_auxilio_mes, formEmpleado.periodicidad) : 0)
+                      - (formEmpleado.nomina_seguridad_social ? prorratearMes(sueldoElegido.valor_seguridad_social_mes, formEmpleado.periodicidad) : 0)
+                    ) }} por ciclo completo, sin faltas ni bonos.
                   </p>
                 </div>
               </div>
@@ -1391,7 +1467,8 @@ async function quitarAjuste(id) {
                 <p class="text-xs text-gray-500 mt-0.5">
                   {{ formatoPesos(s.valor) }}/{{ s.unidad === 'hora' ? 'hora' : 'día' }}
                   <span v-if="s.unidad === 'hora'">({{ s.horas_dia }}h/día)</span>
-                  <span v-if="Number(s.valor_auxilio_dia)" class="text-gray-400">· auxilio {{ formatoPesos(s.valor_auxilio_dia) }}/día</span>
+                  <span v-if="Number(s.valor_auxilio_mes)" class="text-gray-400">· auxilio {{ formatoPesos(s.valor_auxilio_mes) }}/mes</span>
+                  <span v-if="Number(s.valor_seguridad_social_mes)" class="text-gray-400">· seg. social {{ formatoPesos(s.valor_seguridad_social_mes) }}/mes</span>
                 </p>
                 <p class="text-[11px] text-gray-400 mt-0.5">
                   {{ resumenFrecuencias(s.valor, s.unidad, s.horas_dia) }}
@@ -1476,11 +1553,28 @@ async function quitarAjuste(id) {
                   = {{ resumenFrecuencias(formSueldo.valor, formSueldo.unidad, formSueldo.horas_dia) }}
                 </p>
 
+                <!-- Al mes, como lo publica el decreto. Se prorratea por los
+                     días de cada ciclo: la quincena cobra la mitad. -->
                 <div>
-                  <label class="block text-xs font-semibold text-gray-500 mb-1.5">Auxilio de transporte por día</label>
-                  <InputPesos v-model="formSueldo.valor_auxilio_dia" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow" />
+                  <label class="block text-xs font-semibold text-gray-500 mb-1.5">Auxilio de transporte al mes</label>
+                  <InputPesos v-model="formSueldo.valor_auxilio_mes" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow" />
                   <p class="text-[11px] text-gray-400 mt-1">
-                    Es lo único que se descuenta por un día de incapacidad. Déjalo en 0 para quien no tiene derecho a auxilio.
+                    Se <strong>suma</strong> al pago por los días trabajados
+                    <template v-if="Number(formSueldo.valor_auxilio_mes)">
+                      ({{ formatoPesos(prorratearMes(formSueldo.valor_auxilio_mes, 'quincenal')) }} la quincena,
+                      {{ formatoPesos(Number(formSueldo.valor_auxilio_mes) / DIAS_MES) }} el día)</template>,
+                    y es lo que se descuenta por un día de incapacidad. En la ficha de cada trabajador se apaga para quien no tiene derecho.
+                  </p>
+                </div>
+
+                <div>
+                  <label class="block text-xs font-semibold text-gray-500 mb-1.5">Seguridad social al mes</label>
+                  <InputPesos v-model="formSueldo.valor_seguridad_social_mes" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow" />
+                  <p class="text-[11px] text-gray-400 mt-1">
+                    Se <strong>descuenta</strong> del pago, prorrateado igual
+                    <template v-if="Number(formSueldo.valor_seguridad_social_mes)">
+                      ({{ formatoPesos(prorratearMes(formSueldo.valor_seguridad_social_mes, 'quincenal')) }} la quincena)</template>.
+                    Déjalo en 0 si con este sueldo no se descuenta; a quien no aporte se le apaga en su ficha.
                   </p>
                 </div>
                 <p class="text-[11px] text-gray-400">
@@ -2051,7 +2145,9 @@ async function quitarAjuste(id) {
                     <p class="text-[11px] text-gray-400 mt-0.5">
                       {{ p.dias }} días × {{ formatoPesos(p.valor_dia) }}
                       <span v-if="p.descuento_faltas">· −{{ formatoPesos(p.descuento_faltas) }} faltas</span>
+                      <span v-if="p.auxilio_transporte">· +{{ formatoPesos(p.auxilio_transporte) }} auxilio</span>
                       <span v-if="p.descuento_incapacidad">· −{{ formatoPesos(p.descuento_incapacidad) }} incap.</span>
+                      <span v-if="p.descuento_seguridad_social">· −{{ formatoPesos(p.descuento_seguridad_social) }} seg. social</span>
                       <span v-if="p.total_ajustes">· {{ p.total_ajustes > 0 ? '+' : '' }}{{ formatoPesos(p.total_ajustes) }} ajustes</span>
                       <span v-if="p.bonificacion">· +{{ formatoPesos(p.bonificacion) }} bono</span>
                     </p>

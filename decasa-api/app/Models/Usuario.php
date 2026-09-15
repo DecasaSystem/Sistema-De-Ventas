@@ -75,6 +75,10 @@ class Usuario extends Authenticatable
         'nomina_sueldo_id',
         'nomina_desde',
         'nomina_bonificacion_id',
+        // Si recibe auxilio de transporte y si se le descuenta seguridad
+        // social. Los valores viven en el sueldo; aquí solo si le aplican.
+        'nomina_auxilio',
+        'nomina_seguridad_social',
         'periodicidad',
         'tienda_default_id',
         'perfil_alterno_id',
@@ -117,6 +121,8 @@ class Usuario extends Authenticatable
             'no_usa_programa'     => 'boolean',
             'apto_comisiones'     => 'boolean',
             'apto_produccion'     => 'boolean',
+            'nomina_auxilio'      => 'boolean',
+            'nomina_seguridad_social' => 'boolean',
             'nomina_desde'        => 'date',
             'nav_favoritos'       => 'array',
         ];
@@ -194,10 +200,51 @@ class Usuario extends Authenticatable
         return (float) ($this->sueldo?->horas_dia ?? 8);
     }
 
-    /** Auxilio de transporte por día — lo que se resta por día de incapacidad. */
+    /** ¿Le toca auxilio de transporte? Nace activado; se apaga en su ficha. */
+    public function recibeAuxilio(): bool
+    {
+        return (bool) ($this->nomina_auxilio ?? true);
+    }
+
+    /** ¿Se le descuenta seguridad social? Nace activado; se apaga en su ficha. */
+    public function aportaSeguridadSocial(): bool
+    {
+        return (bool) ($this->nomina_seguridad_social ?? true);
+    }
+
+    /**
+     * Auxilio de transporte por día — lo que se le suma por día trabajado y
+     * lo que se resta por día de incapacidad. 0 si no le aplica.
+     */
     public function valorAuxilioDiaEfectivo(): float
     {
+        if (! $this->recibeAuxilio()) return 0.0;
+
         return $this->sueldo?->valorAuxilioDia() ?? 0.0;
+    }
+
+    /** Seguridad social por día — lo que se le descuenta. 0 si no le aplica. */
+    public function valorSeguridadSocialDiaEfectivo(): float
+    {
+        if (! $this->aportaSeguridadSocial()) return 0.0;
+
+        return $this->sueldo?->valorSeguridadSocialDia() ?? 0.0;
+    }
+
+    /** El auxilio mensual del que se prorratea el ciclo. 0 si no le aplica. */
+    public function valorAuxilioMesEfectivo(): float
+    {
+        if (! $this->recibeAuxilio()) return 0.0;
+
+        return (float) ($this->sueldo?->valor_auxilio_mes ?? 0);
+    }
+
+    /** La seguridad social mensual de la que se prorratea el ciclo. 0 si no le aplica. */
+    public function valorSeguridadSocialMesEfectivo(): float
+    {
+        if (! $this->aportaSeguridadSocial()) return 0.0;
+
+        return (float) ($this->sueldo?->valor_seguridad_social_mes ?? 0);
     }
 
     /** El nombre del sueldo que tiene asignado. */

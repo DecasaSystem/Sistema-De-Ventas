@@ -21,6 +21,7 @@ class NominaPago extends Model
         'usuario_id', 'periodicidad', 'fecha_inicio', 'fecha_fin', 'sueldo_nombre',
         'valor_dia', 'valor_hora', 'horas_dia', 'dias', 'subtotal',
         'descuento_faltas', 'valor_auxilio_dia', 'descuento_incapacidad',
+        'auxilio_transporte', 'valor_seguridad_social_dia', 'descuento_seguridad_social',
         'total_ajustes', 'produccion_total', 'bonificacion',
         'bonificacion_nombre', 'bonificacion_detalle', 'total', 'observaciones', 'pagado_at',
     ];
@@ -38,6 +39,9 @@ class NominaPago extends Model
             'descuento_faltas'      => 'decimal:2',
             'valor_auxilio_dia'     => 'decimal:2',
             'descuento_incapacidad' => 'decimal:2',
+            'auxilio_transporte'         => 'decimal:2',
+            'valor_seguridad_social_dia' => 'decimal:2',
+            'descuento_seguridad_social' => 'decimal:2',
             'total_ajustes'         => 'decimal:2',
             'produccion_total' => 'decimal:2',
             'bonificacion'     => 'decimal:2',

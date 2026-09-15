@@ -40,14 +40,17 @@ class IncapacidadLiquidacionTest extends TestCase
     /**
      * @param  array<int, array{fecha: string, tipo: string, horas?: float}>  $ausencias
      */
-    private function trabajador(float $valorAuxilioDia, array $ausencias = []): Usuario
+    private function trabajador(float $valorAuxilioDia, array $ausencias = [], float $seguridadSocialMes = 0): Usuario
     {
         $sueldo = new NominaSueldo([
             'nombre'            => 'Mínimo',
             'valor'             => 60000,          // $60.000 por día → $7.500/hora
             'unidad'            => 'dia',
             'horas_dia'         => 8,
-            'valor_auxilio_dia' => $valorAuxilioDia,
+            // Se guarda al mes; 8.303/día × 30 para que las cuentas de abajo
+            // sigan hablando en el valor por día.
+            'valor_auxilio_mes'          => $valorAuxilioDia * 30,
+            'valor_seguridad_social_mes' => $seguridadSocialMes,
         ]);
 
         $u = new Usuario(['periodicidad' => 'quincenal']);
@@ -85,7 +88,8 @@ class IncapacidadLiquidacionTest extends TestCase
         $this->assertSame(8303.0,   $l['valor_auxilio_dia']);
         $this->assertSame(8303.0,   $l['descuento_incapacidad']);
         $this->assertSame(0.0,      $l['descuento_faltas']);
-        $this->assertSame(891697.0, $l['total']);                    // 900.000 − 8.303
+        $this->assertSame(124545.0, $l['auxilio_transporte']);       // 8.303 × 15 días, se SUMA
+        $this->assertSame(1016242.0, $l['total']);                   // 900.000 + 124.545 − 8.303
         $this->assertCount(1, $l['incapacidades']);
         $this->assertSame(8303.0, $l['incapacidades'][0]['monto']);
     }
@@ -98,7 +102,7 @@ class IncapacidadLiquidacionTest extends TestCase
         ]));
 
         $this->assertSame(16606.0,  $l['descuento_incapacidad']);
-        $this->assertSame(883394.0, $l['total']);                    // 900.000 − 16.606
+        $this->assertSame(1007939.0, $l['total']);                   // 900.000 + 124.545 − 16.606
     }
 
     public function test_falta_e_incapacidad_se_cuentan_por_separado(): void
@@ -110,7 +114,7 @@ class IncapacidadLiquidacionTest extends TestCase
 
         $this->assertSame(60000.0, $l['descuento_faltas']);          // 8h × 7.500
         $this->assertSame(8303.0,  $l['descuento_incapacidad']);
-        $this->assertSame(831697.0, $l['total']);                    // 900.000 − 60.000 − 8.303
+        $this->assertSame(956242.0, $l['total']);                    // 900.000 + 124.545 − 60.000 − 8.303
         $this->assertCount(1, $l['faltas']);
         $this->assertCount(1, $l['incapacidades']);
     }
@@ -123,6 +127,7 @@ class IncapacidadLiquidacionTest extends TestCase
         ]));
 
         $this->assertSame(0.0,      $l['descuento_incapacidad']);
-        $this->assertSame(900000.0, $l['total']);                    // el día se paga completo
+        $this->assertSame(0.0,      $l['auxilio_transporte']);
+        $this->assertSame(900000.0, $l['total']);                    // el día se paga completo, y sin auxilio no hay nada que sumar
     }
 }
