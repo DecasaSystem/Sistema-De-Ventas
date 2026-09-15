@@ -1506,8 +1506,8 @@ async function quitarAjuste(id) {
           leave-active-class="transition-opacity duration-150" leave-to-class="opacity-0"
         >
           <div v-if="mostrarFormSueldo" class="fixed inset-0 bg-black/50 backdrop-blur-[2px] z-50 flex items-end sm:items-center justify-center" @click.self="mostrarFormSueldo = false">
-            <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full sm:max-w-md shadow-2xl">
-              <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-100">
+            <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full sm:max-w-md max-h-[92vh] overflow-y-auto shadow-2xl">
+              <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-100 sticky top-0 bg-white/95 backdrop-blur-sm rounded-t-3xl sm:rounded-t-2xl">
                 <div class="flex items-center gap-2.5">
                   <div class="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center shrink-0">
                     <TagIcon class="w-5 h-5 text-blue-600" />
@@ -1727,8 +1727,8 @@ async function quitarAjuste(id) {
           leave-active-class="transition-opacity duration-150" leave-to-class="opacity-0"
         >
           <div v-if="mostrarFormBono" class="fixed inset-0 bg-black/50 backdrop-blur-[2px] z-50 flex items-end sm:items-center justify-center" @click.self="mostrarFormBono = false">
-            <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full sm:max-w-md shadow-2xl">
-              <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-100">
+            <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full sm:max-w-md max-h-[92vh] overflow-y-auto shadow-2xl">
+              <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-100 sticky top-0 bg-white/95 backdrop-blur-sm rounded-t-3xl sm:rounded-t-2xl">
                 <div class="flex items-center gap-2.5">
                   <div class="w-9 h-9 rounded-xl bg-purple-50 flex items-center justify-center shrink-0">
                     <TrophyIcon class="w-5 h-5 text-purple-600" />
