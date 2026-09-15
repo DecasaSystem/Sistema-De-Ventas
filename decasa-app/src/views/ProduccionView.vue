@@ -191,6 +191,7 @@ function labelProceso(tipo) {
  *  - Personalizado: producto que existe pero con cambios.
  *  - Diseño especial: no existe en catálogo, se hace desde cero.
  *  - Restauración: el mueble del cliente.
+ *  - Cambio de tela: un mueble que está en la tienda y se retapiza.
  */
 function tipoProduccion(p) {
   if (p.destino === 'reserva') {
@@ -202,6 +203,8 @@ function tipoProduccion(p) {
   }
   if (t === 'diseno_especial') return { label: '🎨 Diseño especial', cls: 'bg-pink-100 text-pink-700' }
   if (t === 'personalizado')   return { label: '✏️ Personalizado',   cls: 'bg-indigo-100 text-indigo-700' }
+  // El sofá ya existe y está en la tienda: hay que ir por él, no hacerlo.
+  if (t === 'retapizar')       return { label: '🧵 Cambio de tela',  cls: 'bg-orange-100 text-orange-700' }
   return { label: '🔨 Fabricación', cls: 'bg-blue-100 text-blue-700' }
 }
 
@@ -836,6 +839,13 @@ onUnmounted(() => {
                 <span v-if="p.destino === 'reserva'" class="text-[11px] text-purple-600">sin orden</span>
               </p>
               <p v-if="p.destino === 'reserva' && p.variante_detalle" class="text-xs text-purple-700 mt-0.5 truncate">{{ p.variante_detalle }}</p>
+              <!-- El sofá no se hace: se recoge en la tienda donde está y se
+                   le cambia la tela. Sin esto el taller no sabe ni cuál ir a
+                   buscar ni de qué color a qué color. -->
+              <p v-if="p.orden_item?.tipo_item === 'retapizar'" class="text-xs text-orange-700 mt-0.5">
+                Recoger en <span class="font-semibold">{{ p.orden_item?.tienda_origen?.nombre || p.orden_item?.orden?.tienda?.nombre }}</span>
+                <span v-if="p.orden_item?.variante_texto"> · {{ p.orden_item.variante_texto }}</span>
+              </p>
               <p v-if="specsResumen(p.orden_item) || specsResumenReserva(p)" class="text-xs text-indigo-600 mt-0.5 truncate">
                 {{ specsResumen(p.orden_item) || specsResumenReserva(p) }}
               </p>

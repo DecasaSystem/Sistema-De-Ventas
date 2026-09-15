@@ -167,6 +167,7 @@
                                     'restauracion'    => ['Restauración',    '#e0e7ff', '#4338ca'],
                                     'diseno_especial' => ['Diseño especial', '#e0e7ff', '#4f46e5'],
                                     'fabricar'        => ['Para fabricar',    '#fef3c7', '#d97706'],
+                                    'retapizar'       => ['Cambio de tela',   '#ffedd5', '#c2410c'],
                                     default           => null,
                                 };
                             @endphp
@@ -254,9 +255,10 @@
     @php
         // Solo los que tienen algo que detallar: un personalizado sin specs, sin
         // notas y sin boceto solo repetía el nombre que ya está en la tabla de
-        // arriba y gastaba una línea.
+        // arriba y gastaba una línea. El cambio de tela entra aunque sea de
+        // stock: la tela nueva es justo lo que hay que detallar.
         $itemsPersonalizados = $itemsVivos
-            ->where('es_personalizado', true)
+            ->filter(fn ($i) => $i->es_personalizado || $i->retapizar)
             ->filter(function ($i) {
                 $s = $i->specs_personalizacion ?? [];
                 $tieneSpecs = ! empty(array_filter($s, fn($v) => $v !== null && $v !== '' && $v !== []));
@@ -271,6 +273,7 @@
             'material' => 'Material', 'color_material' => 'Color/acabado',
             'largo_cm' => 'Largo', 'ancho_cm' => 'Ancho', 'alto_cm' => 'Alto',
             'variante_marca' => 'Marca', 'variante_color' => 'Color',
+            'tela_original' => 'Tela actual',
         ];
     @endphp
     @if($itemsPersonalizados->isNotEmpty())
@@ -285,6 +288,7 @@
                     'restauracion'    => 'restauración',
                     'diseno_especial' => 'diseño especial',
                     'fabricar'        => 'para fabricar',
+                    'retapizar'       => 'cambio de tela',
                     default           => 'ítem personalizado',
                 };
             @endphp

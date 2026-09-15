@@ -57,6 +57,9 @@ class ProduccionController extends Controller
             'ordenItem.orden.cliente:id,nombre,telefono',
             'ordenItem.orden.vendedor:id,nombre',
             'ordenItem.orden.tienda:id,nombre',
+            // De qué tienda hay que ir a recoger el mueble al que se le
+            // cambia la tela, cuando no es la de la orden.
+            'ordenItem.tiendaOrigen:id,nombre',
             // Lo que se produce cuando la pieza es para la Reserva y no hay orden.
             'producto:id,nombre,categoria,foto_url',
             'variante:id,marca,marca_tela,nombre_color,medida',

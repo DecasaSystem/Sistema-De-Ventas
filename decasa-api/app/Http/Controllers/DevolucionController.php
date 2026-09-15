@@ -268,7 +268,7 @@ class DevolucionController extends Controller
         $item  = $devolucion->item;
         $orden = $devolucion->orden;
 
-        if ($item->es_personalizado && ! $item->producto_unico) {
+        if ($item->vaAlTaller()) {
             $produccion = Produccion::where('orden_item_id', $item->id)->first();
             if ($produccion) {
                 $produccion->update([
@@ -346,7 +346,7 @@ class DevolucionController extends Controller
         // La dañada no vuelve a la venta.
         $this->sacarDeInventario($devolucion, $usuario);
 
-        if ($item->es_personalizado && ! $item->producto_unico) {
+        if ($item->vaAlTaller()) {
             Produccion::where('orden_item_id', $item->id)
                 ->whereNotIn('estado', ['cancelado', 'entregado'])
                 ->update(['estado' => 'cancelado']);

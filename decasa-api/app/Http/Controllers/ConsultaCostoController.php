@@ -105,9 +105,11 @@ class ConsultaCostoController extends Controller
             return response()->json(['message' => 'El receptor seleccionado no está activo.'], 422);
         }
 
-        // Verificar que la orden tiene ítems personalizados
+        // Verificar que la orden tiene ítems personalizados. El cambio de tela
+        // a un mueble de stock también se consulta: lo que cuesta depende de
+        // la tela nueva y eso lo sabe el taller.
         $itemsPersonalizados = OrdenItem::where('orden_id', $data['orden_id'])
-            ->where('es_personalizado', true)
+            ->where(fn ($q) => $q->where('es_personalizado', true)->orWhere('retapizar', true))
             ->get();
 
         if ($itemsPersonalizados->isEmpty()) {

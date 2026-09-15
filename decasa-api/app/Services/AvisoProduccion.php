@@ -24,7 +24,9 @@ class AvisoProduccion
 
     /** Cambios que le cambian el trabajo a quien está armando el mueble. */
     private const PATRONES_DE_TALLER = [
-        '/^item_\d+_(specs|cantidad|producto|eliminado)$/',
+        // retapizar: un mueble de stock que entra al taller a cambiarle la
+        // tela, o que deja de ir. Las dos cosas le cambian el trabajo.
+        '/^item_\d+_(specs|cantidad|producto|eliminado|retapizar)$/',
         '/^item_nuevo/',
     ];
 

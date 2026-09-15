@@ -125,7 +125,7 @@ class DespachoController extends Controller
 
         $orden->loadMissing('items.produccion');
         $esperaTaller = $orden->items->contains(fn ($i) =>
-            $i->es_personalizado && ! $i->producto_unico && $i->pendienteEntregar() > 0 && ! $i->estaListoParaEntregar()
+            $i->vaAlTaller() && $i->pendienteEntregar() > 0 && ! $i->estaListoParaEntregar()
         );
 
         return $esperaTaller && $orden->itemsEntregables()->isNotEmpty();

@@ -34,6 +34,9 @@ class OrdenItem extends Model
         // Un mueble que ya existe y del que solo hay uno: no está en el
         // catálogo y tampoco pasa por el taller, porque ya está hecho.
         'producto_unico',
+        // Mueble de stock al que se le cambia la tela en la fábrica: se
+        // aparta como catálogo y a la vez entra al taller.
+        'retapizar',
         'es_regalo',
         'usa_stock_tienda',
         // "Se lo lleva de una": el cliente sale de la tienda con esto en la
@@ -57,6 +60,7 @@ class OrdenItem extends Model
             'fabricar_pedido'       => 'boolean',
             'es_restauracion'       => 'boolean',
             'producto_unico'        => 'boolean',
+            'retapizar'             => 'boolean',
             'es_regalo'             => 'boolean',
             'usa_stock_tienda'      => 'boolean',
             'llevar_ahora'          => 'boolean',
@@ -71,6 +75,7 @@ class OrdenItem extends Model
     /**
      * Clasifica el ítem para mostrarlo distinto en la orden:
      *   catalogo        → producto de inventario (sale de stock)
+     *   retapizar       → producto de inventario que pasa por el taller a cambiarle la tela
      *   producto_unico  → mueble que ya existe, fuera de catálogo, no va al taller
      *   diseno_especial → producto que no existe en catálogo (a fabricar desde cero)
      *   fabricar        → producto del catálogo sin stock, mandado a producción
@@ -85,6 +90,9 @@ class OrdenItem extends Model
         // catálogo, y si no se mirara aquí saldría como "diseño especial",
         // que es exactamente lo contrario —algo que hay que fabricar—.
         if ($this->producto_unico)       return 'producto_unico';
+        // Antes que 'catalogo': por dentro es un ítem de stock, y sin esta
+        // marca saldría como uno más de inventario estando en el taller.
+        if ($this->retapizar)            return 'retapizar';
         if (! $this->es_personalizado)   return 'catalogo';
         if ($this->producto_id === null) return 'diseno_especial';
         if ($this->fabricar_pedido)      return 'fabricar';
@@ -180,6 +188,59 @@ class OrdenItem extends Model
         return null;
     }
 
+    /**
+     * Lo que se guarda de un mueble de stock que se manda a cambiar de tela.
+     *
+     * La línea de variante pasa a decir "de qué tela a qué tela": es lo que
+     * necesita el taller para saber qué sofá recoger y quien despacha para
+     * no mandar el que no es. La tela que tiene HOY se guarda aparte en las
+     * specs (`tela_original`), y las marcas variante_marca/variante_color se
+     * quitan: describen la tela vieja y en la orden saldrían como si fuera
+     * la que se vendió.
+     *
+     * Se usa igual al crear la orden, al agregar el ítem desde editar y al
+     * marcar uno que ya estaba: si cada sitio lo armara a su manera, la
+     * orden diría una cosa y el taller otra.
+     *
+     * @return array{0: string, 1: array}  [variante_detalle, specs]
+     */
+    public static function armarRetapizado(?string $telaActual, array $specs): array
+    {
+        unset($specs['variante_marca'], $specs['variante_color']);
+
+        $telaActual = trim((string) $telaActual);
+        if ($telaActual !== '') {
+            $specs = ['tela_original' => $telaActual] + $specs;
+        }
+
+        $detalle = ($telaActual !== '' ? $telaActual : 'Tela actual') . ' → ' . trim((string) ($specs['tela'] ?? ''));
+
+        return [mb_substr(trim($detalle), 0, 200), $specs];
+    }
+
+    /**
+     * Al dejar de retapizarlo vuelve a ser un ítem de stock cualquiera: la
+     * línea de variante vuelve a la tela que tiene, y las specs se quedan
+     * solo con el rastro de la variante, como las de cualquier otro.
+     *
+     * @return array{0: ?string, 1: ?array}  [variante_detalle, specs]
+     */
+    public function deshacerRetapizado(): array
+    {
+        $specs   = $this->specs_personalizacion ?? [];
+        $detalle = $specs['tela_original'] ?? null;
+        if ($detalle === null) {
+            $detalle = self::detalleDeVariante(null, $this->combo_config_id, $this->variante_id);
+        }
+
+        $rastro = null;
+        if ($this->variante_id && $v = ProductoVariante::find($this->variante_id)) {
+            $rastro = ['variante_marca' => $v->marca_tela, 'variante_color' => $v->nombre_color];
+        }
+
+        return [$detalle, $rastro];
+    }
+
     public function comboConfig()
     {
         return $this->belongsTo(ProductoVarianteConfig::class, 'combo_config_id');
@@ -203,18 +264,37 @@ class OrdenItem extends Model
     }
 
     /**
+     * ¿Tiene trabajo en el taller?
+     *
+     * Lo personalizado y lo que se fabrica desde cero, sí; el mueble único no
+     * (ya está hecho). Y el de stock al que se le cambia la tela también,
+     * aunque por inventario sea un ítem de catálogo: ese sofá no se puede
+     * entregar hasta que vuelva de la fábrica.
+     *
+     * Es LA pregunta que se hacía en varios sitios como
+     * `es_personalizado && ! producto_unico`; está aquí para que la marca de
+     * retapizar cuente en todos ellos y no se olvide en ninguno.
+     */
+    public function vaAlTaller(): bool
+    {
+        if ($this->retapizar) return true;
+
+        return $this->es_personalizado && ! $this->producto_unico;
+    }
+
+    /**
      * ¿Se puede entregar hoy?
      *
      * Lo de catálogo sí siempre (está apartado en la tienda), lo que ya está
-     * hecho también; lo que se fabrica, solo cuando el taller lo dio por
-     * listo. Antes la orden entera esperaba a que TODO estuviera listo, y el
-     * reloj se quedaba en la tienda hasta que saliera el mueble.
+     * hecho también; lo que pasa por el taller —se fabrica, o se retapiza—,
+     * solo cuando el taller lo dio por listo. Antes la orden entera esperaba
+     * a que TODO estuviera listo, y el reloj se quedaba en la tienda hasta
+     * que saliera el mueble.
      */
     public function estaListoParaEntregar(): bool
     {
         if ($this->pendienteEntregar() <= 0) return false;
-        if ($this->producto_unico)            return true;
-        if (! $this->es_personalizado)        return true;
+        if (! $this->vaAlTaller())            return true;
 
         $produccion = $this->relationLoaded('produccion') ? $this->produccion : $this->produccion()->first();
 

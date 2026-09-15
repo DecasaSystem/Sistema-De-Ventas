@@ -575,8 +575,11 @@ const puedeCambiarEstado = computed(() => {
   return true
 })
 
+// "Tiene algo en el taller": personalizados y el de stock que se manda a
+// cambiar de tela. Manda sobre el estado (lo avanza Producción) y habilita
+// la consulta de costo.
 const tienePersonalizados = computed(() =>
-  orden.value?.items?.some(i => i.es_personalizado) ?? false
+  orden.value?.items?.some(i => i.es_personalizado || i.retapizar) ?? false
 )
 
 const esBorrador = computed(() => orden.value?.estado === 'borrador')
@@ -623,7 +626,7 @@ const borradorAnticipoMinimo     = computed(() =>
   Math.ceil((orden.value?.valor_total ?? 0) * borradorAnticipoPct.value / 100)
 )
 const borradorTieneItemsCotiz    = computed(() =>
-  orden.value?.items?.some(i => i.es_personalizado && i.precio_unitario == 0) ?? false
+  orden.value?.items?.some(i => (i.es_personalizado || i.retapizar) && i.precio_unitario == 0) ?? false
 )
 const borradorForm = ref({
   anticipo_monto:      0,
@@ -679,7 +682,7 @@ function specsVacias(item) {
 
 /** Personalizados del borrador que todavía no tienen ninguna especificación. */
 const borradorItemsSinSpecs = computed(() =>
-  (orden.value?.items ?? []).filter(i => i.es_personalizado && specsVacias(i))
+  (orden.value?.items ?? []).filter(i => (i.es_personalizado || i.retapizar) && specsVacias(i))
 )
 
 /** Specs de un ítem ya consolidadas: los campos escritos más las telas elegidas. */
@@ -980,7 +983,7 @@ async function cargarOrden() {
   }
 
   // Cargar consulta activa después de mostrar la orden (no bloquea el spinner)
-  if (orden.value?.items?.some(i => i.es_personalizado)) {
+  if (orden.value?.items?.some(i => i.es_personalizado || i.retapizar)) {
     cargandoConsulta.value = true
     try {
       const r = await getConsultas()
@@ -1044,6 +1047,9 @@ const cambiando      = ref(false)
 // Lo que todavia se le puede devolver: lo que sigue vivo en la orden.
 const itemsCambiables = computed(() =>
   (orden.value?.items ?? []).filter(i => !i.devuelto_en)
+)
+const cambioItemEsRetapizado = computed(() =>
+  !!itemsCambiables.value.find(i => i.id === cambioItemId.value)?.retapizar
 )
 
 function abrirCambio() {
@@ -1190,7 +1196,7 @@ const ETIQUETAS_SPEC = {
   acabado: 'Acabado', descripcion: 'Descripción', notas: 'Notas',
   material: 'Material', color_material: 'Color/acabado',
   largo_cm: 'Largo', ancho_cm: 'Ancho', alto_cm: 'Alto',
-  variante_marca: 'Marca', variante_color: 'Color',
+  variante_marca: 'Marca', variante_color: 'Color', tela_original: 'Tela actual',
 }
 
 function formatCambioVal(val) {
@@ -1504,7 +1510,7 @@ async function doMarcarFacturada(pagoId) {
 // ── Trazabilidad de producción ────────────────────────────────────────────────
 
 const itemsConProduccion = computed(() =>
-  (orden.value?.items ?? []).filter(i => i.es_personalizado && i.produccion?.pasos?.length)
+  (orden.value?.items ?? []).filter(i => (i.es_personalizado || i.retapizar) && i.produccion?.pasos?.length)
 )
 
 /**
@@ -2356,6 +2362,11 @@ onMounted(() => { cargarTipos(); cargarOrden() })
               <p v-else-if="item.tipo_item === 'fabricar'" class="text-xs text-amber-600 mt-1 flex items-center gap-1">
                 <WrenchScrewdriverIcon class="w-3.5 h-3.5" /> Para fabricar
               </p>
+              <!-- Es de inventario Y está en el taller: las dos cosas hay que
+                   verlas, o alguien lo busca en la tienda y no está. -->
+              <p v-else-if="item.tipo_item === 'retapizar'" class="text-xs text-orange-600 mt-1 flex items-center gap-1">
+                <WrenchScrewdriverIcon class="w-3.5 h-3.5" /> Cambio de tela — mueble de la tienda, en la fábrica
+              </p>
               <div
                 v-if="specsResumen(item).length"
                 :class="['mt-1 rounded-lg px-2 py-1.5 text-xs text-gray-600 space-y-0.5', item.es_personalizado ? 'bg-purple-50' : 'bg-gray-50']"
@@ -2845,6 +2856,12 @@ onMounted(() => { cargarTipos(); cargarOrden() })
               <input type="checkbox" v-model="cambioAlStock" class="mt-0.5 rounded border-gray-300 text-amber-600 focus:ring-amber-500" />
               <span class="text-[11px] text-amber-900">
                 Vuelve al inventario para vender. Desmárcalo si llegó dañado.
+                <!-- Ya no es de la tela de su variante: entra al stock base y
+                     en Inventario le asignan la tela que tiene ahora. -->
+                <span v-if="cambioItemEsRetapizado" class="block mt-0.5 text-orange-800">
+                  A este mueble se le cambió la tela: si vuelve, entra al producto sin tela asignada
+                  ({{ itemsCambiables.find(i => i.id === cambioItemId)?.variante_texto }}). Asígnale la tela en Inventario.
+                </span>
               </span>
             </label>
 

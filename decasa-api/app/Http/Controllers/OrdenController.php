@@ -57,7 +57,9 @@ class OrdenController extends Controller
         'vendedor_id', 'tienda_id', 'tienda_abonada_id', 'covendedor_id', 'es_compartida',
     ];
 
-    private const CAMPOS_ITEM_QUE_MUEVEN_PLATA = ['precio_unitario', 'cantidad', 'producto_id'];
+    // `retapizar` va aquí aunque no sea plata: mandar al taller un mueble que
+    // ya se entregó no tiene sentido, y sacarlo del taller tampoco.
+    private const CAMPOS_ITEM_QUE_MUEVEN_PLATA = ['precio_unitario', 'cantidad', 'producto_id', 'retapizar'];
 
     /**
      * GET /api/ordenes
@@ -284,6 +286,9 @@ class OrdenController extends Controller
             'items.*.fabricar_pedido'            => 'nullable|boolean',
             'items.*.es_restauracion'            => 'nullable|boolean',
             'items.*.producto_unico'             => 'nullable|boolean',
+            // Mueble de stock que se manda a la fábrica a cambiarle la tela:
+            // se aparta como catálogo y a la vez entra al taller.
+            'items.*.retapizar'                  => 'nullable|boolean',
             'items.*.es_regalo'                  => 'nullable|boolean',
             'items.*.usa_stock_tienda'           => 'nullable|boolean',
             // "Se lo lleva ahora": este producto sale con el cliente de una.
@@ -345,9 +350,31 @@ class OrdenController extends Controller
         // completarlo. Lo que sí espera al borrador es la ENTREGA en sí.
         $quiereEntregaInmediata = $request->boolean('entrega_inmediata', false);
         foreach ($data['items'] as $k => $i) {
+            // Cambio de tela: es un mueble de stock —de catálogo, con
+            // producto— que además pasa por la fábrica. Sobre un
+            // personalizado o un mueble único no tiene sentido: esos no
+            // tienen stock que apartar.
+            $retapizar = ! empty($i['retapizar']);
+            if ($retapizar) {
+                if (empty($i['producto_id']) || ! empty($i['es_personalizado']) || ! empty($i['producto_unico'])) {
+                    return response()->json([
+                        'message' => 'El cambio de tela solo aplica a un mueble que está en inventario.',
+                    ], 422);
+                }
+                // Sin la tela nueva el taller no tiene nada que hacer con él.
+                if (trim((string) ($i['specs_personalizacion']['tela'] ?? '')) === '') {
+                    return response()->json([
+                        'message' => 'Di qué tela nueva lleva el mueble que se manda a retapizar.',
+                    ], 422);
+                }
+            }
+            $data['items'][$k]['retapizar'] = $retapizar;
+
             $seLleva = $quiereEntregaInmediata || ! empty($i['llevar_ahora']);
+            // Lo que se retapiza existe, pero se va a la fábrica, no con el
+            // cliente: no se puede llevar hoy.
             $existe  = ! empty($i['producto_unico'])
-                    || (empty($i['es_personalizado']) && ! empty($i['producto_id']));
+                    || (empty($i['es_personalizado']) && ! empty($i['producto_id']) && ! $retapizar);
             $data['items'][$k]['llevar_ahora'] = $seLleva && $existe;
         }
         $hayParaLlevar = collect($data['items'])->contains(fn ($i) => $i['llevar_ahora']);
@@ -408,7 +435,9 @@ class OrdenController extends Controller
         // miraba solo el precio, asi que una venta con un regalo quedaba
         // atrapada esperando una cotizacion que nadie iba a mandar.
         $tieneItemsCotizacionPendiente = collect($data['items'])->contains(
-            fn($i) => ($i['es_personalizado'] ?? false)
+            // El cambio de tela también se cotiza: cuánto cuesta depende de
+            // la tela nueva, y eso lo sabe el taller.
+            fn($i) => (($i['es_personalizado'] ?? false) || $i['retapizar'])
                       && (($i['precio_unitario'] ?? 0) == 0)
                       && ! ($i['es_regalo'] ?? false)
                       // Un mueble que ya está hecho no tiene nada que cotizar:
@@ -538,14 +567,24 @@ class OrdenController extends Controller
                 // Ya está hecho: no está en catálogo (así que no toca stock)
                 // pero tampoco hay nada que fabricar.
                 $esProductoUnico  = (bool) ($itemData['producto_unico'] ?? false);
+                // De stock, pero se va a la fábrica a cambiarle la tela.
+                $retapizar        = (bool) ($itemData['retapizar'] ?? false);
 
                 $varianteId     = $itemData['variante_id']      ?? null;
                 $comboConfigId  = $itemData['combo_config_id']  ?? null;
                 $origenTiendaId = $itemData['tienda_origen_id'] ?? $tiendaId;
 
+                $varianteDetalle = OrdenItem::detalleDeVariante(
+                    $itemData['variante_detalle'] ?? null, $comboConfigId, $varianteId
+                );
+
                 // Snapshot del nombre de variante para legibilidad
                 $specsExtra = $itemData['specs_personalizacion'] ?? null;
-                if ($varianteId && ! $esPersonalizado && ! $esProductoCustom) {
+                if ($retapizar) {
+                    // "De qué tela a qué tela", y la tela actual aparte en las
+                    // specs. Ver OrdenItem::armarRetapizado.
+                    [$varianteDetalle, $specsExtra] = OrdenItem::armarRetapizado($varianteDetalle, $specsExtra ?? []);
+                } elseif ($varianteId && ! $esPersonalizado && ! $esProductoCustom) {
                     $v = ProductoVariante::find($varianteId);
                     $specsExtra = array_merge($specsExtra ?? [], [
                         'variante_marca' => $v?->marca_tela,
@@ -560,9 +599,7 @@ class OrdenController extends Controller
                     'categoria_custom'      => $esProductoCustom ? ($itemData['categoria_custom'] ?? null) : null,
                     'variante_id'           => $varianteId,
                     'combo_config_id'       => $comboConfigId,
-                    'variante_detalle'      => OrdenItem::detalleDeVariante(
-                        $itemData['variante_detalle'] ?? null, $comboConfigId, $varianteId
-                    ),
+                    'variante_detalle'      => $varianteDetalle,
                     'tienda_origen_id'      => $origenTiendaId !== $tiendaId ? $origenTiendaId : null,
                     'cantidad'              => $itemData['cantidad'],
                     'precio_unitario'       => $itemData['precio_unitario'],
@@ -570,6 +607,7 @@ class OrdenController extends Controller
                     'fabricar_pedido'       => (bool) ($itemData['fabricar_pedido'] ?? false) && ! $esProductoCustom,
                     'es_restauracion'       => (bool) ($itemData['es_restauracion'] ?? false),
                     'producto_unico'        => $esProductoUnico,
+                    'retapizar'             => $retapizar,
                     'es_regalo'             => (bool) ($itemData['es_regalo'] ?? false),
                     'llevar_ahora'          => (bool) ($itemData['llevar_ahora'] ?? false),
                     'specs_personalizacion' => $specsExtra,
@@ -586,23 +624,30 @@ class OrdenController extends Controller
                     'fecha_entrega_prom'    => $fechaEntregaInicial,
                 ]);
 
-                // El mueble único cae aquí —no tiene stock que reservar— pero
-                // se queda sin producción: mandarlo al taller sería inventarle
-                // un trabajo a alguien sobre un mueble que ya está terminado.
-                if ($esProductoUnico) {
-                    // Nada que hacer: ni inventario ni taller.
-                } elseif ($esPersonalizado || $esProductoCustom) {
-                    // Solo crear producción si la orden es confirmada, no si es borrador
-                    if (! $guardarBorrador) {
-                        Produccion::create([
-                            'orden_item_id'    => $item->id,
-                            'fecha_inicio'     => now()->toDateString(),
-                            // El taller trabaja contra la misma fecha que se le
-                            // prometió al cliente, no contra una en blanco.
-                            'fecha_compromiso' => $fechaEntregaInicial,
-                            'estado'           => 'pendiente',
-                        ]);
-                    }
+                // ¿Va al taller? ¿Aparta stock? Son dos preguntas aparte, no
+                // una sola con ramas: el cambio de tela responde sí a las dos
+                // —se aparta el sofá de la tienda Y entra al taller—.
+                //
+                // El mueble único responde no a las dos: no tiene stock que
+                // reservar, y mandarlo al taller sería inventarle un trabajo a
+                // alguien sobre un mueble que ya está terminado.
+                $vaAlTaller = $retapizar || (($esPersonalizado || $esProductoCustom) && ! $esProductoUnico);
+                $tocaStock  = ! $esPersonalizado && ! $esProductoCustom && ! $esProductoUnico;
+
+                // Solo crear producción si la orden es confirmada, no si es borrador
+                if ($vaAlTaller && ! $guardarBorrador) {
+                    Produccion::create([
+                        'orden_item_id'    => $item->id,
+                        'fecha_inicio'     => now()->toDateString(),
+                        // El taller trabaja contra la misma fecha que se le
+                        // prometió al cliente, no contra una en blanco.
+                        'fecha_compromiso' => $fechaEntregaInicial,
+                        'estado'           => 'pendiente',
+                    ]);
+                }
+
+                if (! $tocaStock) {
+                    // Nada que apartar: no hay registro de inventario detrás.
                 } elseif ($guardarBorrador) {
                     // Un borrador NO reserva stock — es un boceto de venta, no
                     // una venta. La reserva se hace al confirmarlo
@@ -618,7 +663,12 @@ class OrdenController extends Controller
                     // saca del inventario, por la misma puerta que el conductor.
                     $varianteMarca = $specsExtra['variante_marca'] ?? '';
                     $varianteColor = $specsExtra['variante_color'] ?? '';
-                    $motivo = "Orden #{$orden->id}" . ($varianteId && $specsExtra ? " ({$varianteMarca} - {$varianteColor})" : '');
+                    $motivo = "Orden #{$orden->id}" . ($varianteId && $varianteMarca !== '' ? " ({$varianteMarca} - {$varianteColor})" : '');
+                    // Que en el historial del inventario se vea que ese sofá
+                    // no se vendió tal cual: se fue a la fábrica.
+                    if ($retapizar) {
+                        $motivo .= " — cambio de tela ({$varianteDetalle})";
+                    }
 
                     if ($varianteId) {
                         InventarioVariante::where('variante_id', $varianteId)
@@ -1117,6 +1167,10 @@ class OrdenController extends Controller
             'items.*.fecha_entrega_prom'    => 'sometimes|nullable|date|after:2020-01-01|before:2100-01-01',
             'items.*.cantidad'              => 'sometimes|nullable|integer|min:1',
             'items.*.producto_id'           => 'sometimes|nullable|exists:productos,id',
+            // Mandar (o dejar de mandar) un mueble de stock a cambiarle la
+            // tela: el cliente ya lo había comprado tal cual y se arrepintió
+            // del color, o al revés.
+            'items.*.retapizar'             => 'sometimes|boolean',
             // Bocetos de un ítem que ya existe: la lista que se manda reemplaza
             // a la que había. Antes solo se podían poner al crear el ítem.
             'items.*.boceto_urls'           => 'sometimes|nullable|array|max:10',
@@ -1136,6 +1190,7 @@ class OrdenController extends Controller
             'items_nuevos.*.es_personalizado'    => 'nullable|boolean',
             'items_nuevos.*.fabricar_pedido'     => 'nullable|boolean',
             'items_nuevos.*.es_restauracion'     => 'nullable|boolean',
+            'items_nuevos.*.retapizar'           => 'nullable|boolean',
             'items_nuevos.*.es_regalo'            => 'nullable|boolean',
             'items_nuevos.*.specs_personalizacion' => 'nullable|array',
             'items_nuevos.*.boceto_urls'         => 'nullable|array|max:10',
@@ -1395,8 +1450,81 @@ class OrdenController extends Controller
                         }
                     }
 
-                    // Specs (solo ítems personalizados)
-                    if ($item->es_personalizado && array_key_exists('specs_personalizacion', $itemData)) {
+                    // Mandar a cambiar de tela un mueble de stock que ya estaba
+                    // en la orden (o dejar de hacerlo). Va ANTES de las specs:
+                    // al marcarlo, la tela nueva llega en las mismas specs de
+                    // esta petición y el bloque de abajo es el que las guarda.
+                    if (array_key_exists('retapizar', $itemData)
+                        && ! $item->es_personalizado && $item->producto_id
+                        && (bool) $itemData['retapizar'] !== (bool) $item->retapizar) {
+
+                        if ($itemData['retapizar']) {
+                            // Lo que ya se le entregó al cliente no se puede
+                            // mandar a la fábrica desde aquí: para eso está la
+                            // devolución.
+                            if ((int) $item->cantidad_entregada > 0) {
+                                abort(422, "\"{$nombreProd}\" ya se entregó (o parte). Si el cliente lo quiere en otra tela, regístralo como devolución.");
+                            }
+
+                            $specsNuevas = (array) ($itemData['specs_personalizacion'] ?? []);
+                            if (trim((string) ($specsNuevas['tela'] ?? '')) === '') {
+                                abort(422, "Di qué tela nueva lleva \"{$nombreProd}\" para mandarlo a retapizar.");
+                            }
+
+                            // variante_texto y no variante_detalle: en órdenes
+                            // viejas el texto no se guardó y hay que armarlo de
+                            // la variante.
+                            [$detalle, $specsNuevas] = OrdenItem::armarRetapizado($item->variante_texto, $specsNuevas);
+                            $itemData['specs_personalizacion'] = $specsNuevas;
+                            $updateItem['retapizar']        = true;
+                            $updateItem['variante_detalle'] = $detalle;
+                            // Ya no se lo lleva hoy: se va a la fábrica.
+                            $updateItem['llevar_ahora']     = false;
+
+                            // El taller lo recibe con la fecha que ya tenía el
+                            // ítem. Un borrador no crea producción todavía: la
+                            // crea completarBorrador, con lo demás.
+                            if ($orden->estado !== 'borrador' && ! $item->produccion()->whereNotIn('estado', ['cancelado'])->exists()) {
+                                Produccion::create([
+                                    'orden_item_id'    => $item->id,
+                                    'fecha_inicio'     => now()->toDateString(),
+                                    'fecha_compromiso' => $item->fecha_entrega_prom?->toDateString(),
+                                    'estado'           => 'pendiente',
+                                ]);
+                            }
+
+                            $cambios[] = ['campo' => "item_{$item->id}_retapizar", 'label' => "{$nombreProd} — cambio de tela", 'antes' => 'se entrega tal cual', 'despues' => $detalle];
+                            // Para que el bloque de specs de abajo lo tome como
+                            // un ítem que sí lleva especificaciones.
+                            $item->retapizar = true;
+                        } else {
+                            // Ya no se retapiza. Si el taller ya le metió mano
+                            // no se puede deshacer desde aquí: hay trabajo hecho.
+                            $produccion = $item->produccion()->with('pasos')->whereNotIn('estado', ['cancelado'])->first();
+                            if ($produccion) {
+                                $avanzado = $produccion->estado !== 'pendiente'
+                                    || $produccion->pasos->contains(fn ($p) => in_array($p->estado, ['en_proceso', 'completado'], true));
+                                if ($avanzado) {
+                                    abort(422, "El taller ya empezó el cambio de tela de \"{$nombreProd}\". Si fue un error, cancélalo desde Producción.");
+                                }
+                                $produccion->pasos()->delete();
+                                $produccion->delete();
+                            }
+
+                            [$detalle, $rastro] = $item->deshacerRetapizado();
+                            $updateItem['retapizar']             = false;
+                            $updateItem['variante_detalle']      = $detalle;
+                            $updateItem['specs_personalizacion'] = $rastro;
+                            // Lo que venga en specs ya no aplica: es de stock otra vez.
+                            unset($itemData['specs_personalizacion']);
+
+                            $cambios[] = ['campo' => "item_{$item->id}_retapizar", 'label' => "{$nombreProd} — cambio de tela", 'antes' => $item->variante_detalle, 'despues' => 'se entrega tal cual'];
+                            $item->retapizar = false;
+                        }
+                    }
+
+                    // Specs (solo ítems personalizados y los que se retapizan)
+                    if (($item->es_personalizado || $item->retapizar) && array_key_exists('specs_personalizacion', $itemData)) {
                         $antes   = $item->specs_personalizacion;
                         $despues = $itemData['specs_personalizacion'];
 
@@ -1416,6 +1544,17 @@ class OrdenController extends Controller
                         if ($normalizar($antes) !== $normalizar($despues)) {
                             $cambios[]                          = ['campo' => "item_{$item->id}_specs", 'label' => "{$nombreProd} — especificaciones", 'antes' => $antes, 'despues' => $despues];
                             $updateItem['specs_personalizacion'] = $despues;
+
+                            // Le cambiaron la tela nueva a un retapizado: la
+                            // línea "de qué tela a qué tela" tiene que decir la
+                            // de ahora, o el taller le pone la de antes.
+                            if ($item->retapizar && ! isset($updateItem['variante_detalle'])) {
+                                $telaNueva = trim((string) (($despues ?? [])['tela'] ?? ''));
+                                if ($telaNueva === '') {
+                                    abort(422, "\"{$nombreProd}\" se manda a cambiar de tela: di cuál es la tela nueva.");
+                                }
+                                [$updateItem['variante_detalle']] = OrdenItem::armarRetapizado(($despues ?? [])['tela_original'] ?? null, (array) $despues);
+                            }
                         }
                     }
 
@@ -1424,7 +1563,7 @@ class OrdenController extends Controller
                     // Se guarda igual que al crear — la primera en boceto_url y
                     // el resto en boceto_fotos — para que todo lo que ya lee
                     // esos campos (PDF, taller, detalle) siga funcionando.
-                    if ($item->es_personalizado && array_key_exists('boceto_urls', $itemData)) {
+                    if (($item->es_personalizado || $item->retapizar) && array_key_exists('boceto_urls', $itemData)) {
                         $nuevos = array_values(array_filter($itemData['boceto_urls'] ?? []));
                         $antes  = $item->bocetos_list;
 
@@ -1486,6 +1625,17 @@ class OrdenController extends Controller
                             $cambios[]   = ['campo' => "item_{$item->id}_producto", 'label' => "Producto cambiado", 'antes' => $nombreProd, 'despues' => $nombreNuevo];
                             $updateItem['producto_id'] = $prodNuevoId;
                             $updateItem['variante_id'] = null;
+
+                            // Si se retapiza, la tela actual era la del mueble
+                            // de antes: del nuevo no se sabe cuál es, y dejar
+                            // "Azul → Rojo" mandaría al taller a buscar un sofá
+                            // azul que ya no es el de la orden.
+                            if ($item->retapizar) {
+                                $specsRet = (array) ($updateItem['specs_personalizacion'] ?? $item->specs_personalizacion ?? []);
+                                unset($specsRet['tela_original']);
+                                [$updateItem['variante_detalle'], $updateItem['specs_personalizacion']] =
+                                    OrdenItem::armarRetapizado(null, $specsRet);
+                            }
                             if ($cambiaCantidad) {
                                 $cambios[] = ['campo' => "item_{$item->id}_cantidad", 'label' => "{$nombreNuevo} — cantidad", 'antes' => (int) $item->cantidad, 'despues' => $cantNueva];
                                 $updateItem['cantidad'] = $cantNueva;
@@ -1597,6 +1747,9 @@ class OrdenController extends Controller
                     $esUnico         = (bool) ($nuevoData['producto_unico'] ?? false);   // ya hecho: ni stock ni taller
                     $esPersonalizado = (bool) ($nuevoData['es_personalizado'] ?? false) || $esCustom;
                     $fabricarPedido  = (bool) ($nuevoData['fabricar_pedido'] ?? false) && ! $esCustom;
+                    // De stock, pero se va a la fábrica a cambiarle la tela:
+                    // solo sobre un mueble de inventario, igual que al crear.
+                    $retapizar       = (bool) ($nuevoData['retapizar'] ?? false) && ! $esPersonalizado && ! $esUnico;
                     $productoId      = $esCustom ? null : (int) $nuevoData['producto_id'];
                     $varianteId      = $esCustom ? null : ($nuevoData['variante_id'] ?? null);
                     $cantidad        = (int) $nuevoData['cantidad'];
@@ -1604,6 +1757,19 @@ class OrdenController extends Controller
                     $origenId        = (int) ($nuevoData['tienda_origen_id'] ?? $orden->tienda_id);
 
                     $bocetos = array_values(array_filter($nuevoData['boceto_urls'] ?? []));
+
+                    $varianteDetalleNuevo = $esCustom ? null : OrdenItem::detalleDeVariante(
+                        $nuevoData['variante_detalle'] ?? null,
+                        $nuevoData['combo_config_id'] ?? null,
+                        $varianteId
+                    );
+                    $specsNuevo = $nuevoData['specs_personalizacion'] ?? null;
+                    if ($retapizar) {
+                        if (trim((string) ($specsNuevo['tela'] ?? '')) === '') {
+                            abort(422, 'Di qué tela nueva lleva el mueble que se manda a retapizar.');
+                        }
+                        [$varianteDetalleNuevo, $specsNuevo] = OrdenItem::armarRetapizado($varianteDetalleNuevo, (array) $specsNuevo);
+                    }
 
                     // Solo los ítems de stock verifican y reservan inventario —
                     // y no en un borrador, que no aparta nada hasta que se
@@ -1629,11 +1795,7 @@ class OrdenController extends Controller
                         // Agregar un ítem al editar tiene que guardar la variante
                         // igual que al crear la orden: antes se perdía.
                         'combo_config_id'       => $esCustom ? null : ($nuevoData['combo_config_id'] ?? null),
-                        'variante_detalle'      => $esCustom ? null : OrdenItem::detalleDeVariante(
-                            $nuevoData['variante_detalle'] ?? null,
-                            $nuevoData['combo_config_id'] ?? null,
-                            $varianteId
-                        ),
+                        'variante_detalle'      => $varianteDetalleNuevo,
                         'nombre_custom'         => $esCustom ? ($nuevoData['nombre_custom'] ?? null) : null,
                         'categoria_custom'      => $esCustom ? ($nuevoData['categoria_custom'] ?? null) : null,
                         'cantidad'              => $cantidad,
@@ -1642,13 +1804,26 @@ class OrdenController extends Controller
                         'fabricar_pedido'       => $fabricarPedido,
                         'es_restauracion'       => (bool) ($nuevoData['es_restauracion'] ?? false),
                         'producto_unico'        => $esUnico,
+                        'retapizar'             => $retapizar,
                         'es_regalo'             => (bool) ($nuevoData['es_regalo'] ?? false),
                         'tienda_origen_id'      => $esPersonalizado ? null : ($origenId !== (int) $orden->tienda_id ? $origenId : null),
-                        'specs_personalizacion' => $nuevoData['specs_personalizacion'] ?? null,
+                        'specs_personalizacion' => $specsNuevo,
                         'boceto_url'            => $bocetos[0] ?? null,
                         'boceto_fotos'          => count($bocetos) > 1 ? $bocetos : null,
                         'fecha_entrega_prom'    => $nuevoData['fecha_entrega_prom'] ?? null,
                     ]);
+
+                    // El cambio de tela entra al taller Y aparta stock (abajo,
+                    // por la rama de los de inventario). En un borrador la
+                    // producción la crea completarBorrador con lo demás.
+                    if ($retapizar && $orden->estado !== 'borrador') {
+                        Produccion::create([
+                            'orden_item_id'    => $nuevoItem->id,
+                            'fecha_inicio'     => now()->toDateString(),
+                            'fecha_compromiso' => $nuevoData['fecha_entrega_prom'] ?? null,
+                            'estado'           => 'pendiente',
+                        ]);
+                    }
 
                     if ($esUnico) {
                         // Ya está hecho y no sale de inventario: no hay stock
@@ -1693,7 +1868,7 @@ class OrdenController extends Controller
                     $nomProd   = $esCustom
                         ? ($nuevoData['nombre_custom'] ?? 'Diseño especial')
                         : (Producto::find($productoId)?->nombre ?? "Producto #{$productoId}");
-                    $tipoTxt   = $esCustom ? ' (diseño especial)' : ($fabricarPedido ? ' (para fabricar)' : ($esPersonalizado ? ' (personalizado)' : ''));
+                    $tipoTxt   = $esCustom ? ' (diseño especial)' : ($fabricarPedido ? ' (para fabricar)' : ($esPersonalizado ? ' (personalizado)' : ($retapizar ? ' (cambio de tela)' : '')));
                     $cambios[] = [
                         'campo'   => "item_nuevo_{$nuevoItem->id}",
                         'label'   => 'Ítem agregado',
@@ -1770,7 +1945,7 @@ class OrdenController extends Controller
             if ($orden->estado === 'pendiente_cotizacion') {
                 $orden->refresh()->load('items');
                 $faltaPrecio = $orden->items->contains(
-                    fn ($i) => $i->es_personalizado && (float) $i->precio_unitario == 0.0
+                    fn ($i) => ($i->es_personalizado || $i->retapizar) && (float) $i->precio_unitario == 0.0
                                && ! $i->es_regalo
                 );
                 if (! $faltaPrecio) {
@@ -1967,7 +2142,7 @@ class OrdenController extends Controller
         // completar el borrador se crean las órdenes de producción, y el ebanista
         // recibiría un mueble del que no sabe medidas ni acabado.
         $sinEspecificar = $orden->items
-            ->filter(fn($i) => $i->es_personalizado)
+            ->filter(fn($i) => $i->vaAlTaller())
             ->filter(fn($i) => empty(array_filter(
                 $i->specs_personalizacion ?? [],
                 fn($v) => $v !== null && $v !== '' && $v !== []
@@ -1988,7 +2163,7 @@ class OrdenController extends Controller
         }
 
         $tieneItemsCotizacion = $orden->items->contains(
-            fn($i) => $i->es_personalizado && $i->precio_unitario == 0 && ! $i->es_regalo
+            fn($i) => ($i->es_personalizado || $i->retapizar) && $i->precio_unitario == 0 && ! $i->es_regalo
         );
 
         // No se fuerza un mínimo — el vendedor puede poner cualquier monto ≥ 0
@@ -2038,11 +2213,12 @@ class OrdenController extends Controller
                     ->update(['fecha_entrega_prom' => $fechaBorrador]);
             }
 
-            // Crear registros de producción para los items personalizados del
-            // borrador. El mueble único queda fuera: ya está hecho, y darle
-            // producción al completar el borrador sería meterlo al taller por
-            // la puerta de atrás.
-            foreach ($orden->items->where('es_personalizado', true)->where('producto_unico', false) as $item) {
+            // Crear registros de producción para lo que va al taller: los
+            // personalizados y el de stock al que se le cambia la tela. El
+            // mueble único queda fuera: ya está hecho, y darle producción al
+            // completar el borrador sería meterlo al taller por la puerta de
+            // atrás.
+            foreach ($orden->items->filter(fn ($i) => $i->vaAlTaller()) as $item) {
                 if (! $item->produccion) {
                     Produccion::create([
                         'orden_item_id'    => $item->id,
@@ -2127,7 +2303,7 @@ class OrdenController extends Controller
         // camino; ya no se descarta la marca por eso.
         if ($ordenFresh->estado === 'pendiente_anticipo') {
             if ($orden->entrega_inmediata) {
-                $orden->items()->where('es_personalizado', false)->whereNotNull('producto_id')
+                $orden->items()->where('es_personalizado', false)->where('retapizar', false)->whereNotNull('producto_id')
                     ->update(['llevar_ahora' => true]);
                 $orden->items()->where('producto_unico', true)->update(['llevar_ahora' => true]);
             }
@@ -2147,7 +2323,7 @@ class OrdenController extends Controller
             ->get();
 
         $tieneItemsCotizPendiente = $ordenFresh->items->contains(
-            fn($i) => $i->es_personalizado && (float) $i->precio_unitario === 0.0 && ! $i->es_regalo
+            fn($i) => ($i->es_personalizado || $i->retapizar) && (float) $i->precio_unitario === 0.0 && ! $i->es_regalo
         );
 
         foreach ($supervisores as $sup) {
@@ -2301,7 +2477,10 @@ class OrdenController extends Controller
                 Inventario::where('producto_id', $item->producto_id)->where('tienda_id', $tiendaId)
                     ->increment('cantidad_disponible', $item->cantidad);
 
-                if ($item->variante_id) {
+                // Al que se le cambió la tela no se le devuelve a su variante:
+                // ya no es de esa tela. Entra al stock base del producto, y
+                // en el inventario le asignan la tela que tiene ahora.
+                if ($item->variante_id && ! $item->retapizar) {
                     InventarioVariante::where('variante_id', $item->variante_id)->where('tienda_id', $tiendaId)
                         ->increment('cantidad_disponible', $item->cantidad);
                 }
@@ -2311,7 +2490,8 @@ class OrdenController extends Controller
                     'tienda_id'   => $tiendaId,
                     'tipo'        => 'entrada',
                     'cantidad'    => $item->cantidad,
-                    'motivo'      => "Devolución para cambio — orden {$orden->referencia}",
+                    'motivo'      => "Devolución para cambio — orden {$orden->referencia}"
+                        . ($item->retapizar ? " (retapizado: {$item->variante_texto})" : ''),
                     'usuario_id'  => $usuario->id,
                 ]);
             }
