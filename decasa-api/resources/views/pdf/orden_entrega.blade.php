@@ -85,9 +85,17 @@
             @endfor
         </tbody>
         <tfoot>
+            {{-- En una parcial se separa lo que va hoy del total del pedido:
+                 si no, quien recibe suma los renglones y no le cuadra. --}}
+            @if($parcial)
+                <tr>
+                    <td colspan="2" style="padding: 6px 8px; text-align: right; font-weight: bold; border-top: 1px solid #111;">VALOR DE ESTA ENTREGA</td>
+                    <td style="padding: 6px 8px; text-align: right; font-weight: bold; border-top: 1px solid #111;">$ {{ number_format($valorEntrega, 0, ',', '.') }}</td>
+                </tr>
+            @endif
             <tr>
-                <td colspan="2" style="padding: 6px 8px; text-align: right; font-weight: bold; border-top: 1px solid #111;">TOTAL PEDIDO</td>
-                <td style="padding: 6px 8px; text-align: right; font-weight: bold; border-top: 1px solid #111;">$ {{ number_format($totalPedido, 0, ',', '.') }}</td>
+                <td colspan="2" style="padding: 6px 8px; text-align: right; font-weight: bold; {{ $parcial ? '' : 'border-top: 1px solid #111;' }}">TOTAL PEDIDO</td>
+                <td style="padding: 6px 8px; text-align: right; font-weight: bold; {{ $parcial ? '' : 'border-top: 1px solid #111;' }}">$ {{ number_format($totalPedido, 0, ',', '.') }}</td>
             </tr>
             <tr>
                 <td colspan="2" style="padding: 6px 8px; text-align: right; font-weight: bold;">ABONOS</td>
@@ -101,6 +109,28 @@
             </tr>
         </tfoot>
     </table>
+
+    {{-- Lo que NO va hoy. En una parcial es lo primero que pregunta quien
+         recibe: "¿y el comedor?". Que el papel lo responda. --}}
+    @if($pendientes->isNotEmpty())
+        <table style="width: 100%; border-collapse: collapse; border: 1px dashed #b45309; margin-top: 10px; font-size: 10.5px; background: #fffbeb;">
+            <tr>
+                <td style="padding: 6px 8px; font-weight: bold; color: #92400e; text-transform: uppercase;">
+                    Queda pendiente para otra entrega
+                </td>
+            </tr>
+            @foreach($pendientes as $p)
+                <tr>
+                    <td style="padding: 3px 8px 3px 16px; color: #78350f;">
+                        {{ mb_strtoupper($p['nombre']) }}
+                        @if(!empty($p['variante'])) <span style="color: #b91c1c;">{{ $p['variante'] }}</span> @endif
+                        ×{{ $p['cantidad'] }}
+                        <span style="color: #a16207;">— {{ $p['motivo'] }}</span>
+                    </td>
+                </tr>
+            @endforeach
+        </table>
+    @endif
 
     @if($yaEntregado->isNotEmpty())
         <p style="font-size: 10px; color: #555; margin: 8px 0 0 0;">

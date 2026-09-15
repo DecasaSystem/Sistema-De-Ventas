@@ -11,7 +11,9 @@ export const editarPago = (pagoId, data) => api.patch(`/pagos/${pagoId}`, data)
 export const descargarPdfOrden = (id) => api.get(`/ordenes/${id}/pdf`, { responseType: 'blob' })
 
 /** Acta de satisfacción firmada por quien recibió la entrega. */
-export const descargarActaEntrega = (id) => api.get(`/ordenes/${id}/acta-entrega`, { responseType: 'blob' })
+// Con `entregaId` sale el acta de esa entrega en particular: una orden
+// entregada por partes tiene un acta por cada viaje.
+export const descargarActaEntrega = (id, entregaId) => api.get(`/ordenes/${id}/acta-entrega`, { responseType: 'blob', params: entregaId ? { entrega: entregaId } : {} })
 // La hoja de entrega para imprimir: lo que va, el total y lo que se cobra.
 export const descargarOrdenEntrega = (id, entregaId) => api.get(`/ordenes/${id}/orden-entrega`, { responseType: 'blob', params: entregaId ? { entrega: entregaId } : {} })
 export const reenviarCotizacion = (id, email = null) =>

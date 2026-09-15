@@ -10,7 +10,7 @@ import { getOrden, updateEstado, previsualizarAnulacion, revertirEntrega, descar
 import api from '@/api'
 import { useTiposProceso } from '@/composables/useTiposProceso'
 import { updateCliente } from '@/api/clientes'
-import { despachoPorOrden, crearEntregaDirecta, cancelarEntregaDirecta } from '@/api/despacho'
+import { despachoPorOrden, crearEntregaDirecta, cancelarEntregaDirecta, entregasDeOrden } from '@/api/despacho'
 import EntregaDetalleModal from '@/components/despacho/EntregaDetalleModal.vue'
 import { getDevoluciones, crearDevolucion } from '@/api/devoluciones'
 import { tomarFacturacion, marcarFacturada } from '@/api/pagos'
@@ -964,8 +964,13 @@ async function cargarOrden() {
     }
     fechasEdicion.value = edicion
 
-    if (['listo_entrega', 'en_camino', 'entregado', 'devuelto'].includes(data.estado)) {
+    // Antes solo se pedía con la orden lista o entregada. Con entregas por
+    // producto una orden en producción puede tener ya una entrega hecha (el
+    // reloj) y otra abierta (el mueble): sin esto no se veía ni "Continuar
+    // entrega" ni el rastro de lo que ya se llevó.
+    if (!['borrador', 'pendiente_cotizacion', 'cancelado'].includes(data.estado)) {
       cargarDespachoEntrega(data.id)
+      cargarEntregas(data.id)
     }
 
     // Una orden puede tener devoluciones ya resueltas aunque hoy figure
@@ -1005,6 +1010,41 @@ async function cargarDespachoEntrega(ordenId) {
     despachoEntrega.value = null
   } finally {
     cargandoDespacho.value = false
+  }
+}
+
+// ── Historial de entregas ─────────────────────────────────────────────────────
+// Una orden entregada por partes tiene varias entregas, cada una con su acta,
+// sus fotos y lo que llevó. "Pruebas de entrega" muestra solo la última; esto
+// cuenta todas, y es lo que se ve mientras la orden todavía no está completa.
+const entregas = ref([])
+
+async function cargarEntregas(ordenId) {
+  try {
+    const { data } = await entregasDeOrden(ordenId)
+    entregas.value = Array.isArray(data) ? data : []
+  } catch {
+    entregas.value = []
+  }
+}
+
+// Se muestra cuando "Pruebas de entrega" no alcanza a contar la historia: la
+// orden sigue abierta con algo ya entregado, o hubo más de una entrega.
+const historialEntregasVisible = computed(() =>
+  entregas.value.length > 0 && (orden.value?.estado !== 'entregado' || entregas.value.length > 1)
+)
+
+const descargandoActaDe = ref(null)
+async function descargarActaDe(entrega) {
+  if (descargandoActaDe.value) return
+  descargandoActaDe.value = entrega.id
+  try {
+    await abrirPdf(() => descargarActaEntrega(orden.value.id, entrega.id),
+      'El navegador bloqueó la ventana del PDF. Permite las ventanas emergentes.')
+  } catch {
+    toast.error('No se pudo generar el acta.')
+  } finally {
+    descargandoActaDe.value = null
   }
 }
 
@@ -1317,11 +1357,15 @@ async function abrirPdf(pedir, errorMsg) {
 
 // La hoja que se lleva quien entrega (la de siempre, a mano): lo que va,
 // total, abonos y lo que se cobra contra entrega.
+//
+// Se pasa el despacho que la tiene tomada —la ruta del conductor o la
+// entrega directa abierta—: la hoja sale con lo que se CARGÓ en ese viaje,
+// no con todo lo que falta. Sin despacho activo, lista lo pendiente.
 async function descargarHojaEntrega() {
   if (descargandoHojaEntrega.value) return
   descargandoHojaEntrega.value = true
   try {
-    await abrirPdf(() => descargarOrdenEntrega(orden.value.id, miEntregaDirectaPendiente.value?.id),
+    await abrirPdf(() => descargarOrdenEntrega(orden.value.id, despachoActivo.value?.id),
       'El navegador bloqueó la ventana del PDF. Permite las ventanas emergentes.')
   } catch {
     toast.error('No se pudo generar la orden de entrega.')
@@ -1350,7 +1394,7 @@ async function descargarActa() {
   if (descargandoActa.value) return
   descargandoActa.value = true
   try {
-    const response = await descargarActaEntrega(orden.value.id)
+    const response = await descargarActaEntrega(orden.value.id, despachoEntrega.value?.id)
     const blob = new Blob([response.data], { type: 'application/pdf' })
     const url = window.URL.createObjectURL(blob)
     window.open(url, '_blank')
@@ -2519,6 +2563,62 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         </div>
       </div>
 
+      <!-- Entregas realizadas: una por viaje. Se entregan productos, no
+           órdenes, así que "el reloj el martes, el comedor el viernes" son dos
+           entregas con su acta cada una. Aquí se ven todas, aun con la orden
+           todavía abierta. -->
+      <div v-if="historialEntregasVisible" class="bg-white rounded-xl shadow-sm p-4 space-y-3">
+        <div class="flex items-center justify-between">
+          <p class="text-xs font-semibold text-gray-500 uppercase">Entregas realizadas</p>
+          <span v-if="orden.entrega" class="text-[11px] text-gray-500">{{ orden.entrega.entregados }} de {{ orden.entrega.total }} productos</span>
+        </div>
+
+        <div
+          v-for="e in entregas" :key="e.id"
+          class="border border-gray-200 rounded-xl p-3 space-y-1.5"
+        >
+          <div class="flex items-start justify-between gap-2">
+            <div class="min-w-0">
+              <p class="text-sm font-semibold text-gray-800">{{ e.entregado_at ? formatDateTime(e.entregado_at) : '—' }}</p>
+              <p class="text-xs text-gray-500">
+                {{ e.tipo === 'directa' ? 'Entregó' : 'Conductor' }}: {{ e.quien ?? '—' }}
+                <span v-if="e.recibido_por"> · recibió {{ e.recibido_por }}</span>
+              </p>
+            </div>
+            <button
+              v-if="e.tiene_acta"
+              @click="descargarActaDe(e)"
+              :disabled="descargandoActaDe === e.id"
+              class="text-xs text-blue-600 font-medium flex items-center gap-1 flex-shrink-0 disabled:opacity-60"
+            >
+              <IconoS v-if="descargandoActaDe === e.id" class="w-3.5 h-3.5" />
+              <ArrowDownTrayIcon v-else class="w-3.5 h-3.5" />
+              Acta
+            </button>
+          </div>
+
+          <p v-if="e.llevo_todo" class="text-xs text-gray-600">Se entregó la orden completa.</p>
+          <template v-else>
+            <p v-if="e.entregados.length" class="text-xs text-emerald-700">
+              ✓ {{ e.entregados.map(l => `${l.nombre} ×${l.cantidad}`).join(', ') }}
+            </p>
+            <p v-if="e.devueltos.length" class="text-xs text-red-700">
+              ↩ Devuelto: {{ e.devueltos.map(l => `${l.nombre} ×${l.cantidad}`).join(', ') }}
+            </p>
+          </template>
+
+          <p v-if="e.conforme === false" class="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">
+            Con novedad: {{ e.observaciones || 'sin detalle' }}
+          </p>
+          <p v-else-if="e.firma_omitida_motivo" class="text-xs text-gray-500">Sin firma: {{ e.firma_omitida_motivo }}</p>
+
+          <div v-if="e.foto_producto || e.foto_pago" class="flex gap-2 pt-1">
+            <img v-if="e.foto_producto" :src="cloudinaryOpt(e.foto_producto, 200)" class="w-14 h-14 object-cover rounded-lg border border-gray-200 cursor-pointer" @click="verFactura = e.foto_producto" />
+            <img v-if="e.foto_pago" :src="cloudinaryOpt(e.foto_pago, 200)" class="w-14 h-14 object-cover rounded-lg border border-gray-200 cursor-pointer" @click="verFactura = e.foto_pago" />
+          </div>
+        </div>
+      </div>
+
       <!-- Pruebas de Entrega (despacho) -->
       <div v-if="pruebaEntregaVisible" class="bg-white rounded-xl shadow-sm p-4 space-y-3">
         <p class="text-xs font-semibold text-gray-500 uppercase">Pruebas de Entrega</p>
@@ -3108,11 +3208,11 @@ onMounted(() => { cargarTipos(); cargarOrden() })
       </div>
 
       <!-- Entrega: directa (vendedor/supervisor) o en cola para el conductor -->
-      <div v-if="orden.estado === 'listo_entrega' || miEntregaDirectaPendiente || puedeEntregarDirecto || puedeMarcarLista" class="space-y-2">
+      <div v-if="orden.estado === 'listo_entrega' || miEntregaDirectaPendiente || puedeEntregarDirecto || puedeMarcarLista || despachoActivo" class="space-y-2">
         <!-- La hoja de entrega para imprimir: la que se lleva el conductor o el
              asesor, con lo que va y lo que se cobra. -->
         <button
-          v-if="orden.estado === 'listo_entrega' || puedeEntregarDirecto || miEntregaDirectaPendiente"
+          v-if="orden.estado === 'listo_entrega' || puedeEntregarDirecto || miEntregaDirectaPendiente || despachoActivo"
           @click="descargarHojaEntrega"
           :disabled="descargandoHojaEntrega"
           class="w-full flex items-center justify-center gap-2 border border-gray-300 bg-white text-gray-700 rounded-xl py-2.5 text-sm font-semibold hover:bg-gray-50 disabled:opacity-50 transition-colors"

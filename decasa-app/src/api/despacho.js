@@ -30,6 +30,10 @@ export const reprogramarRuta         = (id, d)  => api.patch(`/despacho/${id}/re
 // La hoja de ruta para imprimir: paradas, productos y cobros.
 export const descargarHojaRuta       = (id)     => api.get(`/despacho/${id}/hoja-ruta`, { responseType: 'blob' })
 export const despachoPorOrden        = (id)     => api.get(`/despacho/por-orden/${id}`)
+// Todas las entregas ya hechas de una orden (puede haber varias, por partes).
+export const entregasDeOrden         = (id)     => api.get(`/despacho/entregas-de/${id}`)
+// Qué va en una entrega abierta, antes de entregarla: lo que imprime la orden de entrega.
+export const fijarLineasEntrega      = (id, lineas) => api.patch(`/despacho/mis-entregas/${id}/lineas`, { lineas })
 
 // Entrega directa: el vendedor/supervisor dueño entrega su propia orden sin
 // ruta ni conductor. Devuelve { despacho_item_id } para abrir la misma

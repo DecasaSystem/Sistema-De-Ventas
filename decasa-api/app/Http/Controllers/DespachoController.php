@@ -644,6 +644,65 @@ class DespachoController extends Controller
         return response()->json($item);
     }
 
+    /**
+     * GET /api/despacho/entregas-de/{ordenId}
+     *
+     * Todas las entregas que ya se hicieron de una orden, con qué llevó cada
+     * una. Con entregas por producto una orden puede tener varias —el reloj
+     * un día, el comedor otro— y cada una tiene su acta y sus fotos; ver solo
+     * la última dejaba las anteriores como si no hubieran pasado.
+     */
+    public function entregasDe(Request $request, int $ordenId)
+    {
+        $usuario = $request->user();
+        $orden   = Orden::with('items.producto:id,nombre')->findOrFail($ordenId);
+
+        if (! $orden->laPuedeVer($usuario) && ! $usuario->acceso_despacho && ! $usuario->facturacion) {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+
+        $nombres = $orden->items->mapWithKeys(fn ($i) => [$i->id => $i->producto->nombre ?? $i->nombre_custom ?? 'Producto']);
+
+        $entregas = DespachoItem::with([
+            'despacho:id,tipo,estado,conductor_id,entregado_por_id,fecha_despacho',
+            'despacho.conductor:id,nombre', 'despacho.entregadoPor:id,nombre',
+            'lineas',
+        ])
+            ->where('orden_id', $orden->id)
+            ->whereIn('estado', ['entregado', 'devuelto'])
+            ->orderByDesc('entregado_at')->orderByDesc('id')
+            ->get()
+            ->map(function (DespachoItem $e) use ($nombres) {
+                $agrupa = fn ($lineas) => $lineas->groupBy('orden_item_id')
+                    ->map(fn ($g, $itemId) => [
+                        'orden_item_id' => (int) $itemId,
+                        'nombre'        => $nombres[$itemId] ?? 'Producto',
+                        'cantidad'      => (int) $g->sum('cantidad'),
+                    ])->values();
+
+                return [
+                    'id'            => $e->id,
+                    'estado'        => $e->estado,
+                    'entregado_at'  => $e->entregado_at,
+                    'tipo'          => $e->despacho?->tipo,
+                    'quien'         => $e->despacho?->quienEntrega(),
+                    // Sin líneas: entrega de antes de las parciales, llevó todo.
+                    'llevo_todo'    => $e->lineas->isEmpty(),
+                    'entregados'    => $agrupa($e->lineas->whereIn('resultado', EntregaLinea::SE_QUEDO)),
+                    'devueltos'     => $agrupa($e->lineas->where('resultado', EntregaLinea::DEVUELTO)),
+                    'conforme'      => $e->conforme,
+                    'observaciones' => $e->observaciones_entrega,
+                    'tiene_acta'    => $e->firma_recibido_url !== null,
+                    'firma_omitida_motivo' => $e->firma_omitida_motivo,
+                    'recibido_por'  => $e->recibido_por_nombre,
+                    'foto_producto' => $e->foto_producto,
+                    'foto_pago'     => $e->foto_pago,
+                ];
+            });
+
+        return response()->json($entregas);
+    }
+
     // ── Entrega directa (sin ruta ni conductor) ───────────────────────────────
 
     /**
@@ -899,6 +958,37 @@ class DespachoController extends Controller
         }
 
         return response()->json($item);
+    }
+
+    /**
+     * PATCH /api/despacho/mis-entregas/{despachoItemId}/lineas  { lineas: [{orden_item_id, cantidad}] }
+     *
+     * Deja escrito qué va en esta entrega ANTES de entregarla. Es lo que hace
+     * que la orden de entrega impresa diga lo que de verdad sale hoy y no
+     * todo lo que falta: si se entregan 2 de 4, la hoja lleva esos 2. Al
+     * registrar el pago las líneas se vuelven a escribir con lo que se marcó
+     * en el formulario, así que esto no amarra nada.
+     */
+    public function fijarLineasEntrega(Request $request, int $despachoItemId)
+    {
+        $usuario = $request->user();
+        $item    = DespachoItem::with('despacho', 'orden')->findOrFail($despachoItemId);
+
+        if (! $this->puedeOperarEntrega($item, $usuario) && ! $usuario->acceso_despacho && $usuario->rol !== 'supervisor') {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+        if ($item->estado !== 'pendiente') {
+            return response()->json(['message' => 'Esta entrega ya se cerró: lo que llevó ya quedó escrito.'], 422);
+        }
+
+        $lineas = $this->leerLineas($request, $item);
+        if ($lineas instanceof \Illuminate\Http\JsonResponse) {
+            return $lineas;
+        }
+
+        EntregaService::fijarLineas($item, $lineas);
+
+        return response()->json(['lineas' => $item->lineas()->get()]);
     }
 
     /**
@@ -1334,15 +1424,19 @@ class DespachoController extends Controller
         }
 
         [$lineas, $yaEntregado] = $this->lineasParaHoja($orden, $entrega);
-        $parcial = $lineas->isNotEmpty() && $orden->items->filter->estaVivo()
-            ->contains(fn ($i) => $i->pendienteEntregar() > (int) ($lineas->firstWhere('id', $i->id)['cantidad'] ?? 0));
+        $pendientes = $this->pendientesTras($orden, $lineas);
+        $parcial    = $lineas->isNotEmpty() && $pendientes->isNotEmpty();
 
         $abonos = $orden->totalPagado();
         $pdf = Pdf::loadView('pdf.orden_entrega', [
             'orden'       => $orden,
             'lineas'      => $lineas,
             'yaEntregado' => $yaEntregado,
+            // Lo que NO va en esta hoja y sigue debiéndosele al cliente: en
+            // una parcial es lo primero que pregunta quien recibe.
+            'pendientes'  => $pendientes,
             'parcial'     => $parcial,
+            'valorEntrega' => (float) $lineas->sum('valor'),
             'totalPedido' => (float) $orden->valor_total,
             'abonos'      => $abonos,
             'saldo'       => max(0, (float) $orden->valor_total - $abonos),
@@ -1394,6 +1488,36 @@ class DespachoController extends Controller
     }
 
     /**
+     * Lo que le seguirá faltando al cliente después de esta entrega.
+     *
+     * Es la otra mitad de la hoja: si hoy van 2 de 4, el papel tiene que
+     * decir cuáles 2 quedan para la próxima, y por qué (en el taller, o
+     * simplemente no se cargaron).
+     *
+     * @return \Illuminate\Support\Collection<int, array{nombre:string, cantidad:int, motivo:string}>
+     */
+    private function pendientesTras(Orden $orden, \Illuminate\Support\Collection $lineas): \Illuminate\Support\Collection
+    {
+        $orden->loadMissing('items.produccion');
+        $nombre = fn ($i) => $i->producto->nombre ?? $i->nombre_custom ?? 'Producto';
+
+        return $orden->items->filter->estaVivo()
+            ->map(function ($i) use ($lineas, $nombre) {
+                $vaAhora = (int) ($lineas->firstWhere('id', $i->id)['cantidad'] ?? 0);
+                $queda   = $i->pendienteEntregar() - $vaAhora;
+                if ($queda <= 0) return null;
+
+                return [
+                    'nombre'   => $nombre($i),
+                    'variante' => $i->variante_texto,
+                    'cantidad' => $queda,
+                    'motivo'   => $i->estaListoParaEntregar() ? 'no va en esta entrega' : 'en el taller',
+                ];
+            })
+            ->filter()->values();
+    }
+
+    /**
      * GET /api/despacho/{id}/hoja-ruta
      *
      * La hoja del conductor: las paradas en orden, a quién y dónde, qué se
@@ -1421,8 +1545,8 @@ class DespachoController extends Controller
         $paradas = $despacho->items->map(function (DespachoItem $item) {
             $orden = $item->orden;
             [$lineas] = $this->lineasParaHoja($orden, $item);
-            $vivos   = $orden->items->filter->estaVivo();
-            $parcial = $vivos->contains(fn ($i) => $i->pendienteEntregar() > (int) ($lineas->firstWhere('id', $i->id)['cantidad'] ?? 0));
+            $pendientes = $this->pendientesTras($orden, $lineas);
+            $parcial    = $pendientes->isNotEmpty();
             $abonado = $orden->totalPagado();
 
             return [
@@ -1436,6 +1560,7 @@ class DespachoController extends Controller
                 'asesor'     => $orden->vendedor->nombre ?? null,
                 'lineas'     => $lineas->all(),
                 'parcial'    => $parcial,
+                'pendientes' => $pendientes->all(),
                 'total'      => (float) $orden->valor_total,
                 'abonado'    => $abonado,
                 'saldo'      => max(0, (float) $orden->valor_total - $abonado),
@@ -1458,25 +1583,34 @@ class DespachoController extends Controller
     }
 
     /**
-     * GET /api/ordenes/{ordenId}/acta-entrega
-     * PDF del acta de satisfacción firmada por quien recibió.
+     * GET /api/ordenes/{ordenId}/acta-entrega[?entrega=]
+     *
+     * PDF del acta de satisfacción firmada por quien recibió. Es el acta de
+     * UNA entrega: con `entrega` se pide la de esa; sin él, la última
+     * firmada. Lista solo lo que se entregó en ese viaje —una orden puede
+     * tener varias actas si se entregó por partes— y deja escrito qué quedó
+     * pendiente y qué se devolvió, para que el papel cuente lo que pasó.
      */
     public function actaEntrega(Request $request, int $ordenId)
     {
         $usuario = $request->user();
 
-        $item = DespachoItem::with([
+        $query = DespachoItem::with([
             'despacho.conductor:id,nombre',
             'despacho.entregadoPor:id,nombre',
             'orden.cliente:id,nombre,telefono,cedula',
             'orden.tienda:id,nombre',
             'orden.items.producto:id,nombre',
+            'orden.items.produccion:id,orden_item_id,estado',
             'orden.items.variante', 'orden.items.comboConfig.tipo', 'orden.items.comboConfig.opcion',
+            'lineas',
         ])
             ->where('orden_id', $ordenId)
-            ->whereNotNull('firma_recibido_url')
-            ->latest('entregado_at')
-            ->first();
+            ->whereNotNull('firma_recibido_url');
+
+        $item = $request->query('entrega')
+            ? $query->find($request->query('entrega'))
+            : $query->latest('entregado_at')->first();
 
         if (! $item) {
             return response()->json(['message' => 'Esta orden no tiene acta de entrega firmada.'], 404);
@@ -1489,13 +1623,59 @@ class DespachoController extends Controller
             return response()->json(['message' => 'No autorizado.'], 403);
         }
 
+        [$entregados, $devueltos, $pendientes] = $this->lineasDelActa($orden, $item);
+
         $firmaBase64 = $this->urlToBase64($item->firma_recibido_url);
         $logoBase64  = $this->avifToPngBase64(public_path('img/logo.avif'));
 
-        $pdf = Pdf::loadView('pdf.acta_entrega', compact('orden', 'item', 'firmaBase64', 'logoBase64'));
+        $pdf = Pdf::loadView('pdf.acta_entrega', compact(
+            'orden', 'item', 'entregados', 'devueltos', 'pendientes', 'firmaBase64', 'logoBase64'
+        ));
         $pdf->setPaper('letter');
 
-        return $pdf->download('acta-' . strtolower(str_replace('#', '', $orden->referencia)) . '.pdf');
+        $sufijo = $request->query('entrega') ? "-e{$item->id}" : '';
+
+        return $pdf->download('acta-' . strtolower(str_replace('#', '', $orden->referencia)) . $sufijo . '.pdf');
+    }
+
+    /**
+     * Qué dice el acta de una entrega: lo que se quedó en la casa, lo que
+     * volvió en el camión y lo que sigue pendiente para otra entrega.
+     *
+     * Una entrega sin líneas escritas (de antes de las parciales) llevó la
+     * orden completa, así que se lista todo.
+     *
+     * @return array{0: \Illuminate\Support\Collection, 1: \Illuminate\Support\Collection, 2: \Illuminate\Support\Collection}
+     */
+    private function lineasDelActa(Orden $orden, DespachoItem $entrega): array
+    {
+        $nombre = fn ($i) => $i->producto->nombre ?? $i->nombre_custom ?? 'Producto personalizado';
+        $porItem = fn ($grupo) => $grupo->groupBy('orden_item_id')->map(fn ($g) => (int) $g->sum('cantidad'));
+
+        $seQuedo = $porItem($entrega->lineas->whereIn('resultado', EntregaLinea::SE_QUEDO));
+        $volvio  = $porItem($entrega->lineas->where('resultado', EntregaLinea::DEVUELTO));
+
+        $fila = fn ($i, $cant) => [
+            'id' => $i->id, 'nombre' => $nombre($i), 'variante' => $i->variante_texto, 'cantidad' => $cant,
+        ];
+
+        if ($entrega->lineas->isEmpty()) {
+            $entregados = $orden->items->filter->estaVivo()->map(fn ($i) => $fila($i, (int) $i->cantidad))->values();
+            return [$entregados, collect(), collect()];
+        }
+
+        $entregados = $orden->items->filter(fn ($i) => ($seQuedo[$i->id] ?? 0) > 0)
+            ->map(fn ($i) => $fila($i, $seQuedo[$i->id]))->values();
+        $devueltos  = $orden->items->filter(fn ($i) => ($volvio[$i->id] ?? 0) > 0)
+            ->map(fn ($i) => $fila($i, $volvio[$i->id]))->values();
+
+        // Lo pendiente se mira contra lo que falta HOY: si esta acta es de una
+        // entrega vieja y después se entregó el resto, ya no hay pendientes.
+        // Si la entrega está cerrada, lo que llevó ya está descontado de
+        // `pendienteEntregar`, así que se pasa una lista vacía como "va ahora".
+        $pendientes = $this->pendientesTras($orden, collect());
+
+        return [$entregados, $devueltos, $pendientes];
     }
 
     /**

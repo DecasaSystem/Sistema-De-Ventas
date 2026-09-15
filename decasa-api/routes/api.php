@@ -533,6 +533,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('despacho')->group(function () {
         // Público autenticado (supervisor, vendedor, conductor)
         Route::get('/por-orden/{ordenId}', [DespachoController::class, 'porOrden']);
+        // Todas las entregas que ya se hicieron de la orden (puede haber varias).
+        Route::get('/entregas-de/{ordenId}', [DespachoController::class, 'entregasDe'])->whereNumber('ordenId');
 
         // Antes era solo supervisor; ahora hace falta el permiso, que el
         // supervisor trae de por defecto en el respaldo de la migración.
@@ -562,6 +564,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/mis-entregas',                          [DespachoController::class, 'misEntregas']);
         Route::get('/mis-entregas/historial',                [DespachoController::class, 'misHistorial']);
         Route::get('/mis-entregas/{despachoItemId}',         [DespachoController::class, 'showEntrega']);
+        // Qué va en esta entrega, antes de entregarla: es lo que imprime la orden de entrega.
+        Route::patch('/mis-entregas/{despachoItemId}/lineas', [DespachoController::class, 'fijarLineasEntrega']);
         Route::post('/mis-entregas/{despachoItemId}/pago',   [DespachoController::class, 'registrarPago']);
         Route::patch('/mis-entregas/{despachoItemId}/entregar', [DespachoController::class, 'entregar']);
 

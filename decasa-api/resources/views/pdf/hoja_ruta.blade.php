@@ -80,6 +80,15 @@
                     </table>
                 </td>
             </tr>
+            {{-- Lo que el cliente va a preguntar: qué de su pedido NO viene hoy. --}}
+            @if(!empty($p['pendientes']))
+                <tr>
+                    <td colspan="3" style="padding: 4px 8px; font-size: 10.5px; color: #92400e; background: #fffbeb; border-top: 1px dashed #b45309;">
+                        <strong>NO va hoy (pendiente):</strong>
+                        {{ collect($p['pendientes'])->map(fn ($q) => mb_strtoupper($q['nombre']) . ' ×' . $q['cantidad'] . ' — ' . $q['motivo'])->implode(' · ') }}
+                    </td>
+                </tr>
+            @endif
             <tr style="background: #f9fafb;">
                 <td colspan="3" style="padding: 5px 8px; font-size: 11px;">
                     <span>Total pedido: <strong>$ {{ number_format($p['total'], 0, ',', '.') }}</strong></span>

@@ -20,6 +20,7 @@
                 <h2 style="font-size: 17px; font-weight: bold; margin: 0; color: #059669;">ACTA DE SATISFACCIÓN</h2>
                 <p style="font-size: 11px; color: #6b7280; margin: 3px 0 0 0;">
                     Orden {{ $orden->referencia }}
+                    @if($pendientes->isNotEmpty()) · <strong style="color: #b45309;">entrega parcial</strong> @endif
                 </p>
             </td>
         </tr>
@@ -57,7 +58,8 @@
         </tr>
     </table>
 
-    <!-- Ítems entregados -->
+    <!-- Ítems entregados EN ESTA ENTREGA. Una orden puede entregarse por
+         partes: el acta firma lo que llegó hoy, no el pedido entero. -->
     <div style="margin-bottom: 18px;">
         <p style="font-size: 10px; font-weight: bold; color: #6b7280; text-transform: uppercase; margin: 0 0 8px 0;">Productos entregados</p>
         <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
@@ -69,22 +71,42 @@
                 </tr>
             </thead>
             <tbody>
-                @foreach($orden->items as $idx => $it)
+                @forelse($entregados as $idx => $it)
                     <tr style="border-bottom: 1px solid #e5e7eb; {{ $loop->even ? 'background-color:#f9fafb;' : '' }}">
                         <td style="padding: 7px; text-align: center; color: #6b7280;">{{ $idx + 1 }}</td>
                         <td style="padding: 7px;">
-                            {{ $it->producto->nombre ?? $it->nombre_custom ?? 'Producto personalizado' }}
+                            {{ $it['nombre'] }}
                             {{-- Es el papel que lleva el que entrega: si no dice la
                                  tela, se la juega a adivinar cuál se lleva. --}}
-                            @if($it->variante_texto)
-                                <br><span style="font-weight: bold; color: #dc2626;">{{ $it->variante_texto }}</span>
+                            @if($it['variante'])
+                                <br><span style="font-weight: bold; color: #dc2626;">{{ $it['variante'] }}</span>
                             @endif
                         </td>
-                        <td style="padding: 7px; text-align: center;">{{ $it->cantidad }}</td>
+                        <td style="padding: 7px; text-align: center;">{{ $it['cantidad'] }}</td>
                     </tr>
-                @endforeach
+                @empty
+                    <tr>
+                        <td colspan="3" style="padding: 7px; color: #6b7280; text-align: center;">
+                            Nada se quedó en esta entrega: todo lo que iba se devolvió.
+                        </td>
+                    </tr>
+                @endforelse
             </tbody>
         </table>
+
+        @if($devueltos->isNotEmpty())
+            <p style="font-size: 10.5px; color: #991b1b; margin: 8px 0 0 0;">
+                <strong>Se devolvió en el camión:</strong>
+                {{ $devueltos->map(fn ($d) => $d['nombre'] . ' ×' . $d['cantidad'])->implode(', ') }}.
+            </p>
+        @endif
+
+        @if($pendientes->isNotEmpty())
+            <p style="font-size: 10.5px; color: #92400e; background: #fffbeb; border: 1px dashed #b45309; border-radius: 6px; padding: 6px 10px; margin: 8px 0 0 0;">
+                <strong>Queda pendiente para otra entrega:</strong>
+                {{ $pendientes->map(fn ($p) => $p['nombre'] . ' ×' . $p['cantidad'] . ' (' . $p['motivo'] . ')')->implode(', ') }}.
+            </p>
+        @endif
     </div>
 
     <!-- Declaración -->
@@ -92,6 +114,9 @@
         <p style="font-size: 11px; line-height: 1.6; margin: 0;">
             Declaro que recibí los productos relacionados en esta acta, correspondientes a la orden
             <strong>{{ $orden->referencia }}</strong>, en la fecha y dirección indicadas.
+            @if($pendientes->isNotEmpty())
+                Esta es una <strong>entrega parcial</strong>: lo que aparece como pendiente se entregará aparte.
+            @endif
             @if($item->conforme)
                 Manifiesto que <strong>llegaron en buen estado y a satisfacción</strong>.
             @else

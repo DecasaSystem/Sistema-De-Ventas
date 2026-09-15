@@ -1,7 +1,8 @@
 <script setup>
 import { cloudinaryOpt } from '@/utils/cloudinary'
 import { ref, computed, watch, onUnmounted } from 'vue'
-import { detalleEntrega, registrarPagoEntrega, marcarEntregado } from '@/api/despacho'
+import { detalleEntrega, registrarPagoEntrega, marcarEntregado, fijarLineasEntrega } from '@/api/despacho'
+import { descargarOrdenEntrega } from '@/api/ordenes'
 import { useToast } from '@/composables/useToast'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import FirmaCanvas from '@/components/FirmaCanvas.vue'
@@ -70,6 +71,28 @@ const lineas = computed(() =>
     .map(([id, c]) => ({ orden_item_id: Number(id), cantidad: Number(c) }))
 )
 const hayAlgoQueEntregar = computed(() => lineas.value.length > 0)
+
+// La hoja que se lleva quien entrega, con LO MARCADO y no con todo lo que
+// falta. Primero se deja escrito en la entrega qué va (si no, la hoja
+// saldría con los 4 productos cuando hoy van 2) y después se imprime.
+const imprimiendoHoja = ref(false)
+async function imprimirOrdenEntrega() {
+  if (imprimiendoHoja.value || !item.value) return
+  if (!hayAlgoQueEntregar.value) { toast.error('Marca qué se entrega hoy antes de imprimir.'); return }
+  imprimiendoHoja.value = true
+  try {
+    await fijarLineasEntrega(item.value.id, lineas.value)
+    const response = await descargarOrdenEntrega(item.value.orden.id, item.value.id)
+    const blob = new Blob([response.data], { type: 'application/pdf' })
+    const url  = window.URL.createObjectURL(blob)
+    if (!window.open(url, '_blank')) toast.error('El navegador bloqueó la ventana del PDF. Permite las ventanas emergentes.')
+    setTimeout(() => window.URL.revokeObjectURL(url), 10000)
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudo generar la orden de entrega.')
+  } finally {
+    imprimiendoHoja.value = false
+  }
+}
 
 // ¿Con esto el cliente queda con todo lo que compró? Es lo que decide si se
 // le cobra el saldo hoy o en la próxima entrega.
@@ -565,6 +588,18 @@ async function guardarPagoYEntregar() {
             <p v-if="esParcial" class="text-[11px] text-blue-800 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
               Entrega parcial: lo demás queda pendiente y se entrega después. El saldo no se exige hoy.
             </p>
+
+            <!-- La hoja impresa sale con lo marcado arriba: si hoy van 2 de 4,
+                 lleva esos 2 y abajo dice qué queda pendiente. -->
+            <button
+              v-if="entregables.length"
+              type="button"
+              @click="imprimirOrdenEntrega"
+              :disabled="imprimiendoHoja || !hayAlgoQueEntregar"
+              class="w-full flex items-center justify-center gap-2 border border-gray-300 bg-white text-gray-700 rounded-xl py-2 text-xs font-semibold hover:bg-gray-50 disabled:opacity-50 transition-colors"
+            >
+              🖨️ {{ imprimiendoHoja ? 'Generando...' : `Imprimir orden de entrega (${lineas.length} producto${lineas.length === 1 ? '' : 's'})` }}
+            </button>
           </div>
 
           <!-- ── MODO LECTURA (entregado) ─────────────────────────────────── -->
