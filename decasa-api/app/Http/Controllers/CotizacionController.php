@@ -13,6 +13,7 @@ use App\Models\Produccion;
 use App\Models\ProductoVariante;
 use App\Models\Usuario;
 use App\Mail\CotizacionEnviadaMail;
+use App\Services\ConsumoTelas;
 use App\Services\NotificacionService;
 use App\Support\ConvierteImagenesPdf;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -507,6 +508,11 @@ class CotizacionController extends Controller
                 'serie'              => $esFv2 ? Orden::SERIE_FV2 : null,
                 'motivo_serie'       => $esFv2 ? ($data['motivo_serie'] ?? null) : null,
             ]);
+
+            // Ya es una venta: aparta la tela de lo que va al taller, igual
+            // que el stock de arriba. Va después de cambiarle el estado,
+            // porque una 'cotizacion' no aparta nada.
+            ConsumoTelas::sincronizarOrden($cotizacion);
 
             // 5. Anticipo
             if (($data['anticipo_monto'] ?? 0) > 0) {

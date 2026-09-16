@@ -43,6 +43,7 @@ use App\Http\Controllers\ReservaController;
 use App\Http\Controllers\RestauracionController;
 use App\Http\Controllers\CatalogoTelaController;
 use App\Http\Controllers\InventarioTelaController;
+use App\Http\Controllers\ConsumoTelaController;
 use App\Http\Controllers\TipoVarianteController;
 use App\Http\Controllers\ProductoVarianteConfigController;
 use App\Http\Controllers\CajaController;
@@ -418,6 +419,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/inventario-telas/recargar',      [InventarioTelaController::class, 'recargar']);
     Route::middleware('role:costurero,supervisor')->group(function () {
         Route::post('/inventario-telas/descontar', [InventarioTelaController::class, 'descontar']);
+    });
+
+    // Cuánta tela lleva cada producto tapizado, y el interruptor para que
+    // las ventas la aparten y la descuenten solas.
+    Route::get('/telas/consumo', [ConsumoTelaController::class, 'index']);
+    Route::middleware('role:supervisor')->group(function () {
+        Route::put('/telas/consumo',        [ConsumoTelaController::class, 'guardar']);
+        Route::put('/telas/consumo/activo', [ConsumoTelaController::class, 'activar']);
     });
 
     // Catálogo de telas (marca → tipo → color)

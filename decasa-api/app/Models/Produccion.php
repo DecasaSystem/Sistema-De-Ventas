@@ -10,6 +10,29 @@ class Produccion extends Model
 
     public $timestamps = false;
 
+    /**
+     * La tela apartada por la pieza sigue a su estado: terminada, se
+     * descuenta; cancelada, se suelta.
+     *
+     * Va aquí y no en cada sitio que cierra o cancela una producción porque
+     * son varios (completar el último paso, cambiar el estado a mano, la
+     * pieza de Reserva) y basta olvidar uno para que la tela quede apartada
+     * para siempre. Lo que cambia estado por consulta directa —cancelar la
+     * orden entera— suelta la tela por su cuenta.
+     */
+    protected static function booted(): void
+    {
+        static::updated(function (Produccion $p) {
+            if (! $p->wasChanged('estado') || ! $p->orden_item_id) return;
+
+            if (in_array($p->estado, ['listo', 'entregado'], true)) {
+                \App\Services\ConsumoTelas::consumirItem((int) $p->orden_item_id);
+            } elseif ($p->estado === 'cancelado') {
+                \App\Services\ConsumoTelas::liberarItem((int) $p->orden_item_id);
+            }
+        });
+    }
+
     protected $fillable = [
         'orden_item_id',
         'destino',

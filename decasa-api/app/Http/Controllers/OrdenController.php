@@ -6,6 +6,7 @@ use App\Events\InventarioActualizado;
 use App\Events\OrdenActualizada;
 use App\Events\OrdenListaParaEntrega;
 use App\Mail\CotizacionMail;
+use App\Services\ConsumoTelas;
 use App\Services\EntregaService;
 use App\Services\NotificacionService;
 use App\Models\Inventario;
@@ -700,6 +701,13 @@ class OrdenController extends Controller
                         'usuario_id'  => $request->user()->id,
                     ]);
                 }
+            }
+
+            // Apartar la tela de lo que va al taller. Igual que el stock, un
+            // borrador no aparta nada: se hace al confirmarlo. Si a una tela
+            // no le alcanzan los metros esto tumba la orden con el motivo.
+            if (! $guardarBorrador) {
+                ConsumoTelas::sincronizarOrden($orden);
             }
 
             // --- 4. Registrar anticipo solo en órdenes confirmadas (no borradores) ---
@@ -1710,6 +1718,10 @@ class OrdenController extends Controller
                         $item->produccion->delete();
                     }
 
+                    // La tela que tenía apartada vuelve a estar libre. Antes
+                    // de borrar el ítem: su reserva se va con él.
+                    ConsumoTelas::liberarItem((int) $item->id);
+
                     // Liberar reserva de inventario (solo ítems no personalizados).
                     // Un borrador nunca reservó nada, así que quitarle un ítem
                     // tampoco suelta stock.
@@ -2009,6 +2021,11 @@ class OrdenController extends Controller
                     'cambios'    => $cambios,
                 ]);
             }
+
+            // La tela apartada sigue a los ítems: otra tela, otra cantidad, un
+            // ítem nuevo para fabricar. Sin estricto: una edición no se cae
+            // porque falten metros, se aparta igual y en Telas se ve que falta.
+            ConsumoTelas::sincronizarOrden($orden->fresh(), estricto: false);
         });
 
         $ordenFresh = Orden::with([
@@ -2260,6 +2277,10 @@ class OrdenController extends Controller
                     'usuario_id'  => $usuario->id,
                 ]);
             }
+
+            // Y la tela de lo que va al taller, por la misma razón: el
+            // borrador no la apartó, la venta sí.
+            ConsumoTelas::sincronizarOrden($orden);
 
             if (($data['anticipo_monto'] ?? 0) > 0) {
                 if (!empty($data['anticipo_pagos'])) {
@@ -2850,6 +2871,11 @@ class OrdenController extends Controller
 
                 \App\Models\Produccion::whereIn('id', $produccionIds)->update(['estado' => 'cancelado']);
 
+                // La tela que tenían apartada esas piezas vuelve a estar
+                // libre. Aquí a mano: la cancelación de arriba va por consulta
+                // directa y no pasa por el modelo de Produccion.
+                ConsumoTelas::liberarOrden($orden);
+
                 // Y sus pasos: si solo se cancela la pieza, el paso en curso
                 // seguía saliéndole al ebanista en "Mis pasos" (lo mismo que
                 // ya hace ProduccionController al cancelar desde el tablero).
@@ -3260,6 +3286,11 @@ class OrdenController extends Controller
                     'usuario_id'  => $usuario->id,
                 ]);
             }
+
+            // Un borrador no apartó tela y una cancelada ya la soltó, pero
+            // se comprueba igual: al borrar los ítems sus reservas se van
+            // con ellos, y una viva se llevaría los metros apartados.
+            ConsumoTelas::liberarOrden($orden);
 
             $itemIds = $orden->items->pluck('id');
             Produccion::whereIn('orden_item_id', $itemIds)->delete();

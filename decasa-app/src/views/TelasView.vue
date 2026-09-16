@@ -1,6 +1,6 @@
 <script setup>
 import { cloudinaryOpt } from '@/utils/cloudinary'
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { MagnifyingGlassIcon, PlusIcon, MinusIcon, ArrowDownTrayIcon, PhotoIcon, XMarkIcon } from '@heroicons/vue/24/outline'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
@@ -8,9 +8,14 @@ import api from '@/api'
 import { comprimirImagen } from '@/utils/comprimirImagen'
 import { TELAS_CATALOGO } from '@/data/telasCatalogo'
 import { exportarExcel } from '@/utils/exportarExcel'
+import ConsumoTelasPanel from '@/components/inventario/ConsumoTelasPanel.vue'
 
 const auth  = useAuthStore()
 const toast = useToast()
+
+// 'inventario' = los rollos y sus metros; 'consumo' = cuánta tela lleva cada
+// producto tapizado y el interruptor del descuento automático.
+const pestana = ref('inventario')
 
 // ── Foto de la tela ───────────────────────────────────────────────────────────
 const subiendoFotoCrear = ref(false)
@@ -235,6 +240,8 @@ function exportarExcelTelas() {
 }
 
 onMounted(cargar)
+// Al volver del panel de consumo los apartados pueden haber cambiado.
+watch(pestana, v => { if (v === 'inventario') cargar() })
 </script>
 
 <template>
@@ -242,7 +249,7 @@ onMounted(cargar)
     <!-- Header -->
     <div class="flex items-center justify-between">
       <h2 class="text-lg font-bold text-gray-800">Inventario de telas</h2>
-      <div class="flex items-center gap-3">
+      <div v-if="pestana === 'inventario'" class="flex items-center gap-3">
         <span class="text-xs text-gray-400">{{ telasFiltradas.length }} / {{ telas.length }}</span>
         <button
           v-if="telasFiltradas.length"
@@ -264,6 +271,25 @@ onMounted(cargar)
       </div>
     </div>
 
+    <!-- Pestañas -->
+    <div class="flex gap-1 bg-gray-100 rounded-xl p-1">
+      <button
+        @click="pestana = 'inventario'"
+        :class="['flex-1 py-1.5 rounded-lg text-xs font-semibold transition-colors', pestana === 'inventario' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700']"
+      >
+        Inventario
+      </button>
+      <button
+        @click="pestana = 'consumo'"
+        :class="['flex-1 py-1.5 rounded-lg text-xs font-semibold transition-colors', pestana === 'consumo' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700']"
+      >
+        Consumo por producto
+      </button>
+    </div>
+
+    <ConsumoTelasPanel v-if="pestana === 'consumo'" />
+
+    <template v-if="pestana === 'inventario'">
     <!-- Search -->
     <div class="relative">
       <MagnifyingGlassIcon class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -343,9 +369,15 @@ onMounted(cargar)
               </p>
             </template>
           </div>
-          <span :class="['text-xs font-bold px-2.5 py-1 rounded-full whitespace-nowrap', colorBadge(tela.metros_libres)]">
-            {{ tela.metros_libres }} m
-          </span>
+          <div class="flex flex-col items-end gap-0.5">
+            <span :class="['text-xs font-bold px-2.5 py-1 rounded-full whitespace-nowrap', colorBadge(tela.metros_libres)]">
+              {{ tela.metros_libres }} m
+            </span>
+            <!-- Lo que las ventas tienen apartado: libres = disponibles − apartados. -->
+            <span v-if="tela.metros_reservados > 0" class="text-[10px] text-gray-400 whitespace-nowrap">
+              {{ tela.metros_reservados }} m apartados
+            </span>
+          </div>
         </div>
 
         <!-- Actions -->
@@ -378,6 +410,7 @@ onMounted(cargar)
         </div>
       </div>
     </div>
+    </template>
 
     <!-- Modal: Agregar tela -->
     <Transition name="fade">

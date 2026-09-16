@@ -27,6 +27,7 @@ abstract class TestCase extends BaseTestCase
         \App\Models\TiendaAsesor::olvidarCache();
         \App\Models\TiendaReemplazo::olvidarCache();
         \App\Http\Controllers\ComisionController::olvidarQuienComparte();
+        \App\Services\ConsumoTelas::olvidarCache();
     }
 
     /**

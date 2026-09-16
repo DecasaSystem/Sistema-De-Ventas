@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Usuario;
+use App\Services\ConsumoTelas;
 use App\Services\NotificacionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -71,10 +72,26 @@ class InventarioTelaController extends Controller
 
         $libres = round((float) $cat->metros_disponibles - (float) $cat->metros_reservados, 2);
 
+        // Si se dice qué producto se va a fabricar (y cuántos), se responde
+        // también cuánta tela necesita y si alcanza. Solo con el descuento
+        // automático encendido y el consumo del producto cargado; si no,
+        // `metros_necesarios` va en null y la pantalla se queda con la
+        // comprobación de siempre (que haya algo).
+        $necesarios = null;
+        $productoId = (int) $request->query('producto_id');
+        if ($productoId && ConsumoTelas::activo()) {
+            $porUnidad = ConsumoTelas::consumoDe($productoId, (int) $request->query('config_id') ?: null);
+            if ($porUnidad !== null) {
+                $necesarios = round($porUnidad * max(1, (int) $request->query('cantidad', 1)), 2);
+            }
+        }
+
         return response()->json([
-            'disponible' => $libres > 0,
-            'metros'     => $libres,
-            'referencia' => "{$cat->marca} · {$cat->tipo} · {$cat->color}",
+            'disponible'        => $libres > 0,
+            'metros'            => $libres,
+            'referencia'        => "{$cat->marca} · {$cat->tipo} · {$cat->color}",
+            'metros_necesarios' => $necesarios,
+            'suficiente'        => $necesarios === null || $necesarios <= $libres + 0.005,
         ]);
     }
 

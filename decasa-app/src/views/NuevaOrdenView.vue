@@ -1743,18 +1743,32 @@ async function submit() {
     return
   }
 
-  // Validar disponibilidad de tela para items a fabricar bajo pedido y
-  // para los que se mandan a cambiar de tela: en los dos el taller la gasta.
+  // Validar disponibilidad de tela para lo que el taller va a tapizar: lo que
+  // se fabrica bajo pedido, lo que se personaliza con tela y lo que se manda
+  // a cambiar de tela. Con el descuento automático encendido (Telas →
+  // Consumo por producto) el servidor además dice cuántos metros necesita
+  // el producto y si alcanzan; el mismo control lo repite al crear la orden.
   for (const item of items.value) {
-    if (!(item._fabricar_pedido && item._esTapizado) && !item._retapizar) continue
+    // Lo que seguro se tapiza en el taller se valida como siempre: que haya
+    // algo. Un personalizado con tela elegida solo se frena si el servidor
+    // sabe cuánto gasta y no alcanza; sin eso sigue pasando como antes.
+    const tapizaSeguro = (item._fabricar_pedido && item._esTapizado) || item._retapizar
+    if (!tapizaSeguro && !(item.es_personalizado && item.producto_id)) continue
     const sel = item._telaSelections?.tela
     if (!sel || !sel.tipo || sel.tipo === 'Otro' || sel.marca === 'Otro' || !sel.color) continue
     try {
       const { data: tv } = await api.get('/inventario-telas/validar', {
-        params: { marca: sel.marca, tipo: sel.tipo, color: sel.color },
+        params: {
+          marca: sel.marca, tipo: sel.tipo, color: sel.color,
+          producto_id: item.producto_id || undefined, config_id: item._config_id || undefined, cantidad: item.cantidad,
+        },
       })
-      if (!tv.disponible) {
+      if (tapizaSeguro && !tv.disponible) {
         toast.error(`No hay metros disponibles de "${sel.tipo} – ${sel.color}". Elige otra tela o contacta al encargado.`)
+        return
+      }
+      if (tv.metros_necesarios != null && !tv.suficiente) {
+        toast.error(`"${item.nombre}" ×${item.cantidad} necesita ${tv.metros_necesarios} m de "${sel.tipo} – ${sel.color}" y solo hay ${tv.metros} m libres. Elige otra tela o recarga el inventario de telas.`)
         return
       }
     } catch {
