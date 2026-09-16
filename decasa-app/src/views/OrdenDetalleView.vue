@@ -565,6 +565,26 @@ async function marcarListaParaEntrega() {
   }
 }
 
+// Lo contrario: desmarcarla. El cliente cambió de opinión con el mueble ya
+// apartado y listo, y la orden hay que poder editarla otra vez. El servidor
+// decide si vuelve a "en espera" o a "en producción" según lo que tenga en
+// el taller; desde aquí solo se pide desmarcar.
+const devolviendoAEspera = ref(false)
+
+async function devolverAEspera() {
+  if (!confirm('¿Devolver esta orden a espera? Dejará de estar lista para entregar y se podrá editar de nuevo.')) return
+  devolviendoAEspera.value = true
+  try {
+    await updateEstado(orden.value.id, 'pendiente_anticipo')
+    toast.success('La orden volvió a espera. Ya puedes editarla.')
+    await cargarOrden()
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo devolver a espera')
+  } finally {
+    devolviendoAEspera.value = false
+  }
+}
+
 const puedeCambiarEstado = computed(() => {
   if (!orden.value) return false
   if (!auth.isSupervisor) return false
@@ -3292,6 +3312,24 @@ onMounted(() => { cargarTipos(); cargarOrden() })
                 : 'Esta orden está lista para entregar. El supervisor debe asignarla a un conductor desde el módulo de Despacho.' }}
             </p>
           </div>
+        </div>
+
+        <!-- Desmarcarla: el cliente cambió de opinión con el mueble ya
+             apartado y listo, y la orden hay que poder editarla otra vez.
+             Solo mientras nadie la esté despachando. -->
+        <div
+          v-if="orden.estado === 'listo_entrega' && auth.isSupervisor && !despachoActivo && !miEntregaDirectaPendiente"
+          class="bg-white border border-gray-200 rounded-xl px-4 py-3 flex items-center justify-between gap-3"
+        >
+          <div class="min-w-0">
+            <p class="text-sm font-semibold text-gray-800">¿Ya no va a salir así?</p>
+            <p class="text-[11px] text-gray-500">Devuélvela a espera para poder cambiarle productos. Lo apartado se suelta al quitarlo de la orden.</p>
+          </div>
+          <button
+            @click="devolverAEspera"
+            :disabled="devolviendoAEspera"
+            class="shrink-0 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 hover:bg-amber-100 disabled:opacity-50"
+          >{{ devolviendoAEspera ? '…' : 'Devolver a espera' }}</button>
         </div>
       </div>
 

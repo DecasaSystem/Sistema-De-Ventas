@@ -2738,15 +2738,45 @@ class OrdenController extends Controller
             }
         }
 
+        $estadoAnterior = $orden->estado;
+        $estadoNuevo    = $data['estado'];
+
+        // Desmarcar "lista para entregar": la orden vuelve a la espera.
+        //
+        // Pasa cuando el cliente cambia de opinión con el mueble ya apartado
+        // y listo —quiere otro, uno que hay que fabricar— y la orden hay que
+        // poder editarla otra vez. Estando lista no se puede: ni cambiar de
+        // estado ni tocar productos. Se devuelve a espera, se edita, y el
+        // mueble apartado se suelta al quitarlo de la orden.
+        //
+        // Solo mientras nadie la esté despachando: si ya va en una ruta, o
+        // alguien empezó una entrega directa, primero se saca de ahí. A dónde
+        // vuelve lo dice el taller, no quien pulsa el botón: con una pieza
+        // abierta es "en producción", si no, "en espera" —cualquiera de las
+        // dos que llegue pedida significa lo mismo: desmarcarla—.
+        $desmarcarLista = $estadoAnterior === 'listo_entrega'
+            && in_array($estadoNuevo, ['pendiente_anticipo', 'en_produccion'], true);
+
+        if ($desmarcarLista) {
+            if ($orden->tieneDespachoActivo()) {
+                return response()->json([
+                    'message' => 'Esta orden ya está en una ruta o en una entrega en curso. Sácala de ahí en Despacho antes de devolverla a espera.',
+                ], 422);
+            }
+            $orden->load('items.produccion');
+            $hayEnTaller = $orden->items->contains(fn ($i) =>
+                $i->estaVivo() && $i->vaAlTaller() && $i->produccion
+                && ! in_array($i->produccion->estado, ['listo', 'entregado', 'cancelado'], true)
+            );
+            $estadoNuevo = $hayEnTaller ? 'en_produccion' : 'pendiente_anticipo';
+        }
+
         // Regla 8: Bloquear cambios si está en listo_entrega o en_camino
-        if (in_array($orden->estado, ['listo_entrega', 'en_camino'])) {
+        if (in_array($orden->estado, ['listo_entrega', 'en_camino']) && ! $desmarcarLista) {
             return response()->json([
                 'message' => 'Esta orden está en el módulo de Despacho. Solo puedes cambiar su estado desde allí.',
             ], 403);
         }
-
-        $estadoAnterior = $orden->estado;
-        $estadoNuevo    = $data['estado'];
 
         if ($estadoAnterior === $estadoNuevo) {
             return response()->json($orden, 200);
@@ -2763,8 +2793,9 @@ class OrdenController extends Controller
             'pendiente_cotizacion'  => ['cancelado'],
             'pendiente_anticipo'    => ['en_produccion', 'listo_entrega', 'entregado', 'cancelado'],
             'en_produccion'         => ['listo_entrega', 'entregado', 'cancelado'],
-            // Despacho las maneja; de todos modos se bloquean más arriba
-            'listo_entrega'         => [],
+            // Solo se puede desmarcar (volver a la espera, ver arriba); lo
+            // demás lo maneja Despacho y se bloquea más arriba.
+            'listo_entrega'         => ['pendiente_anticipo', 'en_produccion'],
             'en_camino'             => [],
             // Volvió algo en el camión. De aquí se sale por la decisión que se
             // tome en Devoluciones —vuelve al taller o se cancela—, no a mano
@@ -2918,6 +2949,11 @@ class OrdenController extends Controller
                     }
                 }
             }
+            // Al desmarcarla deja de contar el tiempo que llevaba esperando
+            // camión: si vuelve a quedar lista, entra a la cola de nuevo.
+            if ($estadoAnterior === 'listo_entrega') {
+                $updateData['listo_entrega_at'] = null;
+            }
             $orden->update($updateData);
         });
 
@@ -2988,11 +3024,26 @@ class OrdenController extends Controller
             );
         }
 
-        if ($estadoNuevo === 'en_produccion') {
+        // Al desmarcar una lista no "entra" en producción: ya estaba. Ese
+        // caso tiene su propio aviso abajo.
+        if ($estadoNuevo === 'en_produccion' && $estadoAnterior !== 'listo_entrega') {
             NotificacionService::crear(
                 'en_produccion',
                 'Tu pedido entró en producción',
                 "Orden {$orden->referencia} — {$ordenFresh->cliente->nombre} está en producción",
+                ['orden_id' => $orden->id],
+                $orden->vendedor_id,
+            );
+        }
+
+        // El vendedor ya había recibido "tu pedido está listo": que sepa que
+        // se devolvió a espera, o va a estar prometiéndole al cliente una
+        // entrega que no viene.
+        if ($estadoAnterior === 'listo_entrega' && (int) $orden->vendedor_id !== (int) $usuario->id) {
+            NotificacionService::crear(
+                'orden_editada',
+                'Tu orden dejó de estar lista para entregar',
+                "Orden {$orden->referencia} — {$ordenFresh->cliente->nombre} volvió a espera ({$usuario->nombre}).",
                 ['orden_id' => $orden->id],
                 $orden->vendedor_id,
             );
