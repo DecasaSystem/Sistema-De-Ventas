@@ -9,7 +9,8 @@
  * `seleccion` es el objeto { marca, tipo, color } del padre y se muta en sitio:
  * así cada pantalla sigue guardando la tela donde ya la guardaba.
  */
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
+import api from '@/api'
 import ComboInput from '@/components/common/ComboInput.vue'
 import { useTelas } from '@/composables/useTelas'
 import { useTelaFotos } from '@/composables/useTelaFotos'
@@ -20,7 +21,46 @@ const props = defineProps({
   actual:    { type: String, default: '' },
   // Texto del resumen ("Tapizado / tela: Marca · Tipo · Color").
   etiqueta:  { type: String, default: 'Tela' },
+  // Qué se va a tapizar con esta tela (y cuántos). Con esto, y el descuento
+  // automático encendido en Telas, se dice al elegirla si los metros
+  // alcanzan — no al final, cuando ya se armó toda la orden.
+  productoId: { type: [Number, String], default: null },
+  configId:   { type: [Number, String], default: null },
+  cantidad:   { type: [Number, String], default: 1 },
 })
+
+// { metros_necesarios, metros, suficiente } de la tela elegida, o null si el
+// servidor no sabe cuánto gasta el producto (función apagada o sin metros).
+const necesidad = ref(null)
+let   pedido    = 0
+
+async function consultarNecesidad() {
+  const s = props.seleccion
+  const completa = s.marca && s.tipo && s.color && s.marca !== 'Otro' && s.tipo !== 'Otro' && s.color !== 'Otro'
+  if (!completa || !props.productoId) { necesidad.value = null; return }
+  const n = ++pedido
+  try {
+    const { data } = await api.get('/inventario-telas/validar', {
+      params: {
+        marca: s.marca, tipo: s.tipo, color: s.color,
+        producto_id: props.productoId, config_id: props.configId || undefined,
+        cantidad: Math.max(1, Number(props.cantidad) || 1),
+      },
+    })
+    // Solo vale la última consulta: cambiar rápido de color no debe dejar
+    // pintado el aviso de la anterior.
+    if (n !== pedido) return
+    necesidad.value = data.metros_necesarios != null ? data : null
+  } catch {
+    if (n === pedido) necesidad.value = null
+  }
+}
+
+watch(
+  () => [props.seleccion.marca, props.seleccion.tipo, props.seleccion.color, props.productoId, props.configId, props.cantidad],
+  consultarNecesidad,
+  { immediate: true },
+)
 
 const { cargarTelas, marcasConStock, tiposConStock, coloresConStock, metrosDeTela } = useTelas()
 const { cargarFotosTela, fotosPorColor } = useTelaFotos()
@@ -97,6 +137,23 @@ function setTipo(v) {
     <p v-if="resumen" class="text-xs text-purple-600 font-medium">
       {{ etiqueta }}: {{ resumen }}
       <span v-if="metros" class="text-gray-400 font-normal">· {{ metros }} m libres</span>
+    </p>
+
+    <!-- Cuánto gasta el producto contra lo que hay. En rojo si no alcanza:
+         el vendedor lo ve al elegir la tela, no al final al crear la orden. -->
+    <p
+      v-if="resumen && necesidad"
+      :class="['text-xs font-semibold rounded-lg px-2.5 py-1.5 border', necesidad.suficiente
+        ? 'bg-green-50 border-green-200 text-green-700'
+        : 'bg-red-50 border-red-200 text-red-700']"
+    >
+      <template v-if="necesidad.suficiente">
+        ✓ Necesita {{ necesidad.metros_necesarios }} m y hay {{ necesidad.metros }} m libres.
+      </template>
+      <template v-else>
+        ✕ No alcanza: necesita {{ necesidad.metros_necesarios }} m y solo hay {{ necesidad.metros }} m libres.
+        Elige otra tela o recarga el inventario de telas.
+      </template>
     </p>
   </div>
 </template>

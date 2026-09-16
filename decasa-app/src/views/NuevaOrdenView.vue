@@ -3315,7 +3315,13 @@ function removeFacturaFoto(i = 0) {
             <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
               <p class="text-xs font-semibold text-amber-800">Selecciona el tapizado <span class="text-red-500">*</span></p>
 
-              <TelaPicker :seleccion="getTelaSelection(item, 'tela')" etiqueta="Tela" />
+              <TelaPicker
+                :seleccion="getTelaSelection(item, 'tela')"
+                etiqueta="Tela"
+                :producto-id="item.producto_id"
+                :config-id="item._config_id"
+                :cantidad="item.cantidad"
+              />
 
               <p v-if="!telaResumidaCampo(item, 'tela') && marcasConStock().length" class="text-xs text-amber-600 italic">
                 Selecciona la tela para que producción sepa cuál usar
@@ -3339,6 +3345,9 @@ function removeFacturaFoto(i = 0) {
                 :seleccion="getTelaSelection(item, 'tela')"
                 :actual="item.variante_label || ''"
                 etiqueta="Tela"
+                :producto-id="item.producto_id"
+                :config-id="item._config_id"
+                :cantidad="item.cantidad"
               />
 
               <p v-if="!telaResumidaCampo(item, 'tela')" class="text-xs text-orange-600 italic">
@@ -3371,6 +3380,9 @@ function removeFacturaFoto(i = 0) {
                   :seleccion="getTelaSelection(item, 'tela')"
                   :actual="item.variante_label || ''"
                   etiqueta="Tela"
+                  :producto-id="item.producto_id"
+                  :config-id="item._config_id"
+                  :cantidad="item.cantidad"
                 />
               </div>
 
@@ -3423,6 +3435,9 @@ function removeFacturaFoto(i = 0) {
                       v-if="campo.useVariantes"
                       :seleccion="getTelaSelection(item, campo.key)"
                       :etiqueta="campo.label"
+                      :producto-id="campo.key === 'tela' ? item.producto_id : null"
+                      :config-id="item._config_id"
+                      :cantidad="item.cantidad"
                     />
                     <!-- Select con opción de valor libre (elige o escribe el tuyo) -->
                     <ComboInput

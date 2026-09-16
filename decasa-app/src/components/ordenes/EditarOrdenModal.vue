@@ -1701,6 +1701,8 @@ async function guardar() {
                   :seleccion="getTelaSelection(item, 'tela')"
                   :actual="item.specs.tela || ''"
                   etiqueta="Tela"
+                  :producto-id="item.producto_id"
+                  :cantidad="item.cantidad"
                 />
                 <p v-if="!telaResumidaCampo(item, 'tela') && !item.specs.tela" class="text-xs text-orange-600 italic">
                   Selecciona la tela para que producción sepa cuál ponerle
@@ -1757,6 +1759,8 @@ async function guardar() {
                           :seleccion="getTelaSelection(item, campo.key)"
                           :actual="item.specs[campo.key] || ''"
                           etiqueta="Nueva selección"
+                          :producto-id="campo.key === 'tela' ? item.producto_id : null"
+                          :cantidad="item.cantidad"
                         />
 
                         <!-- Select normal -->
@@ -2059,7 +2063,13 @@ async function guardar() {
                     <p v-if="nuevoItem.variante_label" class="text-[11px] text-gray-500">
                       Tela actual: <span class="font-medium text-gray-700">{{ nuevoItem.variante_label }}</span>
                     </p>
-                    <TelaPicker :seleccion="getTelaSelection(nuevoItem, 'tela')" etiqueta="Tela" />
+                    <TelaPicker
+                      :seleccion="getTelaSelection(nuevoItem, 'tela')"
+                      etiqueta="Tela"
+                      :producto-id="nuevoItem.producto_id"
+                      :config-id="nuevoItem.combo_config_id"
+                      :cantidad="nuevoItem.cantidad"
+                    />
                     <div>
                       <label class="block text-[11px] text-gray-500 mb-0.5">Notas para el taller</label>
                       <textarea v-model="nuevoItem.specs_notas" rows="2" placeholder="Qué partes se cambian, detalles… (opcional)"
