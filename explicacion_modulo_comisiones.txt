@@ -284,9 +284,18 @@ parte de Norte, salvo que esté cubriendo a alguien.
     Se hace solo al cambiarle la tienda en su perfil (Usuarios), siempre que
     la persona estuviera en el equipo de la tienda que deja: queda el
     traslado de ese día a fin de mes, y desde el mes siguiente pasa al equipo
-    de la tienda nueva y sale del de la vieja. Si ese mes ya tenía un
-    movimiento registrado, no se le pone otro encima; el cambio de equipo del
-    mes siguiente sí se hace.
+    de la tienda nueva y sale del de la vieja.
+
+    Casos aparte:
+      - Si está cubriendo a alguien (tiene un REEMPLAZO ese mes), cambiarle
+        la sede no mueve nada: el reemplazo ya dice dónde está y hasta
+        cuándo. Para cubrir unos días NO se cambia la tienda del perfil; se
+        registra el reemplazo en Comisiones.
+      - Si ya tenía un traslado hecho a mano, no se le pone otro; el cambio
+        de equipo del mes siguiente sí se hace.
+      - Cambio por error y vuelta atrás el mismo mes: se deshace solo.
+      - Si pasa a taller, despachador o independiente (o se le quita la
+        tienda), sale del equipo desde el mes siguiente y no entra a ninguno.
 
 7.2.1 Tiendas que cierran
     Al desactivar una tienda queda escrita su fecha de cierre. Desde el mes

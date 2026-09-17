@@ -211,9 +211,12 @@ async function submitEdit() {
     // Si cambió de tienda y estaba en un equipo de comisiones, el servidor
     // ya lo trasladó: se le dice para que no vaya a hacerlo a mano.
     if (data?.traslado_comisiones) {
-      toast.info(data.traslado_comisiones.traslado
-        ? 'Cambió de tienda: quedó trasladado en Comisiones (este mes por días, y desde el próximo en el equipo de la nueva tienda).'
-        : 'Cambió de tienda: desde el próximo mes queda en el equipo de la nueva tienda en Comisiones. Este mes ya tenía un movimiento registrado y no se tocó.')
+      const t = data.traslado_comisiones
+      toast.info(!t.hasta
+        ? 'Salió de ventas: desde el próximo mes ya no está en el equipo de comisiones de su tienda.'
+        : t.traslado
+          ? 'Cambió de tienda: quedó trasladado en Comisiones (este mes por días, y desde el próximo en el equipo de la nueva tienda).'
+          : 'Cambió de tienda: desde el próximo mes queda en el equipo de la nueva tienda en Comisiones. Este mes ya tenía un traslado registrado y no se tocó.')
     }
     showEditModal.value = false
     await cargarUsuario()
@@ -995,6 +998,12 @@ onMounted(async () => {
               </select>
               <p v-if="editArquetipo === 'supervisor'" class="text-xs text-gray-500 mt-1">
                 "Sin tienda" es para un jefe que no pertenece a ninguna en particular — no le toca el reparto de comisiones de ninguna tienda.
+              </p>
+              <!-- Cambiar la tienda es un traslado: si se cubre a alguien
+                   unos días, eso se registra en Comisiones → Reemplazos. -->
+              <p v-else-if="usuario && Number(editForm.tienda_default_id) !== Number(usuario.tienda_default_id)" class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-1">
+                Cambiar la tienda es un <strong>traslado definitivo</strong>: si está en el equipo de comisiones, desde hoy cuenta en la nueva y desde el próximo mes pasa a su equipo.
+                Si solo va a cubrir a alguien unos días, no cambies la tienda: regístralo en Comisiones → Reemplazos.
               </p>
             </div>
             <p v-else-if="editEsIndependiente" class="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">

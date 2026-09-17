@@ -733,6 +733,9 @@ class ComisionController extends Controller
         return response()->json($reemplazo->load('tienda:id,nombre', 'usuario:id,nombre', 'reemplazaA:id,nombre'), 201);
     }
 
+    /** Marca de los traslados que escribe el cambio de sede, para reconocerlos. */
+    public const NOTA_CAMBIO_DE_SEDE = 'Cambio de sede en el perfil';
+
     /**
      * A quien le cambian la sede en su perfil se le hace el traslado solo.
      *
@@ -754,36 +757,86 @@ class ComisionController extends Controller
      *   - desde el mes siguiente, fuera del equipo de origen y dentro del
      *     de destino (las listas de este mes no se tocan: ya llevan sus días).
      *
-     * @return array{traslado: bool, desde: int, hasta: int}|null  null si no había nada que mover
+     * Los casos que se contemplan aparte:
+     *   - Está cubriendo a alguien (tiene un REEMPLAZO este mes): la sede se
+     *     le cambió por lo temporal, no porque se vaya. No se toca nada; el
+     *     reemplazo ya dice dónde está y hasta cuándo.
+     *   - Ya tiene un traslado hecho a mano: no se le pone otro; los equipos
+     *     del mes siguiente sí se corrigen.
+     *   - Cambio por error y vuelta atrás el mismo mes: se deshace el que
+     *     escribió el cambio anterior. Y si el mismo mes lo mandan a una
+     *     tercera tienda, el traslado anterior se cierra ayer y empieza el
+     *     nuevo hoy.
+     *   - Sale de ventas (taller, despachador, independiente) o se le quita
+     *     la tienda: sale del equipo desde el mes siguiente y no entra a
+     *     ninguno.
+     *   - La tienda que deja ya cerró: sigue valiendo como equipo de origen
+     *     la última lista que tuvo, para que de todos modos entre al nuevo.
+     *
+     * @return array{traslado: bool, desde: ?int, hasta: ?int}|null  null si no había nada que mover
      */
     public static function trasladarPorCambioDeSede(Usuario $usuario, ?int $de, ?int $a): ?array
     {
-        if (! $de || ! $a || $de === $a) return null;
+        if (! $de || $de === $a) return null;
+        if (! self::estabaEnElEquipo($de, (int) $usuario->id)) return null;
 
         $hoy = self::hoy();
         $mes = $hoy->format('Y-m');
 
-        $equipoOrigen = collect(TiendaAsesor::vigentesEn($mes)[$de] ?? [])
-            ->pluck('vendedor_id')->map(fn ($v) => (int) $v);
-        if (! $equipoOrigen->contains((int) $usuario->id)) return null;
+        $movimientos = TiendaReemplazo::query()
+            ->where('usuario_id', $usuario->id)
+            ->whereDate('desde', '<=', $hoy->copy()->endOfMonth()->toDateString())
+            ->where(fn ($q) => $q->whereNull('hasta')->orWhereDate('hasta', '>=', $hoy->toDateString()))
+            ->get();
 
-        $datos = [
-            'tienda_id'      => $a,
-            'tipo'           => TiendaReemplazo::TRASLADO,
-            'usuario_id'     => $usuario->id,
-            'reemplaza_a_id' => null,
-            'desde'          => $hoy->toDateString(),
-            'hasta'          => $hoy->copy()->endOfMonth()->toDateString(),
-            'nota'           => 'Cambio de sede en el perfil',
-        ];
+        // Está cubriendo a alguien: es temporal, y la sede se cambió por eso.
+        if ($movimientos->contains(fn ($r) => $r->tipo === TiendaReemplazo::REEMPLAZO)) {
+            return null;
+        }
 
-        // Si ya tenía un movimiento en estas fechas (está cubriendo a alguien,
-        // o ya se registró el traslado a mano) no se le pone otro encima: las
-        // listas del mes siguiente sí se corrigen igual.
-        $conTraslado = self::movimientoQueChoca($datos) === null;
-        if ($conTraslado) {
-            TiendaReemplazo::create($datos);
+        // A dónde va. Sin tienda, o a la sede de independientes, no entra a
+        // ningún equipo: solo sale del que tenía.
+        $entra = $a && ! (bool) Tienda::where('id', $a)->value('es_independientes');
+
+        // Si en la tienda a la que va ya figura en el equipo, está volviendo
+        // a la suya —un cambio por error que se corrige— y no hace falta
+        // traslado: ahí pesa el mes entero por la lista.
+        $vuelveASuEquipo = $entra && self::estabaEnElEquipo($a, (int) $usuario->id);
+
+        // Lo que escribió un cambio de sede anterior este mismo mes.
+        $automatico = $movimientos->first(fn ($r) =>
+            $r->tipo === TiendaReemplazo::TRASLADO && $r->nota === self::NOTA_CAMBIO_DE_SEDE
+        );
+        if ($automatico) {
+            if ($vuelveASuEquipo || $automatico->desde->toDateString() === $hoy->toDateString()) {
+                // Fue un error (vuelve a donde estaba) o lo cambiaron dos
+                // veces el mismo día: ese traslado no pasó.
+                $automatico->delete();
+            } else {
+                // A una tercera tienda: el anterior termina ayer.
+                $automatico->update(['hasta' => $hoy->copy()->subDay()->toDateString()]);
+            }
             TiendaReemplazo::olvidarCache();
+        }
+
+        $conTraslado = false;
+        if ($entra && ! $vuelveASuEquipo) {
+            $datos = [
+                'tienda_id'      => $a,
+                'tipo'           => TiendaReemplazo::TRASLADO,
+                'usuario_id'     => $usuario->id,
+                'reemplaza_a_id' => null,
+                'desde'          => $hoy->toDateString(),
+                'hasta'          => $hoy->copy()->endOfMonth()->toDateString(),
+                'nota'           => self::NOTA_CAMBIO_DE_SEDE,
+            ];
+            // Ya tenía un traslado hecho a mano en estas fechas: no se le
+            // pone otro encima; las listas del mes siguiente sí se corrigen.
+            $conTraslado = self::movimientoQueChoca($datos) === null;
+            if ($conTraslado) {
+                TiendaReemplazo::create($datos);
+                TiendaReemplazo::olvidarCache();
+            }
         }
 
         $siguiente = $hoy->copy()->addMonthNoOverflow()->startOfMonth()->format('Y-m');
@@ -792,21 +845,47 @@ class ComisionController extends Controller
         TiendaAsesor::where('tienda_id', $de)->where('mes', $siguiente)
             ->where('vendedor_id', $usuario->id)->delete();
 
-        TiendaAsesor::materializar($a, $siguiente);
-        TiendaAsesor::firstOrCreate(['tienda_id' => $a, 'mes' => $siguiente, 'vendedor_id' => $usuario->id]);
+        if ($entra) {
+            TiendaAsesor::materializar($a, $siguiente);
+            TiendaAsesor::firstOrCreate(['tienda_id' => $a, 'mes' => $siguiente, 'vendedor_id' => $usuario->id]);
+        }
         TiendaAsesor::olvidarCache();
 
         $yo = new static;
         $yo->sincronizarDivisor($de, $siguiente);
-        $yo->sincronizarDivisor($a, $siguiente);
         // Las restauraciones y abonos de este mes ya repartidos siguen a la
         // persona: en la tienda que deja sale de los de hoy en adelante, en
         // la nueva entra.
         $yo->rehacerRepartos($de, [$mes]);
-        $yo->rehacerRepartos($a, [$mes]);
+        if ($entra) {
+            $yo->sincronizarDivisor($a, $siguiente);
+            $yo->rehacerRepartos($a, [$mes]);
+        }
 
-        return ['traslado' => $conTraslado, 'desde' => $de, 'hasta' => $a];
+        return ['traslado' => $conTraslado, 'desde' => $de, 'hasta' => $entra ? $a : null];
     }
+
+    /**
+     * ¿Figura en la última lista de equipo que tuvo esa tienda?
+     *
+     * Se mira la lista cruda y no `vigentesEn`, que a una tienda cerrada ya
+     * no le arrastra equipo: si a alguien le cambian la sede después de que
+     * su tienda cerró —lo normal, el cierre va primero—, igual tiene que
+     * entrar al equipo de la nueva.
+     */
+    private static function estabaEnElEquipo(int $tiendaId, int $usuarioId): bool
+    {
+        $ultimoMes = TiendaAsesor::where('tienda_id', $tiendaId)
+            ->where('mes', '<=', self::hoy()->copy()->addMonthNoOverflow()->format('Y-m'))
+            ->max('mes');
+        if (! $ultimoMes) return false;
+
+        return TiendaAsesor::where('tienda_id', $tiendaId)
+            ->where('mes', $ultimoMes)
+            ->where('vendedor_id', $usuarioId)
+            ->exists();
+    }
+
 
     /**
      * Una persona no puede estar en dos sitios a la vez, ni ser cubierta por

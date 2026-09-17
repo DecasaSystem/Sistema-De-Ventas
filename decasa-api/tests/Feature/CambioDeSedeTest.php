@@ -40,7 +40,7 @@ class CambioDeSedeTest extends TestCase
 
         Schema::create('tiendas', function (Blueprint $t) {
             $t->id(); $t->string('nombre'); $t->boolean('activa')->default(true); $t->date('cerrada_en')->nullable();
-            $t->boolean('comisiones_compartidas')->default(true);
+            $t->boolean('comisiones_compartidas')->default(true); $t->boolean('es_independientes')->default(false);
         });
         Schema::create('usuarios', function (Blueprint $t) {
             $t->id(); $t->string('nombre'); $t->string('rol')->nullable(); $t->unsignedBigInteger('tienda_default_id')->nullable();
@@ -159,7 +159,7 @@ class CambioDeSedeTest extends TestCase
         $this->assertSame([self::JUAN], $this->equipo(self::UNICENTRO, '2026-09'));
     }
 
-    public function test_si_ya_tenia_un_movimiento_este_mes_no_le_pone_otro_pero_si_cambia_el_equipo(): void
+    public function test_si_ya_tenia_un_traslado_a_mano_no_le_pone_otro_pero_si_cambia_el_equipo(): void
     {
         // Ya lo habían registrado a mano.
         TiendaReemplazo::create(['tienda_id' => self::UNICENTRO, 'tipo' => TiendaReemplazo::TRASLADO,
@@ -170,6 +170,105 @@ class CambioDeSedeTest extends TestCase
         $this->assertFalse($res['traslado']);
         $this->assertSame(1, TiendaReemplazo::count());
         $this->assertSame([self::GENESIS, self::JUAN], $this->equipo(self::UNICENTRO, '2026-09'));
+    }
+
+    public function test_si_esta_cubriendo_a_alguien_cambiarle_la_sede_no_mueve_nada(): void
+    {
+        // Juan se va de vacaciones y Genesis lo cubre en Unicentro del 27 al 31:
+        // eso ya está registrado como reemplazo. Que alguien le cambie la sede
+        // en el perfil "porque está allá" no la puede convertir en traslado
+        // (diluiría el pool) ni sacarla de Circunvalar el mes que viene.
+        TiendaReemplazo::create(['tienda_id' => self::UNICENTRO, 'tipo' => TiendaReemplazo::REEMPLAZO,
+                                 'usuario_id' => self::GENESIS, 'reemplaza_a_id' => self::JUAN,
+                                 'desde' => '2026-08-27', 'hasta' => '2026-08-31']);
+
+        $this->assertNull(ComisionController::trasladarPorCambioDeSede(Usuario::find(self::GENESIS), self::CIRCUNVALAR, self::UNICENTRO));
+
+        $this->assertSame(1, TiendaReemplazo::count());
+        $this->assertSame([self::JUAN], $this->equipo(self::UNICENTRO, '2026-09'));
+        $this->assertSame([self::GENESIS], $this->equipo(self::CIRCUNVALAR, '2026-09'));
+        // Y agosto sigue siendo un reemplazo: ocupa el puesto de Juan, no suma una parte.
+        $this->assertSame([self::JUAN => 26, self::GENESIS => 5], $this->pesos(self::UNICENTRO, '2026-08'));
+    }
+
+    public function test_cambiarlo_por_error_y_devolverlo_deshace_el_traslado(): void
+    {
+        $genesis = Usuario::find(self::GENESIS);
+        ComisionController::trasladarPorCambioDeSede($genesis, self::CIRCUNVALAR, self::UNICENTRO);
+        $this->assertSame(1, TiendaReemplazo::count());
+
+        // "Ay no, era otra": vuelve a Circunvalar el mismo día.
+        $res = ComisionController::trasladarPorCambioDeSede($genesis, self::UNICENTRO, self::CIRCUNVALAR);
+
+        $this->assertNotNull($res);
+        $this->assertSame(0, TiendaReemplazo::count());
+        $this->assertSame([self::GENESIS => 31], $this->pesos(self::CIRCUNVALAR, '2026-08'));
+        $this->assertSame([self::JUAN => 31], $this->pesos(self::UNICENTRO, '2026-08'));
+        $this->assertSame([self::JUAN], $this->equipo(self::UNICENTRO, '2026-09'));
+        $this->assertSame([self::GENESIS], $this->equipo(self::CIRCUNVALAR, '2026-09'));
+    }
+
+    public function test_a_una_tercera_tienda_el_mismo_mes_cierra_el_traslado_anterior(): void
+    {
+        DB::table('tiendas')->insert(['id' => 1, 'nombre' => 'Decasa Norte']);
+        $genesis = Usuario::find(self::GENESIS);
+
+        Carbon::setTestNow('2026-08-20 10:00:00');
+        ComisionController::trasladarPorCambioDeSede($genesis, self::CIRCUNVALAR, self::UNICENTRO);
+
+        Carbon::setTestNow('2026-08-27 10:00:00');
+        ComisionController::trasladarPorCambioDeSede($genesis, self::UNICENTRO, 1);
+
+        $movs = TiendaReemplazo::orderBy('id')->get();
+        $this->assertCount(2, $movs);
+        $this->assertSame('2026-08-26', $movs[0]->hasta->toDateString());   // Unicentro: del 20 al 26
+        $this->assertSame(1, (int) $movs[1]->tienda_id);                     // Norte: del 27 al 31
+
+        $this->assertSame([self::GENESIS => 19], $this->pesos(self::CIRCUNVALAR, '2026-08'));
+        $this->assertSame([self::JUAN => 31, self::GENESIS => 7], $this->pesos(self::UNICENTRO, '2026-08'));
+        $this->assertSame([self::GENESIS => 5], $this->pesos(1, '2026-08'));
+        $this->assertSame([self::GENESIS], $this->equipo(1, '2026-09'));
+        $this->assertSame([self::JUAN], $this->equipo(self::UNICENTRO, '2026-09'));
+    }
+
+    public function test_si_sale_de_ventas_solo_sale_del_equipo(): void
+    {
+        // Pasa a taller: se le quita la tienda.
+        $res = ComisionController::trasladarPorCambioDeSede(Usuario::find(self::GENESIS), self::CIRCUNVALAR, null);
+
+        $this->assertNotNull($res);
+        $this->assertNull($res['hasta']);
+        $this->assertSame(0, TiendaReemplazo::count());
+        $this->assertSame(0, TiendaAsesor::where('tienda_id', self::CIRCUNVALAR)->where('mes', '2026-09')->count());
+        $this->assertSame([self::JUAN], $this->equipo(self::UNICENTRO, '2026-09'));
+
+        // Y a independiente: la sede de independientes no tiene equipo.
+        DB::table('tiendas')->insert(['id' => 8, 'nombre' => 'Independientes', 'es_independientes' => true]);
+        DB::table('tienda_asesores_comision')->insert(['tienda_id' => self::UNICENTRO, 'mes' => '2026-07', 'vendedor_id' => 77]);
+        DB::table('usuarios')->insert(['id' => 77, 'nombre' => 'Camilo', 'tienda_default_id' => self::UNICENTRO]);
+
+        $res = ComisionController::trasladarPorCambioDeSede(Usuario::find(77), self::UNICENTRO, 8);
+
+        $this->assertNull($res['hasta']);
+        $this->assertSame(0, TiendaReemplazo::count());
+        $this->assertSame([self::JUAN], $this->equipo(self::UNICENTRO, '2026-09'));
+        $this->assertSame([], $this->equipo(8, '2026-09'));
+    }
+
+    public function test_si_la_tienda_que_deja_ya_cerro_igual_entra_al_equipo_nuevo(): void
+    {
+        // Lo normal: primero cierra la tienda, y días después le cambian la sede.
+        Tienda::where('id', self::CIRCUNVALAR)->update(['activa' => false, 'cerrada_en' => '2026-08-27']);
+        Tienda::olvidarCerradas();
+        Carbon::setTestNow('2026-09-05 10:00:00');
+
+        $res = ComisionController::trasladarPorCambioDeSede(Usuario::find(self::GENESIS), self::CIRCUNVALAR, self::UNICENTRO);
+
+        $this->assertTrue($res['traslado']);
+        // Septiembre por días (del 5 al 30) y desde octubre en el equipo.
+        $this->assertSame([self::JUAN => 30, self::GENESIS => 26], $this->pesos(self::UNICENTRO, '2026-09'));
+        $this->assertSame([self::GENESIS, self::JUAN], $this->equipo(self::UNICENTRO, '2026-10'));
+        $this->assertSame([], $this->equipo(self::CIRCUNVALAR, '2026-09'));
     }
 
     public function test_una_tienda_cerrada_no_arrastra_meta_ni_equipo_a_los_meses_de_despues(): void
