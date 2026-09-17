@@ -145,7 +145,7 @@ onMounted(cargar)
         <div class="min-w-0">
           <p class="text-sm font-semibold text-gray-800">Descontar tela automáticamente</p>
           <p class="text-xs text-gray-500 mt-0.5">
-            Encendido, cada venta para fabricar aparta los metros de la tela elegida y
+            Encendido, cada venta para fabricar —y cada pieza que Producción manda a fabricar para la Reserva— aparta los metros de la tela elegida y
             se descuentan cuando el taller termina la pieza. Si se cancela, se sueltan.
           </p>
         </div>

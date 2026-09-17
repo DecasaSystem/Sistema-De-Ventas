@@ -23,12 +23,22 @@ class Produccion extends Model
     protected static function booted(): void
     {
         static::updated(function (Produccion $p) {
-            if (! $p->wasChanged('estado') || ! $p->orden_item_id) return;
+            if (! $p->wasChanged('estado')) return;
 
-            if (in_array($p->estado, ['listo', 'entregado'], true)) {
-                \App\Services\ConsumoTelas::consumirItem((int) $p->orden_item_id);
-            } elseif ($p->estado === 'cancelado') {
-                \App\Services\ConsumoTelas::liberarItem((int) $p->orden_item_id);
+            $termino = in_array($p->estado, ['listo', 'entregado'], true);
+            $cancelo = $p->estado === 'cancelado';
+            if (! $termino && ! $cancelo) return;
+
+            // La reserva cuelga del ítem de la orden, o de la producción
+            // misma cuando se fabrica para la Reserva sin orden.
+            if ($p->orden_item_id) {
+                $termino
+                    ? \App\Services\ConsumoTelas::consumirItem((int) $p->orden_item_id)
+                    : \App\Services\ConsumoTelas::liberarItem((int) $p->orden_item_id);
+            } elseif ($p->esReserva()) {
+                $termino
+                    ? \App\Services\ConsumoTelas::consumirProduccion((int) $p->id)
+                    : \App\Services\ConsumoTelas::liberarProduccion((int) $p->id);
             }
         });
     }

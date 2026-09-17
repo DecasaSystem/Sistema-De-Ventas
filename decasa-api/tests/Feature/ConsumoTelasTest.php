@@ -96,6 +96,12 @@ class ConsumoTelasTest extends TestCase
             $t->date('fecha_compromiso')->nullable(); $t->date('fecha_real')->nullable();
             $t->string('estado')->default('pendiente'); $t->text('motivo_retraso')->nullable();
             $t->unsignedBigInteger('despachado_por')->nullable();
+            // Lo que lleva una pieza para la Reserva, que no cuelga de una orden.
+            $t->string('destino')->default('orden'); $t->unsignedBigInteger('producto_id')->nullable();
+            $t->unsignedBigInteger('variante_id')->nullable(); $t->unsignedBigInteger('combo_config_id')->nullable();
+            $t->string('variante_detalle')->nullable(); $t->unsignedInteger('cantidad')->default(1);
+            $t->json('specs')->nullable(); $t->unsignedBigInteger('creado_por')->nullable();
+            $t->timestamp('depositado_at')->nullable();
         });
         Schema::create('produccion_pasos', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('produccion_id'); $t->string('tipo_proceso');
@@ -177,7 +183,8 @@ class ConsumoTelasTest extends TestCase
             $t->decimal('metros', 8, 2); $t->timestamps();
         });
         Schema::create('tela_reservas', function (Blueprint $t) {
-            $t->id(); $t->unsignedBigInteger('orden_item_id'); $t->unsignedBigInteger('catalogo_tela_id');
+            $t->id(); $t->unsignedBigInteger('orden_item_id')->nullable(); $t->unsignedBigInteger('produccion_id')->nullable();
+            $t->unsignedBigInteger('catalogo_tela_id');
             $t->decimal('metros', 8, 2); $t->string('estado', 20)->default('reservada');
             $t->string('detalle', 200)->nullable(); $t->timestamps();
         });
@@ -485,6 +492,88 @@ class ConsumoTelasTest extends TestCase
         $this->assertEquals(0,  (float) DB::table('catalogo_telas')->find(1)->metros_reservados);
         $this->assertEquals(6,  (float) DB::table('catalogo_telas')->find(2)->metros_reservados);
         $this->assertSame(['liberada', 'reservada'], TelaReserva::orderBy('id')->pluck('estado')->all());
+    }
+
+    // ── Producir para la Reserva (sin orden) ─────────────────────────────────
+
+    /** El sofá ya tiene registrada esta tela como variante. */
+    private function varianteGris(): int
+    {
+        DB::table('producto_variantes')->insert([
+            'id' => 40, 'producto_id' => self::SOFA, 'marca' => 'Lafayette', 'marca_tela' => 'Chenille', 'nombre_color' => 'Gris',
+        ]);
+        return 40;
+    }
+
+    private function producir(int $cantidad, array $extra = [])
+    {
+        return $this->actingAs($this->jefe())->postJson('/api/produccion/producir', array_merge([
+            'modo'        => 'catalogo',
+            'producto_id' => self::SOFA,
+            'cantidad'    => $cantidad,
+            'variante_id' => $this->varianteGris(),
+        ], $extra));
+    }
+
+    public function test_producir_para_la_reserva_aparta_la_tela_de_la_variante(): void
+    {
+        $this->consumo(6);
+        $this->encender();
+
+        $this->producir(2)->assertCreated();
+
+        $p = Produccion::first();
+        $this->assertSame('reserva', $p->destino);
+        $this->assertEquals(12, (float) $this->tela()->metros_reservados);
+
+        $reserva = TelaReserva::first();
+        $this->assertSame($p->id, (int) $reserva->produccion_id);
+        $this->assertNull($reserva->orden_item_id);
+        $this->assertStringContainsString('(Reserva)', $reserva->detalle);
+
+        // Terminada la pieza, se descuenta; y al depositarla en la Reserva no
+        // se descuenta otra vez.
+        $p->update(['estado' => 'listo', 'fecha_real' => now()->toDateString()]);
+        $this->assertEquals(8, (float) $this->tela()->metros_disponibles);
+        $this->assertEquals(0, (float) $this->tela()->metros_reservados);
+        $p->update(['estado' => 'en_reserva']);
+        $this->assertEquals(8, (float) $this->tela()->metros_disponibles);
+    }
+
+    public function test_producir_sin_tela_suficiente_no_se_crea(): void
+    {
+        $this->consumo(6);
+        $this->encender();
+
+        $resp = $this->producir(4)->assertStatus(422);   // 24 m contra 20 libres
+        $this->assertStringContainsString('necesita 24 m de Lafayette · Chenille · Gris y solo hay 20 m libres', $resp->json('message'));
+
+        $this->assertSame(0, Produccion::count());
+        $this->assertSame(0, TelaReserva::count());
+    }
+
+    public function test_cancelar_la_pieza_de_reserva_suelta_la_tela(): void
+    {
+        $this->consumo(6);
+        $this->encender();
+        $this->producir(1)->assertCreated();
+        $this->assertEquals(6, (float) $this->tela()->metros_reservados);
+
+        Produccion::first()->update(['estado' => 'cancelado']);
+
+        $this->assertEquals(0, (float) $this->tela()->metros_reservados);
+        $this->assertEquals(20, (float) $this->tela()->metros_disponibles);
+        $this->assertSame('liberada', TelaReserva::first()->estado);
+    }
+
+    public function test_apagado_producir_no_toca_las_telas(): void
+    {
+        $this->consumo(6);
+
+        $this->producir(2)->assertCreated();
+
+        $this->assertSame(0, TelaReserva::count());
+        $this->assertEquals(0, (float) $this->tela()->metros_reservados);
     }
 
     // ── El panel de Telas ────────────────────────────────────────────────────

@@ -85,6 +85,51 @@ const coloresOpc = computed(() =>
   telaNueva.value.marca !== 'Otro' && telaNueva.value.marca_tela !== 'Otro'
     ? coloresDeTela(telaNueva.value.marca, telaNueva.value.marca_tela) : [])
 
+// ── Tela contra inventario ───────────────────────────────────────────────────
+// La tela con la que se va a producir: la variante elegida del catálogo o la
+// nueva que se está escribiendo. Marca · tipo · color, como está en Telas.
+const telaElegida = computed(() => {
+  if (!esTapizado.value) return null
+  let t = null
+  if (varianteSel.value === 'nueva') {
+    t = { marca: telaNueva.value.marca, tipo: telaNueva.value.marca_tela, color: telaNueva.value.nombre_color }
+  } else if (varianteSel.value) {
+    const v = variantesCat.value.find(x => x.id === varianteSel.value)
+    if (v) t = { marca: v.marca, tipo: v.marca_tela, color: v.nombre_color }
+  }
+  if (!t || !t.marca || !t.tipo || !t.color || [t.marca, t.tipo, t.color].includes('Otro')) return null
+  return t
+})
+
+// { metros_necesarios, metros, suficiente } o null si el servidor no sabe
+// cuánto gasta el producto (función apagada, producto nuevo o sin metros).
+const necesidadTela = ref(null)
+let pedidoTela = 0
+
+watch(
+  () => [telaElegida.value, productoSel.value?.producto_id, comboConfigId.value, cantidad.value, modo.value],
+  async () => {
+    const t = telaElegida.value
+    const productoId = modo.value === 'catalogo' ? productoSel.value?.producto_id : null
+    if (!t || !productoId) { necesidadTela.value = null; return }
+    const n = ++pedidoTela
+    try {
+      const { data } = await api.get('/inventario-telas/validar', {
+        params: {
+          marca: t.marca, tipo: t.tipo, color: t.color,
+          producto_id: productoId, config_id: comboConfigId.value || undefined,
+          cantidad: Math.max(1, Number(cantidad.value) || 1),
+        },
+      })
+      if (n !== pedidoTela) return
+      necesidadTela.value = data.metros_necesarios != null ? data : null
+    } catch {
+      if (n === pedidoTela) necesidadTela.value = null
+    }
+  },
+  { deep: true },
+)
+
 const listoParaProducir = computed(() => {
   if (modo.value === 'catalogo' && !productoSel.value) return false
   if (modo.value === 'nuevo' && (!nuevo.value.nombre.trim() || nuevo.value.precio_base === '')) return false
@@ -409,6 +454,24 @@ watch(() => props.show, (v) => { if (v) resetear() })
               </div>
             </div>
           </template>
+
+          <!-- Cuánta tela gasta contra lo que hay (solo con el descuento
+               automático encendido en Telas y el consumo del producto cargado).
+               Se dice aquí, al elegir, no cuando el servidor rechace producir. -->
+          <p
+            v-if="necesidadTela"
+            :class="['text-xs font-semibold rounded-lg px-2.5 py-1.5 border', necesidadTela.suficiente
+              ? 'bg-green-50 border-green-200 text-green-700'
+              : 'bg-red-50 border-red-200 text-red-700']"
+          >
+            <template v-if="necesidadTela.suficiente">
+              ✓ Necesita {{ necesidadTela.metros_necesarios }} m y hay {{ necesidadTela.metros }} m libres.
+            </template>
+            <template v-else>
+              ✕ No alcanza la tela: necesita {{ necesidadTela.metros_necesarios }} m y solo hay {{ necesidadTela.metros }} m libres.
+              Elige otra tela o recarga el inventario de telas.
+            </template>
+          </p>
 
           <p class="text-[11px] text-gray-400">
             Si no eliges tela/medida, las unidades entran solo al stock base y el supervisor las reparte luego en Reserva.

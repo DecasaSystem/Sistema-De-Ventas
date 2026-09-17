@@ -924,6 +924,11 @@ class ProduccionController extends Controller
                 ? $this->crearPasos($produccion, $data['pasos'], TipoProceso::LINEA_NORMAL, conDespacho: false)
                 : null;
 
+            // 6. La tela: igual que al vender para fabricar, se aparta la
+            //    que lleva el producto con la variante elegida. Si no
+            //    alcanza, esto tumba la producción con el motivo.
+            \App\Services\ConsumoTelas::reservarProduccion($produccion);
+
             return [$produccion, $producto, $primerPaso];
         });
 

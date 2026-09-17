@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\CatalogoTela;
 use App\Models\Orden;
 use App\Models\OrdenItem;
+use App\Models\Produccion;
 use App\Models\ProductoConsumoTela;
 use App\Models\TelaReserva;
 use Illuminate\Http\Exceptions\HttpResponseException;
@@ -20,7 +21,8 @@ use Illuminate\Support\Facades\Schema;
  * cuando el taller termina la pieza se DESCUENTAN (`metros_disponibles`); y si
  * la orden o la pieza se cancela, se SUELTAN.
  *
- * Cada movimiento queda en `tela_reservas` atado al ítem de la orden. Por eso
+ * Cada movimiento queda en `tela_reservas` atado al ítem de la orden (o a la
+ * producción, cuando se fabrica para la Reserva sin orden). Por eso
  * soltar y descontar es exacto: se mueve lo que se apartó, no lo que diga hoy
  * la configuración del producto.
  *
@@ -215,8 +217,94 @@ class ConsumoTelas
         if ($igual) return;
 
         if ($viva) self::liberar($viva);
-        self::reservar($item, $quiere, $estricto);
+        self::reservar(['orden_item_id' => $item->id], $quiere, $estricto);
     }
+
+    // ── Producir para la Reserva (sin orden) ─────────────────────────────────
+
+    /**
+     * Qué tela y cuántos metros necesita una producción para la Reserva.
+     *
+     * La tela sale de la variante con la que se produce (marca / tipo /
+     * color, que es como se guarda en `producto_variantes` y en el catálogo
+     * de telas) o, si no trae variante de tela, de `specs.tela`.
+     *
+     * @return array{tela: CatalogoTela, metros: float, detalle: string}|null
+     */
+    public static function necesidadDeProduccion(Produccion $p): ?array
+    {
+        if (! $p->producto_id) return null;
+
+        $porUnidad = self::consumoDe((int) $p->producto_id, $p->combo_config_id ? (int) $p->combo_config_id : null);
+        if ($porUnidad === null) return null;
+
+        $tela = null;
+        $v    = $p->variante_id ? ($p->relationLoaded('variante') ? $p->variante : $p->variante()->first()) : null;
+        if ($v && $v->marca && $v->marca_tela && $v->nombre_color) {
+            $tela = CatalogoTela::where('marca', $v->marca)
+                ->where('tipo', $v->marca_tela)
+                ->where('color', $v->nombre_color)
+                ->where('activo', true)
+                ->first();
+        }
+        $tela ??= self::telaDeTexto(($p->specs ?? [])['tela'] ?? null);
+        if (! $tela) return null;
+
+        $nombre  = $p->producto?->nombre ?? "Producto #{$p->producto_id}";
+        $detalle = "{$nombre} ×{$p->cantidad}";
+        if ($p->variante_detalle) $detalle .= " · {$p->variante_detalle}";
+        $detalle .= ' (Reserva)';
+
+        return [
+            'tela'    => $tela,
+            'metros'  => round($porUnidad * (int) $p->cantidad, 2),
+            'detalle' => mb_substr($detalle, 0, 200),
+        ];
+    }
+
+    /**
+     * Aparta la tela de una producción para la Reserva. Se llama al crearla
+     * desde "Producir"; con $estricto, sin metros suficientes tumba la
+     * petición (422), igual que al crear una orden.
+     */
+    public static function reservarProduccion(Produccion $p, bool $estricto = true): void
+    {
+        if (! self::activo() || ! $p->esReserva()) return;
+        if (in_array($p->estado, [...self::PRODUCCION_TERMINADA, 'cancelado', 'en_reserva'], true)) return;
+
+        $quiere = self::necesidadDeProduccion($p);
+        if (! $quiere) return;
+
+        $viva = TelaReserva::vivas()->where('produccion_id', $p->id)->first();
+        if ($viva) {
+            $igual = (int) $viva->catalogo_tela_id === (int) $quiere['tela']->id
+                && abs((float) $viva->metros - $quiere['metros']) < 0.005;
+            if ($igual) return;
+            self::liberar($viva);
+        }
+
+        self::reservar(['produccion_id' => $p->id], $quiere, $estricto);
+    }
+
+    /** Cuando la pieza para la Reserva queda lista: lo apartado se descuenta. */
+    public static function consumirProduccion(int $produccionId): void
+    {
+        if (! self::activo()) return;
+
+        $viva = TelaReserva::vivas()->where('produccion_id', $produccionId)->first();
+        if ($viva) self::consumir($viva);
+    }
+
+    /** Cuando la pieza para la Reserva se cancela: lo apartado vuelve a estar libre. */
+    public static function liberarProduccion(int $produccionId): void
+    {
+        if (! self::activo()) return;
+
+        $viva = TelaReserva::vivas()->where('produccion_id', $produccionId)->first();
+        if ($viva) self::liberar($viva);
+    }
+
+    // ── Piezas de una orden ──────────────────────────────────────────────────
 
     /** Cuando la pieza de un ítem queda lista: lo apartado se descuenta. */
     public static function consumirItem(int $ordenItemId): void
@@ -257,7 +345,8 @@ class ConsumoTelas
         return true;
     }
 
-    private static function reservar(OrdenItem $item, array $quiere, bool $estricto): void
+    /** @param array $duenio  ['orden_item_id' => id] o ['produccion_id' => id]: de qué cuelga la reserva. */
+    private static function reservar(array $duenio, array $quiere, bool $estricto): void
     {
         $tela   = CatalogoTela::lockForUpdate()->find($quiere['tela']->id);
         $metros = $quiere['metros'];
@@ -273,8 +362,7 @@ class ConsumoTelas
 
         $tela->increment('metros_reservados', $metros);
 
-        TelaReserva::create([
-            'orden_item_id'    => $item->id,
+        TelaReserva::create($duenio + [
             'catalogo_tela_id' => $tela->id,
             'metros'           => $metros,
             'estado'           => TelaReserva::RESERVADA,
