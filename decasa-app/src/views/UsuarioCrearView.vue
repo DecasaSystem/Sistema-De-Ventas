@@ -76,7 +76,7 @@ const claveSeleccionada = computed(() => rolSeleccionado.value?.clave ?? '')
 const arquetiposSinTienda = ['conductor', 'despachador', 'taller']
 // Un independiente no pertenece a ninguna tienda: vende por su cuenta y saca
 // producto de las que haya, así que tampoco elige una.
-const puedeSerIndependiente = computed(() => arquetipo.value === 'vendedor')
+const puedeSerIndependiente = computed(() => ['vendedor', 'supervisor'].includes(arquetipo.value))
 const esIndependiente = computed(() => puedeSerIndependiente.value && form.value.independiente)
 // El selector se muestra para cualquiera que no tenga la tienda oculta por
 // completo (conductor, taller, despachador...) ni sea independiente.

@@ -2241,7 +2241,9 @@ function removeFacturaFoto(i = 0) {
         <!-- El ebanista trabaja en la fábrica: su sede es fija, como la de
              cualquier vendedor. Antes elegía entre todas las tiendas y una
              equivocación le sumaba la venta a una sede donde no está. -->
-        <select v-if="auth.isSupervisor" v-model="tiendaId" class="input">
+        <!-- Y un supervisor que vende por su cuenta tampoco elige: su venta es
+             suya (sede Independientes), no de la tienda que escoja. -->
+        <select v-if="auth.isSupervisor && !auth.isIndependiente" v-model="tiendaId" class="input">
           <option value="">Seleccionar...</option>
           <option v-for="t in tiendas" :key="t.id" :value="t.id">{{ t.nombre }}</option>
         </select>

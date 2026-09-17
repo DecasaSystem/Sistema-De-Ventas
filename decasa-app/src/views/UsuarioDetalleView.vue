@@ -54,8 +54,10 @@ const arquetiposSinTienda = ['conductor', 'despachador', 'taller']
 // Arquetipo del rol elegido en el formulario de edición.
 const editArquetipo = computed(() => roles.value.find(r => r.id === editForm.value.rol_id)?.arquetipo ?? '')
 
-// Solo un vendedor puede ir por su cuenta, y entonces no pertenece a ninguna tienda.
-const editEsIndependiente = computed(() => editArquetipo.value === 'vendedor' && editForm.value.independiente)
+// Vende por su cuenta: un vendedor, o un supervisor que además vende (misma
+// regla que el backend, Usuario::puedeSerIndependiente).
+const editPuedeSerIndependiente = computed(() => ['vendedor', 'supervisor'].includes(editArquetipo.value))
+const editEsIndependiente = computed(() => editPuedeSerIndependiente.value && editForm.value.independiente)
 // El selector se muestra para cualquiera que no la tenga oculta por completo.
 const editMostrarTienda = computed(() =>
   !arquetiposSinTienda.includes(editArquetipo.value) && !editEsIndependiente.value
@@ -667,7 +669,7 @@ onMounted(async () => {
                 <option v-for="r in roles" :key="r.id" :value="r.id">{{ r.nombre }}</option>
               </select>
             </div>
-            <div v-if="editArquetipo === 'vendedor'" class="flex items-start gap-3 py-2 px-3 bg-amber-50 border border-amber-200 rounded-xl">
+            <div v-if="editPuedeSerIndependiente" class="flex items-start gap-3 py-2 px-3 bg-amber-50 border border-amber-200 rounded-xl">
               <input
                 id="edit-independiente"
                 type="checkbox"

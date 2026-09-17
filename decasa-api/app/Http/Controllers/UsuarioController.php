@@ -196,9 +196,10 @@ class UsuarioController extends Controller
         $puedeAccesoRedes = in_array($arquetipo, ['vendedor', 'supervisor']);
         $puedeRecargaTelas = in_array($arquetipo, ['vendedor', 'supervisor']);
 
-        // Solo un vendedor puede ir por su cuenta: un supervisor o un conductor
-        // independiente no significa nada.
-        $independiente = ($arquetipo === 'vendedor') && $request->boolean('independiente');
+        // Va por su cuenta quien vende: un vendedor, o un supervisor que además
+        // vende (Henry lleva el taller y vende por su cuenta). Un conductor o
+        // alguien de fábrica independiente no significa nada.
+        $independiente = Usuario::puedeSerIndependiente($arquetipo) && $request->boolean('independiente');
 
         $noUsaPrograma = $request->boolean('no_usa_programa');
 
@@ -436,7 +437,7 @@ class UsuarioController extends Controller
         }
 
         if ($request->has('independiente')) {
-            $data['independiente'] = ($arquetipoFinal === 'vendedor') && $request->boolean('independiente');
+            $data['independiente'] = Usuario::puedeSerIndependiente($arquetipoFinal) && $request->boolean('independiente');
         }
 
         // Al pasar a un arquetipo que nunca elige tienda (taller/despachador/
@@ -447,11 +448,14 @@ class UsuarioController extends Controller
         }
 
         // Al volverlo independiente pasa a la sede propia: deja de pertenecer a
-        // una tienda. Al dejar de serlo hay que volver a asignarle una.
+        // una tienda. Al dejar de serlo hay que volver a asignarle una —salvo
+        // que pase a un oficio que no tiene tienda (taller, conductor...),
+        // donde no hay ninguna que elegir—.
         $independienteFinal = $data['independiente'] ?? (bool) $usuario->independiente;
+        $sinTienda = in_array($arquetipoFinal, ['taller', 'despachador', 'conductor'], true);
         if ($independienteFinal) {
             $data['tienda_default_id'] = Tienda::sedeIndependientes()?->id;
-        } elseif ($usuario->independiente && ! $independienteFinal && empty($data['tienda_default_id'])) {
+        } elseif ($usuario->independiente && ! $independienteFinal && empty($data['tienda_default_id']) && ! $sinTienda) {
             return response()->json([
                 'message' => 'Si deja de ser independiente hay que asignarle una tienda.',
                 'errors'  => ['tienda_default_id' => ['Elige la tienda a la que queda asignado.']],

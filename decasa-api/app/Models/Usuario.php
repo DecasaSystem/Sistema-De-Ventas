@@ -282,6 +282,21 @@ class Usuario extends Authenticatable
     }
 
     /**
+     * Qué arquetipos pueden vender por su cuenta.
+     *
+     * Vendedor, obvio. Y supervisor: Henry lleva el taller —y para eso
+     * necesita el rol— pero sigue vendiendo como independiente, con su
+     * propia caja, su 5% y la mitad que le abona a un almacén. Antes pasarlo
+     * a supervisor le quitaba la marca y lo metía a una tienda, y perdía
+     * todo eso. Un conductor o alguien de fábrica independiente no
+     * significa nada.
+     */
+    public static function puedeSerIndependiente(?string $arquetipo): bool
+    {
+        return in_array($arquetipo, ['vendedor', 'supervisor'], true);
+    }
+
+    /**
      * Los que pueden ENTRAR al programa.
      *
      * La gente de fábrica está marcada como que no lo usa: no tiene correo ni
