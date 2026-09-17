@@ -764,9 +764,15 @@ onBeforeUnmount(() => {
                 <p v-if="t.ciudad" class="text-xs text-gray-400">{{ t.ciudad }}</p>
               </div>
               <div class="text-right">
+                <p class="text-[10px] uppercase tracking-wide text-gray-400">Vendido en el período</p>
                 <p class="text-lg font-bold text-green-700">{{ cop(t.total_vendido) }}</p>
-                <p class="text-xs text-gray-400">Cobrado {{ cop(t.ingresos) }} · Cartera {{ cop(t.cartera_pendiente) }}</p>
-                <p v-if="t.cobranza_periodo != null" class="text-[11px] text-gray-300">Caja del período {{ cop(t.cobranza_periodo) }}</p>
+                <!-- Las dos partes del total: lo que ya entró y lo que falta.
+                     Antes decía "Cobrado · Cartera" sin decir que eran
+                     pedazos del mismo número. -->
+                <p class="text-xs text-gray-400">
+                  = cobrado <span class="text-gray-600 font-medium">{{ cop(t.ingresos) }}</span>
+                  + por cobrar <span class="text-red-500 font-medium">{{ cop(t.cartera_pendiente) }}</span>
+                </p>
               </div>
             </div>
             <div class="grid grid-cols-3 gap-2 text-center text-xs">
@@ -784,13 +790,26 @@ onBeforeUnmount(() => {
               </div>
             </div>
 
-            <!-- De qué es lo que cobró la tienda -->
+            <!-- De qué es lo VENDIDO (suma el total de arriba). El reparto de
+                 lo cobrado va debajo, más chico: antes solo se mostraba ese y
+                 parecía que faltaba plata, porque no suma el total sino lo
+                 que ya entró. -->
             <DesglosePorTipo
-              v-if="t.ingresos_por_tipo"
-              :datos="t.ingresos_por_tipo"
-              titulo="De qué es lo cobrado"
+              v-if="t.vendido_por_tipo"
+              :datos="t.vendido_por_tipo"
+              titulo="De qué es lo vendido"
               class="mt-3"
             />
+            <div v-if="t.ingresos_por_tipo && t.ingresos > 0" class="mt-2 text-[11px] text-gray-400">
+              De eso ya se cobró {{ cop(t.ingresos) }}:
+              <span v-if="t.ingresos_por_tipo.venta > 0">ventas {{ cop(t.ingresos_por_tipo.venta) }}</span>
+              <span v-if="t.ingresos_por_tipo.restauracion > 0"> · restauraciones {{ cop(t.ingresos_por_tipo.restauracion) }}</span>
+              <span v-if="t.ingresos_por_tipo.fv2 > 0"> · FV2 {{ cop(t.ingresos_por_tipo.fv2) }}</span>
+            </div>
+            <p v-if="t.cobranza_periodo != null" class="mt-1 text-[11px] text-gray-400">
+              Caja del período <span class="text-gray-600 font-medium">{{ cop(t.cobranza_periodo) }}</span>
+              <span class="text-gray-300">— todo lo que entró en estas fechas, también abonos de órdenes de meses anteriores</span>
+            </p>
 
             <!-- Barra meta mensual -->
             <div v-if="t.meta_mes?.meta" class="mt-3 pt-3 border-t border-gray-100">
@@ -815,9 +834,17 @@ onBeforeUnmount(() => {
                 />
               </div>
               <div class="flex items-center justify-between text-[11px] text-gray-400">
-                <span>Vendido: <span class="font-semibold text-gray-600">{{ cop(t.meta_mes.total_tienda) }}</span></span>
+                <span>Cuenta para la meta: <span class="font-semibold text-gray-600">{{ cop(t.meta_mes.total_tienda) }}</span></span>
                 <span>Meta: <span class="font-semibold text-gray-600">{{ cop(t.meta_mes.meta) }}</span></span>
               </div>
+              <!-- No es el "vendido" de arriba: la meta se mide como en
+                   Comisiones (mes calendario, sin restauraciones ni cancelados,
+                   con la mitad que abonan los independientes y sin la comisión
+                   del datáfono), y el período de arriba puede ser otro. -->
+              <p class="mt-1 text-[10px] text-gray-300 leading-snug">
+                Es lo del mes calendario que cuenta en Comisiones: solo ventas (sin restauraciones ni canceladas),
+                más la mitad que le abonan los independientes, y a lo pagado con tarjeta se le quita la comisión del datáfono.
+              </p>
               <p v-if="t.meta_mes.cumplida" class="mt-1 text-[11px] font-semibold text-green-600">✓ ¡Meta alcanzada!</p>
               <p v-else class="mt-1 text-[11px] text-gray-400">
                 Faltan <span class="font-semibold text-gray-600">{{ cop(t.meta_mes.meta - t.meta_mes.total_tienda) }}</span>

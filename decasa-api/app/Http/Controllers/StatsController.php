@@ -479,6 +479,12 @@ class StatsController extends Controller
                 'ingresos_por_tipo'  => $porTipo,
                 'cartera_pendiente'  => $cartera,
                 'total_vendido'      => $totalVendido,
+                // De qué tipo de orden es lo vendido. Los tres suman `total_vendido`.
+                'vendido_por_tipo'   => [
+                    'venta'        => (float) ($ordenes[$t->id]['venta'] ?? 0),
+                    'restauracion' => (float) ($ordenes[$t->id]['restauracion'] ?? 0),
+                    'fv2'          => (float) ($ordenes[$t->id]['fv2'] ?? 0),
+                ],
                 'ordenes_totales'    => $totalOrd,
                 'ordenes_entregadas' => $entregadas,
                 'ticket_promedio'    => $totalOrd > 0 ? round($totalVendido / $totalOrd) : 0,
@@ -550,7 +556,8 @@ class StatsController extends Controller
             ->whereIn('vendedor_id', $ids)
             ->whereBetween('created_at', $rango)
             ->whereNotIn('estado', Orden::ESTADOS_NO_COMERCIALES)
-            ->selectRaw("vendedor_id AS quien, COUNT(*) AS total, SUM(estado='entregado') AS entregadas, SUM(valor_total) AS vendido")
+            ->selectRaw("vendedor_id AS quien, COUNT(*) AS total, SUM(estado='entregado') AS entregadas, SUM(valor_total) AS vendido, "
+                        . Orden::selectMontosPorTipo('valor_total', 'ordenes'))
             ->groupBy('vendedor_id')->get()->keyBy('quien');
 
         return $gente
@@ -582,6 +589,11 @@ class StatsController extends Controller
                     ],
                     'cartera_pendiente'  => $cartera,
                     'total_vendido'      => $totalVendido,
+                    'vendido_por_tipo'   => [
+                        'venta'        => (float) ($ord->monto_venta ?? 0),
+                        'restauracion' => (float) ($ord->monto_restauracion ?? 0),
+                        'fv2'          => (float) ($ord->monto_fv2 ?? 0),
+                    ],
                     'ordenes_totales'    => $totalOrd,
                     'ordenes_entregadas' => $entregadas,
                     'ticket_promedio'    => $totalOrd > 0 ? round($totalVendido / $totalOrd) : 0,
@@ -687,7 +699,11 @@ class StatsController extends Controller
     private function ordenesPorTienda(array $rango, array $porSuCuenta): array
     {
         $valor = 'CASE WHEN o.es_compartida = 1 THEN o.valor_total / 2 ELSE o.valor_total END';
-        $cols  = "COUNT(*) AS total, SUM(o.estado='entregado') AS entregadas, SUM($valor) AS vendido";
+        // Y de qué tipo es lo vendido: la tarjeta lo muestra al lado del
+        // total, porque el reparto de lo COBRADO (que ya se mostraba) no
+        // explica un total que todavía tiene cartera por cobrar.
+        $cols  = "COUNT(*) AS total, SUM(o.estado='entregado') AS entregadas, SUM($valor) AS vendido, "
+               . Orden::selectMontosPorTipo($valor);
 
         $ppal = DB::table('ordenes as o')->whereBetween('o.created_at', $rango)
             ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES)
@@ -710,6 +726,9 @@ class StatsController extends Controller
                 $out[$id]['total']      = ($out[$id]['total']      ?? 0) + (int) $f->total;
                 $out[$id]['entregadas'] = ($out[$id]['entregadas'] ?? 0) + (int) $f->entregadas;
                 $out[$id]['vendido']    = ($out[$id]['vendido']    ?? 0) + (float) $f->vendido;
+                foreach (['venta', 'restauracion', 'fv2'] as $tipo) {
+                    $out[$id][$tipo] = ($out[$id][$tipo] ?? 0) + (float) $f->{"monto_$tipo"};
+                }
             }
         }
 
