@@ -630,10 +630,13 @@ class ProduccionController extends Controller
         }
 
         // Vendedor solo puede actualizar sus propios pedidos (para otros estados,
-        // no en_proceso). Las piezas para la Reserva no son de ningún vendedor.
-        if ($usuario->soloVeSusOrdenes() &&
-            $produccion->ordenItem?->orden?->vendedor_id !== $usuario->id) {
-            return response()->json(['message' => 'No autorizado.'], 403);
+        // no en_proceso) —los suyos y los que comparte—. Las piezas para la
+        // Reserva no son de ningún vendedor.
+        if ($usuario->soloVeSusOrdenes()) {
+            $orden = $produccion->ordenItem?->orden;
+            if (! $orden || ! $orden->laPuedeEditar($usuario)) {
+                return response()->json(['message' => 'No autorizado.'], 403);
+            }
         }
 
         $data = $request->validate([

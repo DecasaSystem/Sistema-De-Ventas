@@ -31,7 +31,12 @@ class OrdenMensajeController extends Controller
     {
         return $u->rol === 'supervisor'
             || $u->id === $orden->vendedor_id
-            || $u->id === $orden->covendedor_id;
+            || $u->id === $orden->covendedor_id
+            // La tienda con la que se comparte la venta también es parte: si
+            // el cliente llega allá, quien lo atiende tiene que poder
+            // preguntar lo mismo que el vendedor.
+            || ($orden->tienda_abonada_id && $u->tienda_default_id
+                && (int) $orden->tienda_abonada_id === (int) $u->tienda_default_id);
     }
 
     /**

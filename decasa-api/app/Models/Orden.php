@@ -419,6 +419,32 @@ class Orden extends Model
         return $this->laPuedeVer($usuario);
     }
 
+    /**
+     * ¿Puede editarla, completarla o mover su cotización?
+     *
+     * Una venta compartida es de los dos: del vendedor y de su covendedor, o
+     * de la tienda a la que se le abona la mitad. Si el cliente vuelve donde
+     * el otro a cambiar un producto o a corregir la dirección, ese otro tiene
+     * que poder hacerlo, no mandarlo a buscar a quien hizo la venta. Antes
+     * solo el vendedor principal pasaba, aunque la venta le saliera en la
+     * lista al covendedor.
+     *
+     * Es "ver" sin el caso de facturación: quien ve las entregadas de su
+     * tienda para cuadrar caja no es dueño de la venta y no la edita.
+     */
+    public function laPuedeEditar(Usuario $usuario): bool
+    {
+        if (! $usuario->soloVeSusOrdenes())                    return true;
+        if ((int) $this->vendedor_id   === (int) $usuario->id) return true;
+        if ((int) $this->covendedor_id === (int) $usuario->id) return true;
+
+        $tienda = (int) $usuario->tienda_default_id;
+
+        return $tienda > 0
+            && (int) $this->tienda_abonada_id === $tienda
+            && $this->estado !== 'borrador';
+    }
+
     /** La misma regla, para una orden concreta. */
     public function laPuedeVer(Usuario $usuario): bool
     {

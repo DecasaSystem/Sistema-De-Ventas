@@ -175,10 +175,22 @@ const clienteTipo = computed(() => {
   return null
 })
 
+// La venta compartida es de los dos: del vendedor y de su covendedor, o de
+// la tienda a la que se le abona la mitad. Misma regla que el backend
+// (Orden::laPuedeEditar): quien la ve porque es parte, la edita y le cobra.
+const esParteDeLaOrden = computed(() => {
+  const o  = orden.value
+  const yo = Number(auth.usuario?.id)
+  if (!o) return false
+  if (Number(o.vendedor_id) === yo || Number(o.covendedor_id) === yo) return true
+  const miTienda = Number(auth.usuario?.tienda_default_id)
+  return !!o.tienda_abonada_id && !!miTienda && Number(o.tienda_abonada_id) === miTienda && o.estado !== 'borrador'
+})
+
 const puedeEditar = computed(() => {
   if (!orden.value) return false
   if (orden.value.estado === 'cancelado') return false
-  if (auth.soloVeSusOrdenes && Number(orden.value.vendedor_id) !== Number(auth.usuario.id)) return false
+  if (auth.soloVeSusOrdenes && !esParteDeLaOrden.value) return false
   return true
 })
 
@@ -942,7 +954,7 @@ const puedeRegistrarPago = computed(() => {
   // 'entregado' se permite para cobrar el saldo residual de una venta directa.
   if (['cancelado', 'borrador'].includes(orden.value.estado)) return false
   if (orden.value.saldo_pendiente <= 0) return false
-  if (auth.soloVeSusOrdenes && Number(orden.value.vendedor_id) !== Number(auth.usuario?.id)) return false
+  if (auth.soloVeSusOrdenes && !esParteDeLaOrden.value) return false
   return true
 })
 
@@ -3044,9 +3056,9 @@ onMounted(() => { cargarTipos(); cargarOrden() })
       </div>
 
       <!-- Chat de dudas de la orden. Solo para quien participa: el vendedor,
-           su covendedor y los supervisores. -->
+           su covendedor, la tienda con la que se comparte y los supervisores. -->
       <ChatOrden
-        v-if="auth.isSupervisor || orden.vendedor_id === auth.usuario?.id || orden.covendedor_id === auth.usuario?.id"
+        v-if="auth.isSupervisor || esParteDeLaOrden"
         :orden-id="orden.id"
         :estado="orden.estado"
       />

@@ -942,7 +942,7 @@ class OrdenController extends Controller
 
         $orden = Orden::with('cliente:id,nombre,email')->findOrFail($id);
 
-        if ($usuario->soloVeSusOrdenes() && $orden->vendedor_id !== $usuario->id) {
+        if (! $orden->laPuedeEditar($usuario)) {
             return response()->json(['message' => 'No autorizado.'], 403);
         }
 
@@ -1029,7 +1029,7 @@ class OrdenController extends Controller
             return response()->json(['message' => 'La orden no está pendiente de cotización.'], 422);
         }
 
-        if ($usuario->soloVeSusOrdenes() && $orden->vendedor_id !== $usuario->id) {
+        if (! $orden->laPuedeEditar($usuario)) {
             return response()->json(['message' => 'No autorizado.'], 403);
         }
 
@@ -1208,7 +1208,7 @@ class OrdenController extends Controller
 
         $orden = Orden::with(['items', 'items.producto:id,nombre'])->findOrFail($id);
 
-        if ($usuario->soloVeSusOrdenes() && $orden->vendedor_id !== $usuario->id) {
+        if (! $orden->laPuedeEditar($usuario)) {
             return response()->json(['message' => 'No autorizado.'], 403);
         }
 
@@ -2085,7 +2085,8 @@ class OrdenController extends Controller
         }
 
         $usuario = $request->user();
-        if ($usuario->rol !== 'supervisor' && $orden->vendedor_id !== $usuario->id) {
+        // El covendedor también la puede completar: la venta es de los dos.
+        if (! $orden->laPuedeEditar($usuario)) {
             return response()->json(['message' => 'No tienes permiso para completar esta orden.'], 403);
         }
 

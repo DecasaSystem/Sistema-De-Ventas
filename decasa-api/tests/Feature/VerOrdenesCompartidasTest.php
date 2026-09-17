@@ -222,6 +222,52 @@ class VerOrdenesCompartidasTest extends TestCase
             ->assertStatus(403);
     }
 
+    /** Lo que editar toca y las demás pruebas no: las columnas que se corrigen y la tabla de avisos. */
+    private function paraEditar(): void
+    {
+        Schema::table('ordenes', function (Blueprint $t) {
+            $t->text('notas')->nullable(); $t->string('direccion_envio')->nullable();
+        });
+        Schema::create('notificaciones', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('usuario_id')->nullable(); $t->string('tipo'); $t->string('titulo');
+            $t->text('mensaje'); $t->boolean('leida')->default(false); $t->boolean('urgente')->default(false);
+            $t->json('datos')->nullable(); $t->timestamps();
+        });
+    }
+
+    public function test_el_covendedor_y_la_tienda_con_la_que_se_comparte_tambien_la_editan(): void
+    {
+        $this->paraEditar();
+        $henry = $this->vendedor('Henry', 2, independiente: true);
+        $marta = $this->vendedor('Marta', 1);
+        $ana   = $this->vendedor('Ana', null);
+        $ajena = $this->vendedor('Ajena', null);
+
+        // Un independiente abona la mitad a Norte, y además comparte con Ana.
+        $orden = Orden::create([
+            'cliente_id' => 1, 'tienda_id' => 2, 'vendedor_id' => $henry->id,
+            'es_compartida' => true, 'covendedor_id' => $ana->id,
+            'tienda_abonada_id' => 1, 'estado' => 'en_produccion', 'valor_total' => 1000000,
+        ]);
+
+        // La venta es de todos ellos: cualquiera corrige la dirección.
+        $this->actingAs($ana)
+            ->patchJson("/api/ordenes/{$orden->id}", ['direccion_envio' => 'Calle 10 # 5-20'])
+            ->assertOk();
+        $this->actingAs($marta)
+            ->patchJson("/api/ordenes/{$orden->id}", ['notas' => 'Cliente pasa el sábado'])
+            ->assertOk();
+
+        $orden->refresh();
+        $this->assertSame('Calle 10 # 5-20', $orden->direccion_envio);
+        $this->assertSame('Cliente pasa el sábado', $orden->notas);
+
+        // Quien no vendió, no comparte ni es de la tienda abonada, sigue fuera.
+        $this->actingAs($ajena)
+            ->patchJson("/api/ordenes/{$orden->id}", ['notas' => 'x'])
+            ->assertStatus(403);
+    }
+
     public function test_una_orden_ajena_sigue_sin_verse(): void
     {
         $marta = $this->vendedor('Marta', 1);
