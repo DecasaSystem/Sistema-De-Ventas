@@ -44,8 +44,14 @@ class TiendaAsesor extends Model
             return self::$cache[$mes];
         }
 
+        // Una tienda cerrada no arrastra su equipo a los meses de después
+        // del cierre: su gente ya está en otra tienda (o en ninguna), y
+        // dejarla aquí la hacía pesar días en un reparto que no existe.
+        $cerradas = Tienda::cerradasAntesDe($mes);
+
         $filas = static::with('vendedor:id,nombre')
-            ->where('mes', '<=', $mes)->orderBy('mes')->get();
+            ->where('mes', '<=', $mes)->orderBy('mes')->get()
+            ->reject(fn ($f) => isset($cerradas[(int) $f->tienda_id]));
 
         // Al recorrer de mes viejo a nuevo, el último que queda por tienda es
         // el que rige.

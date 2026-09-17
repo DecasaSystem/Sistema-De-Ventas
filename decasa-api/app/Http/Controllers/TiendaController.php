@@ -40,10 +40,23 @@ class TiendaController extends Controller
         $tienda = Tienda::findOrFail($id);
         $data   = $this->validarDatos($request, sometimes: true);
 
+        // Cerrarla o reabrirla desde aquí mueve la fecha de cierre igual que
+        // eliminarla: es lo que mira Comisiones para dejar de arrastrarle
+        // meta y equipo.
+        if (array_key_exists('activa', $data)) {
+            $activa = (bool) $data['activa'];
+            if (! $activa && $tienda->activa) {
+                $data['cerrada_en'] = ComisionController::hoy()->toDateString();
+            } elseif ($activa) {
+                $data['cerrada_en'] = null;
+            }
+        }
+
         DB::transaction(function () use ($tienda, $data) {
             $this->asegurarUnicidad($data, exceptoId: $tienda->id);
             $tienda->update($data);
         });
+        Tienda::olvidarCerradas();
 
         return response()->json($tienda->fresh());
     }
@@ -74,7 +87,10 @@ class TiendaController extends Controller
         if ($tienda->inventarios()->where('cantidad_disponible', '>', 0)->exists()) $dependencias[] = 'inventario';
 
         if ($dependencias) {
-            $tienda->update(['activa' => false]);
+            // Con fecha: desde el mes siguiente Comisiones deja de arrastrarle
+            // la meta y el equipo (ver Tienda::cerradasAntesDe).
+            $tienda->update(['activa' => false, 'cerrada_en' => ComisionController::hoy()->toDateString()]);
+            Tienda::olvidarCerradas();
             return response()->json([
                 'message'    => 'Tiene ' . implode(', ', $dependencias) . ' asociados, así que se desactivó en vez de eliminarla.',
                 'desactivada' => true,

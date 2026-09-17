@@ -36,8 +36,15 @@ class MetaTienda extends Model
      */
     public static function vigentesEn(string $mes): array
     {
+        // Una tienda cerrada no arrastra su meta a los meses de despues del
+        // cierre: no vendio nada y no hay meta que cumplir. Sin esto, el mes
+        // siguiente entraba como $0 contra la meta entera y en una tienda
+        // trimestral se comia el trimestre completo.
+        $cerradas = Tienda::cerradasAntesDe($mes);
+
         $out = [];
         foreach (static::where('mes', '<=', $mes)->orderBy('mes')->get() as $m) {
+            if (isset($cerradas[(int) $m->tienda_id])) continue;
             // Al ir de mes viejo a nuevo, la ultima que queda es la que rige.
             $out[$m->tienda_id] = $m;
         }
@@ -51,6 +58,7 @@ class MetaTienda extends Model
         $out = [];
         foreach ($todas as $tiendaId => $filas) {
             foreach ($meses as $mes) {
+                if (isset(Tienda::cerradasAntesDe($mes)[(int) $tiendaId])) continue;
                 $vigente = null;
                 foreach ($filas as $f) {
                     if ($f->mes <= $mes) $vigente = $f; else break;

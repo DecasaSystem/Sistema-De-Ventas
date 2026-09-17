@@ -734,6 +734,81 @@ class ComisionController extends Controller
     }
 
     /**
+     * A quien le cambian la sede en su perfil se le hace el traslado solo.
+     *
+     * Antes había que hacerlo a mano en dos sitios: registrar el traslado en
+     * Reemplazos (por los días de este mes) y, al mes siguiente, sacarlo del
+     * equipo de una tienda y meterlo en el de la otra. Es justo lo que se
+     * hizo con Genesis al cerrar Circunvalar, y es fácil que se olvide una
+     * de las dos partes: la persona sigue pesando días en una tienda donde
+     * ya no está.
+     *
+     * Solo aplica a quien estaba en el EQUIPO de la tienda que deja: la sede
+     * del perfil no mete a nadie en un reparto (un supervisor con sede en
+     * Norte no cobra parte de Norte), así que a quien no estaba en ningún
+     * equipo cambiarle la sede no le mueve nada de comisiones.
+     *
+     * Lo que se escribe, igual que a mano:
+     *   - un traslado a la tienda nueva de hoy a fin de mes: en la de origen
+     *     deja de contar esos días y en la nueva entra como uno más;
+     *   - desde el mes siguiente, fuera del equipo de origen y dentro del
+     *     de destino (las listas de este mes no se tocan: ya llevan sus días).
+     *
+     * @return array{traslado: bool, desde: int, hasta: int}|null  null si no había nada que mover
+     */
+    public static function trasladarPorCambioDeSede(Usuario $usuario, ?int $de, ?int $a): ?array
+    {
+        if (! $de || ! $a || $de === $a) return null;
+
+        $hoy = self::hoy();
+        $mes = $hoy->format('Y-m');
+
+        $equipoOrigen = collect(TiendaAsesor::vigentesEn($mes)[$de] ?? [])
+            ->pluck('vendedor_id')->map(fn ($v) => (int) $v);
+        if (! $equipoOrigen->contains((int) $usuario->id)) return null;
+
+        $datos = [
+            'tienda_id'      => $a,
+            'tipo'           => TiendaReemplazo::TRASLADO,
+            'usuario_id'     => $usuario->id,
+            'reemplaza_a_id' => null,
+            'desde'          => $hoy->toDateString(),
+            'hasta'          => $hoy->copy()->endOfMonth()->toDateString(),
+            'nota'           => 'Cambio de sede en el perfil',
+        ];
+
+        // Si ya tenía un movimiento en estas fechas (está cubriendo a alguien,
+        // o ya se registró el traslado a mano) no se le pone otro encima: las
+        // listas del mes siguiente sí se corrigen igual.
+        $conTraslado = self::movimientoQueChoca($datos) === null;
+        if ($conTraslado) {
+            TiendaReemplazo::create($datos);
+            TiendaReemplazo::olvidarCache();
+        }
+
+        $siguiente = $hoy->copy()->addMonthNoOverflow()->startOfMonth()->format('Y-m');
+
+        TiendaAsesor::materializar($de, $siguiente);
+        TiendaAsesor::where('tienda_id', $de)->where('mes', $siguiente)
+            ->where('vendedor_id', $usuario->id)->delete();
+
+        TiendaAsesor::materializar($a, $siguiente);
+        TiendaAsesor::firstOrCreate(['tienda_id' => $a, 'mes' => $siguiente, 'vendedor_id' => $usuario->id]);
+        TiendaAsesor::olvidarCache();
+
+        $yo = new static;
+        $yo->sincronizarDivisor($de, $siguiente);
+        $yo->sincronizarDivisor($a, $siguiente);
+        // Las restauraciones y abonos de este mes ya repartidos siguen a la
+        // persona: en la tienda que deja sale de los de hoy en adelante, en
+        // la nueva entra.
+        $yo->rehacerRepartos($de, [$mes]);
+        $yo->rehacerRepartos($a, [$mes]);
+
+        return ['traslado' => $conTraslado, 'desde' => $de, 'hasta' => $a];
+    }
+
+    /**
      * Una persona no puede estar en dos sitios a la vez, ni ser cubierta por
      * dos personas al tiempo. Devuelve el porqué, o null si no choca.
      *

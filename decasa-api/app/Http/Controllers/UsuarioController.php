@@ -458,10 +458,35 @@ class UsuarioController extends Controller
             ], 422);
         }
 
+        $sedeAntes = $usuario->tienda_default_id ? (int) $usuario->tienda_default_id : null;
+
         $usuario->update($data);
+
+        // Cambió de tienda: si estaba en el equipo de comisiones de la que
+        // deja, se traslada solo (ver ComisionController::trasladarPorCambioDeSede).
+        // Antes había que acordarse de hacerlo a mano en Comisiones.
+        $sedeAhora = $usuario->tienda_default_id ? (int) $usuario->tienda_default_id : null;
+        $traslado  = null;
+        if ($sedeAntes !== $sedeAhora) {
+            try {
+                $traslado = ComisionController::trasladarPorCambioDeSede($usuario, $sedeAntes, $sedeAhora);
+            } catch (\Throwable $e) {
+                // El perfil ya quedó cambiado; lo de comisiones se puede
+                // registrar a mano desde Reemplazos si esto falla.
+                \Log::warning('[DECASA] No se pudo trasladar en comisiones al cambiar de sede', [
+                    'usuario' => $usuario->id, 'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
         $usuario->load(['tiendaDefault:id,nombre,ciudad', 'rolAsignado']);
 
-        return response()->json($this->comoJson($usuario));
+        $json = $this->comoJson($usuario);
+        if ($traslado) {
+            $json['traslado_comisiones'] = $traslado;
+        }
+
+        return response()->json($json);
     }
 
     public function toggleActivo($id)

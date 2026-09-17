@@ -16,8 +16,10 @@ import { getTiendas } from '@/api/ordenes'
 import { getRoles } from '@/api/roles'
 import EmptyState from '@/components/common/EmptyState.vue'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
+import { useToast } from '@/composables/useToast'
 
 const route = useRoute()
+const toast = useToast()
 const router = useRouter()
 
 const usuario = ref(null)
@@ -169,7 +171,7 @@ async function submitEdit() {
   }
   editLoading.value = true
   try {
-    await updateUsuario(usuario.value.id, {
+    const { data } = await updateUsuario(usuario.value.id, {
       nombre: editForm.value.nombre.trim(),
       email: editForm.value.email.trim(),
       rol_id: editForm.value.rol_id,
@@ -206,6 +208,13 @@ async function submitEdit() {
       ve_todas_ordenes: editArquetipo.value === 'vendedor' ? editForm.value.ve_todas_ordenes : false,
       tienda_default_id: editMostrarTienda.value ? (editForm.value.tienda_default_id || null) : null,
     })
+    // Si cambió de tienda y estaba en un equipo de comisiones, el servidor
+    // ya lo trasladó: se le dice para que no vaya a hacerlo a mano.
+    if (data?.traslado_comisiones) {
+      toast.info(data.traslado_comisiones.traslado
+        ? 'Cambió de tienda: quedó trasladado en Comisiones (este mes por días, y desde el próximo en el equipo de la nueva tienda).'
+        : 'Cambió de tienda: desde el próximo mes queda en el equipo de la nueva tienda en Comisiones. Este mes ya tenía un movimiento registrado y no se tocó.')
+    }
     showEditModal.value = false
     await cargarUsuario()
   } catch (e) {
