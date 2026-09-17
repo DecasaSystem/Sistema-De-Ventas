@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
-import { editarOrden, editarPago, buscarProductos, getTiendas } from '@/api/ordenes'
+import { editarOrden, editarPago, registrarAnticipo, buscarProductos, getTiendas } from '@/api/ordenes'
 import { getVariantes } from '@/api/inventario'
 import { getReservaInfo } from '@/api/reserva'
 import { useToast } from '@/composables/useToast'
@@ -52,6 +52,14 @@ const pagoAnticipo       = ref(null)   // pago tipo='anticipo' de la orden, si e
 const anticipoMonto      = ref('')
 const anticipoMetodo     = ref('efectivo')
 const anticipoReferencia = ref('')
+
+// Sin anticipo registrado (la orden se creó con $0, o viene de una
+// cotización) se puede registrar desde aquí, en plata, mientras la orden no
+// haya salido: los mismos estados en los que se puede corregir el monto.
+const puedeRegistrarAnticipo = computed(() =>
+  !pagoAnticipo.value && !props.soloPapeles
+  && ['pendiente_anticipo', 'en_produccion'].includes(props.orden?.estado)
+)
 
 // ── Reasignación (solo supervisor) ──────────────────────────────────────────
 const esSupervisor  = computed(() => auth.usuario?.rol === 'supervisor')
@@ -987,6 +995,16 @@ async function guardar() {
       return
     }
   }
+  // Sin anticipo registrado la casilla puede quedar vacía (no ha pagado);
+  // si escriben algo, tiene que caber en lo que debe.
+  if (!pagoAnticipo.value && puedeRegistrarAnticipo.value) {
+    const montoNum = parseFloat(anticipoMonto.value) || 0
+    const saldo    = Number(props.orden.saldo_pendiente ?? props.orden.valor_total ?? 0)
+    if (montoNum < 0 || (saldo > 0 && montoNum > saldo + 0.01)) {
+      toast.error(`El anticipo no puede superar lo que debe la orden ($${saldo.toLocaleString('es-CO')}).`)
+      return
+    }
+  }
   // Un cambio de tela sin la tela nueva no le dice nada al taller.
   const sinTelaNueva = items.value.find(i =>
     i._retapizar && !itemsEliminar.value.includes(i.id)
@@ -1042,6 +1060,26 @@ async function guardar() {
           metodo:     anticipoMetodo.value,
           referencia: anticipoReferencia.value || null,
         })
+      }
+    } else if (puedeRegistrarAnticipo.value && (parseFloat(anticipoMonto.value) || 0) > 0) {
+      // No tenía anticipo y ahora sí: se registra como el de una orden
+      // nueva. Con tarjeta se pierde el descuento por efectivo/transferencia
+      // y el servidor pide confirmarlo antes.
+      const datos = {
+        monto:      parseFloat(anticipoMonto.value),
+        metodo:     anticipoMetodo.value,
+        referencia: anticipoReferencia.value || null,
+      }
+      try {
+        await registrarAnticipo(props.orden.id, datos)
+      } catch (e) {
+        const riesgo = e.response?.status === 409 ? e.response.data?.descuento_en_riesgo : null
+        if (!riesgo) throw e
+        const ok = confirm(
+          `${e.response.data.message}\n\nTotal actual: $${Number(riesgo.valor_actual).toLocaleString('es-CO')} → sin descuento: $${Number(riesgo.valor_sin_descuento).toLocaleString('es-CO')}.\n\n¿Registrar el anticipo de todas formas?`
+        )
+        if (!ok) { guardando.value = false; return }
+        await registrarAnticipo(props.orden.id, { ...datos, aceptar_perdida_descuento: true })
       }
     }
 
@@ -1352,12 +1390,20 @@ async function guardar() {
                   max="100"
                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+                <!-- Es un porcentaje: la plata del anticipo va en el bloque de abajo. -->
+                <p class="text-[11px] text-gray-400 mt-1">Porcentaje, no plata. El anticipo en pesos se registra abajo.</p>
               </div>
             </div>
 
-            <!-- Anticipo -->
-            <div v-if="pagoAnticipo && !soloPapeles" class="space-y-3 border border-amber-200 bg-amber-50 rounded-xl p-4">
-              <p class="text-xs font-semibold text-amber-700 uppercase">Anticipo</p>
+            <!-- Anticipo: corregir el que hay, o registrar el que falta -->
+            <div v-if="(pagoAnticipo && !soloPapeles) || puedeRegistrarAnticipo" class="space-y-3 border border-amber-200 bg-amber-50 rounded-xl p-4">
+              <p class="text-xs font-semibold text-amber-700 uppercase">
+                Anticipo<span v-if="!pagoAnticipo" class="font-normal normal-case text-amber-600"> — sin registrar</span>
+              </p>
+              <p v-if="!pagoAnticipo" class="text-[11px] text-amber-700">
+                Esta orden no tiene anticipo. Si el cliente ya dio plata, escribe cuánto y con qué pagó; queda como el anticipo de la orden.
+                Si no ha pagado nada, déjalo en blanco.
+              </p>
               <div class="grid grid-cols-2 gap-3">
                 <div>
                   <label class="block text-xs font-medium text-gray-600 mb-1">Monto</label>
@@ -1388,7 +1434,11 @@ async function guardar() {
                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
-              <p class="text-[11px] text-amber-700">Corrige aquí si el anticipo se registró mal. El cambio queda en el historial de la orden.</p>
+              <p class="text-[11px] text-amber-700">
+                {{ pagoAnticipo
+                  ? 'Corrige aquí si el anticipo se registró mal. El cambio queda en el historial de la orden.'
+                  : 'Queda en el historial de la orden y le avisa a facturación, igual que cualquier pago.' }}
+              </p>
             </div>
 
             <!-- Reasignación (solo supervisor) -->

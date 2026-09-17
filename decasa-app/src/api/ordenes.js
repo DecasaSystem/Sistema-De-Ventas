@@ -8,6 +8,8 @@ export const previsualizarAnulacion = (id) => api.get(`/ordenes/${id}/anulacion`
 export const getPagos = (id) => api.get(`/ordenes/${id}/pagos`)
 export const registrarPago = (id, data) => api.post(`/ordenes/${id}/pagos`, data)
 export const editarPago = (pagoId, data) => api.patch(`/pagos/${pagoId}`, data)
+// El anticipo de una orden que quedó sin él, desde editar.
+export const registrarAnticipo = (id, data) => api.post(`/ordenes/${id}/anticipo`, data)
 export const descargarPdfOrden = (id) => api.get(`/ordenes/${id}/pdf`, { responseType: 'blob' })
 
 /** Acta de satisfacción firmada por quien recibió la entrega. */

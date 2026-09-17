@@ -352,6 +352,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/ordenes/{id}/pagos', [PagoController::class, 'store']);
     // Avisa si cobrar con ese método hace perder el descuento condicionado
     Route::post('/ordenes/{id}/verificar-pago', [PagoController::class, 'verificarPago']);
+    // El anticipo de una orden que quedó sin él (se crea con $0, o viene de
+    // una cotización): se registra desde editar, en plata, no en %.
+    Route::post('/ordenes/{id}/anticipo',       [PagoController::class, 'registrarAnticipo'])->whereNumber('id');
     Route::patch('/pagos/{id}', [PagoController::class, 'update']);
     Route::post('/pagos/{id}/tomar-facturacion', [PagoController::class, 'tomarFacturacion']);
     Route::post('/pagos/{id}/marcar-facturada',  [PagoController::class, 'marcarFacturada']);

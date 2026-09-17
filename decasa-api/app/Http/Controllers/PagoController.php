@@ -216,6 +216,123 @@ class PagoController extends Controller
     }
 
     /**
+     * POST /api/ordenes/{id}/anticipo
+     *
+     * Registra el anticipo de una orden que quedó sin él.
+     *
+     * Pasa más de lo que parece: la orden se crea con "$0 — sin anticipo"
+     * porque el cliente paga al rato, o se convierte de una cotización, y
+     * cuando llega la plata no había por dónde meterla como anticipo. Desde
+     * editar solo se podía corregir un anticipo que ya existiera, y el "% de
+     * anticipo sugerido" es un porcentaje, no plata: la gente terminaba
+     * escribiendo ahí el monto.
+     *
+     * Es la misma fila que escribe crear la orden (tipo 'anticipo', sin
+     * comprobante obligatorio), con lo que mueve un pago: comisión, aviso a
+     * facturación y el descuento condicionado si se paga con tarjeta.
+     */
+    public function registrarAnticipo(Request $request, int $id)
+    {
+        $usuario = $request->user();
+        $orden   = Orden::with('items')->findOrFail($id);
+
+        if (! $orden->laPuedeCobrar($usuario)) {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+
+        // Los mismos estados en los que se puede corregir el monto de un
+        // anticipo: antes de que la orden salga.
+        if (! in_array($orden->estado, ['pendiente_anticipo', 'en_produccion'], true)) {
+            return response()->json([
+                'message' => 'En una orden "' . $orden->estado . '" el anticipo ya no se registra por aquí: usa "Registrar pago".',
+            ], 422);
+        }
+
+        if ($orden->pagos()->where('tipo', 'anticipo')->exists()) {
+            return response()->json(['message' => 'Esta orden ya tiene anticipo. Corrígelo desde el mismo formulario.'], 422);
+        }
+
+        $data = $request->validate([
+            'monto'      => 'required|numeric|min:1',
+            'metodo'     => 'required|in:efectivo,transferencia,tarjeta,otro',
+            'referencia' => 'nullable|string|max:100',
+            'aceptar_perdida_descuento' => 'nullable|boolean',
+        ]);
+
+        // Con tarjeta se pierde el descuento por efectivo/transferencia: se
+        // avisa antes, igual que al registrar cualquier pago.
+        $pierdeDescuento = $orden->tieneDescuentoCondicionadoVivo()
+            && Orden::metodoPierdeDescuento($data['metodo']);
+
+        if ($pierdeDescuento && ! $request->boolean('aceptar_perdida_descuento')) {
+            $valorNuevo = $orden->valorSinDescuentoCondicionado();
+
+            return response()->json([
+                'message' => 'Esta orden tiene un descuento por pago en efectivo o transferencia. Al pagar con '
+                    . $data['metodo'] . ' el descuento se pierde y el total sube.',
+                'descuento_en_riesgo' => [
+                    'descuento'           => (float) $orden->descuento_condicionado,
+                    'valor_actual'        => (float) $orden->valor_total,
+                    'valor_sin_descuento' => $valorNuevo,
+                ],
+            ], 409);
+        }
+
+        if ($pierdeDescuento) {
+            DescuentoCondicionadoService::quitar($orden, $usuario, $data['metodo']);
+            $orden->refresh();
+        }
+
+        $saldoPendiente = $orden->saldoPendiente();
+        if ($data['monto'] > $saldoPendiente + 0.01) {
+            return response()->json([
+                'message' => "El monto ({$data['monto']}) supera el saldo pendiente (" . round($saldoPendiente, 2) . ").",
+                'errors'  => ['monto' => ['No puede superar el saldo pendiente.']],
+            ], 422);
+        }
+
+        $pago = DB::transaction(function () use ($orden, $usuario, $data) {
+            $pago = $orden->pagos()->create([
+                'vendedor_id' => $usuario->id,
+                'tienda_id'   => $orden->tienda_id,
+                'tipo'        => 'anticipo',
+                'monto'       => $data['monto'],
+                'metodo'      => $data['metodo'],
+                'referencia'  => $data['referencia'] ?? null,
+            ]);
+
+            \App\Models\OrdenEdicion::create([
+                'orden_id'   => $orden->id,
+                'usuario_id' => $usuario->id,
+                'cambios'    => [[
+                    'campo'   => "pago_{$pago->id}_monto",
+                    'label'   => 'Anticipo registrado',
+                    'antes'   => null,
+                    'despues' => (float) $pago->monto,
+                ]],
+            ]);
+
+            return $pago;
+        });
+
+        ComisionController::sincronizarValorOrden($orden->fresh());
+
+        \App\Services\AvisoFacturacion::cambioDeDinero(
+            $orden->fresh(),
+            $usuario,
+            [['campo' => "pago_{$pago->id}_monto", 'label' => 'Anticipo registrado', 'antes' => null, 'despues' => (float) $pago->monto]],
+            'anticipo registrado desde editar',
+        );
+
+        return response()->json([
+            'pago'                => $pago,
+            'total_pagado'        => $orden->totalPagado(),
+            'saldo_pendiente'     => $orden->saldoPendiente(),
+            'descuento_revertido' => $pierdeDescuento,
+        ], 201);
+    }
+
+    /**
      * PATCH /api/pagos/{id}
      * Corrige un pago ya registrado (monto/método/referencia), p. ej. cuando
      * el anticipo se digitó mal. Queda auditado en orden_ediciones.
