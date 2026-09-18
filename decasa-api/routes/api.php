@@ -521,6 +521,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/categorias',       [StatsController::class, 'categorias']);
         Route::get('/cartera',          [StatsController::class, 'cartera']);
         Route::get('/vendedores/me',    [StatsController::class, 'statsMe']);
+        // Las tarjetas de tienda de Reportes, pero solo de las tiendas de quien
+        // pregunta: para "Mis estadísticas", donde el vendedor no entra a Reportes.
+        Route::get('/mis-tiendas',      [StatsController::class, 'misTiendas']);
         Route::get('/conductor',        [StatsController::class, 'statsConductor']);
 
         // Solo supervisor

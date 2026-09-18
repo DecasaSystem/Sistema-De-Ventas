@@ -29,12 +29,29 @@ class VendedorStatsCobradoTest extends TestCase
 
         Schema::create('usuarios', function (Blueprint $t) {
             $t->id(); $t->string('nombre'); $t->string('email')->nullable(); $t->string('password')->nullable();
-            $t->string('rol')->nullable(); $t->boolean('activo')->default(true);
+            $t->string('rol')->nullable(); $t->boolean('activo')->default(true); $t->boolean('independiente')->default(false);
             $t->unsignedBigInteger('tienda_default_id')->nullable(); $t->timestamp('created_at')->nullable();
         });
-        Schema::create('tiendas', function (Blueprint $t) { $t->id(); $t->string('nombre'); });
+        Schema::create('tiendas', function (Blueprint $t) {
+            $t->id(); $t->string('nombre'); $t->boolean('activa')->default(true);
+            $t->boolean('es_independientes')->default(false); $t->date('cerrada_en')->nullable();
+        });
+        Schema::create('tienda_asesores_comision', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('tienda_id'); $t->string('mes', 7); $t->unsignedBigInteger('vendedor_id'); $t->timestamps();
+        });
+        Schema::create('tienda_reemplazos', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('tienda_id'); $t->string('tipo')->default('reemplazo');
+            $t->unsignedBigInteger('usuario_id'); $t->unsignedBigInteger('reemplaza_a_id')->nullable();
+            $t->date('desde'); $t->date('hasta')->nullable(); $t->string('nota')->nullable(); $t->timestamps();
+        });
+        Schema::create('comisiones', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('orden_id')->nullable(); $t->unsignedBigInteger('vendedor_id');
+            $t->unsignedBigInteger('tienda_id')->nullable(); $t->string('origen')->default('venta');
+            $t->char('mes_venta', 7); $t->decimal('valor_orden', 15, 2)->default(0);
+        });
         Schema::create('metas_tienda', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('tienda_id'); $t->string('mes'); $t->decimal('meta', 15, 2)->default(0);
+            $t->unsignedInteger('divisor_asesores')->default(1); $t->timestamps();
         });
         Schema::create('clientes', function (Blueprint $t) { $t->id(); $t->string('nombre'); $t->timestamps(); });
         Schema::create('productos', function (Blueprint $t) { $t->id(); $t->string('nombre'); $t->string('categoria')->nullable(); });
@@ -49,9 +66,11 @@ class VendedorStatsCobradoTest extends TestCase
         Schema::create('orden_items', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('orden_id'); $t->unsignedBigInteger('producto_id')->nullable();
             $t->integer('cantidad')->default(1); $t->decimal('precio_unitario', 15, 2)->default(0);
+            $t->boolean('es_restauracion')->default(false);
         });
         Schema::create('pagos', function (Blueprint $t) {
-            $t->id(); $t->unsignedBigInteger('orden_id'); $t->decimal('monto', 15, 2)->default(0); $t->timestamps();
+            $t->id(); $t->unsignedBigInteger('orden_id'); $t->unsignedBigInteger('tienda_id')->nullable();
+            $t->decimal('monto', 15, 2)->default(0); $t->string('metodo')->nullable(); $t->timestamps();
         });
 
         DB::statement('

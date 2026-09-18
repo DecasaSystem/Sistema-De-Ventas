@@ -416,6 +416,142 @@ class StatsController extends Controller
                                  ->orWhereIn('id', $conMovimiento ?: [0]))
             ->get();
 
+        // De la que más vendió a la que menos, y con los independientes
+        // mezclados en el mismo orden. Antes salían en el orden de la tabla y
+        // los independientes siempre al final, así que había que ir leyendo
+        // cifra por cifra para saber quién iba ganando — que es lo único que
+        // se le pregunta a esta pantalla.
+        return response()->json(
+            $this->filasTiendas($tiendas, $rango, $desde, $hasta)
+                ->concat($this->filasPorSuCuenta($rango, $desde, $hasta))
+                ->sortByDesc('total_vendido')
+                ->values()
+        );
+    }
+
+    // ─── GET /api/stats/mis-tiendas ──────────────────────────────────────────
+
+    /**
+     * Las tarjetas de tienda de Reportes, pero solo de las tiendas de quien
+     * pregunta: donde está hoy (cubriendo, trasladado o en el equipo), la de
+     * su ficha y aquellas por donde entraron sus ventas del período. Un
+     * vendedor no entra a Reportes, y en "Mis estadísticas" solo veía sus
+     * propios números sin saber cómo iba su tienda.
+     *
+     * Cada tarjeta trae además `mi_parte`: cuánto de lo vendido por esa
+     * tienda en el rango es de esta persona.
+     */
+    public function misTiendas(Request $request)
+    {
+        $user  = $request->user();
+        $f     = $this->parseFechas($request);
+        $desde = $f['desde']; $hasta = $f['hasta'];
+        $rango = $this->rangoUtc($desde, $hasta);
+
+        // Quien vende por su cuenta no tiene tienda: su tarjeta es la suya.
+        if ($user->independiente) {
+            return response()->json(
+                $this->filasPorSuCuenta($rango, $desde, $hasta, [$user->id])->values()
+            );
+        }
+
+        $mesActual = Carbon::now(self::TZ_NEGOCIO)->format('Y-m');
+        $tiendaHoy = $this->tiendaParaMetaDe($user->id, $user->tienda_default_id, $mesActual)['id'];
+
+        $conVentas = DB::table('ordenes')
+            ->whereBetween('created_at', $rango)
+            ->whereNotIn('estado', Orden::ESTADOS_NO_COMERCIALES)
+            ->where('vendedor_id', $user->id)
+            ->distinct()->pluck('tienda_id')->filter()->all();
+
+        $ids = array_values(array_unique(array_filter(array_merge(
+            [$tiendaHoy, $user->tienda_default_id], $conVentas
+        ))));
+
+        if (! $ids) return response()->json([]);
+
+        $tiendas = DB::table('tiendas')
+            ->whereIn('id', $ids)
+            ->where('es_independientes', false)
+            ->get();
+
+        $miParte = $this->miParteEnTiendas($user->id, $ids, $rango);
+
+        // La tienda donde está hoy va primera: es la que le importa. Las
+        // demás, de la que más vendió a la que menos.
+        $filas = $this->filasTiendas($tiendas, $rango, $desde, $hasta)
+            ->map(function ($fila) use ($miParte, $tiendaHoy) {
+                $parte = $miParte[$fila['tienda_id']] ?? ['vendido' => 0.0, 'ordenes' => 0];
+                $fila['mi_parte'] = [
+                    'vendido' => $parte['vendido'],
+                    'ordenes' => $parte['ordenes'],
+                    'pct'     => $fila['total_vendido'] > 0
+                        ? round($parte['vendido'] / $fila['total_vendido'] * 100, 1)
+                        : null,
+                ];
+                $fila['es_mi_tienda_hoy'] = (int) $fila['tienda_id'] === $tiendaHoy;
+                return $fila;
+            })
+            ->sortByDesc('total_vendido')
+            ->sortByDesc('es_mi_tienda_hoy')
+            ->values();
+
+        return response()->json($filas);
+    }
+
+    /**
+     * Cuánto de lo vendido por cada tienda en el rango es de este vendedor.
+     *
+     * Mismo criterio que ordenesPorTienda(): la compartida vale la mitad, y
+     * esa mitad se le acredita a la tienda de la orden si es el vendedor
+     * principal, o a la tienda de su ficha si es el covendedor.
+     *
+     * @return array<int, array{vendido: float, ordenes: int}>
+     */
+    private function miParteEnTiendas(int $vendedorId, array $tiendaIds, array $rango): array
+    {
+        $valor = 'CASE WHEN o.es_compartida = 1 THEN o.valor_total / 2 ELSE o.valor_total END';
+
+        $ppal = DB::table('ordenes as o')
+            ->whereBetween('o.created_at', $rango)
+            ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES)
+            ->where('o.vendedor_id', $vendedorId)
+            ->whereIn('o.tienda_id', $tiendaIds)
+            ->selectRaw("o.tienda_id AS quien, COUNT(*) AS total, SUM($valor) AS vendido")
+            ->groupBy('o.tienda_id')->get();
+
+        $co = DB::table('ordenes as o')->join('usuarios as u', 'u.id', '=', 'o.covendedor_id')
+            ->where('o.es_compartida', true)
+            ->whereBetween('o.created_at', $rango)
+            ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES)
+            ->where('o.covendedor_id', $vendedorId)
+            ->whereIn('u.tienda_default_id', $tiendaIds)
+            ->selectRaw("u.tienda_default_id AS quien, COUNT(*) AS total, SUM($valor) AS vendido")
+            ->groupBy('u.tienda_default_id')->get();
+
+        $out = [];
+        foreach ([$ppal, $co] as $conjunto) {
+            foreach ($conjunto as $f) {
+                $id = (int) $f->quien;
+                $out[$id]['ordenes'] = ($out[$id]['ordenes'] ?? 0) + (int) $f->total;
+                $out[$id]['vendido'] = ($out[$id]['vendido'] ?? 0) + (float) $f->vendido;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Una fila por tienda con todo lo que muestra su tarjeta: vendido,
+     * cobrado, cartera, órdenes, meta del mes y quién va primero.
+     *
+     * Lo usan la pestaña Tiendas de Reportes (todas) y "Mis estadísticas"
+     * (solo las del vendedor), para que las dos digan lo mismo de una tienda.
+     */
+    private function filasTiendas(\Illuminate\Support\Collection $tiendas, array $rango, string $desde, string $hasta): \Illuminate\Support\Collection
+    {
+        if ($tiendas->isEmpty()) return collect();
+
         $mesActual = Carbon::now(self::TZ_NEGOCIO)->format('Y-m');
         $metasVigentes = \App\Models\MetaTienda::vigentesEn($mesActual);
         // Se resuelve una vez para todas las tiendas, no una consulta por cada una.
@@ -499,28 +635,22 @@ class StatsController extends Controller
             ];
         });
 
-        // De la que más vendió a la que menos, y con los independientes
-        // mezclados en el mismo orden. Antes salían en el orden de la tabla y
-        // los independientes siempre al final, así que había que ir leyendo
-        // cifra por cifra para saber quién iba ganando — que es lo único que
-        // se le pregunta a esta pantalla.
-        return response()->json(
-            $resultado->concat($this->filasPorSuCuenta($rango, $desde, $hasta))
-                ->sortByDesc('total_vendido')
-                ->values()
-        );
+        return $resultado;
     }
 
     /**
      * Una fila por cada vendedor que va por su cuenta, con la misma forma que
      * la de una tienda para poder ordenarlos y compararlos en la misma tabla.
+     *
+     * @param int[]|null $soloIds  Solo estos independientes (null = todos los activos).
      */
-    private function filasPorSuCuenta(array $rango, string $desde, string $hasta): \Illuminate\Support\Collection
+    private function filasPorSuCuenta(array $rango, string $desde, string $hasta, ?array $soloIds = null): \Illuminate\Support\Collection
     {
         $rangoCreacion = $this->rangoUtc($desde, $hasta);
 
         $gente = DB::table('usuarios')
             ->where('activo', true)->where('independiente', true)
+            ->when($soloIds !== null, fn ($q) => $q->whereIn('id', $soloIds))
             ->orderBy('nombre')->get();
 
         if ($gente->isEmpty()) return collect();
@@ -986,7 +1116,7 @@ class StatsController extends Controller
     public function statsMe(Request $request)
     {
         $f = $this->parseFechas($request);
-        return response()->json($this->perfilVendedor($request->user()->id, $f['desde'], $f['hasta']));
+        return response()->json($this->perfilVendedor($request->user()->id, $f));
     }
 
     // ─── GET /api/stats/vendedor/{id} ────────────────────────────────────────
@@ -998,7 +1128,7 @@ class StatsController extends Controller
         if ($user->rol === 'vendedor' && $user->id !== $id) abort(403);
 
         $f      = $this->parseFechas($request);
-        $perfil = $this->perfilVendedor($id, $f['desde'], $f['hasta']);
+        $perfil = $this->perfilVendedor($id, $f);
 
         // Si supervisor, añadir comparativa vs promedio del equipo
         if ($user->rol === 'supervisor') {
@@ -1218,17 +1348,46 @@ class StatsController extends Controller
         // Antes se devolvía "ingresos + cartera" con la cartera sin filtro de
         // fecha, así que a cada persona se le sumaba toda la deuda que venía
         // arrastrando de meses anteriores y sus ventas salían infladas.
-        $vendidoBase = $esVendedor
-            ? DB::table('ordenes')->where($whereVendedor)
-            : DB::table('ordenes')->where($columna, $valor);
+        $valorExpr = $esVendedor
+            ? 'CASE WHEN o.es_compartida = 1 THEN o.valor_total / 2 ELSE o.valor_total END'
+            : 'o.valor_total';
 
-        $totalVendido = (float) $vendidoBase
-            ->whereBetween('created_at', $rango)
-            ->whereNotIn('estado', Orden::ESTADOS_NO_COMERCIALES)
-            ->selectRaw($esVendedor
-                ? 'SUM(CASE WHEN es_compartida = 1 THEN valor_total / 2 ELSE valor_total END) as total'
-                : 'SUM(valor_total) as total')
-            ->value('total') ?? 0;
+        $vendidoQ = DB::table('ordenes as o')
+            ->whereBetween('o.created_at', $rango)
+            ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES);
+        if ($esVendedor) $vendidoQ->where($whereVendedorO);
+        else             $vendidoQ->where("o.$columna", $valor);
+
+        $totalVendido = (float) (clone $vendidoQ)->selectRaw("SUM($valorExpr) as total")->value('total') ?? 0;
+
+        // De qué es esa plata: venta, restauración o la serie con descuento.
+        // Se pregunta sobre lo MISMO que ya se sumó, así que los tres cajones
+        // dan justo el total de arriba (igual que en el Resumen de Reportes).
+        $porTipo = (clone $vendidoQ)
+            ->selectRaw(Orden::selectMontosPorTipo($valorExpr))
+            ->selectRaw('
+                SUM(CASE WHEN (' . Orden::sqlTipo() . ") = 'venta'        THEN 1 ELSE 0 END) AS ordenes_venta,
+                SUM(CASE WHEN (" . Orden::sqlTipo() . ") = 'restauracion' THEN 1 ELSE 0 END) AS ordenes_restauracion,
+                SUM(CASE WHEN (" . Orden::sqlTipo() . ") = 'fv2'          THEN 1 ELSE 0 END) AS ordenes_fv2
+            ")
+            ->first();
+
+        // Por cobrar DE LO VENDIDO EN EL PERÍODO: el saldo de las órdenes
+        // creadas en el rango. Es la otra mitad de "Total vendido" —vendido =
+        // cobrado + por cobrar— y no la cartera viva de abajo, que es de
+        // siempre. Sin esto el recuadro del vendedor no cuadraba como el del
+        // Resumen.
+        $saldoExpr = $esVendedor
+            ? 'CASE WHEN o.es_compartida = 1 THEN v.saldo_pendiente / 2 ELSE v.saldo_pendiente END'
+            : 'v.saldo_pendiente';
+        $carteraPeriodoQ = DB::table('v_saldo_ordenes as v')
+            ->join('ordenes as o', 'o.id', '=', 'v.orden_id')
+            ->whereBetween('o.created_at', $rango)
+            ->where('v.saldo_pendiente', '>', 0)
+            ->whereNotIn('o.estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES));
+        if ($esVendedor) $carteraPeriodoQ->where($whereVendedorO);
+        else             $carteraPeriodoQ->where("o.$columna", $valor);
+        $carteraPeriodo = (float) $carteraPeriodoQ->selectRaw("SUM($saldoExpr) as total")->value('total') ?? 0;
 
         // Cartera: saldo vivo de hoy, a propósito sin filtro de fecha. Incluye
         // las entregadas que todavía deben — el mueble salió pero la plata se
@@ -1305,6 +1464,25 @@ class StatsController extends Controller
             // cobrado/entregadas, que marcaba $0 mientras no hubiera entregas.
             'ticket_promedio'    => $ordenesCreadas > 0 ? round($totalVendido / $ordenesCreadas) : 0,
             'cartera_pendiente'  => $cartera,
+            // Saldo de lo vendido en el rango: con `dinero_vendido` suma
+            // `total_vendido`. La deuda viva de siempre es `cartera_pendiente`.
+            'cartera_periodo'    => $carteraPeriodo,
+            // De qué tipo de orden viene lo vendido. Los tres suman
+            // `total_vendido`.
+            'por_tipo' => [
+                'venta' => [
+                    'monto'   => (float) ($porTipo->monto_venta ?? 0),
+                    'ordenes' => (int)   ($porTipo->ordenes_venta ?? 0),
+                ],
+                'restauracion' => [
+                    'monto'   => (float) ($porTipo->monto_restauracion ?? 0),
+                    'ordenes' => (int)   ($porTipo->ordenes_restauracion ?? 0),
+                ],
+                'fv2' => [
+                    'monto'   => (float) ($porTipo->monto_fv2 ?? 0),
+                    'ordenes' => (int)   ($porTipo->ordenes_fv2 ?? 0),
+                ],
+            ],
             'top_productos'      => $topProductos,
             'ordenes_recientes'  => $ordenesRecientes,
             'canales'            => $canales,
@@ -1313,8 +1491,13 @@ class StatsController extends Controller
 
     // ─── Perfil individual por vendedor ─────────────────────────────────────
 
-    private function perfilVendedor(int $vendedorId, string $desde, string $hasta): array
+    /**
+     * @param array{desde:string, hasta:string, desdeAnterior:string, hastaAnterior:string} $f  Lo que da parseFechas().
+     */
+    private function perfilVendedor(int $vendedorId, array $f): array
     {
+        $desde = $f['desde']; $hasta = $f['hasta'];
+
         $vendedor = DB::table('usuarios as u')
             ->leftJoin('tiendas as t', 't.id', '=', 'u.tienda_default_id')
             ->where('u.id', $vendedorId)
@@ -1324,6 +1507,17 @@ class StatsController extends Controller
         $data = $this->perfilPor('vendedor_id', $vendedorId, $desde, $hasta);
         $data['vendedor'] = $vendedor;
         $data['periodo']  = ['desde' => $desde, 'hasta' => $hasta];
+
+        // "% vs período anterior", como en el Resumen: se compara lo vendido
+        // —lo que dice el número grande— contra el rango anterior de la misma
+        // duración. Solo hace falta ese total, no el perfil entero de antes.
+        $vendidoAnterior = $this->vendidoDeVendedor($vendedorId, $f['desdeAnterior'], $f['hastaAnterior']);
+        $data['comparativa'] = [
+            'vendido_anterior' => $vendidoAnterior,
+            'variacion_pct'    => $vendidoAnterior > 0
+                ? round(($data['total_vendido'] - $vendidoAnterior) / $vendidoAnterior * 100, 1)
+                : null,
+        ];
 
         // Meta mensual de la tienda del vendedor (siempre mes actual, independiente del período)
         $mesActual  = Carbon::now(self::TZ_NEGOCIO)->format('Y-m');
@@ -1360,6 +1554,24 @@ class StatsController extends Controller
         ];
 
         return $data;
+    }
+
+    /**
+     * Lo vendido por una persona en un rango: el valor de sus órdenes creadas
+     * ahí, con la mitad de las compartidas (como principal o como covendedor).
+     * Es el mismo "Total vendido" de perfilPor(), en una sola consulta.
+     */
+    private function vendidoDeVendedor(int $vendedorId, string $desde, string $hasta): float
+    {
+        return (float) DB::table('ordenes as o')
+            ->whereBetween('o.created_at', $this->rangoUtc($desde, $hasta))
+            ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES)
+            ->where(function ($q) use ($vendedorId) {
+                $q->where('o.vendedor_id', $vendedorId)
+                  ->orWhere(fn ($q2) => $q2->where('o.covendedor_id', $vendedorId)->where('o.es_compartida', true));
+            })
+            ->selectRaw('SUM(CASE WHEN o.es_compartida = 1 THEN o.valor_total / 2 ELSE o.valor_total END) AS total')
+            ->value('total') ?? 0;
     }
 
     /**
