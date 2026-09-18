@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Herramienta;
 use App\Models\Modulo;
+use App\Models\ModuloItem;
 use App\Models\Usuario;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Hash;
@@ -28,6 +29,7 @@ class PersonalizacionTest extends TestCase
         Schema::create('usuarios', function (Blueprint $t) {
             $t->id(); $t->string('nombre'); $t->string('email')->nullable(); $t->string('password')->nullable();
             $t->string('rol')->nullable(); $t->unsignedBigInteger('rol_id')->nullable();
+            $t->boolean('recarga_telas')->default(false); $t->boolean('acceso_telas')->default(false);
             $t->boolean('activo')->default(true); $t->boolean('no_usa_programa')->default(false);
             $t->boolean('ve_todas_ordenes')->default(true);
             $t->unsignedBigInteger('tienda_default_id')->nullable();
@@ -44,8 +46,22 @@ class PersonalizacionTest extends TestCase
             $t->boolean('acceso_compras')->default(false); $t->timestamps();
         });
         Schema::create('modulos', function (Blueprint $t) {
-            $t->id(); $t->string('clave')->unique(); $t->string('nombre'); $t->string('icono');
+            $t->id(); $t->string('clave')->unique(); $t->string('plantilla', 30)->nullable();
+            $t->string('nombre'); $t->text('icono'); $t->json('config')->nullable();
             $t->boolean('visible')->default(true); $t->unsignedSmallInteger('orden')->default(0); $t->timestamps();
+        });
+        // Los ítems de los módulos que nacen de Telas (Espumas, Hilos...).
+        Schema::create('modulo_items', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('modulo_id');
+            $t->string('marca'); $t->string('tipo'); $t->string('color');
+            $t->string('referencia')->nullable(); $t->string('textura')->nullable(); $t->string('foto_url')->nullable();
+            $t->decimal('cantidad_disponible', 10, 2)->default(0); $t->boolean('activo')->default(true); $t->timestamps();
+            $t->unique(['modulo_id', 'marca', 'tipo', 'color']);
+        });
+        Schema::create('notificaciones', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('usuario_id')->nullable(); $t->string('tipo', 50);
+            $t->string('titulo', 200); $t->string('mensaje', 500); $t->boolean('leida')->default(false);
+            $t->boolean('urgente')->default(false); $t->json('datos')->nullable(); $t->timestamps();
         });
         Schema::create('herramientas', function (Blueprint $t) {
             $t->id(); $t->string('clave')->nullable()->unique();
@@ -152,6 +168,178 @@ class PersonalizacionTest extends TestCase
         $this->actingAs($this->jefe())->patchJson('/api/modulos', [
             'modulos' => [['clave' => 'telas', 'nombre' => '', 'icono' => 'SwatchIcon']],
         ])->assertStatus(422);
+    }
+
+    /** Un icono dibujado a mano es el trazo de un SVG: mucho más largo que un nombre. */
+    public function test_el_icono_puede_ser_un_dibujo(): void
+    {
+        $dibujo = 'dibujo:' . str_repeat('M2 2L22 22M2 22L22 2', 60);
+
+        $this->actingAs($this->jefe())->patchJson('/api/modulos', [
+            'modulos' => [['clave' => 'telas', 'nombre' => 'Telas', 'icono' => $dibujo]],
+        ])->assertOk();
+
+        $this->assertSame($dibujo, Modulo::where('clave', 'telas')->first()->icono);
+    }
+
+    // ── Módulos a partir de otros ─────────────────────────────────────────────
+
+    private function espumas(): Modulo
+    {
+        $res = $this->actingAs($this->jefe())->postJson('/api/modulos', [
+            'plantilla' => 'telas',
+            'nombre'    => 'Espumas',
+            'icono'     => 'CubeIcon',
+            'config'    => ['unidad' => 'láminas', 'singular' => 'espuma', 'decimales' => 0],
+        ])->assertStatus(201);
+
+        return Modulo::findOrFail($res->json('id'));
+    }
+
+    /** La mueblería lleva Telas por metros y Espumas por láminas: la misma pantalla, otro nombre. */
+    public function test_el_jefe_crea_espumas_a_partir_de_telas(): void
+    {
+        $espumas = $this->espumas();
+
+        $this->assertSame('telas-espumas', $espumas->clave);
+        $this->assertSame('telas', $espumas->plantilla);
+        $this->assertSame('láminas', $espumas->configCompleta()['unidad']);
+        $this->assertSame(0, $espumas->configCompleta()['decimales']);
+
+        // A todo el mundo le llega con su config completa y detrás de los de siempre.
+        $lista = $this->actingAs($this->vendedor())->getJson('/api/modulos')->assertOk()->json();
+        $ultimo = end($lista);
+        $this->assertSame('telas-espumas', $ultimo['clave']);
+        $this->assertSame('espuma', $ultimo['config']['singular']);
+        $this->assertNull($lista[0]['config']);
+    }
+
+    /** Lo que no se llene lo pone la plantilla: sin unidad, se hereda la de Telas. */
+    public function test_la_config_que_no_se_llena_la_pone_la_plantilla(): void
+    {
+        $res = $this->actingAs($this->jefe())->postJson('/api/modulos', [
+            'plantilla' => 'telas', 'nombre' => 'Hilos', 'icono' => 'SwatchIcon',
+        ])->assertStatus(201);
+
+        $this->assertSame('m', $res->json('config.unidad'));
+        $this->assertSame('tela', $res->json('config.singular'));
+    }
+
+    /** Dos módulos con el mismo nombre no pueden compartir clave. */
+    public function test_dos_con_el_mismo_nombre_no_chocan(): void
+    {
+        $this->espumas();
+        $res = $this->actingAs($this->jefe())->postJson('/api/modulos', [
+            'plantilla' => 'telas', 'nombre' => 'Espumas', 'icono' => 'CubeIcon',
+        ])->assertStatus(201);
+
+        $this->assertSame('telas-espumas-2', $res->json('clave'));
+    }
+
+    public function test_solo_se_copia_de_una_plantilla_que_exista(): void
+    {
+        $this->actingAs($this->jefe())->postJson('/api/modulos', [
+            'plantilla' => 'nomina', 'nombre' => 'Otra nómina', 'icono' => 'BanknotesIcon',
+        ])->assertStatus(422);
+    }
+
+    public function test_un_vendedor_no_crea_modulos(): void
+    {
+        $this->actingAs($this->vendedor())->postJson('/api/modulos', [
+            'plantilla' => 'telas', 'nombre' => 'Espumas', 'icono' => 'CubeIcon',
+        ])->assertStatus(403);
+    }
+
+    /** Un módulo de siempre no tiene cómo volver si se borra: se apaga, no se borra. */
+    public function test_los_modulos_de_siempre_no_se_borran(): void
+    {
+        $telas = Modulo::where('clave', 'telas')->first();
+
+        $this->actingAs($this->jefe())->deleteJson("/api/modulos/{$telas->id}")->assertStatus(422);
+
+        $this->assertNotNull(Modulo::find($telas->id));
+    }
+
+    public function test_borrar_una_copia_se_lleva_sus_items(): void
+    {
+        $espumas = $this->espumas();
+        ModuloItem::create(['modulo_id' => $espumas->id, 'marca' => 'X', 'tipo' => 'D25', 'color' => 'Blanca']);
+
+        $this->actingAs($this->jefe())->deleteJson("/api/modulos/{$espumas->id}")->assertOk();
+
+        $this->assertNull(Modulo::find($espumas->id));
+        // En MySQL lo hace la llave foránea en cascada; aquí se comprueba que
+        // el módulo se fue, que es lo que la pantalla necesita.
+    }
+
+    // ── Los ítems de un módulo copiado ────────────────────────────────────────
+
+    public function test_agregar_recargar_y_descontar_una_espuma(): void
+    {
+        $espumas = $this->espumas();
+        $jefe    = $this->jefe();
+
+        $res = $this->actingAs($jefe)->postJson("/api/modulos/{$espumas->clave}/items", [
+            'marca' => 'Espumas del Valle', 'tipo' => 'D25', 'color' => 'Blanca', 'cantidad_inicial' => 10,
+        ])->assertStatus(201);
+        $id = $res->json('id');
+        $this->assertEquals(10, $res->json('cantidad_libre'));
+
+        $this->actingAs($jefe)->postJson("/api/modulos/{$espumas->clave}/items/recargar", [
+            'id' => $id, 'cantidad' => 5,
+        ])->assertOk()->assertJsonPath('cantidad_libre', 15);
+
+        $this->actingAs($jefe)->postJson("/api/modulos/{$espumas->clave}/items/descontar", [
+            'id' => $id, 'cantidad' => 4,
+        ])->assertOk()->assertJsonPath('cantidad_libre', 11);
+
+        // No se puede descontar más de lo que hay.
+        $this->actingAs($jefe)->postJson("/api/modulos/{$espumas->clave}/items/descontar", [
+            'id' => $id, 'cantidad' => 50,
+        ])->assertStatus(422);
+
+        $lista = $this->actingAs($this->vendedor())->getJson("/api/modulos/{$espumas->clave}/items")->assertOk()->json();
+        $this->assertCount(1, $lista);
+        $this->assertEquals(11, $lista[0]['cantidad_libre']);
+    }
+
+    /** Las espumas de un módulo no se mezclan con las de otro. */
+    public function test_cada_modulo_tiene_sus_propios_items(): void
+    {
+        $espumas = $this->espumas();
+        $hilos   = Modulo::create(['clave' => 'telas-hilos', 'plantilla' => 'telas', 'nombre' => 'Hilos', 'icono' => 'SwatchIcon']);
+        ModuloItem::create(['modulo_id' => $espumas->id, 'marca' => 'A', 'tipo' => 'D25', 'color' => 'Blanca']);
+        ModuloItem::create(['modulo_id' => $hilos->id,   'marca' => 'B', 'tipo' => 'Nylon', 'color' => 'Negro']);
+
+        $vendedor = $this->vendedor();
+        $this->assertCount(1, $this->actingAs($vendedor)->getJson('/api/modulos/telas-espumas/items')->json());
+        $this->assertSame(['B'], $this->actingAs($vendedor)->getJson('/api/modulos/telas-hilos/items/proveedores')->json());
+    }
+
+    /** Los permisos son los de Telas: quien no recarga tela no recarga espuma. */
+    public function test_los_permisos_son_los_de_telas(): void
+    {
+        $espumas  = $this->espumas();
+        $vendedor = $this->vendedor();
+        $item     = ModuloItem::create(['modulo_id' => $espumas->id, 'marca' => 'A', 'tipo' => 'D25', 'color' => 'Blanca', 'cantidad_disponible' => 3]);
+
+        $this->actingAs($vendedor)->postJson("/api/modulos/{$espumas->clave}/items/recargar", ['id' => $item->id, 'cantidad' => 1])
+            ->assertStatus(403);
+        $this->actingAs($vendedor)->postJson("/api/modulos/{$espumas->clave}/items/descontar", ['id' => $item->id, 'cantidad' => 1])
+            ->assertStatus(403);
+
+        $vendedor->forceFill(['recarga_telas' => true, 'acceso_telas' => true])->save();
+
+        $this->actingAs($vendedor)->postJson("/api/modulos/{$espumas->clave}/items/recargar", ['id' => $item->id, 'cantidad' => 1])
+            ->assertOk();
+        $this->actingAs($vendedor)->postJson("/api/modulos/{$espumas->clave}/items/descontar", ['id' => $item->id, 'cantidad' => 1])
+            ->assertOk();
+    }
+
+    /** Telas de siempre no tiene ítems por aquí: los suyos van por /inventario-telas. */
+    public function test_un_modulo_de_siempre_no_tiene_items_por_aqui(): void
+    {
+        $this->actingAs($this->vendedor())->getJson('/api/modulos/telas/items')->assertStatus(404);
     }
 
     // ── Herramientas ──────────────────────────────────────────────────────────

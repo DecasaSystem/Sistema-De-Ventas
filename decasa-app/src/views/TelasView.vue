@@ -1,8 +1,19 @@
 <script setup>
+/**
+ * Inventario por cantidad: las telas por metros, y todo lo que la empresa
+ * cree a partir de este módulo (espumas por láminas, hilos por conos...).
+ *
+ * Con `clave = 'telas'` es el módulo de siempre: va contra /inventario-telas,
+ * tiene la pestaña de consumo por producto y lo que se aparta desde las
+ * órdenes. Con cualquier otra clave es una copia: mismo aspecto, mismos
+ * botones, pero sus ítems viven aparte (/modulos/{clave}/items), se miden en
+ * la unidad que la empresa le puso y nadie los aparta desde una venta.
+ */
 import { cloudinaryOpt } from '@/utils/cloudinary'
 import { ref, computed, onMounted, watch } from 'vue'
 import { MagnifyingGlassIcon, PlusIcon, MinusIcon, ArrowDownTrayIcon, PhotoIcon, XMarkIcon } from '@heroicons/vue/24/outline'
 import { useAuthStore } from '@/stores/auth'
+import { useModulosStore } from '@/stores/modulos'
 import { useToast } from '@/composables/useToast'
 import api from '@/api'
 import { comprimirImagen } from '@/utils/comprimirImagen'
@@ -10,21 +21,82 @@ import { TELAS_CATALOGO } from '@/data/telasCatalogo'
 import { exportarExcel } from '@/utils/exportarExcel'
 import ConsumoTelasPanel from '@/components/inventario/ConsumoTelasPanel.vue'
 
-const auth  = useAuthStore()
-const toast = useToast()
+const props = defineProps({
+  /** 'telas' es el módulo de siempre; otra clave, uno creado a partir de él. */
+  clave: { type: String, default: 'telas' },
+})
+
+const auth    = useAuthStore()
+const modulos = useModulosStore()
+const toast   = useToast()
+
+// ── Qué módulo es y cómo habla ───────────────────────────────────────────────
+const esBase = computed(() => props.clave === 'telas')
+const nombre = computed(() => modulos.nombre(props.clave, 'Telas'))
+const cfg    = computed(() => {
+  const c = esBase.value ? {} : modulos.config(props.clave)
+  return {
+    unidad:    c.unidad    || 'm',
+    singular:  c.singular  || 'tela',
+    decimales: Number.isInteger(c.decimales) ? c.decimales : 2,
+  }
+})
+// Sólo la tela de verdad se mide en metros con centímetros; una copia que
+// también use metros recibe la misma ayuda.
+const enMetros = computed(() => cfg.value.unidad === 'm' && cfg.value.decimales === 2)
+
+// Las telas y las copias tienen la misma pantalla pero distinta puerta.
+const rutas = computed(() => esBase.value
+  ? {
+      lista:       '/inventario-telas',
+      proveedores: '/inventario-telas/proveedores',
+      crear:       '/catalogo-telas',
+      editar:      id => `/catalogo-telas/${id}`,
+      recargar:    '/inventario-telas/recargar',
+      descontar:   '/inventario-telas/descontar',
+      campo:       'metros',
+      campoInicial: 'metros_iniciales',
+      carpetaFoto: 'telas',
+    }
+  : {
+      lista:       `/modulos/${props.clave}/items`,
+      proveedores: `/modulos/${props.clave}/items/proveedores`,
+      crear:       `/modulos/${props.clave}/items`,
+      editar:      id => `/modulos/${props.clave}/items/${id}`,
+      recargar:    `/modulos/${props.clave}/items/recargar`,
+      descontar:   `/modulos/${props.clave}/items/descontar`,
+      campo:       'cantidad',
+      campoInicial: 'cantidad_inicial',
+      carpetaFoto: 'modulos',
+    })
+
+/**
+ * Lo que devuelve cada puerta, con un solo nombre para la pantalla: las
+ * telas hablan de metros y las copias de cantidad, pero el badge y los
+ * botones son los mismos.
+ */
+function adaptar(t) {
+  return {
+    ...t,
+    disponible: Number(t.metros_disponibles ?? t.cantidad_disponible ?? 0),
+    reservado:  Number(t.metros_reservados  ?? t.cantidad_reservada  ?? 0),
+    libre:      Number(t.metros_libres      ?? t.cantidad_libre      ?? 0),
+  }
+}
 
 // 'inventario' = los rollos y sus metros; 'consumo' = cuánta tela lleva cada
-// producto tapizado y el interruptor del descuento automático.
+// producto tapizado y el interruptor del descuento automático. Sólo las
+// telas de verdad tienen consumo: es lo que las amarra a las órdenes.
 const pestana = ref('inventario')
 
-// ── Foto de la tela ───────────────────────────────────────────────────────────
+// ── Foto ─────────────────────────────────────────────────────────────────────
 const subiendoFotoCrear = ref(false)
 const fotoModal = ref('')   // url de la foto ampliada
 
-async function subirFotoTela(file) {
+async function subirFoto(file) {
   const fd = new FormData()
-  fd.append('foto', await comprimirImagen(file), 'tela.jpg')
-  fd.append('folder', 'telas')
+  fd.append('foto', await comprimirImagen(file), 'foto.jpg')
+  fd.append('folder', rutas.value.carpetaFoto)
   const { data } = await api.post('/upload/foto', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
   return data.url
 }
@@ -34,7 +106,7 @@ async function onFotoCrear(e) {
   if (!file) return
   subiendoFotoCrear.value = true
   try {
-    crearForm.value.foto_url = await subirFotoTela(file)
+    crearForm.value.foto_url = await subirFoto(file)
   } catch {
     toast.error('No se pudo subir la foto.')
   } finally {
@@ -43,33 +115,33 @@ async function onFotoCrear(e) {
   }
 }
 
-const subiendoFotoTela = ref(null)   // id de la tela cuya foto se está subiendo
-async function onFotoTelaExistente(tela, e) {
+const subiendoFotoDe = ref(null)   // id del ítem cuya foto se está subiendo
+async function onFotoExistente(item, e) {
   const file = e.target.files[0]
   if (!file) return
-  subiendoFotoTela.value = tela.id
+  subiendoFotoDe.value = item.id
   try {
-    const url = await subirFotoTela(file)
-    await api.patch(`/catalogo-telas/${tela.id}`, { foto_url: url })
-    tela.foto_url = url
+    const url = await subirFoto(file)
+    await api.patch(rutas.value.editar(item.id), { foto_url: url })
+    item.foto_url = url
     toast.success('Foto actualizada.')
   } catch {
     toast.error('No se pudo guardar la foto.')
   } finally {
-    subiendoFotoTela.value = null
+    subiendoFotoDe.value = null
     e.target.value = ''
   }
 }
 
-const telas          = ref([])
+const items          = ref([])
 const proveedores    = ref([])
 const busqueda       = ref('')
 const proveedorFiltro = ref('')
 const cargando       = ref(true)
 const showModal      = ref(false)
 const modalTipo      = ref('recargar')
-const telaActiva     = ref(null)
-const metros         = ref('')
+const itemActivo     = ref(null)
+const cantidad       = ref('')
 const nota           = ref('')
 const guardando      = ref(false)
 const modalError     = ref('')
@@ -78,21 +150,31 @@ const modalError     = ref('')
 const showCrear  = ref(false)
 const creando    = ref(false)
 const crearError = ref('')
-const crearForm  = ref({ marca: '', marcaNueva: '', tipo: '', color: '', referencia: '', textura: '', metros: '', foto_url: '' })
+const crearForm  = ref({ marca: '', marcaNueva: '', tipo: '', color: '', referencia: '', textura: '', cantidad: '', foto_url: '' })
 
 const puedeRecargar  = computed(() => auth.puedeRecargarTelas)
 const puedeDescontar = computed(() => auth.puedeUsarTelas)
 
-// Metros con centímetros: "20.45" = 20 m 45 cm. Acepta coma o punto, máximo 2 decimales.
-function normalizarMetros(valor) {
+// Metros con centímetros: "20.45" = 20 m 45 cm. Acepta coma o punto, y tantos
+// decimales como tenga la unidad del módulo (ninguno si se cuenta por unidades).
+function normalizarCantidad(valor) {
   let v = String(valor ?? '').replace(',', '.').replace(/[^\d.]/g, '')
   const i = v.indexOf('.')
-  if (i !== -1) v = v.slice(0, i + 1) + v.slice(i + 1).replace(/\./g, '').slice(0, 2)
+  if (i !== -1) {
+    v = cfg.value.decimales === 0
+      ? v.slice(0, i)
+      : v.slice(0, i + 1) + v.slice(i + 1).replace(/\./g, '').slice(0, cfg.value.decimales)
+  }
   return v
 }
 
-const telasFiltradas = computed(() => {
-  let lista = telas.value
+function redondear(n) {
+  const f = 10 ** cfg.value.decimales
+  return Math.round((parseFloat(n) || 0) * f) / f
+}
+
+const itemsFiltrados = computed(() => {
+  let lista = items.value
   if (proveedorFiltro.value) {
     lista = lista.filter(t => t.marca === proveedorFiltro.value)
   }
@@ -112,78 +194,82 @@ const telasFiltradas = computed(() => {
 async function cargar() {
   cargando.value = true
   try {
-    const [{ data: telasData }, { data: provData }] = await Promise.all([
-      api.get('/inventario-telas'),
-      api.get('/inventario-telas/proveedores'),
+    const [{ data: lista }, { data: provData }] = await Promise.all([
+      api.get(rutas.value.lista),
+      api.get(rutas.value.proveedores),
     ])
-    telas.value     = telasData
+    items.value       = lista.map(adaptar)
     proveedores.value = provData
   } catch {
-    toast.error('Error al cargar el inventario de telas.')
+    toast.error(`Error al cargar el inventario de ${nombre.value.toLowerCase()}.`)
   } finally {
     cargando.value = false
   }
 }
 
 function abrirCrear() {
-  crearForm.value = { marca: '', marcaNueva: '', tipo: '', color: '', referencia: '', textura: '', metros: '', foto_url: '' }
+  crearForm.value = { marca: '', marcaNueva: '', tipo: '', color: '', referencia: '', textura: '', cantidad: '', foto_url: '' }
   crearError.value = ''
   showCrear.value = true
 }
 
-async function crearTela() {
+async function crearItem() {
   crearError.value = ''
   const marcaFinal = crearForm.value.marca === '__nueva__'
     ? crearForm.value.marcaNueva.trim()
     : crearForm.value.marca.trim()
   if (!marcaFinal)                       { crearError.value = 'Selecciona o ingresa la marca/proveedor.'; return }
-  if (!crearForm.value.tipo.trim())      { crearError.value = 'Ingresa el tipo o nombre de la tela.'; return }
+  if (!crearForm.value.tipo.trim())      { crearError.value = 'Ingresa el tipo o nombre.'; return }
   if (!crearForm.value.color.trim())     { crearError.value = 'Ingresa el color.'; return }
 
   creando.value = true
   try {
     const payload = {
-      marca:            marcaFinal,
-      tipo:             crearForm.value.tipo.trim(),
-      color:            crearForm.value.color.trim(),
-      referencia:       crearForm.value.referencia.trim() || undefined,
-      textura:          crearForm.value.textura.trim() || undefined,
-      foto_url:         crearForm.value.foto_url || undefined,
-      metros_iniciales: Math.round((parseFloat(normalizarMetros(crearForm.value.metros)) || 0) * 100) / 100,
+      marca:      marcaFinal,
+      tipo:       crearForm.value.tipo.trim(),
+      color:      crearForm.value.color.trim(),
+      referencia: crearForm.value.referencia.trim() || undefined,
+      textura:    crearForm.value.textura.trim() || undefined,
+      foto_url:   crearForm.value.foto_url || undefined,
+      [rutas.value.campoInicial]: redondear(normalizarCantidad(crearForm.value.cantidad)),
     }
-    const { data } = await api.post('/catalogo-telas', payload)
-    telas.value.unshift(data)
-    if (!proveedores.value.includes(data.marca)) {
-      proveedores.value = [...proveedores.value, data.marca].sort()
+    const { data } = await api.post(rutas.value.crear, payload)
+    const nuevo = adaptar(data)
+    items.value.unshift(nuevo)
+    if (!proveedores.value.includes(nuevo.marca)) {
+      proveedores.value = [...proveedores.value, nuevo.marca].sort()
     }
-    // Sync TELAS_CATALOGO reactive object so InventarioView sees the new tela immediately
-    if (!TELAS_CATALOGO[data.marca]) TELAS_CATALOGO[data.marca] = {}
-    if (!TELAS_CATALOGO[data.marca][data.tipo]) TELAS_CATALOGO[data.marca][data.tipo] = []
-    if (!TELAS_CATALOGO[data.marca][data.tipo].includes(data.color)) {
-      TELAS_CATALOGO[data.marca][data.tipo].push(data.color)
+    // Sólo las telas de verdad están en el catálogo que usan las órdenes: se
+    // sincroniza para que InventarioView vea la nueva de una.
+    if (esBase.value) {
+      if (!TELAS_CATALOGO[nuevo.marca]) TELAS_CATALOGO[nuevo.marca] = {}
+      if (!TELAS_CATALOGO[nuevo.marca][nuevo.tipo]) TELAS_CATALOGO[nuevo.marca][nuevo.tipo] = []
+      if (!TELAS_CATALOGO[nuevo.marca][nuevo.tipo].includes(nuevo.color)) {
+        TELAS_CATALOGO[nuevo.marca][nuevo.tipo].push(nuevo.color)
+      }
     }
     showCrear.value = false
-    toast.success(`Tela "${data.referencia || data.tipo} (${data.color})" agregada.`)
+    toast.success(`"${nuevo.referencia || nuevo.tipo} (${nuevo.color})" quedó en el inventario.`)
   } catch (e) {
-    crearError.value = e.response?.data?.message ?? 'Error al crear la tela.'
+    crearError.value = e.response?.data?.message ?? `Error al crear la ${cfg.value.singular}.`
   } finally {
     creando.value = false
   }
 }
 
-function abrirRecargar(tela) {
-  telaActiva.value = tela
+function abrirRecargar(item) {
+  itemActivo.value = item
   modalTipo.value  = 'recargar'
-  metros.value     = ''
+  cantidad.value   = ''
   nota.value       = ''
   modalError.value = ''
   showModal.value  = true
 }
 
-function abrirDescontar(tela) {
-  telaActiva.value = tela
+function abrirDescontar(item) {
+  itemActivo.value = item
   modalTipo.value  = 'descontar'
-  metros.value     = ''
+  cantidad.value   = ''
   nota.value       = ''
   modalError.value = ''
   showModal.value  = true
@@ -191,28 +277,29 @@ function abrirDescontar(tela) {
 
 async function confirmar() {
   modalError.value = ''
-  const m = Math.round(parseFloat(normalizarMetros(metros.value)) * 100) / 100
+  const m = redondear(normalizarCantidad(cantidad.value))
   if (!m || m <= 0) { modalError.value = 'Ingresa una cantidad válida.'; return }
 
   guardando.value = true
   try {
-    const endpoint = modalTipo.value === 'recargar' ? '/inventario-telas/recargar' : '/inventario-telas/descontar'
+    const endpoint = modalTipo.value === 'recargar' ? rutas.value.recargar : rutas.value.descontar
     const { data } = await api.post(endpoint, {
-      id:     telaActiva.value.id,
-      metros: m,
-      nota:   nota.value || undefined,
+      id:                 itemActivo.value.id,
+      [rutas.value.campo]: m,
+      nota:               nota.value || undefined,
     })
 
-    const idx = telas.value.findIndex(t => t.id === data.id)
+    const actualizado = adaptar(data)
+    const idx = items.value.findIndex(t => t.id === actualizado.id)
     if (idx !== -1) {
-      telas.value[idx] = data
+      items.value[idx] = actualizado
     }
     showModal.value = false
-    const nombreTela = data.referencia || `${data.tipo} (${data.color})`
+    const etiqueta = actualizado.referencia || `${actualizado.tipo} (${actualizado.color})`
     toast.success(
       modalTipo.value === 'recargar'
-        ? `+${m} m agregados a ${nombreTela}`
-        : `-${m} m descontados de ${nombreTela}`
+        ? `+${m} ${cfg.value.unidad} agregados a ${etiqueta}`
+        : `-${m} ${cfg.value.unidad} descontados de ${etiqueta}`
     )
   } catch (e) {
     modalError.value = e.response?.data?.message ?? 'Error al actualizar.'
@@ -221,22 +308,22 @@ async function confirmar() {
   }
 }
 
-function colorBadge(metros) {
-  if (metros <= 0) return 'bg-red-100 text-red-700'
-  if (metros <= 3)  return 'bg-amber-100 text-amber-700'
+function colorBadge(libre) {
+  if (libre <= 0) return 'bg-red-100 text-red-700'
+  if (libre <= 3)  return 'bg-amber-100 text-amber-700'
   return 'bg-green-100 text-green-700'
 }
 
-function exportarExcelTelas() {
-  const filas = telasFiltradas.value.map(t => ({
-    'Marca / Proveedor':   t.marca ?? '',
-    'Tipo':                t.tipo ?? '',
-    'Referencia':          t.referencia ?? '',
-    'Color':               t.color ?? '',
-    'Textura':             t.textura ?? '',
-    'Metros disponibles':  Number(t.metros_libres ?? 0),
+function exportarExcelItems() {
+  const filas = itemsFiltrados.value.map(t => ({
+    'Marca / Proveedor': t.marca ?? '',
+    'Tipo':              t.tipo ?? '',
+    'Referencia':        t.referencia ?? '',
+    'Color':             t.color ?? '',
+    'Textura':           t.textura ?? '',
+    [esBase.value ? 'Metros disponibles' : `Disponible (${cfg.value.unidad})`]: Number(t.libre ?? 0),
   }))
-  exportarExcel(filas, { nombreArchivo: 'telas_decasa', hoja: 'Telas' })
+  exportarExcel(filas, { nombreArchivo: `${props.clave}_decasa`, hoja: nombre.value })
 }
 
 onMounted(cargar)
@@ -248,12 +335,12 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
   <div class="p-4 max-w-2xl mx-auto space-y-4 pb-8">
     <!-- Header -->
     <div class="flex items-center justify-between">
-      <h2 class="text-lg font-bold text-gray-800">Inventario de telas</h2>
+      <h2 class="text-lg font-bold text-gray-800">Inventario de {{ nombre.toLowerCase() }}</h2>
       <div v-if="pestana === 'inventario'" class="flex items-center gap-3">
-        <span class="text-xs text-gray-400">{{ telasFiltradas.length }} / {{ telas.length }}</span>
+        <span class="text-xs text-gray-400">{{ itemsFiltrados.length }} / {{ items.length }}</span>
         <button
-          v-if="telasFiltradas.length"
-          @click="exportarExcelTelas"
+          v-if="itemsFiltrados.length"
+          @click="exportarExcelItems"
           title="Descargar Excel"
           class="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-semibold hover:bg-green-700 transition-colors"
         >
@@ -266,13 +353,13 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
           class="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-colors"
         >
           <PlusIcon class="w-3.5 h-3.5" />
-          Agregar tela
+          Agregar {{ cfg.singular }}
         </button>
       </div>
     </div>
 
-    <!-- Pestañas -->
-    <div class="flex gap-1 bg-gray-100 rounded-xl p-1">
+    <!-- Pestañas: sólo las telas de verdad tienen consumo por producto -->
+    <div v-if="esBase" class="flex gap-1 bg-gray-100 rounded-xl p-1">
       <button
         @click="pestana = 'inventario'"
         :class="['flex-1 py-1.5 rounded-lg text-xs font-semibold transition-colors', pestana === 'inventario' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700']"
@@ -287,7 +374,7 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
       </button>
     </div>
 
-    <ConsumoTelasPanel v-if="pestana === 'consumo'" />
+    <ConsumoTelasPanel v-if="esBase && pestana === 'consumo'" />
 
     <template v-if="pestana === 'inventario'">
     <!-- Search -->
@@ -331,51 +418,50 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
     </div>
 
     <!-- Empty -->
-    <div v-else-if="!telasFiltradas.length" class="text-center py-12 text-sm text-gray-400">
-      {{ busqueda || proveedorFiltro ? 'Sin resultados para el filtro actual.' : 'No hay telas en el inventario.' }}
+    <div v-else-if="!itemsFiltrados.length" class="text-center py-12 text-sm text-gray-400">
+      {{ busqueda || proveedorFiltro ? 'Sin resultados para el filtro actual.' : `No hay ${nombre.toLowerCase()} en el inventario.` }}
     </div>
 
     <!-- List -->
     <div v-else class="space-y-2">
       <div
-        v-for="tela in telasFiltradas"
-        :key="tela.fuente + '-' + tela.id"
+        v-for="item in itemsFiltrados"
+        :key="item.id"
         class="bg-white rounded-xl shadow-sm p-4"
       >
         <!-- Title row -->
         <div class="flex items-start justify-between gap-2">
-          <!-- Foto de la tela -->
           <img
-            v-if="tela.foto_url"
-            :src="cloudinaryOpt(tela.foto_url, 96)"
-            @click="fotoModal = tela.foto_url"
+            v-if="item.foto_url"
+            :src="cloudinaryOpt(item.foto_url, 96)"
+            @click="fotoModal = item.foto_url"
             class="w-12 h-12 rounded-lg object-cover border border-gray-200 flex-shrink-0 cursor-pointer"
           />
           <div class="flex-1 min-w-0">
             <!-- Si tiene referencia (del Excel): mostrarla como título principal -->
-            <template v-if="tela.referencia">
-              <p class="font-semibold text-sm text-gray-800 truncate">{{ tela.referencia }}</p>
+            <template v-if="item.referencia">
+              <p class="font-semibold text-sm text-gray-800 truncate">{{ item.referencia }}</p>
               <p class="text-xs text-gray-500 mt-0.5">
-                <span v-if="tela.color">{{ tela.color }}</span>
-                <span v-if="tela.textura"> · {{ tela.textura }}</span>
-                <span class="text-gray-400"> · {{ tela.marca }}</span>
+                <span v-if="item.color">{{ item.color }}</span>
+                <span v-if="item.textura"> · {{ item.textura }}</span>
+                <span class="text-gray-400"> · {{ item.marca }}</span>
               </p>
             </template>
             <!-- Sin referencia: entrada del catálogo estático -->
             <template v-else>
-              <p class="font-semibold text-sm text-gray-800 truncate">{{ tela.tipo }}</p>
+              <p class="font-semibold text-sm text-gray-800 truncate">{{ item.tipo }}</p>
               <p class="text-xs text-gray-500 mt-0.5">
-                {{ tela.color }}<span class="text-gray-400"> · {{ tela.marca }}</span>
+                {{ item.color }}<span class="text-gray-400"> · {{ item.marca }}</span>
               </p>
             </template>
           </div>
           <div class="flex flex-col items-end gap-0.5">
-            <span :class="['text-xs font-bold px-2.5 py-1 rounded-full whitespace-nowrap', colorBadge(tela.metros_libres)]">
-              {{ tela.metros_libres }} m
+            <span :class="['text-xs font-bold px-2.5 py-1 rounded-full whitespace-nowrap', colorBadge(item.libre)]">
+              {{ item.libre }} {{ cfg.unidad }}
             </span>
             <!-- Lo que las ventas tienen apartado: libres = disponibles − apartados. -->
-            <span v-if="tela.metros_reservados > 0" class="text-[10px] text-gray-400 whitespace-nowrap">
-              {{ tela.metros_reservados }} m apartados
+            <span v-if="item.reservado > 0" class="text-[10px] text-gray-400 whitespace-nowrap">
+              {{ item.reservado }} {{ cfg.unidad }} apartados
             </span>
           </div>
         </div>
@@ -387,12 +473,12 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
             class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 text-xs font-semibold hover:bg-blue-100 transition-colors cursor-pointer"
           >
             <PhotoIcon class="w-3.5 h-3.5" />
-            {{ subiendoFotoTela === tela.id ? 'Subiendo...' : (tela.foto_url ? 'Cambiar foto' : 'Agregar foto') }}
-            <input type="file" accept="image/*" class="hidden" @change="e => onFotoTelaExistente(tela, e)" />
+            {{ subiendoFotoDe === item.id ? 'Subiendo...' : (item.foto_url ? 'Cambiar foto' : 'Agregar foto') }}
+            <input type="file" accept="image/*" class="hidden" @change="e => onFotoExistente(item, e)" />
           </label>
           <button
             v-if="puedeRecargar"
-            @click="abrirRecargar(tela)"
+            @click="abrirRecargar(item)"
             class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-50 text-green-700 text-xs font-semibold hover:bg-green-100 transition-colors"
           >
             <PlusIcon class="w-3.5 h-3.5" />
@@ -400,8 +486,8 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
           </button>
           <button
             v-if="puedeDescontar"
-            @click="abrirDescontar(tela)"
-            :disabled="tela.metros_libres <= 0"
+            @click="abrirDescontar(item)"
+            :disabled="item.libre <= 0"
             class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-50 text-red-700 text-xs font-semibold hover:bg-red-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <MinusIcon class="w-3.5 h-3.5" />
@@ -412,13 +498,13 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
     </div>
     </template>
 
-    <!-- Modal: Agregar tela -->
+    <!-- Modal: Agregar -->
     <Transition name="fade">
       <div v-if="showCrear" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="showCrear = false">
         <div class="absolute inset-0 bg-black/40" />
         <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-4">
           <div class="flex items-center justify-between">
-            <h3 class="text-base font-bold text-gray-800">Agregar tela</h3>
+            <h3 class="text-base font-bold text-gray-800">Agregar {{ cfg.singular }}</h3>
             <button @click="showCrear = false" class="text-gray-400 text-2xl leading-none">&times;</button>
           </div>
 
@@ -442,13 +528,13 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
               />
             </div>
 
-            <!-- Tipo de tela -->
+            <!-- Tipo -->
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Tipo / Nombre <span class="text-red-500">*</span></label>
               <input
                 v-model="crearForm.tipo"
                 class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Ej: Antifaz, Terciopelo, ALPES GRIS..."
+                :placeholder="esBase ? 'Ej: Antifaz, Terciopelo, ALPES GRIS...' : `Ej: el tipo o nombre de la ${cfg.singular}`"
               />
             </div>
 
@@ -458,7 +544,7 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
               <input
                 v-model="crearForm.referencia"
                 class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Ej: ADARA 10 HUMO, ALPES GRIS..."
+                :placeholder="esBase ? 'Ej: ADARA 10 HUMO, ALPES GRIS...' : 'Ej: el código del proveedor'"
               />
             </div>
 
@@ -482,9 +568,9 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
               />
             </div>
 
-            <!-- Foto de la tela -->
+            <!-- Foto -->
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Foto de la tela (opcional)</label>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Foto (opcional)</label>
               <div class="flex items-center gap-3">
                 <div v-if="crearForm.foto_url" class="relative w-16 h-16 flex-shrink-0">
                   <img :src="cloudinaryOpt(crearForm.foto_url, 800)" class="w-full h-full rounded-lg object-cover border border-gray-200" />
@@ -501,18 +587,20 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
               </div>
             </div>
 
-            <!-- Metros iniciales -->
+            <!-- Cantidad inicial -->
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Metros iniciales</label>
+              <label class="block text-sm font-medium text-gray-700 mb-1">
+                {{ enMetros ? 'Metros iniciales' : `Cantidad inicial (${cfg.unidad})` }}
+              </label>
               <input
-                :value="crearForm.metros"
-                @input="crearForm.metros = $event.target.value = normalizarMetros($event.target.value)"
+                :value="crearForm.cantidad"
+                @input="crearForm.cantidad = $event.target.value = normalizarCantidad($event.target.value)"
                 type="text"
                 inputmode="decimal"
                 class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="0.00"
+                :placeholder="cfg.decimales ? '0.' + '0'.repeat(cfg.decimales) : '0'"
               />
-              <p class="mt-1 text-xs text-gray-400">Ej: 20.45 = 20 metros 45 centímetros</p>
+              <p v-if="enMetros" class="mt-1 text-xs text-gray-400">Ej: 20.45 = 20 metros 45 centímetros</p>
             </div>
 
             <p v-if="crearError" class="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{{ crearError }}</p>
@@ -520,11 +608,11 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
             <div class="flex gap-3">
               <button @click="showCrear = false" class="flex-1 bg-gray-100 text-gray-700 rounded-lg py-2.5 text-sm font-semibold">Cancelar</button>
               <button
-                @click="crearTela"
+                @click="crearItem"
                 :disabled="creando"
                 class="flex-1 bg-blue-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
               >
-                {{ creando ? 'Guardando...' : 'Crear tela' }}
+                {{ creando ? 'Guardando...' : `Crear ${cfg.singular}` }}
               </button>
             </div>
           </div>
@@ -539,34 +627,34 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
         <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-4">
           <div class="flex items-center justify-between">
             <h3 class="text-base font-bold text-gray-800">
-              {{ modalTipo === 'recargar' ? 'Agregar metros' : 'Descontar metros' }}
+              {{ modalTipo === 'recargar' ? 'Agregar' : 'Descontar' }} {{ enMetros ? 'metros' : 'cantidad' }}
             </h3>
             <button @click="showModal = false" class="text-gray-400 text-2xl leading-none">&times;</button>
           </div>
 
           <div class="bg-gray-50 rounded-lg px-3 py-2">
             <p class="text-sm font-semibold text-gray-800">
-              {{ telaActiva?.referencia || telaActiva?.tipo }}
-              <span class="text-gray-500 font-normal">({{ telaActiva?.color }})</span>
+              {{ itemActivo?.referencia || itemActivo?.tipo }}
+              <span class="text-gray-500 font-normal">({{ itemActivo?.color }})</span>
             </p>
             <p class="text-xs text-gray-500 mt-0.5">
-              Disponible: <strong>{{ telaActiva?.metros_libres }} m</strong>
+              Disponible: <strong>{{ itemActivo?.libre }} {{ cfg.unidad }}</strong>
             </p>
           </div>
 
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">
-              Metros a {{ modalTipo === 'recargar' ? 'agregar' : 'descontar' }}
+              {{ enMetros ? 'Metros' : `Cantidad (${cfg.unidad})` }} a {{ modalTipo === 'recargar' ? 'agregar' : 'descontar' }}
             </label>
             <input
-              :value="metros"
-              @input="metros = $event.target.value = normalizarMetros($event.target.value)"
+              :value="cantidad"
+              @input="cantidad = $event.target.value = normalizarCantidad($event.target.value)"
               type="text"
               inputmode="decimal"
-              placeholder="0.00"
+              :placeholder="cfg.decimales ? '0.' + '0'.repeat(cfg.decimales) : '0'"
               class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
-            <p class="mt-1 text-xs text-gray-400">Ej: 20.45 = 20 metros 45 centímetros</p>
+            <p v-if="enMetros" class="mt-1 text-xs text-gray-400">Ej: 20.45 = 20 metros 45 centímetros</p>
           </div>
 
           <div>
@@ -598,7 +686,7 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
       </div>
     </Transition>
 
-    <!-- Visor de foto de tela -->
+    <!-- Visor de foto -->
     <Transition name="fade">
       <div v-if="fotoModal" class="fixed inset-0 z-[60] flex items-center justify-center p-4" @click="fotoModal = ''">
         <div class="absolute inset-0 bg-black/80" />

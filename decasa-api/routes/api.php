@@ -11,6 +11,7 @@ use App\Http\Controllers\OrdenMensajeController;
 use App\Http\Controllers\OrdenFijadaController;
 use App\Http\Controllers\PagoController;
 use App\Http\Controllers\PersonalizacionController;
+use App\Http\Controllers\ModuloItemController;
 use App\Http\Controllers\ProduccionController;
 use App\Http\Controllers\ProductoController;
 use App\Http\Controllers\ProveedorController;
@@ -104,8 +105,22 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/modulos',      [PersonalizacionController::class, 'modulos']);
     Route::get('/herramientas', [PersonalizacionController::class, 'herramientas']);
 
+    // Los ítems de un módulo creado a partir de Telas (Espumas, Hilos...).
+    // Es la pantalla de Telas sobre otra tabla; el permiso se mira adentro,
+    // igual que en /inventario-telas, y es el mismo de las telas.
+    Route::prefix('/modulos/{clave}/items')->group(function () {
+        Route::get('/',            [ModuloItemController::class, 'index']);
+        Route::get('/proveedores', [ModuloItemController::class, 'proveedores']);
+        Route::post('/',           [ModuloItemController::class, 'store']);
+        Route::post('/recargar',   [ModuloItemController::class, 'recargar']);
+        Route::post('/descontar',  [ModuloItemController::class, 'descontar']);
+        Route::patch('/{id}',      [ModuloItemController::class, 'update'])->whereNumber('id');
+    });
+
     Route::middleware('role:supervisor')->group(function () {
         Route::patch('/modulos',            [PersonalizacionController::class, 'guardarModulos']);
+        Route::post('/modulos',             [PersonalizacionController::class, 'crearModulo']);
+        Route::delete('/modulos/{id}',      [PersonalizacionController::class, 'eliminarModulo'])->whereNumber('id');
         Route::post('/herramientas',        [PersonalizacionController::class, 'crearHerramienta']);
         Route::patch('/herramientas/{id}',  [PersonalizacionController::class, 'actualizarHerramienta'])->whereNumber('id');
         Route::delete('/herramientas/{id}', [PersonalizacionController::class, 'eliminarHerramienta'])->whereNumber('id');

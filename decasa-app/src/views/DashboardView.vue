@@ -71,6 +71,13 @@ const accesoEncargos = computed(() => {
   return []
 })
 
+// Los módulos que la empresa creó a partir de Telas (Espumas, Hilos...) van
+// al lado de Telas, con su mismo permiso. El nombre y el icono de cada uno
+// los pone `soloVisibles`, que los conoce por la clave.
+const accesosCopiasDeTelas = computed(() => modulos.instancias('telas').map(m => ({
+  modulo: m.clave, label: m.nombre, icon: SwatchIcon, to: { name: 'modulo', params: { clave: m.clave } },
+})))
+
 const accesos = computed(() => {
   if (auth.usuario?.rol === 'conductor') {
     return modulos.soloVisibles([
@@ -94,6 +101,7 @@ const accesos = computed(() => {
       { modulo: 'consultas',   label: 'Consultar costo', icon: CurrencyDollarIcon,      to: { name: 'consultas'   }, badge: consultas.pendientesCount },
       { modulo: 'costos',      label: 'Costos',       icon: CalculatorIcon,             to: { name: 'costos'      } },
       { modulo: 'telas',       label: 'Telas',        icon: SwatchIcon,                 to: { name: 'telas'       } },
+      ...accesosCopiasDeTelas.value,
       ...(auth.puedeSurtir ? [{ modulo: 'surtir', label: 'Surtir', icon: ArrowPathIcon, to: { name: 'surtir' } }] : []),
       { modulo: 'caja',        label: 'Caja',         icon: BanknotesIcon,              to: { name: 'caja'        } },
       { modulo: 'mis-stats',   label: 'Estadísticas', icon: PresentationChartLineIcon,  to: { name: 'mis-stats'   } },
@@ -119,7 +127,9 @@ const accesos = computed(() => {
     { modulo: 'ordenes',     label: 'Órdenes',      icon: ClipboardDocumentListIcon, to: { name: 'ordenes'     } },
     { modulo: 'clientes',    label: 'Clientes',     icon: UserGroupIcon,             to: { name: 'clientes'    } },
     { modulo: 'inventario',  label: 'Inventario',   icon: ArchiveBoxIcon,            to: { name: 'inventario'  }, badge: surtidos.pendientesCount },
-    ...((auth.puedeRecargarTelas || auth.puedeUsarTelas) ? [{ modulo: 'telas', label: 'Telas', icon: SwatchIcon, to: { name: 'telas' } }] : []),
+    ...((auth.puedeRecargarTelas || auth.puedeUsarTelas)
+      ? [{ modulo: 'telas', label: 'Telas', icon: SwatchIcon, to: { name: 'telas' } }, ...accesosCopiasDeTelas.value]
+      : []),
     // Antes era automática para todo el que no fuera supervisor. Ahora es un
     // permiso activable, igual que Surtir: los vendedores actuales la
     // conservan por el respaldo de la migración.

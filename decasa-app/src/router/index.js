@@ -1,5 +1,14 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useModulosStore } from '@/stores/modulos'
+
+/**
+ * Quién entra a un módulo creado a partir de otro: el mismo que entra al
+ * original. Espumas nació de Telas, así que lo abre quien usa o recarga telas.
+ */
+export const ENTRA_A_PLANTILLA = {
+  telas: auth => auth.puedeUsarTelas || auth.puedeRecargarTelas,
+}
 
 const routes = [
   { path: '/login', name: 'login', component: () => import('@/views/LoginView.vue'), meta: { guest: true } },
@@ -46,6 +55,10 @@ const routes = [
   { path: '/consultas-costo', name: 'consultas', component: () => import('@/views/ConsultasView.vue'), meta: { requiresAuth: true, requiresConsultas: true } },
   { path: '/consultas-costo/:id', name: 'consulta-detalle', component: () => import('@/views/ConsultaDetalleView.vue'), meta: { requiresAuth: true, requiresConsultas: true } },
   { path: '/telas', name: 'telas', component: () => import('@/views/TelasView.vue'), meta: { requiresAuth: true, requiresTelas: true } },
+  // Un módulo que la empresa creó a partir de otro (Espumas a partir de
+  // Telas). La clave dice cuál es; la pantalla y el permiso son los de la
+  // plantilla de la que nació.
+  { path: '/m/:clave', name: 'modulo', component: () => import('@/views/ModuloView.vue'), props: true, meta: { requiresAuth: true, requiresModulo: true } },
   { path: '/caja',  name: 'caja',  component: () => import('@/views/CajaView.vue'),  meta: { requiresAuth: true, requiresCaja: true } },
   // Solo accesible desde el botón en el Home, a propósito: no va en el nav inferior.
   { path: '/proveedores', name: 'proveedores', component: () => import('@/views/ProveedoresView.vue'), meta: { requiresAuth: true } },
@@ -129,6 +142,13 @@ router.beforeEach((to) => {
   if (to.meta.requiresConsultas && !auth.isSupervisor && auth.usuario?.rol !== 'vendedor') return { name: 'dashboard' }
   if (to.meta.requiresReserva && !auth.puedeReserva) return { name: 'dashboard' }
   if (to.meta.requiresTelas && !auth.puedeUsarTelas && !auth.puedeRecargarTelas) return { name: 'dashboard' }
+  // Si la lista de módulos todavía no llegó (se abrió el enlace directo), se
+  // deja pasar: la pantalla la pide y decide ella si existe y si se puede.
+  if (to.meta.requiresModulo) {
+    const plantilla = useModulosStore().plantilla(to.params.clave)
+    const entra = plantilla && ENTRA_A_PLANTILLA[plantilla]
+    if (entra && !entra(auth)) return { name: 'dashboard' }
+  }
   if (to.meta.requiresCaja && !auth.isSupervisor && auth.usuario?.rol !== 'vendedor') return { name: 'dashboard' }
 })
 

@@ -3,10 +3,13 @@
  * Elegir el dibujo de un módulo o de una herramienta.
  *
  * Se muestran agrupados por para qué sirven y con un buscador, porque nadie
- * reconoce un icono por su nombre en inglés: se reconoce viéndolo.
+ * reconoce un icono por su nombre en inglés: se reconoce viéndolo. Y si
+ * ninguno sirve —una empresa de espumas no encuentra "espuma" en ninguna
+ * lista— se dibuja uno.
  */
-import { ref, computed } from 'vue'
-import { ICONOS, GRUPOS_ICONOS, iconoPorNombre } from '@/constants/iconos'
+import { ref, computed, watch } from 'vue'
+import { ICONOS, GRUPOS_ICONOS, iconoPorNombre, esDibujo } from '@/constants/iconos'
+import IconoDibujo from '@/components/common/IconoDibujo.vue'
 import { XMarkIcon, MagnifyingGlassIcon } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -16,6 +19,13 @@ const props = defineProps({
 const emit = defineEmits(['cerrar', 'elegir'])
 
 const busqueda = ref('')
+// 'lista' = los de heroicons; 'dibujar' = el lienzo.
+const pestana  = ref('lista')
+
+// Si lo que hay es un dibujo, se abre en el lienzo para seguir sobre él.
+watch(() => props.abierto, (v) => {
+  if (v) pestana.value = esDibujo(props.elegido) ? 'dibujar' : 'lista'
+})
 
 const grupos = computed(() => {
   const term = busqueda.value.trim().toLowerCase()
@@ -47,8 +57,25 @@ function elegir(nombre) {
           </button>
         </div>
 
-        <div class="px-5 pt-3">
-          <div class="relative">
+        <div class="px-5 pt-3 space-y-3">
+          <div class="flex gap-1 bg-gray-100 rounded-xl p-1">
+            <button
+              type="button" @click="pestana = 'lista'"
+              :class="['flex-1 py-1.5 rounded-lg text-xs font-semibold transition-colors',
+                pestana === 'lista' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700']"
+            >
+              De la lista
+            </button>
+            <button
+              type="button" @click="pestana = 'dibujar'"
+              :class="['flex-1 py-1.5 rounded-lg text-xs font-semibold transition-colors',
+                pestana === 'dibujar' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700']"
+            >
+              Dibujar el mío
+            </button>
+          </div>
+
+          <div v-if="pestana === 'lista'" class="relative">
             <MagnifyingGlassIcon class="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               v-model="busqueda" type="text" placeholder="Buscar (truck, box, chart...)"
@@ -57,7 +84,7 @@ function elegir(nombre) {
           </div>
         </div>
 
-        <div class="overflow-y-auto px-5 py-3 space-y-4">
+        <div v-if="pestana === 'lista'" class="overflow-y-auto px-5 py-3 space-y-4">
           <div v-for="g in grupos" :key="g.nombre">
             <p class="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-2">{{ g.nombre }}</p>
             <div class="grid grid-cols-6 gap-2">
@@ -78,6 +105,10 @@ function elegir(nombre) {
           <p v-if="!grupos.length" class="text-xs text-gray-400 text-center py-6">
             Ningún icono con ese nombre.
           </p>
+        </div>
+
+        <div v-else class="overflow-y-auto px-5 py-3">
+          <IconoDibujo :inicial="esDibujo(elegido) ? elegido : ''" @elegir="elegir" />
         </div>
       </div>
     </div>

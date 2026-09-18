@@ -9,7 +9,10 @@
  * Se guarda el NOMBRE del icono, no el dibujo. Si mañana llega uno que no está
  * en esta lista, la pantalla usa el que trae escrito por defecto en vez de
  * quedarse en blanco.
+ *
+ * También se puede dibujar uno: ver `PREFIJO_DIBUJO` más abajo.
  */
+import { h } from 'vue'
 import {
   HomeIcon, PlusIcon, ClipboardDocumentListIcon, ClipboardDocumentCheckIcon,
   ClipboardDocumentIcon, DocumentTextIcon, DocumentCurrencyDollarIcon, DocumentDuplicateIcon,
@@ -97,7 +100,49 @@ export const GRUPOS_ICONOS = [
   },
 ]
 
-/** El dibujo de un nombre, o nada si ese nombre no está en la lista. */
+/**
+ * Un icono dibujado a mano se guarda como `dibujo:` seguido del trazo de un
+ * SVG (el atributo `d` de un path, en un lienzo de 24×24 como los de
+ * heroicons). Así ocupa unas letras y no un archivo, y se pinta con
+ * `currentColor` igual que los demás: azul cuando el botón está activo, gris
+ * cuando no.
+ */
+export const PREFIJO_DIBUJO = 'dibujo:'
+
+export function esDibujo(nombre) {
+  return typeof nombre === 'string' && nombre.startsWith(PREFIJO_DIBUJO)
+}
+
+// Un componente por trazo, guardado: si cada llamada devolviera uno nuevo,
+// Vue desmontaría y volvería a montar el icono en cada repintado.
+const dibujos = new Map()
+
+function componenteDeDibujo(trazo) {
+  if (!dibujos.has(trazo)) {
+    dibujos.set(trazo, {
+      name: 'IconoDibujado',
+      render() {
+        return h('svg', {
+          xmlns: 'http://www.w3.org/2000/svg',
+          viewBox: '0 0 24 24',
+          fill: 'none',
+          stroke: 'currentColor',
+          'stroke-width': 1.5,
+          'stroke-linecap': 'round',
+          'stroke-linejoin': 'round',
+          'aria-hidden': 'true',
+        }, [h('path', { d: trazo })])
+      },
+    })
+  }
+  return dibujos.get(trazo)
+}
+
+/** El dibujo de un nombre (o de un trazo dibujado), o nada si no se reconoce. */
 export function iconoPorNombre(nombre) {
+  if (esDibujo(nombre)) {
+    const trazo = nombre.slice(PREFIJO_DIBUJO.length).trim()
+    return trazo ? componenteDeDibujo(trazo) : null
+  }
   return ICONOS[nombre] ?? null
 }

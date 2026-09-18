@@ -70,6 +70,27 @@ export const useModulosStore = defineStore('modulos', () => {
     return { ...base, label: nombre(clave, base.label), icon: icono(clave, base.icon) }
   }
 
+  /** De qué módulo nació éste, o nada si es de los de siempre. */
+  function plantilla(clave) {
+    return porClave.value[clave]?.plantilla ?? null
+  }
+
+  /** La config de un módulo copiado (unidad, singular, decimales), ya completa. */
+  function config(clave) {
+    return porClave.value[clave]?.config ?? {}
+  }
+
+  /**
+   * Los módulos que la empresa creó a partir de uno (Espumas e Hilos a partir
+   * de Telas), encendidos y en su orden. Van a donde va el original, con su
+   * mismo permiso: la pantalla que los lista no tiene que saber cuántos hay.
+   */
+  function instancias(dePlantilla) {
+    return Object.values(porClave.value)
+      .filter(m => m.plantilla === dePlantilla && m.visible !== false)
+      .sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0) || a.nombre.localeCompare(b.nombre))
+  }
+
   /**
    * Deja pasar sólo los accesos que la empresa tiene encendidos. Cada acceso
    * dice de qué módulo es con `modulo`; el que no lo diga pasa siempre.
@@ -86,5 +107,5 @@ export const useModulosStore = defineStore('modulos', () => {
     localStorage.removeItem(CLAVE_CACHE)
   }
 
-  return { porClave, cargado, cargar, nombre, icono, visible, acceso, soloVisibles, limpiar }
+  return { porClave, cargado, cargar, nombre, icono, visible, acceso, soloVisibles, plantilla, config, instancias, limpiar }
 })

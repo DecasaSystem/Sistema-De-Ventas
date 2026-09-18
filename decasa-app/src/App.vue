@@ -243,6 +243,12 @@ watch(() => auth.usuario?.id, (id, oldId) => {
   window.Echo.channel('redes').listen('.conversacion.actualizada', cargarRedesPendientes)
 }, { immediate: true })
 
+// Los módulos que la empresa creó a partir de Telas van donde va Telas, con
+// su mismo permiso. Se llaman como su clave: `irA` sabe llevarlos a `/m/:clave`.
+const navCopiasDeTelas = computed(() => modulos.instancias('telas').map(m => ({
+  name: m.clave, modulo: m.clave, label: m.nombre, icon: SwatchIcon,
+})))
+
 /**
  * La barra de abajo.
  *
@@ -281,6 +287,7 @@ const navItems = computed(() => {
   if (auth.puedeUsarTelas && !auth.isSupervisor) {
     return modulos.soloVisibles([
       { name: 'telas', modulo: 'telas', label: 'Telas', icon: SwatchIcon },
+      ...navCopiasDeTelas.value,
     ])
   }
   if (auth.usuario?.rol === 'conductor') {
@@ -300,7 +307,7 @@ const navItems = computed(() => {
       { name: 'inventario',   modulo: 'inventario',   label: 'Inventario',   icon: ArchiveBoxIcon, badge: surtidos.pendientesCount },
       { name: 'reserva',      modulo: 'fabrica',      label: 'Fábrica',      icon: BuildingOffice2Icon },
       ...(auth.tieneAccesoRedes ? [{ name: 'redes', modulo: 'redes', label: 'Redes', icon: ChatBubbleLeftRightIcon, badge: redesPendientes.value }] : []),
-      ...(auth.puedeRecargarTelas ? [{ name: 'telas', modulo: 'telas', label: 'Telas', icon: SwatchIcon }] : []),
+      ...(auth.puedeRecargarTelas ? [{ name: 'telas', modulo: 'telas', label: 'Telas', icon: SwatchIcon }, ...navCopiasDeTelas.value] : []),
       { name: 'mis-stats',    modulo: 'mis-stats',    label: 'Estadíst.',    icon: PresentationChartLineIcon },
     ])
   }
@@ -315,7 +322,7 @@ const navItems = computed(() => {
     { name: 'reserva',    modulo: 'fabrica',      label: 'Fábrica',      icon: BuildingOffice2Icon },
     { name: 'surtir',     modulo: 'traslado',     label: 'Traslado',     icon: ArrowPathIcon },
     ...(auth.tieneAccesoRedes ? [{ name: 'redes', modulo: 'redes', label: 'Redes', icon: ChatBubbleLeftRightIcon, badge: redesPendientes.value }] : []),
-    ...(auth.puedeRecargarTelas ? [{ name: 'telas', modulo: 'telas', label: 'Telas', icon: SwatchIcon }] : []),
+    ...(auth.puedeRecargarTelas ? [{ name: 'telas', modulo: 'telas', label: 'Telas', icon: SwatchIcon }, ...navCopiasDeTelas.value] : []),
     { name: 'mis-stats',  modulo: 'mis-stats',    label: 'Estadíst.',    icon: PresentationChartLineIcon },
   ])
 })
@@ -391,7 +398,15 @@ async function guardarNav(restablecer = false) {
     guardandoNav.value = false
   }
 }
-const masActivo      = computed(() => navSecundarios.value.some(i => i.name === route.name))
+/**
+ * Con qué nombre se compara la ruta abierta contra los accesos de la barra.
+ * Un módulo creado a partir de otro vive en `/m/:clave`, así que su acceso
+ * se llama como su clave y no como la ruta.
+ */
+const rutaActual = computed(() =>
+  route.name === 'modulo' ? String(route.params.clave) : route.name
+)
+const masActivo  = computed(() => navSecundarios.value.some(i => i.name === rutaActual.value))
 
 // Pendientes que quedaron escondidos dentro de "Más". Sin esto, un badge de
 // consultas o de redes no se veía hasta abrir el menú.
@@ -401,6 +416,12 @@ const pendientesEnMas = computed(() =>
 
 function irA(name) {
   abrirMas.value = false
+  // Un acceso que se llama como un módulo copiado (Espumas) no es una ruta:
+  // es la pantalla genérica con esa clave.
+  if (modulos.plantilla(name)) {
+    router.push({ name: 'modulo', params: { clave: name } })
+    return
+  }
   router.push({ name })
 }
 
@@ -699,7 +720,7 @@ function formatFecha(iso) {
             @click="irA(item.name)"
             :class="[
               'min-w-0 flex flex-col items-center justify-start py-3 px-1 gap-1 transition-colors',
-              route.name === item.name ? 'text-blue-600 font-semibold' : 'text-gray-500',
+              rutaActual === item.name ? 'text-blue-600 font-semibold' : 'text-gray-500',
             ]"
           >
             <div class="relative flex-shrink-0">
@@ -736,7 +757,7 @@ function formatFecha(iso) {
           @click="irA(item.name)"
           :class="[
             'flex-1 min-w-0 flex flex-col items-center justify-start py-2 px-0.5 gap-1 transition-colors',
-            route.name === item.name ? 'text-blue-600 font-semibold' : 'text-gray-500',
+            rutaActual === item.name ? 'text-blue-600 font-semibold' : 'text-gray-500',
           ]"
         >
           <div class="relative flex-shrink-0">
