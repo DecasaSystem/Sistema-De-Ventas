@@ -44,7 +44,6 @@ class LoginGoogleTest extends TestCase
             $t->boolean('acceso_encargos')->default(false); $t->boolean('revisa_encargos')->default(false);
             $t->boolean('lleva_encargos')->default(false); $t->boolean('ve_todas_ordenes')->default(true);
             $t->unsignedBigInteger('tienda_default_id')->nullable();
-            $t->unsignedBigInteger('perfil_alterno_id')->nullable();
             $t->string('firma_url')->nullable(); $t->timestamp('created_at')->nullable();
         });
         Schema::create('tiendas', function (Blueprint $t) { $t->id(); $t->string('nombre'); $t->string('ciudad')->nullable(); $t->boolean('comisiones_compartidas')->default(false); });
@@ -56,6 +55,10 @@ class LoginGoogleTest extends TestCase
             $t->id(); $t->unsignedBigInteger('usuario_id'); $t->unsignedBigInteger('tipo_proceso_id');
             // Cada quien lleva su linea: 'ambas', o solo una de las dos.
             $t->string('linea')->default('ambas');
+        });
+        Schema::create('perfiles_alternos', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('usuario_id'); $t->unsignedBigInteger('alterno_id');
+            $t->unsignedTinyInteger('posicion')->default(0); $t->timestamps();
         });
         Schema::create('personal_access_tokens', function (Blueprint $t) {
             $t->id(); $t->morphs('tokenable'); $t->string('name'); $t->string('token', 64)->unique();

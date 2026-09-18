@@ -94,7 +94,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/auth/me',         [AuthController::class, 'me']);
     Route::patch('/auth/mi-firma',   [AuthController::class, 'guardarFirma']);
     Route::patch('/auth/mi-nav',     [AuthController::class, 'guardarNav']);
-    Route::patch('/auth/mi-perfil-alterno', [AuthController::class, 'guardarPerfilAlterno']);
+    // Con quiénes alterna (hasta tres). Se manda la lista completa, en orden.
+    Route::patch('/auth/mis-perfiles-alternos', [AuthController::class, 'guardarPerfilesAlternos']);
     Route::patch('/auth/mi-cuenta',  [AuthController::class, 'actualizarCuenta']);
 
     // Tiendas (solo lectura — usada por el selector de tienda en la orden)

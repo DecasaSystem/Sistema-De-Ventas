@@ -188,13 +188,12 @@ class AuthController extends Controller
             // Ver el taller: por permiso, o por llevar algún paso.
             've_produccion'      => $usuario->veProduccion(),
             'tienda_default_id'  => $usuario->tienda_default_id,
-            // Con qué cuenta alterna. Viaja el QUIÉN, nunca su sesión: el otro
-            // aparato tiene que escribir la contraseña igual.
-            'perfil_alterno'     => $usuario->perfilAlterno
-                ? ['id' => $usuario->perfilAlterno->id,
-                   'nombre' => $usuario->perfilAlterno->nombre,
-                   'email' => $usuario->perfilAlterno->email]
-                : null,
+            // Con qué cuentas alterna (hasta tres), en el orden en que las
+            // agregó. Viaja el QUIÉN, nunca su sesión: el otro aparato tiene
+            // que escribir la contraseña igual.
+            'perfiles_alternos'  => $usuario->perfilesAlternos
+                ->map(fn ($a) => ['id' => $a->id, 'nombre' => $a->nombre, 'email' => $a->email])
+                ->values()->all(),
             'firma_url'          => $usuario->firma_url,
             // Su barra de abajo, si la personalizó. Null = la de siempre.
             'nav_favoritos'      => $usuario->nav_favoritos,
@@ -231,7 +230,7 @@ class AuthController extends Controller
 
     public function me(Request $request)
     {
-        $usuario = $request->user()->load(['tiendaDefault:id,nombre,ciudad', 'rolAsignado', 'perfilAlterno:id,nombre,email']);
+        $usuario = $request->user()->load(['tiendaDefault:id,nombre,ciudad', 'rolAsignado', 'perfilesAlternos:id,nombre,email']);
 
         // Lo mismo que se manda al entrar, más lo que sólo hace falta cuando ya
         // se está adentro: con qué correo y en qué tienda.
@@ -242,24 +241,32 @@ class AuthController extends Controller
     }
 
     /**
-     * PATCH /api/auth/mi-perfil-alterno
-     * Deja anotado con qué cuenta alterna, para que el ajuste no se quede en
-     * este aparato. Mandar null lo quita.
+     * PATCH /api/auth/mis-perfiles-alternos
+     * Deja anotada la lista completa de cuentas con las que alterna, en ese
+     * orden, para que el ajuste no se quede en este aparato. Mandar la lista
+     * vacía las quita todas. Antes era una sola (`mi-perfil-alterno`).
      */
-    public function guardarPerfilAlterno(Request $request)
+    public function guardarPerfilesAlternos(Request $request)
     {
+        $max = Usuario::MAX_PERFILES - 1;
         $data = $request->validate([
-            'usuario_id' => 'nullable|integer|exists:usuarios,id',
+            'usuario_ids'   => "present|array|max:$max",
+            'usuario_ids.*' => 'integer|distinct|exists:usuarios,id',
         ]);
 
-        $otro = $data['usuario_id'] ?? null;
-        if ($otro && (int) $otro === (int) $request->user()->id) {
+        $yo  = $request->user();
+        $ids = array_values(array_unique(array_map('intval', $data['usuario_ids'])));
+        if (in_array((int) $yo->id, $ids, true)) {
             return response()->json(['message' => 'No puedes alternar contigo mismo.'], 422);
         }
 
-        $request->user()->update(['perfil_alterno_id' => $otro]);
+        // Se reescribe entera con la posición de cada uno: es la única forma
+        // de que "quitar al segundo" deje al tercero donde iba.
+        $yo->perfilesAlternos()->sync(
+            collect($ids)->mapWithKeys(fn ($id, $i) => [$id => ['posicion' => $i]])->all()
+        );
 
-        return response()->json(['ok' => true]);
+        return response()->json(['ok' => true, 'usuario_ids' => $ids]);
     }
 
     public function guardarFirma(Request $request)

@@ -1,7 +1,7 @@
 <script setup>
 import { cloudinaryOpt } from '@/utils/cloudinary'
 import { ref, computed } from 'vue'
-import { useAuthStore } from '@/stores/auth'
+import { useAuthStore, MAX_PERFILES } from '@/stores/auth'
 import { useAppearanceStore } from '@/stores/appearance'
 import api from '@/api'
 import FirmaCanvas from '@/components/FirmaCanvas.vue'
@@ -115,7 +115,7 @@ async function guardarCuenta() {
   }
 }
 
-// ── Perfil alternativo ────────────────────────────────────────────────────────
+// ── Perfiles alternativos (hasta MAX_PERFILES personas en un mismo equipo) ──
 const mostrarFormAlt  = ref(false)
 const altEmail        = ref('')
 const altPassword     = ref('')
@@ -123,10 +123,13 @@ const altGuardando    = ref(false)
 const altErr          = ref('')
 const altMostrarPass  = ref(false)
 
-function abrirFormAlt() {
+// Colores del avatar por puesto en la lista, para distinguirlos de un vistazo.
+const AVATAR_COLORS = ['bg-blue-500', 'bg-purple-500', 'bg-emerald-500', 'bg-amber-500']
+
+function abrirFormAlt(recordado = null) {
   // Si la cuenta ya recuerda con quién alterna, el correo viene puesto: solo
   // falta la contraseña.
-  altEmail.value    = auth.perfilAlternoRecordado?.email ?? ''
+  altEmail.value    = recordado?.email ?? ''
   altPassword.value = ''
   altErr.value      = ''
   mostrarFormAlt.value = true
@@ -140,7 +143,7 @@ function cancelarAlt() {
 async function activarPerfilAlternativo() {
   altErr.value = ''
   if (!altEmail.value || !altPassword.value) {
-    altErr.value = 'Ingresa el correo y la contraseña del segundo perfil.'
+    altErr.value = 'Ingresa el correo y la contraseña del otro perfil.'
     return
   }
   altGuardando.value = true
@@ -148,8 +151,8 @@ async function activarPerfilAlternativo() {
     await auth.loginPerfilAlternativo(altEmail.value, altPassword.value)
     mostrarFormAlt.value = false
   } catch (e) {
-    if (e.message?.includes('mismo usuario')) {
-      altErr.value = 'Ese usuario ya es el perfil activo.'
+    if (e.message?.includes('ya está entre') || e.message?.includes('Máximo')) {
+      altErr.value = e.message
     } else {
       const serverMsg = e.response?.data?.errors?.email?.[0] ?? e.response?.data?.message ?? null
       altErr.value = serverMsg
@@ -159,6 +162,11 @@ async function activarPerfilAlternativo() {
   } finally {
     altGuardando.value = false
   }
+}
+
+function quitarPerfil(p) {
+  if (!confirm(`¿Quitar a ${p.usuario?.nombre} de este equipo? Su sesión aquí se cierra.`)) return
+  auth.eliminarPerfilAlternativo(p.idx)
 }
 
 /**
@@ -414,40 +422,89 @@ function rolLabel(usuario) {
       </div>
     </div>
 
-    <!-- ── Perfil alternativo ─────────────────────────────────────────── -->
+    <!-- ── Perfiles alternativos ──────────────────────────────────────── -->
     <div class="bg-white rounded-xl shadow-sm p-4 space-y-3">
-      <p class="text-xs font-semibold text-gray-400 uppercase flex items-center gap-1.5">
-        <ArrowsRightLeftIcon class="w-3.5 h-3.5" /> Doble perfil
-      </p>
+      <div class="flex items-center justify-between">
+        <p class="text-xs font-semibold text-gray-400 uppercase flex items-center gap-1.5">
+          <ArrowsRightLeftIcon class="w-3.5 h-3.5" /> Varios perfiles
+        </p>
+        <span class="text-[11px] text-gray-400">{{ auth.perfiles.length }} de {{ MAX_PERFILES }}</span>
+      </div>
       <p class="text-xs text-gray-500">
-        Permite cambiar de usuario sin cerrar sesión — ideal cuando dos personas comparten un mismo equipo.
+        Permite cambiar de usuario sin cerrar sesión — ideal cuando varias personas comparten un mismo equipo. Hasta {{ MAX_PERFILES }} perfiles.
       </p>
 
-      <!-- La cuenta recuerda con quién alternas, aunque este aparato no lo
-           tenga activo. La sesión del otro perfil no puede viajar —es su
-           contraseña—, pero saber quién es evita tener que acordarse. -->
+      <!-- Los perfiles de este aparato. El principal es la sesión: no se quita. -->
       <div
-        v-if="!auth.tienePerfilAlternativo && auth.perfilAlternoRecordado"
-        class="bg-blue-50 border border-blue-200 rounded-xl px-3 py-2.5"
+        v-for="p in auth.perfiles" :key="p.idx"
+        :class="[
+          'flex items-center gap-3 rounded-xl p-3 border-2 transition-all',
+          p.activo
+            ? 'border-blue-400 bg-blue-50'
+            : 'border-gray-200 bg-gray-50 cursor-pointer hover:border-blue-200'
+        ]"
+        @click="!p.activo && auth.cambiarPerfil(p.idx)"
       >
-        <p class="text-xs text-blue-800 leading-snug">
-          En tu cuenta alternas con <strong>{{ auth.perfilAlternoRecordado.nombre }}</strong>,
-          pero en este dispositivo todavía no está activo. Escribe su contraseña una vez
-          y queda listo aquí también.
-        </p>
+        <div :class="['w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 text-white text-sm font-bold', AVATAR_COLORS[p.idx % AVATAR_COLORS.length]]">
+          {{ p.usuario?.nombre?.charAt(0)?.toUpperCase() }}
+        </div>
+        <div class="flex-1 min-w-0">
+          <p class="text-sm font-semibold text-gray-800 truncate">{{ p.usuario?.nombre }}</p>
+          <p class="text-xs text-gray-500">
+            {{ rolLabel(p.usuario) }}<span v-if="p.principal" class="text-gray-400"> · principal</span>
+          </p>
+        </div>
+        <span v-if="p.activo" class="text-xs bg-blue-600 text-white px-2 py-0.5 rounded-full font-semibold flex-shrink-0">
+          Activo
+        </span>
+        <span v-else class="text-xs text-blue-600 font-semibold flex-shrink-0">
+          Cambiar →
+        </span>
+        <!-- Quitar: solo los alternativos. Se frena el click para no cambiar
+             de perfil al mismo tiempo. -->
+        <button
+          v-if="!p.principal"
+          @click.stop="quitarPerfil(p)"
+          class="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
+          title="Quitar de este equipo"
+        >
+          <TrashIcon class="w-4 h-4" />
+        </button>
       </div>
 
-      <!-- Sin perfil alternativo -->
-      <template v-if="!auth.tienePerfilAlternativo">
+      <!-- La cuenta recuerda con quiénes alterna, aunque este aparato no los
+           tenga activos. La sesión del otro perfil no puede viajar —es su
+           contraseña—, pero saber quién es evita tener que acordarse. -->
+      <div
+        v-if="auth.perfilesPorActivar.length && auth.puedeAgregarPerfil"
+        class="bg-blue-50 border border-blue-200 rounded-xl px-3 py-2.5 space-y-2"
+      >
+        <p class="text-xs text-blue-800 leading-snug">
+          En tu cuenta también alternas con estas personas, pero en este dispositivo todavía no
+          están activas. Escribe su contraseña una vez y quedan listas aquí también.
+        </p>
+        <button
+          v-for="r in auth.perfilesPorActivar" :key="r.id"
+          @click="abrirFormAlt(r)"
+          class="w-full flex items-center justify-between gap-2 rounded-lg bg-white border border-blue-200 px-3 py-2 text-sm hover:bg-blue-100 transition-colors"
+        >
+          <span class="font-medium text-gray-800 truncate">{{ r.nombre }}</span>
+          <span class="text-xs text-blue-600 font-semibold flex-shrink-0">Activar aquí →</span>
+        </button>
+      </div>
+
+      <!-- Agregar uno más -->
+      <template v-if="auth.puedeAgregarPerfil">
         <button
           v-if="!mostrarFormAlt"
-          @click="abrirFormAlt"
+          @click="abrirFormAlt()"
           class="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-dashed border-blue-300 text-blue-600 text-sm font-semibold hover:bg-blue-50 transition-colors"
         >
-          <PlusCircleIcon class="w-5 h-5" /> Activar perfil alternativo
+          <PlusCircleIcon class="w-5 h-5" />
+          {{ auth.tienePerfilAlternativo ? 'Agregar otro perfil' : 'Activar perfil alternativo' }}
         </button>
 
-        <!-- Formulario para añadir segundo perfil -->
+        <!-- Formulario para añadir otro perfil -->
         <div v-else class="space-y-3">
           <p class="text-xs text-gray-700 font-medium">Ingresa el correo y contraseña de la otra persona:</p>
           <p class="text-xs text-gray-400">Debe ser un usuario que ya tenga cuenta en Decasa (creado en el módulo Usuarios).</p>
@@ -484,46 +541,9 @@ function rolLabel(usuario) {
           </div>
         </div>
       </template>
-
-      <!-- Con perfil alternativo: mostrar ambos -->
-      <template v-else>
-        <!-- Perfil 0 -->
-        <div
-          v-for="(idx) in [0, 1]"
-          :key="idx"
-          :class="[
-            'flex items-center gap-3 rounded-xl p-3 border-2 transition-all',
-            auth.perfilActivoIdx === idx
-              ? 'border-blue-400 bg-blue-50'
-              : 'border-gray-200 bg-gray-50 cursor-pointer hover:border-blue-200'
-          ]"
-          @click="auth.perfilActivoIdx !== idx && auth.cambiarPerfil()"
-        >
-          <div :class="['w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 text-white text-sm font-bold', idx === 0 ? 'bg-blue-500' : 'bg-purple-500']">
-            {{ (idx === 0 ? auth.usuario?.nombre : auth.perfilAlternativo?.nombre)?.charAt(0)?.toUpperCase() }}
-          </div>
-          <div class="flex-1 min-w-0">
-            <p class="text-sm font-semibold text-gray-800 truncate">
-              {{ idx === 0 ? auth.usuario?.nombre : auth.perfilAlternativo?.nombre }}
-            </p>
-            <p class="text-xs text-gray-500">{{ rolLabel(idx === 0 ? auth.usuario : auth.perfilAlternativo) }}</p>
-          </div>
-          <span v-if="auth.perfilActivoIdx === idx" class="text-xs bg-blue-600 text-white px-2 py-0.5 rounded-full font-semibold flex-shrink-0">
-            Activo
-          </span>
-          <span v-else class="text-xs text-blue-600 font-semibold flex-shrink-0">
-            Cambiar →
-          </span>
-        </div>
-
-        <!-- Botón eliminar perfil alternativo -->
-        <button
-          @click="auth.eliminarPerfilAlternativo()"
-          class="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-red-200 text-red-500 text-xs font-medium hover:bg-red-50 transition-colors"
-        >
-          <TrashIcon class="w-3.5 h-3.5" /> Desactivar perfil alternativo
-        </button>
-      </template>
+      <p v-else class="text-[11px] text-gray-400 text-center">
+        Ya están los {{ MAX_PERFILES }} perfiles que caben en un equipo. Quita uno para agregar otro.
+      </p>
     </div>
 
   </div>

@@ -3,11 +3,17 @@ import { ref, computed } from 'vue'
 import api from '@/api'
 import { login as apiLogin, loginGoogle as apiLoginGoogle, logout as apiLogout } from '@/api/auth'
 
-// 'perfilAlt' guarda la sesion del segundo perfil para que no se pierda
-// cuando la sesion se cae sola (un 401, un token vencido). Al cerrar sesion a
-// proposito se borra: dejar la sesion de otra cuenta guardada en un aparato
-// del que alguien acaba de salir es dejarle la puerta abierta al siguiente.
-const KEY_PERFIL_ALT = 'perfilAlt'
+// 'perfilesAlt' guarda las sesiones de los otros perfiles para que no se
+// pierdan cuando la sesion se cae sola (un 401, un token vencido). Al cerrar
+// sesion a proposito se borra: dejar la sesion de otra cuenta guardada en un
+// aparato del que alguien acaba de salir es dejarle la puerta abierta al
+// siguiente. (Antes era 'perfilAlt', con una sola sesion; se migra al leer.)
+const KEY_PERFIL_ALT = 'perfilesAlt'
+const KEY_PERFIL_ALT_VIEJA = 'perfilAlt'
+
+// Cuantas personas pueden turnarse una misma sesion, contando la principal.
+// El mismo tope que el backend (Usuario::MAX_PERFILES).
+export const MAX_PERFILES = 4
 
 export const useAuthStore = defineStore('auth', () => {
 
@@ -43,35 +49,39 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.setItem('perfilActivo', String(_perfilActivo.value))
   }
 
-  // Guarda el perfil alternativo junto al ID del principal al que pertenece.
-  // El perfil principal siempre está en índice 0; el alternativo en índice 1.
+  // Guarda los perfiles alternativos junto al ID del principal al que
+  // pertenecen. El perfil principal siempre está en índice 0; los
+  // alternativos, en el orden en que se agregaron, del 1 en adelante.
   function _persistirAlt() {
     const principal = _perfiles.value[0]
-    const alt       = _perfiles.value[1]
-    if (alt?.token && alt?.usuario && principal?.usuario?.id) {
+    const alts      = _perfiles.value.slice(1).filter(p => p?.token && p?.usuario?.id)
+    if (alts.length && principal?.usuario?.id) {
       localStorage.setItem(KEY_PERFIL_ALT, JSON.stringify({
-        mainUserId: principal.usuario.id,   // ← quién activó este perfil alternativo
-        token:      alt.token,
-        usuario:    alt.usuario,
+        mainUserId: principal.usuario.id,   // ← quién activó estos perfiles
+        perfiles:   alts.map(p => ({ token: p.token, usuario: p.usuario })),
       }))
     }
   }
 
-  // Restaura el perfil alternativo SOLO si quien inicia sesión es el mismo
-  // usuario principal que lo configuró originalmente.
+  // Restaura los perfiles alternativos SOLO si quien inicia sesión es el
+  // mismo usuario principal que los configuró originalmente.
   function _recuperarAlt(mainUserId) {
     try {
-      const saved = JSON.parse(localStorage.getItem(KEY_PERFIL_ALT) ?? 'null')
-      if (
-        saved?.mainUserId === mainUserId &&
-        saved?.token &&
-        saved?.usuario?.id &&
-        saved.usuario.id !== mainUserId
-      ) {
-        return { token: saved.token, usuario: saved.usuario }
+      let saved = JSON.parse(localStorage.getItem(KEY_PERFIL_ALT) ?? 'null')
+      // Lo guardado por la version de un solo perfil alternativo.
+      if (!saved) {
+        const viejo = JSON.parse(localStorage.getItem(KEY_PERFIL_ALT_VIEJA) ?? 'null')
+        if (viejo?.token && viejo?.usuario) saved = { mainUserId: viejo.mainUserId, perfiles: [viejo] }
+        localStorage.removeItem(KEY_PERFIL_ALT_VIEJA)
       }
+      if (saved?.mainUserId !== mainUserId) return []
+      const vistos = new Set([mainUserId])
+      return (saved.perfiles ?? [])
+        .filter(p => p?.token && p?.usuario?.id && !vistos.has(p.usuario.id) && vistos.add(p.usuario.id))
+        .slice(0, MAX_PERFILES - 1)
+        .map(p => ({ token: p.token, usuario: p.usuario }))
     } catch {}
-    return null
+    return []
   }
 
   /**
@@ -109,7 +119,9 @@ export const useAuthStore = defineStore('auth', () => {
       ve_todas_ordenes:   data.ve_todas_ordenes   ?? false,
       tiene_pasos_produccion: data.tiene_pasos_produccion ?? false,
       tienda_default_id: data.tienda_default_id ?? null,
-      perfil_alterno:    data.perfil_alterno    ?? null,
+      // Con quiénes alterna según la cuenta (hasta tres). El backend viejo
+      // mandaba uno solo en `perfil_alterno`; se acepta por si queda cacheado.
+      perfiles_alternos: data.perfiles_alternos ?? (data.perfil_alterno ? [data.perfil_alterno] : []),
       firma_url:         data.firma_url         ?? null,
       independiente:     data.independiente     ?? false,
     }
@@ -188,17 +200,30 @@ export const useAuthStore = defineStore('auth', () => {
   const soloVeSusOrdenes      = computed(() =>
     usuario.value?.rol === 'vendedor' && !usuario.value?.ve_todas_ordenes)
 
-  // Dual-profile getters
+  // ── Multiperfil (hasta MAX_PERFILES personas turnándose la sesión) ──────
   const tienePerfilAlternativo = computed(() => _perfiles.value.length > 1)
+  const puedeAgregarPerfil     = computed(() => _perfiles.value.length < MAX_PERFILES)
+  /** Todos los perfiles de este aparato, en orden: el principal de primero. */
+  const perfiles = computed(() => _perfiles.value.map((p, idx) => ({
+    idx, usuario: p.usuario, activo: idx === _perfilActivo.value, principal: idx === 0,
+  })))
   /**
-   * Con quien alterna segun la CUENTA, aunque en este aparato no este activo.
-   * La sesion del otro perfil no se puede sincronizar —es una contrasena
-   * ajena—, pero saber quien es sirve para no tener que acordarse.
+   * Con quienes alterna segun la CUENTA, aunque en este aparato no esten
+   * activos. La sesion del otro perfil no se puede sincronizar —es una
+   * contrasena ajena—, pero saber quien es sirve para no tener que acordarse.
+   * Se anotan en la cuenta PRINCIPAL (la que entró primero): es la que
+   * arma el grupo.
    */
-  const perfilAlternoRecordado = computed(() => usuario.value?.perfil_alterno ?? null)
-  const perfilAlternativo      = computed(() => {
-    const otroIdx = _perfilActivo.value === 0 ? 1 : 0
-    return _perfiles.value[otroIdx]?.usuario ?? null
+  const perfilesRecordados = computed(() => _perfiles.value[0]?.usuario?.perfiles_alternos ?? [])
+  /** Los recordados que en este aparato todavía no tienen sesión. */
+  const perfilesPorActivar = computed(() => {
+    const aqui = new Set(_perfiles.value.map(p => p?.usuario?.id))
+    return perfilesRecordados.value.filter(r => r?.id && !aqui.has(r.id))
+  })
+  /** El siguiente al que se pasa con el chip de arriba (en rueda). */
+  const perfilAlternativo = computed(() => {
+    if (_perfiles.value.length < 2) return null
+    return _perfiles.value[(_perfilActivo.value + 1) % _perfiles.value.length]?.usuario ?? null
   })
   const perfilActivoIdx = computed(() => _perfilActivo.value)
 
@@ -215,9 +240,8 @@ export const useAuthStore = defineStore('auth', () => {
   function _abrirSesion({ data }) {
     const u = _buildUsuario(data)
 
-    // Restaurar perfil alternativo si sobrevivió al logout/401
-    const alt = _recuperarAlt(data.id)
-    _perfiles.value     = alt ? [{ token: data.token, usuario: u }, alt] : [{ token: data.token, usuario: u }]
+    // Restaurar los perfiles alternativos si sobrevivieron al logout/401
+    _perfiles.value     = [{ token: data.token, usuario: u }, ..._recuperarAlt(data.id)]
     _perfilActivo.value = 0
     token.value         = data.token
     usuario.value       = u
@@ -277,20 +301,26 @@ export const useAuthStore = defineStore('auth', () => {
   async function logout() {
     try { await apiLogout() } catch {}
 
-    // Se cierra tambien la sesion del perfil alternativo en el servidor: si no,
-    // ese token sigue siendo valido aunque se borre de este aparato.
-    const alt = _perfiles.value.find((_, i) => i !== _perfilActivo.value)
-    if (alt?.token) {
-      try {
-        await fetch('/api/auth/logout', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${alt.token}` },
-        })
-      } catch {}
-    }
+    // Se cierran tambien las sesiones de los otros perfiles en el servidor:
+    // si no, esos tokens siguen siendo validos aunque se borren del aparato.
+    await Promise.all(
+      _perfiles.value
+        .filter((p, i) => i !== _perfilActivo.value && p?.token)
+        .map(p => _revocarToken(p.token))
+    )
 
     clearSession({ conservarAlterno: false })
     localStorage.removeItem(KEY_PERFIL_ALT)
+  }
+
+  /** Cierra en el servidor la sesion de OTRO perfil (con su propio token). */
+  async function _revocarToken(tokenAjeno) {
+    try {
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${tokenAjeno}` },
+      })
+    } catch {}
   }
 
   function clearSession({ conservarAlterno = true } = {}) {
@@ -310,27 +340,68 @@ export const useAuthStore = defineStore('auth', () => {
     // cayo sola, y se borra si se cerro a proposito (ver logout).
   }
 
-  // ── Acciones de doble perfil ──────────────────────────────────────────────
+  // ── Acciones de multiperfil ───────────────────────────────────────────────
+
+  /**
+   * Deja anotado en la CUENTA PRINCIPAL con quiénes alterna, para que al
+   * entrar desde otro aparato ya sepa quiénes son y solo pida contraseñas.
+   *
+   * Va con el token del principal a propósito, no con el de quien esté
+   * activo: si quien agrega el tercer perfil está parado en el segundo, la
+   * lista igual es del grupo que armó el primero.
+   */
+  async function _guardarRecordados({ quitar = null } = {}) {
+    const principal = _perfiles.value[0]
+    if (!principal?.token) return
+
+    // La lista de la cuenta es la unión: los que están en este aparato y los
+    // que ya recordaba de otros. Si aquí se quita a alguien, se quita de la
+    // cuenta; pero quien solo está activo en el celular no se borra por
+    // tocar la lista desde el PC. Los del aparato van primero, y si se pasa
+    // del tope se caen los recordados más viejos.
+    const enAparato  = _perfiles.value.slice(1)
+      .map(p => ({ id: p.usuario.id, nombre: p.usuario.nombre, email: p.usuario.email ?? null }))
+    const idsAqui    = new Set(enAparato.map(p => p.id))
+    const recordados = (principal.usuario?.perfiles_alternos ?? []).filter(r => r?.id && !idsAqui.has(r.id))
+    const lista = [...enAparato, ...recordados]
+      .filter(r => r.id !== quitar)
+      .slice(0, MAX_PERFILES - 1)
+
+    try {
+      await fetch('/api/auth/mis-perfiles-alternos', {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${principal.token}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ usuario_ids: lista.map(r => r.id) }),
+      })
+    } catch {}
+    // Lo que la cuenta recuerda, actualizado aquí sin esperar otro /auth/me.
+    principal.usuario = { ...principal.usuario, perfiles_alternos: lista }
+    if (_perfilActivo.value === 0) usuario.value = principal.usuario
+    _syncStorage()
+  }
+
   async function loginPerfilAlternativo(email, password) {
+    if (!puedeAgregarPerfil.value) {
+      throw new Error(`Máximo ${MAX_PERFILES} perfiles en un mismo equipo.`)
+    }
     const { data } = await apiLogin(email, password)
-    if (data.id === usuario.value?.id) {
-      throw new Error('Este usuario ya es el perfil activo.')
+    if (_perfiles.value.some(p => p?.usuario?.id === data.id)) {
+      throw new Error('Este usuario ya está entre los perfiles.')
     }
     const u = _buildUsuario(data)
-    const principal = _perfiles.value[0]
-    _perfiles.value = [principal, { token: data.token, usuario: u }]
+    _perfiles.value = [..._perfiles.value, { token: data.token, usuario: u }]
     _syncStorage()
     // Guardar también en clave persistente
     _persistirAlt()
-    // Y se anota en la CUENTA, no solo en este aparato: asi al entrar desde el
-    // celular ya sabe con quien alterna y solo pide la contrasena.
-    api.patch('/auth/mi-perfil-alterno', { usuario_id: u.id }).catch(() => {})
+    _guardarRecordados()
     return u
   }
 
-  function cambiarPerfil() {
+  /** Pasa a otro perfil: al índice dado, o al siguiente en la rueda. */
+  function cambiarPerfil(idx = null) {
     if (!tienePerfilAlternativo.value) return
-    const nuevoIdx = _perfilActivo.value === 0 ? 1 : 0
+    const nuevoIdx = idx === null ? (_perfilActivo.value + 1) % _perfiles.value.length : idx
+    if (nuevoIdx === _perfilActivo.value || !_perfiles.value[nuevoIdx]) return
     _activarPerfil(nuevoIdx)
     // Recargar la página para que todas las vistas re-fetchen datos con el
     // nuevo perfil. Sin esto, refs inicializados en onMounted (tiendaId, etc.)
@@ -338,15 +409,30 @@ export const useAuthStore = defineStore('auth', () => {
     window.location.reload()
   }
 
-  function eliminarPerfilAlternativo() {
-    api.patch('/auth/mi-perfil-alterno', { usuario_id: null }).catch(() => {})
-    if (_perfilActivo.value === 1) {
+  /**
+   * Quita un perfil alternativo (nunca el principal, que es la sesión).
+   * Se cierra su sesión en el servidor: el token no debe seguir vivo en un
+   * aparato del que ya se lo sacó.
+   */
+  function eliminarPerfilAlternativo(idx) {
+    if (!idx || !_perfiles.value[idx]) return
+    const quitado = _perfiles.value[idx]
+    const estabaActivo = _perfilActivo.value === idx
+    _perfiles.value = _perfiles.value.filter((_, i) => i !== idx)
+    if (estabaActivo) {
       _activarPerfil(0)
+    } else if (_perfilActivo.value > idx) {
+      // El activo corrió un puesto hacia arriba.
+      _activarPerfil(_perfilActivo.value - 1)
     }
-    _perfiles.value = [_perfiles.value[0]]
     _syncStorage()
-    // Eliminar también la clave persistente
-    localStorage.removeItem(KEY_PERFIL_ALT)
+    if (_perfiles.value.length > 1) _persistirAlt()
+    else localStorage.removeItem(KEY_PERFIL_ALT)
+    if (quitado?.token) _revocarToken(quitado.token)
+    _guardarRecordados({ quitar: quitado?.usuario?.id ?? null })
+    // Si el que se quitó era el que estaba en pantalla, todo lo cargado es
+    // suyo: se recarga igual que al cambiar.
+    if (estabaActivo) window.location.reload()
   }
 
   return {
@@ -357,7 +443,7 @@ export const useAuthStore = defineStore('auth', () => {
     isFacturador, esVendedorLimitado, tieneAccesoRedes, tieneAccesoComisiones, puedeRecargarTelas, puedeUsarTelas, puedeSurtir,
     puedeCostos, puedeProveedores, puedeDespacho, puedeEntregar, puedeProduccion, gestionaProduccion, puedeReserva, puedeNomina, puedeCompras,
     puedeEncargos, revisaEncargos, llevaEncargos, veTodasOrdenes, soloVeSusOrdenes,
-    tienePerfilAlternativo, perfilAlternativo, perfilActivoIdx, perfilAlternoRecordado,
+    tienePerfilAlternativo, puedeAgregarPerfil, perfiles, perfilesRecordados, perfilesPorActivar, perfilAlternativo, perfilActivoIdx,
     login, loginConGoogle, fetchMe, setFirma, setNavFavoritos, setEmail, logout, clearSession,
     loginPerfilAlternativo, cambiarPerfil, eliminarPerfilAlternativo,
   }

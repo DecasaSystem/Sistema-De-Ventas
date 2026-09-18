@@ -81,7 +81,6 @@ class Usuario extends Authenticatable
         'nomina_seguridad_social',
         'periodicidad',
         'tienda_default_id',
-        'perfil_alterno_id',
         'activo',
         'firma_url',
         // Qué módulos puso cada quien en la barra de abajo (nombres de ruta).
@@ -128,10 +127,17 @@ class Usuario extends Authenticatable
         ];
     }
 
-    /** La otra cuenta con la que alterna, si configuró doble perfil. */
-    public function perfilAlterno()
+    /** Hasta cuántas personas pueden turnarse una misma sesión (contando a esta). */
+    public const MAX_PERFILES = 4;
+
+    /**
+     * Con quiénes alterna, en el orden en que los agregó. Antes era una sola
+     * cuenta (`perfil_alterno_id`); ahora hasta MAX_PERFILES - 1.
+     */
+    public function perfilesAlternos()
     {
-        return $this->belongsTo(Usuario::class, 'perfil_alterno_id');
+        return $this->belongsToMany(Usuario::class, 'perfiles_alternos', 'usuario_id', 'alterno_id')
+            ->withPivot('posicion')->orderBy('perfiles_alternos.posicion');
     }
 
     public function tiendaDefault()

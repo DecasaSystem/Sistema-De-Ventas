@@ -561,16 +561,19 @@ function formatFecha(iso) {
         <span class="hidden sm:inline font-bold text-blue-600 text-lg">SODEGE</span>
       </div>
       <div class="flex items-center gap-2 min-w-0 shrink-0">
-        <!-- Chip de perfil activo / cambio rápido -->
+        <!-- Chip de perfil activo / cambio rápido. Con más de dos perfiles
+             va en rueda: pasa al siguiente, y el nombre gris dice a cuál.
+             Elegir uno en concreto se hace en Ajustes. -->
         <button
           v-if="auth.tienePerfilAlternativo"
           @click="auth.cambiarPerfil()"
           class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-blue-50 border border-blue-200 hover:bg-blue-100 transition-colors"
-          title="Cambiar perfil"
+          :title="`Cambiar a ${auth.perfilAlternativo?.nombre ?? 'otro perfil'}`"
         >
           <span class="text-xs font-semibold text-blue-700 max-w-[64px] sm:max-w-[80px] truncate">{{ auth.usuario?.nombre }}</span>
           <ArrowsRightLeftIcon class="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />
           <span class="hidden sm:inline text-xs text-gray-400 max-w-[64px] sm:max-w-[80px] truncate">{{ auth.perfilAlternativo?.nombre }}</span>
+          <span v-if="auth.perfiles.length > 2" class="text-[10px] text-blue-400 font-semibold flex-shrink-0">{{ auth.perfilActivoIdx + 1 }}/{{ auth.perfiles.length }}</span>
         </button>
         <!-- Sin perfil alternativo: solo nombre -->
         <button
