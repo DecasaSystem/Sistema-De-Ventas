@@ -697,6 +697,24 @@ class ComisionController extends Controller
             'nota'           => 'nullable|string|max:200',
         ]);
 
+        $resultado = self::registrarMovimiento($data);
+        if (is_string($resultado)) {
+            return response()->json(['message' => $resultado], 422);
+        }
+
+        return response()->json($resultado->load('tienda:id,nombre', 'usuario:id,nombre', 'reemplazaA:id,nombre'), 201);
+    }
+
+    /**
+     * Registra un reemplazo o un traslado y rehace los repartos de esos meses.
+     *
+     * Es lo que hace el botón de Reemplazos, separado para que una migración
+     * pueda registrar uno que se quedó sin anotar a tiempo con las mismas
+     * comprobaciones. Devuelve el movimiento, o el motivo por el que no se
+     * puede registrar.
+     */
+    public static function registrarMovimiento(array $data): TiendaReemplazo|string
+    {
         if ($data['tipo'] === TiendaReemplazo::REEMPLAZO) {
             // A quién se cubre tiene que ser del equipo de esa tienda. Es lo
             // que mantiene la cuenta como debe ser: el pool se sigue partiendo
@@ -708,12 +726,10 @@ class ComisionController extends Controller
                 ->pluck('vendedor_id')->map(fn ($v) => (int) $v);
 
             if (! $equipo->contains((int) ($data['reemplaza_a_id'] ?? 0))) {
-                return response()->json([
-                    'message' => 'A quien se reemplaza tiene que ser del equipo de esa tienda. '
-                               . 'Si la persona se cambió de tienda, regístralo como traslado; '
-                               . 'y si solo va a ayudar sin cubrir a nadie, no hace falta '
-                               . 'registrar nada: sus ventas empujan la meta igual y cobra su 5%.',
-                ], 422);
+                return 'A quien se reemplaza tiene que ser del equipo de esa tienda. '
+                     . 'Si la persona se cambió de tienda, regístralo como traslado; '
+                     . 'y si solo va a ayudar sin cubrir a nadie, no hace falta '
+                     . 'registrar nada: sus ventas empujan la meta igual y cobra su 5%.';
             }
         } else {
             // Un traslado no cubre a nadie: entra como una parte más del
@@ -722,15 +738,15 @@ class ComisionController extends Controller
         }
 
         if ($choque = self::movimientoQueChoca($data)) {
-            return response()->json(['message' => $choque], 422);
+            return $choque;
         }
 
         $reemplazo = TiendaReemplazo::create($data);
         TiendaReemplazo::olvidarCache();
 
-        $this->rehacerRepartos((int) $data['tienda_id'], self::mesesEntre($data['desde'], $data['hasta'] ?? null));
+        app(self::class)->rehacerRepartos((int) $data['tienda_id'], self::mesesEntre($data['desde'], $data['hasta'] ?? null));
 
-        return response()->json($reemplazo->load('tienda:id,nombre', 'usuario:id,nombre', 'reemplazaA:id,nombre'), 201);
+        return $reemplazo;
     }
 
     /** Marca de los traslados que escribe el cambio de sede, para reconocerlos. */
