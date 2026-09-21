@@ -64,6 +64,7 @@ class ManuelaCubrioASebastianEnElEdenTest extends TestCase
         Schema::create('ordenes', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('tienda_id')->nullable(); $t->unsignedBigInteger('vendedor_id')->nullable();
             $t->string('canal')->nullable();
+            $t->string('serie')->nullable(); $t->unsignedInteger('serie_numero')->nullable();
             $t->unsignedBigInteger('tienda_abonada_id')->nullable(); $t->unsignedBigInteger('covendedor_id')->nullable();
             $t->boolean('es_compartida')->default(false);
             $t->string('estado')->default('entregado'); $t->decimal('valor_total', 15, 2)->default(0);
@@ -80,6 +81,10 @@ class ManuelaCubrioASebastianEnElEdenTest extends TestCase
             $t->id(); $t->unsignedBigInteger('orden_id'); $t->unsignedBigInteger('tienda_id')->nullable();
             $t->decimal('monto', 15, 2)->default(0); $t->string('metodo')->nullable();
             $t->string('tipo')->nullable(); $t->timestamp('created_at')->nullable();
+        });
+        Schema::create('orden_ediciones', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('orden_id'); $t->unsignedBigInteger('usuario_id');
+            $t->json('cambios'); $t->timestamp('created_at')->nullable();
         });
         Schema::create('tienda_trimestres', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('tienda_id'); $t->char('trimestre', 7);
@@ -209,5 +214,71 @@ class ManuelaCubrioASebastianEnElEdenTest extends TestCase
         $this->correrLaMigracion();
 
         $this->assertSame(0, TiendaReemplazo::count());
+    }
+
+    // ── FV2-3 y FV2-4 son de Gladys ──────────────────────────────────────────
+
+    private function fv2(int $numero, int $vendedor, float $valor = 5_000_000): Orden
+    {
+        $orden = $this->venta($vendedor, '12', $valor);
+        DB::table('ordenes')->where('id', $orden->id)
+            ->update(['serie' => Orden::SERIE_FV2, 'serie_numero' => $numero]);
+
+        return $orden->fresh();
+    }
+
+    private function pasarFv2AGladys(): void
+    {
+        $m = require base_path('database/migrations/2026_10_02_000003_fv2_3_y_fv2_4_son_de_gladys.php');
+        $m->up();
+    }
+
+    public function test_fv2_3_y_fv2_4_pasan_a_gladys_con_su_comision_y_rastro(): void
+    {
+        $fv2_3 = $this->fv2(3, self::SEBASTIAN);
+        $fv2_4 = $this->fv2(4, self::SEBASTIAN);
+        $fv2_5 = $this->fv2(5, self::SEBASTIAN);
+        $this->venta(self::GLADYS, '05', 12_000_000);
+
+        $antes = $this->loQueCobraCadaUno();
+
+        $this->pasarFv2AGladys();
+
+        foreach ([$fv2_3, $fv2_4] as $o) {
+            $this->assertSame(self::GLADYS, (int) $o->fresh()->vendedor_id);
+            $this->assertSame(self::GLADYS, (int) Comision::where('orden_id', $o->id)->value('vendedor_id'));
+            $this->assertSame(self::EDEN,   (int) Comision::where('orden_id', $o->id)->value('tienda_id'));
+            $this->assertSame(1, DB::table('orden_ediciones')->where('orden_id', $o->id)->count(), 'queda en el historial');
+        }
+        // La FV2-5 no es de las dos: sigue siendo de Sebastián.
+        $this->assertSame(self::SEBASTIAN, (int) $fv2_5->fresh()->vendedor_id);
+
+        // A nadie le cambia lo que cobra: el pool se reparte por días. (Un
+        // peso de diferencia es el redondeo de repartir entre más órdenes.)
+        $despues = $this->loQueCobraCadaUno();
+        $this->assertEqualsWithDelta($antes['Gladys'],    $despues['Gladys'],    2);
+        $this->assertEqualsWithDelta($antes['Sebastián'], $despues['Sebastián'], 2);
+    }
+
+    public function test_correr_dos_veces_no_hace_nada_la_segunda(): void
+    {
+        $this->fv2(3, self::SEBASTIAN);
+        $this->fv2(4, self::SEBASTIAN);
+
+        $this->pasarFv2AGladys();
+        $this->pasarFv2AGladys();
+
+        $this->assertSame(2, DB::table('orden_ediciones')->count());
+    }
+
+    public function test_una_comision_ya_pagada_a_sebastian_no_se_mueve(): void
+    {
+        $fv2_3 = $this->fv2(3, self::SEBASTIAN);
+        Comision::where('orden_id', $fv2_3->id)->update(['estado' => 'pagada', 'monto_comision' => 100]);
+
+        $this->pasarFv2AGladys();
+
+        $this->assertSame(self::GLADYS,    (int) $fv2_3->fresh()->vendedor_id, 'la orden sí');
+        $this->assertSame(self::SEBASTIAN, (int) Comision::where('orden_id', $fv2_3->id)->value('vendedor_id'), 'lo pagado no');
     }
 }
