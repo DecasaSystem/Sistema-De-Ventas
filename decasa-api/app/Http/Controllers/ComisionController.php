@@ -1455,7 +1455,7 @@ class ComisionController extends Controller
     {
         $valor = self::valorComisionable($orden);
 
-        $cambiadas = 0;
+        $cambiadas = self::sincronizarTienda($orden);
         self::sincronizarAbonoAlmacen($orden);
         self::sincronizarRestauracionEquipo($orden);
 
@@ -1473,6 +1473,70 @@ class ComisionController extends Controller
         }
 
         return $cambiadas;
+    }
+
+    /**
+     * A qué tienda se le cuenta la venta: para su meta y para su pool.
+     *
+     * Una venta por WhatsApp, Instagram o la página no es del mostrador donde
+     * se registró, es de la persona que la cerró: cuenta para SU tienda. Se
+     * nota en los reemplazos. Génesis, de Unicentro, cubre en Norte: lo que
+     * venda en el mostrador de Norte es de Norte, pero lo que cierre por
+     * WhatsApp esos días le empuja la meta a Unicentro, como siempre. Y
+     * Manuela, de Tienda Virtual, cubriendo allá cobra lo digital por fuera
+     * de la meta, con las reglas de su tienda. Antes todo se le cargaba a
+     * Norte, porque la orden lleva la tienda donde se hizo.
+     *
+     * La orden no se toca: sigue siendo de Norte para el inventario y el
+     * consecutivo. Solo cambia a quién se le cuenta.
+     *
+     * Quien no tiene tienda —un independiente— sigue con la de la orden. Las
+     * órdenes viejas sin canal se tratan como físicas.
+     */
+    public static function tiendaParaComision(Orden $orden): int
+    {
+        if (! $orden->canal || $orden->canal === 'fisica') {
+            return (int) $orden->tienda_id;
+        }
+
+        $propia = Usuario::where('id', $orden->vendedor_id)->value('tienda_default_id');
+
+        return (int) ($propia ?: $orden->tienda_id);
+    }
+
+    /**
+     * Mueve la comisión del vendedor a la tienda que le corresponde si la
+     * orden cambió de canal —o si nació antes de que lo digital contara para
+     * la tienda de la persona—. Recalcular pasa por aquí, así que con eso se
+     * ponen al día las que ya existían.
+     *
+     * Solo la fila de la venta del vendedor: la del covendedor ya va con la
+     * tienda de él, y los repartos (abono, restauración) son de la tienda
+     * donde se hizo. Lo pagado no se mueve, salvo que se pida (la migración
+     * que estrenó la regla lo hizo con todo el historial: el monto pagado ya
+     * está congelado, solo cambia a qué tienda se le cuenta).
+     */
+    public static function sincronizarTienda(Orden $orden, bool $inclusoPagadas = false): int
+    {
+        if (! $orden->vendedor_id || ! $orden->tienda_id) return 0;
+
+        $tienda = self::tiendaParaComision($orden);
+
+        $movidas = 0;
+        foreach (Comision::where('orden_id', $orden->id)
+                     ->where('vendedor_id', $orden->vendedor_id)
+                     ->where(fn ($q) => $q->whereNull('origen')->orWhere('origen', 'venta'))
+                     ->when(! $inclusoPagadas, fn ($q) => $q->where('estado', '!=', 'pagada'))
+                     ->get() as $c) {
+            if ((int) $c->tienda_id === $tienda) continue;
+            $c->update([
+                'tienda_id'        => $tienda,
+                'fecha_disponible' => self::calcularFechaDisponible(Carbon::parse($c->fecha_venta), $tienda),
+            ]);
+            $movidas++;
+        }
+
+        return $movidas;
     }
 
     // Llamar desde OrdenController al confirmar una orden
@@ -1494,16 +1558,17 @@ class ComisionController extends Controller
         $covendedorId  = $orden->covendedor_id;
 
         $valorPrincipal = self::valorComisionable($orden);
+        $tiendaVenta    = self::tiendaParaComision($orden);
 
         // Registro del vendedor principal
         Comision::firstOrCreate(
             ['orden_id' => $orden->id, 'vendedor_id' => $orden->vendedor_id],
             [
-                'tienda_id'        => $orden->tienda_id,
+                'tienda_id'        => $tiendaVenta,
                 'mes_venta'        => $mes,
                 'valor_orden'      => $valorPrincipal,
                 'fecha_venta'      => $fechaVentaStr,
-                'fecha_disponible' => self::calcularFechaDisponible($fechaVenta, $orden->tienda_id),
+                'fecha_disponible' => self::calcularFechaDisponible($fechaVenta, $tiendaVenta),
                 'estado'           => 'pendiente',
             ]
         );

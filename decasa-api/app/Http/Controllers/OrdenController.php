@@ -1270,7 +1270,18 @@ class OrdenController extends Controller
             return response()->json(['message' => 'Solo el vendedor de la orden o un supervisor puede cambiar la tienda con la que se comparte la venta.'], 403);
         }
 
-        if ($reasignando || $ajustandoAbono) {
+        // Cambiar el canal puede mover la comisión de tienda: lo digital cuenta
+        // para la tienda de la persona, lo físico para la de la orden (ver
+        // ComisionController::tiendaParaComision). Si la mueve, pesa igual que
+        // una reasignación: no se toca lo que ya está listo o pagado.
+        $mueveComision = false;
+        if (array_key_exists('canal', $data) && $data['canal'] !== $orden->canal) {
+            $conCanalNuevo = (clone $orden)->setAttribute('canal', $data['canal']);
+            $mueveComision = ComisionController::tiendaParaComision($conCanalNuevo)
+                !== ComisionController::tiendaParaComision($orden);
+        }
+
+        if ($reasignando || $ajustandoAbono || $mueveComision) {
             $comisionLiquidada = Comision::where('orden_id', $orden->id)
                 ->whereIn('estado', ['lista', 'pagada'])
                 ->exists();
@@ -1979,10 +1990,11 @@ class OrdenController extends Controller
             if (($reasignando || $ajustandoAbono) && $tocoAsignacion) {
                 Comision::where('orden_id', $orden->id)->delete();
                 ComisionController::crearParaOrden($orden->fresh());
-            } elseif (array_key_exists('valor_total', $updateOrden)) {
+            } elseif (array_key_exists('valor_total', $updateOrden) || array_key_exists('canal', $updateOrden)) {
                 // Si cambió el precio, la comisión tiene que seguirlo. Antes se
                 // quedaba con el valor del día que se creó la orden y no había
-                // forma de corregirla, ni siquiera desde "Recalcular".
+                // forma de corregirla, ni siquiera desde "Recalcular". Y si
+                // cambió el canal, la tienda a la que se le cuenta también.
                 ComisionController::sincronizarValorOrden($orden->fresh());
             }
 

@@ -2910,6 +2910,8 @@ Una orden es de venta O de restauración, nunca las dos: el sistema lo rechaza. 
 
 El esquema sigue a la PERSONA, no a la orden: un supervisor de Vía Jardines que escoja otra tienda al crear la orden sigue cobrando individual, aunque la venta quede en esa tienda.
 
+A qué tienda le cuenta una venta (para la meta y el pool) depende del canal: lo FÍSICO es de la tienda donde se hizo la orden; lo DIGITAL (WhatsApp, Instagram, Facebook, página) es de la tienda de la persona. Importa en los reemplazos: Génesis (Unicentro) cubriendo en Norte le suma a Norte lo del mostrador y a Unicentro lo de WhatsApp. Un independiente no tiene tienda, así que todo lo suyo queda en la de la orden.
+
 PEREIRA Y CIRCUNVALAR son distintas (las demás son mensuales):
 - Los tres meses del trimestre se suman antes de comparar contra la meta: un mes flojo lo tapa un mes bueno.
 - Si el trimestre cierra en rojo, esa deuda se descuenta del pool del trimestre siguiente. Es el único sitio donde eso pasa.

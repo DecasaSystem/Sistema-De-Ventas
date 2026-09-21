@@ -308,6 +308,27 @@ parte de Norte, salvo que esté cubriendo a alguien.
     Cobra el 5% de lo suyo (÷1,19), por fuera del pool. Sus ventas sí
     empujan la meta de esa tienda.
 
+7.4 Lo digital es de la persona, lo físico es del mostrador
+    Una venta por WhatsApp, Instagram, Facebook o la página cuenta para la
+    tienda DE QUIEN LA CERRÓ (la de su perfil), no para la tienda donde se
+    registró la orden. Una venta física cuenta para la tienda de la orden.
+
+    Se nota en los reemplazos:
+      - Génesis (Unicentro) cubre en Norte. Lo que venda en el mostrador de
+        Norte es de Norte: empuja esa meta y entra a ese pool. Lo que cierre
+        por WhatsApp esos mismos días es de Unicentro, como siempre.
+      - Manuela (Tienda Virtual) cubre en Norte. Lo físico es de Norte; lo de
+        Instagram/WhatsApp es suyo, con las reglas de Tienda Virtual (5% de
+        lo suyo ÷1,19, sin meta ni pool).
+
+    La orden no cambia de tienda: sigue siendo de Norte para el inventario y
+    el consecutivo. Solo cambia a quién se le cuenta la comisión.
+
+    Un independiente (sin tienda en el perfil) sigue contando para la tienda
+    de la orden. Si a una orden se le cambia el canal después de creada, la
+    comisión se mueve sola; si ya estaba lista o pagada, no se deja cambiar.
+    Recalcular pone al día las que nacieron antes de esta regla.
+
 
 8. TRIMESTRAL: EL POOL SE PAGA UNA SOLA VEZ
 --------------------------------------------
