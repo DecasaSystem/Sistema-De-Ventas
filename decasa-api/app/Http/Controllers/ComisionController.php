@@ -48,7 +48,7 @@ class ComisionController extends Controller
             return response()->json(['error' => 'Sin acceso'], 403);
         }
 
-        $query = Comision::with(['orden.pagos', 'vendedor:id,nombre', 'tienda:id,nombre', 'pagadaPor:id,nombre'])
+        $query = Comision::with(['orden.pagos', 'orden.cliente:id,nombre', 'vendedor:id,nombre', 'tienda:id,nombre', 'pagadaPor:id,nombre'])
             ->orderBy('fecha_disponible', 'asc');
 
         if ($vendedorId) $query->where('vendedor_id', $vendedorId);
@@ -82,7 +82,7 @@ class ComisionController extends Controller
         // al día cuando alguien pulsa Recalcular, así que al llegar el 20 el
         // selector decía "0 listas" con plata lista para pagar en la lista de
         // al lado. Quien paga se guía por ese contador.
-        $comisiones = Comision::with(['orden.pagos', 'vendedor:id,nombre', 'tienda:id,nombre'])
+        $comisiones = Comision::with(['orden.pagos', 'orden.cliente:id,nombre', 'vendedor:id,nombre', 'tienda:id,nombre'])
             ->when($mes, fn ($q) => $q->where('mes_venta', $mes))
             ->get();
 
@@ -232,7 +232,7 @@ class ComisionController extends Controller
         // se parte entre todos los integrantes, venda cada uno o no.
         $this->asegurarPartesDePool($mes);
 
-        $comisiones = Comision::with(['orden.pagos', 'vendedor:id,nombre', 'tienda:id,nombre'])
+        $comisiones = Comision::with(['orden.pagos', 'orden.cliente:id,nombre', 'vendedor:id,nombre', 'tienda:id,nombre'])
             ->where('mes_venta', $mes)
             ->get();
 
@@ -288,6 +288,8 @@ class ComisionController extends Controller
                     'monto_comision' => (float) $i['monto_comision'],
                     'estado'         => $i['estado_calculado'],
                     'fecha_venta'    => $i['fecha_venta'],
+                    'cliente_nombre' => $i['cliente_nombre'] ?? null,
+                    'canal'          => $i['canal'] ?? null,
                 ])->values(),
             ];
         })->keyBy(fn ($f) => $f['vendedor_id'] . '_' . $f['tienda_id']);
@@ -361,7 +363,7 @@ class ComisionController extends Controller
      */
     public function resumenParaAgente(int $vendedorId, string $mes): array
     {
-        $comisiones = Comision::with(['orden.pagos', 'vendedor:id,nombre', 'tienda:id,nombre'])
+        $comisiones = Comision::with(['orden.pagos', 'orden.cliente:id,nombre', 'vendedor:id,nombre', 'tienda:id,nombre'])
             ->where('vendedor_id', $vendedorId)->where('mes_venta', $mes)->get();
 
         $vendedor = Usuario::find($vendedorId);
@@ -2640,6 +2642,9 @@ class ComisionController extends Controller
             // especial, que no tienen numero_orden.
             'orden_referencia' => $c->orden?->referencia,
             'es_descuento_especial' => (bool) $c->orden?->es_descuento_especial,
+            // Solo si vino cargado: en pantalla no hace falta, en el Excel sí.
+            'cliente_nombre'   => $c->orden?->relationLoaded('cliente') ? $c->orden->cliente?->nombre : null,
+            'canal'            => $c->orden?->canal,
         ]);
     }
 

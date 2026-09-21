@@ -20,12 +20,14 @@ import {
   ArrowDownTrayIcon,
   PencilIcon,
 } from '@heroicons/vue/24/outline'
-import { exportarExcel } from '@/utils/exportarExcel'
+import { exportarComisionesExcel } from '@/utils/excelComisiones'
+import { useAuthStore } from '@/stores/auth'
 import InputPesos from '@/components/common/InputPesos.vue'
 import DesgloseComision from '@/components/comisiones/DesgloseComision.vue'
 import { formatPct } from '@/utils/descuentos'
 
 const router = useRouter()
+const auth   = useAuthStore()
 const toast  = useToast()
 
 // ── Estado ─────────────────────────────────────────────────────────────────────
@@ -601,80 +603,57 @@ function resumenEstadoLabel(r) {
 }
 
 // ── Exportación a Excel ──────────────────────────────────────────────────────
-const ESTADO_LABEL = { pendiente: 'Pendiente', lista: 'Lista', pagada: 'Pagada' }
+// Un solo libro con todo el mes explicado (ver utils/excelComisiones.js).
+// Los filtros de la pantalla recortan lo que sale: la vista, la pestaña de
+// estado, el vendedor elegido y, en el resumen, la agrupación. Los datos se
+// piden frescos al servidor para que el archivo no dependa de qué pestaña
+// se cargó antes ni de un vendedor que se dejó elegido en otra vista.
+const exportando = ref(false)
 
-// Fecha 'YYYY-MM-DD' → 'DD/MM/YYYY' (sin desfase de zona horaria)
-function fechaExcel(f) {
-  if (!f) return ''
-  const [y, m, d] = String(f).slice(0, 10).split('-')
-  return (d && m && y) ? `${d}/${m}/${y}` : String(f)
-}
+async function exportarExcelCompleto() {
+  exportando.value = true
+  try {
+    const mes = mesActual.value
+    const [cRes, iRes, mRes, rRes] = await Promise.all([
+      api.get('/comisiones', { params: { mes } }),
+      api.get('/comisiones/independientes', { params: { mes } }).catch(() => ({ data: null })),
+      api.get('/comisiones/metas', { params: { mes } }),
+      api.get('/comisiones/reemplazos', { params: { mes } }).catch(() => ({ data: {} })),
+    ])
 
-// Exporta el detalle completo de comisiones (todos los estados) tal como está
-// cargado en la vista, respetando el filtro de vendedor si hay uno activo.
-function exportarDetalleExcel() {
-  const lista = (vistaTab.value === 'vendedor' && vendedorSel.value)
-    ? comisiones.value.filter(c => c.vendedor_id === vendedorSel.value)
-    : comisiones.value
+    const enVendedor = vistaTab.value === 'vendedor' && vendedorSel.value
+    const filtros = {
+      vista:          vistaTab.value,
+      // En el resumen se ve el mes entero; en las otras vistas, la pestaña.
+      estado:         vistaTab.value === 'resumen' ? null : tab.value,
+      vendedorId:     enVendedor ? vendedorSel.value : null,
+      vendedorNombre: enVendedor ? (vendedorActual.value?.nombre ?? null) : null,
+      agrupacion:     vistaTab.value === 'resumen' ? resumenFiltro.value : null,
+    }
 
-  if (!lista.length) {
-    toast.error('No hay comisiones para exportar.')
-    return
+    const hayAlgo = (cRes.data ?? []).some(c =>
+      (!filtros.vendedorId || c.vendedor_id === filtros.vendedorId)
+      && (!filtros.estado || (c.estado_calculado ?? c.estado) === filtros.estado))
+    if (!hayAlgo && !(iRes.data?.independientes?.length)) {
+      toast.error('No hay comisiones para exportar con estos filtros.')
+      return
+    }
+
+    await exportarComisionesExcel({
+      mes,
+      comisiones:  cRes.data ?? [],
+      indep:       (iRes.data?.independientes?.length || iRes.data?.almacenes?.length) ? iRes.data : null,
+      metas:       mRes.data ?? [],
+      reemplazos:  rRes.data?.reemplazos ?? [],
+      reparto:     Object.fromEntries((rRes.data?.reparto ?? []).map(r => [r.tienda_id, r])),
+      filtros,
+      generadoPor: auth.usuario?.nombre,
+    })
+  } catch {
+    toast.error('No se pudo generar el Excel.')
+  } finally {
+    exportando.value = false
   }
-
-  const filas = lista.map(c => ({
-    'Vendedor':          c.vendedor_nombre ?? '',
-    'Tienda':            c.tienda_nombre ?? '',
-    'Orden N°':          c.orden_referencia ?? c.orden_numero ?? '',
-    'Estado':            ESTADO_LABEL[c.estado_calculado ?? c.estado] ?? (c.estado_calculado ?? c.estado ?? ''),
-    'Atrasada':          c.atrasada ? 'Sí' : 'No',
-    'Tipo':              c.es_restauracion ? 'Restauración' : 'Venta',
-    'Cómo se paga':      formaPago(c).etiqueta,
-    'Comisión':          Number(c.monto_comision) || 0,
-    'Valor orden':       Number(c.valor_orden) || 0,
-    '% pagado orden':    Number(c.pct_pagado) || 0,
-    'Periodicidad':      c.periodicidad === 'trimestral' ? 'Trimestral' : 'Mensual',
-    'Fecha venta':       fechaExcel(c.fecha_venta),
-    'Mes venta':         c.mes_venta ?? '',
-    'Fecha disponible':  fechaExcel(c.fecha_disponible),
-    'Fecha pago':        fechaExcel(c.fecha_pago),
-    'Pagada por':        c.pagada_por?.nombre ?? '',
-  }))
-
-  exportarExcel(filas, { nombreArchivo: 'comisiones_detalle', hoja: 'Comisiones' })
-}
-
-// Exporta el resumen del mes seleccionado (una fila por vendedor + totales).
-function exportarResumenExcel() {
-  if (!resumenData.value.length) {
-    toast.error('No hay resumen para exportar.')
-    return
-  }
-
-  const filas = resumenData.value.map(r => ({
-    'Vendedor':       r.vendedor_nombre ?? '',
-    'Tienda':         r.tienda_nombre ?? '',
-    'Órdenes':        Number(r.total_ordenes) || 0,
-    'Ventas del mes': Number(r.total_ventas) || 0,
-    'Comisión total': Number(r.comision_total) || 0,
-    'Pendientes':     Number(r.pendientes) || 0,
-    'Listas':         Number(r.listas) || 0,
-    'Pagadas':        Number(r.pagadas) || 0,
-  }))
-
-  // Fila de totales
-  filas.push({
-    'Vendedor':       'TOTAL',
-    'Tienda':         '',
-    'Órdenes':        totalGeneral.value.ordenes,
-    'Ventas del mes': totalGeneral.value.ventas,
-    'Comisión total': totalGeneral.value.comision,
-    'Pendientes':     totalGeneral.value.pendientes,
-    'Listas':         totalGeneral.value.listas,
-    'Pagadas':        totalGeneral.value.pagadas,
-  })
-
-  exportarExcel(filas, { nombreArchivo: `comisiones_resumen_${mesActual.value}`, hoja: 'Resumen' })
 }
 
 onMounted(async () => {
@@ -695,13 +674,13 @@ onMounted(async () => {
       </h1>
       <div class="flex gap-2">
         <button
-          v-if="vistaTab !== 'resumen' && comisiones.length"
-          @click="exportarDetalleExcel"
-          title="Descargar Excel (detalle de comisiones)"
-          class="flex items-center gap-1 text-xs font-semibold text-white bg-green-600 rounded-lg px-2.5 py-1.5 hover:bg-green-700"
+          @click="exportarExcelCompleto"
+          :disabled="exportando"
+          title="Descargar Excel del mes con los filtros de la pantalla (resumen, por vendedor, por tienda, detalle, independientes, metas)"
+          class="flex items-center gap-1 text-xs font-semibold text-white bg-green-600 rounded-lg px-2.5 py-1.5 hover:bg-green-700 disabled:opacity-50"
         >
           <ArrowDownTrayIcon class="w-3.5 h-3.5" />
-          Excel
+          {{ exportando ? 'Armando…' : 'Excel' }}
         </button>
         <button
           @click="mostrarMetas = !mostrarMetas; mostrarMetas && cargarTodosVendedores()"
@@ -1119,15 +1098,6 @@ onMounted(async () => {
       <div class="flex items-center justify-between mb-3 gap-2">
         <p class="text-xs font-semibold text-gray-600">Mes de análisis</p>
         <div class="flex items-center gap-2">
-          <button
-            v-if="resumenData.length"
-            @click="exportarResumenExcel"
-            title="Descargar Excel (resumen del mes)"
-            class="flex items-center gap-1 text-xs font-semibold text-white bg-green-600 rounded-lg px-2.5 py-1 hover:bg-green-700"
-          >
-            <ArrowDownTrayIcon class="w-3.5 h-3.5" />
-            Excel
-          </button>
           <input
             type="month"
             v-model="mesActual"
