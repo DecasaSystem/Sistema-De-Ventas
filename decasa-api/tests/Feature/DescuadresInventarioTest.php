@@ -161,6 +161,61 @@ class DescuadresInventarioTest extends TestCase
         $this->assertSame(1, $data[0]['diferencia']);
     }
 
+    /**
+     * El fondo del problema que sobrevivía meses: un borrador NO aparta nada
+     * (OrdenController::store no reserva si viene como borrador), pero la
+     * auditoría lo contaba como reserva viva. Un contador fantasma con un
+     * borrador del mismo producto encima quedaba "sostenido" y no se reportaba
+     * nunca — el apartado seguía ahí, bloqueando stock bueno, y en pantalla la
+     * lista de órdenes no lo sostenía.
+     */
+    public function test_un_borrador_no_tapa_un_contador_fantasma(): void
+    {
+        $orden = Orden::create(['cliente_id' => 1, 'tienda_id' => 2, 'estado' => 'borrador', 'valor_total' => 100]);
+        OrdenItem::create(['orden_id' => $orden->id, 'producto_id' => 5, 'cantidad' => 1, 'es_personalizado' => false, 'producto_unico' => false]);
+        DB::table('inventario')->insert(['producto_id' => 5, 'tienda_id' => 2, 'cantidad_disponible' => 1, 'cantidad_reservada' => 1]);
+
+        $r = $this->actingAs($this->supervisor())->getJson('/api/inventario/descuadres')->assertOk();
+
+        $data = $r->json('reservados');
+        $this->assertCount(1, $data, 'el fantasma se ve, el borrador no lo tapa');
+        $this->assertSame(1, $data[0]['contador']);
+        $this->assertSame(0, $data[0]['real']);
+    }
+
+    /** Lo mismo para una cotización: tampoco aparta hasta convertirse. */
+    public function test_una_cotizacion_tampoco_tapa_un_fantasma(): void
+    {
+        $orden = Orden::create(['cliente_id' => 1, 'tienda_id' => 2, 'estado' => 'cotizacion', 'valor_total' => 100]);
+        OrdenItem::create(['orden_id' => $orden->id, 'producto_id' => 5, 'cantidad' => 1, 'es_personalizado' => false, 'producto_unico' => false]);
+        DB::table('inventario')->insert(['producto_id' => 5, 'tienda_id' => 2, 'cantidad_disponible' => 1, 'cantidad_reservada' => 1]);
+
+        $this->assertCount(1, $this->actingAs($this->supervisor())
+            ->getJson('/api/inventario/descuadres')->assertOk()->json('reservados'));
+    }
+
+    /**
+     * Y al revés, que es lo que asustaba de "Corregir": con el borrador
+     * contando como real, corregir SUBÍA el contador para cubrirlo y apartaba
+     * stock que nadie había apartado. Ahora un borrador sobre un contador en
+     * cero no es un descuadre: no hay nada que corregir.
+     */
+    public function test_un_borrador_no_le_sube_el_contador_a_la_tienda(): void
+    {
+        $orden = Orden::create(['cliente_id' => 1, 'tienda_id' => 2, 'estado' => 'borrador', 'valor_total' => 100]);
+        OrdenItem::create(['orden_id' => $orden->id, 'producto_id' => 5, 'cantidad' => 1, 'es_personalizado' => false, 'producto_unico' => false]);
+        DB::table('inventario')->insert(['producto_id' => 5, 'tienda_id' => 2, 'cantidad_disponible' => 4, 'cantidad_reservada' => 0]);
+
+        $sup = $this->supervisor();
+        $this->assertCount(0, $this->actingAs($sup)->getJson('/api/inventario/descuadres')->assertOk()->json('reservados'));
+
+        $this->actingAs($sup)->postJson('/api/inventario/descuadres/corregir', ['todos' => true])->assertOk();
+
+        $this->assertSame(0, (int) DB::table('inventario')
+            ->where('producto_id', 5)->where('tienda_id', 2)->value('cantidad_reservada'),
+            'el borrador no aparta nada, así que corregir no puede apartarlo');
+    }
+
     public function test_no_reporta_la_reserva_de_un_surtido_de_fabrica_todavia_pendiente(): void
     {
         $surtido = Surtido::create(['estado' => 'enviado', 'fuente_fabrica' => true]);

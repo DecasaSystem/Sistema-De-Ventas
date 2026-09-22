@@ -1982,6 +1982,13 @@ class OrdenController extends Controller
             }
 
             if (! empty($updateOrden)) {
+                // La tienda de la orden es de donde sale lo que tiene apartado,
+                // así que cambiarla hay que llevárselo. Va ANTES del update
+                // para saber todavía de qué tienda venía.
+                if (array_key_exists('tienda_id', $updateOrden)) {
+                    self::mudarReservas($orden, (int) $updateOrden['tienda_id'], $usuario);
+                }
+
                 $orden->update($updateOrden);
             }
 
@@ -3275,6 +3282,66 @@ class OrdenController extends Controller
         // rama de abajo, que reparte números sin reservarlos.
         'armenia' => ['Decasa Norte', 'Decasa Vía El Edén', 'Decasa Vía Jardines', 'Bodega Fábrica', 'Tienda Virtual', 'Independientes'],
     ];
+
+    /**
+     * Se lleva a la tienda nueva lo que la orden tenía apartado en la vieja.
+     *
+     * Reasignarle la tienda a una orden movía el campo y nada más: el apartado
+     * se quedaba en la tienda de antes. Quedaban dos mentiras a la vez — en la
+     * tienda vieja un apartado que ninguna orden sostiene (el "dice apartado y
+     * no hay nada" de la pantalla de inventario) y en la nueva una unidad
+     * comprometida que el contador no conocía, libre para vendérsela a otro.
+     *
+     * Solo se mueven los ítems que salen de la tienda de la orden: uno con
+     * `tienda_origen_id` propio viaja desde otra sede y su reserva se queda
+     * donde está. Y solo si la orden tiene algo apartado de verdad: un
+     * borrador o una cotización todavía no reservaron nada.
+     */
+    private static function mudarReservas(Orden $orden, int $tiendaNueva, Usuario $usuario): void
+    {
+        $tiendaVieja = (int) $orden->tienda_id;
+        if ($tiendaVieja === $tiendaNueva) return;
+
+        if (in_array($orden->estado, ['entregado', 'cancelado', 'devuelto', 'cotizacion', 'borrador'], true)) {
+            return;
+        }
+
+        foreach ($orden->items as $item) {
+            if ($item->es_personalizado || $item->producto_unico || ! $item->producto_id) continue;
+            if ($item->devuelto_en || $item->tienda_origen_id) continue;
+
+            $cant = (int) $item->cantidad;
+
+            foreach ([[$tiendaVieja, -$cant], [$tiendaNueva, $cant]] as [$tienda, $delta]) {
+                if ($item->variante_id) {
+                    InventarioVariante::where('variante_id', $item->variante_id)
+                        ->where('tienda_id', $tienda)
+                        ->{$delta > 0 ? 'increment' : 'decrement'}('cantidad_reservada', abs($delta));
+
+                    if ($item->combo_config_id) {
+                        InventarioVarianteCombinacion::where('variante_id', $item->variante_id)
+                            ->where('config_id', $item->combo_config_id)
+                            ->where('tienda_id', $tienda)
+                            ->{$delta > 0 ? 'increment' : 'decrement'}('cantidad_reservada', abs($delta));
+                    }
+                }
+
+                Inventario::where('producto_id', $item->producto_id)
+                    ->where('tienda_id', $tienda)
+                    ->{$delta > 0 ? 'increment' : 'decrement'}('cantidad_reservada', abs($delta));
+
+                InventarioMovimiento::create([
+                    'producto_id' => $item->producto_id,
+                    'tienda_id'   => $tienda,
+                    'variante_id' => $item->variante_id,
+                    'tipo'        => $delta > 0 ? 'reserva' : 'liberacion',
+                    'cantidad'    => $cant,
+                    'motivo'      => "Orden #{$orden->id} — cambio de tienda ({$usuario->nombre})",
+                    'usuario_id'  => $usuario->id,
+                ]);
+            }
+        }
+    }
 
     /**
      * DELETE /api/ordenes/{id}

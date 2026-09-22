@@ -53,6 +53,16 @@ class ReservasInventarioTest extends TestCase
             $t->id(); $t->unsignedBigInteger('producto_id'); $t->unsignedBigInteger('tienda_id');
             $t->integer('cantidad_disponible')->default(0); $t->integer('cantidad_reservada')->default(0);
         });
+        // Lo apartado de una tela o medida puntual lleva su propio contador.
+        Schema::create('producto_variantes', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('producto_id');
+            $t->string('marca')->nullable(); $t->string('marca_tela')->nullable();
+            $t->string('nombre_color')->nullable(); $t->string('medida')->nullable();
+        });
+        Schema::create('inventario_variantes', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('variante_id'); $t->unsignedBigInteger('tienda_id');
+            $t->integer('cantidad_disponible')->default(0); $t->integer('cantidad_reservada')->default(0);
+        });
 
         DB::table('tiendas')->insert([
             ['id' => 1, 'nombre' => 'Norte'],
@@ -178,6 +188,92 @@ class ReservasInventarioTest extends TestCase
 
         $rTodas = $this->actingAs($vendedor)->getJson('/api/inventario/5/reservas?tienda_id=todas')->assertOk();
         $this->assertCount(1, $rTodas->json('ordenes'));
+    }
+
+    /**
+     * El caso que la gente reportaba como "dice que hay una cama apartada y al
+     * entrar dice que no hay nada": el vendedor miraba el apartado de OTRA
+     * tienda. El detalle sigue siendo solo el suyo —no ve las órdenes de otra
+     * sede—, pero el número tiene que ser el de la tienda que preguntó, que es
+     * el mismo que la tarjeta ya le muestra.
+     */
+    public function test_el_contador_es_el_de_la_tienda_que_se_pregunta_aunque_el_detalle_no(): void
+    {
+        DB::table('inventario')->insert([
+            ['producto_id' => 5, 'tienda_id' => 1, 'cantidad_disponible' => 0, 'cantidad_reservada' => 0],
+            ['producto_id' => 5, 'tienda_id' => 2, 'cantidad_disponible' => 3, 'cantidad_reservada' => 2],
+        ]);
+
+        $vendedor = $this->usuario(['rol' => 'vendedor', 'tienda_default_id' => 1]);
+
+        $r = $this->actingAs($vendedor)->getJson('/api/inventario/5/reservas?tienda_id=2')->assertOk();
+
+        $this->assertSame(2, $r->json('reservado_actual'), 'el número es el de la tienda que se preguntó');
+        $this->assertCount(0, $r->json('ordenes'), 'las órdenes de otra sede no se ven');
+        $this->assertTrue($r->json('detalle_limitado'), 'y la pantalla tiene cómo decirlo');
+    }
+
+    public function test_dice_en_que_tienda_esta_lo_apartado(): void
+    {
+        DB::table('inventario')->insert([
+            ['producto_id' => 5, 'tienda_id' => 1, 'cantidad_disponible' => 0, 'cantidad_reservada' => 0],
+            ['producto_id' => 5, 'tienda_id' => 2, 'cantidad_disponible' => 3, 'cantidad_reservada' => 2],
+        ]);
+
+        $sup = $this->usuario();
+        $r = $this->actingAs($sup)->getJson('/api/inventario/5/reservas')->assertOk();
+
+        $this->assertSame([['tienda_id' => 2, 'tienda_nombre' => 'Sur', 'reservado' => 2]], $r->json('por_tienda'));
+        $this->assertFalse($r->json('detalle_limitado'));
+    }
+
+    /**
+     * Un borrador es un boceto de venta: no aparta nada hasta que se confirma
+     * (OrdenController::store no reserva si viene como borrador). Contarlo
+     * aquí inventaba una reserva que el inventario no tiene.
+     */
+    public function test_un_borrador_no_cuenta_como_apartado(): void
+    {
+        DB::table('clientes')->insert(['id' => 1, 'nombre' => 'Cliente', 'created_at' => now(), 'updated_at' => now()]);
+
+        $this->ordenConItem(['estado' => 'borrador']);
+
+        $sup = $this->usuario();
+        $r = $this->actingAs($sup)->getJson('/api/inventario/5/reservas')->assertOk();
+
+        $this->assertCount(0, $r->json('ordenes'));
+    }
+
+    /** Igual una cotización: solo toca inventario al convertirse en venta. */
+    public function test_una_cotizacion_tampoco(): void
+    {
+        DB::table('clientes')->insert(['id' => 1, 'nombre' => 'Cliente', 'created_at' => now(), 'updated_at' => now()]);
+
+        $this->ordenConItem(['estado' => 'cotizacion']);
+
+        $sup = $this->usuario();
+        $r = $this->actingAs($sup)->getJson('/api/inventario/5/reservas')->assertOk();
+
+        $this->assertCount(0, $r->json('ordenes'));
+    }
+
+    /**
+     * Lo apartado de un tapizado lleva su propio contador. Un fantasma puede
+     * estar solo ahí, y mirando únicamente `inventario` la pantalla decía "no
+     * hay nada apartado" con el desglose de tapizados diciendo lo contrario.
+     */
+    public function test_suma_aparte_lo_apartado_de_los_tapizados(): void
+    {
+        DB::table('producto_variantes')->insert(['id' => 9, 'producto_id' => 5, 'marca' => 'Tela A']);
+        DB::table('inventario_variantes')->insert([
+            'variante_id' => 9, 'tienda_id' => 1, 'cantidad_disponible' => 1, 'cantidad_reservada' => 1,
+        ]);
+
+        $sup = $this->usuario();
+        $r = $this->actingAs($sup)->getJson('/api/inventario/5/reservas?tienda_id=1')->assertOk();
+
+        $this->assertSame(0, $r->json('reservado_actual'));
+        $this->assertSame(1, $r->json('reservado_variantes'));
     }
 
     public function test_un_item_devuelto_para_cambiarlo_no_cuenta_aunque_la_orden_reabra(): void

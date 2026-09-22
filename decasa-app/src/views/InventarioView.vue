@@ -352,7 +352,11 @@ async function abrirReservas(item, tiendaId = null, tiendaNombre = null) {
   // tienda_id va aparte de tiendaId: solo se guarda cuando de verdad se sabe
   // cuál es (una tienda puntual) — con el total global (tiendaId null en
   // vista "todas") no hay una sola tienda a la que corregirle el contador.
-  itemReservas.value = { producto_id: item.producto_id, producto_nombre: item.producto?.nombre, tienda_id: tiendaId, tienda_nombre: tiendaNombre, reservado_actual: 0 }
+  itemReservas.value = {
+    producto_id: item.producto_id, producto_nombre: item.producto?.nombre,
+    tienda_id: tiendaId, tienda_nombre: tiendaNombre,
+    reservado_actual: 0, reservado_variantes: 0, por_tienda: [], detalle_limitado: false,
+  }
   reservas.value = []
   reservasLoading.value = true
   mostrarReservas.value = true
@@ -363,6 +367,13 @@ async function abrirReservas(item, tiendaId = null, tiendaNombre = null) {
     // tarjeta cacheada. Si un borrador se acaba de liberar, la tarjeta
     // puede decir "1" cuando ya es 0, y no queremos gritar "descuadre".
     itemReservas.value.reservado_actual = data.reservado_actual ?? 0
+    // Dónde está apartado y si lo de arriba es solo una parte: un vendedor
+    // ve el número de cualquier tienda (el mismo de la tarjeta) pero el
+    // detalle solo de la suya. Sin esto, el modal daba a entender que no
+    // había nada apartado cuando lo que pasaba es que no era suyo.
+    itemReservas.value.reservado_variantes = data.reservado_variantes ?? 0
+    itemReservas.value.por_tienda          = data.por_tienda ?? []
+    itemReservas.value.detalle_limitado    = !! data.detalle_limitado
   } catch {
     reservas.value = []
   } finally {
@@ -413,6 +424,28 @@ const totalDescuadres = computed(() => descuadresReservados.value.length + descu
 
 const corrigiendoDescuadre = ref(false)
 
+/** Qué va a pasar exactamente si se corrigen todos, dicho antes de hacerlo. */
+function textoConfirmarTodos() {
+  const apartados = descuadresReservados.value.length + descuadresVariante.value.length
+  const entregas  = descuadresEntregas.value
+  const unidades  = entregas.reduce((s, e) => s + (Number(e.cantidad_pendiente) || 0), 0)
+
+  const lineas = []
+  if (apartados) {
+    lineas.push(`• Soltar ${apartados} apartado(s) que ninguna orden sostiene.`,
+                '  Esto NO cambia lo que hay en tienda: solo recalcula el número.')
+  }
+  if (entregas.length) {
+    lineas.push(
+      `• Descontar ${unidades} unidad(es) de "En tienda" en ${entregas.length} producto(s):`,
+      ...entregas.slice(0, 6).map(e => `    ${e.producto_nombre} · ${e.tienda_nombre}: ${e.disponible_actual} → ${e.disponible_despues}`),
+      ...(entregas.length > 6 ? [`    …y ${entregas.length - 6} más`] : []),
+      '  Esto SÍ cambia el stock: son órdenes ya entregadas que nunca descontaron.',
+    )
+  }
+  return `Se va a hacer esto:\n\n${lineas.join('\n')}\n\n¿Seguir?`
+}
+
 /**
  * @param d    La fila a corregir. `null` cuando se corrigen todos.
  * @param tipo 'reservado' (solo suelta el contador) o 'entrega' (baja
@@ -420,6 +453,14 @@ const corrigiendoDescuadre = ref(false)
  */
 async function corregirDescuadre(d = null, tipo = 'reservado') {
   if (corrigiendoDescuadre.value) return
+
+  // "Corregir todos" no es una sola cosa: soltar un apartado no cambia lo que
+  // hay en la tienda (el contador se recalcula desde las órdenes y se puede
+  // volver a calcular cuando sea), pero completar una entrega que no descontó
+  // SÍ baja el stock físico. Se dice cuántas unidades y de qué antes de
+  // tocarlo — pulsar un botón no puede ser la única forma de enterarse.
+  if (! d && ! confirm(textoConfirmarTodos())) return
+
   corrigiendoDescuadre.value = true
   try {
     // La variante se identifica por variante_id, no por producto_id.
@@ -3304,6 +3345,27 @@ onMounted(async () => {
             <!-- El contador de inventario (fresco, no el de la tarjeta) dice
                  > 0 y no encontramos ninguna orden que lo sostenga: no es que
                  no haya nada, es que el número está mal. -->
+            <!-- El detalle que se pudo traer no es el de la tienda que se
+                 preguntó: un vendedor ve el número de cualquier tienda (es el
+                 mismo de la tarjeta) pero las órdenes solo de la suya. Decirlo
+                 es lo que evita el viejo "dice apartado y aquí dice que no hay
+                 nada". -->
+            <div v-else-if="itemReservas?.detalle_limitado && itemReservas?.reservado_actual > 0"
+                 class="text-sm text-blue-800 bg-blue-50 border border-blue-200 rounded-lg px-3 py-3 space-y-2">
+              <p>
+                Hay <span class="font-semibold">{{ itemReservas.reservado_actual }} apartado(s)</span>
+                <span v-if="itemReservas.tienda_nombre"> en {{ itemReservas.tienda_nombre }}</span>.
+                Ver de qué orden y de qué cliente es solo lo puede un supervisor.
+              </p>
+              <p v-if="itemReservas.por_tienda?.length" class="text-xs">
+                Dónde está:
+                <span v-for="(t, i) in itemReservas.por_tienda" :key="t.tienda_id">
+                  {{ i ? ' · ' : '' }}{{ t.tienda_nombre }}: {{ t.reservado }}
+                </span>
+              </p>
+              <p v-if="reservas.length" class="text-xs">Abajo salen solo las de tu tienda.</p>
+            </div>
+
             <div v-else-if="reservas.length === 0 && itemReservas?.reservado_actual > 0" class="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-3 space-y-2">
               <p>
                 <span class="font-semibold">Descuadre:</span> el inventario dice
@@ -3326,6 +3388,21 @@ onMounted(async () => {
                 </button>
               </div>
             </div>
+
+            <!-- El producto no tiene nada apartado pero una tela o medida suya
+                 sí: son dos contadores distintos y se mueven aparte. -->
+            <div v-else-if="reservas.length === 0 && itemReservas?.reservado_variantes > 0"
+                 class="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-3">
+              <p>
+                El producto no tiene nada apartado, pero sus tapizados o medidas
+                suman <span class="font-semibold">{{ itemReservas.reservado_variantes }}</span>.
+                Los dos contadores se mueven aparte, así que ese sobra: revísalo en
+                <button type="button" @click="mostrarReservas = false; abrirDescuadres()" class="font-medium underline">
+                  los descuadres del catálogo →
+                </button>
+              </p>
+            </div>
+
             <div v-else-if="reservas.length === 0" class="text-sm text-gray-400 text-center py-8">No hay nada apartado</div>
             <button
               v-else

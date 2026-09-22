@@ -15,6 +15,26 @@ use Illuminate\Support\Facades\DB;
 class InventarioController extends Controller
 {
     /**
+     * Estados de orden en los que un ítem NO tiene stock apartado.
+     *
+     * Los tres primeros porque ya se soltó: la orden se entregó, se canceló o
+     * se devolvió. Los otros dos porque todavía no se ha apartado nada — un
+     * borrador y una cotización son un boceto de venta, y solo tocan
+     * inventario al confirmarse (`OrdenController::completarBorrador`,
+     * `CotizacionController::convertir`).
+     *
+     * Contarlos como reserva viva era el error de fondo de toda la auditoría:
+     * un contador fantasma que coincidiera con un borrador del mismo producto
+     * quedaba "sostenido" y no se reportaba nunca —por eso el descuadre
+     * sobrevivía meses—, y al "corregir" se le subía el contador a la tienda
+     * para cubrir un borrador que no aparta nada, bloqueando stock bueno.
+     */
+    private const ESTADOS_SIN_RESERVA = [
+        'entregado', 'cancelado', 'devuelto', 'cotizacion', 'borrador',
+    ];
+
+
+    /**
      * GET /api/inventario/desglose-variantes?tienda_id=1|todas
      *
      * De las unidades que hay de un producto, cuántas tienen ya asignado un
@@ -689,10 +709,12 @@ class InventarioController extends Controller
      * y de qué vendedor.
      *
      * Una unidad está reservada mientras exista su `orden_item` y la orden
-     * todavía no se haya cerrado (entregado/cancelado/devuelto) — es
-     * exactamente la condición contraria a cuando el código de la orden le
-     * resta a `cantidad_reservada`. Los ítems personalizados o de mueble
-     * único no cuentan: nunca reservan stock de catálogo.
+     * esté viva: ni cerrada (entregado/cancelado/devuelto) ni todavía sin
+     * confirmar (borrador/cotización, que no apartan nada hasta que se
+     * vuelven venta) — es exactamente la condición contraria a cuando el
+     * código de la orden le resta a `cantidad_reservada`. Los ítems
+     * personalizados o de mueble único no cuentan: nunca reservan stock de
+     * catálogo.
      *
      * `tienda_id` es opcional: sin él salen las de cualquier tienda (para el
      * total de la vista "todas"); con él, solo las de esa tienda — la misma
@@ -702,15 +724,26 @@ class InventarioController extends Controller
     {
         $usuario = $request->user();
 
-        // Mismo criterio que `movimientos`: un vendedor solo ve lo suyo (su
-        // tienda), sin importar qué tienda_id le pida a la URL. Solo el
-        // supervisor puede pedir otra tienda puntual, o ninguna (todas).
-        if ($usuario->rol === 'supervisor') {
-            $tiendaParam = $request->query('tienda_id');
-            $tiendaId    = ($tiendaParam && $tiendaParam !== 'todas') ? (int) $tiendaParam : null;
-        } else {
-            $tiendaId = (int) $usuario->tienda_default_id;
-        }
+        $param        = $request->query('tienda_id');
+        $tiendaPedida = ($param && $param !== 'todas') ? (int) $param : null;
+
+        // El DETALLE (qué orden, de qué cliente, de qué vendedor) sigue siendo
+        // de la tienda de cada quien: un vendedor no ve las órdenes de otra
+        // sede. Pero el CONTADOR es el de la tienda que se preguntó, sea cual
+        // sea — es el mismo número que la tarjeta de inventario ya le muestra
+        // a todo el mundo.
+        //
+        // Devolver el contador de su propia tienda cuando preguntaba por otra
+        // era el origen de "dice que hay una cama apartada y al entrar dice
+        // que no hay nada": la pantalla comparaba el apartado de Norte con la
+        // lista (vacía) de la tienda de quien miraba, y concluía que no había
+        // nada. Ahora, cuando el detalle se recorta, se dice.
+        $tiendaDetalle = $usuario->rol === 'supervisor'
+            ? $tiendaPedida
+            : (int) $usuario->tienda_default_id;
+
+        $detalleLimitado = $tiendaDetalle !== $tiendaPedida;
+        $tiendaId        = $tiendaDetalle;
 
         $items = OrdenItem::with([
                 'orden:id,numero_orden,serie,serie_numero,cotizacion_numero,estado,tienda_id,vendedor_id,covendedor_id,cliente_id',
@@ -729,7 +762,7 @@ class InventarioController extends Controller
             // al entregarse la primera vez y no vuelve a reservar nada.
             // Contarlo aquí inventaría una reserva que no existe.
             ->whereNull('devuelto_en')
-            ->whereHas('orden', fn ($q) => $q->whereNotIn('estado', ['entregado', 'cancelado', 'devuelto']))
+            ->whereHas('orden', fn ($q) => $q->whereNotIn('estado', self::ESTADOS_SIN_RESERVA))
             ->orderBy('created_at')
             ->get()
             ->filter(fn ($item) => $item->orden !== null);
@@ -755,17 +788,51 @@ class InventarioController extends Controller
             ->values();
 
         // Cuánto dice AHORA MISMO el contador de inventario para este
-        // producto (en la tienda pedida, o en todas). El front lo usa para
-        // decidir si mostrar el aviso de "descuadre" contra la realidad
-        // fresca, no contra el número que tenía cacheado en la tarjeta —
-        // que puede haber quedado viejo si un borrador se acaba de liberar.
+        // producto, en la tienda que se PREGUNTÓ (o en todas). El front lo usa
+        // para decidir si mostrar el aviso de "descuadre" contra la realidad
+        // fresca, no contra el número que tenía cacheado en la tarjeta — que
+        // puede haber quedado viejo si un borrador se acaba de liberar.
         $reservadoActual = (int) Inventario::where('producto_id', $productoId)
-            ->when($tiendaId, fn ($q) => $q->where('tienda_id', $tiendaId))
+            ->when($tiendaPedida, fn ($q) => $q->where('tienda_id', $tiendaPedida))
+            ->sum('cantidad_reservada');
+
+        // Dónde está ese apartado, tienda por tienda. Sin esto, preguntando
+        // por el total no había forma de decir "no es aquí, es en Norte", y la
+        // pantalla solo sabía decir que no había nada.
+        $porTienda = Inventario::where('producto_id', $productoId)
+            ->where('cantidad_reservada', '>', 0)
+            ->when($tiendaPedida, fn ($q) => $q->where('tienda_id', $tiendaPedida))
+            ->with('tienda:id,nombre')
+            ->get()
+            ->map(fn ($inv) => [
+                'tienda_id'     => (int) $inv->tienda_id,
+                'tienda_nombre' => $inv->tienda->nombre ?? '—',
+                'reservado'     => (int) $inv->cantidad_reservada,
+            ])
+            ->sortByDesc('reservado')
+            ->values();
+
+        // Lo apartado de una tela/medida puntual vive en su propio contador y
+        // se mueve aparte. Un fantasma puede estar solo ahí: el producto en
+        // cero y la variante en uno. Mirando solo `inventario` la pantalla
+        // decía "no hay nada apartado" con el desglose de tapizados diciendo
+        // lo contrario.
+        $reservadoVariantes = (int) InventarioVariante::whereHas(
+                'variante', fn ($q) => $q->where('producto_id', $productoId)
+            )
+            ->when($tiendaPedida, fn ($q) => $q->where('tienda_id', $tiendaPedida))
             ->sum('cantidad_reservada');
 
         return response()->json([
             'ordenes'          => $reservas,
             'reservado_actual' => $reservadoActual,
+            'reservado_variantes' => $reservadoVariantes,
+            'por_tienda'       => $porTienda,
+            // El detalle que va arriba no es el de la tienda que se preguntó:
+            // es solo el de la de quien mira. La pantalla lo dice en vez de
+            // dar a entender que no hay nada apartado.
+            'detalle_limitado' => $detalleLimitado,
+            'tienda_detalle'   => $tiendaDetalle,
         ]);
     }
 
@@ -819,7 +886,7 @@ class InventarioController extends Controller
             // otro (`cambiarProducto`) ya liberó su reserva al entregarse; que
             // la orden haya reabierto a `pendiente_anticipo` no lo revive.
             ->whereNull('devuelto_en')
-            ->whereHas('orden', fn ($q) => $q->whereNotIn('estado', ['entregado', 'cancelado', 'devuelto']))
+            ->whereHas('orden', fn ($q) => $q->whereNotIn('estado', self::ESTADOS_SIN_RESERVA))
             ->get()
             ->filter(fn ($item) => $item->orden !== null)
             ->groupBy(fn ($item) => $item->producto_id . '-' . ($item->tienda_origen_id ?? $item->orden->tienda_id))
@@ -878,7 +945,7 @@ class InventarioController extends Controller
             ->where('producto_unico', false)
             ->whereNotNull('variante_id')
             ->whereNull('devuelto_en')
-            ->whereHas('orden', fn ($q) => $q->whereNotIn('estado', ['entregado', 'cancelado', 'devuelto']))
+            ->whereHas('orden', fn ($q) => $q->whereNotIn('estado', self::ESTADOS_SIN_RESERVA))
             ->get()
             ->filter(fn ($item) => $item->orden !== null)
             ->groupBy(fn ($item) => $item->variante_id . '-' . ($item->tienda_origen_id ?? $item->orden->tienda_id))
