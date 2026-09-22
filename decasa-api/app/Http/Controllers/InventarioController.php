@@ -868,12 +868,74 @@ class InventarioController extends Controller
             'reservado_actual' => $reservadoActual,
             'reservado_variantes' => $reservadoVariantes,
             'por_tienda'       => $porTienda,
+            // Las órdenes de este producto que se entregaron y nunca
+            // descontaron. Es la otra cara de un apartado que nadie sostiene,
+            // y la pregunta que había que salir a responder a otro panel:
+            // ¿la unidad todavía está en la tienda o ya se la llevó el cliente?
+            'entregas_sin_descontar' => $this->entregasSinDescontarDe($productoId, $tiendaId),
             // El detalle que va arriba no es el de la tienda que se preguntó:
             // es solo el de la de quien mira. La pantalla lo dice en vez de
             // dar a entender que no hay nada apartado.
             'detalle_limitado' => $detalleLimitado,
             'tienda_detalle'   => $tiendaDetalle,
         ]);
+    }
+
+    /**
+     * De este producto, qué órdenes ya entregadas nunca descontaron inventario.
+     *
+     * Es la pregunta que sigue a "hay 1 apartado y ninguna orden lo sostiene":
+     * ¿la unidad sigue en la tienda o ya se la llevó el cliente? Si aparece
+     * aquí, ya salió — y entonces "En tienda" también está de más, no solo el
+     * apartado. Sin esto había que ir al panel de descuadres a buscarlo entre
+     * todo el catálogo.
+     *
+     * Se detecta por ausencia, igual que `calcularEntregasSinDescontar()`: los
+     * dos caminos que entregan anotan siempre un movimiento de salida con
+     * motivo "Entrega orden #{id}". Si no está, esa entrega no tocó el
+     * inventario.
+     *
+     * @param int|null $tiendaId  null = todas las tiendas
+     */
+    private function entregasSinDescontarDe(int $productoId, ?int $tiendaId): \Illuminate\Support\Collection
+    {
+        $items = OrdenItem::with(['orden:id,estado,tienda_id,numero_orden,serie,serie_numero,cotizacion_numero,numero_anulado'])
+            ->where('producto_id', $productoId)
+            ->where('es_personalizado', false)
+            ->where('producto_unico', false)
+            ->whereNull('devuelto_en')
+            ->whereHas('orden', fn ($q) => $q->where('estado', 'entregado'))
+            ->get()
+            ->filter(fn ($item) => $item->orden !== null);
+
+        if ($items->isEmpty()) return collect();
+
+        $cubiertos = [];
+        InventarioMovimiento::where('producto_id', $productoId)
+            ->where('tipo', 'salida')
+            ->where('motivo', 'like', 'Entrega orden #%')
+            ->get(['tienda_id', 'motivo'])
+            ->each(function ($m) use (&$cubiertos) {
+                if (preg_match('/^Entrega orden #(\d+)/', $m->motivo, $x)) {
+                    $cubiertos["{$x[1]}-{$m->tienda_id}"] = true;
+                }
+            });
+
+        return $items
+            ->map(fn ($item) => [
+                'item'   => $item,
+                'tienda' => (int) ($item->tienda_origen_id ?? $item->orden->tienda_id),
+            ])
+            ->filter(fn ($f) => ! isset($cubiertos["{$f['item']->orden_id}-{$f['tienda']}"]))
+            ->when($tiendaId, fn ($c) => $c->where('tienda', $tiendaId))
+            ->groupBy(fn ($f) => $f['item']->orden_id)
+            ->map(fn ($g) => [
+                'orden_id'   => (int) $g->first()['item']->orden_id,
+                'referencia' => $g->first()['item']->orden->referencia,
+                'tienda_id'  => $g->first()['tienda'],
+                'cantidad'   => (int) collect($g)->sum(fn ($f) => $f['item']->cantidad),
+            ])
+            ->values();
     }
 
     /**

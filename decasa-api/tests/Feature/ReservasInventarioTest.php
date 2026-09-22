@@ -53,6 +53,12 @@ class ReservasInventarioTest extends TestCase
             $t->id(); $t->unsignedBigInteger('producto_id'); $t->unsignedBigInteger('tienda_id');
             $t->integer('cantidad_disponible')->default(0); $t->integer('cantidad_reservada')->default(0);
         });
+        Schema::create('inventario_movimientos', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('producto_id'); $t->unsignedBigInteger('tienda_id');
+            $t->unsignedBigInteger('variante_id')->nullable();
+            $t->string('tipo'); $t->integer('cantidad'); $t->string('motivo')->nullable();
+            $t->unsignedBigInteger('usuario_id')->nullable(); $t->timestamp('created_at')->nullable();
+        });
         // Lo apartado de una tela o medida puntual lleva su propio contador.
         Schema::create('producto_variantes', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('producto_id');
@@ -255,6 +261,59 @@ class ReservasInventarioTest extends TestCase
         $r = $this->actingAs($sup)->getJson('/api/inventario/5/reservas')->assertOk();
 
         $this->assertCount(0, $r->json('ordenes'));
+    }
+
+    /**
+     * La pregunta que sigue a "hay 1 apartado y ninguna orden lo sostiene":
+     * ¿la unidad sigue en la tienda o ya se la llevó el cliente? Si hay una
+     * entrega que nunca descontó, ya salió — y entonces "En tienda" también
+     * está de más, no solo el Apartado. Antes había que ir a buscarlo al panel
+     * de descuadres entre todo el catálogo.
+     */
+    public function test_avisa_si_una_orden_entregada_nunca_descontó(): void
+    {
+        DB::table('clientes')->insert(['id' => 1, 'nombre' => 'Cliente', 'created_at' => now(), 'updated_at' => now()]);
+
+        $item = $this->ordenConItem(['estado' => 'entregado', 'numero_orden' => 4300]);
+
+        $sup = $this->usuario();
+        $r = $this->actingAs($sup)->getJson('/api/inventario/5/reservas?tienda_id=1')->assertOk();
+
+        $sinDescontar = $r->json('entregas_sin_descontar');
+        $this->assertCount(1, $sinDescontar);
+        $this->assertSame('#4300', $sinDescontar[0]['referencia']);
+        $this->assertSame(1, $sinDescontar[0]['cantidad']);
+        $this->assertSame($item->orden_id, $sinDescontar[0]['orden_id']);
+    }
+
+    public function test_una_entrega_que_si_descontó_no_se_reporta(): void
+    {
+        DB::table('clientes')->insert(['id' => 1, 'nombre' => 'Cliente', 'created_at' => now(), 'updated_at' => now()]);
+
+        $item = $this->ordenConItem(['estado' => 'entregado', 'numero_orden' => 4300]);
+        DB::table('inventario_movimientos')->insert([
+            'producto_id' => 5, 'tienda_id' => 1, 'tipo' => 'salida', 'cantidad' => 1,
+            'motivo' => "Entrega orden #{$item->orden_id} — mostrador", 'created_at' => now(),
+        ]);
+
+        $sup = $this->usuario();
+        $r = $this->actingAs($sup)->getJson('/api/inventario/5/reservas?tienda_id=1')->assertOk();
+
+        $this->assertCount(0, $r->json('entregas_sin_descontar'));
+    }
+
+    /** Una orden viva no es una entrega sin descontar: todavía no se ha entregado. */
+    public function test_una_orden_todavia_abierta_no_cuenta_como_entrega_sin_descontar(): void
+    {
+        DB::table('clientes')->insert(['id' => 1, 'nombre' => 'Cliente', 'created_at' => now(), 'updated_at' => now()]);
+
+        $this->ordenConItem(['estado' => 'pendiente_anticipo']);
+
+        $sup = $this->usuario();
+        $r = $this->actingAs($sup)->getJson('/api/inventario/5/reservas?tienda_id=1')->assertOk();
+
+        $this->assertCount(0, $r->json('entregas_sin_descontar'));
+        $this->assertCount(1, $r->json('ordenes'), 'esa sí lo tiene apartado');
     }
 
     /**

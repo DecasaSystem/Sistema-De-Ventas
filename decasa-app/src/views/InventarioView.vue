@@ -356,6 +356,7 @@ async function abrirReservas(item, tiendaId = null, tiendaNombre = null) {
     producto_id: item.producto_id, producto_nombre: item.producto?.nombre,
     tienda_id: tiendaId, tienda_nombre: tiendaNombre,
     reservado_actual: 0, reservado_variantes: 0, por_tienda: [], detalle_limitado: false,
+    entregas_sin_descontar: [],
   }
   reservas.value = []
   reservasLoading.value = true
@@ -374,6 +375,10 @@ async function abrirReservas(item, tiendaId = null, tiendaNombre = null) {
     itemReservas.value.reservado_variantes = data.reservado_variantes ?? 0
     itemReservas.value.por_tienda          = data.por_tienda ?? []
     itemReservas.value.detalle_limitado    = !! data.detalle_limitado
+    // Si la unidad ya se la llevó el cliente, "En tienda" también está de más
+    // y eso cambia qué hay que corregir. Antes había que ir a buscarlo al
+    // panel de descuadres entre todo el catálogo.
+    itemReservas.value.entregas_sin_descontar = data.entregas_sin_descontar ?? []
   } catch {
     reservas.value = []
   } finally {
@@ -3422,10 +3427,30 @@ onMounted(async () => {
               <p>
                 <span class="font-semibold">Descuadre:</span> el inventario dice
                 {{ itemReservas.reservado_actual }} apartado, pero ninguna orden lo sostiene.
-                Puede ser una orden vieja que se canceló sin liberar (ahí solo
-                sobra el Apartado), o una que ya se entregó y nunca descontó
-                (ahí el "En tienda" también está mal). Este botón solo corrige lo
-                primero — para saber cuál es tu caso, revisa el panel completo.
+              </p>
+
+              <!-- La pregunta que seguía: ¿la unidad sigue en la tienda o ya
+                   se la llevó el cliente? Si hay una entrega sin descontar, ya
+                   salió, y entonces "En tienda" también está de más. -->
+              <template v-if="itemReservas.entregas_sin_descontar?.length">
+                <p class="font-semibold">Ya se entregó y nunca descontó:</p>
+                <p v-for="e in itemReservas.entregas_sin_descontar" :key="e.orden_id" class="text-xs">
+                  <button type="button"
+                          @click="mostrarReservas = false; router.push({ name: 'orden-detalle', params: { id: e.orden_id } })"
+                          class="font-semibold underline">{{ e.referencia }}</button>
+                  — {{ e.cantidad }} unidad(es). Esa ya salió de la tienda, así que
+                  "En tienda" también está de más.
+                </p>
+                <p class="text-xs">
+                  El botón de abajo solo suelta el Apartado; para bajar también el
+                  "En tienda" hay que corregirlo desde el panel de descuadres.
+                </p>
+              </template>
+
+              <p v-else>
+                Ninguna orden entregada de este producto quedó sin descontar, así
+                que la unidad sigue en la tienda: lo único que sobra es el
+                Apartado. Suele ser una orden vieja que se canceló sin liberar.
               </p>
               <div v-if="auth.isSupervisor" class="flex items-center gap-3 flex-wrap">
                 <button
