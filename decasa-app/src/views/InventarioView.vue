@@ -381,6 +381,21 @@ async function abrirReservas(item, tiendaId = null, tiendaNombre = null) {
   }
 }
 
+/**
+ * Cuánto del "Apartado" no lo sostiene ninguna orden.
+ *
+ * El caso que no se veía: el contador dice 3, las órdenes sostienen 2 y la
+ * pantalla mostraba las dos sin decir que sobraba una. Solo tiene sentido
+ * cuando la lista y el contador hablan de lo mismo — si a un vendedor se le
+ * recortó el detalle a su tienda, no son comparables.
+ */
+const apartadoSinOrden = computed(() => {
+  const i = itemReservas.value
+  if (!i || i.detalle_limitado) return 0
+  const sostenido = reservas.value.reduce((s, r) => s + (Number(r.cantidad) || 0), 0)
+  return Math.max(0, (Number(i.reservado_actual) || 0) - sostenido)
+})
+
 function irAOrdenReservada(r) {
   mostrarReservas.value = false
   router.push({ name: 'orden-detalle', params: { id: r.orden_id } })
@@ -3367,6 +3382,15 @@ onMounted(async () => {
             </div>
 
             <div v-else-if="reservas.length === 0 && itemReservas?.reservado_actual > 0" class="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-3 space-y-2">
+              <!-- En qué tienda está ese apartado que nadie sostiene. Sin esto
+                   había que salir a buscarlo tienda por tienda, que es justo lo
+                   que uno quiere saber al abrir esto desde el total. -->
+              <p v-if="itemReservas.por_tienda?.length" class="text-xs font-semibold">
+                Está en:
+                <span v-for="(t, i) in itemReservas.por_tienda" :key="t.tienda_id">
+                  {{ i ? ' · ' : '' }}{{ t.tienda_nombre }}: {{ t.reservado }}
+                </span>
+              </p>
               <p>
                 <span class="font-semibold">Descuadre:</span> el inventario dice
                 {{ itemReservas.reservado_actual }} apartado, pero ninguna orden lo sostiene.
@@ -3404,8 +3428,19 @@ onMounted(async () => {
             </div>
 
             <div v-else-if="reservas.length === 0" class="text-sm text-gray-400 text-center py-8">No hay nada apartado</div>
+
+            <!-- Hay órdenes, pero no alcanzan a explicar todo el contador:
+                 parte del apartado sobra y sin esto no se notaba. -->
+            <div v-if="apartadoSinOrden > 0 && reservas.length"
+                 class="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              De los {{ itemReservas.reservado_actual }} apartados,
+              <span class="font-semibold">{{ apartadoSinOrden }}</span> no los sostiene ninguna orden.
+              <button v-if="auth.isSupervisor" type="button"
+                      @click="mostrarReservas = false; abrirDescuadres()"
+                      class="font-medium underline">Revisar los descuadres →</button>
+            </div>
+
             <button
-              v-else
               v-for="r in reservas"
               :key="r.orden_id"
               type="button"
