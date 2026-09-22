@@ -356,7 +356,7 @@ async function abrirReservas(item, tiendaId = null, tiendaNombre = null) {
     producto_id: item.producto_id, producto_nombre: item.producto?.nombre,
     tienda_id: tiendaId, tienda_nombre: tiendaNombre,
     reservado_actual: 0, reservado_variantes: 0, por_tienda: [], detalle_limitado: false,
-    entregas_sin_descontar: [],
+    entregas_sin_descontar: [], sabe_de_entregas: false,
   }
   reservas.value = []
   reservasLoading.value = true
@@ -379,6 +379,11 @@ async function abrirReservas(item, tiendaId = null, tiendaNombre = null) {
     // y eso cambia qué hay que corregir. Antes había que ir a buscarlo al
     // panel de descuadres entre todo el catálogo.
     itemReservas.value.entregas_sin_descontar = data.entregas_sin_descontar ?? []
+    // Vercel publica la pantalla en segundos y Render tarda unos minutos, así
+    // que hay un rato en que esta pantalla nueva le pregunta a la API vieja.
+    // Sin esto, en ese rato afirmaba "ninguna orden entregada quedó sin
+    // descontar" sin que nadie lo hubiera comprobado.
+    itemReservas.value.sabe_de_entregas = Array.isArray(data.entregas_sin_descontar)
   } catch {
     reservas.value = []
   } finally {
@@ -3447,7 +3452,7 @@ onMounted(async () => {
                 </p>
               </template>
 
-              <p v-else>
+              <p v-else-if="itemReservas.sabe_de_entregas">
                 Ninguna orden entregada de este producto quedó sin descontar, así
                 que la unidad sigue en la tienda: lo único que sobra es el
                 Apartado. Suele ser una orden vieja que se canceló sin liberar.
