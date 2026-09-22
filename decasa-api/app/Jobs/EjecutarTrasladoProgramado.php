@@ -48,32 +48,22 @@ class EjecutarTrasladoProgramado implements ShouldQueue
         try {
             DB::transaction(function () use ($traslado, $nombreOrigen, $nombreDestino) {
                 foreach ($traslado->items as $item) {
-                    $inv = Inventario::where('producto_id', $item->producto_id)
-                        ->where('tienda_id', $traslado->tienda_origen_id)
-                        ->first();
-
-                    if (! $inv) {
-                        $nombre = DB::table('productos')->where('id', $item->producto_id)->value('nombre') ?? "Producto #{$item->producto_id}";
-                        throw new \RuntimeException("\"$nombre\" no tiene inventario en $nombreOrigen.");
-                    }
-
-                    $libre = $inv->cantidad_disponible - $inv->cantidad_reservada;
-                    if ($libre < $item->cantidad) {
-                        $nombre = DB::table('productos')->where('id', $item->producto_id)->value('nombre') ?? "Producto #{$item->producto_id}";
-                        throw new \RuntimeException(
-                            "Stock insuficiente para \"$nombre\" en $nombreOrigen: libre={$libre}, solicitado={$item->cantidad}."
-                        );
-                    }
-
-                    Inventario::where('producto_id', $item->producto_id)
-                        ->where('tienda_id', $traslado->tienda_origen_id)
-                        ->decrement('cantidad_disponible', $item->cantidad);
-
-                    $invDest = Inventario::firstOrCreate(
-                        ['producto_id' => $item->producto_id, 'tienda_id' => $traslado->tienda_destino_id],
-                        ['cantidad_disponible' => 0, 'cantidad_reservada' => 0, 'stock_minimo' => 1]
+                    // Se comprueba ahora, no cuando se programó: entre una
+                    // cosa y la otra pudieron vender o apartar esas unidades.
+                    $nombre = DB::table('productos')->where('id', $item->producto_id)->value('nombre')
+                        ?? "Producto #{$item->producto_id}";
+                    $motivo = \App\Services\MovimientoTraslado::porQueNoSePuede(
+                        (int) $item->producto_id, (int) $traslado->tienda_origen_id, (int) $item->cantidad,
+                        $item->variante_id, $item->combo_config_id, (string) $nombre, $nombreOrigen,
                     );
-                    $invDest->increment('cantidad_disponible', $item->cantidad);
+                    if ($motivo) throw new \RuntimeException($motivo);
+
+                    \App\Services\MovimientoTraslado::mover(
+                        (int) $item->producto_id,
+                        (int) $traslado->tienda_origen_id, (int) $traslado->tienda_destino_id,
+                        (int) $item->cantidad,
+                        $item->variante_id, $item->combo_config_id,
+                    );
 
                     InventarioMovimiento::create([
                         'producto_id' => $item->producto_id,

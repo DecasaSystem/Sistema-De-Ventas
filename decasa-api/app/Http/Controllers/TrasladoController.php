@@ -8,6 +8,7 @@ use App\Models\InventarioMovimiento;
 use App\Models\Traslado;
 use App\Models\TrasladoItem;
 use App\Services\AvisoTraslado;
+use App\Services\MovimientoTraslado;
 use App\Services\NotificacionService;
 use App\Support\StockVariantes;
 use Illuminate\Http\Request;
@@ -23,6 +24,8 @@ class TrasladoController extends Controller
             'tiendaOrigen:id,nombre',
             'tiendaDestino:id,nombre',
             'items.producto:id,nombre,categoria',
+            // Para que el historial diga qué tela se mandó, no solo "un sofá".
+            'items.variante:id,marca,marca_tela,nombre_color,medida',
         ];
     }
 
@@ -54,9 +57,22 @@ class TrasladoController extends Controller
                 inv.cantidad_reservada,
                 (inv.cantidad_disponible - inv.cantidad_reservada) AS stock_libre
             ')
-            ->having('stock_libre', '>', 0)
+            // `where`, no `having`: es un filtro de fila, no de un agrupado.
+            // MySQL acepta el `having` suelto y SQLite no, así que además de
+            // ser lo correcto es lo único que se puede probar.
+            ->whereRaw('(inv.cantidad_disponible - inv.cantidad_reservada) > 0')
             ->orderByDesc('inv.cantidad_disponible')
             ->get();
+
+        // Con qué telas/medidas cuenta cada uno, y cuántas de ellas están
+        // apartadas. Sin esto la pantalla solo podía mandar "dos sofás" y el
+        // color se decidía solo: en el origen se recortaba el que quedara
+        // —a veces el que una orden estaba esperando— y al destino llegaban
+        // unidades sin color, que ya no se podían vender por su tela.
+        $stock = $stock->map(function ($p) use ($tiendaId) {
+            $p->telas = MovimientoTraslado::telasDe((int) $p->producto_id, $tiendaId);
+            return $p;
+        });
 
         return response()->json($stock);
     }
@@ -77,6 +93,10 @@ class TrasladoController extends Controller
             'items'                 => 'required|array|min:1',
             'items.*.producto_id'   => 'required|exists:productos,id',
             'items.*.cantidad'      => 'required|integer|min:1',
+            // Qué tela o medida se manda. Nulo = sin especificar, que es como
+            // se trasladó siempre y como va lo que no tiene variantes.
+            'items.*.variante_id'     => 'nullable|integer|exists:producto_variantes,id',
+            'items.*.combo_config_id' => 'nullable|integer',
         ]);
 
         $user      = $request->user();
@@ -112,23 +132,13 @@ class TrasladoController extends Controller
 
                 if ($ejecutaInmediato) {
                     foreach ($data['items'] as $item) {
-                        $inv = Inventario::where('producto_id', $item['producto_id'])
-                            ->where('tienda_id', $data['tienda_origen_id'])
-                            ->first();
-
-                        if (! $inv) {
-                            $nombre = DB::table('productos')->where('id', $item['producto_id'])->value('nombre');
-                            throw new \RuntimeException("\"$nombre\" no tiene inventario en $nombreOrigen.");
-                        }
-
-                        $libre = $inv->cantidad_disponible - $inv->cantidad_reservada;
-                        if ($libre < $item['cantidad']) {
-                            $nombre = DB::table('productos')->where('id', $item['producto_id'])->value('nombre');
-                            throw new \RuntimeException(
-                                "Stock insuficiente para \"$nombre\" en $nombreOrigen: "
-                                . "libre={$libre}, solicitado={$item['cantidad']}."
-                            );
-                        }
+                        $nombre = DB::table('productos')->where('id', $item['producto_id'])->value('nombre');
+                        $motivo = MovimientoTraslado::porQueNoSePuede(
+                            (int) $item['producto_id'], (int) $data['tienda_origen_id'], (int) $item['cantidad'],
+                            $item['variante_id'] ?? null, $item['combo_config_id'] ?? null,
+                            (string) $nombre, $nombreOrigen,
+                        );
+                        if ($motivo) throw new \RuntimeException($motivo);
                     }
                 }
 
@@ -152,27 +162,21 @@ class TrasladoController extends Controller
 
                 foreach ($data['items'] as $item) {
                     TrasladoItem::create([
-                        'traslado_id' => $traslado->id,
-                        'producto_id' => $item['producto_id'],
-                        'cantidad'    => $item['cantidad'],
+                        'traslado_id'     => $traslado->id,
+                        'producto_id'     => $item['producto_id'],
+                        'variante_id'     => $item['variante_id'] ?? null,
+                        'combo_config_id' => $item['combo_config_id'] ?? null,
+                        'cantidad'        => $item['cantidad'],
                     ]);
 
                     if ($ejecutaInmediato) {
-                        Inventario::where('producto_id', $item['producto_id'])
-                            ->where('tienda_id', $data['tienda_origen_id'])
-                            ->decrement('cantidad_disponible', $item['cantidad']);
-
-                        $invDest = Inventario::firstOrCreate(
-                            ['producto_id' => $item['producto_id'], 'tienda_id' => $data['tienda_destino_id']],
-                            ['cantidad_disponible' => 0, 'cantidad_reservada' => 0, 'stock_minimo' => 1]
-                        );
-                        $invDest->increment('cantidad_disponible', $item['cantidad']);
-
-                        // Salio stock de la tienda origen: el reparto por
-                        // tela/medida de alla tiene que seguir cabiendo.
-                        StockVariantes::cuadrar(
-                            (int) $item['producto_id'], (int) $data['tienda_origen_id'],
-                            'Traslado a otra tienda'
+                        // La tela viaja con el producto: lo que sale de un
+                        // color allá entra en el mismo color acá.
+                        MovimientoTraslado::mover(
+                            (int) $item['producto_id'],
+                            (int) $data['tienda_origen_id'], (int) $data['tienda_destino_id'],
+                            (int) $item['cantidad'],
+                            $item['variante_id'] ?? null, $item['combo_config_id'] ?? null,
                         );
 
                         InventarioMovimiento::create([
@@ -305,31 +309,25 @@ class TrasladoController extends Controller
                         continue;
                     }
 
-                    $inv   = Inventario::where('producto_id', $item->producto_id)
-                        ->where('tienda_id', $traslado->tienda_origen_id)
-                        ->first();
-                    $libre = ($inv?->cantidad_disponible ?? 0) - ($inv?->cantidad_reservada ?? 0);
-                    if ($libre < $cantAceptada) {
-                        $nombre = DB::table('productos')->where('id', $item->producto_id)->value('nombre');
-                        throw new \RuntimeException("Stock insuficiente para \"$nombre\" al momento de aceptar.");
+                    // Se vuelve a comprobar aquí y no solo al crearlo: entre
+                    // que se pidió y se acepta, alguien pudo haber vendido o
+                    // apartado esas unidades.
+                    $nombre = DB::table('productos')->where('id', $item->producto_id)->value('nombre');
+                    $motivo = MovimientoTraslado::porQueNoSePuede(
+                        (int) $item->producto_id, (int) $traslado->tienda_origen_id, (int) $cantAceptada,
+                        $item->variante_id, $item->combo_config_id, (string) $nombre, $nombreOrigen,
+                    );
+                    if ($motivo) {
+                        throw new \RuntimeException($motivo . ' (al momento de aceptar)');
                     }
 
                     $item->update(['cantidad_aceptada' => $cantAceptada]);
 
-                    Inventario::where('producto_id', $item->producto_id)
-                        ->where('tienda_id', $traslado->tienda_origen_id)
-                        ->decrement('cantidad_disponible', $cantAceptada);
-
-                    $invDest = Inventario::firstOrCreate(
-                        ['producto_id' => $item->producto_id, 'tienda_id' => $traslado->tienda_destino_id],
-                        ['cantidad_disponible' => 0, 'cantidad_reservada' => 0, 'stock_minimo' => 1]
-                    );
-                    $invDest->increment('cantidad_disponible', $cantAceptada);
-
-                    // Salio stock de la tienda origen: ver arriba.
-                    StockVariantes::cuadrar(
-                        (int) $item->producto_id, (int) $traslado->tienda_origen_id,
-                        "Traslado aceptado #{$traslado->id}"
+                    MovimientoTraslado::mover(
+                        (int) $item->producto_id,
+                        (int) $traslado->tienda_origen_id, (int) $traslado->tienda_destino_id,
+                        (int) $cantAceptada,
+                        $item->variante_id, $item->combo_config_id,
                     );
 
                     InventarioMovimiento::create([

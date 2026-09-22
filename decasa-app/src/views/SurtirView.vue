@@ -728,9 +728,23 @@ watch(tDestinoId, async (tid) => {
   }
 })
 
+/** De un ítem ya elegido: qué tela se manda, o null si no se especificó. */
+function tTela(item) {
+  return (item.producto.telas ?? []).find(t => t.variante_id === item.variante_id) ?? null
+}
+
+/**
+ * Cuántas se pueden mandar de ese ítem: del producto, o de la tela si se
+ * eligió una. Lo apartado nunca entra — esa unidad la espera un cliente donde
+ * está, y el servidor rechaza el traslado si se intenta.
+ */
+function tMaximo(item) {
+  return tTela(item)?.libre ?? item.producto.stock_libre
+}
+
 function tAgregarProducto(prod) {
   if (tItems.value.some(i => i.producto.producto_id === prod.producto_id)) return
-  tItems.value.push({ producto: prod, cantidad: 1 })
+  tItems.value.push({ producto: prod, cantidad: 1, variante_id: null })
   tBusqueda.value = ''
 }
 
@@ -755,7 +769,14 @@ async function tEnviar() {
       notas:                  tNotas.value || null,
       programado_para:        (!tEsVendedor.value && tProgramarActivo.value && tProgramadoPara.value) ? tProgramadoPara.value : null,
       vendedor_validador_id:  tValidadorId.value || null,
-      items: tItems.value.map(i => ({ producto_id: i.producto.producto_id, cantidad: i.cantidad })),
+      items: tItems.value.map(i => ({
+        producto_id: i.producto.producto_id,
+        cantidad:    i.cantidad,
+        // Qué tela se manda. Sin esto, en el origen se recortaba el color que
+        // quedara —a veces el que una orden esperaba— y al destino llegaban
+        // unidades sin color, que ya no se podían vender por su tela.
+        variante_id: i.variante_id ?? null,
+      })),
     })
     if (tEsVendedor.value) {
       toast.success('Solicitud de traslado enviada. El vendedor de destino recibirá la notificación para aceptarla.')
@@ -1571,7 +1592,15 @@ onMounted(async () => {
             <div class="w-10 h-10 rounded-lg bg-gray-100 flex-shrink-0" v-else />
             <div class="flex-1 min-w-0">
               <p class="text-sm font-medium text-gray-800 truncate">{{ item.producto.nombre }}</p>
-              <p class="text-xs text-gray-400">Máx. {{ item.producto.stock_libre }} unidades</p>
+              <p class="text-xs text-gray-400">Máx. {{ tMaximo(item) }} unidades</p>
+              <!-- Lo apartado no se puede mandar: esa unidad la espera un
+                   cliente en esta tienda. Se dice aquí para que nadie tenga
+                   que descubrirlo cuando el traslado se rechace. -->
+              <p v-if="item.producto.cantidad_reservada > 0" class="text-xs text-amber-700">
+                De {{ item.producto.cantidad_disponible }} en tienda,
+                {{ item.producto.cantidad_reservada }} ya {{ item.producto.cantidad_reservada === 1 ? 'está apartada' : 'están apartadas' }}
+                para una orden: {{ item.producto.stock_libre }} se {{ item.producto.stock_libre === 1 ? 'puede' : 'pueden' }} trasladar.
+              </p>
             </div>
             <div class="flex items-center gap-1 flex-shrink-0">
               <button @click="item.cantidad > 1 && item.cantidad--" class="w-7 h-7 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center hover:bg-gray-200">−</button>
@@ -1579,16 +1608,49 @@ onMounted(async () => {
                 v-model.number="item.cantidad"
                 type="number"
                 :min="1"
-                :max="item.producto.stock_libre"
+                :max="tMaximo(item)"
                 class="w-12 text-center rounded border border-gray-300 py-1 text-sm font-bold focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
               <button
-                @click="item.cantidad < item.producto.stock_libre && item.cantidad++"
+                @click="item.cantidad < tMaximo(item) && item.cantidad++"
                 class="w-7 h-7 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center hover:bg-gray-200">+</button>
             </div>
             <button @click="tQuitarProducto(idx)" class="text-red-400 hover:text-red-600 flex-shrink-0 ml-1">
               <XMarkIcon class="w-5 h-5" />
             </button>
+          </div>
+
+          <!-- Qué tela se manda. Solo sale si el producto tiene: sin esto la
+               tela no viajaba, en el origen se recortaba el color que quedara
+               y al destino llegaban unidades sin color. -->
+          <div v-for="(item, idx) in tItems" :key="'tela-' + item.producto.producto_id">
+            <div v-if="item.producto.telas?.length" class="-mt-1 pl-3 pr-3 pb-2">
+              <label class="block text-xs font-medium text-gray-500 mb-1">
+                ¿De qué tela/medida? — {{ item.producto.nombre }}
+              </label>
+              <select
+                v-model="item.variante_id"
+                @change="item.cantidad = Math.min(item.cantidad, tMaximo(item)) || 1"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option :value="null">Sin especificar</option>
+                <option
+                  v-for="t in item.producto.telas"
+                  :key="t.variante_id"
+                  :value="t.variante_id"
+                  :disabled="t.libre < 1"
+                >
+                  {{ t.nombre }} — {{ t.libre }} libre(s){{ t.apartado ? ` · ${t.apartado} apartada(s)` : '' }}
+                </option>
+              </select>
+              <p v-if="tTela(item) && tTela(item).apartado > 0" class="text-xs text-amber-700 mt-1">
+                De esa tela hay {{ tTela(item).hay }} y {{ tTela(item).apartado }} está apartada para una
+                orden: solo se {{ tTela(item).libre === 1 ? 'puede' : 'pueden' }} mandar {{ tTela(item).libre }}.
+              </p>
+              <p v-else-if="item.variante_id === null" class="text-xs text-gray-400 mt-1">
+                Sin especificar, la tienda destino recibe las unidades sin color asignado.
+              </p>
+            </div>
           </div>
         </div>
 
@@ -1705,7 +1767,12 @@ onMounted(async () => {
           <div class="space-y-1 border-t border-gray-100 pt-3">
             <div v-for="item in tItems" :key="item.producto.producto_id"
               class="flex items-center gap-2 bg-gray-50 rounded-lg px-2.5 py-1.5 text-xs">
-              <span class="flex-1 text-gray-700 font-medium truncate">{{ item.producto.nombre }}</span>
+              <span class="flex-1 min-w-0 text-gray-700 font-medium truncate">
+                {{ item.producto.nombre }}
+                <!-- Qué tela se manda: es lo que va a recibir la otra tienda,
+                     y conviene verlo antes de confirmar, no después. -->
+                <span v-if="tTela(item)" class="text-blue-700">· {{ tTela(item).nombre }}</span>
+              </span>
               <span class="text-gray-400">{{ item.producto.categoria }}</span>
               <span class="font-bold text-green-700 flex-shrink-0">× {{ item.cantidad }}</span>
             </div>

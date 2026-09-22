@@ -85,16 +85,31 @@ class StockVariantes
     /**
      * Recorta las filas de un eje hasta que su suma quepa en el total.
      *
-     * Se empieza por la que más tiene: al vender sin decir el color, lo más
-     * probable es que saliera del montón más grande, y así se toca el menor
-     * número de filas.
+     * Se recorta primero de lo que NO está apartado. Antes se empezaba por la
+     * fila con más unidades, y eso podía llevarse por delante la tela que una
+     * orden tenía apartada: al trasladar un sofá a otra tienda, la que salía
+     * del reparto podía ser justo la que un cliente estaba esperando, y su
+     * reserva desaparecía sin que nadie se enterara.
+     *
+     * Entre las que tienen holgura se sigue empezando por la más grande: al
+     * vender sin decir el color, lo más probable es que saliera del montón
+     * más grande, y así se toca el menor número de filas.
      */
     private static function recortarEje(string $tabla, $filas, int $base, int $baseRes): array
     {
         $ajustes = [];
 
+        // Cuánto puede ceder cada fila sin tocar lo apartado. Las que tienen
+        // holgura van primero; las apartadas, al final y solo si no queda otra
+        // (el stock físico manda: si de verdad ya no hay unidades, el reparto
+        // no puede seguir prometiéndolas).
+        $orden = $filas->sortByDesc(fn ($f) =>
+            ((int) $f->cantidad_disponible - (int) $f->cantidad_reservada) * 1000
+            + (int) $f->cantidad_disponible
+        );
+
         $exceso = $filas->sum(fn ($f) => (int) $f->cantidad_disponible) - $base;
-        foreach ($filas as $fila) {
+        foreach ($orden as $fila) {
             if ($exceso <= 0) break;
             $tiene = (int) $fila->cantidad_disponible;
             if ($tiene <= 0) continue;
