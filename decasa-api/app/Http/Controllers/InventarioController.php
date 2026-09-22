@@ -747,6 +747,39 @@ class InventarioController extends Controller
      */
     public function reservas(Request $request, int $productoId)
     {
+        // Esta pantalla se cayó con un 500 que no había forma de ver: en
+        // producción el detalle del error no se muestra, y buscarlo a ciegas
+        // costó varios despliegues. Ahora el error se atrapa aquí: se anota en
+        // el log y, para un supervisor, viaja en la respuesta para que se lea
+        // en la misma pantalla donde se rompió. La lista sale vacía, pero sale.
+        try {
+            return $this->reservasDe($request, $productoId);
+        } catch (\Throwable $e) {
+            \Log::error('[DECASA] reservas() reventó para el producto ' . $productoId
+                . ': ' . get_class($e) . ' — ' . $e->getMessage(), [
+                    'archivo' => $e->getFile() . ':' . $e->getLine(),
+                ]);
+
+            return response()->json([
+                'ordenes'             => [],
+                'reservado_actual'    => 0,
+                'reservado_variantes' => 0,
+                'por_tienda'          => [],
+                'responde_por_tienda' => true,
+                'entregas_sin_descontar' => null,
+                'detalle_limitado'    => false,
+                'tienda_detalle'      => null,
+                // Solo para quien puede hacer algo con ello.
+                'error_interno'       => $request->user()?->rol === 'supervisor'
+                    ? get_class($e) . ' — ' . $e->getMessage()
+                      . ' (' . basename($e->getFile()) . ':' . $e->getLine() . ')'
+                    : null,
+            ]);
+        }
+    }
+
+    private function reservasDe(Request $request, int $productoId)
+    {
         $usuario = $request->user();
 
         $param        = $request->query('tienda_id');

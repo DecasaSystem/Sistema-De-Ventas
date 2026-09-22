@@ -398,6 +398,9 @@ async function abrirReservas(item, tiendaId = null, tiendaNombre = null, reserva
     // primeras versiones de la API nueva no mandaban la señal todavía.
     itemReservas.value.respuesta_fiable = data.responde_por_tienda === true
       || data.detalle_limitado !== undefined
+    // El servidor atrapó un error suyo y lo manda para que se pueda leer aquí
+    // mismo. Sin esto, un 500 en producción no dejaba ni rastro visible.
+    itemReservas.value.error_interno = data.error_interno ?? null
   } catch (e) {
     // Que la consulta falle y que conteste una API vieja son dos problemas
     // distintos y se arreglan distinto, pero dejaban el mismo hueco en
@@ -3415,6 +3418,16 @@ onMounted(async () => {
           </div>
           <div class="overflow-y-auto flex-1 px-5 py-4 space-y-2">
             <div v-if="reservasLoading" class="text-sm text-gray-400 text-center py-8">Cargando...</div>
+
+            <!-- El servidor atrapó un error suyo y lo manda escrito. Se
+                 muestra tal cual: es para copiarlo y arreglarlo, no para
+                 que el usuario lo entienda. -->
+            <div v-else-if="itemReservas?.error_interno"
+                 class="text-sm text-red-800 bg-red-50 border border-red-200 rounded-lg px-3 py-3 space-y-2">
+              <p class="font-semibold">El servidor falló al armar esta lista.</p>
+              <p class="text-xs font-mono break-all bg-white/60 rounded px-2 py-1">{{ itemReservas.error_interno }}</p>
+              <p class="text-xs">Copia ese texto y pásalo: dice exactamente qué se rompió.</p>
+            </div>
 
             <!-- La consulta falló: no es que no haya nada, es que no se pudo
                  preguntar. Va antes que todo lo demás porque de una respuesta
