@@ -382,6 +382,22 @@ async function abrirReservas(item, tiendaId = null, tiendaNombre = null) {
 }
 
 /**
+ * Lo que dice el motivo aparte de nombrar la orden.
+ *
+ * El número de la orden se pinta aparte (y se puede abrir), así que aquí se
+ * quita la parte que lo nombraba: de "Entrega orden #12 — mostrador" queda
+ * "Entrega — mostrador", y con la referencia delante se lee
+ * "#4300 Entrega — mostrador".
+ */
+function textoSinLaOrden(motivo) {
+  return String(motivo ?? '')
+    .replace(/^(Orden|Entrega orden|Edición orden|Cancelación orden|Entrega revertida orden|Borrador eliminado \(orden interna)\s+#\d+\)?/u,
+      (_, prefijo) => prefijo === 'Orden' ? '' : prefijo.replace(/\s*\(?orden( interna)?$/u, ''))
+    .replace(/^\s*[—:-]\s*/u, ' — ')
+    .trim() || ''
+}
+
+/**
  * Cuánto del "Apartado" no lo sostiene ninguna orden.
  *
  * El caso que no se veía: el contador dice 3, las órdenes sostienen 2 y la
@@ -3332,7 +3348,19 @@ onMounted(async () => {
                 <p v-if="m.variante" class="text-xs text-gray-600 truncate">
                   {{ [m.variante.marca, m.variante.marca_tela, m.variante.nombre_color].filter(Boolean).join(' · ') }}
                 </p>
-                <p class="text-xs text-gray-500 truncate">{{ m.motivo ?? '—' }}</p>
+                <!-- El motivo guardado nombra la orden por su id de tabla
+                     ("Orden #12"), que no es el número que lleva la orden ni
+                     se puede buscar. El servidor manda la referencia de
+                     verdad; se muestra esa y se deja abrir la orden. -->
+                <p class="text-xs text-gray-500 truncate">
+                  <button
+                    v-if="m.orden_id"
+                    type="button"
+                    @click="mostrarHistorial = false; router.push({ name: 'orden-detalle', params: { id: m.orden_id } })"
+                    class="font-semibold text-blue-600 underline"
+                  >{{ m.orden_referencia }}</button>
+                  {{ m.orden_id ? textoSinLaOrden(m.motivo) : (m.motivo ?? '—') }}
+                </p>
                 <p class="text-xs text-gray-400">{{ new Date(m.created_at).toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) }}</p>
               </div>
             </div>

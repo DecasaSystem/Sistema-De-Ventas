@@ -697,7 +697,47 @@ class InventarioController extends Controller
             ->limit(50)
             ->get();
 
-        return response()->json($movimientos);
+        return response()->json($this->conLaOrdenDeCadaMovimiento($movimientos));
+    }
+
+    /**
+     * El motivo de casi todos los movimientos nombra la orden por su id de
+     * tabla ("Orden #12"), no por el número que lleva la orden ("#4300",
+     * "FV2-3"). En pantalla eso es un número que no existe en ninguna parte:
+     * nadie puede buscar la orden #12.
+     *
+     * Aquí se traduce para mostrarlo — el texto guardado no se toca, porque
+     * `calcularEntregasSinDescontar()` se apoya justo en ese formato para
+     * saber qué entrega ya descontó.
+     *
+     * Solo se traducen los motivos que EMPIEZAN por una de estas formas: son
+     * las que escriben el id interno. Los que ya nombran la orden por su
+     * referencia ("Devolución para cambio — orden #4300") la traen a mitad de
+     * frase y se quedan como están; tomar ese número por un id llevaría a
+     * otra orden distinta.
+     */
+    private function conLaOrdenDeCadaMovimiento($movimientos)
+    {
+        $patron = '/^(?:Orden|Entrega orden|Edición orden|Cancelación orden|Entrega revertida orden|Borrador eliminado \(orden interna)\s+#(\d+)/u';
+
+        $ids = $movimientos
+            ->map(fn ($m) => preg_match($patron, (string) $m->motivo, $x) ? (int) $x[1] : null)
+            ->filter()->unique()->values();
+
+        $ordenes = $ids->isEmpty() ? collect() : \App\Models\Orden::whereIn('id', $ids)
+            ->get(['id', 'numero_orden', 'serie', 'serie_numero', 'cotizacion_numero', 'estado', 'numero_anulado'])
+            ->keyBy('id');
+
+        return $movimientos->map(function ($m) use ($patron, $ordenes) {
+            $orden = preg_match($patron, (string) $m->motivo, $x)
+                ? $ordenes->get((int) $x[1])
+                : null;
+
+            $m->orden_id         = $orden?->id;
+            $m->orden_referencia = $orden?->referencia;
+
+            return $m;
+        });
     }
 
     /**
