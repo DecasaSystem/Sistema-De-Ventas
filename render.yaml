@@ -31,8 +31,13 @@ services:
         value: "8080"
       - key: REVERB_SCHEME
         value: http
+      # Los logs van a stderr, que es lo que Render captura y muestra en su
+      # pestaña de Logs. Con el 'stack' por defecto acababan en
+      # storage/logs/laravel.log DENTRO del contenedor: nadie los podía leer y
+      # se borraban en cada despliegue. Un error 500 en producción era
+      # literalmente invisible — había que adivinar la causa.
       - key: LOG_CHANNEL
-        value: stack
+        value: stderr
       - key: LOG_LEVEL
         value: warning
       - key: APP_URL
