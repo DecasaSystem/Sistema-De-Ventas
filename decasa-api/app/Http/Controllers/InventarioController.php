@@ -821,7 +821,15 @@ class InventarioController extends Controller
             // Contarlo aquí inventaría una reserva que no existe.
             ->whereNull('devuelto_en')
             ->whereHas('orden', fn ($q) => $q->whereNotIn('estado', Orden::ESTADOS_SIN_RESERVA))
-            ->orderBy('created_at')
+            // Por `id`, no por `created_at`: `orden_items` no lleva timestamps
+            // (ver su migración y `OrdenItem::$timestamps = false`). Ordenar
+            // por una columna que no existe tumbaba la consulta entera con un
+            // 500, y como la pantalla se tragaba el error en silencio, lo que
+            // se veía era "No hay nada apartado" — con el contador diciendo
+            // que sí había. Ese fue el "apartado fantasma" que nadie lograba
+            // explicar: no había ningún fantasma, la lista nunca llegó a
+            // cargarse. El id da el mismo orden: el de inserción.
+            ->orderBy('id')
             ->get()
             ->filter(fn ($item) => $item->orden !== null);
 

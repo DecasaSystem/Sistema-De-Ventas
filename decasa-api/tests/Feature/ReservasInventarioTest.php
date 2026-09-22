@@ -46,7 +46,22 @@ class ReservasInventarioTest extends TestCase
             $t->integer('cantidad')->default(1); $t->decimal('precio_unitario', 12, 2)->default(0);
             $t->boolean('es_personalizado')->default(false); $t->boolean('producto_unico')->default(false);
             $t->date('devuelto_en')->nullable();
-            $t->timestamps();
+            // SIN timestamps, igual que la tabla de verdad (ver su migración y
+            // `OrdenItem::$timestamps = false`).
+            //
+            // Aviso para quien venga a arreglar algo parecido: esto NO basta
+            // para cazar un `orderBy` sobre una columna que no existe. SQLite
+            // escribe los identificadores entre comillas dobles y, si no
+            // encuentra la columna, los trata como una CADENA en vez de
+            // fallar; MySQL, con comillas invertidas, revienta. Así que la
+            // misma consulta pasa aquí y da 500 en producción, tenga esta
+            // tabla los timestamps o no.
+            //
+            // Fue lo que rompió esta pantalla durante meses: ordenaba por
+            // `created_at`, ningún test se quejó nunca, y cada clic en
+            // "Apartado" daba 500 — que la pantalla mostraba como "No hay
+            // nada apartado". Lo que de verdad protege es que el front ya no
+            // se traga los errores en silencio.
         });
 
         Schema::create('inventario', function (Blueprint $t) {
