@@ -356,7 +356,7 @@ async function abrirReservas(item, tiendaId = null, tiendaNombre = null, reserva
     producto_id: item.producto_id, producto_nombre: item.producto?.nombre,
     tienda_id: tiendaId, tienda_nombre: tiendaNombre,
     reservado_actual: 0, reservado_variantes: 0, por_tienda: [], detalle_limitado: false,
-    entregas_sin_descontar: [], sabe_de_entregas: false,
+    entregas_sin_descontar: [], sabe_de_entregas: false, error_consulta: null,
     // Lo que decía la tarjeta cuando se pulsó. Si el inventario ya dice otra
     // cosa, hay que decirlo: si no, la pantalla afirma "no hay nada apartado"
     // con un 1 dibujado justo detrás y no hay forma de entender cuál manda.
@@ -394,7 +394,13 @@ async function abrirReservas(item, tiendaId = null, tiendaNombre = null, reserva
     // podía ser un dos de otra tienda. La API nueva lo dice (`detalle_limitado`).
     // Mientras no lo diga, este modal no puede concluir nada del contador.
     itemReservas.value.respuesta_fiable = data.detalle_limitado !== undefined
-  } catch {
+  } catch (e) {
+    // Que la consulta falle y que conteste una API vieja son dos problemas
+    // distintos y se arreglan distinto, pero dejaban el mismo hueco en
+    // pantalla. Aquí se separan: sin esto había que adivinar cuál era.
+    itemReservas.value.error_consulta = e.response?.status
+      ? `el servidor respondió con un error (${e.response.status})`
+      : 'no se pudo hablar con el servidor'
     reservas.value = []
   } finally {
     reservasLoading.value = false
@@ -3406,9 +3412,24 @@ onMounted(async () => {
           <div class="overflow-y-auto flex-1 px-5 py-4 space-y-2">
             <div v-if="reservasLoading" class="text-sm text-gray-400 text-center py-8">Cargando...</div>
 
-            <!-- Va de primero a propósito: si el servidor no dice de qué
-                 tienda habla, ningún otro aviso de abajo puede sostenerse —
-                 un cero suyo podría ser el dos de otra tienda. -->
+            <!-- La consulta falló: no es que no haya nada, es que no se pudo
+                 preguntar. Va antes que todo lo demás porque de una respuesta
+                 que no llegó no se puede concluir nada. -->
+            <div v-else-if="itemReservas?.error_consulta"
+                 class="text-sm text-red-800 bg-red-50 border border-red-200 rounded-lg px-3 py-3 space-y-2">
+              <p>
+                No se pudo consultar quién lo tiene apartado:
+                {{ itemReservas.error_consulta }}.
+              </p>
+              <button type="button" @click="abrirReservas(
+                        { producto_id: itemReservas.producto_id, producto: { nombre: itemReservas.producto_nombre } },
+                        itemReservas.tienda_id, itemReservas.tienda_nombre, itemReservas.reservado_en_pantalla)"
+                      class="font-medium underline">Reintentar →</button>
+            </div>
+
+            <!-- Si el servidor no dice de qué tienda habla, ningún otro aviso
+                 de abajo puede sostenerse — un cero suyo podría ser el dos de
+                 otra tienda. -->
             <div v-else-if="! itemReservas?.respuesta_fiable && reservas.length === 0 && itemReservas?.reservado_en_pantalla > 0"
                  class="text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg px-3 py-3">
               La pantalla dice {{ itemReservas.reservado_en_pantalla }} apartado(s)
