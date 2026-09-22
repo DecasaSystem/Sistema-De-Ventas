@@ -388,6 +388,12 @@ async function abrirReservas(item, tiendaId = null, tiendaNombre = null, reserva
     // Sin esto, en ese rato afirmaba "ninguna orden entregada quedó sin
     // descontar" sin que nadie lo hubiera comprobado.
     itemReservas.value.sabe_de_entregas = Array.isArray(data.entregas_sin_descontar)
+    // Y la pregunta de la que depende TODO lo que dice este modal: ¿la
+    // respuesta habla de la tienda que se preguntó? La API vieja contestaba
+    // siempre con la tienda de quien mira, sin avisar, así que un cero suyo
+    // podía ser un dos de otra tienda. La API nueva lo dice (`detalle_limitado`).
+    // Mientras no lo diga, este modal no puede concluir nada del contador.
+    itemReservas.value.respuesta_fiable = data.detalle_limitado !== undefined
   } catch {
     reservas.value = []
   } finally {
@@ -3399,6 +3405,17 @@ onMounted(async () => {
           </div>
           <div class="overflow-y-auto flex-1 px-5 py-4 space-y-2">
             <div v-if="reservasLoading" class="text-sm text-gray-400 text-center py-8">Cargando...</div>
+
+            <!-- Va de primero a propósito: si el servidor no dice de qué
+                 tienda habla, ningún otro aviso de abajo puede sostenerse —
+                 un cero suyo podría ser el dos de otra tienda. -->
+            <div v-else-if="! itemReservas?.respuesta_fiable && reservas.length === 0 && itemReservas?.reservado_en_pantalla > 0"
+                 class="text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg px-3 py-3">
+              La pantalla dice {{ itemReservas.reservado_en_pantalla }} apartado(s)
+              y el servidor no devolvió de quién son. No quiere decir que no haya
+              nada: quiere decir que desde aquí no se puede saber todavía.
+              El servidor se está actualizando — vuelve a intentarlo en unos minutos.
+            </div>
             <!-- El contador de inventario (fresco, no el de la tarjeta) dice
                  > 0 y no encontramos ninguna orden que lo sostenga: no es que
                  no haya nada, es que el número está mal. -->
@@ -3495,9 +3512,11 @@ onMounted(async () => {
                  apartado" con un 1 dibujado al lado. -->
             <div v-else-if="reservas.length === 0 && itemReservas?.reservado_en_pantalla > 0"
                  class="text-sm text-blue-800 bg-blue-50 border border-blue-200 rounded-lg px-3 py-3">
-              Ya no hay nada apartado. La pantalla decía
-              {{ itemReservas.reservado_en_pantalla }}, pero el inventario ahora mismo
-              dice 0: ese número se soltó después de que cargó la lista.
+              Ya no hay nada apartado
+              <span v-if="itemReservas.tienda_nombre">en {{ itemReservas.tienda_nombre }}</span>.
+              La pantalla decía {{ itemReservas.reservado_en_pantalla }}, pero el
+              inventario ahora mismo dice 0: ese número se soltó después de que
+              cargó la lista.
               <button type="button" @click="mostrarReservas = false; cargarInventario(true)"
                       class="font-medium underline">Actualizar la lista →</button>
             </div>
