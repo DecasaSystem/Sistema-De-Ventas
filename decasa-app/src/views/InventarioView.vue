@@ -3526,12 +3526,28 @@ onMounted(async () => {
             <!-- Hay órdenes, pero no alcanzan a explicar todo el contador:
                  parte del apartado sobra y sin esto no se notaba. -->
             <div v-if="apartadoSinOrden > 0 && reservas.length"
-                 class="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-              De los {{ itemReservas.reservado_actual }} apartados,
-              <span class="font-semibold">{{ apartadoSinOrden }}</span> no los sostiene ninguna orden.
+                 class="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 space-y-1">
+              <p>
+                De los {{ itemReservas.reservado_actual }} apartados,
+                <span class="font-semibold">{{ apartadoSinOrden }}</span> no los sostiene ninguna orden.
+              </p>
+              <!-- La misma pregunta de siempre, también cuando el apartado
+                   sobra solo en parte: ¿esa unidad sigue en la tienda o ya se
+                   la llevó el cliente? -->
+              <p v-for="e in itemReservas.entregas_sin_descontar" :key="e.orden_id" class="text-xs">
+                <button type="button"
+                        @click="mostrarReservas = false; router.push({ name: 'orden-detalle', params: { id: e.orden_id } })"
+                        class="font-semibold underline">{{ e.referencia }}</button>
+                se entregó y nunca descontó ({{ e.cantidad }}): esa ya salió, así que
+                "En tienda" también está de más.
+              </p>
+              <p v-if="itemReservas.sabe_de_entregas && ! itemReservas.entregas_sin_descontar?.length" class="text-xs">
+                Ninguna orden entregada quedó sin descontar, así que esas unidades
+                siguen en la tienda: lo único que sobra es el apartado.
+              </p>
               <button v-if="auth.isSupervisor" type="button"
                       @click="mostrarReservas = false; abrirDescuadres()"
-                      class="font-medium underline">Revisar los descuadres →</button>
+                      class="font-medium underline text-xs">Revisar los descuadres →</button>
             </div>
 
             <button
