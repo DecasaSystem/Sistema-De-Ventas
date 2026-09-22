@@ -6,6 +6,7 @@ use App\Events\InventarioActualizado;
 use App\Models\Inventario;
 use App\Models\InventarioMovimiento;
 use App\Models\InventarioVariante;
+use App\Models\Orden;
 use App\Models\OrdenItem;
 use App\Models\SurtidoTienda;
 use App\Models\Tienda;
@@ -14,25 +15,6 @@ use Illuminate\Support\Facades\DB;
 
 class InventarioController extends Controller
 {
-    /**
-     * Estados de orden en los que un ítem NO tiene stock apartado.
-     *
-     * Los tres primeros porque ya se soltó: la orden se entregó, se canceló o
-     * se devolvió. Los otros dos porque todavía no se ha apartado nada — un
-     * borrador y una cotización son un boceto de venta, y solo tocan
-     * inventario al confirmarse (`OrdenController::completarBorrador`,
-     * `CotizacionController::convertir`).
-     *
-     * Contarlos como reserva viva era el error de fondo de toda la auditoría:
-     * un contador fantasma que coincidiera con un borrador del mismo producto
-     * quedaba "sostenido" y no se reportaba nunca —por eso el descuadre
-     * sobrevivía meses—, y al "corregir" se le subía el contador a la tienda
-     * para cubrir un borrador que no aparta nada, bloqueando stock bueno.
-     */
-    private const ESTADOS_SIN_RESERVA = [
-        'entregado', 'cancelado', 'devuelto', 'cotizacion', 'borrador',
-    ];
-
 
     /**
      * GET /api/inventario/desglose-variantes?tienda_id=1|todas
@@ -802,7 +784,7 @@ class InventarioController extends Controller
             // al entregarse la primera vez y no vuelve a reservar nada.
             // Contarlo aquí inventaría una reserva que no existe.
             ->whereNull('devuelto_en')
-            ->whereHas('orden', fn ($q) => $q->whereNotIn('estado', self::ESTADOS_SIN_RESERVA))
+            ->whereHas('orden', fn ($q) => $q->whereNotIn('estado', Orden::ESTADOS_SIN_RESERVA))
             ->orderBy('created_at')
             ->get()
             ->filter(fn ($item) => $item->orden !== null);
@@ -988,7 +970,7 @@ class InventarioController extends Controller
             // otro (`cambiarProducto`) ya liberó su reserva al entregarse; que
             // la orden haya reabierto a `pendiente_anticipo` no lo revive.
             ->whereNull('devuelto_en')
-            ->whereHas('orden', fn ($q) => $q->whereNotIn('estado', self::ESTADOS_SIN_RESERVA))
+            ->whereHas('orden', fn ($q) => $q->whereNotIn('estado', Orden::ESTADOS_SIN_RESERVA))
             ->get()
             ->filter(fn ($item) => $item->orden !== null)
             ->groupBy(fn ($item) => $item->producto_id . '-' . ($item->tienda_origen_id ?? $item->orden->tienda_id))
@@ -1047,7 +1029,7 @@ class InventarioController extends Controller
             ->where('producto_unico', false)
             ->whereNotNull('variante_id')
             ->whereNull('devuelto_en')
-            ->whereHas('orden', fn ($q) => $q->whereNotIn('estado', self::ESTADOS_SIN_RESERVA))
+            ->whereHas('orden', fn ($q) => $q->whereNotIn('estado', Orden::ESTADOS_SIN_RESERVA))
             ->get()
             ->filter(fn ($item) => $item->orden !== null)
             ->groupBy(fn ($item) => $item->variante_id . '-' . ($item->tienda_origen_id ?? $item->orden->tienda_id))

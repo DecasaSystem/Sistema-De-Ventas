@@ -2872,15 +2872,31 @@ class OrdenController extends Controller
 
         DB::transaction(function () use ($orden, $estadoNuevo, $estadoAnterior, $usuario, $correrNumeracion, &$corridas) {
 
-            $itemsStock = $orden->items->where('es_personalizado', false);
+            // Soltar tiene que mirar exactamente lo mismo que apartó: al
+            // crear la orden solo aparta lo de catálogo que no es
+            // personalizado, ni un mueble único, ni un producto suelto sin
+            // ficha (ver `$tocaStock` en store()). Aquí se miraba solo
+            // `es_personalizado`, así que cancelar una orden con un mueble
+            // único le restaba a un apartado que nunca se hizo y el contador
+            // se iba a NEGATIVO — y un contador negativo infla el Disponible:
+            // la tienda cree tener para vender una unidad que no tiene.
+            //
+            // Y lo devuelto para cambiarlo ya se soltó al entregarse la
+            // primera vez; restarlo otra vez al cancelar se comía el apartado
+            // de la orden de otro cliente.
+            $itemsStock = $orden->items->filter(fn ($i) =>
+                ! $i->es_personalizado && ! $i->producto_unico && $i->producto_id && ! $i->devuelto_en
+            );
 
             foreach ($itemsStock as $item) {
                 $origenId = $item->tienda_origen_id ?? $orden->tienda_id;
 
                 if ($estadoNuevo === 'entregado') {
                     // (la entrega de mostrador de arriba ya bajó el stock)
-                } elseif ($estadoNuevo === 'cancelado' && ! in_array($estadoAnterior, ['cancelado', 'borrador'], true)) {
-                    // Un borrador nunca reservó nada — cancelarlo no suelta stock.
+                } elseif ($estadoNuevo === 'cancelado' && ! in_array($estadoAnterior, Orden::ESTADOS_SIN_RESERVA, true)) {
+                    // Solo suelta quien de verdad tenía algo apartado. Un
+                    // borrador y una cotización todavía no apartaron nada, y
+                    // lo entregado o ya cancelado se soltó en su momento.
                     if ($item->variante_id) {
                         InventarioVariante::where('variante_id', $item->variante_id)
                             ->where('tienda_id', $origenId)

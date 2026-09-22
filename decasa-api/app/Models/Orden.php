@@ -15,6 +15,24 @@ class Orden extends Model
      */
     public const ESTADOS_NO_COMERCIALES = ['cotizacion', 'borrador'];
 
+    /**
+     * Estados en los que una orden NO tiene stock apartado.
+     *
+     * Los tres primeros porque ya se soltó —se entregó, se canceló o se
+     * devolvió—; los otros dos porque todavía no se ha apartado nada: un
+     * borrador y una cotización solo tocan inventario al confirmarse
+     * (`OrdenController::completarBorrador`, `CotizacionController::convertir`).
+     *
+     * Vive aquí porque la misma lista la necesitan tres sitios que tienen que
+     * decir lo mismo: quién lista las reservas, quién audita los descuadres y
+     * quién suelta la reserva al cancelar. Cuando cada uno llevaba su propia
+     * copia se desincronizaban, y de ahí salían los apartados fantasma que
+     * nadie lograba explicar.
+     */
+    public const ESTADOS_SIN_RESERVA = [
+        'entregado', 'cancelado', 'devuelto', 'cotizacion', 'borrador',
+    ];
+
     protected $fillable = [
         'cliente_id',
         'vendedor_id',
