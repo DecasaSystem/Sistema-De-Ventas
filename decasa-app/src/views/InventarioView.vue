@@ -348,7 +348,7 @@ const reservasLoading = ref(false)
  * @param tiendaNombre Solo para el título del modal.
  * @param tiendaNombre Solo para el título del modal.
  */
-async function abrirReservas(item, tiendaId = null, tiendaNombre = null) {
+async function abrirReservas(item, tiendaId = null, tiendaNombre = null, reservadoEnPantalla = 0) {
   // tienda_id va aparte de tiendaId: solo se guarda cuando de verdad se sabe
   // cuál es (una tienda puntual) — con el total global (tiendaId null en
   // vista "todas") no hay una sola tienda a la que corregirle el contador.
@@ -357,6 +357,10 @@ async function abrirReservas(item, tiendaId = null, tiendaNombre = null) {
     tienda_id: tiendaId, tienda_nombre: tiendaNombre,
     reservado_actual: 0, reservado_variantes: 0, por_tienda: [], detalle_limitado: false,
     entregas_sin_descontar: [], sabe_de_entregas: false,
+    // Lo que decía la tarjeta cuando se pulsó. Si el inventario ya dice otra
+    // cosa, hay que decirlo: si no, la pantalla afirma "no hay nada apartado"
+    // con un 1 dibujado justo detrás y no hay forma de entender cuál manda.
+    reservado_en_pantalla: Number(reservadoEnPantalla) || 0,
   }
   reservas.value = []
   reservasLoading.value = true
@@ -2428,7 +2432,7 @@ onMounted(async () => {
             </div>
             <button
               type="button"
-              @click="abrirReservas(item, esVistaGlobal ? null : tiendaId, esVistaGlobal ? null : tiendas.find(t => t.id == tiendaId)?.nombre)"
+              @click="abrirReservas(item, esVistaGlobal ? null : tiendaId, esVistaGlobal ? null : tiendas.find(t => t.id == tiendaId)?.nombre, item.cantidad_reservada)"
               class="bg-gray-50 rounded-lg p-1.5 hover:bg-gray-100 transition-colors"
               title="Ver qué órdenes lo tienen apartado"
             >
@@ -2453,7 +2457,7 @@ onMounted(async () => {
                 v-for="t in item.por_tienda"
                 :key="t.tienda_id"
                 type="button"
-                @click="abrirReservas(item, t.tienda_id, t.tienda_nombre)"
+                @click="abrirReservas(item, t.tienda_id, t.tienda_nombre, t.cantidad_reservada)"
                 :class="[
                   'inline-flex items-baseline gap-1 px-2 py-1 rounded-lg text-xs border transition-colors',
                   t.stock_libre > 0
@@ -3483,6 +3487,19 @@ onMounted(async () => {
                   los descuadres del catálogo →
                 </button>
               </p>
+            </div>
+
+            <!-- La tarjeta decía un número y el inventario ya dice otro: el
+                 de la tarjeta quedó viejo. Decirlo es la diferencia entre
+                 entender lo que pasa y quedarse mirando un "no hay nada
+                 apartado" con un 1 dibujado al lado. -->
+            <div v-else-if="reservas.length === 0 && itemReservas?.reservado_en_pantalla > 0"
+                 class="text-sm text-blue-800 bg-blue-50 border border-blue-200 rounded-lg px-3 py-3">
+              Ya no hay nada apartado. La pantalla decía
+              {{ itemReservas.reservado_en_pantalla }}, pero el inventario ahora mismo
+              dice 0: ese número se soltó después de que cargó la lista.
+              <button type="button" @click="mostrarReservas = false; cargarInventario(true)"
+                      class="font-medium underline">Actualizar la lista →</button>
             </div>
 
             <div v-else-if="reservas.length === 0" class="text-sm text-gray-400 text-center py-8">No hay nada apartado</div>
