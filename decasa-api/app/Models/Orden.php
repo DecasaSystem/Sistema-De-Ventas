@@ -402,6 +402,17 @@ class Orden extends Model
             return $query;
         }
 
+        // Un facturador factura lo de TODAS las tiendas: el sistema ya le
+        // avisa de cada abono que entra en cualquiera de ellas y le deja
+        // tomar su facturación (ver PagoController::tomarFacturacion, que no
+        // mira tienda ni estado). Lo que faltaba era poder abrir la orden
+        // para ver qué está facturando: le llegaba el aviso, entraba, y le
+        // salía "No autorizado". Ver no es tocar — editar y cobrar siguen
+        // con sus reglas de siempre.
+        if ($usuario->facturacion) {
+            return $query;
+        }
+
         return $query->where(function ($q) use ($usuario) {
             $q->where('vendedor_id', $usuario->id)
               ->orWhere('covendedor_id', $usuario->id);
@@ -413,12 +424,6 @@ class Orden extends Model
             $q->orWhere(fn ($q2) => $q2
                 ->where('tienda_abonada_id', $usuario->tienda_default_id)
                 ->where('estado', '!=', 'borrador'));
-
-            if ($usuario->facturacion) {
-                $q->orWhere(fn ($q2) => $q2
-                    ->where('tienda_id', $usuario->tienda_default_id)
-                    ->where('estado', 'entregado'));
-            }
         });
     }
 
@@ -434,7 +439,25 @@ class Orden extends Model
      */
     public function laPuedeCobrar(Usuario $usuario): bool
     {
-        return $this->laPuedeVer($usuario);
+        if (! $usuario->soloVeSusOrdenes())                    return true;
+        if ((int) $this->vendedor_id   === (int) $usuario->id) return true;
+        if ((int) $this->covendedor_id === (int) $usuario->id) return true;
+
+        $tienda = (int) $usuario->tienda_default_id;
+        if (! $tienda) return false;
+
+        if ((int) $this->tienda_abonada_id === $tienda && $this->estado !== 'borrador') {
+            return true;
+        }
+
+        // Al facturador se le abrió VER todas las órdenes, pero recibir plata
+        // es otra cosa: aquí sigue la regla de siempre —las entregadas de su
+        // tienda, para cuadrar caja—. Si algún día tiene que poder cobrar en
+        // cualquier tienda, se decide y se cambia aquí; no se hereda de un
+        // permiso de lectura sin que nadie lo haya pedido.
+        return (bool) $usuario->facturacion
+            && (int) $this->tienda_id === $tienda
+            && $this->estado === 'entregado';
     }
 
     /**
@@ -463,23 +486,20 @@ class Orden extends Model
             && $this->estado !== 'borrador';
     }
 
-    /** La misma regla, para una orden concreta. */
+    /**
+     * La misma regla que `scopeVisiblesPara`, para una orden concreta.
+     *
+     * Un facturador las ve todas: tiene que revisar la información completa
+     * de lo que factura, venga de la tienda que venga. Es SOLO leer — lo que
+     * puede tocar lo dicen `laPuedeEditar` y `laPuedeCobrar`, cada una con su
+     * regla, que no cambian.
+     */
     public function laPuedeVer(Usuario $usuario): bool
     {
-        if (! $usuario->soloVeSusOrdenes())                    return true;
-        if ((int) $this->vendedor_id   === (int) $usuario->id) return true;
-        if ((int) $this->covendedor_id === (int) $usuario->id) return true;
+        if (! $usuario->soloVeSusOrdenes()) return true;
+        if ((bool) $usuario->facturacion)   return true;
 
-        $tienda = (int) $usuario->tienda_default_id;
-        if (! $tienda) return false;
-
-        if ((int) $this->tienda_abonada_id === $tienda && $this->estado !== 'borrador') {
-            return true;
-        }
-
-        return (bool) $usuario->facturacion
-            && (int) $this->tienda_id === $tienda
-            && $this->estado === 'entregado';
+        return $this->laPuedeCobrar($usuario);
     }
 
     /**

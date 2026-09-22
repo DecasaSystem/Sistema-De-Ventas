@@ -282,4 +282,94 @@ class VerOrdenesCompartidasTest extends TestCase
         $this->assertNotContains($orden->id, $this->loQueVe($marta));
         $this->actingAs($marta)->getJson("/api/ordenes/{$orden->id}")->assertStatus(403);
     }
+
+    // ── El facturador ────────────────────────────────────────────────────────
+
+    private function facturador(): Usuario
+    {
+        $u = $this->vendedor('Facturadora', 1);
+        $u->update(['facturacion' => true]);
+        return $u->fresh();
+    }
+
+    /**
+     * El facturador tiene que revisar lo que factura, venga de donde venga.
+     *
+     * El sistema ya le avisa de cada abono de CUALQUIER tienda y le deja
+     * tomar su facturación (PagoController::tomarFacturacion no mira tienda ni
+     * estado). Lo que faltaba era poder abrir la orden: le llegaba el aviso,
+     * entraba, y le salía "No autorizado" con un 403.
+     */
+    public function test_el_facturador_puede_abrir_una_orden_de_otra_tienda(): void
+    {
+        $otra  = $this->vendedor('Otra', 2);
+        $orden = Orden::create([
+            'cliente_id' => 1, 'tienda_id' => 2, 'vendedor_id' => $otra->id,
+            'estado' => 'en_produccion', 'valor_total' => 800000,
+        ]);
+
+        $this->actingAs($this->facturador())
+            ->getJson("/api/ordenes/{$orden->id}")->assertOk();
+    }
+
+    /** Y también las que todavía no se han entregado. */
+    public function test_el_facturador_ve_las_que_no_estan_entregadas(): void
+    {
+        $otra = $this->vendedor('Otra', 1);
+        foreach (['pendiente_anticipo', 'en_produccion', 'entregado'] as $estado) {
+            Orden::create([
+                'cliente_id' => 1, 'tienda_id' => 1, 'vendedor_id' => $otra->id,
+                'estado' => $estado, 'valor_total' => 100000,
+            ]);
+        }
+
+        $this->assertCount(3, $this->loQueVe($this->facturador()));
+    }
+
+    /**
+     * Ver no es tocar: se le abrió la lectura, no el resto. Recibir plata de
+     * una orden que no es suya ni de su tienda sigue cerrado, igual que antes.
+     */
+    public function test_ver_todas_no_le_da_permiso_de_cobrar_ni_de_editar(): void
+    {
+        $otra  = $this->vendedor('Otra', 2);
+        $orden = Orden::create([
+            'cliente_id' => 1, 'tienda_id' => 2, 'vendedor_id' => $otra->id,
+            'estado' => 'en_produccion', 'valor_total' => 800000,
+        ]);
+
+        $facturadora = $this->facturador();
+
+        $this->assertFalse($orden->laPuedeCobrar($facturadora));
+        $this->assertFalse($orden->laPuedeEditar($facturadora));
+
+        $this->actingAs($facturadora)
+            ->patchJson("/api/ordenes/{$orden->id}", ['notas' => 'x'])
+            ->assertStatus(403);
+    }
+
+    /** Lo que ya podía: cobrar las entregadas de su propia tienda. */
+    public function test_el_facturador_sigue_pudiendo_cobrar_las_entregadas_de_su_tienda(): void
+    {
+        $otra  = $this->vendedor('Otra', 1);
+        $orden = Orden::create([
+            'cliente_id' => 1, 'tienda_id' => 1, 'vendedor_id' => $otra->id,
+            'estado' => 'entregado', 'valor_total' => 800000,
+        ]);
+
+        $this->assertTrue($orden->laPuedeCobrar($this->facturador()));
+    }
+
+    /** Y quien no es facturador sigue sin ver lo ajeno. */
+    public function test_sin_la_marca_de_facturacion_no_cambia_nada(): void
+    {
+        $otra  = $this->vendedor('Otra', 2);
+        $orden = Orden::create([
+            'cliente_id' => 1, 'tienda_id' => 2, 'vendedor_id' => $otra->id,
+            'estado' => 'en_produccion', 'valor_total' => 800000,
+        ]);
+
+        $this->actingAs($this->vendedor('Marta', 1))
+            ->getJson("/api/ordenes/{$orden->id}")->assertStatus(403);
+    }
 }
