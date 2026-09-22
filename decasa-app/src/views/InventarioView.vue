@@ -393,7 +393,11 @@ async function abrirReservas(item, tiendaId = null, tiendaNombre = null, reserva
     // siempre con la tienda de quien mira, sin avisar, así que un cero suyo
     // podía ser un dos de otra tienda. La API nueva lo dice (`detalle_limitado`).
     // Mientras no lo diga, este modal no puede concluir nada del contador.
-    itemReservas.value.respuesta_fiable = data.detalle_limitado !== undefined
+    // `responde_por_tienda` es la señal explícita de que la respuesta sabe de
+    // qué tienda habla. Se mira también `detalle_limitado` porque las
+    // primeras versiones de la API nueva no mandaban la señal todavía.
+    itemReservas.value.respuesta_fiable = data.responde_por_tienda === true
+      || data.detalle_limitado !== undefined
   } catch (e) {
     // Que la consulta falle y que conteste una API vieja son dos problemas
     // distintos y se arreglan distinto, pero dejaban el mismo hueco en

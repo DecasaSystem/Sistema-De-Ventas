@@ -707,7 +707,10 @@ class InventarioController extends Controller
             ->filter()->unique()->values();
 
         $ordenes = $ids->isEmpty() ? collect() : \App\Models\Orden::whereIn('id', $ids)
-            ->get(['id', 'numero_orden', 'serie', 'serie_numero', 'cotizacion_numero', 'estado', 'numero_anulado'])
+            // Sin lista de columnas, por lo mismo que en entregasSinDescontarDe:
+            // la referencia se arma con varios campos y una lista incompleta
+            // —o una columna que todavía no migró— tumba la consulta entera.
+            ->get()
             ->keyBy('id');
 
         return $movimientos->map(function ($m) use ($patron, $ordenes) {
@@ -821,7 +824,7 @@ class InventarioController extends Controller
         // Dónde está ese apartado, tienda por tienda. Sin esto, preguntando
         // por el total no había forma de decir "no es aquí, es en Norte", y la
         // pantalla solo sabía decir que no había nada.
-        $porTienda = Inventario::where('producto_id', $productoId)
+        $porTienda = $this->sinReventar(fn () => Inventario::where('producto_id', $productoId)
             ->where('cantidad_reservada', '>', 0)
             ->when($tiendaPedida, fn ($q) => $q->where('tienda_id', $tiendaPedida))
             ->with('tienda:id,nombre')
@@ -832,35 +835,67 @@ class InventarioController extends Controller
                 'reservado'     => (int) $inv->cantidad_reservada,
             ])
             ->sortByDesc('reservado')
-            ->values();
+            ->values(), "el apartado por tienda del producto {$productoId}");
 
         // Lo apartado de una tela/medida puntual vive en su propio contador y
         // se mueve aparte. Un fantasma puede estar solo ahí: el producto en
         // cero y la variante en uno. Mirando solo `inventario` la pantalla
         // decía "no hay nada apartado" con el desglose de tapizados diciendo
         // lo contrario.
-        $reservadoVariantes = (int) InventarioVariante::whereHas(
+        $reservadoVariantes = (int) $this->sinReventar(fn () => InventarioVariante::whereHas(
                 'variante', fn ($q) => $q->where('producto_id', $productoId)
             )
             ->when($tiendaPedida, fn ($q) => $q->where('tienda_id', $tiendaPedida))
-            ->sum('cantidad_reservada');
+            ->sum('cantidad_reservada'), "lo apartado por tapizado del producto {$productoId}");
 
         return response()->json([
             'ordenes'          => $reservas,
             'reservado_actual' => $reservadoActual,
             'reservado_variantes' => $reservadoVariantes,
             'por_tienda'       => $porTienda,
+            // La respuesta dice de qué tienda habla. La pantalla se apoya en
+            // esto para saber si puede concluir algo del contador: sin ello
+            // no distingue "no hay nada" de "no es de tu tienda".
+            'responde_por_tienda' => true,
             // Las órdenes de este producto que se entregaron y nunca
             // descontaron. Es la otra cara de un apartado que nadie sostiene,
             // y la pregunta que había que salir a responder a otro panel:
             // ¿la unidad todavía está en la tienda o ya se la llevó el cliente?
-            'entregas_sin_descontar' => $this->entregasSinDescontarDe($productoId, $tiendaId),
+            //
+            // Va protegido: es un dato DE MÁS. Si algo falla aquí —una
+            // columna que todavía no migró, una orden con datos raros— quien
+            // abre la pantalla tiene que seguir viendo su lista de apartados,
+            // que es a lo que venía. El error queda en el log, no en su cara.
+            'entregas_sin_descontar' => $this->sinReventar(
+                fn () => $this->entregasSinDescontarDe($productoId, $tiendaId),
+                "entregas sin descontar del producto {$productoId}",
+            ),
             // El detalle que va arriba no es el de la tienda que se preguntó:
             // es solo el de la de quien mira. La pantalla lo dice en vez de
             // dar a entender que no hay nada apartado.
             'detalle_limitado' => $detalleLimitado,
             'tienda_detalle'   => $tiendaDetalle,
         ]);
+    }
+
+    /**
+     * Corre algo que es un añadido, no el plato principal.
+     *
+     * Si revienta, la pantalla que lo pidió no puede irse abajo entera: se
+     * devuelve nada y el motivo queda en el log con su tag, que es donde se
+     * puede leer después. Un dato de más que falla no puede costar el dato
+     * principal.
+     */
+    private function sinReventar(callable $fn, string $que)
+    {
+        try {
+            return $fn();
+        } catch (\Throwable $e) {
+            \Log::warning("[DECASA] No se pudo calcular {$que}: " . $e->getMessage(), [
+                'archivo' => $e->getFile() . ':' . $e->getLine(),
+            ]);
+            return null;
+        }
     }
 
     /**
@@ -881,7 +916,11 @@ class InventarioController extends Controller
      */
     private function entregasSinDescontarDe(int $productoId, ?int $tiendaId): \Illuminate\Support\Collection
     {
-        $items = OrdenItem::with(['orden:id,estado,tienda_id,numero_orden,serie,serie_numero,cotizacion_numero,numero_anulado'])
+        // La orden entera, sin lista de columnas: la referencia que se muestra
+        // se arma con media docena de campos y basta que uno no esté en la
+        // lista —o que todavía no exista en la base— para tumbar la consulta.
+        // Son pocas filas; no vale la pena asumir ese riesgo por unos bytes.
+        $items = OrdenItem::with('orden')
             ->where('producto_id', $productoId)
             ->where('es_personalizado', false)
             ->where('producto_unico', false)
