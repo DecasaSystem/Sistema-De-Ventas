@@ -39,7 +39,7 @@ const historialPage    = ref(1)
 const historialHasMore = ref(true)
 
 onMounted(async () => {
-  await cargar()
+  await cargar({ primeraVez: true })
   socket.conectar()
 })
 
@@ -47,14 +47,28 @@ onBeforeUnmount(() => {
   socket.desconectar()
 })
 
-async function cargar() {
+async function cargar({ primeraVez = false } = {}) {
   cargando.value = true
   error.value = ''
   try {
     const { data } = await misEntregas()
     entregas.value = data
-    // Si solo hay una ruta, entrar directo
-    if (rutasOrdenadas.value.length === 1) {
+
+    // La ruta que se estaba viendo puede haber desaparecido: el servidor solo
+    // manda las entregas pendientes, así que al registrar la última de la ruta
+    // ya no vuelve ninguna suya. Quedarse dentro dejaba la pantalla mostrando
+    // una ruta que ya no existe y el botón "Empezar ruta" reventaba al
+    // preguntarle el estado. Se vuelve a la lista, que es donde el conductor
+    // ve que esa ruta terminó y cuáles le quedan.
+    if (rutaSeleccionada.value
+        && ! rutasAgrupadas.value.some(g => g.despacho_id === rutaSeleccionada.value)) {
+      rutaSeleccionada.value = null
+    }
+
+    // Con una sola ruta se entra directo, pero solo al abrir la pantalla: si
+    // se hiciera después de cada entrega, al terminar una ruta lo metería solo
+    // en la siguiente y parecería que lo que acaba de registrar no quedó.
+    if (primeraVez && ! rutaSeleccionada.value && rutasOrdenadas.value.length === 1) {
       rutaSeleccionada.value = rutasOrdenadas.value[0].despacho_id
     }
   } catch (e) {
@@ -89,8 +103,11 @@ const rutasPendientes = computed(() =>
 const rutasOrdenadas = computed(() => [...rutasEnProceso.value, ...rutasPendientes.value])
 
 // ¿Puede iniciar hoy?
+// Con `grupo?`: la ruta que se está viendo puede haberse acabado de entregar y
+// ya no existir. Sin esto, la pantalla entera se caía en blanco al registrar
+// la última entrega de una ruta.
 function puedeIniciar(grupo) {
-  if (grupo.despacho?.estado !== 'asignado') return false
+  if (grupo?.despacho?.estado !== 'asignado') return false
   const fecha = grupo.despacho?.fecha_despacho
   if (!fecha) return true
   const hoy = new Date().toISOString().slice(0, 10)
