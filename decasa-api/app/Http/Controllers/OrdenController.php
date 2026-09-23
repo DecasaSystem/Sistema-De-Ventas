@@ -82,6 +82,9 @@ class OrdenController extends Controller
             'cliente:id,nombre,telefono',
             'tienda:id,nombre',
             'vendedor:id,nombre,independiente',
+            // Con quién se comparte: la tarjeta de una restauración compartida lo dice.
+            'covendedor:id,nombre',
+            'tiendaAbonada:id,nombre',
             'items.produccion.pasoActual',
         ])->withSum('pagos', 'monto')
             // Las cotizaciones tienen su propio módulo: no se mezclan con órdenes.
@@ -987,6 +990,7 @@ class OrdenController extends Controller
             'vendedor:id,nombre,independiente',
             'tienda:id,nombre',
             'covendedor:id,nombre',
+            'tiendaAbonada:id,nombre',
             'items.producto:id,nombre,categoria,precio_base,personalizable,foto_url,medidas,material',
             'items.variante', 'items.comboConfig.tipo', 'items.comboConfig.opcion',
             'items.tiendaOrigen:id,nombre',
@@ -2080,6 +2084,8 @@ class OrdenController extends Controller
             'cliente',
             'vendedor:id,nombre,independiente',
             'tienda:id,nombre',
+            'covendedor:id,nombre',
+            'tiendaAbonada:id,nombre',
             'items.producto:id,nombre,categoria,precio_base,personalizable,foto_url,medidas,material',
             'items.variante', 'items.comboConfig.tipo', 'items.comboConfig.opcion',
             'items.tiendaOrigen:id,nombre',

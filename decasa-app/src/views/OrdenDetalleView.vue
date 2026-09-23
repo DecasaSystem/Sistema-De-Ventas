@@ -32,6 +32,7 @@ import { pctDeMonto, formatPct } from '@/utils/descuentos'
 import { formatoDuracion } from '@/utils/duracion'
 import { PhotoIcon } from '@heroicons/vue/24/outline'
 import { SPECS_TEMPLATES, resolverCategoria } from '@/constants/specsConfig'
+import { restauracionCompartidaCon } from '@/utils/ordenCompartida'
 
 const route = useRoute()
 const { cargar: cargarTipos, nombre: nombreProceso } = useTiposProceso()
@@ -1920,6 +1921,10 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         v-if="orden?.atrasado"
         class="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-700"
       >⚠ Atrasado</span>
+      <span
+        v-if="restauracionCompartidaCon(orden)"
+        class="text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-700"
+      >Compartida con {{ restauracionCompartidaCon(orden) }}</span>
     </div>
 
     <!-- Loading -->
@@ -2028,6 +2033,14 @@ onMounted(() => { cargarTipos(); cargarOrden() })
           <span class="font-medium text-indigo-700 flex items-center gap-1">
             <span class="inline-block w-2 h-2 rounded-full bg-indigo-400"></span>
             {{ orden.covendedor.nombre }} <span class="text-xs font-normal text-gray-400">(compartida)</span>
+          </span>
+        </div>
+        <!-- El almacén con el que se compartió: pasó el contacto y cobra su parte. -->
+        <div v-if="orden.tienda_abonada" class="flex justify-between">
+          <span class="text-gray-500">Compartida con</span>
+          <span class="font-medium text-indigo-700 flex items-center gap-1">
+            <span class="inline-block w-2 h-2 rounded-full bg-indigo-400"></span>
+            {{ orden.tienda_abonada.nombre }} <span class="text-xs font-normal text-gray-400">(almacén)</span>
           </span>
         </div>
         <div class="flex justify-between">

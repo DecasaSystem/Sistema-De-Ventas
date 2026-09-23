@@ -15,6 +15,7 @@ import { sinPerderElSitio, tamanoParaRecargar } from '@/utils/scroll'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
+import { restauracionCompartidaCon } from '@/utils/ordenCompartida'
 
 const router = useRouter()
 const toast = useToast()
@@ -611,6 +612,12 @@ onUnmounted(() => {
               </span>
             </div>
             <div class="text-right flex-shrink-0">
+              <!-- Restauración compartida: con qué almacén o con quién. -->
+              <p v-if="restauracionCompartidaCon(o)"
+                 class="text-[10px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-100 rounded px-1.5 py-0.5 mb-1 max-w-[9rem] truncate ml-auto"
+                 :title="'Compartida con ' + restauracionCompartidaCon(o)">
+                Compartida con {{ restauracionCompartidaCon(o) }}
+              </p>
               <p class="text-sm font-semibold text-gray-700"><MoneyDisplay :amount="o.valor_total" /></p>
               <p
                 v-if="o.saldo_pendiente > 0"
