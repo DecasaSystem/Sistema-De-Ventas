@@ -278,6 +278,7 @@ async function recalcular() {
     await cargar()
     if (vistaTab.value === 'resumen') await cargarResumen()
   cargarIndependientes()
+  cargarListas()
   } catch {
     toast.error('Error al recalcular')
   } finally {
@@ -291,6 +292,7 @@ async function pagar(id) {
   try {
     await api.post(`/comisiones/${id}/pagar`)
     toast.success('Comisión marcada como pagada')
+    cargarListas()
     await cargar()
     if (vistaTab.value === 'resumen') await cargarResumen()
   } catch (e) {
@@ -301,7 +303,73 @@ async function pagar(id) {
 }
 
 function totalListasVendedor(r) {
+  // Al independiente no le cuadra sumando sus órdenes: el bolsón de
+  // restauraciones no cuelga de ellas. El servidor manda la cifra.
+  if (r.es_independiente) return Number(r.comision_lista) || 0
   return r.ordenes.filter(o => o.estado === 'lista').reduce((s, o) => s + o.monto_comision, 0)
+}
+
+// ── Listas: lo que toca pagar, por vendedor ─────────────────────────────────
+// Aquí las comisiones se pagan todas de una, no orden por orden, así que
+// "Listas" muestra una tarjeta por persona con su total y un solo botón. Y del
+// mes que toca pagar, no del que va corriendo: ese es el de Resumen.
+//
+// El mes que se paga es el anterior desde el 20; antes del 20, el de hace dos.
+// (Pereira y Circunvalar pagan por trimestre: sus comisiones salen cuando cierra.)
+function mesQueTocaPagar() {
+  const hoy = new Date()
+  const atras = hoy.getDate() >= 20 ? 1 : 2
+  const d = new Date(hoy.getFullYear(), hoy.getMonth() - atras, 1)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+const mesListas       = ref(mesQueTocaPagar())
+const listasData      = ref([])
+const cargandoListas  = ref(false)
+const expandidosListas = ref(new Set())
+
+async function cargarListas() {
+  cargandoListas.value = true
+  try {
+    const { data } = await api.get('/comisiones/resumen', { params: { mes: mesListas.value } })
+    listasData.value = data
+  } catch {
+    toast.error('Error cargando las comisiones listas')
+  } finally {
+    cargandoListas.value = false
+  }
+}
+
+/** Una tarjeta por persona (y tienda) con algo listo para pagar. */
+const porPagar = computed(() =>
+  listasData.value
+    .map(r => ({ ...r, total_lista: totalListasVendedor(r), ordenes_listas: r.ordenes.filter(o => o.estado === 'lista') }))
+    .filter(r => r.total_lista > 0 || r.listas > 0)
+    .sort((a, b) => b.total_lista - a.total_lista)
+)
+
+const totalPorPagar = computed(() => porPagar.value.reduce((s, r) => s + r.total_lista, 0))
+
+function toggleExpandLista(clave) {
+  const s = new Set(expandidosListas.value)
+  s.has(clave) ? s.delete(clave) : s.add(clave)
+  expandidosListas.value = s
+}
+
+async function pagarListasDe(r) {
+  if (!confirm(`¿Pagar todo lo de ${r.vendedor_nombre} de ${mesListas.value}?\nTotal: ${cop(r.total_lista)}`)) return
+  pagandoListas.value = claveFila(r)
+  try {
+    const { data } = await api.post('/comisiones/pagar-listas', {
+      vendedor_id: r.vendedor_id, mes: mesListas.value, tienda_id: r.tienda_id || undefined,
+    })
+    toast.success(`${r.vendedor_nombre}: ${data.pagadas} comisión${data.pagadas !== 1 ? 'es' : ''} pagada${data.pagadas !== 1 ? 's' : ''}`)
+    await Promise.all([cargarListas(), cargar()])
+  } catch (e) {
+    toast.error(e.response?.data?.error || 'Error al pagar')
+  } finally {
+    pagandoListas.value = null
+  }
 }
 
 // Una comisión se paga de tres maneras y no se distinguían en pantalla: se
@@ -500,7 +568,10 @@ const filtradas = computed(() => {
 
 const badges = computed(() => ({
   pendiente: comisiones.value.filter(c => (c.estado_calculado ?? c.estado) === 'pendiente').length,
-  lista:     comisiones.value.filter(c => (c.estado_calculado ?? c.estado) === 'lista').length,
+  // En "Por estado" las listas van por persona: el número es a cuántos hay que pagarles.
+  lista:     vistaTab.value === 'estado'
+    ? porPagar.value.length
+    : comisiones.value.filter(c => (c.estado_calculado ?? c.estado) === 'lista').length,
   pagada:    comisiones.value.filter(c => (c.estado_calculado ?? c.estado) === 'pagada').length,
 }))
 
@@ -658,6 +729,7 @@ async function exportarExcelCompleto() {
 
 onMounted(async () => {
   cargarIndependientes()
+  cargarListas()
   await cargar()
   await cargarTodosVendedores()
 })
@@ -1476,8 +1548,123 @@ onMounted(async () => {
         </button>
       </div>
 
+      <!-- ── LISTAS: lo que toca pagar, una tarjeta por persona ────────────────
+           Aquí no se paga orden por orden sino todo de una, así que se agrupa
+           como en Resumen. Y es del mes que toca pagar, no del que va corriendo. -->
+      <template v-if="vistaTab === 'estado' && tab === 'lista'">
+        <div class="flex items-center justify-between mb-3 gap-2">
+          <div>
+            <p class="text-xs font-semibold text-gray-600">Mes que se paga</p>
+            <p class="text-[10px] text-gray-400">Por defecto, el que toca pagar ahora</p>
+          </div>
+          <input
+            type="month"
+            v-model="mesListas"
+            @change="cargarListas"
+            class="text-xs border border-gray-200 rounded-lg px-2 py-1 focus:ring-2 focus:ring-green-500 focus:border-transparent"
+          />
+        </div>
+
+        <div v-if="cargandoListas" class="flex justify-center py-12">
+          <IconoS class="w-8 h-8 text-green-500" />
+        </div>
+
+        <div v-else-if="porPagar.length === 0" class="text-center py-14">
+          <ReceiptPercentIcon class="w-12 h-12 text-gray-300 mx-auto mb-2" />
+          <p class="text-gray-400 text-sm">No hay nada listo para pagar de {{ mesListas }}</p>
+        </div>
+
+        <div v-else class="space-y-3">
+          <div class="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-100 rounded-xl px-4 py-3 flex justify-between items-center">
+            <div>
+              <p class="text-xs font-semibold text-green-700">Total por pagar — {{ mesListas }}</p>
+              <p class="text-[10px] text-green-600">{{ porPagar.length }} persona{{ porPagar.length !== 1 ? 's' : '' }}</p>
+            </div>
+            <p class="text-lg font-bold text-green-800">{{ cop(totalPorPagar) }}</p>
+          </div>
+
+          <div
+            v-for="r in porPagar"
+            :key="claveFila(r)"
+            class="bg-white rounded-xl shadow-sm border border-gray-100 border-l-4 border-l-green-400 overflow-hidden"
+          >
+            <div class="p-4">
+              <div class="flex items-start justify-between gap-2">
+                <button type="button" @click="toggleExpandLista(claveFila(r))" class="flex-1 min-w-0 text-left">
+                  <p class="font-semibold text-gray-800 text-sm truncate">{{ r.vendedor_nombre }}</p>
+                  <p class="text-xs text-gray-400 mt-0.5">
+                    {{ r.tienda_nombre }} · {{ r.ordenes_listas.length }} orden{{ r.ordenes_listas.length !== 1 ? 'es' : '' }} lista{{ r.ordenes_listas.length !== 1 ? 's' : '' }}
+                  </p>
+                  <p v-if="r.pendientes > 0" class="text-[10px] text-orange-500 mt-0.5">
+                    {{ r.pendientes }} todavía pendiente{{ r.pendientes !== 1 ? 's' : '' }} (el cliente no ha pagado la mitad)
+                  </p>
+                </button>
+                <div class="text-right shrink-0 flex items-start gap-2">
+                  <div>
+                    <p class="text-lg font-bold text-green-700">{{ cop(r.total_lista) }}</p>
+                    <p v-if="r.es_independiente && r.de_restauraciones_compartidas > 0" class="text-[10px] text-sky-600">
+                      incluye bolsón de restauraciones
+                    </p>
+                  </div>
+                  <button @click="toggleExpandLista(claveFila(r))" class="text-gray-300 hover:text-gray-500 mt-1">
+                    <ChevronUpIcon v-if="expandidosListas.has(claveFila(r))" class="w-4 h-4" />
+                    <ChevronDownIcon v-else class="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              <button
+                v-if="r.listas > 0"
+                @click="pagarListasDe(r)"
+                :disabled="pagandoListas === claveFila(r)"
+                class="mt-3 w-full flex items-center justify-between bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded-xl px-4 py-2.5 transition-colors"
+              >
+                <span class="text-xs font-semibold">{{ pagandoListas === claveFila(r) ? 'Pagando…' : 'Pagar todo' }}</span>
+                <span class="text-sm font-bold">{{ cop(r.total_lista) }}</span>
+              </button>
+            </div>
+
+            <!-- Las órdenes que entran en ese pago -->
+            <div v-if="expandidosListas.has(claveFila(r))" class="border-t border-gray-50 bg-gray-50 px-4 py-3">
+              <p class="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Órdenes listas</p>
+              <div class="space-y-1.5">
+                <div
+                  v-for="o in r.ordenes_listas"
+                  :key="o.id"
+                  class="flex items-center justify-between text-xs bg-white rounded-lg px-3 py-2 border border-gray-100"
+                >
+                  <div class="flex items-center gap-2 min-w-0">
+                    <button
+                      @click="router.push({ name: 'orden-detalle', params: { id: o.orden_id } })"
+                      class="font-semibold text-blue-600 hover:text-blue-800 truncate"
+                    >{{ o.orden_referencia ?? ('#' + o.orden_numero) }}</button>
+                    <span
+                      v-if="o.sin_descontar_iva"
+                      class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 shrink-0"
+                    >Sin restar IVA</span>
+                    <span
+                      v-if="o.forma_pago && o.forma_pago !== 'pool'"
+                      :class="['text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0', formaPago(o).clase]"
+                    >{{ formaPago(o).etiqueta }}</span>
+                    <span class="text-gray-400 truncate">{{ fmtFecha(o.fecha_venta) }}</span>
+                  </div>
+                  <div class="text-right shrink-0 ml-2">
+                    <span class="font-semibold text-green-700">{{ cop(o.monto_comision) }}</span>
+                    <span class="text-gray-400 ml-1">/ {{ cop(o.valor_orden) }}</span>
+                  </div>
+                </div>
+              </div>
+              <p v-if="r.es_independiente" class="text-[10px] text-sky-700 mt-2">
+                Además de sus órdenes cobra su parte del bolsón de restauraciones:
+                el total de arriba ya lo incluye.
+              </p>
+            </div>
+          </div>
+        </div>
+      </template>
+
       <!-- Cargando -->
-      <div v-if="cargando" class="flex justify-center py-12">
+      <div v-else-if="cargando" class="flex justify-center py-12">
         <IconoS class="w-8 h-8 text-green-500" />
       </div>
 

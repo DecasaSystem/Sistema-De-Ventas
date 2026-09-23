@@ -329,6 +329,9 @@ class ComisionController extends Controller
             // meta del almacén, no para lo que cobran.
             $fila['es_independiente'] = true;
             $fila['comision_total']   = (float) $i['comision'];
+            // Lo que ya se le puede pagar, bolsón incluido: sus propias
+            // órdenes no lo explican, así que no se puede sumar desde ellas.
+            $fila['comision_lista']   = (float) $i['comision_lista'];
             $fila['total_ventas']     = (float) $i['vendio'];
             $fila['total_ordenes']    = $suyas->count();
             // El desglose por órdenes no cuadra para ellos y no se debe usar:
