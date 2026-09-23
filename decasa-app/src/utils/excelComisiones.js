@@ -238,7 +238,7 @@ function porQueEsteEstado(c) {
   const e = c.estado_calculado ?? c.estado
   if (e === 'pagada') return `Pagada el ${fecha(c.fecha_pago)}${c.pagada_por?.nombre ? ' por ' + c.pagada_por.nombre : ''}.`
   const faltan = []
-  if (!c.req_50_pct)     faltan.push(`el cliente lleva pagado ${n(c.pct_pagado)}% (se necesita 50%)`)
+  if (c.req_50_aplica !== false && !c.req_50_pct) faltan.push(`el cliente lleva pagado ${n(c.pct_pagado)}% (se necesita 50%)`)
   if (!c.req_mes_vencido) faltan.push(`se paga desde el ${fecha(c.fecha_disponible)}`)
   if (['pool', 'parte_pool'].includes(c.forma_pago) && !c.meta_cumplida && c.periodicidad !== 'trimestral') {
     faltan.push('la tienda no ha llegado a la meta')
@@ -517,7 +517,7 @@ function hojaDetalle(wb, ctx) {
     { titulo: 'Cómo se paga', campo: c => FORMA[c.forma_pago] ?? 'Pool del equipo', ancho: 22 },
     { titulo: 'Valor (base comisionable)', campo: c => n(c.valor_orden), fmt: 'pesos', ancho: 16, total: 'suma' },
     { titulo: 'Pagado por el cliente %', campo: c => c.forma_pago === 'parte_pool' ? null : n(c.pct_pagado), fmt: 'pct', ancho: 11 },
-    { titulo: 'Cumple 50% pagado', campo: c => c.forma_pago === 'parte_pool' ? '' : siNo(c.req_50_pct), ancho: 10, color: c => c.forma_pago !== 'parte_pool' && !c.req_50_pct ? AMBAR : null },
+    { titulo: 'Cumple 50% pagado', campo: c => c.req_50_aplica === false ? 'No aplica' : siNo(c.req_50_pct), ancho: 10, color: c => c.req_50_aplica !== false && !c.req_50_pct ? AMBAR : null },
     { titulo: 'Pagado con tarjeta', campo: c => n(c.pagado_tarjeta), fmt: 'pesos', ancho: 14 },
     { titulo: 'Costo datáfono', campo: c => n(c.costo_datafono), fmt: 'pesos', ancho: 13 },
     { titulo: 'COMISIÓN', campo: c => n(c.monto_comision), fmt: 'pesos', ancho: 15, total: 'suma', color: () => VERDE_CLARO },
@@ -671,7 +671,7 @@ function hojaComoSeCalcula(wb) {
     '• En una tienda que reparte, ese 5% se parte entre los que estaban en la tienda ese día.',
     '',
     '6. Cuándo se puede pagar (estado "Lista")',
-    '• El cliente ya pagó al menos el 50% de la orden.',
+    '• El cliente ya pagó al menos el 50% de la orden (restauraciones, ventas sin meta y lo que deja un independiente). La parte del pool no lo espera: es del equipo y se paga igual a todos.',
     '• Ya llegó la fecha: el 20 del mes siguiente a la venta. En Unicentro Pereira y Circunvalar, el 20 del mes siguiente al cierre del trimestre.',
     '• Si va por pool, la tienda cumplió la meta (en trimestrales se netean los tres meses y un déficit se arrastra al trimestre siguiente).',
     '• Hasta que se marque pagada el monto se recalcula: si cambian las ventas del mes, cambia. Al pagarla queda congelada.',

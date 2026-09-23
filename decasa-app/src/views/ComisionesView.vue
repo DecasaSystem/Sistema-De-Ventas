@@ -1596,7 +1596,7 @@ onMounted(async () => {
                     {{ r.tienda_nombre }} · {{ r.ordenes_listas.length }} orden{{ r.ordenes_listas.length !== 1 ? 'es' : '' }} lista{{ r.ordenes_listas.length !== 1 ? 's' : '' }}
                   </p>
                   <p v-if="r.pendientes > 0" class="text-[10px] text-orange-500 mt-0.5">
-                    {{ r.pendientes }} todavía pendiente{{ r.pendientes !== 1 ? 's' : '' }} (el cliente no ha pagado la mitad)
+                    {{ r.pendientes }} todavía pendiente{{ r.pendientes !== 1 ? 's' : '' }} (restauración o venta cuyo cliente no ha pagado la mitad)
                   </p>
                 </button>
                 <div class="text-right shrink-0 flex items-start gap-2">
@@ -1746,13 +1746,19 @@ onMounted(async () => {
           <!-- Detalle expandido -->
           <div v-if="expandidos.has(c.id)" class="border-t border-gray-50 px-4 py-3 bg-gray-50 space-y-2">
             <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Requisitos</p>
-            <div class="flex items-center justify-between text-xs">
+            <div v-if="c.req_50_aplica !== false" class="flex items-center justify-between text-xs">
               <div class="flex items-center gap-1.5">
                 <CheckCircleIcon v-if="c.req_50_pct" class="w-4 h-4 text-green-500" />
                 <XCircleIcon v-else class="w-4 h-4 text-red-400" />
                 <span :class="c.req_50_pct ? 'text-green-700' : 'text-gray-500'">50% de la orden pagado</span>
               </div>
               <span class="text-gray-400 font-medium">{{ c.pct_pagado }}%</span>
+            </div>
+            <!-- El pool es del equipo y se paga igual a todos: no espera a que
+                 cada cliente pague su orden. -->
+            <div v-else class="flex items-center gap-1.5 text-xs">
+              <CheckCircleIcon class="w-4 h-4 text-green-500" />
+              <span class="text-green-700">Parte del pool: no depende de lo que haya pagado el cliente</span>
             </div>
             <!-- La meta solo es requisito si se cobra por el pool. En una
                  restauración, o sin meta, salía un ✗ rojo que no significaba

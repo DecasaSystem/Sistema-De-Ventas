@@ -449,7 +449,8 @@ class ComisionController extends Controller
             'para_cobrar_hacen_falta_dos_cosas' =>
                 'que llegue la fecha de pago (el 20 del mes siguiente; en Pereira y Circunvalar '
                 . 'el 20 del mes siguiente al cierre del trimestre) y que el cliente haya pagado '
-                . 'al menos el 50% de la orden.',
+                . 'al menos el 50% de la orden. Lo del pool no espera a los clientes: es del equipo, '
+                . 'se reparte por igual y se suelta completo cuando la tienda cumple la meta y llega la fecha.',
         ];
     }
 
@@ -2604,7 +2605,15 @@ class ComisionController extends Controller
         $baseReq50 = in_array($c->origen, self::ORIGENES_REPARTIDOS, true)
             ? (float) ($c->orden?->valor_total ?? $c->valor_orden)
             : (float) $c->valor_orden;
-        $req50     = $esPartePool || $pagado >= ($baseReq50 * 0.5);
+        //
+        // Lo que se cobra por el pool tampoco lo mira, orden por orden. El 5%
+        // del pool es del equipo y se reparte por igual: cuelga de las órdenes
+        // de cada uno solo para poder mostrarlo, no porque sea de esa venta.
+        // Amarrarlo al pago de cada cliente hacía que a cada uno se le soltara
+        // un pedazo distinto —Marta, Paola y NN, del mismo Norte, salían con
+        // tres cifras distintas en "Listas"— cuando se paga todo de una.
+        $porPool   = $tieneMeta && ! $esPartePool && ! $esAbono && ! $esRestauracion;
+        $req50     = $esPartePool || $porPool || $pagado >= ($baseReq50 * 0.5);
         $reqVencio = $hoy->gte(Carbon::parse($c->fecha_disponible));
 
         // En tiendas trimestrales el déficit ya quedó neteado en $comisionPool
@@ -2636,6 +2645,9 @@ class ComisionController extends Controller
             'comision_asesor'  => round($comisionAsesor),
             'meta_cumplida'    => $metaCumplida,
             'req_50_pct'       => $req50,
+            // Si el 50% pagado por el cliente cuenta para esta fila. En el pool
+            // y en la parte de quien no vendió, no.
+            'req_50_aplica'    => ! ($esPartePool || $porPool),
             'req_mes_vencido'  => $reqVencio,
             'periodicidad'     => $esTrimestral ? 'trimestral' : 'mensual',
             'es_restauracion'  => $esRestauracion,
