@@ -15,9 +15,17 @@ class UploadController extends Controller
      */
     public function foto(Request $request)
     {
+        // Cada carpeta que usa la app tiene que estar aquí: el chat de la
+        // orden, las devoluciones y "regresar al taller" mandaban la suya y se
+        // les rechazaba siempre, con cualquier foto. Y HEIC/HEIF entran: es lo
+        // que saca la cámara del iPhone cuando el navegador no alcanza a
+        // convertirla, y Cloudinary la recibe igual.
         $request->validate([
-            'foto'  => 'required|file|image|max:10240',
-            'folder' => 'nullable|string|in:productos,facturas,firmas,bocetos,comprobantes,telas,anexos,compras,catalogos,modulos',
+            'foto'  => 'required|file|mimes:jpg,jpeg,png,gif,webp,bmp,heic,heif|max:10240',
+            'folder' => 'nullable|string|in:productos,facturas,firmas,bocetos,comprobantes,telas,anexos,compras,catalogos,modulos,chat-ordenes,devoluciones,produccion',
+        ], [
+            'foto.max'   => 'La foto pesa más de 10 MB.',
+            'foto.mimes' => 'Ese archivo no es una foto que se pueda subir (JPG, PNG, WEBP o HEIC).',
         ]);
 
         $cloudName = config('services.cloudinary.cloud_name');

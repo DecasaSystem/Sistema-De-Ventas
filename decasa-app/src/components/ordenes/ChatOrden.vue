@@ -48,13 +48,14 @@ async function onFoto(e) {
     fd.append('foto', await comprimirImagen(file), 'chat.jpg')
     fd.append('folder', 'chat-ordenes')
     const res  = await fetch('/api/upload/foto', {
-      method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
+      method: 'POST', headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' }, body: fd,
     })
-    const data = await res.json()
-    if (!data.url) throw new Error()
+    const data = await res.json().catch(() => ({}))
+    // El servidor dice por qué la rechaza (peso, formato): mejor mostrarlo.
+    if (!data.url) throw new Error(data.message || `El servidor respondió ${res.status}`)
     imagenUrl.value = data.url
-  } catch {
-    toast.error('No se pudo subir la foto.')
+  } catch (err) {
+    toast.error(`No se pudo subir la foto: ${err?.message || 'sin conexión'}`)
     quitarFoto()
   } finally {
     subiendo.value = false
