@@ -63,6 +63,11 @@ const puedeRegistrarAnticipo = computed(() =>
 
 // ── Reasignación (solo supervisor) ──────────────────────────────────────────
 const esSupervisor  = computed(() => auth.usuario?.rol === 'supervisor')
+// En una orden que ya salió, el supervisor igual puede corregir el precio y
+// los descuentos (se vendió por menos de lo registrado, por ejemplo). No
+// productos ni cantidades: eso ya descontó bodega.
+const corrigePrecios  = computed(() => props.soloPapeles && esSupervisor.value)
+const puedeTocarPrecio = computed(() => !props.soloPapeles || corrigePrecios.value)
 const vendedorId    = ref(null)
 const tiendaId      = ref(null)
 const covendedorId  = ref(null)
@@ -1093,9 +1098,11 @@ async function guardar() {
       // sin guardar también la foto que sí se venía a cambiar.
       ...(props.soloPapeles ? {} : {
         anticipo_pct:    anticipoPct.value !== '' && anticipoPct.value !== null ? Number(anticipoPct.value) : undefined,
+      }),
+      ...(puedeTocarPrecio.value ? {
         descuento_total: Number(descuentoTotalEdit.value) || 0,
         descuento_condicionado_monto: Number(descCondEdit.value) || 0,
-      }),
+      } : {}),
       fecha_sugerida_vendedor: fechaSugeridaVendedor.value || null,
       // null explícito para poder QUITAR una foto, no solo reemplazarla
       ...(facturaFotoUrl.value !== (props.orden.factura_foto_url ?? '')
@@ -1110,7 +1117,8 @@ async function guardar() {
           // specs y los bocetos que ve el taller. El precio y la cantidad ya
           // están cobrados.
           const out = props.soloPapeles
-            ? { id: item.id }
+            // El supervisor corrige el precio; nada más de la pieza.
+            ? (corrigePrecios.value ? { id: item.id, precio_unitario: precioEfectivo(item) } : { id: item.id })
             : {
                 id:               item.id,
                 precio_unitario:  precioEfectivo(item),
@@ -1190,6 +1198,7 @@ async function guardar() {
 
     const { data } = await editarOrden(props.orden.id, payload)
     toast.success('Orden actualizada correctamente.')
+    if (data?.aviso_comisiones) toast.error(data.aviso_comisiones, 10000)
     emit('guardado', data)
     emit('close')
   } catch (e) {
@@ -1224,7 +1233,14 @@ async function guardar() {
               <ExclamationTriangleIcon class="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
               <div class="min-w-0">
                 <p class="text-xs font-semibold text-amber-800">Esta orden ya salió</p>
-                <p class="text-xs text-amber-700 mt-0.5 leading-snug">
+                <p v-if="corrigePrecios" class="text-xs text-amber-700 mt-0.5 leading-snug">
+                  Como supervisor puedes corregir los precios y los descuentos: el total,
+                  el saldo y las comisiones que aún no se han pagado se ponen al día solos,
+                  y queda en el historial. La cantidad y los productos no, porque ya
+                  descontaron bodega. Para cambiar un producto entregado hay un botón
+                  aparte en el detalle de la orden.
+                </p>
+                <p v-else class="text-xs text-amber-700 mt-0.5 leading-snug">
                   Se pueden corregir las fotos, las notas, la dirección y lo que describe
                   cada pieza. El precio, la cantidad y los productos no: eso ya se cobró y
                   ya descontó bodega. Para cambiar un producto entregado hay un botón
@@ -1578,7 +1594,7 @@ async function guardar() {
               </div>
 
               <!-- Precio + fecha -->
-              <div v-if="!soloPapeles" class="grid grid-cols-2 gap-3">
+              <div v-if="puedeTocarPrecio" class="grid grid-cols-2 gap-3">
                 <div>
                   <label class="block text-xs font-medium text-gray-600 mb-1">Precio unitario</label>
                   <InputPesos
@@ -1586,7 +1602,7 @@ async function guardar() {
                     class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
                 </div>
-                <div>
+                <div v-if="!soloPapeles">
                   <label class="block text-xs font-medium text-gray-600 mb-1">Fecha entrega</label>
                   <input
                     v-if="auth.usuario?.rol === 'supervisor'"
@@ -1619,7 +1635,7 @@ async function guardar() {
               </label>
 
               <!-- Descuento — en pesos o en %. No aplica a un obsequio. -->
-              <div v-if="!item._regalo && !soloPapeles" class="flex items-center gap-2 flex-wrap">
+              <div v-if="!item._regalo && puedeTocarPrecio" class="flex items-center gap-2 flex-wrap">
                 <label class="text-xs text-gray-500 flex-shrink-0">Descuento c/u</label>
 
                 <div class="flex items-center gap-1">

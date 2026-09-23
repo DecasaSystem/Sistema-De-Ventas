@@ -20,6 +20,10 @@ use Tests\TestCase;
  * calcularon comisión, y cambiar un producto entregado tiene su propio camino,
  * que sabe no cobrarlo dos veces.
  *
+ * La excepción es el precio, y solo para un supervisor: si la orden se vendió
+ * por menos de lo registrado, corregirlo no toca bodega y sí arregla el
+ * total, la cartera y las comisiones que no se han pagado.
+ *
  * El esquema se monta a mano: el historial de migraciones no corre en SQLite.
  */
 class EditarOrdenEntregadaTest extends TestCase
@@ -190,16 +194,115 @@ class EditarOrdenEntregadaTest extends TestCase
 
     // ── Lo que no ─────────────────────────────────────────────────────────────
 
-    public function test_no_se_le_cambia_el_precio_a_lo_ya_entregado(): void
+    /** Quien vendió no le corrige el precio a lo entregado: eso es del supervisor. */
+    public function test_el_vendedor_no_le_cambia_el_precio_a_lo_ya_entregado(): void
     {
         [$orden, $mesa] = $this->ordenEntregada();
+        $vendedor = $this->vendedorDe($orden);
 
-        $this->actingAs($this->jefe())->patchJson("/api/ordenes/{$orden->id}", [
+        $this->actingAs($vendedor)->patchJson("/api/ordenes/{$orden->id}", [
             'items' => [['id' => $mesa->id, 'precio_unitario' => 10]],
         ])->assertStatus(422);
 
         $this->assertEquals(800000, $mesa->fresh()->precio_unitario);
         $this->assertEquals(800000, $orden->fresh()->valor_total);
+    }
+
+    public function test_el_vendedor_no_le_mete_un_descuento_despues(): void
+    {
+        [$orden] = $this->ordenEntregada();
+
+        $this->actingAs($this->vendedorDe($orden))->patchJson("/api/ordenes/{$orden->id}", [
+            'descuento_total' => 500000,
+        ])->assertStatus(422);
+
+        $this->assertEquals(0, $orden->fresh()->descuento_total);
+    }
+
+    // ── El supervisor corrige el precio ──────────────────────────────────────
+
+    /** Se vendió en $650.000 y quedó registrada en $800.000. */
+    public function test_el_supervisor_corrige_el_precio_de_una_orden_entregada(): void
+    {
+        [$orden, $mesa] = $this->ordenEntregada();
+
+        $this->actingAs($this->jefe())->patchJson("/api/ordenes/{$orden->id}", [
+            'items' => [['id' => $mesa->id, 'precio_unitario' => 650000]],
+        ])->assertOk();
+
+        $this->assertEquals(650000, $mesa->fresh()->precio_unitario);
+        $this->assertEquals(650000, $orden->fresh()->valor_total);
+        $this->assertSame('entregado', $orden->fresh()->estado, 'sigue entregada');
+        $this->assertTrue(\App\Models\OrdenEdicion::where('orden_id', $orden->id)->exists(),
+            'queda en el historial');
+    }
+
+    public function test_el_supervisor_corrige_el_descuento(): void
+    {
+        [$orden] = $this->ordenEntregada();
+
+        $this->actingAs($this->jefe())->patchJson("/api/ordenes/{$orden->id}", [
+            'descuento_total' => 150000,
+        ])->assertOk();
+
+        $this->assertEquals(150000, $orden->fresh()->descuento_total);
+        $this->assertEquals(650000, $orden->fresh()->valor_total);
+    }
+
+    public function test_la_comision_pendiente_sigue_el_precio_corregido(): void
+    {
+        [$orden, $mesa] = $this->ordenEntregada();
+        $comision = $this->comisionDe($orden, 'pendiente');
+
+        $this->actingAs($this->jefe())->patchJson("/api/ordenes/{$orden->id}", [
+            'items' => [['id' => $mesa->id, 'precio_unitario' => 650000]],
+        ])->assertOk()->assertJsonMissingPath('aviso_comisiones');
+
+        $this->assertEquals(650000, $comision->fresh()->valor_orden);
+    }
+
+    public function test_la_comision_ya_pagada_no_se_toca_y_avisa(): void
+    {
+        [$orden, $mesa] = $this->ordenEntregada();
+        $comision = $this->comisionDe($orden, 'pagada');
+
+        $resp = $this->actingAs($this->jefe())->patchJson("/api/ordenes/{$orden->id}", [
+            'items' => [['id' => $mesa->id, 'precio_unitario' => 650000]],
+        ])->assertOk();
+
+        $this->assertEquals(800000, $comision->fresh()->valor_orden, 'esa plata ya salió');
+        $this->assertStringContainsString('ya estaba pagada', $resp->json('aviso_comisiones'));
+    }
+
+    public function test_el_supervisor_tampoco_le_cambia_la_cantidad(): void
+    {
+        [$orden, $mesa] = $this->ordenEntregada();
+
+        $this->actingAs($this->jefe())->patchJson("/api/ordenes/{$orden->id}", [
+            'items' => [['id' => $mesa->id, 'precio_unitario' => 650000, 'cantidad' => 2]],
+        ])->assertStatus(422);
+
+        $this->assertSame(1, $mesa->fresh()->cantidad);
+        $this->assertEquals(800000, $mesa->fresh()->precio_unitario, 'no se guarda nada a medias');
+    }
+
+    /** La dueña de la orden, como vendedora (sin rol de supervisor). */
+    private function vendedorDe(Orden $orden): Usuario
+    {
+        $u = Usuario::create(['nombre' => 'Paola', 'email' => 'p@d.com', 'password' => 'x',
+                              'rol' => 'vendedor', 'created_at' => now()]);
+        $orden->update(['vendedor_id' => $u->id]);
+
+        return $u;
+    }
+
+    private function comisionDe(Orden $orden, string $estado): \App\Models\Comision
+    {
+        return \App\Models\Comision::create([
+            'orden_id' => $orden->id, 'vendedor_id' => $orden->vendedor_id, 'tienda_id' => 1,
+            'mes_venta' => '2026-08', 'valor_orden' => 800000, 'fecha_venta' => '2026-08-15',
+            'fecha_disponible' => '2026-09-20', 'estado' => $estado,
+        ]);
     }
 
     public function test_no_se_le_cambia_la_cantidad(): void
@@ -228,16 +331,6 @@ class EditarOrdenEntregadaTest extends TestCase
         $this->assertSame(1, OrdenItem::where('orden_id', $orden->id)->count());
     }
 
-    public function test_no_se_le_mete_un_descuento_despues(): void
-    {
-        [$orden] = $this->ordenEntregada();
-
-        $this->actingAs($this->jefe())->patchJson("/api/ordenes/{$orden->id}", [
-            'descuento_total' => 500000,
-        ])->assertStatus(422);
-
-        $this->assertEquals(0, $orden->fresh()->descuento_total);
-    }
 
     /** Una orden cancelada sigue sin tocarse por ningún lado. */
     public function test_una_cancelada_no_se_edita(): void

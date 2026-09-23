@@ -63,6 +63,13 @@ class OrdenController extends Controller
     private const CAMPOS_ITEM_QUE_MUEVEN_PLATA = ['precio_unitario', 'cantidad', 'producto_id', 'retapizar'];
 
     /**
+     * Lo que un supervisor sí puede corregir en una orden que ya salió: el
+     * precio (de cada ítem y los descuentos). No toca bodega, solo cuánto
+     * valió la venta — y de ahí, la comisión y la cartera.
+     */
+    private const CAMPOS_PRECIO_ORDEN = ['descuento_total', 'descuento_condicionado_monto'];
+
+    /**
      * GET /api/ordenes
      * Vendedor: solo las suyas. Supervisor: todas.
      * Filtros: estado, tienda_id, desde, hasta.
@@ -1236,21 +1243,37 @@ class OrdenController extends Controller
         // anexo firmado no se subió, la dirección quedó mal escrita. Cambiarle
         // el precio o los productos es otra cosa —eso ya se cobró, ya descontó
         // inventario y ya calculó comisión— y tiene su propio camino.
+        //
+        // Salvo el precio, para un supervisor: una orden que se vendió por
+        // menos de lo que quedó registrado le infla la comisión a alguien y
+        // descuadra la cartera. Corregir el precio o los descuentos no toca
+        // bodega —el producto y la cantidad siguen siendo los mismos—, y el
+        // resto del camino (total, comisiones sin pagar, historial) es el de
+        // cualquier edición.
+        $corrigePrecios = $cerrada && $usuario->rol === 'supervisor';
+
         if ($cerrada) {
-            $prohibidos = array_values(array_intersect(array_keys($data), self::CAMPOS_QUE_MUEVEN_PLATA));
+            $prohibidos = array_values(array_intersect(
+                array_keys($data),
+                $corrigePrecios
+                    ? array_diff(self::CAMPOS_QUE_MUEVEN_PLATA, self::CAMPOS_PRECIO_ORDEN)
+                    : self::CAMPOS_QUE_MUEVEN_PLATA
+            ));
 
             if (! empty($data['items_nuevos']))  $prohibidos[] = 'items_nuevos';
             if (! empty($data['items_eliminar'])) $prohibidos[] = 'items_eliminar';
 
             foreach ($data['items'] ?? [] as $item) {
                 foreach (self::CAMPOS_ITEM_QUE_MUEVEN_PLATA as $campo) {
+                    if ($corrigePrecios && $campo === 'precio_unitario') continue;
                     if (array_key_exists($campo, $item)) $prohibidos[] = "items.{$campo}";
                 }
             }
 
             if ($prohibidos) {
                 return response()->json([
-                    'message' => 'Esta orden ya se entregó: de aquí en adelante sólo se corrigen fotos, notas y datos de contacto. '
+                    'message' => 'Esta orden ya se entregó: de aquí en adelante sólo se corrigen fotos, notas y datos de contacto'
+                        . ($corrigePrecios ? ', y los precios y descuentos. ' : '. ')
                         . 'Para cambiar un producto entregado hay una opción aparte en el detalle de la orden.',
                     'campos'  => array_values(array_unique($prohibidos)),
                 ], 422);
@@ -2090,6 +2113,18 @@ class OrdenController extends Controller
             // cambian la tela o el tamaño y nadie se lo dice, sigue armando lo
             // viejo. Solo para órdenes que tenga en producción ahora mismo.
             \App\Services\AvisoProduccion::ordenEditada($ordenFresh, $usuario, $cambios);
+
+            // Lo ya pagado no se recalcula (esa plata ya salió): que quien
+            // corrigió el precio lo sepa, en vez de creer que quedó arreglado.
+            if (collect($cambios)->contains('campo', 'valor_total')) {
+                $pagadas = Comision::where('orden_id', $orden->id)->where('estado', 'pagada')
+                    ->with('vendedor:id,nombre')->get();
+                if ($pagadas->isNotEmpty()) {
+                    $ordenFresh->aviso_comisiones = 'La comisión de '
+                        . $pagadas->pluck('vendedor.nombre')->filter()->unique()->join(', ', ' y ')
+                        . ' ya estaba pagada y no se recalcula: la diferencia hay que ajustarla a mano.';
+                }
+            }
         }
 
         return response()->json($ordenFresh);
