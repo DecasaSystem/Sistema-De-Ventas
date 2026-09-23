@@ -67,6 +67,8 @@ class Orden extends Model
         'notas',
         'fecha_sugerida_vendedor',
         'es_compartida',
+        // FV2 cuya comisión no se divide por 1,19 (ver la migración fv2_sin_descontar_iva).
+        'sin_descontar_iva',
         'covendedor_id',
         'factura_foto_url',
         // Todas las fotos del comprobante; factura_foto_url lleva la primera.
@@ -97,6 +99,7 @@ class Orden extends Model
             'descuento_condicionado_revertido_at' => 'datetime',
             'anticipo_pct'     => 'float',
             'es_compartida'    => 'boolean',
+            'sin_descontar_iva' => 'boolean',
             'entrega_inmediata' => 'boolean',
             'listo_entrega_at' => 'datetime',
             'factura_fotos'    => 'array',

@@ -261,6 +261,9 @@ class OrdenController extends Controller
             // Orden con descuento especial (serie FV2): numeración propia, sigue contando
             // como venta y generando comisión.
             'es_fv2'                               => 'nullable|boolean',
+            // FV2 a la que no se le quita el IVA en la comisión. Solo cuenta si
+            // quien la crea tiene el permiso (Trabajadores).
+            'fv2_sin_iva'                          => 'nullable|boolean',
             'tienda_abonada_id'                    => 'nullable|integer|exists:tiendas,id',
             'motivo_serie'                         => 'nullable|string|max:300',
             // Descuento que solo vale si paga en efectivo o transferencia. Se
@@ -312,6 +315,7 @@ class OrdenController extends Controller
         $tiendaId        = $data['tienda_id'];
         $anticupoPct     = $data['anticipo_pct'] ?? 50;
         $esFv2           = $request->boolean('es_fv2', false);
+        $fv2SinIva       = $esFv2 && $request->boolean('fv2_sin_iva') && $request->user()->puede_fv2_sin_iva;
 
         // Abonarle media venta a una tienda es cosa de vendedores independientes:
         // van a un almacen, les pasan el contacto y cierran ellos. Un vendedor de
@@ -486,7 +490,7 @@ class OrdenController extends Controller
             $fotosFactura = [$data['factura_foto_url']];
         }
 
-        $orden = DB::transaction(function () use ($data, $tiendaId, $anticupoPct, $valorTotal, $descuentoTotal, $request, $tieneItemsCotizacionPendiente, $guardarBorrador, $quiereEntregaInmediata, $esFv2, $descuentoCondicionado, $pctCondicionado, $tiendaAbonadaId, $fechaEntregaInicial, $fotosFactura) {
+        $orden = DB::transaction(function () use ($data, $tiendaId, $anticupoPct, $valorTotal, $descuentoTotal, $request, $tieneItemsCotizacionPendiente, $guardarBorrador, $quiereEntregaInmediata, $esFv2, $fv2SinIva, $descuentoCondicionado, $pctCondicionado, $tiendaAbonadaId, $fechaEntregaInicial, $fotosFactura) {
 
             // --- 1. Verificar stock para items no personalizados (con bloqueo) ---
             foreach ($data['items'] as $item) {
@@ -559,6 +563,8 @@ class OrdenController extends Controller
                 'tienda_abonada_id'  => $tiendaAbonadaId,
                 'serie'              => $esFv2 ? Orden::SERIE_FV2 : null,
                 'motivo_serie'       => $esFv2 ? ($data['motivo_serie'] ?? null) : null,
+                // Solo se escribe prendida: apagada es el valor por defecto.
+                ...($fv2SinIva ? ['sin_descontar_iva' => true] : []),
             ]);
 
             // --- 3. Crear items, reservar stock y crear producción ---
@@ -2141,6 +2147,7 @@ class OrdenController extends Controller
             // vendedor no las marcó al guardar el borrador, este es el último
             // momento para hacerlo — después, el número ya está quemado.
             'es_fv2'         => 'nullable|boolean',
+            'fv2_sin_iva'    => 'nullable|boolean',
             'motivo_serie'   => 'nullable|string|max:300',
             'es_compartida'  => 'nullable|boolean',
             'covendedor_id'  => 'nullable|exists:usuarios,id',
@@ -2216,6 +2223,16 @@ class OrdenController extends Controller
                 $esFv2 = $request->boolean('es_fv2');
                 $extra['serie']        = $esFv2 ? Orden::SERIE_FV2 : null;
                 $extra['motivo_serie'] = $esFv2 ? ($data['motivo_serie'] ?? null) : null;
+                // Lo cambia solo quien tiene el permiso; si no, se queda como
+                // se guardó el borrador (mientras siga siendo FV2).
+                $sinIva = $esFv2 && (
+                    $usuario->puede_fv2_sin_iva && $request->has('fv2_sin_iva')
+                        ? $request->boolean('fv2_sin_iva')
+                        : (bool) $orden->sin_descontar_iva
+                );
+                if ($sinIva !== (bool) $orden->sin_descontar_iva) {
+                    $extra['sin_descontar_iva'] = $sinIva;
+                }
             }
             if ($request->has('es_compartida')) {
                 $comp = $request->boolean('es_compartida');

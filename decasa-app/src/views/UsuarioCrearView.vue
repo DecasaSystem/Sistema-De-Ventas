@@ -58,6 +58,7 @@ const form = ref({
   gestiona_produccion: false,
   acceso_nomina: false,
   ve_todas_ordenes: false,
+  puede_fv2_sin_iva: false,
   tienda_default_id: '',
 })
 
@@ -162,6 +163,7 @@ async function submit() {
       acceso_compras: form.value.acceso_compras,
       acceso_reserva: form.value.acceso_reserva,
       ve_todas_ordenes: arquetipo.value === 'vendedor' ? form.value.ve_todas_ordenes : false,
+      puede_fv2_sin_iva: ['vendedor', 'supervisor'].includes(arquetipo.value) ? form.value.puede_fv2_sin_iva : false,
       tienda_default_id: mostrarTienda.value ? (form.value.tienda_default_id || null) : null,
     })
     router.push({ name: 'usuarios' })
@@ -619,6 +621,20 @@ async function submit() {
         <div>
           <label for="ve_todas_ordenes" class="text-sm font-medium text-gray-700 cursor-pointer">Puede ver todas las órdenes</label>
           <p class="text-xs text-gray-500 mt-0.5">Sin esto solo ve las suyas. No hace falta volverlo supervisor para darle esta visibilidad.</p>
+        </div>
+      </div>
+
+      <!-- FV2 sin restar el IVA: casos especiales, como los de don Henry -->
+      <div v-if="['vendedor', 'supervisor'].includes(arquetipo)" class="flex items-start gap-3 py-2">
+        <input
+          id="puede_fv2_sin_iva"
+          type="checkbox"
+          v-model="form.puede_fv2_sin_iva"
+          class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+        />
+        <div>
+          <label for="puede_fv2_sin_iva" class="text-sm font-medium text-gray-700 cursor-pointer">FV2 sin restar el IVA</label>
+          <p class="text-xs text-gray-500 mt-0.5">Al crear una FV2 le aparece el switch "No se resta el IVA": la comisión de esa orden se saca sobre el valor completo.</p>
         </div>
       </div>
 

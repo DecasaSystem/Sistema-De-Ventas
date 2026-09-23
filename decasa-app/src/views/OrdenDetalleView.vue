@@ -634,6 +634,7 @@ const completandoBorrador        = ref(false)
 // vendedor no las marcó antes, este es el último momento para hacerlo.
 const borradorEsFv2         = ref(false)
 const borradorMotivoSerie   = ref('')
+const borradorFv2SinIva     = ref(false)
 const borradorEsCompartida  = ref(false)
 const borradorCovendedorId  = ref(null)
 const borradorVendedores    = ref([])
@@ -806,6 +807,7 @@ watch(showCompletarBorradorModal, (open) => {
     // Si el borrador ya se guardó como FV2 o compartido, llega marcado
     borradorEsFv2.value        = !!orden.value?.serie
     borradorMotivoSerie.value  = orden.value?.motivo_serie ?? ''
+    borradorFv2SinIva.value    = !!orden.value?.sin_descontar_iva
     borradorEsCompartida.value = !!orden.value?.es_compartida
     borradorCovendedorId.value = orden.value?.covendedor_id ?? null
     borradorSpecs.value = Object.fromEntries(
@@ -932,6 +934,7 @@ async function completarBorrador() {
       // antes de que el número quede asignado.
       es_fv2:              borradorEsFv2.value,
       motivo_serie:        borradorEsFv2.value ? (borradorMotivoSerie.value.trim() || undefined) : undefined,
+      ...(auth.usuario?.puede_fv2_sin_iva ? { fv2_sin_iva: borradorEsFv2.value && borradorFv2SinIva.value } : {}),
       es_compartida:       borradorEsCompartida.value,
       covendedor_id:       borradorEsCompartida.value ? borradorCovendedorId.value : undefined,
     })
@@ -4100,6 +4103,16 @@ onMounted(() => { cargarTipos(); cargarOrden() })
                 placeholder="Ej: familiar de los dueños"
                 class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
               />
+              <label v-if="auth.usuario?.puede_fv2_sin_iva"
+                     class="flex items-start gap-2.5 cursor-pointer pt-2">
+                <input type="checkbox" v-model="borradorFv2SinIva" class="mt-0.5 w-4 h-4 accent-amber-600" />
+                <span class="min-w-0">
+                  <span class="text-sm font-semibold text-gray-800">No se resta el IVA</span>
+                  <span class="block text-xs text-gray-500 mt-0.5">
+                    La comisión de esta orden se saca sobre el valor completo, sin dividir por 1,19.
+                  </span>
+                </span>
+              </label>
             </div>
             <p v-else-if="orden?.serie === 'FV2'" class="text-xs text-amber-700 pl-6">
               Este borrador se guardó como FV2. Si lo desmarcas, tomará número de orden normal.

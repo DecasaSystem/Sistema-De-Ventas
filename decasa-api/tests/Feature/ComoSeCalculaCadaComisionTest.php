@@ -88,7 +88,7 @@ class ComoSeCalculaCadaComisionTest extends TestCase
             $t->decimal('descuento_condicionado', 15, 2)->default(0);
             $t->timestamp('descuento_condicionado_revertido_at')->nullable();
             $t->unsignedInteger('numero_orden')->nullable(); $t->string('serie')->nullable();
-            $t->unsignedInteger('serie_numero')->nullable();
+            $t->unsignedInteger('serie_numero')->nullable(); $t->boolean('sin_descontar_iva')->default(false);
             $t->timestamps();
         });
         Schema::create('orden_items', function (Blueprint $t) {
@@ -521,5 +521,161 @@ class ComoSeCalculaCadaComisionTest extends TestCase
 
         // Y a su meta le entra la mitad de lo neto: 9.450.000 ÷ 2.
         $this->assertEquals(4_725_000, $almacen['suma_a_meta']);
+    }
+
+    // ─────────── FV2 sin restar el IVA ───────────
+
+    /** Marca la orden como FV2 especial, como la deja el switch al crearla. */
+    private function fv2SinIva(Orden $orden, int $numero = 9): Orden
+    {
+        DB::table('ordenes')->where('id', $orden->id)->update([
+            'serie' => 'FV2', 'serie_numero' => $numero, 'sin_descontar_iva' => true,
+        ]);
+
+        return $orden->fresh();
+    }
+
+    public function test_fv2_de_henry_sin_restar_el_iva(): void
+    {
+        $this->fv2SinIva($this->orden(self::HENRY, null, 10_000_000));
+
+        $r = ComisionIndependientes::delMes(self::MES);
+        $suyo = collect($r['independientes'])->firstWhere('vendedor_id', self::HENRY);
+
+        // 10.000.000 × 5% = $500.000, en vez de los $420.168 de siempre.
+        $this->assertEquals(500_000, $suyo['comision']);
+        $this->assertTrue($r['ordenes'][0]['sin_descontar_iva']);
+        $this->assertEquals(500_000, $r['ordenes'][0]['paga']);
+    }
+
+    public function test_solo_la_fv2_marcada_no_resta_el_iva(): void
+    {
+        $this->fv2SinIva($this->orden(self::HENRY, null, 10_000_000));
+        $this->orden(self::HENRY, null, 10_000_000); // otra venta, normal
+
+        $r = ComisionIndependientes::delMes(self::MES);
+        $suyo = collect($r['independientes'])->firstWhere('vendedor_id', self::HENRY);
+
+        // $500.000 de la especial + $420.168 de la normal.
+        $this->assertEqualsWithDelta(920_168, $suyo['comision'], 2);
+    }
+
+    public function test_el_almacen_que_ayudo_en_la_fv2_cobra_con_la_regla_de_siempre(): void
+    {
+        $this->fv2SinIva($this->orden(self::HENRY, null, 10_000_000, abonaA: self::EDEN));
+
+        $r = ComisionIndependientes::delMes(self::MES);
+        $suyo    = collect($r['independientes'])->firstWhere('vendedor_id', self::HENRY);
+        $almacen = collect($r['almacenes'])->firstWhere('tienda_id', self::EDEN);
+
+        $this->assertEquals(500_000, $suyo['comision'], 'a Henry no se le resta');
+        $this->assertEqualsWithDelta(420_168, $almacen['comision'], 2, 'al almacén sí');
+    }
+
+    public function test_fv2_sin_restar_iva_de_alguien_de_tienda_sin_meta(): void
+    {
+        $this->fv2SinIva($this->orden(self::MANUELA, self::VIRTUAL, 10_000_000));
+
+        $cobra = $this->loQueCobraCadaUno();
+
+        $this->assertEquals(500_000, $cobra['Manuela']);
+    }
+
+    // ─────────── Restauración que sube un almacén ───────────
+
+    /** Flabio: el otro independiente, para ver que el bolsón es de los dos. */
+    private function conFlabio(): int
+    {
+        DB::table('usuarios')->insert([
+            'id' => 20, 'nombre' => 'Flabio', 'rol' => 'vendedor',
+            'independiente' => true, 'tienda_default_id' => null, 'created_at' => now(),
+        ]);
+
+        return 20;
+    }
+
+    public function test_la_restauracion_de_un_almacen_le_suma_a_los_independientes(): void
+    {
+        $flabio = $this->conFlabio();
+
+        // Gladys, de El Edén, sube una restauración de $1.000.000.
+        $this->orden(self::GLADYS, self::EDEN, 1_000_000, restauracion: true);
+
+        $r = ComisionIndependientes::delMes(self::MES);
+
+        // Entra al bolsón entera, y cada independiente cobra su 5%: $50.000.
+        $this->assertEquals(1_000_000, $r['bolson_restauraciones']);
+        $this->assertEquals(1_000_000, $r['base_restauracion_almacenes']);
+        foreach ([self::HENRY, $flabio] as $quien) {
+            $suyo = collect($r['independientes'])->firstWhere('vendedor_id', $quien);
+            $this->assertEquals(50_000, $suyo['comision']);
+            $this->assertEquals(50_000, $suyo['comision_restauraciones']);
+            $this->assertEquals(0, $suyo['vendio'], 'no es venta de ninguno de ellos');
+        }
+
+        $this->assertCount(1, $r['restauraciones_almacenes']);
+        $this->assertSame('Decasa Vía El Edén', $r['restauraciones_almacenes'][0]['almacen']);
+
+        // La tienda sigue cobrando lo suyo como siempre: 5% partido en dos.
+        $cobra = $this->loQueCobraCadaUno();
+        $this->assertEquals(25_000, $cobra['Gladys']);
+        $this->assertEquals(25_000, $cobra['Sebastián']);
+    }
+
+    public function test_es_la_misma_cuenta_que_si_henry_la_compartiera_con_el_almacen(): void
+    {
+        // La sube El Edén...
+        $this->orden(self::GLADYS, self::EDEN, 1_000_000, restauracion: true);
+        $r = ComisionIndependientes::delMes(self::MES);
+        $deAlmacen = collect($r['independientes'])->firstWhere('vendedor_id', self::HENRY)['comision'];
+        $tienda    = $this->loQueCobraCadaUno();
+
+        // ...o la sube Henry compartida con El Edén.
+        Comision::query()->delete();
+        DB::table('pagos')->delete(); DB::table('orden_items')->delete(); DB::table('ordenes')->delete();
+        $this->orden(self::HENRY, null, 1_000_000, restauracion: true, abonaA: self::EDEN);
+        $r = ComisionIndependientes::delMes(self::MES);
+        $deHenry     = collect($r['independientes'])->firstWhere('vendedor_id', self::HENRY)['comision'];
+        $tiendaHenry = $this->loQueCobraCadaUno();
+
+        $this->assertEquals($deHenry, $deAlmacen);
+        $this->assertEquals($tiendaHenry['Gladys'], $tienda['Gladys']);
+        $this->assertEquals($tiendaHenry['Sebastián'], $tienda['Sebastián']);
+    }
+
+    public function test_al_bolson_le_entra_sin_lo_del_datafono(): void
+    {
+        $this->orden(self::PAOLA, self::NORTE, 1_000_000, restauracion: true, comoPago: 'tarjeta');
+
+        $r = ComisionIndependientes::delMes(self::MES);
+        $suyo = collect($r['independientes'])->firstWhere('vendedor_id', self::HENRY);
+
+        // 945.000 × 5% = $47.250, igual que si la hubiera subido él.
+        $this->assertEquals(47_250, $suyo['comision_restauraciones']);
+    }
+
+    public function test_una_venta_de_almacen_no_entra_al_bolson(): void
+    {
+        $this->orden(self::MANUELA, self::VIRTUAL, 10_000_000);
+
+        $r = ComisionIndependientes::delMes(self::MES);
+        $suyo = collect($r['independientes'])->firstWhere('vendedor_id', self::HENRY);
+
+        $this->assertEquals(0, $suyo['comision']);
+        $this->assertEquals(0, $r['bolson_restauraciones']);
+        $this->assertSame([], $r['restauraciones_almacenes']);
+    }
+
+    public function test_la_restauracion_de_almacen_se_cobra_cuando_el_cliente_pago_la_mitad(): void
+    {
+        $orden = $this->orden(self::GLADYS, self::EDEN, 1_000_000, restauracion: true);
+        DB::table('pagos')->where('orden_id', $orden->id)->update(['monto' => 400_000]);
+
+        $r = ComisionIndependientes::delMes(self::MES);
+        $suyo = collect($r['independientes'])->firstWhere('vendedor_id', self::HENRY);
+
+        $this->assertEquals(50_000, $suyo['comision']);
+        $this->assertEquals(0, $suyo['comision_lista'], 'el cliente no ha pagado la mitad');
+        $this->assertEquals(50_000, $suyo['comision_pendiente']);
     }
 }

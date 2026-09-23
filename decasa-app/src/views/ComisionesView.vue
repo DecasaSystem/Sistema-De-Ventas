@@ -710,8 +710,9 @@ onMounted(async () => {
       <p class="text-[11px] text-gray-500 mb-3">
         No van por meta. Sus ventas son de cada uno, {{ Math.round(indepData.porcentaje * 100) }}%
         con el IVA descontado primero. Las restauraciones sí se reparten: se suman
-        todas entre los independientes y cada uno cobra el {{ Math.round(indepData.porcentaje * 100) }}%
-        de ese total completo, sin importar quién la hizo.
+        todas —las de los independientes y las que suben los almacenes— y cada uno
+        cobra el {{ Math.round(indepData.porcentaje * 100) }}% de ese total completo,
+        sin importar quién la hizo.
       </p>
 
       <div class="flex items-center justify-between text-sm py-1.5 border-b border-gray-100">
@@ -721,14 +722,26 @@ onMounted(async () => {
 
       <!-- Solo el bolson de restauraciones es un numero unico para todos; las
            ventas ya no lo son, cada quien cobra la suya en su propia fila de abajo. -->
-      <div v-if="indepData.base_restauracion > 0" class="text-[11px] text-gray-500 py-1">
+      <div v-if="(indepData.bolson_restauraciones ?? indepData.base_restauracion) > 0" class="text-[11px] text-gray-500 py-1">
         <div class="flex items-center justify-between text-purple-600">
           <span>Bolsón de restauraciones × {{ Math.round(indepData.porcentaje * 100) }}%</span>
           <span class="font-medium">
-            {{ cop(indepData.base_restauracion) }} →
+            {{ cop(indepData.bolson_restauraciones ?? indepData.base_restauracion) }} →
             {{ cop(indepData.comision_restauraciones) }} c/u
           </span>
         </div>
+        <!-- Las que subió un almacén: cuentan como si las hubiera subido un
+             independiente compartidas con esa tienda. -->
+        <template v-if="indepData.restauraciones_almacenes?.length">
+          <p class="mt-1">
+            de eso, {{ cop(indepData.base_restauracion_almacenes) }} lo subieron los almacenes:
+          </p>
+          <div v-for="r in indepData.restauraciones_almacenes" :key="r.id"
+               class="flex items-center justify-between pl-2 text-gray-400">
+            <span class="truncate">{{ r.referencia }} · {{ r.almacen }} · {{ r.vendedor }}</span>
+            <span class="shrink-0">{{ cop(r.valor) }}</span>
+          </div>
+        </template>
       </div>
 
       <!-- Se cobra igual que en las tiendas: el 20 del mes siguiente y con la
@@ -761,6 +774,11 @@ onMounted(async () => {
         <!-- Cuánto es solo suyo y cuánto viene del bolsón compartido. -->
         <p v-if="i.comision_restauraciones > 0" class="text-[10px] text-gray-400 mt-0.5">
           {{ cop(i.comision_ventas_propias) }} de lo suyo + {{ cop(i.comision_restauraciones) }} del bolsón compartido
+        </p>
+        <!-- FV2 especiales: a esas no se les quitó el IVA. -->
+        <p v-for="o in indepData.ordenes.filter(x => x.vendedor_id === i.vendedor_id && x.sin_descontar_iva)"
+           :key="'siniva-' + o.id" class="text-[10px] text-rose-700 mt-0.5">
+          {{ o.referencia }} sin restar IVA: {{ cop(o.valor) }} × {{ Math.round(indepData.porcentaje * 100) }}% = {{ cop(o.paga) }}
         </p>
       </div>
 
@@ -1377,6 +1395,11 @@ onMounted(async () => {
                       v-if="o.es_descuento_especial"
                       class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 shrink-0"
                     >Descuento</span>
+                    <span
+                      v-if="o.sin_descontar_iva"
+                      title="FV2 especial: la comisión se sacó sobre el valor completo, sin dividir por 1,19"
+                      class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 shrink-0"
+                    >Sin restar IVA</span>
                     <span
                       v-if="o.forma_pago && o.forma_pago !== 'pool'"
                       :class="['text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0', formaPago(o).clase]"

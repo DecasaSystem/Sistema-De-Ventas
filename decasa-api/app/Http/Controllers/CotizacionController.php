@@ -386,6 +386,8 @@ class CotizacionController extends Controller
             // Descuento especial: la orden nace con serie FV2.
             'es_fv2'       => 'nullable|boolean',
             'motivo_serie' => 'nullable|string|max:300',
+            // FV2 a la que no se le quita el IVA en la comisión (con permiso).
+            'fv2_sin_iva'  => 'nullable|boolean',
         ]);
 
         if ($cotizacion->esta_vencida && ! $request->boolean('aceptar_cambios_precio')) {
@@ -404,9 +406,10 @@ class CotizacionController extends Controller
             ], 409);
         }
 
-        $esFv2 = $request->boolean('es_fv2', false);
+        $esFv2     = $request->boolean('es_fv2', false);
+        $fv2SinIva = $esFv2 && $request->boolean('fv2_sin_iva') && $usuario->puede_fv2_sin_iva;
 
-        $orden = DB::transaction(function () use ($cotizacion, $data, $usuario, $esFv2) {
+        $orden = DB::transaction(function () use ($cotizacion, $data, $usuario, $esFv2, $fv2SinIva) {
             // 1. Cliente formal
             $clienteId = $data['cliente_id'] ?? $cotizacion->cliente_id;
             if (! $clienteId && ! empty($data['cliente_nuevo'])) {
@@ -507,6 +510,7 @@ class CotizacionController extends Controller
                 // se asigna abajo junto con el resto de la numeración.
                 'serie'              => $esFv2 ? Orden::SERIE_FV2 : null,
                 'motivo_serie'       => $esFv2 ? ($data['motivo_serie'] ?? null) : null,
+                ...($fv2SinIva ? ['sin_descontar_iva' => true] : []),
             ]);
 
             // Ya es una venta: aparta la tela de lo que va al taller, igual

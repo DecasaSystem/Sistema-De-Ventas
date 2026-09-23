@@ -117,6 +117,7 @@ export const useAuthStore = defineStore('auth', () => {
       revisa_encargos:    data.revisa_encargos    ?? false,
       lleva_encargos:     data.lleva_encargos     ?? false,
       ve_todas_ordenes:   data.ve_todas_ordenes   ?? false,
+      puede_fv2_sin_iva:  data.puede_fv2_sin_iva  ?? false,
       tiene_pasos_produccion: data.tiene_pasos_produccion ?? false,
       tienda_default_id: data.tienda_default_id ?? null,
       // Con quiénes alterna según la cuenta (hasta tres). El backend viejo

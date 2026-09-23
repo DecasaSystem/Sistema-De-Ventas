@@ -45,7 +45,7 @@ const editForm = ref({
   acceso_despacho: false, acceso_entregas: false, acceso_produccion: false, gestiona_produccion: false, acceso_nomina: false, acceso_reserva: false,
   acceso_compras: false,
   lleva_encargos: false, acceso_encargos: false, revisa_encargos: false,
-  ve_todas_ordenes: false, tienda_default_id: '',
+  ve_todas_ordenes: false, puede_fv2_sin_iva: false, tienda_default_id: '',
   apto_comisiones: false, apto_produccion: false,
   no_usa_programa: false, password: '', password_confirmation: '',
 })
@@ -151,6 +151,7 @@ function openEditModal() {
     revisa_encargos: usuario.value.revisa_encargos ?? false,
     acceso_reserva: usuario.value.acceso_reserva ?? false,
     ve_todas_ordenes: usuario.value.ve_todas_ordenes ?? false,
+    puede_fv2_sin_iva: usuario.value.puede_fv2_sin_iva ?? false,
     apto_comisiones: usuario.value.apto_comisiones ?? false,
     apto_produccion: usuario.value.apto_produccion ?? false,
     no_usa_programa: usuario.value.no_usa_programa ?? false,
@@ -208,6 +209,7 @@ async function submitEdit() {
       revisa_encargos: !editForm.value.no_usa_programa && editForm.value.acceso_encargos && editForm.value.revisa_encargos,
       acceso_reserva: editForm.value.acceso_reserva,
       ve_todas_ordenes: editArquetipo.value === 'vendedor' ? editForm.value.ve_todas_ordenes : false,
+      puede_fv2_sin_iva: ['vendedor', 'supervisor'].includes(editArquetipo.value) ? editForm.value.puede_fv2_sin_iva : false,
       tienda_default_id: editMostrarTienda.value ? (editForm.value.tienda_default_id || null) : null,
     })
     // Si cambió de tienda y estaba en un equipo de comisiones, el servidor
@@ -432,6 +434,15 @@ onMounted(async () => {
           <div>
             <p class="text-xs text-gray-400">Módulo de Compras</p>
             <p class="font-medium text-blue-700">Acceso habilitado</p>
+          </div>
+        </div>
+        <div v-if="usuario.puede_fv2_sin_iva" class="flex items-center gap-3">
+          <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
+            <span class="text-sm">🧾</span>
+          </div>
+          <div>
+            <p class="text-xs text-gray-400">FV2</p>
+            <p class="font-medium text-blue-700">Puede crear FV2 sin restar el IVA</p>
           </div>
         </div>
         <div v-if="usuario.ve_todas_ordenes && usuario.arquetipo === 'vendedor'" class="flex items-center gap-3">
@@ -936,6 +947,18 @@ onMounted(async () => {
               <div>
                 <label for="edit-ve-todas-ordenes" class="text-sm font-medium text-gray-700 cursor-pointer">Puede ver todas las órdenes</label>
                 <p class="text-xs text-gray-500 mt-0.5">Sin esto solo ve las suyas. No hace falta volverlo supervisor para darle esta visibilidad.</p>
+              </div>
+            </div>
+            <div v-if="['vendedor', 'supervisor'].includes(editArquetipo)" class="flex items-start gap-3 py-1">
+              <input
+                id="edit-puede-fv2-sin-iva"
+                type="checkbox"
+                v-model="editForm.puede_fv2_sin_iva"
+                class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <div>
+                <label for="edit-puede-fv2-sin-iva" class="text-sm font-medium text-gray-700 cursor-pointer">FV2 sin restar el IVA</label>
+                <p class="text-xs text-gray-500 mt-0.5">Al crear una FV2 le aparece el switch "No se resta el IVA": la comisión de esa orden se saca sobre el valor completo.</p>
               </div>
             </div>
             <template v-if="editArquetipo === 'supervisor'">

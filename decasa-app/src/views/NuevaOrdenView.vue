@@ -38,6 +38,9 @@ const modoCotizacion = computed(() => route.query.modo === 'cotizacion')
 // Venta a allegados de los dueños: numeración propia FV2-N, no gasta consecutivo
 // normal, pero cuenta como venta y genera comisión igual que cualquier otra.
 const esFv2       = ref(false)
+// FV2 a la que no se le quita el IVA en la comisión. Solo le aparece a quien
+// tiene el permiso en Trabajadores.
+const fv2SinIva   = ref(false)
 const motivoSerie = ref('')
 
 // Contacto suelto cuando no se elige un cliente formal
@@ -1855,6 +1858,7 @@ async function submit() {
       guardar_borrador:     modoGuardarBorrador.value || undefined,
       es_fv2:               esFv2.value || undefined,
       motivo_serie:         esFv2.value ? (motivoSerie.value.trim() || undefined) : undefined,
+      fv2_sin_iva:          (esFv2.value && auth.usuario?.puede_fv2_sin_iva && fv2SinIva.value) || undefined,
       // Se manda el monto, no el %: si el vendedor escribió "100.000" el backend
       // debe guardar esos 100.000 exactos, no recalcularlos desde un % redondeado.
       descuento_condicionado_monto: Number(descuentoCondicionado.value) > 0
@@ -3966,6 +3970,16 @@ function removeFacturaFoto(i = 0) {
           <p class="text-xs text-amber-700">
             Queda registrado que la creaste tú. El descuento se aplica arriba, en el carrito.
           </p>
+          <label v-if="auth.usuario?.puede_fv2_sin_iva"
+                 class="flex items-start gap-2.5 cursor-pointer pt-1">
+            <input type="checkbox" v-model="fv2SinIva" class="mt-0.5 w-4 h-4 accent-amber-600" />
+            <span class="min-w-0">
+              <span class="text-sm font-semibold text-gray-800">No se resta el IVA</span>
+              <span class="block text-xs text-gray-500 mt-0.5">
+                Tu comisión de esta orden se saca sobre el valor completo, sin dividir por 1,19.
+              </span>
+            </span>
+          </label>
         </div>
       </div>
 

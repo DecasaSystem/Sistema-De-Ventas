@@ -2392,12 +2392,15 @@ class AgentService
                 'mes'            => $mes,
                 'vendedor'       => $vendedor->nombre,
                 'como_se_calcula' => 'Sus ventas son de cada uno: 5% de lo suyo, dividido por 1,19 primero. '
-                                   . 'Las restauraciones sí se reparten: se suman TODAS las de los independientes '
-                                   . 'en un solo bolsón (sin dividir por 1,19) y cada uno cobra el 5% de ese '
-                                   . 'bolsón completo, sin importar quién hizo cuál.',
+                                   . 'Las restauraciones sí se reparten: se suman TODAS —las de los independientes '
+                                   . 'y las que suben los almacenes, que cuentan como si un independiente las '
+                                   . 'hubiera compartido con esa tienda— en un solo bolsón (sin dividir por 1,19) '
+                                   . 'y cada uno cobra el 5% de ese bolsón completo, sin importar quién hizo cuál.',
                 'vendido_entre_todos' => $indep['base'],
                 'de_eso_ventas'       => $indep['base_venta'],
                 'de_eso_restauracion' => $indep['base_restauracion'],
+                'restauraciones_de_almacenes' => $indep['base_restauracion_almacenes'],
+                'bolson_de_restauraciones'    => $indep['bolson_restauraciones'],
                 'de_sus_ventas_propias'         => $suyo['comision_ventas_propias'] ?? 0,
                 'de_restauraciones_compartidas' => $suyo['comision_restauraciones'] ?? 0,
                 'comision'            => $suyo['comision'] ?? 0,

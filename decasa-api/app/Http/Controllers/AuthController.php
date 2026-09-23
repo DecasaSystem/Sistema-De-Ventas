@@ -182,6 +182,7 @@ class AuthController extends Controller
             'revisa_encargos'    => (bool) $usuario->revisa_encargos,
             'lleva_encargos'     => (bool) $usuario->lleva_encargos,
             've_todas_ordenes'   => (bool) $usuario->ve_todas_ordenes,
+            'puede_fv2_sin_iva'  => (bool) $usuario->puede_fv2_sin_iva,
             // Si lleva algún paso del taller. Es lo único que decide si ve
             // "Mis pasos": ya no depende de qué rol tenga la persona.
             'tiene_pasos_produccion' => count($usuario->procesosQuePuedeTrabajar()) > 0,

@@ -42,7 +42,7 @@ class NumeracionVentaNormalTest extends TestCase
             $t->string('tipo')->default('venta');
             $t->unsignedInteger('numero_orden')->nullable(); $t->string('grupo_secuencia', 50)->nullable();
             $t->string('serie')->nullable(); $t->unsignedInteger('serie_numero')->nullable();
-            $t->string('motivo_serie')->nullable(); $t->unsignedInteger('cotizacion_numero')->nullable();
+            $t->string('motivo_serie')->nullable(); $t->unsignedInteger('cotizacion_numero')->nullable(); $t->boolean('sin_descontar_iva')->default(false);
             $t->timestamps();
         });
         Schema::create('orden_secuencias', function (Blueprint $t) {
@@ -92,6 +92,7 @@ class NumeracionVentaNormalTest extends TestCase
             'cliente_id' => $clienteId, 'tienda_id' => $tiendaId, 'vendedor_id' => 1,
             'estado' => 'entregado', 'valor_total' => 500000, 'tipo' => 'venta',
             'serie' => Orden::SERIE_FV2, 'serie_numero' => 7, 'motivo_serie' => 'familiar de los dueños',
+            'sin_descontar_iva' => true,
         ]);
     }
 
@@ -122,6 +123,7 @@ class NumeracionVentaNormalTest extends TestCase
         $orden->refresh();
         $this->assertNull($orden->serie);
         $this->assertNull($orden->serie_numero);
+        $this->assertFalse($orden->sin_descontar_iva, 'fuera de FV2 se le vuelve a restar el IVA');
         $this->assertNull($orden->motivo_serie);
         $this->assertSame(4261, $orden->numero_orden);
         $this->assertSame('armenia', $orden->grupo_secuencia);

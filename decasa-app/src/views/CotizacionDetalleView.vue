@@ -4,6 +4,7 @@ import InputPesos from '@/components/common/InputPesos.vue'
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useToast } from '@/composables/useToast'
+import { useAuthStore } from '@/stores/auth'
 import api from '@/api'
 import { comprimirImagen } from '@/utils/comprimirImagen'
 import FirmaCanvas from '@/components/FirmaCanvas.vue'
@@ -23,6 +24,7 @@ import {
 const route  = useRoute()
 const router = useRouter()
 const toast  = useToast()
+const auth   = useAuthStore()
 
 const cotizacion = ref(null)
 const loading    = ref(true)
@@ -253,6 +255,7 @@ const form = ref({
   anticipo_referencia: '',
   es_fv2:           false,
   motivo_serie:     '',
+  fv2_sin_iva:      false,
   // Lo que se le promete al cliente al cerrar: pasa a ser la fecha de entrega
   // de la orden y con la que arranca el taller.
   fecha_prometida:  '',
@@ -308,6 +311,7 @@ async function hacerConversion() {
       fecha_sugerida_vendedor: form.value.fecha_prometida || undefined,
       es_fv2:         form.value.es_fv2 || undefined,
       motivo_serie:   form.value.es_fv2 ? (form.value.motivo_serie.trim() || undefined) : undefined,
+      fv2_sin_iva:    (form.value.es_fv2 && auth.usuario?.puede_fv2_sin_iva && form.value.fv2_sin_iva) || undefined,
       ...(necesitaCliente.value
         ? { cliente_nuevo: {
             nombre:   form.value.cliente_nombre.trim(),
@@ -757,6 +761,16 @@ onMounted(cargar)
                 placeholder="Motivo (opcional)"
                 class="input text-sm mt-2"
               />
+              <label v-if="form.es_fv2 && auth.usuario?.puede_fv2_sin_iva"
+                     class="flex items-start gap-2 cursor-pointer mt-2">
+                <input type="checkbox" v-model="form.fv2_sin_iva" class="mt-0.5 w-4 h-4 accent-amber-600" />
+                <span class="min-w-0">
+                  <span class="text-xs font-semibold text-gray-800">No se resta el IVA</span>
+                  <span class="block text-xs text-gray-500">
+                    Tu comisión de esta orden se saca sobre el valor completo, sin dividir por 1,19.
+                  </span>
+                </span>
+              </label>
             </div>
 
             <!-- La fecha que se acuerda al cerrar ES la fecha de entrega: entra

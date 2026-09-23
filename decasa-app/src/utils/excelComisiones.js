@@ -216,6 +216,9 @@ function comoSeCalculo(c) {
         ? `No vendió este mes, pero es del equipo: pool ${pesos(c.comision_pool)} × su parte (${parte}) = ${pesos(monto)}.`
         : `No vendió y la tienda no llegó a la meta: no hay pool. ${pesos(0)}.`
     case 'sin_meta_5':
+      if (c.sin_descontar_iva) {
+        return `FV2 especial, sin restar el IVA: ${pesos(valor)} × 5% = ${pesos(monto)}.`
+      }
       return `${pesos(valor)} ÷ 1,19 (sin IVA) × 5% = ${pesos(monto)}. Individual: en esta tienda no se reparte.`
     case 'restauracion_5':
       return `Restauración: ${pesos(valor)} × 5% = ${pesos(monto)}. Sin IVA de por medio, sin pool, sin meta.`
@@ -546,7 +549,9 @@ function hojaIndependientes(wb, ctx) {
   fichas(ws, [
     ['Vendieron entre todos', n(d.base), 'pesos'],
     ['   En ventas', n(d.base_venta), 'pesos'],
-    ['   En restauraciones (bolsón)', n(d.base_restauracion), 'pesos'],
+    ['   En restauraciones', n(d.base_restauracion), 'pesos'],
+    ['Restauraciones que subieron los almacenes', n(d.base_restauracion_almacenes), 'pesos'],
+    ['Bolsón de restauraciones', n(d.bolson_restauraciones ?? d.base_restauracion), 'pesos'],
     ['Bolsón × %, para cada uno', n(d.comision_restauraciones), 'pesos'],
     ['Se paga el', fecha(d.se_cobra_el)],
     ['¿Ya llegó la fecha?', siNo(d.llego_la_fecha)],

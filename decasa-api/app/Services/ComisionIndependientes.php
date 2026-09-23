@@ -29,6 +29,14 @@ use Illuminate\Support\Facades\DB;
  *   Y aparte, si se comparte con un almacén, el almacén cobra su propio 5%
  *   (venta o restauración, da igual), sobre el valor completo.
  *
+ *   RESTAURACIÓN DE UN ALMACÉN -> también entra al bolsón. Toda restauración
+ *                    le suma a los independientes, la suba quien la suba: si
+ *                    la hace alguien de Decasa Norte, la cuenta es la misma
+ *                    que si la hubiera subido Henry compartida con Norte. El
+ *                    bolsón la recibe entera (sin partir, sin IVA, sin lo del
+ *                    datáfono) y la tienda sigue cobrando su 5% por su lado,
+ *                    con sus reglas de siempre (el equipo o quien la hizo).
+ *
  * Lo de las mitades es otra cosa: a la META del almacén le suma la mitad de
  * la venta, y solo si es venta —una restauración compartida le paga su 5% al
  * almacén pero no le cuenta para la meta.
@@ -92,42 +100,40 @@ class ComisionIndependientes
         $independientes = Usuario::where('independiente', true)->get(['id', 'nombre']);
         if ($independientes->isEmpty()) {
             return ['mes' => $mes, 'base' => 0.0, 'base_venta' => 0.0, 'base_restauracion' => 0.0,
+                    'base_restauracion_almacenes' => 0.0, 'bolson_restauraciones' => 0.0,
                     'base_lista' => 0.0, 'base_pendiente' => 0.0,
                     'se_cobra_el' => Carbon::parse($mes.'-01')->addMonth()->day(20)->toDateString(),
                     'llego_la_fecha' => false, 'porcentaje' => self::PORCENTAJE,
                     'comision_restauraciones' => 0.0, 'comision_restauraciones_lista' => 0.0,
-                    'independientes' => [], 'almacenes' => [], 'ordenes' => []];
+                    'independientes' => [], 'almacenes' => [], 'ordenes' => [],
+                    'restauraciones_almacenes' => []];
         }
 
-        $ordenes = DB::table('ordenes as o')
-            ->join('usuarios as u', 'u.id', '=', 'o.vendedor_id')
-            ->leftJoin('tiendas as t', 't.id', '=', 'o.tienda_abonada_id')
-            ->leftJoin('clientes as c', 'c.id', '=', 'o.cliente_id')
+        $ordenes = self::ordenesDelMes($desde, $hasta)
             ->whereIn('o.vendedor_id', $independientes->pluck('id'))
-            ->whereBetween('o.created_at', [$desde, $hasta])
-            ->whereNotIn('o.estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES))
-            ->select(
-                'o.id', 'o.numero_orden', 'o.serie', 'o.serie_numero',
-                'o.valor_total as valor_orden', 'o.es_compartida',
-                'o.estado', 'o.created_at', 'o.tienda_abonada_id',
-                'u.nombre as vendedor', 'o.vendedor_id',
-                't.nombre as almacen', 'c.nombre as cliente'
-            )
-            ->selectSub(
-                DB::table('pagos')->selectRaw('COALESCE(SUM(monto),0)')->whereColumn('orden_id','o.id'),
-                'pagado'
-            )
-            ->selectSub(
-                DB::table('pagos')->selectRaw('COALESCE(SUM(monto),0)')
-                    ->whereColumn('orden_id', 'o.id')->where('metodo', 'tarjeta'),
-                'con_tarjeta'
-            )
-            ->orderBy('o.created_at')
             ->get()
             ->map(fn ($o) => self::conLaBaseQueDeVerdadComisiona($o));
 
         // Una restauración no le suma a la meta del almacén aunque se comparta.
         $idsRestauracion = self::idsDeRestauracion($ordenes->pluck('id')->all());
+
+        // Las restauraciones que subió alguien de un almacén. Cuentan como si
+        // las hubiera subido Henry compartidas con esa tienda: entran al
+        // bolsón por el valor entero. `es_compartida` entre dos asesores de
+        // tienda no la parte aquí —eso es cómo se reparten ellos su 5%, no
+        // cuánto entra al bolsón—, así que se ignora.
+        $deAlmacenes = self::ordenesDelMes($desde, $hasta)
+            ->whereNotIn('o.vendedor_id', $independientes->pluck('id'))
+            ->whereIn('o.id', function ($q) {
+                $q->from('orden_items')->select('orden_id')
+                  ->groupBy('orden_id')
+                  ->havingRaw('COUNT(*) = SUM(es_restauracion)');
+            })
+            ->get()
+            ->map(function ($o) {
+                $o->es_compartida = false;
+                return self::conLaBaseQueDeVerdadComisiona($o);
+            });
 
         // Se cobra igual que en las tiendas: cuando el cliente ha pagado la
         // mitad Y llega el 20 del mes siguiente a la venta.
@@ -139,9 +145,9 @@ class ComisionIndependientes
         // viene sin el datáfono y partida por la mitad si es compartida, así
         // que comparar el abono del cliente con ella daba por cumplida la
         // mitad cuando llevaba pagado bastante menos.
-        $listas = $ordenes->filter(fn ($o) =>
-            $llegoLaFecha && (float) $o->pagado >= (float) $o->valor_orden / 2
-        );
+        $estaLista = fn ($o) => $llegoLaFecha && (float) $o->pagado >= (float) $o->valor_orden / 2;
+        $listas            = $ordenes->filter($estaLista);
+        $deAlmacenesListas = $deAlmacenes->filter($estaLista);
 
         /** Lo que paga un grupo de órdenes, mezclando venta y restauración — para el almacén, que cobra igual sobre las dos. */
         $pagaPor = function ($grupo) use ($idsRestauracion) {
@@ -158,9 +164,10 @@ class ComisionIndependientes
             ->sum('valor_total') * self::PORCENTAJE;
 
         /** Solo la parte de venta de un grupo — de quien la hizo, nadie más. */
+        /** A una FV2 marcada no se le quita el IVA: ver `ivaDe()`. */
         $pagaVenta = fn ($grupo) => (float) $grupo
             ->reject(fn ($o) => in_array($o->id, $idsRestauracion, true))
-            ->sum('valor_total') / self::IVA * self::PORCENTAJE;
+            ->sum(fn ($o) => (float) $o->valor_total / self::ivaDe($o)) * self::PORCENTAJE;
 
         $base          = (float) $ordenes->sum('valor_total');
         $baseLista     = (float) $listas->sum('valor_total');
@@ -173,11 +180,16 @@ class ComisionIndependientes
             ->sum('valor_total');
         $baseRest  = $base - $baseVenta;
 
+        // Lo que subieron los almacenes: todo es restauración.
+        $baseRestAlmacenes = (float) $deAlmacenes->sum('valor_total');
+
         // El bolsón de las restauraciones: se suman TODAS, de cualquiera de
-        // los independientes, y cada uno cobra el 5% de esa suma completa.
-        // Esto sí es igual para todos.
-        $comisionRestauraciones      = $pagaRestauracion($ordenes);
-        $comisionRestauracionesLista = $pagaRestauracion($listas);
+        // los independientes y de cualquier almacén, y cada uno cobra el 5%
+        // de esa suma completa. Esto sí es igual para todos.
+        $comisionRestauraciones      = $pagaRestauracion($ordenes)
+            + $baseRestAlmacenes * self::PORCENTAJE;
+        $comisionRestauracionesLista = $pagaRestauracion($listas)
+            + (float) $deAlmacenesListas->sum('valor_total') * self::PORCENTAJE;
 
         // La venta es de quien la hizo: cada uno cobra solo sobre sus propias
         // órdenes, sin sumarse con las del otro independiente.
@@ -241,6 +253,10 @@ class ComisionIndependientes
             'base'           => $base,
             'base_venta'         => $baseVenta,
             'base_restauracion'  => $baseRest,
+            // Las que subieron los almacenes: no son "vendido" de ningún
+            // independiente, pero sí le suman al bolsón.
+            'base_restauracion_almacenes' => $baseRestAlmacenes,
+            'bolson_restauraciones'       => $baseRest + $baseRestAlmacenes,
             'base_lista'     => $baseLista,
             'base_pendiente' => $basePendiente,
             'se_cobra_el'    => $seCobraEl->toDateString(),
@@ -270,9 +286,69 @@ class ComisionIndependientes
                 'lista'          => $listas->contains('id', $o->id),
                 'paga'           => round(in_array($o->id, $idsRestauracion, true)
                                     ? (float) $o->valor_total * self::PORCENTAJE
-                                    : (float) $o->valor_total / self::IVA * self::PORCENTAJE),
+                                    : (float) $o->valor_total / self::ivaDe($o) * self::PORCENTAJE),
+                // Una FV2 marcada: a su venta no se le quitó el IVA.
+                'sin_descontar_iva' => (bool) $o->sin_descontar_iva,
+            ])->values()->all(),
+            // Aparte de `ordenes`: esas son de los independientes y la
+            // pantalla las filtra por vendedor. Estas no son de ninguno.
+            'restauraciones_almacenes' => $deAlmacenes->map(fn ($o) => [
+                'id'         => $o->id,
+                'referencia' => $o->serie ? "{$o->serie}-{$o->serie_numero}" : ('#' . ($o->numero_orden ?? $o->id)),
+                'cliente'    => $o->cliente,
+                'vendedor'   => $o->vendedor,
+                'vendedor_id'=> (int) $o->vendedor_id,
+                'almacen'    => $o->tienda,
+                'valor'      => (float) $o->valor_total,
+                'estado'     => $o->estado,
+                'fecha'      => $o->created_at,
+                'pagado'     => (float) $o->pagado,
+                'lista'      => $deAlmacenesListas->contains('id', $o->id),
+                'paga'       => round((float) $o->valor_total * self::PORCENTAJE),
             ])->values()->all(),
         ];
+    }
+
+    /**
+     * Por cuánto se divide la venta antes de sacar el 5%.
+     *
+     * 1,19 siempre, salvo en una FV2 marcada como "no se resta el IVA" —la
+     * que hace Henry cuando llega alguien de la familia del dueño—. Es solo
+     * para quien la vendió: el almacén con el que se comparte cobra con la
+     * regla de siempre.
+     */
+    private static function ivaDe(object $o): float
+    {
+        return ! empty($o->sin_descontar_iva) ? 1.0 : self::IVA;
+    }
+
+    /** Las órdenes del mes con lo que hace falta para comisionarlas. */
+    private static function ordenesDelMes(string $desde, string $hasta)
+    {
+        return DB::table('ordenes as o')
+            ->join('usuarios as u', 'u.id', '=', 'o.vendedor_id')
+            ->leftJoin('tiendas as t', 't.id', '=', 'o.tienda_abonada_id')
+            ->leftJoin('tiendas as tv', 'tv.id', '=', 'o.tienda_id')
+            ->leftJoin('clientes as c', 'c.id', '=', 'o.cliente_id')
+            ->whereBetween('o.created_at', [$desde, $hasta])
+            ->whereNotIn('o.estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES))
+            ->select(
+                'o.id', 'o.numero_orden', 'o.serie', 'o.serie_numero',
+                'o.valor_total as valor_orden', 'o.es_compartida',
+                'o.estado', 'o.created_at', 'o.tienda_abonada_id', 'o.sin_descontar_iva',
+                'u.nombre as vendedor', 'o.vendedor_id',
+                't.nombre as almacen', 'tv.nombre as tienda', 'c.nombre as cliente'
+            )
+            ->selectSub(
+                DB::table('pagos')->selectRaw('COALESCE(SUM(monto),0)')->whereColumn('orden_id','o.id'),
+                'pagado'
+            )
+            ->selectSub(
+                DB::table('pagos')->selectRaw('COALESCE(SUM(monto),0)')
+                    ->whereColumn('orden_id', 'o.id')->where('metodo', 'tarjeta'),
+                'con_tarjeta'
+            )
+            ->orderBy('o.created_at');
     }
 
     /**

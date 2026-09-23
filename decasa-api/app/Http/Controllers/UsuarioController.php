@@ -56,6 +56,7 @@ class UsuarioController extends Controller
             'revisa_encargos'     => (bool) $u->revisa_encargos,
             'encargo_revision_dias' => $u->encargo_revision_dias,
             've_todas_ordenes'    => (bool) $u->ve_todas_ordenes,
+            'puede_fv2_sin_iva'   => (bool) $u->puede_fv2_sin_iva,
             'tienda_default_id'   => $u->tienda_default_id,
             'tienda_default'      => $u->relationLoaded('tiendaDefault') ? $u->tiendaDefault : null,
             'activo'              => (bool) $u->activo,
@@ -160,6 +161,7 @@ class UsuarioController extends Controller
             'revisa_encargos'     => 'boolean',
             'encargo_revision_dias' => 'nullable|integer|min:1|max:730',
             've_todas_ordenes'    => 'boolean',
+            'puede_fv2_sin_iva'   => 'boolean',
             'tienda_default_id' => [
                 // Un independiente no elige tienda: se le asigna la sede propia.
                 // Un supervisor tampoco es obligatorio: varios son jefes que no
@@ -252,6 +254,7 @@ class UsuarioController extends Controller
                 && ($request->boolean('acceso_encargos') || $request->boolean('revisa_encargos')),
             'revisa_encargos'     => ! $noUsaPrograma && $request->boolean('revisa_encargos'),
             've_todas_ordenes'    => $request->boolean('ve_todas_ordenes'),
+            'puede_fv2_sin_iva'   => $request->boolean('puede_fv2_sin_iva'),
             'tienda_default_id'   => $independiente
                 ? Tienda::sedeIndependientes()?->id
                 : ($data['tienda_default_id'] ?? null),
@@ -299,6 +302,7 @@ class UsuarioController extends Controller
             'acceso_nomina'       => 'nullable|boolean',
             'acceso_compras'      => 'nullable|boolean',
             've_todas_ordenes'    => 'nullable|boolean',
+            'puede_fv2_sin_iva'   => 'nullable|boolean',
             'tienda_default_id'   => 'sometimes|nullable|exists:tiendas,id',
         ], [
             'nombre.max'               => 'El nombre no puede tener más de 100 caracteres.',
@@ -434,6 +438,9 @@ class UsuarioController extends Controller
         }
         if ($request->has('ve_todas_ordenes')) {
             $data['ve_todas_ordenes'] = $request->boolean('ve_todas_ordenes');
+        }
+        if ($request->has('puede_fv2_sin_iva')) {
+            $data['puede_fv2_sin_iva'] = $request->boolean('puede_fv2_sin_iva');
         }
 
         if ($request->has('independiente')) {

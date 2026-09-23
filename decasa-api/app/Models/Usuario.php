@@ -67,6 +67,8 @@ class Usuario extends Authenticatable
         'revisa_encargos',
         'encargo_revision_dias',
         've_todas_ordenes',
+        // Le aparece el switch de "no se le resta el IVA" al crear una FV2.
+        'puede_fv2_sin_iva',
         // Trabajador de fábrica: sin login, sin tienda, sin permisos.
         'cedula',
         'no_usa_programa',
@@ -117,6 +119,7 @@ class Usuario extends Authenticatable
             'acceso_encargos'     => 'boolean',
             'revisa_encargos'     => 'boolean',
             've_todas_ordenes'    => 'boolean',
+            'puede_fv2_sin_iva'   => 'boolean',
             'no_usa_programa'     => 'boolean',
             'apto_comisiones'     => 'boolean',
             'apto_produccion'     => 'boolean',

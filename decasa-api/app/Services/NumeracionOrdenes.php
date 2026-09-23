@@ -134,6 +134,8 @@ class NumeracionOrdenes
                     'numero_orden'    => $numero,
                     'grupo_secuencia' => $grupo,
                     'motivo_serie'    => null,
+                    // Fuera de FV2 no hay "sin descontar IVA": es cosa de esa serie.
+                    ...($orden->sin_descontar_iva ? ['sin_descontar_iva' => false] : []),
                     // `tipo` se guarda aparte de `serie` desde que se creó la
                     // orden (el carrito lo dedujo: "restauracion" solo si TODO
                     // era mueble del cliente) y nada la mantenía sincronizada
@@ -152,6 +154,7 @@ class NumeracionOrdenes
                     'numero_orden'    => null,
                     'grupo_secuencia' => null,
                     'motivo_serie'    => $motivo,
+                    ...($orden->sin_descontar_iva && $destino !== Orden::SERIE_FV2 ? ['sin_descontar_iva' => false] : []),
                     'tipo'            => $destino === Orden::SERIE_RESTAURACION ? 'restauracion' : 'venta',
                 ]);
                 $refDespues = $destino . '-' . $numeroSerie;

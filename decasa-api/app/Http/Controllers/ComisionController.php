@@ -280,6 +280,7 @@ class ComisionController extends Controller
                     'orden_numero'   => $i['orden_numero'],
                     'orden_referencia' => $i['orden_referencia'] ?? null,
                     'es_descuento_especial' => $i['es_descuento_especial'] ?? false,
+                    'sin_descontar_iva' => $i['sin_descontar_iva'] ?? false,
                     // Como se pago esta orden: por el pool de la meta, el 5%
                     // de una restauracion, o el 5% de una tienda sin meta.
                     'forma_pago'     => $i['forma_pago'] ?? 'pool',
@@ -305,7 +306,19 @@ class ComisionController extends Controller
             // tiene una sola fila; se busca por vendedor porque la clave ahora
             // lleva la tienda pegada.
             $clave = $grouped->keys()->first(fn ($k) => (int) explode('_', $k)[0] === (int) $i['vendedor_id']);
-            if ($clave === null) continue;
+
+            // Sin órdenes propias ese mes no tiene fila, pero puede tener bolsón:
+            // las restauraciones de los almacenes también le suman. Se le abre.
+            if ($clave === null) {
+                if ((float) $i['comision'] <= 0) continue;
+                $clave = $i['vendedor_id'] . '_0';
+                $grouped[$clave] = [
+                    'vendedor_id' => (int) $i['vendedor_id'], 'vendedor_nombre' => $i['nombre'],
+                    'tienda_id' => 0, 'tienda_nombre' => Tienda::sedeIndependientes()?->nombre,
+                    'comision_asesor' => 0.0, 'periodicidad' => 'mensual', 'avance_trimestre' => null,
+                    'pagadas' => 0,
+                ];
+            }
 
             $fila  = $grouped[$clave];
             $suyas = collect($indep['ordenes'])->where('vendedor_id', $i['vendedor_id']);
@@ -328,7 +341,8 @@ class ComisionController extends Controller
                 'orden_id'         => $o['id'],
                 'orden_numero'     => null,
                 'orden_referencia' => $o['referencia'],
-                'es_descuento_especial' => false,
+                'es_descuento_especial' => str_starts_with((string) $o['referencia'], 'FV2'),
+                'sin_descontar_iva' => $o['sin_descontar_iva'] ?? false,
                 'forma_pago'       => $o['es_restauracion'] ? 'restauracion_5' : 'sin_meta_5',
                 'es_restauracion'  => $o['es_restauracion'],
                 'valor_orden'      => $o['valor'],
@@ -2543,6 +2557,11 @@ class ComisionController extends Controller
         // prorrateo daría cero, que es justo lo que pasaba antes.
         $esPartePool = $c->origen === self::ORIGEN_PARTE_POOL;
 
+        // La marca es de la orden, pero el beneficio es de quien la vendió:
+        // el covendedor y el almacén que ayudó cobran con la regla de siempre.
+        $sinDescontarIva = (bool) $c->orden?->sin_descontar_iva
+            && (int) $c->vendedor_id === (int) $c->orden?->vendedor_id;
+
         if ($esPartePool) {
             $montoComision = round($comisionAsesor);
         } elseif ($esAbono) {
@@ -2552,7 +2571,12 @@ class ComisionController extends Controller
         } elseif ($esRestauracion) {
             $montoComision = round((float) $c->valor_orden * self::PORCENTAJE_DIRECTO);
         } elseif (! $tieneMeta) {
-            $montoComision = round((float) $c->valor_orden / self::IVA * self::PORCENTAJE_DIRECTO);
+            // Una FV2 marcada "no se resta el IVA" se comisiona entera. Solo
+            // aquí, en el 5% directo de quien la vendió: en el pool la venta
+            // se funde con las del resto de la tienda y no tiene cuenta propia.
+            $montoComision = $sinDescontarIva
+                ? round((float) $c->valor_orden * self::PORCENTAJE_DIRECTO)
+                : round((float) $c->valor_orden / self::IVA * self::PORCENTAJE_DIRECTO);
         } else {
             // La comisión de esta orden es proporcional a su valor dentro del total del vendedor
             $montoComision = ($totalVendedor > 0 && $comisionAsesor > 0)
@@ -2642,6 +2666,9 @@ class ComisionController extends Controller
             // especial, que no tienen numero_orden.
             'orden_referencia' => $c->orden?->referencia,
             'es_descuento_especial' => (bool) $c->orden?->es_descuento_especial,
+            // Si de verdad se le dejó el IVA: solo pasa en el 5% directo.
+            'sin_descontar_iva' => $sinDescontarIva && ! $esRestauracion && ! $esAbono
+                                   && ! $esPartePool && ! $tieneMeta,
             // Solo si vino cargado: en pantalla no hace falta, en el Excel sí.
             'cliente_nombre'   => $c->orden?->relationLoaded('cliente') ? $c->orden->cliente?->nombre : null,
             'canal'            => $c->orden?->canal,
