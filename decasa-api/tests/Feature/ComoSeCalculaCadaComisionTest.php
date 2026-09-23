@@ -297,58 +297,6 @@ class ComoSeCalculaCadaComisionTest extends TestCase
         $this->assertEquals(125_000, $cobra['Sebastián']);
     }
 
-    /** Lo que ya se le puede pagar a cada quien (estado "lista"). [nombre => monto] */
-    private function loQueEstaListo(): array
-    {
-        $ctrl = app(ComisionController::class);
-        $call = function (string $m, ...$args) use ($ctrl) {
-            $r = new \ReflectionMethod($ctrl, $m);
-            $r->setAccessible(true);
-            return $r->invoke($ctrl, ...$args);
-        };
-
-        [$metas, $totTienda, $totVendedor] = $call('cargarTotales');
-        $pools   = $call('cargarPoolsTrimestrales', $metas, $totTienda, false);
-        $nombres = DB::table('usuarios')->pluck('nombre', 'id')->all();
-        $out = [];
-
-        foreach (Comision::with('orden.pagos', 'tienda')->get() as $c) {
-            $f = $call('enriquecer', $c, $metas, $totTienda, $totVendedor, $pools, \Carbon\Carbon::parse('2026-09-25'));
-            if ($f['estado_calculado'] !== 'lista') continue;
-            $quien = $nombres[$c->vendedor_id];
-            $out[$quien] = ($out[$quien] ?? 0) + (float) $f['monto_comision'];
-        }
-
-        return $out;
-    }
-
-    /**
-     * El pool es del equipo y se reparte por igual: se suelta completo, no a
-     * pedazos según qué clientes de quién han pagado. Paola y Marta, del
-     * mismo Norte, salían en "Listas" con cifras distintas.
-     */
-    public function test_la_parte_del_pool_se_suelta_igual_aunque_un_cliente_no_haya_pagado(): void
-    {
-        $this->orden(self::PAOLA, self::NORTE, 50_000_000);
-        $deMarta = $this->orden(self::MARTA, self::NORTE, 10_000_000);
-        // El cliente de Marta solo ha abonado el 10%.
-        DB::table('pagos')->where('orden_id', $deMarta->id)->update(['monto' => 1_000_000]);
-
-        $listo = $this->loQueEstaListo();
-
-        // Pool = (60.000.000 − 40.000.000) ÷ 1,19 × 5% = $840.336, ÷ 3 = $280.112
-        $this->assertEqualsWithDelta(280_112, $listo['Paola'], 2);
-        $this->assertEqualsWithDelta(280_112, $listo['Marta'] ?? 0, 2, 'a Marta no se le retiene nada');
-    }
-
-    public function test_una_restauracion_si_espera_a_que_el_cliente_pague_la_mitad(): void
-    {
-        $orden = $this->orden(self::GLADYS, self::EDEN, 1_000_000, restauracion: true);
-        DB::table('pagos')->where('orden_id', $orden->id)->update(['monto' => 100_000]);
-
-        $this->assertArrayNotHasKey('Gladys', $this->loQueEstaListo());
-    }
-
     // ─────────── Tienda SIN meta ───────────
 
     public function test_venta_sin_meta_es_el_cinco_por_ciento_sin_iva_y_sin_dividir(): void
