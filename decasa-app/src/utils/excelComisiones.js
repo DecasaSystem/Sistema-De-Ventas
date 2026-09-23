@@ -24,7 +24,7 @@ const ESTADO = { pendiente: 'Pendiente', lista: 'Lista para pagar', pagada: 'Pag
 
 const FORMA = {
   pool:                'Pool del equipo',
-  parte_pool:          'Parte del equipo (no vendió)',
+  parte_pool:          'Parte del equipo',
   sin_meta_5:          'Individual 5%',
   restauracion_5:      'Restauración 5%',
   restauracion_equipo: 'Restauración de la tienda (repartida)',
@@ -203,6 +203,17 @@ function comoSeCalculo(c) {
 
   switch (c.forma_pago) {
     case 'pool': {
+      if (c.periodicidad !== 'trimestral') {
+        // Mensual: el pool se mira en la tienda con lo que ya tiene la mitad pagada.
+        if (!c.meta_cumplida) {
+          return `Con la mitad pagada la tienda lleva ${pesos(c.total_tienda_mes)} de ${pesos(c.meta_tienda)}: todavía no hay pool que repartir.`
+        }
+        if (!c.req_50_pct) {
+          return `Esta venta todavía no cuenta: el cliente no ha pagado la mitad. Cuando la pague entra al pool de toda la tienda.`
+        }
+        return `Pool de la tienda ${pesos(c.comision_pool)} = (${pesos(c.total_tienda_mes)} con la mitad pagada − ${pesos(c.meta_tienda)} meta) ÷ 1,19 × 5%. `
+             + `Su parte (${parte}) = ${pesos(c.comision_asesor)}, igual que la de todos. Se le paga en sus ventas que ya cuentan: esta lleva ${pesos(monto)}.`
+      }
       if (!c.meta_cumplida) {
         return `La tienda no llegó a la meta (${pesos(c.total_tienda_mes)} de ${pesos(c.meta_tienda)}): sin excedente no hay pool que repartir.`
       }
@@ -213,8 +224,8 @@ function comoSeCalculo(c) {
     }
     case 'parte_pool':
       return c.meta_cumplida
-        ? `No vendió este mes, pero es del equipo: pool ${pesos(c.comision_pool)} × su parte (${parte}) = ${pesos(monto)}.`
-        : `No vendió y la tienda no llegó a la meta: no hay pool. ${pesos(0)}.`
+        ? `Su parte del pool (${parte}) = ${pesos(c.comision_asesor)}, igual que la de todos. Va en este renglón porque no tiene una venta propia por la cual pagársela (no vendió, o esas ya se le pagaron): ${pesos(monto)}.`
+        : `La tienda no llegó a la meta con lo que tiene la mitad pagada: no hay pool. ${pesos(0)}.`
     case 'sin_meta_5':
       if (c.sin_descontar_iva) {
         return `FV2 especial, sin restar el IVA: ${pesos(valor)} × 5% = ${pesos(monto)}.`

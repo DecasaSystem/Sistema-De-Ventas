@@ -109,6 +109,10 @@ class ParteDePoolDuplicadaTest extends TestCase
                 'created_at' => now(), 'updated_at' => now(),
             ]);
         }
+
+        // Quién necesita el renglón sale del libro del pool, que suma lo
+        // abonado por independientes con una consulta de MySQL.
+        $this->prestarleASqliteLoQueEsDeMysql();
     }
 
     /** Una venta suya, de las que pasan por el pool. */

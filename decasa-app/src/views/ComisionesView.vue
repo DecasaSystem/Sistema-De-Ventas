@@ -344,7 +344,7 @@ async function cargarListas() {
 const porPagar = computed(() =>
   listasData.value
     .map(r => ({ ...r, total_lista: totalListasVendedor(r), ordenes_listas: r.ordenes.filter(o => o.estado === 'lista') }))
-    .filter(r => r.total_lista > 0 || r.listas > 0)
+    .filter(r => r.total_lista > 0)
     .sort((a, b) => b.total_lista - a.total_lista)
 )
 
@@ -392,7 +392,7 @@ const FORMAS_PAGO = {
   },
   pool: {
     etiqueta: 'Pool',
-    resumen:  'Su parte del pool de la tienda, a prorrata de lo que vendió.',
+    resumen:  'Su parte del pool de la tienda, igual que la de todos. Cuentan las ventas de la tienda cuyo cliente ya pagó la mitad.',
     clase:    'bg-gray-100 text-gray-600',
   },
   abono_almacen: {
@@ -402,7 +402,7 @@ const FORMAS_PAGO = {
   },
   parte_pool: {
     etiqueta: 'Parte del equipo',
-    resumen:  'No vendió este mes, pero el pool se parte entre todos los integrantes de la tienda: le toca su parte igual.',
+    resumen:  'Su parte del pool, igual que la de todos. Va aquí porque no tiene una venta propia por la cual pagársela: no vendió, o esas ya se le pagaron y el pool creció después.',
     clase:    'bg-amber-100 text-amber-700',
   },
 }
@@ -1459,10 +1459,13 @@ onMounted(async () => {
                 >
                   <div class="flex items-center gap-2 min-w-0">
                     <span :class="['w-1.5 h-1.5 rounded-full shrink-0', o.estado === 'pagada' ? 'bg-green-500' : o.estado === 'lista' ? 'bg-green-400' : 'bg-orange-300']" />
+                    <!-- La parte del equipo de quien no vendió no cuelga de ninguna orden. -->
                     <button
+                      v-if="o.orden_id"
                       @click="router.push({ name: 'orden-detalle', params: { id: o.orden_id } })"
                       class="font-semibold text-blue-600 hover:text-blue-800 truncate"
                     >{{ o.orden_referencia ?? ('#' + o.orden_numero) }}</button>
+                    <span v-else class="font-semibold text-gray-600 truncate">Sin orden</span>
                     <span
                       v-if="o.es_descuento_especial"
                       class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 shrink-0"
@@ -1635,9 +1638,11 @@ onMounted(async () => {
                 >
                   <div class="flex items-center gap-2 min-w-0">
                     <button
+                      v-if="o.orden_id"
                       @click="router.push({ name: 'orden-detalle', params: { id: o.orden_id } })"
                       class="font-semibold text-blue-600 hover:text-blue-800 truncate"
                     >{{ o.orden_referencia ?? ('#' + o.orden_numero) }}</button>
+                    <span v-else class="font-semibold text-gray-600 truncate">Sin orden</span>
                     <span
                       v-if="o.sin_descontar_iva"
                       class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 shrink-0"
@@ -1762,7 +1767,7 @@ onMounted(async () => {
                 <CheckCircleIcon v-if="c.meta_cumplida" class="w-4 h-4 text-green-500" />
                 <XCircleIcon v-else class="w-4 h-4 text-red-400" />
                 <span :class="c.meta_cumplida ? 'text-green-700' : 'text-gray-500'">
-                  {{ c.periodicidad === 'trimestral' ? `Trimestre ${c.trimestre} en positivo` : 'Meta tienda alcanzada' }}
+                  {{ c.periodicidad === 'trimestral' ? `Trimestre ${c.trimestre} en positivo` : 'Meta tienda alcanzada (con lo que tiene la mitad pagada)' }}
                 </span>
               </div>
               <span v-if="c.periodicidad !== 'trimestral'" class="text-gray-400 font-medium">

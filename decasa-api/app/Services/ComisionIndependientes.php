@@ -362,10 +362,15 @@ class ComisionIndependientes
      *
      * @return array<string,float>  ['tienda_mes' => monto]
      */
-    public static function abonadoParaMeta(): array
+    public static function abonadoParaMeta(bool $soloConLaMitadPagada = false): array
     {
         return DB::table('ordenes')
             ->whereNotNull('tienda_abonada_id')
+            // Para el pool: una venta cuenta cuando el cliente ya pagó la
+            // mitad, igual que las de la propia tienda.
+            ->when($soloConLaMitadPagada, fn ($q) => $q->whereRaw(
+                '(SELECT COALESCE(SUM(p.monto), 0) FROM pagos p WHERE p.orden_id = ordenes.id) >= ordenes.valor_total / 2'
+            ))
             ->whereNotIn('estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES))
             // Fuera las que son íntegramente restauración
             ->whereNotIn('id', function ($q) {

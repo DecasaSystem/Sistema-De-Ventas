@@ -1182,6 +1182,8 @@ class ComisionController extends Controller
         $conMeta = MetaTienda::vigentesEn($mes);
         if (! $conMeta) return;
 
+        $this->conLibro = [];
+        $this->libros   = [];
         $equipos = TiendaAsesor::vigentesEn($mes);
 
         // Las comisiones del mes, una sola vez: de aquí sale quién ya tiene
@@ -1241,10 +1243,29 @@ class ComisionController extends Controller
             $equipoBase = collect($equipos[$tiendaId] ?? [])->pluck('vendedor_id')->all();
             $pesos      = TiendaReemplazo::pesosDelMes($tiendaId, $mes, $equipoBase);
 
+            // En una tienda mensual el pool va por libro: le hace falta el
+            // renglón a quien no tiene ninguna venta sin pagar que ya cuente
+            // —no vendió, o ya se le pagó todo y el pool creció después—, y le
+            // sobra a quien sí la tiene, porque su parte va en esas ventas.
+            $conLibro = $this->usaLibroDelPool($tiendaId);
+            if ($conLibro) {
+                $this->conLibro[$tiendaId] = true;
+                $libro = $this->libroDelPool($tiendaId, $mes, (float) $conMeta[$tiendaId]->meta);
+            }
+
             foreach (array_keys($pesos) as $vendedorId) {
                 $reparten[$tiendaId][$vendedorId] = true;
 
-                if ($conRenglon->has($vendedorId . '_' . $tiendaId)) continue;
+                if ($conLibro) {
+                    $yo = $libro['personas'][(int) $vendedorId] ?? ['portadores' => [], 'parte_id' => null];
+                    if (! empty($yo['portadores'])) {
+                        if ($yo['parte_id']) Comision::where('id', $yo['parte_id'])->where('estado', '!=', 'pagada')->delete();
+                        continue;
+                    }
+                    if ($yo['parte_id']) continue;
+                } elseif ($conRenglon->has($vendedorId . '_' . $tiendaId)) {
+                    continue;
+                }
 
                 Comision::create([
                     'orden_id'         => null,
@@ -1261,7 +1282,13 @@ class ComisionController extends Controller
         }
 
         $this->limpiarPartesQueSobran($delMes, $reparten);
+
+        // Se abrieron o quitaron renglones: el libro de estas tiendas cambió.
+        $this->libros = [];
     }
+
+    /** [tienda_id] => true: tiendas cuyo pool se revisó por libro en crearPartesDePool(). */
+    private array $conLibro = [];
 
     /**
      * Quitar los renglones de "no vendió" que ya no corresponden.
@@ -1303,7 +1330,11 @@ class ComisionController extends Controller
             // De una tienda que no se revisó —cerrada— no se quita nada.
             if (! array_key_exists((int) $fila->tienda_id, $reparten)) continue;
 
-            $vendio   = $conVentas->has($fila->vendedor_id . '_' . $fila->tienda_id);
+            // Con libro, "vendió" no basta para quitarlo: quien ya cobró sus
+            // ventas y a quien el pool le creció después lo necesita. Eso ya lo
+            // decidió crearPartesDePool() mirando el libro.
+            $vendio   = ! isset($this->conLibro[(int) $fila->tienda_id])
+                && $conVentas->has($fila->vendedor_id . '_' . $fila->tienda_id);
             $reparteYa = isset($reparten[$fila->tienda_id][$fila->vendedor_id]);
 
             if ($vendio || ! $reparteYa) {
@@ -2173,10 +2204,109 @@ class ComisionController extends Controller
      * puedan volver a desacoplarse: estaban calculados por separado y la
      * pantalla descontaba las restauraciones pero la meta no.
      */
-    public static function abonadoPorTienda(): array
+    public static function abonadoPorTienda(bool $soloConLaMitadPagada = false): array
     {
-        return \App\Services\ComisionIndependientes::abonadoParaMeta();
+        return \App\Services\ComisionIndependientes::abonadoParaMeta($soloConLaMitadPagada);
     }
+
+    /** [tienda_mes] => libro del pool. Se llena en libroDelPool() y se descarta en cargarTotales(). */
+    private array $libros = [];
+
+    /** Lo abonado por independientes en órdenes con la mitad pagada, cacheado por cálculo. */
+    private ?array $abonadoQueCuenta = null;
+
+    /**
+     * El pool de una tienda en un mes, a nivel de TIENDA.
+     *
+     * El 5% del pool es del equipo y se parte igual, así que la regla del 50%
+     * se mira en la tienda, no en cada persona: una venta entra a la cuenta
+     * cuando su cliente ya pagó la mitad —la venda quien la venda—, con esas
+     * ventas se mira la meta y se saca el pool. Antes el pool salía de todo lo
+     * vendido y la parte de cada uno se soltaba según SUS clientes: Marta,
+     * Paola y NN, del mismo Norte, salían con tres cifras distintas en
+     * "Listas" (y NN, que no vendió, con su parte entera).
+     *
+     * Y lleva la cuenta de lo que ya se pagó: la parte de cada persona se
+     * paga menos lo que ya se le pagó de ese pool, así que cuando un cliente
+     * pendiente paga la mitad y el pool crece, sale solo la diferencia.
+     *
+     * Solo tiendas mensuales: las trimestrales tienen su propio cierre.
+     *
+     * @return array{ventas: float, pool: float, personas: array<int, array{pagado: float, portadores: array<int, float>, parte_id: ?int}>}
+     */
+    private function libroDelPool(int $tiendaId, string $mes, float $meta): array
+    {
+        $clave = $tiendaId . '_' . $mes;
+        if (isset($this->libros[$clave])) return $this->libros[$clave];
+
+        $restauraciones = $this->idsDeRestauracion();
+
+        $filas = DB::table('comisiones as c')
+            ->join('usuarios as u', 'u.id', '=', 'c.vendedor_id')
+            ->leftJoin('ordenes as o', 'o.id', '=', 'c.orden_id')
+            ->where('c.tienda_id', $tiendaId)
+            ->where('c.mes_venta', $mes)
+            ->where('u.independiente', false)
+            ->select('c.id', 'c.vendedor_id', 'c.orden_id', 'c.origen', 'c.estado',
+                     'c.valor_orden', 'c.monto_comision',
+                     'o.estado as orden_estado', 'o.valor_total as orden_valor')
+            ->selectSub(
+                DB::table('pagos')->selectRaw('COALESCE(SUM(monto), 0)')->whereColumn('orden_id', 'c.orden_id'),
+                'pagado'
+            )
+            ->get();
+
+        $ventas   = 0.0;
+        $personas = [];
+
+        foreach ($filas as $f) {
+            $esParte     = $f->origen === self::ORIGEN_PARTE_POOL;
+            // Las mismas ventas que empujan la meta (ver cargarTotales).
+            $esVentaPool = $f->orden_id !== null
+                && ! $esParte
+                && ! in_array($f->origen, self::ORIGENES_REPARTIDOS, true)
+                && ! isset($restauraciones[(int) $f->orden_id])
+                && ! in_array($f->orden_estado, self::ESTADOS_SIN_VENTA, true);
+
+            if (! $esParte && ! $esVentaPool) continue;
+
+            // Contra la orden: el cliente paga la orden, no el pedazo de cada uno.
+            $cuenta = $esVentaPool && (float) $f->pagado >= (float) $f->orden_valor * 0.5;
+            if ($cuenta) $ventas += (float) $f->valor_orden;
+
+            $vid = (int) $f->vendedor_id;
+            $personas[$vid] ??= ['pagado' => 0.0, 'portadores' => [], 'parte_id' => null];
+
+            if ($f->estado === 'pagada') {
+                $personas[$vid]['pagado'] += (float) $f->monto_comision;
+            } elseif ($cuenta) {
+                // Lo que falta pagarle se reparte entre sus ventas que ya
+                // cuentan: son las filas por las que se le paga.
+                $personas[$vid]['portadores'][(int) $f->id] = (float) $f->valor_orden;
+            } elseif ($esParte) {
+                $personas[$vid]['parte_id'] = (int) $f->id;
+            }
+        }
+
+        $this->abonadoQueCuenta ??= self::abonadoPorTienda(true);
+        $ventas += (float) ($this->abonadoQueCuenta[$clave] ?? 0);
+
+        $pool = ($meta > 0 && $ventas >= $meta)
+            ? ($ventas - $meta) / self::IVA * self::PORCENTAJE_DIRECTO
+            : 0.0;
+
+        return $this->libros[$clave] = ['ventas' => $ventas, 'pool' => $pool, 'personas' => $personas];
+    }
+
+    /** Si la tienda paga el pool por mes (con libro) y no por trimestre. */
+    private function usaLibroDelPool(int $tiendaId): bool
+    {
+        $this->nombresTienda ??= DB::table('tiendas')->pluck('nombre', 'id')->all();
+
+        return ! self::esTiendaTrimestral($this->nombresTienda[$tiendaId] ?? null);
+    }
+
+    private ?array $nombresTienda = null;
 
     /** Se llena en cargarTotales() y se descarta al empezar el siguiente cálculo. */
     private ?array $idsRestauracion = null;
@@ -2391,6 +2521,9 @@ class ComisionController extends Controller
         $this->individuales    = [];
         $this->equipos         = [];
         $this->pesos           = [];
+        $this->libros          = [];
+        $this->abonadoQueCuenta = null;
+        $this->nombresTienda   = null;
         TiendaReemplazo::olvidarCache();
         TiendaAsesor::olvidarCache();
 
@@ -2565,7 +2698,41 @@ class ComisionController extends Controller
         $sinDescontarIva = (bool) $c->orden?->sin_descontar_iva
             && (int) $c->vendedor_id === (int) $c->orden?->vendedor_id;
 
-        if ($esPartePool) {
+        // El pool en una tienda mensual va por el libro de la tienda (ver
+        // libroDelPool): cuenta solo lo que tiene la mitad pagada, se parte
+        // igual y a cada uno se le paga su parte menos lo ya pagado. Esta
+        // fila lleva un pedazo de eso si es una venta suya que ya cuenta, o
+        // su parte entera si es la "parte del equipo" de quien no tiene
+        // ninguna. Las demás van en cero: no son de nadie todavía.
+        $usaLibro = ! $esTrimestral && $tieneMeta && ! $esAbono && ! $esRestauracion
+            && $this->usaLibroDelPool((int) $c->tienda_id);
+        $montoLibro = 0.0;
+
+        if ($usaLibro) {
+            $libro          = $this->libroDelPool((int) $c->tienda_id, $c->mes_venta, $meta);
+            $comisionPool   = $libro['pool'];
+            $metaCumplida   = $comisionPool > 0;
+            $totalTienda    = $libro['ventas'];
+            $comisionAsesor = $partes > 0 ? $comisionPool * ($parte / $partes) : 0;
+
+            $yo = $libro['personas'][(int) $c->vendedor_id]
+                ?? ['pagado' => 0.0, 'portadores' => [], 'parte_id' => null];
+            $restante  = max(0.0, $comisionAsesor - $yo['pagado']);
+            $pesoTotal = array_sum($yo['portadores']);
+
+            if ($c->estado === 'pagada') {
+                // Lo pagado es lo que se pagó: no se recalcula.
+                $montoLibro = round((float) $c->monto_comision);
+            } elseif (isset($yo['portadores'][$c->id])) {
+                $montoLibro = $pesoTotal > 0 ? round($restante * $yo['portadores'][$c->id] / $pesoTotal) : 0;
+            } elseif ($esPartePool && empty($yo['portadores'])) {
+                $montoLibro = round($restante);
+            }
+        }
+
+        if ($usaLibro) {
+            $montoComision = $montoLibro;
+        } elseif ($esPartePool) {
             $montoComision = round($comisionAsesor);
         } elseif ($esAbono) {
             $montoComision = $esRestauracion
@@ -2604,6 +2771,11 @@ class ComisionController extends Controller
         $baseReq50 = in_array($c->origen, self::ORIGENES_REPARTIDOS, true)
             ? (float) ($c->orden?->valor_total ?? $c->valor_orden)
             : (float) $c->valor_orden;
+        // En el pool por libro se mide contra la orden entera, igual que en el
+        // libro: es la misma venta la que entra o no a la cuenta de la tienda.
+        if ($usaLibro && ! $esPartePool) {
+            $baseReq50 = (float) ($c->orden?->valor_total ?? $c->valor_orden);
+        }
         $req50     = $esPartePool || $pagado >= ($baseReq50 * 0.5);
         $reqVencio = $hoy->gte(Carbon::parse($c->fecha_disponible));
 
@@ -2612,6 +2784,10 @@ class ComisionController extends Controller
         $estadoCalculado = 'pendiente';
         if ($c->estado === 'pagada') {
             $estadoCalculado = 'pagada';
+        } elseif ($usaLibro) {
+            // Por libro, la parte del equipo también espera a la meta: sin
+            // pool no hay nada que soltarle a nadie.
+            if ($req50 && $reqVencio && $metaCumplida) $estadoCalculado = 'lista';
         } elseif ($req50 && $reqVencio && ($esAbono || $esPartePool || $esRestauracion || ! $tieneMeta || $esTrimestral || $metaCumplida)) {
             $estadoCalculado = 'lista';
         }

@@ -297,6 +297,105 @@ class ComoSeCalculaCadaComisionTest extends TestCase
         $this->assertEquals(125_000, $cobra['Sebastián']);
     }
 
+    // ─────────── El pool se mira a nivel de tienda ───────────
+
+    /** Llama un método privado del controlador. */
+    private function llamar(string $metodo, ...$args)
+    {
+        $ctrl = app(ComisionController::class);
+        $r = new \ReflectionMethod($ctrl, $metodo);
+        $r->setAccessible(true);
+
+        return $r->invoke($ctrl, ...$args);
+    }
+
+    /** Lo que ya se le puede pagar a cada quien (estado "lista"), con la pantalla abierta. [nombre => monto] */
+    private function loQueEstaListo(): array
+    {
+        [$metas, $totTienda, $totVendedor] = $this->llamar('cargarTotales');
+        // Lo que corre al abrir la pantalla: abre el renglón a quien le haga falta.
+        $this->llamar('asegurarPartesDePool', self::MES);
+        [$metas, $totTienda, $totVendedor] = $this->llamar('cargarTotales');
+        $pools   = $this->llamar('cargarPoolsTrimestrales', $metas, $totTienda, false);
+        $nombres = DB::table('usuarios')->pluck('nombre', 'id')->all();
+        $out = [];
+
+        foreach (Comision::with('orden.pagos', 'tienda')->get() as $c) {
+            $f = $this->llamar('enriquecer', $c, $metas, $totTienda, $totVendedor, $pools, \Carbon\Carbon::parse('2026-09-25'));
+            if ($f['estado_calculado'] !== 'lista') continue;
+            $quien = $nombres[$c->vendedor_id];
+            $out[$quien] = ($out[$quien] ?? 0) + (float) $f['monto_comision'];
+        }
+
+        return $out;
+    }
+
+    /** El cliente de esa orden solo ha abonado esto. */
+    private function clienteAbono(Orden $orden, float $monto): void
+    {
+        DB::table('pagos')->where('orden_id', $orden->id)->delete();
+        DB::table('pagos')->insert(['orden_id' => $orden->id, 'monto' => $monto, 'metodo' => 'efectivo', 'created_at' => now()]);
+    }
+
+    /**
+     * El caso de Norte en agosto: a Marta le falta que un cliente pague la
+     * mitad, y eso frena a los TRES por igual, no solo a ella. NN no vendió
+     * y cobra lo mismo que las otras dos.
+     */
+    public function test_una_venta_sin_la_mitad_pagada_frena_a_toda_la_tienda_por_igual(): void
+    {
+        $this->orden(self::PAOLA, self::NORTE, 50_000_000);
+        $deMarta = $this->orden(self::MARTA, self::NORTE, 10_000_000);
+        $this->clienteAbono($deMarta, 1_000_000); // 10%: todavía no cuenta
+
+        $listo = $this->loQueEstaListo();
+
+        // Cuenta lo que tiene la mitad pagada: 50.000.000.
+        // Pool = (50.000.000 − 40.000.000) ÷ 1,19 × 5% = $420.168, ÷ 3 = $140.056
+        foreach (['Paola', 'Marta', 'NN'] as $quien) {
+            $this->assertEqualsWithDelta(140_056, $listo[$quien] ?? 0, 2, "{$quien} cobra igual que las demás");
+        }
+    }
+
+    public function test_cuando_el_cliente_paga_la_mitad_los_tres_reciben_la_diferencia(): void
+    {
+        $this->orden(self::PAOLA, self::NORTE, 50_000_000);
+        $deMarta = $this->orden(self::MARTA, self::NORTE, 10_000_000);
+        $this->clienteAbono($deMarta, 1_000_000);
+
+        // Se les paga lo que había: $140.056 a cada una.
+        $this->loQueEstaListo();
+        foreach (Comision::with('orden.pagos', 'tienda')->get() as $c) {
+            [$metas, $totTienda, $totVendedor] = $this->llamar('cargarTotales');
+            $pools = $this->llamar('cargarPoolsTrimestrales', $metas, $totTienda, false);
+            $f = $this->llamar('enriquecer', $c, $metas, $totTienda, $totVendedor, $pools, \Carbon\Carbon::parse('2026-09-25'));
+            if ($f['estado_calculado'] === 'lista') {
+                $c->update(['estado' => 'pagada', 'monto_comision' => $f['monto_comision']]);
+            }
+        }
+
+        // Después el cliente de Marta paga la mitad: entra su venta.
+        $this->clienteAbono($deMarta, 5_000_000);
+
+        // Pool completo = (60.000.000 − 40.000.000) ÷ 1,19 × 5% = $840.336,
+        // ÷ 3 = $280.112. Ya se pagaron $140.056: falta la otra mitad.
+        $listo = $this->loQueEstaListo();
+        foreach (['Paola', 'Marta', 'NN'] as $quien) {
+            $this->assertEqualsWithDelta(140_056, $listo[$quien] ?? 0, 3, "{$quien} recibe solo la diferencia");
+        }
+    }
+
+    public function test_si_lo_que_tiene_la_mitad_pagada_no_llega_a_la_meta_no_hay_pool(): void
+    {
+        $this->orden(self::PAOLA, self::NORTE, 30_000_000);
+        $deMarta = $this->orden(self::MARTA, self::NORTE, 20_000_000);
+        $this->clienteAbono($deMarta, 1_000_000);
+
+        // Se vendieron 50.000.000, pero con la mitad pagada solo 30.000.000:
+        // no llega a los 40.000.000 de la meta.
+        $this->assertSame([], $this->loQueEstaListo());
+    }
+
     // ─────────── Tienda SIN meta ───────────
 
     public function test_venta_sin_meta_es_el_cinco_por_ciento_sin_iva_y_sin_dividir(): void
