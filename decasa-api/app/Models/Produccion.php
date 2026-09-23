@@ -41,6 +41,31 @@ class Produccion extends Model
                     : \App\Services\ConsumoTelas::liberarProduccion((int) $p->id);
             }
         });
+
+        /**
+         * Una pieza que había vuelto de despacho deja de estar "volviendo" el
+         * día que vuelve a quedar lista. Se cierra aquí y no donde se cierra
+         * la producción por la misma razón que la tela: son varios los sitios
+         * que la dan por terminada, y basta olvidar uno para que el retorno
+         * quede abierto para siempre y la bandeja del supervisor mienta.
+         */
+        static::updated(function (Produccion $p) {
+            if (! $p->wasChanged('estado')) return;
+            if (! in_array($p->estado, ['listo', 'entregado', 'en_reserva', 'cancelado'], true)) return;
+            // Las pruebas montan el esquema a mano y casi ninguna tiene esta
+            // tabla; sin ella no hay retorno que cerrar.
+            if (! \Illuminate\Support\Facades\Schema::hasTable('produccion_retornos')) return;
+
+            ProduccionRetorno::where('produccion_id', $p->id)
+                ->abiertos()
+                ->update(['resuelto_at' => now()]);
+        });
+    }
+
+    /** Las veces que esta pieza volvió de despacho al taller. */
+    public function retornos()
+    {
+        return $this->hasMany(ProduccionRetorno::class, 'produccion_id');
     }
 
     protected $fillable = [

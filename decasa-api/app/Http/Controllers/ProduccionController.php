@@ -7,6 +7,7 @@ use App\Events\ProduccionActualizada;
 use App\Models\Inventario;
 use App\Models\InventarioVariante;
 use App\Models\OrdenItem;
+use App\Models\OrdenMensaje;
 use App\Models\PasoTrabajador;
 use App\Models\Produccion;
 use App\Models\ProduccionPaso;
@@ -16,6 +17,7 @@ use App\Models\TipoProceso;
 use App\Models\Usuario;
 use App\Services\NotificacionService;
 use App\Services\ReservaDeposito;
+use App\Services\RetornoAlTaller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -328,6 +330,171 @@ class ProduccionController extends Controller
         }
 
         return response()->json(['message' => 'Paso completado.']);
+    }
+
+    /**
+     * GET /api/produccion/{id}/retorno
+     *
+     * Lo que hace falta para devolver una pieza de despacho al taller: si se
+     * puede (y si no, por qué), y a qué pasos se puede volver. Va aparte del
+     * tablero porque quien lo necesita está en Despacho, donde la cola trae
+     * órdenes y no producciones con sus pasos.
+     */
+    public function opcionesRetorno(Request $request, int $id)
+    {
+        $produccion = Produccion::with('ordenItem.producto:id,nombre', 'producto:id,nombre')
+            ->findOrFail($id);
+
+        if (! $this->puedeDevolverDeDespacho($request->user(), $produccion)) {
+            return response()->json(['message' => 'No autorizado para devolver piezas al taller.'], 403);
+        }
+
+        $impedimento = RetornoAlTaller::porQueNoSePuede($produccion);
+
+        return response()->json([
+            'produccion_id' => $produccion->id,
+            'producto'      => $produccion->productoNombre() ?? 'Producto',
+            'estado'        => $produccion->estado,
+            'se_puede'      => $impedimento === null,
+            'impedimento'   => $impedimento,
+            'pasos'         => RetornoAlTaller::pasosQueSePuedenRehacer($produccion)->map(fn ($p) => [
+                'id'           => $p->id,
+                'tipo_proceso' => $p->tipo_proceso,
+                'label'        => ProduccionPaso::labelProceso($p->tipo_proceso),
+                'orden'        => (int) $p->orden,
+                'es_despacho'  => $p->tipo_proceso === ProduccionPaso::DESPACHO,
+                'completado_at' => $p->completado_at?->toIso8601String(),
+            ])->values(),
+        ]);
+    }
+
+    /**
+     * PATCH /api/produccion/{id}/retorno
+     *
+     * La pieza ya salió del taller, todavía no se entregó, y hay que devolverla:
+     * se olvidó algo, se equivocaron, o se dañó a último momento. Quien la
+     * devuelve elige a qué paso vuelve y cuáles pasos se rehacen — los que no,
+     * se quedan hechos y el flujo los salta.
+     */
+    public function regresarAlTaller(Request $request, int $id)
+    {
+        $usuario    = $request->user();
+        $produccion = Produccion::with('ordenItem.orden', 'ordenItem.producto:id,nombre', 'producto:id,nombre')
+            ->findOrFail($id);
+
+        if (! $this->puedeDevolverDeDespacho($usuario, $produccion)) {
+            return response()->json(['message' => 'No autorizado para devolver piezas al taller.'], 403);
+        }
+
+        $data = $request->validate([
+            'paso_destino_id'  => 'required|integer|exists:produccion_pasos,id',
+            'pasos_rehacer'    => 'nullable|array',
+            'pasos_rehacer.*'  => 'integer',
+            'motivo'           => 'required|string|min:3|max:1000',
+            'foto_url'         => 'nullable|string|max:500',
+        ], [
+            'motivo.required' => 'Escribe qué pasó: es lo que va a leer quien lo arregle.',
+        ]);
+
+        if ($impedimento = RetornoAlTaller::porQueNoSePuede($produccion)) {
+            return response()->json(['message' => $impedimento], 422);
+        }
+
+        $destino = ProduccionPaso::find($data['paso_destino_id']);
+
+        if (! $destino || $destino->produccion_id !== $produccion->id) {
+            return response()->json(['message' => 'Ese paso no es de esta pieza.'], 422);
+        }
+        if ($destino->estado !== 'completado') {
+            return response()->json(['message' => 'Solo se puede volver a un paso que ya se hizo.'], 422);
+        }
+
+        $retorno = RetornoAlTaller::regresar(
+            $produccion,
+            $destino,
+            $data['pasos_rehacer'] ?? [],
+            trim($data['motivo']),
+            $data['foto_url'] ?? null,
+            $usuario,
+        );
+
+        $productoNombre = $produccion->productoNombre() ?? 'Producto';
+        $orden          = $produccion->ordenItem?->orden;
+        $ordenId        = $orden?->id;
+        $labelDestino   = ProduccionPaso::labelProceso($destino->tipo_proceso);
+
+        // A quien le toca retomarla, que es lo urgente: la pieza está parada.
+        $this->notificarTrabajadores($destino->tipo_proceso, $destino->linea, $produccion->id, $ordenId, $productoNombre);
+
+        $rehechos = ProduccionPaso::whereIn('id', $retorno->pasos_rehacer)
+            ->orderBy('orden')->pluck('tipo_proceso')
+            ->map(fn ($t) => ProduccionPaso::labelProceso($t))->implode(' → ');
+
+        NotificacionService::crear(
+            'paso_produccion',
+            'Una pieza volvió de despacho al taller',
+            "\"{$productoNombre}\" regresó a {$labelDestino} — {$data['motivo']}. Se rehace: {$rehechos}",
+            ['produccion_id' => $produccion->id, 'orden_id' => $ordenId],
+        );
+
+        // Y al vendedor, que es quien le va a dar la cara al cliente cuando
+        // pregunte por qué no llegó el día que le dijeron.
+        $avisarA = $orden?->vendedor_id ?? $produccion->creado_por;
+        if ($avisarA) {
+            NotificacionService::crear(
+                'paso_produccion',
+                $orden ? 'Tu pedido volvió al taller' : 'La producción para reserva volvió al taller',
+                "\"{$productoNombre}\" estaba en despacho y regresó a {$labelDestino}: {$data['motivo']}",
+                ['produccion_id' => $produccion->id, 'orden_id' => $ordenId],
+                $avisarA,
+            );
+        }
+
+        // Queda escrito en el hilo de la orden: es donde el vendedor y el
+        // cliente van a buscar por qué se corrió la fecha.
+        if ($orden) {
+            OrdenMensaje::create([
+                'orden_id'   => $orden->id,
+                'usuario_id' => $usuario->id,
+                'mensaje'    => "↩️ \"{$productoNombre}\" volvió de despacho al taller antes de entregarse. "
+                              . "Motivo: {$data['motivo']}. Se rehace: {$rehechos}.",
+                'imagen_url' => $data['foto_url'] ?? null,
+            ]);
+        }
+
+        try {
+            event(new ProduccionActualizada($produccion->id, $ordenId, $produccion->estado));
+        } catch (\Throwable) {}
+
+        return response()->json([
+            'message'  => "La pieza volvió a {$labelDestino}. Se rehace: {$rehechos}.",
+            'retorno'  => [
+                'id'            => $retorno->id,
+                'pasos_rehacer' => $retorno->pasos_rehacer,
+            ],
+            'estado'   => $produccion->fresh()->estado,
+        ]);
+    }
+
+    /**
+     * ¿Quién puede devolver del despacho al taller?
+     *
+     * Quien maneja el taller, y quien está en la puerta: el encargado del paso
+     * de despacho de esa pieza y quien tenga el módulo de Despacho. Son los
+     * que tienen el mueble delante cuando aparece el golpe — pedir que llamen
+     * al supervisor para que lo devuelva por ellos es lo que hace que la pieza
+     * termine subiendo al camión igual.
+     */
+    private function puedeDevolverDeDespacho(Usuario $usuario, Produccion $produccion): bool
+    {
+        if ($usuario->gestionaProduccion() || $usuario->acceso_despacho) return true;
+
+        $despacho = ProduccionPaso::where('produccion_id', $produccion->id)
+            ->where('tipo_proceso', ProduccionPaso::DESPACHO)
+            ->orderByDesc('orden')
+            ->first();
+
+        return $despacho !== null && $this->puedeTrabajar($usuario, $despacho);
     }
 
     /**

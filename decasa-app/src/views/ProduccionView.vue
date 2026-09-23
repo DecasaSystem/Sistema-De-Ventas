@@ -28,6 +28,7 @@ import EmptyState from '@/components/common/EmptyState.vue'
 import ProcesosModal from '@/components/produccion/ProcesosModal.vue'
 import ProducirModal from '@/components/produccion/ProducirModal.vue'
 import DevolucionesPendientes from '@/components/produccion/DevolucionesPendientes.vue'
+import RegresarAlTallerModal from '@/components/produccion/RegresarAlTallerModal.vue'
 import { SPECS_TEMPLATES, resolverCategoria } from '@/constants/specsConfig'
 
 const auth   = useAuthStore()
@@ -354,6 +355,23 @@ function setupObserver() {
 async function loadMore() {
   if (loadingMore.value || !hasMore.value) return
   await fetchProduccion(currentPage.value + 1, true)
+}
+
+// ── Devolver al taller lo que ya salió de él ───────────────────────────────
+// La pieza está esperando el camión y aparece el problema. Vuelve al paso que
+// se elija, y solo se rehacen los pasos que hagan falta.
+const retorno = ref(null)   // { produccionId, nombre }
+
+/** Las piezas que ya salieron del taller y todavía no se entregan. */
+function sePuedeDevolver(p) {
+  return ['pendiente_despachador', 'listo'].includes(p.estado)
+}
+
+function abrirRetorno(p) {
+  retorno.value = {
+    produccionId: p.id,
+    nombre: p.orden_item?.producto?.nombre || p.orden_item?.nombre_custom || p.producto?.nombre || 'Producto',
+  }
 }
 
 function openModal(p) {
@@ -953,6 +971,17 @@ onUnmounted(() => {
           >
             Cambiar estado
           </button>
+          <!--
+            La pieza ya salió del taller y todavía no se entrega: si le falta
+            algo o llegó mal, vuelve al paso que se elija sin rehacerlo todo.
+          -->
+          <button
+            v-if="auth.gestionaProduccion && !modoElegir && sePuedeDevolver(p)"
+            @click.stop="abrirRetorno(p)"
+            class="w-full mt-1.5 text-amber-700 text-xs font-medium text-center py-1.5 rounded-lg border border-amber-200 hover:bg-amber-50 transition-colors"
+          >
+            Devolver al taller
+          </button>
         </li>
       </ul>
 
@@ -1010,6 +1039,15 @@ onUnmounted(() => {
         </div>
       </div>
     </Transition>
+
+    <!-- Devolver al taller una pieza que ya salió de él -->
+    <RegresarAlTallerModal
+      :abierto="retorno !== null"
+      :produccion-id="retorno?.produccionId"
+      :producto-nombre="retorno?.nombre"
+      @cerrar="retorno = null"
+      @devuelto="refrescarEnElSitio"
+    />
 
     <!-- Modal cambiar estado -->
     <Transition name="fade">

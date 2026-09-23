@@ -82,6 +82,10 @@ class DespachoController extends Controller
             $oi->pendiente_entregar = $oi->pendienteEntregar();
             $oi->entregable         = $oi->estaListoParaEntregar();
             $oi->produccion_estado  = $oi->produccion?->estado;
+            // Con qué pieza del taller se corresponde. Lo necesita el botón de
+            // "devolver al taller" de la cola, que trabaja por producto y no
+            // por orden: de una orden con tres muebles vuelve el que se rayó.
+            $oi->produccion_id      = $oi->produccion?->id;
             unset($oi->produccion);
         });
         $orden->entrega = $orden->resumenEntrega();

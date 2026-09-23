@@ -12,6 +12,7 @@ import DespachoCard from '@/components/despacho/DespachoCard.vue'
 import { descargarHojaRuta } from '@/api/despacho'
 import ProductosParaRuta from '@/components/despacho/ProductosParaRuta.vue'
 import ColaCamionesModal from '@/components/despacho/ColaCamionesModal.vue'
+import RegresarAlTallerModal from '@/components/produccion/RegresarAlTallerModal.vue'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
@@ -69,6 +70,26 @@ const totalSaldoSeleccionado = computed(() =>
 
 const mostrarModalCamion = ref(false)
 const asignando = ref(false)
+
+// ── Devolver una pieza al taller antes de que salga ────────────────────────
+// Se olvidó algo, se equivocaron, o se dañó a último momento. Vuelve solo el
+// producto con el problema, y solo se rehacen los pasos que hagan falta.
+const retorno = ref(null)   // { produccion_id, nombre }
+
+function abrirRetorno(item) {
+  retorno.value = {
+    produccionId: item.produccion_id,
+    nombre: item.producto?.nombre || item.nombre_custom || 'Producto',
+  }
+}
+
+async function trasDevolverAlTaller() {
+  // La pieza dejó de estar lista: la cola y lo marcado para el camión se
+  // recalculan desde el servidor, que es quien sabe qué quedó entregable.
+  seleccionadas.value = new Map()
+  lineasPorOrden.value = {}
+  await despacho.refrescar()
+}
 
 function toggleSeleccion(ordenId) {
   if (seleccionadas.value.has(ordenId)) {
@@ -658,9 +679,11 @@ onBeforeUnmount(() => {
           :seleccionado="seleccionadas.has(o.id)"
           :posicion="seleccionadas.get(o.id)"
           :lineas="lineasDe(o)"
+          permite-retorno
           @update:lineas="v => { lineasPorOrden[o.id] = v }"
           @toggle="toggleSeleccion"
           @ver-detalle="verDetalle"
+          @devolver-al-taller="abrirRetorno"
         />
 
         <!-- Botón Asignar flotante -->
@@ -1438,6 +1461,15 @@ onBeforeUnmount(() => {
       :total-saldo="totalSaldoSeleccionado"
       @confirmar="confirmarAsignacion"
       @cerrar="mostrarModalCamion = false"
+    />
+
+    <!-- Devolver una pieza al taller antes de que suba al camión -->
+    <RegresarAlTallerModal
+      :abierto="retorno !== null"
+      :produccion-id="retorno?.produccionId"
+      :producto-nombre="retorno?.nombre"
+      @cerrar="retorno = null"
+      @devuelto="trasDevolverAlTaller"
     />
 
     <!-- Modal reprogramar ruta -->

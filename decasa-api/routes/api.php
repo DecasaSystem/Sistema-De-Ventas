@@ -511,6 +511,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('/produccion/pasos/{id}/trabajadores',        [ProduccionController::class, 'asignarTrabajadores'])->whereNumber('id');
     Route::patch('/produccion/pasos/{id}/devolver',            [ProduccionController::class, 'devolverPaso'])->whereNumber('id');
 
+    // Devolver al taller una pieza que ya salió de él y todavía no se entrega:
+    // se elige a qué paso vuelve y cuáles se rehacen. El GET trae esas
+    // opciones, que es lo que la pantalla de Despacho no tiene a mano.
+    Route::get('/produccion/{id}/retorno',   [ProduccionController::class, 'opcionesRetorno'])->whereNumber('id');
+    Route::patch('/produccion/{id}/retorno', [ProduccionController::class, 'regresarAlTaller'])->whereNumber('id');
+
     // El despacho ya no es un módulo: es el último paso, y se cierra desde
     // "Mis pasos" como cualquier otro.
 
