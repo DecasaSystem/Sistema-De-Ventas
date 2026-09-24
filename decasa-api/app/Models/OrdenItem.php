@@ -311,7 +311,11 @@ class OrdenItem extends Model
             return in_array($estadoOrden, ['listo_entrega', 'en_camino'], true);
         }
 
-        return $produccion->estado === 'listo';
+        // "Entregado" en producción no siempre es cierto: en el tablero se
+        // puede poner a mano, y hubo piezas marcadas así sin haber salido
+        // nunca (la #1257 y otras siete). Si al cliente le falta —lo mira
+        // pendienteEntregar(), arriba—, la pieza está hecha y se puede llevar.
+        return in_array($produccion->estado, ['listo', 'entregado'], true);
     }
 
     public function lineasEntrega()
