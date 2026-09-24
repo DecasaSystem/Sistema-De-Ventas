@@ -112,6 +112,13 @@ class OrdenController extends Controller
                 ? $query->whereNull('serie')
                 : $query->where('serie', strtoupper($v));
         }
+        // Atrasadas: la misma regla que la etiqueta "Atrasado" de cada orden
+        // (un producto con la fecha de entrega vencida y la orden sin cerrar),
+        // en el estado que esté: en producción, lista, esperando anticipo...
+        if ($request->boolean('atrasados')) {
+            $query->whereNotIn('estado', ['entregado', 'cancelado', 'devuelto'])
+                  ->whereHas('items', fn ($q) => $q->whereDate('fecha_entrega_prom', '<', now()->toDateString()));
+        }
         if ($search = $request->query('search')) {
             $limpio = ltrim(trim($search), '#');           // permite escribir "#123"
             $term   = '%' . mb_strtolower($limpio) . '%';

@@ -60,6 +60,7 @@ const filtros = ref({
   desde: '',
   hasta: '',
   serie: '',          // '' todas · 'normales' · 'FV2' descuentos especiales
+  atrasados: false,   // con fecha de entrega vencida, en el estado que estén
 })
 
 // Apartados: lo que lleva serie propia no gasta consecutivo de venta.
@@ -127,6 +128,7 @@ async function fetchOrdenes(page = 1, append = false, porPagina = 20) {
     if (filtros.value.desde) params.desde = filtros.value.desde
     if (filtros.value.hasta) params.hasta = filtros.value.hasta
     if (filtros.value.serie) params.serie = filtros.value.serie
+    if (filtros.value.atrasados) params.atrasados = 1
     if (busqueda.value) params.search = busqueda.value
     // Por lo que se entrega primero. El backend deja fuera lo entregado y lo
     // cancelado: la pregunta es qué falta por salir.
@@ -173,7 +175,7 @@ function applyFilters() {
 }
 
 function clearFilters() {
-  filtros.value = { estado: '', tienda_id: '', desde: '', hasta: '', serie: '' }
+  filtros.value = { estado: '', tienda_id: '', desde: '', hasta: '', serie: '', atrasados: false }
   busqueda.value = ''
   showFilters.value = false
   currentPage.value = 1
@@ -220,6 +222,7 @@ async function exportarExcelOrdenes() {
     if (filtros.value.desde)     baseParams.desde     = filtros.value.desde
     if (filtros.value.hasta)     baseParams.hasta     = filtros.value.hasta
     if (filtros.value.serie)     baseParams.serie     = filtros.value.serie
+    if (filtros.value.atrasados) baseParams.atrasados = 1
     if (busqueda.value)          baseParams.search    = busqueda.value
 
     let page = 1
@@ -526,6 +529,17 @@ onUnmounted(() => {
           />
         </div>
       </div>
+
+      <!-- Atrasadas: se combina con el estado, o sola trae todas -->
+      <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+        <input
+          v-model="filtros.atrasados"
+          type="checkbox"
+          class="rounded border-gray-300 text-red-600 focus:ring-red-500"
+        />
+        Solo atrasadas
+        <span class="text-xs text-gray-400">— entrega vencida, en producción o no</span>
+      </label>
 
       <!-- Botones -->
       <div class="flex gap-2">
