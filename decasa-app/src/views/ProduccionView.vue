@@ -374,6 +374,17 @@ function abrirRetorno(p) {
   }
 }
 
+/**
+ * Marcada "entregado" a mano pero el cliente no la ha recibido: pasó con
+ * varias piezas que seguían en ebanistería. Se deja cambiar para ponerla en
+ * "listo", que cierra sus pasos y la deja para el camión.
+ */
+function entregadoSinSalir(p) {
+  const item = p.orden_item
+  return p.estado === 'entregado' && !!item && !item.devuelto_en
+    && (item.cantidad_entregada ?? 0) < (item.cantidad ?? 0)
+}
+
 function openModal(p) {
   produccionSeleccionada.value = p
   nuevoEstado.value = p.estado
@@ -965,7 +976,7 @@ onUnmounted(() => {
             <span v-else-if="p.estado === 'entregado'" class="text-gray-400 italic">Entregado</span>
           </div>
           <button
-            v-if="auth.gestionaProduccion && !modoElegir && !['entregado', 'cancelado', 'en_reserva'].includes(p.estado)"
+            v-if="auth.gestionaProduccion && !modoElegir && (!['entregado', 'cancelado', 'en_reserva'].includes(p.estado) || entregadoSinSalir(p))"
             @click.stop="openModal(p)"
             class="w-full mt-2 text-blue-600 text-xs font-medium text-center py-1.5 rounded-lg border border-blue-200 hover:bg-blue-50 transition-colors"
           >
