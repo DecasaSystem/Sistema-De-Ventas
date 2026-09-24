@@ -1,6 +1,7 @@
 ﻿<script setup>
 import IconoS from '@/components/common/IconoS.vue'
 import { ref, computed, onMounted, nextTick } from 'vue'
+import { useFiltrosRecordados } from '@/composables/useFiltrosRecordados'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import {
@@ -75,6 +76,7 @@ const tiendaId = ref(auth.usuario?.tienda_default_id ?? '')
 const inventario = ref([])
 const busqueda = ref('')
 const categoriaFiltro = ref('')
+useFiltrosRecordados('inventario', { tiendaId, busqueda, categoriaFiltro })
 const copiado = ref(false)
 
 /**
@@ -1975,6 +1977,8 @@ onMounted(async () => {
   cargarTrasladosPendientes()
   if (tiendaId.value) {
     await cargarInventario(true)
+    // La categoría puede venir recordada de antes: su total también.
+    if (categoriaFiltro.value) cargarResumenCategoria()
   }
 
   listen('inventario', 'inventario.actualizado', (e) => {

@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useTiposProceso } from '@/composables/useTiposProceso'
+import { useFiltrosRecordados } from '@/composables/useFiltrosRecordados'
 import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
 import { MapPinIcon, Cog6ToothIcon, UserGroupIcon } from '@heroicons/vue/24/outline'
@@ -61,6 +62,13 @@ const filtros = ref({
   estado: '',
   tienda_id: '',
 })
+
+// Al volver de una orden (o entrar otra vez por el menú) siguen puestos.
+useFiltrosRecordados('produccion', { filtros, busqueda, porEntregar })
+
+// Como ahora se quedan puestos, el botón avisa: si no, una lista corta parece
+// que le faltan piezas.
+const hayFiltros = computed(() => !!(filtros.value.estado || filtros.value.tienda_id))
 
 const mostrarModal = ref(false)
 const produccionSeleccionada = ref(null)
@@ -721,10 +729,11 @@ onUnmounted(() => {
       </button>
       <button
         @click="showFilters = !showFilters"
-        class="text-sm text-blue-600 font-medium px-3 py-1.5 rounded-lg border border-blue-200 hover:bg-blue-50 transition-colors flex items-center gap-1"
+        class="relative text-sm text-blue-600 font-medium px-3 py-1.5 rounded-lg border border-blue-200 hover:bg-blue-50 transition-colors flex items-center gap-1"
       >
         <FunnelIcon class="w-4 h-4" />
         {{ showFilters ? 'Cerrar' : 'Filtros' }}
+        <span v-if="hayFiltros" class="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-blue-600 ring-2 ring-white" title="Hay filtros puestos"></span>
       </button>
       <button
         v-if="auth.gestionaProduccion"

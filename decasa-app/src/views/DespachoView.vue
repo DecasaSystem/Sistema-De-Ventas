@@ -2,6 +2,7 @@
 import IconoS from '@/components/common/IconoS.vue'
 import { cloudinaryOpt } from '@/utils/cloudinary'
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { useFiltrosRecordados } from '@/composables/useFiltrosRecordados'
 import { useRouter } from 'vue-router'
 import { useDespachoStore } from '@/stores/despacho'
 import { useDespachoSocket } from '@/composables/useDespachoSocket'
@@ -300,6 +301,7 @@ const hayFiltrosAsignados = computed(() =>
 const historial = ref([])
 const cargandoHistorial = ref(false)
 const filtrosHistorial = ref({ camion_id: '', desde: '', hasta: '', conductor: '' })
+useFiltrosRecordados('despacho', { tab, filtrosAsignados, filtrosHistorial })
 const historialPaginacion = ref(null)
 const detalleExpandido = ref(null)
 const detalleExpandidoAsignado = ref(null)
@@ -616,6 +618,8 @@ onMounted(async () => {
   await despacho.refrescar()
   socket.conectar()
   await Promise.all([cargarCamiones(), cargarConductores(), cargarAsignadosFiltrados(), cargarRutas()])
+  // Se volvió con Historial abierto: el watch de `tab` no se entera.
+  if (tab.value === 'historial') cargarHistorial()
 })
 
 watch(tab, (t) => {

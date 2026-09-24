@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
+import { useFiltrosRecordados } from '@/composables/useFiltrosRecordados'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { getConsultas, getConsultasMonitoreo } from '@/api/consultas'
@@ -46,6 +47,7 @@ const monitoreoFiltradas = computed(() => {
   return monitoreo.value.filter(c => c.estado === tabMonitoreo.value)
 })
 const tabMonitoreo = ref('pendiente')
+useFiltrosRecordados('consultas', { tab, tabPrincipal, tabMonitoreo })
 
 async function cargarMonitoreo() {
   loadingMonitoreo.value = true
@@ -78,7 +80,11 @@ watch(tabPrincipal, (val) => {
   if (val === 'monitoreo' && monitoreo.value.length === 0) cargarMonitoreo()
 })
 
-onMounted(cargar)
+onMounted(() => {
+  cargar()
+  // Se volvió con Monitoreo abierto: el watch de arriba no se entera.
+  if (tabPrincipal.value === 'monitoreo') cargarMonitoreo()
+})
 </script>
 
 <template>

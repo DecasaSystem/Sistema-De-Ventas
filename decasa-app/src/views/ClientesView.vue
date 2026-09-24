@@ -1,5 +1,6 @@
 ﻿<script setup>
 import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { useFiltrosRecordados } from '@/composables/useFiltrosRecordados'
 import { useRouter } from 'vue-router'
 import {
   MagnifyingGlassIcon,
@@ -27,6 +28,7 @@ const hasMore = ref(true)
 const currentPage = ref(1)
 const busqueda = ref('')
 const filtroTipo = ref('') // '', 'oficial', 'interesado'
+useFiltrosRecordados('clientes', { busqueda, filtroTipo })
 
 const sentinel = ref(null)
 let observer = null

@@ -4,6 +4,7 @@ import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { seVolvioAtras } from '@/router'
 import { useAuthStore } from '@/stores/auth'
 import { useTiposProceso } from '@/composables/useTiposProceso'
+import { useFiltrosRecordados } from '@/composables/useFiltrosRecordados'
 import { useRouter } from 'vue-router'
 import { MagnifyingGlassIcon, Cog6ToothIcon, ArrowDownTrayIcon, MapPinIcon, CalendarIcon } from '@heroicons/vue/24/outline'
 import { XMarkIcon, MapPinIcon as MapPinSolid } from '@heroicons/vue/24/solid'
@@ -61,6 +62,16 @@ const filtros = ref({
   hasta: '',
   serie: '',          // '' todas · 'normales' · 'FV2' descuentos especiales
   atrasados: false,   // con fecha de entrega vencida, en el estado que estén
+})
+
+// Al volver del detalle (o entrar otra vez por el menú) siguen puestos.
+useFiltrosRecordados('ordenes', { filtros, busqueda, porEntregar })
+
+// Como ahora se quedan puestos, el botón avisa: si no, una lista corta parece
+// que le faltan órdenes. La serie no cuenta, ya se ve en los apartados.
+const hayFiltros = computed(() => {
+  const f = filtros.value
+  return !!(f.estado || f.tienda_id || f.desde || f.hasta || f.atrasados)
 })
 
 // Apartados: lo que lleva serie propia no gasta consecutivo de venta.
@@ -414,11 +425,12 @@ onUnmounted(() => {
       </button>
       <button
         @click="showFilters = !showFilters"
-        class="text-sm text-blue-600 font-medium px-3 py-1.5 rounded-lg border border-blue-200 hover:bg-blue-50 transition-colors"
+        class="relative text-sm text-blue-600 font-medium px-3 py-1.5 rounded-lg border border-blue-200 hover:bg-blue-50 transition-colors"
       >
         <XMarkIcon v-if="showFilters" class="w-4 h-4 inline-block mr-1" />
         <Cog6ToothIcon v-else class="w-4 h-4 inline-block mr-1" />
         {{ showFilters ? 'Cerrar' : 'Filtros' }}
+        <span v-if="hayFiltros" class="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-blue-600 ring-2 ring-white" title="Hay filtros puestos"></span>
       </button>
     </div>
 

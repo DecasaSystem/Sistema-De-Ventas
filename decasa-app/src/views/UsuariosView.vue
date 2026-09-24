@@ -1,6 +1,7 @@
 ﻿<script setup>
 import IconoS from '@/components/common/IconoS.vue'
 import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { useFiltrosRecordados } from '@/composables/useFiltrosRecordados'
 import { useRouter } from 'vue-router'
 import {
   MagnifyingGlassIcon,
@@ -36,6 +37,7 @@ const filtros = ref({
   tienda_id: '',
   estado: '',
 })
+useFiltrosRecordados('usuarios', { busqueda, filtros })
 
 async function cargarTiendas() {
   try {

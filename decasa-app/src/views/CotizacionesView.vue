@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
+import { useFiltrosRecordados } from '@/composables/useFiltrosRecordados'
 import { useRouter } from 'vue-router'
 import { getCotizaciones } from '@/api/cotizaciones'
 import {
@@ -14,6 +15,7 @@ const cotizaciones = ref([])
 const loading      = ref(true)
 const tab          = ref('activas')   // activas | convertidas | perdidas
 const search       = ref('')
+useFiltrosRecordados('cotizaciones', { tab, search })
 
 const TABS = [
   { value: 'activas',      label: 'Activas'    },

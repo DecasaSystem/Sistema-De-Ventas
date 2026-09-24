@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
+import { useFiltrosRecordados } from '@/composables/useFiltrosRecordados'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
@@ -61,6 +62,7 @@ const filtroFecha  = ref('todo')
 const modoCustom   = ref(false)
 const desdeCustom  = ref('')
 const hastaCustom  = ref('')
+useFiltrosRecordados('compras', { tab, busqueda, filtroFecha, modoCustom, desdeCustom, hastaCustom })
 
 function elegirPreset(v) {
   filtroFecha.value = v
@@ -145,12 +147,13 @@ async function cargarHistorial() {
   }
 }
 
+// Inmediato: si se vuelve con Historial recordado, hay que cargarlo ya.
 watch(tab, (t) => {
   if (t === 'historial' && !historialCargado) {
     historialCargado = true
     cargarHistorial()
   }
-})
+}, { immediate: true })
 
 const pendientesFiltrados = computed(() => pendientes.value.filter(coincideBusqueda))
 const historialFiltrado   = computed(() => historial.value.filter(c => coincideBusqueda(c) && coincideFecha(c)))
