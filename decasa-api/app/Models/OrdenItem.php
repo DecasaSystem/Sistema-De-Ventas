@@ -298,9 +298,20 @@ class OrdenItem extends Model
 
         $produccion = $this->relationLoaded('produccion') ? $this->produccion : $this->produccion()->first();
 
-        // Sin producción —una orden vieja, o todavía en cotización— no hay
-        // quién la haya dado por lista.
-        return $produccion !== null && $produccion->estado === 'listo';
+        // Sin producción —una orden vieja, o una pieza que nunca entró al
+        // taller— la única que puede decir que está es la orden: si alguien
+        // la marcó lista para entrega (o ya va en el camión), la pieza está.
+        // Antes se quedaba sin poderse entregar nunca, y la orden salía en
+        // despacho con "no tiene nada listo para entregar".
+        if ($produccion === null) {
+            $estadoOrden = $this->relationLoaded('orden')
+                ? $this->orden?->estado
+                : Orden::whereKey($this->orden_id)->value('estado');
+
+            return in_array($estadoOrden, ['listo_entrega', 'en_camino'], true);
+        }
+
+        return $produccion->estado === 'listo';
     }
 
     public function lineasEntrega()
