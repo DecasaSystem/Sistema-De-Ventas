@@ -847,6 +847,24 @@ class ProduccionController extends Controller
             $updates['fecha_real'] = now()->toDateString();
         }
 
+        // Ponerla lista a mano quiere decir que ya pasó por todo el taller y
+        // alguien olvidó ir cerrando los pasos. Se cierran aquí, con quien la
+        // marcó, como si hubiera pasado por cada uno: si no, la pieza seguía
+        // saliendo en "Mis pasos" y su despacho quedaba a medias.
+        if (in_array($data['estado'], ['listo', 'entregado'], true)) {
+            $updates['despachado_por'] = $produccion->despachado_por ?? $usuario->id;
+
+            ProduccionPaso::where('produccion_id', $produccion->id)
+                ->whereIn('estado', ['pendiente', 'en_proceso'])
+                ->get()
+                ->each(fn (ProduccionPaso $p) => $p->update([
+                    'estado'         => 'completado',
+                    'iniciado_at'    => $p->iniciado_at ?? now(),
+                    'completado_por' => $usuario->id,
+                    'completado_at'  => now(),
+                ]));
+        }
+
         $produccion->update($updates);
 
         // Cancelar una pieza tiene que sacarla del taller de verdad.
