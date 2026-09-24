@@ -738,13 +738,14 @@ onMounted(async () => {
 <template>
   <div class="max-w-lg mx-auto px-4 pt-4 pb-28">
 
-    <!-- Header -->
-    <div class="flex items-center justify-between mb-4">
-      <h1 class="text-xl font-bold text-gray-800 flex items-center gap-2">
+    <!-- Header: en el celular los botones bajan a su propia fila en vez de
+         empujar la pantalla hacia los lados. -->
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
+      <h1 class="text-xl font-bold text-gray-800 flex items-center gap-2 shrink-0">
         <ReceiptPercentIcon class="w-6 h-6 text-green-600" />
         Comisiones
       </h1>
-      <div class="flex gap-2">
+      <div class="flex flex-wrap gap-2 justify-end">
         <button
           @click="exportarExcelCompleto"
           :disabled="exportando"
@@ -795,9 +796,9 @@ onMounted(async () => {
       <!-- Solo el bolson de restauraciones es un numero unico para todos; las
            ventas ya no lo son, cada quien cobra la suya en su propia fila de abajo. -->
       <div v-if="(indepData.bolson_restauraciones ?? indepData.base_restauracion) > 0" class="text-[11px] text-gray-500 py-1">
-        <div class="flex items-center justify-between text-purple-600">
+        <div class="flex flex-wrap items-center justify-between gap-x-2 text-purple-600">
           <span>Bolsón de restauraciones × {{ Math.round(indepData.porcentaje * 100) }}%</span>
-          <span class="font-medium">
+          <span class="font-medium ml-auto">
             {{ cop(indepData.bolson_restauraciones ?? indepData.base_restauracion) }} →
             {{ cop(indepData.comision_restauraciones) }} c/u
           </span>
@@ -1038,15 +1039,15 @@ onMounted(async () => {
                     <template v-else> cubre a <span class="font-semibold">{{ r.reemplaza_a }}</span></template>
                   </p>
                   <div class="grid grid-cols-2 gap-1.5">
-                    <div>
+                    <div class="min-w-0">
                       <p class="text-[10px] text-amber-600 mb-0.5">Desde</p>
                       <input type="date" v-model="edicionReemplazo.desde"
-                        class="w-full text-xs border border-amber-200 rounded-lg px-2 py-1.5 bg-white" />
+                        class="w-full min-w-0 text-xs border border-amber-200 rounded-lg px-2 py-1.5 bg-white" />
                     </div>
-                    <div>
+                    <div class="min-w-0">
                       <p class="text-[10px] text-amber-600 mb-0.5">Hasta <span class="text-amber-300">— opcional</span></p>
                       <input type="date" v-model="edicionReemplazo.hasta"
-                        class="w-full text-xs border border-amber-200 rounded-lg px-2 py-1.5 bg-white" />
+                        class="w-full min-w-0 text-xs border border-amber-200 rounded-lg px-2 py-1.5 bg-white" />
                     </div>
                   </div>
                   <div class="flex gap-1.5">
@@ -1119,15 +1120,15 @@ onMounted(async () => {
               </select>
 
               <div class="grid grid-cols-2 gap-1.5">
-                <div>
+                <div class="min-w-0">
                   <p class="text-[10px] text-gray-400 mb-0.5">Desde</p>
                   <input type="date" v-model="nuevoReemplazo[m.tienda_id].desde"
-                    class="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5" />
+                    class="w-full min-w-0 text-xs border border-gray-200 rounded-lg px-2 py-1.5" />
                 </div>
-                <div>
+                <div class="min-w-0">
                   <p class="text-[10px] text-gray-400 mb-0.5">Hasta <span class="text-gray-300">— opcional</span></p>
                   <input type="date" v-model="nuevoReemplazo[m.tienda_id].hasta"
-                    class="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5" />
+                    class="w-full min-w-0 text-xs border border-gray-200 rounded-lg px-2 py-1.5" />
                 </div>
               </div>
 
