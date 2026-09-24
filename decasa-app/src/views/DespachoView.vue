@@ -42,6 +42,24 @@ function lineasDe(orden) {
   if (!lineasPorOrden.value[orden.id]) lineasPorOrden.value[orden.id] = lineasPorDefecto(orden)
   return lineasPorOrden.value[orden.id]
 }
+// Lo marcado se guarda la primera vez que se pinta la orden. Si la cola se
+// recarga y la orden cambió —un producto que ya salió del taller, otro que
+// volvió—, lo guardado deja de servir: se vuelve a lo de por defecto.
+watch(() => despacho.cola, (cola) => {
+  const vigentes = {}
+  for (const o of cola) {
+    const guardadas = lineasPorOrden.value[o.id]
+    if (!guardadas) continue
+    const defecto = lineasPorDefecto(o)
+    const sigueValida = Object.keys(guardadas).length > 0
+      && Object.keys(guardadas).every(id => defecto[id] !== undefined)
+    if (sigueValida) vigentes[o.id] = guardadas
+  }
+  lineasPorOrden.value = vigentes
+})
+function tieneEntregables(orden) {
+  return Object.keys(lineasPorDefecto(orden)).length > 0
+}
 function comoLista(lineas) {
   return Object.entries(lineas ?? {}).filter(([, c]) => Number(c) > 0)
     .map(([id, c]) => ({ orden_item_id: Number(id), cantidad: Number(c) }))
@@ -121,12 +139,15 @@ async function confirmarAsignacion({ camion, fecha, nombre_ruta, instrucciones }
     const ordenes = ordenesSeleccionadas.value.map(o => ({
       orden_id: o.id,
       posicion: seleccionadas.value.get(o.id),
-      // Sin la lista de productos (una orden que entró por el socket) se
-      // manda sin líneas y el servidor sube todo lo que se pueda entregar.
-      lineas:   o.items ? comoLista(lineasDe(o)) : undefined,
+      // Sin la lista de productos, o si aquí no hay nada que marcar (datos
+      // viejos de la cola), se manda sin líneas: el servidor mira la base y
+      // sube todo lo que se pueda entregar, o dice qué orden no tiene nada.
+      lineas:   o.items && tieneEntregables(o) ? comoLista(lineasDe(o)) : undefined,
     }))
-    if (ordenes.some(o => o.lineas && !o.lineas.length)) {
-      toast.error('Hay una orden seleccionada sin ningún producto marcado para el camión.')
+    const vacia = ordenesSeleccionadas.value.find((o, i) => ordenes[i].lineas && !ordenes[i].lineas.length)
+    if (vacia) {
+      const num = vacia.referencia ?? `#${vacia.numero_orden ?? vacia.id}`
+      toast.error(`La orden ${num} (${vacia.cliente?.nombre ?? 'sin cliente'}) no tiene ningún producto marcado para el camión.`)
       asignando.value = false
       mostrarModalCamion.value = true
       return
@@ -422,7 +443,7 @@ const ordenAbriendo = ref(null)
 
 async function agregarOrden(ruta, orden) {
   if (agregandoOrdenId.value) return
-  const lineas = orden.items ? comoLista(lineasDe(orden)) : undefined
+  const lineas = orden.items && tieneEntregables(orden) ? comoLista(lineasDe(orden)) : undefined
   if (lineas && !lineas.length) { toast.error('Marca al menos un producto para el camión.'); return }
   agregandoOrdenId.value = orden.id
   try {
