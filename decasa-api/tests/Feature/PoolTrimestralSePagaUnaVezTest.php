@@ -188,6 +188,64 @@ class PoolTrimestralSePagaUnaVezTest extends TestCase
         $this->assertEqualsWithDelta(1_260_504, $cobra['Juan'], 3);
     }
 
+    public function test_una_venta_sin_la_mitad_pagada_no_agranda_el_pool_del_trimestre(): void
+    {
+        // Lo mismo que el caso de arriba, más una venta de 10M en septiembre
+        // con apenas el 10% pagado. Igual que en las tiendas mensuales, no
+        // cuenta para la meta: el pool sigue siendo el de los 30M, no el de 40M.
+        $this->orden(self::JUAN, '2026-07-10', 20_000_000);
+        $this->orden(self::JUAN, '2026-08-10', 20_000_000);
+        $this->orden(self::JUAN, '2026-09-10', 20_000_000);
+        $sinMitad = $this->orden(self::JUAN, '2026-09-20', 10_000_000);
+        DB::table('pagos')->where('orden_id', $sinMitad->id)->update(['monto' => 1_000_000]);
+
+        $ctrl = app(ComisionController::class);
+        [$metas, $totTienda] = (new \ReflectionMethod($ctrl, 'cargarTotales'))->invoke($ctrl);
+        $pools = (new \ReflectionMethod($ctrl, 'cargarPoolsTrimestrales'))->invoke($ctrl, $metas, $totTienda, false);
+
+        // 30.000.000 ÷ 1,19 × 5%, no 40.000.000 ÷ 1,19 × 5% ($1.680.672).
+        $this->assertEqualsWithDelta(1_260_504, $pools[self::PEREIRA . '_2026-Q3']['pool_pagado'], 3);
+
+        // Cuando el cliente paga la mitad, entra y el pool crece.
+        DB::table('pagos')->where('orden_id', $sinMitad->id)->update(['monto' => 5_000_000]);
+        [$metas, $totTienda] = (new \ReflectionMethod($ctrl, 'cargarTotales'))->invoke($ctrl);
+        $pools = (new \ReflectionMethod($ctrl, 'cargarPoolsTrimestrales'))->invoke($ctrl, $metas, $totTienda, false);
+
+        $this->assertEqualsWithDelta(1_680_672, $pools[self::PEREIRA . '_2026-Q3']['pool_pagado'], 3);
+    }
+
+    public function test_la_cuenta_del_trimestre_se_ve_mes_a_mes(): void
+    {
+        $this->orden(self::JUAN, '2026-07-10', 20_000_000);
+        $this->orden(self::JUAN, '2026-08-10', 20_000_000);
+        $this->orden(self::JUAN, '2026-09-10', 20_000_000);
+        $sinMitad = $this->orden(self::JUAN, '2026-09-20', 10_000_000);
+        DB::table('pagos')->where('orden_id', $sinMitad->id)->update(['monto' => 1_000_000]);
+
+        $ctrl = app(ComisionController::class);
+        [$metas, $totTienda] = (new \ReflectionMethod($ctrl, 'cargarTotales'))->invoke($ctrl);
+        $pools = (new \ReflectionMethod($ctrl, 'cargarPoolsTrimestrales'))->invoke($ctrl, $metas, $totTienda, false);
+        $t = (new \ReflectionMethod($ctrl, 'cuentaDelTrimestre'))
+            ->invoke($ctrl, self::PEREIRA, '2026-08', $metas, $totTienda, $pools);
+
+        $this->assertSame('2026-Q3', $t['trimestre']);
+        $this->assertSame(['2026-07', '2026-08', '2026-09'], array_column($t['meses'], 'mes'));
+        // Cada mes: 20M que cuentan contra 10M de meta.
+        foreach ($t['meses'] as $m) {
+            $this->assertEquals(20_000_000, $m['cuenta']);
+            $this->assertEquals(10_000_000, $m['meta']);
+            $this->assertEquals(10_000_000, $m['diferencia']);
+        }
+        // La de septiembre sin la mitad se ve aparte, sin sumar.
+        $this->assertEquals(10_000_000, $t['meses'][2]['sin_mitad']);
+
+        $this->assertEquals(30_000_000, $t['diferencial']);
+        $this->assertEqualsWithDelta(1_260_504, $t['pool_bruto'], 1);
+        $this->assertEquals(0, $t['deficit_inicial']);
+        $this->assertEqualsWithDelta(1_260_504, $t['pool_pagado'], 1);
+        $this->assertEquals(0, $t['deficit_final']);
+    }
+
     public function test_el_mes_que_no_vendio_le_paga_su_parte_y_la_suma_sigue_siendo_el_pool(): void
     {
         // Julio y septiembre vende; agosto no. El pool del trimestre se

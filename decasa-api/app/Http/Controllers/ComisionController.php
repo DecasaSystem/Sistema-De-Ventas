@@ -302,7 +302,7 @@ class ComisionController extends Controller
         $porTienda = $enriquecidas
             ->reject(fn ($i) => in_array((int) $i['vendedor_id'], $independientes, true))
             ->groupBy('tienda_id')
-            ->map(fn ($items) => $this->resumirTienda($items));
+            ->map(fn ($items) => $this->resumirTienda($items, $metas, $totalesTienda, $poolsTrimestrales));
         $grouped = $grouped->map(function ($fila) use ($porTienda) {
             $fila['resumen_tienda'] = $porTienda[$fila['tienda_id']] ?? null;
             return $fila;
@@ -1204,7 +1204,69 @@ class ComisionController extends Controller
      *
      * @param  \Illuminate\Support\Collection  $items  Comisiones ya enriquecidas de una tienda.
      */
-    private function resumirTienda($items): array
+    /**
+     * La cuenta entera de un trimestre de Pereira o Circunvalar, mes a mes.
+     *
+     * Esas tiendas tienen más piezas que las mensuales —tres metas, el
+     * déficit que arrastran del trimestre anterior, el trimestre que se
+     * congela al pagarse— y con solo el pool final no había cómo comprobar
+     * que la cuenta estuviera bien. Aquí va cada pieza.
+     */
+    private function cuentaDelTrimestre(int $tiendaId, string $mesVenta, $metas, $totalesTienda, array $poolsTrimestrales): array
+    {
+        $trimestre = self::trimestreDeMes($mesVenta);
+        $mesActual = Carbon::now(StatsController::TZ_NEGOCIO)->format('Y-m');
+        $cuentan   = $this->totalesQueCuentan();
+
+        $meses = [];
+        foreach (self::mesesDeTrimestre($trimestre) as $mes) {
+            $key     = $tiendaId . '_' . $mes;
+            $meta    = isset($metas[$key]) ? (float) $metas[$key]->meta : 0.0;
+            $cuenta  = (float) ($cuentan[$key] ?? 0);
+            $vendido = isset($totalesTienda[$key]) ? (float) $totalesTienda[$key]->total : 0.0;
+            $meses[] = [
+                'mes'        => $mes,
+                'meta'       => round($meta),
+                'cuenta'     => round($cuenta),
+                // Vendido pero sin la mitad pagada: todavía no suma.
+                'sin_mitad'  => round(max(0, $vendido - $cuenta)),
+                'diferencia' => round($cuenta - $meta),
+                'futuro'     => $mes > $mesActual,
+            ];
+        }
+
+        $info       = $poolsTrimestrales[$tiendaId . '_' . $trimestre] ?? null;
+        $pasados    = collect($meses)->where('futuro', false);
+        $acumulado  = $pasados->sum('diferencia');
+        $metaFutura = collect($meses)->where('futuro', true)->sum('meta');
+        // La deuda se guarda en pesos de comisión; en ventas es 1,19 ÷ 5% veces eso.
+        $deudaVentas = (float) ($info['deficit_inicial'] ?? 0) * self::IVA / self::PORCENTAJE_DIRECTO;
+
+        return [
+            'trimestre'       => $trimestre,
+            'meses'           => $meses,
+            // Suma de (lo que cuenta − meta) de los tres meses; los que no
+            // han llegado cuentan como cero vendido contra su meta entera.
+            'diferencial'     => round(collect($meses)->sum('diferencia')),
+            'acumulado'       => round($acumulado),
+            'deuda_en_ventas' => round($deudaVentas),
+            // Lo que falta vender, en lo que queda del trimestre, para que el
+            // pool salga en positivo: las metas que faltan, lo que va debajo y
+            // la deuda arrastrada.
+            'falta_para_cobrar' => round(max(0, $metaFutura - $acumulado + $deudaVentas)),
+            'pool_bruto'      => round((float) ($info['pool_bruto'] ?? 0)),
+            // Lo que el trimestre anterior quedó debiendo y se descuenta aquí.
+            'deficit_inicial' => round((float) ($info['deficit_inicial'] ?? 0)),
+            'pool_pagado'     => round((float) ($info['pool_pagado'] ?? 0)),
+            // Lo que este trimestre le deja debiendo al siguiente.
+            'deficit_final'   => round((float) ($info['deficit_final'] ?? 0)),
+            // Ya se pagó algo de él: quedó quieto, no se recalcula.
+            'cerrado'         => (bool) ($info['cerrado'] ?? false),
+            'meses_restantes' => collect($meses)->where('futuro', true)->count(),
+        ];
+    }
+
+    private function resumirTienda($items, $metas = null, $totalesTienda = null, array $poolsTrimestrales = []): array
     {
         $conOrden = $items->whereNotNull('orden_id');
 
@@ -1251,6 +1313,12 @@ class ComisionController extends Controller
                 'integrantes'    => $items->filter(fn ($i) => in_array($i['forma_pago'] ?? null, ['pool', self::ORIGEN_PARTE_POOL], true))
                                           ->pluck('vendedor_id')->unique()->count(),
             ];
+
+            if ($pool['periodicidad'] === 'trimestral' && $metas !== null) {
+                $pool['trimestre'] = $this->cuentaDelTrimestre(
+                    (int) $filaPool['tienda_id'], (string) $filaPool['mes_venta'], $metas, $totalesTienda, $poolsTrimestrales
+                );
+            }
         }
 
         // Orden por orden, para poder cuadrar contra el módulo de Órdenes: el
@@ -2163,7 +2231,8 @@ class ComisionController extends Controller
             $meta = isset($metas[$key]) ? (float) $metas[$key]->meta : 0;
 
             if ($mes <= $mesActual) {
-                $ventas = isset($totalesTienda[$key]) ? (float) $totalesTienda[$key]->total : 0;
+                // Lo mismo que el pool: solo lo que ya tiene la mitad pagada.
+                $ventas = $this->totalesQueCuentan()[$key] ?? 0.0;
                 $acumulado += ($ventas - $meta);
                 $cumplidos++;
             } else {
@@ -2182,13 +2251,58 @@ class ComisionController extends Controller
         ];
     }
 
+    /**
+     * Lo vendido por tienda y mes que YA CUENTA para la meta: ventas cuyo
+     * cliente pagó al menos la mitad, sin el datáfono, más lo que abonaron los
+     * independientes con la mitad pagada. Lo mismo que el libro de las
+     * tiendas mensuales (libroDelPool), para el pool por trimestre: una venta
+     * sin la mitad pagada no ayuda a pasar la meta ni agranda el pool.
+     *
+     * Se calcula una vez por cálculo; cargarTotales() lo descarta.
+     */
+    private function totalesQueCuentan(): array
+    {
+        if ($this->totalesQueCuentan !== null) return $this->totalesQueCuentan;
+
+        $filas = DB::table('comisiones as c')
+            ->join('usuarios as u', 'u.id', '=', 'c.vendedor_id')
+            ->join('ordenes as o', 'o.id', '=', 'c.orden_id')
+            ->where('u.independiente', false)
+            ->where('c.origen', '!=', self::ORIGEN_ABONO)
+            ->whereNotIn('o.estado', self::ESTADOS_SIN_VENTA)
+            ->whereNotIn('c.orden_id', function ($q) {
+                $q->from('orden_items')->select('orden_id')
+                  ->groupBy('orden_id')->havingRaw('COUNT(*) = SUM(es_restauracion)');
+            })
+            ->whereRaw('(SELECT COALESCE(SUM(p.monto), 0) FROM pagos p WHERE p.orden_id = o.id) >= o.valor_total * 0.5')
+            ->selectRaw('c.tienda_id, c.mes_venta, SUM(c.valor_orden) as total')
+            ->groupBy('c.tienda_id', 'c.mes_venta')
+            ->get();
+
+        $out = [];
+        foreach ($filas as $f) {
+            $out[$f->tienda_id . '_' . $f->mes_venta] = (float) $f->total;
+        }
+        foreach (self::abonadoPorTienda(true) as $clave => $monto) {
+            $out[$clave] = ($out[$clave] ?? 0) + (float) $monto;
+        }
+
+        return $this->totalesQueCuentan = $out;
+    }
+
+    private ?array $totalesQueCuentan = null;
+
     private function diferencialTrimestre(int $tiendaId, string $trimestre, $metas, $totalesTienda): float
     {
+        // Contra lo que ya cuenta (con la mitad pagada), no contra todo lo
+        // vendido: igual que en las tiendas mensuales.
+        $cuentan = $this->totalesQueCuentan();
+
         $diferencial = 0.0;
         foreach (self::mesesDeTrimestre($trimestre) as $mes) {
             $key    = $tiendaId . '_' . $mes;
             $meta   = isset($metas[$key]) ? (float) $metas[$key]->meta : 0;
-            $ventas = isset($totalesTienda[$key]) ? (float) $totalesTienda[$key]->total : 0;
+            $ventas = $cuentan[$key] ?? 0.0;
             $diferencial += ($ventas - $meta);
         }
         return $diferencial;
@@ -2669,6 +2783,7 @@ class ComisionController extends Controller
         $this->pesos           = [];
         $this->libros          = [];
         $this->abonadoQueCuenta = null;
+        $this->totalesQueCuentan = null;
         $this->nombresTienda   = null;
         TiendaReemplazo::olvidarCache();
         TiendaAsesor::olvidarCache();

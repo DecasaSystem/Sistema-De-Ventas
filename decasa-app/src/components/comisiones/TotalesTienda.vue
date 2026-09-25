@@ -36,6 +36,20 @@ const esTrimestral = computed(() => p.value?.periodicidad === 'trimestral')
 const excedente = computed(() => p.value ? Math.max(0, p.value.ventas_cuentan - p.value.meta) : 0)
 const faltaParaMeta = computed(() => p.value ? Math.max(0, p.value.meta - p.value.ventas_cuentan) : 0)
 
+// ── Trimestre (Pereira y Circunvalar) ───────────────────────────────────────
+const tri = computed(() => p.value?.trimestre ?? null)
+const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
+const nombreMes = (ym) => {
+  const [, m] = String(ym).split('-')
+  const n = MESES[Number(m) - 1] ?? ym
+  return n.charAt(0).toUpperCase() + n.slice(1)
+}
+const nombreTrimestre = (t) => {
+  const [anio, q] = String(t).split('-Q')
+  const inicio = (Number(q) - 1) * 3
+  return `Trimestre ${nombreMes(`${anio}-${inicio + 1}`)}–${MESES[inicio + 2]} ${anio}`
+}
+
 // ── Las órdenes una por una ─────────────────────────────────────────────────
 // Para cuadrar contra el módulo de Órdenes: el número por tipo no dice cuáles
 // son, y la que entra por un camino raro solo se encuentra viéndola.
@@ -119,6 +133,78 @@ const totalFiltrado = computed(() => ordenesFiltradas.value.reduce((s, o) => s +
             <span class="text-gray-400">÷ 1,19 × 5%</span>
             <span class="text-gray-700 tabular-nums font-semibold">{{ cop(p.pool) }}</span>
           </div>
+        </template>
+        <!-- Trimestral: la cuenta entera, mes a mes -->
+        <template v-else-if="tri">
+          <p class="text-[10px] text-gray-500">
+            {{ nombreTrimestre(tri.trimestre) }}
+            <span v-if="tri.cerrado" class="ml-1 px-1.5 rounded bg-gray-200 text-gray-700 font-semibold">congelado: ya se empezó a pagar</span>
+            <span v-else-if="tri.meses_restantes" class="ml-1 px-1.5 rounded bg-blue-100 text-blue-700 font-semibold">en curso · faltan {{ tri.meses_restantes }} {{ tri.meses_restantes === 1 ? 'mes' : 'meses' }}</span>
+          </p>
+
+          <!-- Mes a mes -->
+          <div class="bg-white rounded-lg border border-indigo-100 overflow-hidden">
+            <div class="grid grid-cols-4 gap-1 px-2 py-1 bg-indigo-50 text-[10px] font-semibold text-gray-500">
+              <span>Mes</span><span class="text-right">Cuenta</span><span class="text-right">Meta</span><span class="text-right">Diferencia</span>
+            </div>
+            <div v-for="m in tri.meses" :key="m.mes" class="px-2 py-1 border-t border-indigo-50">
+              <div class="grid grid-cols-4 gap-1 tabular-nums">
+                <span class="text-gray-700">{{ nombreMes(m.mes) }}</span>
+                <span class="text-right text-gray-700">{{ m.futuro ? '—' : cop(m.cuenta) }}</span>
+                <span class="text-right text-gray-500">{{ cop(m.meta) }}</span>
+                <span :class="['text-right font-semibold', m.diferencia >= 0 ? 'text-green-700' : 'text-red-600']">
+                  {{ m.diferencia >= 0 ? '+' : '−' }}{{ cop(Math.abs(m.diferencia)) }}
+                </span>
+              </div>
+              <p v-if="m.futuro" class="text-[10px] text-gray-400">No ha llegado: cuenta como cero contra su meta.</p>
+              <p v-else-if="m.sin_mitad > 0" class="text-[10px] text-amber-700">+ {{ cop(m.sin_mitad) }} vendido sin el 50% pagado (todavía no cuenta)</p>
+            </div>
+          </div>
+
+          <!-- La cuenta del pool -->
+          <div class="space-y-0.5">
+            <div class="flex justify-between">
+              <span class="text-gray-600">Diferencia del trimestre (suma de los 3 meses)</span>
+              <span :class="['tabular-nums font-semibold', tri.diferencial >= 0 ? 'text-green-700' : 'text-red-600']">
+                {{ tri.diferencial >= 0 ? '+' : '−' }}{{ cop(Math.abs(tri.diferencial)) }}
+              </span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-gray-400">÷ 1,19 × 5%</span>
+              <span :class="['tabular-nums', tri.pool_bruto >= 0 ? 'text-gray-700' : 'text-red-600']">
+                {{ tri.pool_bruto >= 0 ? '' : '−' }}{{ cop(Math.abs(tri.pool_bruto)) }}
+              </span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-gray-600">− Deuda que arrastra del trimestre anterior</span>
+              <span :class="['tabular-nums', tri.deficit_inicial > 0 ? 'text-red-600' : 'text-gray-400']">
+                − {{ cop(tri.deficit_inicial) }}
+              </span>
+            </div>
+            <p v-if="tri.deficit_inicial > 0" class="text-[10px] text-gray-400 -mt-0.5">
+              Equivale a {{ cop(tri.deuda_en_ventas) }} en ventas por encima de la meta.
+            </p>
+            <div class="flex justify-between border-t border-indigo-100 pt-0.5">
+              <span class="font-semibold text-gray-700">Pool que se paga</span>
+              <span class="font-semibold text-gray-800 tabular-nums">{{ cop(tri.pool_pagado) }}</span>
+            </div>
+            <div v-if="tri.deficit_final > 0" class="flex justify-between">
+              <span class="text-red-700">Deuda que le pasa al siguiente trimestre</span>
+              <span class="text-red-700 tabular-nums font-semibold">{{ cop(tri.deficit_final) }}</span>
+            </div>
+          </div>
+
+          <!-- Lo que falta -->
+          <p v-if="!tri.cerrado && tri.meses_restantes && tri.falta_para_cobrar > 0"
+             class="text-[11px] text-blue-800 bg-blue-50 border border-blue-100 rounded-lg px-2 py-1.5">
+            Para que el trimestre dé comisión, en lo que queda hay que vender (con el 50% pagado)
+            <strong>{{ cop(tri.falta_para_cobrar) }}</strong>: las metas que faltan,
+            lo que va por debajo<template v-if="tri.deficit_inicial > 0"> y la deuda que arrastra</template>.
+          </p>
+          <p v-else-if="!tri.cerrado && tri.meses_restantes && tri.pool_pagado > 0"
+             class="text-[11px] text-green-800 bg-green-50 border border-green-100 rounded-lg px-2 py-1.5">
+            Va en positivo: lo que se venda de aquí en adelante agranda el pool.
+          </p>
         </template>
         <div v-else class="flex justify-between">
           <span class="text-gray-600">Pool del trimestre</span>
