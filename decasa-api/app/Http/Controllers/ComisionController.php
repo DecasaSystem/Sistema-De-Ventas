@@ -1696,6 +1696,11 @@ class ComisionController extends Controller
      *
      * Quien no tiene tienda —un independiente— sigue con la de la orden. Las
      * órdenes viejas sin canal se tratan como físicas.
+     *
+     * "Su tienda" es la que tenía CUANDO VENDIÓ (`tienda_vendedor_id`), no la
+     * de hoy: si no, al pasar a alguien de tienda sus ventas digitales viejas
+     * se iban con él la próxima vez que se tocaran. Solo las órdenes sin ese
+     * dato caen a la tienda de hoy.
      */
     public static function tiendaParaComision(Orden $orden): int
     {
@@ -1703,7 +1708,8 @@ class ComisionController extends Controller
             return (int) $orden->tienda_id;
         }
 
-        $propia = Usuario::where('id', $orden->vendedor_id)->value('tienda_default_id');
+        $propia = $orden->tienda_vendedor_id
+            ?: Usuario::where('id', $orden->vendedor_id)->value('tienda_default_id');
 
         return (int) ($propia ?: $orden->tienda_id);
     }

@@ -79,7 +79,45 @@ class Orden extends Model
         'ciudad_envio',
         'departamento_envio',
         'listo_entrega_at',
+        'tienda_vendedor_id',
     ];
+
+    /**
+     * De qué tienda era el vendedor cuando vendió.
+     *
+     * Una venta digital cuenta para la tienda del vendedor, no para la de la
+     * orden (ver ComisionController::tiendaParaComision). Se miraba su tienda
+     * de HOY, y esa cuenta se rehace con cada pago, cambio de canal o
+     * "Recalcular": Manuela vendió el 31 de agosto en Tienda Virtual, pasó al
+     * Norte el 1 de septiembre, y su venta de agosto terminó sumándole al
+     * Norte. Se guarda al crear la orden y cuando cambia el vendedor.
+     */
+    protected static function booted(): void
+    {
+        static::creating(function (Orden $o) {
+            if ($o->vendedor_id && ! $o->tienda_vendedor_id && self::guardaTiendaVendedor()) {
+                $o->tienda_vendedor_id = Usuario::where('id', $o->vendedor_id)->value('tienda_default_id');
+            }
+        });
+
+        static::updating(function (Orden $o) {
+            if ($o->isDirty('vendedor_id') && ! $o->isDirty('tienda_vendedor_id') && self::guardaTiendaVendedor()) {
+                $o->tienda_vendedor_id = $o->vendedor_id
+                    ? Usuario::where('id', $o->vendedor_id)->value('tienda_default_id')
+                    : null;
+            }
+        });
+    }
+
+    /**
+     * Si la columna existe: en las pruebas con esquema propio puede no estar.
+     * Sin caché a propósito: las pruebas cambian de esquema en el mismo
+     * proceso, y es una consulta solo al crear una orden o cambiarle vendedor.
+     */
+    private static function guardaTiendaVendedor(): bool
+    {
+        return \Illuminate\Support\Facades\Schema::hasColumn('ordenes', 'tienda_vendedor_id');
+    }
 
     protected function casts(): array
     {

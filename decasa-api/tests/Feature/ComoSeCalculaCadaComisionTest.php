@@ -80,6 +80,7 @@ class ComoSeCalculaCadaComisionTest extends TestCase
         });
         Schema::create('ordenes', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('tienda_id')->nullable(); $t->unsignedBigInteger('vendedor_id')->nullable();
+            $t->string('canal')->nullable(); $t->unsignedBigInteger('tienda_vendedor_id')->nullable();
             $t->unsignedBigInteger('tienda_abonada_id')->nullable(); $t->unsignedBigInteger('covendedor_id')->nullable();
             $t->unsignedBigInteger('cliente_id')->nullable();
             $t->boolean('es_compartida')->default(false);
@@ -257,6 +258,31 @@ class ComoSeCalculaCadaComisionTest extends TestCase
         $cobra = $this->loQueCobraCadaUno();
 
         $this->assertEqualsWithDelta(233_893, $cobra['Paola'], 2);
+    }
+
+    /**
+     * La #4308: Manuela vendió por Instagram en Tienda Virtual y después pasó
+     * al Norte. Su venta sigue siendo de Tienda Virtual aunque se vuelva a
+     * sincronizar (un pago, un cambio de canal, "Recalcular").
+     */
+    public function test_una_venta_digital_se_queda_en_la_tienda_que_tenia_el_vendedor_al_vender(): void
+    {
+        $orden = $this->orden(self::MANUELA, self::VIRTUAL, 6_000_000);
+        DB::table('ordenes')->where('id', $orden->id)->update(['canal' => 'instagram']);
+        $this->assertEquals(self::VIRTUAL, $orden->fresh()->tienda_vendedor_id, 'se guarda al crear la orden');
+
+        // Pasa al Norte, y después algo vuelve a sincronizar la venta vieja.
+        DB::table('usuarios')->where('id', self::MANUELA)->update(['tienda_default_id' => self::NORTE]);
+        ComisionController::sincronizarValorOrden($orden->fresh());
+
+        $this->assertEquals(self::VIRTUAL, (int) Comision::where('orden_id', $orden->id)->value('tienda_id'));
+
+        // Una venta nueva, ya estando en el Norte, sí es del Norte.
+        $nueva = $this->orden(self::MANUELA, self::VIRTUAL, 1_000_000);
+        DB::table('ordenes')->where('id', $nueva->id)->update(['canal' => 'instagram']);
+        ComisionController::sincronizarValorOrden($nueva->fresh());
+
+        $this->assertEquals(self::NORTE, (int) Comision::where('orden_id', $nueva->id)->value('tienda_id'));
     }
 
     public function test_addi_cuenta_igual_que_la_tarjeta(): void
