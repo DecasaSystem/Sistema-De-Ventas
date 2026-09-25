@@ -84,6 +84,11 @@ const tendencia  = ref(null)
 const vendedores = ref([])
 const tiendasData = ref([])
 const productos  = ref([])
+// Cómo se ordena el top: por la plata que dejó ('valor') o por cuántas
+// unidades salieron ('cantidad'). Lo ordena el servidor: el top trae solo
+// los primeros, y el más vendido en unidades puede no estar entre los
+// primeros en plata.
+const ordenProductos = ref('valor')
 const categorias  = ref([])
 const categoriaFiltro = ref('')
 const busquedaProducto = ref('')
@@ -102,11 +107,24 @@ function onBusquedaInput() {
   _busquedaTimer = setTimeout(() => buscarProducto(), 350)
 }
 
+// Cambiar entre "más plata" y "más unidades" vuelve a pedir la lista con lo
+// que esté puesto: la búsqueda, la categoría o el top general.
+async function cambiarOrdenProductos(tipo) {
+  if (ordenProductos.value === tipo) return
+  ordenProductos.value = tipo
+  if (busquedaProducto.value.trim() || categoriaFiltro.value) {
+    await buscarProducto()
+  } else {
+    const { data } = await getProductos({ ...paramsFiltro(), limit: 10, tipo })
+    productos.value = data
+  }
+}
+
 async function buscarProducto() {
   const p = { ...paramsFiltro() }
   if (categoriaFiltro.value) p.categoria = categoriaFiltro.value
   if (busquedaProducto.value.trim()) p.q = busquedaProducto.value.trim()
-  const { data } = await getProductos({ ...p, limit: busquedaProducto.value.trim() ? 50 : 20 })
+  const { data } = await getProductos({ ...p, limit: busquedaProducto.value.trim() ? 50 : 20, tipo: ordenProductos.value })
   productos.value = data
 }
 
@@ -273,7 +291,7 @@ async function cargarTodo() {
       getTendencia(p),
       auth.isSupervisor ? getStatsVendedores(p) : Promise.resolve({ data: [] }),
       auth.isSupervisor ? getStatsTiendas(p) : Promise.resolve({ data: [] }),
-      getProductos({ ...p, limit: 10 }),
+      getProductos({ ...p, limit: 10, tipo: ordenProductos.value }),
       getCartera(p),
       api.get('/reportes/retrasos'),
       getStatsCategorias(p),
@@ -299,7 +317,7 @@ async function filtrarPorCategoria(cat) {
   categoriaFiltro.value = cat
   busquedaProducto.value = ''
   const p = { ...paramsFiltro(), ...(cat ? { categoria: cat } : {}) }
-  const { data } = await getProductos({ ...p, limit: 20 })
+  const { data } = await getProductos({ ...p, limit: 20, tipo: ordenProductos.value })
   productos.value = data
   await nextTick()
   buildDona()
@@ -916,6 +934,17 @@ onBeforeUnmount(() => {
               <template v-else-if="categoriaFiltro">Top productos — {{ categoriaFiltro }}</template>
               <template v-else>Top 10 productos</template>
             </p>
+            <!-- Por plata o por unidades -->
+            <div class="flex gap-0.5 bg-gray-100 rounded-lg p-0.5 ml-auto mr-3">
+              <button
+                v-for="o in [{ v: 'valor', l: 'Por $' }, { v: 'cantidad', l: 'Por unidades' }]"
+                :key="o.v"
+                type="button"
+                @click="cambiarOrdenProductos(o.v)"
+                :class="['text-xs font-semibold px-2 py-1 rounded-md transition-colors',
+                  ordenProductos === o.v ? 'bg-white shadow-sm text-blue-700' : 'text-gray-500 hover:text-gray-700']"
+              >{{ o.l }}</button>
+            </div>
             <button
               @click="exportar('productos-top')"
               :disabled="exportandoTipo !== null"
