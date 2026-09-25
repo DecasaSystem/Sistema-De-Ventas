@@ -330,7 +330,18 @@ class OrdenController extends Controller
             'items.*.boceto_urls'                => 'nullable|array|max:10',
             'items.*.boceto_urls.*'              => 'nullable|string|max:500',
             'items.*.fecha_entrega_prometida'    => 'nullable|date',
+            // La clave de este envío: la pantalla la genera al abrir el
+            // formulario y la repite en cada reintento. Ver ordenYaEnviada().
+            'clave_envio'                        => 'nullable|string|max:64',
         ]);
+
+        // El mismo envío que ya llegó (se cortó el internet, la respuesta no
+        // volvió, le dio dos veces): se devuelve la orden que ya existe en
+        // vez de crear otra. Va lo primero: más abajo el segundo envío podría
+        // fallar por "sin stock", porque lo apartó el primero.
+        if ($yaEnviada = $this->ordenYaEnviada($data['clave_envio'] ?? null)) {
+            return $yaEnviada;
+        }
 
         // Todo usuario debe tener su firma registrada antes de crear órdenes
         if (! $request->user()->firma_url) {
@@ -518,6 +529,7 @@ class OrdenController extends Controller
             $fotosFactura = [$data['factura_foto_url']];
         }
 
+        try {
         $orden = DB::transaction(function () use ($data, $tiendaId, $anticupoPct, $valorTotal, $descuentoTotal, $request, $tieneItemsCotizacionPendiente, $guardarBorrador, $quiereEntregaInmediata, $esFv2, $fv2SinIva, $descuentoCondicionado, $pctCondicionado, $tiendaAbonadaId, $fechaEntregaInicial, $fotosFactura) {
 
             // --- 1. Verificar stock para items no personalizados (con bloqueo) ---
@@ -557,6 +569,9 @@ class OrdenController extends Controller
 
             // --- 2. Crear la orden ---
             $orden = Orden::create([
+                // Única en la base: dos envíos iguales que lleguen a la vez no
+                // pueden crear dos órdenes; el segundo choca aquí.
+                ...Orden::conClaveEnvio($data['clave_envio'] ?? null),
                 'cliente_id'        => $data['cliente_id'],
                 'vendedor_id'       => $request->user()->id,
                 'tienda_id'         => $tiendaId,
@@ -760,6 +775,14 @@ class OrdenController extends Controller
 
             return $orden;
         });
+        } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
+            // Dos envíos iguales llegaron a la vez: el otro ganó. Se devuelve
+            // su orden, que es esta misma. Otra llave repetida sí es un error.
+            if ($yaEnviada = $this->ordenYaEnviada($data['clave_envio'] ?? null)) {
+                return $yaEnviada;
+            }
+            throw $e;
+        }
 
         $relacionesRespuesta = [
             'cliente:id,nombre,cedula,telefono',
@@ -3470,6 +3493,32 @@ class OrdenController extends Controller
             'cantidad'    => $item->cantidad,
             'motivo'      => $motivo,
             'usuario_id'  => $usuario->id,
+        ]);
+    }
+
+    /**
+     * Si este envío ya había llegado, la respuesta que lleva a esa orden.
+     *
+     * A la gente se le duplicaban órdenes: el internet se cae después de que
+     * el servidor la guardó, la respuesta nunca llega, la pantalla dice "sin
+     * conexión" y la persona vuelve a darle. La pantalla manda una clave por
+     * formulario y la repite en cada reintento; con la misma clave no se crea
+     * otra orden, se devuelve la que ya existe.
+     *
+     * Sin `id` a propósito: la pantalla, al ver un `id`, crea la consulta de
+     * costo, y esa ya la creó el primer envío. Con `orden_id` solo navega.
+     */
+    private function ordenYaEnviada(?string $clave)
+    {
+        if (! $clave || ! Orden::tieneClaveEnvio()) return null;
+
+        $orden = Orden::where('clave_envio', $clave)->first();
+        if (! $orden) return null;
+
+        return response()->json([
+            'message'    => "Esta orden ya se había registrado ({$orden->referencia}). No se creó otra.",
+            'orden_id'   => $orden->id,
+            'ya_existia' => true,
         ]);
     }
 

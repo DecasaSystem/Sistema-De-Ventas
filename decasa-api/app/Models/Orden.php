@@ -80,6 +80,7 @@ class Orden extends Model
         'departamento_envio',
         'listo_entrega_at',
         'tienda_vendedor_id',
+        'clave_envio',
     ];
 
     /**
@@ -107,6 +108,22 @@ class Orden extends Model
                     : null;
             }
         });
+    }
+
+    /**
+     * Lo que va en `Orden::create` para la clave del envío (ver
+     * OrdenController::ordenYaEnviada): nada si no vino o si la columna no
+     * existe. Si la migración no hubiera corrido, crear órdenes tiene que
+     * seguir funcionando —solo sin esta protección—.
+     */
+    public static function conClaveEnvio(?string $clave): array
+    {
+        return $clave && self::tieneClaveEnvio() ? ['clave_envio' => $clave] : [];
+    }
+
+    public static function tieneClaveEnvio(): bool
+    {
+        return \Illuminate\Support\Facades\Schema::hasColumn('ordenes', 'clave_envio');
     }
 
     /**

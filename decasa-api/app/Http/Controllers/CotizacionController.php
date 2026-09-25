@@ -102,6 +102,25 @@ class CotizacionController extends Controller
      * POST /api/cotizaciones
      * No toca inventario ni exige stock: es solo una propuesta de precio.
      */
+    /**
+     * Si este envío ya había llegado, la respuesta que lleva a esa cotización
+     * (ver OrdenController::ordenYaEnviada). Sin `id`: la pantalla, al verlo,
+     * pediría otra vez la consulta de costo que ya pidió el primer envío.
+     */
+    private function cotizacionYaEnviada(?string $clave)
+    {
+        if (! $clave || ! Orden::tieneClaveEnvio()) return null;
+
+        $cotizacion = Orden::where('clave_envio', $clave)->first();
+        if (! $cotizacion) return null;
+
+        return response()->json([
+            'message'       => "Esta cotización ya se había registrado ({$cotizacion->referencia}). No se creó otra.",
+            'cotizacion_id' => $cotizacion->id,
+            'ya_existia'    => true,
+        ]);
+    }
+
     public function store(Request $request)
     {
         $data = $request->validate([
@@ -133,7 +152,14 @@ class CotizacionController extends Controller
             'items.*.specs_personalizacion'      => 'nullable|array',
             'items.*.boceto_url'                 => 'nullable|string|max:500',
             'items.*.boceto_urls'                => 'nullable|array',
+            // Igual que en las órdenes: la clave del envío, repetida en cada
+            // reintento, para que un internet malo no deje dos cotizaciones.
+            'clave_envio'                        => 'nullable|string|max:64',
         ]);
+
+        if ($yaEnviada = $this->cotizacionYaEnviada($data['clave_envio'] ?? null)) {
+            return $yaEnviada;
+        }
 
         $tiendaId = $data['tienda_id'];
 
@@ -141,8 +167,10 @@ class CotizacionController extends Controller
         $descuentoTotal = min((float) ($data['descuento_total'] ?? 0), $subtotal);
         $valorTotal     = $subtotal - $descuentoTotal;
 
+        try {
         $cotizacion = DB::transaction(function () use ($data, $tiendaId, $valorTotal, $descuentoTotal, $request) {
             $orden = Orden::create([
+                ...Orden::conClaveEnvio($data['clave_envio'] ?? null),
                 'cliente_id'              => $data['cliente_id'] ?? null,
                 'contacto_nombre'         => $data['contacto_nombre'] ?? null,
                 'contacto_telefono'       => $data['contacto_telefono'] ?? null,
@@ -213,6 +241,13 @@ class CotizacionController extends Controller
 
             return $orden;
         });
+        } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
+            // Dos envíos iguales a la vez: el otro ya la creó.
+            if ($yaEnviada = $this->cotizacionYaEnviada($data['clave_envio'] ?? null)) {
+                return $yaEnviada;
+            }
+            throw $e;
+        }
 
         return response()->json(
             $cotizacion->load(['cliente:id,nombre,telefono', 'tienda:id,nombre', 'vendedor:id,nombre', 'items']),

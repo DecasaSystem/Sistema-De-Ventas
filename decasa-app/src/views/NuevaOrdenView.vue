@@ -1456,6 +1456,13 @@ const tiendasAbonables = computed(() =>
 const vendedoresLista      = ref([])
 const cargandoVendedores   = ref(false)
 const submitting           = ref(false)
+
+// Una clave por formulario, la misma en cada reintento. Si el internet se
+// cae después de que el servidor guardó la orden, la respuesta no llega y la
+// persona vuelve a darle: con la misma clave el servidor devuelve la que ya
+// creó en vez de hacer otra. Se hace nueva solo al abrir otro formulario.
+const claveEnvio = globalThis.crypto?.randomUUID?.()
+  ?? `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`
 const modoGuardarBorrador  = ref(false)
 const entregaInmediata     = ref(false)  // venta directa: el cliente se lleva los productos ya
 const enviarPdfAlGuardarBorrador = ref(false) // true solo si se usó "Guardar borrador y enviar PDF"
@@ -1842,6 +1849,7 @@ async function submit() {
     }
 
     const payload = {
+      clave_envio:          claveEnvio,
       cliente_id:           clienteSeleccionado.value.id,
       tienda_id:            tiendaId.value,
       canal:                canal.value,
@@ -1937,8 +1945,9 @@ async function submit() {
       } catch { /* La orden se creó bien — la consulta puede reintentarse desde el detalle */ }
     }
 
-    // Si el backend detectó duplicado (409), redirigir a la orden existente
+    // Ya había llegado (un reintento con la misma clave): a la que existe.
     if (data?.orden_id) {
+      if (data.ya_existia) toast.success(data.message ?? 'Esta orden ya se había registrado. No se creó otra.')
       router.push({ name: 'orden-detalle', params: { id: data.orden_id } })
     } else if (modoGuardarBorrador.value && data?.id) {
       if (enviarPdfAlGuardarBorrador.value) {
@@ -1977,9 +1986,11 @@ async function submit() {
       if (e.response) {
         mensaje = `Error del servidor (${e.response.status}) al crear la orden`
       } else if (e.isAxiosError) {
+        // Reintentar desde esta misma pantalla es seguro: va con la misma
+        // clave, así que si la orden sí quedó creada no se duplica.
         mensaje = e.code === 'ECONNABORTED'
-          ? 'El servidor tardó demasiado en responder. Revisa en Órdenes si la orden quedó creada antes de reintentar.'
-          : `Sin conexión con el servidor (${e.code ?? e.message}). Revisa en Órdenes si la orden quedó creada antes de reintentar.`
+          ? 'El servidor tardó demasiado en responder. Vuelve a darle desde aquí: si la orden ya quedó creada, te lleva a ella sin duplicarla.'
+          : `Sin conexión con el servidor (${e.code ?? e.message}). Cuando vuelva el internet, dale otra vez desde aquí: si la orden ya quedó creada, te lleva a ella sin duplicarla.`
       } else {
         mensaje = `Error en la pantalla al armar la orden: ${e.message}`
       }
@@ -2046,6 +2057,7 @@ async function submitCotizacion() {
     }
 
     const payload = {
+      clave_envio:       claveEnvio,
       cliente_id:        clienteSeleccionado.value?.id || undefined,
       contacto_nombre:   clienteSeleccionado.value ? undefined : (contactoNombre.value.trim()   || undefined),
       contacto_telefono: clienteSeleccionado.value ? undefined : (contactoTelefono.value.trim() || undefined),
@@ -2086,6 +2098,14 @@ async function submitCotizacion() {
     }
 
     const { data } = await api.post('/cotizaciones', payload)
+
+    // Ya había llegado (un reintento): se va a la que existe, sin pedir otra
+    // vez la consulta de costo.
+    if (data?.ya_existia && data?.cotizacion_id) {
+      toast.success(data.message ?? 'Esta cotización ya se había registrado.')
+      router.push({ name: 'cotizacion-detalle', params: { id: data.cotizacion_id } })
+      return
+    }
 
     // Preguntar el costo de lo que va sin precio. En una cotización el precio
     // que responda el taller entra directo al documento: no hay nada que el
