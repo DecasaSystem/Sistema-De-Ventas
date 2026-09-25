@@ -802,8 +802,9 @@ class ComoSeCalculaCadaComisionTest extends TestCase
         $this->assertSame([], $r['restauraciones_almacenes']);
     }
 
-    public function test_la_restauracion_de_almacen_se_cobra_cuando_el_cliente_pago_la_mitad(): void
+    public function test_la_restauracion_de_almacen_se_cobra_aunque_el_cliente_no_haya_pagado_la_mitad(): void
     {
+        // Las restauraciones no esperan la mitad: con la fecha basta.
         $orden = $this->orden(self::GLADYS, self::EDEN, 1_000_000, restauracion: true);
         DB::table('pagos')->where('orden_id', $orden->id)->update(['monto' => 400_000]);
 
@@ -811,8 +812,32 @@ class ComoSeCalculaCadaComisionTest extends TestCase
         $suyo = collect($r['independientes'])->firstWhere('vendedor_id', self::HENRY);
 
         $this->assertEquals(50_000, $suyo['comision']);
-        $this->assertEquals(0, $suyo['comision_lista'], 'el cliente no ha pagado la mitad');
-        $this->assertEquals(50_000, $suyo['comision_pendiente']);
+        $this->assertEquals(50_000, $suyo['comision_lista'], 'la restauración no espera la mitad');
+        $this->assertEquals(0, $suyo['comision_pendiente']);
+    }
+
+    public function test_la_restauracion_de_una_tienda_se_paga_aunque_el_cliente_no_haya_pagado_la_mitad(): void
+    {
+        // El Edén: 5.000.000 × 5% ÷ 2 = 125.000 a cada uno, con el cliente
+        // habiendo pagado apenas el 10%.
+        $orden = $this->orden(self::GLADYS, self::EDEN, 5_000_000, restauracion: true);
+        $this->clienteAbono($orden, 500_000);
+        ComisionController::sincronizarValorOrden($orden->fresh());
+
+        $listo = $this->loQueEstaListo();
+
+        $this->assertEquals(125_000, $listo['Gladys'] ?? 0);
+        $this->assertEquals(125_000, $listo['Sebastián'] ?? 0);
+    }
+
+    public function test_una_venta_sin_la_mitad_sigue_sin_estar_lista(): void
+    {
+        // La regla de la mitad sigue para las ventas: solo las restauraciones se salvan.
+        $orden = $this->orden(self::MANUELA, self::VIRTUAL, 10_000_000);
+        $this->clienteAbono($orden, 1_000_000);
+        ComisionController::sincronizarValorOrden($orden->fresh());
+
+        $this->assertArrayNotHasKey('Manuela', $this->loQueEstaListo());
     }
 
     // ─────────── Las cuentas de toda la tienda ───────────

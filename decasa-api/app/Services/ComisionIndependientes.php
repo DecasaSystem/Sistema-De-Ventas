@@ -145,9 +145,16 @@ class ComisionIndependientes
         // viene sin el datáfono y partida por la mitad si es compartida, así
         // que comparar el abono del cliente con ella daba por cumplida la
         // mitad cuando llevaba pagado bastante menos.
-        $estaLista = fn ($o) => $llegoLaFecha && (float) $o->pagado >= (float) $o->valor_orden / 2;
+        //
+        // Las restauraciones no esperan la mitad: se pagan con solo llegar la
+        // fecha, haya pagado el cliente lo que haya pagado.
+        $estaLista = fn ($o) => $llegoLaFecha && (
+            in_array($o->id, $idsRestauracion, true)
+            || (float) $o->pagado >= (float) $o->valor_orden / 2
+        );
         $listas            = $ordenes->filter($estaLista);
-        $deAlmacenesListas = $deAlmacenes->filter($estaLista);
+        // Las de los almacenes son todas restauraciones: solo miran la fecha.
+        $deAlmacenesListas = $deAlmacenes->filter(fn ($o) => $llegoLaFecha);
 
         /** Lo que paga un grupo de órdenes, mezclando venta y restauración — para el almacén, que cobra igual sobre las dos. */
         $pagaPor = function ($grupo) use ($idsRestauracion) {

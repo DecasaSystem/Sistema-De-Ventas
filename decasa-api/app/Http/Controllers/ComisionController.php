@@ -1282,7 +1282,9 @@ class ComisionController extends Controller
                 'valor_real'  => round($filas->sum(fn ($i) => (float) $i['valor_orden'])),
                 'valor_orden' => round($valor),
                 'pct_pagado'  => $valor > 0 ? (int) round($pagado / $valor * 100) : 0,
-                'cuenta'      => $valor > 0 && $pagado >= $valor * 0.5,
+                // La restauración no espera la mitad: cuenta siempre.
+                'cuenta'      => ($primera['tipo_orden'] ?? null) === 'restauracion'
+                                 || ($valor > 0 && $pagado >= $valor * 0.5),
                 'por_que'     => $porQue,
                 'canal'       => $primera['canal'] ?? null,
                 'fecha'       => $primera['fecha_venta'] ?? null,
@@ -2920,7 +2922,10 @@ class ComisionController extends Controller
         if ($usaLibro && ! $esPartePool) {
             $baseReq50 = (float) ($c->orden?->valor_total ?? $c->valor_orden);
         }
-        $req50     = $esPartePool || $pagado >= ($baseReq50 * 0.5);
+        // Una restauración no espera la mitad: se paga con solo llegar la
+        // fecha, haya pagado el cliente lo que haya pagado. Tampoco empuja la
+        // meta ni entra al pool, así que no le cambia la cuenta a nadie más.
+        $req50     = $esPartePool || $esRestauracion || $pagado >= ($baseReq50 * 0.5);
         $reqVencio = $hoy->gte(Carbon::parse($c->fecha_disponible));
 
         // En tiendas trimestrales el déficit ya quedó neteado en $comisionPool
