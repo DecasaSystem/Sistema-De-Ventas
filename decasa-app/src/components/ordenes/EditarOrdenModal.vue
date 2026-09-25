@@ -1437,6 +1437,7 @@ async function guardar() {
                     <option value="efectivo">Efectivo</option>
                     <option value="transferencia">Transferencia</option>
                     <option value="tarjeta">Tarjeta</option>
+                    <option value="addi">Addi</option>
                     <option value="otro">Otro</option>
                   </select>
                 </div>

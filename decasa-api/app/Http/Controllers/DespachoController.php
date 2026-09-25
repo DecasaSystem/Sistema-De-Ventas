@@ -1044,7 +1044,7 @@ class DespachoController extends Controller
 
         $data = $request->validate([
             'monto'         => $requierePago ? 'required|numeric|min:1'                         : 'nullable|numeric|min:0',
-            'metodo'        => $traePago     ? 'required|in:efectivo,transferencia,tarjeta,otro' : 'nullable|in:efectivo,transferencia,tarjeta,otro',
+            'metodo'        => $traePago     ? 'required|in:efectivo,transferencia,tarjeta,addi,otro' : 'nullable|in:efectivo,transferencia,tarjeta,addi,otro',
             'referencia'    => 'nullable|string|max:100',
             'foto_producto' => 'required|image|max:10240',
             // Una o varias fotos del comprobante: `foto_pago` (una) o

@@ -1511,6 +1511,7 @@ const metodosOpts = [
   { value: 'efectivo',      label: 'Efectivo' },
   { value: 'transferencia', label: 'Transferencia' },
   { value: 'tarjeta',       label: 'Tarjeta' },
+  { value: 'addi',          label: 'Addi' },
   { value: 'otro',          label: 'Otro' },
 ]
 

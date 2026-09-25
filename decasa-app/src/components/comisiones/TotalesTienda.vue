@@ -10,7 +10,7 @@
  * Va plegado: se repite en cada tarjeta del mismo equipo, y abierto en todas
  * la pantalla se vuelve larguísima.
  */
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 
 const props = defineProps({
   resumen: { type: Object, default: null },
@@ -35,6 +35,24 @@ const p = computed(() => props.resumen?.pool ?? null)
 const esTrimestral = computed(() => p.value?.periodicidad === 'trimestral')
 const excedente = computed(() => p.value ? Math.max(0, p.value.ventas_cuentan - p.value.meta) : 0)
 const faltaParaMeta = computed(() => p.value ? Math.max(0, p.value.meta - p.value.ventas_cuentan) : 0)
+
+// ── Las órdenes una por una ─────────────────────────────────────────────────
+// Para cuadrar contra el módulo de Órdenes: el número por tipo no dice cuáles
+// son, y la que entra por un camino raro solo se encuentra viéndola.
+const verOrdenes = ref(false)
+const filtroTipo = ref('')   // '' todas · venta · restauracion · fv2
+
+const POR_QUE = {
+  venta_tienda:     null,
+  otra_tienda:      { text: 'orden de otra tienda', cls: 'bg-sky-100 text-sky-700' },
+  de_independiente: { text: 'de un independiente',  cls: 'bg-amber-100 text-amber-700' },
+  restauracion:     { text: 'restauración repartida', cls: 'bg-orange-100 text-orange-700' },
+}
+
+const ordenesFiltradas = computed(() =>
+  (props.resumen?.detalle ?? []).filter(o => !filtroTipo.value || o.tipo === filtroTipo.value)
+)
+const totalFiltrado = computed(() => ordenesFiltradas.value.reduce((s, o) => s + o.valor_real, 0))
 </script>
 
 <template>
@@ -55,7 +73,7 @@ const faltaParaMeta = computed(() => p.value ? Math.max(0, p.value.meta - p.valu
           <span class="text-gray-700 tabular-nums">{{ cop(resumen.vendido) }}</span>
         </div>
         <div v-if="resumen.datafono > 0" class="flex justify-between">
-          <span class="text-gray-400">− Datáfono (5,5% de {{ cop(resumen.tarjeta) }} con tarjeta)</span>
+          <span class="text-gray-400">− Datáfono / Addi (5,5% de {{ cop(resumen.tarjeta) }})</span>
           <span class="text-gray-400 tabular-nums">− {{ cop(resumen.datafono) }}</span>
         </div>
         <div class="flex justify-between border-t border-indigo-100 pt-0.5">
@@ -109,6 +127,64 @@ const faltaParaMeta = computed(() => p.value ? Math.max(0, p.value.meta - p.valu
         <div v-if="p.integrantes > 0" class="flex justify-between">
           <span class="text-gray-400">÷ {{ p.integrantes }} integrantes (por días si hubo reemplazos)</span>
           <span class="text-gray-700 tabular-nums">{{ cop(p.pool / p.integrantes) }} c/u</span>
+        </div>
+      </div>
+
+      <!-- Las órdenes una por una, filtrables por tipo -->
+      <div v-if="resumen.detalle?.length">
+        <button
+          type="button"
+          @click="verOrdenes = !verOrdenes"
+          class="w-full text-left text-[11px] font-semibold text-indigo-700 hover:underline"
+        >
+          {{ verOrdenes ? '▴ Ocultar las órdenes' : `▾ Ver las ${resumen.detalle.length} órdenes` }}
+        </button>
+
+        <div v-if="verOrdenes" class="mt-1.5 space-y-1.5">
+          <div class="flex flex-wrap gap-1">
+            <button
+              v-for="f in [{ clave: '', label: 'Todas' }, ...TIPOS]"
+              :key="f.clave"
+              type="button"
+              @click="filtroTipo = f.clave"
+              :class="['px-2 py-0.5 rounded-full border text-[10px] font-semibold',
+                filtroTipo === f.clave ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-indigo-700 border-indigo-200']"
+            >{{ f.label }}</button>
+          </div>
+
+          <p class="text-[10px] text-gray-500">
+            {{ ordenesFiltradas.length }} {{ ordenesFiltradas.length === 1 ? 'orden' : 'órdenes' }} ·
+            valor real {{ cop(totalFiltrado) }}
+          </p>
+
+          <div class="bg-white rounded-lg border border-indigo-100 divide-y divide-indigo-50">
+            <RouterLink
+              v-for="o in ordenesFiltradas"
+              :key="o.orden_id"
+              :to="{ name: 'orden-detalle', params: { id: o.orden_id } }"
+              class="block px-2 py-1.5 hover:bg-indigo-50/60"
+            >
+              <div class="flex items-center justify-between gap-2">
+                <span class="font-semibold text-gray-800">{{ o.referencia ?? ('#' + o.orden_id) }}</span>
+                <span class="tabular-nums text-gray-700">{{ cop(o.valor_real) }}</span>
+              </div>
+              <div class="flex items-center justify-between gap-2 text-[10px] text-gray-500">
+                <span class="truncate">{{ o.cliente ?? 'Sin cliente' }} · {{ o.vendedores.join(', ') }}</span>
+                <span
+                  :class="['shrink-0 font-semibold', o.cuenta ? 'text-green-700' : 'text-amber-700']"
+                  :title="o.cuenta ? 'Ya tiene el 50% pagado' : 'Todavía no tiene el 50% pagado'"
+                >{{ o.pct_pagado }}% pagado{{ o.cuenta ? '' : ' · no cuenta' }}</span>
+              </div>
+              <div v-if="POR_QUE[o.por_que] || o.valor_real !== o.valor_orden" class="flex flex-wrap gap-1 mt-0.5">
+                <span v-if="POR_QUE[o.por_que]" :class="['px-1.5 rounded text-[10px]', POR_QUE[o.por_que].cls]">
+                  {{ POR_QUE[o.por_que].text }}
+                </span>
+                <span v-if="o.valor_real !== o.valor_orden" class="px-1.5 rounded text-[10px] bg-gray-100 text-gray-600">
+                  orden de {{ cop(o.valor_orden) }}
+                </span>
+              </div>
+            </RouterLink>
+          </div>
         </div>
       </div>
 

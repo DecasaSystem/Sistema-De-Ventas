@@ -161,7 +161,7 @@ class ComoSeCalculaCadaComisionTest extends TestCase
     /**
      * Una orden ya cobrada, con sus comisiones creadas.
      *
-     * @param  string $comoPago  'efectivo' | 'tarjeta' | 'mitad' (mitad y mitad)
+     * @param  string $comoPago  'efectivo' | 'tarjeta' | 'addi' | 'mitad' (mitad y mitad)
      */
     private function orden(
         int $vendedor, ?int $tienda, float $valor,
@@ -185,6 +185,7 @@ class ComoSeCalculaCadaComisionTest extends TestCase
         // El cliente paga todo, que es lo que habilita el cobro.
         $pagos = match ($comoPago) {
             'tarjeta'  => [['tarjeta', $valor]],
+            'addi'     => [['addi', $valor]],
             'mitad'    => [['tarjeta', $valor / 2], ['efectivo', $valor / 2]],
             default    => [['efectivo', $valor]],
         };
@@ -253,6 +254,16 @@ class ComoSeCalculaCadaComisionTest extends TestCase
         // Base = 60.000.000 − 5,5% = 56.700.000
         // Pool = (56.700.000 − 40.000.000) ÷ 1,19 × 5% = $701.680
         // ÷ 3 = $233.893
+        $cobra = $this->loQueCobraCadaUno();
+
+        $this->assertEqualsWithDelta(233_893, $cobra['Paola'], 2);
+    }
+
+    public function test_addi_cuenta_igual_que_la_tarjeta(): void
+    {
+        // Addi también se queda el 5,5%: la misma cuenta que con tarjeta.
+        $this->orden(self::PAOLA, self::NORTE, 60_000_000, comoPago: 'addi');
+
         $cobra = $this->loQueCobraCadaUno();
 
         $this->assertEqualsWithDelta(233_893, $cobra['Paola'], 2);
@@ -817,5 +828,15 @@ class ComoSeCalculaCadaComisionTest extends TestCase
         $this->assertEquals(3, $t['pool']['integrantes']);
         // Entre los tres se llevan el pool entero, ni más ni menos.
         $this->assertEqualsWithDelta(794_118, $t['comision'], 3);
+
+        // Orden por orden, para cuadrar contra el módulo de Órdenes.
+        $this->assertCount(3, $t['detalle']);
+        $noCuenta = collect($t['detalle'])->where('cuenta', false)->values();
+        $this->assertCount(1, $noCuenta);
+        $this->assertEquals($sinMitad->id, $noCuenta[0]['orden_id']);
+        $this->assertEquals(20, $noCuenta[0]['pct_pagado']);
+        $conTarjeta = collect($t['detalle'])->firstWhere('valor_orden', 20_000_000);
+        $this->assertEquals(18_900_000, $conTarjeta['valor_real']);
+        $this->assertEquals('venta_tienda', $conTarjeta['por_que']);
     }
 }

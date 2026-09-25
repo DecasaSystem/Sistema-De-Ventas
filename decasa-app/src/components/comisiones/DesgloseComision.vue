@@ -192,12 +192,12 @@ const cobro = computed(() => {
         </div>
         <div class="flex items-center gap-1.5">
           <span class="w-2 h-2 rounded-sm shrink-0" :style="{ background: COLOR_TARJETA }" />
-          <span class="text-gray-600 flex-1">Con tarjeta</span>
+          <span class="text-gray-600 flex-1">Con tarjeta o Addi</span>
           <span class="text-gray-700 tabular-nums">{{ cop(cobro.tarjeta) }}</span>
         </div>
         <div class="flex items-center gap-1.5 pt-0.5">
           <span class="w-2 h-2 shrink-0" />
-          <span class="text-gray-400 flex-1">Se lo llevó el datáfono (5,5%)</span>
+          <span class="text-gray-400 flex-1">Se lo llevó el datáfono / Addi (5,5%)</span>
           <span class="text-gray-400 tabular-nums">− {{ cop(cobro.costo) }}</span>
         </div>
       </div>

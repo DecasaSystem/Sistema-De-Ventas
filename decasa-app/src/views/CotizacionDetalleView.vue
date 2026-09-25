@@ -792,6 +792,7 @@ onMounted(cargar)
                 <option value="efectivo">Efectivo</option>
                 <option value="transferencia">Transferencia</option>
                 <option value="tarjeta">Tarjeta</option>
+                <option value="addi">Addi</option>
                 <option value="otro">Otro</option>
               </select>
               <input v-model="form.anticipo_referencia" placeholder="Referencia (opcional)" class="input text-sm" />

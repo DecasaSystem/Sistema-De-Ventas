@@ -1706,6 +1706,7 @@ const metodosOpts = [
   { value: 'efectivo',      label: 'Efectivo' },
   { value: 'transferencia', label: 'Transferencia' },
   { value: 'tarjeta',       label: 'Tarjeta' },
+  { value: 'addi',          label: 'Addi' },
   { value: 'otro',          label: 'Otro' },
 ]
 
@@ -3547,6 +3548,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
               <option value="efectivo">Efectivo</option>
               <option value="transferencia">Transferencia</option>
               <option value="tarjeta">Tarjeta / datáfono</option>
+              <option value="addi">Addi</option>
               <option value="otro">Otro</option>
             </select>
           </div>
@@ -3987,6 +3989,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
                 <option value="efectivo">Efectivo</option>
                 <option value="transferencia">Transferencia</option>
                 <option value="tarjeta">Tarjeta</option>
+                <option value="addi">Addi</option>
                 <option value="otro">Otro</option>
               </select>
             </div>
@@ -4024,6 +4027,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
                   <option value="efectivo">Efectivo</option>
                   <option value="transferencia">Transferencia</option>
                   <option value="tarjeta">Tarjeta</option>
+                  <option value="addi">Addi</option>
                   <option value="otro">Otro</option>
                 </select>
                 <input v-if="borradorForm.anticipo_metodo !== 'efectivo'" v-model="borradorForm.anticipo_referencia"
@@ -4041,6 +4045,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
                   <option value="efectivo">Efectivo</option>
                   <option value="transferencia">Transferencia</option>
                   <option value="tarjeta">Tarjeta</option>
+                  <option value="addi">Addi</option>
                   <option value="otro">Otro</option>
                 </select>
                 <input v-if="borradorMetodo2 !== 'efectivo'" v-model="borradorRef2" type="text" placeholder="Referencia (opcional)"

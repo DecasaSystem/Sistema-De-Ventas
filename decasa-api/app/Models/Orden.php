@@ -166,6 +166,13 @@ class Orden extends Model
     public const METODOS_CON_DESCUENTO = ['efectivo', 'transferencia'];
 
     /**
+     * Medios de pago que cobran comisión de franquicia (el 5,5%): la tarjeta
+     * y Addi. De esa plata la empresa recibe menos, y nadie comisiona sobre
+     * lo que se queda el intermediario.
+     */
+    public const METODOS_CON_FRANQUICIA = ['tarjeta', 'addi'];
+
+    /**
      * ¿La orden todavía tiene descuento condicionado que se pueda perder?
      */
     public function tieneDescuentoCondicionadoVivo(): bool
@@ -709,11 +716,12 @@ class Orden extends Model
         // Igual que totalPagado(): con los pagos en memoria no hace falta
         // volver a preguntar. En el cálculo de comisiones esto se llama por
         // cada orden del mes.
+        // Addi cuenta igual que la tarjeta: también se queda el 5,5%.
         if ($this->relationLoaded('pagos')) {
-            return (float) $this->pagos->where('metodo', 'tarjeta')->sum('monto');
+            return (float) $this->pagos->whereIn('metodo', self::METODOS_CON_FRANQUICIA)->sum('monto');
         }
 
-        return (float) $this->pagos()->where('metodo', 'tarjeta')->sum('monto');
+        return (float) $this->pagos()->whereIn('metodo', self::METODOS_CON_FRANQUICIA)->sum('monto');
     }
 
     public function saldoPendiente(): float

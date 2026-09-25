@@ -1253,7 +1253,44 @@ class ComisionController extends Controller
             ];
         }
 
+        // Orden por orden, para poder cuadrar contra el módulo de Órdenes: el
+        // número por tipo no dice cuáles son, y una que entra por un camino
+        // raro (la abonó un independiente, se vendió por canal digital desde
+        // otra tienda) solo se encuentra viéndola.
+        $tiendaId = $items->first()['tienda_id'] ?? null;
+        $detalle  = $conOrden->groupBy('orden_id')->map(function ($filas) use ($tiendaId) {
+            $primera = $filas->first();
+            $orden   = $primera['orden'] ?? [];
+            $valor   = (float) ($orden['valor_total'] ?? 0);
+            $pagado  = collect($orden['pagos'] ?? [])->sum(fn ($p) => (float) $p['monto']);
+            $formas  = $filas->pluck('forma_pago')->unique()->values();
+
+            $porQue = match (true) {
+                $formas->contains(self::ORIGEN_ABONO)               => 'de_independiente',
+                $formas->contains(self::ORIGEN_RESTAURACION_EQUIPO),
+                $formas->contains('restauracion_5')                 => 'restauracion',
+                (int) ($orden['tienda_id'] ?? 0) !== (int) $tiendaId => 'otra_tienda',
+                default                                              => 'venta_tienda',
+            };
+
+            return [
+                'orden_id'    => (int) $primera['orden_id'],
+                'referencia'  => $primera['orden_referencia'] ?? null,
+                'cliente'     => $primera['cliente_nombre'] ?? null,
+                'vendedores'  => $filas->pluck('vendedor_nombre')->filter()->unique()->values()->all(),
+                'tipo'        => $primera['tipo_orden'] ?? 'venta',
+                'valor_real'  => round($filas->sum(fn ($i) => (float) $i['valor_orden'])),
+                'valor_orden' => round($valor),
+                'pct_pagado'  => $valor > 0 ? (int) round($pagado / $valor * 100) : 0,
+                'cuenta'      => $valor > 0 && $pagado >= $valor * 0.5,
+                'por_que'     => $porQue,
+                'canal'       => $primera['canal'] ?? null,
+                'fecha'       => $primera['fecha_venta'] ?? null,
+            ];
+        })->sortBy('fecha')->values()->all();
+
         return [
+            'detalle'   => $detalle,
             'vendido'   => round($real + $datafono),
             'tarjeta'   => round($tarjeta),
             'datafono'  => round($datafono),
@@ -2859,7 +2896,7 @@ class ComisionController extends Controller
         // Cuánto de esta orden entró por datáfono. Sale de los pagos que ya
         // vienen cargados, no de una consulta nueva: en el resumen serían
         // decenas de consultas para pintar una línea.
-        $pagadoTarjeta = (float) ($c->orden?->pagos?->where('metodo', 'tarjeta')->sum('monto') ?? 0);
+        $pagadoTarjeta = (float) ($c->orden?->pagos?->whereIn('metodo', Orden::METODOS_CON_FRANQUICIA)->sum('monto') ?? 0);
         // El 50% cobrado es un requisito de la ORDEN: hasta que el cliente no
         // ha abonado la mitad, esa venta no paga comisión. Una parte de pool no
         // tiene orden detrás —sale de lo que vendió el equipo, que ya cumplió

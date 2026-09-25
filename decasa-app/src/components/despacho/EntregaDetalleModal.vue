@@ -270,7 +270,7 @@ const mensajeBoton = computed(() => {
 
 const METODO_LABEL = {
   efectivo: 'Efectivo', transferencia: 'Transferencia',
-  tarjeta: 'Tarjeta', otro: 'Otro',
+  tarjeta: 'Tarjeta', addi: 'Addi', otro: 'Otro',
 }
 
 function fmtFecha(iso) {
@@ -688,6 +688,7 @@ async function guardarPagoYEntregar() {
                       <option value="efectivo">Efectivo</option>
                       <option value="transferencia">Transferencia</option>
                       <option value="tarjeta">Tarjeta</option>
+                      <option value="addi">Addi</option>
                       <option value="otro">Otro</option>
                     </select>
                   </div>

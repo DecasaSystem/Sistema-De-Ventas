@@ -363,11 +363,11 @@ class CotizacionController extends Controller
 
             'firma_url'           => 'required|string|max:500',
             'anticipo_monto'      => 'required|numeric|min:0',
-            'anticipo_metodo'     => 'nullable|in:efectivo,transferencia,tarjeta,otro',
+            'anticipo_metodo'     => 'nullable|in:efectivo,transferencia,tarjeta,addi,otro',
             'anticipo_referencia' => 'nullable|string|max:100',
             'anticipo_pagos'                => 'nullable|array|min:1',
             'anticipo_pagos.*.monto'        => 'required_with:anticipo_pagos|numeric|min:0.01',
-            'anticipo_pagos.*.metodo'       => 'required_with:anticipo_pagos|in:efectivo,transferencia,tarjeta,otro',
+            'anticipo_pagos.*.metodo'       => 'required_with:anticipo_pagos|in:efectivo,transferencia,tarjeta,addi,otro',
             'anticipo_pagos.*.referencia'   => 'nullable|string|max:100',
             'anticipo_pct'        => 'nullable|numeric|min:0|max:100',
 

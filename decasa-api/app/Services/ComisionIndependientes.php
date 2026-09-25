@@ -345,7 +345,7 @@ class ComisionIndependientes
             )
             ->selectSub(
                 DB::table('pagos')->selectRaw('COALESCE(SUM(monto),0)')
-                    ->whereColumn('orden_id', 'o.id')->where('metodo', 'tarjeta'),
+                    ->whereColumn('orden_id', 'o.id')->whereIn('metodo', Orden::METODOS_CON_FRANQUICIA),
                 'con_tarjeta'
             )
             ->orderBy('o.created_at');
@@ -385,7 +385,7 @@ class ComisionIndependientes
                 // esto entrara bruto la meta se movería según quién vendió.
                 'SUM(valor_total - ROUND(COALESCE(' .
                 '  (SELECT SUM(p.monto) FROM pagos p' .
-                "   WHERE p.orden_id = ordenes.id AND p.metodo = 'tarjeta'), 0) * " .
+                "   WHERE p.orden_id = ordenes.id AND p.metodo IN ('tarjeta', 'addi')), 0) * " .
                 ComisionController::COSTO_TARJETA . ')) / 2 as total'
             )
             ->groupBy('tienda_abonada_id', 'mes')

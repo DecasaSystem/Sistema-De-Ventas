@@ -65,7 +65,7 @@ class PagoController extends Controller
 
         $data = $request->validate([
             'monto'           => 'required|numeric|min:1',
-            'metodo'          => 'required|in:efectivo,transferencia,tarjeta,otro',
+            'metodo'          => 'required|in:efectivo,transferencia,tarjeta,addi,otro',
             'referencia'      => 'nullable|string|max:100',
             'notas'           => 'nullable|string|max:500',
             // Una o varias fotos del comprobante: `comprobante_url` (una) o
@@ -196,7 +196,7 @@ class PagoController extends Controller
         }
 
         $data = $request->validate([
-            'metodo' => 'required|in:efectivo,transferencia,tarjeta,otro',
+            'metodo' => 'required|in:efectivo,transferencia,tarjeta,addi,otro',
         ]);
 
         $pierde = $orden->tieneDescuentoCondicionadoVivo()
@@ -254,7 +254,7 @@ class PagoController extends Controller
 
         $data = $request->validate([
             'monto'      => 'required|numeric|min:1',
-            'metodo'     => 'required|in:efectivo,transferencia,tarjeta,otro',
+            'metodo'     => 'required|in:efectivo,transferencia,tarjeta,addi,otro',
             'referencia' => 'nullable|string|max:100',
             'aceptar_perdida_descuento' => 'nullable|boolean',
         ]);
@@ -359,7 +359,7 @@ class PagoController extends Controller
 
         $data = $request->validate([
             'monto'      => 'required|numeric|min:0.01',
-            'metodo'     => 'nullable|in:efectivo,transferencia,tarjeta,otro',
+            'metodo'     => 'nullable|in:efectivo,transferencia,tarjeta,addi,otro',
             'referencia' => 'nullable|string|max:100',
         ]);
 
