@@ -12,6 +12,15 @@ const api = axios.create({
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token')
   if (token) config.headers.Authorization = `Bearer ${token}`
+  // Un archivo va como archivo. Con el 'application/json' de arriba, axios
+  // convierte el FormData en JSON y la foto se pierde por el camino: el
+  // servidor contesta 422 "falta la foto". Pasaba al subir páginas de un
+  // catálogo y la foto de una pieza que vuelve al taller, que no ponían el
+  // tipo a mano como las demás. Se pone el mismo que ellas ya usan y que
+  // funciona: con él, axios deja que el navegador agregue el separador.
+  if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
+    config.headers['Content-Type'] = 'multipart/form-data'
+  }
   if (!config.silencioso) {
     config.contadaEnBarra = true
     iniciarPeticion()

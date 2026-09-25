@@ -116,6 +116,17 @@ class CatalogoPublicoController extends Controller
             return response()->json(['message' => 'Catálogo no encontrado.'], 404);
         }
 
+        // Un catálogo abre con su portada, como una revista: la página marcada
+        // con la estrella va de primera y las demás siguen en su orden. Antes
+        // la portada solo salía en la grilla de /c y el visor arrancaba en la
+        // primera página del orden, que no tenía por qué ser ella.
+        if ($catalogo->portada_url) {
+            [$portada, $resto] = $paginas->partition(fn ($p) => $p->imagen_url === $catalogo->portada_url);
+            if ($portada->isNotEmpty()) {
+                $paginas = $portada->take(1)->concat($resto)->concat($portada->slice(1));
+            }
+        }
+
         return response()->json([
             'nombre'      => $catalogo->nombre,
             'slug'        => $catalogo->slug,

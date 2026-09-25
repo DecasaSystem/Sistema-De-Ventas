@@ -131,6 +131,24 @@ class CatalogoVisualTest extends TestCase
             ->assertForbidden();
     }
 
+    public function test_el_catalogo_abre_con_su_portada_y_sigue_en_orden(): void
+    {
+        $jefe = $this->jefe();
+        $id = $this->actingAs($jefe)->postJson('/api/catalogos-visuales', ['nombre' => 'Comedores'])->json('id');
+        $this->actingAs($jefe)->postJson("/api/catalogos-visuales/{$id}/paginas", [
+            'imagenes' => [$this->img('1'), $this->img('2'), $this->img('3')],
+        ]);
+
+        // La portada es la tercera: el visor arranca en ella y sigue 1, 2.
+        $this->actingAs($jefe)->patchJson("/api/catalogos-visuales/{$id}", ['portada_url' => $this->img('3')])->assertOk();
+
+        $pub = $this->getJson('/api/c/comedores')->assertOk()->json();
+        $this->assertEquals(
+            [$this->img('3'), $this->img('1'), $this->img('2')],
+            array_column($pub['paginas'], 'imagen_url'),
+        );
+    }
+
     public function test_la_portada_elegida_tiene_que_ser_una_pagina_del_catalogo(): void
     {
         $jefe = $this->jefe();
