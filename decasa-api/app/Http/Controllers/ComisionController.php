@@ -295,6 +295,19 @@ class ComisionController extends Controller
             ];
         })->keyBy(fn ($f) => $f['vendedor_id'] . '_' . $f['tienda_id']);
 
+        // Lo de toda la tienda junta, para no tener que sumar a mano las
+        // tarjetas de sus integrantes. Sin las ventas propias de los
+        // independientes: esas no son de la tienda (lo que le abonan sí).
+        $independientes = Usuario::where('independiente', true)->pluck('id')->all();
+        $porTienda = $enriquecidas
+            ->reject(fn ($i) => in_array((int) $i['vendedor_id'], $independientes, true))
+            ->groupBy('tienda_id')
+            ->map(fn ($items) => $this->resumirTienda($items));
+        $grouped = $grouped->map(function ($fila) use ($porTienda) {
+            $fila['resumen_tienda'] = $porTienda[$fila['tienda_id']] ?? null;
+            return $fila;
+        });
+
         // Los independientes no van por este camino: no tienen meta ni pool, y
         // sobre todo REPARTEN entre ellos, así que su cifra no sale de sus
         // propias órdenes. Enriquecer los trataba como "vendedor sin meta" y la
@@ -1175,6 +1188,81 @@ class ComisionController extends Controller
                     'comision' => $suma($delTipo, 'monto_comision'),
                 ]];
             })->all(),
+        ];
+    }
+
+    /**
+     * Las cuentas de una tienda en el mes, de todos sus integrantes juntos.
+     *
+     * Cada tarjeta muestra lo de una persona, y para saber cuánto vendió la
+     * tienda o cuánto se llevó el datáfono había que sumar tarjetas a mano.
+     * Las filas de comisión ya vienen partidas sin repetir —una venta
+     * compartida o una restauración repartida guardan en cada fila solo su
+     * pedazo—, así que sumando `valor_orden` sale la tienda. Lo único que se
+     * repite por fila es lo cobrado con tarjeta, que es de la orden entera:
+     * eso se cuenta una vez por orden y en la parte que es de la tienda.
+     *
+     * @param  \Illuminate\Support\Collection  $items  Comisiones ya enriquecidas de una tienda.
+     */
+    private function resumirTienda($items): array
+    {
+        $conOrden = $items->whereNotNull('orden_id');
+
+        $tarjeta = 0.0;
+        $datafono = 0.0;
+        foreach ($conOrden->groupBy('orden_id') as $filas) {
+            $primera = $filas->first();
+            $costo   = (float) ($primera['costo_datafono'] ?? 0);
+            if ($costo <= 0) continue;
+            $neto       = (float) ($primera['orden']['valor_total'] ?? 0) - $costo;
+            $deLaTienda = $filas->sum(fn ($i) => (float) $i['valor_orden']);
+            $fraccion   = $neto > 0 ? min(1, $deLaTienda / $neto) : 0;
+            $tarjeta   += (float) ($primera['pagado_tarjeta'] ?? 0) * $fraccion;
+            $datafono  += $costo * $fraccion;
+        }
+
+        $real = (float) $conOrden->sum(fn ($i) => (float) $i['valor_orden']);
+
+        $porTipo = collect(['venta', 'restauracion', 'fv2'])->mapWithKeys(function ($tipo) use ($conOrden) {
+            $delTipo = $conOrden->where('tipo_orden', $tipo);
+            return [$tipo => [
+                'monto'   => round($delTipo->sum(fn ($i) => (float) $i['valor_orden'])),
+                'ordenes' => $delTipo->pluck('orden_id')->unique()->count(),
+            ]];
+        })->all();
+
+        // La meta y el pool salen de una fila del pool: ahí están ya con la
+        // regla del 50% (en las mensuales, por el libro de la tienda).
+        $filaPool = $items->first(fn ($i) => in_array($i['forma_pago'] ?? null, ['pool', self::ORIGEN_PARTE_POOL], true));
+        $pool = null;
+        if ($filaPool) {
+            $ventasPool = $conOrden->where('forma_pago', 'pool');
+            $pool = [
+                'periodicidad'   => $filaPool['periodicidad'] ?? 'mensual',
+                'meta'           => round((float) $filaPool['meta_tienda']),
+                // Lo que ya cuenta para la meta: ventas con la mitad pagada,
+                // descontado el datáfono, más lo que abonan los independientes.
+                'ventas_cuentan' => round((float) $filaPool['total_tienda_mes']),
+                // Ventas de la tienda que todavía no llegan a la mitad pagada.
+                'sin_mitad'      => round($ventasPool->where('req_50_pct', false)->sum(fn ($i) => (float) $i['valor_orden'])),
+                'ordenes_sin_mitad' => $ventasPool->where('req_50_pct', false)->pluck('orden_id')->unique()->count(),
+                'meta_cumplida'  => (bool) $filaPool['meta_cumplida'],
+                'pool'           => round((float) $filaPool['comision_pool']),
+                'integrantes'    => $items->filter(fn ($i) => in_array($i['forma_pago'] ?? null, ['pool', self::ORIGEN_PARTE_POOL], true))
+                                          ->pluck('vendedor_id')->unique()->count(),
+            ];
+        }
+
+        return [
+            'vendido'   => round($real + $datafono),
+            'tarjeta'   => round($tarjeta),
+            'datafono'  => round($datafono),
+            'valor_real'=> round($real),
+            'ordenes'   => $conOrden->pluck('orden_id')->unique()->count(),
+            'por_tipo'  => $porTipo,
+            'pool'      => $pool,
+            'comision'  => round($items->sum(fn ($i) => (float) $i['monto_comision'])),
+            'comision_lista' => round($items->where('estado_calculado', 'lista')->sum(fn ($i) => (float) $i['monto_comision'])),
         ];
     }
 

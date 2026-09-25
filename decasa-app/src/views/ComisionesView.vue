@@ -24,6 +24,7 @@ import { exportarComisionesExcel } from '@/utils/excelComisiones'
 import { useAuthStore } from '@/stores/auth'
 import InputPesos from '@/components/common/InputPesos.vue'
 import DesgloseComision from '@/components/comisiones/DesgloseComision.vue'
+import TotalesTienda from '@/components/comisiones/TotalesTienda.vue'
 import { formatPct } from '@/utils/descuentos'
 
 const router = useRouter()
@@ -1355,6 +1356,15 @@ onMounted(async () => {
                 :desglose="r.desglose"
                 :total="r.comision_total"
                 :ventas="r.total_ventas"
+                class="mb-2"
+              />
+
+              <!-- Lo de todo el equipo junto: sin esto había que sumar a mano
+                   las tarjetas de los de la misma tienda. -->
+              <TotalesTienda
+                v-if="!r.es_independiente && r.resumen_tienda"
+                :resumen="r.resumen_tienda"
+                :tienda="r.tienda_nombre"
                 class="mb-2"
               />
 

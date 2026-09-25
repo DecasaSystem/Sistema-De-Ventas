@@ -777,4 +777,45 @@ class ComoSeCalculaCadaComisionTest extends TestCase
         $this->assertEquals(0, $suyo['comision_lista'], 'el cliente no ha pagado la mitad');
         $this->assertEquals(50_000, $suyo['comision_pendiente']);
     }
+
+    // ─────────── Las cuentas de toda la tienda ───────────
+
+    /**
+     * Lo que se ve en "Toda la tienda": la suma del equipo sin repetir, con
+     * el datáfono restado y solo lo que tiene la mitad pagada para la meta.
+     */
+    public function test_la_tienda_suma_lo_de_todos_con_el_valor_real(): void
+    {
+        $this->orden(self::PAOLA, self::NORTE, 40_000_000);
+        $this->orden(self::MARTA, self::NORTE, 20_000_000, comoPago: 'tarjeta');
+        $sinMitad = $this->orden(self::MARTA, self::NORTE, 10_000_000);
+        $this->clienteAbono($sinMitad, 2_000_000);
+        ComisionController::sincronizarValorOrden($sinMitad->fresh());
+
+        $this->llamar('cargarTotales');
+        $this->llamar('asegurarPartesDePool', self::MES);
+        [$metas, $totTienda, $totVendedor] = $this->llamar('cargarTotales');
+        $pools = $this->llamar('cargarPoolsTrimestrales', $metas, $totTienda, false);
+
+        $items = Comision::with('orden.pagos', 'tienda')->where('tienda_id', self::NORTE)->get()
+            ->map(fn ($c) => $this->llamar('enriquecer', $c, $metas, $totTienda, $totVendedor, $pools, \Carbon\Carbon::parse('2026-09-25')));
+
+        $t = $this->llamar('resumirTienda', $items);
+
+        $this->assertEquals(70_000_000, $t['vendido']);
+        $this->assertEquals(20_000_000, $t['tarjeta']);
+        $this->assertEquals(1_100_000, $t['datafono']);          // 20.000.000 × 5,5%
+        $this->assertEquals(68_900_000, $t['valor_real']);
+        $this->assertEquals(3, $t['ordenes']);
+
+        // A la meta solo va lo que tiene la mitad pagada, ya sin datáfono.
+        $this->assertEquals(58_900_000, $t['pool']['ventas_cuentan']);
+        $this->assertEquals(10_000_000, $t['pool']['sin_mitad']);
+        $this->assertEquals(40_000_000, $t['pool']['meta']);
+        // (58.900.000 − 40.000.000) ÷ 1,19 × 5%
+        $this->assertEqualsWithDelta(794_118, $t['pool']['pool'], 1);
+        $this->assertEquals(3, $t['pool']['integrantes']);
+        // Entre los tres se llevan el pool entero, ni más ni menos.
+        $this->assertEqualsWithDelta(794_118, $t['comision'], 3);
+    }
 }
