@@ -199,6 +199,40 @@ class ManuelaCubrioASebastianEnElEdenTest extends TestCase
         $this->assertEqualsWithDelta(420_168 *  5 / 62, $despues['Manuela'], 2);
     }
 
+    public function test_toda_la_tienda_muestra_el_reparto_por_dias_y_el_reemplazo(): void
+    {
+        $this->venta(self::GLADYS,    '05', 12_000_000);
+        $this->venta(self::SEBASTIAN, '10', 12_000_000);
+        $this->venta(self::MANUELA,   '20',  6_000_000);
+        $this->correrLaMigracion();
+
+        $ctrl = app(ComisionController::class);
+        $llamar = function (string $m, ...$a) use ($ctrl) {
+            $r = new \ReflectionMethod($ctrl, $m);
+            $r->setAccessible(true);
+            return $r->invoke($ctrl, ...$a);
+        };
+        [$metas, $totTienda, $totVendedor] = $llamar('cargarTotales');
+        $pools = $llamar('cargarPoolsTrimestrales', $metas, $totTienda, false);
+        $items = Comision::with('orden.pagos', 'tienda')->where('tienda_id', self::EDEN)->get()
+            ->map(fn ($c) => $llamar('enriquecer', $c, $metas, $totTienda, $totVendedor, $pools, \Carbon\Carbon::parse('2026-09-25')));
+
+        $pool = $llamar('resumirTienda', $items, $metas, $totTienda, $pools)['pool'];
+
+        // Lo que ve la pantalla es lo mismo que se paga: 31 + 26 + 5 días.
+        $reparto = collect($pool['reparto'])->keyBy('nombre');
+        $this->assertEquals(62, $pool['dias_total']);
+        $this->assertEquals(31, $reparto['Gladys']['dias']);
+        $this->assertEquals(26, $reparto['Sebastián']['dias']);
+        $this->assertEquals(5,  $reparto['Manuela']['dias']);
+        $this->assertEqualsWithDelta(420_168 * 5 / 62, $reparto['Manuela']['parte'], 2);
+
+        $this->assertSame([[
+            'quien' => 'Manuela', 'reemplaza' => 'Sebastián', 'tipo' => 'reemplazo',
+            'desde' => '2026-08-18', 'hasta' => '2026-08-22',
+        ]], $pool['reemplazos']);
+    }
+
     public function test_si_ya_estaba_registrado_no_lo_duplica(): void
     {
         $this->correrLaMigracion();

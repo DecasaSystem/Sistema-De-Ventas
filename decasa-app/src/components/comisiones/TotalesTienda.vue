@@ -66,6 +66,17 @@ const POR_QUE = {
 const ordenesFiltradas = computed(() =>
   (props.resumen?.detalle ?? []).filter(o => !filtroTipo.value || o.tipo === filtroTipo.value)
 )
+
+const fechaCorta = (s) => s
+  ? new Date(String(s).slice(0, 10) + 'T00:00:00').toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })
+  : ''
+
+/** El reemplazo que estaba vigente el día de esa venta, si hubo. */
+function reemplazoDelDia(fecha) {
+  const d = String(fecha ?? '').slice(0, 10)
+  if (!d) return null
+  return (p.value?.reemplazos ?? []).find(r => r.desde <= d && (!r.hasta || r.hasta >= d)) ?? null
+}
 const totalFiltrado = computed(() => ordenesFiltradas.value.reduce((s, o) => s + o.valor_real, 0))
 </script>
 
@@ -210,9 +221,33 @@ const totalFiltrado = computed(() => ordenesFiltradas.value.reduce((s, o) => s +
           <span class="text-gray-600">Pool del trimestre</span>
           <span class="text-gray-700 tabular-nums font-semibold">{{ cop(p.pool) }}</span>
         </div>
-        <div v-if="p.integrantes > 0" class="flex justify-between">
+        <!-- El reparto real: por los días que estuvo cada quien -->
+        <div v-if="p.reparto?.length" class="pt-1 space-y-0.5">
+          <p class="text-[10px] font-semibold text-gray-500 uppercase">
+            Reparto por días ({{ p.dias_total }} días en total)
+          </p>
+          <div v-for="r in p.reparto" :key="r.vendedor_id" class="flex justify-between">
+            <span class="text-gray-600">
+              {{ r.nombre }} <span class="text-gray-400">· {{ r.dias }} {{ r.dias === 1 ? 'día' : 'días' }}</span>
+            </span>
+            <span class="text-gray-700 tabular-nums">{{ cop(r.parte) }}</span>
+          </div>
+          <p class="text-[10px] text-gray-400">Pool × días de cada uno ÷ días de todos.</p>
+        </div>
+        <div v-else-if="p.integrantes > 0" class="flex justify-between">
           <span class="text-gray-400">÷ {{ p.integrantes }} integrantes (por días si hubo reemplazos)</span>
           <span class="text-gray-700 tabular-nums">{{ cop(p.pool / p.integrantes) }} c/u</span>
+        </div>
+
+        <!-- Quién cubrió a quién -->
+        <div v-if="p.reemplazos?.length" class="pt-1 space-y-0.5">
+          <p class="text-[10px] font-semibold text-gray-500 uppercase">Reemplazos del mes</p>
+          <p v-for="(r, k) in p.reemplazos" :key="k" class="text-[11px] text-violet-800 bg-violet-50 border border-violet-100 rounded px-2 py-1">
+            <strong>{{ r.quien }}</strong>
+            <template v-if="r.reemplaza"> cubrió a {{ r.reemplaza }}</template>
+            <template v-else> llegó a la tienda</template>
+            · {{ fechaCorta(r.desde) }}<template v-if="r.hasta"> al {{ fechaCorta(r.hasta) }}</template><template v-else> en adelante</template>
+          </p>
         </div>
       </div>
 
@@ -261,7 +296,10 @@ const totalFiltrado = computed(() => ordenesFiltradas.value.reduce((s, o) => s +
                   :title="o.cuenta ? 'Ya tiene el 50% pagado' : 'Todavía no tiene el 50% pagado'"
                 >{{ o.pct_pagado }}% pagado{{ o.cuenta ? '' : ' · no cuenta' }}</span>
               </div>
-              <div v-if="POR_QUE[o.por_que] || o.valor_real !== o.valor_orden" class="flex flex-wrap gap-1 mt-0.5">
+              <div v-if="POR_QUE[o.por_que] || o.valor_real !== o.valor_orden || reemplazoDelDia(o.fecha)" class="flex flex-wrap gap-1 mt-0.5">
+                <span v-if="reemplazoDelDia(o.fecha)" class="px-1.5 rounded text-[10px] bg-violet-100 text-violet-700">
+                  {{ fechaCorta(o.fecha) }} · estaba {{ reemplazoDelDia(o.fecha).quien }}<template v-if="reemplazoDelDia(o.fecha).reemplaza"> por {{ reemplazoDelDia(o.fecha).reemplaza }}</template>
+                </span>
                 <span v-if="POR_QUE[o.por_que]" :class="['px-1.5 rounded text-[10px]', POR_QUE[o.por_que].cls]">
                   {{ POR_QUE[o.por_que].text }}
                 </span>

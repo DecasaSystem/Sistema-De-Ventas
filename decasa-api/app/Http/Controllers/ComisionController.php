@@ -1314,6 +1314,43 @@ class ComisionController extends Controller
                                           ->pluck('vendedor_id')->unique()->count(),
             ];
 
+            // El reparto de verdad, persona por persona. "÷ 3 integrantes"
+            // mentía cuando alguien cubrió unos días: el pool se parte por los
+            // días que estuvo cada quien (TiendaReemplazo::pesosDelMes), la
+            // misma cuenta que usa el pago.
+            if ($pool['periodicidad'] !== 'trimestral') {
+                $tiendaPool = (int) $filaPool['tienda_id'];
+                $mesPool    = (string) $filaPool['mes_venta'];
+                $pesos      = $this->pesosDe($mesPool, $tiendaPool);
+                $suma       = array_sum($pesos);
+                $nombres    = Usuario::whereIn('id', array_keys($pesos))->pluck('nombre', 'id');
+
+                $pool['reparto'] = collect($pesos)->map(fn ($dias, $vid) => [
+                    'vendedor_id' => (int) $vid,
+                    'nombre'      => $nombres[$vid] ?? '—',
+                    'dias'        => round((float) $dias, 1),
+                    'parte'       => $suma > 0 ? round($pool['pool'] * $dias / $suma) : 0,
+                ])->sortByDesc('dias')->values()->all();
+                $pool['dias_total'] = round((float) $suma, 1);
+
+                // Quién cubrió a quién y cuándo, para ubicar las ventas de esos días.
+                $inicio = Carbon::parse($mesPool . '-01')->startOfMonth()->toDateString();
+                $fin    = Carbon::parse($mesPool . '-01')->endOfMonth()->toDateString();
+                $pool['reemplazos'] = TiendaReemplazo::with('usuario:id,nombre', 'reemplazaA:id,nombre')
+                    ->where('tienda_id', $tiendaPool)
+                    ->where('desde', '<=', $fin)
+                    ->where(fn ($q) => $q->whereNull('hasta')->orWhere('hasta', '>=', $inicio))
+                    ->orderBy('desde')
+                    ->get()
+                    ->map(fn ($r) => [
+                        'quien'      => $r->usuario?->nombre,
+                        'reemplaza'  => $r->reemplazaA?->nombre,
+                        'tipo'       => $r->tipo,
+                        'desde'      => $r->desde?->toDateString(),
+                        'hasta'      => $r->hasta?->toDateString(),
+                    ])->values()->all();
+            }
+
             if ($pool['periodicidad'] === 'trimestral' && $metas !== null) {
                 $pool['trimestre'] = $this->cuentaDelTrimestre(
                     (int) $filaPool['tienda_id'], (string) $filaPool['mes_venta'], $metas, $totalesTienda, $poolsTrimestrales
