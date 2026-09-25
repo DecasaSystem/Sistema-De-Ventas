@@ -312,6 +312,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Órdenes
     Route::get('/ordenes',              [OrdenController::class, 'index']);
+    // Historial de las que borró un supervisor (va antes de /ordenes/{id}).
+    Route::get('/ordenes-eliminadas',   [OrdenController::class, 'eliminadas']);
     Route::post('/ordenes',             [OrdenController::class, 'store'])->middleware('throttle:20,1');
     Route::get('/ordenes/{id}',                         [OrdenController::class, 'show']);
     Route::patch('/ordenes/{id}',                       [OrdenController::class, 'update']);

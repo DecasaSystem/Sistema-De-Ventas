@@ -75,6 +75,21 @@ class EliminarOrdenTest extends TestCase
             $t->id(); $t->unsignedBigInteger('orden_id'); $t->unsignedBigInteger('usuario_id')->nullable();
             $t->json('cambios')->nullable(); $t->timestamps();
         });
+        // El inventario, para lo entregado que vuelve a la bodega.
+        Schema::table('orden_items', function (Blueprint $t) {
+            $t->unsignedBigInteger('variante_id')->nullable(); $t->unsignedBigInteger('combo_config_id')->nullable();
+            $t->unsignedBigInteger('tienda_origen_id')->nullable();
+        });
+        Schema::create('inventario', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('producto_id'); $t->unsignedBigInteger('tienda_id');
+            $t->integer('cantidad_disponible')->default(0); $t->integer('cantidad_reservada')->default(0);
+        });
+        Schema::create('inventario_movimientos', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('producto_id'); $t->unsignedBigInteger('tienda_id');
+            $t->unsignedBigInteger('variante_id')->nullable(); $t->string('tipo'); $t->integer('cantidad');
+            $t->string('motivo')->nullable(); $t->unsignedBigInteger('usuario_id')->nullable(); $t->timestamps();
+        });
+
         // Lo que mira el aviso al taller cuando se le cancela trabajo vivo.
         Schema::create('productos', function (Blueprint $t) { $t->id(); $t->string('nombre'); });
         Schema::table('orden_items', function (Blueprint $t) { $t->string('nombre_custom')->nullable(); });
@@ -172,14 +187,77 @@ class EliminarOrdenTest extends TestCase
         $this->assertSame('hueco', DB::table('ordenes_eliminadas')->value('numeracion'));
     }
 
-    public function test_no_se_borra_lo_entregado_ni_lo_de_comision_pagada(): void
+    /** Una venta de catálogo ya entregada: 2 sillas salieron de la bodega. */
+    private function entregadaDeCatalogo(int $numero): Orden
+    {
+        $orden = Orden::create([
+            'cliente_id' => 1, 'tienda_id' => 1, 'vendedor_id' => 1,
+            'estado' => 'entregado', 'valor_total' => 800000, 'tipo' => 'venta',
+            'numero_orden' => $numero, 'grupo_secuencia' => 'armenia',
+        ]);
+        DB::table('orden_items')->insert([
+            'orden_id' => $orden->id, 'producto_id' => 7, 'es_personalizado' => false,
+            'cantidad' => 2, 'cantidad_entregada' => 2,
+        ]);
+        DB::table('inventario')->insert(['producto_id' => 7, 'tienda_id' => 1, 'cantidad_disponible' => 5, 'cantidad_reservada' => 0]);
+
+        return $orden;
+    }
+
+    public function test_una_entregada_se_borra_y_lo_entregado_vuelve_a_la_bodega(): void
+    {
+        $orden = $this->entregadaDeCatalogo(4290);
+
+        $this->actingAs($this->usuario('supervisor'))
+            ->getJson("/api/ordenes/{$orden->id}/eliminacion")
+            ->assertOk()->assertJsonPath('bloqueos', [])->assertJsonPath('entregados', 2);
+
+        $this->actingAs($this->usuario('supervisor'))
+            ->deleteJson("/api/ordenes/{$orden->id}", ['motivo' => 'Se subió dos veces'])
+            ->assertOk();
+
+        $this->assertNull(Orden::find($orden->id));
+        $inv = DB::table('inventario')->where('producto_id', 7)->first();
+        $this->assertSame(7, (int) $inv->cantidad_disponible);   // 5 + las 2 que habían salido
+        $this->assertSame(0, (int) $inv->cantidad_reservada);    // libres: ya no son de nadie
+        $this->assertSame(1, DB::table('inventario_movimientos')->where('tipo', 'entrada')->count());
+    }
+
+    public function test_una_entregada_se_borra_sin_tocar_la_bodega_si_asi_se_pide(): void
+    {
+        $orden = $this->entregadaDeCatalogo(4290);
+
+        $this->actingAs($this->usuario('supervisor'))
+            ->deleteJson("/api/ordenes/{$orden->id}", ['motivo' => 'Venta real, mal registrada', 'devolver_entregado' => false])
+            ->assertOk();
+
+        $this->assertNull(Orden::find($orden->id));
+        $this->assertSame(5, (int) DB::table('inventario')->where('producto_id', 7)->value('cantidad_disponible'));
+    }
+
+    public function test_el_historial_guarda_la_orden_como_estaba(): void
+    {
+        $orden = $this->venta(4290);
+        $sup   = $this->usuario('supervisor');
+
+        $this->actingAs($sup)->deleteJson("/api/ordenes/{$orden->id}", ['motivo' => 'Era de prueba'])->assertOk();
+
+        $this->actingAs($sup)->getJson('/api/ordenes-eliminadas')
+            ->assertOk()
+            ->assertJsonPath('data.0.referencia', '#4290')
+            ->assertJsonPath('data.0.motivo', 'Era de prueba')
+            ->assertJsonPath('data.0.eliminada_por', 'supervisor')
+            ->assertJsonPath('data.0.cliente_nombre', 'Doña Marta')
+            ->assertJsonCount(1, 'data.0.datos.items')
+            ->assertJsonCount(1, 'data.0.datos.pagos')
+            ->assertJsonCount(1, 'data.0.datos.comisiones');
+
+        $this->actingAs($this->usuario('vendedor'))->getJson('/api/ordenes-eliminadas')->assertStatus(403);
+    }
+
+    public function test_no_se_borra_lo_de_comision_pagada(): void
     {
         $sup = $this->usuario('supervisor');
-
-        $entregada = $this->venta(4290, 'entregado');
-        $this->actingAs($sup)->deleteJson("/api/ordenes/{$entregada->id}", ['motivo' => 'Se subió dos veces'])
-            ->assertStatus(422);
-        $this->assertNotNull(Orden::find($entregada->id));
 
         $pagada = $this->venta(4291);
         DB::table('comisiones')->where('orden_id', $pagada->id)->update(['estado' => 'pagada']);

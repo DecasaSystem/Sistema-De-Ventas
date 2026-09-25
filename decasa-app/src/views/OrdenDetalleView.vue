@@ -1250,6 +1250,7 @@ const showEliminar     = ref(false)
 const eliminarPreview  = ref(null)   // { referencia, tiene_numero, corridas, ya_entregadas, bloqueos, avisos }
 const eliminarModo     = ref('hueco') // 'hueco' | 'correr'
 const eliminarMotivo   = ref('')
+const eliminarDevolver = ref(true)   // lo ya entregado vuelve a la bodega
 const cargandoEliminar = ref(false)
 const eliminando       = ref(false)
 
@@ -1260,6 +1261,7 @@ const puedeEliminarOrden = computed(() =>
 async function abrirEliminar() {
   eliminarModo.value    = 'hueco'
   eliminarMotivo.value  = ''
+  eliminarDevolver.value = true
   eliminarPreview.value = null
   showEliminar.value    = true
   cargandoEliminar.value = true
@@ -1285,6 +1287,7 @@ async function confirmarEliminar() {
     const { data } = await eliminarOrdenApi(orden.value.id, {
       motivo: eliminarMotivo.value.trim(),
       correr_numeracion: correr,
+      devolver_entregado: eliminarDevolver.value,
     })
     showEliminar.value = false
     toast.success(data?.message ?? 'Orden eliminada.')
@@ -4471,6 +4474,22 @@ onMounted(() => { cargarTipos(); cargarOrden() })
                   {{ a }}
                 </p>
               </div>
+
+              <!-- Lo ya entregado -->
+              <label v-if="eliminarPreview.entregados > 0"
+                     class="flex items-start gap-2 rounded-xl border-2 border-gray-200 px-3 py-3 cursor-pointer">
+                <input type="checkbox" v-model="eliminarDevolver" class="mt-0.5 rounded border-gray-300 text-red-600 focus:ring-red-500" />
+                <span>
+                  <span class="block text-sm font-bold text-gray-800">
+                    Devolver al inventario lo entregado ({{ eliminarPreview.entregados }} {{ eliminarPreview.entregados === 1 ? 'unidad' : 'unidades' }})
+                  </span>
+                  <span class="block text-xs text-gray-500 leading-snug">
+                    {{ eliminarDevolver
+                      ? 'Déjalo marcado si la venta estaba repetida o era de prueba: esas unidades nunca salieron de verdad.'
+                      : 'Sin marcar, el inventario no se toca: la mercancía sí se fue con el cliente.' }}
+                  </span>
+                </span>
+              </label>
 
               <!-- El número -->
               <div class="space-y-2">

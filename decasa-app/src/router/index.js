@@ -23,6 +23,8 @@ const routes = [
   { path: '/ordenes', name: 'ordenes',    component: () => import('@/views/OrdenesView.vue'),    meta: { requiresAuth: true, restauraSolo: true } },
   { path: '/ordenes/:id', name: 'orden-detalle', component: () => import('@/views/OrdenDetalleView.vue'), meta: { requiresAuth: true } },
   { path: '/ordenes/nueva', name: 'nueva-orden', component: () => import('@/views/NuevaOrdenView.vue'), meta: { requiresAuth: true } },
+  // Historial de las que borró un supervisor.
+  { path: '/ordenes/eliminadas', name: 'ordenes-eliminadas', component: () => import('@/views/OrdenesEliminadasView.vue'), meta: { requiresAuth: true, requiresSupervisor: true } },
   { path: '/clientes', name: 'clientes',  component: () => import('@/views/ClientesView.vue'),   meta: { requiresAuth: true } },
   { path: '/clientes/:id', name: 'cliente-detalle', component: () => import('@/views/ClienteDetalleView.vue'), meta: { requiresAuth: true } },
   { path: '/inventario', name: 'inventario', component: () => import('@/views/InventarioView.vue'), meta: { requiresAuth: true } },

@@ -403,6 +403,13 @@ onUnmounted(() => {
     <!-- Header -->
     <div class="flex flex-wrap items-center gap-2">
       <h2 class="text-lg font-bold text-gray-800 flex-1">Órdenes</h2>
+      <!-- Lo que se borró sigue a mano: el historial es del supervisor. -->
+      <RouterLink
+        v-if="auth.isSupervisor"
+        :to="{ name: 'ordenes-eliminadas' }"
+        title="Historial de órdenes eliminadas"
+        class="text-sm text-gray-600 font-medium px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
+      >Eliminadas</RouterLink>
       <button
         @click="exportarExcelOrdenes"
         :disabled="exportando"
