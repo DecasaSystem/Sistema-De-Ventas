@@ -473,9 +473,13 @@ function fotosDePago(pago) {
 
 /** Todas las fotos del comprobante; las órdenes viejas traen una sola. */
 const fotosComprobante = computed(() => {
-  const lista = orden.value?.factura_fotos
-  if (Array.isArray(lista) && lista.length) return lista.filter(Boolean)
-  return orden.value?.factura_foto_url ? [orden.value.factura_foto_url] : []
+  const lista = (orden.value?.factura_fotos ?? []).filter(Boolean)
+  const suelta = orden.value?.factura_foto_url
+  if (!lista.length) return suelta ? [suelta] : []
+  // Editar cambiaba solo la foto suelta y dejaba la lista vieja: en esas
+  // órdenes la suelta es la más reciente y va en lugar de la primera.
+  if (suelta && lista[0] !== suelta) return [suelta, ...lista.slice(1)]
+  return lista
 })
 
 const porcentajePagado = computed(() => {

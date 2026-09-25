@@ -1381,6 +1381,23 @@ class OrdenController extends Controller
                 $updateOrden[$campo] = $nueva;
             }
 
+            // Editar cambia la foto de la factura de una en una, pero el
+            // detalle muestra la lista `factura_fotos`: si no se toca también,
+            // la foto "se guarda" y en pantalla sigue la vieja. La nueva
+            // reemplaza a la primera, que es la que era `factura_foto_url`, y
+            // las demás se quedan.
+            if (array_key_exists('factura_foto_url', $updateOrden) && ! array_key_exists('factura_fotos', $data)
+                && array_key_exists('factura_fotos', $orden->getAttributes())) {
+                $lista = array_values(array_filter($orden->factura_fotos ?? []));
+                if ($updateOrden['factura_foto_url']) {
+                    $lista[0] = $updateOrden['factura_foto_url'];
+                } else {
+                    array_shift($lista);
+                }
+                $updateOrden['factura_fotos']    = $lista ?: null;
+                $updateOrden['factura_foto_url'] = $lista[0] ?? null;
+            }
+
             // La lista completa de fotos del comprobante. Si viene, manda
             // sobre la url suelta: la primera de la lista es la de siempre.
             if (array_key_exists('factura_fotos', $data)) {
