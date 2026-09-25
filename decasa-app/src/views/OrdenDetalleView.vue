@@ -6,7 +6,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
-import { getOrden, updateEstado, previsualizarAnulacion, revertirEntrega, descargarPdfOrden, descargarActaEntrega, descargarOrdenEntrega, reenviarCotizacion, asignarFechasEntrega, confirmarCotizacion, editarPago, completarBorrador as completarBorradorApi, eliminarBorrador as eliminarBorradorApi, previsualizarNumeracion, convertirSerie, cambiarNumeroOrden, cambiarProductoEntregado } from '@/api/ordenes'
+import { getOrden, updateEstado, previsualizarAnulacion, revertirEntrega, descargarPdfOrden, descargarActaEntrega, descargarOrdenEntrega, reenviarCotizacion, asignarFechasEntrega, confirmarCotizacion, editarPago, completarBorrador as completarBorradorApi, eliminarBorrador as eliminarBorradorApi, previsualizarEliminacion, eliminarOrden as eliminarOrdenApi, previsualizarNumeracion, convertirSerie, cambiarNumeroOrden, cambiarProductoEntregado } from '@/api/ordenes'
 import api from '@/api'
 import { useTiposProceso } from '@/composables/useTiposProceso'
 import { updateCliente } from '@/api/clientes'
@@ -1239,6 +1239,60 @@ async function confirmarCancelar() {
     toast.error(e.response?.data?.message ?? 'Error al cancelar la orden.')
   } finally {
     changingEstado.value = false
+  }
+}
+
+// ── Eliminar la orden (solo supervisor) ─────────────────────────────────────
+// Para la venta que se subió dos veces, la de prueba, la del cliente
+// equivocado. Hace lo mismo que cancelar y además la borra; con el número se
+// escoge igual que al anular. Queda constancia con el motivo.
+const showEliminar     = ref(false)
+const eliminarPreview  = ref(null)   // { referencia, tiene_numero, corridas, ya_entregadas, bloqueos, avisos }
+const eliminarModo     = ref('hueco') // 'hueco' | 'correr'
+const eliminarMotivo   = ref('')
+const cargandoEliminar = ref(false)
+const eliminando       = ref(false)
+
+const puedeEliminarOrden = computed(() =>
+  auth.isSupervisor && orden.value && !['borrador', 'cotizacion'].includes(orden.value.estado)
+)
+
+async function abrirEliminar() {
+  eliminarModo.value    = 'hueco'
+  eliminarMotivo.value  = ''
+  eliminarPreview.value = null
+  showEliminar.value    = true
+  cargandoEliminar.value = true
+  try {
+    const { data } = await previsualizarEliminacion(orden.value.id)
+    eliminarPreview.value = data
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudo revisar la orden.')
+    showEliminar.value = false
+  } finally {
+    cargandoEliminar.value = false
+  }
+}
+
+async function confirmarEliminar() {
+  if (eliminarMotivo.value.trim().length < 5) {
+    toast.error('Escribe por qué se elimina (mínimo 5 letras).')
+    return
+  }
+  eliminando.value = true
+  try {
+    const correr = eliminarModo.value === 'correr' && eliminarPreview.value?.tiene_numero
+    const { data } = await eliminarOrdenApi(orden.value.id, {
+      motivo: eliminarMotivo.value.trim(),
+      correr_numeracion: correr,
+    })
+    showEliminar.value = false
+    toast.success(data?.message ?? 'Orden eliminada.')
+    router.push({ name: 'ordenes' })
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudo eliminar la orden.')
+  } finally {
+    eliminando.value = false
   }
 }
 
@@ -3084,6 +3138,21 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         :estado="orden.estado"
       />
 
+      <!-- Eliminar la orden (solo supervisor). Abajo de todo y discreto: es
+           para la venta repetida o de prueba, no para el día a día. -->
+      <div v-if="puedeEliminarOrden" class="bg-white rounded-xl shadow-sm p-4 flex items-center justify-between gap-3 border border-red-100">
+        <div class="min-w-0">
+          <p class="text-xs font-semibold text-red-700 uppercase">Eliminar orden</p>
+          <p class="text-[11px] text-gray-500 leading-snug">
+            Si se subió dos veces o era de prueba. Se borra con sus pagos y comisiones, y queda constancia.
+          </p>
+        </div>
+        <button
+          @click="abrirEliminar"
+          class="shrink-0 text-sm font-semibold text-red-600 border border-red-200 rounded-lg px-3 py-1.5 hover:bg-red-50"
+        >Eliminar</button>
+      </div>
+
       <!-- Historial de ediciones -->
       <div v-if="orden.ediciones?.length" class="bg-white rounded-xl shadow-sm p-4 space-y-3">
         <p class="text-xs font-semibold text-gray-500 uppercase flex items-center gap-1.5">
@@ -4361,6 +4430,117 @@ onMounted(() => { cargarTipos(); cargarOrden() })
               class="flex-1 bg-red-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-red-700 disabled:opacity-50 transition-colors"
             >
               {{ changingEstado ? 'Cancelando...' : (cancelarModo === 'correr' ? 'Anular y correr' : 'Sí, cancelar') }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- Eliminar la orden: qué se lleva, qué pasa con el número y por qué -->
+    <Transition name="fade">
+      <div v-if="showEliminar" class="fixed inset-0 z-[70] flex items-end sm:items-center justify-center sm:p-6">
+        <div class="absolute inset-0 bg-black/50" @click="showEliminar = false" />
+        <div class="relative bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md p-5 space-y-4 max-h-[92vh] overflow-y-auto">
+          <div class="flex items-start gap-3">
+            <ExclamationTriangleIcon class="w-6 h-6 text-red-500 shrink-0" />
+            <div>
+              <p class="text-sm font-bold text-gray-900">Eliminar la orden {{ orden?.referencia }}</p>
+              <p class="text-xs text-gray-600 mt-1">
+                Desaparece de órdenes, reportes y comisiones. No se puede deshacer.
+              </p>
+            </div>
+          </div>
+
+          <div v-if="cargandoEliminar" class="text-xs text-gray-400 text-center py-2">Revisando la orden...</div>
+
+          <template v-else-if="eliminarPreview">
+            <!-- Lo que no deja borrarla -->
+            <div v-if="eliminarPreview.bloqueos?.length" class="space-y-1.5">
+              <p v-for="(b, i) in eliminarPreview.bloqueos" :key="i"
+                 class="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                ⛔ {{ b }}
+              </p>
+            </div>
+
+            <template v-else>
+              <!-- Lo que se lleva -->
+              <div v-if="eliminarPreview.avisos?.length" class="space-y-1">
+                <p class="text-xs font-semibold text-gray-500 uppercase">Al eliminarla</p>
+                <p v-for="(a, i) in eliminarPreview.avisos" :key="i"
+                   class="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
+                  {{ a }}
+                </p>
+              </div>
+
+              <!-- El número -->
+              <div class="space-y-2">
+                <p class="text-xs font-semibold text-gray-500 uppercase">¿Qué pasa con el número?</p>
+
+                <button
+                  type="button" @click="eliminarModo = 'hueco'"
+                  :class="['w-full text-left rounded-xl border-2 px-3 py-3 transition-colors',
+                    eliminarModo === 'hueco' ? 'border-gray-800 bg-gray-50' : 'border-gray-200 hover:border-gray-300']"
+                >
+                  <p class="text-sm font-bold text-gray-800">Dejar el hueco</p>
+                  <p class="text-xs text-gray-500 leading-snug">
+                    El {{ eliminarPreview.referencia }} queda sin usar, como una factura anulada. Las demás no se tocan.
+                  </p>
+                </button>
+
+                <button
+                  type="button" @click="eliminarModo = 'correr'"
+                  :disabled="!eliminarPreview.tiene_numero"
+                  :class="['w-full text-left rounded-xl border-2 px-3 py-3 transition-colors disabled:opacity-50',
+                    eliminarModo === 'correr' ? 'border-blue-600 bg-blue-50' : 'border-gray-200 hover:border-gray-300']"
+                >
+                  <p class="text-sm font-bold text-gray-800">Bajar las siguientes</p>
+                  <p class="text-xs text-gray-500 leading-snug">
+                    <template v-if="!eliminarPreview.tiene_numero">Esta orden no tiene consecutivo que soltar.</template>
+                    <template v-else-if="!eliminarPreview.corridas.length">Es la última numerada: la próxima venta toma el {{ eliminarPreview.referencia }}.</template>
+                    <template v-else>
+                      Las {{ eliminarPreview.corridas.length }} orden(es) posteriores bajan un número, para que no quede hueco.
+                    </template>
+                  </p>
+                </button>
+              </div>
+
+              <div v-if="eliminarModo === 'correr' && eliminarPreview.corridas.length" class="space-y-1.5">
+                <p v-if="eliminarPreview.ya_entregadas" class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  ⚠️ {{ eliminarPreview.ya_entregadas }} de esas ya se entregaron: su papel impreso quedará con el número viejo.
+                </p>
+                <div class="max-h-40 overflow-y-auto rounded-lg border border-gray-200 divide-y text-xs">
+                  <div v-for="c in eliminarPreview.corridas" :key="c.id" class="flex items-center justify-between px-3 py-1.5">
+                    <span class="truncate text-gray-700">{{ c.cliente || 'Sin cliente' }}</span>
+                    <span class="shrink-0 ml-2 font-mono text-gray-500">{{ c.de }} → <strong class="text-gray-800">{{ c.a }}</strong></span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Por qué -->
+              <div>
+                <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">¿Por qué se elimina?</label>
+                <textarea
+                  v-model="eliminarMotivo"
+                  rows="2"
+                  maxlength="500"
+                  placeholder="Ej: se subió dos veces, la buena es la #4301"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+                />
+              </div>
+            </template>
+          </template>
+
+          <div class="flex gap-3">
+            <button @click="showEliminar = false" class="flex-1 bg-gray-100 text-gray-700 rounded-lg py-2.5 text-sm font-semibold">
+              No, dejarla
+            </button>
+            <button
+              v-if="!eliminarPreview?.bloqueos?.length"
+              @click="confirmarEliminar"
+              :disabled="eliminando || cargandoEliminar || eliminarMotivo.trim().length < 5"
+              class="flex-1 bg-red-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-red-700 disabled:opacity-50 transition-colors"
+            >
+              {{ eliminando ? 'Eliminando...' : 'Eliminar definitivamente' }}
             </button>
           </div>
         </div>

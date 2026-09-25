@@ -26,6 +26,10 @@ export const editarOrden = (id, data) => api.patch(`/ordenes/${id}`, data)
 export const confirmarCotizacion = (id, data) => api.post(`/ordenes/${id}/confirmar-cotizacion`, data)
 export const completarBorrador = (id, data) => api.post(`/ordenes/${id}/completar-borrador`, data)
 export const eliminarBorrador = (id) => api.delete(`/ordenes/${id}`)
+/** Antes de eliminar una venta (supervisor): si se puede, qué se lleva y qué se correría. */
+export const previsualizarEliminacion = (id) => api.get(`/ordenes/${id}/eliminacion`)
+/** Eliminar una venta (supervisor). data: { motivo, correr_numeracion } */
+export const eliminarOrden = (id, data) => api.delete(`/ordenes/${id}`, { data })
 export const buscarProductos = (search = '', tiendaId = null) =>
   api.get('/productos', { params: { search, ...(tiendaId ? { tienda_id: tiendaId } : {}) } })
 export const getTiendas = () => api.get('/tiendas')

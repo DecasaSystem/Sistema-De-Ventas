@@ -339,6 +339,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('/ordenes/{id}/numeracion',            [OrdenController::class, 'cambiarNumero'])->whereNumber('id');
     // Antes de cancelar: qué órdenes se correrían si se anula sin dejar hueco.
     Route::get('/ordenes/{id}/anulacion',               [OrdenController::class, 'previsualizarAnulacion'])->whereNumber('id');
+    // Antes de eliminar (solo supervisor): si se puede, qué se lleva y qué se correría.
+    Route::get('/ordenes/{id}/eliminacion',             [OrdenController::class, 'previsualizarEliminacion'])->whereNumber('id');
 
     // Chat de la orden: dudas entre el vendedor y los supervisores
     Route::get('/ordenes/{id}/mensajes',  [OrdenMensajeController::class, 'index'])->whereNumber('id');

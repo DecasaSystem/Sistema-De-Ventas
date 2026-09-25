@@ -2997,32 +2997,7 @@ class OrdenController extends Controller
                     // Solo suelta quien de verdad tenía algo apartado. Un
                     // borrador y una cotización todavía no apartaron nada, y
                     // lo entregado o ya cancelado se soltó en su momento.
-                    if ($item->variante_id) {
-                        InventarioVariante::where('variante_id', $item->variante_id)
-                            ->where('tienda_id', $origenId)
-                            ->decrement('cantidad_reservada', $item->cantidad);
-                        if ($item->combo_config_id) {
-                            InventarioVarianteCombinacion::where('variante_id', $item->variante_id)
-                                ->where('config_id', $item->combo_config_id)
-                                ->where('tienda_id', $origenId)
-                                ->decrement('cantidad_reservada', $item->cantidad);
-                        }
-                        Inventario::where('producto_id', $item->producto_id)
-                            ->where('tienda_id', $origenId)
-                            ->decrement('cantidad_reservada', $item->cantidad);
-                    } else {
-                        Inventario::where('producto_id', $item->producto_id)
-                            ->where('tienda_id', $origenId)
-                            ->decrement('cantidad_reservada', $item->cantidad);
-                    }
-                    InventarioMovimiento::create([
-                        'producto_id' => $item->producto_id,
-                        'tienda_id'   => $origenId,
-                        'tipo'        => 'liberacion',
-                        'cantidad'    => $item->cantidad,
-                        'motivo'      => "Cancelación orden #{$orden->id}",
-                        'usuario_id'  => $usuario->id,
-                    ]);
+                    self::soltarApartadoItem($orden, $item, $usuario, "Cancelación orden #{$orden->id}");
                 }
             }
 
@@ -3460,6 +3435,211 @@ class OrdenController extends Controller
     }
 
     /**
+     * Devuelve al stock lo que un ítem tenía apartado.
+     *
+     * Lo usan cancelar y eliminar: tienen que soltar exactamente lo mismo que
+     * apartó la orden, ni más ni menos, o el contador de apartados se descuadra.
+     */
+    private static function soltarApartadoItem(Orden $orden, OrdenItem $item, Usuario $usuario, string $motivo): void
+    {
+        $origenId = $item->tienda_origen_id ?? $orden->tienda_id;
+
+        if ($item->variante_id) {
+            InventarioVariante::where('variante_id', $item->variante_id)
+                ->where('tienda_id', $origenId)
+                ->decrement('cantidad_reservada', $item->cantidad);
+            if ($item->combo_config_id) {
+                InventarioVarianteCombinacion::where('variante_id', $item->variante_id)
+                    ->where('config_id', $item->combo_config_id)
+                    ->where('tienda_id', $origenId)
+                    ->decrement('cantidad_reservada', $item->cantidad);
+            }
+        }
+        Inventario::where('producto_id', $item->producto_id)
+            ->where('tienda_id', $origenId)
+            ->decrement('cantidad_reservada', $item->cantidad);
+
+        InventarioMovimiento::create([
+            'producto_id' => $item->producto_id,
+            'tienda_id'   => $origenId,
+            'tipo'        => 'liberacion',
+            'cantidad'    => $item->cantidad,
+            'motivo'      => $motivo,
+            'usuario_id'  => $usuario->id,
+        ]);
+    }
+
+    /**
+     * Lo que impide borrar una venta, y lo que conviene saber antes.
+     *
+     * No se borra lo que ya salió de la bodega —se perdería el rastro de que
+     * esa mercancía se fue— ni lo que va en un camión, ni una orden con
+     * comisión pagada: esa plata ya salió.
+     *
+     * @return array{bloqueos: string[], avisos: string[], pagos: int, pagado: float}
+     */
+    private function revisarEliminacion(Orden $orden): array
+    {
+        $bloqueos = [];
+        $avisos   = [];
+
+        if ($orden->estado === 'entregado'
+            || $orden->items->contains(fn ($i) => ! $i->devuelto_en && $i->pendienteEntregar() < (int) $i->cantidad)) {
+            $bloqueos[] = 'Tiene productos entregados. Primero revierte la entrega ("¿Se marcó entregada por error? Revertir").';
+        }
+        if ($orden->estado === 'en_camino') {
+            $bloqueos[] = 'Va en camino en un camión. Primero sácala de la ruta.';
+        }
+        if (Comision::where('orden_id', $orden->id)->where('estado', 'pagada')->exists()) {
+            $bloqueos[] = 'Tiene una comisión ya pagada. Esa plata ya salió: el ajuste se hace en la liquidación.';
+        }
+
+        $pagos  = $orden->pagos()->get();
+        $pagado = (float) $pagos->sum('monto');
+        if ($pagos->count()) {
+            $avisos[] = "Se borran {$pagos->count()} pago(s) por $" . number_format($pagado, 0, ',', '.')
+                . '. Si esa plata sí entró, regístrala en la orden correcta antes de borrar esta.';
+        }
+        $vivas = Produccion::whereIn('orden_item_id', $orden->items->pluck('id'))
+            ->whereNotIn('estado', ['cancelado', 'entregado'])->count();
+        if ($vivas) {
+            $avisos[] = "Se cancela lo que tiene en el taller ({$vivas} pieza(s)) y se le avisa a producción.";
+        }
+        $hechos = DB::table('produccion_pasos as pp')
+            ->join('produccion as p', 'p.id', '=', 'pp.produccion_id')
+            ->whereIn('p.orden_item_id', $orden->items->pluck('id'))
+            ->where('pp.estado', 'completado')->count();
+        if ($hechos) {
+            $avisos[] = "Se borra el registro de {$hechos} paso(s) ya hechos en el taller (quién los hizo y cuánto tardó).";
+        }
+        if (! in_array($orden->estado, Orden::ESTADOS_SIN_RESERVA, true)) {
+            $avisos[] = 'Los productos apartados vuelven al inventario.';
+        }
+        if (Comision::where('orden_id', $orden->id)->where('estado', '!=', 'pagada')->exists()) {
+            $avisos[] = 'Se borran sus comisiones sin pagar, y deja de sumar a la meta de la tienda.';
+        }
+
+        return ['bloqueos' => $bloqueos, 'avisos' => $avisos, 'pagos' => $pagos->count(), 'pagado' => $pagado];
+    }
+
+    /**
+     * GET /api/ordenes/{id}/eliminacion
+     *
+     * Antes de borrar: si se puede, qué se va a llevar consigo y qué órdenes
+     * bajarían un número si no se quiere dejar el hueco.
+     */
+    public function previsualizarEliminacion(Request $request, int $id)
+    {
+        if ($request->user()->rol !== 'supervisor') {
+            return response()->json(['message' => 'Solo un supervisor puede eliminar órdenes.'], 403);
+        }
+
+        $orden = Orden::with('items')->findOrFail($id);
+
+        return response()->json(array_merge(
+            NumeracionOrdenes::previsualizarAnulacion($orden),
+            $this->revisarEliminacion($orden),
+        ));
+    }
+
+    /**
+     * Borra una venta de verdad (solo supervisor): la subieron dos veces, era
+     * de prueba, se hizo con el cliente equivocado.
+     *
+     * Hace todo lo de cancelar —suelta lo apartado, cancela el taller y la
+     * tela, quita las comisiones sin pagar— y además la borra, con lo que
+     * cuelga de ella. Con el número se escoge: dejar el hueco (como una
+     * factura anulada) o que las siguientes bajen uno. Queda constancia en
+     * `ordenes_eliminadas`: quién, cuándo, por qué y cómo estaba.
+     */
+    private function eliminarOrden(Request $request, Orden $orden)
+    {
+        $data = $request->validate([
+            'motivo'            => 'required|string|min:5|max:500',
+            'correr_numeracion' => 'nullable|boolean',
+        ]);
+        $usuario = $request->user();
+        $orden->loadMissing('items', 'cliente:id,nombre');
+
+        $revision = $this->revisarEliminacion($orden);
+        if ($revision['bloqueos']) {
+            return response()->json(['message' => $revision['bloqueos'][0], 'bloqueos' => $revision['bloqueos']], 422);
+        }
+
+        $correr     = $request->boolean('correr_numeracion');
+        $referencia = $orden->referencia;
+        $corridas   = [];
+
+        DB::transaction(function () use ($orden, $usuario, $correr, $data, $referencia, $revision, &$corridas) {
+            $estado = $orden->estado;
+
+            // Lo mismo que cancelar: soltar lo apartado, si lo tenía.
+            if (! in_array($estado, Orden::ESTADOS_SIN_RESERVA, true)) {
+                foreach ($orden->items as $item) {
+                    if ($item->es_personalizado || $item->producto_unico || ! $item->producto_id || $item->devuelto_en) continue;
+                    self::soltarApartadoItem($orden, $item, $usuario, "Orden {$referencia} eliminada");
+                }
+            }
+
+            $itemIds       = $orden->items->pluck('id');
+            $produccionIds = Produccion::whereIn('orden_item_id', $itemIds)->pluck('id');
+
+            if ($estado !== 'cancelado'
+                && Produccion::whereIn('id', $produccionIds)->whereNotIn('estado', ['cancelado', 'entregado'])->exists()) {
+                \App\Services\AvisoProduccion::ordenCancelada($orden, $usuario);
+            }
+            ConsumoTelas::liberarOrden($orden);
+
+            // El número: si se corre, antes de borrar, que es cuando la orden
+            // todavía lo tiene.
+            if ($correr) {
+                $corridas = NumeracionOrdenes::liberarYCorrer($orden, $usuario);
+            }
+
+            // La constancia, antes de que desaparezca.
+            $foto = $orden->fresh(['items', 'pagos'])?->toArray() ?? [];
+            DB::table('ordenes_eliminadas')->insert([
+                'orden_id'        => $orden->id,
+                'referencia'      => $referencia,
+                'cliente_nombre'  => $orden->cliente?->nombre,
+                'vendedor_id'     => $orden->vendedor_id,
+                'tienda_id'       => $orden->tienda_id,
+                'estado'          => $estado,
+                'valor_total'     => $orden->valor_total,
+                'pagado'          => $revision['pagado'],
+                'numeracion'      => $correr ? 'correr' : 'hueco',
+                'corridas'        => json_encode($corridas, JSON_UNESCAPED_UNICODE),
+                'motivo'          => $data['motivo'],
+                'eliminada_por_id'=> $usuario->id,
+                'datos'           => json_encode($foto, JSON_UNESCAPED_UNICODE),
+                'created_at'      => now(),
+                'updated_at'      => now(),
+            ]);
+
+            // Lo que cuelga de la orden y no se borra solo.
+            DB::table('produccion_retornos')->whereIn('produccion_id', $produccionIds)->delete();
+            DB::table('produccion_pasos')->whereIn('produccion_id', $produccionIds)->delete();
+            Produccion::whereIn('id', $produccionIds)->delete();
+            DespachoItem::where('orden_id', $orden->id)->delete();
+            Comision::where('orden_id', $orden->id)->delete();
+            $orden->pagos()->delete();
+            OrdenItem::whereIn('id', $itemIds)->delete();
+            $orden->delete();
+        });
+
+        event(new OrdenActualizada($orden->id, (int) $orden->tienda_id, 'eliminada', $orden->cliente?->nombre ?? ''));
+
+        Log::info("Orden {$referencia} (#{$orden->id}) eliminada por {$usuario->nombre}: {$data['motivo']}");
+
+        return response()->json([
+            'message'  => $correr
+                ? ($corridas ? "Orden {$referencia} eliminada. Se corrieron " . count($corridas) . ' orden(es).' : "Orden {$referencia} eliminada.")
+                : "Orden {$referencia} eliminada. Su número queda como hueco.",
+            'corridas' => $corridas,
+        ]);
+    }
+
+    /**
      * DELETE /api/ordenes/{id}
      *
      * Solo borradores. Un borrador nunca fue una venta —no tiene consecutivo, no
@@ -3483,6 +3663,13 @@ class OrdenController extends Controller
             && $orden->pagos()->count() === 0;
 
         if ($orden->estado !== 'borrador' && ! $borradorCancelado) {
+            // Una venta de verdad solo la borra un supervisor, y por su propio
+            // camino: suelta lo que tenía, deja constancia y decide qué pasa
+            // con el número.
+            if ($usuario->rol === 'supervisor') {
+                return $this->eliminarOrden($request, $orden);
+            }
+
             return response()->json([
                 'message' => 'Solo se pueden eliminar borradores. Una orden confirmada se cancela, no se borra.',
             ], 422);
