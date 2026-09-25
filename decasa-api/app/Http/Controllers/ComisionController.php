@@ -1162,6 +1162,19 @@ class ComisionController extends Controller
             'pagado_tarjeta'  => $tarjeta,
             'costo_datafono'  => $suma($items, 'costo_datafono'),
             'sin_tarjeta'     => max(0, $suma($items, 'valor_orden') - $tarjeta),
+
+            // Lo vendido partido por tipo de orden —normales, restauraciones
+            // y FV2—, venga de donde venga: suyas, del pool o compartidas
+            // con un independiente. Suma lo mismo que "vendidos" en la
+            // tarjeta; la parte del pool sin orden no entra.
+            'por_tipo'        => collect(['venta', 'restauracion', 'fv2'])->mapWithKeys(function ($tipo) use ($items, $suma) {
+                $delTipo = $items->where('tipo_orden', $tipo);
+                return [$tipo => [
+                    'monto'    => $suma($delTipo, 'valor_orden'),
+                    'ordenes'  => $delTipo->count(),
+                    'comision' => $suma($delTipo, 'monto_comision'),
+                ]];
+            })->all(),
         ];
     }
 
@@ -2851,6 +2864,13 @@ class ComisionController extends Controller
             // Solo si vino cargado: en pantalla no hace falta, en el Excel sí.
             'cliente_nombre'   => $c->orden?->relationLoaded('cliente') ? $c->orden->cliente?->nombre : null,
             'canal'            => $c->orden?->canal,
+            // De qué es la orden, con la misma regla que Estadísticas
+            // (Orden::sqlTipo): FV2 por su serie; restauración si toda la
+            // orden lo es o va en la serie R; lo demás, venta normal.
+            'tipo_orden'       => ! $c->orden_id ? null
+                                  : ($c->orden?->serie === Orden::SERIE_FV2 ? 'fv2'
+                                  : ($esRestauracion || $c->orden?->serie === Orden::SERIE_RESTAURACION
+                                        ? 'restauracion' : 'venta')),
         ]);
     }
 

@@ -62,6 +62,30 @@ const partes = computed(() => {
   return filas.map(f => ({ ...f, pct: f.monto / suma * 100 }))
 })
 
+/**
+ * De qué son las órdenes: normales, restauraciones y FV2, vengan de donde
+ * vengan (suyas, del pool o compartidas con un independiente). Mismos colores
+ * que el desglose por tipo de Estadísticas, para que se lean igual.
+ */
+const TIPOS = [
+  { clave: 'venta',        label: 'Normales',        color: '#2a78d6' },
+  { clave: 'restauracion', label: 'Restauraciones',  color: '#eb6834' },
+  { clave: 'fv2',          label: 'FV2',             color: '#1baf7a' },
+]
+
+const tipos = computed(() => {
+  const t = props.desglose?.por_tipo
+  if (!t) return []
+
+  const filas = TIPOS
+    .map(x => ({ ...x, monto: Number(t[x.clave]?.monto ?? 0), ordenes: t[x.clave]?.ordenes ?? 0, comision: Number(t[x.clave]?.comision ?? 0) }))
+    .filter(f => f.ordenes > 0)
+
+  const suma = filas.reduce((s, f) => s + f.monto, 0) || 1
+
+  return filas.map(f => ({ ...f, pct: f.monto / suma * 100 }))
+})
+
 /** Cómo entró la plata de las ventas. Es otra escala: no suma la comisión. */
 const cobro = computed(() => {
   const d = props.desglose
@@ -117,6 +141,34 @@ const cobro = computed(() => {
         <!-- El porcentaje solo cuando hay con qué compararlo. -->
         <span v-if="partes.length > 1" class="text-gray-400 tabular-nums">{{ Math.round(p.pct) }}%</span>
         <span class="font-semibold text-gray-700 tabular-nums shrink-0 w-20 text-right">{{ cop(p.monto) }}</span>
+      </div>
+    </div>
+
+    <!-- ── De qué son las órdenes ──────────────────────────────────────── -->
+    <div v-if="tipos.length" class="mt-2.5 pt-2.5 border-t border-gray-200">
+      <div class="flex items-baseline justify-between mb-1.5">
+        <p class="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Por tipo de orden</p>
+        <p class="text-[11px] text-gray-400">de {{ cop(ventas) }} vendidos</p>
+      </div>
+
+      <div v-if="tipos.length > 1" class="flex h-2.5 rounded overflow-hidden" style="gap: 2px">
+        <div
+          v-for="t in tipos"
+          :key="t.clave"
+          :style="{ flex: `${t.pct} 0 0`, background: t.color, minWidth: '3px' }"
+          :title="`${t.label}: ${cop(t.monto)}`"
+        />
+      </div>
+
+      <div class="mt-1.5 space-y-0.5">
+        <div v-for="t in tipos" :key="t.clave" class="flex items-center gap-1.5 text-[11px]">
+          <span class="w-2 h-2 rounded-sm shrink-0" :style="{ background: t.color }" />
+          <span class="text-gray-600 flex-1 min-w-0 truncate">
+            {{ t.label }}
+            <span class="text-gray-400">· {{ t.ordenes }} {{ t.ordenes === 1 ? 'orden' : 'órdenes' }} sobre {{ cop(t.monto) }}</span>
+          </span>
+          <span class="font-semibold text-gray-700 tabular-nums shrink-0 w-20 text-right" title="Lo que comisiona por estas órdenes">{{ cop(t.comision) }}</span>
+        </div>
       </div>
     </div>
 
