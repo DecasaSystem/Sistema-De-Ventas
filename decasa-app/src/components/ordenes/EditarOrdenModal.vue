@@ -1457,10 +1457,17 @@ async function guardar() {
               </p>
             </div>
 
-            <!-- Reasignación (solo supervisor) -->
-            <div v-if="esSupervisor && !soloPapeles" class="space-y-3 border border-blue-200 bg-blue-50 rounded-xl p-4">
+            <!-- Reasignación (solo supervisor). También con la orden ya
+                 entregada: el error de a quién le toca la comisión se nota
+                 casi siempre al liquidar el mes. Ahí la tienda no se cambia,
+                 porque de ella salió lo apartado en bodega. -->
+            <div v-if="esSupervisor" class="space-y-3 border border-blue-200 bg-blue-50 rounded-xl p-4">
               <p class="text-xs font-semibold text-blue-700 uppercase">Reasignar</p>
-              <p class="text-[11px] text-blue-700">Cambiar el vendedor o la tienda afecta el cálculo de comisiones de esta orden.</p>
+              <p class="text-[11px] text-blue-700">
+                {{ soloPapeles
+                  ? 'Rehace las comisiones de esta orden en el mes en que se vendió. Si alguna ya se pagó, no se deja cambiar.'
+                  : 'Cambiar el vendedor o la tienda afecta el cálculo de comisiones de esta orden.' }}
+              </p>
               <div>
                 <label class="block text-xs font-medium text-gray-600 mb-1">Vendedor</label>
                 <select
@@ -1470,7 +1477,7 @@ async function guardar() {
                   <option v-for="v in opcionesVendedor" :key="v.id" :value="v.id">{{ v.nombre }}</option>
                 </select>
               </div>
-              <div>
+              <div v-if="!soloPapeles">
                 <label class="block text-xs font-medium text-gray-600 mb-1">Tienda</label>
                 <select
                   v-model.number="tiendaId"

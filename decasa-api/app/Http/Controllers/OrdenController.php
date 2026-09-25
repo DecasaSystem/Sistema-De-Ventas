@@ -70,6 +70,17 @@ class OrdenController extends Controller
     private const CAMPOS_PRECIO_ORDEN = ['descuento_total', 'descuento_condicionado_monto'];
 
     /**
+     * Lo otro que un supervisor puede corregir en una orden que ya salió: con
+     * quién se reparte la comisión. Un independiente que olvidó compartir una
+     * venta con el almacén, o una venta a nombre del asesor equivocado, se
+     * notan cuando ya se entregó —muchas veces al liquidar el mes—. No toca
+     * bodega ni la plata del cliente: solo rehace las comisiones sin pagar.
+     *
+     * La tienda de la orden no va aquí: de ella sale lo apartado en bodega.
+     */
+    private const CAMPOS_REPARTO_COMISION = ['vendedor_id', 'tienda_abonada_id', 'covendedor_id', 'es_compartida'];
+
+    /**
      * GET /api/ordenes
      * Vendedor: solo las suyas. Supervisor: todas.
      * Filtros: estado, tienda_id, desde, hasta.
@@ -1267,7 +1278,7 @@ class OrdenController extends Controller
             $prohibidos = array_values(array_intersect(
                 array_keys($data),
                 $corrigePrecios
-                    ? array_diff(self::CAMPOS_QUE_MUEVEN_PLATA, self::CAMPOS_PRECIO_ORDEN)
+                    ? array_diff(self::CAMPOS_QUE_MUEVEN_PLATA, self::CAMPOS_PRECIO_ORDEN, self::CAMPOS_REPARTO_COMISION)
                     : self::CAMPOS_QUE_MUEVEN_PLATA
             ));
 
@@ -1284,7 +1295,7 @@ class OrdenController extends Controller
             if ($prohibidos) {
                 return response()->json([
                     'message' => 'Esta orden ya se entregó: de aquí en adelante sólo se corrigen fotos, notas y datos de contacto'
-                        . ($corrigePrecios ? ', y los precios y descuentos. ' : '. ')
+                        . ($corrigePrecios ? ', los precios y descuentos, y con quién se comparte la venta. ' : '. ')
                         . 'Para cambiar un producto entregado hay una opción aparte en el detalle de la orden.',
                     'campos'  => array_values(array_unique($prohibidos)),
                 ], 422);
@@ -1321,12 +1332,19 @@ class OrdenController extends Controller
                 !== ComisionController::tiendaParaComision($orden);
         }
 
+        // "Lista" es que ya se puede cobrar, no que se cobró: el supervisor la
+        // corrige igual —es justo cuando se nota el error, al liquidar el mes—
+        // y la comisión se rehace con la fecha de la venta, así que cae en su
+        // mes. Lo pagado sí frena a todos: esa plata ya salió.
         if ($reasignando || $ajustandoAbono || $mueveComision) {
+            $bloquean = $usuario->rol === 'supervisor' ? ['pagada'] : ['lista', 'pagada'];
             $comisionLiquidada = Comision::where('orden_id', $orden->id)
-                ->whereIn('estado', ['lista', 'pagada'])
+                ->whereIn('estado', $bloquean)
                 ->exists();
             if ($comisionLiquidada) {
-                return response()->json(['message' => 'No se puede cambiar la asignación: la comisión de esta orden ya está lista o pagada.'], 422);
+                return response()->json(['message' => $usuario->rol === 'supervisor'
+                    ? 'No se puede cambiar la asignación: una comisión de esta orden ya se pagó. Ese ajuste hay que hacerlo en la liquidación.'
+                    : 'No se puede cambiar la asignación: la comisión de esta orden ya está lista o pagada.'], 422);
             }
         }
 
