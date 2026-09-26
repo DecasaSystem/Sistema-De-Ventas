@@ -650,6 +650,190 @@ function hojaMetasEquipos(wb, ctx) {
   return ws
 }
 
+// ── Reemplazos: la cuenta paso a paso ──────────────────────────────────────────
+//
+// Cuando alguien cubre a otro, lo que más se pregunta es "¿por qué me tocó
+// esto?". La hoja lo cuenta como se haría a mano: quién estuvo cada día, cuánto
+// vale un día del pool, y la regla de 3 de cada persona —hecha también día por
+// día para comprobarla—. Las cifras salen de las mismas filas que se pagan.
+
+const DIA_MS = 24 * 60 * 60 * 1000
+const aDia   = (s) => new Date(String(s).slice(0, 10) + 'T00:00:00')
+const iso    = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+const diaCorto = (d) => d.toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })
+
+/** Quiénes estaban en esa tienda ese día: el equipo, más quien vino, menos quien no estuvo. */
+function presentesDelDia(tiendaId, dia, equipo, reemplazos) {
+  const estan = new Map(equipo.map(a => [a.vendedor_id, a.nombre]))
+  for (const r of reemplazos) {
+    const desde = aDia(r.desde)
+    const hasta = r.hasta ? aDia(r.hasta) : new Date(8640000000000000)
+    if (dia < desde || dia > hasta) continue
+    if (Number(r.tienda_id) === Number(tiendaId)) {
+      estan.set(r.usuario_id, r.usuario_nombre)
+      if (r.reemplaza_a_id) estan.delete(r.reemplaza_a_id)
+    } else {
+      // Ese día estaba cubriendo en otra tienda.
+      estan.delete(r.usuario_id)
+    }
+  }
+  return [...estan.values()].sort()
+}
+
+/** Los tramos del mes en que estuvo la misma gente: "1 al 17 ago: Gladys y Sebastián". */
+function tramosDelMes(mes, tiendaId, equipo, reemplazos) {
+  const inicio = aDia(mes + '-01')
+  const fin    = new Date(inicio.getFullYear(), inicio.getMonth() + 1, 0)
+  const tramos = []
+  for (let d = new Date(inicio); d <= fin; d = new Date(d.getTime() + DIA_MS)) {
+    const gente = presentesDelDia(tiendaId, d, equipo, reemplazos)
+    const clave = gente.join('|')
+    const ult   = tramos[tramos.length - 1]
+    if (ult && ult.clave === clave) {
+      ult.hasta = new Date(d)
+      ult.dias++
+    } else {
+      tramos.push({ clave, gente, desde: new Date(d), hasta: new Date(d), dias: 1 })
+    }
+  }
+  return tramos
+}
+
+/**
+ * Texto a lo ancho de la tabla (A:E), para que una explicación larga no quede
+ * apretada en la primera columna. La altura crece con el largo del texto.
+ */
+function explicar(ws, lineas) {
+  for (const l of lineas) {
+    const r = ws.addRow([l])
+    ws.mergeCells(r.number, 1, r.number, 5)
+    r.font = { size: 10 }
+    r.alignment = { wrapText: true, vertical: 'top' }
+    r.height = Math.max(15, Math.ceil(String(l).length / 110) * 15)
+  }
+}
+
+function hojaReemplazos(wb, ctx) {
+  const deTiendas = (ctx.reemplazos ?? []).filter(r => r.tienda_id)
+  if (!deTiendas.length) return null
+
+  const ws = wb.addWorksheet('Reemplazos')
+  titulo(ws, `Reemplazos — ${mesEnPalabras(ctx.mes)}: cómo se reparte el pool`,
+    'El pool de una tienda es de todo el mes y se reparte por DÍAS: cada día se parte en partes iguales entre los que estaban. '
+    + 'Quien cubre a otro se queda con los días de ese otro. Es una regla de 3: pool × días de la persona ÷ días de todos.')
+
+  const tiendasConReemplazo = [...new Set(deTiendas.map(r => Number(r.tienda_id)))]
+
+  for (const tiendaId of tiendasConReemplazo) {
+    const meta    = ctx.metas.find(m => Number(m.tienda_id) === tiendaId)
+    const nombre  = meta?.nombre ?? deTiendas.find(r => Number(r.tienda_id) === tiendaId)?.tienda_nombre ?? `Tienda ${tiendaId}`
+    const equipo  = (meta?.asesores ?? []).map(a => ({ vendedor_id: a.vendedor_id, nombre: a.nombre }))
+    const reparto = ctx.reparto[tiendaId]
+    const filaPool = ctx.todas.find(c => Number(c.tienda_id) === tiendaId
+      && ['pool', 'parte_pool'].includes(c.forma_pago))
+    const trimestral = filaPool?.periodicidad === 'trimestral'
+    const pool     = n(filaPool?.comision_pool)
+    const diasMes  = n(reparto?.dias_mes) || new Date(Number(ctx.mes.slice(0, 4)), Number(ctx.mes.slice(5, 7)), 0).getDate()
+    const partes   = reparto?.partes ?? []
+    const diasTodos = partes.reduce((s, p) => s + n(p.dias), 0)
+
+    seccion(ws, nombre,
+      meta?.comisiones_compartidas === false
+        ? 'Esta tienda no reparte: cada uno cobra lo suyo. Los reemplazos no mueven plata entre personas.'
+        : (trimestral ? 'Tienda trimestral: el pool es del trimestre y se reparte por los días de los tres meses. Abajo, los días de este mes.' : null))
+
+    // 1. Quién estuvo cada día
+    const tramos = tramosDelMes(ctx.mes, tiendaId, equipo, ctx.reemplazos ?? [])
+    seccion(ws, '1. Quién estuvo cada día')
+    tabla(ws, [
+      { titulo: 'Días', campo: t => t.dias === 1 ? diaCorto(t.desde) : `${diaCorto(t.desde)} al ${diaCorto(t.hasta)}`, ancho: 20 },
+      { titulo: 'Cuántos días', campo: 'dias', ancho: 12 },
+      { titulo: 'Quiénes estaban', campo: t => t.gente.join(' y ') || 'Nadie', ancho: 40 },
+      { titulo: 'Entre cuántos se parte cada día', campo: t => t.gente.length, ancho: 16 },
+    ], tramos, { zebra: true })
+
+    // Lo que dice cada reemplazo, en palabras.
+    explicar(ws, deTiendas.filter(r => Number(r.tienda_id) === tiendaId).map(r => {
+      const hasta = r.hasta ? diaCorto(aDia(r.hasta)) : 'sin fecha de regreso'
+      const dias  = r.hasta ? Math.round((aDia(r.hasta) - aDia(r.desde)) / DIA_MS) + 1 : null
+      return r.reemplaza_a
+        ? `• ${r.usuario_nombre} cubrió a ${r.reemplaza_a} del ${diaCorto(aDia(r.desde))} al ${hasta}${dias ? ` (${dias} días)` : ''}: `
+          + `esos días la parte de ${r.reemplaza_a} fue de ${r.usuario_nombre}. ${r.reemplaza_a} pierde esos días y ${r.usuario_nombre} los gana; el total no cambia.`
+        : `• ${r.usuario_nombre} llegó a la tienda el ${diaCorto(aDia(r.desde))} (traslado): desde ese día el pool se parte entre uno más.`
+    }))
+
+    if (!partes.length || meta?.comisiones_compartidas === false) continue
+
+    // 2. El pool y cuánto vale un día
+    seccion(ws, '2. El pool del mes y cuánto vale un día')
+    if (trimestral) {
+      explicar(ws, ['• El pool se calcula por trimestre (ver la hoja de la tienda en Comisiones → Toda la tienda). El reparto por días de abajo es el de este mes.'])
+    } else if (!filaPool || pool <= 0) {
+      explicar(ws, ['• Este mes la tienda no pasó la meta con lo que tiene la mitad pagada: el pool es $0 y no hay nada que repartir.'])
+    } else {
+      const porDia = pool / diasMes
+      explicar(ws, [
+        `• Pool del mes = (${pesos(filaPool.total_tienda_mes)} que cuentan − ${pesos(filaPool.meta_tienda)} de meta) ÷ 1,19 × 5% = ${pesos(pool)}.`,
+        `• Un día del pool vale ${pesos(pool)} ÷ ${diasMes} días = ${pesos(porDia)}. Ese valor se parte entre los que estaban ese día.`,
+      ])
+    }
+
+    // 3. Reparto por persona (regla de 3)
+    seccion(ws, '3. Lo que le toca a cada uno (regla de 3)',
+      `Pool × días de la persona ÷ ${diasTodos} días de todos. Los ${diasTodos} días son la suma de los días de cada persona.`)
+    // Redondeado como lo paga el sistema: la parte de cada uno por separado.
+    // Por eso la suma puede correrse un peso del pool.
+    const filas = partes.map(p => ({
+      nombre: p.nombre,
+      dias: n(p.dias),
+      pct: diasTodos > 0 ? n(p.dias) / diasTodos * 100 : 0,
+      cuenta: trimestral ? '' : `${pesos(pool)} × ${p.dias} ÷ ${diasTodos}`,
+      monto: trimestral ? null : Math.round(diasTodos > 0 ? pool * n(p.dias) / diasTodos : 0),
+    }))
+    tabla(ws, [
+      { titulo: 'Persona', campo: 'nombre', ancho: 22 },
+      { titulo: 'Días que estuvo', campo: 'dias', ancho: 14, total: 'suma' },
+      { titulo: '% del pool', campo: f => `${f.pct.toFixed(1)}%`, ancho: 11 },
+      { titulo: 'La cuenta', campo: 'cuenta', ancho: 30 },
+      { titulo: 'Le toca', campo: 'monto', fmt: 'pesos', ancho: 16, total: 'suma' },
+    ], filas, { totales: !trimestral, zebra: true })
+    if (!trimestral && pool > 0) {
+      const suma = filas.reduce((s, f) => s + n(f.monto), 0)
+      if (Math.abs(suma - Math.round(pool)) >= 1) {
+        explicar(ws, [`Nota: la parte de cada uno se redondea a pesos por separado, así que el total da ${pesos(suma)} y no ${pesos(pool)}: `
+          + 'la diferencia es solo del redondeo.'])
+      }
+    }
+
+    // 4. La misma cuenta, día por día, para comprobarla
+    if (!trimestral && pool > 0) {
+      const porDia = pool / diasMes
+      seccion(ws, '4. Comprobación día por día',
+        'Cada día se parte entre los que estaban. Sumando los días de cada persona sale lo mismo que en la tabla de arriba.')
+      explicar(ws, tramos.filter(t => t.gente.length).map(t => {
+        const cadaUno = porDia / t.gente.length
+        const rango   = t.dias === 1 ? diaCorto(t.desde) : `del ${diaCorto(t.desde)} al ${diaCorto(t.hasta)}`
+        return `• ${rango} (${t.dias} días): ${pesos(porDia)} por día ÷ ${t.gente.length} = ${pesos(cadaUno)} por día para `
+             + `${t.gente.join(' y ')} → ${pesos(cadaUno * t.dias)} cada uno en ese tramo.`
+      }))
+
+      // Y la suma de los tramos de cada uno: tiene que dar lo de la tabla 3.
+      const porPersona = new Map()
+      for (const t of tramos) {
+        if (!t.gente.length) continue
+        const cadaUno = porDia / t.gente.length * t.dias
+        for (const quien of t.gente) porPersona.set(quien, (porPersona.get(quien) ?? 0) + cadaUno)
+      }
+      explicar(ws, [
+        'Sumando sus tramos: ' + [...porPersona].map(([quien, v]) => `${quien} ${pesos(v)}`).join(' · ')
+          + '. Es lo mismo de la tabla 3.',
+      ])
+    }
+  }
+
+  return ws
+}
+
 function hojaComoSeCalcula(wb) {
   const ws = wb.addWorksheet('Cómo se calcula')
   ws.getColumn(1).width = 120
@@ -669,6 +853,7 @@ function hojaComoSeCalcula(wb) {
     '3. Tienda que reparte (pool del equipo)',
     '• Pool = (Vendido en la tienda − Meta) ÷ 1,19 × 5%. Si no llega a la meta, el pool es $0.',
     '• El pool se parte entre el equipo por DÍAS: quien estuvo el mes entero pesa 31; quien vino a cubrir pesa los días que cubrió y el cubierto los pierde.',
+    '• Con un reemplazo es una regla de 3: pool × días de la persona ÷ días de todos. Cada día el pool se parte en partes iguales entre los que estaban. La hoja "Reemplazos" tiene la cuenta completa, día por día.',
     '• Lo de cada persona se reparte entre sus órdenes a prorrata del valor: la orden más grande se lleva más.',
     '• Quien es del equipo y no vendió cobra su parte igual (fila "Parte del equipo").',
     '• Quien vende en la tienda sin ser del equipo ni reemplazo cobra el 5% de lo suyo (÷1,19), por fuera del pool. Sus ventas sí empujan la meta.',
@@ -755,6 +940,9 @@ export async function armarLibro(datos) {
     metas: datos.metas ?? [],
     reemplazos: datos.reemplazos ?? [],
     reparto: datos.reparto ?? {},
+    // Todas las del mes, sin filtros: el pool de una tienda sale de ahí aunque
+    // se esté exportando solo lo de una persona.
+    todas: datos.comisiones ?? [],
     vendedorId: f.vendedorId ?? null,
     // Con un vendedor de tienda elegido, los independientes no son lo que se mira.
     conIndependientes: !f.vendedorId || esIndep,
@@ -780,6 +968,7 @@ export async function armarLibro(datos) {
   hojaDetalle(wb, ctx)
   if (ctx.conIndependientes) hojaIndependientes(wb, ctx)
   hojaMetasEquipos(wb, ctx)
+  hojaReemplazos(wb, ctx)
   hojaComoSeCalcula(wb)
 
   return wb
