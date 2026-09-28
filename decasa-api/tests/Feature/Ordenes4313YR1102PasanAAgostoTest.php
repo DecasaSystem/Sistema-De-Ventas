@@ -149,6 +149,26 @@ class Ordenes4313YR1102PasanAAgostoTest extends TestCase
         $this->assertSame('2026-09-01 15:00', $this->diaDe($id));
     }
 
+    /** La #4311: del 31 de agosto, subida el 1 de septiembre. */
+    public function test_la_4311_pasa_al_31_de_agosto_y_no_toca_otra_4311(): void
+    {
+        $otra = $this->orden(['numero_orden' => 4311], '2026-07-15');   // la de Pereira, otro grupo
+        $esta = $this->orden(['numero_orden' => 4311], '2026-09-01');
+
+        $m = require base_path('database/migrations/2026_10_04_000006_orden_4311_pasa_al_31_de_agosto.php');
+        ob_start(); $m->up(); ob_end_clean();
+
+        $this->assertSame('2026-08-31 15:00', $this->diaDe($esta), 'se conserva la hora');
+        $this->assertSame('2026-07-15 15:00', $this->diaDe($otra), 'la otra #4311 no se toca');
+        $com = DB::table('comisiones')->where('orden_id', $esta)->first();
+        $this->assertSame('2026-08', $com->mes_venta);
+        $this->assertSame('2026-09-20', substr((string) $com->fecha_disponible, 0, 10), 'se cobra con agosto');
+
+        // Otra vez: ya no está el 1 de septiembre, no hace nada.
+        ob_start(); $m->up(); ob_end_clean();
+        $this->assertSame('2026-08-31 15:00', $this->diaDe($esta));
+    }
+
     public function test_de_dos_4313_solo_mueve_la_del_2_de_septiembre(): void
     {
         // El número normal se repite entre Armenia y Pereira.
