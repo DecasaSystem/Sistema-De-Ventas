@@ -829,6 +829,23 @@ onBeforeUnmount(() => {
               <span class="text-gray-300">— todo lo que entró en estas fechas, también abonos de órdenes de meses anteriores</span>
             </p>
 
+            <!-- Las restauraciones que un independiente compartió con esta
+                 tienda. Solo informativo: ya suman en la tarjeta de quien las
+                 subió, y ponerlas también aquí las contaría dos veces. -->
+            <div v-if="t.restauraciones_compartidas?.ordenes"
+                 class="mt-2 rounded-lg bg-orange-50 border border-orange-100 px-2.5 py-1.5 text-[11px]">
+              <p class="text-orange-800">
+                <span class="font-semibold">Restauraciones compartidas con la tienda:</span>
+                {{ t.restauraciones_compartidas.ordenes }}
+                {{ t.restauraciones_compartidas.ordenes === 1 ? 'orden' : 'órdenes' }} ·
+                <span class="font-semibold">{{ cop(t.restauraciones_compartidas.valor) }}</span>
+                <span class="text-orange-600">(cobrado {{ cop(t.restauraciones_compartidas.cobrado) }})</span>
+              </p>
+              <p class="text-orange-600/80 text-[10px] leading-snug">
+                No se suman al total de ventas de arriba: las sube el independiente y ya cuentan en su tarjeta.
+              </p>
+            </div>
+
             <!-- Barra meta mensual -->
             <div v-if="t.meta_mes?.meta" class="mt-3 pt-3 border-t border-gray-100">
               <div class="flex items-center justify-between mb-1">

@@ -129,6 +129,36 @@ class TiendasStatsCuadraTest extends TestCase
         $this->assertEquals(10_000_000, $norte['ticket_promedio']);
     }
 
+    public function test_las_restauraciones_que_comparte_un_independiente_se_muestran_aparte_sin_sumar(): void
+    {
+        $hoy = Carbon::now('America/Bogota')->startOfDay()->addHours(12)->setTimezone('UTC');
+
+        // La tienda vende 10M. Henry (independiente) sube una restauración de
+        // 2M compartida con la tienda, con 500 mil abonados.
+        $this->orden($hoy, 10_000_000);
+        DB::table('usuarios')->insert([
+            'id' => 9, 'nombre' => 'Henry', 'rol' => 'vendedor', 'independiente' => true, 'created_at' => now(),
+        ]);
+        $rest = DB::table('ordenes')->insertGetId([
+            'tienda_id' => 1, 'vendedor_id' => 9, 'cliente_id' => 1, 'estado' => 'en_produccion',
+            'tienda_abonada_id' => 1, 'serie' => 'R', 'valor_total' => 2_000_000, 'created_at' => $hoy, 'updated_at' => $hoy,
+        ]);
+        DB::table('orden_items')->insert(['orden_id' => $rest, 'es_restauracion' => true, 'precio_unitario' => 2_000_000]);
+        $this->abono($rest, $hoy, 500_000);
+
+        $jefe = Usuario::create([
+            'nombre' => 'Jefa', 'email' => 'j@d.com', 'password' => 'x', 'rol' => 'supervisor', 'created_at' => now(),
+        ]);
+        $norte = collect($this->actingAs($jefe)->getJson('/api/stats/tiendas?periodo=mes')->assertOk()->json())
+            ->firstWhere('tienda_id', 1);
+
+        // El total de la tienda no la cuenta: ya está en la tarjeta de Henry.
+        $this->assertEquals(10_000_000, $norte['total_vendido']);
+        $this->assertEquals(0, $norte['vendido_por_tipo']['restauracion']);
+        // Pero se muestra aparte.
+        $this->assertEquals(['ordenes' => 1, 'valor' => 2_000_000, 'cobrado' => 500_000], $norte['restauraciones_compartidas']);
+    }
+
     public function test_una_orden_cancelada_no_cuenta_como_cartera_de_la_tienda(): void
     {
         $esteMes = Carbon::now('America/Bogota')->startOfDay()->addHours(12)->setTimezone('UTC');

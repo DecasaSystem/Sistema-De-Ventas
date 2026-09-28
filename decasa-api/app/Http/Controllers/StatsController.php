@@ -386,14 +386,14 @@ class StatsController extends Controller
      */
     private function idsPorSuCuenta(): array
     {
-        static $ids = null;
-        if ($ids === null) {
-            $ids = DB::table('usuarios')
-                ->where('independiente', true)
-                ->pluck('id')->all();
-        }
-        return $ids;
+        // En el controlador y no en un `static`: un static vive todo el
+        // proceso, y en las pruebas se quedaba con la lista de la primera.
+        return $this->idsPorSuCuenta ??= DB::table('usuarios')
+            ->where('independiente', true)
+            ->pluck('id')->all();
     }
+
+    private ?array $idsPorSuCuenta = null;
 
     public function tiendas(Request $request)
     {
@@ -566,8 +566,9 @@ class StatsController extends Controller
         $carteras = $this->carteraPorTienda($this->rangoUtc($desde, $hasta), $porSuCuenta);
         $ordenes  = $this->ordenesPorTienda($rango, $porSuCuenta);
         $tops     = $this->mejorVendedorPorTienda($rango, $porSuCuenta);
+        $restCompartidas = $this->restauracionesCompartidasPorTienda($rango, $porSuCuenta);
 
-        $resultado = $tiendas->map(function ($t) use ($mesActual, $metasVigentes, $ventasParaMeta, $cobros, $cobradoP, $carteras, $ordenes, $tops) {
+        $resultado = $tiendas->map(function ($t) use ($mesActual, $metasVigentes, $ventasParaMeta, $cobros, $cobradoP, $carteras, $ordenes, $tops, $restCompartidas) {
             // Todo esto viene ya resuelto de una sola pasada, agrupado por
             // tienda: antes eran ocho consultas por cada una.
             //
@@ -624,6 +625,8 @@ class StatsController extends Controller
                 'ordenes_totales'    => $totalOrd,
                 'ordenes_entregadas' => $entregadas,
                 'ticket_promedio'    => $totalOrd > 0 ? round($totalVendido / $totalOrd) : 0,
+                // Solo informativo, fuera del total: ver restauracionesCompartidasPorTienda().
+                'restauraciones_compartidas' => $restCompartidas[$t->id] ?? null,
                 'vendedor_destacado' => $top,
                 'meta_mes' => [
                     'mes'          => $mesActual,
@@ -826,6 +829,44 @@ class StatsController extends Controller
      *
      * @return array<int,array>
      */
+    /**
+     * Las restauraciones que un independiente compartió con cada tienda.
+     *
+     * Solo para mostrar: no van en el total de la tienda. Las sube el
+     * independiente (Henry se encarga de todas) y ya suman en su tarjeta;
+     * contarlas también aquí las pondría dos veces en lo vendido. Pero la
+     * tienda quiere saber cuántas son y cuánto valen, porque su equipo sí
+     * cobra su parte de ellas.
+     *
+     * @return array<int, array{ordenes: int, valor: float, cobrado: float}>
+     */
+    private function restauracionesCompartidasPorTienda(array $rango, array $porSuCuenta): array
+    {
+        if (! $porSuCuenta) return [];
+
+        $filas = DB::table('ordenes as o')
+            ->whereBetween('o.created_at', $rango)
+            ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES)
+            ->whereIn('o.vendedor_id', $porSuCuenta)
+            ->whereNotNull('o.tienda_abonada_id')
+            ->whereRaw(Orden::sqlTipo('o') . " = 'restauracion'")
+            ->selectRaw('o.tienda_abonada_id AS tienda, COUNT(*) AS ordenes, SUM(o.valor_total) AS valor')
+            ->selectRaw('SUM((SELECT COALESCE(SUM(p.monto), 0) FROM pagos p WHERE p.orden_id = o.id)) AS cobrado')
+            ->groupBy('o.tienda_abonada_id')
+            ->get();
+
+        $out = [];
+        foreach ($filas as $f) {
+            $out[(int) $f->tienda] = [
+                'ordenes' => (int) $f->ordenes,
+                'valor'   => (float) $f->valor,
+                'cobrado' => (float) $f->cobrado,
+            ];
+        }
+
+        return $out;
+    }
+
     private function ordenesPorTienda(array $rango, array $porSuCuenta): array
     {
         $valor = 'CASE WHEN o.es_compartida = 1 THEN o.valor_total / 2 ELSE o.valor_total END';
