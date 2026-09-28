@@ -22,7 +22,9 @@ const noExiste  = ref(false)
 // ver el mueble, que es lo único que el cliente vino a hacer.
 const fotoAbierta = ref(null)
 
-const WHATSAPP = '573217770621'
+// Los botones de WhatsApp ("Preguntar por este" y "Escribirnos por WhatsApp")
+// se quitaron por ahora, a pedido: el link lo manda un asesor, que ya está
+// hablando con el cliente. Estaban en el commit 05cd107 si se quieren volver.
 
 onMounted(async () => {
   try {
@@ -38,11 +40,6 @@ onMounted(async () => {
 })
 
 const precio = (v) => '$' + Number(v || 0).toLocaleString('es-CO', { maximumFractionDigits: 0 })
-
-function consultar(p) {
-  const texto = `Hola, me interesa: ${p.nombre} (${precio(p.precio)})`
-  window.open(`https://wa.me/${WHATSAPP}?text=${encodeURIComponent(texto)}`, '_blank')
-}
 
 const conFoto = computed(() => productos.value.filter(p => p.foto_url))
 const sinFoto = computed(() => productos.value.filter(p => !p.foto_url))
@@ -67,10 +64,6 @@ const sinFoto = computed(() => productos.value.filter(p => !p.foto_url))
     <div v-else-if="noExiste" class="max-w-md mx-auto text-center py-20 px-6">
       <p class="text-lg font-semibold text-gray-700">Esta sección no está disponible</p>
       <p class="text-sm text-gray-500 mt-1">Puede que el enlace esté mal o que ya no tengamos esos productos.</p>
-      <a :href="`https://wa.me/${WHATSAPP}`" target="_blank"
-        class="inline-block mt-5 bg-emerald-600 text-white text-sm font-semibold rounded-xl px-5 py-2.5">
-        Escribirnos por WhatsApp
-      </a>
     </div>
 
     <main v-else class="max-w-4xl mx-auto px-4 py-4 pb-10">
@@ -99,22 +92,12 @@ const sinFoto = computed(() => productos.value.filter(p => !p.foto_url))
             <p v-if="p.medidas" class="text-[11px] text-gray-400">{{ p.medidas }}</p>
             <p v-if="p.material" class="text-[11px] text-gray-400">{{ p.material }}</p>
             <p class="text-base font-bold text-gray-900 mt-1">{{ precio(p.precio) }}</p>
-            <button
-              @click="consultar(p)"
-              class="mt-auto pt-2 text-xs font-semibold text-emerald-700 hover:text-emerald-800 text-left"
-            >
-              Preguntar por este →
-            </button>
           </div>
         </article>
       </div>
 
       <div class="mt-8 text-center">
-        <a :href="`https://wa.me/${WHATSAPP}`" target="_blank"
-          class="inline-block bg-emerald-600 text-white text-sm font-semibold rounded-xl px-6 py-3 shadow-sm hover:bg-emerald-700 transition-colors">
-          Escribirnos por WhatsApp
-        </a>
-        <p class="text-[11px] text-gray-400 mt-3">
+        <p class="text-[11px] text-gray-400">
           Los precios pueden cambiar sin previo aviso. Consulta disponibilidad antes de comprar.
         </p>
       </div>
