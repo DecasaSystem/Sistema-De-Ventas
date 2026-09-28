@@ -93,21 +93,52 @@ function linkSeccion(cat) {
   return `${window.location.origin}/catalogo/${slug}`
 }
 
+// Copiar y compartir van en botones distintos. Antes "Copiar link" abría
+// primero el menú de compartir del sistema: en Windows (y en algunos
+// celulares) ese menú se abre y se cierra solo, y para cuando se intentaba
+// copiar el navegador ya no dejaba —el permiso del clic se gastó abriendo
+// el menú—. No se copiaba nada.
+const puedeCompartir = typeof navigator !== 'undefined' && typeof navigator.share === 'function'
+  && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+
 async function compartirSeccion() {
   const url = linkSeccion(categoriaFiltro.value)
   const nombre = CATEGORY_LABELS[categoriaFiltro.value] ?? categoriaFiltro.value
-  // En el celular sale el menú de compartir del sistema (WhatsApp directo);
-  // en el computador no existe, así que se copia al portapapeles.
-  if (navigator.share) {
-    try { await navigator.share({ title: nombre, url }); return } catch { /* lo cerró */ }
-  }
+  try {
+    await navigator.share({ title: nombre, url })
+  } catch { /* lo cerró: no pasa nada */ }
+}
+
+/** Copia sin pasar por el portapapeles moderno, para navegadores que no lo dejan. */
+function copiarALaAntigua(texto) {
+  const area = document.createElement('textarea')
+  area.value = texto
+  area.setAttribute('readonly', '')
+  area.style.position = 'fixed'
+  area.style.opacity = '0'
+  document.body.appendChild(area)
+  area.select()
+  let ok = false
+  try { ok = document.execCommand('copy') } catch { ok = false }
+  document.body.removeChild(area)
+  return ok
+}
+
+async function copiarLinkSeccion() {
+  const url = linkSeccion(categoriaFiltro.value)
+  let ok = false
   try {
     await navigator.clipboard.writeText(url)
+    ok = true
+  } catch {
+    ok = copiarALaAntigua(url)
+  }
+  if (ok) {
     copiado.value = true
     toast.success('Link copiado')
     setTimeout(() => { copiado.value = false }, 2000)
-  } catch {
-    toast.error('No se pudo copiar. El link es: ' + url)
+  } else {
+    toast.error('No se pudo copiar solo. Selecciona el link que sale debajo y cópialo.')
   }
 }
 const categoriasDisponibles = ref([])
@@ -2186,15 +2217,28 @@ onMounted(async () => {
     </div>
 
     <!-- Compartir la sección con un cliente -->
-    <div v-if="categoriaFiltro" class="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2">
-      <p class="text-xs text-emerald-800 flex-1 leading-snug">
-        Manda <strong>{{ CATEGORY_LABELS[categoriaFiltro] ?? categoriaFiltro }}</strong> a un cliente:
-        ve las fotos y los precios de esta sección, y de nada más.
-      </p>
-      <button @click="compartirSeccion"
-        class="shrink-0 text-xs font-semibold text-white bg-emerald-600 rounded-lg px-3 py-1.5 hover:bg-emerald-700 transition-colors">
-        {{ copiado ? '¡Copiado!' : 'Copiar link' }}
-      </button>
+    <div v-if="categoriaFiltro" class="bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2 space-y-1.5">
+      <div class="flex items-center gap-2">
+        <p class="text-xs text-emerald-800 flex-1 leading-snug">
+          Manda <strong>{{ CATEGORY_LABELS[categoriaFiltro] ?? categoriaFiltro }}</strong> a un cliente:
+          ve las fotos y los precios de esta sección, y de nada más.
+        </p>
+        <button v-if="puedeCompartir" @click="compartirSeccion"
+          class="shrink-0 text-xs font-semibold text-emerald-700 bg-white border border-emerald-300 rounded-lg px-3 py-1.5 hover:bg-emerald-100 transition-colors">
+          Compartir
+        </button>
+        <button @click="copiarLinkSeccion"
+          class="shrink-0 text-xs font-semibold text-white bg-emerald-600 rounded-lg px-3 py-1.5 hover:bg-emerald-700 transition-colors">
+          {{ copiado ? '¡Copiado!' : 'Copiar link' }}
+        </button>
+      </div>
+      <!-- El link a la vista, por si el navegador no deja copiarlo solo. -->
+      <input
+        :value="linkSeccion(categoriaFiltro)"
+        readonly
+        @focus="$event.target.select()"
+        class="w-full text-[11px] text-emerald-900 bg-white/70 border border-emerald-200 rounded-md px-2 py-1 font-mono"
+      />
     </div>
 
     <!-- Surtidos que a uno le toca validar. Se muestra a cualquiera: el panel

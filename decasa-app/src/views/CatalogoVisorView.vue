@@ -198,12 +198,37 @@ function salirPantallaCompleta() { document.exitFullscreen?.().catch(() => {}) }
 function onFsChange() { esPantallaCompleta.value = !!document.fullscreenElement }
 
 // ── Compartir ────────────────────────────────────────────────────────────────
+// En el celular, el menú de compartir del sistema (WhatsApp directo). En el
+// computador se copia el link: el menú de Windows se abre y se cierra solo,
+// y para entonces el navegador ya no deja copiar, así que no pasaba nada.
+const linkCopiado = ref(false)
+const esCelular = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+
 async function compartir() {
   const url = window.location.href
-  if (navigator.share) {
+  if (esCelular && navigator.share) {
     try { await navigator.share({ title: nombre.value, url }) } catch { /* cancelado */ }
+    return
+  }
+  let ok = false
+  try {
+    await navigator.clipboard.writeText(url)
+    ok = true
+  } catch {
+    const area = document.createElement('textarea')
+    area.value = url
+    area.style.position = 'fixed'
+    area.style.opacity = '0'
+    document.body.appendChild(area)
+    area.select()
+    try { ok = document.execCommand('copy') } catch { ok = false }
+    document.body.removeChild(area)
+  }
+  if (ok) {
+    linkCopiado.value = true
+    setTimeout(() => { linkCopiado.value = false }, 2000)
   } else {
-    try { await navigator.clipboard.writeText(url) } catch { /* nada */ }
+    window.prompt('Copia el link del catálogo:', url)
   }
 }
 
@@ -254,10 +279,14 @@ const notaActual = computed(() => paginas.value[i.value]?.nota || '')
         </div>
         <button
           @click="compartir"
-          class="w-9 h-9 rounded-full bg-black/30 backdrop-blur flex items-center justify-center text-white hover:bg-black/50"
-          title="Compartir"
+          class="relative w-9 h-9 rounded-full bg-black/30 backdrop-blur flex items-center justify-center text-white hover:bg-black/50"
+          :title="esCelular ? 'Compartir' : 'Copiar link'"
         >
           <ShareIcon class="w-5 h-5" />
+          <span v-if="linkCopiado"
+                class="absolute top-full mt-1 right-0 whitespace-nowrap text-[11px] bg-black/70 text-white rounded px-2 py-0.5">
+            ¡Link copiado!
+          </span>
         </button>
         <button
           @click="togglePantallaCompleta"
