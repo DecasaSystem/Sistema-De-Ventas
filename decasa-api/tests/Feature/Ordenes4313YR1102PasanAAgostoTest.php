@@ -128,6 +128,27 @@ class Ordenes4313YR1102PasanAAgostoTest extends TestCase
         $this->assertSame('2026-08', DB::table('comisiones')->where('orden_id', $id)->value('mes_venta'));
     }
 
+    /** La corrección de después: la R-1102 era de septiembre y vuelve al 1. */
+    public function test_la_r_1102_vuelve_al_1_de_septiembre_con_su_comision(): void
+    {
+        $id = $this->orden(['serie' => 'R', 'serie_numero' => 1102], '2026-09-05', restauracion: true);
+        $this->correrMigracion();
+        $this->assertSame('2026-08-31 15:00', $this->diaDe($id));
+
+        $vuelve = require base_path('database/migrations/2026_10_04_000005_r1102_vuelve_a_septiembre.php');
+        ob_start(); $vuelve->up(); ob_end_clean();
+
+        $this->assertSame('2026-09-01 15:00', $this->diaDe($id), 'se conserva la hora');
+        $com = DB::table('comisiones')->where('orden_id', $id)->first();
+        $this->assertSame('2026-09', $com->mes_venta);
+        $this->assertSame('2026-09-01', substr((string) $com->fecha_venta, 0, 10));
+        $this->assertSame('2026-10-20', substr((string) $com->fecha_disponible, 0, 10), 'se cobra con septiembre');
+
+        // Correrla otra vez no hace nada: ya no está el 31 de agosto.
+        ob_start(); $vuelve->up(); ob_end_clean();
+        $this->assertSame('2026-09-01 15:00', $this->diaDe($id));
+    }
+
     public function test_de_dos_4313_solo_mueve_la_del_2_de_septiembre(): void
     {
         // El número normal se repite entre Armenia y Pereira.
