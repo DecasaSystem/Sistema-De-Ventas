@@ -151,6 +151,28 @@ class VarianteController extends Controller
                 $v->stock_libre      = ($inv?->cantidad_disponible ?? 0) - ($inv?->cantidad_reservada ?? 0);
                 return $v;
             });
+        } else {
+            // Todas las tiendas: el total de cada talla o tela, y dónde está.
+            // Antes llegaban sin stock y en la vista global todas salían en 0.
+            $filas = InventarioVariante::whereIn('variante_id', $variantes->pluck('id'))
+                ->get(['variante_id', 'tienda_id', 'cantidad_disponible', 'cantidad_reservada'])
+                ->groupBy('variante_id');
+            $nombres = DB::table('tiendas')->pluck('nombre', 'id');
+
+            $variantes = $variantes->map(function ($v) use ($filas, $nombres) {
+                $suyas = $filas->get($v->id) ?? collect();
+                $disp  = (int) $suyas->sum('cantidad_disponible');
+                $res   = (int) $suyas->sum('cantidad_reservada');
+                $v->stock_disponible = $disp;
+                $v->stock_reservado  = $res;
+                $v->stock_libre      = max(0, $disp - $res);
+                $v->por_tienda       = $suyas->where('cantidad_disponible', '>', 0)->map(fn ($f) => [
+                    'tienda_id'     => (int) $f->tienda_id,
+                    'tienda_nombre' => $nombres[$f->tienda_id] ?? '—',
+                    'cantidad'      => (int) $f->cantidad_disponible,
+                ])->sortByDesc('cantidad')->values();
+                return $v;
+            });
         }
 
         return response()->json($variantes->values());

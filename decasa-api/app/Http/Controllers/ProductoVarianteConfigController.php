@@ -27,16 +27,30 @@ class ProductoVarianteConfigController extends Controller
             ->get();
 
         $stocks = collect();
+        $porTienda = collect();
         if ($tiendaId) {
             $stocks = InventarioVarianteConfig::where('tienda_id', $tiendaId)
                 ->whereIn('config_id', $configs->pluck('id'))
                 ->get()
                 ->keyBy('config_id');
+        } else {
+            // Todas las tiendas: cuánto hay de cada medida en total y en cada
+            // tienda. Sin esto, en la vista global las medidas salían en 0 y
+            // no había forma de saber dónde estaba la de 1,40.
+            $filas = InventarioVarianteConfig::whereIn('config_id', $configs->pluck('id'))
+                ->where('cantidad_disponible', '>', 0)
+                ->get(['config_id', 'tienda_id', 'cantidad_disponible']);
+            $nombres   = DB::table('tiendas')->whereIn('id', $filas->pluck('tienda_id'))->pluck('nombre', 'id');
+            $porTienda = $filas->groupBy('config_id')->map(fn ($g) => $g->map(fn ($f) => [
+                'tienda_id'     => (int) $f->tienda_id,
+                'tienda_nombre' => $nombres[$f->tienda_id] ?? '—',
+                'cantidad'      => (int) $f->cantidad_disponible,
+            ])->sortByDesc('cantidad')->values());
         }
 
         $grouped = $configs
             ->groupBy('tipo_variante_id')
-            ->map(function ($items, $tipoId) use ($tiendaId, $stocks) {
+            ->map(function ($items, $tipoId) use ($tiendaId, $stocks, $porTienda) {
                 $tipo = $items->first()->tipo;
                 return [
                     'tipo_variante_id' => (int) $tipoId,
@@ -52,7 +66,9 @@ class ProductoVarianteConfigController extends Controller
                         'precio_adicional' => (float) $c->precio_adicional,
                         'stock_disponible' => $tiendaId
                             ? (int) ($stocks[$c->id]?->cantidad_disponible ?? 0)
-                            : null,
+                            : (int) collect($porTienda[$c->id] ?? [])->sum('cantidad'),
+                        // Solo en la vista de todas las tiendas: dónde está cada una.
+                        'por_tienda'       => $tiendaId ? null : ($porTienda[$c->id] ?? []),
                     ])->values(),
                 ];
             })

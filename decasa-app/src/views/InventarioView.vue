@@ -2575,6 +2575,10 @@ onMounted(async () => {
                   {{ opt.opcion_nombre }}
                   <span v-if="opt.precio_adicional > 0" class="ml-1 text-emerald-600 font-semibold">+{{ pesos(opt.precio_adicional) }}</span>
                   <span class="ml-1 font-bold">{{ opt.stock_disponible ?? 0 }}</span>
+                  <!-- En todas las tiendas: dónde está esa medida. -->
+                  <span v-if="esVistaGlobal && opt.por_tienda?.length" class="ml-1 text-[10px] font-normal opacity-75">
+                    ({{ opt.por_tienda.map(t => `${nombreCorto(t.tienda_nombre)} ${t.cantidad}`).join(' · ') }})
+                  </span>
                 </button>
               </div>
             </div>
@@ -2629,6 +2633,10 @@ onMounted(async () => {
                       {{ etiquetaBaseVariante(v, item) }}<span v-if="!esTalla(item) && v._config_label" class="text-indigo-500"> · {{ v._config_label }}</span>
                       <span v-if="v.precio_variante" class="ml-1 text-emerald-600 font-semibold">{{ pesos(v.precio_variante) }}</span>
                       <span class="ml-1 font-bold">{{ v.stock_libre ?? '—' }}</span>
+                      <!-- En todas las tiendas: dónde está esa talla o tela. -->
+                      <span v-if="esVistaGlobal && v.por_tienda?.length" class="ml-1 text-[10px] font-normal opacity-75">
+                        ({{ v.por_tienda.map(t => `${nombreCorto(t.tienda_nombre)} ${t.cantidad}`).join(' · ') }})
+                      </span>
                     </button>
 
                     <button
