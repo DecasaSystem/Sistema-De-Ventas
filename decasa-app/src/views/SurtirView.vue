@@ -192,9 +192,14 @@ const paso = ref(1)
 const desdeFabrica   = ref(false)
 const fabricaId      = ref(null)
 const fabricaStockMap = ref({})   // { producto_id: stock_libre }
+const fabricaNombre  = ref('Bodega Fábrica')
 
 onMounted(async () => {
-  try { const { data } = await getReservaInfo(); fabricaId.value = data.id } catch {}
+  try {
+    const { data } = await getReservaInfo()
+    fabricaId.value     = data.id
+    fabricaNombre.value = data.nombre || fabricaNombre.value
+  } catch {}
 })
 
 // ── Paso 1 — Productos ────────────────────────────────────────────────────────
@@ -754,6 +759,15 @@ function tQuitarProducto(idx) {
 
 const tPaso1Valido = computed(() => tOrigenId.value && tItems.value.length > 0 && tItems.value.every(i => i.cantidad >= 1))
 const tPaso2Valido = computed(() => tDestinoId.value && tDestinoId.value !== tOrigenId.value)
+
+// Lo que se devuelve a la Bodega Fábrica queda en la Reserva y de ahí se
+// vuelve a surtir. `/tiendas` no la trae, por eso se agrega aparte.
+const tAReserva = computed(() => !!fabricaId.value && String(tDestinoId.value) === String(fabricaId.value))
+
+function tNombreTienda(id) {
+  if (fabricaId.value && String(id) === String(fabricaId.value)) return `${fabricaNombre.value} (Reserva)`
+  return tiendas.value.find(t => String(t.id) === String(id))?.nombre
+}
 const tPaso3Valido = computed(() => !tEsVendedor.value || !!tValidadorId.value)
 
 // Paso de confirmación: 3 para supervisor, 4 para vendedor
@@ -1680,6 +1694,20 @@ onMounted(async () => {
           </label>
         </div>
 
+        <!-- Devolver a la fábrica: no es otro almacén, es la Reserva. Desde
+             ahí se vuelve a mandar a cualquier tienda con Surtir. -->
+        <label
+          v-if="fabricaId && String(fabricaId) !== String(tOrigenId)"
+          :class="['flex items-center gap-3 px-4 py-3 cursor-pointer rounded-xl border shadow-sm',
+            tAReserva ? 'bg-amber-50 border-amber-300' : 'bg-white border-gray-200']"
+        >
+          <input type="radio" :value="String(fabricaId)" v-model="tDestinoId" class="w-4 h-4 text-amber-600" />
+          <div class="min-w-0">
+            <p class="text-sm font-medium text-gray-800">🏭 {{ fabricaNombre }} <span class="text-xs font-semibold text-amber-700">(Reserva)</span></p>
+            <p class="text-xs text-gray-500">Queda en el inventario de la Reserva y de ahí se surte a otro almacén cuando haga falta.</p>
+          </div>
+        </label>
+
         <div class="flex gap-2">
           <button @click="tPaso = 1" class="flex items-center gap-1 border border-gray-300 text-gray-600 rounded-xl px-4 py-3 text-sm font-semibold hover:bg-gray-50">
             <ChevronLeftIcon class="w-4 h-4" />Atrás
@@ -1698,7 +1726,11 @@ onMounted(async () => {
       <!-- Paso 3 (solo vendedor): Seleccionar validador en tienda destino -->
       <div v-else-if="tPaso === 3 && tEsVendedor" class="space-y-3">
         <h3 class="text-sm font-semibold text-gray-700">¿Quién confirma la llegada en destino?</h3>
-        <p class="text-xs text-gray-500">Selecciona el vendedor de la tienda destino que validará que los productos llegaron.</p>
+        <p class="text-xs text-gray-500">
+          {{ tAReserva
+            ? 'Selecciona quién maneja la Reserva: esa persona confirma que los productos llegaron a la fábrica.'
+            : 'Selecciona el vendedor de la tienda destino que validará que los productos llegaron.' }}
+        </p>
 
         <div v-if="tCargandoValidador" class="flex justify-center py-6">
           <IconoS class="w-5 h-5 text-blue-500" />
@@ -1717,7 +1749,7 @@ onMounted(async () => {
             </div>
           </label>
           <p v-if="!tCargandoValidador && !tVendedoresDest.length" class="px-4 py-3 text-xs text-gray-400 text-center">
-            No hay vendedores activos en la tienda destino.
+            {{ tAReserva ? 'No hay nadie activo con acceso a Reserva.' : 'No hay vendedores activos en la tienda destino.' }}
           </p>
         </div>
 
@@ -1752,7 +1784,7 @@ onMounted(async () => {
             </div>
             <div class="text-center flex-1">
               <p class="text-xs text-gray-400 mb-0.5">Destino</p>
-              <p class="font-bold text-blue-700">{{ tiendas.find(t => String(t.id) === String(tDestinoId))?.nombre }}</p>
+              <p :class="['font-bold', tAReserva ? 'text-amber-700' : 'text-blue-700']">{{ tNombreTienda(tDestinoId) }}</p>
             </div>
           </div>
 

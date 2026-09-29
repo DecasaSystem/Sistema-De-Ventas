@@ -603,10 +603,22 @@ function agregarNuevo() {
   const esPersonalizado = n.es_custom || n.modo === 'personalizado' || n.modo === 'fabricar'
   const retapizar       = !n.es_custom && n.modo === 'retapizar'
 
-  // Sin la tela nueva el taller no tiene nada que hacerle al sofá.
-  if (retapizar && !specs.tela) {
-    toast.error('Elige la tela nueva para mandarlo a retapizar.')
-    return false
+  if (!retapizar) delete specs.trabajo
+  if (retapizar) {
+    specs.trabajo = trabajoDe(n)
+    // Sin la tela nueva el taller no tiene nada que hacerle al sofá; sin
+    // decir qué color o qué arreglo, tampoco.
+    if (esCambioTela(n) && !specs.tela) {
+      toast.error('Elige la tela nueva para mandarlo a retapizar.')
+      return false
+    }
+    if (!esCambioTela(n)) {
+      delete specs.tela
+      if (!specs.notas?.trim()) {
+        toast.error('Di qué hay que hacerle en la fábrica.')
+        return false
+      }
+    }
   }
 
   // Solo se exige variante si alguna tiene existencias: si el stock está a
@@ -656,7 +668,7 @@ function agregarNuevo() {
                       : n.es_custom ? 'Diseño especial'
                       : (n.modo === 'fabricar' ? 'Para fabricar'
                       : (n.modo === 'personalizado' ? 'Personalizado'
-                      : (retapizar ? 'Cambio de tela' : 'Stock'))),
+                      : (retapizar ? trabajoInfo(n).label : 'Stock'))),
   })
   nuevoItem.value = nuevoItemVacio()
   nuevoQuery.value = ''
@@ -896,7 +908,7 @@ function toggleRetapizarItem(item) {
     const enCurso = prod && prod.estado !== 'cancelado'
       && (prod.estado !== 'pendiente' || prod.pasos?.some(p => ['en_proceso', 'completado'].includes(p.estado)))
     if (enCurso) {
-      toast.error(`El taller ya empezó el cambio de tela de "${item.producto_nombre}". Si fue un error, cancélalo desde Producción.`)
+      toast.error(`El taller ya empezó a trabajar "${item.producto_nombre}". Si fue un error, cancélalo desde Producción.`)
       return
     }
     item._retapizar = false
@@ -915,6 +927,30 @@ function sePuedeRetapizarItem(item) {
 /** La tela que tiene hoy el mueble, para mostrarla junto a la nueva. */
 function telaActualItem(item) {
   return item.specs?.tela_original || item.variante_texto || ''
+}
+
+/**
+ * Qué se le hace en la fábrica: cambio de tela, de color o un arreglo. Vive
+ * en las specs (`trabajo`); lo marcado antes de que hubiera tipos era tela.
+ * Solo el cambio de tela lleva tela nueva; los otros, que se diga qué.
+ */
+const TRABAJOS_FABRICA = [
+  { k: 'tela',    label: 'Cambio de tela',  icono: '🧵' },
+  { k: 'color',   label: 'Cambio de color', icono: '🎨' },
+  { k: 'arreglo', label: 'Arreglo',         icono: '🔧' },
+]
+function trabajoDe(item) {
+  // `trabajo` suelto es el del ítem que se está agregando, que aún no tiene specs.
+  return item.specs?.trabajo || item.trabajo || 'tela'
+}
+function trabajoInfo(item) { return TRABAJOS_FABRICA.find(t => t.k === trabajoDe(item)) }
+function esCambioTela(item) { return trabajoDe(item) === 'tela' }
+function elegirTrabajoItem(item, k) {
+  item.specs = { ...(item.specs ?? {}), trabajo: k }
+  if (k !== 'tela') {
+    delete item.specs.tela
+    item._telaSelections = {}
+  }
 }
 
 // Reemplazar un ítem de stock por su versión personalizada / diseño especial:
@@ -1012,11 +1048,20 @@ async function guardar() {
   }
   // Un cambio de tela sin la tela nueva no le dice nada al taller.
   const sinTelaNueva = items.value.find(i =>
-    i._retapizar && !itemsEliminar.value.includes(i.id)
+    i._retapizar && esCambioTela(i) && !itemsEliminar.value.includes(i.id)
     && !telaResumidaCampo(i, 'tela') && !(i.specs?.tela ?? '').toString().trim()
   )
   if (sinTelaNueva) {
     toast.error(`Elige la tela nueva de "${sinTelaNueva.producto_nombre}" para mandarlo a retapizar.`)
+    return
+  }
+  // Ni un arreglo o un cambio de color sin decir qué.
+  const sinQueHacer = items.value.find(i =>
+    i._retapizar && !esCambioTela(i) && !itemsEliminar.value.includes(i.id)
+    && !(i.specs_notas ?? '').trim()
+  )
+  if (sinQueHacer) {
+    toast.error(`Di qué hay que hacerle a "${sinQueHacer.producto_nombre}" en la fábrica.`)
     return
   }
   if (cambiandoFirma.value && !firmaBlob.value) {
@@ -1136,9 +1181,12 @@ async function guardar() {
           // aunque por inventario sea un ítem de stock.
           if (item.es_personalizado || item._retapizar) {
             const s = { ...item.specs }
-            for (const key of Object.keys(item._telaSelections ?? {})) {
-              const tela = telaResumidaCampo(item, key)
-              if (tela) s[key] = tela
+            // Un arreglo o cambio de color no lleva tela nueva.
+            if (!item._retapizar || esCambioTela(item)) {
+              for (const key of Object.keys(item._telaSelections ?? {})) {
+                const tela = telaResumidaCampo(item, key)
+                if (tela) s[key] = tela
+              }
             }
             if (item.specs_notas) s.notas = item.specs_notas
             out.specs_personalizacion = s
@@ -1549,7 +1597,7 @@ async function guardar() {
                 <SparklesIcon v-if="item.es_personalizado" class="w-4 h-4 text-purple-500 flex-shrink-0" />
                 <p class="font-medium text-sm text-gray-800 truncate flex-1">
                   {{ item.producto_nombre }}
-                  <span v-if="item._retapizar" class="ml-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700">🧵 Cambio de tela</span>
+                  <span v-if="item._retapizar" class="ml-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700">{{ trabajoInfo(item).icono }} {{ trabajoInfo(item).label }}</span>
                 </p>
                 <!-- Botón quitar ítem -->
                 <button
@@ -1745,7 +1793,7 @@ async function guardar() {
                     item._retapizar ? 'bg-orange-50 border-orange-300 text-orange-800' : 'bg-gray-50 border-gray-200 text-gray-600']"
                 >
                   <input type="checkbox" :checked="item._retapizar" @change="toggleRetapizarItem(item)" class="rounded border-gray-300 text-orange-600 focus:ring-orange-500" />
-                  <span class="font-medium">🧵 Cambiarle la tela en fábrica</span>
+                  <span class="font-medium">🏭 Llevar a fábrica antes de entregar</span>
                   <span class="text-gray-400">— sigue apartado y entra a producción</span>
                 </label>
 
@@ -1764,7 +1812,34 @@ async function guardar() {
               <!-- Cambio de tela: qué tela tiene y cuál le va. Es lo único que
                    el taller necesita de un mueble que ya existe; medidas y
                    acabados son los que tiene. -->
-              <div v-if="item._retapizar" class="bg-orange-50 border border-orange-200 rounded-xl p-3 space-y-2">
+              <div v-if="item._retapizar" class="flex gap-1.5">
+                <button
+                  v-for="t in TRABAJOS_FABRICA" :key="t.k" type="button"
+                  @click="elegirTrabajoItem(item, t.k)"
+                  :class="['flex-1 rounded-lg border px-2 py-1.5 text-xs font-semibold transition-colors',
+                    trabajoDe(item) === t.k
+                      ? 'bg-orange-600 border-orange-600 text-white'
+                      : 'bg-white border-gray-200 text-gray-600 hover:border-orange-300']"
+                >{{ t.icono }} {{ t.label }}</button>
+              </div>
+
+              <!-- Cambio de color o arreglo: no hay tela nueva, hay que decir qué. -->
+              <div v-if="item._retapizar && !esCambioTela(item)" class="bg-orange-50 border border-orange-200 rounded-xl p-3 space-y-2">
+                <p class="text-xs font-semibold text-orange-800">
+                  {{ trabajoDe(item) === 'color' ? '¿Qué color lleva?' : '¿Qué hay que arreglarle?' }}
+                  <span class="text-red-500">*</span>
+                </p>
+                <textarea
+                  v-model="item.specs_notas"
+                  rows="2"
+                  :placeholder="trabajoDe(item) === 'color'
+                    ? 'Ej: lacar en nogal oscuro, patas en negro mate…'
+                    : 'Ej: cambiar pata rota, ajustar cajón, retocar rayón del brazo…'"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 resize-none"
+                />
+              </div>
+
+              <div v-if="item._retapizar && esCambioTela(item)" class="bg-orange-50 border border-orange-200 rounded-xl p-3 space-y-2">
                 <div>
                   <p class="text-xs font-semibold text-orange-800">Tela nueva <span class="text-red-500">*</span></p>
                   <p class="text-xs text-gray-500 mt-0.5">
@@ -1961,7 +2036,7 @@ async function guardar() {
                         'bg-purple-100 text-purple-700': ni._tipo === 'Personalizado',
                         'bg-indigo-100 text-indigo-700': ni._tipo === 'Diseño especial',
                         'bg-amber-100 text-amber-700':   ni._tipo === 'Para fabricar',
-                        'bg-orange-100 text-orange-700': ni._tipo === 'Cambio de tela',
+                        'bg-orange-100 text-orange-700': ni.retapizar,
                       }">{{ ni._tipo }}</span>
                   </p>
                   <p v-if="ni.variante_label" class="text-[11px] text-purple-600">{{ ni.variante_label }}</p>
@@ -2066,13 +2141,25 @@ async function guardar() {
                        aparta como stock y pasa por la fábrica antes de salir. -->
                   <button type="button" @click="nuevoItem.modo = 'retapizar'"
                     :class="['px-2.5 py-1.5 rounded-lg text-xs font-semibold border flex items-center gap-1', nuevoItem.modo === 'retapizar' ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-orange-600 border-orange-300']">
-                    🧵 Cambiar tela
+                    🏭 Llevar a fábrica
                   </button>
                 </div>
 
-                <p v-if="nuevoItem.modo === 'retapizar'" class="text-[11px] text-orange-700 -mt-1">
-                  Se aparta el mueble del inventario de la tienda elegida y entra a producción a cambiarle la tela.
-                </p>
+                <template v-if="nuevoItem.modo === 'retapizar'">
+                  <p class="text-[11px] text-orange-700 -mt-1">
+                    Se aparta el mueble del inventario de la tienda elegida y entra a producción antes de entregarlo.
+                  </p>
+                  <div class="flex gap-1.5">
+                    <button
+                      v-for="t in TRABAJOS_FABRICA" :key="t.k" type="button"
+                      @click="elegirTrabajoItem(nuevoItem, t.k)"
+                      :class="['flex-1 rounded-lg border px-2 py-1.5 text-xs font-semibold transition-colors',
+                        trabajoDe(nuevoItem) === t.k
+                          ? 'bg-orange-600 border-orange-600 text-white'
+                          : 'bg-white border-gray-200 text-gray-600 hover:border-orange-300']"
+                    >{{ t.icono }} {{ t.label }}</button>
+                  </div>
+                </template>
 
                 <!-- Variantes (tela/color) del producto — solo lo que sale de stock -->
                 <div v-if="nuevoEsStock && (nuevoVariantes.length || nuevoCargandoVariantes)">
@@ -2133,20 +2220,31 @@ async function guardar() {
                 <!-- Cambio de tela: la tela nueva, notas y fotos del mueble -->
                 <template v-if="nuevoItem.modo === 'retapizar' && !nuevoItem.es_custom">
                   <div class="space-y-1.5 bg-orange-50 rounded-lg border border-orange-200 p-2.5">
-                    <p class="text-[11px] font-semibold text-orange-800 uppercase">Tela nueva <span class="text-red-500">*</span></p>
-                    <p v-if="nuevoItem.variante_label" class="text-[11px] text-gray-500">
-                      Tela actual: <span class="font-medium text-gray-700">{{ nuevoItem.variante_label }}</span>
-                    </p>
-                    <TelaPicker
-                      :seleccion="getTelaSelection(nuevoItem, 'tela')"
-                      etiqueta="Tela"
-                      :producto-id="nuevoItem.producto_id"
-                      :config-id="nuevoItem.combo_config_id"
-                      :cantidad="nuevoItem.cantidad"
-                    />
+                    <template v-if="esCambioTela(nuevoItem)">
+                      <p class="text-[11px] font-semibold text-orange-800 uppercase">Tela nueva <span class="text-red-500">*</span></p>
+                      <p v-if="nuevoItem.variante_label" class="text-[11px] text-gray-500">
+                        Tela actual: <span class="font-medium text-gray-700">{{ nuevoItem.variante_label }}</span>
+                      </p>
+                      <TelaPicker
+                        :seleccion="getTelaSelection(nuevoItem, 'tela')"
+                        etiqueta="Tela"
+                        :producto-id="nuevoItem.producto_id"
+                        :config-id="nuevoItem.combo_config_id"
+                        :cantidad="nuevoItem.cantidad"
+                      />
+                    </template>
                     <div>
-                      <label class="block text-[11px] text-gray-500 mb-0.5">Notas para el taller</label>
-                      <textarea v-model="nuevoItem.specs_notas" rows="2" placeholder="Qué partes se cambian, detalles… (opcional)"
+                      <label class="block text-[11px] text-gray-500 mb-0.5">
+                        <template v-if="esCambioTela(nuevoItem)">Notas para el taller</template>
+                        <template v-else>
+                          {{ trabajoDe(nuevoItem) === 'color' ? '¿Qué color lleva?' : '¿Qué hay que arreglarle?' }}
+                          <span class="text-red-500">*</span>
+                        </template>
+                      </label>
+                      <textarea v-model="nuevoItem.specs_notas" rows="2"
+                        :placeholder="esCambioTela(nuevoItem) ? 'Qué partes se cambian, detalles… (opcional)'
+                          : trabajoDe(nuevoItem) === 'color' ? 'Ej: lacar en nogal oscuro, patas en negro mate…'
+                          : 'Ej: cambiar pata rota, ajustar cajón, retocar rayón…'"
                         class="w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"></textarea>
                     </div>
                   </div>

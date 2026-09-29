@@ -922,6 +922,7 @@ function _colocarItem(nuevo, existente = null) {
     _telaSelections:  viejo._telaSelections,
     // Corregir de cuál sofá se trata no quita que se vaya a retapizar.
     _retapizar:       viejo._retapizar,
+    _trabajoFabrica:  viejo._trabajoFabrica,
     // De qué tienda sale no lo decide este selector: eso se cambia aparte, y
     // tomarlo de la búsqueda mudaría el ítem de tienda sin avisar.
     tienda_origen_id: viejo.tienda_origen_id,
@@ -1288,11 +1289,38 @@ function toggleRetapizar(item) {
   item._retapizar = !item._retapizar
   if (item._retapizar) {
     // Se va a la fábrica, no con el cliente.
-    item._llevar_ahora  = false
-    item._cotizarPrecio = false
+    item._llevar_ahora    = false
+    item._cotizarPrecio   = false
+    item._trabajoFabrica  = 'tela'
   } else {
-    item._cotizarPrecio = false
+    item._cotizarPrecio   = false
+    item._telaSelections  = {}
+    item._trabajoFabrica  = null
+  }
+}
+
+/**
+ * Qué se le hace en la fábrica. Todos siguen el mismo camino —se aparta,
+ * entra a producción, no se entrega hasta que salga del taller—; cambia lo
+ * que el taller necesita saber: la tela nueva, o qué color o qué arreglo.
+ * El arreglo y el color van con el precio del mueble (el vendedor lo sube si
+ * se cobra); solo el cambio de tela se puede mandar a cotizar.
+ */
+const TRABAJOS_FABRICA = [
+  { k: 'tela',    label: 'Cambio de tela',  icono: '🧵' },
+  { k: 'color',   label: 'Cambio de color', icono: '🎨' },
+  { k: 'arreglo', label: 'Arreglo',         icono: '🔧' },
+]
+function trabajoDe(item) { return item._trabajoFabrica || 'tela' }
+function trabajoInfo(item) { return TRABAJOS_FABRICA.find(t => t.k === trabajoDe(item)) }
+function esCambioTela(item) { return !!item._retapizar && trabajoDe(item) === 'tela' }
+
+function elegirTrabajo(item, k) {
+  item._trabajoFabrica = k
+  if (k !== 'tela') {
+    // Ni tela que apartar ni precio que cotizar.
     item._telaSelections = {}
+    item._cotizarPrecio  = false
   }
 }
 
@@ -1738,9 +1766,16 @@ async function submit() {
   }
 
   // Sin tela nueva el taller no sabe qué hacerle al sofá.
-  const sinTelaNueva = items.value.filter(i => i._retapizar && !telaResumidaCampo(i, 'tela'))
+  const sinTelaNueva = items.value.filter(i => esCambioTela(i) && !telaResumidaCampo(i, 'tela'))
   if (sinTelaNueva.length) {
     toast.error(`Elige la tela nueva de "${sinTelaNueva[0].nombre}" para mandarlo a retapizar.`)
+    return
+  }
+
+  // Lo mismo con el color o el arreglo: sin decir qué, el taller no sabe qué hacerle.
+  const sinQueHacer = items.value.filter(i => i._retapizar && !esCambioTela(i) && !(i.specs_notas ?? '').trim())
+  if (sinQueHacer.length) {
+    toast.error(`Di qué hay que hacerle a "${sinQueHacer[0].nombre}" en la fábrica.`)
     return
   }
 
@@ -1763,7 +1798,7 @@ async function submit() {
     // Lo que seguro se tapiza en el taller se valida como siempre: que haya
     // algo. Un personalizado con tela elegida solo se frena si el servidor
     // sabe cuánto gasta y no alcanza; sin eso sigue pasando como antes.
-    const tapizaSeguro = (item._fabricar_pedido && item._esTapizado) || item._retapizar
+    const tapizaSeguro = (item._fabricar_pedido && item._esTapizado) || esCambioTela(item)
     if (!tapizaSeguro && !(item.es_personalizado && item.producto_id)) continue
     const sel = item._telaSelections?.tela
     if (!sel || !sel.tipo || sel.tipo === 'Otro' || sel.marca === 'Otro' || !sel.color) continue
@@ -1918,11 +1953,16 @@ async function submit() {
         specs_personalizacion:   (i.es_personalizado || i._retapizar)
           ? (() => {
               const s = { ...i.specs }
-              for (const key of Object.keys(i._telaSelections ?? {})) {
-                const tela = telaResumidaCampo(i, key)
-                if (tela) s[key] = tela
+              // Un arreglo o un cambio de color no lleva tela nueva: si se
+              // colara una, el servidor le apartaría metros que nadie usa.
+              if (!i._retapizar || esCambioTela(i)) {
+                for (const key of Object.keys(i._telaSelections ?? {})) {
+                  const tela = telaResumidaCampo(i, key)
+                  if (tela) s[key] = tela
+                }
               }
               if (i.specs_notas) s.notas = i.specs_notas
+              if (i._retapizar) s.trabajo = trabajoDe(i)
               return Object.keys(s).length ? s : undefined
             })()
           : undefined,
@@ -2034,7 +2074,7 @@ async function submitCotizacion() {
   // sofá saldría como venta de stock normal, sin pasar por la fábrica. Mejor
   // avisar que perderlo callado.
   if (items.value.some(i => i._retapizar)) {
-    toast.error('El cambio de tela solo se puede registrar como orden, no como cotización. Quita esa marca o crea la orden.')
+    toast.error('Lo que se lleva a la fábrica solo se puede registrar como orden, no como cotización. Quita esa marca o crea la orden.')
     return
   }
 
@@ -3141,7 +3181,7 @@ function removeFacturaFoto(i = 0) {
                 </span>
                 <span v-else-if="item._retapizar"
                   class="bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full text-xs font-semibold">
-                  🧵 Cambio de tela
+                  {{ trabajoInfo(item).icono }} {{ trabajoInfo(item).label }}
                 </span>
                 <span v-if="item.variante_label"
                   class="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full text-xs font-medium">
@@ -3291,7 +3331,7 @@ function removeFacturaFoto(i = 0) {
           <!-- Toggle consultar precio — para cualquier ítem personalizado.
                El mueble único no: no hay nada que cotizar, ya está hecho. -->
           <label
-            v-if="(item.es_personalizado || item._retapizar) && !item._regalo && !item._producto_unico"
+            v-if="(item.es_personalizado || esCambioTela(item)) && !item._regalo && !item._producto_unico"
             class="flex items-center gap-2.5 cursor-pointer select-none mt-0.5"
           >
             <div
@@ -3307,21 +3347,36 @@ function removeFacturaFoto(i = 0) {
 
           <!-- Advertencia precio vacío — solo si no está en modo cotizar -->
           <p v-if="(item.es_personalizado || item._retapizar) && !item._fabricar_pedido && !item.precio_unitario && !item._cotizarPrecio && !item._regalo" class="text-xs text-amber-600 mt-0.5">
-            {{ item._producto_unico ? 'Ponle el precio de venta' : (item._retapizar ? 'Sin precio — ponle el precio con la tela nueva o activa "Consultar precio"' : 'Sin precio — usa el cotizador IA o ingrésalo manualmente') }}
+            {{ item._producto_unico ? 'Ponle el precio de venta'
+              : esCambioTela(item) ? 'Sin precio — ponle el precio con la tela nueva o activa "Consultar precio"'
+              : item._retapizar ? 'Sin precio — ponle el precio del mueble (súmale el arreglo si se cobra)'
+              : 'Sin precio — usa el cotizador IA o ingrésalo manualmente' }}
           </p>
 
-          <!-- Cambio de tela: el sofá que está en la tienda se aparta y se
-               manda a la fábrica a retapizar. Solo para lo que es de stock:
-               lo personalizado y lo que se fabrica ya llevan su tela. -->
+          <!-- Llevar a fábrica: el mueble que está en el almacén se aparta y
+               se manda a la fábrica (cambio de tela, de color o un arreglo)
+               antes de entregarlo. Solo para lo que es de stock: lo
+               personalizado y lo que se fabrica ya pasan por el taller. -->
           <label
             v-if="sePuedeRetapizar(item)"
             :class="['flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs cursor-pointer select-none border',
               item._retapizar ? 'bg-orange-50 border-orange-300 text-orange-800' : 'bg-gray-50 border-gray-200 text-gray-600']"
           >
             <input type="checkbox" :checked="item._retapizar" @change="toggleRetapizar(item)" class="rounded border-gray-300 text-orange-600 focus:ring-orange-500" />
-            <span class="font-medium">🧵 Cambiarle la tela en fábrica</span>
-            <span class="text-gray-400">— se aparta este mueble y entra a producción</span>
+            <span class="font-medium">🏭 Llevar a fábrica antes de entregar</span>
+            <span class="text-gray-400">— arreglo o cambio; se aparta y entra a producción</span>
           </label>
+
+          <div v-if="item._retapizar" class="flex gap-1.5">
+            <button
+              v-for="t in TRABAJOS_FABRICA" :key="t.k" type="button"
+              @click="elegirTrabajo(item, t.k)"
+              :class="['flex-1 rounded-lg border px-2 py-1.5 text-xs font-semibold transition-colors',
+                trabajoDe(item) === t.k
+                  ? 'bg-orange-600 border-orange-600 text-white'
+                  : 'bg-white border-gray-200 text-gray-600 hover:border-orange-300']"
+            >{{ t.icono }} {{ t.label }}</button>
+          </div>
 
           <!-- Personalizado flag — oculto para fabricar bajo pedido, para el
                mueble único (que no es algo que se vaya a personalizar) y para
@@ -3356,8 +3411,34 @@ function removeFacturaFoto(i = 0) {
             </div>
           </template>
 
+          <!-- ── Cambio de color o arreglo: no hay tela, hay que decir qué ── -->
+          <div v-if="item._retapizar && !esCambioTela(item)" class="bg-orange-50 border border-orange-200 rounded-xl p-3 space-y-2">
+            <div>
+              <p class="text-xs font-semibold text-orange-800">
+                {{ trabajoDe(item) === 'color' ? '¿Qué color lleva?' : '¿Qué hay que arreglarle?' }}
+                <span class="text-red-500">*</span>
+              </p>
+              <p class="text-xs text-gray-500 mt-0.5">
+                Mueble:
+                <span class="font-medium text-gray-700">{{ item.variante_label || 'sin especificar' }}</span>
+                <span v-if="!item.variante_label"> — elígelo arriba en "Elegir tela / medida" para que la fábrica sepa cuál recoger.</span>
+              </p>
+            </div>
+            <textarea
+              v-model="item.specs_notas"
+              :placeholder="trabajoDe(item) === 'color'
+                ? 'Ej: lacar en nogal oscuro, patas en negro mate…'
+                : 'Ej: cambiar pata rota, ajustar cajón, retocar rayón del brazo…'"
+              rows="2"
+              class="input text-sm resize-none"
+            />
+            <p v-if="!(item.specs_notas ?? '').trim()" class="text-xs text-orange-600 italic">
+              Escríbelo para que producción sepa qué hacerle
+            </p>
+          </div>
+
           <!-- ── Cambio de tela a un mueble de stock ── -->
-          <template v-if="item._retapizar">
+          <template v-if="esCambioTela(item)">
             <div class="bg-orange-50 border border-orange-200 rounded-xl p-3 space-y-2">
               <div>
                 <p class="text-xs font-semibold text-orange-800">Tela nueva <span class="text-red-500">*</span></p>

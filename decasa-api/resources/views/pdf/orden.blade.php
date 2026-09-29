@@ -283,12 +283,13 @@
             @php
                 $specs = $item->specs_personalizacion ?? [];
                 $notas = $specs['notas'] ?? null;
-                unset($specs['notas']);
+                // El tipo de trabajo ya va en el paréntesis de al lado.
+                unset($specs['notas'], $specs['trabajo']);
                 $tipoTexto = match($item->tipo_item) {
                     'restauracion'    => 'restauración',
                     'diseno_especial' => 'diseño especial',
                     'fabricar'        => 'para fabricar',
-                    'retapizar'       => 'cambio de tela',
+                    'retapizar'       => mb_strtolower($item->trabajo_fabrica_label) . ' en fábrica',
                     default           => 'ítem personalizado',
                 };
             @endphp

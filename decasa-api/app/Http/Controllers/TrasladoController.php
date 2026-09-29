@@ -115,6 +115,22 @@ class TrasladoController extends Controller
             }
         }
 
+        // A la Bodega Fábrica también se traslada: lo que llega queda en la
+        // Reserva y de ahí se vuelve a surtir. Allá no hay vendedores, así
+        // que lo recibe quien maneja la Reserva.
+        $aReserva = DB::table('tiendas')
+            ->where('id', $data['tienda_destino_id'])->where('es_fabrica', true)->exists();
+        if ($aReserva && ! empty($data['vendedor_validador_id'])) {
+            $puedeRecibir = DB::table('usuarios')
+                ->where('id', $data['vendedor_validador_id'])
+                ->where('activo', true)
+                ->where('acceso_reserva', true)
+                ->exists();
+            if (! $puedeRecibir) {
+                return response()->json(['message' => 'Lo que va a la Reserva lo tiene que recibir alguien con acceso a Reserva.'], 422);
+            }
+        }
+
         $programadoPara = isset($data['programado_para']) ? \Carbon\Carbon::parse($data['programado_para']) : null;
 
         $tiendas = DB::table('tiendas')

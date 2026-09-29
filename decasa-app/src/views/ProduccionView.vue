@@ -213,7 +213,12 @@ function tipoProduccion(p) {
   if (t === 'diseno_especial') return { label: '🎨 Diseño especial', cls: 'bg-pink-100 text-pink-700' }
   if (t === 'personalizado')   return { label: '✏️ Personalizado',   cls: 'bg-indigo-100 text-indigo-700' }
   // El sofá ya existe y está en la tienda: hay que ir por él, no hacerlo.
-  if (t === 'retapizar')       return { label: '🧵 Cambio de tela',  cls: 'bg-orange-100 text-orange-700' }
+  if (t === 'retapizar') {
+    // Cambio de tela, de color o arreglo: todos son un mueble de la tienda.
+    const trabajo = p.orden_item?.specs_personalizacion?.trabajo
+    const icono   = trabajo === 'color' ? '🎨' : trabajo === 'arreglo' ? '🔧' : '🧵'
+    return { label: `${icono} ${p.orden_item?.trabajo_fabrica_label || 'Cambio de tela'}`, cls: 'bg-orange-100 text-orange-700' }
+  }
   return { label: '🔨 Fabricación', cls: 'bg-blue-100 text-blue-700' }
 }
 

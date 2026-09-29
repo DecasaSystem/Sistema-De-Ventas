@@ -402,14 +402,13 @@ class OrdenController extends Controller
             if ($retapizar) {
                 if (empty($i['producto_id']) || ! empty($i['es_personalizado']) || ! empty($i['producto_unico'])) {
                     return response()->json([
-                        'message' => 'El cambio de tela solo aplica a un mueble que está en inventario.',
+                        'message' => 'Llevarlo a la fábrica solo aplica a un mueble que está en inventario.',
                     ], 422);
                 }
-                // Sin la tela nueva el taller no tiene nada que hacer con él.
-                if (trim((string) ($i['specs_personalizacion']['tela'] ?? '')) === '') {
-                    return response()->json([
-                        'message' => 'Di qué tela nueva lleva el mueble que se manda a retapizar.',
-                    ], 422);
+                // Sin saber qué hacerle (la tela nueva, el color, el arreglo)
+                // el taller no tiene nada que hacer con él.
+                if ($falta = OrdenItem::faltaParaFabrica($i['specs_personalizacion'] ?? [], 'el mueble')) {
+                    return response()->json(['message' => $falta], 422);
                 }
             }
             $data['items'][$k]['retapizar'] = $retapizar;
@@ -480,8 +479,11 @@ class OrdenController extends Controller
         // atrapada esperando una cotizacion que nadie iba a mandar.
         $tieneItemsCotizacionPendiente = collect($data['items'])->contains(
             // El cambio de tela también se cotiza: cuánto cuesta depende de
-            // la tela nueva, y eso lo sabe el taller.
-            fn($i) => (($i['es_personalizado'] ?? false) || $i['retapizar'])
+            // la tela nueva, y eso lo sabe el taller. El arreglo y el cambio
+            // de color no: van con el precio del mueble, que el vendedor sube
+            // si el arreglo se cobra.
+            fn($i) => (($i['es_personalizado'] ?? false)
+                        || ($i['retapizar'] && OrdenItem::trabajoFabrica($i['specs_personalizacion'] ?? []) === 'tela'))
                       && (($i['precio_unitario'] ?? 0) == 0)
                       && ! ($i['es_regalo'] ?? false)
                       // Un mueble que ya está hecho no tiene nada que cotizar:
@@ -717,7 +719,8 @@ class OrdenController extends Controller
                     // Que en el historial del inventario se vea que ese sofá
                     // no se vendió tal cual: se fue a la fábrica.
                     if ($retapizar) {
-                        $motivo .= " — cambio de tela ({$varianteDetalle})";
+                        $trabajo = mb_strtolower(OrdenItem::TRABAJOS_FABRICA[OrdenItem::trabajoFabrica($specsExtra)]);
+                        $motivo .= " — {$trabajo} en fábrica ({$varianteDetalle})";
                     }
 
                     if ($varianteId) {
@@ -1584,8 +1587,8 @@ class OrdenController extends Controller
                             }
 
                             $specsNuevas = (array) ($itemData['specs_personalizacion'] ?? []);
-                            if (trim((string) ($specsNuevas['tela'] ?? '')) === '') {
-                                abort(422, "Di qué tela nueva lleva \"{$nombreProd}\" para mandarlo a retapizar.");
+                            if ($falta = OrdenItem::faltaParaFabrica($specsNuevas, $nombreProd)) {
+                                abort(422, $falta);
                             }
 
                             // variante_texto y no variante_detalle: en órdenes
@@ -1610,7 +1613,7 @@ class OrdenController extends Controller
                                 ]);
                             }
 
-                            $cambios[] = ['campo' => "item_{$item->id}_retapizar", 'label' => "{$nombreProd} — cambio de tela", 'antes' => 'se entrega tal cual', 'despues' => $detalle];
+                            $cambios[] = ['campo' => "item_{$item->id}_retapizar", 'label' => "{$nombreProd} — llevar a fábrica", 'antes' => 'se entrega tal cual', 'despues' => $detalle];
                             // Para que el bloque de specs de abajo lo tome como
                             // un ítem que sí lleva especificaciones.
                             $item->retapizar = true;
@@ -1622,7 +1625,7 @@ class OrdenController extends Controller
                                 $avanzado = $produccion->estado !== 'pendiente'
                                     || $produccion->pasos->contains(fn ($p) => in_array($p->estado, ['en_proceso', 'completado'], true));
                                 if ($avanzado) {
-                                    abort(422, "El taller ya empezó el cambio de tela de \"{$nombreProd}\". Si fue un error, cancélalo desde Producción.");
+                                    abort(422, "El taller ya empezó a trabajar \"{$nombreProd}\" (" . mb_strtolower($item->trabajo_fabrica_label ?? 'cambio de tela') . "). Si fue un error, cancélalo desde Producción.");
                                 }
                                 $produccion->pasos()->delete();
                                 $produccion->delete();
@@ -1635,7 +1638,7 @@ class OrdenController extends Controller
                             // Lo que venga en specs ya no aplica: es de stock otra vez.
                             unset($itemData['specs_personalizacion']);
 
-                            $cambios[] = ['campo' => "item_{$item->id}_retapizar", 'label' => "{$nombreProd} — cambio de tela", 'antes' => $item->variante_detalle, 'despues' => 'se entrega tal cual'];
+                            $cambios[] = ['campo' => "item_{$item->id}_retapizar", 'label' => "{$nombreProd} — llevar a fábrica", 'antes' => $item->variante_detalle, 'despues' => 'se entrega tal cual'];
                             $item->retapizar = false;
                         }
                     }
@@ -1665,12 +1668,14 @@ class OrdenController extends Controller
                             // Le cambiaron la tela nueva a un retapizado: la
                             // línea "de qué tela a qué tela" tiene que decir la
                             // de ahora, o el taller le pone la de antes.
+                            // Igual si le cambiaron el tipo de trabajo (de
+                            // arreglo a cambio de tela, o al revés).
                             if ($item->retapizar && ! isset($updateItem['variante_detalle'])) {
-                                $telaNueva = trim((string) (($despues ?? [])['tela'] ?? ''));
-                                if ($telaNueva === '') {
-                                    abort(422, "\"{$nombreProd}\" se manda a cambiar de tela: di cuál es la tela nueva.");
+                                if ($falta = OrdenItem::faltaParaFabrica((array) $despues, $nombreProd)) {
+                                    abort(422, $falta);
                                 }
-                                [$updateItem['variante_detalle']] = OrdenItem::armarRetapizado(($despues ?? [])['tela_original'] ?? null, (array) $despues);
+                                [$updateItem['variante_detalle'], $updateItem['specs_personalizacion']] =
+                                    OrdenItem::armarRetapizado(($despues ?? [])['tela_original'] ?? null, (array) $despues);
                             }
                         }
                     }
@@ -1886,8 +1891,8 @@ class OrdenController extends Controller
                     );
                     $specsNuevo = $nuevoData['specs_personalizacion'] ?? null;
                     if ($retapizar) {
-                        if (trim((string) ($specsNuevo['tela'] ?? '')) === '') {
-                            abort(422, 'Di qué tela nueva lleva el mueble que se manda a retapizar.');
+                        if ($falta = OrdenItem::faltaParaFabrica((array) $specsNuevo, 'el mueble')) {
+                            abort(422, $falta);
                         }
                         [$varianteDetalleNuevo, $specsNuevo] = OrdenItem::armarRetapizado($varianteDetalleNuevo, (array) $specsNuevo);
                     }
@@ -1989,7 +1994,7 @@ class OrdenController extends Controller
                     $nomProd   = $esCustom
                         ? ($nuevoData['nombre_custom'] ?? 'Diseño especial')
                         : (Producto::find($productoId)?->nombre ?? "Producto #{$productoId}");
-                    $tipoTxt   = $esCustom ? ' (diseño especial)' : ($fabricarPedido ? ' (para fabricar)' : ($esPersonalizado ? ' (personalizado)' : ($retapizar ? ' (cambio de tela)' : '')));
+                    $tipoTxt   = $esCustom ? ' (diseño especial)' : ($fabricarPedido ? ' (para fabricar)' : ($esPersonalizado ? ' (personalizado)' : ($retapizar ? ' (' . mb_strtolower(OrdenItem::TRABAJOS_FABRICA[OrdenItem::trabajoFabrica((array) $specsNuevo)]) . ' en fábrica)' : '')));
                     $cambios[] = [
                         'campo'   => "item_nuevo_{$nuevoItem->id}",
                         'label'   => 'Ítem agregado',
@@ -2066,8 +2071,7 @@ class OrdenController extends Controller
             if ($orden->estado === 'pendiente_cotizacion') {
                 $orden->refresh()->load('items');
                 $faltaPrecio = $orden->items->contains(
-                    fn ($i) => ($i->es_personalizado || $i->retapizar) && (float) $i->precio_unitario == 0.0
-                               && ! $i->es_regalo
+                    fn ($i) => $i->esperaCotizacion()
                 );
                 if (! $faltaPrecio) {
                     $updateOrden['estado'] = 'pendiente_anticipo';
@@ -2313,7 +2317,7 @@ class OrdenController extends Controller
         }
 
         $tieneItemsCotizacion = $orden->items->contains(
-            fn($i) => ($i->es_personalizado || $i->retapizar) && $i->precio_unitario == 0 && ! $i->es_regalo
+            fn($i) => $i->esperaCotizacion()
         );
 
         // No se fuerza un mínimo — el vendedor puede poner cualquier monto ≥ 0
@@ -2487,7 +2491,7 @@ class OrdenController extends Controller
             ->get();
 
         $tieneItemsCotizPendiente = $ordenFresh->items->contains(
-            fn($i) => ($i->es_personalizado || $i->retapizar) && (float) $i->precio_unitario === 0.0 && ! $i->es_regalo
+            fn($i) => $i->esperaCotizacion()
         );
 
         foreach ($supervisores as $sup) {

@@ -664,7 +664,9 @@ const borradorAnticipoMinimo     = computed(() =>
   Math.ceil((orden.value?.valor_total ?? 0) * borradorAnticipoPct.value / 100)
 )
 const borradorTieneItemsCotiz    = computed(() =>
-  orden.value?.items?.some(i => (i.es_personalizado || i.retapizar) && i.precio_unitario == 0) ?? false
+  // El arreglo y el cambio de color van con el precio del mueble: no se cotizan.
+  orden.value?.items?.some(i => (i.es_personalizado
+    || (i.retapizar && (i.specs_personalizacion?.trabajo ?? 'tela') === 'tela')) && i.precio_unitario == 0) ?? false
 )
 const borradorForm = ref({
   anticipo_monto:      0,
@@ -1334,6 +1336,7 @@ const ETIQUETAS_SPEC = {
   material: 'Material', color_material: 'Color/acabado',
   largo_cm: 'Largo', ancho_cm: 'Ancho', alto_cm: 'Alto',
   variante_marca: 'Marca', variante_color: 'Color', tela_original: 'Tela actual',
+  trabajo: 'Trabajo en fábrica',
 }
 
 function formatCambioVal(val) {
@@ -2519,7 +2522,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
               <!-- Es de inventario Y está en el taller: las dos cosas hay que
                    verlas, o alguien lo busca en la tienda y no está. -->
               <p v-else-if="item.tipo_item === 'retapizar'" class="text-xs text-orange-600 mt-1 flex items-center gap-1">
-                <WrenchScrewdriverIcon class="w-3.5 h-3.5" /> Cambio de tela — mueble de la tienda, en la fábrica
+                <WrenchScrewdriverIcon class="w-3.5 h-3.5" /> {{ item.trabajo_fabrica_label || 'Cambio de tela' }} — mueble de la tienda, en la fábrica
               </p>
               <div
                 v-if="specsResumen(item).length"

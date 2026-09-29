@@ -13,7 +13,7 @@ class OrdenItem extends Model
     // bocetos_list junta boceto_url y boceto_fotos en una sola lista; se expone
     // para que la pantalla de editar pueda mostrarlos y reemplazarlos sin tener
     // que rearmar esa mezcla por su cuenta.
-    protected $appends = ['tipo_item', 'bocetos_list', 'variante_texto'];
+    protected $appends = ['tipo_item', 'bocetos_list', 'variante_texto', 'trabajo_fabrica_label'];
 
     protected $fillable = [
         'orden_id',
@@ -208,14 +208,90 @@ class OrdenItem extends Model
     {
         unset($specs['variante_marca'], $specs['variante_color']);
 
+        $trabajo = self::trabajoFabrica($specs);
+        $specs['trabajo'] = $trabajo;
+
         $telaActual = trim((string) $telaActual);
         if ($telaActual !== '') {
             $specs = ['tela_original' => $telaActual] + $specs;
         }
 
+        if ($trabajo !== 'tela') {
+            // La tela no cambia: la línea dice qué trabajo es y cuál mueble
+            // recoger; qué hay que hacerle va en las notas. Sin 'tela' en las
+            // specs, además, no se apartan metros que nadie va a usar.
+            unset($specs['tela']);
+            $detalle = self::TRABAJOS_FABRICA[$trabajo] . ($telaActual !== '' ? " · {$telaActual}" : '');
+
+            return [mb_substr(trim($detalle), 0, 200), $specs];
+        }
+
         $detalle = ($telaActual !== '' ? $telaActual : 'Tela actual') . ' → ' . trim((string) ($specs['tela'] ?? ''));
 
         return [mb_substr(trim($detalle), 0, 200), $specs];
+    }
+
+    /**
+     * Qué se le hace en la fábrica a un mueble de stock que se manda allá
+     * antes de entregarlo. Todos siguen el mismo camino —se aparta en su
+     * tienda, entra a producción y no se entrega hasta que el taller lo da
+     * por listo—; lo que cambia es qué necesita saber el taller.
+     */
+    public const TRABAJOS_FABRICA = [
+        'tela'    => 'Cambio de tela',
+        'color'   => 'Cambio de color',
+        'arreglo' => 'Arreglo',
+    ];
+
+    /** El trabajo de las specs. Lo que se marcó antes de que hubiera tipos era cambio de tela. */
+    public static function trabajoFabrica(?array $specs): string
+    {
+        $t = (string) (($specs ?? [])['trabajo'] ?? 'tela');
+
+        return array_key_exists($t, self::TRABAJOS_FABRICA) ? $t : 'tela';
+    }
+
+    /**
+     * Lo que le falta a un mueble que se manda a la fábrica para que el
+     * taller sepa qué hacerle, o null si está completo. El cambio de tela
+     * necesita la tela nueva; el color y el arreglo, que se diga qué.
+     */
+    public static function faltaParaFabrica(?array $specs, string $nombre): ?string
+    {
+        $specs = (array) $specs;
+
+        if (self::trabajoFabrica($specs) === 'tela') {
+            return trim((string) ($specs['tela'] ?? '')) === ''
+                ? "Di qué tela nueva lleva \"{$nombre}\" para mandarlo a retapizar."
+                : null;
+        }
+
+        return trim((string) ($specs['notas'] ?? '')) === ''
+            ? "Di qué hay que hacerle a \"{$nombre}\" en la fábrica (color, arreglo…)."
+            : null;
+    }
+
+    /**
+     * ¿Está en $0 esperando que alguien le ponga precio?
+     *
+     * Lo personalizado y el cambio de tela se cotizan: cuánto cuestan lo sabe
+     * el taller. El arreglo y el cambio de color no: van con el precio del
+     * mueble. El obsequio tampoco, que va en $0 a propósito.
+     */
+    public function esperaCotizacion(): bool
+    {
+        if ($this->es_regalo || (float) $this->precio_unitario != 0.0) return false;
+        if ($this->es_personalizado) return true;
+
+        return $this->retapizar && self::trabajoFabrica($this->specs_personalizacion) === 'tela';
+    }
+
+    /** "Cambio de tela", "Arreglo"… — para el historial y los avisos. */
+    public function getTrabajoFabricaLabelAttribute(): ?string
+    {
+        if (! $this->retapizar) return null;
+
+        return self::TRABAJOS_FABRICA[self::trabajoFabrica($this->specs_personalizacion)];
     }
 
     /**

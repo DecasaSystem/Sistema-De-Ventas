@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Events\InventarioActualizado;
+use App\Models\Tienda;
 use App\Models\Traslado;
 use App\Models\Usuario;
 
@@ -41,6 +42,7 @@ class AvisoTraslado
         }
 
         $nombreOrigen = $traslado->tiendaOrigen?->nombre ?? 'otra tienda';
+        $aReserva     = Tienda::where('id', $traslado->tienda_destino_id)->where('es_fabrica', true)->exists();
         $productoIds  = $traslado->items
             ->filter(fn($i) => self::cantidadReal($i) > 0)
             ->pluck('producto_id')
@@ -50,8 +52,9 @@ class AvisoTraslado
         foreach (self::genteDeLaTienda($traslado->tienda_destino_id, $autorId) as $usuarioId) {
             NotificacionService::crear(
                 tipo:      'traslado_recibido',
-                titulo:    'Llegó mercancía a tu tienda',
-                mensaje:   "Traslado #{$traslado->id}: llegó {$detalle} desde {$nombreOrigen}. Ya está en tu inventario.",
+                titulo:    $aReserva ? 'Llegó mercancía a la Reserva' : 'Llegó mercancía a tu tienda',
+                mensaje:   "Traslado #{$traslado->id}: llegó {$detalle} desde {$nombreOrigen}. "
+                         . ($aReserva ? 'Ya está en la Reserva de Fábrica.' : 'Ya está en tu inventario.'),
                 datos:     [
                     'traslado_id' => $traslado->id,
                     'tienda_id'   => $traslado->tienda_destino_id,
@@ -94,6 +97,15 @@ class AvisoTraslado
      */
     private static function genteDeLaTienda(int $tiendaId, ?int $excluirUsuarioId = null)
     {
+        // A la Bodega Fábrica no la atiende un vendedor: lo que llega entra a
+        // la Reserva, y quien tiene que enterarse es quien la maneja.
+        if (Tienda::where('id', $tiendaId)->where('es_fabrica', true)->exists()) {
+            return Usuario::where('acceso_reserva', true)
+                ->where('activo', true)
+                ->when($excluirUsuarioId, fn($q) => $q->where('id', '!=', $excluirUsuarioId))
+                ->pluck('id');
+        }
+
         return Usuario::where('tienda_default_id', $tiendaId)
             ->where('activo', true)
             ->where(fn($q) => $q->where('rol', 'vendedor')->orWhere('acceso_surtir', true))

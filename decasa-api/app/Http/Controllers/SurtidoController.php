@@ -637,6 +637,18 @@ class SurtidoController extends Controller
      */
     public function vendedoresTienda(int $tiendaId)
     {
+        // En la Bodega Fábrica no hay vendedores: lo que llega ahí entra a la
+        // Reserva, y quien lo recibe es quien maneja la Reserva.
+        if (Tienda::where('id', $tiendaId)->where('es_fabrica', true)->exists()) {
+            return response()->json(
+                Usuario::with('tiendaDefault:id,nombre')
+                    ->where('acceso_reserva', true)
+                    ->where('activo', true)
+                    ->orderBy('nombre')
+                    ->get(['id', 'nombre', 'email', 'tienda_default_id'])
+            );
+        }
+
         $vendedores = Usuario::with('tiendaDefault:id,nombre')
             ->where('rol', 'vendedor')
             ->where('activo', true)
