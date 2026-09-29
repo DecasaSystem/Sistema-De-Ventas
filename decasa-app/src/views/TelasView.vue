@@ -213,6 +213,59 @@ function abrirCrear() {
   showCrear.value = true
 }
 
+/**
+ * Otro color de una tela que ya está: el formulario llega con proveedor,
+ * nombre, referencia y textura puestos, y solo falta el color. Antes había
+ * que reescribirlos a mano, y una letra distinta la separaba de sus hermanas.
+ */
+function abrirOtroColor(item) {
+  crearForm.value = {
+    marca: item.marca, marcaNueva: '', tipo: item.tipo ?? '', color: '',
+    referencia: item.referencia ?? '', textura: item.textura ?? '', cantidad: '', foto_url: '',
+  }
+  crearError.value = ''
+  showCrear.value = true
+}
+
+// ── Lo que ya existe, para no reescribirlo ───────────────────────────────────
+// Se compara sin mayúsculas ni espacios de más: "Alpes gris" y "ALPES GRIS "
+// son la misma tela.
+const mismo = (a, b) => String(a ?? '').trim().toLowerCase() === String(b ?? '').trim().toLowerCase()
+const marcaElegida = computed(() =>
+  crearForm.value.marca === '__nueva__' ? crearForm.value.marcaNueva : crearForm.value.marca)
+
+const delProveedor = computed(() => items.value.filter(t => mismo(t.marca, marcaElegida.value)))
+const unicos = (lista) => [...new Map(lista.filter(Boolean).map(v => [v.trim().toLowerCase(), v.trim()])).values()].sort()
+
+// Sugerencias al escribir el nombre y la referencia: las del proveedor elegido.
+const tiposSugeridos = computed(() => unicos(delProveedor.value.map(t => t.tipo)))
+const referenciasSugeridas = computed(() => unicos(
+  delProveedor.value.filter(t => !crearForm.value.tipo.trim() || mismo(t.tipo, crearForm.value.tipo)).map(t => t.referencia)
+))
+
+// La misma tela en otros colores: mismo proveedor y nombre (y referencia, si
+// se escribió una). Es lo que deja claro que se está agregando un color más.
+const hermanas = computed(() => {
+  if (!marcaElegida.value?.trim() || !crearForm.value.tipo.trim()) return []
+  return delProveedor.value.filter(t =>
+    mismo(t.tipo, crearForm.value.tipo)
+    && (!crearForm.value.referencia.trim() || mismo(t.referencia, crearForm.value.referencia)))
+})
+// Repetida con la misma regla del servidor: proveedor + nombre + color, sin
+// importar la referencia. Si pasara, el servidor no crea otra: le suma los
+// metros a la que ya está, y eso se hace a propósito con "Recargar".
+const colorRepetido = computed(() => {
+  if (!crearForm.value.color.trim() || !crearForm.value.tipo.trim()) return null
+  return delProveedor.value.find(t => mismo(t.tipo, crearForm.value.tipo) && mismo(t.color, crearForm.value.color)) ?? null
+})
+
+// Al elegir una referencia que ya existe, se trae su textura si no se puso.
+watch(() => crearForm.value.referencia, (ref) => {
+  if (crearForm.value.textura.trim() || !ref?.trim()) return
+  const igual = delProveedor.value.find(t => mismo(t.referencia, ref) && t.textura)
+  if (igual) crearForm.value.textura = igual.textura
+})
+
 async function crearItem() {
   crearError.value = ''
   const marcaFinal = crearForm.value.marca === '__nueva__'
@@ -221,6 +274,10 @@ async function crearItem() {
   if (!marcaFinal)                       { crearError.value = 'Selecciona o ingresa la marca/proveedor.'; return }
   if (!crearForm.value.tipo.trim())      { crearError.value = 'Ingresa el tipo o nombre.'; return }
   if (!crearForm.value.color.trim())     { crearError.value = 'Ingresa el color.'; return }
+  if (colorRepetido.value) {
+    crearError.value = `Ese color ya está registrado para esta tela. Si llegaron más metros, usa "Recargar" en la lista.`
+    return
+  }
 
   creando.value = true
   try {
@@ -235,7 +292,11 @@ async function crearItem() {
     }
     const { data } = await api.post(rutas.value.crear, payload)
     const nuevo = adaptar(data)
-    items.value.unshift(nuevo)
+    // Si el servidor devolvió una que ya estaba, se reemplaza: agregarla
+    // otra vez la dejaba repetida en la lista hasta recargar.
+    const ya = items.value.findIndex(t => t.id === nuevo.id)
+    if (ya !== -1) items.value[ya] = nuevo
+    else items.value.unshift(nuevo)
     if (!proveedores.value.includes(nuevo.marca)) {
       proveedores.value = [...proveedores.value, nuevo.marca].sort()
     }
@@ -467,7 +528,7 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
         </div>
 
         <!-- Actions -->
-        <div v-if="puedeRecargar || puedeDescontar || auth.isSupervisor" class="flex gap-2 mt-3">
+        <div v-if="puedeRecargar || puedeDescontar || auth.isSupervisor" class="flex flex-wrap gap-2 mt-3">
           <label
             v-if="auth.isSupervisor"
             class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 text-xs font-semibold hover:bg-blue-100 transition-colors cursor-pointer"
@@ -493,6 +554,16 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
             <MinusIcon class="w-3.5 h-3.5" />
             Descontar
           </button>
+          <!-- La misma tela en otro color: abre el formulario con todo puesto
+               menos el color. -->
+          <button
+            v-if="puedeRecargar"
+            @click="abrirOtroColor(item)"
+            class="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-gray-700 text-xs font-semibold hover:bg-gray-50 transition-colors"
+          >
+            <PlusIcon class="w-3.5 h-3.5" />
+            Otro color
+          </button>
         </div>
       </div>
     </div>
@@ -502,13 +573,16 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
     <Transition name="fade">
       <div v-if="showCrear" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="showCrear = false">
         <div class="absolute inset-0 bg-black/40" />
-        <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-4">
-          <div class="flex items-center justify-between">
+        <!-- Con tope de alto: el título y los botones quedan fijos y lo del
+             medio se desplaza. Antes en un portátil el formulario se salía
+             por abajo y no se alcanzaba el botón de crear. -->
+        <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md max-h-[92dvh] flex flex-col">
+          <div class="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100 flex-shrink-0">
             <h3 class="text-base font-bold text-gray-800">Agregar {{ cfg.singular }}</h3>
-            <button @click="showCrear = false" class="text-gray-400 text-2xl leading-none">&times;</button>
+            <button @click="showCrear = false" aria-label="Cerrar" class="text-gray-400 text-2xl leading-none w-9 h-9 -mr-2">&times;</button>
           </div>
 
-          <div class="space-y-3">
+          <div class="space-y-3 overflow-y-auto px-5 py-4 flex-1 min-h-0">
             <!-- Proveedor/Marca -->
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Proveedor / Marca <span class="text-red-500">*</span></label>
@@ -533,9 +607,17 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
               <label class="block text-sm font-medium text-gray-700 mb-1">Tipo / Nombre <span class="text-red-500">*</span></label>
               <input
                 v-model="crearForm.tipo"
+                list="tipos-existentes"
+                autocomplete="off"
                 class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 :placeholder="esBase ? 'Ej: Antifaz, Terciopelo, ALPES GRIS...' : `Ej: el tipo o nombre de la ${cfg.singular}`"
               />
+              <datalist id="tipos-existentes">
+                <option v-for="t in tiposSugeridos" :key="t" :value="t" />
+              </datalist>
+              <p v-if="tiposSugeridos.length && !crearForm.tipo" class="mt-1 text-xs text-gray-400">
+                Escribe o elige uno de los que ya tiene este proveedor.
+              </p>
             </div>
 
             <!-- Referencia -->
@@ -543,9 +625,31 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
               <label class="block text-sm font-medium text-gray-700 mb-1">Referencia (opcional)</label>
               <input
                 v-model="crearForm.referencia"
+                list="referencias-existentes"
+                autocomplete="off"
                 class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 :placeholder="esBase ? 'Ej: ADARA 10 HUMO, ALPES GRIS...' : 'Ej: el código del proveedor'"
               />
+              <datalist id="referencias-existentes">
+                <option v-for="r in referenciasSugeridas" :key="r" :value="r" />
+              </datalist>
+            </div>
+
+            <!-- La misma tela en otros colores: deja claro que lo que se está
+                 haciendo es agregarle un color más, y cuáles ya tiene. -->
+            <div v-if="hermanas.length" class="rounded-xl bg-blue-50 border border-blue-100 p-3 space-y-2">
+              <p class="text-xs font-semibold text-blue-800">
+                Esta {{ cfg.singular }} ya existe en {{ hermanas.length }} color{{ hermanas.length === 1 ? '' : 'es' }}.
+                Escribe abajo el color nuevo.
+              </p>
+              <div class="flex flex-wrap gap-1.5">
+                <span v-for="h in hermanas" :key="h.id"
+                  :class="['inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium border',
+                    colorRepetido?.id === h.id ? 'bg-amber-100 border-amber-300 text-amber-900' : 'bg-white border-blue-200 text-gray-700']">
+                  {{ h.color }}
+                  <span class="text-gray-400">· {{ h.libre }} {{ cfg.unidad }}</span>
+                </span>
+              </div>
             </div>
 
             <!-- Color -->
@@ -553,9 +657,14 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
               <label class="block text-sm font-medium text-gray-700 mb-1">Color <span class="text-red-500">*</span></label>
               <input
                 v-model="crearForm.color"
-                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                :class="['w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2',
+                  colorRepetido ? 'border-amber-400 focus:ring-amber-400' : 'border-gray-300 focus:ring-blue-500']"
                 placeholder="Ej: Gris, Beige, Azul..."
               />
+              <p v-if="colorRepetido" class="mt-1 text-xs text-amber-700">
+                "{{ colorRepetido.color }}" ya está registrado ({{ colorRepetido.libre }} {{ cfg.unidad }}).
+                Si llegaron más, usa "Recargar" en la lista.
+              </p>
             </div>
 
             <!-- Textura -->
@@ -602,14 +711,16 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
               />
               <p v-if="enMetros" class="mt-1 text-xs text-gray-400">Ej: 20.45 = 20 metros 45 centímetros</p>
             </div>
+          </div>
 
+          <!-- Siempre a la vista, por largo que sea el formulario. -->
+          <div class="px-5 pt-3 pb-5 border-t border-gray-100 space-y-3 flex-shrink-0">
             <p v-if="crearError" class="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{{ crearError }}</p>
-
             <div class="flex gap-3">
               <button @click="showCrear = false" class="flex-1 bg-gray-100 text-gray-700 rounded-lg py-2.5 text-sm font-semibold">Cancelar</button>
               <button
                 @click="crearItem"
-                :disabled="creando"
+                :disabled="creando || !!colorRepetido"
                 class="flex-1 bg-blue-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
               >
                 {{ creando ? 'Guardando...' : `Crear ${cfg.singular}` }}
