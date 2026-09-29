@@ -888,7 +888,9 @@ function formatFecha(iso) {
     <ToastContainer />
 
     <!-- Agente de IA — solo supervisor, vendedor y ebanista -->
-    <AgentChat v-if="auth.isAuthenticated && (auth.isSupervisor || auth.usuario?.rol === 'vendedor')" />
+    <!-- Tampoco en las páginas para el cliente (catálogos): aunque quien las
+         abra tenga sesión, lo que se ve ahí es lo que verá el cliente. -->
+    <AgentChat v-if="auth.isAuthenticated && !SIN_MENU.includes(route.name) && (auth.isSupervisor || auth.usuario?.rol === 'vendedor')" />
   </div>
 </template>
 

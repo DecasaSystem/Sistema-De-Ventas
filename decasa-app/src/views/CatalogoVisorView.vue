@@ -384,13 +384,10 @@ const notaActual = computed(() => paginas.value[i.value]?.nota || '')
 
       <!-- Pie: contador + miniaturas -->
       <footer class="relative z-20 bg-black/40 backdrop-blur border-t border-white/10">
-        <div class="flex items-center justify-between px-3 pt-1.5">
+        <!-- El "Me interesa →" a WhatsApp se quitó a pedido: el catálogo lo
+             manda un asesor, que ya está hablando con el cliente. -->
+        <div class="flex items-center justify-center px-3 pt-1.5">
           <span class="text-[11px] text-white/60 font-medium tabular-nums">{{ i + 1 }} / {{ total }}</span>
-          <a :href="`https://wa.me/${WHATSAPP}?text=${encodeURIComponent('Hola, vi el catálogo de ' + nombre)}`"
-            target="_blank"
-            class="text-[11px] font-semibold text-emerald-400">
-            Me interesa →
-          </a>
         </div>
         <div
           v-if="total > 1"
