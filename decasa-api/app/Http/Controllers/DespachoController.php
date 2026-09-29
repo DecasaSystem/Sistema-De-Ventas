@@ -64,6 +64,8 @@ class DespachoController extends Controller
             ->filter(fn ($o) => self::cabeEnRuta($o))
             ->values();
 
+        \App\Models\OrdenItem::precargarVariantes($ordenes->pluck('items')->flatten());
+
         $ordenes->transform(function ($o) {
             $o->total_pagado    = (float) ($o->pagos_sum_monto ?? 0);
             $o->saldo_pendiente = (float) $o->valor_total - $o->total_pagado;

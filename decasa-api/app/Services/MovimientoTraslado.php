@@ -145,18 +145,26 @@ class MovimientoTraslado
      * El desglose por tela/medida de un producto en una tienda, con cuánto se
      * puede mandar de cada uno. Es lo que la pantalla necesita para dejar
      * elegir qué se traslada en vez de mandar "dos sofás" a secas.
+     *
+     * De muchos productos en una sola consulta: [producto_id => [telas...]].
+     * La lista de lo que se puede trasladar trae cientos de productos, y
+     * preguntarlo uno por uno eran cientos de viajes a la base antes de poder
+     * mostrar la pantalla.
      */
-    public static function telasDe(int $productoId, int $tiendaId): array
+    public static function telasDeVarios(array $productoIds, int $tiendaId): array
     {
+        if (empty($productoIds)) return [];
+
         return DB::table('inventario_variantes as iv')
             ->join('producto_variantes as pv', 'pv.id', '=', 'iv.variante_id')
-            ->where('pv.producto_id', $productoId)
+            ->whereIn('pv.producto_id', $productoIds)
             ->where('iv.tienda_id', $tiendaId)
             ->where('iv.cantidad_disponible', '>', 0)
-            ->select('iv.variante_id', 'iv.cantidad_disponible', 'iv.cantidad_reservada',
+            ->select('pv.producto_id', 'iv.variante_id', 'iv.cantidad_disponible', 'iv.cantidad_reservada',
                      'pv.marca', 'pv.marca_tela', 'pv.nombre_color', 'pv.medida')
             ->get()
-            ->map(fn ($v) => [
+            ->groupBy('producto_id')
+            ->map(fn ($filas) => $filas->map(fn ($v) => [
                 'variante_id' => (int) $v->variante_id,
                 'nombre'      => trim(implode(' · ', array_filter([
                     $v->marca, $v->marca_tela, $v->nombre_color, $v->medida,
@@ -164,8 +172,7 @@ class MovimientoTraslado
                 'hay'         => (int) $v->cantidad_disponible,
                 'apartado'    => (int) $v->cantidad_reservada,
                 'libre'       => max(0, (int) $v->cantidad_disponible - (int) $v->cantidad_reservada),
-            ])
-            ->values()
+            ])->values()->all())
             ->all();
     }
 }

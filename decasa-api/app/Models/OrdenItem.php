@@ -157,6 +157,30 @@ class OrdenItem extends Model
     }
 
     /**
+     * Carga de una vez lo que `variante_texto` necesita para armarse, solo en
+     * los ítems que lo van a necesitar.
+     *
+     * `variante_texto` va en $appends, así que se arma al mandar CADA ítem. Un
+     * ítem que ya guardó su `variante_detalle` no toca la base; uno viejo que
+     * no lo tiene iba a buscar su tela y su opción por separado: una lista de
+     * 50 piezas eran hasta 150 consultas antes de responder. Aquí se hacen
+     * tres, para todos juntos, y ninguna si no hace falta.
+     *
+     * @param \Illuminate\Support\Collection<int, OrdenItem|null> $items
+     */
+    public static function precargarVariantes(\Illuminate\Support\Collection $items): void
+    {
+        $faltan = $items->filter(fn ($i) => $i instanceof self
+            && ($i->variante_detalle ?? '') === ''
+            && ($i->variante_id || $i->combo_config_id));
+
+        if ($faltan->isNotEmpty()) {
+            (new \Illuminate\Database\Eloquent\Collection($faltan->values()->all()))
+                ->loadMissing(['variante', 'comboConfig.opcion']);
+        }
+    }
+
+    /**
      * El texto de variante que se guarda al crear un ítem.
      *
      * Lo normal es que lo mande la pantalla, que es la que sabe todo lo que se

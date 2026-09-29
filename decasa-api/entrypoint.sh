@@ -10,6 +10,7 @@ php artisan migrate --force || true
 php artisan config:cache 2>/dev/null || true
 php artisan route:cache 2>/dev/null || true
 php artisan view:cache 2>/dev/null || true
+php artisan event:cache 2>/dev/null || true
 
 # Los comandos artisan corren como root y pueden crear archivos en storage con
 # permisos de root. Re-chownear para que www-data (Apache) pueda escribir logs.
@@ -37,10 +38,15 @@ relanzar() {
     ) &
 }
 
-relanzar queue php artisan queue:work --tries=3 --timeout=60 --sleep=3
+# La cola y las tareas programadas corren como www-data, el mismo usuario de
+# Apache. La caché vive en archivos (storage/framework/cache): si estos
+# procesos corrieran como root crearían carpetas de root ahí dentro, y Apache
+# ya no podría escribir en ellas —el límite de peticiones fallaría con un 500
+# al azar—.
+relanzar queue runuser -u www-data -- php artisan queue:work --tries=3 --timeout=60 --sleep=3
 relanzar reverb php artisan reverb:start --host=0.0.0.0 --port=8080 --no-interaction
 
-(while true; do php artisan schedule:run --no-interaction 2>/dev/null; sleep 60; done) &
+(while true; do runuser -u www-data -- php artisan schedule:run --no-interaction 2>/dev/null; sleep 60; done) &
 
 # Apache no abre hasta que Reverb esté escuchando.
 #

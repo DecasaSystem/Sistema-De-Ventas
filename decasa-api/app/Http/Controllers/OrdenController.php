@@ -205,6 +205,8 @@ class OrdenController extends Controller
 
         $hoy = now()->startOfDay();
 
+        OrdenItem::precargarVariantes($ordenes->getCollection()->pluck('items')->flatten());
+
         $ordenes->getCollection()->transform(function ($o) use ($hoy) {
             $o->fijada          = (bool) $o->fijada;
             $o->total_pagado    = (float) ($o->pagos_sum_monto ?? 0);

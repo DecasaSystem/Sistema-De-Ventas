@@ -3,8 +3,25 @@ FROM php:8.4-apache
 RUN apt-get update && apt-get install -y \
     git unzip libpng-dev libjpeg-dev libfreetype6-dev libzip-dev libavif-dev \
     && docker-php-ext-configure gd --with-freetype --with-jpeg --with-avif \
-    && docker-php-ext-install -j$(nproc) gd pdo_mysql bcmath zip pcntl \
+    && docker-php-ext-install -j$(nproc) gd pdo_mysql bcmath zip pcntl opcache \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# OPcache: sin esto PHP vuelve a leer y compilar los cientos de archivos de
+# Laravel en CADA petición. Con él quedan compilados en memoria.
+#
+# validate_timestamps=0: no revisa si los archivos cambiaron. En el contenedor
+# el código no cambia nunca —cada despliegue es una imagen nueva que arranca
+# con la caché vacía—, así que revisarlo sería trabajo tirado.
+RUN { \
+      echo 'opcache.enable=1'; \
+      echo 'opcache.enable_cli=0'; \
+      echo 'opcache.memory_consumption=128'; \
+      echo 'opcache.interned_strings_buffer=16'; \
+      echo 'opcache.max_accelerated_files=20000'; \
+      echo 'opcache.validate_timestamps=0'; \
+      echo 'realpath_cache_size=4096K'; \
+      echo 'realpath_cache_ttl=600'; \
+    } > /usr/local/etc/php/conf.d/opcache.ini
 
 # Aumentar límites de subida de archivos (default PHP = 2M, insuficiente para fotos)
 RUN echo "upload_max_filesize = 20M\npost_max_size = 25M\nmemory_limit = 256M\nmax_execution_time = 60" \

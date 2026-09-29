@@ -127,12 +127,15 @@ class ProduccionController extends Controller
             })
             // Como en órdenes: se puede pedir más de una página de golpe para
             // que al recargar no se pierda lo que ya se había bajado.
-            ->paginate(min((int) $request->query('per_page', 20) ?: 20, 200))
-            ->through(function ($p) {
-                $p = $this->conDiasRestantes($p);
-                $p->fijada = (bool) $p->fijada;
-                return $p;
-            });
+            ->paginate(min((int) $request->query('per_page', 20) ?: 20, 200));
+
+        \App\Models\OrdenItem::precargarVariantes($producciones->getCollection()->pluck('ordenItem'));
+
+        $producciones->through(function ($p) {
+            $p = $this->conDiasRestantes($p);
+            $p->fijada = (bool) $p->fijada;
+            return $p;
+        });
 
         return response()->json($producciones);
     }
@@ -176,6 +179,8 @@ class ProduccionController extends Controller
         ->orderBy('orden')
         ->get();
 
+        \App\Models\OrdenItem::precargarVariantes($pasos->pluck('produccion.ordenItem'));
+
         return response()->json($pasos);
     }
 
@@ -208,6 +213,8 @@ class ProduccionController extends Controller
         ->orderByDesc('completado_at')
         ->limit(50)
         ->get();
+
+        \App\Models\OrdenItem::precargarVariantes($pasos->pluck('produccion.ordenItem'));
 
         return response()->json($pasos);
     }

@@ -15,8 +15,14 @@ services:
         value: database
       - key: QUEUE_CONNECTION
         value: database
+      # En archivos dentro del contenedor, no en la base: el límite de
+      # peticiones lee y escribe su contador en CADA llamada a la API, y con
+      # la caché en Aiven eso eran viajes de ida y vuelta a la base remota
+      # antes de hacer nada. Vale mientras haya un solo contenedor: con dos,
+      # cada uno tendría su propia caché (y withoutOverlapping dejaría de
+      # proteger las tareas programadas entre ellos).
       - key: CACHE_STORE
-        value: database
+        value: file
       - key: BROADCAST_CONNECTION
         value: reverb
       - key: REVERB_APP_ID

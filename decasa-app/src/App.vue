@@ -142,7 +142,12 @@ function abrirDesdeNotificacionInicial() {
 }
 
 onMounted(() => {
-  if (auth.isAuthenticated) modulos.cargar()
+  // Los módulos no se piden aquí: ya los pide el watch de isAuthenticated de
+  // abajo (immediate), y pedirlos en los dos sitios eran dos llamadas iguales
+  // al abrir la app.
+  // El reloj del refresco arranca ahora: si no, el primer "focus" de la
+  // ventana, que llega en el mismo instante, volvía a pedir /me.
+  ultimoRefresco = Date.now()
   auth.fetchMe().finally(abrirDesdeNotificacionInicial)
   document.addEventListener('visibilitychange', refrescarPermisos)
   window.addEventListener('focus', refrescarPermisos)

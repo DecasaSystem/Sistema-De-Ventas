@@ -69,8 +69,11 @@ class TrasladoController extends Controller
         // color se decidía solo: en el origen se recortaba el que quedara
         // —a veces el que una orden estaba esperando— y al destino llegaban
         // unidades sin color, que ya no se podían vender por su tela.
-        $stock = $stock->map(function ($p) use ($tiendaId) {
-            $p->telas = MovimientoTraslado::telasDe((int) $p->producto_id, $tiendaId);
+        //
+        // Todas las telas en una sola consulta, no una por producto.
+        $telas = MovimientoTraslado::telasDeVarios($stock->pluck('producto_id')->all(), $tiendaId);
+        $stock = $stock->map(function ($p) use ($telas) {
+            $p->telas = $telas[$p->producto_id] ?? [];
             return $p;
         });
 
