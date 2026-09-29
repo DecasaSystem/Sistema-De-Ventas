@@ -8,6 +8,7 @@ import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import FirmaCanvas from '@/components/FirmaCanvas.vue'
 import { CheckCircleIcon, MapPinIcon, ClockIcon, ExclamationTriangleIcon } from '@heroicons/vue/24/outline'
 import InputPesos from '@/components/common/InputPesos.vue'
+import ComoLlegar from '@/components/despacho/ComoLlegar.vue'
 
 function compressImage(file, maxWidth = 1280, quality = 0.75) {
   return new Promise((resolve) => {
@@ -467,6 +468,10 @@ async function guardarPagoYEntregar() {
               <MapPinIcon class="w-4 h-4 text-gray-400" />
               {{ item.orden?.cliente?.direccion }}
             </p>
+
+            <!-- Cómo llegar: Waze o Google Maps con la dirección completa
+                 (ciudad incluida), y llamar si aun así no se encuentra. -->
+            <ComoLlegar v-if="item.estado !== 'entregado'" :orden="item.orden" variante="detalle" class="pt-3" />
 
             <div class="flex items-center gap-4 mt-2 text-sm">
               <span class="text-gray-600">

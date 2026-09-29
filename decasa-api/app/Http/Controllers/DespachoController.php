@@ -429,7 +429,7 @@ class DespachoController extends Controller
             'despacho.supervisor:id,nombre',
             'orden:id,cliente_id,tienda_id,valor_total,estado,created_at',
             'orden.cliente:id,nombre,telefono,direccion',
-            'orden.tienda:id,nombre',
+            'orden.tienda:id,nombre,ciudad',
             'orden.pagos:id,orden_id,monto',
             'orden.items:id,orden_id,producto_id,nombre_custom,cantidad,cantidad_entregada,devuelto_en',
             'orden.items.producto:id,nombre',
@@ -851,7 +851,7 @@ class DespachoController extends Controller
         $items = DespachoItem::with([
             'despacho:id,conductor_id,estado,nombre_ruta,instrucciones,notas,fecha_despacho',
             'orden.cliente:id,nombre,telefono,direccion',
-            'orden.tienda:id,nombre',
+            'orden.tienda:id,nombre,ciudad',
             'orden.items.producto:id,nombre,foto_url',
             'orden.items.variante', 'orden.items.comboConfig.tipo', 'orden.items.comboConfig.opcion',
             'orden.pagos:id,orden_id,monto',
@@ -886,7 +886,7 @@ class DespachoController extends Controller
 
         $items = DespachoItem::with([
             'orden.cliente:id,nombre,telefono,direccion',
-            'orden.tienda:id,nombre',
+            'orden.tienda:id,nombre,ciudad',
             'orden.items.producto:id,nombre,foto_url',
             'orden.items.variante', 'orden.items.comboConfig.tipo', 'orden.items.comboConfig.opcion',
         ])->whereHas('despacho', function ($q) use ($usuario) {
@@ -920,7 +920,7 @@ class DespachoController extends Controller
         $item = DespachoItem::with([
             'despacho:id,conductor_id,entregado_por_id,notas',
             'orden.cliente:id,nombre,telefono,direccion,cedula',
-            'orden.tienda:id,nombre',
+            'orden.tienda:id,nombre,ciudad',
             'orden.items.producto:id,nombre,foto_url',
             'orden.items.produccion:id,orden_item_id,estado',
             'orden.items.variante', 'orden.items.comboConfig.tipo', 'orden.items.comboConfig.opcion',
@@ -1605,7 +1605,7 @@ class DespachoController extends Controller
             'despacho.conductor:id,nombre',
             'despacho.entregadoPor:id,nombre',
             'orden.cliente:id,nombre,telefono,cedula',
-            'orden.tienda:id,nombre',
+            'orden.tienda:id,nombre,ciudad',
             'orden.items.producto:id,nombre',
             'orden.items.produccion:id,orden_item_id,estado',
             'orden.items.variante', 'orden.items.comboConfig.tipo', 'orden.items.comboConfig.opcion',

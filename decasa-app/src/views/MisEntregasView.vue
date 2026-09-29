@@ -19,6 +19,7 @@ import EntregaDetalleModal from '@/components/despacho/EntregaDetalleModal.vue'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
+import ComoLlegar from '@/components/despacho/ComoLlegar.vue'
 import { TruckIcon, CheckCircleIcon, ClockIcon, MapPinIcon, ChevronRightIcon, ArrowLeftIcon, PlayIcon } from '@heroicons/vue/24/outline'
 
 const socket = useDespachoSocket()
@@ -407,9 +408,13 @@ function pendientesRuta(items) {
               class="p-4 transition-colors"
               :class="infoRutaActiva?.despacho?.estado === 'en_ruta'
                 ? 'cursor-pointer active:bg-gray-50'
-                : 'opacity-60 cursor-not-allowed'"
+                : 'cursor-not-allowed'"
             >
-              <div class="flex items-start gap-3">
+              <!-- Sin iniciar la ruta se ve apagado lo que no se puede
+                   registrar todavía, no los botones de cómo llegar, que sí
+                   funcionan: mirar a dónde se va es lo que se hace antes de salir. -->
+              <div class="flex items-start gap-3"
+                :class="infoRutaActiva?.despacho?.estado === 'en_ruta' ? '' : 'opacity-60'">
                 <div class="flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold"
                   :class="item.estado === 'entregado'
                     ? 'bg-green-100 text-green-700'
@@ -423,9 +428,14 @@ function pendientesRuta(items) {
                     <BadgeEstado :estado="item.estado" class="flex-shrink-0" />
                   </div>
                   <p class="text-xs text-gray-500 mt-0.5">{{ item.orden?.cliente?.telefono }}</p>
-                  <div class="flex items-center gap-1 text-xs text-gray-500 mt-0.5 min-w-0">
-                    <MapPinIcon class="w-3.5 h-3.5 flex-shrink-0 text-gray-400" />
-                    <span class="truncate">{{ item.orden?.direccion_envio || item.orden?.cliente?.direccion }}</span>
+                  <!-- La dirección completa, en hasta dos líneas: es lo que
+                       el conductor necesita leer, no algo para cortar. -->
+                  <div class="flex items-start gap-1 text-sm text-gray-700 mt-1 min-w-0">
+                    <MapPinIcon class="w-4 h-4 flex-shrink-0 text-blue-500 mt-0.5" />
+                    <span class="line-clamp-2">
+                      {{ item.orden?.direccion_envio || item.orden?.cliente?.direccion || 'Sin dirección' }}<span
+                        v-if="item.orden?.direccion_envio && item.orden?.ciudad_envio" class="text-gray-500">, {{ item.orden.ciudad_envio }}</span>
+                    </span>
                   </div>
                   <p v-if="item.orden?.items?.length" class="text-xs text-gray-400 mt-1 truncate">
                     {{ nombresDeEntrega(item) }}
@@ -438,6 +448,9 @@ function pendientesRuta(items) {
                   </div>
                 </div>
               </div>
+              <!-- Cómo llegar, a todo lo ancho de la tarjeta. `.stop` para
+                   que tocarlos abra el mapa y no la entrega. -->
+              <ComoLlegar v-if="item.estado !== 'entregado'" :orden="item.orden" class="mt-3" @click.stop />
             </div>
           </div>
 
@@ -469,7 +482,7 @@ function pendientesRuta(items) {
               <p class="text-xs text-gray-500 mt-0.5">{{ item.orden?.cliente?.telefono }}</p>
               <p class="text-xs text-gray-500 flex items-center gap-1 truncate">
                 <MapPinIcon class="w-3.5 h-3.5 flex-shrink-0" />
-                {{ item.orden?.cliente?.direccion }}
+                {{ item.orden?.direccion_envio || item.orden?.cliente?.direccion }}
               </p>
               <p v-if="item.orden?.items?.length" class="text-xs text-gray-400 mt-1 truncate">
                 {{ nombresDeEntrega(item) }}
