@@ -494,6 +494,13 @@ function destinoNotificacion(tipo, datos) {
   return null
 }
 
+// Borra todas, también las que no se han cargado: un toque sin querer no puede
+// dejar a nadie sin sus avisos.
+function limpiarNotificaciones() {
+  if (!confirm('¿Borrar todas tus notificaciones? No se pueden recuperar.')) return
+  notif.eliminarTodas()
+}
+
 async function abrirNotificacion(n) {
   notif.leer(n.id)
   abrirNotif.value = false
@@ -632,7 +639,7 @@ function formatFecha(iso) {
                   </button>
                   <button
                     v-if="notif.items.length > 0"
-                    @click="notif.eliminarTodas()"
+                    @click="limpiarNotificaciones"
                     class="text-xs text-red-500 hover:text-red-700 flex items-center gap-0.5 shrink-0"
                     title="Eliminar todas"
                   >
@@ -690,6 +697,16 @@ function formatFecha(iso) {
                   <TrashIcon class="w-3.5 h-3.5" />
                 </button>
               </div>
+
+              <!-- Las anteriores no se borran: se piden de a 50 -->
+              <button
+                v-if="notif.siguiente"
+                @click="notif.cargarMas()"
+                :disabled="notif.cargandoMas"
+                class="w-full py-3 text-xs text-blue-600 hover:bg-gray-50 disabled:text-gray-400"
+              >
+                {{ notif.cargandoMas ? 'Cargando…' : 'Ver anteriores' }}
+              </button>
             </div>
           </Teleport>
         </div>
