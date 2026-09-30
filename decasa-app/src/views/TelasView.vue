@@ -249,6 +249,26 @@ function refDistinta(item) {
   const ref = (item.referencia ?? '').trim()
   return ref !== '' && !!item.tipo && ref.toLowerCase() !== item.tipo.trim().toLowerCase()
 }
+// Una cantidad para mostrar: con sus decimales completos si los tiene. En
+// metros, "6.3" se leía como 6 m 3 cm cuando son 6 m 30 cm; sale "6.30".
+// Lo entero queda entero ("28", no "28.00").
+function cant(n) {
+  const v = Number(n ?? 0)
+  if (!cfg.value.decimales || Number.isInteger(v)) return String(v)
+  return v.toFixed(cfg.value.decimales)
+}
+
+// El nombre con que la tela se elige en las órdenes ("LAYLA 01 CRUDO"). Lo
+// manda el servidor; si no viniera, la misma regla que CatalogoTela::nombreVenta:
+// el nombre, más la referencia si no está ya en él.
+function nombreVenta(item) {
+  if (item?.nombre_venta) return item.nombre_venta
+  const tipo = (item?.tipo ?? '').trim()
+  const ref  = (item?.referencia ?? '').trim()
+  if (!ref || tipo.toLowerCase().includes(ref.toLowerCase())) return tipo
+  return `${tipo} ${ref}`
+}
+
 // "Terciopelo · Ref. Hielo": como se nombra en avisos y confirmaciones.
 function nombreDe(item) {
   if (!item) return ''
@@ -279,7 +299,7 @@ async function confirmarEliminar() {
     items.value = items.value.filter(t => t.id !== item.id)
     // Que las órdenes tampoco la ofrezcan más sin tener que recargar.
     if (esBase.value) {
-      const colores = TELAS_CATALOGO[item.marca]?.[item.tipo]
+      const colores = TELAS_CATALOGO[item.marca]?.[nombreVenta(item)]
       if (colores) {
         const i = colores.indexOf(item.color)
         if (i !== -1) colores.splice(i, 1)
@@ -310,20 +330,21 @@ const referenciasSugeridas = computed(() => unicos(
   delProveedor.value.filter(t => !crearForm.value.tipo.trim() || mismo(t.tipo, crearForm.value.tipo)).map(t => t.referencia)
 ))
 
-// La misma tela en otros colores: mismo proveedor y nombre (y referencia, si
-// se escribió una). Es lo que deja claro que se está agregando un color más.
+// La misma tela en otros colores: mismo proveedor, nombre y referencia (sin
+// referencia = sin referencia). Es lo que deja claro que se está agregando un
+// color más. LAYLA 01 CRUDO y LAYLA 02 PERLA son telas distintas: los colores
+// de una no son los de la otra.
 const hermanas = computed(() => {
   if (!marcaElegida.value?.trim() || !crearForm.value.tipo.trim()) return []
   return delProveedor.value.filter(t =>
-    mismo(t.tipo, crearForm.value.tipo)
-    && (!crearForm.value.referencia.trim() || mismo(t.referencia, crearForm.value.referencia)))
+    mismo(t.tipo, crearForm.value.tipo) && mismo(t.referencia, crearForm.value.referencia))
 })
-// Repetida con la misma regla del servidor: proveedor + nombre + color, sin
-// importar la referencia. Si pasara, el servidor no crea otra: le suma los
-// metros a la que ya está, y eso se hace a propósito con "Recargar".
+// Repetida con la misma regla del servidor: proveedor + nombre + referencia +
+// color. Si pasara, el servidor no crea otra: le suma los metros a la que ya
+// está, y eso se hace a propósito con "Recargar".
 function yaExiste(color) {
-  if (!color?.trim() || !crearForm.value.tipo.trim()) return null
-  return delProveedor.value.find(t => mismo(t.tipo, crearForm.value.tipo) && mismo(t.color, color)) ?? null
+  if (!color?.trim()) return null
+  return hermanas.value.find(t => mismo(t.color, color)) ?? null
 }
 // Y el mismo color escrito dos veces en la lista.
 function repetidoEnLista(i) {
@@ -407,11 +428,13 @@ function agregarALaLista(nuevo) {
   }
   // Sólo las telas de verdad están en el catálogo que usan las órdenes: se
   // sincroniza para que InventarioView vea la nueva de una.
+  // Por el nombre de venta: es lo que se elige en la orden.
   if (esBase.value) {
+    const nombre = nombreVenta(nuevo)
     if (!TELAS_CATALOGO[nuevo.marca]) TELAS_CATALOGO[nuevo.marca] = {}
-    if (!TELAS_CATALOGO[nuevo.marca][nuevo.tipo]) TELAS_CATALOGO[nuevo.marca][nuevo.tipo] = []
-    if (!TELAS_CATALOGO[nuevo.marca][nuevo.tipo].includes(nuevo.color)) {
-      TELAS_CATALOGO[nuevo.marca][nuevo.tipo].push(nuevo.color)
+    if (!TELAS_CATALOGO[nuevo.marca][nombre]) TELAS_CATALOGO[nuevo.marca][nombre] = []
+    if (!TELAS_CATALOGO[nuevo.marca][nombre].includes(nuevo.color)) {
+      TELAS_CATALOGO[nuevo.marca][nombre].push(nuevo.color)
     }
   }
   return nuevo
@@ -435,7 +458,7 @@ function abrirEditar(item) {
   editarError.value = ''
 }
 
-// Proveedor, nombre y color son lo que la identifica: con metros apartados no se tocan.
+// Proveedor, nombre, referencia y color son lo que la identifica: con metros apartados no se tocan.
 const bloqueaNombre = computed(() => (itemEditar.value?.reservado ?? 0) > 0)
 
 async function guardarEdicion() {
@@ -459,10 +482,10 @@ async function guardarEdicion() {
   try {
     const { data } = await api.patch(rutas.value.editar(item.id), payload)
     const actualizado = adaptar({ ...item, ...data })
-    // Las órdenes eligen la tela por proveedor → nombre → color: se mueve en
-    // el catálogo si cambió alguno.
-    if (esBase.value && (payload.marca || payload.tipo || payload.color)) {
-      const viejos = TELAS_CATALOGO[item.marca]?.[item.tipo]
+    // Las órdenes eligen la tela por proveedor → nombre de venta → color: se
+    // mueve en el catálogo si cambió alguno (la referencia es parte del nombre).
+    if (esBase.value && ('marca' in payload || 'tipo' in payload || 'color' in payload || 'referencia' in payload)) {
+      const viejos = TELAS_CATALOGO[item.marca]?.[nombreVenta(item)]
       const i = viejos?.indexOf(item.color) ?? -1
       if (i !== -1) viejos.splice(i, 1)
     }
@@ -678,11 +701,11 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
           </div>
           <div class="flex flex-col items-end gap-0.5">
             <span :class="['text-xs font-bold px-2.5 py-1 rounded-full whitespace-nowrap', colorBadge(item.libre)]">
-              {{ item.libre }} {{ cfg.unidad }}
+              {{ cant(item.libre) }} {{ cfg.unidad }}
             </span>
             <!-- Lo que las ventas tienen apartado: libres = disponibles − apartados. -->
             <span v-if="item.reservado > 0" class="text-[10px] text-gray-400 whitespace-nowrap">
-              {{ item.reservado }} {{ cfg.unidad }} apartados
+              {{ cant(item.reservado) }} {{ cfg.unidad }} apartados
             </span>
           </div>
         </div>
@@ -826,7 +849,7 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
                   :class="['inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium border',
                     crearForm.colores.some(f => mismo(f.color, h.color)) ? 'bg-amber-100 border-amber-300 text-amber-900' : 'bg-white border-blue-200 text-gray-700']">
                   {{ h.color }}
-                  <span class="text-gray-400">· {{ h.libre }} {{ cfg.unidad }}</span>
+                  <span class="text-gray-400">· {{ cant(h.libre) }} {{ cfg.unidad }}</span>
                 </span>
               </div>
             </div>
@@ -868,7 +891,7 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
                     </button>
                   </div>
                   <p v-if="yaExiste(fila.color)" class="mt-1 text-xs text-amber-700">
-                    "{{ yaExiste(fila.color).color }}" ya está registrado ({{ yaExiste(fila.color).libre }} {{ cfg.unidad }}).
+                    "{{ yaExiste(fila.color).color }}" ya está registrado ({{ cant(yaExiste(fila.color).libre) }} {{ cfg.unidad }}).
                     Si llegaron más, usa "Recargar" en la lista.
                   </p>
                   <p v-else-if="repetidoEnLista(i)" class="mt-1 text-xs text-amber-700">Este color ya está arriba en la lista.</p>
@@ -951,9 +974,9 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
 
           <div class="space-y-3 overflow-y-auto px-5 py-4 flex-1 min-h-0">
             <p v-if="bloqueaNombre" class="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-              Tiene {{ itemEditar.reservado }} {{ cfg.unidad }} apartados para órdenes: el proveedor, el nombre y el
-              color no se pueden cambiar hasta que se entreguen, porque las órdenes la encuentran por ellos.
-              La referencia y la textura sí.
+              Tiene {{ cant(itemEditar.reservado) }} {{ cfg.unidad }} apartados para órdenes: el proveedor, el nombre,
+              la referencia y el color no se pueden cambiar hasta que se entreguen, porque las órdenes la
+              encuentran por ellos. La textura sí.
             </p>
 
             <div>
@@ -971,8 +994,8 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
             </div>
             <div>
               <label for="ed-ref" class="block text-sm font-medium text-gray-700 mb-1">Referencia (opcional)</label>
-              <input id="ed-ref" v-model="editarForm.referencia"
-                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <input id="ed-ref" v-model="editarForm.referencia" :disabled="bloqueaNombre"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400" />
             </div>
             <div>
               <label for="ed-color" class="block text-sm font-medium text-gray-700 mb-1">Color</label>
@@ -1028,12 +1051,12 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
           <!-- Lo apartado lo frena el servidor; se dice antes para no hacer
                el intento en vano. -->
           <p v-if="itemEliminar.reservado > 0" class="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-            Tiene {{ itemEliminar.reservado }} {{ cfg.unidad }} apartados para órdenes, así que no se puede eliminar.
+            Tiene {{ cant(itemEliminar.reservado) }} {{ cfg.unidad }} apartados para órdenes, así que no se puede eliminar.
             Primero hay que cambiarles la {{ cfg.singular }} o esperar a que se entreguen.
           </p>
           <template v-else>
             <p v-if="itemEliminar.disponible > 0" class="text-sm text-gray-700 bg-gray-50 rounded-lg px-3 py-2">
-              Tiene <span class="font-semibold">{{ itemEliminar.disponible }} {{ cfg.unidad }}</span> en inventario:
+              Tiene <span class="font-semibold">{{ cant(itemEliminar.disponible) }} {{ cfg.unidad }}</span> en inventario:
               dejarán de contarse. Si la creaste mal, pásale {{ enMetros ? 'esos metros' : 'esa cantidad' }} a la correcta con "Recargar".
             </p>
             <p class="text-xs text-gray-500">
@@ -1076,7 +1099,7 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
               <span class="text-gray-500 font-normal">({{ itemActivo?.color }})</span>
             </p>
             <p class="text-xs text-gray-500 mt-0.5">
-              Disponible: <strong>{{ itemActivo?.libre }} {{ cfg.unidad }}</strong>
+              Disponible: <strong>{{ cant(itemActivo?.libre) }} {{ cfg.unidad }}</strong>
             </p>
           </div>
 

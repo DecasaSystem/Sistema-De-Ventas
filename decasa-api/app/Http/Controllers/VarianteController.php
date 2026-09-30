@@ -322,16 +322,7 @@ class VarianteController extends Controller
             // Si la variante es tapizado (tiene marca_tela + nombre_color), asegurar
             // que exista en catalogo_telas para que aparezca en el módulo de telas.
             if (!empty($data['marca']) && !empty($data['marca_tela']) && !empty($data['nombre_color'])) {
-                DB::table('catalogo_telas')->insertOrIgnore([
-                    'marca'              => $data['marca'],
-                    'tipo'               => $data['marca_tela'],
-                    'color'              => $data['nombre_color'],
-                    'activo'             => true,
-                    'metros_disponibles' => 0,
-                    'metros_reservados'  => 0,
-                    'created_at'         => now(),
-                    'updated_at'         => now(),
-                ]);
+                \App\Models\CatalogoTela::asegurar($data['marca'], $data['marca_tela'], $data['nombre_color']);
             }
 
             return $v;

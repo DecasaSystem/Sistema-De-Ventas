@@ -17,9 +17,12 @@ class CatalogoTelaController extends Controller
             ->orderBy('marca')->orderBy('tipo')->orderBy('color')
             ->get(['id', 'marca', 'tipo', 'color', 'referencia', 'textura']);
 
+        // Por el nombre de venta ("LAYLA 01 CRUDO"), no por el nombre a secas:
+        // es lo que se elige en la orden, y con dos LAYLA en BEIGE el nombre
+        // solo no dice cuál (ver CatalogoTela::nombreVenta).
         $grouped = $rows->groupBy('marca')->map(fn($marcaRows, $marca) => [
             'marca' => $marca,
-            'tipos' => $marcaRows->groupBy('tipo')->map(fn($tipoRows, $tipo) => [
+            'tipos' => $marcaRows->groupBy(fn ($r) => $r->nombre_venta)->map(fn($tipoRows, $tipo) => [
                 'tipo'    => $tipo,
                 'colores' => $tipoRows->map(fn($r) => [
                     'id'         => $r->id,
@@ -49,15 +52,21 @@ class CatalogoTelaController extends Controller
             'metros_iniciales'=> 'nullable|numeric|min:0',
         ]);
 
-        $tela = CatalogoTela::firstOrCreate(
-            ['marca' => trim($data['marca']), 'tipo' => trim($data['tipo']), 'color' => trim($data['color'])],
-            [
-                'activo'     => true,
-                'referencia' => isset($data['referencia']) ? trim($data['referencia']) : null,
-                'textura'    => isset($data['textura'])    ? trim($data['textura'])    : null,
+        $referencia = isset($data['referencia']) && trim($data['referencia']) !== '' ? trim($data['referencia']) : null;
+
+        // La misma tela es proveedor + nombre + referencia + color: LAYLA 01
+        // CRUDO y LAYLA 02 PERLA pueden ser las dos BEIGE y son distintas.
+        // Si ya existe (aunque se hubiera eliminado), se reusa.
+        $tela = CatalogoTela::igualA($data['marca'], $data['tipo'], $referencia, $data['color'])
+            ?? CatalogoTela::create([
+                'marca'      => trim($data['marca']),
+                'tipo'       => trim($data['tipo']),
+                'color'      => trim($data['color']),
+                'referencia' => $referencia,
+                'textura'    => isset($data['textura']) && trim($data['textura']) !== '' ? trim($data['textura']) : null,
                 'foto_url'   => $data['foto_url'] ?? null,
-            ]
-        );
+                'activo'     => true,
+            ]);
 
         if (!$tela->activo) {
             $tela->update(['activo' => true]);
@@ -75,18 +84,7 @@ class CatalogoTelaController extends Controller
             $tela = $tela->fresh();
         }
 
-        return response()->json([
-            'id'                 => $tela->id,
-            'marca'              => $tela->marca,
-            'tipo'               => $tela->tipo,
-            'color'              => $tela->color,
-            'referencia'         => $tela->referencia,
-            'textura'            => $tela->textura,
-            'foto_url'           => $tela->foto_url,
-            'metros_disponibles' => (float) $tela->metros_disponibles,
-            'metros_reservados'  => (float) $tela->metros_reservados,
-            'metros_libres'      => round((float) $tela->metros_disponibles - (float) $tela->metros_reservados, 2),
-        ], 201);
+        return response()->json($this->paraPantalla($tela), 201);
     }
 
     /**
@@ -115,31 +113,38 @@ class CatalogoTelaController extends Controller
 
         $tela = CatalogoTela::findOrFail($id);
 
-        $cambiaNombre = collect(['marca', 'tipo', 'color'])
-            ->contains(fn ($c) => array_key_exists($c, $data) && $data[$c] !== $tela->$c);
+        $marca = array_key_exists('marca', $data) ? $data['marca'] : $tela->marca;
+        $tipo  = array_key_exists('tipo', $data)  ? $data['tipo']  : $tela->tipo;
+        $color = array_key_exists('color', $data) ? $data['color'] : $tela->color;
+        $ref   = array_key_exists('referencia', $data) ? $data['referencia'] : $tela->referencia;
 
-        if ($cambiaNombre) {
-            // Las órdenes guardan su tela como texto ("Proveedor · Nombre ·
-            // Color") y con eso se enlazan a lo que tienen apartado. Si una
-            // orden la tiene apartada y se le cambia el nombre, deja de
-            // encontrarla y el apartado queda suelto.
-            if ($this->metrosApartados($tela) > 0) {
+        // Lo que la identifica: proveedor, nombre, referencia y color.
+        $cambiaIdentidad = $marca !== $tela->marca || $tipo !== $tela->tipo || $color !== $tela->color
+            || mb_strtolower(trim((string) $ref)) !== mb_strtolower(trim((string) $tela->referencia));
+
+        if ($cambiaIdentidad) {
+            // Las órdenes guardan su tela como texto ("Proveedor · Nombre de
+            // venta · Color") y con eso se enlazan a lo que tienen apartado. Si
+            // una orden la tiene apartada y ese texto cambia, deja de
+            // encontrarla y el apartado queda suelto. La referencia solo
+            // cuenta si cambia el nombre de venta (en las del Excel, no).
+            $cambiaTexto = $marca !== $tela->marca || $color !== $tela->color
+                || CatalogoTela::nombreVenta($tipo, $ref) !== $tela->nombre_venta;
+            if ($cambiaTexto && $this->metrosApartados($tela) > 0) {
                 return response()->json([
-                    'message' => 'Tiene metros apartados para órdenes: el proveedor, el nombre y el color no se '
-                               . 'pueden cambiar hasta que se entreguen. La referencia y la textura sí.',
+                    'message' => 'Tiene metros apartados para órdenes: el proveedor, el nombre, la referencia y el '
+                               . 'color no se pueden cambiar hasta que se entreguen, porque las órdenes la encuentran '
+                               . 'por ellos. La textura sí.',
                 ], 422);
             }
 
-            $marca = $data['marca'] ?? $tela->marca;
-            $tipo  = $data['tipo']  ?? $tela->tipo;
-            $color = $data['color'] ?? $tela->color;
-            $otra = CatalogoTela::where('id', '!=', $tela->id)
-                ->where('marca', $marca)->where('tipo', $tipo)->where('color', $color)->first();
+            $otra = CatalogoTela::igualA($marca, $tipo, $ref, $color, $tela->id);
             if ($otra) {
+                $cual = CatalogoTela::nombreVenta($tipo, $ref);
                 return response()->json([
                     'message' => $otra->activo
-                        ? "Ya existe \"{$tipo}\" en {$color} de {$marca}. Si es la misma, elimina esta y recárgale los metros a esa."
-                        : "Hay una \"{$tipo}\" en {$color} de {$marca} que se eliminó. Créala de nuevo para recuperarla y elimina esta.",
+                        ? "Ya existe \"{$cual}\" en {$color} de {$marca}. Si es la misma, elimina esta y recárgale los metros a esa."
+                        : "Hay una \"{$cual}\" en {$color} de {$marca} que se eliminó. Créala de nuevo para recuperarla y elimina esta.",
                 ], 422);
             }
         }
@@ -170,6 +175,7 @@ class CatalogoTelaController extends Controller
             'id'                 => $tela->id,
             'marca'              => $tela->marca,
             'tipo'               => $tela->tipo,
+            'nombre_venta'       => $tela->nombre_venta,
             'color'              => $tela->color,
             'referencia'         => $tela->referencia,
             'textura'            => $tela->textura,
@@ -195,10 +201,12 @@ class CatalogoTelaController extends Controller
 
         $creados = [];
         foreach ($data['colores'] as $color) {
-            $tela = CatalogoTela::firstOrCreate(
-                ['marca' => trim($data['marca']), 'tipo' => trim($data['tipo']), 'color' => trim($color)],
-                ['activo' => true]
-            );
+            // Sin referencia: la misma regla que store() (ver CatalogoTela::igualA).
+            $tela = CatalogoTela::igualA($data['marca'], $data['tipo'], null, $color)
+                ?? CatalogoTela::create([
+                    'marca' => trim($data['marca']), 'tipo' => trim($data['tipo']), 'color' => trim($color),
+                    'activo' => true,
+                ]);
             if (!$tela->activo) {
                 $tela->update(['activo' => true]);
             }

@@ -17,7 +17,7 @@ async function cargarTelas(force = false) {
       const { data } = await api.get('/inventario-telas')
       const map = {}
       for (const t of (data ?? [])) {
-        map[`${t.marca}|${t.tipo}|${t.color}`] = t.metros_libres
+        map[`${t.marca}|${t.nombre_venta ?? t.tipo}|${t.color}`] = t.metros_libres
       }
       telaMetrosMap.value = map
       cargado = true

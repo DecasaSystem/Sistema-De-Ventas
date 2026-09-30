@@ -34,7 +34,9 @@ class EditarTelaTest extends TestCase
             $t->string('referencia')->nullable(); $t->string('textura')->nullable(); $t->string('foto_url')->nullable();
             $t->decimal('metros_disponibles', 10, 2)->default(0); $t->decimal('metros_reservados', 10, 2)->default(0);
             $t->boolean('activo')->default(true); $t->timestamps();
-            $t->unique(['marca', 'tipo', 'color']);
+            // Sin índice único: la regla (proveedor + nombre + referencia +
+            // color) la cuida el programa. Ver la migración 2026_10_05_000002.
+            $t->index(['marca', 'tipo', 'color']);
         });
         Schema::create('tela_reservas', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('orden_item_id'); $t->unsignedBigInteger('catalogo_tela_id');
@@ -100,6 +102,55 @@ class EditarTelaTest extends TestCase
             ->assertJsonFragment(['message' => 'Ya existe "Terciopelo" en Gris plata de Arthometextil. Si es la misma, elimina esta y recárgale los metros a esa.']);
     }
 
+    public function test_misma_tela_y_color_con_otra_referencia_es_otra_tela(): void
+    {
+        // El caso real: LAYLA 01 CRUDO BEIGE ya existe, y la que se creó como
+        // "LAYLA 02 PERLA" se corrige a nombre LAYLA con referencia 02 PERLA.
+        $this->tela(['tipo' => 'LAYLA', 'referencia' => '01 CRUDO', 'color' => 'BEIGE', 'metros_disponibles' => 2]);
+        $id = $this->tela(['tipo' => 'LAYLA 02 PERLA', 'referencia' => 'LAYLA 02 PERLA', 'color' => 'BEIGE', 'metros_disponibles' => 28]);
+
+        $this->actingAs($this->supervisor())
+            ->patchJson("/api/catalogo-telas/{$id}", ['tipo' => 'LAYLA', 'referencia' => '02 PERLA'])
+            ->assertOk()
+            ->assertJsonFragment(['nombre_venta' => 'LAYLA 02 PERLA', 'metros_disponibles' => 28.0]);
+    }
+
+    public function test_misma_referencia_y_color_si_es_la_misma_tela(): void
+    {
+        $this->tela(['tipo' => 'LAYLA', 'referencia' => '01 CRUDO', 'color' => 'BEIGE']);
+        $id = $this->tela(['tipo' => 'LAYLA', 'referencia' => '02 PERLA', 'color' => 'BEIGE']);
+
+        $this->actingAs($this->supervisor())
+            ->patchJson("/api/catalogo-telas/{$id}", ['referencia' => ' 01 crudo '])
+            ->assertStatus(422)
+            ->assertJsonFragment(['message' => 'Ya existe "LAYLA 01 crudo" en BEIGE de Arthometextil. Si es la misma, elimina esta y recárgale los metros a esa.']);
+    }
+
+    public function test_crear_dos_referencias_del_mismo_nombre_y_color(): void
+    {
+        $jefa = $this->supervisor();
+        foreach (['01 CRUDO', '02 PERLA'] as $ref) {
+            $this->actingAs($jefa)->postJson('/api/catalogo-telas', [
+                'marca' => 'Arthometextil', 'tipo' => 'LAYLA', 'referencia' => $ref, 'color' => 'BEIGE', 'metros_iniciales' => 3,
+            ])->assertCreated();
+        }
+        // La misma otra vez no crea una nueva: le suma los metros.
+        $this->actingAs($jefa)->postJson('/api/catalogo-telas', [
+            'marca' => 'Arthometextil', 'tipo' => 'LAYLA', 'referencia' => '01 CRUDO', 'color' => 'BEIGE', 'metros_iniciales' => 1,
+        ])->assertCreated()->assertJsonFragment(['metros_disponibles' => 4.0]);
+
+        $this->assertSame(2, DB::table('catalogo_telas')->where('tipo', 'LAYLA')->count());
+    }
+
+    public function test_con_metros_apartados_la_referencia_tampoco_se_cambia(): void
+    {
+        $id = $this->tela(['tipo' => 'LAYLA', 'referencia' => '01 CRUDO', 'color' => 'BEIGE', 'metros_reservados' => 1]);
+
+        $this->actingAs($this->supervisor())
+            ->patchJson("/api/catalogo-telas/{$id}", ['referencia' => '01 CRUDOS'])
+            ->assertStatus(422);
+    }
+
     public function test_quien_no_es_supervisor_no_edita(): void
     {
         $id = $this->tela();
@@ -142,5 +193,69 @@ class EditarTelaTest extends TestCase
         }
 
         $this->assertSame(3, DB::table('catalogo_telas')->where('referencia', 'Hielo')->count());
+    }
+
+    // ── Cómo la encuentran las órdenes ───────────────────────────────────────
+
+    public function test_nombre_de_venta(): void
+    {
+        $n = fn ($tipo, $ref) => \App\Models\CatalogoTela::nombreVenta($tipo, $ref);
+        $this->assertSame('LAYLA 01 CRUDO', $n('LAYLA', '01 CRUDO'));
+        // Las del Excel: nombre y referencia son el mismo texto. No cambian.
+        $this->assertSame('ADARA 10 HUMO', $n('ADARA 10 HUMO', 'ADARA 10 HUMO'));
+        // El nombre ya trae la referencia, o no hay referencia.
+        $this->assertSame('LAYLA 02 PERLA', $n('LAYLA 02 PERLA', '02 PERLA'));
+        $this->assertSame('Terciopelo', $n('Terciopelo', null));
+    }
+
+    public function test_la_orden_encuentra_su_tela_por_el_nombre_de_venta(): void
+    {
+        $crudo = $this->tela(['tipo' => 'LAYLA', 'referencia' => '01 CRUDO', 'color' => 'BEIGE']);
+        $perla = $this->tela(['tipo' => 'LAYLA', 'referencia' => '02 PERLA', 'color' => 'BEIGE']);
+
+        $this->assertSame($perla, \App\Services\ConsumoTelas::telaDeTexto('Arthometextil · LAYLA 02 PERLA · BEIGE')?->id);
+        $this->assertSame($crudo, \App\Services\ConsumoTelas::telaDeTexto('Arthometextil · LAYLA 01 CRUDO · BEIGE')?->id);
+        // Una orden de antes, que guardó el nombre a secas cuando había una
+        // sola LAYLA en BEIGE: se queda con esa, la más antigua.
+        $this->assertSame($crudo, \App\Services\ConsumoTelas::telaDeTexto('Arthometextil · LAYLA · BEIGE')?->id);
+    }
+
+    public function test_el_catalogo_de_las_ordenes_las_separa(): void
+    {
+        $this->tela(['tipo' => 'LAYLA', 'referencia' => '01 CRUDO', 'color' => 'BEIGE']);
+        $this->tela(['tipo' => 'LAYLA', 'referencia' => '02 PERLA', 'color' => 'BEIGE']);
+
+        $tipos = collect($this->actingAs($this->supervisor())->getJson('/api/catalogo-telas')->json('0.tipos'))
+            ->pluck('tipo')->sort()->values()->all();
+        $this->assertSame(['LAYLA 01 CRUDO', 'LAYLA 02 PERLA'], $tipos);
+    }
+
+    public function test_asegurar_no_duplica_la_tela_de_una_variante(): void
+    {
+        \App\Models\CatalogoTela::asegurar('Arthometextil', 'Bershka', 'Ivory');
+        \App\Models\CatalogoTela::asegurar('Arthometextil', 'Bershka', 'Ivory');
+
+        $this->assertSame(1, DB::table('catalogo_telas')->where('tipo', 'Bershka')->count());
+    }
+
+    public function test_la_segunda_migracion_quita_el_unico_de_nombre_y_color(): void
+    {
+        Schema::drop('catalogo_telas');
+        Schema::create('catalogo_telas', function (Blueprint $t) {
+            $t->id(); $t->string('marca'); $t->string('tipo'); $t->string('color'); $t->string('referencia')->nullable();
+            $t->unique(['marca', 'tipo', 'color']);
+        });
+
+        $migracion = require database_path('migrations/2026_10_05_000002_tela_se_distingue_tambien_por_referencia.php');
+        $migracion->up();
+        $migracion->up();
+
+        $this->assertFalse(Schema::hasIndex('catalogo_telas', 'catalogo_telas_marca_tipo_color_unique'));
+        $this->assertTrue(Schema::hasIndex('catalogo_telas', 'catalogo_telas_marca_tipo_color_index'));
+        DB::table('catalogo_telas')->insert([
+            ['marca' => 'A', 'tipo' => 'LAYLA', 'color' => 'BEIGE', 'referencia' => '01 CRUDO'],
+            ['marca' => 'A', 'tipo' => 'LAYLA', 'color' => 'BEIGE', 'referencia' => '02 PERLA'],
+        ]);
+        $this->assertSame(2, DB::table('catalogo_telas')->count());
     }
 }

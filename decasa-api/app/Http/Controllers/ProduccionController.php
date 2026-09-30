@@ -1243,16 +1243,7 @@ class ProduccionController extends Controller
         }
 
         if ($tieneTela && ! empty($vn['marca'])) {
-            DB::table('catalogo_telas')->insertOrIgnore([
-                'marca'              => $vn['marca'],
-                'tipo'               => $vn['marca_tela'],
-                'color'              => $vn['nombre_color'],
-                'activo'             => true,
-                'metros_disponibles' => 0,
-                'metros_reservados'  => 0,
-                'created_at'         => now(),
-                'updated_at'         => now(),
-            ]);
+            \App\Models\CatalogoTela::asegurar($vn['marca'], $vn['marca_tela'], $vn['nombre_color']);
         }
 
         return $v->id;

@@ -59,12 +59,9 @@ class InventarioTelaController extends Controller
             return response()->json(['disponible' => false, 'metros' => 0]);
         }
 
-        $cat = DB::table('catalogo_telas')
-            ->where('marca', $marca)
-            ->where('tipo', $tipo)
-            ->where('color', $color)
-            ->where('activo', true)
-            ->first();
+        // `tipo` es el nombre de venta que eligió la orden ("LAYLA 01 CRUDO");
+        // la misma búsqueda que usa el taller al apartar (ver ConsumoTelas).
+        $cat = \App\Models\CatalogoTela::porNombreVenta($marca, $tipo, $color);
 
         if (!$cat) {
             return response()->json(['disponible' => false, 'metros' => 0, 'mensaje' => 'Tela no encontrada en catálogo.']);
@@ -89,7 +86,7 @@ class InventarioTelaController extends Controller
         return response()->json([
             'disponible'        => $libres > 0,
             'metros'            => $libres,
-            'referencia'        => "{$cat->marca} · {$cat->tipo} · {$cat->color}",
+            'referencia'        => "{$cat->marca} · {$cat->nombre_venta} · {$cat->color}",
             'metros_necesarios' => $necesarios,
             'suficiente'        => $necesarios === null || $necesarios <= $libres + 0.005,
         ]);
@@ -121,7 +118,7 @@ class InventarioTelaController extends Controller
             ->increment('metros_disponibles', round((float) $data['metros'], 2));
 
         $cat    = DB::table('catalogo_telas')->where('id', $data['id'])->first();
-        $nombre = "{$cat->marca} · {$cat->tipo} · {$cat->color}";
+        $nombre = "{$cat->marca} · " . \App\Models\CatalogoTela::nombreVenta($cat->tipo, $cat->referencia) . " · {$cat->color}";
 
         // Por permiso, no por oficio: otra empresa no tiene "costureros".
         $costureros = Usuario::where('acceso_telas', true)->where('activo', true)->pluck('id');
@@ -171,6 +168,9 @@ class InventarioTelaController extends Controller
             'id'                 => $t->id,
             'marca'              => $t->marca,
             'tipo'               => $t->tipo,
+            // Como se elige en la orden: el nombre con la referencia si hace falta
+            // para distinguirla ("LAYLA 01 CRUDO"). Ver CatalogoTela::nombreVenta.
+            'nombre_venta'       => \App\Models\CatalogoTela::nombreVenta($t->tipo, $t->referencia ?? null),
             'color'              => $t->color,
             'referencia'         => $t->referencia ?? null,
             'textura'            => $t->textura ?? null,

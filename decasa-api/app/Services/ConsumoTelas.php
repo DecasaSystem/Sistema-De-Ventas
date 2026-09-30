@@ -130,13 +130,12 @@ class ConsumoTelas
         if (count($partes) !== 3 || in_array('', $partes, true)) {
             return null;
         }
-        [$marca, $tipo, $color] = $partes;
+        [$marca, $nombre, $color] = $partes;
 
-        return CatalogoTela::where('marca', $marca)
-            ->where('tipo', $tipo)
-            ->where('color', $color)
-            ->where('activo', true)
-            ->first();
+        // El nombre es el de venta ("LAYLA 01 CRUDO"); las órdenes de antes
+        // guardaron el nombre a secas y también se encuentran (ver
+        // CatalogoTela::porNombreVenta).
+        return CatalogoTela::porNombreVenta($marca, $nombre, $color);
     }
 
     /**
@@ -241,11 +240,7 @@ class ConsumoTelas
         $tela = null;
         $v    = $p->variante_id ? ($p->relationLoaded('variante') ? $p->variante : $p->variante()->first()) : null;
         if ($v && $v->marca && $v->marca_tela && $v->nombre_color) {
-            $tela = CatalogoTela::where('marca', $v->marca)
-                ->where('tipo', $v->marca_tela)
-                ->where('color', $v->nombre_color)
-                ->where('activo', true)
-                ->first();
+            $tela = CatalogoTela::porNombreVenta($v->marca, $v->marca_tela, $v->nombre_color);
         }
         $tela ??= self::telaDeTexto(($p->specs ?? [])['tela'] ?? null);
         if (! $tela) return null;
@@ -353,7 +348,7 @@ class ConsumoTelas
         $libres = round((float) $tela->metros_disponibles - (float) $tela->metros_reservados, 2);
 
         if ($estricto && $metros > $libres + 0.005) {
-            $nombreTela = "{$tela->marca} · {$tela->tipo} · {$tela->color}";
+            $nombreTela = "{$tela->marca} · {$tela->nombre_venta} · {$tela->color}";
             throw new HttpResponseException(response()->json([
                 'message' => "«{$quiere['detalle']}» necesita {$metros} m de {$nombreTela} y solo hay {$libres} m libres. "
                            . 'Elige otra tela o recarga el inventario de telas.',
