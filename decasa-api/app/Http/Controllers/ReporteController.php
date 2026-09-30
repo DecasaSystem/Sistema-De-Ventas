@@ -160,7 +160,8 @@ class ReporteController extends Controller
             'ventas'        => $this->rowsVentas($request, $vendedorId),
             'vendedores'    => $this->rowsVendedores($request),
             'productos-top' => $this->rowsProductosTop($request, $vendedorId),
-            'pendientes'    => $this->rowsPendientes($request, $vendedorId),
+            // Quién ve cuál lo decide Cartera (el vendedor, su tienda).
+            'pendientes'    => $this->rowsPendientes($request),
             'retrasos'      => $this->rowsRetrasos($request),
         };
 
@@ -687,47 +688,40 @@ class ReporteController extends Controller
         ];
     }
 
-    private function rowsPendientes(Request $r, ?int $vendedorId = null): array
+    /**
+     * La cartera en Excel: exactamente lo que muestra la pantalla (ver
+     * App\Services\Cartera). Antes tenía su propia consulta, que dejaba fuera
+     * las entregadas que deben y metía órdenes ya pagadas del todo.
+     */
+    private function rowsPendientes(Request $r): array
     {
         $tiendaId = $r->query('tienda_id');
+        $filas    = \App\Services\Cartera::de($r->user(), $tiendaId ? (int) $tiendaId : null);
 
-        $rows = DB::table('ordenes as o')
-            ->join('clientes as c',  'c.id',  '=', 'o.cliente_id')
-            ->join('usuarios as u',  'u.id',  '=', 'o.vendedor_id')
-            ->join('tiendas as t',   't.id',  '=', 'o.tienda_id')
-            ->leftJoin('pagos as p', 'p.orden_id', '=', 'o.id')
-            ->whereNotIn('o.estado', array_merge(['entregado', 'cancelado'], Orden::ESTADOS_NO_COMERCIALES))
-            ->when($tiendaId, fn($q) => $q->where('o.tienda_id', $tiendaId))
-            ->when($vendedorId, fn($q) => $q->where('o.vendedor_id', $vendedorId))
-            ->selectRaw('
-                o.id            AS orden_id,
-                o.estado,
-                o.valor_total,
-                o.created_at,
-                c.nombre        AS cliente,
-                c.telefono,
-                u.nombre        AS vendedor,
-                t.nombre        AS tienda,
-                COALESCE(SUM(p.monto), 0)                       AS total_pagado,
-                o.valor_total - COALESCE(SUM(p.monto), 0)       AS saldo_pendiente
-            ')
-            ->groupBy('o.id', 'o.estado', 'o.valor_total', 'o.created_at',
-                      'c.nombre', 'c.telefono', 'u.nombre', 't.nombre')
-            ->orderByDesc('o.created_at')
-            ->get()
-            ->map(fn($o) => [
-                $o->orden_id, $o->cliente, $o->telefono, $o->vendedor, $o->tienda,
-                $this->estadoLabel($o->estado), $o->valor_total, $o->total_pagado, $o->saldo_pendiente, $o->created_at,
-            ]);
+        $rows = $filas->map(fn ($o) => [
+            $o['referencia'], $o['cliente'], $o['telefono'], $o['vendedor'], $o['tienda'],
+            $this->estadoLabel($o['estado']), $o['valor_total'], $o['total_pagado'], $o['saldo_pendiente'],
+            $o['dias_sin_pagar'],
+            $o['created_at'] ? \Illuminate\Support\Carbon::parse($o['created_at'])->format('Y-m-d') : '',
+        ]);
+
+        // Al vendedor se le dice de dónde es la lista: la de su tienda, no la
+        // de todas, aunque no haya elegido ninguna.
+        $usuario = $r->user();
+        $meta = $usuario->rol === 'vendedor'
+            ? ($usuario->independiente || ! $usuario->tienda_default_id
+                ? 'Mis ventas'
+                : 'Tienda: ' . (DB::table('tiendas')->where('id', $usuario->tienda_default_id)->value('nombre') ?? ''))
+            : $this->metaStr(null, null, $tiendaId);
 
         return [
             $rows,
-            ['Orden ID', 'Cliente', 'Teléfono', 'Vendedor', 'Tienda', 'Estado',
-             'Valor Total', 'Total Pagado', 'Saldo Pendiente', 'Fecha'],
-            'ordenes_pendientes_' . now()->toDateString() . '.xlsx',
-            'Cartera Pendiente',
-            [],
-            $this->metaStr(null, null, $tiendaId),
+            ['Orden', 'Cliente', 'Teléfono', 'Vendedor', 'Tienda', 'Estado',
+             'Valor Total', 'Total Pagado', 'Saldo Pendiente', 'Días', 'Fecha'],
+            'cartera_por_cobrar_' . now()->toDateString() . '.xlsx',
+            'Cartera por cobrar',
+            ['', '', '', '', '', 'TOTAL', $filas->sum('valor_total'), $filas->sum('total_pagado'), $filas->sum('saldo_pendiente'), '', ''],
+            $meta,
         ];
     }
 

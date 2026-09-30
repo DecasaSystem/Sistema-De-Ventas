@@ -338,42 +338,13 @@ class StatsController extends Controller
 
     public function cartera(Request $request)
     {
-        $user       = $request->user();
-        $tiendaId   = $request->query('tienda_id');
-        $vendedorId = $request->query('vendedor_id');
+        // La regla (qué entra y quién ve cuál) vive en Cartera: el Excel de
+        // Reportes → exportar usa la misma, para que nunca saquen cosas distintas.
+        $tiendaId = $request->query('tienda_id');
 
-        if ($user->rol === 'vendedor') $vendedorId = $user->id;
-
-        $q = DB::table('v_saldo_ordenes as v')
-            ->join('ordenes as o',  'o.id',  '=', 'v.orden_id')
-            ->join('clientes as c', 'c.id',  '=', 'o.cliente_id')
-            ->join('usuarios as u', 'u.id',  '=', 'o.vendedor_id')
-            ->join('tiendas as t',  't.id',  '=', 'o.tienda_id')
-            ->where('v.saldo_pendiente', '>', 0)
-            // Se incluyen las entregadas que todavía deben: el mueble ya salió
-            // pero la plata sigue debiéndose, y dejarlas fuera escondía deuda
-            // real. La cartera es lo que falta por cobrar, entregado o no.
-            ->whereNotIn('o.estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES))
-            ->selectRaw('
-                o.id                                            AS orden_id,
-                o.estado,
-                o.created_at,
-                c.nombre                                        AS cliente,
-                c.telefono,
-                u.id                                            AS vendedor_id,
-                u.nombre                                        AS vendedor,
-                t.nombre                                        AS tienda,
-                o.valor_total,
-                v.total_pagado,
-                v.saldo_pendiente,
-                DATEDIFF(CURDATE(), DATE(o.created_at))         AS dias_sin_pagar
-            ')
-            ->orderByDesc('v.saldo_pendiente');
-
-        if ($tiendaId)   $q->where('o.tienda_id',   $tiendaId);
-        if ($vendedorId) $q->where('o.vendedor_id', $vendedorId);
-
-        return response()->json($q->get());
+        return response()->json(
+            \App\Services\Cartera::de($request->user(), $tiendaId ? (int) $tiendaId : null)
+        );
     }
 
     // ─── GET /api/stats/tiendas  (solo supervisor) ────────────────────────────

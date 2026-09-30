@@ -13,7 +13,9 @@
 import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { Chart } from 'chart.js/auto'
-import { getStatsMe, getTendencia, getMisTiendas } from '@/api/stats'
+import { getStatsMe, getTendencia, getMisTiendas, getCartera } from '@/api/stats'
+import CarteraLista from '@/components/reportes/CarteraLista.vue'
+import { useAuthStore } from '@/stores/auth'
 import api from '@/api'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
@@ -115,6 +117,27 @@ async function exportar() {
     console.error('Error al exportar:', e)
   } finally {
     exportando.value = false
+  }
+}
+
+// ── Cartera por cobrar ────────────────────────────────────────────────────────
+// Para el vendedor: lo que deben en su tienda (el servidor decide cuál). El
+// supervisor la tiene en Reportes, con el filtro de tiendas.
+const auth            = useAuthStore()
+const verCartera      = auth.usuario?.rol === 'vendedor'
+const cartera         = ref([])
+const cargandoCartera = ref(false)
+
+async function cargarCartera() {
+  if (!verCartera) return
+  cargandoCartera.value = true
+  try {
+    const { data } = await getCartera()
+    cartera.value = data
+  } catch {
+    cartera.value = []
+  } finally {
+    cargandoCartera.value = false
   }
 }
 
@@ -263,7 +286,8 @@ function buildBar() {
   })
 }
 
-onMounted(cargar)
+// La cartera no depende del período: se pide una vez al entrar.
+onMounted(() => { cargar(); cargarCartera() })
 onBeforeUnmount(() => {
   lineChart?.destroy()
   barChart?.destroy()
@@ -638,6 +662,17 @@ onBeforeUnmount(() => {
 
       <!-- Sin datos -->
       <EmptyState v-if="!stats.ordenes_creadas" message="No hay ventas en este período." />
+
+      <!-- ══════ CARTERA POR COBRAR ══════ -->
+      <section v-if="verCartera" class="space-y-2 pt-2">
+        <div>
+          <p class="text-sm font-semibold text-gray-700">Cartera por cobrar</p>
+          <p class="text-[11px] text-gray-400">
+            {{ auth.usuario?.independiente ? 'Tus ventas que todavía deben.' : 'Las órdenes de tu tienda que todavía deben, también las de tus compañeros.' }}
+          </p>
+        </div>
+        <CarteraLista :ordenes="cartera" :cargando="cargandoCartera" />
+      </section>
 
     </template>
   </div>

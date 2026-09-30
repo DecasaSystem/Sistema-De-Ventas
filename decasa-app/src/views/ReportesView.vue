@@ -13,6 +13,7 @@ import api from '@/api'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
 import DesglosePorTipo from '@/components/reportes/DesglosePorTipo.vue'
+import CarteraLista from '@/components/reportes/CarteraLista.vue'
 import { formatPct } from '@/utils/descuentos'
 import { useAuthStore } from '@/stores/auth'
 import { StarIcon } from '@heroicons/vue/24/solid'
@@ -261,11 +262,6 @@ function varColor(pct) {
 function varLabel(pct) {
   if (pct === null || pct === undefined) return 'Sin datos anteriores'
   return (pct >= 0 ? '↑ ' : '↓ ') + formatPct(Math.abs(pct)) + '% vs período anterior'
-}
-function diasColor(d) {
-  if (d > 15) return 'bg-red-100 text-red-700'
-  if (d > 7)  return 'bg-orange-100 text-orange-700'
-  return 'bg-yellow-100 text-yellow-700'
 }
 function retrasoColor(d) {
   if (d > 7)  return 'bg-red-100 text-red-700'
@@ -984,54 +980,9 @@ onBeforeUnmount(() => {
       </div>
 
       <!-- ══════ TAB: CARTERA ══════ -->
-      <div v-show="tabActivo === 'cartera'" class="space-y-3">
-        <!-- Lo que deben HOY: no es un acumulado del período, así que el filtro
-             de tiempo no la mueve. Se dice acá porque si no, uno cambia a "Hoy"
-             y al ver el mismo número cree que la pantalla se quedó pegada. -->
-        <p class="text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2">
-          Es lo que deben hoy, sin importar el período de arriba.
-        </p>
-        <div class="flex items-center justify-between">
-          <p class="text-sm text-gray-500">{{ cartera.length }} orden{{ cartera.length !== 1 ? 'es' : '' }} con saldo pendiente</p>
-          <button
-              @click="exportar('pendientes')"
-              :disabled="exportandoTipo !== null"
-              class="text-xs text-blue-600 font-medium hover:underline disabled:opacity-50 disabled:no-underline"
-            >{{ exportandoTipo === 'pendientes' ? 'Exportando...' : 'Exportar' }}</button>
-        </div>
-        <ul class="space-y-2">
-          <li v-for="o in cartera" :key="o.orden_id"
-            @click="router.push({ name: 'orden-detalle', params: { id: o.orden_id } })"
-            class="bg-white rounded-xl shadow-sm p-4 cursor-pointer hover:shadow-md transition-shadow">
-            <div class="flex justify-between items-start mb-2">
-              <div>
-                <p class="font-medium text-sm text-gray-800">{{ o.cliente }}</p>
-                <p class="text-xs text-gray-400">{{ o.vendedor }} · {{ o.tienda }}</p>
-              </div>
-              <div class="flex flex-col items-end gap-1">
-                <BadgeEstado :estado="o.estado" />
-                <span :class="['text-xs font-semibold px-2 py-0.5 rounded-full', diasColor(o.dias_sin_pagar)]">
-                  {{ o.dias_sin_pagar }}d
-                </span>
-              </div>
-            </div>
-            <div class="grid grid-cols-3 gap-2 text-xs text-center">
-              <div>
-                <p class="text-gray-400">Total</p>
-                <p class="font-semibold text-gray-700">{{ cop(o.valor_total) }}</p>
-              </div>
-              <div>
-                <p class="text-gray-400">Pagado</p>
-                <p class="font-semibold text-green-600">{{ cop(o.total_pagado) }}</p>
-              </div>
-              <div>
-                <p class="text-gray-400">Saldo</p>
-                <p class="font-bold text-red-500">{{ cop(o.saldo_pendiente) }}</p>
-              </div>
-            </div>
-          </li>
-        </ul>
-        <p v-if="!cartera.length" class="text-center py-8 text-gray-400 text-sm">No hay cartera pendiente.</p>
+      <!-- La tienda elegida arriba manda: la lista y el Excel salen de ella. -->
+      <div v-show="tabActivo === 'cartera'">
+        <CarteraLista :ordenes="cartera" :tienda-id="tiendaFiltro" />
       </div>
 
       <!-- ══════ TAB: PRODUCCIÓN ══════ -->
