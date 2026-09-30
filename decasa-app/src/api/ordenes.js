@@ -1,6 +1,8 @@
 import api from './index'
 
 export const getOrdenes = (params = {}) => api.get('/ordenes', { params })
+// "¿Quisiste decir…?" del buscador: en segundo plano, sin encender la barra.
+export const getSugerenciasOrdenes = (q) => api.get('/ordenes/sugerencias', { params: { q }, silencioso: true })
 export const getOrden = (id) => api.get(`/ordenes/${id}`)
 export const updateEstado = (id, estado, extra = {}) => api.patch(`/ordenes/${id}/estado`, { estado, ...extra })
 /** Antes de cancelar: qué órdenes bajarían de número si se anula sin dejar hueco. */

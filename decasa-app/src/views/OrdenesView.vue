@@ -8,7 +8,7 @@ import { useFiltrosRecordados } from '@/composables/useFiltrosRecordados'
 import { useRouter } from 'vue-router'
 import { MagnifyingGlassIcon, Cog6ToothIcon, ArrowDownTrayIcon, MapPinIcon, CalendarIcon } from '@heroicons/vue/24/outline'
 import { XMarkIcon, MapPinIcon as MapPinSolid } from '@heroicons/vue/24/solid'
-import { getOrdenes, getTiendas, fijarOrden, quitarFijada } from '@/api/ordenes'
+import { getOrdenes, getTiendas, fijarOrden, quitarFijada, getSugerenciasOrdenes } from '@/api/ordenes'
 import { useRealtime } from '@/composables/useRealtime'
 import { useToast } from '@/composables/useToast'
 import { exportarExcel } from '@/utils/exportarExcel'
@@ -168,6 +168,8 @@ async function fetchOrdenes(page = 1, append = false, porPagina = 20) {
       ordenes.value = list
     }
 
+    if (!append) pedirSugerencias(list.length)
+
     hasMore.value = data.current_page < data.last_page
     // Con varias páginas de golpe, la actual es la última que ya se tiene: si
     // no, el scroll infinito volvería a pedir las que acaba de traer.
@@ -213,6 +215,28 @@ function seleccionarTienda(id) {
   currentPage.value = 1
   fetchOrdenes(1, false)
   setupObserver()
+}
+
+// ── "¿Quisiste decir…?" ──────────────────────────────────────────────────────
+// Si se buscó un nombre y no salió nada, los clientes con un nombre parecido
+// ("Maira Gonsales" → "Mayra González"). Un número o una serie no es un nombre.
+const sugerencias = ref([])
+
+async function pedirSugerencias(encontradas) {
+  const q = busqueda.value.trim()
+  sugerencias.value = []
+  if (encontradas > 0 || q.length < 3 || /\d/.test(q)) return
+  try {
+    const { data } = await getSugerenciasOrdenes(q)
+    // Si mientras tanto escribió otra cosa, estas ya no le sirven.
+    if (busqueda.value.trim() === q) sugerencias.value = (data ?? []).map(s => s.nombre)
+  } catch {}
+}
+
+function usarSugerencia(nombre) {
+  busqueda.value = nombre
+  sugerencias.value = []
+  buscar()
 }
 
 function buscar() {
@@ -579,11 +603,27 @@ onUnmounted(() => {
     <!-- Loading inicial -->
     <AppSpinner v-if="loading" />
 
-    <!-- Empty state -->
-    <EmptyState
-      v-else-if="ordenes.length === 0"
-      :message="busqueda ? 'No se encontraron órdenes.' : 'No hay órdenes registradas.'"
-    />
+    <!-- Empty state, con "¿Quisiste decir…?" si se buscó un nombre parecido -->
+    <div v-else-if="ordenes.length === 0" class="space-y-3">
+      <div v-if="sugerencias.length" class="bg-white rounded-xl shadow-sm p-4 space-y-2.5">
+        <p class="text-sm text-gray-700">
+          No hay órdenes de <span class="font-semibold">"{{ busqueda }}"</span>. ¿Quisiste decir…?
+        </p>
+        <div class="flex flex-wrap gap-2">
+          <button
+            v-for="s in sugerencias" :key="s" type="button"
+            @click="usarSugerencia(s)"
+            class="rounded-full border border-blue-200 bg-blue-50 px-3.5 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 active:bg-blue-200"
+          >
+            {{ s }}
+          </button>
+        </div>
+      </div>
+      <EmptyState
+        v-else
+        :message="busqueda ? 'No se encontraron órdenes.' : 'No hay órdenes registradas.'"
+      />
+    </div>
 
     <!-- Lista de órdenes -->
     <template v-else>

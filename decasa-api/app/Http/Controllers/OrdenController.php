@@ -173,6 +173,37 @@ class OrdenController extends Controller
     }
 
     /**
+     * GET /api/ordenes/sugerencias?q=maira gonsales
+     *
+     * "¿Quisiste decir…?": cuando la búsqueda por nombre no encuentra nada, los
+     * clientes con un nombre parecido. Solo entre los de órdenes que quien
+     * busca puede ver: a un vendedor no se le sugieren clientes ajenos.
+     */
+    public function sugerenciasBusqueda(Request $request)
+    {
+        $q = trim((string) $request->query('q', ''));
+
+        // Un número o una serie ("2567", "R-10", "fv2") no es un nombre.
+        if (mb_strlen($q) < 3 || preg_match('/\d/', $q)) {
+            return response()->json([]);
+        }
+
+        $clientes = \App\Models\Cliente::query()
+            ->whereIn('id', Orden::query()
+                ->visiblesPara($request->user())
+                ->where('estado', '!=', 'cotizacion')
+                ->whereNotNull('cliente_id')
+                ->select('cliente_id'))
+            ->pluck('nombre');
+
+        return response()->json(
+            collect(\App\Support\NombresParecidos::para($q, $clientes))
+                ->map(fn ($nombre) => ['nombre' => $nombre])
+                ->values()
+        );
+    }
+
+    /**
      * GET /api/ordenes
      * Vendedor: solo las suyas. Supervisor: todas.
      * Filtros: estado, tienda_id, desde, hasta.
