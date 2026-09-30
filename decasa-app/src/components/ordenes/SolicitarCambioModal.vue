@@ -4,13 +4,13 @@
  * guardar mueve dinero (precios, cantidades, productos, descuentos, abonos).
  *
  * Muestra qué cambia —antes y después, como lo armó el servidor—, pide el
- * motivo y al menos una foto de soporte, y manda la solicitud. A los
- * supervisores les llega una notificación; hasta que uno la apruebe, la orden
- * sigue como estaba.
+ * motivo, al menos una foto de soporte y a qué supervisor se le pide, y manda
+ * la solicitud. Solo a ese supervisor le llega la notificación (campana y
+ * celular); hasta que la apruebe, la orden sigue como estaba.
  */
 import { ref, computed, watch } from 'vue'
 import api from '@/api'
-import { crearSolicitudCambio } from '@/api/ordenes'
+import { crearSolicitudCambio, getSupervisoresSolicitud } from '@/api/ordenes'
 import { comprimirImagen } from '@/utils/comprimirImagen'
 import { useToast } from '@/composables/useToast'
 import { cloudinaryOpt } from '@/utils/cloudinary'
@@ -34,12 +34,35 @@ const soportes  = ref([])   // urls ya subidas
 const subiendo  = ref(false)
 const enviando  = ref(false)
 const error     = ref('')
+const supervisores = ref([])
+const supervisorId = ref(null)
+
+// Se recuerda al último supervisor que eligió, que suele ser el mismo
+const CLAVE_SUP = 'decasa.solicitud.supervisor'
+function supervisorGuardado() {
+  try { return Number(localStorage.getItem(CLAVE_SUP)) || null } catch { return null }
+}
+
+async function cargarSupervisores() {
+  try {
+    const { data } = await getSupervisoresSolicitud()
+    supervisores.value = data
+    const guardado = supervisorGuardado()
+    if (data.some(s => s.id === guardado)) supervisorId.value = guardado
+    else if (data.length === 1) supervisorId.value = data[0].id
+  } catch {
+    supervisores.value = []
+  }
+}
 
 watch(() => props.show, (v) => {
-  if (v) { motivo.value = ''; soportes.value = []; error.value = '' }
-})
+  if (v) {
+    motivo.value = ''; soportes.value = []; error.value = ''; supervisorId.value = null
+    cargarSupervisores()
+  }
+}, { immediate: true })
 
-const listo = computed(() => motivo.value.trim().length >= 5 && soportes.value.length > 0 && !subiendo.value)
+const listo = computed(() => motivo.value.trim().length >= 5 && soportes.value.length > 0 && !!supervisorId.value && !subiendo.value)
 
 function valor(v, fila) {
   if (v === null || v === undefined || v === '') return '—'
@@ -76,8 +99,11 @@ async function enviar() {
       ...props.pedido,
       motivo:   motivo.value.trim(),
       soportes: soportes.value,
+      supervisor_id: supervisorId.value,
     })
-    toast.success('Solicitud enviada. Te avisamos cuando un supervisor la responda.')
+    try { localStorage.setItem(CLAVE_SUP, String(supervisorId.value)) } catch {}
+    const nombre = supervisores.value.find(s => s.id === supervisorId.value)?.nombre ?? 'el supervisor'
+    toast.success(`Solicitud enviada a ${nombre}. Te avisamos cuando la responda.`)
     emit('enviada')
     emit('close')
   } catch (e) {
@@ -129,6 +155,22 @@ async function enviar() {
               </ul>
             </div>
 
+            <!-- A quién -->
+            <div>
+              <label for="sol-supervisor" class="block text-sm font-medium text-gray-700 mb-1">
+                ¿A qué supervisor se la mandas? <span class="text-red-500">*</span>
+              </label>
+              <select
+                id="sol-supervisor"
+                v-model="supervisorId"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-400"
+              >
+                <option :value="null" disabled>Elige un supervisor…</option>
+                <option v-for="s in supervisores" :key="s.id" :value="s.id">{{ s.nombre }}</option>
+              </select>
+              <p class="text-[11px] text-gray-400 mt-1">Solo a esa persona le llega el aviso para aprobarla.</p>
+            </div>
+
             <!-- Motivo -->
             <div>
               <label for="sol-motivo" class="block text-sm font-medium text-gray-700 mb-1">
@@ -172,7 +214,7 @@ async function enviar() {
           <div class="px-5 pt-3 pb-5 border-t border-gray-100 space-y-3 flex-shrink-0">
             <p v-if="error" class="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{{ error }}</p>
             <p v-else-if="!listo" class="text-xs text-gray-400 text-center">
-              Escribe el motivo y agrega al menos una foto para enviarla.
+              Elige el supervisor, escribe el motivo y agrega al menos una foto para enviarla.
             </p>
             <div class="flex gap-3">
               <button @click="emit('close')" class="flex-1 bg-gray-100 text-gray-700 rounded-lg py-2.5 text-sm font-semibold">Cancelar</button>

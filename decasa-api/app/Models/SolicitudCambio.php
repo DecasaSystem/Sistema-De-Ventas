@@ -18,7 +18,7 @@ class SolicitudCambio extends Model
     public const CANCELADA = 'cancelada';
 
     protected $fillable = [
-        'orden_id', 'solicitante_id', 'estado', 'cambios_orden', 'cambio_pago', 'resumen',
+        'orden_id', 'solicitante_id', 'supervisor_id', 'estado', 'cambios_orden', 'cambio_pago', 'resumen',
         'motivo', 'soportes', 'revisado_por_id', 'revisado_at', 'respuesta',
     ];
 
@@ -41,6 +41,12 @@ class SolicitudCambio extends Model
     public function solicitante()
     {
         return $this->belongsTo(Usuario::class, 'solicitante_id');
+    }
+
+    /** El supervisor al que se le pidió. */
+    public function supervisor()
+    {
+        return $this->belongsTo(Usuario::class, 'supervisor_id');
     }
 
     public function revisadoPor()

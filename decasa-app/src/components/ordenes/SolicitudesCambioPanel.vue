@@ -130,6 +130,7 @@ async function retirar() {
           <p class="text-sm font-bold text-amber-900">Cambio de dinero esperando aprobación</p>
           <p class="text-xs text-amber-800 mt-0.5">
             Lo pidió <span class="font-semibold">{{ pendiente.solicitante?.nombre ?? 'un vendedor' }}</span>
+            <template v-if="pendiente.supervisor"> a <span class="font-semibold">{{ pendiente.supervisor.nombre }}</span></template>
             · {{ fecha(pendiente.created_at) }}
           </p>
         </div>

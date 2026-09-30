@@ -15,6 +15,7 @@ export const editarPago = (pagoId, data) => api.patch(`/pagos/${pagoId}`, data)
 // `cambios` = { cambios_orden?, pago?: {id, monto, metodo, referencia} }
 export const revisarCambiosDePlata = (ordenId, cambios) => api.post(`/ordenes/${ordenId}/solicitudes-cambio/revisar`, cambios)
 export const crearSolicitudCambio  = (ordenId, datos)   => api.post(`/ordenes/${ordenId}/solicitudes-cambio`, datos)
+export const getSupervisoresSolicitud = ()               => api.get('/solicitudes-cambio/supervisores', { silencioso: true })
 export const getSolicitudesCambio  = (ordenId)          => api.get(`/ordenes/${ordenId}/solicitudes-cambio`, { silencioso: true })
 export const aprobarSolicitudCambio  = (id)             => api.post(`/solicitudes-cambio/${id}/aprobar`)
 export const rechazarSolicitudCambio = (id, respuesta)  => api.post(`/solicitudes-cambio/${id}/rechazar`, { respuesta })

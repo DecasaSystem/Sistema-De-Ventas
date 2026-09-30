@@ -115,7 +115,7 @@ class SolicitudCambioTest extends TestCase
             $t->unsignedBigInteger('usuario_id')->nullable(); $t->timestamps();
         });
         Schema::create('solicitudes_cambio', function (Blueprint $t) {
-            $t->id(); $t->unsignedBigInteger('orden_id'); $t->unsignedBigInteger('solicitante_id');
+            $t->id(); $t->unsignedBigInteger('orden_id'); $t->unsignedBigInteger('solicitante_id'); $t->unsignedBigInteger('supervisor_id')->nullable();
             $t->string('estado', 15)->default('pendiente'); $t->json('cambios_orden')->nullable();
             $t->json('cambio_pago')->nullable(); $t->json('resumen'); $t->text('motivo'); $t->json('soportes');
             $t->unsignedBigInteger('revisado_por_id')->nullable(); $t->timestamp('revisado_at')->nullable();
@@ -153,6 +153,7 @@ class SolicitudCambioTest extends TestCase
         return $this->actingAs($this->paola)->postJson("/api/ordenes/{$orden->id}/solicitudes-cambio", array_merge([
             'motivo'   => 'El cliente pagó menos por la promoción del mes.',
             'soportes' => ['https://x.example/chat.jpg'],
+            'supervisor_id' => $this->jefa->id,
         ], $pedido, $extra));
     }
 
@@ -247,6 +248,31 @@ class SolicitudCambioTest extends TestCase
         $aviso = DB::table('notificaciones')->where('usuario_id', $this->jefa->id)->where('tipo', 'solicitud_cambio')->first();
         $this->assertNotNull($aviso);
         $this->assertSame(1, (int) $aviso->urgente);
+    }
+
+    public function test_se_le_pide_a_un_supervisor_y_solo_a_el_le_llega(): void
+    {
+        [$orden, $mesa] = $this->orden();
+        $otro = Usuario::create(['nombre' => 'Carlos', 'email' => 'c@d.com', 'password' => 'x', 'rol' => 'supervisor', 'created_at' => now()]);
+        $pedido = ['cambios_orden' => ['items' => [['id' => $mesa->id, 'precio_unitario' => 650000]]]];
+
+        // Hay que elegir, y solo supervisores: ni un vendedor ni uno inactivo
+        $this->pedir($orden, $pedido, ['supervisor_id' => null])->assertStatus(422)->assertJsonValidationErrors('supervisor_id');
+        $this->pedir($orden, $pedido, ['supervisor_id' => $this->paola->id])->assertStatus(422)->assertJsonValidationErrors('supervisor_id');
+        $inactivo = Usuario::create(['nombre' => 'Viejo', 'email' => 'v@d.com', 'password' => 'x', 'rol' => 'supervisor', 'activo' => false, 'created_at' => now()]);
+        $this->pedir($orden, $pedido, ['supervisor_id' => $inactivo->id])->assertStatus(422);
+
+        $this->pedir($orden, $pedido, ['supervisor_id' => $otro->id])
+            ->assertCreated()->assertJsonPath('supervisor.nombre', 'Carlos');
+
+        $avisos = DB::table('notificaciones')->where('tipo', 'solicitud_cambio')->get();
+        $this->assertCount(1, $avisos);
+        $this->assertSame($otro->id, (int) $avisos[0]->usuario_id);
+        $this->assertSame('Aprobar cambio de dinero en ' . $orden->fresh()->referencia, $avisos[0]->titulo);
+
+        // La lista para elegir: solo supervisores activos
+        $this->actingAs($this->paola)->getJson('/api/solicitudes-cambio/supervisores')
+            ->assertOk()->assertJsonCount(2)->assertJsonPath('0.nombre', 'Carlos')->assertJsonPath('1.nombre', 'Jefa');
     }
 
     public function test_una_pendiente_a_la_vez(): void

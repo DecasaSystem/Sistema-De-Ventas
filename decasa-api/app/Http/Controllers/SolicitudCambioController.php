@@ -12,6 +12,7 @@ use App\Services\NotificacionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -55,7 +56,7 @@ class SolicitudCambioController extends Controller
         }
 
         return response()->json(
-            SolicitudCambio::with(['solicitante:id,nombre', 'revisadoPor:id,nombre'])
+            SolicitudCambio::with(['solicitante:id,nombre', 'supervisor:id,nombre', 'revisadoPor:id,nombre'])
                 ->where('orden_id', $orden->id)
                 ->orderByDesc('id')
                 ->get()
@@ -75,7 +76,12 @@ class SolicitudCambioController extends Controller
             'motivo'     => 'required|string|min:5|max:1000',
             'soportes'   => 'required|array|min:1|max:6',
             'soportes.*' => 'required|string|max:500',
+            // A quién se le pide: solo un supervisor activo
+            'supervisor_id' => ['required', 'integer', Rule::exists('usuarios', 'id')
+                ->where('rol', 'supervisor')->where('activo', true)],
         ], [
+            'supervisor_id.required' => 'Elige a qué supervisor le mandas la solicitud.',
+            'supervisor_id.exists'   => 'La solicitud solo se le puede mandar a un supervisor.',
             'motivo.required'   => 'Explica por qué se necesita el cambio.',
             'motivo.min'        => 'Explica un poco más por qué se necesita el cambio.',
             'soportes.required' => 'Adjunta al menos una foto de soporte.',
@@ -99,6 +105,7 @@ class SolicitudCambioController extends Controller
         $solicitud = SolicitudCambio::create([
             'orden_id'       => $orden->id,
             'solicitante_id' => $usuario->id,
+            'supervisor_id'  => (int) $data['supervisor_id'],
             'estado'         => SolicitudCambio::PENDIENTE,
             'cambios_orden'  => $cambiosOrden ?: null,
             'cambio_pago'    => $cambioPago ?: null,
@@ -109,17 +116,28 @@ class SolicitudCambioController extends Controller
 
         $ref = $orden->referencia;
         $cuantos = count($resumen);
-        // Urgente: es plata, y el vendedor queda esperando con el cliente.
+        // Solo al supervisor que eligió el vendedor —antes les llegaba a todos y
+        // ninguno sabía si le tocaba—. Urgente: es plata, y el vendedor queda
+        // esperando con el cliente. Va a la campana y al celular.
         NotificacionService::crear(
             'solicitud_cambio',
             "Aprobar cambio de dinero en {$ref}",
             "{$usuario->nombre} pide {$cuantos} cambio" . ($cuantos === 1 ? '' : 's') . " de dinero: " . mb_strimwidth(trim($data['motivo']), 0, 120, '…'),
             ['orden_id' => $orden->id, 'solicitud_id' => $solicitud->id],
-            null,
+            $solicitud->supervisor_id,
             true,
         );
 
-        return response()->json($solicitud->load('solicitante:id,nombre'), 201);
+        return response()->json($solicitud->load('solicitante:id,nombre', 'supervisor:id,nombre'), 201);
+    }
+
+    /** GET /api/solicitudes-cambio/supervisores — a quién se le puede pedir. */
+    public function supervisores(): JsonResponse
+    {
+        return response()->json(
+            Usuario::where('rol', 'supervisor')->where('activo', true)
+                ->orderBy('nombre')->get(['id', 'nombre'])
+        );
     }
 
     /** POST /api/solicitudes-cambio/{id}/aprobar (supervisor) */

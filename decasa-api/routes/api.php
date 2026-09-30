@@ -387,6 +387,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/ordenes/{id}/solicitudes-cambio/revisar', [SolicitudCambioController::class, 'revisar'])->whereNumber('id');
     Route::get('/ordenes/{id}/solicitudes-cambio',          [SolicitudCambioController::class, 'index'])->whereNumber('id');
     Route::post('/ordenes/{id}/solicitudes-cambio',         [SolicitudCambioController::class, 'store'])->whereNumber('id');
+    Route::get('/solicitudes-cambio/supervisores',          [SolicitudCambioController::class, 'supervisores']);
     Route::post('/solicitudes-cambio/{id}/cancelar',        [SolicitudCambioController::class, 'cancelar'])->whereNumber('id');
     Route::middleware('role:supervisor')->group(function () {
         Route::post('/solicitudes-cambio/{id}/aprobar',     [SolicitudCambioController::class, 'aprobar'])->whereNumber('id');
