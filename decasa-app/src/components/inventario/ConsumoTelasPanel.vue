@@ -130,8 +130,13 @@ async function guardar(producto, medida, input) {
   }
 }
 
+// Con los centímetros siempre en dos cifras: "16.30", no "16.3". Como aquí
+// "16.45" es 16 m 45 cm, "16.3" se leía como 16 m 3 cm, aunque el número
+// guardado fuera el mismo (16 m 30 cm). Los metros justos quedan sin decimales.
 function valorCampo(metros) {
-  return metros == null ? '' : String(metros)
+  if (metros == null || metros === '') return ''
+  const n = Number(metros)
+  return Number.isInteger(n) ? String(n) : n.toFixed(2)
 }
 
 onMounted(cargar)
@@ -274,7 +279,7 @@ onMounted(cargar)
                 :value="valorCampo(m.metros)"
                 :disabled="!puedeEditar"
                 inputmode="decimal"
-                :placeholder="p.metros != null ? `= ${p.metros}` : '0.00'"
+                :placeholder="p.metros != null ? `= ${valorCampo(p.metros)}` : '0.00'"
                 class="w-24 rounded-lg border border-gray-300 px-2 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-500"
                 @change="e => guardar(p, m, e.target)"
                 @keyup.enter="e => e.target.blur()"
