@@ -17,14 +17,34 @@ const cargando  = ref(false)
 
 // ── Botón arrastrable ─────────────────────────────────────────────────────────
 const BTN_SIZE = 52
-function posInicial() {
+const MARGEN   = 8
+
+/**
+ * La posición guardada, siempre dentro de la ventana de AHORA.
+ *
+ * Se guarda en píxeles desde la esquina de arriba a la izquierda. Si se movió
+ * con la ventana grande (maximizada, un monitor grande, otro zoom) y después
+ * la ventana es más chica, quedaba dibujada más allá del borde: la burbuja
+ * "desaparecía" y nadie sabía por qué. Aquí se mete de nuevo en la pantalla
+ * sin tocar lo guardado, así que al volver a la ventana grande vuelve a su sitio.
+ */
+function dentroDeLaVentana(pos) {
+  return {
+    x: Math.min(Math.max(MARGEN, pos.x), window.innerWidth  - BTN_SIZE - MARGEN),
+    y: Math.min(Math.max(MARGEN, pos.y), window.innerHeight - BTN_SIZE - MARGEN),
+  }
+}
+function posGuardada() {
   try {
     const saved = JSON.parse(localStorage.getItem('agent-btn-pos'))
-    if (saved && typeof saved.x === 'number') return saved
+    if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) return saved
   } catch {}
   return { x: window.innerWidth - BTN_SIZE - 16, y: window.innerHeight - BTN_SIZE - 160 }
 }
-const btnPos     = ref(posInicial())
+const btnPos     = ref(dentroDeLaVentana(posGuardada()))
+function reacomodar() {
+  if (!arrastrando.value) btnPos.value = dentroDeLaVentana(posGuardada())
+}
 const arrastrando = ref(false)
 let _dragClientStart = { x: 0, y: 0 }
 let _dragPosStart    = { x: 0, y: 0 }
@@ -42,10 +62,7 @@ function onBtnPointerMove(e) {
   const dx = e.clientX - _dragClientStart.x
   const dy = e.clientY - _dragClientStart.y
   if (Math.abs(dx) > 4 || Math.abs(dy) > 4) _seArrastro = true
-  btnPos.value = {
-    x: Math.min(Math.max(0, _dragPosStart.x + dx), window.innerWidth  - BTN_SIZE),
-    y: Math.min(Math.max(0, _dragPosStart.y + dy), window.innerHeight - BTN_SIZE),
-  }
+  btnPos.value = dentroDeLaVentana({ x: _dragPosStart.x + dx, y: _dragPosStart.y + dy })
 }
 function onBtnPointerUp() {
   arrastrando.value = false
@@ -219,9 +236,16 @@ function onKeydown(e) {
 function onEscGlobal(e) {
   if (e.key === 'Escape') imagenAmpliada.value = null
 }
-onMounted(() => window.addEventListener('keydown', onEscGlobal))
+onMounted(() => {
+  window.addEventListener('keydown', onEscGlobal)
+  // Ventana que se achica (restaurarla, abrir la consola, cambiar el zoom,
+  // girar el celular): la burbuja vuelve a quedar dentro.
+  window.addEventListener('resize', reacomodar)
+  reacomodar()
+})
 onUnmounted(() => {
   window.removeEventListener('keydown', onEscGlobal)
+  window.removeEventListener('resize', reacomodar)
   reconocimiento?.stop()
 })
 
