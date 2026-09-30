@@ -377,13 +377,28 @@ class SolicitudCambioTest extends TestCase
         $this->actingAs($this->jefa)->patchJson("/api/ordenes/{$orden->id}", ['notas' => 'Cambio autorizado'])->assertOk();
     }
 
-    public function test_una_restauracion_no_tiene_ese_limite(): void
+    public function test_una_restauracion_tiene_8_dias(): void
     {
-        [$orden] = $this->orden();
+        [$orden, , $pago] = $this->orden();
         $orden->update(['serie' => 'R', 'serie_numero' => 1098]);
-        $this->hecha($orden, 30);
 
+        // A los 7 días una venta ya estaría cerrada; una restauración no
+        $this->hecha($orden, 7);
         $this->actingAs($this->paola)->patchJson("/api/ordenes/{$orden->id}", ['notas' => 'Cambiar el relleno'])->assertOk();
+        $this->actingAs($this->paola)->getJson("/api/ordenes/{$orden->id}")
+            ->assertJsonPath('edicion_vencida', false)->assertJsonPath('dias_para_editar', 8);
+
+        // A los 9, igual que una venta a los 6: nada directo, solo pedir
+        $this->hecha($orden, 9);
+        $this->actingAs($this->paola)->patchJson("/api/ordenes/{$orden->id}", ['notas' => 'Otro relleno'])
+            ->assertStatus(403)->assertJsonPath('edicion_vencida', true)
+            ->assertJsonPath('message', fn ($m) => str_starts_with($m, 'Pasaron 8 días'));
+        $this->actingAs($this->paola)->patchJson("/api/pagos/{$pago->id}", ['monto' => 400000, 'metodo' => 'efectivo', 'referencia' => 'Recibo 9'])
+            ->assertStatus(403);
+        $this->assertSame('Cambiar el relleno', $orden->fresh()->notas);
+
+        // El supervisor, sin límite
+        $this->actingAs($this->jefa)->patchJson("/api/ordenes/{$orden->id}", ['notas' => 'Autorizado'])->assertOk();
     }
 
     public function test_los_dias_cuentan_desde_que_se_confirmo(): void

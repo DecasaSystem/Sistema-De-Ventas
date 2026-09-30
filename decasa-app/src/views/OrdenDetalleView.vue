@@ -2004,7 +2004,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         v-if="orden && puedeEditar && orden.edicion_vencida"
         @click="showPedirDinero = true"
         class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-amber-800 bg-amber-50 rounded-lg hover:bg-amber-100 transition-colors"
-        title="Pasaron 5 días: la orden ya no se modifica. Puedes pedir un cambio de dinero."
+        :title="`Pasaron ${orden.dias_para_editar ?? 5} días: la orden ya no se modifica. Puedes pedir un cambio de dinero.`"
       >
         <LockClosedIcon class="w-4 h-4" />
         Pedir cambio de dinero

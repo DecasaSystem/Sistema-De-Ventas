@@ -104,7 +104,7 @@ function enviada() {
             <div class="flex items-start gap-2 rounded-xl bg-gray-50 border border-gray-200 px-3 py-2.5">
               <LockClosedIcon class="w-4 h-4 text-gray-500 flex-shrink-0 mt-0.5" />
               <p class="text-xs text-gray-700 leading-snug">
-                Pasaron 5 días desde que se hizo la orden: ya no se modifica (telas, notas, productos…), como
+                Pasaron {{ orden.dias_para_editar ?? 5 }} días desde que se hizo la orden: ya no se modifica (telas, notas, productos…), como
                 dice la garantía. Aquí solo puedes pedir un cambio de dinero, que aprueba un supervisor.
               </p>
             </div>

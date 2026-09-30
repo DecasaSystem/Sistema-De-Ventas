@@ -1171,6 +1171,7 @@ class OrdenController extends Controller
         // "Pedir cambio de dinero".
         $orden->edicion_vencida = \App\Services\CambiosDePlata::edicionVencida($usuario, $orden);
         $orden->editable_hasta  = \App\Services\CambiosDePlata::editableHasta($orden)?->toIso8601String();
+        $orden->dias_para_editar = \App\Services\CambiosDePlata::diasParaEditar($orden);
 
         // Cómo va la entrega, por producto y en total. Es lo que deja ver que
         // el reloj ya se lo llevaron y el mueble no.

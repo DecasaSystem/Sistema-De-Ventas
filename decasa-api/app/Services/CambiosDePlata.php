@@ -42,16 +42,27 @@ class CambiosDePlata
     public const DIAS_PARA_EDITAR = 5;
 
     /**
+     * Una restauración tiene más: 8 días. Es el mueble del cliente, y hasta
+     * que el taller lo destapa no se sabe del todo qué hay que hacerle.
+     */
+    public const DIAS_PARA_EDITAR_RESTAURACION = 8;
+
+    public static function diasParaEditar(Orden $orden): int
+    {
+        return $orden->serie === Orden::SERIE_RESTAURACION
+            ? self::DIAS_PARA_EDITAR_RESTAURACION
+            : self::DIAS_PARA_EDITAR;
+    }
+
+    /**
      * ¿Ya no puede este vendedor modificar la orden? Desde que se confirmó la
-     * venta (un borrador empieza a contar al completarse), en las ventas
-     * normales: una restauración es el mueble del cliente y sigue otro ritmo.
-     * Le queda pedir un cambio de dinero con aprobación; el supervisor edita
-     * sin límite.
+     * venta (un borrador empieza a contar al completarse): 5 días una venta,
+     * 8 una restauración. Le queda pedir un cambio de dinero con aprobación;
+     * el supervisor edita sin límite.
      */
     public static function edicionVencida(Usuario $usuario, Orden $orden): bool
     {
         if ($usuario->rol !== 'vendedor' || $orden->estado === 'borrador') return false;
-        if ($orden->serie === Orden::SERIE_RESTAURACION) return false;
 
         $hasta = self::editableHasta($orden);
         return $hasta !== null && now()->greaterThan($hasta);
@@ -61,12 +72,12 @@ class CambiosDePlata
     public static function editableHasta(Orden $orden): ?\Illuminate\Support\Carbon
     {
         $desde = $orden->confirmada_en ?? $orden->created_at;
-        return $desde ? \Illuminate\Support\Carbon::parse($desde)->addDays(self::DIAS_PARA_EDITAR) : null;
+        return $desde ? \Illuminate\Support\Carbon::parse($desde)->addDays(self::diasParaEditar($orden)) : null;
     }
 
     public static function mensajeVencida(Orden $orden): string
     {
-        return 'Pasaron ' . self::DIAS_PARA_EDITAR . ' días desde que se hizo la orden: ya no se puede modificar, '
+        return 'Pasaron ' . self::diasParaEditar($orden) . ' días desde que se hizo la orden: ya no se puede modificar, '
              . 'como dice la garantía. Si hace falta un cambio de dinero, pídelo para que lo apruebe un supervisor.';
     }
 
