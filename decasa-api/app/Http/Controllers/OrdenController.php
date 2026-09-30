@@ -1166,6 +1166,12 @@ class OrdenController extends Controller
         // es vendedor)
         $orden->puede_entregar_directo = $orden->laPuedeEntregarDirecto($usuario);
 
+        // Para quien la mira: si ya no la puede modificar (pasaron los días de
+        // la garantía) y hasta cuándo podía. La pantalla cambia "Editar" por
+        // "Pedir cambio de dinero".
+        $orden->edicion_vencida = \App\Services\CambiosDePlata::edicionVencida($usuario, $orden);
+        $orden->editable_hasta  = \App\Services\CambiosDePlata::editableHasta($orden)?->toIso8601String();
+
         // Cómo va la entrega, por producto y en total. Es lo que deja ver que
         // el reloj ya se lo llevaron y el mueble no.
         $orden->items->each(function ($i) {
@@ -1372,6 +1378,15 @@ class OrdenController extends Controller
 
         if (! $orden->laPuedeEditar($usuario)) {
             return response()->json(['message' => 'No autorizado.'], 403);
+        }
+
+        // Pasados los días de la garantía, el vendedor ya no modifica nada:
+        // ni la tela ni las notas. Le queda pedir un cambio de dinero.
+        if (\App\Services\CambiosDePlata::edicionVencida($usuario, $orden)) {
+            return response()->json([
+                'message'         => \App\Services\CambiosDePlata::mensajeVencida($orden),
+                'edicion_vencida' => true,
+            ], 403);
         }
 
         // 'pendiente_cotizacion' se permite a propósito: es la salida cuando se

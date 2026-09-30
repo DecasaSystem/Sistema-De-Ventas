@@ -8,6 +8,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
 import SolicitudesCambioPanel from '@/components/ordenes/SolicitudesCambioPanel.vue'
 import SolicitarCambioModal from '@/components/ordenes/SolicitarCambioModal.vue'
+import PedirCambioDineroModal from '@/components/ordenes/PedirCambioDineroModal.vue'
 import { revisarCambiosDePlata } from '@/api/ordenes'
 import { getOrden, updateEstado, previsualizarAnulacion, revertirEntrega, descargarPdfOrden, descargarActaEntrega, descargarOrdenEntrega, reenviarCotizacion, asignarFechasEntrega, confirmarCotizacion, editarPago, completarBorrador as completarBorradorApi, eliminarBorrador as eliminarBorradorApi, previsualizarEliminacion, eliminarOrden as eliminarOrdenApi, previsualizarNumeracion, convertirSerie, cambiarNumeroOrden, cambiarProductoEntregado } from '@/api/ordenes'
 import api from '@/api'
@@ -537,6 +538,7 @@ function abrirCorregirMedio(pago) {
 // ── Cambios de dinero que pide un vendedor ──────────────────────────────────
 const panelSolicitudes = ref(null)
 const solicitudPago    = ref(null)   // { cambios, pedido } para SolicitarCambioModal
+const showPedirDinero  = ref(false)  // orden vencida para el vendedor
 function cargarSolicitudes() { panelSolicitudes.value?.cargar() }
 
 async function guardarMedio() {
@@ -1996,8 +1998,19 @@ onMounted(() => { cargarTipos(); cargarOrden() })
       <h2 class="text-lg font-bold text-gray-800 flex-1">
         Orden {{ orden?.referencia ?? '...' }}
       </h2>
+      <!-- Pasados los días de la garantía el vendedor ya no la modifica: solo
+           puede pedir un cambio de dinero, que aprueba un supervisor. -->
       <button
-        v-if="orden && puedeEditar"
+        v-if="orden && puedeEditar && orden.edicion_vencida"
+        @click="showPedirDinero = true"
+        class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-amber-800 bg-amber-50 rounded-lg hover:bg-amber-100 transition-colors"
+        title="Pasaron 5 días: la orden ya no se modifica. Puedes pedir un cambio de dinero."
+      >
+        <LockClosedIcon class="w-4 h-4" />
+        Pedir cambio de dinero
+      </button>
+      <button
+        v-else-if="orden && puedeEditar"
         @click="showEditarModal = true"
         class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-amber-700 bg-amber-50 rounded-lg hover:bg-amber-100 transition-colors"
         title="Editar orden"
@@ -3757,6 +3770,15 @@ onMounted(() => { cargarTipos(); cargarOrden() })
       :solo-papeles="soloPapeles"
       @close="showEditarModal = false"
       @guardado="onOrdenEditada"
+    />
+
+    <!-- Orden vencida para el vendedor: solo pedir un cambio de dinero. -->
+    <PedirCambioDineroModal
+      v-if="orden"
+      :show="showPedirDinero"
+      :orden="orden"
+      @close="showPedirDinero = false"
+      @enviada="cargarSolicitudes()"
     />
 
     <!-- Corregir el medio de un pago, cuando lo hace un vendedor: a aprobación. -->

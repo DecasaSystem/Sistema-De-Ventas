@@ -363,6 +363,15 @@ class PagoController extends Controller
             'referencia' => 'nullable|string|max:100',
         ]);
 
+        // Pasados los días de la garantía el vendedor no corrige ni la
+        // referencia: todo cambio de un pago va como solicitud.
+        if (\App\Services\CambiosDePlata::edicionVencida($usuario, $orden)) {
+            return response()->json([
+                'message'         => \App\Services\CambiosDePlata::mensajeVencida($orden),
+                'edicion_vencida' => true,
+            ], 403);
+        }
+
         // El monto y el medio de un abono tampoco los cambia un vendedor solo:
         // lo pide y un supervisor lo aprueba (ver App\Services\CambiosDePlata).
         // La referencia sí la corrige directo.

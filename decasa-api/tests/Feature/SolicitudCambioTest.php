@@ -58,6 +58,7 @@ class SolicitudCambioTest extends TestCase
             $t->string('firma_url')->nullable(); $t->decimal('anticipo_pct', 5, 2)->nullable();
             $t->string('departamento_envio')->nullable(); $t->string('ciudad_envio')->nullable();
             $t->string('direccion_envio')->nullable(); $t->date('fecha_sugerida_vendedor')->nullable();
+            $t->timestamp('confirmada_en')->nullable();
             $t->timestamps();
         });
         Schema::create('orden_items', function (Blueprint $t) {
@@ -321,6 +322,77 @@ class SolicitudCambioTest extends TestCase
 
         $this->actingAs($this->paola)->postJson("/api/solicitudes-cambio/{$id}/aprobar")->assertStatus(403);
         $this->assertEquals(800000, $mesa->fresh()->precio_unitario);
+    }
+
+    // ── Pasados 5 días, el vendedor ya no modifica nada ──────────────────────
+
+    /** La orden se hizo hace `$dias` días. */
+    private function hecha(Orden $orden, int $dias, ?int $confirmadaHace = null): void
+    {
+        DB::table('ordenes')->where('id', $orden->id)->update([
+            'created_at'    => now()->subDays($dias),
+            'confirmada_en' => $confirmadaHace === null ? null : now()->subDays($confirmadaHace),
+        ]);
+    }
+
+    public function test_dentro_de_los_5_dias_el_vendedor_edita_despues_ya_no(): void
+    {
+        [$orden] = $this->orden();
+
+        $this->hecha($orden, 4);
+        $this->actingAs($this->paola)->patchJson("/api/ordenes/{$orden->id}", ['notas' => 'Tela gris'])->assertOk();
+
+        $this->hecha($orden, 6);
+        $this->actingAs($this->paola)->patchJson("/api/ordenes/{$orden->id}", ['notas' => 'Mejor azul'])
+            ->assertStatus(403)->assertJsonPath('edicion_vencida', true);
+        $this->assertSame('Tela gris', $orden->fresh()->notas);
+    }
+
+    public function test_vencida_tampoco_corrige_la_referencia_de_un_pago(): void
+    {
+        [$orden, , $pago] = $this->orden();
+        $this->hecha($orden, 6);
+
+        $this->actingAs($this->paola)->patchJson("/api/pagos/{$pago->id}", ['monto' => 400000, 'metodo' => 'efectivo', 'referencia' => 'Recibo 9'])
+            ->assertStatus(403);
+    }
+
+    public function test_vencida_sigue_pudiendo_pedir_un_cambio_de_dinero(): void
+    {
+        [$orden, $mesa] = $this->orden();
+        $this->hecha($orden, 20);
+
+        $id = $this->pedir($orden, ['cambios_orden' => ['items' => [['id' => $mesa->id, 'precio_unitario' => 650000]]]])
+            ->assertCreated()->json('id');
+        $this->actingAs($this->jefa)->postJson("/api/solicitudes-cambio/{$id}/aprobar")->assertOk();
+
+        $this->assertEquals(650000, $mesa->fresh()->precio_unitario);
+    }
+
+    public function test_el_supervisor_edita_sin_limite_de_dias(): void
+    {
+        [$orden] = $this->orden();
+        $this->hecha($orden, 30);
+
+        $this->actingAs($this->jefa)->patchJson("/api/ordenes/{$orden->id}", ['notas' => 'Cambio autorizado'])->assertOk();
+    }
+
+    public function test_una_restauracion_no_tiene_ese_limite(): void
+    {
+        [$orden] = $this->orden();
+        $orden->update(['serie' => 'R', 'serie_numero' => 1098]);
+        $this->hecha($orden, 30);
+
+        $this->actingAs($this->paola)->patchJson("/api/ordenes/{$orden->id}", ['notas' => 'Cambiar el relleno'])->assertOk();
+    }
+
+    public function test_los_dias_cuentan_desde_que_se_confirmo(): void
+    {
+        // Un borrador empezado hace 10 días y completado hace 2: sigue editable.
+        [$orden] = $this->orden();
+        $this->hecha($orden, 10, 2);
+
+        $this->actingAs($this->paola)->patchJson("/api/ordenes/{$orden->id}", ['notas' => 'Ok'])->assertOk();
     }
 
     public function test_quien_la_pidio_la_puede_retirar(): void

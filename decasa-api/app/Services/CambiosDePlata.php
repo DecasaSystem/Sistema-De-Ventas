@@ -34,6 +34,43 @@ class CambiosDePlata
     }
 
     /**
+     * Días que tiene el vendedor para modificar una orden. Es lo que dice la
+     * garantía: pasados, no se cambia nada —ni la tela ni las notas—, porque
+     * el mueble ya se empezó a hacer. Antes se cambiaba a los 20 días y el
+     * taller trabajaba sobre lo que ya no era.
+     */
+    public const DIAS_PARA_EDITAR = 5;
+
+    /**
+     * ¿Ya no puede este vendedor modificar la orden? Desde que se confirmó la
+     * venta (un borrador empieza a contar al completarse), en las ventas
+     * normales: una restauración es el mueble del cliente y sigue otro ritmo.
+     * Le queda pedir un cambio de dinero con aprobación; el supervisor edita
+     * sin límite.
+     */
+    public static function edicionVencida(Usuario $usuario, Orden $orden): bool
+    {
+        if ($usuario->rol !== 'vendedor' || $orden->estado === 'borrador') return false;
+        if ($orden->serie === Orden::SERIE_RESTAURACION) return false;
+
+        $hasta = self::editableHasta($orden);
+        return $hasta !== null && now()->greaterThan($hasta);
+    }
+
+    /** Hasta cuándo se puede modificar (para decírselo al vendedor). */
+    public static function editableHasta(Orden $orden): ?\Illuminate\Support\Carbon
+    {
+        $desde = $orden->confirmada_en ?? $orden->created_at;
+        return $desde ? \Illuminate\Support\Carbon::parse($desde)->addDays(self::DIAS_PARA_EDITAR) : null;
+    }
+
+    public static function mensajeVencida(Orden $orden): string
+    {
+        return 'Pasaron ' . self::DIAS_PARA_EDITAR . ' días desde que se hizo la orden: ya no se puede modificar, '
+             . 'como dice la garantía. Si hace falta un cambio de dinero, pídelo para que lo apruebe un supervisor.';
+    }
+
+    /**
      * Lo que cambia de plata en la orden con este payload (el de PATCH
      * /ordenes/{id}), como filas para mostrar: [{label, antes, despues}].
      * Vacío si nada de plata cambia.
