@@ -10,6 +10,15 @@ export const previsualizarAnulacion = (id) => api.get(`/ordenes/${id}/anulacion`
 export const getPagos = (id) => api.get(`/ordenes/${id}/pagos`)
 export const registrarPago = (id, data) => api.post(`/ordenes/${id}/pagos`, data)
 export const editarPago = (pagoId, data) => api.patch(`/pagos/${pagoId}`, data)
+
+// Cambios de dinero que pide un vendedor y aprueba un supervisor.
+// `cambios` = { cambios_orden?, pago?: {id, monto, metodo, referencia} }
+export const revisarCambiosDePlata = (ordenId, cambios) => api.post(`/ordenes/${ordenId}/solicitudes-cambio/revisar`, cambios)
+export const crearSolicitudCambio  = (ordenId, datos)   => api.post(`/ordenes/${ordenId}/solicitudes-cambio`, datos)
+export const getSolicitudesCambio  = (ordenId)          => api.get(`/ordenes/${ordenId}/solicitudes-cambio`, { silencioso: true })
+export const aprobarSolicitudCambio  = (id)             => api.post(`/solicitudes-cambio/${id}/aprobar`)
+export const rechazarSolicitudCambio = (id, respuesta)  => api.post(`/solicitudes-cambio/${id}/rechazar`, { respuesta })
+export const cancelarSolicitudCambio = (id)             => api.post(`/solicitudes-cambio/${id}/cancelar`)
 // El anticipo de una orden que quedó sin él, desde editar.
 export const registrarAnticipo = (id, data) => api.post(`/ordenes/${id}/anticipo`, data)
 export const descargarPdfOrden = (id) => api.get(`/ordenes/${id}/pdf`, { responseType: 'blob' })

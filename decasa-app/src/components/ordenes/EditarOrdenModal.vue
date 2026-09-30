@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
-import { editarOrden, editarPago, registrarAnticipo, buscarProductos, getTiendas } from '@/api/ordenes'
+import { editarOrden, editarPago, registrarAnticipo, buscarProductos, getTiendas, revisarCambiosDePlata } from '@/api/ordenes'
+import SolicitarCambioModal from '@/components/ordenes/SolicitarCambioModal.vue'
 import { getVariantes } from '@/api/inventario'
 import { getReservaInfo } from '@/api/reserva'
 import { useToast } from '@/composables/useToast'
@@ -63,6 +64,33 @@ const puedeRegistrarAnticipo = computed(() =>
 
 // ── Reasignación (solo supervisor) ──────────────────────────────────────────
 const esSupervisor  = computed(() => auth.usuario?.rol === 'supervisor')
+
+// Un vendedor no cambia dinero solo: precios, cantidades, productos,
+// descuentos y abonos van como solicitud a un supervisor (con motivo y foto).
+// Lo demás lo guarda directo. El borrador no: todavía no es una venta.
+// La misma regla que el servidor (App\Services\CambiosDePlata).
+const necesitaAprobacion = computed(() =>
+  auth.usuario?.rol === 'vendedor' && props.orden?.estado !== 'borrador')
+const solicitud = ref(null)   // { cambios, pedido } cuando hay que pedir aprobación
+
+/**
+ * El payload sin lo que es dinero: lo que el vendedor guarda directo.
+ * El precio que se le pone a lo que espera cotización sí va: es el paso
+ * normal de esas órdenes, no una corrección.
+ */
+function sinDinero(payload) {
+  const {
+    anticipo_pct, descuento_total, descuento_condicionado_monto, items_eliminar, items_nuevos,
+    ...resto
+  } = payload
+  if (resto.items) {
+    resto.items = resto.items.map(({ precio_unitario, cantidad, producto_id, es_regalo, ...i }) => {
+      const original = items.value.find(x => x.id === i.id)
+      return original?._esperaCosto ? { ...i, precio_unitario } : i
+    })
+  }
+  return resto
+}
 // En una orden que ya salió, el supervisor igual puede corregir el precio y
 // los descuentos (se vendió por menos de lo registrado, por ejemplo). No
 // productos ni cantidades: eso ya descontó bodega.
@@ -1095,21 +1123,24 @@ async function guardar() {
 
   guardando.value = true
   try {
-    // Si el anticipo cambió, se corrige primero para que la orden quede
-    // con los pagos ya actualizados al recargarse.
+    // La corrección del anticipo que ya estaba se arma aquí, pero se manda
+    // más abajo: si la hace un vendedor y cambia el monto o el medio, va en
+    // la solicitud en vez de guardarse.
+    let cambioAnticipo = null
     if (pagoAnticipo.value) {
       const montoNum = parseFloat(anticipoMonto.value)
-      const cambioAnticipo =
+      const cambio =
         montoNum !== parseFloat(pagoAnticipo.value.monto) ||
         anticipoMetodo.value !== pagoAnticipo.value.metodo ||
         (anticipoReferencia.value || null) !== (pagoAnticipo.value.referencia || null)
 
-      if (cambioAnticipo) {
-        await editarPago(pagoAnticipo.value.id, {
+      if (cambio) {
+        cambioAnticipo = {
+          id:         pagoAnticipo.value.id,
           monto:      montoNum,
           metodo:     anticipoMetodo.value,
           referencia: anticipoReferencia.value || null,
-        })
+        }
       }
     } else if (puedeRegistrarAnticipo.value && (parseFloat(anticipoMonto.value) || 0) > 0) {
       // No tenía anticipo y ahora sí: se registra como el de una orden
@@ -1244,6 +1275,26 @@ async function guardar() {
       payload.tienda_abonada_id = tiendaAbonadaId.value || null
     }
 
+    // Vendedor: ¿algo de esto es dinero? El servidor lo compara con lo
+    // guardado (la pantalla manda el precio y la cantidad aunque no se toquen).
+    if (necesitaAprobacion.value) {
+      const pedido = { cambios_orden: payload, ...(cambioAnticipo ? { pago: cambioAnticipo } : {}) }
+      const { data: rev } = await revisarCambiosDePlata(props.orden.id, pedido)
+      if (rev.cambios?.length) {
+        // Lo que no es dinero se guarda ya; lo de dinero va a la solicitud.
+        await editarOrden(props.orden.id, sinDinero(payload))
+        solicitud.value = { cambios: rev.cambios, pedido }
+        return
+      }
+    }
+
+    // Si el anticipo cambió, se corrige primero para que la orden quede
+    // con los pagos ya actualizados al recargarse.
+    if (cambioAnticipo) {
+      const { id, ...datos } = cambioAnticipo
+      await editarPago(id, datos)
+    }
+
     const { data } = await editarOrden(props.orden.id, payload)
     toast.success('Orden actualizada correctamente.')
     if (data?.aviso_comisiones) toast.error(data.aviso_comisiones, 10000)
@@ -1254,6 +1305,13 @@ async function guardar() {
   } finally {
     guardando.value = false
   }
+}
+
+// La solicitud salió: la orden se recarga (con lo demás ya guardado) y se cierra.
+function solicitudEnviada() {
+  solicitud.value = null
+  emit('guardado', null)
+  emit('close')
 }
 </script>
 
@@ -1276,6 +1334,16 @@ async function guardar() {
           </div>
 
           <div class="p-5 space-y-5 overflow-y-auto">
+            <!-- Vendedor: se dice desde el principio, no al guardar. -->
+            <div v-if="necesitaAprobacion && !soloPapeles" class="flex items-start gap-2 bg-sky-50 border border-sky-200 rounded-xl px-3 py-2.5">
+              <ExclamationTriangleIcon class="w-4 h-4 text-sky-600 flex-shrink-0 mt-0.5" />
+              <p class="text-xs text-sky-900 leading-snug">
+                <span class="font-semibold">Los cambios de dinero necesitan aprobación.</span>
+                Precios, cantidades, productos, descuentos y abonos se envían a un supervisor con el
+                motivo y una foto de soporte. Lo demás se guarda de una.
+              </p>
+            </div>
+
             <!-- Por qué esta orden se edita a medias -->
             <div v-if="soloPapeles" class="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5">
               <ExclamationTriangleIcon class="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
@@ -2500,5 +2568,16 @@ async function guardar() {
         </div>
       </div>
     </Transition>
+
+    <!-- Lo de dinero, a aprobación (vendedor). -->
+    <SolicitarCambioModal
+      :show="!!solicitud"
+      :orden-id="orden.id"
+      :cambios="solicitud?.cambios ?? []"
+      :pedido="solicitud?.pedido ?? {}"
+      :se-guardo-lo-demas="true"
+      @close="solicitud = null"
+      @enviada="solicitudEnviada"
+    />
   </Teleport>
 </template>

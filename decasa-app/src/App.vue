@@ -525,6 +525,8 @@ function tipoIcono(tipo) {
     orden_editada:      PencilSquareIcon,
     abono_registrado:   BanknotesIcon,
     cambio_dinero:      BanknotesIcon,
+    solicitud_cambio:           DocumentCurrencyDollarIcon,
+    solicitud_cambio_respuesta: DocumentCurrencyDollarIcon,
     descuento_revertido: ReceiptPercentIcon,
     stock_agotado:      ArchiveBoxArrowDownIcon,
     redes:              ChatBubbleLeftRightIcon,

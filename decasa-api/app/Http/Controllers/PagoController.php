@@ -363,6 +363,20 @@ class PagoController extends Controller
             'referencia' => 'nullable|string|max:100',
         ]);
 
+        // El monto y el medio de un abono tampoco los cambia un vendedor solo:
+        // lo pide y un supervisor lo aprueba (ver App\Services\CambiosDePlata).
+        // La referencia sí la corrige directo.
+        if (\App\Services\CambiosDePlata::requiereAprobacion($usuario, $orden)) {
+            $dePlata = \App\Services\CambiosDePlata::dePago($pago, $data);
+            if ($dePlata) {
+                return response()->json([
+                    'message'             => 'Corregir el monto o el medio de un pago lo aprueba un supervisor: envíalo como solicitud, con el motivo y un soporte.',
+                    'requiere_aprobacion' => true,
+                    'cambios'             => $dePlata,
+                ], 403);
+            }
+        }
+
         $montoCambia = (float) $data['monto'] !== (float) $pago->monto;
 
         if ($montoCambia && ! $puedeCambiarMonto) {

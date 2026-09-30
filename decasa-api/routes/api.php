@@ -10,6 +10,7 @@ use App\Http\Controllers\OrdenController;
 use App\Http\Controllers\OrdenMensajeController;
 use App\Http\Controllers\OrdenFijadaController;
 use App\Http\Controllers\PagoController;
+use App\Http\Controllers\SolicitudCambioController;
 use App\Http\Controllers\PersonalizacionController;
 use App\Http\Controllers\ModuloItemController;
 use App\Http\Controllers\ProduccionController;
@@ -381,6 +382,16 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('/pagos/{id}', [PagoController::class, 'update']);
     Route::post('/pagos/{id}/tomar-facturacion', [PagoController::class, 'tomarFacturacion']);
     Route::post('/pagos/{id}/marcar-facturada',  [PagoController::class, 'marcarFacturada']);
+
+    // Cambios de dinero que pide un vendedor y aprueba un supervisor.
+    Route::post('/ordenes/{id}/solicitudes-cambio/revisar', [SolicitudCambioController::class, 'revisar'])->whereNumber('id');
+    Route::get('/ordenes/{id}/solicitudes-cambio',          [SolicitudCambioController::class, 'index'])->whereNumber('id');
+    Route::post('/ordenes/{id}/solicitudes-cambio',         [SolicitudCambioController::class, 'store'])->whereNumber('id');
+    Route::post('/solicitudes-cambio/{id}/cancelar',        [SolicitudCambioController::class, 'cancelar'])->whereNumber('id');
+    Route::middleware('role:supervisor')->group(function () {
+        Route::post('/solicitudes-cambio/{id}/aprobar',     [SolicitudCambioController::class, 'aprobar'])->whereNumber('id');
+        Route::post('/solicitudes-cambio/{id}/rechazar',    [SolicitudCambioController::class, 'rechazar'])->whereNumber('id');
+    });
 
     // Subida de archivos
     Route::post('/upload/foto', [UploadController::class, 'foto']);

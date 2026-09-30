@@ -6,6 +6,9 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
+import SolicitudesCambioPanel from '@/components/ordenes/SolicitudesCambioPanel.vue'
+import SolicitarCambioModal from '@/components/ordenes/SolicitarCambioModal.vue'
+import { revisarCambiosDePlata } from '@/api/ordenes'
 import { getOrden, updateEstado, previsualizarAnulacion, revertirEntrega, descargarPdfOrden, descargarActaEntrega, descargarOrdenEntrega, reenviarCotizacion, asignarFechasEntrega, confirmarCotizacion, editarPago, completarBorrador as completarBorradorApi, eliminarBorrador as eliminarBorradorApi, previsualizarEliminacion, eliminarOrden as eliminarOrdenApi, previsualizarNumeracion, convertirSerie, cambiarNumeroOrden, cambiarProductoEntregado } from '@/api/ordenes'
 import api from '@/api'
 import { useTiposProceso } from '@/composables/useTiposProceso'
@@ -504,9 +507,17 @@ const puedeCorregirMedio = computed(() => {
 function correccionDe(pago) {
   const ediciones = orden.value?.ediciones ?? []
   for (const e of ediciones) {
-    const cambio = (e.cambios ?? []).find(c => c.campo === `pago_${pago.id}_metodo`)
-    if (cambio) {
-      return { usuario: e.usuario?.nombre ?? 'alguien', fecha: e.created_at, ...cambio }
+    for (const c of (e.cambios ?? [])) {
+      if (c.campo === `pago_${pago.id}_metodo`) {
+        return { usuario: e.usuario?.nombre ?? 'alguien', fecha: e.created_at, ...c }
+      }
+      // Corregido por una solicitud aprobada: el cambio va adentro.
+      const dentro = c.tipo === 'aprobacion_dinero'
+        ? (c.cambios ?? []).find(x => x.campo === `pago_${pago.id}_metodo`)
+        : null
+      if (dentro) {
+        return { usuario: `${c.revisado_por} (lo pidió ${c.solicitado_por})`, fecha: e.created_at, ...dentro }
+      }
     }
   }
   return null
@@ -523,15 +534,32 @@ function abrirCorregirMedio(pago) {
   referenciaNueva.value = pago.referencia ?? ''
 }
 
+// ── Cambios de dinero que pide un vendedor ──────────────────────────────────
+const panelSolicitudes = ref(null)
+const solicitudPago    = ref(null)   // { cambios, pedido } para SolicitarCambioModal
+function cargarSolicitudes() { panelSolicitudes.value?.cargar() }
+
 async function guardarMedio() {
   if (!pagoCorrigiendo.value) return
   guardandoMedio.value = true
+  const datos = {
+    monto:      Number(pagoCorrigiendo.value.monto),   // igual: solo cambia el medio
+    metodo:     medioNuevo.value,
+    referencia: referenciaNueva.value || null,
+  }
   try {
-    await editarPago(pagoCorrigiendo.value.id, {
-      monto:      Number(pagoCorrigiendo.value.monto),   // igual: solo cambia el medio
-      metodo:     medioNuevo.value,
-      referencia: referenciaNueva.value || null,
-    })
+    // Un vendedor no cambia el medio de un pago solo: va a aprobación. La
+    // referencia sola sí la corrige directo (el servidor no la cuenta).
+    if (auth.usuario?.rol === 'vendedor' && orden.value?.estado !== 'borrador') {
+      const pedido = { pago: { id: pagoCorrigiendo.value.id, ...datos } }
+      const { data: rev } = await revisarCambiosDePlata(orden.value.id, pedido)
+      if (rev.cambios?.length) {
+        solicitudPago.value = { cambios: rev.cambios, pedido }
+        pagoCorrigiendo.value = null
+        return
+      }
+    }
+    await editarPago(pagoCorrigiendo.value.id, datos)
     toast.success('Medio de pago corregido. La caja se ajusta sola.')
     pagoCorrigiendo.value = null
     await cargarOrden()
@@ -1325,6 +1353,13 @@ function onPagoRegistrado() {
 }
 
 function onOrdenEditada(ordenActualizada) {
+  // Sin orden: se mandó un cambio de dinero a aprobación (lo demás ya se
+  // guardó). Se recarga para ver lo guardado y la solicitud pendiente.
+  if (!ordenActualizada) {
+    cargarOrden()
+    cargarSolicitudes()
+    return
+  }
   orden.value = ordenActualizada
 }
 
@@ -2001,6 +2036,10 @@ onMounted(() => { cargarTipos(); cargarOrden() })
     </div>
 
     <template v-else-if="orden">
+      <!-- Cambios de dinero pedidos: el pendiente arriba de todo, que es lo
+           que viene a ver el supervisor al tocar la notificación. -->
+      <SolicitudesCambioPanel ref="panelSolicitudes" :orden-id="orden.id" @aplicada="cargarOrden" />
+
       <!-- Info general -->
       <div class="bg-white rounded-xl shadow-sm p-4 space-y-2 text-sm">
         <p class="text-xs font-semibold text-gray-500 uppercase mb-2">Información general</p>
@@ -3177,6 +3216,39 @@ onMounted(() => { cargarTipos(); cargarOrden() })
             </div>
             <ul class="space-y-1.5">
               <li v-for="cambio in edicion.cambios" :key="cambio.campo" class="text-xs text-gray-600 leading-snug">
+                <!-- Un cambio de dinero pedido por un vendedor y respondido por
+                     un supervisor: quién, por qué, con qué soporte y qué cambió. -->
+                <div v-if="cambio.tipo === 'aprobacion_dinero' || cambio.tipo === 'rechazo_dinero'"
+                  :class="['rounded-lg border px-3 py-2.5 space-y-1.5',
+                    cambio.tipo === 'aprobacion_dinero' ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200']">
+                  <p :class="['text-xs font-bold', cambio.tipo === 'aprobacion_dinero' ? 'text-green-800' : 'text-red-800']">
+                    {{ cambio.tipo === 'aprobacion_dinero' ? 'Cambio de dinero aprobado' : 'Cambio de dinero rechazado' }}
+                    por {{ cambio.revisado_por }}
+                  </p>
+                  <p class="text-[11px] text-gray-600">
+                    Lo pidió <span class="font-semibold">{{ cambio.solicitado_por }}</span>
+                    <span v-if="cambio.solicitado_at"> · {{ formatDateTime(cambio.solicitado_at) }}</span>
+                  </p>
+                  <ul class="space-y-0.5">
+                    <li v-for="(c, i) in cambio.cambios ?? []" :key="i">
+                      <span class="font-medium text-gray-700">{{ c.label }}:</span>
+                      <span class="text-red-500 line-through ml-1">{{ formatCambioVal(c.antes) }}</span>
+                      <span class="mx-1 text-gray-400">→</span>
+                      <span :class="cambio.tipo === 'aprobacion_dinero' ? 'text-green-700' : 'text-gray-500'">{{ formatCambioVal(c.despues) }}</span>
+                    </li>
+                  </ul>
+                  <p class="text-[11px] text-gray-700"><span class="font-semibold">Motivo:</span> {{ cambio.motivo }}</p>
+                  <p v-if="cambio.respuesta" class="text-[11px] text-red-800"><span class="font-semibold">Por qué no:</span> {{ cambio.respuesta }}</p>
+                  <div v-if="cambio.soportes?.length" class="flex flex-wrap gap-1.5 pt-0.5">
+                    <a v-for="(url, i) in cambio.soportes" :key="url" :href="url" target="_blank" rel="noopener"
+                      :aria-label="`Ver soporte ${i + 1}`"
+                      class="w-12 h-12 rounded-md overflow-hidden border border-gray-200 bg-white">
+                      <img :src="cloudinaryOpt(url, 96)" alt="" class="w-full h-full object-cover" />
+                    </a>
+                  </div>
+                </div>
+
+                <template v-else>
                 <span class="font-medium">{{ cambio.label }}</span>
 
                 <!-- Specs: solo los campos que de verdad cambiaron. Antes se
@@ -3205,6 +3277,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
                 </template>
 
                 <span v-else class="text-gray-400 ml-1">— sin cambios visibles</span>
+                </template>
               </li>
             </ul>
           </div>
@@ -3684,6 +3757,17 @@ onMounted(() => { cargarTipos(); cargarOrden() })
       :solo-papeles="soloPapeles"
       @close="showEditarModal = false"
       @guardado="onOrdenEditada"
+    />
+
+    <!-- Corregir el medio de un pago, cuando lo hace un vendedor: a aprobación. -->
+    <SolicitarCambioModal
+      v-if="orden"
+      :show="!!solicitudPago"
+      :orden-id="orden.id"
+      :cambios="solicitudPago?.cambios ?? []"
+      :pedido="solicitudPago?.pedido ?? {}"
+      @close="solicitudPago = null"
+      @enviada="solicitudPago = null; cargarSolicitudes()"
     />
 
     <!-- Modal confirmar cotización (firma + anticipo) -->

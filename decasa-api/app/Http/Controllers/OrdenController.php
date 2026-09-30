@@ -1387,6 +1387,7 @@ class OrdenController extends Controller
             ], 422);
         }
 
+
         // Una orden que ya salió se sigue pudiendo corregir, pero sólo en lo
         // que no toca plata ni bodega: la foto de la factura salió borrosa, el
         // anexo firmado no se subió, la dirección quedó mal escrita. Cambiarle
@@ -1426,6 +1427,22 @@ class OrdenController extends Controller
                         . 'Para cambiar un producto entregado hay una opción aparte en el detalle de la orden.',
                     'campos'  => array_values(array_unique($prohibidos)),
                 ], 422);
+            }
+        }
+
+        // Un vendedor no cambia plata solo: lo pide y un supervisor lo aprueba
+        // (ver App\Services\CambiosDePlata y SolicitudCambioController). La
+        // pantalla ya separa lo de plata en una solicitud; esto frena a quien
+        // lo intente por otro lado, o con la app vieja abierta. Va después de
+        // la regla de la orden ya entregada, que responde lo suyo.
+        if (\App\Services\CambiosDePlata::requiereAprobacion($usuario, $orden)) {
+            $dePlata = \App\Services\CambiosDePlata::deOrden($orden, $data);
+            if ($dePlata) {
+                return response()->json([
+                    'message'             => 'Los cambios de dinero los aprueba un supervisor: envíalos como solicitud, con el motivo y un soporte.',
+                    'requiere_aprobacion' => true,
+                    'cambios'             => $dePlata,
+                ], 403);
             }
         }
 
