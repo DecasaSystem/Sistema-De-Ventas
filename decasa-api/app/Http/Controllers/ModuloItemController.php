@@ -133,12 +133,44 @@ class ModuloItemController extends Controller
             'foto_url'   => 'sometimes|nullable|string|max:500',
             'referencia' => 'sometimes|nullable|string|max:200',
             'textura'    => 'sometimes|nullable|string|max:100',
+            'marca'      => 'sometimes|required|string|max:100',
+            'tipo'       => 'sometimes|required|string|max:100',
+            'color'      => 'sometimes|required|string|max:100',
         ]);
+        foreach (['marca', 'tipo', 'color', 'referencia', 'textura'] as $campo) {
+            if (array_key_exists($campo, $data) && is_string($data[$campo])) {
+                $data[$campo] = trim($data[$campo]) === '' && in_array($campo, ['referencia', 'textura'], true)
+                    ? null
+                    : trim($data[$campo]);
+            }
+        }
 
         $item = ModuloItem::where('modulo_id', $modulo->id)->findOrFail($id);
+
+        $cambiaNombre = collect(['marca', 'tipo', 'color'])
+            ->contains(fn ($c) => array_key_exists($c, $data) && $data[$c] !== $item->$c);
+        if ($cambiaNombre) {
+            // Corregir el nombre es cosa del supervisor, como eliminar.
+            if ($request->user()->rol !== 'supervisor') {
+                return response()->json(['message' => 'Solo un supervisor puede cambiar el proveedor, el nombre o el color.'], 403);
+            }
+            $marca = $data['marca'] ?? $item->marca;
+            $tipo  = $data['tipo']  ?? $item->tipo;
+            $color = $data['color'] ?? $item->color;
+            $otro = ModuloItem::where('modulo_id', $modulo->id)->where('id', '!=', $item->id)
+                ->where('marca', $marca)->where('tipo', $tipo)->where('color', $color)->first();
+            if ($otro) {
+                return response()->json([
+                    'message' => $otro->activo
+                        ? "Ya existe \"{$tipo}\" en {$color} de {$marca}. Si es el mismo, elimina este y recárgale la cantidad a ese."
+                        : "Hay un \"{$tipo}\" en {$color} de {$marca} que se eliminó. Créalo de nuevo para recuperarlo y elimina este.",
+                ], 422);
+            }
+        }
+
         $item->update($data);
 
-        return response()->json($item->paraPantalla());
+        return response()->json($item->fresh()->paraPantalla());
     }
 
     /**

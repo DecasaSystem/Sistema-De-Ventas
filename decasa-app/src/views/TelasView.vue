@@ -11,7 +11,7 @@
  */
 import { cloudinaryOpt } from '@/utils/cloudinary'
 import { ref, computed, onMounted, watch } from 'vue'
-import { MagnifyingGlassIcon, PlusIcon, MinusIcon, ArrowDownTrayIcon, PhotoIcon, XMarkIcon, TrashIcon } from '@heroicons/vue/24/outline'
+import { MagnifyingGlassIcon, PlusIcon, MinusIcon, ArrowDownTrayIcon, PhotoIcon, XMarkIcon, TrashIcon, PencilSquareIcon } from '@heroicons/vue/24/outline'
 import { useAuthStore } from '@/stores/auth'
 import { useModulosStore } from '@/stores/modulos'
 import { useToast } from '@/composables/useToast'
@@ -209,10 +209,23 @@ async function cargar() {
   }
 }
 
+// Una tela (nombre + referencia) se crea con todos sus colores de una vez,
+// cada uno con lo que llegó de él. Otra referencia es otra tela: otro formulario.
+const colorVacio = () => ({ color: '', cantidad: '' })
+const formVacio  = () => ({ marca: '', marcaNueva: '', tipo: '', referencia: '', textura: '', foto_url: '', colores: [colorVacio()] })
+
 function abrirCrear() {
-  crearForm.value = { marca: '', marcaNueva: '', tipo: '', color: '', referencia: '', textura: '', cantidad: '', foto_url: '' }
+  crearForm.value = formVacio()
   crearError.value = ''
   showCrear.value = true
+}
+
+function agregarColor() {
+  crearForm.value.colores.push(colorVacio())
+}
+function quitarColor(i) {
+  crearForm.value.colores.splice(i, 1)
+  if (!crearForm.value.colores.length) crearForm.value.colores.push(colorVacio())
 }
 
 /**
@@ -222,8 +235,9 @@ function abrirCrear() {
  */
 function abrirOtroColor(item) {
   crearForm.value = {
-    marca: item.marca, marcaNueva: '', tipo: item.tipo ?? '', color: '',
-    referencia: item.referencia ?? '', textura: item.textura ?? '', cantidad: '', foto_url: '',
+    ...formVacio(),
+    marca: item.marca, tipo: item.tipo ?? '',
+    referencia: item.referencia ?? '', textura: item.textura ?? '',
   }
   crearError.value = ''
   showCrear.value = true
@@ -307,10 +321,20 @@ const hermanas = computed(() => {
 // Repetida con la misma regla del servidor: proveedor + nombre + color, sin
 // importar la referencia. Si pasara, el servidor no crea otra: le suma los
 // metros a la que ya está, y eso se hace a propósito con "Recargar".
-const colorRepetido = computed(() => {
-  if (!crearForm.value.color.trim() || !crearForm.value.tipo.trim()) return null
-  return delProveedor.value.find(t => mismo(t.tipo, crearForm.value.tipo) && mismo(t.color, crearForm.value.color)) ?? null
-})
+function yaExiste(color) {
+  if (!color?.trim() || !crearForm.value.tipo.trim()) return null
+  return delProveedor.value.find(t => mismo(t.tipo, crearForm.value.tipo) && mismo(t.color, color)) ?? null
+}
+// Y el mismo color escrito dos veces en la lista.
+function repetidoEnLista(i) {
+  const c = crearForm.value.colores[i]?.color
+  return !!c?.trim() && crearForm.value.colores.some((o, j) => j < i && mismo(o.color, c))
+}
+const hayColorMalo = computed(() =>
+  crearForm.value.colores.some((f, i) => yaExiste(f.color) || repetidoEnLista(i)))
+const coloresEscritos = computed(() => crearForm.value.colores.filter(f => f.color.trim()))
+// La foto es de un color: con varios, cada una se sube después en su tarjeta.
+const unSoloColor = computed(() => crearForm.value.colores.length === 1)
 
 // Al elegir una referencia que ya existe, se trae su textura si no se puso.
 watch(() => crearForm.value.referencia, (ref) => {
@@ -326,48 +350,131 @@ async function crearItem() {
     : crearForm.value.marca.trim()
   if (!marcaFinal)                       { crearError.value = 'Selecciona o ingresa la marca/proveedor.'; return }
   if (!crearForm.value.tipo.trim())      { crearError.value = 'Ingresa el tipo o nombre.'; return }
-  if (!crearForm.value.color.trim())     { crearError.value = 'Ingresa el color.'; return }
-  if (colorRepetido.value) {
-    crearError.value = `Ese color ya está registrado para esta tela. Si llegaron más metros, usa "Recargar" en la lista.`
+  if (!coloresEscritos.value.length)     { crearError.value = 'Ingresa al menos un color.'; return }
+  if (hayColorMalo.value) {
+    crearError.value = `Hay un color repetido (marcado en naranja). Si llegaron más metros de uno que ya existe, usa "Recargar" en la lista.`
     return
   }
 
   creando.value = true
+  const creadas = []
   try {
-    const payload = {
-      marca:      marcaFinal,
-      tipo:       crearForm.value.tipo.trim(),
-      color:      crearForm.value.color.trim(),
-      referencia: crearForm.value.referencia.trim() || undefined,
-      textura:    crearForm.value.textura.trim() || undefined,
-      foto_url:   crearForm.value.foto_url || undefined,
-      [rutas.value.campoInicial]: redondear(normalizarCantidad(crearForm.value.cantidad)),
-    }
-    const { data } = await api.post(rutas.value.crear, payload)
-    const nuevo = adaptar(data)
-    // Si el servidor devolvió una que ya estaba, se reemplaza: agregarla
-    // otra vez la dejaba repetida en la lista hasta recargar.
-    const ya = items.value.findIndex(t => t.id === nuevo.id)
-    if (ya !== -1) items.value[ya] = nuevo
-    else items.value.unshift(nuevo)
-    if (!proveedores.value.includes(nuevo.marca)) {
-      proveedores.value = [...proveedores.value, nuevo.marca].sort()
-    }
-    // Sólo las telas de verdad están en el catálogo que usan las órdenes: se
-    // sincroniza para que InventarioView vea la nueva de una.
-    if (esBase.value) {
-      if (!TELAS_CATALOGO[nuevo.marca]) TELAS_CATALOGO[nuevo.marca] = {}
-      if (!TELAS_CATALOGO[nuevo.marca][nuevo.tipo]) TELAS_CATALOGO[nuevo.marca][nuevo.tipo] = []
-      if (!TELAS_CATALOGO[nuevo.marca][nuevo.tipo].includes(nuevo.color)) {
-        TELAS_CATALOGO[nuevo.marca][nuevo.tipo].push(nuevo.color)
+    // Uno por uno, en orden: si uno falla se sabe cuáles quedaron y cuál no,
+    // en vez de dejar la mitad creada sin decir nada.
+    for (const fila of coloresEscritos.value) {
+      const payload = {
+        marca:      marcaFinal,
+        tipo:       crearForm.value.tipo.trim(),
+        color:      fila.color.trim(),
+        referencia: crearForm.value.referencia.trim() || undefined,
+        textura:    crearForm.value.textura.trim() || undefined,
+        foto_url:   (unSoloColor.value && crearForm.value.foto_url) || undefined,
+        [rutas.value.campoInicial]: redondear(normalizarCantidad(fila.cantidad)),
       }
+      const { data } = await api.post(rutas.value.crear, payload)
+      creadas.push(agregarALaLista(adaptar(data)))
     }
     showCrear.value = false
-    toast.success(`"${nombreDe(nuevo)} (${nuevo.color})" quedó en el inventario.`)
+    toast.success(creadas.length === 1
+      ? `"${nombreDe(creadas[0])} (${creadas[0].color})" quedó en el inventario.`
+      : `"${nombreDe(creadas[0])}" quedó en el inventario con ${creadas.length} colores.`)
   } catch (e) {
-    crearError.value = e.response?.data?.message ?? `Error al crear la ${cfg.value.singular}.`
+    const motivo = e.response?.data?.message ?? `Error al crear la ${cfg.value.singular}.`
+    if (creadas.length) {
+      // Las que ya quedaron se quitan del formulario para que al reintentar
+      // no se vuelvan a mandar.
+      const hechas = new Set(creadas.map(c => c.color.trim().toLowerCase()))
+      crearForm.value.colores = crearForm.value.colores.filter(f => !hechas.has(f.color.trim().toLowerCase()))
+      if (!crearForm.value.colores.length) crearForm.value.colores.push(colorVacio())
+      crearError.value = `Se crearon ${creadas.map(c => c.color).join(', ')}, pero no el resto: ${motivo}`
+    } else {
+      crearError.value = motivo
+    }
   } finally {
     creando.value = false
+  }
+}
+
+/** Pone en la lista (y en el catálogo de las órdenes) una que acaba de llegar del servidor. */
+function agregarALaLista(nuevo) {
+  // Si el servidor devolvió una que ya estaba, se reemplaza: agregarla
+  // otra vez la dejaba repetida en la lista hasta recargar.
+  const ya = items.value.findIndex(t => t.id === nuevo.id)
+  if (ya !== -1) items.value[ya] = nuevo
+  else items.value.unshift(nuevo)
+  if (!proveedores.value.includes(nuevo.marca)) {
+    proveedores.value = [...proveedores.value, nuevo.marca].sort()
+  }
+  // Sólo las telas de verdad están en el catálogo que usan las órdenes: se
+  // sincroniza para que InventarioView vea la nueva de una.
+  if (esBase.value) {
+    if (!TELAS_CATALOGO[nuevo.marca]) TELAS_CATALOGO[nuevo.marca] = {}
+    if (!TELAS_CATALOGO[nuevo.marca][nuevo.tipo]) TELAS_CATALOGO[nuevo.marca][nuevo.tipo] = []
+    if (!TELAS_CATALOGO[nuevo.marca][nuevo.tipo].includes(nuevo.color)) {
+      TELAS_CATALOGO[nuevo.marca][nuevo.tipo].push(nuevo.color)
+    }
+  }
+  return nuevo
+}
+
+// ── Editar ───────────────────────────────────────────────────────────────────
+// Para corregir cómo se creó: el nombre con la referencia pegada, un color
+// mal escrito. El proveedor, el nombre y el color no se dejan cambiar si hay
+// metros apartados para órdenes (el servidor lo frena y lo explica).
+const itemEditar  = ref(null)
+const editarForm  = ref({ marca: '', tipo: '', referencia: '', color: '', textura: '' })
+const guardandoEd = ref(false)
+const editarError = ref('')
+
+function abrirEditar(item) {
+  itemEditar.value  = item
+  editarForm.value  = {
+    marca: item.marca ?? '', tipo: item.tipo ?? '', referencia: item.referencia ?? '',
+    color: item.color ?? '', textura: item.textura ?? '',
+  }
+  editarError.value = ''
+}
+
+// Proveedor, nombre y color son lo que la identifica: con metros apartados no se tocan.
+const bloqueaNombre = computed(() => (itemEditar.value?.reservado ?? 0) > 0)
+
+async function guardarEdicion() {
+  const item = itemEditar.value
+  if (!item) return
+  const f = editarForm.value
+  if (!f.marca.trim() || !f.tipo.trim() || !f.color.trim()) {
+    editarError.value = 'Proveedor, nombre y color no pueden quedar vacíos.'
+    return
+  }
+  // Solo lo que cambió: mandar el nombre igual con metros apartados lo
+  // frenaría el servidor aunque no se hubiera tocado.
+  const payload = {}
+  for (const campo of ['marca', 'tipo', 'color', 'referencia', 'textura']) {
+    if ((f[campo] ?? '').trim() !== (item[campo] ?? '').trim()) payload[campo] = f[campo].trim()
+  }
+  if (!Object.keys(payload).length) { itemEditar.value = null; return }
+
+  guardandoEd.value = true
+  editarError.value = ''
+  try {
+    const { data } = await api.patch(rutas.value.editar(item.id), payload)
+    const actualizado = adaptar({ ...item, ...data })
+    // Las órdenes eligen la tela por proveedor → nombre → color: se mueve en
+    // el catálogo si cambió alguno.
+    if (esBase.value && (payload.marca || payload.tipo || payload.color)) {
+      const viejos = TELAS_CATALOGO[item.marca]?.[item.tipo]
+      const i = viejos?.indexOf(item.color) ?? -1
+      if (i !== -1) viejos.splice(i, 1)
+    }
+    const idx = items.value.findIndex(t => t.id === item.id)
+    if (idx !== -1) items.value[idx] = actualizado
+    agregarALaLista(actualizado)
+    toast.success(`"${nombreDe(actualizado)} (${actualizado.color})" quedó corregida.`)
+    itemEditar.value = null
+  } catch (e) {
+    editarError.value = e.response?.data?.message ?? 'No se pudo guardar.'
+  } finally {
+    guardandoEd.value = false
   }
 }
 
@@ -619,9 +726,18 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
           </button>
           <button
             v-if="auth.isSupervisor"
-            @click="pedirEliminar(item)"
-            :class="['flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-gray-400 text-xs font-semibold hover:bg-red-50 hover:text-red-600 transition-colors',
+            @click="abrirEditar(item)"
+            :class="['flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-gray-500 text-xs font-semibold hover:bg-gray-100 hover:text-gray-800 transition-colors',
               puedeRecargar ? '' : 'ml-auto']"
+            :aria-label="`Editar ${nombreDe(item)} ${item.color}`"
+            title="Editar"
+          >
+            <PencilSquareIcon class="w-4 h-4" />
+          </button>
+          <button
+            v-if="auth.isSupervisor"
+            @click="pedirEliminar(item)"
+            class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-gray-400 text-xs font-semibold hover:bg-red-50 hover:text-red-600 transition-colors"
             :aria-label="`Eliminar ${nombreDe(item)} ${item.color}`"
             title="Eliminar"
           >
@@ -703,30 +819,69 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
             <div v-if="hermanas.length" class="rounded-xl bg-blue-50 border border-blue-100 p-3 space-y-2">
               <p class="text-xs font-semibold text-blue-800">
                 Esta {{ cfg.singular }} ya existe en {{ hermanas.length }} color{{ hermanas.length === 1 ? '' : 'es' }}.
-                Escribe abajo el color nuevo.
+                Escribe abajo los colores nuevos.
               </p>
               <div class="flex flex-wrap gap-1.5">
                 <span v-for="h in hermanas" :key="h.id"
                   :class="['inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium border',
-                    colorRepetido?.id === h.id ? 'bg-amber-100 border-amber-300 text-amber-900' : 'bg-white border-blue-200 text-gray-700']">
+                    crearForm.colores.some(f => mismo(f.color, h.color)) ? 'bg-amber-100 border-amber-300 text-amber-900' : 'bg-white border-blue-200 text-gray-700']">
                   {{ h.color }}
                   <span class="text-gray-400">· {{ h.libre }} {{ cfg.unidad }}</span>
                 </span>
               </div>
             </div>
 
-            <!-- Color -->
+            <!-- Colores: todos los de esta tela de una vez, cada uno con lo que llegó. -->
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Color <span class="text-red-500">*</span></label>
-              <input
-                v-model="crearForm.color"
-                :class="['w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2',
-                  colorRepetido ? 'border-amber-400 focus:ring-amber-400' : 'border-gray-300 focus:ring-blue-500']"
-                placeholder="Ej: Gris, Beige, Azul..."
-              />
-              <p v-if="colorRepetido" class="mt-1 text-xs text-amber-700">
-                "{{ colorRepetido.color }}" ya está registrado ({{ colorRepetido.libre }} {{ cfg.unidad }}).
-                Si llegaron más, usa "Recargar" en la lista.
+              <div class="flex items-baseline justify-between mb-1">
+                <label class="text-sm font-medium text-gray-700">
+                  Colores <span class="text-red-500">*</span>
+                </label>
+                <span class="text-xs text-gray-400">{{ enMetros ? 'Metros iniciales' : `Cantidad (${cfg.unidad})` }}</span>
+              </div>
+              <div class="space-y-2">
+                <div v-for="(fila, i) in crearForm.colores" :key="i">
+                  <div class="flex gap-2">
+                    <input
+                      v-model="fila.color"
+                      :aria-label="`Color ${i + 1}`"
+                      :class="['flex-1 min-w-0 rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2',
+                        yaExiste(fila.color) || repetidoEnLista(i) ? 'border-amber-400 focus:ring-amber-400' : 'border-gray-300 focus:ring-blue-500']"
+                      :placeholder="i === 0 ? 'Ej: Gris, Beige, Azul...' : 'Otro color'"
+                    />
+                    <input
+                      :value="fila.cantidad"
+                      @input="fila.cantidad = $event.target.value = normalizarCantidad($event.target.value)"
+                      :aria-label="`${enMetros ? 'Metros' : 'Cantidad'} del color ${i + 1}`"
+                      type="text"
+                      inputmode="decimal"
+                      class="w-24 rounded-lg border border-gray-300 px-3 py-2 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      :placeholder="cfg.decimales ? '0.' + '0'.repeat(cfg.decimales) : '0'"
+                    />
+                    <button
+                      v-if="crearForm.colores.length > 1"
+                      type="button" @click="quitarColor(i)"
+                      :aria-label="`Quitar el color ${i + 1}`"
+                      class="w-10 flex items-center justify-center rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-600"
+                    >
+                      <XMarkIcon class="w-4 h-4" />
+                    </button>
+                  </div>
+                  <p v-if="yaExiste(fila.color)" class="mt-1 text-xs text-amber-700">
+                    "{{ yaExiste(fila.color).color }}" ya está registrado ({{ yaExiste(fila.color).libre }} {{ cfg.unidad }}).
+                    Si llegaron más, usa "Recargar" en la lista.
+                  </p>
+                  <p v-else-if="repetidoEnLista(i)" class="mt-1 text-xs text-amber-700">Este color ya está arriba en la lista.</p>
+                </div>
+              </div>
+              <button type="button" @click="agregarColor"
+                class="mt-2 flex items-center gap-1.5 rounded-lg border border-dashed border-gray-300 px-3 py-2 text-sm font-medium text-gray-600 hover:border-blue-400 hover:text-blue-600 w-full justify-center">
+                <PlusIcon class="w-4 h-4" />
+                Agregar otro color
+              </button>
+              <p class="mt-1.5 text-xs text-gray-400">
+                <template v-if="enMetros">Ej: 20.45 = 20 metros 45 centímetros. </template>
+                Otra referencia es otra {{ cfg.singular }}: créala aparte.
               </p>
             </div>
 
@@ -740,8 +895,11 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
               />
             </div>
 
-            <!-- Foto -->
-            <div>
+            <!-- Foto: es de un color. Con varios, cada una se sube después en su tarjeta. -->
+            <p v-if="!unSoloColor" class="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
+              La foto de cada color se agrega después, desde su tarjeta.
+            </p>
+            <div v-else>
               <label class="block text-sm font-medium text-gray-700 mb-1">Foto (opcional)</label>
               <div class="flex items-center gap-3">
                 <div v-if="crearForm.foto_url" class="relative w-16 h-16 flex-shrink-0">
@@ -759,21 +917,6 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
               </div>
             </div>
 
-            <!-- Cantidad inicial -->
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">
-                {{ enMetros ? 'Metros iniciales' : `Cantidad inicial (${cfg.unidad})` }}
-              </label>
-              <input
-                :value="crearForm.cantidad"
-                @input="crearForm.cantidad = $event.target.value = normalizarCantidad($event.target.value)"
-                type="text"
-                inputmode="decimal"
-                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                :placeholder="cfg.decimales ? '0.' + '0'.repeat(cfg.decimales) : '0'"
-              />
-              <p v-if="enMetros" class="mt-1 text-xs text-gray-400">Ej: 20.45 = 20 metros 45 centímetros</p>
-            </div>
           </div>
 
           <!-- Siempre a la vista, por largo que sea el formulario. -->
@@ -783,10 +926,79 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
               <button @click="showCrear = false" class="flex-1 bg-gray-100 text-gray-700 rounded-lg py-2.5 text-sm font-semibold">Cancelar</button>
               <button
                 @click="crearItem"
-                :disabled="creando || !!colorRepetido"
+                :disabled="creando || hayColorMalo"
                 class="flex-1 bg-blue-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
               >
-                {{ creando ? 'Guardando...' : `Crear ${cfg.singular}` }}
+                {{ creando ? 'Guardando...'
+                  : coloresEscritos.length > 1 ? `Crear con ${coloresEscritos.length} colores`
+                  : `Crear ${cfg.singular}` }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- Modal: Editar -->
+    <Transition name="fade">
+      <div v-if="itemEditar" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="itemEditar = null">
+        <div class="absolute inset-0 bg-black/40" />
+        <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md max-h-[92dvh] flex flex-col">
+          <div class="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100 flex-shrink-0">
+            <h3 class="text-base font-bold text-gray-800">Editar {{ cfg.singular }}</h3>
+            <button @click="itemEditar = null" aria-label="Cerrar" class="text-gray-400 text-2xl leading-none w-9 h-9 -mr-2">&times;</button>
+          </div>
+
+          <div class="space-y-3 overflow-y-auto px-5 py-4 flex-1 min-h-0">
+            <p v-if="bloqueaNombre" class="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              Tiene {{ itemEditar.reservado }} {{ cfg.unidad }} apartados para órdenes: el proveedor, el nombre y el
+              color no se pueden cambiar hasta que se entreguen, porque las órdenes la encuentran por ellos.
+              La referencia y la textura sí.
+            </p>
+
+            <div>
+              <label for="ed-marca" class="block text-sm font-medium text-gray-700 mb-1">Proveedor / Marca</label>
+              <input id="ed-marca" v-model="editarForm.marca" list="ed-proveedores" :disabled="bloqueaNombre"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400" />
+              <datalist id="ed-proveedores">
+                <option v-for="p in proveedores" :key="p" :value="p" />
+              </datalist>
+            </div>
+            <div>
+              <label for="ed-tipo" class="block text-sm font-medium text-gray-700 mb-1">Tipo / Nombre</label>
+              <input id="ed-tipo" v-model="editarForm.tipo" :disabled="bloqueaNombre"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400" />
+            </div>
+            <div>
+              <label for="ed-ref" class="block text-sm font-medium text-gray-700 mb-1">Referencia (opcional)</label>
+              <input id="ed-ref" v-model="editarForm.referencia"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label for="ed-color" class="block text-sm font-medium text-gray-700 mb-1">Color</label>
+              <input id="ed-color" v-model="editarForm.color" :disabled="bloqueaNombre"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400" />
+            </div>
+            <div>
+              <label for="ed-textura" class="block text-sm font-medium text-gray-700 mb-1">Textura (opcional)</label>
+              <input id="ed-textura" v-model="editarForm.textura"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <p class="text-xs text-gray-400">
+              Los {{ enMetros ? 'metros' : 'cantidades' }} no se cambian aquí: para eso están "Recargar" y "Descontar".
+            </p>
+          </div>
+
+          <div class="px-5 pt-3 pb-5 border-t border-gray-100 space-y-3 flex-shrink-0">
+            <p v-if="editarError" class="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{{ editarError }}</p>
+            <div class="flex gap-3">
+              <button @click="itemEditar = null" class="flex-1 bg-gray-100 text-gray-700 rounded-lg py-2.5 text-sm font-semibold">Cancelar</button>
+              <button
+                @click="guardarEdicion"
+                :disabled="guardandoEd"
+                class="flex-1 bg-blue-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
+              >
+                {{ guardandoEd ? 'Guardando...' : 'Guardar cambios' }}
               </button>
             </div>
           </div>

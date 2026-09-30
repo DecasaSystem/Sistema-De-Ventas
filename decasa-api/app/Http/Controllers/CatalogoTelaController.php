@@ -99,12 +99,85 @@ class CatalogoTelaController extends Controller
             'foto_url'   => 'sometimes|nullable|string|max:500',
             'referencia' => 'sometimes|nullable|string|max:200',
             'textura'    => 'sometimes|nullable|string|max:100',
+            // Corregir cómo se creó: el nombre con la referencia pegada, un
+            // color mal escrito, otro proveedor.
+            'marca'      => 'sometimes|required|string|max:100',
+            'tipo'       => 'sometimes|required|string|max:100',
+            'color'      => 'sometimes|required|string|max:100',
         ]);
+        foreach (['marca', 'tipo', 'color', 'referencia', 'textura'] as $campo) {
+            if (array_key_exists($campo, $data) && is_string($data[$campo])) {
+                $data[$campo] = trim($data[$campo]) === '' && in_array($campo, ['referencia', 'textura'], true)
+                    ? null
+                    : trim($data[$campo]);
+            }
+        }
 
         $tela = CatalogoTela::findOrFail($id);
+
+        $cambiaNombre = collect(['marca', 'tipo', 'color'])
+            ->contains(fn ($c) => array_key_exists($c, $data) && $data[$c] !== $tela->$c);
+
+        if ($cambiaNombre) {
+            // Las órdenes guardan su tela como texto ("Proveedor · Nombre ·
+            // Color") y con eso se enlazan a lo que tienen apartado. Si una
+            // orden la tiene apartada y se le cambia el nombre, deja de
+            // encontrarla y el apartado queda suelto.
+            if ($this->metrosApartados($tela) > 0) {
+                return response()->json([
+                    'message' => 'Tiene metros apartados para órdenes: el proveedor, el nombre y el color no se '
+                               . 'pueden cambiar hasta que se entreguen. La referencia y la textura sí.',
+                ], 422);
+            }
+
+            $marca = $data['marca'] ?? $tela->marca;
+            $tipo  = $data['tipo']  ?? $tela->tipo;
+            $color = $data['color'] ?? $tela->color;
+            $otra = CatalogoTela::where('id', '!=', $tela->id)
+                ->where('marca', $marca)->where('tipo', $tipo)->where('color', $color)->first();
+            if ($otra) {
+                return response()->json([
+                    'message' => $otra->activo
+                        ? "Ya existe \"{$tipo}\" en {$color} de {$marca}. Si es la misma, elimina esta y recárgale los metros a esa."
+                        : "Hay una \"{$tipo}\" en {$color} de {$marca} que se eliminó. Créala de nuevo para recuperarla y elimina esta.",
+                ], 422);
+            }
+        }
+
         $tela->update($data);
 
-        return response()->json(['ok' => true, 'foto_url' => $tela->foto_url]);
+        return response()->json($this->paraPantalla($tela->fresh()));
+    }
+
+    /** Metros que las órdenes tienen apartados de esta tela. */
+    private function metrosApartados(CatalogoTela $tela): float
+    {
+        $apartados = (float) $tela->metros_reservados;
+        if ($apartados <= 0 && \Illuminate\Support\Facades\Schema::hasTable('tela_reservas')) {
+            $apartados = (float) \Illuminate\Support\Facades\DB::table('tela_reservas')
+                ->where('catalogo_tela_id', $tela->id)
+                ->where('estado', 'reservada')
+                ->sum('metros');
+        }
+        return $apartados;
+    }
+
+    /** Lo que la pantalla de Telas necesita de una tela (lo mismo que devuelve store()). */
+    private function paraPantalla(CatalogoTela $tela): array
+    {
+        return [
+            'ok'                 => true,
+            'id'                 => $tela->id,
+            'marca'              => $tela->marca,
+            'tipo'               => $tela->tipo,
+            'color'              => $tela->color,
+            'referencia'         => $tela->referencia,
+            'textura'            => $tela->textura,
+            'foto_url'           => $tela->foto_url,
+            'metros_disponibles' => (float) $tela->metros_disponibles,
+            'metros_reservados'  => (float) $tela->metros_reservados,
+            'metros_libres'      => round((float) $tela->metros_disponibles - (float) $tela->metros_reservados, 2),
+        ];
     }
 
     /**
@@ -150,13 +223,7 @@ class CatalogoTelaController extends Controller
         // Lo que no se puede es quitar una tela que una orden tiene apartada:
         // esos metros se liberan o se gastan con la orden, y sin la tela el
         // apartado quedaría colgando de algo que ya no aparece en ningún lado.
-        $apartados = (float) $tela->metros_reservados;
-        if ($apartados <= 0 && \Illuminate\Support\Facades\Schema::hasTable('tela_reservas')) {
-            $apartados = (float) \Illuminate\Support\Facades\DB::table('tela_reservas')
-                ->where('catalogo_tela_id', $tela->id)
-                ->where('estado', 'reservada')
-                ->sum('metros');
-        }
+        $apartados = $this->metrosApartados($tela);
         if ($apartados > 0) {
             return response()->json([
                 'message' => "No se puede eliminar: tiene {$apartados} m apartados para órdenes. "
