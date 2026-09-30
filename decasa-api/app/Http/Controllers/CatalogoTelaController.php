@@ -141,7 +141,30 @@ class CatalogoTelaController extends Controller
      */
     public function destroy(int $id)
     {
-        CatalogoTela::findOrFail($id)->update(['activo' => false]);
+        $tela = CatalogoTela::findOrFail($id);
+
+        // No se borra de la base: queda inactiva. Las órdenes que la nombran
+        // siguen diciendo qué tela llevaban, y si alguien la vuelve a crear
+        // con el mismo proveedor, nombre y color, reaparece (ver store()).
+        //
+        // Lo que no se puede es quitar una tela que una orden tiene apartada:
+        // esos metros se liberan o se gastan con la orden, y sin la tela el
+        // apartado quedaría colgando de algo que ya no aparece en ningún lado.
+        $apartados = (float) $tela->metros_reservados;
+        if ($apartados <= 0 && \Illuminate\Support\Facades\Schema::hasTable('tela_reservas')) {
+            $apartados = (float) \Illuminate\Support\Facades\DB::table('tela_reservas')
+                ->where('catalogo_tela_id', $tela->id)
+                ->where('estado', 'reservada')
+                ->sum('metros');
+        }
+        if ($apartados > 0) {
+            return response()->json([
+                'message' => "No se puede eliminar: tiene {$apartados} m apartados para órdenes. "
+                           . 'Primero hay que cambiarles la tela o esperar a que se entreguen.',
+            ], 422);
+        }
+
+        $tela->update(['activo' => false]);
         return response()->json(['ok' => true]);
     }
 }

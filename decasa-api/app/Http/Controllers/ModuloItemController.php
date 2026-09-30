@@ -141,6 +141,25 @@ class ModuloItemController extends Controller
         return response()->json($item->paraPantalla());
     }
 
+    /**
+     * DELETE /api/modulos/{clave}/items/{id}
+     *
+     * Lo mismo que eliminar una tela: queda inactivo, no se borra, y volverlo a
+     * crear igual lo trae de vuelta. Solo el supervisor, como en Telas. Estos
+     * ítems no se apartan para órdenes, así que no hay nada que proteger.
+     */
+    public function destroy(Request $request, string $clave, int $id)
+    {
+        $modulo = $this->modulo($clave);
+        if ($request->user()?->rol !== 'supervisor') {
+            return response()->json(['message' => 'Solo un supervisor puede eliminar.'], 403);
+        }
+
+        ModuloItem::where('modulo_id', $modulo->id)->findOrFail($id)->update(['activo' => false]);
+
+        return response()->json(['ok' => true]);
+    }
+
     /** POST /api/modulos/{clave}/items/recargar */
     public function recargar(Request $request, string $clave)
     {

@@ -11,7 +11,7 @@
  */
 import { cloudinaryOpt } from '@/utils/cloudinary'
 import { ref, computed, onMounted, watch } from 'vue'
-import { MagnifyingGlassIcon, PlusIcon, MinusIcon, ArrowDownTrayIcon, PhotoIcon, XMarkIcon } from '@heroicons/vue/24/outline'
+import { MagnifyingGlassIcon, PlusIcon, MinusIcon, ArrowDownTrayIcon, PhotoIcon, XMarkIcon, TrashIcon } from '@heroicons/vue/24/outline'
 import { useAuthStore } from '@/stores/auth'
 import { useModulosStore } from '@/stores/modulos'
 import { useToast } from '@/composables/useToast'
@@ -52,6 +52,7 @@ const rutas = computed(() => esBase.value
       proveedores: '/inventario-telas/proveedores',
       crear:       '/catalogo-telas',
       editar:      id => `/catalogo-telas/${id}`,
+      eliminar:    id => `/catalogo-telas/${id}`,
       recargar:    '/inventario-telas/recargar',
       descontar:   '/inventario-telas/descontar',
       campo:       'metros',
@@ -63,6 +64,7 @@ const rutas = computed(() => esBase.value
       proveedores: `/modulos/${props.clave}/items/proveedores`,
       crear:       `/modulos/${props.clave}/items`,
       editar:      id => `/modulos/${props.clave}/items/${id}`,
+      eliminar:    id => `/modulos/${props.clave}/items/${id}`,
       recargar:    `/modulos/${props.clave}/items/recargar`,
       descontar:   `/modulos/${props.clave}/items/descontar`,
       campo:       'cantidad',
@@ -225,6 +227,44 @@ function abrirOtroColor(item) {
   }
   crearError.value = ''
   showCrear.value = true
+}
+
+// ── Eliminar ─────────────────────────────────────────────────────────────────
+// Para las que se crearon mal. No se borra de la base: queda inactiva, y si
+// se vuelve a crear igual (proveedor, nombre y color) reaparece. Lo que una
+// orden tiene apartado no se deja quitar: el servidor lo frena y lo explica.
+const itemEliminar = ref(null)
+const eliminando   = ref(false)
+const eliminarError = ref('')
+
+function pedirEliminar(item) {
+  itemEliminar.value  = item
+  eliminarError.value = ''
+}
+
+async function confirmarEliminar() {
+  const item = itemEliminar.value
+  if (!item) return
+  eliminando.value    = true
+  eliminarError.value = ''
+  try {
+    await api.delete(rutas.value.eliminar(item.id))
+    items.value = items.value.filter(t => t.id !== item.id)
+    // Que las órdenes tampoco la ofrezcan más sin tener que recargar.
+    if (esBase.value) {
+      const colores = TELAS_CATALOGO[item.marca]?.[item.tipo]
+      if (colores) {
+        const i = colores.indexOf(item.color)
+        if (i !== -1) colores.splice(i, 1)
+      }
+    }
+    toast.success(`"${item.referencia || item.tipo} (${item.color})" se eliminó.`)
+    itemEliminar.value = null
+  } catch (e) {
+    eliminarError.value = e.response?.data?.message ?? 'No se pudo eliminar.'
+  } finally {
+    eliminando.value = false
+  }
 }
 
 // ── Lo que ya existe, para no reescribirlo ───────────────────────────────────
@@ -564,6 +604,16 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
             <PlusIcon class="w-3.5 h-3.5" />
             Otro color
           </button>
+          <button
+            v-if="auth.isSupervisor"
+            @click="pedirEliminar(item)"
+            :class="['flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-gray-400 text-xs font-semibold hover:bg-red-50 hover:text-red-600 transition-colors',
+              puedeRecargar ? '' : 'ml-auto']"
+            :aria-label="`Eliminar ${item.referencia || item.tipo} ${item.color}`"
+            title="Eliminar"
+          >
+            <TrashIcon class="w-4 h-4" />
+          </button>
         </div>
       </div>
     </div>
@@ -726,6 +776,58 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
                 {{ creando ? 'Guardando...' : `Crear ${cfg.singular}` }}
               </button>
             </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- Modal: Eliminar -->
+    <Transition name="fade">
+      <div v-if="itemEliminar" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="itemEliminar = null">
+        <div class="absolute inset-0 bg-black/40" />
+        <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-4">
+          <div class="flex items-start gap-3">
+            <div class="w-10 h-10 rounded-full bg-red-50 text-red-600 flex items-center justify-center flex-shrink-0">
+              <TrashIcon class="w-5 h-5" />
+            </div>
+            <div class="min-w-0">
+              <h3 class="text-base font-bold text-gray-800">¿Eliminar esta {{ cfg.singular }}?</h3>
+              <p class="text-sm text-gray-700 mt-1">
+                <span class="font-semibold">{{ itemEliminar.referencia || itemEliminar.tipo }}</span>
+                · {{ itemEliminar.color }}
+                <span class="text-gray-400">· {{ itemEliminar.marca }}</span>
+              </p>
+            </div>
+          </div>
+
+          <!-- Lo apartado lo frena el servidor; se dice antes para no hacer
+               el intento en vano. -->
+          <p v-if="itemEliminar.reservado > 0" class="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            Tiene {{ itemEliminar.reservado }} {{ cfg.unidad }} apartados para órdenes, así que no se puede eliminar.
+            Primero hay que cambiarles la {{ cfg.singular }} o esperar a que se entreguen.
+          </p>
+          <template v-else>
+            <p v-if="itemEliminar.disponible > 0" class="text-sm text-gray-700 bg-gray-50 rounded-lg px-3 py-2">
+              Tiene <span class="font-semibold">{{ itemEliminar.disponible }} {{ cfg.unidad }}</span> en inventario:
+              dejarán de contarse. Si la creaste mal, pásale {{ enMetros ? 'esos metros' : 'esa cantidad' }} a la correcta con "Recargar".
+            </p>
+            <p class="text-xs text-gray-500">
+              Deja de aparecer en el inventario y al elegir {{ esBase ? 'telas en las órdenes' : 'ítems' }}.
+              Las órdenes que ya la usaron siguen diciendo cuál era.
+            </p>
+          </template>
+
+          <p v-if="eliminarError" class="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{{ eliminarError }}</p>
+
+          <div class="flex gap-3">
+            <button @click="itemEliminar = null" class="flex-1 bg-gray-100 text-gray-700 rounded-lg py-2.5 text-sm font-semibold">Cancelar</button>
+            <button
+              @click="confirmarEliminar"
+              :disabled="eliminando || itemEliminar.reservado > 0"
+              class="flex-1 bg-red-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-red-700 disabled:opacity-50"
+            >
+              {{ eliminando ? 'Eliminando...' : 'Sí, eliminar' }}
+            </button>
           </div>
         </div>
       </div>

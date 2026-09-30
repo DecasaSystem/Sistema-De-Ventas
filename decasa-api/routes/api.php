@@ -116,6 +116,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/recargar',   [ModuloItemController::class, 'recargar']);
         Route::post('/descontar',  [ModuloItemController::class, 'descontar']);
         Route::patch('/{id}',      [ModuloItemController::class, 'update'])->whereNumber('id');
+        Route::delete('/{id}',     [ModuloItemController::class, 'destroy'])->whereNumber('id');
     });
 
     Route::middleware('role:supervisor')->group(function () {
