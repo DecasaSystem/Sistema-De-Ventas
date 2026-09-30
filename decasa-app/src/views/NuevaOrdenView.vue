@@ -12,6 +12,7 @@ import { updateCliente } from '@/api/clientes'
 import { SPECS_TEMPLATES, resolverCategoria, camposParaModo, specsToDescripcion, extraerDimensiones } from '@/constants/specsConfig'
 import { useTelas } from '@/composables/useTelas'
 import TelaPicker from '@/components/ordenes/TelaPicker.vue'
+import ResumenOrdenModal from '@/components/ordenes/ResumenOrdenModal.vue'
 import { cloudinaryOpt } from '@/utils/cloudinary'
 import { comprimirImagen } from '@/utils/comprimirImagen'
 import { pctDeMonto, montoDePct, formatPct } from '@/utils/descuentos'
@@ -1751,42 +1752,46 @@ watch(hayItemsCotizar, (hay) => {
   if (hay && modoCotizacion.value) cargarReceptoresCotizar()
 }, { immediate: true })
 
-async function submit() {
-  if (submitting.value || subiendoFactura.value || cooldown.value > 0) return
-
+/**
+ * Lo que tiene que estar bien antes de crear la orden. Aparte de submit()
+ * para correrlo también antes de mostrar el resumen: no tiene sentido pedirle
+ * al vendedor que revise algo que igual no se va a poder crear.
+ * Devuelve false (y avisa por qué) si algo falta.
+ */
+async function validarParaCrear() {
   if (clienteRequiereCompletar.value && !modoGuardarBorrador.value) {
     toast.error('Completa los datos del cliente antes de crear la orden.')
-    return
+    return false
   }
 
   const sinPrecio = items.value.filter(i => (i.es_personalizado || i._retapizar) && !i.precio_unitario && !i._cotizarPrecio && !i._regalo)
   if (sinPrecio.length) {
     toast.error(`${sinPrecio.length} producto(s) sin precio. Usa el cotizador IA, ingresa el precio manualmente, o activa "Consultar precio".`)
-    return
+    return false
   }
 
   // Sin tela nueva el taller no sabe qué hacerle al sofá.
   const sinTelaNueva = items.value.filter(i => esCambioTela(i) && !telaResumidaCampo(i, 'tela'))
   if (sinTelaNueva.length) {
     toast.error(`Elige la tela nueva de "${sinTelaNueva[0].nombre}" para mandarlo a retapizar.`)
-    return
+    return false
   }
 
   // Lo mismo con el color o el arreglo: sin decir qué, el taller no sabe qué hacerle.
   const sinQueHacer = items.value.filter(i => i._retapizar && !esCambioTela(i) && !(i.specs_notas ?? '').trim())
   if (sinQueHacer.length) {
     toast.error(`Di qué hay que hacerle a "${sinQueHacer[0].nombre}" en la fábrica.`)
-    return
+    return false
   }
 
   if (hayItemsCotizar.value && !cotizarReceptorId.value) {
     toast.error('Selecciona a quién enviar la consulta de costo antes de continuar.')
-    return
+    return false
   }
 
   if (esCompartida.value && !covendedorId.value) {
     toast.error('Selecciona el co-vendedor para la venta compartida.')
-    return
+    return false
   }
 
   // Validar disponibilidad de tela para lo que el taller va a tapizar: lo que
@@ -1811,16 +1816,108 @@ async function submit() {
       })
       if (tapizaSeguro && !tv.disponible) {
         toast.error(`No hay metros disponibles de "${sel.tipo} – ${sel.color}". Elige otra tela o contacta al encargado.`)
-        return
+        return false
       }
       if (tv.metros_necesarios != null && !tv.suficiente) {
         toast.error(`"${item.nombre}" ×${item.cantidad} necesita ${tv.metros_necesarios} m de "${sel.tipo} – ${sel.color}" y solo hay ${tv.metros} m libres. Elige otra tela o recarga el inventario de telas.`)
-        return
+        return false
       }
     } catch {
       // No bloquear si falla la validación por error de red
     }
   }
+
+  return true
+}
+
+// ── Revisar antes de crear ───────────────────────────────────────────────────
+// "Crear orden" no crea de una: muestra todo lo que se va a guardar —cliente,
+// productos, precios, descuentos, anticipo, si es FV2…— para que el vendedor
+// lo revise con calma. "Volver" deja todo como estaba para corregir; solo
+// "Confirmar y crear" la crea.
+const mostrarResumen = ref(false)
+
+const METODO_LABEL = { efectivo: 'Efectivo', transferencia: 'Transferencia', tarjeta: 'Tarjeta', addi: 'Addi', otro: 'Otro' }
+
+// Todo sale de lo que ya calcula la pantalla (precioEfectivo, valorTotal…):
+// el resumen tiene que decir exactamente lo que se va a guardar.
+const resumenOrden = computed(() => {
+  const c = clienteSeleccionado.value
+  const productos = items.value.map(i => {
+    const etiquetas = []
+    if (i._regalo)                                 etiquetas.push('Obsequio')
+    if (i._cotizarPrecio)                          etiquetas.push('Precio por consultar')
+    if (i._producto_unico)                         etiquetas.push('Mueble único')
+    else if (i.producto_id === null)               etiquetas.push('Diseño especial')
+    else if (i._fabricar_pedido)                   etiquetas.push('Para fabricar')
+    else if (i.es_personalizado)                   etiquetas.push('Personalizado')
+    if (i._retapizar)                              etiquetas.push(`Llevar a fábrica: ${trabajoInfo(i).label}`)
+    if (sePuedeLlevar(i) && i._llevar_ahora)       etiquetas.push('Se lo lleva hoy')
+    if (i.tienda_origen)                           etiquetas.push(`Sale de ${i.tienda_origen}`)
+    return {
+      nombre:    i.nombre,
+      variante:  i.variante_label || null,
+      cantidad:  i.cantidad,
+      precio:    i._cotizarPrecio ? null : Number(i.precio_unitario || 0),
+      final:     i._cotizarPrecio ? null : precioEfectivo(i),
+      rebaja:    i._cotizarPrecio ? 0 : descuentoItemMonto(i),
+      subtotal:  i._cotizarPrecio ? null : i.cantidad * precioEfectivo(i),
+      etiquetas,
+      detalle:   [telaResumidaCampo(i, 'tela'), (i.specs_notas ?? '').trim()].filter(Boolean).join(' · ') || null,
+    }
+  })
+
+  const conAnticipo = !hayItemsCotizar.value && Number(anticipo_monto.value) > 0
+  const abonos = !conAnticipo ? [] : pagoSplit.value
+    ? [
+        { monto: Number(anticipo_monto1_input.value) || 0, metodo: METODO_LABEL[anticipo_metodo.value] ?? anticipo_metodo.value },
+        { monto: Math.max(0, Number(anticipo_monto.value) - (Number(anticipo_monto1_input.value) || 0)), metodo: METODO_LABEL[anticipo_metodo2.value] ?? anticipo_metodo2.value },
+      ].filter(a => a.monto > 0)
+    : [{ monto: Number(anticipo_monto.value), metodo: METODO_LABEL[anticipo_metodo.value] ?? anticipo_metodo.value }]
+  const anticipo = abonos.reduce((s, a) => s + a.monto, 0)
+
+  return {
+    cliente:     { nombre: c?.nombre ?? '—', telefono: c?.telefono ?? null, cedula: c?.cedula ?? null },
+    tienda:      tiendas.value.find(t => t.id == tiendaId.value)?.nombre ?? '—',
+    canal:       canalesopts.find(o => o.value === canal.value)?.label ?? canal.value,
+    fv2:         esFv2.value ? { motivo: motivoSerie.value.trim() || null, sinIva: !!fv2SinIva.value } : null,
+    compartida:  esCompartida.value ? (vendedoresLista.value.find(v => v.id === covendedorId.value)?.nombre ?? 'otro asesor') : null,
+    abonadaA:    tiendaAbonadaId.value ? (tiendas.value.find(t => t.id == tiendaAbonadaId.value)?.nombre ?? null) : null,
+    productos,
+    subtotal:    subtotalItems.value,
+    descuento:   Number(descuentoTotal.value) || 0,
+    descuentoCondicionado: Number(descuentoCondicionado.value) || 0,
+    total:       valorTotal.value,
+    hayCotizar:  hayItemsCotizar.value,
+    consultaA:   hayItemsCotizar.value ? (receptoresCotizar.value.find(r => r.id === cotizarReceptorId.value)?.nombre ?? null) : null,
+    abonos,
+    anticipo,
+    saldo:       Math.max(0, valorTotal.value - anticipo),
+    fechaEntrega: fechaSugeridaVendedor.value || null,
+    envio:       [direccionEnvio.value, ciudadEnvio.value, departamentoEnvio.value].map(s => (s ?? '').trim()).filter(Boolean).join(', ') || null,
+    notas:       notas.value.trim() || null,
+    fotosFactura: facturaFotos.value.length,
+    firma:       !!firmaBlob.value,
+    seLlevaTodo: seLlevaTodo.value,
+    seLlevaAlgo: seLlevaAlgo.value,
+  }
+})
+
+async function revisarAntesDeCrear() {
+  if (submitting.value || subiendoFactura.value || cooldown.value > 0) return
+  modoGuardarBorrador.value = false
+  if (!(await validarParaCrear())) return
+  mostrarResumen.value = true
+}
+
+function confirmarYCrear() {
+  mostrarResumen.value = false
+  submit()
+}
+
+async function submit() {
+  if (submitting.value || subiendoFactura.value || cooldown.value > 0) return
+  if (!(await validarParaCrear())) return
 
   submitting.value = true
   try {
@@ -4594,8 +4691,9 @@ function removeFacturaFoto(i = 0) {
         </p>
       </div>
 
+       <!-- No crea de una: primero el resumen para revisar (ver revisarAntesDeCrear). -->
        <button
-         @click="submit"
+         @click="revisarAntesDeCrear"
          :disabled="submitting || subiendoFactura || cooldown > 0 || clienteRequiereCompletar || (!hayItemsCotizar && !firmaBlob) || !facturaFotoFile"
          class="btn-primary w-full text-base py-3 flex items-center justify-center gap-2"
        >
@@ -4615,6 +4713,15 @@ function removeFacturaFoto(i = 0) {
     </template>
 
   </div>
+
+  <!-- Revisar todo antes de crear la orden -->
+  <ResumenOrdenModal
+    :show="mostrarResumen"
+    :resumen="resumenOrden"
+    :texto-confirmar="seLlevaTodo ? 'Confirmar venta directa' : seLlevaAlgo ? 'Confirmar y entregar lo marcado' : 'Confirmar y crear'"
+    @volver="mostrarResumen = false"
+    @confirmar="confirmarYCrear"
+  />
 
   <!-- Modal picker de variante -->
   <Transition name="fade">
