@@ -81,6 +81,98 @@ class OrdenController extends Controller
     private const CAMPOS_REPARTO_COMISION = ['vendedor_id', 'tienda_abonada_id', 'covendedor_id', 'es_compartida'];
 
     /**
+     * Buscar una orden como la escribe la gente: por el cliente o por su número.
+     *
+     * El número de una orden depende de su serie: la venta normal lleva el
+     * consecutivo (#2567), la de descuento especial "FV2-45" y la restauración
+     * "R-1098". Antes solo el consecutivo se buscaba por pedazos; una
+     * restauración solo aparecía escribiendo "R-1098" completo, "1098" a secas
+     * no la encontraba, y "R" o "fv2" no traían nada.
+     *
+     *   2567 / #25   el consecutivo, el número de cualquier serie o el que tenía
+     *                una anulada que lo contenga; las exactas van primero.
+     *   R, R-, fv2   todas las de esa serie.
+     *   R-10, fv245  las de esa serie cuyo número empieza así ("FV2-45" trae la
+     *                45, la 450, la 4512…). Con guion, espacio o pegado, y en
+     *                mayúsculas o minúsculas.
+     *
+     * Todo lo demás se busca en el nombre del cliente, igual que antes. Una
+     * serie no: "R" traería a todo cliente con una erre en el nombre.
+     */
+    private function buscarPorClienteONumero($query, string $search): void
+    {
+        $limpio = trim(ltrim(trim($search), '#'));   // "#123" = "123"
+        if ($limpio === '') return;
+
+        $term = '%' . mb_strtolower($limpio) . '%';
+
+        // ¿Empieza por el nombre de una serie? Las que existen, más largas
+        // primero: así "FV2-4" es la serie FV2 con el 4, y no la F con "V2-4".
+        $series = collect([Orden::SERIE_FV2, Orden::SERIE_RESTAURACION])
+            ->merge(Orden::query()->whereNotNull('serie')->distinct()->pluck('serie'))
+            ->map(fn ($s) => strtoupper((string) $s))
+            ->filter()
+            ->unique()
+            ->sortByDesc(fn ($s) => strlen($s))
+            ->values();
+
+        $deSerie = null;   // ['serie' => 'FV2', 'numero' => '45' | '']
+        $mayus   = strtoupper($limpio);
+        foreach ($series as $s) {
+            if (str_starts_with($mayus, $s)) {
+                $resto = ltrim(substr($mayus, strlen($s)), " -\t");
+                if ($resto === '' || ctype_digit($resto)) {
+                    $deSerie = ['serie' => $s, 'numero' => $resto];
+                    break;
+                }
+            }
+        }
+
+        $soloNumero = ctype_digit($limpio);
+
+        $query->where(function ($q) use ($term, $limpio, $deSerie, $soloNumero) {
+            // Una anulada que soltó su número se sigue buscando por el que
+            // tenía: es el que está en el papel del cliente.
+            $q->whereRaw('LOWER(COALESCE(numero_anulado, "")) LIKE ?', [$term]);
+
+            // Lo que se escribió es una serie ("R", "fv2", "R-10"): se busca en
+            // ella y no en los nombres. Si no, "R" traía a todo cliente con
+            // una erre en el nombre, y lo que se quería eran las restauraciones.
+            if (! $deSerie) {
+                $q->orWhereHas('cliente', fn ($c) => $c->whereRaw('LOWER(nombre) LIKE ?', [$term]));
+            }
+
+            if ($soloNumero) {
+                $q->orWhereRaw('CAST(numero_orden AS CHAR) LIKE ?', ["%{$limpio}%"])
+                  ->orWhereRaw('CAST(serie_numero AS CHAR) LIKE ?', ["%{$limpio}%"])
+                  ->orWhere('id', (int) $limpio);
+            }
+
+            if ($deSerie) {
+                $q->orWhere(function ($q2) use ($deSerie) {
+                    $q2->where('serie', $deSerie['serie']);
+                    if ($deSerie['numero'] !== '') {
+                        $q2->whereRaw('CAST(serie_numero AS CHAR) LIKE ?', [$deSerie['numero'] . '%']);
+                    }
+                });
+            }
+        });
+
+        // Lo que es exactamente lo que se escribió, arriba de lo parecido: quien
+        // busca "45" casi siempre quiere la 45, no la 1450. Va antes que el
+        // orden de siempre (fijadas, fecha), que sigue mandando dentro de cada grupo.
+        if ($soloNumero) {
+            $n = (int) $limpio;
+            $query->orderByRaw('CASE WHEN numero_orden = ? OR serie_numero = ? THEN 0 ELSE 1 END', [$n, $n]);
+        } elseif ($deSerie && $deSerie['numero'] !== '') {
+            $query->orderByRaw(
+                'CASE WHEN serie = ? AND serie_numero = ? THEN 0 ELSE 1 END',
+                [$deSerie['serie'], (int) $deSerie['numero']]
+            );
+        }
+    }
+
+    /**
      * GET /api/ordenes
      * Vendedor: solo las suyas. Supervisor: todas.
      * Filtros: estado, tienda_id, desde, hasta.
@@ -131,31 +223,7 @@ class OrdenController extends Controller
                   ->whereHas('items', fn ($q) => $q->whereDate('fecha_entrega_prom', '<', now()->toDateString()));
         }
         if ($search = $request->query('search')) {
-            $limpio = ltrim(trim($search), '#');           // permite escribir "#123"
-            $term   = '%' . mb_strtolower($limpio) . '%';
-            // "FV2-3" o "fv2 3": buscar en la serie especial. La serie puede
-            // llevar dígitos (FV2), por eso el separador es obligatorio.
-            // El prefijo puede ser de una sola letra: la serie de restauración
-            // es "R", y con el mínimo en dos "R-1092" no se encontraba.
-            $serieNum = null;
-            if (preg_match('/^([a-zA-Z][a-zA-Z0-9]{0,9})[\s\-]+(\d+)$/', $limpio, $m)) {
-                $serieNum = ['serie' => strtoupper($m[1]), 'numero' => (int) $m[2]];
-            }
-
-            $query->where(function ($q) use ($term, $limpio, $serieNum) {
-                $q->whereHas('cliente', fn($c) => $c->whereRaw('LOWER(nombre) LIKE ?', [$term]))
-                  ->orWhereRaw('LOWER(numero_orden) LIKE ?', [$term])
-                  // Una anulada que soltó su número se sigue buscando por el
-                  // que tenía: es el que está en el papel del cliente.
-                  ->orWhereRaw('LOWER(COALESCE(numero_anulado, "")) LIKE ?', [$term]);
-                if (is_numeric($limpio)) {
-                    $q->orWhere('id', (int) $limpio);
-                }
-                if ($serieNum) {
-                    $q->orWhere(fn($q2) => $q2->where('serie', $serieNum['serie'])
-                                              ->where('serie_numero', $serieNum['numero']));
-                }
-            });
+            $this->buscarPorClienteONumero($query, (string) $search);
         }
 
         // Las que uno fijó van de primeras. El orden se arma en la consulta y no

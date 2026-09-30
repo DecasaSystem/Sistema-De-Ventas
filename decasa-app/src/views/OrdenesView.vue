@@ -105,7 +105,21 @@ const estadosOpts = [
   { value: 'en_camino', label: 'En camino' },
   { value: 'entregado', label: 'Entregado' },
   { value: 'cancelado', label: 'Cancelado' },
+  // No es un estado: son las que tienen la entrega vencida, estén en el
+  // estado que estén. Va aquí porque es donde se busca.
+  { value: 'retrasadas', label: 'Retrasadas (entrega vencida)' },
 ]
+
+// El menú de estado maneja también "Retrasadas", que por dentro sigue siendo
+// el filtro `atrasados` de siempre (así la lista guardada y el Excel no
+// cambian): elegirla quita el estado, y elegir un estado la quita.
+const estadoElegido = computed({
+  get: () => (filtros.value.atrasados ? 'retrasadas' : filtros.value.estado),
+  set: (v) => {
+    filtros.value.atrasados = v === 'retrasadas'
+    filtros.value.estado    = v === 'retrasadas' ? '' : v
+  },
+})
 
 const sentinel = ref(null)
 let observer = null
@@ -447,7 +461,7 @@ onUnmounted(() => {
       <input
         v-model="busqueda"
         @keyup.enter="buscar"
-        placeholder="Buscar por cliente o N° de orden..."
+        placeholder="Cliente, 2567, R-1098, FV2-45..."
         class="w-full rounded-lg border border-gray-300 pl-10 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
       />
     </div>
@@ -510,7 +524,7 @@ onUnmounted(() => {
       <div>
         <label class="block text-xs font-medium text-gray-500 mb-1">Estado</label>
         <select
-          v-model="filtros.estado"
+          v-model="estadoElegido"
           class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           <option v-for="e in estadosOpts" :key="e.value" :value="e.value">{{ e.label }}</option>
@@ -548,17 +562,6 @@ onUnmounted(() => {
           />
         </div>
       </div>
-
-      <!-- Atrasadas: se combina con el estado, o sola trae todas -->
-      <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-        <input
-          v-model="filtros.atrasados"
-          type="checkbox"
-          class="rounded border-gray-300 text-red-600 focus:ring-red-500"
-        />
-        Solo atrasadas
-        <span class="text-xs text-gray-400">— entrega vencida, en producción o no</span>
-      </label>
 
       <!-- Botones -->
       <div class="flex gap-2">
