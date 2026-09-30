@@ -229,6 +229,19 @@ function abrirOtroColor(item) {
   showCrear.value = true
 }
 
+// La referencia se muestra al lado del nombre solo si dice algo más: en las
+// telas del Excel suele ser el mismo texto, y repetirlo es ruido.
+function refDistinta(item) {
+  const ref = (item.referencia ?? '').trim()
+  return ref !== '' && !!item.tipo && ref.toLowerCase() !== item.tipo.trim().toLowerCase()
+}
+// "Terciopelo · Ref. Hielo": como se nombra en avisos y confirmaciones.
+function nombreDe(item) {
+  if (!item) return ''
+  const base = item.tipo || item.referencia || ''
+  return refDistinta(item) ? `${base} · Ref. ${item.referencia}` : base
+}
+
 // ── Eliminar ─────────────────────────────────────────────────────────────────
 // Para las que se crearon mal. No se borra de la base: queda inactiva, y si
 // se vuelve a crear igual (proveedor, nombre y color) reaparece. Lo que una
@@ -258,7 +271,7 @@ async function confirmarEliminar() {
         if (i !== -1) colores.splice(i, 1)
       }
     }
-    toast.success(`"${item.referencia || item.tipo} (${item.color})" se eliminó.`)
+    toast.success(`"${nombreDe(item)} (${item.color})" se eliminó.`)
     itemEliminar.value = null
   } catch (e) {
     eliminarError.value = e.response?.data?.message ?? 'No se pudo eliminar.'
@@ -350,7 +363,7 @@ async function crearItem() {
       }
     }
     showCrear.value = false
-    toast.success(`"${nuevo.referencia || nuevo.tipo} (${nuevo.color})" quedó en el inventario.`)
+    toast.success(`"${nombreDe(nuevo)} (${nuevo.color})" quedó en el inventario.`)
   } catch (e) {
     crearError.value = e.response?.data?.message ?? `Error al crear la ${cfg.value.singular}.`
   } finally {
@@ -396,7 +409,7 @@ async function confirmar() {
       items.value[idx] = actualizado
     }
     showModal.value = false
-    const etiqueta = actualizado.referencia || `${actualizado.tipo} (${actualizado.color})`
+    const etiqueta = `${nombreDe(actualizado)} (${actualizado.color})`
     toast.success(
       modalTipo.value === 'recargar'
         ? `+${m} ${cfg.value.unidad} agregados a ${etiqueta}`
@@ -539,22 +552,22 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
             class="w-12 h-12 rounded-lg object-cover border border-gray-200 flex-shrink-0 cursor-pointer"
           />
           <div class="flex-1 min-w-0">
-            <!-- Si tiene referencia (del Excel): mostrarla como título principal -->
-            <template v-if="item.referencia">
-              <p class="font-semibold text-sm text-gray-800 truncate">{{ item.referencia }}</p>
-              <p class="text-xs text-gray-500 mt-0.5">
-                <span v-if="item.color">{{ item.color }}</span>
-                <span v-if="item.textura"> · {{ item.textura }}</span>
-                <span class="text-gray-400"> · {{ item.marca }}</span>
-              </p>
-            </template>
-            <!-- Sin referencia: entrada del catálogo estático -->
-            <template v-else>
-              <p class="font-semibold text-sm text-gray-800 truncate">{{ item.tipo }}</p>
-              <p class="text-xs text-gray-500 mt-0.5">
-                {{ item.color }}<span class="text-gray-400"> · {{ item.marca }}</span>
-              </p>
-            </template>
+            <!-- El nombre siempre de título, y la referencia al lado. Antes la
+                 referencia, si había, reemplazaba al nombre —así venían las
+                 del Excel, donde era lo mismo—, y en las creadas a mano el
+                 nombre no salía por ningún lado. -->
+            <div class="flex items-baseline gap-1.5 min-w-0">
+              <p class="font-semibold text-sm text-gray-800 truncate">{{ item.tipo || item.referencia }}</p>
+              <span v-if="refDistinta(item)"
+                class="text-[11px] font-medium text-gray-500 bg-gray-100 rounded px-1.5 py-0.5 whitespace-nowrap flex-shrink-0">
+                Ref. {{ item.referencia }}
+              </span>
+            </div>
+            <p class="text-xs text-gray-500 mt-0.5">
+              <span v-if="item.color">{{ item.color }}</span>
+              <span v-if="item.textura"> · {{ item.textura }}</span>
+              <span class="text-gray-400"> · {{ item.marca }}</span>
+            </p>
           </div>
           <div class="flex flex-col items-end gap-0.5">
             <span :class="['text-xs font-bold px-2.5 py-1 rounded-full whitespace-nowrap', colorBadge(item.libre)]">
@@ -609,7 +622,7 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
             @click="pedirEliminar(item)"
             :class="['flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-gray-400 text-xs font-semibold hover:bg-red-50 hover:text-red-600 transition-colors',
               puedeRecargar ? '' : 'ml-auto']"
-            :aria-label="`Eliminar ${item.referencia || item.tipo} ${item.color}`"
+            :aria-label="`Eliminar ${nombreDe(item)} ${item.color}`"
             title="Eliminar"
           >
             <TrashIcon class="w-4 h-4" />
@@ -793,7 +806,7 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
             <div class="min-w-0">
               <h3 class="text-base font-bold text-gray-800">¿Eliminar esta {{ cfg.singular }}?</h3>
               <p class="text-sm text-gray-700 mt-1">
-                <span class="font-semibold">{{ itemEliminar.referencia || itemEliminar.tipo }}</span>
+                <span class="font-semibold">{{ nombreDe(itemEliminar) }}</span>
                 · {{ itemEliminar.color }}
                 <span class="text-gray-400">· {{ itemEliminar.marca }}</span>
               </p>
@@ -847,7 +860,7 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
 
           <div class="bg-gray-50 rounded-lg px-3 py-2">
             <p class="text-sm font-semibold text-gray-800">
-              {{ itemActivo?.referencia || itemActivo?.tipo }}
+              {{ nombreDe(itemActivo) }}
               <span class="text-gray-500 font-normal">({{ itemActivo?.color }})</span>
             </p>
             <p class="text-xs text-gray-500 mt-0.5">
