@@ -60,8 +60,8 @@ async function subirFotos(e) {
       const { data } = await api.post('/upload/foto', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
       soportes.value.push(data.url)
     }
-  } catch {
-    toast.error('No se pudo subir la foto. Intenta de nuevo.')
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudo subir la foto. Intenta de nuevo.')
   } finally {
     subiendo.value = false
   }
