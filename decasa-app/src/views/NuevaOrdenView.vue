@@ -1180,7 +1180,13 @@ function fabricarBajoPedido(producto) {
     toast.info('Se manda a fabricar: no se descuenta el stock de la tienda.')
   }
 
-  const existe = items.value.find(i => i.producto_id === producto.id && i._fabricar_pedido)
+  // Se suma al que ya está solo si todavía no se le dijo nada: el mismo
+  // sofá en gris y en azul son dos ítems, no uno con cantidad 2.
+  const existe = items.value.find(i =>
+    i.producto_id === producto.id && i._fabricar_pedido &&
+    !telaResumidaCampo(i, 'tela') && !(i.specs_notas ?? '').trim() &&
+    !Object.values(i.specs ?? {}).some(v => v !== '' && v != null)
+  )
   if (existe) { existe.cantidad++; return }
 
   items.value.push({
@@ -3660,22 +3666,61 @@ onBeforeUnmount(() => {
             {{ item.producto_id === null ? 'Producto personalizado (sin catálogo)' : 'Ítem personalizado' }}
           </label>
 
-          <!-- ── Tapizado para fabricar bajo pedido ── -->
-          <template v-if="item._fabricar_pedido && item._esTapizado">
-            <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
-              <p class="text-xs font-semibold text-amber-800">Selecciona el tapizado <span class="text-red-500">*</span></p>
+          <!-- ── Para fabricar bajo pedido ──
+               Es el mismo diseño del catálogo, pero casi nunca sale idéntico:
+               otra tela u otro color, otra medida, un detalle. Antes solo se
+               podía elegir la tela (y solo si era tapizado), y lo demás había
+               que decirlo de palabra. Va todo a producción igual que un
+               personalizado. -->
+          <template v-if="item._fabricar_pedido">
+            <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-3">
+              <p class="text-xs font-semibold text-amber-800">¿Cómo se fabrica?</p>
 
-              <TelaPicker
-                :seleccion="getTelaSelection(item, 'tela')"
-                etiqueta="Tela"
-                :producto-id="item.producto_id"
-                :config-id="item._config_id"
-                :cantidad="item.cantidad"
-              />
+              <div class="space-y-1">
+                <label class="text-xs text-gray-500">
+                  Tela / color
+                  <span v-if="item._esTapizado" class="text-red-500">*</span>
+                  <span v-else class="text-gray-300">— opcional, si lleva</span>
+                </label>
+                <TelaPicker
+                  :seleccion="getTelaSelection(item, 'tela')"
+                  etiqueta="Tela"
+                  :producto-id="item.producto_id"
+                  :config-id="item._config_id"
+                  :cantidad="item.cantidad"
+                />
+                <p v-if="item._esTapizado && !telaResumidaCampo(item, 'tela') && marcasConStock().length" class="text-xs text-amber-600 italic">
+                  Selecciona la tela para que producción sepa cuál usar
+                </p>
+              </div>
 
-              <p v-if="!telaResumidaCampo(item, 'tela') && marcasConStock().length" class="text-xs text-amber-600 italic">
-                Selecciona la tela para que producción sepa cuál usar
-              </p>
+              <div>
+                <label class="text-xs text-gray-500">Medidas <span class="text-gray-300">— solo si cambian</span></label>
+                <div class="grid grid-cols-3 gap-2 mt-0.5">
+                  <div>
+                    <label class="text-xs text-gray-400">Largo (cm)</label>
+                    <input v-model.number="item.specs.largo_cm" type="number" min="1" placeholder="ej: 220" class="input text-sm" />
+                  </div>
+                  <div>
+                    <label class="text-xs text-gray-400">Ancho (cm)</label>
+                    <input v-model.number="item.specs.ancho_cm" type="number" min="1" placeholder="ej: 95" class="input text-sm" />
+                  </div>
+                  <div>
+                    <label class="text-xs text-gray-400">Alto (cm)</label>
+                    <input v-model.number="item.specs.alto_cm" type="number" min="1" placeholder="ej: 88" class="input text-sm" />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label class="text-xs text-gray-500">Notas para el taller <span class="text-gray-300">— opcional</span></label>
+                <textarea
+                  v-model="item.specs_notas"
+                  placeholder="Ej: patas en negro mate, sin botones en el espaldar, laca nogal…"
+                  rows="2"
+                  class="input text-sm resize-none mt-0.5"
+                />
+              </div>
             </div>
           </template>
 
