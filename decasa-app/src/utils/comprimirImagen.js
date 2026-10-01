@@ -75,3 +75,29 @@ async function decodificar(archivo) {
     img.src = url
   })
 }
+
+/**
+ * Comprimir una foto apenas se toma, no al enviar.
+ *
+ * Una foto de cámara pesa 4-12 MB, y para mostrarla el navegador la
+ * descomprime a ~48 MB de memoria. Con tres o cuatro en el formulario, un
+ * celular de gama baja se queda sin memoria y Android cierra la app (y con
+ * ella la orden a medio hacer). Reducida a 1920 px queda en ~300 KB. Además
+ * es lo que se guarda en el borrador local, así que pesa menos ahí también.
+ *
+ * Devuelve un File (conserva el nombre, que la pantalla muestra). Como
+ * comprimirImagen, nunca rechaza: si no se puede, queda la original.
+ *
+ * @param {File} archivo
+ * @returns {Promise<File|Blob>}
+ */
+export async function comprimirAlTomar(archivo) {
+  const blob = await comprimirImagen(archivo)
+  if (blob === archivo) return archivo
+  const nombre = (archivo.name || 'foto').replace(/\.[^.]+$/, '') + '.jpg'
+  try {
+    return new File([blob], nombre, { type: blob.type || 'image/jpeg', lastModified: Date.now() })
+  } catch {
+    return blob
+  }
+}

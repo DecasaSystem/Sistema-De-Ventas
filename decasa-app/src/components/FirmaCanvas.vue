@@ -2,7 +2,7 @@
 import { ref, onMounted, nextTick } from 'vue'
 import { PencilIcon, PaperClipIcon, ArrowsPointingOutIcon, CheckIcon } from '@heroicons/vue/24/outline'
 
-defineProps({ modelValue: { default: null } })
+const props = defineProps({ modelValue: { default: null } })
 const emit = defineEmits(['update:modelValue'])
 
 const canvasRef       = ref(null)
@@ -40,6 +40,21 @@ function initCanvas() {
   ctx.lineWidth   = 2.5
   ctx.lineCap     = 'round'
   ctx.lineJoin    = 'round'
+
+  // Una firma que ya venía (la orden se recuperó del borrador del teléfono):
+  // se pinta para que se vea que está, en vez de un recuadro en blanco.
+  if (props.modelValue instanceof Blob) pintarFirmaGuardada(props.modelValue, w, h)
+}
+
+async function pintarFirmaGuardada(blob, w, h) {
+  try {
+    const img = await createImageBitmap(blob)
+    dibujarProporcional(ctx, img, w, h)
+    img.close?.()
+    hayFirma.value = true
+  } catch {
+    // Si no se puede pintar, la firma sigue guardada igual: solo no se ve.
+  }
 }
 
 function initCanvasExpandido() {

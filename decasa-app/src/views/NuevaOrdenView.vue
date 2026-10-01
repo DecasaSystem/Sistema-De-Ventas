@@ -1,7 +1,7 @@
 <script setup>
 import IconoS from '@/components/common/IconoS.vue'
 import InputPesos from '@/components/common/InputPesos.vue'
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
@@ -14,7 +14,8 @@ import { useTelas } from '@/composables/useTelas'
 import TelaPicker from '@/components/ordenes/TelaPicker.vue'
 import ResumenOrdenModal from '@/components/ordenes/ResumenOrdenModal.vue'
 import { cloudinaryOpt } from '@/utils/cloudinary'
-import { comprimirImagen } from '@/utils/comprimirImagen'
+import { comprimirImagen, comprimirAlTomar } from '@/utils/comprimirImagen'
+import { useBorradorLocal } from '@/composables/useBorradorLocal'
 import { pctDeMonto, montoDePct, formatPct } from '@/utils/descuentos'
 import { ArrowPathIcon, SparklesIcon, XMarkIcon } from '@heroicons/vue/24/solid'
 import { ArrowPathIcon as ArrowPathOutlineIcon, PhotoIcon, UserGroupIcon, BuildingStorefrontIcon, ArrowPathIcon as ConvertIcon, ExclamationTriangleIcon, PencilIcon, MapPinIcon, SwatchIcon, CurrencyDollarIcon, PlusIcon, GiftIcon, ChevronDownIcon } from '@heroicons/vue/24/outline'
@@ -349,9 +350,10 @@ watch(tiendasConStock, (lista) => {
 const restauracionItem = ref({ nombre_mueble: '', descripcion_trabajo: '', cantidad: 1, precio_unitario: 0, foto_blob: null, foto_preview: null, _retapizar: false, _telaSelections: {} })
 const restauracionCalc = ref({ calculando: false, resultado: null, mostrar: false })
 
-function onFotoRestauracionForm(event) {
-  const file = event.target.files[0]
-  if (!file) return
+async function onFotoRestauracionForm(event) {
+  const original = event.target.files[0]
+  if (!original) return
+  const file = await comprimirAlTomar(original)
   if (restauracionItem.value.foto_preview) URL.revokeObjectURL(restauracionItem.value.foto_preview)
   restauracionItem.value.foto_blob    = file
   restauracionItem.value.foto_preview = URL.createObjectURL(file)
@@ -1344,13 +1346,17 @@ function onBocetoUpdate(item, blob) {
   }
 }
 
-function onAgregarFotosItem(item, event) {
-  for (const file of event.target.files) {
+async function onAgregarFotosItem(item, event) {
+  const archivos = Array.from(event.target.files ?? [])
+  event.target.value = ''
+  // Una por una: comprimir varias a la vez es justo el pico de memoria que se
+  // quiere evitar.
+  for (const original of archivos) {
+    const file = await comprimirAlTomar(original)
     item.boceto_blobs.push(file)
     item.boceto_urls.push('')
     item.boceto_previews.push(URL.createObjectURL(file))
   }
-  event.target.value = ''
 }
 
 function onQuitarFotoItem(item, idx) {
@@ -1489,8 +1495,10 @@ const submitting           = ref(false)
 // Una clave por formulario, la misma en cada reintento. Si el internet se
 // cae después de que el servidor guardó la orden, la respuesta no llega y la
 // persona vuelve a darle: con la misma clave el servidor devuelve la que ya
-// creó en vez de hacer otra. Se hace nueva solo al abrir otro formulario.
-const claveEnvio = globalThis.crypto?.randomUUID?.()
+// creó en vez de hacer otra. Se hace nueva solo al abrir otro formulario, y
+// al recuperar un borrador se recupera también la suya: si la app se cerró
+// justo cuando la orden se estaba creando, reenviar no la duplica.
+let claveEnvio = globalThis.crypto?.randomUUID?.()
   ?? `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`
 const modoGuardarBorrador  = ref(false)
 const entregaInmediata     = ref(false)  // venta directa: el cliente se lleva los productos ya
@@ -2070,6 +2078,8 @@ async function submit() {
     }
 
     const { data } = await api.post('/ordenes', payload)
+    // Ya está en el servidor: el respaldo del teléfono sobra.
+    await borradorLocal.borrar()
 
     // Crear consulta de costo si hay ítems marcados para cotizar
     if (hayItemsCotizar.value && cotizarReceptorId.value && data?.id) {
@@ -2110,6 +2120,7 @@ async function submit() {
     const status = e.response?.status
     if (status === 409 && e.response?.data?.orden_id) {
       // Orden ya creada — ir a ella en vez de mostrar error
+      await borradorLocal.borrar()
       router.push({ name: 'orden-detalle', params: { id: e.response.data.orden_id } })
       return
     }
@@ -2235,6 +2246,7 @@ async function submitCotizacion() {
     }
 
     const { data } = await api.post('/cotizaciones', payload)
+    await borradorLocal.borrar()
 
     // Ya había llegado (un reintento): se va a la que existe, sin pedir otra
     // vez la consulta de costo.
@@ -2322,18 +2334,136 @@ async function guardarContactoYBorrador() {
   }
 }
 
-function onFacturaFotoChange(e) {
-  for (const file of Array.from(e.target.files ?? [])) {
+async function onFacturaFotoChange(e) {
+  const archivos = Array.from(e.target.files ?? [])
+  e.target.value = ''
+  for (const original of archivos) {
     if (facturaFotos.value.length >= 10) break
+    const file = await comprimirAlTomar(original)
     facturaFotos.value.push({ file, preview: URL.createObjectURL(file), url: '' })
   }
+}
+
+async function onAnexoFotoChange(e) {
+  const original = e.target.files[0]
   e.target.value = ''
+  if (original) anexoFotoFile.value = await comprimirAlTomar(original)
 }
 
 function removeFacturaFoto(i = 0) {
   const [quitada] = facturaFotos.value.splice(i, 1)
   if (quitada?.preview) URL.revokeObjectURL(quitada.preview)
 }
+
+// ── Respaldo en el teléfono ───────────────────────────────────────────────────
+// Si Android cierra la app mientras el vendedor está en WhatsApp o en la cámara,
+// o se recarga sin querer, la orden a medio hacer no se pierde: al volver se
+// ofrece seguir donde iba. Ver useBorradorLocal.
+//
+// Todo lo que el vendedor llena. No van resultados de búsqueda, modales
+// abiertos ni banderas de "cargando": eso no es parte de la orden.
+const camposBorrador = {
+  step, esFv2, fv2SinIva, motivoSerie,
+  contactoNombre, contactoTelefono, contactoEmail, diasVigencia,
+  clienteQuery, clienteSeleccionado, modoNuevoCliente, nuevoCliente, formCompletarCliente,
+  tiendaId, canal, tiendaBusqueda,
+  items, mostrarFormRestauracion, restauracionItem, modoProductoCustom, productoCustomForm,
+  descuentoModo, descuentoInput, descuentoCondModo, descuentoCondInput,
+  anticipo_pct, anticipo_monto, anticipo_metodo, anticipo_referencia,
+  pagoSplit, anticipo_monto1_input, anticipo_metodo2, anticipo_referencia2,
+  notas, fechaSugeridaVendedor, esCompartida, covendedorId, tiendaAbonadaId, entregaInmediata,
+  departamentoEnvio, ciudadEnvio, direccionEnvio,
+  facturaFotos, firmaBlob, firmaUrl, anexoFotoFile, anexoFotoUrl,
+  cotizarReceptorId, cotizarNotas,
+}
+
+const borradorLocal = useBorradorLocal({
+  clave: auth.usuario?.id
+    ? `nueva-orden:${auth.usuario.id}:${modoCotizacion.value ? 'cotizacion' : 'orden'}`
+    : null,
+  fuentes: Object.values(camposBorrador),
+  // Las vistas previas (blob:) no sirven después de recargar: se rehacen
+  // desde la foto guardada.
+  omitir: ['boceto_previews', 'preview', 'foto_preview', '_calculandoPrecio'],
+  capturar: () => {
+    const datos = { claveEnvio }
+    for (const [k, r] of Object.entries(camposBorrador)) datos[k] = r.value
+    return datos
+  },
+  hayContenido: () => !!(
+    clienteSeleccionado.value || items.value.length ||
+    nuevoCliente.value.nombre?.trim() || nuevoCliente.value.cedula?.trim() || nuevoCliente.value.telefono?.trim() ||
+    contactoNombre.value.trim() || contactoTelefono.value.trim() ||
+    restauracionItem.value.nombre_mueble?.trim() || productoCustomForm.value.nombre?.trim()
+  ),
+  resumir: () => {
+    const n = items.value.length
+    return {
+      titulo:  clienteSeleccionado.value?.nombre || nuevoCliente.value.nombre?.trim()
+               || contactoNombre.value.trim() || 'Sin cliente todavía',
+      detalle: `${n} ${n === 1 ? 'producto' : 'productos'} · paso ${step.value} de 3`,
+    }
+  },
+  restaurar: restaurarBorrador,
+})
+const borradorPendiente = borradorLocal.pendiente
+
+async function restaurarBorrador(d) {
+  if (d.claveEnvio) claveEnvio = d.claveEnvio
+
+  // Las fotos vuelven como Blob/File; sus vistas previas se hacen de nuevo.
+  // Una que no se alcanzó a guardar se quita del todo, para que no quede un
+  // hueco en la galería.
+  for (const it of d.items ?? []) {
+    const blobs = it.boceto_blobs ?? [], urls = it.boceto_urls ?? []
+    const quedan = blobs.map((b, i) => i).filter(i => blobs[i] || urls[i])
+    it.boceto_blobs    = quedan.map(i => blobs[i] ?? null)
+    it.boceto_urls     = quedan.map(i => urls[i] ?? '')
+    it.boceto_previews = quedan.map(i => blobs[i] ? URL.createObjectURL(blobs[i]) : urls[i])
+    it._calculandoPrecio = false
+  }
+  if (d.restauracionItem) {
+    d.restauracionItem.foto_preview = d.restauracionItem.foto_blob
+      ? URL.createObjectURL(d.restauracionItem.foto_blob) : null
+  }
+  d.facturaFotos = (d.facturaFotos ?? [])
+    .filter(f => f.file || f.url)
+    .map(f => ({ ...f, preview: f.file ? URL.createObjectURL(f.file) : f.url }))
+
+  const poner = () => {
+    for (const [k, r] of Object.entries(camposBorrador)) if (k in d) r.value = d[k]
+  }
+  poner()
+  // Algunos watchers reaccionan a lo que se acaba de poner y pisan otros
+  // campos (el canal elige la tienda, la firma nueva borra su url, el cliente
+  // rellena "completar datos"…). Una segunda pasada deja lo que había: lo que
+  // no cambió no vuelve a disparar nada.
+  await nextTick()
+  poner()
+
+  if (step.value === 3 && hayItemsCotizar.value) cargarReceptoresCotizar()
+  toast.success('Recuperamos la orden que llevabas.')
+}
+
+function haceCuanto(ts) {
+  const min = Math.round((Date.now() - ts) / 60000)
+  if (min < 1)  return 'hace un momento'
+  if (min < 60) return `hace ${min} min`
+  const h = Math.round(min / 60)
+  if (h < 24)   return `hace ${h} h`
+  return 'ayer'
+}
+
+// Deslizar hacia abajo en Chrome Android recarga la página: aquí no, que es
+// donde más duele. Solo en esta pantalla; las listas lo siguen teniendo.
+onMounted(() => {
+  document.documentElement.style.overscrollBehaviorY = 'contain'
+  document.body.style.overscrollBehaviorY = 'contain'
+})
+onBeforeUnmount(() => {
+  document.documentElement.style.overscrollBehaviorY = ''
+  document.body.style.overscrollBehaviorY = ''
+})
 </script>
 
 <template>
@@ -4565,7 +4695,7 @@ function removeFacturaFoto(i = 0) {
           <input
             type="file"
             accept="image/*"
-            @change="e => { anexoFotoFile = e.target.files[0] }"
+            @change="onAnexoFotoChange"
             class="hidden"
           />
         </label>
@@ -4725,6 +4855,35 @@ function removeFacturaFoto(i = 0) {
 
   <!-- Modal picker de variante -->
   <Transition name="fade">
+    <!-- Orden sin terminar guardada en el teléfono. No se cierra tocando
+         afuera: si se escribe encima sin decidir, lo nuevo pisaría lo que
+         había y justo eso es lo que se quiere evitar. -->
+    <div v-if="borradorPendiente" class="fixed inset-0 z-[80] flex items-end sm:items-center justify-center">
+      <div class="absolute inset-0 bg-black/50" />
+      <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 flex flex-col gap-4">
+        <div>
+          <h3 class="text-base font-bold text-gray-800">
+            Tienes {{ modoCotizacion ? 'una cotización' : 'una orden' }} sin terminar
+          </h3>
+          <p class="text-xs text-gray-500 mt-0.5">
+            Se guardó en este teléfono {{ haceCuanto(borradorPendiente.guardadoEn) }}.
+          </p>
+        </div>
+        <div v-if="borradorPendiente.resumen" class="bg-gray-50 border border-gray-200 rounded-xl p-3">
+          <p class="text-sm font-semibold text-gray-800 truncate">{{ borradorPendiente.resumen.titulo }}</p>
+          <p class="text-xs text-gray-500 mt-0.5">{{ borradorPendiente.resumen.detalle }}</p>
+        </div>
+        <div class="flex flex-col gap-2">
+          <button @click="borradorLocal.continuar()" class="btn-primary w-full py-2.5 text-sm font-semibold">
+            Continuar donde iba
+          </button>
+          <button @click="borradorLocal.descartar()" class="btn-secondary w-full py-2 text-sm">
+            Empezar de cero
+          </button>
+        </div>
+      </div>
+    </div>
+
     <div v-if="mostrarVariantePicker" class="fixed inset-0 z-[70] flex items-end sm:items-center justify-center" @click.self="mostrarVariantePicker = false">
       <div class="absolute inset-0 bg-black/50" @click="mostrarVariantePicker = false" />
       <!-- Se topa en la pantalla y rueda la LISTA, no el modal entero: un
