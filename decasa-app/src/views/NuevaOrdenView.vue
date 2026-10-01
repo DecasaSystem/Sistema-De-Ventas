@@ -332,6 +332,13 @@ function usarSugerencia(s) {
 }
 const buscandoProducto = ref(false)
 const items = ref([])
+// El carrito se muestra con el último agregado arriba: los de antes casi
+// siempre ya están acomodados, y con muchos había que bajar hasta el fondo
+// cada vez. Solo es la vista: la orden, su PDF y el "ÍTEM #" siguen en el
+// orden en que se agregaron, e `idx` es la posición real en `items`.
+const carritoAlReves = computed(() =>
+  items.value.map((item, idx) => ({ item, idx })).reverse()
+)
 // De qué tienda sale el producto. Un independiente no tiene stock propio: su
 // sede es solo administrativa, así que siempre saca de una tienda real.
 const tiendaBusqueda = ref(auth.isIndependiente ? '' : (auth.usuario?.tienda_default_id ?? ''))
@@ -3372,7 +3379,7 @@ onBeforeUnmount(() => {
         <p class="text-sm font-semibold text-gray-600">Carrito ({{ items.length }} ítem{{ items.length > 1 ? 's' : '' }})</p>
 
         <div
-          v-for="(item, idx) in items"
+          v-for="{ item, idx } in carritoAlReves"
           :key="idx"
           class="bg-white rounded-xl shadow-sm p-3 space-y-2"
         >
