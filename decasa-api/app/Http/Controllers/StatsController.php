@@ -519,11 +519,28 @@ class StatsController extends Controller
      * Lo usan la pestaña Tiendas de Reportes (todas) y "Mis estadísticas"
      * (solo las del vendedor), para que las dos digan lo mismo de una tienda.
      */
+    /**
+     * El mes de la meta que corresponde a un período: el del último día
+     * consultado, sin pasarse de hoy.
+     *
+     * Antes era siempre el mes en curso. Mirando septiembre el 1 de octubre,
+     * cada tienda salía con "Meta 2026-10 · 0%": la meta de un mes que apenas
+     * empezaba, al lado de las ventas de otro, como si nadie la hubiera
+     * cumplido.
+     */
+    private function mesDeMeta(string $hasta): string
+    {
+        $hoy = Carbon::now(self::TZ_NEGOCIO);
+        $fin = Carbon::parse($hasta, self::TZ_NEGOCIO);
+        return ($fin->greaterThan($hoy) ? $hoy : $fin)->format('Y-m');
+    }
+
     private function filasTiendas(\Illuminate\Support\Collection $tiendas, array $rango, string $desde, string $hasta): \Illuminate\Support\Collection
     {
         if ($tiendas->isEmpty()) return collect();
 
-        $mesActual = Carbon::now(self::TZ_NEGOCIO)->format('Y-m');
+        // El mes del período consultado, no el de hoy (ver mesDeMeta)
+        $mesActual = $this->mesDeMeta($hasta);
         $metasVigentes = \App\Models\MetaTienda::vigentesEn($mesActual);
         // Se resuelve una vez para todas las tiendas, no una consulta por cada una.
         $ventasParaMeta = ComisionController::ventasParaMeta();
@@ -1531,8 +1548,9 @@ class StatsController extends Controller
                 : null,
         ];
 
-        // Meta mensual de la tienda del vendedor (siempre mes actual, independiente del período)
-        $mesActual  = Carbon::now(self::TZ_NEGOCIO)->format('Y-m');
+        // Meta mensual de la tienda del vendedor, del mes del período que se
+        // está mirando (ver mesDeMeta)
+        $mesActual  = $this->mesDeMeta($hasta);
         // La meta se arrastra: no hace falta volver a cargarla cada mes.
         $vigentes   = \App\Models\MetaTienda::vigentesEn($mesActual);
 

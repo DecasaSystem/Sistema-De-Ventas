@@ -159,6 +159,39 @@ class TiendasStatsCuadraTest extends TestCase
         $this->assertEquals(['ordenes' => 1, 'valor' => 2_000_000, 'cobrado' => 500_000], $norte['restauraciones_compartidas']);
     }
 
+    public function test_mirando_el_mes_pasado_la_meta_es_la_del_mes_pasado(): void
+    {
+        // Mirando septiembre ya en octubre salía "Meta 2026-10 · 0%" en todas
+        // las tiendas: la del mes que apenas empezaba, como si nadie la hubiera
+        // cumplido.
+        $pasado    = Carbon::now('America/Bogota')->subMonthNoOverflow();
+        $mesPasado = $pasado->format('Y-m');
+        $creada    = $pasado->copy()->startOfMonth()->addDays(10)->setTimezone('UTC');
+
+        DB::table('metas_tienda')->insert(['tienda_id' => 1, 'mes' => $mesPasado, 'meta' => 10_000_000]);
+        $orden = $this->orden($creada, 12_000_000);
+        $this->abono($orden, $creada, 12_000_000);
+        DB::table('comisiones')->insert([
+            'orden_id' => $orden, 'vendedor_id' => 1, 'tienda_id' => 1, 'origen' => 'venta',
+            'mes_venta' => $mesPasado, 'valor_orden' => 12_000_000,
+        ]);
+
+        $jefe = Usuario::create([
+            'nombre' => 'Jefa', 'email' => 'j@d.com', 'password' => 'x', 'rol' => 'supervisor', 'created_at' => now(),
+        ]);
+        $norte = collect($this->actingAs($jefe)->getJson('/api/stats/tiendas?periodo=mes_anterior')->assertOk()->json())
+            ->firstWhere('tienda_id', 1);
+
+        $this->assertSame($mesPasado, $norte['meta_mes']['mes']);
+        $this->assertEquals(10_000_000, $norte['meta_mes']['meta']);
+        $this->assertGreaterThan(0, $norte['meta_mes']['total_tienda'], 'cuenta lo vendido ese mes');
+
+        // Y mirando este mes, la de este mes
+        $hoy = collect($this->actingAs($jefe)->getJson('/api/stats/tiendas?periodo=mes')->assertOk()->json())
+            ->firstWhere('tienda_id', 1);
+        $this->assertSame(Carbon::now('America/Bogota')->format('Y-m'), $hoy['meta_mes']['mes']);
+    }
+
     public function test_una_orden_cancelada_no_cuenta_como_cartera_de_la_tienda(): void
     {
         $esteMes = Carbon::now('America/Bogota')->startOfDay()->addHours(12)->setTimezone('UTC');
