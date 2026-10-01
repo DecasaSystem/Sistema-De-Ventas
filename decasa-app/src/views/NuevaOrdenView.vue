@@ -2407,6 +2407,7 @@ const borradorLocal = useBorradorLocal({
   restaurar: restaurarBorrador,
 })
 const borradorPendiente = borradorLocal.pendiente
+const confirmandoDescarte = ref(false)
 
 async function restaurarBorrador(d) {
   if (d.claveEnvio) claveEnvio = d.claveEnvio
@@ -4873,12 +4874,31 @@ onBeforeUnmount(() => {
           <p class="text-sm font-semibold text-gray-800 truncate">{{ borradorPendiente.resumen.titulo }}</p>
           <p class="text-xs text-gray-500 mt-0.5">{{ borradorPendiente.resumen.detalle }}</p>
         </div>
-        <div class="flex flex-col gap-2">
-          <button @click="borradorLocal.continuar()" class="btn-primary w-full py-2.5 text-sm font-semibold">
+        <!-- Borrar es lo único que no tiene vuelta atrás: va discreto, lejos
+             del botón principal, y pide confirmar. Un dedo apurado que tocaba
+             debajo de "Continuar" se llevaba la orden. -->
+        <div v-if="!confirmandoDescarte" class="flex flex-col gap-3">
+          <button @click="borradorLocal.continuar()" class="btn-primary w-full py-3 text-sm font-semibold">
             Continuar donde iba
           </button>
-          <button @click="borradorLocal.descartar()" class="btn-secondary w-full py-2 text-sm">
+          <button @click="confirmandoDescarte = true" class="self-center text-xs text-gray-400 underline py-2 px-3">
             Empezar de cero
+          </button>
+        </div>
+        <div v-else class="flex flex-col gap-2">
+          <p class="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">
+            ¿Seguro? Se borra
+            <strong>{{ borradorPendiente.resumen?.titulo ?? (modoCotizacion ? 'la cotización' : 'la orden') }}</strong><template v-if="borradorPendiente.resumen"> ({{ borradorPendiente.resumen.detalle }})</template>
+            y no se puede recuperar.
+          </p>
+          <button @click="confirmandoDescarte = false" class="btn-primary w-full py-3 text-sm font-semibold">
+            No, volver
+          </button>
+          <button
+            @click="confirmandoDescarte = false; borradorLocal.descartar()"
+            class="w-full py-2 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50"
+          >
+            Sí, borrarla y empezar de cero
           </button>
         </div>
       </div>
