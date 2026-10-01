@@ -1159,6 +1159,17 @@ class StatsController extends Controller
         $f      = $this->parseFechas($request);
         $perfil = $this->perfilVendedor($id, $f);
 
+        // Lo de su tienda en el período, igual que la tarjeta de Reportes:
+        // cuánto vendió en total, cuánto es venta y cuánto restauración. La
+        // meta sola ("cuenta para la meta") no decía lo que vendió la tienda.
+        $tiendaId = $perfil['meta_mes']['tienda_id'] ?? null;
+        $perfil['tienda_periodo'] = $tiendaId
+            ? $this->filasTiendas(
+                DB::table('tiendas')->where('id', $tiendaId)->get(),
+                $this->rangoUtc($f['desde'], $f['hasta']), $f['desde'], $f['hasta'],
+              )->first()
+            : null;
+
         // Si supervisor, añadir comparativa vs promedio del equipo
         if ($user->rol === 'supervisor') {
             $rango       = $this->rangoUtc($f['desde'], $f['hasta']);

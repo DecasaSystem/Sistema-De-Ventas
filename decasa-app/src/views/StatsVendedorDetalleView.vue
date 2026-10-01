@@ -52,6 +52,18 @@ let lineChart = null
 let barChart  = null
 
 // ── Formato moneda COP ────────────────────────────────────────────────────────
+/** De qué es lo vendido por la tienda: ventas, restauraciones y FV2 (las que haya). */
+function tipoTienda(t) {
+  const total = Number(t.total_vendido) || 0
+  const pct = (v) => (total > 0 ? Math.round((v / total) * 100) : 0)
+  const v = t.vendido_por_tipo ?? {}
+  return [
+    { label: 'Ventas',          valor: Number(v.venta) || 0,        color: 'bg-blue-500' },
+    { label: 'Restauraciones',  valor: Number(v.restauracion) || 0, color: 'bg-amber-500' },
+    { label: 'FV2 (descuento)', valor: Number(v.fv2) || 0,          color: 'bg-purple-500' },
+  ].filter((f, i) => i === 0 || f.valor > 0).map(f => ({ ...f, pct: pct(f.valor) }))
+}
+
 function cop(n) {
   return new Intl.NumberFormat('es-CO', {
     style: 'currency', currency: 'COP', maximumFractionDigits: 0,
@@ -258,6 +270,42 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
+      <!-- Su tienda en el período: todo lo vendido, de qué es, y debajo (en la
+           meta) lo que de eso cuenta para comisiones. Sin esto solo se veía
+           "lo que cuenta para la meta" y parecía que la tienda vendía menos. -->
+      <div v-if="stats.tienda_periodo" class="bg-white rounded-xl shadow-sm p-4">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <p class="text-sm font-semibold text-gray-700 truncate">{{ stats.tienda_periodo.nombre }}</p>
+            <p class="text-[11px] text-gray-400">Lo que vendió toda la tienda en el período</p>
+          </div>
+          <div class="text-right shrink-0">
+            <p class="text-lg font-bold text-gray-800 leading-tight">{{ cop(stats.tienda_periodo.total_vendido) }}</p>
+            <p class="text-[11px] text-gray-400">{{ stats.tienda_periodo.ordenes_totales }} órdenes</p>
+          </div>
+        </div>
+        <div class="mt-3 space-y-1.5">
+          <div
+            v-for="fila in tipoTienda(stats.tienda_periodo)"
+            :key="fila.label"
+            class="flex items-center justify-between text-xs"
+          >
+            <span class="flex items-center gap-1.5 text-gray-600">
+              <span class="w-2 h-2 rounded-full" :class="fila.color" />
+              {{ fila.label }}
+            </span>
+            <span class="font-semibold text-gray-800 tabular-nums">
+              {{ cop(fila.valor) }}
+              <span class="text-gray-400 font-normal">· {{ fila.pct }}%</span>
+            </span>
+          </div>
+        </div>
+        <p class="mt-3 text-[11px] text-gray-500">
+          Cobrado <span class="font-semibold text-gray-700">{{ cop(stats.tienda_periodo.ingresos) }}</span>
+          · por cobrar <span class="font-semibold text-gray-700">{{ cop(stats.tienda_periodo.cartera_pendiente) }}</span>
+        </p>
+      </div>
+
       <!-- Barra de meta mensual -->
       <div v-if="stats.meta_mes?.meta" class="bg-white rounded-xl shadow-sm p-4">
         <div class="flex items-center justify-between mb-1">
@@ -296,9 +344,13 @@ onBeforeUnmount(() => {
           />
         </div>
         <div class="flex items-center justify-between text-xs text-gray-500">
-          <span>Tienda: <span class="font-semibold text-gray-700">{{ cop(stats.meta_mes.total_tienda) }}</span></span>
+          <span>Cuenta para la meta: <span class="font-semibold text-gray-700">{{ cop(stats.meta_mes.total_tienda) }}</span></span>
           <span>Meta: <span class="font-semibold text-gray-700">{{ cop(stats.meta_mes.meta) }}</span></span>
         </div>
+        <p class="mt-1.5 text-[11px] text-gray-400 leading-snug">
+          Es lo del mes calendario que cuenta en Comisiones: solo ventas (sin restauraciones ni canceladas),
+          más la mitad que le abonan los independientes, y a lo pagado con tarjeta se le quita la comisión del datáfono.
+        </p>
         <p v-if="stats.meta_mes.cumplida" class="mt-2 text-xs font-semibold text-green-600">
           ✓ ¡Meta alcanzada! La comisión del mes está activa.
         </p>

@@ -192,6 +192,49 @@ class TiendasStatsCuadraTest extends TestCase
         $this->assertSame(Carbon::now('America/Bogota')->format('Y-m'), $hoy['meta_mes']['mes']);
     }
 
+    public function test_el_perfil_del_vendedor_trae_lo_que_vendio_su_tienda_y_de_que_es(): void
+    {
+        // La pantalla del vendedor solo decía "cuenta para la meta": lo
+        // vendido por la tienda, y cuánto era restauración, no salía.
+        // Lo que el perfil del vendedor necesita además de lo de las tiendas
+        Schema::create('productos', function (Blueprint $t) { $t->id(); $t->string('nombre'); $t->string('categoria')->nullable(); });
+        Schema::create('tienda_asesores_comision', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('tienda_id'); $t->string('mes', 7); $t->unsignedBigInteger('vendedor_id'); $t->timestamps();
+        });
+        Schema::create('tienda_reemplazos', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('tienda_id'); $t->string('tipo')->default('reemplazo');
+            $t->unsignedBigInteger('usuario_id'); $t->unsignedBigInteger('reemplaza_a_id')->nullable();
+            $t->date('desde'); $t->date('hasta')->nullable(); $t->string('nota')->nullable(); $t->timestamps();
+        });
+        Schema::table('tiendas', fn (Blueprint $t) => $t->date('cerrada_en')->nullable());
+        Schema::table('orden_items', fn (Blueprint $t) => $t->unsignedBigInteger('producto_id')->nullable());
+        Schema::table('ordenes', function (Blueprint $t) {
+            $t->unsignedInteger('serie_numero')->nullable(); $t->unsignedInteger('numero_orden')->nullable();
+        });
+
+        $hoy = Carbon::now('America/Bogota')->startOfDay()->addHours(12)->setTimezone('UTC');
+        DB::table('metas_tienda')->insert(['tienda_id' => 1, 'mes' => Carbon::now('America/Bogota')->format('Y-m'), 'meta' => 40_000_000]);
+
+        $this->orden($hoy, 10_000_000);
+        $rest = DB::table('ordenes')->insertGetId([
+            'tienda_id' => 1, 'vendedor_id' => 1, 'cliente_id' => 1, 'estado' => 'en_produccion',
+            'serie' => 'R', 'valor_total' => 2_000_000, 'created_at' => $hoy, 'updated_at' => $hoy,
+        ]);
+        DB::table('orden_items')->insert(['orden_id' => $rest, 'es_restauracion' => true, 'precio_unitario' => 2_000_000]);
+
+        $jefe = Usuario::create([
+            'nombre' => 'Jefa', 'email' => 'j@d.com', 'password' => 'x', 'rol' => 'supervisor', 'created_at' => now(),
+        ]);
+        $r = $this->actingAs($jefe)->getJson('/api/stats/vendedor/1?periodo=mes')->assertOk()->json();
+
+        $t = $r['tienda_periodo'];
+        $this->assertSame(1, $t['tienda_id']);
+        $this->assertEquals(12_000_000, $t['total_vendido']);
+        $this->assertEquals(10_000_000, $t['vendido_por_tipo']['venta']);
+        $this->assertEquals(2_000_000,  $t['vendido_por_tipo']['restauracion']);
+        $this->assertEquals(40_000_000, $r['meta_mes']['meta']);
+    }
+
     public function test_una_orden_cancelada_no_cuenta_como_cartera_de_la_tienda(): void
     {
         $esteMes = Carbon::now('America/Bogota')->startOfDay()->addHours(12)->setTimezone('UTC');
