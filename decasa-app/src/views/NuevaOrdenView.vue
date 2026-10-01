@@ -1809,6 +1809,11 @@ async function validarParaCrear() {
     return false
   }
 
+  if (!modoGuardarBorrador.value && comprobantesRequeridos.value === 2 && faltanComprobantes.value) {
+    toast.error('El pago va en dos métodos: sube el comprobante de cada uno.')
+    return false
+  }
+
   // Validar disponibilidad de tela para lo que el taller va a tapizar: lo que
   // se fabrica bajo pedido, lo que se personaliza con tela y lo que se manda
   // a cambiar de tela. Con el descuento automático encendido (Telas →
@@ -1853,6 +1858,34 @@ async function validarParaCrear() {
 const mostrarResumen = ref(false)
 
 const METODO_LABEL = { efectivo: 'Efectivo', transferencia: 'Transferencia', tarjeta: 'Tarjeta', addi: 'Addi', otro: 'Otro' }
+
+// Con el pago dividido en dos métodos hay dos comprobantes. Ya se podían subir
+// varias fotos, pero la segunda se agregaba con un enlace chiquito que nadie
+// veía (y desde la cámara sale una foto a la vez): parecía que solo dejaba
+// una. Ahora se pide cada comprobante con el pago al que corresponde.
+const pagosDivididos = computed(() => {
+  if (!pagoSplit.value) return null
+  const monto1 = Number(anticipo_monto1_input.value) || 0
+  return [
+    { metodo: METODO_LABEL[anticipo_metodo.value]  ?? anticipo_metodo.value,  monto: monto1 },
+    { metodo: METODO_LABEL[anticipo_metodo2.value] ?? anticipo_metodo2.value, monto: Math.max(0, (Number(anticipo_monto.value) || 0) - monto1) },
+  ]
+})
+
+/** El pago cuyo comprobante sigue, mientras falte alguno de los dos. */
+const pagoSinComprobante = computed(() => {
+  const pagos = pagosDivididos.value
+  const n = facturaFotos.value.length
+  return pagos && n < pagos.length ? { n: n + 1, ...pagos[n] } : null
+})
+
+// Pago dividido de verdad (los dos montos con algo y sin precios por
+// consultar, que es cuando se registran los dos abonos): un comprobante por
+// pago. Si no, basta uno, como siempre.
+const comprobantesRequeridos = computed(() =>
+  pagosDivididos.value && !hayItemsCotizar.value && pagosDivididos.value.every(p => p.monto > 0) ? 2 : 1
+)
+const faltanComprobantes = computed(() => facturaFotos.value.length < comprobantesRequeridos.value)
 
 // Todo sale de lo que ya calcula la pantalla (precioEfectivo, valorTotal…):
 // el resumen tiene que decir exactamente lo que se va a guardar.
@@ -4712,7 +4745,7 @@ onBeforeUnmount(() => {
       <!-- Foto del comprobante -->
       <div>
         <label class="label">
-          Foto del comprobante
+          {{ pagosDivididos ? 'Fotos de los comprobantes (una por cada pago)' : 'Foto del comprobante' }}
           <span class="text-red-500 ml-0.5">*</span>
         </label>
         <div v-if="facturaFotos.length" class="space-y-2">
@@ -4724,6 +4757,9 @@ onBeforeUnmount(() => {
                 :class="['w-full rounded-xl border-2 border-gray-200 bg-gray-50', facturaFotos.length > 1 ? 'h-32 object-cover' : 'object-contain']"
                 :style="facturaFotos.length > 1 ? '' : 'max-height: 240px;'"
               />
+              <p v-if="pagosDivididos?.[i]" class="text-[11px] text-gray-500 mt-1 truncate">
+                Pago {{ i + 1 }} · {{ pagosDivididos[i].metodo }} · ${{ pesos(pagosDivididos[i].monto) }}
+              </p>
               <button
                 @click="removeFacturaFoto(i)"
                 class="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1.5 shadow-lg"
@@ -4733,14 +4769,27 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <p v-if="subiendoFactura" class="text-xs text-blue-600">Subiendo imágenes...</p>
-          <label v-if="facturaFotos.length < 10" class="flex items-center justify-center gap-1.5 border border-dashed border-gray-300 rounded-lg py-2 cursor-pointer text-xs text-gray-500 hover:border-blue-400">
+          <!-- Falta el del segundo pago: se pide en grande, igual que el primero -->
+          <label v-if="pagoSinComprobante" class="flex flex-col items-center gap-1 border-2 border-dashed border-amber-300 rounded-xl p-5 cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors">
+            <PhotoIcon class="w-7 h-7 text-amber-300" />
+            <span class="text-sm font-medium text-gray-600">Toca para adjuntar el comprobante del pago {{ pagoSinComprobante.n }}</span>
+            <span class="text-xs text-gray-400">{{ pagoSinComprobante.metodo }} · ${{ pesos(pagoSinComprobante.monto) }}</span>
+            <input type="file" accept="image/*" multiple @change="onFacturaFotoChange" class="hidden" />
+          </label>
+          <label v-else-if="facturaFotos.length < 10" class="flex items-center justify-center gap-1.5 border border-dashed border-gray-300 rounded-lg py-2 cursor-pointer text-xs text-gray-500 hover:border-blue-400">
             <PhotoIcon class="w-4 h-4 text-gray-400" /> Agregar otra foto del comprobante
             <input type="file" accept="image/*" multiple @change="onFacturaFotoChange" class="hidden" />
           </label>
         </div>
         <label v-else class="flex flex-col items-center gap-2 border-2 border-dashed border-amber-300 rounded-xl p-6 cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors">
           <PhotoIcon class="w-8 h-8 text-amber-300" />
-          <span class="text-sm text-gray-500">Toca para adjuntar foto del comprobante</span>
+          <template v-if="pagoSinComprobante">
+            <span class="text-sm text-gray-500">Toca para adjuntar el comprobante del pago 1</span>
+            <span class="text-xs text-gray-400">{{ pagoSinComprobante.metodo }} · ${{ pesos(pagoSinComprobante.monto) }}</span>
+          </template>
+          <template v-else>
+            <span class="text-sm text-gray-500">Toca para adjuntar foto del comprobante</span>
+          </template>
           <span class="text-xs text-gray-400">JPG, PNG — puedes subir varias</span>
           <input
             type="file"
@@ -4750,9 +4799,11 @@ onBeforeUnmount(() => {
             class="hidden"
           />
         </label>
-        <p v-if="!facturaFotoFile" class="text-xs text-amber-600 flex items-center gap-1 mt-1">
+        <p v-if="!facturaFotoFile || faltanComprobantes" class="text-xs text-amber-600 flex items-center gap-1 mt-1">
           <ExclamationTriangleIcon class="w-4 h-4 text-amber-500 inline-block" />
-          Se requiere foto del comprobante para crear la orden
+          {{ comprobantesRequeridos === 2
+            ? `Se requiere el comprobante de los dos pagos para crear la orden (llevas ${facturaFotos.length} de 2)`
+            : 'Se requiere foto del comprobante para crear la orden' }}
         </p>
       </div>
 
@@ -4832,7 +4883,7 @@ onBeforeUnmount(() => {
        <!-- No crea de una: primero el resumen para revisar (ver revisarAntesDeCrear). -->
        <button
          @click="revisarAntesDeCrear"
-         :disabled="submitting || subiendoFactura || cooldown > 0 || clienteRequiereCompletar || (!hayItemsCotizar && !firmaBlob) || !facturaFotoFile"
+         :disabled="submitting || subiendoFactura || cooldown > 0 || clienteRequiereCompletar || (!hayItemsCotizar && !firmaBlob) || !facturaFotoFile || faltanComprobantes"
          class="btn-primary w-full text-base py-3 flex items-center justify-center gap-2"
        >
          <IconoS v-if="submitting && !modoGuardarBorrador" class="w-5 h-5" />
