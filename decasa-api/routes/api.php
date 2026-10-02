@@ -301,6 +301,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/productos/{id}',        [ProductoController::class, 'show']);
     Route::patch('/productos/{id}',      [ProductoController::class, 'update']);
     Route::delete('/productos/{id}',     [ProductoController::class, 'destroy'])->middleware('role:supervisor');
+    // Cambia cómo se cuenta el stock en todas las tiendas: solo supervisor.
+    Route::post('/productos/{id}/venta-por-juego', [ProductoController::class, 'ventaPorJuego'])->middleware('role:supervisor');
 
     // Clientes
     Route::get('/clientes',               [ClienteController::class, 'index']);

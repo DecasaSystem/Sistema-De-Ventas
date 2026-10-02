@@ -412,6 +412,9 @@ class OrdenController extends Controller
             // descartaba y el ítem se guardaba sin decir cuál era.
             'items.*.combo_config_id'            => 'nullable|integer|exists:producto_variante_configs,id',
             'items.*.variante_detalle'           => 'nullable|string|max:200',
+            // Producto en juego: 'juego' (cantidad = juegos × piezas) o
+            // 'pieza' (piezas sueltas). Ver OrdenItem::datosDeJuego.
+            'items.*.venta_juego'                => 'nullable|in:juego,pieza',
             'items.*.tienda_origen_id'           => 'nullable|exists:tiendas,id',
             'items.*.cantidad'                   => 'required|integer|min:1',
             'items.*.precio_unitario'            => 'required|numeric|min:0',
@@ -495,6 +498,13 @@ class OrdenController extends Controller
         // completarlo. Lo que sí espera al borrador es la ENTREGA en sí.
         $quiereEntregaInmediata = $request->boolean('entrega_inmediata', false);
         foreach ($data['items'] as $k => $i) {
+            // Producto que se vende en juego: la cantidad llega en piezas.
+            $juego = OrdenItem::datosDeJuego($i);
+            if (is_string($juego)) {
+                return response()->json(['message' => $juego], 422);
+            }
+            $data['items'][$k]['_juego'] = $juego;
+
             // Cambio de tela: es un mueble de stock —de catálogo, con
             // producto— que además pasa por la fábrica. Sobre un
             // personalizado o un mueble único no tiene sentido: esos no
@@ -753,6 +763,7 @@ class OrdenController extends Controller
                     'variante_id'           => $varianteId,
                     'combo_config_id'       => $comboConfigId,
                     'variante_detalle'      => $varianteDetalle,
+                    ...($itemData['_juego'] ?? []),
                     'tienda_origen_id'      => $origenTiendaId !== $tiendaId ? $origenTiendaId : null,
                     'cantidad'              => $itemData['cantidad'],
                     'precio_unitario'       => $itemData['precio_unitario'],

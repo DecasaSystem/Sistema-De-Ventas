@@ -13,7 +13,7 @@ class OrdenItem extends Model
     // bocetos_list junta boceto_url y boceto_fotos en una sola lista; se expone
     // para que la pantalla de editar pueda mostrarlos y reemplazarlos sin tener
     // que rearmar esa mezcla por su cuenta.
-    protected $appends = ['tipo_item', 'bocetos_list', 'variante_texto', 'trabajo_fabrica_label'];
+    protected $appends = ['tipo_item', 'bocetos_list', 'variante_texto', 'juego_texto', 'trabajo_fabrica_label'];
 
     protected $fillable = [
         'orden_id',
@@ -23,6 +23,11 @@ class OrdenItem extends Model
         'variante_id',
         'combo_config_id',
         'variante_detalle',
+        // Producto que se vende en juego: la cantidad va en piezas (lo que
+        // mueve el stock). piezas_juego = N del juego al venderlo;
+        // es_pieza_suelta = se vendieron piezas sueltas, no juegos completos.
+        'piezas_juego',
+        'es_pieza_suelta',
         'tienda_origen_id',
         'cantidad',
         // Cuántas ya se entregaron. Caché de entrega_lineas: ver EntregaLinea.
@@ -64,6 +69,8 @@ class OrdenItem extends Model
             'es_regalo'             => 'boolean',
             'usa_stock_tienda'      => 'boolean',
             'llevar_ahora'          => 'boolean',
+            'piezas_juego'          => 'integer',
+            'es_pieza_suelta'       => 'boolean',
             'cantidad_entregada'    => 'integer',
             'specs_personalizacion' => 'array',
             'boceto_fotos'          => 'array',
@@ -119,6 +126,67 @@ class OrdenItem extends Model
      * digan exactamente lo mismo.
      */
     public function getVarianteTextoAttribute(): ?string
+    {
+        // Lo del juego va pegado a la variante: es lo que hace que "2" en la
+        // columna de cantidad se lea bien (2 piezas = 1 juego), en la orden,
+        // el PDF y el acta por igual.
+        $texto = implode(' · ', array_filter([$this->varianteSinJuego(), $this->juego_texto]));
+        return $texto !== '' ? $texto : null;
+    }
+
+    /**
+     * Cómo se vendió un producto que va en juego, para leer la cantidad (que
+     * siempre está en piezas): "1 juego de 2 piezas", "Pieza suelta de un
+     * juego de 2". null si no se vendió en juego.
+     */
+    public function getJuegoTextoAttribute(): ?string
+    {
+        $n = (int) $this->piezas_juego;
+        if ($n < 2) return null;
+        $cant = (int) $this->cantidad;
+
+        if ($this->es_pieza_suelta) {
+            return ($cant === 1 ? 'Pieza suelta' : "{$cant} piezas sueltas") . " de un juego de {$n}";
+        }
+
+        $juegos = intdiv($cant, $n);
+        $resto  = $cant % $n;   // solo si se editó la cantidad después
+        return ($juegos === 1 ? '1 juego' : "{$juegos} juegos") . " de {$n} piezas"
+            . ($resto ? " + {$resto} suelta(s)" : '');
+    }
+
+    /**
+     * Valida y arma lo del juego para un ítem que se va a crear.
+     *
+     * La pantalla dice si se vendió por juego o por pieza (`venta_juego`); el
+     * número de piezas lo pone el catálogo, no la pantalla. Devuelve los
+     * campos para OrdenItem::create o un mensaje si no cuadra.
+     *
+     * Sin juego devuelve [] y no un par de nulos: así una venta normal ni
+     * menciona esas columnas al guardarse.
+     */
+    public static function datosDeJuego(array $itemData): array|string
+    {
+        $modo = $itemData['venta_juego'] ?? null;
+        if (! $modo || empty($itemData['producto_id'])) {
+            return [];
+        }
+
+        $producto = Producto::find($itemData['producto_id']);
+        if (! $producto?->seVendeEnJuego()) {
+            // Se quitó el juego mientras se armaba la orden: va por unidad.
+            return [];
+        }
+
+        $n = (int) $producto->piezas_por_juego;
+        if ($modo === 'juego' && ((int) $itemData['cantidad']) % $n !== 0) {
+            return "\"{$producto->nombre}\" se vende en juego de {$n}: la cantidad tiene que ser de juegos completos.";
+        }
+
+        return ['piezas_juego' => $n, 'es_pieza_suelta' => $modo === 'pieza'];
+    }
+
+    private function varianteSinJuego(): ?string
     {
         // Lo que se eligió al vender, palabra por palabra. Manda sobre todo lo
         // demás: si mañana alguien renombra la opción en el catálogo, la orden

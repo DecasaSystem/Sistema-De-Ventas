@@ -16,6 +16,7 @@ import ResumenOrdenModal from '@/components/ordenes/ResumenOrdenModal.vue'
 import { cloudinaryOpt } from '@/utils/cloudinary'
 import { comprimirImagen, comprimirAlTomar } from '@/utils/comprimirImagen'
 import { useBorradorLocal } from '@/composables/useBorradorLocal'
+import { piezasPorJuego, enJuegos, precioPieza } from '@/utils/juegos'
 import { pctDeMonto, montoDePct, formatPct } from '@/utils/descuentos'
 import { ArrowPathIcon, SparklesIcon, XMarkIcon } from '@heroicons/vue/24/solid'
 import { ArrowPathIcon as ArrowPathOutlineIcon, PhotoIcon, UserGroupIcon, BuildingStorefrontIcon, ArrowPathIcon as ConvertIcon, ExclamationTriangleIcon, PencilIcon, MapPinIcon, SwatchIcon, CurrencyDollarIcon, PlusIcon, GiftIcon, ChevronDownIcon } from '@heroicons/vue/24/outline'
@@ -641,6 +642,7 @@ async function buscarProducto() {
       params: { search: productoQuery.value, tienda_id: tiendaBusqueda.value || tiendaId.value },
     })
     productoResultados.value = data
+    recordarProductos(data)
     busquedaHecha.value = true
     sugerencias.value = []
     if (!data.length) {
@@ -902,7 +904,73 @@ const abriendoCambio = ref(null)   // idx mientras se cargan las variantes
  * a escribirlo todo. El precio sí es el de la selección nueva, que es a lo que
  * se vino; si cambia, se avisa para que nadie lo descubra en el total.
  */
+// ── Productos que se venden en juego ──────────────────────────────────────────
+// Unas mesas de noche de a 2. En el carrito se trabaja en la unidad que el
+// vendedor elige —juegos completos o piezas sueltas— con su precio; al enviar
+// todo pasa a piezas, que es como se cuenta el stock (ver utils/juegos.js).
+// Los productos vistos en la búsqueda se guardan para saber, al agregarlos
+// por cualquiera de los caminos (tela, medida, fábrica…), si van en juego.
+const productosVistos = new Map()
+function recordarProductos(lista) {
+  for (const p of lista ?? []) if (p?.id) productosVistos.set(p.id, p)
+}
+
+function aplicarJuego(item) {
+  const n = piezasPorJuego(productosVistos.get(item?.producto_id))
+  if (!n || item._piezas_por_juego) return item
+  item._piezas_por_juego = n
+  item._por_juego        = true
+  item._precio_juego     = Number(item.precio_unitario) || 0
+  item._precio_pieza     = precioPieza(productosVistos.get(item.producto_id), item._precio_juego)
+  return item
+}
+
+/**
+ * Pasar entre "juego completo" y "piezas sueltas". La cantidad y el precio
+ * cambian de unidad con él: 1 juego de 2 son 2 piezas a precio de pieza. Un
+ * descuento en pesos es por unidad, así que también se convierte.
+ */
+function cambiarModoJuego(item, porJuego) {
+  const n = item._piezas_por_juego
+  if (!n || item._por_juego === porJuego) return
+  item.cantidad        = porJuego ? Math.max(1, Math.floor(item.cantidad / n)) : item.cantidad * n
+  item.precio_unitario = porJuego ? item._precio_juego : item._precio_pieza
+  if ((item._descuento_modo ?? 'monto') === 'monto' && Number(item._descuento_valor)) {
+    item._descuento_valor = porJuego ? Number(item._descuento_valor) * n : Math.round(Number(item._descuento_valor) / n)
+  }
+  item._por_juego = porJuego
+}
+
+/** Cuántas unidades de las que se están vendiendo caben en el stock del ítem. */
+function stockEnUnidad(item) {
+  const libre = Number(item.stock_libre) || 0
+  return item._piezas_por_juego && item._por_juego ? Math.floor(libre / item._piezas_por_juego) : libre
+}
+
+/**
+ * Cantidad y precio como los guarda el servidor: siempre en piezas. Un juego
+ * de $900.000 sale como 2 piezas de $450.000. Se redondea hacia abajo al
+ * centavo para que N piezas nunca sumen más que el juego.
+ */
+function lineaParaEnviar(i, precio) {
+  const n = i._piezas_por_juego
+  if (!n) return { cantidad: i.cantidad, precio_unitario: precio }
+  if (i._por_juego) {
+    return { cantidad: i.cantidad * n, precio_unitario: Math.floor(precio / n * 100) / 100, venta_juego: 'juego' }
+  }
+  return { cantidad: i.cantidad, precio_unitario: precio, venta_juego: 'pieza' }
+}
+
+/** Para el resumen: de qué se trata la cantidad. */
+function textoJuegoItem(i) {
+  if (!i._piezas_por_juego) return null
+  return i._por_juego
+    ? `Juego de ${i._piezas_por_juego} piezas`
+    : `Pieza suelta (juego de ${i._piezas_por_juego})`
+}
+
 function _colocarItem(nuevo, existente = null) {
+  aplicarJuego(nuevo)
   if (editandoIdx.value === null) {
     // Devuelve false cuando solo sumó cantidad a uno que ya estaba: quien
     // llama deja entonces la búsqueda como está, para seguir agregando de la
@@ -914,6 +982,12 @@ function _colocarItem(nuevo, existente = null) {
 
   const idx   = editandoIdx.value
   const viejo = items.value[idx]
+
+  // Se estaba vendiendo por pieza suelta: corregir la tela no lo cambia.
+  if (nuevo._piezas_por_juego && viejo._piezas_por_juego && viejo._por_juego === false) {
+    nuevo._por_juego      = false
+    nuevo.precio_unitario = nuevo._precio_pieza
+  }
 
   items.value[idx] = {
     ...nuevo,
@@ -1027,8 +1101,10 @@ async function cambiarTiendaItem(idx, valor) {
 
     // No se baja la cantidad sola —eso es del vendedor—, pero tampoco se calla:
     // la tienda nueva puede tener menos.
-    if (!item.es_personalizado && item.cantidad > item.stock_libre) {
-      toast.error(`Ahí solo hay ${item.stock_libre} disponible(s) y llevas ${item.cantidad}.`)
+    if (!item.es_personalizado && item.cantidad > stockEnUnidad(item)) {
+      toast.error(item._piezas_por_juego
+        ? `Ahí solo hay ${enJuegos(item.stock_libre, item._piezas_por_juego)} y llevas ${item.cantidad} ${item._por_juego ? 'juego(s)' : 'pieza(s)'}.`
+        : `Ahí solo hay ${item.stock_libre} disponible(s) y llevas ${item.cantidad}.`)
     }
 
     // El stock de una tela es el de SU tienda: la que estaba elegida puede no
@@ -1217,6 +1293,7 @@ function fabricarBajoPedido(producto) {
     _precioReferencia: null,
     _telaSelections: {},
   })
+  aplicarJuego(items.value.at(-1))
   productoResultados.value = []
   productoQuery.value = ''
 }
@@ -1253,6 +1330,7 @@ function agregarPersonalizado(producto) {
     _precioReferencia:   null,
     _telaSelections:     {},
   })
+  aplicarJuego(items.value.at(-1))
   productoResultados.value = []
   productoQuery.value = ''
 }
@@ -1910,7 +1988,7 @@ const resumenOrden = computed(() => {
     if (i.tienda_origen)                           etiquetas.push(`Sale de ${i.tienda_origen}`)
     return {
       nombre:    i.nombre,
-      variante:  i.variante_label || null,
+      variante:  [i.variante_label, textoJuegoItem(i)].filter(Boolean).join(' · ') || null,
       cantidad:  i.cantidad,
       precio:    i._cotizarPrecio ? null : Number(i.precio_unitario || 0),
       final:     i._cotizarPrecio ? null : precioEfectivo(i),
@@ -2085,8 +2163,8 @@ async function submit() {
         // orden y el PDF salían con el nombre del mueble a secas.
         variante_detalle:        i.variante_label || undefined,
         tienda_origen_id:        i.tienda_origen_id || undefined,
-        cantidad:                i.cantidad,
-        precio_unitario:         i._cotizarPrecio ? 0 : precioEfectivo(i),
+        // En piezas si va en juego: así se cuenta el stock (ver lineaParaEnviar).
+        ...lineaParaEnviar(i, i._cotizarPrecio ? 0 : precioEfectivo(i)),
         es_personalizado:        i.es_personalizado,
         fabricar_pedido:         i._fabricar_pedido || undefined,
         es_restauracion:         i._es_restauracion || undefined,
@@ -2269,8 +2347,8 @@ async function submitCotizacion() {
         combo_config_id:       i._config_id || undefined,
         variante_detalle:      i.variante_label || undefined,
         tienda_origen_id:      i.tienda_origen_id || undefined,
-        cantidad:              i.cantidad,
-        precio_unitario:       precioEfectivo(i),
+        // En piezas si va en juego (cantidad, precio y venta_juego).
+        ...lineaParaEnviar(i, precioEfectivo(i)),
         es_personalizado:      i.es_personalizado,
         fabricar_pedido:       i._fabricar_pedido || undefined,
         producto_unico:        i._producto_unico || undefined,
@@ -2983,7 +3061,9 @@ onBeforeUnmount(() => {
                 'text-xs font-medium px-2 py-0.5 rounded-full',
                 stockLibre(p) > 0 ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'
               ]">
-                {{ stockLibre(p) > 0 ? `${stockLibre(p)} en stock` : 'Sin stock' }}
+                {{ stockLibre(p) > 0
+                  ? (piezasPorJuego(p) ? `${enJuegos(stockLibre(p), piezasPorJuego(p))} en stock` : `${stockLibre(p)} en stock`)
+                  : 'Sin stock' }}
               </span>
               <span v-if="fabricaStock[p.id] > 0"
                 class="text-xs font-medium px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">
@@ -3512,22 +3592,46 @@ onBeforeUnmount(() => {
               >
                 <option v-for="t in tiendasConStock" :key="t.id" :value="t.id">{{ t.nombre }}</option>
               </select>
-              <span class="text-xs text-gray-400 whitespace-nowrap">{{ item.stock_libre ?? 0 }} disp.</span>
+              <span class="text-xs text-gray-400 whitespace-nowrap">
+                {{ item._piezas_por_juego ? enJuegos(item.stock_libre, item._piezas_por_juego) : (item.stock_libre ?? 0) }} disp.
+              </span>
             </div>
+          </div>
+
+          <!-- Producto que viene en juego: se vende completo o por piezas
+               (el cliente quiere una sola, o solo queda media pareja). -->
+          <div v-if="item._piezas_por_juego" class="space-y-1">
+            <div class="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-medium">
+              <button type="button" @click="cambiarModoJuego(item, true)"
+                :class="['flex-1 py-1.5 transition-colors', item._por_juego ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50']">
+                Juego completo ({{ item._piezas_por_juego }} piezas)
+              </button>
+              <button type="button" @click="cambiarModoJuego(item, false)"
+                :class="['flex-1 py-1.5 transition-colors border-l border-gray-200', !item._por_juego ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50']">
+                Piezas sueltas
+              </button>
+            </div>
+            <p v-if="!item.es_personalizado && item.cantidad > stockEnUnidad(item)" class="text-xs text-amber-600">
+              Solo hay {{ enJuegos(item.stock_libre, item._piezas_por_juego) }} en esa tienda.
+            </p>
           </div>
 
           <div class="grid grid-cols-2 gap-2">
             <div>
-              <label class="text-xs text-gray-500">Cantidad</label>
+              <label class="text-xs text-gray-500">
+                {{ item._piezas_por_juego ? (item._por_juego ? 'Juegos' : 'Piezas') : 'Cantidad' }}
+              </label>
               <input
                 v-model.number="item.cantidad"
                 type="number" min="1"
-                :max="item.es_personalizado ? undefined : item.stock_libre"
+                :max="item.es_personalizado ? undefined : stockEnUnidad(item)"
                 class="input text-sm"
               />
             </div>
             <div>
-              <label class="text-xs text-gray-500">Precio unitario</label>
+              <label class="text-xs text-gray-500">
+                {{ item._piezas_por_juego ? (item._por_juego ? 'Precio por juego' : 'Precio por pieza') : 'Precio unitario' }}
+              </label>
               <div v-if="item._regalo" class="flex items-center gap-2 h-9 px-3 bg-pink-50 border border-pink-300 rounded-lg">
                 <GiftIcon class="w-4 h-4 text-pink-500 flex-shrink-0" />
                 <span class="text-xs text-pink-700 font-medium">Regalo · $0</span>

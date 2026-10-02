@@ -143,6 +143,7 @@ class CotizacionController extends Controller
             'items.*.variante_id'                => 'nullable|integer|exists:producto_variantes,id',
             'items.*.combo_config_id'            => 'nullable|integer|exists:producto_variante_configs,id',
             'items.*.variante_detalle'           => 'nullable|string|max:200',
+            'items.*.venta_juego'                => 'nullable|in:juego,pieza',
             'items.*.tienda_origen_id'           => 'nullable|integer|exists:tiendas,id',
             'items.*.cantidad'                   => 'required|integer|min:1',
             'items.*.precio_unitario'            => 'required|numeric|min:0',
@@ -162,6 +163,15 @@ class CotizacionController extends Controller
         }
 
         $tiendaId = $data['tienda_id'];
+
+        // Producto que se vende en juego: la cantidad llega en piezas.
+        foreach ($data['items'] as $k => $i) {
+            $juego = OrdenItem::datosDeJuego($i);
+            if (is_string($juego)) {
+                return response()->json(['message' => $juego], 422);
+            }
+            $data['items'][$k]['_juego'] = $juego;
+        }
 
         $subtotal       = collect($data['items'])->sum(fn($i) => $i['cantidad'] * $i['precio_unitario']);
         $descuentoTotal = min((float) ($data['descuento_total'] ?? 0), $subtotal);
@@ -218,6 +228,7 @@ class CotizacionController extends Controller
                         $itemData['combo_config_id'] ?? null,
                         $varianteId
                     ),
+                    ...($itemData['_juego'] ?? []),
                     'tienda_origen_id'      => $origenTiendaId !== $tiendaId ? $origenTiendaId : null,
                     'cantidad'              => $itemData['cantidad'],
                     'precio_unitario'       => $itemData['precio_unitario'],
@@ -345,7 +356,7 @@ class CotizacionController extends Controller
     public function verificar(Request $request, int $id)
     {
         $cotizacion = Orden::cotizaciones()
-            ->with(['items.producto:id,nombre,precio_base', 'items.variante'])
+            ->with(['items.producto:id,nombre,precio_base,precio_pieza', 'items.variante'])
             ->findOrFail($id);
 
         if (! $this->puedeVer($request->user(), $cotizacion)) {
@@ -373,7 +384,7 @@ class CotizacionController extends Controller
         $usuario = $request->user();
 
         $cotizacion = Orden::cotizaciones()
-            ->with(['items.producto:id,nombre,precio_base', 'items.variante'])
+            ->with(['items.producto:id,nombre,precio_base,precio_pieza', 'items.variante'])
             ->findOrFail($id);
 
         if (! $this->puedeVer($usuario, $cotizacion)) {
@@ -754,6 +765,14 @@ class CotizacionController extends Controller
                 : (float) ($item->producto->precio_base ?? 0);
 
             if ($precioActual <= 0) continue;
+
+            // En juego el precio guardado es por pieza: se compara con lo
+            // mismo, no con el del juego entero (que saldría siempre "cambiado").
+            if ((int) $item->piezas_juego > 1) {
+                $precioActual = $item->es_pieza_suelta && $item->producto?->precio_pieza !== null
+                    ? (float) $item->producto->precio_pieza
+                    : floor($precioActual / (int) $item->piezas_juego * 100) / 100;
+            }
 
             if (abs($precioActual - (float) $item->precio_unitario) >= 0.01) {
                 $cambios[] = [

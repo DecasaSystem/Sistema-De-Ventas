@@ -40,6 +40,7 @@ import api from '@/api'
 import { comprimirImagen } from '@/utils/comprimirImagen'
 import { pesos } from '@/utils/pesos'
 import InputPesos from '@/components/common/InputPesos.vue'
+import { piezasPorJuego, enJuegos, precioPieza } from '@/utils/juegos'
 
 const router = useRouter()
 const route = useRoute()
@@ -1158,6 +1159,8 @@ function openGestionar(item) {
   nuevoStock.value = 0
   stockMotivo.value = ''
   gestionError.value = ''
+  juegoForm.value = null
+  stockEnJuegos.value = true
   stockError.value = ''
   quitarStockCant.value   = 0
   quitarStockMotivo.value = ''
@@ -1205,7 +1208,7 @@ async function guardarStock() {
     await addStock({
       producto_id: itemGestionar.value.producto_id,
       tienda_id: esVistaGlobal.value ? 'todas' : tiendaId.value,
-      cantidad: nuevoStock.value,
+      cantidad: aPiezas(nuevoStock.value),
       motivo: stockMotivo.value || undefined,
     })
     mostrarGestionar.value = false
@@ -1228,7 +1231,7 @@ async function quitarStock() {
     await removeStock({
       producto_id: itemGestionar.value.producto_id,
       tienda_id:   tiendaId.value,
-      cantidad:    quitarStockCant.value,
+      cantidad:    aPiezas(quitarStockCant.value),
       motivo:      quitarStockMotivo.value || undefined,
     })
     mostrarGestionar.value = false
@@ -1294,6 +1297,67 @@ async function toggleTieneTallas() {
     }
   } catch {
     // silencioso
+  }
+}
+
+// ── Venta en juego ────────────────────────────────────────────────────────────
+// Unas mesas de noche que vienen de a 2: el stock se cuenta por piezas para
+// poder vender una sola (o que quede media pareja) sin números imposibles. Al
+// activarlo, lo ya cargado —contado en juegos— se pasa a piezas. Lo hace el
+// servidor, en todas las tiendas a la vez; ver ProductoController::ventaPorJuego.
+const juegoForm      = ref(null)   // { quitar, piezas, precioPieza, convertir } mientras se edita
+const juegoGuardando = ref(false)
+const juegoError     = ref('')
+// Agregar o quitar stock de un producto en juego: por defecto se escribe en
+// juegos (como llega de la bodega) y se manda en piezas.
+const stockEnJuegos  = ref(true)
+
+const juegoGestionar = computed(() => piezasPorJuego(itemGestionar.value?.producto))
+
+function aPiezas(cantidad) {
+  const n = juegoGestionar.value
+  return n && stockEnJuegos.value ? cantidad * n : cantidad
+}
+
+function abrirJuego(quitar = false) {
+  const p = itemGestionar.value?.producto ?? {}
+  juegoError.value = ''
+  juegoForm.value = {
+    quitar,
+    piezas:      juegoGestionar.value || 2,
+    precioPieza: p.precio_pieza ?? null,
+    // Lo normal: el stock se cargó contado en juegos ("pongo 1"). Al quitar,
+    // volver a contarlo en juegos solo es posible si son juegos completos.
+    convertir:   true,
+  }
+}
+
+async function guardarJuego() {
+  const f = juegoForm.value
+  const p = itemGestionar.value.producto
+  if (!f.quitar && !(f.piezas >= 2 && f.piezas <= 50)) {
+    juegoError.value = 'El juego tiene que traer entre 2 y 50 piezas.'
+    return
+  }
+  juegoGuardando.value = true
+  juegoError.value = ''
+  try {
+    const { data } = await api.post(`/productos/${itemGestionar.value.producto_id}/venta-por-juego`, {
+      piezas_por_juego: f.quitar ? null : f.piezas,
+      precio_pieza:     f.quitar || f.precioPieza === '' || f.precioPieza == null ? null : Number(f.precioPieza),
+      // Cambiar de juego de 2 a 3 no convierte: el servidor lo ignora igual.
+      convertir_stock:  !!f.convertir,
+    })
+    p.piezas_por_juego = data.piezas_por_juego
+    p.precio_pieza     = data.precio_pieza
+    juegoForm.value = null
+    toast.success(f.quitar ? 'Ya no se vende en juego.' : `Se vende en juego de ${data.piezas_por_juego}.`)
+    // El stock pudo cambiar en todas las tiendas.
+    if (f.convertir) await cargarInventario(true)
+  } catch (e) {
+    juegoError.value = e.response?.data?.message ?? 'No se pudo guardar.'
+  } finally {
+    juegoGuardando.value = false
   }
 }
 
@@ -2517,6 +2581,12 @@ onMounted(async () => {
               <p class="text-xs text-gray-400">Mínimo</p>
             </div>
           </div>
+          <!-- En juego los números de arriba son piezas: aquí se leen como
+               se venden. Media pareja se ve como "suelta", no se esconde. -->
+          <p v-if="piezasPorJuego(item.producto)" class="mt-1.5 text-xs text-blue-700 bg-blue-50 rounded-lg px-2 py-1">
+            Juego de {{ piezasPorJuego(item.producto) }} · cifras en piezas ·
+            disponible: <strong>{{ enJuegos(item.stock_libre, piezasPorJuego(item.producto)) }}</strong>
+          </p>
 
           <!-- Cuánto hay en cada tienda: el total solo no dice de dónde traerlo -->
           <div v-if="esVistaGlobal && item.por_tienda?.length" class="mt-2 space-y-1">
@@ -3167,6 +3237,102 @@ onMounted(async () => {
               </button>
             </div>
 
+            <!-- Venta en juego (unas mesas de a 2). Cambia cómo se cuenta el
+                 stock en todas las tiendas: solo el supervisor lo toca. -->
+            <div class="space-y-2">
+              <div class="flex items-center justify-between">
+                <div>
+                  <p class="text-sm font-medium text-gray-700">Se vende en juego</p>
+                  <p class="text-xs text-gray-400">
+                    <template v-if="juegoGestionar">
+                      Juego de {{ juegoGestionar }} piezas · pieza suelta a ${{ pesos(precioPieza(itemGestionar?.producto)) }}
+                    </template>
+                    <template v-else>Para lo que viene de a varios (mesas de a 2, sillas de a 6)</template>
+                  </p>
+                </div>
+                <button
+                  v-if="auth.isSupervisor"
+                  @click="juegoForm ? (juegoForm = null) : abrirJuego(!!juegoGestionar)"
+                  :class="[
+                    'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
+                    juegoGestionar ? 'bg-blue-600' : 'bg-gray-200'
+                  ]"
+                >
+                  <span
+                    :class="[
+                      'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                      juegoGestionar ? 'translate-x-6' : 'translate-x-1'
+                    ]"
+                  />
+                </button>
+              </div>
+              <button
+                v-if="auth.isSupervisor && juegoGestionar && !juegoForm"
+                type="button"
+                @click="abrirJuego(false)"
+                class="text-xs text-blue-600 hover:underline"
+              >Cambiar piezas o precio de la pieza</button>
+
+              <!-- Activar / editar -->
+              <div v-if="juegoForm && !juegoForm.quitar" class="bg-blue-50 border border-blue-200 rounded-xl p-3 space-y-3">
+                <div class="grid grid-cols-2 gap-2">
+                  <div>
+                    <label class="text-xs text-gray-600">Piezas por juego</label>
+                    <input v-model.number="juegoForm.piezas" type="number" min="2" max="50"
+                      class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                  <div>
+                    <label class="text-xs text-gray-600">Precio pieza suelta</label>
+                    <InputPesos v-model="juegoForm.precioPieza"
+                      :placeholder="pesos(Math.floor((itemGestionar?.producto?.precio_base ?? 0) / (juegoForm.piezas || 1)))"
+                      class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                </div>
+                <p class="text-xs text-gray-500">
+                  El juego completo sigue a ${{ pesos(itemGestionar?.producto?.precio_base) }}. Si no pones precio a la
+                  pieza suelta, es el del juego entre {{ juegoForm.piezas || 'N' }}.
+                </p>
+                <!-- Solo al activarlo: pasar de 2 a 3 piezas no convierte nada,
+                     las piezas que hay son las mismas. -->
+                <label v-if="!juegoGestionar" class="flex items-start gap-2 text-xs text-gray-700 cursor-pointer">
+                  <input v-model="juegoForm.convertir" type="checkbox" class="rounded mt-0.5" />
+                  <span>
+                    El stock que ya tiene está contado en <strong>juegos</strong>: pasarlo a piezas en todas las tiendas
+                    (1 juego → {{ juegoForm.piezas || 'N' }} piezas).
+                    <span class="block text-gray-400">Desmárcalo solo si ya lo cargaste contando cada pieza.</span>
+                  </span>
+                </label>
+                <p v-if="juegoError" class="text-xs text-red-600">{{ juegoError }}</p>
+                <div class="flex gap-2">
+                  <button @click="juegoForm = null" class="flex-1 text-sm text-gray-600 border border-gray-300 rounded-lg py-2">Cancelar</button>
+                  <button @click="guardarJuego" :disabled="juegoGuardando"
+                    class="flex-1 text-sm font-semibold text-white bg-blue-600 rounded-lg py-2 disabled:opacity-50">
+                    {{ juegoGuardando ? 'Guardando...' : (juegoGestionar ? 'Guardar' : 'Activar') }}
+                  </button>
+                </div>
+              </div>
+
+              <!-- Quitar -->
+              <div v-if="juegoForm && juegoForm.quitar" class="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-3">
+                <p class="text-sm text-amber-800">Dejará de venderse en juego.</p>
+                <label class="flex items-start gap-2 text-xs text-gray-700 cursor-pointer">
+                  <input v-model="juegoForm.convertir" type="checkbox" class="rounded mt-0.5" />
+                  <span>
+                    Volver a contar el stock en juegos ({{ juegoGestionar }} piezas → 1).
+                    <span class="block text-gray-400">Si lo desmarcas, cada pieza queda como una unidad que se vende sola.</span>
+                  </span>
+                </label>
+                <p v-if="juegoError" class="text-xs text-red-600">{{ juegoError }}</p>
+                <div class="flex gap-2">
+                  <button @click="juegoForm = null" class="flex-1 text-sm text-gray-600 border border-gray-300 rounded-lg py-2">Cancelar</button>
+                  <button @click="guardarJuego" :disabled="juegoGuardando"
+                    class="flex-1 text-sm font-semibold text-white bg-amber-600 rounded-lg py-2 disabled:opacity-50">
+                    {{ juegoGuardando ? 'Guardando...' : 'Quitar' }}
+                  </button>
+                </div>
+              </div>
+            </div>
+
             <div class="border-t border-gray-100" />
 
             <!-- Variantes personalizadas -->
@@ -3310,6 +3476,17 @@ onMounted(async () => {
             <!-- Agregar stock -->
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Agregar stock</label>
+              <!-- En juego se escribe como llega (juegos) o pieza por pieza -->
+              <div v-if="juegoGestionar" class="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-medium mb-2">
+                <button type="button" @click="stockEnJuegos = true"
+                  :class="['flex-1 py-1.5', stockEnJuegos ? 'bg-blue-600 text-white' : 'bg-white text-gray-600']">
+                  En juegos (de {{ juegoGestionar }})
+                </button>
+                <button type="button" @click="stockEnJuegos = false"
+                  :class="['flex-1 py-1.5', !stockEnJuegos ? 'bg-blue-600 text-white' : 'bg-white text-gray-600']">
+                  En piezas sueltas
+                </button>
+              </div>
               <div class="flex gap-2">
                 <input
                   v-model.number="nuevoStock"
@@ -3327,6 +3504,9 @@ onMounted(async () => {
                   Agregar
                 </button>
               </div>
+              <p v-if="juegoGestionar && stockEnJuegos && nuevoStock > 0" class="text-xs text-gray-500 mt-1">
+                = {{ nuevoStock * juegoGestionar }} piezas
+              </p>
               <p v-if="esVistaGlobal" class="text-xs text-blue-600 mt-1">Se agregará a todas las tiendas donde existe este producto</p>
               <input
                 v-model="stockMotivo"
@@ -3367,6 +3547,12 @@ onMounted(async () => {
                     Quitar
                   </button>
                 </div>
+                <!-- Usa la misma unidad que se eligió arriba en "Agregar stock" -->
+                <p v-if="juegoGestionar" class="text-xs text-gray-500 mt-1">
+                  {{ stockEnJuegos ? `En juegos de ${juegoGestionar}` : 'En piezas sueltas' }}
+                  <template v-if="quitarStockCant > 0"> — se quitan {{ aPiezas(quitarStockCant) }} pieza(s)</template>
+                  · hay {{ enJuegos(itemGestionar?.cantidad_disponible, juegoGestionar) }}
+                </p>
                 <input
                   v-model="quitarStockMotivo"
                   class="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
