@@ -16,7 +16,7 @@ import ResumenOrdenModal from '@/components/ordenes/ResumenOrdenModal.vue'
 import { cloudinaryOpt } from '@/utils/cloudinary'
 import { comprimirImagen, comprimirAlTomar } from '@/utils/comprimirImagen'
 import { useBorradorLocal } from '@/composables/useBorradorLocal'
-import { piezasPorJuego, enJuegos, precioPieza } from '@/utils/juegos'
+import { piezasPorJuego, piezasDeOpcion, enJuegos, precioPieza } from '@/utils/juegos'
 import { pctDeMonto, montoDePct, formatPct } from '@/utils/descuentos'
 import { ArrowPathIcon, SparklesIcon, XMarkIcon } from '@heroicons/vue/24/solid'
 import { ArrowPathIcon as ArrowPathOutlineIcon, PhotoIcon, UserGroupIcon, BuildingStorefrontIcon, ArrowPathIcon as ConvertIcon, ExclamationTriangleIcon, PencilIcon, MapPinIcon, SwatchIcon, CurrencyDollarIcon, PlusIcon, GiftIcon, ChevronDownIcon } from '@heroicons/vue/24/outline'
@@ -916,12 +916,14 @@ function recordarProductos(lista) {
 }
 
 function aplicarJuego(item) {
-  const n = piezasPorJuego(productosVistos.get(item?.producto_id))
+  const producto = productosVistos.get(item?.producto_id)
+  // La opción elegida puede traer otro número de piezas (alas de a 4).
+  const n = piezasDeOpcion(producto, item?._config_id)
   if (!n || item._piezas_por_juego) return item
   item._piezas_por_juego = n
   item._por_juego        = true
   item._precio_juego     = Number(item.precio_unitario) || 0
-  item._precio_pieza     = precioPieza(productosVistos.get(item.producto_id), item._precio_juego)
+  item._precio_pieza     = precioPieza(producto, item._precio_juego, item._config_id)
   return item
 }
 
@@ -5247,7 +5249,12 @@ onBeforeUnmount(() => {
                   ${{ Number(opt.precio_adicional).toLocaleString('es-CO') }}
                 </span>
                 <span class="text-xs ml-2 font-semibold" :class="(opt.stock_disponible ?? 0) > 0 ? 'text-green-600' : 'text-red-400'">
-                  {{ opt.stock_disponible ?? 0 }} disp.
+                  <!-- En juego el stock está en piezas; cada opción con su juego -->
+                  <template v-if="piezasDeOpcion(vcPickerProd, opt.id)">
+                    juego de {{ piezasDeOpcion(vcPickerProd, opt.id) }} ·
+                    {{ enJuegos(opt.stock_disponible, piezasDeOpcion(vcPickerProd, opt.id)) }} disp.
+                  </template>
+                  <template v-else>{{ opt.stock_disponible ?? 0 }} disp.</template>
                 </span>
               </button>
             </div>

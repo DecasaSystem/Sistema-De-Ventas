@@ -178,7 +178,8 @@ class OrdenItem extends Model
             return [];
         }
 
-        $n = (int) $producto->piezas_por_juego;
+        // La opción elegida puede traer otro número de piezas (alas de a 4).
+        $n = $producto->piezasDelJuego($itemData['combo_config_id'] ?? null);
         if ($modo === 'juego' && ((int) $itemData['cantidad']) % $n !== 0) {
             return "\"{$producto->nombre}\" se vende en juego de {$n}: la cantidad tiene que ser de juegos completos.";
         }

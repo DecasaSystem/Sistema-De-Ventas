@@ -78,6 +78,22 @@ class ProductoController extends Controller
             });
         }
 
+        // Lo que se vende en juego: las opciones cuyo juego trae otro número
+        // de piezas (alas de a 4 en un producto de a 2). Una sola consulta,
+        // y solo si en la lista hay alguno en juego.
+        $enJuego = $productos->filter(fn ($p) => $p->seVendeEnJuego())->pluck('id');
+        if ($enJuego->isNotEmpty()) {
+            $propias = DB::table('producto_variante_configs')
+                ->whereIn('producto_id', $enJuego)->whereNotNull('piezas_por_juego')
+                ->get(['id', 'producto_id', 'piezas_por_juego'])
+                ->groupBy('producto_id');
+            $productos->each(function ($p) use ($propias) {
+                if ($p->seVendeEnJuego()) {
+                    $p->piezas_opciones = $propias->get($p->id, collect())->pluck('piezas_por_juego', 'id');
+                }
+            });
+        }
+
         return response()->json($productos->values());
     }
 
@@ -254,13 +270,23 @@ class ProductoController extends Controller
     /**
      * POST /api/productos/{id}/venta-por-juego
      *
-     * Activa, cambia o quita la venta en juego (unas mesas que vienen de a 2).
+     * Activa, cambia o quita la venta en juego (unas mesas que vienen de a 2),
+     * y el número de piezas de cada opción si el juego cambia según la opción
+     * (unas alas vintage de a 2 o de a 4).
      *
      * Con el juego activo el stock se cuenta por PIEZAS. Lo que ya estaba
      * cargado casi siempre está contado en juegos ("pongo 1"), así que al
-     * activarlo se ofrece multiplicar por N (`convertir_stock`); y al quitarlo,
-     * dividir de vuelta. Pasar de juego de 2 a juego de 3 no convierte nada:
-     * las piezas que hay son las mismas, solo cambia cómo se agrupan.
+     * activarlo se ofrece convertirlo (`convertir_stock`), y al quitarlo,
+     * volver a juegos. Cambiar un número con el juego ya activo no convierte
+     * por defecto —las piezas que hay son las mismas—, pero se puede pedir:
+     * sirve cuando el stock de esa opción se convirtió con el número
+     * equivocado.
+     *
+     * La regla es una sola para todo: cada fila de stock se multiplica por
+     * (piezas nuevas / piezas de antes) de SU opción, contando 1 cuando no se
+     * vendía en juego (la unidad guardada era el juego entero). El total de la
+     * tienda y el reparto por tela no son de una opción: se rearman sumando lo
+     * de cada opción más lo que no está en ninguna, con el número del producto.
      *
      * Convertir no se deja mientras haya algo apartado o en camino: esas
      * órdenes, traslados y surtidos guardaron su cantidad en la unidad vieja,
@@ -271,124 +297,213 @@ class ProductoController extends Controller
         $producto = Producto::findOrFail($id);
 
         $data = $request->validate([
-            'piezas_por_juego' => 'nullable|integer|min:2|max:50',
-            'precio_pieza'     => 'nullable|numeric|min:0',
-            'convertir_stock'  => 'sometimes|boolean',
+            'piezas_por_juego'   => 'nullable|integer|min:2|max:50',
+            'precio_pieza'       => 'nullable|numeric|min:0',
+            'convertir_stock'    => 'sometimes|boolean',
+            // { config_id: piezas | null }. Las que no vienen quedan como están.
+            'piezas_opciones'    => 'sometimes|array',
+            'piezas_opciones.*'  => 'nullable|integer|min:2|max:50',
         ]);
 
-        $antes     = $producto->seVendeEnJuego() ? (int) $producto->piezas_por_juego : null;
-        $despues   = $data['piezas_por_juego'] ?? null;
-        // Solo se convierte al entrar o salir del juego, no al cambiar N.
-        $convertir = ! empty($data['convertir_stock']) && (bool) $antes !== (bool) $despues;
-        $factor    = $despues ?? $antes;   // N con el que se multiplica o divide
+        $configs = DB::table('producto_variante_configs')
+            ->where('producto_id', $producto->id)
+            ->get(['id', 'tipo_variante_id', 'piezas_por_juego'])
+            ->keyBy('id');
 
-        $filas = $convertir ? $this->filasDeStock($producto->id) : collect();
+        $antesD   = $producto->seVendeEnJuego() ? (int) $producto->piezas_por_juego : 0;
+        $despuesD = (int) ($data['piezas_por_juego'] ?? 0);
 
+        // Piezas propias de cada opción, antes y después. Sin juego no hay
+        // ninguna; igual al del producto es lo mismo que no tener.
+        $pedidas = $data['piezas_opciones'] ?? [];
+        foreach (array_keys($pedidas) as $cfgId) {
+            if (! $configs->has((int) $cfgId)) {
+                return response()->json(['message' => 'Esa opción no es de este producto.'], 422);
+            }
+        }
+        $antesO = $despuesO = [];
+        foreach ($configs as $c) {
+            $antesO[$c->id] = $antesD ? (int) $c->piezas_por_juego : 0;
+            $nuevo = array_key_exists($c->id, $pedidas) ? (int) $pedidas[$c->id] : (int) $c->piezas_por_juego;
+            $despuesO[$c->id] = ($despuesD && $nuevo > 1 && $nuevo !== $despuesD) ? $nuevo : 0;
+        }
+
+        // Una opción con su propio número reparte el stock del producto. Si
+        // el producto tiene otro tipo de variante más, ese mismo stock está
+        // repartido de dos maneras y no hay cómo saber cuántas piezas trae
+        // cada unidad.
+        $conPropias = collect($despuesO)->filter()->keys()->merge(collect($antesO)->filter()->keys());
+        if ($conPropias->isNotEmpty() && $configs->pluck('tipo_variante_id')->unique()->count() > 1) {
+            return response()->json([
+                'message' => 'Este producto tiene más de un tipo de variante: las piezas por opción solo se pueden poner '
+                    . 'cuando tiene uno solo. Usa el mismo número para todo el producto, o sepáralo en dos productos.',
+            ], 422);
+        }
+
+        // Piezas por unidad guardada, antes y después: 1 sin juego.
+        $nAntes   = fn (?int $cfg) => ! $antesD   ? 1 : (($cfg && ! empty($antesO[$cfg]))   ? $antesO[$cfg]   : $antesD);
+        $nDespues = fn (?int $cfg) => ! $despuesD ? 1 : (($cfg && ! empty($despuesO[$cfg])) ? $despuesO[$cfg] : $despuesD);
+
+        $convertir = ! empty($data['convertir_stock'])
+            && ($nAntes(null) !== $nDespues(null)
+                || $configs->keys()->contains(fn ($c) => $nAntes($c) !== $nDespues($c)));
+
+        $plan = [];
         if ($convertir) {
-            $apartadas = $filas->sum(fn ($f) => (int) $f->cantidad_reservada);
-            if ($apartadas > 0) {
-                return response()->json([
-                    'message' => "Hay {$apartadas} apartada(s) por órdenes o surtidos pendientes. "
-                        . 'Entrégalas o cancélalas antes de convertir el stock, o actívalo sin convertir.',
-                ], 422);
+            if ($error = $this->bloqueosParaConvertir($producto->id)) {
+                return response()->json(['message' => $error], 422);
             }
-
-            $enCamino = DB::table('traslado_items as ti')
-                ->join('traslados as t', 't.id', '=', 'ti.traslado_id')
-                ->where('ti.producto_id', $producto->id)
-                ->whereNotIn('t.estado', ['completado', 'rechazado'])
-                ->exists()
-                || DB::table('surtido_items as si')
-                    ->join('surtido_tiendas as st', 'st.id', '=', 'si.surtido_tienda_id')
-                    ->where('si.producto_id', $producto->id)
-                    ->where('st.estado', 'pendiente')
-                    ->exists();
-            if ($enCamino) {
-                return response()->json([
-                    'message' => 'Hay un traslado o surtido de este producto todavía sin recibir. '
-                        . 'Cuando llegue se puede convertir el stock.',
-                ], 422);
-            }
-
-            // Volver a contar en juegos solo si cada número es de juegos
-            // completos: media pareja no se puede escribir como juego.
-            if (! $despues) {
-                $suelta = $filas->first(fn ($f) => (int) $f->cantidad_disponible % $factor !== 0);
-                if ($suelta) {
-                    return response()->json([
-                        'message' => "En {$suelta->tienda} hay {$suelta->cantidad_disponible} pieza(s): no son juegos completos de {$factor}. "
-                            . 'Quítalo sin convertir (el stock queda contado por piezas) o ajusta ese stock primero.',
-                    ], 422);
-                }
+            $plan = $this->planDeConversion($producto->id, $configs, $nAntes, $nDespues);
+            if (is_string($plan)) {
+                return response()->json(['message' => $plan], 422);
             }
         }
 
-        DB::transaction(function () use ($producto, $data, $despues, $convertir, $factor, $filas, $request) {
+        DB::transaction(function () use ($producto, $data, $despuesD, $despuesO, $plan, $request) {
             $producto->update([
-                'piezas_por_juego' => $despues,
-                'precio_pieza'     => $despues ? ($data['precio_pieza'] ?? null) : null,
+                'piezas_por_juego' => $despuesD ?: null,
+                'precio_pieza'     => $despuesD ? ($data['precio_pieza'] ?? null) : null,
             ]);
+            foreach ($despuesO as $cfgId => $n) {
+                DB::table('producto_variante_configs')->where('id', $cfgId)
+                    ->update(['piezas_por_juego' => $n ?: null]);
+            }
 
-            if (! $convertir) return;
-
-            $mult = (bool) $despues;   // true: juegos → piezas; false: piezas → juegos
-            $sql  = $mult ? "* {$factor}" : "/ {$factor}";   // al dividir ya se verificó que sea exacto
-
-            foreach ($filas as $f) {
-                $cambios = ['cantidad_disponible' => DB::raw("cantidad_disponible {$sql}")];
-                if ($f->con_minimo) $cambios['stock_minimo'] = DB::raw("stock_minimo {$sql}");
-                DB::table($f->tabla)->where('id', $f->id)->update($cambios);
+            foreach ($plan as $p) {
+                DB::table($p['tabla'])->where('id', $p['id'])->update($p['cambios']);
 
                 // El historial tiene que cuadrar con el número nuevo.
-                if ($f->tabla === 'inventario' && (int) $f->cantidad_disponible > 0) {
-                    $q     = (int) $f->cantidad_disponible;
-                    $nuevo = $mult ? $q * $factor : intdiv($q, $factor);
+                if ($p['tabla'] === 'inventario' && $p['antes'] !== $p['despues']) {
                     InventarioMovimiento::create([
                         'producto_id' => $producto->id,
-                        'tienda_id'   => $f->tienda_id,
-                        'tipo'        => $mult ? 'entrada' : 'salida',
-                        'cantidad'    => abs($nuevo - $q),
-                        'motivo'      => $mult
-                            ? "Se vende en juego de {$factor}: el stock pasa a contarse por piezas ({$q} juego(s) = {$nuevo} piezas)"
-                            : "Ya no se vende en juego: el stock vuelve a contarse en juegos ({$q} piezas = {$nuevo} juego(s))",
+                        'tienda_id'   => $p['tienda_id'],
+                        'tipo'        => $p['despues'] > $p['antes'] ? 'entrada' : 'salida',
+                        'cantidad'    => abs($p['despues'] - $p['antes']),
+                        'motivo'      => $despuesD
+                            ? "Se cuenta por piezas (juego de {$despuesD}): {$p['antes']} → {$p['despues']}"
+                            : "Ya no se vende en juego: el stock vuelve a contarse en juegos ({$p['antes']} piezas → {$p['despues']})",
                         'usuario_id'  => $request->user()->id,
                     ]);
                 }
             }
         });
 
-        return response()->json($producto->fresh());
+        return response()->json([
+            ...$producto->fresh()->toArray(),
+            'piezas_opciones' => DB::table('producto_variante_configs')
+                ->where('producto_id', $producto->id)->whereNotNull('piezas_por_juego')
+                ->pluck('piezas_por_juego', 'id'),
+        ]);
+    }
+
+    /** Por qué no se puede convertir ahora, o null si se puede. */
+    private function bloqueosParaConvertir(int $productoId): ?string
+    {
+        $apartadas = (int) DB::table('inventario')->where('producto_id', $productoId)->sum('cantidad_reservada');
+        if ($apartadas > 0) {
+            return "Hay {$apartadas} apartada(s) por órdenes o surtidos pendientes. "
+                . 'Entrégalas o cancélalas antes de convertir el stock, o guárdalo sin convertir.';
+        }
+
+        $enCamino = DB::table('traslado_items as ti')
+            ->join('traslados as t', 't.id', '=', 'ti.traslado_id')
+            ->where('ti.producto_id', $productoId)
+            ->whereNotIn('t.estado', ['completado', 'rechazado'])
+            ->exists()
+            || DB::table('surtido_items as si')
+                ->join('surtido_tiendas as st', 'st.id', '=', 'si.surtido_tienda_id')
+                ->where('si.producto_id', $productoId)
+                ->where('st.estado', 'pendiente')
+                ->exists();
+
+        return $enCamino
+            ? 'Hay un traslado o surtido de este producto todavía sin recibir. Cuando llegue se puede convertir el stock.'
+            : null;
     }
 
     /**
-     * Todas las filas de stock del producto, en todas las tiendas: el total,
-     * el reparto por variante, por configuración y por combinación. Las
-     * cuatro cuentan unidades del mismo producto, así que se convierten juntas.
+     * Cómo queda cada fila de stock del producto, en todas las tiendas, o un
+     * mensaje si algún número no se puede convertir exacto (volver a juegos
+     * con media pareja en la tienda, por ejemplo).
+     *
+     * @return array<int, array{tabla:string,id:int,tienda_id:int,antes:int,despues:int,cambios:array}>|string
      */
-    private function filasDeStock(int $productoId): \Illuminate\Support\Collection
+    private function planDeConversion(int $productoId, $configs, \Closure $nAntes, \Closure $nDespues): array|string
     {
-        $tienda = fn ($q) => $q->leftJoin('tiendas as t', 't.id', '=', 'x.tienda_id');
+        $tiendas = DB::table('tiendas')->pluck('nombre', 'id');
+        $error   = null;
 
-        return collect()
-            ->merge($tienda(DB::table('inventario as x'))
-                ->where('x.producto_id', $productoId)
-                ->get(['x.id', 'x.tienda_id', 'x.cantidad_disponible', 'x.cantidad_reservada', 't.nombre as tienda'])
-                ->map(fn ($f) => (object) [...(array) $f, 'tabla' => 'inventario', 'con_minimo' => true]))
-            ->merge($tienda(DB::table('inventario_variantes as x'))
-                ->join('producto_variantes as pv', 'pv.id', '=', 'x.variante_id')
-                ->where('pv.producto_id', $productoId)
-                ->get(['x.id', 'x.tienda_id', 'x.cantidad_disponible', 'x.cantidad_reservada', 't.nombre as tienda'])
-                ->map(fn ($f) => (object) [...(array) $f, 'tabla' => 'inventario_variantes', 'con_minimo' => true]))
-            ->merge($tienda(DB::table('inventario_variante_configs as x'))
-                ->join('producto_variante_configs as pvc', 'pvc.id', '=', 'x.config_id')
-                ->where('pvc.producto_id', $productoId)
-                ->get(['x.id', 'x.tienda_id', 'x.cantidad_disponible', 'x.cantidad_reservada', 't.nombre as tienda'])
-                ->map(fn ($f) => (object) [...(array) $f, 'tabla' => 'inventario_variante_configs', 'con_minimo' => false]))
-            ->merge($tienda(DB::table('inventario_variante_combinaciones as x'))
-                ->join('producto_variantes as pv', 'pv.id', '=', 'x.variante_id')
-                ->where('pv.producto_id', $productoId)
-                ->get(['x.id', 'x.tienda_id', 'x.cantidad_disponible', 'x.cantidad_reservada', 't.nombre as tienda'])
-                ->map(fn ($f) => (object) [...(array) $f, 'tabla' => 'inventario_variante_combinaciones', 'con_minimo' => false]));
+        // x unidades guardadas con a piezas cada una → con d piezas cada una.
+        $conv = function (int $x, int $a, int $d, $tiendaId) use (&$error, $tiendas) {
+            if ($x * $d % $a !== 0 && ! $error) {
+                $error = 'En ' . ($tiendas[$tiendaId] ?? 'una tienda') . " hay {$x} pieza(s): no son juegos completos de {$a}. "
+                    . 'Guárdalo sin convertir (el stock queda como está, contado por piezas) o ajusta ese stock primero.';
+            }
+            return intdiv($x * $d, $a);
+        };
+        $min = fn (int $x, int $a, int $d) => (int) ceil($x * $d / $a);
+
+        $porConfig = DB::table('inventario_variante_configs')
+            ->whereIn('config_id', $configs->keys())
+            ->get(['id', 'config_id', 'tienda_id', 'cantidad_disponible']);
+        $combos = DB::table('inventario_variante_combinaciones as x')
+            ->join('producto_variantes as pv', 'pv.id', '=', 'x.variante_id')
+            ->where('pv.producto_id', $productoId)
+            ->get(['x.id', 'x.variante_id', 'x.config_id', 'x.tienda_id', 'x.cantidad_disponible']);
+        $porTela = DB::table('inventario_variantes as x')
+            ->join('producto_variantes as pv', 'pv.id', '=', 'x.variante_id')
+            ->where('pv.producto_id', $productoId)
+            ->get(['x.id', 'x.variante_id', 'x.tienda_id', 'x.cantidad_disponible', 'x.stock_minimo']);
+        $totales = DB::table('inventario')->where('producto_id', $productoId)
+            ->get(['id', 'tienda_id', 'cantidad_disponible', 'stock_minimo']);
+
+        $aD = $nAntes(null);
+        $dD = $nDespues(null);
+        $plan = [];
+        $fila = fn ($tabla, $f, $antes, $despues, $extra = []) => [
+            'tabla' => $tabla, 'id' => $f->id, 'tienda_id' => (int) $f->tienda_id,
+            'antes' => $antes, 'despues' => $despues,
+            'cambios' => ['cantidad_disponible' => $despues, ...$extra],
+        ];
+
+        foreach ($porConfig as $f) {
+            $q = (int) $f->cantidad_disponible;
+            $plan[] = $fila('inventario_variante_configs', $f, $q,
+                $conv($q, $nAntes((int) $f->config_id), $nDespues((int) $f->config_id), $f->tienda_id));
+        }
+        foreach ($combos as $f) {
+            $q = (int) $f->cantidad_disponible;
+            $plan[] = $fila('inventario_variante_combinaciones', $f, $q,
+                $conv($q, $nAntes((int) $f->config_id), $nDespues((int) $f->config_id), $f->tienda_id));
+        }
+
+        // Un total = lo de cada opción convertido con lo suyo + lo que no
+        // está en ninguna, con el número del producto.
+        $rearmar = function (int $total, $partes, $tiendaId) use ($conv, $nAntes, $nDespues, $aD, $dD) {
+            $enPartes = 0;
+            $nuevo    = 0;
+            foreach ($partes as $p) {
+                $q = (int) $p->cantidad_disponible;
+                $enPartes += $q;
+                $nuevo    += $conv($q, $nAntes((int) $p->config_id), $nDespues((int) $p->config_id), $tiendaId);
+            }
+            return $nuevo + $conv(max(0, $total - $enPartes), $aD, $dD, $tiendaId);
+        };
+
+        foreach ($porTela as $f) {
+            $q = (int) $f->cantidad_disponible;
+            $partes = $combos->where('variante_id', $f->variante_id)->where('tienda_id', $f->tienda_id);
+            $plan[] = $fila('inventario_variantes', $f, $q, $rearmar($q, $partes, $f->tienda_id),
+                ['stock_minimo' => $min((int) $f->stock_minimo, $aD, $dD)]);
+        }
+        foreach ($totales as $f) {
+            $q = (int) $f->cantidad_disponible;
+            $partes = $porConfig->where('tienda_id', $f->tienda_id);
+            $plan[] = $fila('inventario', $f, $q, $rearmar($q, $partes, $f->tienda_id),
+                ['stock_minimo' => $min((int) $f->stock_minimo, $aD, $dD)]);
+        }
+
+        return $error ?? $plan;
     }
 
     /**

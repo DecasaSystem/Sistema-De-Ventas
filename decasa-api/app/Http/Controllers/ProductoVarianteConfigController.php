@@ -64,6 +64,8 @@ class ProductoVarianteConfigController extends Controller
                         'opcion_id'        => $c->opcion_id,
                         'opcion_nombre'    => $c->opcion->nombre,
                         'precio_adicional' => (float) $c->precio_adicional,
+                        // Piezas del juego de esta opción si no es el del producto (null).
+                        'piezas_por_juego' => $c->piezas_por_juego ? (int) $c->piezas_por_juego : null,
                         'stock_disponible' => $tiendaId
                             ? (int) ($stocks[$c->id]?->cantidad_disponible ?? 0)
                             : (int) collect($porTienda[$c->id] ?? [])->sum('cantidad'),
@@ -92,6 +94,23 @@ class ProductoVarianteConfigController extends Controller
         ]);
 
         $tipoId = (int) $data['tipo_variante_id'];
+
+        // Si alguna opción trae su propio número de piezas por juego, el stock
+        // del producto está repartido por ese tipo. Un segundo tipo lo
+        // repartiría de otra manera y ya no se sabría cuántas piezas trae cada
+        // unidad (ver ProductoController::ventaPorJuego).
+        $otroConPiezas = ProductoVarianteConfig::where('producto_id', $productoId)
+            ->where('tipo_variante_id', '!=', $tipoId)
+            ->whereNotNull('piezas_por_juego')
+            ->with('tipo:id,nombre')
+            ->first();
+        if ($otroConPiezas) {
+            return response()->json([
+                'message' => "Las opciones de \"{$otroConPiezas->tipo?->nombre}\" tienen su propio número de piezas por juego. "
+                    . 'Con otro tipo de variante no se sabría cuántas piezas trae cada unidad: quita esas piezas primero '
+                    . '(Se vende en juego) o separa el producto.',
+            ], 422);
+        }
 
         DB::transaction(function () use ($productoId, $tipoId, $data) {
             // Tiendas donde existe el producto (para auto-crear stock en 0)

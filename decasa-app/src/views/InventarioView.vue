@@ -1324,6 +1324,14 @@ function aPiezas(cantidad) {
   return n && stockEnJuegos.value ? cantidad * n : cantidad
 }
 
+// Las opciones de la variante personalizada pueden traer otro número de
+// piezas (alas de a 2 o de a 4). Solo con un tipo de variante: con dos, el
+// mismo stock estaría repartido de dos maneras y no se sabría cuántas piezas
+// trae cada unidad (el servidor también lo rechaza).
+const juegoOpciones = computed(() =>
+  vcTiposAsignados.value.length === 1 ? vcTiposAsignados.value[0].items : []
+)
+
 function abrirJuego(quitar = false) {
   const p = itemGestionar.value?.producto ?? {}
   juegoError.value = ''
@@ -1331,11 +1339,22 @@ function abrirJuego(quitar = false) {
     quitar,
     piezas:      juegoGestionar.value || 2,
     precioPieza: p.precio_pieza ?? null,
-    // Lo normal: el stock se cargó contado en juegos ("pongo 1"). Al quitar,
-    // volver a contarlo en juegos solo es posible si son juegos completos.
-    convertir:   true,
+    opciones:    Object.fromEntries(juegoOpciones.value.map(o => [o.id, o.piezas_por_juego ?? ''])),
+    // Al activarlo o quitarlo lo normal es convertir: el stock se cargó
+    // contado en juegos ("pongo 1"). Al cambiar un número con el juego ya
+    // activo no: las piezas que hay son las mismas. Se marca a mano cuando el
+    // stock se había convertido con el número equivocado.
+    convertir:   quitar || !juegoGestionar.value,
   }
 }
+
+/** ¿Cambia algún número de piezas respecto a lo guardado? */
+const juegoCambiaNumeros = computed(() => {
+  const f = juegoForm.value
+  if (!f || !juegoGestionar.value) return false
+  if (Number(f.piezas) !== juegoGestionar.value) return true
+  return juegoOpciones.value.some(o => (Number(f.opciones[o.id]) || null) !== (o.piezas_por_juego ?? null))
+})
 
 async function guardarJuego() {
   const f = juegoForm.value
@@ -1350,11 +1369,18 @@ async function guardarJuego() {
     const { data } = await api.post(`/productos/${itemGestionar.value.producto_id}/venta-por-juego`, {
       piezas_por_juego: f.quitar ? null : f.piezas,
       precio_pieza:     f.quitar || f.precioPieza === '' || f.precioPieza == null ? null : Number(f.precioPieza),
-      // Cambiar de juego de 2 a 3 no convierte: el servidor lo ignora igual.
+      piezas_opciones:  f.quitar ? undefined : Object.fromEntries(
+        Object.entries(f.opciones ?? {}).map(([id, n]) => [id, Number(n) > 1 ? Number(n) : null])
+      ),
       convertir_stock:  !!f.convertir,
     })
     p.piezas_por_juego = data.piezas_por_juego
     p.precio_pieza     = data.precio_pieza
+    p.piezas_opciones  = data.piezas_opciones ?? {}
+    for (const o of juegoOpciones.value) o.piezas_por_juego = p.piezas_opciones[o.id] ?? null
+    // Las pastillas de la tarjeta muestran el juego de cada opción.
+    delete vcConfigsCard.value[itemGestionar.value.producto_id]
+    cargarVCConfigsCard(itemGestionar.value)
     juegoForm.value = null
     toast.success(f.quitar ? 'Ya no se vende en juego.' : `Se vende en juego de ${data.piezas_por_juego}.`)
     // El stock pudo cambiar en todas las tiendas.
@@ -2660,6 +2686,11 @@ onMounted(async () => {
                   {{ opt.opcion_nombre }}
                   <span v-if="opt.precio_adicional > 0" class="ml-1 text-emerald-600 font-semibold">+{{ pesos(opt.precio_adicional) }}</span>
                   <span class="ml-1 font-bold">{{ opt.stock_disponible ?? 0 }}</span>
+                  <!-- En juego: en piezas, y cuántos juegos son con SU número -->
+                  <span v-if="piezasPorJuego(item.producto)" class="ml-1 text-[10px] font-normal opacity-75">
+                    pzs · {{ enJuegos(opt.stock_disponible, opt.piezas_por_juego || piezasPorJuego(item.producto)) }}
+                    <template v-if="opt.piezas_por_juego">(de a {{ opt.piezas_por_juego }})</template>
+                  </span>
                   <!-- En todas las tiendas: dónde está esa medida. -->
                   <span v-if="esVistaGlobal && opt.por_tienda?.length" class="ml-1 text-[10px] font-normal opacity-75">
                     ({{ opt.por_tienda.map(t => `${nombreCorto(t.tienda_nombre)} ${t.cantidad}`).join(' · ') }})
@@ -3305,14 +3336,44 @@ onMounted(async () => {
                   El juego completo sigue a ${{ pesos(itemGestionar?.producto?.precio_base) }}. Si no pones precio a la
                   pieza suelta, es el del juego entre {{ juegoForm.piezas || 'N' }}.
                 </p>
-                <!-- Solo al activarlo: pasar de 2 a 3 piezas no convierte nada,
-                     las piezas que hay son las mismas. -->
+                <!-- Piezas por opción: unas alas que vienen de a 2 o de a 4 -->
+                <div v-if="juegoOpciones.length" class="space-y-1.5">
+                  <p class="text-xs font-medium text-gray-700">
+                    ¿Alguna opción de "{{ vcTiposAsignados[0]?.tipo?.nombre }}" trae otro número de piezas?
+                  </p>
+                  <div v-for="o in juegoOpciones" :key="o.id" class="flex items-center gap-2">
+                    <span class="text-xs text-gray-600 flex-1 min-w-0 truncate">{{ o.opcion_nombre }}</span>
+                    <input v-model.number="juegoForm.opciones[o.id]" type="number" min="2" max="50"
+                      :placeholder="String(juegoForm.piezas || '')"
+                      class="w-20 text-xs rounded border border-gray-300 px-2 py-1 text-right focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                    <span class="text-xs text-gray-400 w-12">piezas</span>
+                  </div>
+                  <p class="text-[11px] text-gray-400">Vacío = las mismas del producto ({{ juegoForm.piezas || 'N' }}).</p>
+                </div>
+                <p v-else-if="vcTiposAsignados.length > 1" class="text-[11px] text-gray-400">
+                  Tiene más de un tipo de variante: todo el producto usa el mismo número de piezas.
+                </p>
+
+                <!-- Al activarlo: el stock casi siempre está contado en juegos. -->
                 <label v-if="!juegoGestionar" class="flex items-start gap-2 text-xs text-gray-700 cursor-pointer">
                   <input v-model="juegoForm.convertir" type="checkbox" class="rounded mt-0.5" />
                   <span>
                     El stock que ya tiene está contado en <strong>juegos</strong>: pasarlo a piezas en todas las tiendas
-                    (1 juego → {{ juegoForm.piezas || 'N' }} piezas).
+                    (1 juego → las piezas de su juego).
                     <span class="block text-gray-400">Desmárcalo solo si ya lo cargaste contando cada pieza.</span>
+                  </span>
+                </label>
+                <!-- Ya activo y cambia un número: las piezas que hay son las
+                     mismas, salvo que se hayan convertido con el número
+                     equivocado. Por eso va desmarcado. -->
+                <label v-else-if="juegoCambiaNumeros" class="flex items-start gap-2 text-xs text-gray-700 cursor-pointer">
+                  <input v-model="juegoForm.convertir" type="checkbox" class="rounded mt-0.5" />
+                  <span>
+                    Recalcular el stock de lo que cambió (estaba convertido con el número anterior).
+                    <span class="block text-gray-400">
+                      Ej: se activó de a 2 y "4 alas" es de a 4 → sus 4 piezas pasan a 8. Déjalo sin marcar si las
+                      piezas ya están bien contadas.
+                    </span>
                   </span>
                 </label>
                 <p v-if="juegoError" class="text-xs text-red-600">{{ juegoError }}</p>
@@ -4311,7 +4372,10 @@ onMounted(async () => {
 
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">
-                Cantidad
+                {{ piezasPorJuego(vcStockBaseItem?.producto) ? 'Piezas' : 'Cantidad' }}
+                <span v-if="piezasPorJuego(vcStockBaseItem?.producto)" class="text-gray-400 font-normal">
+                  (juego de {{ vcStockItem?.config?.piezas_por_juego || piezasPorJuego(vcStockBaseItem?.producto) }})
+                </span>
                 <span v-if="vcStockModo === 'agregar'" class="text-gray-400 font-normal">(máx {{ vcStockSinAsignar }})</span>
                 <span v-else class="text-gray-400 font-normal">(máx {{ vcStockItem?.config?.stock_disponible ?? 0 }})</span>
               </label>

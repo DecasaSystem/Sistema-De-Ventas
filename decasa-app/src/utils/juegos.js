@@ -13,6 +13,17 @@ export function piezasPorJuego(producto) {
   return n > 1 ? n : 0
 }
 
+/**
+ * Piezas del juego de una opción de variante: unas alas vintage que vienen de
+ * a 4 en un producto de a 2. Sin número propio, el del producto.
+ */
+export function piezasDeOpcion(producto, configId) {
+  const n = piezasPorJuego(producto)
+  if (!n || !configId) return n
+  const propio = Number(producto?.piezas_opciones?.[configId]) || 0
+  return propio > 1 ? propio : n
+}
+
 /** "2 juegos + 1 suelta", "1 juego", "1 suelta", "0". */
 export function enJuegos(piezas, n) {
   const total = Math.max(0, Number(piezas) || 0)
@@ -30,9 +41,12 @@ export function enJuegos(piezas, n) {
  * Se redondea hacia abajo al centavo, igual que el servidor: así N piezas
  * nunca suman más que el juego.
  */
-export function precioPieza(producto, precioJuego = producto?.precio_base) {
-  const n = piezasPorJuego(producto)
+export function precioPieza(producto, precioJuego = producto?.precio_base, configId = null) {
+  const n = piezasDeOpcion(producto, configId)
   if (!n) return Number(precioJuego) || 0
-  if (producto?.precio_pieza != null && producto.precio_pieza !== '') return Number(producto.precio_pieza)
+  // El precio de pieza del producto es para su juego; una opción con otro
+  // número de piezas reparte el precio de su propio juego.
+  const propia = n !== piezasPorJuego(producto)
+  if (!propia && producto?.precio_pieza != null && producto.precio_pieza !== '') return Number(producto.precio_pieza)
   return Math.floor((Number(precioJuego) || 0) / n * 100) / 100
 }
