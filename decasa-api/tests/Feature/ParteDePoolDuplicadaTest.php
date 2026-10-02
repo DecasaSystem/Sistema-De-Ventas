@@ -58,7 +58,7 @@ class ParteDePoolDuplicadaTest extends TestCase
             $t->date('desde'); $t->date('hasta')->nullable();
             $t->string('nota')->nullable(); $t->timestamps();
         });
-        Schema::create('comisiones', function (Blueprint $t) {
+        Schema::create('comisiones', function (Blueprint $t) { $t->string('clave_unica')->nullable()->unique(); $t->string('forma_pago_pagada')->nullable();
             $t->id(); $t->unsignedBigInteger('orden_id')->nullable(); $t->unsignedBigInteger('vendedor_id');
             // Con su valor por defecto de verdad: una comisión normal nace
             // como 'venta', no en null, y de eso depende quién queda fuera de

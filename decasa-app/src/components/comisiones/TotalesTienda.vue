@@ -149,60 +149,71 @@ const totalFiltrado = computed(() => ordenesFiltradas.value.reduce((s, o) => s +
         <template v-else-if="tri">
           <p class="text-[10px] text-gray-500">
             {{ nombreTrimestre(tri.trimestre) }}
-            <span v-if="tri.cerrado" class="ml-1 px-1.5 rounded bg-gray-200 text-gray-700 font-semibold">congelado: ya se empezó a pagar</span>
+            <span v-if="tri.cerrado" class="ml-1 px-1.5 rounded bg-gray-200 text-gray-700 font-semibold">liquidado: ya no cambia</span>
             <span v-else-if="tri.meses_restantes" class="ml-1 px-1.5 rounded bg-blue-100 text-blue-700 font-semibold">en curso · faltan {{ tri.meses_restantes }} {{ tri.meses_restantes === 1 ? 'mes' : 'meses' }}</span>
           </p>
 
-          <!-- Mes a mes -->
+          <!-- Mes a mes, con el saldo que se arrastra: lo que sobra un mes
+               paga la deuda de otro; lo que falta se vuelve deuda. -->
           <div class="bg-white rounded-lg border border-indigo-100 overflow-hidden">
             <div class="grid grid-cols-4 gap-1 px-2 py-1 bg-indigo-50 text-[10px] font-semibold text-gray-500">
-              <span>Mes</span><span class="text-right">Cuenta</span><span class="text-right">Meta</span><span class="text-right">Diferencia</span>
+              <span>Mes</span><span class="text-right">Cuenta</span><span class="text-right">Meta</span><span class="text-right">Saldo</span>
+            </div>
+            <div v-if="tri.deuda_en_ventas > 0" class="px-2 py-1 border-t border-indigo-50 grid grid-cols-4 gap-1 tabular-nums">
+              <span class="col-span-3 text-red-700">Deuda que trae del trimestre anterior</span>
+              <span class="text-right font-semibold text-red-600">−{{ cop(tri.deuda_en_ventas) }}</span>
             </div>
             <div v-for="m in tri.meses" :key="m.mes" class="px-2 py-1 border-t border-indigo-50">
               <div class="grid grid-cols-4 gap-1 tabular-nums">
                 <span class="text-gray-700">{{ nombreMes(m.mes) }}</span>
                 <span class="text-right text-gray-700">{{ m.futuro ? '—' : cop(m.cuenta) }}</span>
                 <span class="text-right text-gray-500">{{ cop(m.meta) }}</span>
-                <span :class="['text-right font-semibold', m.diferencia >= 0 ? 'text-green-700' : 'text-red-600']">
-                  {{ m.diferencia >= 0 ? '+' : '−' }}{{ cop(Math.abs(m.diferencia)) }}
+                <span v-if="m.futuro" class="text-right text-gray-300">—</span>
+                <span v-else :class="['text-right font-semibold', m.saldo >= 0 ? 'text-green-700' : 'text-red-600']">
+                  {{ m.saldo >= 0 ? '+' : '−' }}{{ cop(Math.abs(m.saldo)) }}
                 </span>
               </div>
-              <p v-if="m.futuro" class="text-[10px] text-gray-400">No ha llegado: cuenta como cero contra su meta.</p>
-              <p v-else-if="m.sin_mitad > 0" class="text-[10px] text-amber-700">+ {{ cop(m.sin_mitad) }} vendido sin el 50% pagado (todavía no cuenta)</p>
+              <p v-if="m.futuro" class="text-[10px] text-gray-400">No ha llegado.</p>
+              <template v-else>
+                <p class="text-[10px] text-gray-400">
+                  Este mes {{ m.diferencia >= 0 ? 'le sobraron' : 'le faltaron' }} {{ cop(Math.abs(m.diferencia)) }}<template v-if="m.deuda > 0">; queda debiendo {{ cop(m.deuda) }} para los meses siguientes</template>.
+                </p>
+                <p v-if="m.sin_mitad > 0" class="text-[10px] text-amber-700">+ {{ cop(m.sin_mitad) }} vendido sin el 50% pagado (todavía no cuenta)</p>
+              </template>
             </div>
           </div>
 
-          <!-- La cuenta del pool -->
+          <!-- El resultado del trimestre -->
           <div class="space-y-0.5">
-            <div class="flex justify-between">
-              <span class="text-gray-600">Diferencia del trimestre (suma de los 3 meses)</span>
-              <span :class="['tabular-nums font-semibold', tri.diferencial >= 0 ? 'text-green-700' : 'text-red-600']">
-                {{ tri.diferencial >= 0 ? '+' : '−' }}{{ cop(Math.abs(tri.diferencial)) }}
-              </span>
-            </div>
-            <div class="flex justify-between">
-              <span class="text-gray-400">÷ 1,19 × 5%</span>
-              <span :class="['tabular-nums', tri.pool_bruto >= 0 ? 'text-gray-700' : 'text-red-600']">
-                {{ tri.pool_bruto >= 0 ? '' : '−' }}{{ cop(Math.abs(tri.pool_bruto)) }}
-              </span>
-            </div>
-            <div class="flex justify-between">
-              <span class="text-gray-600">− Deuda que arrastra del trimestre anterior</span>
-              <span :class="['tabular-nums', tri.deficit_inicial > 0 ? 'text-red-600' : 'text-gray-400']">
-                − {{ cop(tri.deficit_inicial) }}
-              </span>
-            </div>
-            <p v-if="tri.deficit_inicial > 0" class="text-[10px] text-gray-400 -mt-0.5">
-              Equivale a {{ cop(tri.deuda_en_ventas) }} en ventas por encima de la meta.
-            </p>
-            <div class="flex justify-between border-t border-indigo-100 pt-0.5">
-              <span class="font-semibold text-gray-700">Pool que se paga</span>
-              <span class="font-semibold text-gray-800 tabular-nums">{{ cop(tri.pool_pagado) }}</span>
-            </div>
-            <div v-if="tri.deficit_final > 0" class="flex justify-between">
-              <span class="text-red-700">Deuda que le pasa al siguiente trimestre</span>
-              <span class="text-red-700 tabular-nums font-semibold">{{ cop(tri.deficit_final) }}</span>
-            </div>
+            <template v-if="!tri.en_curso">
+              <div class="flex justify-between">
+                <span class="text-gray-600">Saldo al cerrar los 3 meses</span>
+                <span :class="['tabular-nums font-semibold', tri.saldo_actual >= 0 ? 'text-green-700' : 'text-red-600']">
+                  {{ tri.saldo_actual >= 0 ? '+' : '−' }}{{ cop(Math.abs(tri.saldo_actual)) }}
+                </span>
+              </div>
+              <template v-if="tri.pool_pagado > 0">
+                <div class="flex justify-between border-t border-indigo-100 pt-0.5">
+                  <span class="font-semibold text-gray-700">Pool que se reparte <span class="font-normal text-gray-400">(saldo ÷ 1,19 × 5%)</span></span>
+                  <span class="font-semibold text-gray-800 tabular-nums">{{ cop(tri.pool_pagado) }}</span>
+                </div>
+              </template>
+              <template v-else>
+                <p class="text-[11px] text-red-800 bg-red-50 border border-red-100 rounded-lg px-2 py-1.5">
+                  No cubrió los 3 meses<template v-if="tri.deuda_en_ventas > 0"> y la deuda que traía</template>: este trimestre
+                  no comisiona. Pasan <strong>{{ cop(tri.deuda_en_ventas_final) }}</strong> de deuda al siguiente trimestre.
+                </p>
+              </template>
+            </template>
+            <template v-else>
+              <div class="flex justify-between">
+                <span class="text-gray-600">Saldo a hoy (con la deuda que traía)</span>
+                <span :class="['tabular-nums font-semibold', tri.saldo_actual >= 0 ? 'text-green-700' : 'text-red-600']">
+                  {{ tri.saldo_actual >= 0 ? '+' : '−' }}{{ cop(Math.abs(tri.saldo_actual)) }}
+                </span>
+              </div>
+            </template>
+            <p v-if="!tri.cerrado" class="text-[10px] text-gray-400">Se liquida el {{ tri.se_liquida_el }}: ese día queda fijo, cumpla o no.</p>
           </div>
 
           <!-- Lo que falta -->

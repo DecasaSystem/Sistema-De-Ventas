@@ -60,7 +60,7 @@ class RestauracionDeLaTiendaTest extends TestCase
             $t->date('desde'); $t->date('hasta')->nullable();
             $t->string('nota')->nullable(); $t->timestamps();
         });
-        Schema::create('comisiones', function (Blueprint $t) {
+        Schema::create('comisiones', function (Blueprint $t) { $t->string('clave_unica')->nullable()->unique(); $t->string('forma_pago_pagada')->nullable();
             $t->id(); $t->unsignedBigInteger('orden_id')->nullable(); $t->unsignedBigInteger('vendedor_id');
             $t->unsignedBigInteger('tienda_id')->nullable(); $t->string('origen')->default('venta');
             $t->char('mes_venta', 7); $t->decimal('valor_orden', 15, 2)->default(0);

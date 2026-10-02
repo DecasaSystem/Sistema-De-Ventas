@@ -596,6 +596,8 @@ class CotizacionController extends Controller
         // quedó esperando el precio de algún ítem todavía puede no cerrarse, y
         // el número se asigna cuando el cliente acepte (confirmarCotizacion).
         if ($orden->fresh()->estado !== 'pendiente_cotizacion') {
+            // La venta es de hoy, no del día en que se cotizó.
+            $orden->nacerComoVentaHoy();
             OrdenController::asignarNumeroOrden($orden);
             ComisionController::crearParaOrden($orden->fresh());
         }

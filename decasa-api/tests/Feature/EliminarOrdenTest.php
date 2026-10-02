@@ -64,7 +64,7 @@ class EliminarOrdenTest extends TestCase
         Schema::create('despacho_items', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('orden_id'); $t->timestamps();
         });
-        Schema::create('comisiones', function (Blueprint $t) {
+        Schema::create('comisiones', function (Blueprint $t) { $t->string('clave_unica')->nullable()->unique(); $t->string('forma_pago_pagada')->nullable();
             $t->id(); $t->unsignedBigInteger('orden_id')->nullable(); $t->unsignedBigInteger('vendedor_id');
             $t->string('estado')->default('pendiente'); $t->timestamps();
         });

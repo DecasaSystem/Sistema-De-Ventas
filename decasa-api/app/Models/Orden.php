@@ -43,6 +43,7 @@ class Orden extends Model
         'tipo',
         'estado',
         'confirmada_en',
+        'cotizada_en',
         'numero_orden',
         'serie',
         'serie_numero',
@@ -159,6 +160,7 @@ class Orden extends Model
             'listo_entrega_at' => 'datetime',
             'factura_fotos'    => 'array',
             'confirmada_en'    => 'datetime',
+            'cotizada_en'      => 'datetime',
             'cotizacion_valida_hasta' => 'date',
             'fecha_sugerida_vendedor' => 'date',
         ];
@@ -766,6 +768,45 @@ class Orden extends Model
      * pago por pago y no "si tocó la tarjeta", porque en un pago mixto sólo el
      * pedazo que pasó por datáfono tiene ese costo.
      */
+    /**
+     * La venta nace HOY: el día en que el cliente la aceptó, no el día en que
+     * se abrió la cotización o el borrador.
+     *
+     * `created_at` es la fecha de la venta en todo el sistema —reportes, meta,
+     * pool, comisiones, bolsón de los independientes—. Una cotización hecha
+     * en julio y aceptada en agosto es una venta de agosto y se cobra el 20
+     * de septiembre, como cualquier venta de agosto. Antes se quedaba con la
+     * fecha de la cotización y caía en un mes ya cerrado, y había que moverla
+     * a mano con una migración.
+     *
+     * La fecha en que se abrió queda en `cotizada_en`. Se llama solo en el
+     * momento en que la orden se vuelve venta (justo antes de tomar su
+     * consecutivo), nunca sobre una venta que ya existía.
+     */
+    public function nacerComoVentaHoy(): void
+    {
+        $ahora   = now();
+        $cambios = ['created_at' => $ahora, 'confirmada_en' => $ahora];
+
+        self::$hayCotizadaEn ??= \Illuminate\Support\Facades\Schema::hasColumn('ordenes', 'cotizada_en');
+        if (self::$hayCotizadaEn && ! $this->cotizada_en) {
+            $cambios['cotizada_en'] = $this->created_at;
+        }
+
+        // Por consulta directa: no es una edición de la orden, y no debe
+        // disparar avisos ni dejar rastro de "editada".
+        static::whereKey($this->id)->update($cambios);
+        $this->forceFill($cambios)->syncOriginalAttributes(array_keys($cambios));
+    }
+
+    private static ?bool $hayCotizadaEn = null;
+
+    /** Se vuelve a mirar si la base tiene `cotizada_en` (para los tests). */
+    public static function olvidarEsquema(): void
+    {
+        self::$hayCotizadaEn = null;
+    }
+
     public function pagadoConTarjeta(): float
     {
         // Igual que totalPagado(): con los pagos en memoria no hace falta

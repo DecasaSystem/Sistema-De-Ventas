@@ -9,7 +9,7 @@ class Tienda extends Model
     const UPDATED_AT = null;
 
     protected $fillable = ['nombre', 'ciudad', 'direccion', 'telefono', 'activa', 'cerrada_en', 'es_fabrica',
-                           'es_independientes', 'comisiones_compartidas'];
+                           'es_independientes', 'comisiones_compartidas', 'comision_periodicidad'];
 
     protected function casts(): array
     {

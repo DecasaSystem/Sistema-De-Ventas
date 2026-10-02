@@ -27,7 +27,7 @@ class Orden1241PasaASeptiembreTest extends TestCase
             $t->boolean('independiente')->default(false);
             $t->unsignedBigInteger('tienda_default_id')->nullable();
         });
-        Schema::create('tiendas', function (Blueprint $t) { $t->id(); $t->string('nombre'); });
+        Schema::create('tiendas', function (Blueprint $t) { $t->string('comision_periodicidad')->default('mensual'); $t->id(); $t->string('nombre'); });
         Schema::create('ordenes', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('tienda_id')->nullable(); $t->unsignedBigInteger('vendedor_id')->nullable();
             $t->unsignedBigInteger('covendedor_id')->nullable(); $t->unsignedBigInteger('tienda_abonada_id')->nullable();
@@ -47,7 +47,7 @@ class Orden1241PasaASeptiembreTest extends TestCase
             $t->id(); $t->unsignedBigInteger('orden_id'); $t->decimal('monto', 15, 2)->default(0);
             $t->string('metodo')->nullable(); $t->timestamp('created_at')->nullable();
         });
-        Schema::create('comisiones', function (Blueprint $t) {
+        Schema::create('comisiones', function (Blueprint $t) { $t->string('clave_unica')->nullable()->unique(); $t->string('forma_pago_pagada')->nullable();
             $t->id(); $t->unsignedBigInteger('orden_id')->nullable(); $t->unsignedBigInteger('vendedor_id');
             $t->unsignedBigInteger('tienda_id')->nullable(); $t->string('origen')->default('venta');
             $t->char('mes_venta', 7); $t->decimal('valor_orden', 15, 2)->default(0);
@@ -65,7 +65,7 @@ class Orden1241PasaASeptiembreTest extends TestCase
             $t->text('cambios')->nullable(); $t->timestamp('created_at')->nullable();
         });
 
-        DB::table('tiendas')->insert(['id' => 1, 'nombre' => 'Decasa Unicentro Pereira']);
+        DB::table('tiendas')->insert(['id' => 1, 'nombre' => 'Decasa Unicentro Pereira', 'comision_periodicidad' => 'trimestral']);
         DB::table('usuarios')->insert(['id' => 1, 'nombre' => 'Juan', 'rol' => 'vendedor', 'tienda_default_id' => 1]);
         DB::table('usuarios')->insert(['id' => 2, 'nombre' => 'Jefa', 'rol' => 'supervisor']);
     }

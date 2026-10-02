@@ -26,7 +26,7 @@ class RevisarRestauracionesTest extends TestCase
     {
         parent::setUp();
 
-        Schema::create('tiendas', function (Blueprint $t) { $t->id(); $t->string('nombre'); });
+        Schema::create('tiendas', function (Blueprint $t) { $t->string('comision_periodicidad')->default('mensual'); $t->id(); $t->string('nombre'); });
         Schema::create('clientes', function (Blueprint $t) { $t->id(); $t->string('nombre'); $t->timestamps(); });
         Schema::create('ordenes', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('cliente_id')->nullable(); $t->unsignedBigInteger('tienda_id')->nullable();
@@ -59,7 +59,7 @@ class RevisarRestauracionesTest extends TestCase
     private function orden(?string $serie, bool $itemsRestauracion, ?int $productoId = null): int
     {
         $clienteId = DB::table('clientes')->insertGetId(['nombre' => 'Doña Marta', 'created_at' => now(), 'updated_at' => now()]);
-        $tiendaId  = DB::table('tiendas')->insertGetId(['nombre' => 'Decasa Unicentro Pereira']);
+        $tiendaId  = DB::table('tiendas')->insertGetId(['nombre' => 'Decasa Unicentro Pereira', 'comision_periodicidad' => 'trimestral']);
 
         $id = DB::table('ordenes')->insertGetId([
             'cliente_id' => $clienteId, 'tienda_id' => $tiendaId, 'estado' => 'entregado',

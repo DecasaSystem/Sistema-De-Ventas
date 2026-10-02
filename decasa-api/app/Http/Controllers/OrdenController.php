@@ -1256,6 +1256,10 @@ class OrdenController extends Controller
         // consecutivo y nace la comisión. Mientras esperaba el precio no tenía
         // número, para no quemar uno si el cliente decía que no.
         if (! $orden->numero_orden) {
+            // La venta es del día en que el cliente aceptó, no del día en que
+            // se abrió la cotización: así cae en su mes y se cobra el 20 del
+            // siguiente, como todas.
+            $orden->nacerComoVentaHoy();
             self::asignarNumeroOrden($orden);
             ComisionController::crearParaOrden($orden->fresh());
         }
@@ -2258,6 +2262,7 @@ class OrdenController extends Controller
             if (! empty($cerrarConsultas)) {
                 $ordenParaNumerar = $orden->fresh();
                 if (! $ordenParaNumerar->numero_orden && ! $ordenParaNumerar->serie) {
+                    $ordenParaNumerar->nacerComoVentaHoy();
                     self::asignarNumeroOrden($ordenParaNumerar);
                     ComisionController::crearParaOrden($ordenParaNumerar->fresh());
                 }
@@ -2605,6 +2610,9 @@ class OrdenController extends Controller
         // esperando el precio del taller: ahí todavía puede no cerrarse, y el
         // número se asigna cuando el cliente acepte (confirmarCotizacion).
         if ($ordenFresh->estado !== 'pendiente_cotizacion') {
+            // El borrador pudo abrirse otro día (u otro mes): la venta es de hoy.
+            $orden->nacerComoVentaHoy();
+            $ordenFresh->created_at = $orden->created_at;
             self::asignarNumeroOrden($orden);
             $ordenFresh->numero_orden = $orden->numero_orden;
             ComisionController::crearParaOrden($orden);

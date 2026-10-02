@@ -401,6 +401,16 @@ const FORMAS_PAGO = {
     resumen:  'Su parte del 5% que dejó un independiente al compartir una venta con su tienda. No le suma a la meta.',
     clase:    'bg-emerald-100 text-emerald-700',
   },
+  independiente_5: {
+    etiqueta: 'Independiente',
+    resumen:  'Trabaja por su cuenta: 5% de su venta (÷1,19), sobre el valor entero aunque la haya compartido con un almacén.',
+    clase:    'bg-sky-100 text-sky-700',
+  },
+  bolson_restauraciones: {
+    etiqueta: 'Bolsón de restauraciones',
+    resumen:  'El 5% de todas las restauraciones del mes, igual para cada independiente. No cuelga de ninguna orden.',
+    clase:    'bg-purple-100 text-purple-700',
+  },
   parte_pool: {
     etiqueta: 'Parte del equipo',
     resumen:  'Su parte del pool, igual que la de todos. Va aquí porque no tiene una venta propia por la cual pagársela: no vendió, o esas ya se le pagaron y el pool creció después.',
@@ -458,7 +468,7 @@ async function pagarTodasListas(r) {
   try {
     // Con la tienda: si estuvo en dos, se paga la tarjeta que se pulsó.
     const { data } = await api.post('/comisiones/pagar-listas', {
-      vendedor_id: r.vendedor_id, mes: mesActual.value, tienda_id: r.tienda_id,
+      vendedor_id: r.vendedor_id, mes: mesActual.value, tienda_id: r.tienda_id || undefined,
     })
     toast.success(`${data.pagadas} comisión${data.pagadas !== 1 ? 'es' : ''} marcada${data.pagadas !== 1 ? 's' : ''} como pagada${data.pagadas !== 1 ? 's' : ''}`)
     await cargar()
@@ -474,21 +484,103 @@ async function guardarMeta(tiendaId) {
   const val = parseFloat(metaEdits.value[tiendaId])
   if (isNaN(val) || val < 0) { toast.error('Valor inválido'); return }
   guardandoMeta.value = tiendaId
+  const meta = metas.value.find(m => m.tienda_id === tiendaId)
+  const datos = {
+    tienda_id:        tiendaId,
+    mes:              mesActual.value,
+    meta:             val,
+    divisor_asesores: meta?.divisor_asesores ?? 1,
+  }
   try {
-    const meta = metas.value.find(m => m.tienda_id === tiendaId)
-    await api.post('/comisiones/metas', {
-      tienda_id:        tiendaId,
-      mes:              mesActual.value,
-      meta:             val,
-      divisor_asesores: meta?.divisor_asesores ?? 1,
-    })
+    try {
+      await api.post('/comisiones/metas', datos)
+    } catch (e) {
+      // El mes ya tiene pagos: el servidor pide confirmarlo a propósito.
+      if (e.response?.status !== 409 || !e.response?.data?.requiere_confirmacion) throw e
+      if (!confirm(e.response.data.message + '\n\n¿Cambiar la meta de todas formas?')) return
+      await api.post('/comisiones/metas', { ...datos, forzar: true })
+    }
     toast.success('Meta guardada')
     await cargarMetas()
-  } catch {
-    toast.error('Error guardando meta')
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'Error guardando meta')
   } finally {
     guardandoMeta.value = null
   }
+}
+
+/** Si la tienda liquida el pool cada mes o cada trimestre: queda guardado en la tienda. */
+const guardandoPeriodicidad = ref(null)
+async function cambiarPeriodicidad(meta, periodicidad) {
+  if (!confirm(`¿${meta.nombre} pasa a liquidar el pool ${periodicidad === 'trimestral' ? 'cada TRIMESTRE' : 'cada MES'}?`)) {
+    await cargarMetas()
+    return
+  }
+  guardandoPeriodicidad.value = meta.tienda_id
+  try {
+    await api.patch(`/comisiones/tiendas/${meta.tienda_id}/periodicidad`, { periodicidad })
+    meta.periodicidad = periodicidad
+    toast.success(`${meta.nombre}: ahora es ${periodicidad}`)
+    await cargar()
+    if (vistaTab.value === 'resumen') await cargarResumen()
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo cambiar')
+    await cargarMetas()
+  } finally {
+    guardandoPeriodicidad.value = null
+  }
+}
+
+/** Un pago marcado por error vuelve a quedar sin pagar (queda en el historial). */
+const deshaciendo = ref(null)
+async function deshacerPago(c) {
+  const motivo = prompt(`¿Deshacer el pago de ${c.vendedor_nombre} por ${cop(c.monto_comision)}?\nEscribe el motivo:`)
+  if (motivo === null) return
+  deshaciendo.value = c.id
+  try {
+    const { data } = await api.post(`/comisiones/${c.id}/deshacer-pago`, { motivo: motivo.trim() || null })
+    toast.success('Pago deshecho')
+    if (data.aviso) toast.info(data.aviso, 6000)
+    cargarListas()
+    await cargar()
+    if (vistaTab.value === 'resumen') await cargarResumen()
+  } catch (e) {
+    toast.error(e.response?.data?.error || e.response?.data?.message || 'No se pudo deshacer')
+  } finally {
+    deshaciendo.value = null
+  }
+}
+
+/** Quién cambió qué en comisiones este mes. */
+const bitacora        = ref([])
+const verBitacora     = ref(false)
+const cargandoBitacora = ref(false)
+const ACCIONES_BITACORA = {
+  meta: 'Cambió la meta', compartidas: 'Cambió si se comparte', periodicidad: 'Cambió la periodicidad',
+  equipo_entra: 'Entró al equipo', equipo_sale: 'Salió del equipo',
+  movimiento_nuevo: 'Registró reemplazo/traslado', movimiento_editado: 'Corrigió reemplazo/traslado',
+  movimiento_quitado: 'Quitó reemplazo/traslado', pago: 'Pagó una comisión', pago_mes: 'Pagó el mes de alguien',
+  deshacer_pago: 'Deshizo un pago', recalcular: 'Recalculó',
+}
+async function abrirBitacora() {
+  verBitacora.value = !verBitacora.value
+  if (!verBitacora.value) return
+  cargandoBitacora.value = true
+  try {
+    const { data } = await api.get('/comisiones/bitacora', { params: { mes: mesActual.value } })
+    bitacora.value = data
+  } catch {
+    toast.error('No se pudo cargar el historial')
+  } finally {
+    cargandoBitacora.value = false
+  }
+}
+function detalleBitacora(b) {
+  const d = b.detalle || {}
+  if ('antes' in d && 'despues' in d && typeof d.antes !== 'object') return `${d.antes ?? '—'} → ${d.despues}`
+  if (d.monto != null) return cop(d.monto) + (d.motivo ? ` · ${d.motivo}` : '')
+  if (d.desde) return `${d.desde} a ${d.hasta ?? 'sin fecha'}`
+  return ''
 }
 
 /**
@@ -880,12 +972,33 @@ onMounted(async () => {
     <div v-if="mostrarMetas" class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-4">
       <div class="flex items-center justify-between mb-3">
         <p class="text-sm font-semibold text-gray-700">Metas y equipos por tienda</p>
-        <input
-          type="month"
-          v-model="mesActual"
-          @change="cambiarMes"
-          class="text-xs border border-gray-200 rounded-lg px-2 py-1 focus:ring-2 focus:ring-green-500 focus:border-transparent"
-        />
+        <div class="flex items-center gap-2">
+          <button
+            @click="abrirBitacora"
+            class="text-[11px] font-semibold text-gray-600 border border-gray-200 rounded-lg px-2 py-1 hover:bg-gray-50"
+          >{{ verBitacora ? 'Ocultar historial' : 'Historial de cambios' }}</button>
+          <input
+            type="month"
+            v-model="mesActual"
+            @change="cambiarMes"
+            class="text-xs border border-gray-200 rounded-lg px-2 py-1 focus:ring-2 focus:ring-green-500 focus:border-transparent"
+          />
+        </div>
+      </div>
+
+      <!-- Quién cambió qué: metas, equipos, reemplazos, pagos. -->
+      <div v-if="verBitacora" class="mb-4 border border-gray-100 rounded-xl p-3 bg-gray-50/60 max-h-72 overflow-y-auto">
+        <p v-if="cargandoBitacora" class="text-xs text-gray-400">Cargando…</p>
+        <p v-else-if="!bitacora.length" class="text-xs text-gray-400">Sin cambios registrados en {{ mesActual }}.</p>
+        <ul v-else class="space-y-1.5">
+          <li v-for="b in bitacora" :key="b.id" class="text-[11px] text-gray-600 leading-snug">
+            <span class="text-gray-400">{{ fmtFecha(b.created_at) }}</span> ·
+            <span class="font-semibold text-gray-700">{{ b.usuario || 'Sistema' }}</span> ·
+            {{ ACCIONES_BITACORA[b.accion] || b.accion }}
+            <span v-if="b.tienda"> en {{ b.tienda }}</span>
+            <span v-if="detalleBitacora(b)" class="text-gray-500"> — {{ detalleBitacora(b) }}</span>
+          </li>
+        </ul>
       </div>
       <div class="space-y-4">
         <div v-for="m in metas" :key="m.tienda_id" class="border border-gray-100 rounded-xl p-3">
@@ -946,6 +1059,21 @@ onMounted(async () => {
               </span>
             </span>
           </label>
+
+          <!-- ── Cada cuánto se liquida el pool: guardado en la tienda ────────
+               Antes salía del nombre de la tienda escrito en el código. -->
+          <div class="flex items-center gap-2 mb-3">
+            <p class="text-[11px] font-semibold text-gray-700 shrink-0">Se liquida</p>
+            <select
+              :value="m.periodicidad || 'mensual'"
+              :disabled="guardandoPeriodicidad === m.tienda_id || auth.usuario?.rol !== 'supervisor'"
+              @change="cambiarPeriodicidad(m, $event.target.value)"
+              class="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white focus:ring-2 focus:ring-indigo-400 disabled:opacity-50"
+            >
+              <option value="mensual">Cada mes (el 20 del mes siguiente)</option>
+              <option value="trimestral">Cada trimestre (el 20 después del cierre)</option>
+            </select>
+          </div>
 
           <!-- Asesores asignados -->
           <div>
@@ -1739,7 +1867,7 @@ onMounted(async () => {
               </span>
               <div class="flex items-center gap-2">
                 <button
-                  v-if="c.estado_calculado === 'lista'"
+                  v-if="c.estado_calculado === 'lista' && !['independiente_5', 'bolson_restauraciones'].includes(c.forma_pago)"
                   @click="pagar(c.id)"
                   :disabled="pagando === c.id"
                   class="flex items-center gap-1 text-xs font-bold text-white bg-green-600 hover:bg-green-700 rounded-lg px-3 py-1.5 transition-colors disabled:opacity-50"
@@ -1751,6 +1879,13 @@ onMounted(async () => {
                   Pagada {{ fmtFecha(c.fecha_pago) }}
                   <span v-if="c.pagada_por">por {{ c.pagada_por?.nombre }}</span>
                 </span>
+                <button
+                  v-if="c.estado_calculado === 'pagada' && auth.usuario?.rol === 'supervisor'"
+                  @click="deshacerPago(c)"
+                  :disabled="deshaciendo === c.id"
+                  class="text-[10px] font-semibold text-red-600 hover:text-red-800 disabled:opacity-50"
+                  title="Marcar como no pagada (queda en el historial)"
+                >{{ deshaciendo === c.id ? '…' : 'Deshacer' }}</button>
                 <button @click="toggleExpand(c.id)" class="text-gray-300 hover:text-gray-500 transition-colors">
                   <ChevronUpIcon v-if="expandidos.has(c.id)" class="w-4 h-4" />
                   <ChevronDownIcon v-else class="w-4 h-4" />

@@ -40,7 +40,7 @@ class PoolTrimestralSePagaUnaVezTest extends TestCase
             $t->boolean('activo')->default(true); $t->boolean('independiente')->default(false);
             $t->unsignedBigInteger('tienda_default_id')->nullable(); $t->timestamp('created_at')->nullable();
         });
-        Schema::create('tiendas', function (Blueprint $t) {
+        Schema::create('tiendas', function (Blueprint $t) { $t->string('comision_periodicidad')->default('mensual');
             $t->id(); $t->string('nombre'); $t->boolean('activa')->default(true);
             $t->boolean('comisiones_compartidas')->default(false);
         });
@@ -59,7 +59,7 @@ class PoolTrimestralSePagaUnaVezTest extends TestCase
             $t->date('desde'); $t->date('hasta')->nullable();
             $t->string('nota')->nullable(); $t->timestamps();
         });
-        Schema::create('comisiones', function (Blueprint $t) {
+        Schema::create('comisiones', function (Blueprint $t) { $t->string('clave_unica')->nullable()->unique(); $t->string('forma_pago_pagada')->nullable();
             $t->id(); $t->unsignedBigInteger('orden_id')->nullable(); $t->unsignedBigInteger('vendedor_id');
             $t->unsignedBigInteger('tienda_id')->nullable(); $t->string('origen')->default('venta');
             $t->char('mes_venta', 7); $t->decimal('valor_orden', 15, 2)->default(0);
@@ -102,9 +102,9 @@ class PoolTrimestralSePagaUnaVezTest extends TestCase
             $t->timestamps();
         });
 
-        // El nombre es lo que la hace trimestral.
+        // Trimestral por lo que dice la tienda, no por su nombre.
         DB::table('tiendas')->insert([
-            'id' => self::PEREIRA, 'nombre' => 'Decasa Unicentro Pereira',
+            'id' => self::PEREIRA, 'nombre' => 'Decasa Unicentro Pereira', 'comision_periodicidad' => 'trimestral',
             'activa' => true, 'comisiones_compartidas' => true,
         ]);
         DB::table('metas_tienda')->insert([
@@ -283,5 +283,153 @@ class PoolTrimestralSePagaUnaVezTest extends TestCase
         $this->assertEqualsWithDelta($pool * 92 / 122, $cobra['Juan'], 3);
         $this->assertEqualsWithDelta($pool * 30 / 122, $cobra['Genesis'], 3);
         $this->assertEqualsWithDelta($pool, $cobra['Juan'] + $cobra['Genesis'], 3);
+    }
+
+    // ─────────── La regla: los 3 meses obligatorios, con la deuda arrastrada ───────────
+
+    private function metaDe(float $meta): void
+    {
+        DB::table('metas_tienda')->update(['meta' => $meta]);
+    }
+
+    private function pools(bool $persistir = false): array
+    {
+        $ctrl = app(ComisionController::class);
+        [$metas, $totTienda] = (new \ReflectionMethod($ctrl, 'cargarTotales'))->invoke($ctrl);
+        return (new \ReflectionMethod($ctrl, 'cargarPoolsTrimestrales'))->invoke($ctrl, $metas, $totTienda, $persistir);
+    }
+
+    private function cuenta(string $mes): array
+    {
+        $ctrl = app(ComisionController::class);
+        [$metas, $totTienda] = (new \ReflectionMethod($ctrl, 'cargarTotales'))->invoke($ctrl);
+        $pools = (new \ReflectionMethod($ctrl, 'cargarPoolsTrimestrales'))->invoke($ctrl, $metas, $totTienda, false);
+        return (new \ReflectionMethod($ctrl, 'cuentaDelTrimestre'))->invoke($ctrl, self::PEREIRA, $mes, $metas, $totTienda, $pools);
+    }
+
+    /** [nombre => lo que está listo para pagar] */
+    private function loQueEstaListo(string $hoy = '2026-10-25'): array
+    {
+        $ctrl = app(ComisionController::class);
+        foreach (['2026-07', '2026-08', '2026-09'] as $mes) $this->abrirRenglonesDe($mes);
+        [$metas, $totTienda, $totVendedor] = (new \ReflectionMethod($ctrl, 'cargarTotales'))->invoke($ctrl);
+        $pools = (new \ReflectionMethod($ctrl, 'cargarPoolsTrimestrales'))->invoke($ctrl, $metas, $totTienda, false);
+        $nombres = DB::table('usuarios')->pluck('nombre', 'id')->all();
+        $out = [];
+        foreach (Comision::with('orden.pagos', 'tienda')->get() as $c) {
+            $f = (new \ReflectionMethod($ctrl, 'enriquecer'))->invoke($ctrl, $c, $metas, $totTienda, $totVendedor, $pools, \Carbon\Carbon::parse($hoy));
+            if ($f['estado_calculado'] !== 'lista') continue;
+            $out[$nombres[$c->vendedor_id]] = ($out[$nombres[$c->vendedor_id]] ?? 0) + (float) $f['monto_comision'];
+        }
+        return $out;
+    }
+
+    public function test_lo_que_sobra_un_mes_paga_la_deuda_de_otro(): void
+    {
+        // Meta 40M cada mes. Julio 60M (+20), agosto 20M (−20: lo paga lo que
+        // sobró de julio), septiembre 50M (+10). Comisiona el saldo: 10M.
+        $this->metaDe(40_000_000);
+        $this->orden(self::JUAN, '2026-07-10', 60_000_000);
+        $this->orden(self::JUAN, '2026-08-10', 20_000_000);
+        $this->orden(self::JUAN, '2026-09-10', 50_000_000);
+
+        $t = $this->cuenta('2026-09');
+        $this->assertSame([20_000_000.0, 0.0, 10_000_000.0], array_map('floatval', array_column($t['meses'], 'saldo')));
+
+        // 10.000.000 ÷ 1,19 × 5% = 420.168
+        $this->assertEqualsWithDelta(420_168, $t['pool_pagado'], 1);
+        $this->assertEqualsWithDelta(420_168, $this->loQueEstaListo()['Juan'] ?? 0, 2);
+    }
+
+    public function test_la_deuda_del_primer_mes_se_paga_con_los_siguientes(): void
+    {
+        // Julio 20M (debe 20M), agosto 50M (paga 10 de la deuda), septiembre
+        // 70M (paga los otros 10 y sobran 20).
+        $this->metaDe(40_000_000);
+        $this->orden(self::JUAN, '2026-07-10', 20_000_000);
+        $this->orden(self::JUAN, '2026-08-10', 50_000_000);
+        $this->orden(self::JUAN, '2026-09-10', 70_000_000);
+
+        $t = $this->cuenta('2026-09');
+        $this->assertEquals([20_000_000, 10_000_000, 0], array_column($t['meses'], 'deuda'));
+        $this->assertEqualsWithDelta(20_000_000 / 1.19 * 0.05, $t['pool_pagado'], 1);
+    }
+
+    public function test_si_no_cubre_los_tres_meses_no_comisiona_y_la_deuda_pasa_al_siguiente_trimestre(): void
+    {
+        // 30 + 40 + 35 = 105M contra 120M: le faltan 15M. No comisiona nada.
+        $this->metaDe(40_000_000);
+        $this->orden(self::JUAN, '2026-07-10', 30_000_000);
+        $this->orden(self::JUAN, '2026-08-10', 40_000_000);
+        $this->orden(self::JUAN, '2026-09-10', 35_000_000);
+
+        $t = $this->cuenta('2026-09');
+        $this->assertEquals(0, $t['pool_pagado']);
+        $this->assertEqualsWithDelta(15_000_000, $t['deuda_en_ventas_final'], 1);
+        $this->assertSame([], $this->loQueEstaListo(), 'nada queda listo: no es una comisión de $0 para marcar');
+
+        // Q4: 50 + 40 + 50 = 140M contra 120M → +20M, menos la deuda de 15M
+        // que traía = 5M que comisionan.
+        $this->orden(self::JUAN, '2026-10-10', 50_000_000);
+        $this->orden(self::JUAN, '2026-11-10', 40_000_000);
+        $this->orden(self::JUAN, '2026-12-10', 50_000_000);
+        $this->travelTo(\Carbon\Carbon::parse('2027-01-25 10:00', 'America/Bogota'));
+
+        $q4 = $this->pools()[self::PEREIRA . '_2026-Q4'];
+        $this->assertEqualsWithDelta(15_000_000 / 1.19 * 0.05, $q4['deficit_inicial'], 1);
+        $this->assertEqualsWithDelta(5_000_000 / 1.19 * 0.05, $q4['pool_pagado'], 1);
+        $this->assertEquals(0, $q4['deficit_final']);
+    }
+
+    public function test_la_deuda_sigue_si_el_trimestre_siguiente_tampoco_alcanza(): void
+    {
+        $this->metaDe(40_000_000);
+        $this->orden(self::JUAN, '2026-07-10', 30_000_000);
+        $this->orden(self::JUAN, '2026-08-10', 40_000_000);
+        $this->orden(self::JUAN, '2026-09-10', 35_000_000);   // debe 15M
+        $this->orden(self::JUAN, '2026-10-10', 45_000_000);
+        $this->orden(self::JUAN, '2026-11-10', 45_000_000);
+        $this->orden(self::JUAN, '2026-12-10', 40_000_000);   // +10M: le quedan 5M de deuda
+        $this->travelTo(\Carbon\Carbon::parse('2027-01-25 10:00', 'America/Bogota'));
+
+        $q4 = $this->pools()[self::PEREIRA . '_2026-Q4'];
+        $this->assertEquals(0, $q4['pool_pagado']);
+        $this->assertEqualsWithDelta(5_000_000 / 1.19 * 0.05, $q4['deficit_final'], 1);
+    }
+
+    public function test_una_venta_sin_la_mitad_no_se_lleva_la_parte_del_mes(): void
+    {
+        // Agosto tiene una venta válida de 40M y otra de 50M sin la mitad
+        // pagada. El pool sale solo de lo válido, y la parte de agosto se paga
+        // entera sobre la válida: si ese cliente nunca paga, no se pierde.
+        $this->metaDe(40_000_000);
+        $this->orden(self::JUAN, '2026-07-10', 80_000_000);
+        $sinMitad = $this->orden(self::JUAN, '2026-08-10', 50_000_000);
+        DB::table('pagos')->where('orden_id', $sinMitad->id)->update(['monto' => 1_000_000]);
+        $this->orden(self::JUAN, '2026-08-11', 40_000_000);
+        $this->orden(self::JUAN, '2026-09-10', 60_000_000);
+
+        // 180M válidos − 120M = 60M → 2.521.008, todo listo.
+        $this->assertEqualsWithDelta(60_000_000 / 1.19 * 0.05, $this->loQueEstaListo()['Juan'] ?? 0, 3);
+    }
+
+    public function test_el_dia_de_liquidar_el_trimestre_queda_fijo(): void
+    {
+        $this->metaDe(40_000_000);
+        $this->orden(self::JUAN, '2026-07-10', 60_000_000);
+        $this->orden(self::JUAN, '2026-08-10', 40_000_000);
+        $tarde = $this->orden(self::JUAN, '2026-09-10', 40_000_000);
+        DB::table('pagos')->where('orden_id', $tarde->id)->update(['monto' => 1_000_000]);   // no cuenta todavía
+
+        // El 20 de octubre se liquida: 100M válidos − 120M → no comisiona, debe 20M.
+        $this->travelTo(\Carbon\Carbon::parse('2026-10-20 07:00', 'America/Bogota'));
+        $this->pools(true);
+        $this->assertNotNull(DB::table('tienda_trimestres')->where('trimestre', '2026-Q3')->value('cerrado_at'));
+
+        // El cliente paga la mitad después: el trimestre ya se liquidó.
+        DB::table('pagos')->where('orden_id', $tarde->id)->update(['monto' => 40_000_000]);
+        $q3 = $this->pools()[self::PEREIRA . '_2026-Q3'];
+        $this->assertEquals(0, $q3['pool_pagado']);
+        $this->assertEqualsWithDelta(20_000_000 / 1.19 * 0.05, $q3['deficit_final'], 1);
     }
 }

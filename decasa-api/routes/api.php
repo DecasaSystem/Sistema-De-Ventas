@@ -696,6 +696,11 @@ Route::middleware('auth:sanctum')->group(function () {
         // Si en esa tienda la comision es del equipo o de cada quien.
         Route::patch('/tiendas/{id}/compartidas', [ComisionController::class, 'setComisionesCompartidas'])
             ->middleware('role:supervisor')->whereNumber('id');
+        // Si liquida el pool cada mes o cada trimestre: guardado en la tienda.
+        Route::patch('/tiendas/{id}/periodicidad', [ComisionController::class, 'setPeriodicidad'])
+            ->middleware('role:supervisor')->whereNumber('id');
+        // Quién cambió qué: metas, equipos, reemplazos, pagos.
+        Route::get('/bitacora',                  [ComisionController::class, 'bitacora']);
         Route::delete('/asesores-asignados/{id}',[ComisionController::class, 'removeAsesor'])->middleware('role:supervisor')->whereNumber('id');
         // Quién fue a cubrir a otra tienda y por cuántos días: es lo que
         // reparte el pool cuando alguien reemplaza.
@@ -704,7 +709,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/reemplazos/{id}',           [ComisionController::class, 'editReemplazo'])->middleware('role:supervisor')->whereNumber('id');
         Route::delete('/reemplazos/{id}',        [ComisionController::class, 'removeReemplazo'])->middleware('role:supervisor')->whereNumber('id');
         Route::post('/pagar-listas',             [ComisionController::class, 'pagarListas'])->middleware('role:supervisor');
-        Route::post('/{id}/pagar',               [ComisionController::class, 'marcarPagada'])->middleware('role:supervisor');
+        Route::post('/{id}/pagar',               [ComisionController::class, 'marcarPagada'])->middleware('role:supervisor')->whereNumber('id');
+        // Un pago marcado por error se puede deshacer (queda en la bitácora).
+        Route::post('/{id}/deshacer-pago',       [ComisionController::class, 'deshacerPago'])->middleware('role:supervisor')->whereNumber('id');
     });
 
     // Redes (módulo WhatsApp centralizado)

@@ -45,6 +45,20 @@ Schedule::job(new AvisarRevisionesEncargos())
     ->name('avisar-revisiones-encargos')
     ->withoutOverlapping();
 
+// Comisiones: lo que hace el botón Recalcular, cada mañana. Así el día 20 las
+// que quedan listas se marcan y el supervisor recibe el aviso sin que nadie
+// tenga que acordarse de pulsar nada.
+Artisan::command('comisiones:poner-al-dia', function () {
+    $r = app(\App\Http\Controllers\ComisionController::class)->ponerAlDia();
+    $this->info("Comisiones al día: {$r['actualizadas']} cambiaron de estado, {$r['notificadas']} avisos, {$r['revaluadas']} revaluadas.");
+})->purpose('Pone al día las comisiones pendientes y avisa las que quedaron listas');
+
+Schedule::command('comisiones:poner-al-dia')
+    ->dailyAt('06:30')
+    ->timezone('America/Bogota')
+    ->name('comisiones-poner-al-dia')
+    ->withoutOverlapping();
+
 // La nómina ya no necesita un job: los ciclos de pago se calculan del
 // calendario cuando se abre la pantalla (App\Services\CicloNomina), así que
 // no hay períodos que generar de madrugada.

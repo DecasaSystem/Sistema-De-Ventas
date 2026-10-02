@@ -9,9 +9,9 @@ class Comision extends Model
     protected $table = 'comisiones';
 
     protected $fillable = [
-        'orden_id', 'vendedor_id', 'tienda_id', 'origen', 'mes_venta',
+        'orden_id', 'vendedor_id', 'tienda_id', 'origen', 'clave_unica', 'mes_venta',
         'valor_orden', 'fecha_venta', 'fecha_disponible',
-        'estado', 'monto_comision', 'fecha_pago', 'pagada_por', 'notificado_lista',
+        'estado', 'forma_pago_pagada', 'monto_comision', 'fecha_pago', 'pagada_por', 'notificado_lista',
     ];
 
     protected function casts(): array

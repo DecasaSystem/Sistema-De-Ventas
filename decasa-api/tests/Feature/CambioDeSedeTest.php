@@ -38,7 +38,7 @@ class CambioDeSedeTest extends TestCase
     {
         parent::setUp();
 
-        Schema::create('tiendas', function (Blueprint $t) {
+        Schema::create('tiendas', function (Blueprint $t) { $t->string('comision_periodicidad')->default('mensual');
             $t->id(); $t->string('nombre'); $t->boolean('activa')->default(true); $t->date('cerrada_en')->nullable();
             $t->boolean('comisiones_compartidas')->default(true); $t->boolean('es_independientes')->default(false);
         });
@@ -58,7 +58,7 @@ class CambioDeSedeTest extends TestCase
             $t->id(); $t->unsignedBigInteger('tienda_id'); $t->string('mes', 7);
             $t->decimal('meta', 15, 2)->default(0); $t->unsignedInteger('divisor_asesores')->default(1); $t->timestamps();
         });
-        Schema::create('comisiones', function (Blueprint $t) {
+        Schema::create('comisiones', function (Blueprint $t) { $t->string('clave_unica')->nullable()->unique(); $t->string('forma_pago_pagada')->nullable();
             $t->id(); $t->unsignedBigInteger('orden_id')->nullable(); $t->unsignedBigInteger('vendedor_id');
             $t->unsignedBigInteger('tienda_id')->nullable(); $t->string('origen')->default('venta'); $t->char('mes_venta', 7);
             $t->decimal('valor_orden', 15, 2)->default(0); $t->date('fecha_venta')->nullable();
@@ -78,8 +78,8 @@ class CambioDeSedeTest extends TestCase
         });
 
         DB::table('tiendas')->insert([
-            ['id' => self::UNICENTRO,   'nombre' => 'Decasa Unicentro Pereira'],
-            ['id' => self::CIRCUNVALAR, 'nombre' => 'Decasa Circunvalar'],
+            ['id' => self::UNICENTRO,   'nombre' => 'Decasa Unicentro Pereira', 'comision_periodicidad' => 'trimestral'],
+            ['id' => self::CIRCUNVALAR, 'nombre' => 'Decasa Circunvalar', 'comision_periodicidad' => 'trimestral'],
         ]);
         DB::table('usuarios')->insert([
             ['id' => self::GENESIS, 'nombre' => 'Genesis', 'tienda_default_id' => self::CIRCUNVALAR],

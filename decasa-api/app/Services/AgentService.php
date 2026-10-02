@@ -2371,13 +2371,23 @@ class AgentService
 
         $vendedorId = $usuario->id;
         if ($puedeVerTodo && ! empty($args['nombre_vendedor'])) {
-            $encontrado = DB::table('usuarios')
+            // Varios pueden calzar ("Ma" es Manuela y Marta): antes se tomaba
+            // el primero y se contestaba la plata de otra persona. Si el nombre
+            // es exacto, ese; si no, uno solo o se pregunta.
+            $buscado    = mb_strtolower(trim($args['nombre_vendedor']));
+            $candidatos = DB::table('usuarios')
                 ->whereRaw('LOWER(nombre) LIKE ?', [$this->likeI($args['nombre_vendedor'])])
-                ->value('id');
-            if (! $encontrado) {
+                ->limit(6)->get(['id', 'nombre']);
+            $exacto = $candidatos->first(fn ($u) => mb_strtolower($u->nombre) === $buscado);
+
+            if ($candidatos->isEmpty()) {
                 return ['error' => "No encontré a ningún vendedor que se llame '{$args['nombre_vendedor']}'."];
             }
-            $vendedorId = (int) $encontrado;
+            if (! $exacto && $candidatos->count() > 1) {
+                return ['error' => 'Hay varias personas con ese nombre: '
+                    . $candidatos->pluck('nombre')->join(', ', ' y ') . '. ¿De cuál hablas?'];
+            }
+            $vendedorId = (int) ($exacto ?? $candidatos->first())->id;
         }
 
         $vendedor = Usuario::find($vendedorId);
@@ -2404,7 +2414,9 @@ class AgentService
                 'de_sus_ventas_propias'         => $suyo['comision_ventas_propias'] ?? 0,
                 'de_restauraciones_compartidas' => $suyo['comision_restauraciones'] ?? 0,
                 'comision'            => $suyo['comision'] ?? 0,
-                'ya_puede_cobrar'     => $suyo['comision_lista'] ?? 0,
+                // Lo listo menos lo que ya se le pagó.
+                'ya_puede_cobrar'     => $suyo['comision_por_pagar'] ?? 0,
+                'ya_pagada'           => $suyo['comision_pagada'] ?? 0,
                 'todavia_no'          => $suyo['comision_pendiente'] ?? 0,
                 'se_paga_el'          => $indep['se_cobra_el'],
                 'llego_esa_fecha'     => $indep['llego_la_fecha'],

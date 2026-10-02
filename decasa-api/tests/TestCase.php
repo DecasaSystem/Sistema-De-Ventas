@@ -27,6 +27,9 @@ abstract class TestCase extends BaseTestCase
         \App\Models\TiendaAsesor::olvidarCache();
         \App\Models\TiendaReemplazo::olvidarCache();
         \App\Http\Controllers\ComisionController::olvidarQuienComparte();
+        \App\Http\Controllers\ComisionController::olvidarPeriodicidades();
+        \App\Http\Controllers\ComisionController::olvidarEsquema();
+        \App\Models\Orden::olvidarEsquema();
         \App\Services\ConsumoTelas::olvidarCache();
         \App\Models\Tienda::olvidarCerradas();
     }
@@ -129,7 +132,7 @@ abstract class TestCase extends BaseTestCase
 
         // Cambiar un producto recalcula la comisión de la orden: mira estas dos.
         if (! \Illuminate\Support\Facades\Schema::hasTable('comisiones')) {
-            \Illuminate\Support\Facades\Schema::create('comisiones', function ($t) {
+            \Illuminate\Support\Facades\Schema::create('comisiones', function ($t) { $t->string('clave_unica')->nullable()->unique(); $t->string('forma_pago_pagada')->nullable();
                 $t->id(); $t->unsignedBigInteger('orden_id')->nullable(); $t->unsignedBigInteger('vendedor_id');
                 $t->unsignedBigInteger('tienda_id')->nullable(); $t->string('origen')->default('venta'); $t->char('mes_venta', 7);
                 $t->decimal('valor_orden', 15, 2)->default(0); $t->date('fecha_venta')->nullable();
