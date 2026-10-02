@@ -41,6 +41,11 @@ import { comprimirImagen } from '@/utils/comprimirImagen'
 import { pesos } from '@/utils/pesos'
 import InputPesos from '@/components/common/InputPesos.vue'
 import { piezasPorJuego, enJuegos, precioPieza } from '@/utils/juegos'
+import { crearCola, conReintento } from '@/utils/colaPeticiones'
+
+// Las telas y medidas de cada tarjeta se piden en fila, de a 4: todas a la vez
+// (hasta 80 por página) hacían que el servidor respondiera 500 a muchas.
+const colaTarjetas = crearCola(4)
 
 const router = useRouter()
 const route = useRoute()
@@ -1544,8 +1549,13 @@ async function cargarVCConfigsCard(item) {
   try {
     const params = tiendaId.value && tiendaId.value !== 'todas' ? { tienda_id: tiendaId.value } : {}
     // silencioso: igual que cargarVariantes, es relleno de una tarjeta ya visible
-    const { data } = await api.get(`/productos/${pid}/variante-configs`, { params, silencioso: true })
+    const { data } = await colaTarjetas(() => conReintento(() =>
+      api.get(`/productos/${pid}/variante-configs`, { params, silencioso: true })))
     vcConfigsCard.value[pid] = data.filter(g => g.items.length > 0)
+  } catch (e) {
+    // Sin las medidas la tarjeta se ve igual; no queda marcada como cargada,
+    // así que la próxima vez que haga falta se vuelve a pedir.
+    console.warn(`[inventario] No se cargaron las medidas del producto ${pid}:`, e?.response?.status ?? e?.message)
   } finally {
     vcConfigsCardCargando.value[pid] = false
   }
@@ -1651,8 +1661,11 @@ async function cargarVariantes(item) {
   try {
     // silencioso: se pide una por tarjeta ya pintada; la tarjeta avisa por su
     // cuenta con varianteCargando y no hay que encender la S global otra vez.
-    const { data } = await getVariantes(pid, esVistaGlobal.value ? null : tiendaId.value, true)
+    const { data } = await colaTarjetas(() => conReintento(() =>
+      getVariantes(pid, esVistaGlobal.value ? null : tiendaId.value, true)))
     variantesData.value[pid] = data
+  } catch (e) {
+    console.warn(`[inventario] No se cargaron las telas del producto ${pid}:`, e?.response?.status ?? e?.message)
   } finally {
     varianteCargando.value[pid] = false
   }
