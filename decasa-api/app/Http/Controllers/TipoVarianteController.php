@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\TipoVariante;
 use App\Models\TipoVarianteOpcion;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class TipoVarianteController extends Controller
 {
@@ -28,12 +29,33 @@ class TipoVarianteController extends Controller
      */
     public function store(Request $request)
     {
+        $request->merge(['nombre' => trim((string) $request->input('nombre'))]);
+
+        // Solo choca con uno que esté en uso. Eliminar un tipo lo desactiva
+        // (los productos que lo usaron siguen apuntándole), y antes ese
+        // desactivado seguía ocupando el nombre: borrar "alas vintage" y
+        // volver a crearlo decía que ya existía, sin que se viera en la lista.
         $data = $request->validate([
-            'nombre'        => 'required|string|max:100|unique:tipos_variante,nombre',
+            'nombre'        => ['required', 'string', 'max:100',
+                                Rule::unique('tipos_variante', 'nombre')->where('activo', true)],
             'afecta_precio' => 'required|boolean',
+        ], [
+            'nombre.unique' => 'Ya hay un tipo de variante con ese nombre.',
         ]);
 
-        $tipo = TipoVariante::create($data);
+        // El nombre sigue siendo único en la tabla, así que el eliminado se
+        // vuelve a usar en vez de crear otro. Vuelve sin sus opciones: se creó
+        // de nuevo y arranca limpio; las que se agreguen con el mismo nombre
+        // se reactivan solas (storeOpciones).
+        $eliminado = TipoVariante::where('nombre', $data['nombre'])->where('activo', false)->first();
+        if ($eliminado) {
+            $eliminado->update(['activo' => true, 'afecta_precio' => $data['afecta_precio']]);
+            TipoVarianteOpcion::where('tipo_variante_id', $eliminado->id)->update(['activo' => false]);
+            $tipo = $eliminado;
+        } else {
+            $tipo = TipoVariante::create($data);
+        }
+
         $tipo->load('opciones');
 
         return response()->json($tipo, 201);
