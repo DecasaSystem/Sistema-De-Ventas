@@ -23,7 +23,7 @@ export async function comprimirImagen(archivo, { maxDim = 1920, quality = 0.82, 
   if (!archivo || archivo.size <= skipBytes) return archivo
 
   try {
-    const fuente = await decodificar(archivo)
+    const fuente = await decodificar(archivo, maxDim)
     let { width, height } = fuente
     if (!width || !height) throw new Error('Imagen sin dimensiones')
 
@@ -56,9 +56,21 @@ export async function comprimirImagen(archivo, { maxDim = 1920, quality = 0.82, 
  * `createImageBitmap` va primero: respeta la orientación EXIF de la cámara
  * (una foto vertical no sale acostada) y gasta menos memoria que <img> en
  * fotos grandes. Si el navegador no lo tiene, o falla, se intenta con <img>.
+ *
+ * Y antes que todo, pedirla YA reducida (`resizeWidth`): así la versión
+ * completa de la cámara —decenas de MB decodificada— nunca existe en
+ * memoria. Es lo que dejaba en blanco el formulario de entrega en celulares
+ * de gama media al subir varias fotos. Una vertical sale más alta que maxDim
+ * y el canvas la termina de bajar; una que ya era chica sale un poco
+ * agrandada, y si eso la hace más pesada se sube la original (ver arriba).
  */
-async function decodificar(archivo) {
+async function decodificar(archivo, maxDim = 1920) {
   if (typeof createImageBitmap === 'function') {
+    try {
+      return await createImageBitmap(archivo, { resizeWidth: maxDim, resizeQuality: 'high', imageOrientation: 'from-image' })
+    } catch {
+      // Navegador sin redimensionar al decodificar: los intentos de siempre.
+    }
     try {
       return await createImageBitmap(archivo, { imageOrientation: 'from-image' })
     } catch {

@@ -9,26 +9,15 @@ import FirmaCanvas from '@/components/FirmaCanvas.vue'
 import { CheckCircleIcon, MapPinIcon, ClockIcon, ExclamationTriangleIcon, CameraIcon, XMarkIcon, PrinterIcon } from '@heroicons/vue/24/outline'
 import InputPesos from '@/components/common/InputPesos.vue'
 import ComoLlegar from '@/components/despacho/ComoLlegar.vue'
+import { comprimirImagen } from '@/utils/comprimirImagen'
 
-function compressImage(file, maxWidth = 1280, quality = 0.75) {
-  return new Promise((resolve) => {
-    const img = new Image()
-    const url = URL.createObjectURL(file)
-    img.onload = () => {
-      URL.revokeObjectURL(url)
-      let { width, height } = img
-      if (width > maxWidth) {
-        height = Math.round((height * maxWidth) / width)
-        width = maxWidth
-      }
-      const canvas = document.createElement('canvas')
-      canvas.width = width
-      canvas.height = height
-      canvas.getContext('2d').drawImage(img, 0, 0, width, height)
-      canvas.toBlob(resolve, 'image/jpeg', quality)
-    }
-    img.src = url
-  })
+// Antes había aquí una copia propia que cargaba la foto ENTERA de la cámara
+// en memoria y, si la foto no abría, se quedaba esperando para siempre: en
+// celulares de gama media el formulario quedaba en blanco al subir fotos. La
+// compartida decodifica la foto ya reducida y, si algo falla, devuelve la
+// original en vez de colgarse.
+function compressImage(file) {
+  return comprimirImagen(file, { maxDim: 1280, quality: 0.75, skipBytes: 350 * 1024 })
 }
 
 const props = defineProps({
@@ -129,16 +118,57 @@ function fotosDe(oi) {
   return fotosProducto.value[oi.id] ?? []
 }
 
-async function onFotoDeProducto(oi, e) {
-  const files = Array.from(e.target.files ?? [])
-  const lista = [...fotosDe(oi)]
-  for (const file of files) {
-    if (lista.length >= MAX_FOTOS_POR_PRODUCTO) break
-    const blob = await compressImage(file)
-    lista.push({ blob, preview: _createPreviewUrl(blob) })
+// ── Recibir fotos: del botón o arrastradas ───────────────────────────────────
+// Las dos entradas pasan por aquí. Mientras se procesan se ve "Procesando…"
+// en esa casilla: una foto grande tarda un momento y antes no se veía nada.
+const procesando = ref({})   // { [zona]: true }
+const arrastrando = ref(null) // la zona sobre la que se está arrastrando
+
+/** Lo que llegó, solo las imágenes, ya comprimidas. Avisa si algo no sirve. */
+async function prepararFotos(zona, archivos, cupo) {
+  const todos = Array.from(archivos ?? [])
+  const imagenes = todos.filter(esImagen).slice(0, Math.max(0, cupo))
+  if (todos.length && !imagenes.length) {
+    toast.error('Eso no es una foto. Arrastra o elige una imagen.')
+    return []
   }
-  fotosProducto.value = { ...fotosProducto.value, [oi.id]: lista }
+  procesando.value = { ...procesando.value, [zona]: true }
+  try {
+    const listas = []
+    for (const file of imagenes) {
+      const blob = await compressImage(file)
+      listas.push({ blob, preview: _createPreviewUrl(blob) })
+    }
+    return listas
+  } catch {
+    toast.error('No se pudo leer la foto. Intenta tomarla otra vez.')
+    return []
+  } finally {
+    const { [zona]: _, ...resto } = procesando.value
+    procesando.value = resto
+  }
+}
+
+function esImagen(file) {
+  return !!file && (file.type?.startsWith('image/') || /\.(jpe?g|png|webp|heic|heif)$/i.test(file.name ?? ''))
+}
+
+async function agregarFotosProducto(oi, archivos) {
+  const nuevas = await prepararFotos(`p-${oi.id}`, archivos, MAX_FOTOS_POR_PRODUCTO - fotosDe(oi).length)
+  if (nuevas.length) fotosProducto.value = { ...fotosProducto.value, [oi.id]: [...fotosDe(oi), ...nuevas] }
+}
+
+async function onFotoDeProducto(oi, e) {
+  const archivos = Array.from(e.target.files ?? [])
   e.target.value = ''
+  await agregarFotosProducto(oi, archivos)
+}
+
+/** Soltar archivos arrastrados sobre una casilla. */
+function alSoltar(e, recibir) {
+  arrastrando.value = null
+  const archivos = e.dataTransfer?.files
+  if (archivos?.length) recibir(archivos)
 }
 
 function quitarFotoDeProducto(oi, i) {
@@ -264,13 +294,15 @@ const devolucionCompleta = computed(() => {
   return motivoDevolucion.value.trim().length >= 3
 })
 
-function onFotoDevolucion(e) {
-  const file = e.target.files?.[0]
-  if (!file) return
-  compressImage(file).then(blob => {
-    fotoDevolucion.value = blob
-    fotoDevolucionPreview.value = URL.createObjectURL(blob)
-  })
+async function agregarFotoDevolucion(archivos) {
+  const [f] = await prepararFotos('devolucion', archivos, 1)
+  if (f) { fotoDevolucion.value = f.blob; fotoDevolucionPreview.value = f.preview }
+}
+
+async function onFotoDevolucion(e) {
+  const archivos = Array.from(e.target.files ?? [])
+  e.target.value = ''
+  await agregarFotoDevolucion(archivos)
 }
 
 // ── Descuento que se pierde al pagar con tarjeta ──────────────────────────────
@@ -393,34 +425,41 @@ function _createPreviewUrl(blob) {
 }
 onUnmounted(() => _blobUrls.forEach(u => URL.revokeObjectURL(u)))
 
+async function agregarFotosPago(archivos) {
+  const nuevas = await prepararFotos('pago', archivos, 6 - fotosPago.value.length)
+  fotosPago.value.push(...nuevas)
+}
+
 async function onFotoPago(e) {
-  const files = Array.from(e.target.files ?? [])
-  for (const file of files) {
-    if (fotosPago.value.length >= 6) break
-    const blob = await compressImage(file)
-    fotosPago.value.push({ blob, preview: _createPreviewUrl(blob) })
-  }
+  const archivos = Array.from(e.target.files ?? [])
   e.target.value = ''
+  await agregarFotosPago(archivos)
 }
 
 function quitarFotoPago(i) {
   fotosPago.value.splice(i, 1)
 }
 
+async function agregarFotoAnexo(archivos) {
+  const [f] = await prepararFotos('anexo', archivos, 1)
+  if (f) { fotoAnexo.value = f.blob; fotoAnexoPreview.value = f.preview }
+}
+
 async function onFotoAnexo(e) {
-  const file = e.target.files[0]
-  if (!file) return
-  const blob = await compressImage(file)
-  fotoAnexo.value = blob
-  fotoAnexoPreview.value = _createPreviewUrl(blob)
+  const archivos = Array.from(e.target.files ?? [])
+  e.target.value = ''
+  await agregarFotoAnexo(archivos)
+}
+
+async function agregarFotoNovedad(archivos) {
+  const [f] = await prepararFotos('novedad', archivos, 1)
+  if (f) { fotoNovedad.value = f.blob; fotoNovedadPreview.value = f.preview }
 }
 
 async function onFotoNovedad(e) {
-  const file = e.target.files[0]
-  if (!file) return
-  const blob = await compressImage(file)
-  fotoNovedad.value = blob
-  fotoNovedadPreview.value = _createPreviewUrl(blob)
+  const archivos = Array.from(e.target.files ?? [])
+  e.target.value = ''
+  await agregarFotoNovedad(archivos)
 }
 
 async function guardarPagoYEntregar() {
@@ -498,7 +537,7 @@ async function guardarPagoYEntregar() {
     <!-- min-w-0: sin esto el panel crecía con lo más ancho de adentro (el
          lienzo de la firma en un teléfono de alta resolución) y se salía de
          la pantalla por la derecha. -->
-    <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full min-w-0 sm:max-w-lg max-h-[94dvh] sm:max-h-[90vh] flex flex-col overflow-hidden z-10">
+    <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full min-w-0 sm:max-w-lg panel-alto flex flex-col overflow-hidden z-10">
       <!-- Header -->
       <div class="shrink-0 bg-white border-b border-gray-100 pl-5 pr-2 py-2 flex items-center justify-between">
         <div class="flex items-center gap-2 min-w-0">
@@ -735,10 +774,15 @@ async function guardarPagoYEntregar() {
               </p>
               <p v-if="!itemsQueVan.length" class="text-sm text-gray-500">Marca arriba qué se entrega hoy.</p>
               <div class="space-y-2">
+                <!-- Toda la tarjeta recibe fotos arrastradas desde el computador -->
                 <div
                   v-for="oi in itemsQueVan" :key="'foto-' + oi.id"
+                  @dragover.prevent="arrastrando = `p-${oi.id}`"
+                  @dragleave.self="arrastrando = null"
+                  @drop.prevent="alSoltar($event, a => agregarFotosProducto(oi, a))"
                   :class="['rounded-xl border p-3 transition-colors',
-                    fotosDe(oi).length ? 'border-emerald-300 bg-emerald-50/50'
+                    arrastrando === `p-${oi.id}` ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-300'
+                    : fotosDe(oi).length ? 'border-emerald-300 bg-emerald-50/50'
                     : (itemsQueSeQuedan.includes(oi) ? 'border-gray-200 bg-white' : 'border-gray-200 bg-gray-50')]"
                 >
                   <div class="flex items-start justify-between gap-2 mb-2">
@@ -752,13 +796,20 @@ async function guardarPagoYEntregar() {
                     <span v-else class="chip bg-gray-100 text-gray-600">Falta</span>
                   </div>
 
+                  <!-- Procesando: la foto grande tarda un momento -->
+                  <p v-if="procesando[`p-${oi.id}`]" class="flex items-center justify-center gap-2 min-h-12 text-sm text-blue-700" aria-live="polite">
+                    <span class="w-4 h-4 border-2 border-blue-300 border-t-blue-700 rounded-full animate-spin" aria-hidden="true" />
+                    Procesando foto…
+                  </p>
+
                   <!-- Sin fotos: un botón grande, fácil de atinar con el pulgar -->
                   <label
-                    v-if="!fotosDe(oi).length"
+                    v-else-if="!fotosDe(oi).length"
                     class="flex items-center justify-center gap-2 min-h-12 rounded-xl border-2 border-dashed border-blue-300 bg-blue-50/60 text-blue-700 text-sm font-semibold cursor-pointer active:bg-blue-100 focus-within:ring-2 focus-within:ring-blue-500"
                   >
                     <input type="file" accept="image/*" multiple class="sr-only" @change="onFotoDeProducto(oi, $event)" />
-                    <CameraIcon class="w-5 h-5" aria-hidden="true" /> Tomar o elegir foto
+                    <CameraIcon class="w-5 h-5" aria-hidden="true" />
+                    <span>Tomar o elegir foto <span class="hidden sm:inline font-normal text-blue-600/80">· o arrástrala aquí</span></span>
                   </label>
 
                   <!-- Con fotos: las miniaturas y un cuadro para agregar otra -->
@@ -854,17 +905,27 @@ async function guardarPagoYEntregar() {
                     <input id="ent-referencia" v-model="referencia" autocomplete="off" class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-base focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
                   </div>
 
-                  <!-- Fotos del comprobante: una o varias -->
-                  <div>
+                  <!-- Fotos del comprobante: una o varias; también arrastradas -->
+                  <div
+                    @dragover.prevent="arrastrando = 'pago'"
+                    @dragleave.self="arrastrando = null"
+                    @drop.prevent="alSoltar($event, agregarFotosPago)"
+                    :class="['rounded-xl transition-colors', arrastrando === 'pago' ? 'ring-2 ring-blue-300 bg-blue-50 p-2 -m-2' : '']"
+                  >
                     <p class="campo-label">
                       Foto del comprobante <span class="font-normal text-gray-500">· puedes subir varias</span>
                     </p>
+                    <p v-if="procesando.pago" class="flex items-center justify-center gap-2 min-h-12 text-sm text-blue-700" aria-live="polite">
+                      <span class="w-4 h-4 border-2 border-blue-300 border-t-blue-700 rounded-full animate-spin" aria-hidden="true" />
+                      Procesando foto…
+                    </p>
                     <label
-                      v-if="!fotosPago.length"
+                      v-else-if="!fotosPago.length"
                       class="flex items-center justify-center gap-2 min-h-12 rounded-xl border-2 border-dashed border-blue-300 bg-blue-50/60 text-blue-700 text-sm font-semibold cursor-pointer active:bg-blue-100 focus-within:ring-2 focus-within:ring-blue-500"
                     >
                       <input type="file" accept="image/*" multiple class="sr-only" @change="onFotoPago" />
-                      <CameraIcon class="w-5 h-5" aria-hidden="true" /> Foto o pantallazo del comprobante
+                      <CameraIcon class="w-5 h-5" aria-hidden="true" />
+                      <span>Foto o pantallazo del comprobante <span class="hidden sm:inline font-normal text-blue-600/80">· o arrástrala aquí</span></span>
                     </label>
                     <div v-else class="grid grid-cols-3 gap-2">
                       <div v-for="(f, i) in fotosPago" :key="f.preview" class="relative aspect-square">
@@ -958,7 +1019,9 @@ async function guardarPagoYEntregar() {
                     placeholder="Ej. la mesa llegó rayada en una esquina"
                     class="w-full border border-amber-300 rounded-lg px-3 py-2.5 text-base focus:ring-2 focus:ring-amber-500 outline-none"
                   />
-                  <label class="flex items-center justify-center min-h-12 border-2 border-dashed border-amber-300 rounded-xl p-2 text-center cursor-pointer">
+                  <label
+                    @dragover.prevent="arrastrando = 'novedad'" @dragleave.self="arrastrando = null" @drop.prevent="alSoltar($event, agregarFotoNovedad)"
+                    :class="['flex items-center justify-center min-h-12 border-2 border-dashed rounded-xl p-2 text-center cursor-pointer', arrastrando === 'novedad' ? 'border-blue-500 bg-blue-50' : 'border-amber-300']">
                     <input type="file" accept="image/*" capture="environment" class="hidden" @change="onFotoNovedad" />
                     <img v-if="fotoNovedadPreview" :src="fotoNovedadPreview" class="w-full h-24 object-cover rounded-lg" />
                     <span v-else class="inline-flex items-center gap-1.5 text-sm font-medium text-amber-800"><CameraIcon class="w-5 h-5" aria-hidden="true" /> Foto de la novedad (opcional)</span>
@@ -1018,7 +1081,8 @@ async function guardarPagoYEntregar() {
               </div>
               <label
                 v-else
-                class="flex items-center justify-center gap-2 min-h-12 rounded-xl border-2 border-dashed border-gray-300 text-gray-600 text-sm font-medium cursor-pointer active:bg-gray-50 focus-within:ring-2 focus-within:ring-blue-500"
+                @dragover.prevent="arrastrando = 'anexo'" @dragleave.self="arrastrando = null" @drop.prevent="alSoltar($event, agregarFotoAnexo)"
+                :class="['flex items-center justify-center gap-2 min-h-12 rounded-xl border-2 border-dashed text-sm font-medium cursor-pointer active:bg-gray-50 focus-within:ring-2 focus-within:ring-blue-500', arrastrando === 'anexo' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-600']"
               >
                 <input type="file" accept="image/*" class="sr-only" @change="onFotoAnexo" />
                 <CameraIcon class="w-5 h-5" aria-hidden="true" /> Foto del anexo
@@ -1113,7 +1177,9 @@ async function guardarPagoYEntregar() {
                   </div>
                 </div>
 
-                <label class="flex items-center justify-center min-h-12 border-2 border-dashed border-orange-300 rounded-xl p-2 text-center cursor-pointer">
+                <label
+                  @dragover.prevent="arrastrando = 'devolucion'" @dragleave.self="arrastrando = null" @drop.prevent="alSoltar($event, agregarFotoDevolucion)"
+                  :class="['flex items-center justify-center min-h-12 border-2 border-dashed rounded-xl p-2 text-center cursor-pointer', arrastrando === 'devolucion' ? 'border-blue-500 bg-blue-50' : 'border-orange-300']">
                   <input type="file" accept="image/*" capture="environment" class="sr-only" @change="onFotoDevolucion" />
                   <img v-if="fotoDevolucionPreview" :src="fotoDevolucionPreview" alt="Foto del daño" class="w-full h-24 object-cover rounded-lg" />
                   <span v-else class="inline-flex items-center gap-1.5 text-sm font-medium text-orange-800"><CameraIcon class="w-5 h-5" aria-hidden="true" /> Foto del daño (recomendada)</span>
@@ -1167,6 +1233,16 @@ async function guardarPagoYEntregar() {
 </template>
 
 <style scoped>
+/* La altura del panel: 94% de la pantalla visible. `dvh` descuenta la barra
+   del navegador del teléfono; los navegadores de antes de 2022 no la
+   entienden y con solo ella el panel se quedaba sin tope de alto. */
+.panel-alto {
+  max-height: 94vh;
+  max-height: 94dvh;
+}
+@media (min-width: 640px) {
+  .panel-alto { max-height: 90vh; }
+}
 /* Los pasos del formulario: un número y un título que se leen de un vistazo
    en el teléfono, en la puerta del cliente. */
 .paso-titulo {
