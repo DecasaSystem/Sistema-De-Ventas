@@ -289,7 +289,7 @@ function cambiarModo(modo) {
     <div v-show="!modoUpload" class="relative">
       <canvas
         ref="canvasRef"
-        class="w-full rounded-lg border-2 border-dashed border-gray-300 cursor-crosshair touch-none bg-white"
+        class="block w-full max-w-full rounded-lg border-2 border-dashed border-gray-300 cursor-crosshair touch-none bg-white"
         style="height: 140px;"
         @mousedown="startDraw"
         @mousemove="draw"
