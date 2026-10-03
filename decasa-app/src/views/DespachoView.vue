@@ -1312,13 +1312,14 @@ onBeforeUnmount(() => {
                       Saldo: <MoneyDisplay :amount="item.orden?.saldo_pendiente" />
                     </span>
                   </div>
-                  <div v-if="item.foto_producto || item.foto_pago" class="flex gap-2 mt-2 ml-7" @click.stop>
+                  <div v-if="item.foto_producto || item.foto_pago" class="flex flex-wrap gap-2 mt-2 ml-7" @click.stop>
                     <img
-                      v-if="item.foto_producto"
-                      :src="cloudinaryOpt(fotoUrl(item.foto_producto), 200)"
+                      v-for="url in (item.fotos_producto?.length ? item.fotos_producto.map(f => f.url) : (item.foto_producto ? [item.foto_producto] : []))"
+                      :key="url"
+                      :src="cloudinaryOpt(fotoUrl(url), 200)"
                       class="w-16 h-16 object-cover rounded-lg border border-gray-200 cursor-pointer"
-                      @click="verFactura = item.foto_producto"
-                    />
+                      @click="verFactura = url"
+                      />
                     <img
                       v-if="item.foto_pago"
                       :src="cloudinaryOpt(fotoUrl(item.foto_pago), 200)"
@@ -1435,13 +1436,14 @@ onBeforeUnmount(() => {
                       </span>
                     </div>
                     <!-- Fotos -->
-                    <div v-if="item.foto_producto || item.foto_pago" class="flex gap-2 mt-2 ml-7" @click.stop>
+                    <div v-if="item.foto_producto || item.foto_pago" class="flex flex-wrap gap-2 mt-2 ml-7" @click.stop>
                       <img
-                        v-if="item.foto_producto"
-                        :src="cloudinaryOpt(fotoUrl(item.foto_producto), 200)"
+                        v-for="url in (item.fotos_producto?.length ? item.fotos_producto.map(f => f.url) : (item.foto_producto ? [item.foto_producto] : []))"
+                        :key="url"
+                        :src="cloudinaryOpt(fotoUrl(url), 200)"
                         class="w-16 h-16 object-cover rounded-lg border border-gray-200 cursor-pointer"
-                        @click="verFactura = item.foto_producto"
-                      />
+                        @click="verFactura = url"
+                        />
                       <img
                         v-if="item.foto_pago"
                         :src="cloudinaryOpt(fotoUrl(item.foto_pago), 200)"

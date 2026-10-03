@@ -50,6 +50,12 @@ const orden = ref(null)
 const devoluciones = ref([])
 const loading = ref(true)
 const verFactura = ref(false)
+
+/** Las fotos de lo entregado en una entrega: todas las de cada producto, o la única de las entregas de antes. */
+function urlsFotosProducto(e) {
+  if (e?.fotos_producto?.length) return e.fotos_producto.map(f => f.url)
+  return e?.foto_producto ? [e.foto_producto] : []
+}
 const bocetoModal = ref('')
 const error = ref('')
 const showPagoModal   = ref(false)
@@ -2777,8 +2783,14 @@ onMounted(() => { cargarTipos(); cargarOrden() })
           </p>
           <p v-else-if="e.firma_omitida_motivo" class="text-xs text-gray-500">Sin firma: {{ e.firma_omitida_motivo }}</p>
 
-          <div v-if="e.foto_producto || e.foto_pago" class="flex gap-2 pt-1">
-            <img v-if="e.foto_producto" :src="cloudinaryOpt(e.foto_producto, 200)" class="w-14 h-14 object-cover rounded-lg border border-gray-200 cursor-pointer" @click="verFactura = e.foto_producto" />
+          <div v-if="e.foto_producto || e.foto_pago" class="flex flex-wrap gap-2 pt-1">
+            <!-- Todas las fotos de lo entregado (una o más por producto) -->
+            <img
+              v-for="url in urlsFotosProducto(e)" :key="url"
+              :src="cloudinaryOpt(url, 200)"
+              class="w-14 h-14 object-cover rounded-lg border border-gray-200 cursor-pointer"
+              @click="verFactura = url"
+            />
             <img v-if="e.foto_pago" :src="cloudinaryOpt(e.foto_pago, 200)" class="w-14 h-14 object-cover rounded-lg border border-gray-200 cursor-pointer" @click="verFactura = e.foto_pago" />
           </div>
         </div>
@@ -2792,12 +2804,12 @@ onMounted(() => { cargarTipos(); cargarOrden() })
 
         <template v-else-if="despachoEntrega">
           <div class="grid grid-cols-2 gap-3">
-            <div v-if="despachoEntrega.foto_producto">
-              <p class="text-xs text-gray-500 mb-1">Producto entregado</p>
+            <div v-for="(url, i) in urlsFotosProducto(despachoEntrega)" :key="url">
+              <p class="text-xs text-gray-500 mb-1">Producto entregado{{ urlsFotosProducto(despachoEntrega).length > 1 ? ` ${i + 1}` : '' }}</p>
               <img
-                :src="cloudinaryOpt(despachoEntrega.foto_producto, 600)"
+                :src="cloudinaryOpt(url, 600)"
                 class="w-full h-32 object-cover rounded-lg border border-gray-200 cursor-pointer"
-                @click="verFactura = despachoEntrega.foto_producto"
+                @click="verFactura = url"
               />
             </div>
             <div v-if="despachoEntrega.foto_pago">

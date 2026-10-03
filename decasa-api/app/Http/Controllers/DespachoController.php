@@ -702,6 +702,7 @@ class DespachoController extends Controller
                     'firma_omitida_motivo' => $e->firma_omitida_motivo,
                     'recibido_por'  => $e->recibido_por_nombre,
                     'foto_producto' => $e->foto_producto,
+                    'fotos_producto' => $e->fotos_producto,
                     'foto_pago'     => $e->foto_pago,
                 ];
             });
@@ -999,7 +1000,7 @@ class DespachoController extends Controller
 
     /**
      * POST /api/despacho/mis-entregas/{despachoItemId}/pago
-     * Multipart: monto, metodo, referencia, foto_producto, foto_pago
+     * Multipart: monto, metodo, referencia, fotos_producto[{orden_item_id}][], fotos_pago[]
      */
     public function registrarPago(Request $request, int $despachoItemId)
     {
@@ -1048,7 +1049,13 @@ class DespachoController extends Controller
             'monto'         => $requierePago ? 'required|numeric|min:1'                         : 'nullable|numeric|min:0',
             'metodo'        => $traePago     ? 'required|in:efectivo,transferencia,tarjeta,addi,otro' : 'nullable|in:efectivo,transferencia,tarjeta,addi,otro',
             'referencia'    => 'nullable|string|max:100',
-            'foto_producto' => 'required|image|max:10240',
+            // Fotos por producto: `fotos_producto[{orden_item_id}][]`, hasta 3
+            // de cada uno. `foto_producto` (una sola para todo) queda para un
+            // teléfono que todavía tenga la pantalla vieja.
+            'foto_producto'      => 'nullable|image|max:10240',
+            'fotos_producto'     => 'nullable|array|max:15',
+            'fotos_producto.*'   => 'array|max:3',
+            'fotos_producto.*.*' => 'image|max:10240',
             // Una o varias fotos del comprobante: `foto_pago` (una) o
             // `fotos_pago[]` (lista). Obligatoria si hay pago.
             'foto_pago'     => 'nullable|image|max:10240',
@@ -1075,6 +1082,43 @@ class DespachoController extends Controller
         ]);
 
         $conforme = $request->has('conforme') ? $request->boolean('conforme') : null;
+
+        // ── Fotos de lo que se entrega, producto por producto ────────────────
+        // Cada producto que se queda el cliente necesita al menos una foto: es
+        // la evidencia de que llegó, y si después reclama una silla, tiene que
+        // haber foto de esa silla. Lo que vuelve en el camión no la necesita.
+        $fotosPorProducto = collect((array) $request->file('fotos_producto', []))
+            ->map(fn ($fs) => array_values(array_filter((array) $fs)))
+            ->filter(fn ($fs) => count($fs) > 0);
+        $fotoUnica = $request->file('foto_producto');
+
+        $ajenas = $fotosPorProducto->keys()->reject(fn ($id) => isset($lineas[(int) $id]));
+        if ($ajenas->isNotEmpty()) {
+            return response()->json(['message' => 'Hay fotos de un producto que no va en esta entrega.'], 422);
+        }
+
+        $seQuedan = collect($lineas)
+            ->filter(fn ($cant, $itemId) => $cant - (int) ($devueltoPorItem[$itemId] ?? 0) > 0)
+            ->keys();
+
+        if (! $fotoUnica) {
+            $sinFoto = $seQuedan->reject(fn ($id) => $fotosPorProducto->has($id));
+            if ($sinFoto->isNotEmpty()) {
+                $nombres = \App\Models\OrdenItem::with('producto:id,nombre')->whereIn('id', $sinFoto)->get()
+                    ->map(fn ($oi) => $oi->nombre_custom ?: ($oi->producto?->nombre ?? 'producto'))->join(', ', ' y ');
+                return response()->json([
+                    'message' => "Falta la foto de: {$nombres}.",
+                    'errors'  => ['fotos_producto' => ["Sube al menos una foto de cada producto que se entrega."]],
+                ], 422);
+            }
+            // Si vuelve todo, la evidencia es la de lo que se devolvió.
+            if ($seQuedan->isEmpty() && $fotosPorProducto->isEmpty() && ! $request->hasFile('foto_devolucion')) {
+                return response()->json([
+                    'message' => 'Sube una foto de lo que se llevó.',
+                    'errors'  => ['fotos_producto' => ['Sube al menos una foto.']],
+                ], 422);
+            }
+        }
 
         $archivosPago = $request->hasFile('fotos_pago')
             ? array_values((array) $request->file('fotos_pago'))
@@ -1149,7 +1193,15 @@ class DespachoController extends Controller
             ], 422);
         }
 
-        $fotoProducto = $this->subirCloudinary($request->file('foto_producto'));
+        $fotosProducto = [];
+        foreach ($fotosPorProducto as $ordenItemId => $archivos) {
+            foreach ($archivos as $archivo) {
+                $fotosProducto[] = ['orden_item_id' => (int) $ordenItemId, 'url' => $this->subirCloudinary($archivo)];
+            }
+        }
+        if ($fotoUnica) {
+            $fotosProducto[] = ['orden_item_id' => null, 'url' => $this->subirCloudinary($fotoUnica)];
+        }
         $fotosPago    = array_map(fn ($f) => $this->subirCloudinary($f), $archivosPago);
         $fotoPago     = $fotosPago[0] ?? null;
         $fotoAnexo    = $request->hasFile('foto_anexo')
@@ -1164,10 +1216,14 @@ class DespachoController extends Controller
         $fotoDevolucion = $request->hasFile('foto_devolucion')
             ? $this->subirCloudinary($request->file('foto_devolucion'))
             : null;
+        // La primera foto queda como "la" foto de la entrega (miniaturas y la
+        // regla de cierre). Si todo volvió en el camión, la de la devolución.
+        $fotoProducto = $fotosProducto[0]['url'] ?? $fotoDevolucion;
 
-        DB::transaction(function () use ($item, $data, $usuario, $fotoProducto, $fotoPago, $fotosPago, $fotoAnexo, $traePago, $esLaUltima, $firmaRecibido, $fotoNovedad, $conforme, $devoluciones, $fotoDevolucion, $lineas, $devueltoPorItem) {
+        DB::transaction(function () use ($item, $data, $usuario, $fotoProducto, $fotosProducto, $fotoPago, $fotosPago, $fotoAnexo, $traePago, $esLaUltima, $firmaRecibido, $fotoNovedad, $conforme, $devoluciones, $fotoDevolucion, $lineas, $devueltoPorItem) {
             $item->update([
-                'foto_producto' => $fotoProducto,
+                'foto_producto'  => $fotoProducto,
+                'fotos_producto' => $fotosProducto ?: null,
                 'foto_pago'     => $fotoPago,
                 'fotos_pago'    => $fotosPago ?: null,
 

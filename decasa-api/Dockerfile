@@ -23,8 +23,11 @@ RUN { \
       echo 'realpath_cache_ttl=600'; \
     } > /usr/local/etc/php/conf.d/opcache.ini
 
-# Aumentar límites de subida de archivos (default PHP = 2M, insuficiente para fotos)
-RUN echo "upload_max_filesize = 20M\npost_max_size = 25M\nmemory_limit = 256M\nmax_execution_time = 60" \
+# Aumentar límites de subida de archivos (default PHP = 2M, insuficiente para fotos).
+# Una entrega lleva fotos por cada producto (hasta 15) más comprobantes, firma y
+# anexo: max_file_uploads (20 por defecto) se quedaba corto, y subirlas a
+# Cloudinary una por una necesita más de 60 segundos en el peor caso.
+RUN echo "upload_max_filesize = 20M\npost_max_size = 60M\nmax_file_uploads = 40\nmemory_limit = 256M\nmax_execution_time = 120" \
     > /usr/local/etc/php/conf.d/uploads.ini
 
 RUN a2enmod rewrite proxy proxy_http proxy_wstunnel

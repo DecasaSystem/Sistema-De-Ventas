@@ -24,6 +24,8 @@ class DespachoItem extends Model
         'posicion',
         'estado',
         'foto_producto',
+        // Las fotos de cada producto entregado: [{orden_item_id, url}].
+        'fotos_producto',
         'foto_pago',
         // Todas las fotos del comprobante; foto_pago lleva la primera.
         'fotos_pago',
@@ -44,6 +46,7 @@ class DespachoItem extends Model
             'entregado_at' => 'datetime',
             'conforme'     => 'boolean',
             'fotos_pago'   => 'array',
+            'fotos_producto' => 'array',
         ];
     }
 

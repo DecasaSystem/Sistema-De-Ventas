@@ -92,6 +92,7 @@ class EntregaPorProductoTest extends TestCase
             $t->boolean('es_personalizado')->default(false); $t->boolean('fabricar_pedido')->default(false);
             $t->boolean('es_restauracion')->default(false); $t->boolean('producto_unico')->default(false);
             $t->boolean('es_regalo')->default(false); $t->boolean('usa_stock_tienda')->default(false);
+            $t->boolean('retapizar')->default(false); $t->unsignedSmallInteger('piezas_juego')->nullable(); $t->boolean('es_pieza_suelta')->default(false);
             $t->json('specs_personalizacion')->nullable(); $t->string('boceto_url')->nullable();
             $t->json('boceto_fotos')->nullable(); $t->date('fecha_entrega_prom')->nullable();
             $t->date('devuelto_en')->nullable(); $t->text('motivo_devolucion')->nullable();
@@ -612,5 +613,100 @@ class EntregaPorProductoTest extends TestCase
 
         // El vendedor, que no despacha, no la ve.
         $this->actingAs($this->vendedora())->get("/api/despacho/{$ruta['id']}/hoja-ruta")->assertStatus(403);
+    }
+
+    // ── Fotos de lo entregado, una o más por producto ────────────────────────
+
+    private const LAMPARA = 6;
+
+    /** Vende un reloj y una lámpara (los dos de catálogo, listos hoy) y abre la entrega. */
+    private function relojYLamparaParaEntregar(Usuario $v): array
+    {
+        DB::table('productos')->insert(['id' => self::LAMPARA, 'nombre' => 'Lámpara de pie']);
+        DB::table('inventario')->insert(['producto_id' => self::LAMPARA, 'tienda_id' => 1, 'cantidad_disponible' => 2, 'cantidad_reservada' => 0]);
+
+        $this->actingAs($v)->postJson('/api/ordenes', [
+            'cliente_id' => 1, 'tienda_id' => 1, 'canal' => 'fisica', 'anticipo_monto' => 0,
+            'firma_url' => 'https://ejemplo/firma.png',
+            'items' => [
+                ['producto_id' => self::RELOJ,   'cantidad' => 1, 'precio_unitario' => 100000],
+                ['producto_id' => self::LAMPARA, 'cantidad' => 2, 'precio_unitario' => 100000],
+            ],
+        ])->assertCreated();
+        $orden = Orden::latest('id')->first();
+        // Pagada: así la entrega no pide cobro y la prueba mira solo las fotos.
+        DB::table('pagos')->insert(['orden_id' => $orden->id, 'monto' => 300000, 'metodo' => 'efectivo', 'tipo' => 'anticipo', 'created_at' => now()]);
+
+        $abrir = $this->actingAs($v)->postJson('/api/despacho/entrega-directa', ['orden_id' => $orden->id])->assertStatus(201);
+
+        $reloj   = $orden->items()->where('producto_id', self::RELOJ)->first();
+        $lampara = $orden->items()->where('producto_id', self::LAMPARA)->first();
+
+        return [$orden, (int) $abrir->json('despacho_item_id'), $reloj, $lampara];
+    }
+
+    public function test_cada_producto_que_se_entrega_necesita_su_foto(): void
+    {
+        $v = $this->vendedora();
+        [, $entregaId, $reloj] = $this->relojYLamparaParaEntregar($v);
+
+        // Solo la del reloj: falta la de la lámpara, y lo dice por nombre.
+        $r = $this->actingAs($v)->post("/api/despacho/mis-entregas/{$entregaId}/pago", [
+            'firma_omitida_motivo' => 'prueba', 'monto' => 0,
+            'fotos_producto' => [$reloj->id => [UploadedFile::fake()->image('r.jpg')]],
+        ], ['Accept' => 'application/json']);
+
+        $r->assertStatus(422);
+        $this->assertStringContainsString('Lámpara de pie', $r->json('message'));
+    }
+
+    public function test_varias_fotos_por_producto_quedan_guardadas_con_su_producto(): void
+    {
+        $v = $this->vendedora();
+        [$orden, $entregaId, $reloj, $lampara] = $this->relojYLamparaParaEntregar($v);
+
+        $this->actingAs($v)->post("/api/despacho/mis-entregas/{$entregaId}/pago", [
+            'firma_omitida_motivo' => 'prueba', 'monto' => 0,
+            'fotos_producto' => [
+                $reloj->id   => [UploadedFile::fake()->image('r.jpg')],
+                $lampara->id => [UploadedFile::fake()->image('l1.jpg'), UploadedFile::fake()->image('l2.jpg')],
+            ],
+        ], ['Accept' => 'application/json'])->assertOk();
+        $this->actingAs($v)->patchJson("/api/despacho/mis-entregas/{$entregaId}/entregar")->assertOk();
+
+        $item = DespachoItem::find($entregaId);
+        $this->assertCount(3, $item->fotos_producto);
+        $this->assertSame([$reloj->id, $lampara->id, $lampara->id], array_column($item->fotos_producto, 'orden_item_id'));
+        // La primera queda como "la" foto, para lo que ya la usaba.
+        $this->assertSame($item->fotos_producto[0]['url'], $item->foto_producto);
+        $this->assertSame('entregado', $item->estado);
+    }
+
+    public function test_en_una_entrega_parcial_solo_se_piden_las_fotos_de_lo_que_va_hoy(): void
+    {
+        $v = $this->vendedora();
+        [, $entregaId, $reloj] = $this->relojYLamparaParaEntregar($v);
+
+        // Hoy solo va el reloj: con su foto basta.
+        $this->actingAs($v)->post("/api/despacho/mis-entregas/{$entregaId}/pago", [
+            'firma_omitida_motivo' => 'prueba', 'monto' => 0,
+            'lineas' => json_encode([['orden_item_id' => $reloj->id, 'cantidad' => 1]]),
+            'fotos_producto' => [$reloj->id => [UploadedFile::fake()->image('r.jpg')]],
+        ], ['Accept' => 'application/json'])->assertOk();
+    }
+
+    public function test_no_se_aceptan_fotos_de_un_producto_que_no_va_en_la_entrega(): void
+    {
+        $v = $this->vendedora();
+        [, $entregaId, $reloj, $lampara] = $this->relojYLamparaParaEntregar($v);
+
+        $this->actingAs($v)->post("/api/despacho/mis-entregas/{$entregaId}/pago", [
+            'firma_omitida_motivo' => 'prueba', 'monto' => 0,
+            'lineas' => json_encode([['orden_item_id' => $reloj->id, 'cantidad' => 1]]),
+            'fotos_producto' => [
+                $reloj->id   => [UploadedFile::fake()->image('r.jpg')],
+                $lampara->id => [UploadedFile::fake()->image('l.jpg')],
+            ],
+        ], ['Accept' => 'application/json'])->assertStatus(422);
     }
 }

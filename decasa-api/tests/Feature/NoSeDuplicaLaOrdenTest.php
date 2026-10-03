@@ -129,9 +129,7 @@ class NoSeDuplicaLaOrdenTest extends TestCase
             $t->string('clave_envio', 64)->nullable()->unique();
             $t->unsignedBigInteger('tienda_vendedor_id')->nullable();
         });
-        Schema::table('orden_items', function (Blueprint $t) {
-            $t->boolean('retapizar')->default(false);
-        });
+        // `retapizar` ya lo pone completarEsquemaDeEntregas().
 
         DB::table('tiendas')->insert(['id' => 1, 'nombre' => 'Decasa Norte']);
         DB::table('clientes')->insert(['id' => 1, 'nombre' => 'Cliente', 'created_at' => now(), 'updated_at' => now()]);

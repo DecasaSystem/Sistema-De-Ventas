@@ -130,7 +130,7 @@ class RegresarDeDespachoAlTallerTest extends TestCase
         Schema::create('despacho_items', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('despacho_id'); $t->unsignedBigInteger('orden_id');
             $t->unsignedInteger('posicion')->default(1); $t->string('estado')->default('pendiente');
-            $t->string('foto_producto')->nullable(); $t->string('foto_pago')->nullable();
+            $t->string('foto_producto')->nullable(); $t->json('fotos_producto')->nullable(); $t->string('foto_pago')->nullable();
             $t->text('fotos_pago')->nullable(); $t->timestamp('entregado_at')->nullable();
             $t->string('firma_recibido_url')->nullable(); $t->string('recibido_por_nombre')->nullable();
             $t->string('recibido_por_cedula')->nullable(); $t->boolean('conforme')->nullable();

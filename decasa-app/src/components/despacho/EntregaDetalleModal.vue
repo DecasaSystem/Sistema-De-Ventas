@@ -114,10 +114,38 @@ const traePago = computed(() => seExigePago.value || (esParcial.value && quiereA
 const monto      = ref(0)
 const metodo     = ref('efectivo')
 const referencia = ref('')
-const fotoProducto        = ref(null)
 const fotoAnexo           = ref(null)
-const fotoProductoPreview = ref(null)
 const fotoAnexoPreview    = ref(null)
+
+// ── Fotos de lo que se entrega, producto por producto ─────────────────────────
+// Antes era UNA foto para toda la entrega: con un sofá, dos poltronas y seis
+// sillas, si después reclaman una silla no había foto de esa silla. Ahora cada
+// producto que se queda el cliente lleva al menos una (hasta 3). En una
+// entrega parcial solo se piden las de lo que va hoy.
+const MAX_FOTOS_POR_PRODUCTO = 3
+const fotosProducto = ref({})   // { [orden_item_id]: [{ blob, preview }] }
+
+function fotosDe(oi) {
+  return fotosProducto.value[oi.id] ?? []
+}
+
+async function onFotoDeProducto(oi, e) {
+  const files = Array.from(e.target.files ?? [])
+  const lista = [...fotosDe(oi)]
+  for (const file of files) {
+    if (lista.length >= MAX_FOTOS_POR_PRODUCTO) break
+    const blob = await compressImage(file)
+    lista.push({ blob, preview: _createPreviewUrl(blob) })
+  }
+  fotosProducto.value = { ...fotosProducto.value, [oi.id]: lista }
+  e.target.value = ''
+}
+
+function quitarFotoDeProducto(oi, i) {
+  const lista = [...fotosDe(oi)]
+  lista.splice(i, 1)
+  fotosProducto.value = { ...fotosProducto.value, [oi.id]: lista }
+}
 // Varias fotos del comprobante: dos transferencias, o el pantallazo que no
 // cabe en una sola captura.
 const fotosPago           = ref([])   // [{ blob, preview }]
@@ -182,6 +210,27 @@ function nombreItem(oi) {
   return oi.nombre_custom || oi.producto?.nombre || 'Producto'
 }
 
+/**
+ * Las fotos de una entrega ya hecha, agrupadas por producto. Las entregas de
+ * antes tienen una sola foto, sin producto: van como "Producto".
+ */
+const fotosEntregadas = computed(() => {
+  const fotos = item.value?.fotos_producto ?? []
+  if (!fotos.length) {
+    return item.value?.foto_producto ? [{ clave: 'unica', nombre: 'Producto', urls: [item.value.foto_producto] }] : []
+  }
+  const grupos = new Map()
+  for (const f of fotos) {
+    const clave = f.orden_item_id ?? 'general'
+    if (!grupos.has(clave)) {
+      const oi = itemsOrden.value.find(x => x.id === f.orden_item_id)
+      grupos.set(clave, { clave, nombre: oi ? nombreItem(oi) : 'Producto', urls: [] })
+    }
+    grupos.get(clave).urls.push(f.url)
+  }
+  return [...grupos.values()]
+})
+
 /** La línea de esta entrega para un producto (modo lectura). */
 function lineaDe(oi) {
   return (item.value?.lineas ?? []).find(l => l.orden_item_id === oi.id) ?? null
@@ -195,6 +244,18 @@ const piezasDevueltas = computed(() =>
 const devuelveTodo = computed(() => {
   if (!hayDevolucion.value || !itemsQueVan.value.length) return false
   return itemsQueVan.value.every(oi => (Number(devueltos.value[oi.id]) || 0) >= (Number(llevar.value[oi.id]) || 0))
+})
+
+// Lo que el cliente se queda hoy: lo que va menos lo que vuelve. Eso es lo que
+// necesita foto.
+const itemsQueSeQuedan = computed(() =>
+  itemsQueVan.value.filter(oi => (Number(llevar.value[oi.id]) || 0) - (Number(devueltos.value[oi.id]) || 0) > 0)
+)
+const productosSinFoto = computed(() => itemsQueSeQuedan.value.filter(oi => !fotosDe(oi).length))
+const fotosCompletas = computed(() => {
+  if (itemsQueSeQuedan.value.length) return productosSinFoto.value.length === 0
+  // Si vuelve todo, basta una foto: de lo que se llevó o de la devolución.
+  return itemsQueVan.value.some(oi => fotosDe(oi).length) || !!fotoDevolucion.value
 })
 
 const devolucionCompleta = computed(() => {
@@ -239,7 +300,7 @@ watch([metodo, descuentoCond, esLaUltimaEntrega], () => {
 
 const puedeEntregar = computed(() => {
   if (!hayAlgoQueEntregar.value) return false
-  if (!fotoProductoPreview.value) return false
+  if (!fotosCompletas.value) return false
   if (!actaCompleta.value) return false
   if (!devolucionCompleta.value) return false
   // Si vuelve todo, no se le cobra nada: no se le puede pedir al conductor un
@@ -251,7 +312,11 @@ const puedeEntregar = computed(() => {
 
 const mensajeBoton = computed(() => {
   if (!hayAlgoQueEntregar.value)  return 'Marca qué se entrega hoy'
-  if (!fotoProductoPreview.value) return 'Sube la foto del producto para continuar'
+  if (!fotosCompletas.value) {
+    return productosSinFoto.value.length
+      ? `Falta la foto de: ${productosSinFoto.value.map(nombreItem).join(', ')}`
+      : 'Sube una foto de lo que se llevó'
+  }
   if (hayDevolucion.value) {
     if (!piezasDevueltas.value)              return 'Marca qué se devuelve'
     if (motivoDevolucion.value.trim().length < 3) return 'Escribe por qué se devuelve'
@@ -328,14 +393,6 @@ function _createPreviewUrl(blob) {
 }
 onUnmounted(() => _blobUrls.forEach(u => URL.revokeObjectURL(u)))
 
-async function onFotoProducto(e) {
-  const file = e.target.files[0]
-  if (!file) return
-  const blob = await compressImage(file)
-  fotoProducto.value = blob
-  fotoProductoPreview.value = _createPreviewUrl(blob)
-}
-
 async function onFotoPago(e) {
   const files = Array.from(e.target.files ?? [])
   for (const file of files) {
@@ -371,7 +428,10 @@ async function guardarPagoYEntregar() {
   registrando.value = true
   try {
     const fd = new FormData()
-    fd.append('foto_producto', fotoProducto.value, 'foto_producto.jpg')
+    // Las fotos de cada producto que va hoy, con el producto al que son.
+    for (const oi of itemsQueVan.value) {
+      fotosDe(oi).forEach((f, i) => fd.append(`fotos_producto[${oi.id}][]`, f.blob, `producto_${oi.id}_${i + 1}.jpg`))
+    }
 
     // ── Qué va en esta entrega ──────────────────────────────────────────────
     fd.append('lineas', JSON.stringify(lineas.value))
@@ -629,13 +689,16 @@ async function guardarPagoYEntregar() {
 
             <div v-if="item.foto_producto || item.foto_pago">
               <h4 class="text-sm font-semibold text-gray-700 mb-2">Fotos de evidencia</h4>
-              <div class="grid grid-cols-2 gap-3">
-                <div v-if="item.foto_producto">
-                  <p class="text-xs text-gray-500 mb-1">Producto</p>
-                  <a :href="item.foto_producto" target="_blank">
-                    <img :src="cloudinaryOpt(item.foto_producto, 600)" class="w-full h-28 object-cover rounded-xl border border-gray-100" />
+              <!-- Las de cada producto, con su nombre -->
+              <div v-for="g in fotosEntregadas" :key="g.clave" class="mb-3">
+                <p class="text-xs text-gray-500 mb-1">{{ g.nombre }}</p>
+                <div class="grid grid-cols-3 gap-2">
+                  <a v-for="url in g.urls" :key="url" :href="url" target="_blank">
+                    <img :src="cloudinaryOpt(url, 400)" class="w-full h-24 object-cover rounded-xl border border-gray-100" />
                   </a>
                 </div>
+              </div>
+              <div class="grid grid-cols-2 gap-3">
                 <div v-for="(url, i) in (item.fotos_pago?.length ? item.fotos_pago : (item.foto_pago ? [item.foto_pago] : []))" :key="url">
                   <p class="text-xs text-gray-500 mb-1">Comprobante{{ item.fotos_pago?.length > 1 ? ' ' + (i + 1) : '' }}</p>
                   <a :href="url" target="_blank">
@@ -653,19 +716,52 @@ async function guardarPagoYEntregar() {
           <!-- ── MODO ACTIVO (pendiente) ──────────────────────────────────── -->
           <template v-else>
 
-            <!-- Foto del producto — siempre obligatoria -->
+            <!-- Fotos de lo entregado — una casilla por producto que va hoy.
+                 Cada uno necesita al menos una: si después reclaman una silla,
+                 tiene que haber foto de esa silla. -->
             <div>
-              <h4 class="text-sm font-semibold text-gray-700 mb-2">
-                Foto del producto <span class="text-red-500">*</span>
-                <span class="text-xs font-normal text-gray-400 ml-1">Evidencia de que llegó el mueble</span>
+              <h4 class="text-sm font-semibold text-gray-700 mb-1">
+                Fotos de lo entregado <span class="text-red-500">*</span>
               </h4>
-              <label class="block border-2 border-dashed rounded-xl p-3 text-center cursor-pointer transition-colors"
-                :class="fotoProductoPreview ? 'border-green-400' : 'border-gray-300 hover:border-blue-400'"
-              >
-                <input type="file" accept="image/*" class="hidden" @change="onFotoProducto" />
-                <img v-if="fotoProductoPreview" :src="fotoProductoPreview" class="w-full h-32 object-cover rounded-lg" />
-                <span v-else class="text-sm text-gray-400">📷 Foto del producto entregado</span>
-              </label>
+              <p class="text-[11px] text-gray-500 mb-2">
+                Al menos una foto de cada producto (hasta {{ MAX_FOTOS_POR_PRODUCTO }}). Si son varias unidades, que se vean todas.
+              </p>
+              <p v-if="!itemsQueVan.length" class="text-xs text-gray-400 italic">Marca arriba qué se entrega hoy.</p>
+              <div class="space-y-2">
+                <div
+                  v-for="oi in itemsQueVan" :key="'foto-' + oi.id"
+                  :class="['rounded-xl border-2 p-2.5 transition-colors',
+                    fotosDe(oi).length ? 'border-green-300 bg-green-50/40'
+                    : (itemsQueSeQuedan.includes(oi) ? 'border-dashed border-gray-300' : 'border-dashed border-gray-200 opacity-70')]"
+                >
+                  <div class="flex items-center justify-between gap-2 mb-1.5">
+                    <p class="text-xs font-semibold text-gray-800 truncate">
+                      {{ nombreItem(oi) }} <span class="font-normal text-gray-500">×{{ llevar[oi.id] }}</span>
+                    </p>
+                    <span v-if="!itemsQueSeQuedan.includes(oi)" class="text-[10px] text-orange-600 shrink-0">se devuelve: foto opcional</span>
+                    <span v-else-if="fotosDe(oi).length" class="text-[10px] text-green-700 font-semibold shrink-0">✓ {{ fotosDe(oi).length }}</span>
+                  </div>
+                  <div class="flex flex-wrap gap-2">
+                    <div v-for="(f, i) in fotosDe(oi)" :key="f.preview" class="relative">
+                      <img :src="f.preview" class="w-20 h-20 object-cover rounded-lg border border-gray-200" />
+                      <button
+                        type="button"
+                        @click="quitarFotoDeProducto(oi, i)"
+                        class="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 text-white text-xs leading-none"
+                        aria-label="Quitar foto"
+                      >&times;</button>
+                    </div>
+                    <label
+                      v-if="fotosDe(oi).length < MAX_FOTOS_POR_PRODUCTO"
+                      class="w-20 h-20 flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-400 text-gray-400 text-[10px] text-center"
+                    >
+                      <input type="file" accept="image/*" multiple class="hidden" @change="onFotoDeProducto(oi, $event)" />
+                      <span class="text-lg leading-none">📷</span>
+                      {{ fotosDe(oi).length ? 'Otra' : 'Foto' }}
+                    </label>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <!-- Sección de pago — obligatoria en la última entrega con saldo;

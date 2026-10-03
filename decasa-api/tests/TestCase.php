@@ -70,6 +70,8 @@ abstract class TestCase extends BaseTestCase
         $agregar('despacho_items', 'fotos_pago',         fn ($t) => $t->json('fotos_pago')->nullable());
         $agregar('devoluciones',   'preferencia_cliente', fn ($t) => $t->string('preferencia_cliente')->nullable());
         $agregar('despacho_items', 'firma_omitida_motivo', fn ($t) => $t->string('firma_omitida_motivo')->nullable());
+        $agregar('despacho_items', 'fotos_producto',     fn ($t) => $t->json('fotos_producto')->nullable());
+        $agregar('orden_items',    'retapizar',          fn ($t) => $t->boolean('retapizar')->default(false));
 
         // Vender con "se lo lleva ahora" abre una entrega de mostrador, así
         // que hasta una prueba que solo crea órdenes necesita dónde escribirla.
@@ -86,7 +88,7 @@ abstract class TestCase extends BaseTestCase
             \Illuminate\Support\Facades\Schema::create('despacho_items', function ($t) {
                 $t->id(); $t->unsignedBigInteger('despacho_id'); $t->unsignedBigInteger('orden_id');
                 $t->unsignedInteger('posicion')->default(1); $t->string('estado')->default('pendiente');
-                $t->string('foto_producto')->nullable(); $t->string('foto_pago')->nullable(); $t->json('fotos_pago')->nullable();
+                $t->string('foto_producto')->nullable(); $t->json('fotos_producto')->nullable(); $t->string('foto_pago')->nullable(); $t->json('fotos_pago')->nullable();
                 $t->string('firma_recibido_url')->nullable(); $t->string('recibido_por_nombre')->nullable();
                 $t->string('recibido_por_cedula')->nullable(); $t->boolean('conforme')->nullable();
                 $t->string('observaciones_entrega')->nullable(); $t->string('foto_novedad_url')->nullable();

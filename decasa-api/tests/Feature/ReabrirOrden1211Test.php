@@ -59,7 +59,7 @@ class ReabrirOrden1211Test extends TestCase
         Schema::create('despachos', function (Blueprint $t) { $t->id(); $t->string('estado')->nullable(); $t->timestamps(); });
         Schema::create('despacho_items', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('despacho_id'); $t->unsignedBigInteger('orden_id'); $t->string('estado')->nullable();
-            $t->string('foto_producto')->nullable(); $t->string('foto_pago')->nullable(); $t->string('firma_recibido_url')->nullable();
+            $t->string('foto_producto')->nullable(); $t->json('fotos_producto')->nullable(); $t->string('foto_pago')->nullable(); $t->string('firma_recibido_url')->nullable();
         });
         Schema::create('devoluciones', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('orden_id'); $t->unsignedBigInteger('orden_item_id');

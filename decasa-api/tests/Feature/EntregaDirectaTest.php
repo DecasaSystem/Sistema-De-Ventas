@@ -71,7 +71,7 @@ class EntregaDirectaTest extends TestCase
         Schema::create('despacho_items', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('despacho_id'); $t->unsignedBigInteger('orden_id');
             $t->unsignedInteger('posicion')->default(1); $t->string('estado')->default('pendiente');
-            $t->string('foto_producto')->nullable(); $t->string('foto_pago')->nullable();
+            $t->string('foto_producto')->nullable(); $t->json('fotos_producto')->nullable(); $t->string('foto_pago')->nullable();
             $t->timestamp('entregado_at')->nullable();
         });
         Schema::create('notificaciones', function (Blueprint $t) {
