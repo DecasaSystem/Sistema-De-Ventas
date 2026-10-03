@@ -11,8 +11,8 @@ import {
   crearAusencia, crearIncapacidad, getAusencias, eliminarAusencia,
   getAjustes, crearAjuste, eliminarAjuste,
   getProducciones, crearProduccion, eliminarProduccion,
-  getBonificaciones, crearBonificacion, actualizarBonificacion, eliminarBonificacion,
-  agregarMeta, actualizarMeta, eliminarMeta,
+  getBonificaciones, actualizarBonificacion, eliminarBonificacion,
+  guardarCuadroBono,
 } from '@/api/nomina'
 import {
   BanknotesIcon, PlusIcon, PencilSquareIcon, TrashIcon, XMarkIcon,
@@ -315,11 +315,9 @@ const PERIODOS_BONO = [
   { value: '20_dias', label: 'Cada 20 días' },
   { value: 'mensual', label: 'Mensual' },
 ]
-const formBono             = ref({ nombre: '', periodo: 'ciclo', tope: 0, tope_activo: true })
+const formBono             = ref({ nombre: '', periodo: 'mensual', filas: [], abiertoArriba: true })
 const guardandoBono        = ref(false)
 const bonoAbierto          = ref(null)
-// Formulario de meta nueva, uno por esquema: { [bonoId]: { desde, hasta, monto } }
-const formMeta             = ref({})
 
 async function cargarBonificaciones() {
   cargandoBonos.value = true
@@ -336,49 +334,150 @@ async function cargarBonificaciones() {
 const bonosActivos   = computed(() => bonificaciones.value.filter(b => b.activo))
 const bonosInactivos = computed(() => bonificaciones.value.filter(b => !b.activo))
 
+// ── El cuadro del bono ──────────────────────────────────────────────────────
+// El bono se piensa como el cuadro de Excel de la fábrica: "de 900.000 a
+// 950.000 paga 50.000, de 951.000 a 1.000.000 paga 75.000..." El que no
+// llega al primer escalón no cobra. Antes había que crear el bono con un
+// "tope" suelto y después agregar los escalones de a uno; ahora se arma y se
+// ve entero, y se guarda de una vez.
+
+/** Lo que pide el generador para armar el cuadro solo. */
+const generador = ref({ inicio: 900000, paso: 50000, primero: 50000, sube: 25000, escalones: 11 })
+
+function filaVacia() {
+  return { desde: '', hasta: '', monto: '' }
+}
+
 function abrirNuevoBono() {
   editandoBono.value = null
-  formBono.value = { nombre: '', periodo: 'ciclo', tope: 0, tope_activo: true }
+  formBono.value = { nombre: '', periodo: 'mensual', filas: [], abiertoArriba: true }
+  generador.value = { inicio: 900000, paso: 50000, primero: 50000, sube: 25000, escalones: 11 }
+  simulaProduccion.value = ''
   mostrarFormBono.value = true
 }
 
 function abrirEditarBono(b) {
   editandoBono.value = b.id
+  const activas = b.metas.filter(m => m.activo).sort((x, y) => x.desde - y.desde)
+  const ultimaAbierta = activas.length > 0 && activas[activas.length - 1].hasta === null
   formBono.value = {
     nombre: b.nombre,
     periodo: b.periodo || 'ciclo',
-    tope: Number(b.tope) || 0,
-    tope_activo: !!b.tope_activo,
+    filas: activas.map(m => ({ desde: m.desde, hasta: m.hasta ?? '', monto: m.monto })),
+    abiertoArriba: ultimaAbierta,
   }
+  simulaProduccion.value = ''
   mostrarFormBono.value = true
+}
+
+/**
+ * Arma los escalones con los datos del generador. Igual que el cuadro:
+ * el primero va de 900.000 a 950.000 y cada uno siguiente empieza un peso
+ * después de donde terminó el anterior.
+ */
+function armarCuadro() {
+  const g = generador.value
+  const inicio = Number(g.inicio) || 0
+  const paso = Number(g.paso) || 0
+  const n = Math.min(Math.max(Number(g.escalones) || 0, 1), 60)
+  if (paso <= 0) { toast.error('Escribe de cuánto es cada escalón'); return }
+  formBono.value.filas = Array.from({ length: n }, (_, i) => ({
+    desde: i === 0 ? inicio : inicio + i * paso + 1,
+    hasta: inicio + (i + 1) * paso,
+    monto: (Number(g.primero) || 0) + i * (Number(g.sube) || 0),
+  }))
+}
+
+function agregarFila() {
+  const filas = formBono.value.filas
+  const ult = filas[filas.length - 1]
+  if (!ult) { filas.push(filaVacia()); return }
+  const ancho = Number(ult.hasta) - Number(ult.desde) + 1
+  filas.push({
+    desde: Number(ult.hasta) + 1 || '',
+    hasta: ancho > 1 ? Number(ult.hasta) + ancho : '',
+    monto: '',
+  })
+}
+
+function quitarFila(i) {
+  formBono.value.filas.splice(i, 1)
+}
+
+/** Las filas como las va a guardar el servidor: ordenadas, y la última abierta si se pidió. */
+const escalonesBono = computed(() => {
+  const filas = formBono.value.filas
+    .map(f => ({ desde: Number(f.desde), hasta: f.hasta === '' || f.hasta === null ? null : Number(f.hasta), monto: Number(f.monto) || 0 }))
+    .filter(f => !Number.isNaN(f.desde) && f.desde !== null)
+    .sort((a, b) => a.desde - b.desde)
+  if (formBono.value.abiertoArriba && filas.length) filas[filas.length - 1] = { ...filas[filas.length - 1], hasta: null }
+  return filas
+})
+
+/**
+ * Lo que está mal en el cuadro, en palabras. Un hueco entre dos escalones
+ * es plata que se queda sin pagar sin que nadie lo note: quien caiga ahí
+ * pasó el tope y no cobra nada.
+ */
+const problemasCuadro = computed(() => {
+  const p = []
+  const e = escalonesBono.value
+  if (!e.length) return ['Arma el cuadro: al menos un escalón.']
+  e.forEach((f, i) => {
+    const n = i + 1
+    if (f.hasta !== null && f.hasta < f.desde) p.push(`Escalón ${n}: el "hasta" es menor que el "desde".`)
+    if (!f.monto) p.push(`Escalón ${n}: falta cuánto paga.`)
+    if (f.hasta === null && i < e.length - 1) p.push(`Escalón ${n}: le falta el "hasta".`)
+    const sig = e[i + 1]
+    if (sig && f.hasta !== null) {
+      if (sig.desde <= f.hasta) p.push(`Los escalones ${n} y ${n + 1} se pisan.`)
+      else if (sig.desde > f.hasta + 1) p.push(`Hay un hueco entre ${formatoPesos(f.hasta)} y ${formatoPesos(sig.desde)}: quien caiga ahí no cobra.`)
+    }
+  })
+  return p
+})
+
+/** La calculadora: "si produce tanto, cobra tanto". */
+const simulaProduccion = ref('')
+function bonoPara(escalones, produccion) {
+  const v = Number(produccion) || 0
+  if (!escalones.length || v < escalones[0].desde) return { monto: 0, escalon: null }
+  const i = escalones.findIndex(f => v >= f.desde && (f.hasta === null || v <= f.hasta))
+  return i < 0 ? { monto: 0, escalon: null } : { monto: escalones[i].monto, escalon: i + 1 }
+}
+const resultadoSimulado = computed(() => bonoPara(escalonesBono.value, simulaProduccion.value))
+
+/** Lo mismo para la tarjeta de un bono ya guardado. */
+const simulaEnTarjeta = ref({})
+function escalonesDe(b) {
+  return b.metas.filter(m => m.activo).map(m => ({ desde: m.desde, hasta: m.hasta, monto: m.monto })).sort((x, y) => x.desde - y.desde)
 }
 
 async function guardarBono() {
   if (!formBono.value.nombre.trim()) {
-    toast.error('Ponle un nombre a la bonificación')
+    toast.error('Ponle un nombre al bono')
+    return
+  }
+  if (problemasCuadro.value.length) {
+    toast.error(problemasCuadro.value[0])
     return
   }
   guardandoBono.value = true
   try {
-    const payload = {
+    const { data } = await guardarCuadroBono(editandoBono.value, {
       nombre: formBono.value.nombre.trim(),
       periodo: formBono.value.periodo,
-      tope: formBono.value.tope,
-      tope_activo: formBono.value.tope_activo,
-    }
-    if (editandoBono.value) {
-      await actualizarBonificacion(editandoBono.value, payload)
-      toast.success('Bonificación actualizada')
-    } else {
-      const { data } = await crearBonificacion(payload)
-      bonoAbierto.value = data.id
-      toast.success('Bonificación creada. Ahora agrégale las metas.')
-    }
+      metas: escalonesBono.value,
+    })
+    bonoAbierto.value = data.id
+    toast.success(editandoBono.value ? 'Bono actualizado' : 'Bono creado. Ahora asígnaselo a los trabajadores en "Trabajadores".')
     mostrarFormBono.value = false
     empleadosCargados = false
     await Promise.all([cargarBonificaciones(), cargarPendientes()])
   } catch (e) {
-    toast.error(e.response?.data?.message || 'No se pudo guardar')
+    toast.error(e.response?.data?.message
+      || Object.values(e.response?.data?.errors ?? {}).flat()[0]
+      || 'No se pudo guardar')
   } finally {
     guardandoBono.value = false
   }
@@ -408,53 +507,6 @@ async function reactivarBono(b) {
 
 function abrirBono(b) {
   bonoAbierto.value = bonoAbierto.value === b.id ? null : b.id
-  if (!formMeta.value[b.id]) formMeta.value[b.id] = { desde: 0, hasta: '', monto: 0 }
-}
-
-async function guardarMeta(b) {
-  const m = formMeta.value[b.id]
-  if (!Number(m?.monto)) {
-    toast.error('Falta cuánto se paga en esta meta')
-    return
-  }
-  try {
-    await agregarMeta(b.id, {
-      desde: m.desde,
-      // Vacío = "de aquí en adelante": el último escalón no tiene techo.
-      hasta: m.hasta === '' || m.hasta === null ? null : m.hasta,
-      monto: m.monto,
-    })
-    formMeta.value[b.id] = { desde: 0, hasta: '', monto: 0 }
-    empleadosCargados = false
-    await Promise.all([cargarBonificaciones(), cargarPendientes()])
-    toast.success('Meta agregada')
-  } catch (e) {
-    const msg = e.response?.data?.message
-      || Object.values(e.response?.data?.errors ?? {}).flat()[0]
-      || 'No se pudo agregar la meta'
-    toast.error(msg)
-  }
-}
-
-async function alternarMeta(meta) {
-  try {
-    await actualizarMeta(meta.id, { activo: !meta.activo })
-    empleadosCargados = false
-    await Promise.all([cargarBonificaciones(), cargarPendientes()])
-  } catch (e) {
-    toast.error(e.response?.data?.message || 'No se pudo cambiar')
-  }
-}
-
-async function borrarMeta(meta) {
-  if (!confirm(`¿Eliminar la meta ${meta.etiqueta}?`)) return
-  try {
-    await eliminarMeta(meta.id)
-    empleadosCargados = false
-    await Promise.all([cargarBonificaciones(), cargarPendientes()])
-  } catch (e) {
-    toast.error(e.response?.data?.message || 'No se pudo eliminar')
-  }
 }
 
 // ── Trabajadores ──────────────────────────────────────────────────────────
@@ -1598,204 +1650,290 @@ async function quitarAjuste(id) {
       </Teleport>
     </template>
 
-    <!-- ═══════════ BONOS ═══════════ -->
+    <!-- ═══════════ BONOS ═══════════
+         Se ven como el cuadro de Excel de la fábrica: de tanto a tanto,
+         paga tanto. El que no llega al primer escalón no cobra. -->
     <template v-else-if="tab === 'bonos'">
-      <div class="flex items-center justify-between mb-3">
-        <p class="text-xs text-gray-400">Bonificaciones por producción: un tope y una escalera de metas.</p>
+      <div class="flex items-start justify-between gap-3 mb-3">
+        <p class="text-sm text-gray-600 leading-snug">
+          Bonos por producción: según cuánto produzca cada quien en el periodo, cobra lo que diga su cuadro.
+        </p>
         <button
           @click="abrirNuevoBono"
-          class="flex items-center gap-1.5 bg-blue-600 text-white text-xs font-semibold px-3 py-2 rounded-xl hover:bg-blue-700 transition-colors shadow-sm shrink-0"
+          class="flex items-center gap-1.5 bg-purple-600 text-white text-sm font-semibold px-3.5 min-h-10 rounded-xl hover:bg-purple-700 transition-colors shadow-sm shrink-0"
         >
-          <PlusIcon class="w-4 h-4" /> Nueva
+          <PlusIcon class="w-4 h-4" /> Nuevo bono
         </button>
       </div>
 
       <div v-if="cargandoBonos" class="flex justify-center py-12">
-        <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+        <div class="w-6 h-6 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
       </div>
 
-      <div v-else class="space-y-2.5">
-        <p v-if="!bonosActivos.length" class="text-center py-8 text-gray-400 text-sm px-6">
-          Todavía no hay bonificaciones. Crea una con su tope y sus metas, y después asígnasela a los trabajadores que apliquen.
-        </p>
+      <div v-else class="space-y-3">
+        <div v-if="!bonosActivos.length" class="text-center py-10 px-6 bg-white rounded-xl shadow-sm">
+          <TrophyIcon class="w-10 h-10 text-purple-300 mx-auto mb-2" />
+          <p class="text-sm text-gray-600">Todavía no hay bonos.</p>
+          <p class="text-sm text-gray-500 mt-1">Crea uno con su cuadro y después asígnaselo en "Trabajadores" a quien aplique.</p>
+        </div>
 
         <div v-for="b in bonosActivos" :key="b.id" class="bg-white rounded-xl shadow-sm overflow-hidden">
-          <div class="p-4 flex items-start justify-between gap-2 cursor-pointer" @click="abrirBono(b)">
-            <div class="min-w-0 flex items-center gap-2.5">
-              <div class="w-9 h-9 rounded-xl bg-purple-50 flex items-center justify-center shrink-0">
+          <!-- Encabezado: qué es, desde cuánto paga, a cuántos aplica -->
+          <button type="button" class="w-full p-4 flex items-start justify-between gap-3 text-left" @click="abrirBono(b)">
+            <div class="min-w-0 flex items-start gap-3">
+              <div class="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center shrink-0">
                 <TrophyIcon class="w-5 h-5 text-purple-600" />
               </div>
               <div class="min-w-0">
-                <p class="font-semibold text-sm text-gray-800 truncate">{{ b.nombre }}</p>
+                <p class="font-semibold text-gray-800 truncate">{{ b.nombre }}</p>
+                <p class="text-sm text-gray-600 mt-0.5">
+                  Desde {{ formatoPesos(escalonesDe(b)[0]?.desde ?? b.tope) }} · {{ b.periodo_label.toLowerCase() }}
+                </p>
                 <p class="text-xs text-gray-500 mt-0.5">
-                  <span v-if="b.tope_activo">Tope {{ formatoPesos(b.tope) }}</span>
-                  <span v-else class="text-amber-600">Tope desactivado</span>
-                  · {{ b.periodo_label.toLowerCase() }}
-                </p>
-                <p class="text-[11px] text-gray-400 mt-0.5">
-                  {{ b.metas.filter(m => m.activo).length }} meta(s) · {{ b.num_trabajadores }} trabajador(es)
+                  {{ escalonesDe(b).length }} escalón{{ escalonesDe(b).length === 1 ? '' : 'es' }}
+                  <template v-if="escalonesDe(b).length">
+                    · paga de {{ formatoPesos(escalonesDe(b)[0].monto) }} a {{ formatoPesos(escalonesDe(b)[escalonesDe(b).length - 1].monto) }}
+                  </template>
+                  · {{ b.num_trabajadores }} trabajador{{ b.num_trabajadores === 1 ? '' : 'es' }}
                 </p>
               </div>
             </div>
-            <div class="flex items-center gap-1 shrink-0">
-              <button @click.stop="abrirEditarBono(b)" class="p-1.5 text-gray-300 hover:text-blue-600 transition-colors" aria-label="Editar">
-                <PencilSquareIcon class="w-4 h-4" />
-              </button>
-              <button @click.stop="borrarBono(b)" class="p-1.5 text-gray-300 hover:text-red-600 transition-colors" aria-label="Eliminar">
-                <TrashIcon class="w-4 h-4" />
-              </button>
-              <component :is="bonoAbierto === b.id ? ChevronUpIcon : ChevronDownIcon" class="w-4 h-4 text-gray-300" />
-            </div>
-          </div>
+            <component :is="bonoAbierto === b.id ? ChevronUpIcon : ChevronDownIcon" class="w-5 h-5 text-gray-400 shrink-0 mt-1" aria-hidden="true" />
+          </button>
 
-          <div v-if="bonoAbierto === b.id" class="px-4 pb-4 border-t border-gray-50 pt-3 space-y-3">
-            <p class="text-[11px] text-gray-400">
-              <span v-if="b.tope_activo">
-                Hay que producir al menos {{ formatoPesos(b.tope) }}
-                {{ b.periodo === 'ciclo' ? 'en el ciclo de pago' : `por ${b.periodo_label.toLowerCase()}` }}
-                para recibir bono.
+          <!-- El cuadro, como en Excel, y la calculadora -->
+          <div v-if="bonoAbierto === b.id" class="px-4 pb-4 border-t border-gray-100 pt-3 space-y-3">
+            <p class="text-sm text-gray-600">
+              Quien no llegue a <strong>{{ formatoPesos(escalonesDe(b)[0]?.desde ?? b.tope) }}</strong>
+              {{ b.periodo === 'ciclo' ? 'en su ciclo de pago' : `en ${b.periodo === 'mensual' ? 'el mes' : 'el periodo'}` }}
+              no cobra bono.
+            </p>
+
+            <div v-if="escalonesDe(b).length" class="rounded-xl border border-purple-100 overflow-hidden">
+              <table class="w-full text-sm tabular-nums">
+                <thead class="bg-purple-50 text-xs font-semibold text-purple-900">
+                  <tr>
+                    <th class="text-left px-3 py-2">Si produce</th>
+                    <th class="text-right px-3 py-2">Cobra</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="(m, i) in escalonesDe(b)" :key="i"
+                    :class="['border-t border-purple-50', bonoPara(escalonesDe(b), simulaEnTarjeta[b.id]).escalon === i + 1 ? 'bg-amber-50' : '']"
+                  >
+                    <td class="px-3 py-2 text-gray-700">
+                      {{ formatoPesos(m.desde) }}
+                      <span class="text-gray-400">{{ m.hasta === null ? ' en adelante' : ' a ' }}</span>
+                      <template v-if="m.hasta !== null">{{ formatoPesos(m.hasta) }}</template>
+                    </td>
+                    <td class="px-3 py-2 text-right font-semibold text-purple-800">{{ formatoPesos(m.monto) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p v-else class="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              Este bono no tiene cuadro: nadie cobra nada. Edítalo para armarlo.
+            </p>
+
+            <!-- Para comprobarlo con un número de verdad -->
+            <div v-if="escalonesDe(b).length" class="flex flex-wrap items-center gap-2 bg-gray-50 rounded-xl px-3 py-2.5">
+              <label :for="`sim-${b.id}`" class="text-sm text-gray-700">Si produce</label>
+              <InputPesos
+                :id="`sim-${b.id}`" v-model="simulaEnTarjeta[b.id]" permite-vacio placeholder="947.000"
+                class="w-36 rounded-lg border border-gray-300 px-2.5 py-2 text-base focus:outline-none focus:ring-2 focus:ring-purple-500"
+              />
+              <span v-if="simulaEnTarjeta[b.id] !== '' && simulaEnTarjeta[b.id] != null" class="text-sm text-gray-700">
+                → cobra <strong class="text-purple-800">{{ formatoPesos(bonoPara(escalonesDe(b), simulaEnTarjeta[b.id]).monto) }}</strong>
               </span>
-              <span v-else>Sin tope: el bono depende solo de en qué meta caiga lo producido.</span>
-            </p>
-
-            <!-- La escalera -->
-            <div v-if="b.metas.length" class="space-y-1.5">
-              <div
-                v-for="m in b.metas" :key="m.id"
-                :class="['flex items-center justify-between gap-2 rounded-lg px-2.5 py-2', m.activo ? 'bg-purple-50' : 'bg-gray-50 opacity-60']"
-              >
-                <div class="min-w-0">
-                  <p class="text-xs text-gray-700 truncate">{{ m.etiqueta }}</p>
-                  <p class="text-[11px] text-gray-400">paga {{ formatoPesos(m.monto) }}</p>
-                </div>
-                <div class="flex items-center gap-2 shrink-0">
-                  <button
-                    @click="alternarMeta(m)"
-                    :class="['text-[11px] font-semibold', m.activo ? 'text-gray-400 hover:text-amber-600' : 'text-blue-600 hover:text-blue-700']"
-                  >{{ m.activo ? 'Desactivar' : 'Activar' }}</button>
-                  <button @click="borrarMeta(m)" class="text-gray-300 hover:text-red-600 transition-colors">
-                    <XMarkIcon class="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
             </div>
-            <p v-else class="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2">
-              Sin metas todavía: aunque lleguen al tope, no se les paga nada.
-            </p>
 
-            <!-- Meta nueva -->
-            <div v-if="formMeta[b.id]" class="border-t border-gray-50 pt-3">
-              <p class="text-[11px] font-semibold text-gray-500 uppercase mb-1.5">Agregar meta</p>
-              <div class="grid grid-cols-3 gap-1.5">
-                <div>
-                  <label class="block text-[10px] text-gray-400 mb-0.5">Desde</label>
-                  <InputPesos v-model="formMeta[b.id].desde" class="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                </div>
-                <div>
-                  <label class="block text-[10px] text-gray-400 mb-0.5">Hasta</label>
-                  <InputPesos v-model="formMeta[b.id].hasta" permite-vacio placeholder="Sin tope" class="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                </div>
-                <div>
-                  <label class="block text-[10px] text-gray-400 mb-0.5">Paga</label>
-                  <InputPesos v-model="formMeta[b.id].monto" class="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                </div>
-              </div>
-              <p class="text-[11px] text-gray-400 mt-1.5">Deja "Hasta" vacío para el último escalón (de ahí en adelante).</p>
+            <div class="flex gap-2 pt-1">
               <button
-                @click="guardarMeta(b)"
-                class="w-full mt-2 bg-purple-600 text-white text-xs font-semibold rounded-lg px-3 py-2 hover:bg-purple-700 transition-colors flex items-center justify-center gap-1"
+                @click="abrirEditarBono(b)"
+                class="flex-1 min-h-11 flex items-center justify-center gap-1.5 rounded-xl border border-purple-200 text-purple-700 text-sm font-semibold hover:bg-purple-50"
               >
-                <PlusIcon class="w-4 h-4" /> Agregar meta
+                <PencilSquareIcon class="w-4 h-4" aria-hidden="true" /> Editar cuadro
+              </button>
+              <button
+                @click="borrarBono(b)"
+                class="min-h-11 px-4 flex items-center justify-center gap-1.5 rounded-xl border border-gray-200 text-gray-600 text-sm font-medium hover:text-red-600 hover:border-red-200"
+                :aria-label="`Eliminar ${b.nombre}`"
+              >
+                <TrashIcon class="w-4 h-4" aria-hidden="true" />
               </button>
             </div>
           </div>
         </div>
 
         <template v-if="bonosInactivos.length">
-          <p class="text-xs font-semibold text-gray-400 uppercase pt-2">Desactivadas</p>
+          <p class="text-xs font-semibold text-gray-500 uppercase pt-2">Desactivados</p>
           <div v-for="b in bonosInactivos" :key="b.id" class="bg-gray-50 rounded-xl p-4 flex items-center justify-between gap-2">
-            <p class="text-sm text-gray-500 truncate">{{ b.nombre }}</p>
-            <button @click="reactivarBono(b)" class="text-xs font-semibold text-blue-600 hover:text-blue-700 shrink-0">Reactivar</button>
+            <p class="text-sm text-gray-600 truncate">{{ b.nombre }}</p>
+            <button @click="reactivarBono(b)" class="text-sm font-semibold text-blue-600 hover:text-blue-700 shrink-0 min-h-10 px-2">Reactivar</button>
           </div>
         </template>
       </div>
 
-      <!-- Nueva / editar bonificación -->
+      <!-- Nuevo / editar bono: el cuadro entero en un solo lugar -->
       <Teleport to="body">
         <Transition
           enter-active-class="transition-opacity duration-200" enter-from-class="opacity-0"
           leave-active-class="transition-opacity duration-150" leave-to-class="opacity-0"
         >
           <div v-if="mostrarFormBono" class="fixed inset-0 bg-black/50 backdrop-blur-[2px] z-50 flex items-end sm:items-center justify-center" @click.self="mostrarFormBono = false">
-            <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full sm:max-w-md max-h-[92vh] overflow-y-auto shadow-2xl">
-              <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-100 sticky top-0 bg-white/95 backdrop-blur-sm rounded-t-3xl sm:rounded-t-2xl">
-                <div class="flex items-center gap-2.5">
+            <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full min-w-0 sm:max-w-xl max-h-[94dvh] flex flex-col overflow-hidden shadow-2xl">
+              <div class="shrink-0 flex items-center justify-between gap-3 pl-5 pr-2 py-2 border-b border-gray-100">
+                <div class="flex items-center gap-2.5 min-w-0">
                   <div class="w-9 h-9 rounded-xl bg-purple-50 flex items-center justify-center shrink-0">
-                    <TrophyIcon class="w-5 h-5 text-purple-600" />
+                    <TrophyIcon class="w-5 h-5 text-purple-600" aria-hidden="true" />
                   </div>
-                  <p class="font-semibold text-gray-800">{{ editandoBono ? 'Editar bonificación' : 'Nueva bonificación' }}</p>
+                  <p class="font-semibold text-gray-800 truncate">{{ editandoBono ? 'Editar bono' : 'Nuevo bono' }}</p>
                 </div>
-                <button @click="mostrarFormBono = false" class="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
-                  <XMarkIcon class="w-5 h-5" />
+                <button @click="mostrarFormBono = false" class="w-11 h-11 rounded-full flex items-center justify-center text-gray-500 hover:bg-gray-100" aria-label="Cerrar">
+                  <XMarkIcon class="w-5 h-5" aria-hidden="true" />
                 </button>
               </div>
-              <div class="p-5 space-y-4">
-                <div>
-                  <label class="block text-xs font-semibold text-gray-500 mb-1.5">Nombre *</label>
-                  <input v-model="formBono.nombre" placeholder="Bonos del mínimo" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow" />
-                  <p class="text-[11px] text-gray-400 mt-1">Este nombre es el que se elige después en cada trabajador.</p>
+
+              <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-5 space-y-6">
+                <!-- 1. Qué es -->
+                <div class="space-y-3">
+                  <div>
+                    <label for="bono-nombre" class="block text-sm font-medium text-gray-700 mb-1">Nombre</label>
+                    <input
+                      id="bono-nombre" v-model="formBono.nombre" placeholder="Ej. Bono taller" autocomplete="off"
+                      class="w-full rounded-xl border border-gray-300 px-3.5 py-2.5 text-base text-gray-800 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    />
+                    <p class="text-xs text-gray-500 mt-1">Es el que se escoge después en cada trabajador.</p>
+                  </div>
+                  <div>
+                    <label for="bono-periodo" class="block text-sm font-medium text-gray-700 mb-1">¿Cada cuánto se mide lo producido?</label>
+                    <select
+                      id="bono-periodo" v-model="formBono.periodo"
+                      class="w-full rounded-xl border border-gray-300 px-3.5 py-2.5 text-base text-gray-800 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    >
+                      <option v-for="op in PERIODOS_BONO" :key="op.value" :value="op.value">{{ op.label }}</option>
+                    </select>
+                    <p class="text-xs text-gray-500 mt-1">
+                      <template v-if="formBono.periodo === 'ciclo'">Sobre el ciclo de pago de cada quien (al quincenal, por quincena).</template>
+                      <template v-else>Se mide todo {{ formBono.periodo === 'mensual' ? 'el mes' : 'el periodo' }} y se paga una sola vez, en el pago que lo cierra.</template>
+                    </p>
+                  </div>
                 </div>
 
-                <div>
-                  <label class="block text-xs font-semibold text-gray-500 mb-1.5">¿Cada cuánto se mide el tope? *</label>
-                  <select v-model="formBono.periodo" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow">
-                    <option v-for="op in PERIODOS_BONO" :key="op.value" :value="op.value">{{ op.label }}</option>
-                  </select>
-                  <p v-if="formBono.periodo === 'ciclo'" class="text-[11px] text-gray-400 mt-1">
-                    El tope se cuenta sobre el ciclo de pago de cada quien: al quincenal se le mide por quincena
-                    y al mensual por mes, así que el mismo tope les exige distinto.
-                  </p>
-                  <p v-else class="text-[11px] text-gray-400 mt-1">
-                    El tope se cuenta sobre {{ formBono.periodo === 'mensual' ? 'el mes' : 'la ventana' }} completo,
-                    igual para todos. Si alguien cobra más seguido, el bono se le paga una sola vez, en el pago
-                    que cierra {{ formBono.periodo === 'mensual' ? 'el mes' : 'esa ventana' }}.
-                  </p>
+                <!-- 2. Armar el cuadro solo -->
+                <div class="rounded-2xl bg-purple-50/70 border border-purple-100 p-4 space-y-3">
+                  <div>
+                    <p class="text-sm font-semibold text-purple-900">Armar el cuadro</p>
+                    <p class="text-xs text-purple-900/70">Pon cómo crece y se llenan los escalones solos. Después puedes corregir cualquiera.</p>
+                  </div>
+                  <div class="grid grid-cols-2 gap-2.5">
+                    <div>
+                      <label for="gen-inicio" class="block text-xs font-medium text-gray-700 mb-1">Empieza a pagar desde</label>
+                      <InputPesos id="gen-inicio" v-model="generador.inicio" class="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-2 text-base focus:outline-none focus:ring-2 focus:ring-purple-500" />
+                    </div>
+                    <div>
+                      <label for="gen-paso" class="block text-xs font-medium text-gray-700 mb-1">Cada escalón es de</label>
+                      <InputPesos id="gen-paso" v-model="generador.paso" class="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-2 text-base focus:outline-none focus:ring-2 focus:ring-purple-500" />
+                    </div>
+                    <div>
+                      <label for="gen-primero" class="block text-xs font-medium text-gray-700 mb-1">El primero paga</label>
+                      <InputPesos id="gen-primero" v-model="generador.primero" class="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-2 text-base focus:outline-none focus:ring-2 focus:ring-purple-500" />
+                    </div>
+                    <div>
+                      <label for="gen-sube" class="block text-xs font-medium text-gray-700 mb-1">Cada escalón sube</label>
+                      <InputPesos id="gen-sube" v-model="generador.sube" class="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-2 text-base focus:outline-none focus:ring-2 focus:ring-purple-500" />
+                    </div>
+                    <div>
+                      <label for="gen-escalones" class="block text-xs font-medium text-gray-700 mb-1">Cuántos escalones</label>
+                      <input
+                        id="gen-escalones" v-model.number="generador.escalones" type="number" min="1" max="60" inputmode="numeric"
+                        class="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-2 text-base focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      />
+                    </div>
+                    <div class="flex items-end">
+                      <button
+                        type="button" @click="armarCuadro"
+                        class="w-full min-h-11 rounded-lg bg-purple-600 text-white text-sm font-semibold hover:bg-purple-700"
+                      >{{ formBono.filas.length ? 'Volver a armar' : 'Armar cuadro' }}</button>
+                    </div>
+                  </div>
                 </div>
 
-                <div class="flex items-center justify-between gap-3 bg-gray-50 rounded-xl px-3.5 py-2.5">
-                  <div class="min-w-0">
-                    <p class="text-sm font-medium text-gray-700">Usar tope</p>
-                    <p class="text-[11px] text-gray-400">Mínimo a producir para recibir bono.</p>
+                <!-- 3. El cuadro, editable -->
+                <div class="space-y-2">
+                  <p class="text-sm font-semibold text-gray-800">El cuadro</p>
+                  <p v-if="!formBono.filas.length" class="text-sm text-gray-500">
+                    Todavía no hay escalones. Ármalo arriba o agrégalos uno por uno.
+                  </p>
+                  <div v-else class="rounded-xl border border-gray-200 overflow-hidden">
+                    <div class="grid grid-cols-[1fr_1fr_1fr_2.5rem] gap-1.5 px-2 py-2 bg-gray-50 text-xs font-semibold text-gray-600">
+                      <span>Desde</span><span>Hasta</span><span>Paga</span><span class="sr-only">Quitar</span>
+                    </div>
+                    <div
+                      v-for="(f, i) in formBono.filas" :key="i"
+                      class="grid grid-cols-[1fr_1fr_1fr_2.5rem] gap-1.5 items-center px-2 py-1.5 border-t border-gray-100"
+                    >
+                      <InputPesos v-model="f.desde" :aria-label="`Escalón ${i + 1}: desde`" class="w-full min-w-0 rounded-lg border border-gray-300 px-2 py-1.5 text-base tabular-nums focus:outline-none focus:ring-2 focus:ring-purple-500" />
+                      <span
+                        v-if="formBono.abiertoArriba && i === formBono.filas.length - 1"
+                        class="text-sm text-gray-500 px-1"
+                      >en adelante</span>
+                      <InputPesos v-else v-model="f.hasta" permite-vacio :aria-label="`Escalón ${i + 1}: hasta`" class="w-full min-w-0 rounded-lg border border-gray-300 px-2 py-1.5 text-base tabular-nums focus:outline-none focus:ring-2 focus:ring-purple-500" />
+                      <InputPesos v-model="f.monto" :aria-label="`Escalón ${i + 1}: paga`" class="w-full min-w-0 rounded-lg border border-purple-300 bg-purple-50/40 px-2 py-1.5 text-base font-semibold text-purple-900 tabular-nums focus:outline-none focus:ring-2 focus:ring-purple-500" />
+                      <button
+                        type="button" @click="quitarFila(i)"
+                        class="w-10 h-10 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50"
+                        :aria-label="`Quitar escalón ${i + 1}`"
+                      ><XMarkIcon class="w-4 h-4" aria-hidden="true" /></button>
+                    </div>
                   </div>
                   <button
-                    type="button" @click="formBono.tope_activo = !formBono.tope_activo"
-                    :class="['relative w-11 h-6 rounded-full transition-colors shrink-0', formBono.tope_activo ? 'bg-purple-600' : 'bg-gray-300']"
+                    type="button" @click="agregarFila"
+                    class="w-full min-h-11 flex items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-gray-300 text-gray-600 text-sm font-medium hover:border-purple-300 hover:text-purple-700"
                   >
-                    <span :class="['absolute top-0.5 w-5 h-5 bg-white rounded-full transition-all', formBono.tope_activo ? 'left-[22px]' : 'left-0.5']" />
+                    <PlusIcon class="w-4 h-4" aria-hidden="true" /> Agregar escalón
                   </button>
+
+                  <label class="flex items-start gap-3 rounded-xl border border-gray-200 p-3 cursor-pointer">
+                    <input type="checkbox" v-model="formBono.abiertoArriba" class="mt-0.5 w-5 h-5 shrink-0 rounded border-gray-300 text-purple-600 focus:ring-purple-500" />
+                    <span>
+                      <span class="block text-sm font-medium text-gray-800">Por encima del último escalón sigue pagando lo mismo</span>
+                      <span class="block text-xs text-gray-500">
+                        Si se apaga, quien produzca más que el último "hasta" no cobra bono.
+                      </span>
+                    </span>
+                  </label>
+
+                  <!-- Lo que está mal, antes de guardar -->
+                  <ul v-if="formBono.filas.length && problemasCuadro.length" class="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 space-y-0.5" aria-live="polite">
+                    <li v-for="p in problemasCuadro" :key="p">• {{ p }}</li>
+                  </ul>
                 </div>
 
-                <div v-if="formBono.tope_activo">
-                  <label class="block text-xs font-semibold text-gray-500 mb-1.5">Tope</label>
-                  <InputPesos v-model="formBono.tope" class="w-full rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow" />
-                  <p class="text-[11px] text-gray-400 mt-1">
-                    Quien no llegue a {{ formatoPesos(formBono.tope) }} en su ciclo no recibe bonificación.
-                  </p>
+                <!-- 4. Probarlo -->
+                <div v-if="escalonesBono.length" class="flex flex-wrap items-center gap-2 bg-gray-50 rounded-xl px-3 py-3">
+                  <label for="bono-simula" class="text-sm text-gray-700">Probar: si produce</label>
+                  <InputPesos
+                    id="bono-simula" v-model="simulaProduccion" permite-vacio placeholder="947.000"
+                    class="w-36 rounded-lg border border-gray-300 bg-white px-2.5 py-2 text-base focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                  <span v-if="simulaProduccion !== '' && simulaProduccion != null" class="text-sm text-gray-700" aria-live="polite">
+                    → cobra <strong class="text-purple-800">{{ formatoPesos(resultadoSimulado.monto) }}</strong>
+                    <span v-if="resultadoSimulado.escalon" class="text-gray-500"> (escalón {{ resultadoSimulado.escalon }})</span>
+                    <span v-else class="text-gray-500"> (no llega)</span>
+                  </span>
                 </div>
-
-                <p class="text-[11px] text-gray-400">
-                  Después de guardar, abre la bonificación en la lista para armarle las metas
-                  (de tanto a tanto se paga tanto).
-                </p>
               </div>
-              <div class="flex gap-2.5 p-5 pt-2">
-                <button @click="mostrarFormBono = false" class="flex-1 bg-gray-100 text-gray-700 text-sm font-semibold rounded-xl px-4 py-2.5 hover:bg-gray-200 transition-colors">Cancelar</button>
+
+              <div class="shrink-0 flex gap-2.5 px-5 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-gray-100">
+                <button @click="mostrarFormBono = false" class="flex-1 min-h-12 bg-gray-100 text-gray-700 text-sm font-semibold rounded-xl hover:bg-gray-200">Cancelar</button>
                 <button
                   @click="guardarBono" :disabled="guardandoBono"
-                  class="flex-1 bg-purple-600 text-white text-sm font-semibold rounded-xl px-4 py-2.5 hover:bg-purple-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  class="flex-1 min-h-12 bg-purple-600 text-white text-sm font-semibold rounded-xl hover:bg-purple-700 disabled:opacity-50 flex items-center justify-center gap-1.5"
                 >
                   <span v-if="guardandoBono" class="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                  {{ guardandoBono ? 'Guardando...' : 'Guardar' }}
+                  {{ guardandoBono ? 'Guardando…' : 'Guardar bono' }}
                 </button>
               </div>
             </div>

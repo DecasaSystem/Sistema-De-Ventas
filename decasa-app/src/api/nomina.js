@@ -37,6 +37,7 @@ export const getBonificaciones      = (incluirInactivas = false) =>
 export const crearBonificacion      = (payload) => api.post('/nomina/bonificaciones', payload)
 export const actualizarBonificacion = (id, payload) => api.patch(`/nomina/bonificaciones/${id}`, payload)
 export const eliminarBonificacion   = (id) => api.delete(`/nomina/bonificaciones/${id}`)
+export const guardarCuadroBono      = (id, payload) => id ? api.put(`/nomina/bonificaciones/${id}/cuadro`, payload) : api.post('/nomina/bonificaciones/cuadro', payload)
 export const agregarMeta            = (bonificacionId, payload) => api.post(`/nomina/bonificaciones/${bonificacionId}/metas`, payload)
 export const actualizarMeta         = (id, payload) => api.patch(`/nomina/metas/${id}`, payload)
 export const eliminarMeta           = (id) => api.delete(`/nomina/metas/${id}`)

@@ -127,6 +127,89 @@ class NominaBonificacionController extends Controller
         return response()->json(['message' => 'Bonificación eliminada.', 'desactivado' => false]);
     }
 
+    /**
+     * PUT /api/nomina/bonificaciones/{id}/cuadro
+     *
+     * Guarda el bono entero de una vez, como se ve en el cuadro de Excel de
+     * la fábrica: nombre, cada cuánto se mide y la escalera completa
+     * ("de 900.000 a 950.000 paga 50.000, de 950.001 a 1.000.000 paga
+     * 75.000..."). El tope es donde empieza el primer escalón: el que no
+     * llega ahí no cobra.
+     *
+     * Antes había que crear el bono con un "tope" suelto y después agregar
+     * las metas de a una; con once escalones eran once formularios y no se
+     * parecía en nada al cuadro.
+     *
+     * Reemplaza la escalera: lo que ya se pagó no cambia, porque cada pago
+     * guarda su bono congelado.
+     */
+    public function guardarCuadro(Request $request, int $id)
+    {
+        $bonificacion = NominaBonificacion::findOrFail($id);
+
+        return $this->guardarEscalera($request, $bonificacion);
+    }
+
+    /** POST /api/nomina/bonificaciones/cuadro — el mismo, para uno nuevo. */
+    public function crearConCuadro(Request $request)
+    {
+        return $this->guardarEscalera($request, new NominaBonificacion(['activo' => true]), 201);
+    }
+
+    private function guardarEscalera(Request $request, NominaBonificacion $bonificacion, int $status = 200)
+    {
+        $data = $request->validate([
+            'nombre'          => 'required|string|max:80',
+            'periodo'         => ['required', Rule::in(self::PERIODOS)],
+            'metas'           => 'required|array|min:1|max:60',
+            'metas.*.desde'   => 'required|numeric|min:0',
+            'metas.*.hasta'   => 'nullable|numeric|min:0',
+            'metas.*.monto'   => 'required|numeric|min:0',
+        ], [
+            'nombre.required' => 'Ponle un nombre al bono.',
+            'metas.required'  => 'Arma el cuadro: al menos un escalón.',
+            'metas.min'       => 'Arma el cuadro: al menos un escalón.',
+        ]);
+
+        // Ordenada por "desde" y sin escalones que se pisen: si dos cubren
+        // el mismo valor, cuál se paga sería cuestión de suerte. Solo el
+        // último puede quedar abierto (sin "hasta").
+        $metas = collect($data['metas'])
+            ->map(fn ($m) => ['desde' => round((float) $m['desde']), 'hasta' => isset($m['hasta']) && $m['hasta'] !== '' ? round((float) $m['hasta']) : null, 'monto' => round((float) $m['monto'])])
+            ->sortBy('desde')->values();
+
+        foreach ($metas as $i => $m) {
+            $n = $i + 1;
+            if ($m['hasta'] !== null && $m['hasta'] < $m['desde']) {
+                throw ValidationException::withMessages(['metas' => ["En el escalón {$n} el \"hasta\" es menor que el \"desde\"."]]);
+            }
+            if ($m['hasta'] === null && $i < $metas->count() - 1) {
+                throw ValidationException::withMessages(['metas' => ["Solo el último escalón puede quedar sin \"hasta\" (el {$n} no lo es)."]]);
+            }
+            $sig = $metas[$i + 1] ?? null;
+            if ($sig && $m['hasta'] !== null && $sig['desde'] <= $m['hasta']) {
+                throw ValidationException::withMessages(['metas' => ["Los escalones {$n} y " . ($n + 1) . ' se pisan.']]);
+            }
+        }
+
+        \Illuminate\Support\Facades\DB::transaction(function () use ($bonificacion, $data, $metas) {
+            $bonificacion->fill([
+                'nombre'      => $data['nombre'],
+                'periodo'     => $data['periodo'],
+                // El que no llega al primer escalón no cobra.
+                'tope'        => $metas[0]['desde'],
+                'tope_activo' => true,
+            ])->save();
+
+            $bonificacion->metas()->delete();
+            foreach ($metas as $m) {
+                NominaBonificacionMeta::create($m + ['nomina_bonificacion_id' => $bonificacion->id, 'activo' => true]);
+            }
+        });
+
+        return response()->json($this->comoJson($bonificacion->fresh('metas')), $status);
+    }
+
     /** POST /api/nomina/bonificaciones/{id}/metas */
     public function agregarMeta(Request $request, int $id)
     {

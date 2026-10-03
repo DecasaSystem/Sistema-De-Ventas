@@ -211,6 +211,9 @@ Route::middleware('auth:sanctum')->group(function () {
         // Esquemas de bonificación y su escalera de metas.
         Route::get('/bonificaciones',              [NominaBonificacionController::class, 'index']);
         Route::post('/bonificaciones',             [NominaBonificacionController::class, 'store']);
+        // El bono entero con su cuadro de escalones, de una vez.
+        Route::post('/bonificaciones/cuadro',      [NominaBonificacionController::class, 'crearConCuadro']);
+        Route::put('/bonificaciones/{id}/cuadro',  [NominaBonificacionController::class, 'guardarCuadro'])->whereNumber('id');
         Route::patch('/bonificaciones/{id}',       [NominaBonificacionController::class, 'update'])->whereNumber('id');
         Route::delete('/bonificaciones/{id}',      [NominaBonificacionController::class, 'destroy'])->whereNumber('id');
         Route::post('/bonificaciones/{id}/metas',  [NominaBonificacionController::class, 'agregarMeta'])->whereNumber('id');
