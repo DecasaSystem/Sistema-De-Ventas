@@ -268,19 +268,83 @@ class VerOrdenesCompartidasTest extends TestCase
             ->assertStatus(403);
     }
 
-    public function test_una_orden_ajena_sigue_sin_verse(): void
+    public function test_una_orden_de_otra_tienda_sigue_sin_verse(): void
     {
+        DB::table('tiendas')->insert(['id' => 3, 'nombre' => 'Decasa Unicentro']);
         $marta = $this->vendedor('Marta', 1);
-        $otra  = $this->vendedor('Otra', 1);
+        $otra  = $this->vendedor('Otra', 3);
 
         $orden = Orden::create([
-            'cliente_id' => 1, 'tienda_id' => 1, 'vendedor_id' => $otra->id,
+            'cliente_id' => 1, 'tienda_id' => 3, 'vendedor_id' => $otra->id,
             'estado' => 'en_produccion', 'valor_total' => 800000,
         ]);
 
-        // Compartir es lo que abre la puerta; estar en la misma tienda no.
         $this->assertNotContains($orden->id, $this->loQueVe($marta));
         $this->actingAs($marta)->getJson("/api/ordenes/{$orden->id}")->assertStatus(403);
+    }
+
+    // ── Las ventas de la tienda son de la tienda ─────────────────────────────
+
+    public function test_las_ventas_de_la_tienda_le_salen_a_todo_el_que_trabaja_ahi(): void
+    {
+        $yo    = $this->vendedor('Yo', 1);
+        $marta = $this->vendedor('Marta', 1);
+
+        $mia   = Orden::create(['cliente_id' => 1, 'tienda_id' => 1, 'vendedor_id' => $yo->id,    'estado' => 'en_produccion', 'valor_total' => 800000]);
+        $deElla = Orden::create(['cliente_id' => 1, 'tienda_id' => 1, 'vendedor_id' => $marta->id, 'estado' => 'pendiente_anticipo', 'valor_total' => 500000]);
+
+        $this->assertContains($mia->id, $this->loQueVe($marta), 'mis ventas le salen a ella');
+        $this->assertContains($deElla->id, $this->loQueVe($yo), 'y las de ella a mí');
+
+        // Y la puede atender: abrirla y recibirle un abono.
+        $this->actingAs($marta)->getJson("/api/ordenes/{$mia->id}")->assertOk();
+        $this->assertTrue($mia->fresh()->laPuedeCobrar($marta));
+    }
+
+    public function test_si_me_cambio_de_tienda_lo_que_vendi_alla_sigue_siendo_de_esa_tienda_y_mio(): void
+    {
+        DB::table('tiendas')->insert(['id' => 3, 'nombre' => 'Decasa Unicentro']);
+        $yo    = $this->vendedor('Yo', 1);
+        $marta = $this->vendedor('Marta', 1);
+
+        $enElNorte = Orden::create(['cliente_id' => 1, 'tienda_id' => 1, 'vendedor_id' => $yo->id, 'estado' => 'en_produccion', 'valor_total' => 800000]);
+        $deMarta   = Orden::create(['cliente_id' => 1, 'tienda_id' => 1, 'vendedor_id' => $marta->id, 'estado' => 'en_produccion', 'valor_total' => 600000]);
+
+        // Me paso a Unicentro y vendo allá.
+        $yo->update(['tienda_default_id' => 3]);
+        $enUnicentro = Orden::create(['cliente_id' => 1, 'tienda_id' => 3, 'vendedor_id' => $yo->id, 'estado' => 'en_produccion', 'valor_total' => 900000]);
+
+        $veMarta = $this->loQueVe($marta);
+        $this->assertContains($enElNorte->id, $veMarta, 'lo que vendí en el Norte le sigue saliendo a ella');
+        $this->assertNotContains($enUnicentro->id, $veMarta, 'lo que vendo ahora en Unicentro, no');
+
+        $veoYo = $this->loQueVe($yo->fresh());
+        $this->assertContains($enElNorte->id, $veoYo, 'y a mí me sigue saliendo, porque es mía');
+        $this->assertContains($enUnicentro->id, $veoYo);
+        $this->assertNotContains($deMarta->id, $veoYo, 'lo de Marta en el Norte ya no me sale');
+    }
+
+    public function test_la_cotizacion_y_el_borrador_de_un_companero_todavia_no_son_de_la_tienda(): void
+    {
+        $yo    = $this->vendedor('Yo', 1);
+        $marta = $this->vendedor('Marta', 1);
+
+        $cotizacion = Orden::create(['cliente_id' => 1, 'tienda_id' => 1, 'vendedor_id' => $marta->id, 'estado' => 'cotizacion', 'valor_total' => 500000]);
+        $borrador   = Orden::create(['cliente_id' => 1, 'tienda_id' => 1, 'vendedor_id' => $marta->id, 'estado' => 'borrador', 'valor_total' => 500000]);
+
+        $veo = $this->loQueVe($yo);
+        $this->assertNotContains($cotizacion->id, $veo);
+        $this->assertNotContains($borrador->id, $veo);
+    }
+
+    public function test_un_independiente_no_ve_las_ventas_de_otro_independiente(): void
+    {
+        $henry  = $this->vendedor('Henry', 2, independiente: true);
+        $flabio = $this->vendedor('Flabio', 2, independiente: true);
+
+        $deFlabio = Orden::create(['cliente_id' => 1, 'tienda_id' => 2, 'vendedor_id' => $flabio->id, 'estado' => 'en_produccion', 'valor_total' => 700000]);
+
+        $this->assertNotContains($deFlabio->id, $this->loQueVe($henry), 'las ventas del independiente son solo suyas');
     }
 
     // ── El facturador ────────────────────────────────────────────────────────

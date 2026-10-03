@@ -31,6 +31,7 @@ abstract class TestCase extends BaseTestCase
         \App\Http\Controllers\ComisionController::olvidarEsquema();
         \App\Models\Orden::olvidarEsquema();
         \App\Services\AnticiposComision::olvidarEsquema();
+        \App\Models\Orden::olvidarSedes();
         \App\Services\ConsumoTelas::olvidarCache();
         \App\Models\Tienda::olvidarCerradas();
     }
@@ -62,6 +63,7 @@ abstract class TestCase extends BaseTestCase
         $agregar('orden_items',    'motivo_devolucion',  fn ($t) => $t->text('motivo_devolucion')->nullable());
         $agregar('ordenes',        'descuento_total',    fn ($t) => $t->decimal('descuento_total', 15, 2)->default(0));
         $agregar('ordenes',        'descuento_condicionado', fn ($t) => $t->decimal('descuento_condicionado', 15, 2)->default(0));
+        $agregar('ordenes',        'descuento_condicionado_pct', fn ($t) => $t->decimal('descuento_condicionado_pct', 5, 2)->nullable());
         $agregar('ordenes',        'tienda_abonada_id',  fn ($t) => $t->unsignedBigInteger('tienda_abonada_id')->nullable());
         $agregar('ordenes',        'covendedor_id',      fn ($t) => $t->unsignedBigInteger('covendedor_id')->nullable());
         $agregar('orden_items',    'producto_unico',     fn ($t) => $t->boolean('producto_unico')->default(false));

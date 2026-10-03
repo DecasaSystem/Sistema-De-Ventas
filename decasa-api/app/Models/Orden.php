@@ -480,9 +480,20 @@ class Orden extends Model
             return $query;
         }
 
-        return $query->where(function ($q) use ($usuario) {
+        $equipo = self::tiendaDelEquipo($usuario);
+
+        return $query->where(function ($q) use ($usuario, $equipo) {
             $q->where('vendedor_id', $usuario->id)
               ->orWhere('covendedor_id', $usuario->id);
+
+            // Las ventas de la tienda son de la tienda: a quien trabaja ahí le
+            // salen todas las que se hicieron ahí, las venda quien las venda.
+            // Ver laDeSuTienda().
+            if ($equipo) {
+                $q->orWhere(fn ($q2) => $q2
+                    ->where('tienda_id', $equipo)
+                    ->whereNotIn('estado', self::ESTADOS_NO_COMERCIALES));
+            }
 
             if (! $usuario->tienda_default_id) {
                 return;
@@ -492,6 +503,57 @@ class Orden extends Model
                 ->where('tienda_abonada_id', $usuario->tienda_default_id)
                 ->where('estado', '!=', 'borrador'));
         });
+    }
+
+    /**
+     * La tienda cuyas ventas le salen a esta persona como de su equipo: la de
+     * su perfil, si vende en una tienda. Un independiente no tiene equipo: sus
+     * ventas son solo suyas (y la "sede" de independientes no es una tienda
+     * donde se atienda a nadie).
+     */
+    private static function tiendaDelEquipo(Usuario $usuario): ?int
+    {
+        $tienda = (int) $usuario->tienda_default_id;
+        if (! $tienda || $usuario->independiente) return null;
+
+        self::$sedesIndependientes ??= \Illuminate\Support\Facades\Schema::hasColumn('tiendas', 'es_independientes')
+            ? Tienda::where('es_independientes', true)->pluck('id')->map(fn ($v) => (int) $v)->all()
+            : [];
+
+        return in_array($tienda, self::$sedesIndependientes, true) ? null : $tienda;
+    }
+
+    private static ?array $sedesIndependientes = null;
+
+    /** Se vuelve a preguntar cuáles son las sedes de independientes (para los tests). */
+    public static function olvidarSedes(): void
+    {
+        self::$sedesIndependientes = null;
+    }
+
+    /**
+     * ¿Es una venta de la tienda donde trabaja esta persona?
+     *
+     * Las ventas de una tienda son de la tienda y de quien las vendió. Marta
+     * y yo trabajamos en el Norte: mis ventas le salen a ella y las de ella a
+     * mí, porque el cliente vuelve al Norte a abonar o a preguntar y la que
+     * esté lo tiene que poder atender. Si me paso a Unicentro:
+     *  - lo que vendí en el Norte le sigue saliendo a ella (la orden quedó con
+     *    la tienda del Norte) y a mí (porque la vendí yo);
+     *  - lo que venda ahora en Unicentro ya no le sale a ella;
+     *  - lo que ella venda en el Norte ya no me sale a mí.
+     *
+     * Se mira la tienda de la ORDEN (dónde se vendió), no la del vendedor. Una
+     * cotización o un borrador todavía no son una venta de la tienda: siguen
+     * siendo solo de quien los está armando.
+     */
+    public function laDeSuTienda(Usuario $usuario): bool
+    {
+        $equipo = self::tiendaDelEquipo($usuario);
+
+        return $equipo !== null
+            && (int) $this->tienda_id === $equipo
+            && ! in_array($this->estado, self::ESTADOS_NO_COMERCIALES, true);
     }
 
     /**
@@ -509,6 +571,8 @@ class Orden extends Model
         if (! $usuario->soloVeSusOrdenes())                    return true;
         if ((int) $this->vendedor_id   === (int) $usuario->id) return true;
         if ((int) $this->covendedor_id === (int) $usuario->id) return true;
+        // El cliente vuelve a la tienda a abonar: quien esté ahí le recibe.
+        if ($this->laDeSuTienda($usuario))                     return true;
 
         $tienda = (int) $usuario->tienda_default_id;
         if (! $tienda) return false;
@@ -545,6 +609,9 @@ class Orden extends Model
         if (! $usuario->soloVeSusOrdenes())                    return true;
         if ((int) $this->vendedor_id   === (int) $usuario->id) return true;
         if ((int) $this->covendedor_id === (int) $usuario->id) return true;
+        // Una venta de la tienda: si el cliente vuelve a cambiar algo o a
+        // corregir la dirección, quien esté lo atiende.
+        if ($this->laDeSuTienda($usuario))                     return true;
 
         $tienda = (int) $usuario->tienda_default_id;
 
