@@ -9,3 +9,10 @@ decasa-app/dbcheck.mjs
 
 # Cache de fuentes que DomPDF genera al crear un PDF. Se regenera solo.
 decasa-api/storage/fonts/
+
+# Skills de agentes: el contenido va en .agents/ (con skills-lock.json, que
+# fija sus versiones). .claude/skills/ son accesos directos a esas carpetas
+# con la ruta de cada computador; el instalador los crea en cada máquina.
+.claude/skills/
+# Comprimido que trae una skill de ejemplo; no hace falta en el repo.
+.agents/skills/deploy-to-vercel/Archive.zip
