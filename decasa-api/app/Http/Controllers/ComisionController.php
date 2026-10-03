@@ -9,6 +9,7 @@ use App\Models\Tienda;
 use App\Models\TiendaAsesor;
 use App\Models\TiendaReemplazo;
 use App\Models\Usuario;
+use App\Services\AnticiposComision;
 use App\Services\ComisionIndependientes;
 use App\Services\NotificacionService;
 use Carbon\Carbon;
@@ -175,7 +176,12 @@ class ComisionController extends Controller
                 'forma_pago' => $enriquecida['forma_pago'],
             ]);
 
-            return response()->json($comision->fresh('pagadaPor:id,nombre'));
+            $descontado = AnticiposComision::descontadoDe([$comision->id]);
+
+            return response()->json(array_merge($comision->fresh('pagadaPor:id,nombre')->toArray(), [
+                'anticipos_descontados' => round($descontado),
+                'neto'                  => round((float) $enriquecida['monto_comision'] - $descontado),
+            ]));
         });
     }
 
@@ -211,6 +217,9 @@ class ComisionController extends Controller
             $antes = ['comision_id' => $c->id, 'vendedor_id' => (int) $c->vendedor_id, 'orden_id' => $c->orden_id,
                       'monto' => (float) $c->monto_comision, 'forma_pago' => $c->forma_pago_pagada,
                       'fecha_pago' => $c->fecha_pago?->toDateTimeString(), 'motivo' => $data['motivo'] ?? null];
+
+            // Lo que se le descontó de anticipos con este pago vuelve a deberse.
+            $antes['anticipos_devueltos'] = AnticiposComision::revertir($c);
 
             $sinVenta = $c->orden_id && (! $c->orden || in_array($c->orden->estado, self::ESTADOS_SIN_VENTA, true));
             $otraParteAbierta = $c->origen === self::ORIGEN_PARTE_POOL && Comision::where('origen', self::ORIGEN_PARTE_POOL)
@@ -256,6 +265,21 @@ class ComisionController extends Controller
             // crece después, se abre otro por la diferencia.
             'clave_unica'       => null,
         ]);
+
+        // Lo que se llevó de anticipo se le descuenta de lo que se le paga.
+        AnticiposComision::descontar($c, (float) $enriquecida['monto_comision'], self::corteDeAnticipos($c), $usuario->id);
+    }
+
+    /**
+     * Hasta qué mes de anticipos le corresponde a una comisión: su propio mes,
+     * o el cierre del trimestre en una tienda trimestral (la comisión de
+     * Jul–Sep descuenta los anticipos de los tres meses).
+     */
+    private static function corteDeAnticipos(Comision $c): string
+    {
+        return self::esTiendaTrimestral((int) $c->tienda_id)
+            ? self::mesesDeTrimestre(self::trimestreDeMes($c->mes_venta))[2]
+            : $c->mes_venta;
     }
 
     /**
@@ -398,6 +422,16 @@ class ComisionController extends Controller
         $mes = self::mesPedido($request);
         if ($mes === null) return response()->json(['message' => 'Mes inválido (YYYY-MM).'], 422);
 
+        return response()->json($this->resumenDelMes($mes));
+    }
+
+    /**
+     * Las tarjetas del mes: una por persona y tienda, con lo que lleva, lo que
+     * está listo y lo que debe de anticipos. Es lo que muestra la pantalla y
+     * lo que usa el aviso del día de pago, para que digan lo mismo.
+     */
+    public function resumenDelMes(string $mes): \Illuminate\Support\Collection
+    {
         // Los totales van primero a propósito: dejan listos los cachés del
         // cálculo (restauraciones, reemplazos, equipos) y todo lo que sigue los
         // reutiliza. Al revés se preguntaba dos veces por lo mismo, y son las
@@ -417,7 +451,7 @@ class ComisionController extends Controller
             ->get();
 
         if ($comisiones->isEmpty()) {
-            return response()->json([]);
+            return collect();
         }
 
         $poolsTrimestrales = $this->cargarPoolsTrimestrales($metas, $totalesTienda);
@@ -573,9 +607,33 @@ class ComisionController extends Controller
             }
         }
 
+        // Anticipos: lo que debe hasta este mes (o hasta el cierre del
+        // trimestre) y cuánto se le descontaría de lo que ya está listo.
+        if (AnticiposComision::hayTablas()) {
+            AnticiposComision::asegurarHasta(max($mes, self::hoy()->format('Y-m')));
+            $grouped = $grouped->map(function ($fila) use ($mes) {
+                $corte = self::esTiendaTrimestral((int) $fila['tienda_id'])
+                    ? self::mesesDeTrimestre(self::trimestreDeMes($mes))[2] : $mes;
+                $debe  = AnticiposComision::debeHasta((int) $fila['vendedor_id'], $corte);
+                if ($debe <= 0) return $fila;
+
+                $lista = (float) ($fila['es_independiente'] ?? false
+                    ? ($fila['comision_lista'] ?? 0)
+                    : collect($fila['ordenes'] ?? [])->where('estado', 'lista')->sum('monto_comision'));
+                $fila['anticipos'] = [
+                    'debe'           => $debe,
+                    'se_descuenta'   => min($debe, round($lista)),
+                    'neto_a_entregar'=> max(0, round($lista) - $debe),
+                    'queda_debiendo' => max(0, $debe - round($lista)),
+                ];
+
+                return $fila;
+            });
+        }
+
         $grouped = $grouped->sortByDesc('comision_total')->values();
 
-        return response()->json($grouped);
+        return $grouped;
     }
 
     /**
@@ -636,6 +694,11 @@ class ComisionController extends Controller
             'ya_pagada'       => $filas->where('estado_calculado', 'pagada')->sum('monto_comision'),
             'todavia_no'      => $filas->where('estado_calculado', 'pendiente')->sum('monto_comision'),
             'vendio'          => $filas->sum('valor_orden'),
+            // Lo que se ha llevado de anticipo y todavía no se le descuenta:
+            // al pagarle la comisión se le resta (si no alcanza, lo sigue debiendo).
+            'anticipos_que_debe' => AnticiposComision::debeHasta($vendedorId,
+                self::esTiendaTrimestral((int) ($primera['tienda_id'] ?? 0))
+                    ? self::mesesDeTrimestre(self::trimestreDeMes($mes))[2] : $mes),
             'meta_de_su_tienda'   => $primera['meta_tienda'] ?? 0,
             'lleva_la_tienda'     => $primera['total_tienda_mes'] ?? 0,
             'asesores_que_reparten' => count($this->pesosDe($mes, (int) $primera['tienda_id'])) ?: ($primera['divisor_asesores'] ?? 1),
@@ -844,6 +907,152 @@ class ComisionController extends Controller
         self::anotar('periodicidad', $tienda->id, null, ['antes' => $antes, 'despues' => $data['periodicidad']]);
 
         return response()->json(['tienda_id' => $tienda->id, 'periodicidad' => $data['periodicidad']]);
+    }
+
+    /**
+     * GET /api/comisiones/anticipos
+     *
+     * Quién tiene anticipo de comisión, de cuánto, lo que debe hoy y sus
+     * últimos movimientos (lo que se llevó cada mes y lo que se le descontó).
+     */
+    public function anticipos(Request $request)
+    {
+        if (! $request->user()->acceso_comisiones) {
+            return response()->json(['error' => 'Sin acceso'], 403);
+        }
+        if (! AnticiposComision::hayTablas()) {
+            return response()->json([]);
+        }
+
+        $hoy = self::hoy()->format('Y-m');
+        AnticiposComision::asegurarHasta($hoy);
+
+        $vigentes = AnticiposComision::vigentesEn($hoy);
+        // También quien tiene la configuración puesta para más adelante.
+        $ids = DB::table('comision_anticipos_config')->distinct()->pluck('vendedor_id')
+            ->merge(DB::table('comision_anticipos')->distinct()->pluck('vendedor_id'))
+            ->map(fn ($v) => (int) $v)->unique()->values();
+
+        $usuarios = Usuario::whereIn('id', $ids)->with('tiendaDefault:id,nombre')->get()->keyBy('id');
+
+        return response()->json($ids->map(function ($vid) use ($vigentes, $usuarios, $hoy) {
+            $cfg  = $vigentes[$vid] ?? null;
+            $prox = DB::table('comision_anticipos_config')->where('vendedor_id', $vid)
+                ->where('desde_mes', '>', $hoy)->orderBy('desde_mes')->first();
+            $mov  = DB::table('comision_anticipos as a')
+                ->leftJoin('comisiones as c', 'c.id', '=', 'a.comision_id')
+                ->where('a.vendedor_id', $vid)->orderByDesc('a.mes')->orderByDesc('a.id')->limit(24)
+                ->get(['a.id', 'a.tipo', 'a.mes', 'a.monto', 'a.editado_a_mano', 'a.nota', 'a.created_at', 'c.fecha_pago']);
+
+            return [
+                'vendedor_id' => $vid,
+                'nombre'      => $usuarios[$vid]->nombre ?? "#$vid",
+                'tienda'      => $usuarios[$vid]?->tiendaDefault?->nombre,
+                'activo'      => (bool) ($cfg->activo ?? false),
+                'monto'       => (float) ($cfg->monto ?? 0),
+                'desde_mes'   => $cfg->desde_mes ?? null,
+                'proximo'     => $prox ? ['desde_mes' => $prox->desde_mes, 'monto' => (float) $prox->monto, 'activo' => (bool) $prox->activo] : null,
+                // Todo lo que se ha llevado hasta hoy menos lo ya descontado.
+                'debe'        => AnticiposComision::debeHasta($vid, $hoy),
+                'movimientos' => $mov,
+            ];
+        })->sortBy('nombre')->values());
+    }
+
+    /**
+     * POST /api/comisiones/anticipos
+     *
+     * Activa, cambia el monto o apaga el anticipo de un vendedor desde un mes
+     * en adelante (el actual si no se dice). No se puede poner para un mes
+     * que ya pasó: lo pasado se corrige mes por mes.
+     */
+    public function setAnticipo(Request $request)
+    {
+        if (! $request->user()->acceso_comisiones) {
+            return response()->json(['error' => 'Sin acceso'], 403);
+        }
+        if (! AnticiposComision::hayTablas()) {
+            return response()->json(['message' => 'Falta correr la migración de anticipos.'], 503);
+        }
+
+        $hoy  = self::hoy()->format('Y-m');
+        $data = $request->validate([
+            'vendedor_id' => 'required|integer|exists:usuarios,id',
+            'monto'       => 'required|numeric|min:0|max:100000000',
+            'activo'      => 'required|boolean',
+            'desde_mes'   => ['nullable', 'regex:/^\d{4}-(0[1-9]|1[0-2])$/'],
+        ]);
+        $desde = $data['desde_mes'] ?? $hoy;
+        if ($desde < $hoy) {
+            return response()->json(['message' => 'No se puede cambiar desde un mes que ya pasó. '
+                . 'Para corregir lo que se llevó en un mes anterior, edita ese mes.'], 422);
+        }
+
+        $antes = AnticiposComision::vigentesEn($desde)[(int) $data['vendedor_id']] ?? null;
+
+        DB::table('comision_anticipos_config')->updateOrInsert(
+            ['vendedor_id' => $data['vendedor_id'], 'desde_mes' => $desde],
+            ['monto' => round((float) $data['monto']), 'activo' => $data['activo'],
+             'creado_por' => $request->user()->id, 'created_at' => now(), 'updated_at' => now()]
+        );
+        AnticiposComision::asegurarHasta(max($desde, $hoy));
+
+        self::anotar('anticipo_config', null, $desde, [
+            'vendedor_id' => (int) $data['vendedor_id'],
+            'antes'   => $antes ? ['monto' => (float) $antes->monto, 'activo' => (bool) $antes->activo] : null,
+            'despues' => ['monto' => round((float) $data['monto']), 'activo' => (bool) $data['activo']],
+        ]);
+
+        return response()->json(['ok' => true, 'desde_mes' => $desde]);
+    }
+
+    /**
+     * PUT /api/comisiones/anticipos/mes
+     *
+     * Lo que se llevó en un mes concreto, si no fue lo de siempre (tomó menos,
+     * más, o ese mes no tomó: 0). También sirve para anotar un anticipo suelto
+     * a quien no lo tiene fijo. Lo corregido a mano no lo vuelve a pisar la
+     * configuración.
+     */
+    public function setAnticipoDelMes(Request $request)
+    {
+        if (! $request->user()->acceso_comisiones) {
+            return response()->json(['error' => 'Sin acceso'], 403);
+        }
+        if (! AnticiposComision::hayTablas()) {
+            return response()->json(['message' => 'Falta correr la migración de anticipos.'], 503);
+        }
+
+        $data = $request->validate([
+            'vendedor_id' => 'required|integer|exists:usuarios,id',
+            'mes'         => ['required', 'regex:/^\d{4}-(0[1-9]|1[0-2])$/'],
+            'monto'       => 'required|numeric|min:0|max:100000000',
+            'nota'        => 'nullable|string|max:200',
+        ]);
+        if ($data['mes'] > self::hoy()->format('Y-m')) {
+            return response()->json(['message' => 'Ese mes todavía no ha llegado.'], 422);
+        }
+
+        $clave = AnticiposComision::claveDe((int) $data['vendedor_id'], $data['mes']);
+        $antes = DB::table('comision_anticipos')->where('clave', $clave)->value('monto');
+
+        DB::table('comision_anticipos')->updateOrInsert(
+            ['clave' => $clave],
+            ['vendedor_id' => $data['vendedor_id'], 'tipo' => AnticiposComision::ANTICIPO, 'mes' => $data['mes'],
+             'monto' => round((float) $data['monto']), 'editado_a_mano' => true, 'nota' => $data['nota'] ?? null,
+             'creado_por' => $request->user()->id, 'created_at' => now(), 'updated_at' => now()]
+        );
+
+        self::anotar('anticipo_mes', null, $data['mes'], [
+            'vendedor_id' => (int) $data['vendedor_id'],
+            'antes' => $antes !== null ? (float) $antes : null, 'despues' => round((float) $data['monto']),
+            'motivo' => $data['nota'] ?? null,
+        ]);
+
+        return response()->json([
+            'ok'   => true,
+            'debe' => AnticiposComision::debeHasta((int) $data['vendedor_id'], self::hoy()->format('Y-m')),
+        ]);
     }
 
     /**
@@ -2108,6 +2317,7 @@ class ComisionController extends Controller
             $hoy     = self::hoy();
             $pagadas = 0;
             $total   = 0.0;
+            $idsPagados = [];
 
             Comision::with('orden.pagos', 'tienda')
                 ->where('vendedor_id', $data['vendedor_id'])
@@ -2116,23 +2326,27 @@ class ComisionController extends Controller
                 ->where('estado', '!=', 'pagada')
                 ->lockForUpdate()
                 ->get()
-                ->each(function ($c) use ($metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, $hoy, $usuario, &$pagadas, &$total) {
+                ->each(function ($c) use ($metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, $hoy, $usuario, &$pagadas, &$total, &$idsPagados) {
                     $e = $this->enriquecer($c, $metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, $hoy);
                     if ($e['estado_calculado'] === 'lista') {
                         $this->registrarPago($c, $e, $usuario);
                         $this->cerrarTrimestre($c, $poolsTrimestrales);
                         $pagadas++;
                         $total += (float) $e['monto_comision'];
+                        $idsPagados[] = $c->id;
                     }
                 });
+
+            $descontado = AnticiposComision::descontadoDe($idsPagados);
 
             if ($pagadas) {
                 self::anotar('pago_mes', isset($data['tienda_id']) ? (int) $data['tienda_id'] : null, $data['mes'], [
                     'vendedor_id' => (int) $data['vendedor_id'], 'renglones' => $pagadas, 'monto' => round($total),
+                    'anticipos_descontados' => round($descontado),
                 ]);
             }
 
-            return response()->json(['pagadas' => $pagadas, 'monto' => round($total)]);
+            return response()->json(self::respuestaDePago($pagadas, $total, $descontado));
         });
     }
 
@@ -2154,8 +2368,9 @@ class ComisionController extends Controller
             return response()->json(['pagadas' => 0, 'monto' => 0]);
         }
 
-        $pagadas = 0;
-        $total   = 0.0;
+        $pagadas    = 0;
+        $total      = 0.0;
+        $descontado = 0.0;
 
         foreach (collect($cuenta['ordenes'])->where('vendedor_id', $vendedorId)
                      ->where('lista', true)->where('pagada', false) as $o) {
@@ -2179,6 +2394,7 @@ class ComisionController extends Controller
             ]);
             $pagadas++;
             $total += $monto;
+            $descontado += AnticiposComision::descontar($fila, $monto, $mes, $usuario->id);
         }
 
         $bolson = (float) $suyo['por_pagar_bolson'];
@@ -2187,7 +2403,7 @@ class ComisionController extends Controller
             $tienda   = Tienda::sedeIndependientes()?->id
                 ?? Comision::where('vendedor_id', $vendedorId)->value('tienda_id');
             if ($tienda) {
-                Comision::create([
+                $filaBolson = Comision::create([
                     'orden_id'          => null,
                     'vendedor_id'       => $vendedorId,
                     'tienda_id'         => $tienda,
@@ -2204,6 +2420,7 @@ class ComisionController extends Controller
                 ]);
                 $pagadas++;
                 $total += $bolson;
+                $descontado += AnticiposComision::descontar($filaBolson, $bolson, $mes, $usuario->id);
             }
         }
 
@@ -2211,10 +2428,22 @@ class ComisionController extends Controller
             self::anotar('pago_mes', null, $mes, [
                 'vendedor_id' => $vendedorId, 'independiente' => true,
                 'renglones' => $pagadas, 'monto' => round($total), 'bolson' => $bolson,
+                'anticipos_descontados' => round($descontado),
             ]);
         }
 
-        return response()->json(['pagadas' => $pagadas, 'monto' => round($total)]);
+        return response()->json(self::respuestaDePago($pagadas, $total, $descontado));
+    }
+
+    /** Lo pagado, lo que se descontó de anticipos y lo que de verdad se le entrega. */
+    private static function respuestaDePago(int $pagadas, float $total, float $descontado): array
+    {
+        return [
+            'pagadas'               => $pagadas,
+            'monto'                 => round($total),
+            'anticipos_descontados' => round($descontado),
+            'neto'                  => round($total - $descontado),
+        ];
     }
 
     // POST /api/comisiones/recalcular
@@ -2241,6 +2470,9 @@ class ComisionController extends Controller
      */
     public function ponerAlDia(): array
     {
+        // El anticipo del mes que empieza queda anotado solo, a quien lo tenga.
+        AnticiposComision::asegurarHasta(self::hoy()->format('Y-m'));
+
         // Primero poner al día el valor de las órdenes que cambiaron de precio
         // después de creadas; si no, se recalcula sobre cifras viejas. Va antes
         // de cargarTotales() porque esos totales salen de valor_orden.
@@ -2272,10 +2504,12 @@ class ComisionController extends Controller
         $poolsTrimestrales = $this->cargarPoolsTrimestrales($metas, $totalesTienda, true);
         $hoy          = self::hoy();
         $actualizadas = 0;
-        $notificadas  = 0;
 
+        // Ya no se avisa orden por orden: aquí no se paga por orden sino el
+        // total de cada persona, y el aviso por cada comisión que quedaba
+        // "lista" era ruido. Se avisa una vez, el día de pago (abajo).
         Comision::with('orden.pagos', 'tienda', 'vendedor:id,nombre')->where('estado', '!=', 'pagada')
-            ->chunkById(100, function ($chunk) use ($metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, $hoy, &$actualizadas, &$notificadas) {
+            ->chunkById(100, function ($chunk) use ($metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, $hoy, &$actualizadas) {
                 foreach ($chunk as $c) {
                     $enriquecida = $this->enriquecer($c, $metas, $totalesTienda, $totalesVendedor, $poolsTrimestrales, $hoy);
                     $nuevoEstado = $enriquecida['estado_calculado'];
@@ -2287,20 +2521,86 @@ class ComisionController extends Controller
                         $actualizadas++;
                     }
 
-                    if ($nuevoEstado === 'lista' && ! $c->notificado_lista) {
-                        $cambios['notificado_lista'] = true;
-                        $this->notificarComisionLista($c, $enriquecida);
-                        $notificadas++;
-                    }
-
                     $c->update($cambios);
                 }
             });
 
+        $aviso = $this->avisarDiaDePago($hoy);
+
         return [
             'actualizadas' => $actualizadas,
-            'notificadas'  => $notificadas,
+            'notificadas'  => $aviso['avisados'] ?? 0,
             'revaluadas'   => $revaluadas,
+        ];
+    }
+
+    /**
+     * El aviso del día de pago: UNO, el 20, con el total a pagar.
+     *
+     * Las comisiones se pagan por persona y por mes, no por orden, así que lo
+     * útil es saber que hoy toca pagar y cuánto en total: cuántas personas,
+     * cuánto es la comisión, cuánto se descuenta de anticipos y cuánto hay
+     * que entregar. Se le manda a cada supervisor con acceso a comisiones,
+     * una sola vez por mes (si la tarea no corrió el 20, sale al día
+     * siguiente en que corra).
+     *
+     * El 20 se paga el mes anterior. Si ese mes cierra un trimestre, también
+     * entra lo de las tiendas trimestrales de los otros dos meses: la
+     * comisión de Jul–Sep de Pereira se paga entera el 20 de octubre.
+     *
+     * @return array{mes: string, personas: int, total: float, anticipos: float, entregar: float, avisados: int}|null
+     */
+    public function avisarDiaDePago(?Carbon $hoy = null): ?array
+    {
+        $hoy ??= self::hoy();
+        if ($hoy->day < 20) return null;
+
+        $mes    = $hoy->copy()->startOfMonth()->subMonthNoOverflow()->format('Y-m');
+        $nombre = Carbon::parse($mes . '-01')->locale('es')->isoFormat('MMMM [de] YYYY');
+        $titulo = "Hoy se pagan las comisiones de {$nombre}";
+
+        $supervisores = Usuario::where('rol', 'supervisor')->where('activo', true)
+            ->where('acceso_comisiones', true)->get()
+            ->reject(fn ($s) => \App\Models\Notificacion::where('usuario_id', $s->id)
+                ->where('tipo', 'comisiones')->where('titulo', $titulo)->exists());
+        if ($supervisores->isEmpty()) return null;
+
+        // Las mismas tarjetas que muestra la pantalla de Listas.
+        $tarjetas = $this->resumenDelMes($mes);
+        if ((int) substr($mes, 5, 2) % 3 === 0) {
+            foreach (array_slice(self::mesesDeTrimestre(self::trimestreDeMes($mes)), 0, 2) as $m) {
+                $tarjetas = $tarjetas->merge($this->resumenDelMes($m)
+                    ->filter(fn ($t) => self::esTiendaTrimestral((int) $t['tienda_id'])));
+            }
+        }
+
+        $listo = fn ($t) => (float) (! empty($t['es_independiente'])
+            ? ($t['comision_lista'] ?? 0)
+            : collect($t['ordenes'] ?? [])->where('estado', 'lista')->sum('monto_comision'));
+
+        $porPersona = $tarjetas->groupBy('vendedor_id')
+            ->map(fn ($ts) => ['lista' => $ts->sum($listo), 'debe' => (float) ($ts->first()['anticipos']['debe'] ?? 0)])
+            ->filter(fn ($p) => $p['lista'] > 0);
+
+        if ($porPersona->isEmpty()) return null;
+
+        $total     = round($porPersona->sum('lista'));
+        $anticipos = round($porPersona->sum(fn ($p) => min($p['debe'], $p['lista'])));
+        $entregar  = $total - $anticipos;
+        $cop       = fn ($v) => '$' . number_format($v, 0, ',', '.');
+
+        $mensaje = "{$porPersona->count()} persona" . ($porPersona->count() === 1 ? '' : 's')
+            . " por {$cop($total)} en comisiones"
+            . ($anticipos > 0 ? "; menos {$cop($anticipos)} de anticipos, a entregar {$cop($entregar)}" : '')
+            . '. Ábrelo en Comisiones → Listas.';
+
+        foreach ($supervisores as $sup) {
+            NotificacionService::crear('comisiones', $titulo, $mensaje, ['mes' => $mes], $sup->id);
+        }
+
+        return [
+            'mes' => $mes, 'personas' => $porPersona->count(), 'total' => $total,
+            'anticipos' => $anticipos, 'entregar' => $entregar, 'avisados' => $supervisores->count(),
         ];
     }
 
@@ -3882,21 +4182,6 @@ class ComisionController extends Controller
                                   : ($esRestauracion || $c->orden?->serie === Orden::SERIE_RESTAURACION
                                         ? 'restauracion' : 'venta')),
         ]);
-    }
-
-    private function notificarComisionLista(Comision $c, array $data): void
-    {
-        $supervisores = Usuario::where('rol', 'supervisor')
-            ->where('activo', true)
-            ->where('acceso_comisiones', true)
-            ->get();
-
-        $titulo  = 'Comisión lista para pagar';
-        $mensaje = "La comisión de {$data['vendedor_nombre']} por la orden {$data['orden_referencia']} está lista.";
-
-        foreach ($supervisores as $sup) {
-            NotificacionService::crear('comisiones', $titulo, $mensaje, ['comision_id' => $c->id], $sup->id);
-        }
     }
 
     /**

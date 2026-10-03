@@ -30,6 +30,7 @@ abstract class TestCase extends BaseTestCase
         \App\Http\Controllers\ComisionController::olvidarPeriodicidades();
         \App\Http\Controllers\ComisionController::olvidarEsquema();
         \App\Models\Orden::olvidarEsquema();
+        \App\Services\AnticiposComision::olvidarEsquema();
         \App\Services\ConsumoTelas::olvidarCache();
         \App\Models\Tienda::olvidarCerradas();
     }

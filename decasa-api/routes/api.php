@@ -701,6 +701,10 @@ Route::middleware('auth:sanctum')->group(function () {
             ->middleware('role:supervisor')->whereNumber('id');
         // Quién cambió qué: metas, equipos, reemplazos, pagos.
         Route::get('/bitacora',                  [ComisionController::class, 'bitacora']);
+        // Anticipos de comisión: lo que se llevan cada mes y se les descuenta al pagar.
+        Route::get('/anticipos',                 [ComisionController::class, 'anticipos']);
+        Route::post('/anticipos',                [ComisionController::class, 'setAnticipo'])->middleware('role:supervisor');
+        Route::put('/anticipos/mes',             [ComisionController::class, 'setAnticipoDelMes'])->middleware('role:supervisor');
         Route::delete('/asesores-asignados/{id}',[ComisionController::class, 'removeAsesor'])->middleware('role:supervisor')->whereNumber('id');
         // Quién fue a cubrir a otra tienda y por cuántos días: es lo que
         // reparte el pool cuando alguien reemplaza.

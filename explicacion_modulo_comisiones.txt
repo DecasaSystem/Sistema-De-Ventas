@@ -332,9 +332,13 @@ de octubre de 2026.)
     reparto, la periodicidad, y quién pagó o deshizo un pago.
   - Cambiar la meta de un mes que ya tiene comisiones pagadas pide
     confirmación.
-  - Cada mañana a las 6:30 el sistema hace solo lo del botón Recalcular, así
-    que el día 20 las comisiones quedan listas y el aviso llega sin pulsar
-    nada.
+  - Cada mañana a las 6:30 el sistema hace solo lo del botón Recalcular.
+    Ya no llega un aviso por cada orden "lista": se paga por persona y por
+    mes, no por orden. Llega UN solo aviso el día 20 (a cada supervisor con
+    acceso a comisiones): "Hoy se pagan las comisiones de <mes>", con cuántas
+    personas, el total, lo que se descuenta de anticipos y lo que hay que
+    entregar. En octubre, enero, abril y julio incluye el trimestre entero de
+    Pereira.
   - Una orden con comisiones pagadas no se puede borrar ni desde la base de
     datos.
   - Una cotización o un borrador es venta desde el día en que el cliente
@@ -342,3 +346,24 @@ de octubre de 2026.)
     en agosto es venta de agosto (reportes, meta, pool y comisión) y se
     cobra el 20 de septiembre. La fecha en que se cotizó queda guardada
     aparte. Aplica a lo que se acepte de aquí en adelante.
+
+
+10. ANTICIPOS DE COMISIÓN
+-------------------------
+Algunos vendedores (sobre todo en Pereira) se llevan cada mes una parte de
+la comisión por adelantado. Se configura por vendedor en Comisiones → Metas
+→ "Anticipos de comisión": activo o no, cuánto cada mes y desde qué mes.
+
+  - Cada mes queda anotado lo que se llevó. Si un mes tomó otra cantidad (o
+    no tomó), se corrige ese mes y la configuración no lo vuelve a pisar.
+  - Cambiar el monto o apagarlo vale desde el mes que se escoja en adelante;
+    lo de meses pasados no cambia.
+  - Al pagar la comisión se le resta lo que debe de anticipos hasta el mes
+    de esa comisión. En Pereira (trimestral) la comisión de Jul–Sep descuenta
+    los tres meses: 3 × $200.000 = $600.000. El anticipo de octubre es de la
+    comisión de octubre, no de la de septiembre.
+  - Si la comisión no alcanza, o no comisiona, se descuenta lo que haya y el
+    resto lo sigue debiendo para el pago siguiente.
+  - La comisión queda registrada completa; el descuento va aparte. La
+    pantalla muestra comisión, anticipos descontados y lo que se entrega.
+  - Si se deshace un pago, lo que se le descontó vuelve a deberse.

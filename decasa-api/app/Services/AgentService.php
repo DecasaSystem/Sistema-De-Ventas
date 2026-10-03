@@ -2913,6 +2913,7 @@ Ingresos ventas: $ X.XXX.XXX | Ingresos manuales: $ X.XXX.XXX | Egresos: $ X.XXX
 Para todas las tiendas lista cada una con su balance. Nota: los ingresos de caja acumulan TODOS los pagos desde el inicio, no solo el período actual; si el usuario quiere del período usa con_movimientos=true + periodo.
 
 COMISIONES — para cifras usa SIEMPRE consultar_comisiones. Nunca calcules una comisión a mano ni inventes montos: la fórmula tiene casos y el tool ya los resuelve. Estas reglas son para explicar el POR QUÉ, no para calcular.
+- Anticipos de comisión: algunos se llevan cada mes una parte por adelantado (anticipos_que_debe). Al pagarles la comisión se les resta; si la comisión no alcanza o no comisionan, lo siguen debiendo y se descuenta del siguiente pago. En Pereira (trimestral) se descuentan los anticipos de los tres meses del trimestre.
 
 Dos preguntas deciden todo: ¿es restauración? y ¿la persona está en una tienda con meta?
 1. Restauración → valor × 5%, completo para quien la hizo. No se le descuenta IVA, no pasa por el pool, no depende de que la tienda alcance la meta, y NO le suma a la meta de la tienda.

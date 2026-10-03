@@ -275,7 +275,7 @@ async function recalcular() {
   recalculando.value = true
   try {
     const { data } = await api.post('/comisiones/recalcular')
-    toast.success(`Recalculado — ${data.actualizadas} actualizadas, ${data.notificadas} notificadas`)
+    toast.success(`Recalculado — ${data.actualizadas} actualizadas` + (data.notificadas ? ` · aviso del día de pago enviado` : ''))
     await cargar()
     if (vistaTab.value === 'resumen') await cargarResumen()
   cargarIndependientes()
@@ -291,8 +291,10 @@ async function pagar(id) {
   if (!confirm('¿Marcar esta comisión como pagada?')) return
   pagando.value = id
   try {
-    await api.post(`/comisiones/${id}/pagar`)
-    toast.success('Comisión marcada como pagada')
+    const { data } = await api.post(`/comisiones/${id}/pagar`)
+    toast.success(data?.anticipos_descontados > 0
+      ? `Comisión pagada. Se descontaron ${cop(data.anticipos_descontados)} de anticipos; a entregar ${cop(data.neto)}`
+      : 'Comisión marcada como pagada', 6000)
     cargarListas()
     await cargar()
     if (vistaTab.value === 'resumen') await cargarResumen()
@@ -357,14 +359,39 @@ function toggleExpandLista(clave) {
   expandidosListas.value = s
 }
 
+/**
+ * Lo que se le descuenta de anticipos al pagar esta tarjeta: lo que debe,
+ * hasta donde alcance lo que está listo. Lo que no alcance lo sigue debiendo.
+ */
+function descuentoAnticipos(r) {
+  const debe = Number(r?.anticipos?.debe) || 0
+  return Math.min(debe, Number(r?.total_lista ?? totalListasVendedor(r)) || 0)
+}
+
+/** El texto del confirm: comisión, anticipos y lo que de verdad se entrega. */
+function textoPago(r, total) {
+  const d = Math.min(Number(r?.anticipos?.debe) || 0, total)
+  if (d <= 0) return `Total: ${cop(total)}`
+  const sigue = (Number(r.anticipos.debe) || 0) - d
+  return `Comisión: ${cop(total)}\nMenos anticipos que se llevó: −${cop(d)}\nA entregar: ${cop(total - d)}`
+    + (sigue > 0 ? `\n(Sigue debiendo ${cop(sigue)} de anticipos)` : '')
+}
+
+function toastPago(nombre, data) {
+  const base = `${nombre}: ${data.pagadas} comisión${data.pagadas !== 1 ? 'es' : ''} pagada${data.pagadas !== 1 ? 's' : ''}`
+  toast.success(data.anticipos_descontados > 0
+    ? `${base}. Anticipos descontados ${cop(data.anticipos_descontados)}; a entregar ${cop(data.neto)}`
+    : base, 6000)
+}
+
 async function pagarListasDe(r) {
-  if (!confirm(`¿Pagar todo lo de ${r.vendedor_nombre} de ${mesListas.value}?\nTotal: ${cop(r.total_lista)}`)) return
+  if (!confirm(`¿Pagar todo lo de ${r.vendedor_nombre} de ${mesListas.value}?\n${textoPago(r, r.total_lista)}`)) return
   pagandoListas.value = claveFila(r)
   try {
     const { data } = await api.post('/comisiones/pagar-listas', {
       vendedor_id: r.vendedor_id, mes: mesListas.value, tienda_id: r.tienda_id || undefined,
     })
-    toast.success(`${r.vendedor_nombre}: ${data.pagadas} comisión${data.pagadas !== 1 ? 'es' : ''} pagada${data.pagadas !== 1 ? 's' : ''}`)
+    toastPago(r.vendedor_nombre, data)
     await Promise.all([cargarListas(), cargar()])
   } catch (e) {
     toast.error(e.response?.data?.error || 'Error al pagar')
@@ -463,14 +490,14 @@ function dependeDeLaMeta(c) {
 
 async function pagarTodasListas(r) {
   const total = totalListasVendedor(r)
-  if (!confirm(`¿Marcar ${r.listas} comisión${r.listas > 1 ? 'es' : ''} de ${r.vendedor_nombre} como pagadas?\nTotal: ${cop(total)}`)) return
+  if (!confirm(`¿Marcar ${r.listas} comisión${r.listas > 1 ? 'es' : ''} de ${r.vendedor_nombre} como pagadas?\n${textoPago(r, total)}`)) return
   pagandoListas.value = claveFila(r)
   try {
     // Con la tienda: si estuvo en dos, se paga la tarjeta que se pulsó.
     const { data } = await api.post('/comisiones/pagar-listas', {
       vendedor_id: r.vendedor_id, mes: mesActual.value, tienda_id: r.tienda_id || undefined,
     })
-    toast.success(`${data.pagadas} comisión${data.pagadas !== 1 ? 'es' : ''} marcada${data.pagadas !== 1 ? 's' : ''} como pagada${data.pagadas !== 1 ? 's' : ''}`)
+    toastPago(r.vendedor_nombre, data)
     await cargar()
     await cargarResumen()
   } catch (e) {
@@ -551,6 +578,78 @@ async function deshacerPago(c) {
   }
 }
 
+// ── Anticipos de comisión ───────────────────────────────────────────────────
+const verAnticipos      = ref(false)
+const anticipos         = ref([])
+const cargandoAnticipos = ref(false)
+const guardandoAnticipo = ref(false)
+const formAnticipo      = ref({ vendedor_id: null, monto: '', activo: true, desde_mes: mesDeHoy() })
+
+function mesDeHoy() {
+  // En hora de Colombia, igual que el servidor.
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' }).slice(0, 7)
+}
+
+async function cargarAnticipos() {
+  cargandoAnticipos.value = true
+  try {
+    const { data } = await api.get('/comisiones/anticipos')
+    anticipos.value = data
+  } catch {
+    toast.error('No se pudieron cargar los anticipos')
+  } finally {
+    cargandoAnticipos.value = false
+  }
+}
+
+async function abrirAnticipos() {
+  verAnticipos.value = !verAnticipos.value
+  if (verAnticipos.value) await cargarAnticipos()
+}
+
+function editarConfigAnticipo(a) {
+  formAnticipo.value = { vendedor_id: a.vendedor_id, monto: a.monto || '', activo: a.activo || !a.desde_mes, desde_mes: mesDeHoy() }
+  toast.info(`Cambia el monto o apágalo y pulsa Guardar. Vale desde el mes que escojas.`, 4000)
+}
+
+async function guardarAnticipo() {
+  const f = formAnticipo.value
+  const monto = parseFloat(f.monto) || 0
+  if (f.activo && monto <= 0) { toast.error('Escribe cuánto se lleva cada mes'); return }
+  guardandoAnticipo.value = true
+  try {
+    await api.post('/comisiones/anticipos', {
+      vendedor_id: f.vendedor_id, monto, activo: !!f.activo, desde_mes: f.desde_mes || undefined,
+    })
+    toast.success(f.activo ? 'Anticipo guardado' : 'Anticipo apagado')
+    formAnticipo.value = { vendedor_id: null, monto: '', activo: true, desde_mes: mesDeHoy() }
+    await cargarAnticipos()
+    cargarListas()
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo guardar')
+  } finally {
+    guardandoAnticipo.value = false
+  }
+}
+
+/** Lo que se llevó en un mes concreto, si no fue lo de siempre (0 = ese mes no tomó). */
+async function corregirAnticipoMes(a, mes, actual) {
+  const m = mes || prompt(`¿De qué mes? (AAAA-MM)`, mesDeHoy())
+  if (!m) return
+  const valor = prompt(`¿Cuánto se llevó ${a.nombre} en ${m}? (0 si no tomó)`, String(Math.round(actual || 0)))
+  if (valor === null) return
+  const monto = parseFloat(String(valor).replace(/[^\d]/g, '')) || 0
+  const nota  = prompt('Motivo (opcional):', '') ?? ''
+  try {
+    await api.put('/comisiones/anticipos/mes', { vendedor_id: a.vendedor_id, mes: m, monto, nota: nota.trim() || null })
+    toast.success('Anticipo del mes corregido')
+    await cargarAnticipos()
+    cargarListas()
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo corregir')
+  }
+}
+
 /** Quién cambió qué en comisiones este mes. */
 const bitacora        = ref([])
 const verBitacora     = ref(false)
@@ -561,6 +660,8 @@ const ACCIONES_BITACORA = {
   movimiento_nuevo: 'Registró reemplazo/traslado', movimiento_editado: 'Corrigió reemplazo/traslado',
   movimiento_quitado: 'Quitó reemplazo/traslado', pago: 'Pagó una comisión', pago_mes: 'Pagó el mes de alguien',
   deshacer_pago: 'Deshizo un pago', recalcular: 'Recalculó',
+  anticipo_config: 'Cambió el anticipo de comisión', anticipo_mes: 'Corrigió el anticipo de un mes',
+  trimestre_liquidado: 'Se liquidó el trimestre',
 }
 async function abrirBitacora() {
   verBitacora.value = !verBitacora.value
@@ -578,6 +679,9 @@ async function abrirBitacora() {
 function detalleBitacora(b) {
   const d = b.detalle || {}
   if ('antes' in d && 'despues' in d && typeof d.antes !== 'object') return `${d.antes ?? '—'} → ${d.despues}`
+  if (d.despues && typeof d.despues === 'object' && 'monto' in d.despues) {
+    return d.despues.activo ? `${cop(d.despues.monto)} cada mes` : 'apagado'
+  }
   if (d.monto != null) return cop(d.monto) + (d.motivo ? ` · ${d.motivo}` : '')
   if (d.desde) return `${d.desde} a ${d.hasta ?? 'sin fecha'}`
   return ''
@@ -966,6 +1070,103 @@ onMounted(async () => {
           <span class="font-bold text-emerald-700 shrink-0">{{ cop(a.comision) }}</span>
         </div>
       </template>
+    </div>
+
+    <!-- ── Anticipos de comisión ─────────────────────────────────────────────
+         Lo que algunos se llevan cada mes por adelantado y se les descuenta
+         al pagarles la comisión. Si no comisionan, lo siguen debiendo. -->
+    <div v-if="mostrarMetas" class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-4">
+      <button @click="abrirAnticipos" class="w-full flex items-center justify-between">
+        <span class="text-sm font-semibold text-gray-700">Anticipos de comisión</span>
+        <ChevronUpIcon v-if="verAnticipos" class="w-4 h-4 text-gray-400" />
+        <ChevronDownIcon v-else class="w-4 h-4 text-gray-400" />
+      </button>
+
+      <div v-if="verAnticipos" class="mt-3 space-y-3">
+        <p class="text-[11px] text-gray-500 leading-snug">
+          Cada mes queda anotado lo que se lleva. Al pagarle la comisión se le resta lo que debe hasta ese mes
+          (en Pereira, los tres meses del trimestre). Si la comisión no alcanza, lo que falte lo sigue debiendo.
+        </p>
+
+        <!-- Activar / cambiar / apagar -->
+        <div v-if="auth.usuario?.rol === 'supervisor'" class="flex flex-wrap items-end gap-2 p-2.5 rounded-lg bg-gray-50">
+          <div class="flex-1 min-w-[140px]">
+            <p class="text-[10px] text-gray-400 mb-0.5">Vendedor</p>
+            <select v-model="formAnticipo.vendedor_id" class="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white">
+              <option :value="null">Escoge…</option>
+              <option v-for="v in todosVendedores" :key="v.id" :value="v.id">{{ v.nombre }}{{ v.tienda ? ` (${v.tienda})` : '' }}</option>
+            </select>
+          </div>
+          <div class="w-32">
+            <p class="text-[10px] text-gray-400 mb-0.5">Cada mes</p>
+            <InputPesos v-model="formAnticipo.monto" placeholder="0" class="w-full text-xs text-right border border-gray-200 rounded-lg px-2 py-1.5" />
+          </div>
+          <div>
+            <p class="text-[10px] text-gray-400 mb-0.5">Desde</p>
+            <input type="month" v-model="formAnticipo.desde_mes" :min="mesDeHoy()" class="text-xs border border-gray-200 rounded-lg px-2 py-1" />
+          </div>
+          <label class="flex items-center gap-1.5 text-xs text-gray-700 pb-1.5">
+            <input type="checkbox" v-model="formAnticipo.activo" class="w-4 h-4 rounded border-gray-300 text-indigo-600" />
+            Activo
+          </label>
+          <button
+            @click="guardarAnticipo"
+            :disabled="!formAnticipo.vendedor_id || guardandoAnticipo"
+            class="text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg px-3 py-1.5 disabled:opacity-40"
+          >{{ guardandoAnticipo ? '…' : 'Guardar' }}</button>
+        </div>
+
+        <p v-if="cargandoAnticipos" class="text-xs text-gray-400">Cargando…</p>
+        <p v-else-if="!anticipos.length" class="text-xs text-gray-400">Nadie tiene anticipo de comisión.</p>
+
+        <div v-for="a in anticipos" :key="a.vendedor_id" class="border border-gray-100 rounded-xl p-3">
+          <div class="flex items-start justify-between gap-2">
+            <div class="min-w-0">
+              <p class="text-sm font-semibold text-gray-800">{{ a.nombre }} <span class="text-xs font-normal text-gray-400">{{ a.tienda }}</span></p>
+              <p class="text-[11px] text-gray-500">
+                <template v-if="a.activo">{{ cop(a.monto) }} cada mes desde {{ a.desde_mes }}</template>
+                <template v-else>Sin anticipo fijo</template>
+                <span v-if="a.proximo"> · desde {{ a.proximo.desde_mes }}: {{ a.proximo.activo ? cop(a.proximo.monto) : 'apagado' }}</span>
+              </p>
+            </div>
+            <div class="text-right shrink-0">
+              <p class="text-[10px] text-gray-400">Debe</p>
+              <p :class="['text-sm font-bold tabular-nums', a.debe > 0 ? 'text-red-600' : 'text-gray-400']">{{ cop(a.debe) }}</p>
+              <button
+                v-if="auth.usuario?.rol === 'supervisor'"
+                @click="editarConfigAnticipo(a)"
+                class="text-[10px] font-semibold text-indigo-600 hover:text-indigo-800"
+              >Cambiar</button>
+            </div>
+          </div>
+
+          <div v-if="a.movimientos?.length" class="mt-2 border-t border-gray-50 pt-2 space-y-0.5">
+            <div v-for="m in a.movimientos" :key="m.id" class="flex items-center justify-between text-[11px] tabular-nums">
+              <span class="text-gray-600">
+                {{ m.mes }} ·
+                <template v-if="m.tipo === 'anticipo'">se llevó<span v-if="m.editado_a_mano" class="text-amber-600"> (corregido)</span></template>
+                <template v-else>descontado de su comisión</template>
+                <span v-if="m.nota" class="text-gray-400"> — {{ m.nota }}</span>
+              </span>
+              <span class="flex items-center gap-2">
+                <span :class="m.tipo === 'anticipo' ? 'text-red-600' : 'text-green-700'">
+                  {{ m.tipo === 'anticipo' ? '+' : '−' }}{{ cop(m.monto) }}
+                </span>
+                <button
+                  v-if="m.tipo === 'anticipo' && auth.usuario?.rol === 'supervisor'"
+                  @click="corregirAnticipoMes(a, m.mes, m.monto)"
+                  class="text-[10px] font-semibold text-indigo-600 hover:text-indigo-800"
+                >Editar</button>
+              </span>
+            </div>
+          </div>
+          <button
+            v-if="auth.usuario?.rol === 'supervisor'"
+            @click="corregirAnticipoMes(a, null, 0)"
+            class="mt-1.5 text-[10px] font-semibold text-gray-500 hover:text-gray-700"
+          >+ Anotar un mes distinto</button>
+        </div>
+      </div>
     </div>
 
     <!-- ── Panel metas + asesores ──────────────────────────────────────────── -->
@@ -1571,6 +1772,13 @@ onMounted(async () => {
                 </span>
                 <span class="text-sm font-bold">{{ cop(totalListasVendedor(r)) }}</span>
               </button>
+              <p v-if="r.anticipos?.debe > 0" class="mt-1.5 text-[11px] text-gray-600">
+                Anticipos que debe: <strong class="text-red-600">{{ cop(r.anticipos.debe) }}</strong>
+                <template v-if="r.listas > 0">
+                  · al pagar se descuentan {{ cop(Math.min(r.anticipos.debe, totalListasVendedor(r))) }}
+                  y se entregan <strong>{{ cop(totalListasVendedor(r) - Math.min(r.anticipos.debe, totalListasVendedor(r))) }}</strong>
+                </template>
+              </p>
             </div>
 
             <!-- Detalle órdenes -->
@@ -1747,6 +1955,13 @@ onMounted(async () => {
                     <p v-if="r.es_independiente && r.de_restauraciones_compartidas > 0" class="text-[10px] text-sky-600">
                       incluye bolsón de restauraciones
                     </p>
+                    <template v-if="descuentoAnticipos(r) > 0">
+                      <p class="text-[10px] text-red-600">− {{ cop(descuentoAnticipos(r)) }} de anticipos</p>
+                      <p class="text-[11px] font-semibold text-gray-800">Entregar {{ cop(r.total_lista - descuentoAnticipos(r)) }}</p>
+                      <p v-if="r.anticipos.debe > descuentoAnticipos(r)" class="text-[10px] text-orange-600">
+                        sigue debiendo {{ cop(r.anticipos.debe - descuentoAnticipos(r)) }}
+                      </p>
+                    </template>
                   </div>
                   <button @click="toggleExpandLista(claveFila(r))" class="text-gray-300 hover:text-gray-500 mt-1">
                     <ChevronUpIcon v-if="expandidosListas.has(claveFila(r))" class="w-4 h-4" />
@@ -1761,8 +1976,8 @@ onMounted(async () => {
                 :disabled="pagandoListas === claveFila(r)"
                 class="mt-3 w-full flex items-center justify-between bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded-xl px-4 py-2.5 transition-colors"
               >
-                <span class="text-xs font-semibold">{{ pagandoListas === claveFila(r) ? 'Pagando…' : 'Pagar todo' }}</span>
-                <span class="text-sm font-bold">{{ cop(r.total_lista) }}</span>
+                <span class="text-xs font-semibold">{{ pagandoListas === claveFila(r) ? 'Pagando…' : (descuentoAnticipos(r) > 0 ? 'Pagar todo · a entregar' : 'Pagar todo') }}</span>
+                <span class="text-sm font-bold">{{ cop(r.total_lista - descuentoAnticipos(r)) }}</span>
               </button>
             </div>
 
