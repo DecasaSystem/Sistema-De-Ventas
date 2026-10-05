@@ -10,6 +10,7 @@
  */
 import { ref, computed } from 'vue'
 import FirmaCanvas from '@/components/FirmaCanvas.vue'
+import { useTamanoLetra } from '@/composables/useTamanoLetra'
 import { CheckCircleIcon, ChevronDownIcon } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -20,6 +21,10 @@ const props = defineProps({
   textoBoton: { type: String, default: 'Acepto y firmo' },
 })
 const emit = defineEmits(['firmar'])
+
+// Tamaño de la letra: hay clientes que casi no ven. Compartido con el
+// resumen del pedido de la página del cliente.
+const { escala, esMinima, esMaxima, cambiar: cambiarLetra } = useTamanoLetra()
 
 const leidas    = ref(new Set())
 const abiertas  = ref(new Set([props.contenido.secciones[0]?.id]))
@@ -86,12 +91,27 @@ async function firmar() {
 </script>
 
 <template>
-  <div class="space-y-4">
-    <!-- Cuánto falta por leer -->
+  <div class="space-y-4" :style="{ fontSize: `${14 * escala}px` }">
+    <!-- Cuánto falta por leer, y el tamaño de la letra -->
     <div class="sticky top-0 z-10 -mx-4 px-4 py-2 bg-white/95 backdrop-blur border-b border-gray-100">
-      <div class="flex items-center justify-between text-xs font-medium text-gray-600 mb-1">
-        <span>Leído {{ leidas.size }} de {{ totalSecciones }}</span>
-        <span v-if="todoLeido" class="text-green-700">Listo ✓</span>
+      <div class="flex items-center justify-between gap-3 mb-1" style="font-size: 13px;">
+        <span class="font-medium text-gray-600">
+          Leído {{ leidas.size }} de {{ totalSecciones }}
+          <span v-if="todoLeido" class="text-green-700 ml-1">Listo ✓</span>
+        </span>
+        <!-- Para quien no ve bien: agranda todo el documento. -->
+        <div class="flex items-center gap-1" role="group" aria-label="Tamaño de la letra">
+          <button
+            type="button" @click="cambiarLetra(-1)" :disabled="esMinima"
+            class="w-10 h-9 rounded-lg border border-gray-300 bg-white font-bold text-gray-700 disabled:opacity-30"
+            aria-label="Letra más pequeña"
+          ><span style="font-size: 13px;">A−</span></button>
+          <button
+            type="button" @click="cambiarLetra(1)" :disabled="esMaxima"
+            class="w-10 h-9 rounded-lg border border-gray-300 bg-white font-bold text-gray-900 disabled:opacity-30"
+            aria-label="Letra más grande"
+          ><span style="font-size: 18px;">A+</span></button>
+        </div>
       </div>
       <div class="h-1.5 bg-gray-100 rounded-full overflow-hidden">
         <div class="h-full bg-green-600 transition-all" :style="{ width: `${(leidas.size / totalSecciones) * 100}%` }" />
@@ -109,15 +129,15 @@ async function firmar() {
           <CheckCircleIcon v-if="leidas.has(s.id)" class="w-4 h-4" />
           <template v-else>{{ i + 1 }}</template>
         </span>
-        <span class="flex-1 text-sm font-semibold text-gray-800">{{ s.titulo }}</span>
+        <span class="flex-1 text-[1.05em] font-semibold text-gray-800">{{ s.titulo }}</span>
         <ChevronDownIcon :class="['w-4 h-4 text-gray-400 transition-transform', abiertas.has(s.id) ? 'rotate-180' : '']" />
       </button>
       <div v-if="abiertas.has(s.id)" class="px-4 pb-4 space-y-2">
-        <p v-for="(p, j) in s.parrafos" :key="j" class="text-[13px] leading-relaxed text-gray-700">{{ p }}</p>
+        <p v-for="(p, j) in s.parrafos" :key="j" class="text-[1em] leading-relaxed text-gray-700">{{ p }}</p>
         <button
           type="button"
           @click="marcarLeida(s)"
-          :class="['mt-2 w-full rounded-lg py-2.5 text-sm font-semibold border transition-colors',
+          :class="['mt-2 w-full rounded-lg py-2.5 text-[1em] font-semibold border transition-colors',
             leidas.has(s.id) ? 'bg-white border-gray-300 text-gray-600' : 'bg-green-600 border-green-600 text-white hover:bg-green-700']"
         >{{ leidas.has(s.id) ? 'Quitar la marca' : 'Leí esta sección ✓' }}</button>
       </div>
@@ -125,15 +145,15 @@ async function firmar() {
 
     <!-- Check list -->
     <section class="rounded-xl border border-gray-200 bg-white p-4 space-y-3">
-      <p class="text-sm font-bold text-gray-800">Check list</p>
+      <p class="text-[1.05em] font-bold text-gray-800">Check list</p>
       <div v-for="q in contenido.checklist" :key="q.id" class="space-y-1.5">
-        <p class="text-[13px] text-gray-700">{{ q.pregunta }}</p>
+        <p class="text-[1em] text-gray-700">{{ q.pregunta }}</p>
         <div class="grid grid-cols-2 gap-2">
           <button
             v-for="op in [{ v: 'si', l: 'Sí' }, { v: 'no', l: 'No' }]" :key="op.v"
             type="button"
             @click="checklist = { ...checklist, [q.id]: op.v }"
-            :class="['rounded-lg py-2 text-sm font-semibold border transition-colors',
+            :class="['rounded-lg py-2 text-[1em] font-semibold border transition-colors',
               checklist[q.id] === op.v
                 ? (op.v === 'si' ? 'bg-green-600 border-green-600 text-white' : 'bg-amber-500 border-amber-500 text-white')
                 : 'bg-white border-gray-300 text-gray-600']"
@@ -144,29 +164,29 @@ async function firmar() {
 
     <!-- Quién firma y la firma -->
     <section class="rounded-xl border border-gray-200 bg-white p-4 space-y-3">
-      <p class="text-sm font-bold text-gray-800">Firma del cliente</p>
+      <p class="text-[1.05em] font-bold text-gray-800">Firma del cliente</p>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div>
-          <label class="text-xs text-gray-500">Nombre</label>
-          <input v-model="nombreF" class="input text-sm" autocomplete="name" />
+          <label class="text-[0.85em] text-gray-500">Nombre</label>
+          <input v-model="nombreF" class="input text-[1em]" autocomplete="name" />
         </div>
         <div>
-          <label class="text-xs text-gray-500">N° de documento</label>
-          <input v-model="docF" class="input text-sm" inputmode="numeric" />
+          <label class="text-[0.85em] text-gray-500">N° de documento</label>
+          <input v-model="docF" class="input text-[1em]" inputmode="numeric" />
         </div>
       </div>
       <div :class="!todoLeido || !todoRespondido ? 'opacity-50 pointer-events-none' : ''">
         <FirmaCanvas v-model="firmaBlob" />
       </div>
-      <p v-if="!todoLeido || !todoRespondido" class="text-xs text-gray-500">La firma se habilita cuando todo esté leído y respondido.</p>
+      <p v-if="!todoLeido || !todoRespondido" class="text-[0.85em] text-gray-500">La firma se habilita cuando todo esté leído y respondido.</p>
     </section>
 
     <button
       type="button"
       @click="firmar"
       :disabled="!listo || enviando"
-      class="w-full rounded-xl py-3.5 text-base font-semibold bg-green-600 text-white hover:bg-green-700 disabled:opacity-40 transition-colors"
+      class="w-full rounded-xl py-3.5 text-[1.1em] font-semibold bg-green-600 text-white hover:bg-green-700 disabled:opacity-40 transition-colors"
     >{{ enviando ? 'Guardando…' : textoBoton }}</button>
-    <p v-if="falta" class="text-xs text-center text-gray-500 -mt-2">{{ falta }}</p>
+    <p v-if="falta" class="text-[0.85em] text-center text-gray-500 -mt-2">{{ falta }}</p>
   </div>
 </template>

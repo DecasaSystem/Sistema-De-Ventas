@@ -12,6 +12,10 @@ import { useRoute } from 'vue-router'
 import AnexoFirma from '@/components/anexo/AnexoFirma.vue'
 import { getAnexoPublico, firmarAnexo } from '@/api/anexos'
 import { CheckCircleIcon } from '@heroicons/vue/24/solid'
+import { useTamanoLetra } from '@/composables/useTamanoLetra'
+
+// El mismo tamaño que el anexo de abajo: se agranda todo junto.
+const { escala, esMinima, esMaxima, cambiar: cambiarLetra } = useTamanoLetra()
 
 const route = useRoute()
 const token = route.params.token
@@ -70,57 +74,72 @@ async function firmar(payload) {
 <template>
   <div class="min-h-screen bg-gray-50">
     <header class="bg-gray-900 text-white px-4 py-4">
-      <div class="max-w-lg mx-auto">
-        <p class="text-lg font-bold">Decasa Muebles &amp; Decoración</p>
-        <p class="text-xs text-gray-300">Revisa tu pedido y firma el documento de garantías</p>
+      <div class="max-w-lg mx-auto flex items-center gap-3">
+        <div class="flex-1 min-w-0">
+          <p class="text-lg font-bold">Decasa Muebles &amp; Decoración</p>
+          <p class="text-xs text-gray-300">Revisa tu pedido y firma el documento de garantías</p>
+        </div>
+        <!-- Para quien no ve bien: agranda el pedido y el documento. -->
+        <div class="flex items-center gap-1 flex-shrink-0" role="group" aria-label="Tamaño de la letra">
+          <button
+            type="button" @click="cambiarLetra(-1)" :disabled="esMinima"
+            class="w-10 h-9 rounded-lg bg-white/10 border border-white/20 font-bold disabled:opacity-30"
+            aria-label="Letra más pequeña"
+          ><span style="font-size: 13px;">A−</span></button>
+          <button
+            type="button" @click="cambiarLetra(1)" :disabled="esMaxima"
+            class="w-10 h-9 rounded-lg bg-white/10 border border-white/20 font-bold disabled:opacity-30"
+            aria-label="Letra más grande"
+          ><span style="font-size: 18px;">A+</span></button>
+        </div>
       </div>
     </header>
 
-    <main class="max-w-lg mx-auto px-4 py-5 space-y-4">
-      <div v-if="cargando" class="text-center text-sm text-gray-500 py-16">Abriendo…</div>
+    <main class="max-w-lg mx-auto px-4 py-5 space-y-4" :style="{ fontSize: `${14 * escala}px` }">
+      <div v-if="cargando" class="text-center text-[1em] text-gray-500 py-16">Abriendo…</div>
 
       <div v-else-if="error" class="bg-white border border-gray-200 rounded-xl p-6 text-center space-y-2">
-        <p class="text-base font-semibold text-gray-800">No se puede abrir</p>
-        <p class="text-sm text-gray-600">{{ error }}</p>
+        <p class="text-[1.15em] font-semibold text-gray-800">No se puede abrir</p>
+        <p class="text-[1em] text-gray-600">{{ error }}</p>
       </div>
 
       <div v-else-if="listo" class="bg-white border border-green-200 rounded-xl p-6 text-center space-y-3">
         <CheckCircleIcon class="w-14 h-14 text-green-600 mx-auto" />
-        <p class="text-lg font-bold text-gray-800">¡Listo, quedó firmado!</p>
-        <p class="text-sm text-gray-600">
+        <p class="text-[1.3em] font-bold text-gray-800">¡Listo, quedó firmado!</p>
+        <p class="text-[1em] text-gray-600">
           {{ datos?.vendedor ? `${datos.vendedor} ya` : 'Tu asesor ya' }} recibió tu firma. Ya puedes cerrar esta página.
         </p>
       </div>
 
       <template v-else-if="datos">
-        <p class="text-sm text-gray-700">
+        <p class="text-[1em] text-gray-700" :style="{ fontSize: `${14 * escala}px` }">
           Hola{{ datos.cliente?.nombre ? `, ${datos.cliente.nombre}` : '' }}.
           {{ resumen ? 'Revisa que tu pedido esté bien, lee' : 'Lee' }} el documento de garantías y firma al final.
         </p>
 
         <!-- El pedido, para confirmar antes de firmar -->
-        <section v-if="resumen" class="bg-white border border-gray-200 rounded-xl overflow-hidden">
+        <section v-if="resumen" class="bg-white border border-gray-200 rounded-xl overflow-hidden" :style="{ fontSize: `${14 * escala}px` }">
           <div class="px-4 py-3 border-b border-gray-100">
-            <p class="text-sm font-bold text-gray-800">Tu pedido</p>
-            <p v-if="resumen.tienda || datos.vendedor" class="text-xs text-gray-500">
+            <p class="text-[1.05em] font-bold text-gray-800">Tu pedido</p>
+            <p v-if="resumen.tienda || datos.vendedor" class="text-[0.85em] text-gray-500">
               {{ [resumen.tienda, datos.vendedor ? `Asesor: ${datos.vendedor}` : null].filter(Boolean).join(' · ') }}
             </p>
           </div>
           <ul class="divide-y divide-gray-100">
             <li v-for="(it, i) in resumen.items" :key="i" class="px-4 py-2.5 flex items-start gap-3">
               <div class="flex-1 min-w-0">
-                <p class="text-sm font-medium text-gray-800">{{ it.nombre }}</p>
-                <p v-if="it.detalle" class="text-xs text-gray-500">{{ it.detalle }}</p>
-                <p class="text-xs text-gray-500">{{ it.cantidad }} × {{ it.precio ? pesos(it.precio) : 'precio por confirmar' }}</p>
+                <p class="text-[1em] font-medium text-gray-800">{{ it.nombre }}</p>
+                <p v-if="it.detalle" class="text-[0.85em] text-gray-500">{{ it.detalle }}</p>
+                <p class="text-[0.85em] text-gray-500">{{ it.cantidad }} × {{ it.precio ? pesos(it.precio) : 'precio por confirmar' }}</p>
               </div>
-              <p class="text-sm font-semibold text-gray-800 whitespace-nowrap">{{ it.precio ? pesos(it.precio * it.cantidad) : '—' }}</p>
+              <p class="text-[1em] font-semibold text-gray-800 whitespace-nowrap">{{ it.precio ? pesos(it.precio * it.cantidad) : '—' }}</p>
             </li>
           </ul>
-          <div class="px-4 py-3 bg-gray-50 space-y-1 text-sm">
+          <div class="px-4 py-3 bg-gray-50 space-y-1 text-[1em]">
             <div v-if="resumen.descuentos > 0" class="flex justify-between text-gray-600">
               <span>Descuentos</span><span>−{{ pesos(resumen.descuentos) }}</span>
             </div>
-            <div class="flex justify-between font-bold text-gray-900 text-base">
+            <div class="flex justify-between font-bold text-gray-900 text-[1.15em]">
               <span>Total</span><span>{{ pesos(resumen.total) }}</span>
             </div>
             <div v-if="resumen.anticipo > 0" class="flex justify-between text-gray-600">
@@ -130,7 +149,7 @@ async function firmar(payload) {
               <span>Entrega acordada</span><span>{{ fecha(resumen.fecha_entrega) }}</span>
             </div>
           </div>
-          <p class="px-4 py-2 text-[11px] text-gray-500 border-t border-gray-100">
+          <p class="px-4 py-2 text-[0.8em] text-gray-500 border-t border-gray-100">
             Si algo no está bien, no firmes y escríbele a tu asesor.
           </p>
         </section>
@@ -143,7 +162,7 @@ async function firmar(payload) {
           :texto-boton="resumen ? 'Confirmo mi pedido y firmo' : 'Acepto y firmo'"
           @firmar="firmar"
         />
-        <p v-if="errorFirma" class="text-sm text-red-600 text-center">{{ errorFirma }}</p>
+        <p v-if="errorFirma" class="text-red-600 text-center" :style="{ fontSize: `${14 * escala}px` }">{{ errorFirma }}</p>
       </template>
     </main>
   </div>
