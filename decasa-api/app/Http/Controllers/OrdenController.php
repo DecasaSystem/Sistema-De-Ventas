@@ -437,6 +437,13 @@ class OrdenController extends Controller
             // La clave de este envío: la pantalla la genera al abrir el
             // formulario y la repite en cada reintento. Ver ordenYaEnviada().
             'clave_envio'                        => 'nullable|string|max:64',
+            // Seguir un borrador: la misma pantalla de "Nueva orden", con lo
+            // que se había guardado, y la misma puerta para confirmarlo. Los
+            // ítems que ya existían llegan con su id y se actualizan en su
+            // sitio (no se borran y recrean: pueden tener una consulta de
+            // costo colgada).
+            'borrador_id'                        => 'nullable|integer',
+            'items.*.id'                         => 'nullable|integer',
         ]);
 
         // El mismo envío que ya llegó (se cortó el internet, la respuesta no
@@ -455,6 +462,34 @@ class OrdenController extends Controller
         }
 
         $guardarBorrador = $request->boolean('guardar_borrador', false);
+
+        // El borrador que se está siguiendo, si viene uno. Se revisa aquí y se
+        // vuelve a bloquear dentro de la transacción: dos pestañas
+        // confirmándolo a la vez no pueden hacer dos ventas.
+        $borradorId = $data['borrador_id'] ?? null;
+        if ($borradorId) {
+            $borrador = Orden::find($borradorId);
+            if (! $borrador) {
+                return response()->json(['message' => 'Ese borrador ya no existe.'], 404);
+            }
+            if ($borrador->estado !== 'borrador') {
+                return response()->json([
+                    'message'  => 'Este borrador ya se confirmó o se canceló.',
+                    'orden_id' => $borrador->id,
+                ], 422);
+            }
+            if (! $borrador->laPuedeEditar($request->user())) {
+                return response()->json(['message' => 'No tienes permiso para seguir este borrador.'], 403);
+            }
+            // Los ítems que dicen ser del borrador tienen que serlo.
+            $idsBorrador = $borrador->items()->pluck('id')->map(fn ($id) => (int) $id)->all();
+            foreach ($data['items'] as $i) {
+                if (! empty($i['id']) && ! in_array((int) $i['id'], $idsBorrador, true)) {
+                    return response()->json(['message' => 'Uno de los productos no es de este borrador.'], 422);
+                }
+            }
+        }
+
         $tiendaId        = $data['tienda_id'];
         $anticupoPct     = $data['anticipo_pct'] ?? 50;
         $esFv2           = $request->boolean('es_fv2', false);
@@ -620,6 +655,8 @@ class OrdenController extends Controller
             ->where('tienda_id', $tiendaId)
             ->where('valor_total', $valorTotal)
             ->where('created_at', '>=', now()->subSeconds(15))
+            // El borrador que se está siguiendo no es un duplicado de sí mismo.
+            ->when($borradorId, fn ($q) => $q->where('id', '!=', $borradorId))
             ->first();
 
         if ($duplicado) {
@@ -643,7 +680,15 @@ class OrdenController extends Controller
         }
 
         try {
-        $orden = DB::transaction(function () use ($data, $tiendaId, $anticupoPct, $valorTotal, $descuentoTotal, $request, $tieneItemsCotizacionPendiente, $guardarBorrador, $quiereEntregaInmediata, $esFv2, $fv2SinIva, $descuentoCondicionado, $pctCondicionado, $tiendaAbonadaId, $fechaEntregaInicial, $fotosFactura) {
+        $orden = DB::transaction(function () use ($data, $tiendaId, $anticupoPct, $valorTotal, $descuentoTotal, $request, $tieneItemsCotizacionPendiente, $guardarBorrador, $quiereEntregaInmediata, $esFv2, $fv2SinIva, $descuentoCondicionado, $pctCondicionado, $tiendaAbonadaId, $fechaEntregaInicial, $fotosFactura, $borradorId) {
+
+            $borrador = null;
+            if ($borradorId) {
+                $borrador = Orden::lockForUpdate()->find($borradorId);
+                if (! $borrador || $borrador->estado !== 'borrador') {
+                    abort(422, 'Este borrador ya se confirmó o se canceló.');
+                }
+            }
 
             // --- 1. Verificar stock para items no personalizados (con bloqueo) ---
             foreach ($data['items'] as $item) {
@@ -680,8 +725,8 @@ class OrdenController extends Controller
                 }
             }
 
-            // --- 2. Crear la orden ---
-            $orden = Orden::create([
+            // --- 2. Crear la orden (o rellenar el borrador que se sigue) ---
+            $campos = [
                 // Única en la base: dos envíos iguales que lleguen a la vez no
                 // pueden crear dos órdenes; el segundo choca aquí.
                 ...Orden::conClaveEnvio($data['clave_envio'] ?? null),
@@ -721,7 +766,28 @@ class OrdenController extends Controller
                 'motivo_serie'       => $esFv2 ? ($data['motivo_serie'] ?? null) : null,
                 // Solo se escribe prendida: apagada es el valor por defecto.
                 ...($fv2SinIva ? ['sin_descontar_iva' => true] : []),
-            ]);
+            ];
+
+            if ($borrador) {
+                // La venta sigue siendo de quien la empezó, aunque la termine
+                // el covendedor o alguien de la tienda.
+                unset($campos['vendedor_id']);
+                // Si el borrador se guardó como FV2 sin IVA y ya no lo es,
+                // hay que apagarla (encendida ya va en $campos).
+                if (! $fv2SinIva && $borrador->sin_descontar_iva) {
+                    $campos['sin_descontar_iva'] = false;
+                }
+                // La venta nace ahora, no el día que se abrió el borrador.
+                if (! $guardarBorrador) $campos['confirmada_en'] = now();
+                $borrador->update($campos);
+                $orden = $borrador;
+            } else {
+                $orden = Orden::create($campos);
+            }
+
+            // Los ítems que ya tenía el borrador, para actualizarlos en su sitio.
+            $itemsPrevios = $borrador ? $orden->items()->get()->keyBy('id') : collect();
+            $itemsQueQuedan = [];
 
             // --- 3. Crear items, reservar stock y crear producción ---
             foreach ($data['items'] as $itemData) {
@@ -755,7 +821,7 @@ class OrdenController extends Controller
                     ]);
                 }
 
-                $item = OrdenItem::create([
+                $atributosItem = [
                     'orden_id'              => $orden->id,
                     'producto_id'           => $itemData['producto_id'] ?? null,
                     'nombre_custom'         => $esProductoCustom ? ($itemData['nombre_custom'] ?? null) : null,
@@ -786,7 +852,19 @@ class OrdenController extends Controller
                     // orden por orden poniéndola; ahora entra sola y quien
                     // supervisa solo corrige la que vea mal.
                     'fecha_entrega_prom'    => $fechaEntregaInicial,
-                ]);
+                ];
+
+                $previo = ! empty($itemData['id']) ? $itemsPrevios->get((int) $itemData['id']) : null;
+                if ($previo) {
+                    // Si iba en juego y ya no, lo de antes no puede quedarse
+                    // pegado (si sigue en juego, $atributosItem ya lo trae).
+                    $limpiarJuego = $previo->piezas_juego ? ['piezas_juego' => null, 'es_pieza_suelta' => false] : [];
+                    $previo->update($atributosItem + $limpiarJuego);
+                    $item = $previo;
+                    $itemsQueQuedan[] = $previo->id;
+                } else {
+                    $item = OrdenItem::create($atributosItem);
+                }
 
                 // ¿Va al taller? ¿Aparta stock? Son dos preguntas aparte, no
                 // una sola con ramas: el cambio de tela responde sí a las dos
@@ -867,6 +945,18 @@ class OrdenController extends Controller
                 }
             }
 
+            // Lo que se sacó del carrito al seguir el borrador se va. Un
+            // borrador no tiene producción, reservas ni entregas, así que no
+            // hay nada que devolver; si tenía una consulta de costo, ese ítem
+            // sale de ella.
+            if ($borrador) {
+                $sobran = $itemsPrevios->keys()->diff($itemsQueQuedan);
+                if ($sobran->isNotEmpty()) {
+                    OrdenItem::whereIn('id', $sobran->all())->delete();
+                }
+                $orden->unsetRelation('items');
+            }
+
             // Apartar la tela de lo que va al taller. Igual que el stock, un
             // borrador no aparta nada: se hace al confirmarlo. Si a una tela
             // no le alcanzan los metros esto tumba la orden con el motivo.
@@ -933,6 +1023,11 @@ class OrdenController extends Controller
         $esperandoPrecio = $estadoFinal === 'pendiente_cotizacion';
 
         if (! $guardarBorrador && ! $esperandoPrecio) {
+            // El borrador pudo abrirse otro día (u otro mes): la venta es de hoy.
+            if ($borradorId) {
+                $orden->nacerComoVentaHoy();
+                $ordenCargada->created_at = $orden->created_at;
+            }
             self::asignarNumeroOrden($orden);
             $ordenCargada->numero_orden = $orden->numero_orden;
             ComisionController::crearParaOrden($orden);
@@ -2353,6 +2448,57 @@ class OrdenController extends Controller
         }
 
         return response()->json($ordenFresh);
+    }
+
+    /**
+     * GET /api/ordenes/{id}/para-continuar
+     *
+     * Un borrador con todo lo que la pantalla de "Nueva orden" necesita para
+     * seguirlo donde quedó: el cliente completo, los ítems con su producto,
+     * cuánto hay libre hoy de cada uno en la tienda de donde sale, y si ya
+     * tiene una consulta de costo pendiente (para no pedir otra).
+     */
+    public function paraContinuar(Request $request, int $id)
+    {
+        $orden = Orden::with([
+            'cliente',
+            'items.producto:id,nombre,categoria,foto_url,precio_base,personalizable,es_tapizado',
+            'items.tiendaOrigen:id,nombre',
+        ])->findOrFail($id);
+
+        if ($orden->estado !== 'borrador') {
+            return response()->json(['message' => 'Esta orden ya no es un borrador.', 'orden_id' => $orden->id], 422);
+        }
+        if (! $orden->laPuedeEditar($request->user())) {
+            return response()->json(['message' => 'No tienes permiso para seguir este borrador.'], 403);
+        }
+
+        foreach ($orden->items as $item) {
+            $item->stock_libre = $this->stockLibreDe($item, $orden);
+        }
+
+        $orden->consulta_pendiente = \App\Models\ConsultaCosto::where('orden_id', $orden->id)
+            ->where('estado', 'pendiente')->exists();
+
+        return response()->json($orden);
+    }
+
+    /** Cuánto hay libre hoy de un ítem de catálogo en la tienda de donde sale. */
+    private function stockLibreDe(OrdenItem $item, Orden $orden): ?int
+    {
+        if (! $item->producto_id || $item->es_personalizado || $item->producto_unico) return null;
+
+        $tienda = $item->tienda_origen_id ?? $orden->tienda_id;
+        if ($item->variante_id && $item->combo_config_id) {
+            $inv = InventarioVarianteCombinacion::where('variante_id', $item->variante_id)
+                ->where('config_id', $item->combo_config_id)->where('tienda_id', $tienda)->first();
+        } elseif ($item->variante_id) {
+            $inv = InventarioVariante::where('variante_id', $item->variante_id)->where('tienda_id', $tienda)->first();
+        } else {
+            $inv = Inventario::where('producto_id', $item->producto_id)->where('tienda_id', $tienda)->first();
+        }
+
+        return $inv ? (int) ($inv->cantidad_disponible - $inv->cantidad_reservada) : 0;
     }
 
     /**

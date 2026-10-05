@@ -37,6 +37,16 @@ const toast  = useToast()
 // comprobante, el cliente es opcional y no se toca inventario.
 const modoCotizacion = computed(() => route.query.modo === 'cotizacion')
 
+// Seguir un borrador: esta misma pantalla con lo que se había guardado, y al
+// crear se confirma ese borrador por la misma puerta que una orden nueva
+// (stock, descuentos, firma, anticipo, producción, avisos). Ver
+// cargarBorradorServidor().
+const borradorId = Number(route.query.borrador) || null
+const cargandoBorradorServidor = ref(!!borradorId)
+const borradorServidor = ref(null)   // { id, cliente } para el encabezado
+// Ya se le pidió el precio al taller cuando se guardó: no se pide otra vez.
+const consultaYaPedida = ref(false)
+
 // ── Orden con descuento especial (serie FV2) ─────────────────────────────────────────────
 // Venta a allegados de los dueños: numeración propia FV2-N, no gasta consecutivo
 // normal, pero cuenta como venta y genera comisión igual que cualquier otra.
@@ -1047,6 +1057,8 @@ function _colocarItem(nuevo, existente = null) {
 
   items.value[idx] = {
     ...nuevo,
+    // Si venía de un borrador, sigue siendo el mismo ítem.
+    id:               viejo.id,
     cantidad:         viejo.cantidad,
     es_personalizado: viejo.es_personalizado,
     specs:            viejo.specs,
@@ -1939,7 +1951,7 @@ async function validarParaCrear() {
     return false
   }
 
-  if (hayItemsCotizar.value && !cotizarReceptorId.value) {
+  if (hayItemsCotizar.value && !consultaYaPedida.value && !cotizarReceptorId.value) {
     toast.error('Selecciona a quién enviar la consulta de costo antes de continuar.')
     return false
   }
@@ -2170,6 +2182,7 @@ async function submit() {
 
     const payload = {
       clave_envio:          claveEnvio,
+      borrador_id:          borradorServidor.value?.id || undefined,
       cliente_id:           clienteSeleccionado.value.id,
       tienda_id:            tiendaId.value,
       canal:                canal.value,
@@ -2210,6 +2223,8 @@ async function submit() {
       ciudad_envio:         ciudadEnvio.value || undefined,
       direccion_envio:      direccionEnvio.value || undefined,
       items: items.value.map((i) => ({
+        // El que ya estaba en el borrador se actualiza en su sitio.
+        id:                      (borradorServidor.value && i.id) || undefined,
         producto_id:             i.producto_id || undefined,
         nombre_custom:           i.nombre_custom || undefined,
         categoria_custom:        i.categoria_custom || undefined,
@@ -2261,8 +2276,9 @@ async function submit() {
     // Ya está en el servidor: el respaldo del teléfono sobra.
     await borradorLocal.borrar()
 
-    // Crear consulta de costo si hay ítems marcados para cotizar
-    if (hayItemsCotizar.value && cotizarReceptorId.value && data?.id) {
+    // Crear consulta de costo si hay ítems marcados para cotizar (si el
+    // borrador ya la tenía pedida, esa sigue: los ítems son los mismos).
+    if (hayItemsCotizar.value && !consultaYaPedida.value && cotizarReceptorId.value && data?.id) {
       try {
         await crearConsulta({
           orden_id:          data.id,
@@ -2293,11 +2309,22 @@ async function submit() {
         toast.success('Borrador guardado.')
       }
       router.push({ name: 'orden-detalle', params: { id: data.id } })
+    } else if (borradorServidor.value && data?.id) {
+      // Se terminó un borrador: a la orden, que es la que se venía siguiendo.
+      toast.success('Orden confirmada.')
+      router.push({ name: 'orden-detalle', params: { id: data.id } })
     } else {
       router.push({ name: 'ordenes' })
     }
   } catch (e) {
     const status = e.response?.status
+    // El borrador ya lo confirmó alguien más (otra pestaña, el covendedor).
+    if (status === 422 && borradorServidor.value && e.response?.data?.orden_id) {
+      await borradorLocal.borrar()
+      toast.error(e.response.data.message)
+      router.push({ name: 'orden-detalle', params: { id: e.response.data.orden_id } })
+      return
+    }
     if (status === 409 && e.response?.data?.orden_id) {
       // Orden ya creada — ir a ella en vez de mostrar error
       await borradorLocal.borrar()
@@ -2558,8 +2585,10 @@ const camposBorrador = {
 }
 
 const borradorLocal = useBorradorLocal({
+  // Seguir un borrador del servidor tiene su propio respaldo: no se mezcla
+  // con una orden nueva que se haya dejado a medias en el teléfono.
   clave: auth.usuario?.id
-    ? `nueva-orden:${auth.usuario.id}:${modoCotizacion.value ? 'cotizacion' : 'orden'}`
+    ? `nueva-orden:${auth.usuario.id}:${modoCotizacion.value ? 'cotizacion' : 'orden'}${borradorId ? `:b${borradorId}` : ''}`
     : null,
   fuentes: Object.values(camposBorrador),
   // Las vistas previas (blob:) no sirven después de recargar: se rehacen
@@ -2631,6 +2660,176 @@ async function restaurarBorrador(d) {
   toast.success('Recuperamos la orden que llevabas.')
 }
 
+// ── Seguir un borrador guardado en el servidor ───────────────────────────────
+
+/** "Marca · Tipo · Color" (como lo guarda el servidor) de vuelta al selector de tela. */
+function telaDesdeTexto(texto) {
+  const partes = String(texto ?? '').split(' · ').map(s => s.trim())
+  if (partes.length !== 3 || partes.some(p => !p)) return null
+  const [marca, tipo, color] = partes
+  return { marca, marcaManual: '', tipo, telaManual: '', color, colorManual: '' }
+}
+
+/**
+ * Un ítem guardado, como el carrito lo trabaja. Es lo inverso de lo que arma
+ * submit(): el precio ya viene con el descuento del ítem aplicado, las
+ * cantidades de un juego vienen en piezas y el retapizado trae la tela de
+ * antes aparte.
+ */
+function itemDesdeServidor(i) {
+  const specs = { ...(i.specs_personalizacion ?? {}) }
+  const notasItem = specs.notas ?? ''
+  const trabajo   = specs.trabajo ?? null
+  const telaOriginal = specs.tela_original ?? null
+  delete specs.notas
+  delete specs.trabajo
+  delete specs.tela_original
+  delete specs.variante_marca
+  delete specs.variante_color
+
+  const nombre    = i.producto?.nombre ?? i.nombre_custom ?? 'Producto'
+  const categoria = i.producto?.categoria ?? i.categoria_custom ?? null
+  const esPersonalizado = !!i.es_personalizado
+
+  // Las telas elegidas vuelven al selector; el texto se queda también en
+  // las specs para no perderlo si el selector no la reconoce.
+  const telaSelections = {}
+  if (esPersonalizado || i.retapizar || specs.retapizar) {
+    const plantilla = getTemplate({ nombre, categoria })
+    const camposTela = new Set((plantilla.campos ?? []).filter(c => c.useVariantes).map(c => c.key))
+    camposTela.add('tela')
+    for (const key of camposTela) {
+      const sel = specs[key] ? telaDesdeTexto(specs[key]) : null
+      if (sel) telaSelections[key] = sel
+    }
+  }
+
+  const fotos = i.bocetos_list ?? []
+  const precio = Number(i.precio_unitario) || 0
+  const item = {
+    id:               i.id,
+    producto_id:      i.producto_id ?? null,
+    variante_id:      i.variante_id ?? null,
+    _combo_id:        null,
+    _config_id:       i.combo_config_id ?? null,
+    tienda_origen_id: i.tienda_origen_id ?? null,
+    tienda_origen:    i.tienda_origen?.nombre ?? null,
+    nombre,
+    nombre_custom:    i.producto_id ? undefined : (i.nombre_custom ?? nombre),
+    categoria,
+    categoria_custom: i.producto_id ? undefined : (i.categoria_custom ?? null),
+    // En el retapizado la línea dice "de qué tela a qué tela"; lo que se
+    // eligió al vender es la tela de antes.
+    variante_label:   i.retapizar ? telaOriginal : (i.variante_detalle ?? null),
+    stock_libre:      i.stock_libre ?? null,
+    personalizable:   !!i.producto?.personalizable,
+    cantidad:         Number(i.cantidad) || 1,
+    precio_unitario:  precio,
+    es_personalizado: esPersonalizado,
+    specs,
+    specs_notas:      notasItem,
+    fecha_entrega_prometida: null,
+    boceto_blobs:     fotos.map(() => null),
+    boceto_urls:      [...fotos],
+    boceto_previews:  [...fotos],
+    _fabricar_pedido: !!i.fabricar_pedido,
+    _es_restauracion: !!i.es_restauracion,
+    _producto_unico:  !!i.producto_unico,
+    _retapizar:       !!i.retapizar,
+    _trabajoFabrica:  i.retapizar ? (trabajo ?? 'tela') : undefined,
+    _llevar_ahora:    !!i.llevar_ahora,
+    _regalo:          !!i.es_regalo,
+    _esTapizado:      !!i.producto?.es_tapizado,
+    // En $0 y sin ser regalo ni mueble único: se había dejado para que el
+    // taller pusiera el precio.
+    _cotizarPrecio:   (esPersonalizado || (i.retapizar && (trabajo ?? 'tela') === 'tela'))
+                      && precio === 0 && !i.es_regalo && !i.producto_unico,
+    _descuento_modo:  'monto',
+    _descuento_valor: 0,
+    _mostrarCalculadora: false,
+    _calculandoPrecio:   false,
+    _precioCalc:         null,
+    _precioReferencia:   null,
+    _telaSelections:     telaSelections,
+  }
+
+  // Vendido en juego: el servidor lo guarda en piezas.
+  const n = Number(i.piezas_juego) || 0
+  if (n > 1) {
+    item._piezas_por_juego = n
+    if (i.es_pieza_suelta) {
+      item._por_juego    = false
+      item._precio_pieza = precio
+      item._precio_juego = Math.round(precio * n)
+    } else {
+      item._por_juego      = true
+      item.cantidad        = Math.max(1, Math.round(item.cantidad / n))
+      item.precio_unitario = Math.round(precio * n)
+      item._precio_juego   = item.precio_unitario
+      item._precio_pieza   = precio
+    }
+  }
+
+  return item
+}
+
+async function cargarBorradorServidor() {
+  if (!borradorId) return
+  cargandoBorradorServidor.value = true
+  try {
+    const { data: o } = await api.get(`/ordenes/${borradorId}/para-continuar`)
+
+    // El canal primero: su watcher escoge la tienda, y la del borrador va
+    // encima.
+    canal.value = o.canal ?? 'fisica'
+    await nextTick()
+    tiendaId.value = o.tienda_id
+
+    if (o.cliente) seleccionarCliente(o.cliente)
+
+    esFv2.value       = !!o.serie
+    motivoSerie.value = o.motivo_serie ?? ''
+    fv2SinIva.value   = !!o.sin_descontar_iva
+
+    items.value = (o.items ?? []).map(itemDesdeServidor)
+
+    descuentoModo.value      = 'monto'
+    descuentoInput.value     = Number(o.descuento_total) || 0
+    descuentoCondModo.value  = 'monto'
+    descuentoCondInput.value = Number(o.descuento_condicionado) || 0
+    anticipo_pct.value       = Number(o.anticipo_pct) || 50
+
+    notas.value                 = o.notas ?? ''
+    fechaSugeridaVendedor.value = (o.fecha_sugerida_vendedor ?? '').slice(0, 10)
+    esCompartida.value          = !!o.es_compartida
+    await nextTick()   // su watcher limpia el covendedor al cargar
+    covendedorId.value          = o.covendedor_id ?? null
+    tiendaAbonadaId.value       = o.tienda_abonada_id ?? null
+
+    departamentoEnvio.value = o.departamento_envio ?? ''
+    ciudadEnvio.value       = o.ciudad_envio ?? ''
+    direccionEnvio.value    = o.direccion_envio ?? ''
+
+    // Lo que ya se hubiera subido se aprovecha; si falta, se pide en el paso 3.
+    facturaFotos.value = (o.factura_fotos?.length ? o.factura_fotos : (o.factura_foto_url ? [o.factura_foto_url] : []))
+      .map(url => ({ file: null, preview: url, url }))
+    firmaUrl.value     = o.firma_url ?? ''
+    anexoFotoUrl.value = o.anexo_foto_url ?? ''
+
+    consultaYaPedida.value = !!o.consulta_pendiente
+    borradorServidor.value = { id: o.id, cliente: o.cliente?.nombre ?? null }
+    step.value = 2
+  } catch (e) {
+    const orden = e.response?.data?.orden_id
+    toast.error(e.response?.data?.message ?? 'No se pudo abrir el borrador.')
+    // Ya se confirmó (otra pestaña, otra persona): a la orden.
+    router.replace(orden ? { name: 'orden-detalle', params: { id: orden } } : { name: 'ordenes' })
+  } finally {
+    cargandoBorradorServidor.value = false
+  }
+}
+onMounted(cargarBorradorServidor)
+
 function haceCuanto(ts) {
   const min = Math.round((Date.now() - ts) / 60000)
   if (min < 1)  return 'hace un momento'
@@ -2664,9 +2863,23 @@ onBeforeUnmount(() => {
         class="text-blue-600 text-sm font-medium"
       >← Atrás</button>
       <h2 class="text-lg font-bold text-gray-800 flex-1">
-        {{ modoCotizacion ? 'Nueva cotización' : 'Nueva Orden' }}
+        {{ modoCotizacion ? 'Nueva cotización' : borradorId ? 'Seguir borrador' : 'Nueva Orden' }}
       </h2>
       <span class="text-xs text-gray-400">{{ step }}/3</span>
+    </div>
+
+    <!-- Siguiendo un borrador guardado -->
+    <div v-if="cargandoBorradorServidor" class="flex items-center justify-center gap-2 py-10 text-sm text-gray-500">
+      <IconoS class="w-5 h-5" /> Abriendo el borrador...
+    </div>
+    <div v-else-if="borradorServidor" class="bg-amber-50 border border-amber-200 rounded-xl p-3">
+      <p class="text-sm font-semibold text-amber-900">
+        Borrador{{ borradorServidor.cliente ? ` de ${borradorServidor.cliente}` : '' }}
+      </p>
+      <p class="text-xs text-amber-800 mt-0.5">
+        Está todo como lo dejaste. Puedes cambiar productos, precios y descuentos; al crear la orden
+        se confirma este mismo borrador, sin duplicarlo. "Guardar borrador" lo deja guardado otra vez.
+      </p>
     </div>
 
     <!-- Barra de pasos -->
@@ -2707,7 +2920,8 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- ═══════════════════════════════════════════════════════ PASO 1 ══ -->
-    <template v-if="step === 1">
+    <template v-if="cargandoBorradorServidor"></template>
+    <template v-else-if="step === 1">
 
       <!-- Ya no se elige "tipo de orden": en el paso 2 se agrega lo que sea,
            productos del catálogo y muebles del cliente para restaurar, en el
@@ -5091,7 +5305,10 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div class="space-y-1.5">
+        <p v-if="consultaYaPedida" class="text-xs text-violet-700 bg-white border border-violet-200 rounded-lg px-3 py-2">
+          Ya se pidió el precio al guardar el borrador. Esa consulta sigue abierta: no hace falta pedirla otra vez.
+        </p>
+        <div v-else class="space-y-1.5">
           <label class="block text-xs font-semibold text-gray-700">Enviar consulta a <span class="text-red-500">*</span></label>
           <div v-if="cargandoReceptores" class="text-xs text-gray-400">Cargando...</div>
           <div v-else class="space-y-2">
@@ -5113,7 +5330,7 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div class="space-y-1">
+        <div v-if="!consultaYaPedida" class="space-y-1">
           <label class="block text-xs font-semibold text-gray-700">Notas para el cotizador (opcional)</label>
           <textarea
             v-model="cotizarNotas"
@@ -5181,7 +5398,7 @@ onBeforeUnmount(() => {
     <!-- Orden sin terminar guardada en el teléfono. No se cierra tocando
          afuera: si se escribe encima sin decidir, lo nuevo pisaría lo que
          había y justo eso es lo que se quiere evitar. -->
-    <div v-if="borradorPendiente" class="fixed inset-0 z-[80] flex items-end sm:items-center justify-center">
+    <div v-if="borradorPendiente && !cargandoBorradorServidor" class="fixed inset-0 z-[80] flex items-end sm:items-center justify-center">
       <div class="absolute inset-0 bg-black/50" />
       <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 flex flex-col gap-4">
         <div>

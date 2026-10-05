@@ -207,6 +207,129 @@ class BorradorNoReservaTest extends TestCase
         $this->assertSame(1, $this->reservado(), 'al confirmar el borrador SÍ se reserva');
     }
 
+    // ── Seguir el borrador en la pantalla de Nueva orden ─────────────────────
+
+    private function borradorCon2Items(Usuario $v): array
+    {
+        DB::table('productos')->insert(['id' => 6, 'nombre' => 'Silla', 'categoria' => 'sillas']);
+        DB::table('inventario')->insert(['producto_id' => 6, 'tienda_id' => 1, 'cantidad_disponible' => 5, 'cantidad_reservada' => 0]);
+
+        $r = $this->actingAs($v)->postJson('/api/ordenes', $this->payload([
+            'guardar_borrador' => true,
+            'items' => [
+                ['producto_id' => 5, 'cantidad' => 1, 'precio_unitario' => 100000, 'es_personalizado' => false],
+                ['producto_id' => 6, 'cantidad' => 2, 'precio_unitario' => 50000,  'es_personalizado' => false],
+            ],
+        ]))->assertCreated();
+
+        $orden = Orden::with('items')->find($r->json('id'));
+        return [$orden->id, $orden->items->firstWhere('producto_id', 5)->id, $orden->items->firstWhere('producto_id', 6)->id];
+    }
+
+    public function test_seguir_el_borrador_lo_confirma_a_el_mismo_con_los_cambios(): void
+    {
+        $v = $this->vendedor();
+        [$ordenId, $mesaId] = $this->borradorCon2Items($v);
+
+        // Se queda la mesa (ahora 2), se quita la silla y se agrega un personalizado.
+        $this->actingAs($v)->postJson('/api/ordenes', $this->payload([
+            'borrador_id' => $ordenId,
+            'items' => [
+                ['id' => $mesaId, 'producto_id' => 5, 'cantidad' => 2, 'precio_unitario' => 90000, 'es_personalizado' => false],
+                ['nombre_custom' => 'Banco', 'cantidad' => 1, 'precio_unitario' => 30000, 'es_personalizado' => true,
+                 'specs_personalizacion' => ['medidas' => '1m']],
+            ],
+        ]))->assertCreated()->assertJsonPath('id', $ordenId);
+
+        $this->assertSame(1, Orden::count(), 'no se crea otra orden');
+        $orden = Orden::with('items')->find($ordenId);
+        $this->assertSame('pendiente_anticipo', $orden->estado);
+        $this->assertNotNull($orden->numero_orden, 'al confirmarse gasta el consecutivo');
+        $this->assertEquals(210000, (float) $orden->valor_total);
+
+        $this->assertCount(2, $orden->items);
+        $mesa = $orden->items->firstWhere('producto_id', 5);
+        $this->assertSame($mesaId, $mesa->id, 'el ítem que ya estaba se actualiza en su sitio');
+        $this->assertSame(2, (int) $mesa->cantidad);
+        $this->assertNull($orden->items->firstWhere('producto_id', 6), 'la silla que se quitó se va');
+
+        $this->assertSame(2, $this->reservado(), 'se aparta lo que quedó, al confirmar');
+        $this->assertSame(0, (int) DB::table('inventario')->where('producto_id', 6)->value('cantidad_reservada'));
+        $this->assertSame(1, DB::table('produccion')->count(), 'el personalizado va al taller');
+    }
+
+    public function test_guardarlo_otra_vez_como_borrador_no_crea_otro_ni_reserva(): void
+    {
+        $v = $this->vendedor();
+        [$ordenId, $mesaId] = $this->borradorCon2Items($v);
+
+        $this->actingAs($v)->postJson('/api/ordenes', $this->payload([
+            'borrador_id' => $ordenId, 'guardar_borrador' => true,
+            'items' => [['id' => $mesaId, 'producto_id' => 5, 'cantidad' => 3, 'precio_unitario' => 100000, 'es_personalizado' => false]],
+        ]))->assertCreated()->assertJsonPath('id', $ordenId);
+
+        $this->assertSame(1, Orden::count());
+        $this->assertSame('borrador', Orden::find($ordenId)->estado);
+        $this->assertNull(Orden::find($ordenId)->numero_orden);
+        $this->assertSame(0, $this->reservado());
+        $this->assertSame(1, OrdenItem::where('orden_id', $ordenId)->count());
+    }
+
+    public function test_un_borrador_ya_confirmado_no_se_confirma_dos_veces(): void
+    {
+        $v = $this->vendedor();
+        [$ordenId, $mesaId] = $this->borradorCon2Items($v);
+        $item = fn () => [['id' => $mesaId, 'producto_id' => 5, 'cantidad' => 1, 'precio_unitario' => 100000, 'es_personalizado' => false]];
+
+        $this->actingAs($v)->postJson('/api/ordenes', $this->payload(['borrador_id' => $ordenId, 'items' => $item()]))->assertCreated();
+        $this->actingAs($v)->postJson('/api/ordenes', $this->payload(['borrador_id' => $ordenId, 'items' => $item()]))
+            ->assertStatus(422)->assertJsonPath('orden_id', $ordenId);
+
+        $this->assertSame(1, $this->reservado(), 'no se aparta dos veces');
+    }
+
+    public function test_no_se_cuelan_items_de_otra_orden(): void
+    {
+        $v = $this->vendedor();
+        [$ordenId] = $this->borradorCon2Items($v);
+        $otra = Orden::create(['cliente_id' => 1, 'tienda_id' => 1, 'estado' => 'pendiente_anticipo', 'valor_total' => 1]);
+        $ajeno = OrdenItem::create(['orden_id' => $otra->id, 'producto_id' => 5, 'cantidad' => 1, 'es_personalizado' => false]);
+
+        $this->actingAs($v)->postJson('/api/ordenes', $this->payload([
+            'borrador_id' => $ordenId,
+            'items' => [['id' => $ajeno->id, 'producto_id' => 5, 'cantidad' => 1, 'precio_unitario' => 1, 'es_personalizado' => false]],
+        ]))->assertStatus(422);
+
+        $this->assertSame($otra->id, (int) $ajeno->fresh()->orden_id);
+    }
+
+    public function test_al_confirmar_se_revisa_que_todavia_haya_stock(): void
+    {
+        $v = $this->vendedor();
+        [$ordenId, $mesaId] = $this->borradorCon2Items($v);
+        // Mientras el borrador esperaba, se vendieron las 3 mesas.
+        DB::table('inventario')->where('producto_id', 5)->update(['cantidad_reservada' => 3]);
+
+        $this->actingAs($v)->postJson('/api/ordenes', $this->payload([
+            'borrador_id' => $ordenId,
+            'items' => [['id' => $mesaId, 'producto_id' => 5, 'cantidad' => 1, 'precio_unitario' => 100000, 'es_personalizado' => false]],
+        ]))->assertStatus(422);
+
+        $this->assertSame('borrador', Orden::find($ordenId)->estado, 'sigue siendo borrador');
+    }
+
+    public function test_para_continuar_trae_el_stock_libre_de_hoy(): void
+    {
+        $v = $this->vendedor();
+        [$ordenId] = $this->borradorCon2Items($v);
+
+        $r = $this->actingAs($v)->getJson("/api/ordenes/{$ordenId}/para-continuar")->assertOk();
+        $items = collect($r->json('items'))->keyBy('producto_id');
+        $this->assertSame(3, $items[5]['stock_libre']);
+        $this->assertSame(5, $items[6]['stock_libre']);
+        $this->assertFalse($r->json('consulta_pendiente'));
+    }
+
     public function test_borrar_un_borrador_no_toca_el_stock(): void
     {
         $v = $this->vendedor();

@@ -113,6 +113,37 @@ const despachoActivo = computed(() => {
   return d && ESTADOS_DESPACHO_VIVO.includes(d.despacho?.estado) ? d : null
 })
 
+// Quién la tiene agarrada, en palabras. No toda entrega viva es "una ruta":
+// puede ser una entrega directa que OTRA persona empezó y no terminó —esa no
+// sale ni en la cola ni en Asignadas— o una ruta que sigue en borrador.
+const avisoDespacho = computed(() => {
+  const d = despachoActivo.value
+  if (!d) return null
+  const desp = d.despacho
+  if (desp.tipo === 'directa') {
+    const quien = desp.entregado_por?.nombre ?? 'Alguien'
+    return {
+      titulo: `${quien} empezó a entregarla y no terminó`,
+      texto: d.foto_producto
+        ? 'Ya registró fotos o pago. Tiene que completar la entrega desde esta orden.'
+        : 'Por eso no sale en la cola de Despacho. Que la termine o la cancele, o cancélala aquí para que vuelva a la cola.',
+      // Mismo criterio del backend: supervisor y sin fotos/pago todavía.
+      puedeCancelar: auth.isSupervisor && d.estado === 'pendiente' && !d.foto_producto,
+    }
+  }
+  const ruta = desp.nombre_ruta ? `«${desp.nombre_ruta}»` : `#${desp.id}`
+  if (desp.estado === 'borrador') {
+    return {
+      titulo: `En la ruta ${ruta}, sin enviar`,
+      texto: 'La ruta sigue en borrador: está en Despacho → Rutas, todavía no en Asignadas.',
+    }
+  }
+  return {
+    titulo: `Orden asignada a la ruta ${ruta}`,
+    texto: `${desp.conductor?.nombre ? `La lleva ${desp.conductor.nombre}. ` : ''}El estado se actualizará cuando se registre la entrega.`,
+  }
+})
+
 // ¿Mostrar el botón de "Entregar ahora"? Con permiso, algo que ya se pueda
 // entregar (lo de catálogo siempre; lo fabricado cuando el taller lo dé por
 // listo) y sin nadie más despachándola — todo eso ya viene resuelto en
@@ -3481,18 +3512,22 @@ onMounted(() => { cargarTipos(); cargarOrden() })
           <ClockIcon class="w-5 h-5 mt-0.5 text-amber-600 flex-shrink-0" />
           <div>
             <p class="text-sm font-semibold text-amber-800">Orden en borrador</p>
-            <p class="text-xs text-amber-700 mt-0.5">Los productos están reservados. Cuando el cliente regrese, completa la orden con su firma y anticipo.</p>
+            <p class="text-xs text-amber-700 mt-0.5">Todavía no aparta productos ni tiene número. Cuando el cliente regrese, síguela donde quedó: se abre como una orden nueva con todo lo que se guardó.</p>
           </div>
         </div>
 
         <div class="space-y-2">
+          <!-- Se sigue en la misma pantalla de "Nueva orden", con todo lo que
+               se guardó: cambiar productos, descuentos, pago, firma… lo que
+               haga falta, y se confirma por la misma puerta que una orden
+               nueva. -->
           <button
-            v-if="auth.isSupervisor || Number(orden.vendedor_id) === Number(auth.usuario?.id)"
-            @click="showCompletarBorradorModal = true"
+            v-if="auth.isSupervisor || Number(orden.vendedor_id) === Number(auth.usuario?.id) || Number(orden.covendedor_id) === Number(auth.usuario?.id)"
+            @click="router.push({ name: 'nueva-orden', query: { borrador: orden.id } })"
             class="w-full bg-green-600 text-white rounded-xl py-3 text-sm font-semibold hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
           >
             <CheckCircleIcon class="w-4 h-4" />
-            Completar orden
+            Seguir y completar orden
           </button>
           <button
             v-if="auth.isSupervisor || Number(orden.vendedor_id) === Number(auth.usuario?.id)"
@@ -3597,15 +3632,20 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         <!-- Sin entrega directa: espera al conductor -->
         <div v-if="!miEntregaDirectaPendiente && !puedeEntregarDirecto && orden.estado === 'listo_entrega'" class="bg-purple-50 border border-purple-200 rounded-xl px-4 py-3 flex items-start gap-3">
           <TruckIcon class="w-5 h-5 mt-0.5 text-purple-600 flex-shrink-0" />
-          <div>
+          <div class="min-w-0 flex-1">
             <p class="text-sm font-semibold text-purple-800">
-              {{ despachoActivo ? 'Orden asignada a una ruta' : 'Orden en cola de despacho' }}
+              {{ avisoDespacho ? avisoDespacho.titulo : 'Orden en cola de despacho' }}
             </p>
             <p class="text-xs text-purple-600 mt-0.5">
-              {{ despachoActivo
-                ? 'Ya está en una ruta de entrega. El estado se actualizará cuando se registre la entrega.'
+              {{ avisoDespacho
+                ? avisoDespacho.texto
                 : 'Esta orden está lista para entregar. El supervisor debe asignarla a un conductor desde el módulo de Despacho.' }}
             </p>
+            <button
+              v-if="avisoDespacho?.puedeCancelar"
+              @click="cancelarMiEntregaDirecta"
+              class="mt-2 text-xs font-semibold text-purple-700 bg-white border border-purple-300 rounded-lg px-3 py-1.5 hover:bg-purple-100"
+            >Cancelar esa entrega</button>
           </div>
         </div>
 
