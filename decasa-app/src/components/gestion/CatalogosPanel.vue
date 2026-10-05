@@ -20,9 +20,10 @@ import { cloudinaryOpt } from '@/utils/cloudinary'
 import {
   PlusIcon, PencilIcon, TrashIcon, EyeIcon, EyeSlashIcon, XMarkIcon,
   LinkIcon, ArrowTopRightOnSquareIcon, ArrowUpIcon, ArrowDownIcon,
-  PhotoIcon, StarIcon, ArrowUpTrayIcon,
+  PhotoIcon, StarIcon, ArrowUpTrayIcon, QrCodeIcon,
 } from '@heroicons/vue/24/outline'
 import { StarIcon as StarSolid } from '@heroicons/vue/24/solid'
+import QrCatalogo from '@/components/gestion/QrCatalogo.vue'
 
 const toast = useToast()
 
@@ -41,6 +42,8 @@ const porBorrar    = ref(null)   // catálogo pendiente de confirmación de borr
 const archivoRef   = ref(null)
 
 const origen = computed(() => window.location.origin)
+// El QR abierto: { url, titulo, nota } o null.
+const qr = ref(null)
 const linkDe = (slug) => `${origen.value}/c/${slug}`
 
 async function cargar() {
@@ -234,10 +237,19 @@ const thumb = (url) => cloudinaryOpt(url, 400)
       </button>
     </div>
 
-    <div v-if="!cargando && lista.length" class="flex items-center justify-between text-[11px] text-gray-400">
-      <span>Portada pública con todas las categorías:</span>
-      <button @click="copiarLink('')" class="text-blue-600 font-medium flex items-center gap-1">
-        <LinkIcon class="w-3.5 h-3.5" /> {{ origen }}/c
+    <div v-if="!cargando && lista.length" class="bg-blue-50 border border-blue-100 rounded-xl px-3 py-2.5 space-y-1.5">
+      <div class="flex items-center justify-between gap-2 text-[11px] text-gray-500">
+        <span>Portada pública con todas las categorías:</span>
+        <button @click="copiarLink('')" class="text-blue-600 font-medium flex items-center gap-1">
+          <LinkIcon class="w-3.5 h-3.5" /> {{ origen }}/c
+        </button>
+      </div>
+      <!-- El QR para imprimir: no cambia nunca, la portada se arma sola. -->
+      <button
+        @click="qr = { url: `${origen}/c`, titulo: 'Catálogos Decasa', nota: 'Este QR es permanente: muestra siempre los catálogos activos, aunque agregues, quites o cambies catálogos.' }"
+        class="w-full bg-white border border-blue-200 text-blue-700 rounded-lg py-2 text-sm font-semibold hover:bg-blue-100 flex items-center justify-center gap-1.5"
+      >
+        <QrCodeIcon class="w-4 h-4" /> QR permanente de todos los catálogos
       </button>
     </div>
 
@@ -270,6 +282,13 @@ const thumb = (url) => cloudinaryOpt(url, 400)
             <a :href="linkDe(cat.slug)" target="_blank" rel="noopener" class="text-xs text-gray-500 font-medium flex items-center gap-1">
               <ArrowTopRightOnSquareIcon class="w-3.5 h-3.5" /> Ver
             </a>
+            <button
+              v-if="cat.activo"
+              @click="qr = { url: linkDe(cat.slug), titulo: cat.nombre, nota: 'Abre solo este catálogo. Deja de funcionar si lo ocultas o le cambias el nombre del enlace.' }"
+              class="text-xs text-gray-500 font-medium flex items-center gap-1"
+            >
+              <QrCodeIcon class="w-3.5 h-3.5" /> QR
+            </button>
           </div>
         </div>
 
@@ -440,6 +459,8 @@ const thumb = (url) => cloudinaryOpt(url, 400)
         </div>
       </div>
     </Transition>
+
+    <QrCatalogo v-if="qr" :url="qr.url" :titulo="qr.titulo" :nota="qr.nota" @cerrar="qr = null" />
   </div>
 </template>
 
