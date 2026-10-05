@@ -631,7 +631,15 @@ async function marcarListaParaEntrega() {
 const devolviendoAEspera = ref(false)
 
 async function devolverAEspera() {
-  if (!confirm('¿Devolver esta orden a espera? Dejará de estar lista para entregar y se podrá editar de nuevo.')) return
+  // Devolver a espera solo cambia el estado: lo que ya se entregó sigue
+  // entregado. Se avisa, porque es fácil creer que también lo deshace (pasó:
+  // quedó "En espera" con "Entrega parcial 2/5").
+  const yaEntregados = Number(orden.value?.entrega?.entregados) || 0
+  const aviso = yaEntregados > 0
+    ? `\n\nOjo: ya se entregaron ${yaEntregados} de ${orden.value.entrega.total} productos, y eso NO se deshace al volver a espera. `
+      + 'Si esa entrega fue un error, usa "Deshacer esta entrega" en Entregas realizadas.'
+    : ''
+  if (!confirm(`¿Devolver esta orden a espera? Dejará de estar lista para entregar y se podrá editar de nuevo.${aviso}`)) return
   devolviendoAEspera.value = true
   try {
     await updateEstado(orden.value.id, 'pendiente_anticipo')
