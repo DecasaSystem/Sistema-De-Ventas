@@ -300,6 +300,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/productos',             [ProductoController::class, 'index']);
     Route::get('/productos/categorias',  [ProductoController::class, 'categorias']);
     Route::get('/productos/sugerencias', [ProductoController::class, 'sugerencias']);
+    Route::get('/productos/unicos',      [ProductoController::class, 'unicosVendidos']);
     Route::post('/productos',            [ProductoController::class, 'store']);
     Route::get('/productos/{id}',        [ProductoController::class, 'show']);
     Route::patch('/productos/{id}',      [ProductoController::class, 'update']);
@@ -549,7 +550,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/panel',            [StatsController::class, 'panel']);
         Route::get('/tendencia',        [StatsController::class, 'tendencia']);
         Route::get('/productos',        [StatsController::class, 'productos']);
-        Route::get('/categorias',       [StatsController::class, 'categorias']);
+        Route::get('/productos/tipos',  [StatsController::class, 'productosTipos']);
+        Route::get('/categorias',      [StatsController::class, 'categorias']);
         Route::get('/cartera',          [StatsController::class, 'cartera']);
         Route::get('/vendedores/me',    [StatsController::class, 'statsMe']);
         // Las tarjetas de tienda de Reportes, pero solo de las tiendas de quien

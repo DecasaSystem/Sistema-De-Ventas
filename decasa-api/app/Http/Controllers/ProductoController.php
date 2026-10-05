@@ -118,6 +118,50 @@ class ProductoController extends Controller
     }
 
     /**
+     * GET /api/productos/unicos?q=term
+     *
+     * Los muebles únicos que ya se vendieron, para volver a escogerlos.
+     *
+     * De un modelo que no se va a fabricar más a veces salieron varias piezas
+     * y quedaron en distintas tiendas. No se lleva cuenta de cuántas quedan
+     * —para eso no están en el catálogo—, pero al vender otra no hay que
+     * escribirlo de nuevo: se escoge de aquí con su nombre, categoría, foto y
+     * el último precio. Se juntan por nombre, sin importar mayúsculas.
+     */
+    public function unicosVendidos(Request $request)
+    {
+        $q = trim((string) $request->query('q', ''));
+
+        $grupos = DB::table('orden_items as oi')
+            ->join('ordenes as o', 'o.id', '=', 'oi.orden_id')
+            ->where('oi.producto_unico', true)
+            ->whereNotNull('oi.nombre_custom')
+            ->where('o.estado', '!=', 'cancelado')
+            ->when($q !== '', fn ($w) => $w->whereRaw('LOWER(oi.nombre_custom) LIKE ?', ['%' . mb_strtolower($q) . '%']))
+            ->selectRaw('LOWER(TRIM(oi.nombre_custom)) AS clave, COUNT(DISTINCT oi.orden_id) AS veces, SUM(oi.cantidad) AS unidades, MAX(oi.id) AS ultimo_id')
+            ->groupBy(DB::raw('LOWER(TRIM(oi.nombre_custom))'))
+            ->orderByDesc('ultimo_id')
+            ->limit(15)
+            ->get();
+
+        // El último de cada uno: de ahí salen el nombre tal como se escribió,
+        // la categoría, las fotos y el precio.
+        $ultimos = \App\Models\OrdenItem::whereIn('id', $grupos->pluck('ultimo_id'))->get()->keyBy('id');
+
+        return response()->json($grupos->map(function ($g) use ($ultimos) {
+            $it = $ultimos[$g->ultimo_id] ?? null;
+            return [
+                'nombre'          => trim($it?->nombre_custom ?? $g->clave),
+                'categoria'       => $it?->categoria_custom,
+                'fotos'           => $it?->bocetos_list ?? [],
+                'precio_unitario' => (float) ($it?->precio_unitario ?? 0),
+                'veces'           => (int) $g->veces,
+                'unidades'        => (int) $g->unidades,
+            ];
+        })->values());
+    }
+
+    /**
      * GET /api/productos/sugerencias?q=term
      *
      * "¿Quizás quisiste decir…?" — productos parecidos por similitud cuando la

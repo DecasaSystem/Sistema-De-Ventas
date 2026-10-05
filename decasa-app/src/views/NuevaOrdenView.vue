@@ -455,7 +455,60 @@ function agregarItemRestauracion() {
 const modoProductoCustom = ref(false)
 // `unico` = el mueble ya está hecho y solo hay uno. No está en el catálogo
 // —no paga meterlo, porque no se va a fabricar más— pero tampoco va al taller.
-const productoCustomForm = ref({ nombre: '', categoria: '', precio_unitario: 0, cantidad: 1, unico: false })
+const productoCustomForm = ref({ nombre: '', categoria: '', precio_unitario: 0, cantidad: 1, unico: false, fotos: [] })
+
+// Fotos desde el formulario mismo: el mueble único ya existe y lo natural es
+// tomarle la foto al describirlo. Pasan al carrito como las del ítem.
+async function onFotosProductoCustom(event) {
+  for (const original of Array.from(event.target.files ?? [])) {
+    const file = await comprimirAlTomar(original)
+    productoCustomForm.value.fotos.push({ blob: file, preview: URL.createObjectURL(file) })
+  }
+  event.target.value = ''
+}
+
+function quitarFotoProductoCustom(idx) {
+  const [f] = productoCustomForm.value.fotos.splice(idx, 1)
+  if (f?.blob) URL.revokeObjectURL(f.preview)
+}
+
+// Muebles únicos que ya se vendieron: de un modelo que no se vuelve a hacer
+// pueden quedar varias piezas en distintas tiendas, y al vender otra se
+// escoge de la lista en vez de escribirlo de nuevo.
+const unicosSugeridos = ref([])
+const mostrarUnicos   = ref(false)
+let _unicosTimer = null
+function buscarUnicos() {
+  clearTimeout(_unicosTimer)
+  if (!productoCustomForm.value.unico) { unicosSugeridos.value = []; return }
+  _unicosTimer = setTimeout(async () => {
+    try {
+      const { data } = await api.get('/productos/unicos', { params: { q: productoCustomForm.value.nombre.trim() } })
+      unicosSugeridos.value = data
+    } catch { unicosSugeridos.value = [] }
+  }, 250)
+}
+watch(() => productoCustomForm.value.unico, (si) => { if (si) buscarUnicos(); else unicosSugeridos.value = [] })
+
+function ocultarUnicos() {
+  setTimeout(() => { mostrarUnicos.value = false }, 150)
+}
+
+function elegirUnico(u) {
+  const f = productoCustomForm.value
+  f.nombre    = u.nombre
+  f.categoria = u.categoria ?? ''
+  f.precio_unitario = u.precio_unitario || 0
+  // Sus fotos ya están subidas: van por url, sin volver a subirlas.
+  if (!f.fotos.length) f.fotos = (u.fotos ?? []).map(url => ({ blob: null, url, preview: url }))
+  mostrarUnicos.value = false
+}
+
+function cancelarProductoCustom() {
+  productoCustomForm.value.fotos.forEach(f => { if (f.blob) URL.revokeObjectURL(f.preview) })
+  productoCustomForm.value = { nombre: '', categoria: '', precio_unitario: 0, cantidad: 1, unico: false, fotos: [] }
+  modoProductoCustom.value = false
+}
 
 // ── Crear producto nuevo desde la orden ───────────────────────────────────────
 const busquedaHecha        = ref(false)
@@ -592,9 +645,9 @@ function agregarProductoCustom() {
     specs_notas: '',
     tienda_origen: null,
     fecha_entrega_prometida: null,
-    boceto_blobs: [],
-    boceto_urls: [],
-    boceto_previews: [],
+    boceto_blobs:    f.fotos.map(x => x.blob),
+    boceto_urls:     f.fotos.map(x => x.url ?? ''),
+    boceto_previews: f.fotos.map(x => x.preview),
     _cotizarPrecio:      false,   // se activa a mano si hay que consultarlo
     _mostrarCalculadora: false,
     _calculandoPrecio:   false,
@@ -602,7 +655,8 @@ function agregarProductoCustom() {
     _precioReferencia:   null,
     _telaSelections:     {},
   })
-  productoCustomForm.value = { nombre: '', categoria: '', precio_unitario: 0, cantidad: 1, unico: false }
+  // Las previews pasaron al ítem: no se revocan aquí.
+  productoCustomForm.value = { nombre: '', categoria: '', precio_unitario: 0, cantidad: 1, unico: false, fotos: [] }
   modoProductoCustom.value = false
 }
 
@@ -2553,6 +2607,11 @@ async function restaurarBorrador(d) {
     d.restauracionItem.foto_preview = d.restauracionItem.foto_blob
       ? URL.createObjectURL(d.restauracionItem.foto_blob) : null
   }
+  if (d.productoCustomForm) {
+    d.productoCustomForm.fotos = (d.productoCustomForm.fotos ?? [])
+      .filter(f => f.blob || f.url)
+      .map(f => ({ blob: f.blob ?? null, url: f.url, preview: f.blob ? URL.createObjectURL(f.blob) : f.url }))
+  }
   d.facturaFotos = (d.facturaFotos ?? [])
     .filter(f => f.file || f.url)
     .map(f => ({ ...f, preview: f.file ? URL.createObjectURL(f.file) : f.url }))
@@ -3286,11 +3345,39 @@ onBeforeUnmount(() => {
             </span>
           </label>
 
-          <input
-            v-model="productoCustomForm.nombre"
-            class="input text-sm"
-            :placeholder="productoCustomForm.unico ? 'Nombre del mueble *' : 'Nombre del producto *'"
-          />
+          <div class="relative">
+            <input
+              v-model="productoCustomForm.nombre"
+              class="input text-sm"
+              :placeholder="productoCustomForm.unico ? 'Nombre del mueble * (o escoge uno que ya se vendió)' : 'Nombre del producto *'"
+              @input="buscarUnicos(); mostrarUnicos = true"
+              @focus="mostrarUnicos = true; buscarUnicos()"
+              @blur="ocultarUnicos"
+            />
+            <!-- Los que ya se vendieron: uno del que salieron varias piezas
+                 se escoge aquí en vez de escribirlo otra vez. -->
+            <ul
+              v-if="productoCustomForm.unico && mostrarUnicos && unicosSugeridos.length"
+              class="absolute z-20 left-0 right-0 mt-1 bg-white border border-emerald-200 rounded-xl shadow-lg max-h-64 overflow-y-auto divide-y divide-gray-100"
+            >
+              <li class="px-3 py-1.5 text-[11px] text-gray-400">Ya vendidos — escoge si es el mismo</li>
+              <li
+                v-for="u in unicosSugeridos" :key="u.nombre"
+                @mousedown.prevent="elegirUnico(u)"
+                class="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-emerald-50"
+              >
+                <img v-if="u.fotos?.[0]" :src="u.fotos[0]" alt="" class="w-9 h-9 rounded-md object-cover border border-gray-200 flex-shrink-0" />
+                <div v-else class="w-9 h-9 rounded-md bg-gray-100 flex-shrink-0" />
+                <div class="min-w-0 flex-1">
+                  <p class="text-sm font-medium text-gray-800 truncate">{{ u.nombre }}</p>
+                  <p class="text-[11px] text-gray-500 truncate">
+                    {{ u.categoria ? `${u.categoria} · ` : '' }}vendido {{ u.veces }} {{ u.veces === 1 ? 'vez' : 'veces' }}
+                    <template v-if="u.precio_unitario"> · último ${{ Number(u.precio_unitario).toLocaleString('es-CO') }}</template>
+                  </p>
+                </div>
+              </li>
+            </ul>
+          </div>
           <input
             v-model="productoCustomForm.categoria"
             class="input text-sm"
@@ -3302,13 +3389,39 @@ onBeforeUnmount(() => {
               <input v-model.number="productoCustomForm.cantidad" type="number" min="1" class="input text-sm" />
             </div>
           </div>
+          <!-- Fotos -->
+          <div>
+            <p class="text-xs text-gray-500 mb-1.5">
+              {{ productoCustomForm.unico ? 'Fotos del mueble' : 'Fotos o referencia' }}
+              <span class="text-gray-400">(opcional)</span>
+            </p>
+            <div class="flex flex-wrap gap-2">
+              <div v-for="(f, i) in productoCustomForm.fotos" :key="f.preview" class="relative">
+                <img :src="f.preview" alt="Foto" class="w-20 h-20 rounded-lg object-cover border border-gray-200" />
+                <button
+                  type="button"
+                  @click="quitarFotoProductoCustom(i)"
+                  class="absolute -top-1.5 -right-1.5 bg-white rounded-full p-0.5 shadow text-red-400 hover:text-red-600"
+                ><XMarkIcon class="w-3.5 h-3.5" /></button>
+              </div>
+              <label
+                :class="['w-20 h-20 flex flex-col items-center justify-center gap-1 border-2 border-dashed rounded-lg text-[11px] text-gray-400 cursor-pointer transition-colors',
+                  productoCustomForm.unico ? 'border-emerald-200 hover:border-emerald-400 hover:text-emerald-600' : 'border-purple-200 hover:border-purple-400 hover:text-purple-600']"
+              >
+                <PhotoIcon class="w-5 h-5" />
+                Subir foto
+                <input type="file" accept="image/*" multiple class="hidden" @change="onFotosProductoCustom" />
+              </label>
+            </div>
+          </div>
+
           <p v-if="productoCustomForm.unico" class="text-xs text-emerald-700">
-            No entra al catálogo ni al inventario, y el taller no lo ve. Le pones
-            el precio y las fotos abajo, en el carrito.
+            No entra al catálogo ni al inventario, y el taller no lo ve. El precio
+            se lo pones abajo, en el carrito.
           </p>
           <p v-else class="text-xs text-amber-600">El precio se define después con el cotizador IA o manualmente.</p>
           <div class="flex gap-2">
-            <button @click="modoProductoCustom = false" class="btn-secondary flex-1 text-sm">Cancelar</button>
+            <button @click="cancelarProductoCustom" class="btn-secondary flex-1 text-sm">Cancelar</button>
             <button
               @click="agregarProductoCustom"
               :disabled="!productoCustomForm.nombre.trim() || productoCustomForm.cantidad < 1"

@@ -276,24 +276,84 @@ class StatsController extends Controller
         $tiendaId   = $request->query('tienda_id');
         $vendedorId = $user->rol === 'vendedor' ? $user->id : null;
 
-        $q = DB::table('orden_items as oi')
-            ->join('ordenes as o', 'o.id', '=', 'oi.orden_id')
-            ->join('productos as p', 'p.id', '=', 'oi.producto_id')
-            ->whereBetween('o.created_at', $this->rangoUtc($f['desde'], $f['hasta']))
-            ->whereNotIn('o.estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES))
+        $q = $this->itemsVendidos($request, $f, $tiendaId, $vendedorId)
             ->selectRaw("
-                COALESCE(p.categoria, 'Sin categoría')     AS categoria,
+                " . self::CATEGORIA_SQL . "                AS categoria,
                 SUM(oi.cantidad)                           AS cantidad,
                 SUM(oi.cantidad * oi.precio_unitario)      AS valor_total,
-                COUNT(DISTINCT p.id)                       AS num_productos
+                COUNT(DISTINCT COALESCE(CAST(p.id AS CHAR), LOWER(TRIM(oi.nombre_custom)))) AS num_productos
             ")
-            ->groupBy('categoria')
+            ->groupBy(DB::raw(self::CATEGORIA_SQL))
             ->orderByDesc('valor_total');
+
+        return response()->json($q->get());
+    }
+
+    // ─── GET /api/stats/productos/tipos ──────────────────────────────────────
+
+    /**
+     * Cuánto se vendió de cada clase: catálogo, personalizado, diseño nuevo,
+     * mueble único y restauración. Son los filtros de Reportes → Productos.
+     * Respeta categoría y búsqueda, pero no el filtro de clase (es el que se
+     * está eligiendo).
+     */
+    public function productosTipos(Request $request)
+    {
+        $user       = $request->user();
+        $f          = $this->parseFechas($request);
+        $vendedorId = $user->rol === 'vendedor' ? $user->id : null;
+
+        $q = $this->itemsVendidos($request, $f, $request->query('tienda_id'), $vendedorId, conClase: false)
+            ->selectRaw('
+                ' . \App\Models\OrdenItem::CLASE_REPORTE_SQL . ' AS clase,
+                SUM(oi.cantidad)                      AS cantidad,
+                SUM(oi.cantidad * oi.precio_unitario) AS valor_total
+            ')
+            ->groupBy(DB::raw(\App\Models\OrdenItem::CLASE_REPORTE_SQL));
+
+        return response()->json($q->get());
+    }
+
+    /** Categoría del ítem: la del catálogo, o la que se escribió a mano. */
+    private const CATEGORIA_SQL = "COALESCE(NULLIF(TRIM(p.categoria), ''), NULLIF(TRIM(oi.categoria_custom), ''), 'Sin categoría')";
+
+    /** Nombre del ítem: el del catálogo, o el que se escribió a mano. */
+    private const NOMBRE_SQL = "COALESCE(p.nombre, NULLIF(TRIM(oi.nombre_custom), ''), 'Sin nombre')";
+
+    /**
+     * Lo vendido en el período, con los filtros de Reportes → Productos.
+     *
+     * Con LEFT JOIN a productos: lo que no es de catálogo —diseños nuevos,
+     * muebles únicos, restauraciones— no tiene producto_id, y con el JOIN de
+     * antes se quedaba fuera de todas las cifras de productos.
+     */
+    private function itemsVendidos(Request $request, array $f, $tiendaId, $vendedorId, bool $conClase = true)
+    {
+        $q = DB::table('orden_items as oi')
+            ->join('ordenes as o', 'o.id', '=', 'oi.orden_id')
+            ->leftJoin('productos as p', 'p.id', '=', 'oi.producto_id')
+            ->whereBetween('o.created_at', $this->rangoUtc($f['desde'], $f['hasta']))
+            ->whereNotIn('o.estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES));
 
         if ($tiendaId)   $q->where('o.tienda_id',   $tiendaId);
         if ($vendedorId) $q->where('o.vendedor_id', $vendedorId);
 
-        return response()->json($q->get());
+        if ($categoria = $request->query('categoria')) {
+            $q->whereRaw(self::CATEGORIA_SQL . ' = ?', [$categoria]);
+        }
+        if ($busqueda = trim((string) $request->query('q', ''))) {
+            $q->whereRaw('LOWER(' . self::NOMBRE_SQL . ') LIKE ?', ['%' . mb_strtolower($busqueda) . '%']);
+        }
+
+        // clase=especiales: todo lo que no es de catálogo.
+        $clase = $request->query('clase');
+        if ($conClase && $clase === 'especiales') {
+            $q->whereRaw(\App\Models\OrdenItem::CLASE_REPORTE_SQL . " <> 'catalogo'");
+        } elseif ($conClase && in_array($clase, \App\Models\OrdenItem::CLASES_REPORTE, true)) {
+            $q->whereRaw(\App\Models\OrdenItem::CLASE_REPORTE_SQL . ' = ?', [$clase]);
+        }
+
+        return $q;
     }
 
     // ─── GET /api/stats/productos ─────────────────────────────────────────────
@@ -306,30 +366,28 @@ class StatsController extends Controller
         $tipo       = $request->query('tipo', 'valor');
         $busqueda   = trim($request->query('q', ''));
         $limit      = $busqueda ? 50 : min((int) $request->query('limit', 10), 50);
-        $categoria  = $request->query('categoria');
         $vendedorId = $user->rol === 'vendedor' ? $user->id : null;
 
-        $q = DB::table('orden_items as oi')
-            ->join('ordenes as o', 'o.id', '=', 'oi.orden_id')
-            ->join('productos as p', 'p.id', '=', 'oi.producto_id')
-            ->whereBetween('o.created_at', $this->rangoUtc($f['desde'], $f['hasta']))
-            ->whereNotIn('o.estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES))
-            ->selectRaw('
-                p.id       AS producto_id,
-                p.nombre,
-                p.categoria,
-                p.foto_url,
+        // Una fila por producto del catálogo y por clase —el sofá vendido tal
+        // cual y el mismo sofá personalizado salen aparte, cada uno con su
+        // etiqueta—. Lo que no es de catálogo se junta por el nombre que se
+        // le escribió.
+        $clase = \App\Models\OrdenItem::CLASE_REPORTE_SQL;
+        $claveCustom = "CASE WHEN p.id IS NULL THEN LOWER(TRIM(oi.nombre_custom)) END";
+
+        $q = $this->itemsVendidos($request, $f, $tiendaId, $vendedorId)
+            ->selectRaw("
+                p.id                                      AS producto_id,
+                MIN(" . self::NOMBRE_SQL . ")             AS nombre,
+                MIN(" . self::CATEGORIA_SQL . ")          AS categoria,
+                MAX(p.foto_url)                           AS foto_url,
+                {$clase}                                  AS clase,
                 SUM(oi.cantidad)                          AS cantidad,
                 SUM(oi.cantidad * oi.precio_unitario)     AS valor_total
-            ')
-            ->groupBy('p.id', 'p.nombre', 'p.categoria', 'p.foto_url')
+            ")
+            ->groupBy('p.id', DB::raw($claveCustom), DB::raw($clase))
             ->orderByDesc($tipo === 'cantidad' ? 'cantidad' : 'valor_total')
             ->limit($limit);
-
-        if ($tiendaId)   $q->where('o.tienda_id',   $tiendaId);
-        if ($vendedorId) $q->where('o.vendedor_id', $vendedorId);
-        if ($categoria)  $q->where('p.categoria',   $categoria);
-        if ($busqueda)   $q->whereRaw('LOWER(p.nombre) LIKE ?', ['%' . mb_strtolower($busqueda) . '%']);
 
         return response()->json($q->get());
     }

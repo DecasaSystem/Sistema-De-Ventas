@@ -6,7 +6,7 @@ import { Chart } from 'chart.js/auto'
 
 import {
   getPanel, getTendencia, getStatsVendedores,
-  getStatsTiendas, getProductos, getCartera, getStatsCategorias, getInteresados,
+  getStatsTiendas, getProductos, getProductosTipos, getCartera, getStatsCategorias, getInteresados,
   getStatsConductores,
 } from '@/api/stats'
 import api from '@/api'
@@ -93,6 +93,48 @@ const ordenProductos = ref('valor')
 const categorias  = ref([])
 const categoriaFiltro = ref('')
 const busquedaProducto = ref('')
+// Qué clase de producto: '' (todo), 'especiales' (todo lo que no es de
+// catálogo) o una de CLASES_PRODUCTO. Lo personalizado y lo que no existe en
+// el catálogo también se vende, y antes ni salía en esta pestaña.
+const claseFiltro = ref('')
+const tiposProductos = ref([])
+const CLASES_PRODUCTO = {
+  catalogo:        { label: 'Catálogo',      cls: 'bg-gray-100 text-gray-600' },
+  personalizado:   { label: 'Personalizado', cls: 'bg-purple-100 text-purple-700' },
+  diseno_especial: { label: 'Diseño nuevo',  cls: 'bg-amber-100 text-amber-700' },
+  producto_unico:  { label: 'Mueble único',  cls: 'bg-emerald-100 text-emerald-700' },
+  restauracion:    { label: 'Restauración',  cls: 'bg-indigo-100 text-indigo-700' },
+}
+const chipsClase = computed(() => {
+  const por = Object.fromEntries(tiposProductos.value.map(t => [t.clase, t]))
+  const total = tiposProductos.value.reduce((s, t) => s + Number(t.valor_total), 0)
+  const especiales = tiposProductos.value
+    .filter(t => t.clase !== 'catalogo')
+    .reduce((s, t) => s + Number(t.valor_total), 0)
+  return [
+    { v: '', label: 'Todos', valor: total },
+    { v: 'especiales', label: 'Todo lo especial', valor: especiales },
+    ...Object.entries(CLASES_PRODUCTO)
+      .filter(([k]) => por[k])
+      .map(([k, c]) => ({ v: k, label: c.label, valor: Number(por[k].valor_total) })),
+  ]
+})
+function paramsClase() {
+  return claseFiltro.value ? { clase: claseFiltro.value } : {}
+}
+async function filtrarPorClase(c) {
+  claseFiltro.value = c
+  const p = { ...paramsFiltro(), ...paramsClase() }
+  const [, catRes] = await Promise.all([buscarProducto(), getStatsCategorias(p)])
+  categorias.value = catRes.data
+  // La categoría elegida puede no existir en esta clase.
+  if (categoriaFiltro.value && !categorias.value.some(c => c.categoria === categoriaFiltro.value)) {
+    categoriaFiltro.value = ''
+    await buscarProducto()
+  }
+  await nextTick()
+  buildDona()
+}
 const cartera    = ref([])
 const retrasos   = ref([])
 const interesados = ref(null)
@@ -113,7 +155,7 @@ function onBusquedaInput() {
 async function cambiarOrdenProductos(tipo) {
   if (ordenProductos.value === tipo) return
   ordenProductos.value = tipo
-  if (busquedaProducto.value.trim() || categoriaFiltro.value) {
+  if (busquedaProducto.value.trim() || categoriaFiltro.value || claseFiltro.value) {
     await buscarProducto()
   } else {
     const { data } = await getProductos({ ...paramsFiltro(), limit: 10, tipo })
@@ -122,7 +164,7 @@ async function cambiarOrdenProductos(tipo) {
 }
 
 async function buscarProducto() {
-  const p = { ...paramsFiltro() }
+  const p = { ...paramsFiltro(), ...paramsClase() }
   if (categoriaFiltro.value) p.categoria = categoriaFiltro.value
   if (busquedaProducto.value.trim()) p.q = busquedaProducto.value.trim()
   const { data } = await getProductos({ ...p, limit: busquedaProducto.value.trim() ? 50 : 20, tipo: ordenProductos.value })
@@ -274,6 +316,7 @@ async function cargarTodo() {
   loading.value = true
   categoriaFiltro.value = ''
   busquedaProducto.value = ''
+  claseFiltro.value = ''
   interesados.value = null
   conductores.value = null
   canalesData.value = null
@@ -291,8 +334,10 @@ async function cargarTodo() {
       getCartera(p),
       api.get('/reportes/retrasos'),
       getStatsCategorias(p),
+      getProductosTipos(p),
     ]
-    const [panelRes, tendRes, vendRes, tiendRes, prodRes, cartRes, retRes, catRes] = await Promise.all(promises)
+    const [panelRes, tendRes, vendRes, tiendRes, prodRes, cartRes, retRes, catRes, tiposRes] = await Promise.all(promises)
+    tiposProductos.value = tiposRes.data
     panel.value       = panelRes.data
     tendencia.value   = tendRes.data
     vendedores.value  = vendRes.data
@@ -312,7 +357,7 @@ async function cargarTodo() {
 async function filtrarPorCategoria(cat) {
   categoriaFiltro.value = cat
   busquedaProducto.value = ''
-  const p = { ...paramsFiltro(), ...(cat ? { categoria: cat } : {}) }
+  const p = { ...paramsFiltro(), ...paramsClase(), ...(cat ? { categoria: cat } : {}) }
   const { data } = await getProductos({ ...p, limit: 20, tipo: ordenProductos.value })
   productos.value = data
   await nextTick()
@@ -485,6 +530,7 @@ async function exportar(tipo) {
     desde: f.desde,
     hasta: f.hasta,
     ...(tiendaFiltro.value ? { tienda_id: tiendaFiltro.value } : {}),
+    ...(tipo === 'productos-top' ? paramsClase() : {}),
   })
   try {
     const res = await api.get(`/reportes/exportar?${params}`, {
@@ -894,6 +940,20 @@ onBeforeUnmount(() => {
       <!-- ══════ TAB: PRODUCTOS ══════ -->
       <div v-show="tabActivo === 'productos'" class="space-y-4">
 
+        <!-- Por clase: catálogo, personalizado, diseño nuevo, único, restauración -->
+        <div v-if="tiposProductos.length" class="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+          <button
+            v-for="c in chipsClase" :key="c.v"
+            type="button"
+            @click="filtrarPorClase(c.v)"
+            :class="['shrink-0 rounded-xl border px-3 py-1.5 text-left transition-colors',
+              claseFiltro === c.v ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-gray-200 text-gray-700 hover:border-blue-300']"
+          >
+            <span class="block text-xs font-semibold whitespace-nowrap">{{ c.label }}</span>
+            <span :class="['block text-[11px] whitespace-nowrap', claseFiltro === c.v ? 'text-blue-100' : 'text-gray-400']">{{ copCompact(c.valor) }}</span>
+          </button>
+        </div>
+
         <!-- Stats por categoría -->
         <div v-if="categorias.length" class="bg-white rounded-xl shadow-sm p-4">
           <p class="text-sm font-semibold text-gray-700 mb-3">Ventas por categoría</p>
@@ -945,6 +1005,7 @@ onBeforeUnmount(() => {
             <p class="text-sm font-semibold text-gray-700">
               <template v-if="busquedaProducto">Resultados: "{{ busquedaProducto }}"</template>
               <template v-else-if="categoriaFiltro">Top productos — {{ categoriaFiltro }}</template>
+              <template v-else-if="claseFiltro">Top — {{ chipsClase.find(c => c.v === claseFiltro)?.label }}</template>
               <template v-else>Top 10 productos</template>
             </p>
             <!-- Por plata o por unidades -->
@@ -965,11 +1026,17 @@ onBeforeUnmount(() => {
             >{{ exportandoTipo === 'productos-top' ? 'Exportando...' : 'Exportar' }}</button>
           </div>
           <ul class="divide-y divide-gray-100">
-            <li v-for="(p, i) in productos" :key="p.producto_id"
+            <li v-for="(p, i) in productos" :key="`${p.clase}-${p.producto_id ?? p.nombre}`"
               class="flex items-center gap-3 px-4 py-3">
               <span class="w-6 h-6 rounded-full bg-blue-50 text-blue-600 text-xs font-bold flex items-center justify-center flex-shrink-0">{{ i + 1 }}</span>
               <div class="flex-1 min-w-0">
-                <p class="text-sm font-medium text-gray-800 truncate">{{ p.nombre }}</p>
+                <p class="text-sm font-medium text-gray-800 flex items-center gap-1.5 min-w-0">
+                  <span class="truncate">{{ p.nombre }}</span>
+                  <span
+                    v-if="p.clase && p.clase !== 'catalogo'"
+                    :class="['shrink-0 text-[10px] font-semibold rounded-full px-1.5 py-0.5', CLASES_PRODUCTO[p.clase]?.cls]"
+                  >{{ CLASES_PRODUCTO[p.clase]?.label }}</span>
+                </p>
                 <p class="text-xs text-gray-400">{{ p.categoria }} · x{{ p.cantidad }} uds.</p>
               </div>
               <MoneyDisplay :amount="p.valor_total" class="text-sm font-semibold flex-shrink-0" />

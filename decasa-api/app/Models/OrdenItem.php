@@ -106,6 +106,22 @@ class OrdenItem extends Model
         return 'personalizado';
     }
 
+    /**
+     * El tipo_item de arriba en SQL, juntado en las clases que se ven en
+     * Reportes (tabla con alias `oi`). Lo que se fabrica igual al catálogo
+     * cuenta como catálogo, y el retapizado como personalizado.
+     */
+    public const CLASE_REPORTE_SQL = "CASE
+        WHEN COALESCE(oi.es_restauracion, 0) = 1 THEN 'restauracion'
+        WHEN COALESCE(oi.producto_unico, 0) = 1  THEN 'producto_unico'
+        WHEN oi.producto_id IS NULL              THEN 'diseno_especial'
+        WHEN COALESCE(oi.retapizar, 0) = 1       THEN 'personalizado'
+        WHEN COALESCE(oi.es_personalizado, 0) = 1 AND COALESCE(oi.fabricar_pedido, 0) = 0 THEN 'personalizado'
+        ELSE 'catalogo'
+    END";
+
+    public const CLASES_REPORTE = ['catalogo', 'personalizado', 'diseno_especial', 'producto_unico', 'restauracion'];
+
     public function getBocetosListAttribute(): array
     {
         if ($this->boceto_fotos) {

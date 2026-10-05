@@ -653,6 +653,15 @@ class ReporteController extends Controller
     {
         [$desde, $hasta] = $this->rango($r);
         $tiendaId = $r->query('tienda_id');
+        $clase    = \App\Models\OrdenItem::CLASE_REPORTE_SQL;
+        $etiquetas = [
+            'catalogo'        => 'Catálogo',
+            'personalizado'   => 'Personalizado',
+            'diseno_especial' => 'Diseño nuevo',
+            'producto_unico'  => 'Mueble único',
+            'restauracion'    => 'Restauración',
+        ];
+        $filtroClase = $r->query('clase');
 
         $rows = DB::table('orden_items as oi')
             ->leftJoin('productos as p', 'p.id', '=', 'oi.producto_id')
@@ -662,25 +671,28 @@ class ReporteController extends Controller
             ->whereBetween('o.created_at', [$desde . ' 00:00:00', $hasta . ' 23:59:59'])
             ->when($tiendaId, fn($q) => $q->where('o.tienda_id', $tiendaId))
             ->when($vendedorId, fn($q) => $q->where('o.vendedor_id', $vendedorId))
-            ->selectRaw('
-                COALESCE(p.nombre, oi.nombre_custom, "Producto personalizado") AS nombre,
+            ->when($filtroClase === 'especiales', fn($q) => $q->whereRaw("{$clase} <> 'catalogo'"))
+            ->when(isset($etiquetas[$filtroClase]), fn($q) => $q->whereRaw("{$clase} = ?", [$filtroClase]))
+            ->selectRaw("
+                COALESCE(p.nombre, oi.nombre_custom, 'Producto personalizado') AS nombre,
                 t.nombre            AS tienda,
-                COALESCE(p.categoria, oi.categoria_custom, "personalizado")    AS categoria,
+                COALESCE(p.categoria, oi.categoria_custom, 'personalizado')    AS categoria,
+                {$clase}            AS clase,
                 SUM(oi.cantidad)                        AS total_unidades,
                 SUM(oi.cantidad * oi.precio_unitario)   AS total_valor
-            ')
-            ->groupBy('p.id', DB::raw('COALESCE(p.nombre, oi.nombre_custom, "Producto personalizado")'), DB::raw('COALESCE(p.categoria, oi.categoria_custom, "personalizado")'), 't.id', 't.nombre')
+            ")
+            ->groupBy('p.id', DB::raw("COALESCE(p.nombre, oi.nombre_custom, 'Producto personalizado')"), DB::raw("COALESCE(p.categoria, oi.categoria_custom, 'personalizado')"), DB::raw($clase), 't.id', 't.nombre')
             ->orderByDesc('total_unidades')
             ->limit(200)
             ->get()
             ->map(fn($p) => [
-                $p->nombre, $p->tienda, $p->categoria, $p->total_unidades,
+                $p->nombre, $etiquetas[$p->clase] ?? $p->clase, $p->tienda, $p->categoria, $p->total_unidades,
                 number_format($p->total_valor, 2, '.', ''),
             ]);
 
         return [
             $rows,
-            ['Producto', 'Tienda', 'Categoría', 'Unidades Vendidas', 'Valor Total (COP)'],
+            ['Producto', 'Tipo', 'Tienda', 'Categoría', 'Unidades Vendidas', 'Valor Total (COP)'],
             "productos_top_{$desde}_{$hasta}.xlsx",
             "Top Productos {$desde} al {$hasta}",
             [],
