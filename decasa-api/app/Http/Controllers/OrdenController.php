@@ -444,6 +444,9 @@ class OrdenController extends Controller
             // costo colgada).
             'borrador_id'                        => 'nullable|integer',
             'items.*.id'                         => 'nullable|integer',
+            // El anexo de garantías firmado en el sistema (en la tienda o a
+            // distancia). Ver AnexoGarantiaController.
+            'anexo_id'                           => 'nullable|integer',
         ]);
 
         // El mismo envío que ya llegó (se cortó el internet, la respuesta no
@@ -636,6 +639,37 @@ class OrdenController extends Controller
                       // su precio se pone al venderlo, no lo calcula el taller.
                       && ! ($i['producto_unico'] ?? false)
         );
+
+        // El anexo firmado en el sistema. Tiene que ser de este cliente y no
+        // estar pegado a otra orden; y si se firmó a distancia viendo el
+        // resumen, la orden tiene que ser la misma que el cliente vio.
+        $anexo = null;
+        if (! empty($data['anexo_id'])) {
+            $anexo = \App\Models\AnexoGarantia::find($data['anexo_id']);
+            if (! $anexo || ! $anexo->estaFirmado()) {
+                return response()->json(['message' => 'El anexo de garantías todavía no está firmado.'], 422);
+            }
+            if ($anexo->orden_id && (int) $anexo->orden_id !== (int) $borradorId) {
+                return response()->json(['message' => 'Ese anexo ya es de otra orden. Pídele al cliente que firme uno nuevo.'], 422);
+            }
+            if ($anexo->cliente_id && (int) $anexo->cliente_id !== (int) $data['cliente_id']) {
+                return response()->json(['message' => 'El anexo lo firmó otro cliente.'], 422);
+            }
+            if ($anexo->resumen_hash && ! $guardarBorrador) {
+                $huella = \App\Models\AnexoGarantia::huella($data['items'], (float) $descuentoTotal + (float) $descuentoCondicionado);
+                if (! hash_equals($anexo->resumen_hash, $huella)) {
+                    return response()->json([
+                        'message' => 'La orden cambió después de que el cliente la firmó (productos, cantidades o precios). '
+                                   . 'Envíale el enlace otra vez para que firme lo que de verdad va.',
+                        'codigo'  => 'anexo_desactualizado',
+                    ], 422);
+                }
+            }
+            // Una sola firma: la del anexo sirve de firma de la orden.
+            if (empty($data['firma_url']) && $anexo->firma_url) {
+                $data['firma_url'] = $anexo->firma_url;
+            }
+        }
 
         if (! $guardarBorrador) {
             // Firma requerida solo cuando no hay cotización pendiente
@@ -989,6 +1023,11 @@ class OrdenController extends Controller
             throw $e;
         }
 
+        // El anexo firmado queda de esta orden: en su PDF sale el n° de pedido.
+        if ($anexo && (int) $anexo->orden_id !== (int) $orden->id) {
+            $anexo->update(['orden_id' => $orden->id]);
+        }
+
         $relacionesRespuesta = [
             'cliente:id,nombre,cedula,telefono',
             'vendedor:id,nombre,independiente',
@@ -1252,6 +1291,9 @@ class OrdenController extends Controller
             'items.produccion.despachador:id,nombre',
             'pagos.facturacionTomadaPor:id,nombre',
             'ediciones.usuario:id,nombre',
+            ...(\App\Models\AnexoGarantia::hayTabla()
+                ? ['anexoGarantia:id,orden_id,modo,estado,nombre_firmante,documento_firmante,firmado_at,firma_url']
+                : []),
         ])->findOrFail($id);
 
         // La misma regla que la lista: si le sale ahí, tiene que poder abrirla.
@@ -2479,6 +2521,13 @@ class OrdenController extends Controller
 
         $orden->consulta_pendiente = \App\Models\ConsultaCosto::where('orden_id', $orden->id)
             ->where('estado', 'pendiente')->exists();
+
+        // El anexo que se firmó al guardar el borrador sigue valiendo.
+        $orden->anexo_firmado = \App\Models\AnexoGarantia::hayTabla()
+            ? \App\Models\AnexoGarantia::where('orden_id', $orden->id)
+                ->where('estado', 'firmado')->latest('id')
+                ->first(['id', 'modo', 'estado', 'resumen_hash', 'firma_url', 'nombre_firmante', 'documento_firmante', 'firmado_at'])
+            : null;
 
         return response()->json($orden);
     }

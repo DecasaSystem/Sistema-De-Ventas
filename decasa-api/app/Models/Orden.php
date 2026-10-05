@@ -804,6 +804,13 @@ class Orden extends Model
         return $this->hasMany(Pago::class, 'orden_id');
     }
 
+    /** El anexo de garantías firmado dentro del sistema (el último, si hubo varios). */
+    public function anexoGarantia()
+    {
+        return $this->hasOne(AnexoGarantia::class, 'orden_id')
+            ->ofMany(['id' => 'max'], fn ($q) => $q->where('estado', 'firmado'));
+    }
+
     /**
      * Lo que lleva pagado el cliente.
      *

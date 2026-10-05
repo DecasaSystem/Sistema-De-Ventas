@@ -17,6 +17,9 @@ const routes = [
   { path: '/catalogo/:seccion', name: 'catalogo-publico', component: () => import('@/views/CatalogoPublicoView.vue') },
   // Catálogos visuales públicos: la portada con todas las categorías y el
   // visor tipo revista de cada una. También sin sesión.
+  // Donde el cliente lee y firma el anexo de garantías (el enlace que le
+  // llega por WhatsApp o correo). Sin sesión: la llave es el token.
+  { path: '/firmar/:token', name: 'firmar-anexo', component: () => import('@/views/FirmarAnexoView.vue') },
   { path: '/c', name: 'catalogos-portada', component: () => import('@/views/CatalogosPortadaView.vue') },
   { path: '/c/:slug', name: 'catalogo-visor', component: () => import('@/views/CatalogoVisorView.vue') },
   { path: '/',        name: 'dashboard',  component: () => import('@/views/DashboardView.vue'),  meta: { requiresAuth: true } },

@@ -18,6 +18,7 @@ import EntregaDetalleModal from '@/components/despacho/EntregaDetalleModal.vue'
 import { getDevoluciones, crearDevolucion } from '@/api/devoluciones'
 import { tomarFacturacion, marcarFacturada } from '@/api/pagos'
 import { getReceptores, crearConsulta, getConsultas, ajustarPrecio as ajustarPrecioApi } from '@/api/consultas'
+import { pdfAnexo } from '@/api/anexos'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import RegistroPagoModal from '@/components/ordenes/RegistroPagoModal.vue'
@@ -1287,6 +1288,16 @@ async function descargarPdf() {
   }
 }
 
+/** El anexo de garantías firmado en el sistema, como PDF (con el n° de pedido). */
+async function verAnexoGarantia() {
+  try {
+    const res = await pdfAnexo(orden.value.anexo_garantia.id)
+    window.open(URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' })), '_blank')
+  } catch {
+    toast.error('No se pudo abrir el anexo.')
+  }
+}
+
 async function descargarActa() {
   if (descargandoActa.value) return
   descargandoActa.value = true
@@ -2176,6 +2187,29 @@ onMounted(() => { cargarTipos(); cargarOrden() })
             @click="verFactura = url"
           />
         </div>
+      </div>
+
+      <!-- Anexo de garantías firmado en el sistema -->
+      <div v-if="orden.anexo_garantia" class="bg-white rounded-xl shadow-sm p-4 flex items-center justify-between gap-3">
+        <div class="min-w-0">
+          <div class="flex items-center gap-1.5">
+            <p class="text-xs font-semibold text-gray-500 uppercase">Anexo de garantías</p>
+            <span class="text-xs bg-green-100 text-green-700 font-semibold px-2 py-0.5 rounded-full">✓ Firmado</span>
+          </div>
+          <p class="text-xs text-gray-500 mt-0.5 truncate">
+            {{ orden.anexo_garantia.nombre_firmante }}
+            · {{ orden.anexo_garantia.modo === 'remoto' ? 'desde su teléfono' : 'en la tienda' }}
+            · {{ formatDateTime(orden.anexo_garantia.firmado_at) }}
+          </p>
+        </div>
+        <button
+          type="button"
+          @click="verAnexoGarantia"
+          class="flex-shrink-0 flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium"
+        >
+          <ArrowDownTrayIcon class="w-3.5 h-3.5" />
+          Ver PDF
+        </button>
       </div>
 
       <!-- Foto del anexo firmado -->

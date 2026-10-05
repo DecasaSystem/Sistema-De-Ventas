@@ -22,6 +22,8 @@ import { ArrowPathIcon, SparklesIcon, XMarkIcon } from '@heroicons/vue/24/solid'
 import { ArrowPathIcon as ArrowPathOutlineIcon, PhotoIcon, UserGroupIcon, BuildingStorefrontIcon, ArrowPathIcon as ConvertIcon, ExclamationTriangleIcon, PencilIcon, MapPinIcon, SwatchIcon, CurrencyDollarIcon, PlusIcon, GiftIcon, ChevronDownIcon } from '@heroicons/vue/24/outline'
 import { getReceptores, crearConsulta } from '@/api/consultas'
 import FirmaCanvas from '@/components/FirmaCanvas.vue'
+import AnexoFirma from '@/components/anexo/AnexoFirma.vue'
+import { crearAnexo, getAnexo, getAnexoPublico, firmarAnexo, enviarAnexoEmail, pdfAnexo } from '@/api/anexos'
 import BocetoCanvas from '@/components/BocetoCanvas.vue'
 import DireccionColombia from '@/components/DireccionColombia.vue'
 import ComboInput from '@/components/common/ComboInput.vue'
@@ -1804,6 +1806,206 @@ const facturaFotoUrl       = computed(() => facturaFotos.value[0]?.url ?? '')
 const firmaBlob            = ref(null)
 const firmaUrl             = ref('')
 watch(firmaBlob, () => { firmaUrl.value = '' })
+// Firmó aquí, firmó el anexo, o ya venía firmada del borrador.
+const tieneFirma = computed(() => !!firmaBlob.value || !!firmaUrl.value)
+
+// ── Anexo de garantías firmado en el sistema ─────────────────────────────────
+// En la tienda: el cliente lo lee y firma aquí mismo. A distancia: se le
+// manda un enlace (WhatsApp, correo) y lo firma en su teléfono viendo el
+// resumen del pedido; aquí aparece al instante. La firma del anexo sirve
+// de firma de la orden: el cliente firma una sola vez.
+// `anexo`: { id, modo, estado, url, firma_url, nombre_firmante, firmado_at, lo_que_vio }
+const anexo = ref(null)
+const anexoContenido     = ref(null)    // texto del anexo para el modal de la tienda
+const anexoToken         = ref(null)    // el de la tienda: se firma por la misma ruta que el cliente
+const anexoIdAqui        = ref(null)
+const mostrarAnexoAqui   = ref(false)
+const preparandoAnexo    = ref(false)
+const firmandoAnexo      = ref(false)
+const enviandoAnexoEmail = ref(false)
+const emailAnexo         = ref('')
+// La firma de la orden salió del anexo (y no del recuadro de abajo).
+const firmaDesdeAnexo = computed(() => !!anexo.value?.firma_url && firmaUrl.value === anexo.value.firma_url && !firmaBlob.value)
+
+/** Las líneas tal como viajan al crear la orden: con ellas se sabe si cambió. */
+function lineasDeLaOrden() {
+  return items.value.map(i => {
+    const { cantidad, precio_unitario } = lineaParaEnviar(i, i._cotizarPrecio ? 0 : precioEfectivo(i))
+    return {
+      producto_id:   i.producto_id || null,
+      nombre_custom: i.producto_id ? null : (i.nombre_custom || null),
+      cantidad,
+      precio_unitario,
+    }
+  })
+}
+function huellaLocal() {
+  return JSON.stringify({ l: lineasDeLaOrden(), t: Math.round(valorTotal.value) })
+}
+
+/** Lo que el cliente ve de su pedido antes de firmar. */
+function resumenParaCliente() {
+  return {
+    items: items.value.map(i => ({
+      nombre:   i.nombre,
+      detalle:  [i.variante_label, i._regalo ? 'Obsequio' : null, i._cotizarPrecio ? 'Precio por confirmar' : null].filter(Boolean).join(' · ') || null,
+      cantidad: i.cantidad,
+      precio:   i._cotizarPrecio ? 0 : precioEfectivo(i),
+    })),
+    descuentos:    Math.round((Number(descuentoTotal.value) || 0) + (Number(descuentoCondicionado.value) || 0)),
+    total:         Math.round(valorTotal.value),
+    anticipo:      Math.round(Number(anticipo_monto.value) || 0),
+    fecha_entrega: fechaSugeridaVendedor.value || null,
+    tienda:        tiendas.value.find(t => t.id == tiendaId.value)?.nombre ?? null,
+    lineas:        lineasDeLaOrden(),
+  }
+}
+
+// Si el cliente firmó a distancia y después se cambió la orden, lo que firmó
+// ya no es lo que va. El servidor tampoco la deja crear así.
+const anexoDesactualizado = computed(() =>
+  anexo.value?.modo === 'remoto' && anexo.value?.lo_que_vio && anexo.value.lo_que_vio !== huellaLocal()
+)
+
+async function firmarAnexoAqui() {
+  if (!clienteSeleccionado.value?.id || preparandoAnexo.value) return
+  preparandoAnexo.value = true
+  try {
+    const { data } = await crearAnexo({ cliente_id: clienteSeleccionado.value.id, modo: 'presencial' })
+    const { data: pub } = await getAnexoPublico(data.token)
+    anexoIdAqui.value    = data.id
+    anexoToken.value     = data.token
+    anexoContenido.value = pub
+    mostrarAnexoAqui.value = true
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudo abrir el anexo.')
+  } finally {
+    preparandoAnexo.value = false
+  }
+}
+
+async function guardarAnexoAqui(payload) {
+  firmandoAnexo.value = true
+  try {
+    await firmarAnexo(anexoToken.value, {
+      secciones: payload.secciones, checklist: payload.checklist,
+      nombre: payload.nombre, documento: payload.documento, firma: payload.firma,
+    })
+    const { data } = await getAnexo(anexoIdAqui.value)
+    ponerAnexo(data)
+    mostrarAnexoAqui.value = false
+    toast.success('Anexo firmado.')
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudo guardar el anexo. Vuelve a darle.')
+  } finally {
+    firmandoAnexo.value = false
+  }
+}
+
+async function enviarAnexoAlCliente() {
+  if (!clienteSeleccionado.value?.id || preparandoAnexo.value) return
+  if (!items.value.length) { toast.error('Agrega los productos antes de enviárselo al cliente.'); return }
+  preparandoAnexo.value = true
+  try {
+    const lo_que_vio = huellaLocal()
+    const { data } = await crearAnexo({ cliente_id: clienteSeleccionado.value.id, modo: 'remoto', resumen: resumenParaCliente() })
+    anexo.value = { ...data, lo_que_vio }
+    emailAnexo.value = clienteSeleccionado.value?.email ?? ''
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudo preparar el enlace.')
+  } finally {
+    preparandoAnexo.value = false
+  }
+}
+
+function ponerAnexo(data) {
+  const antes = anexo.value
+  anexo.value = { ...data, lo_que_vio: antes?.id === data.id ? antes.lo_que_vio : null }
+  // Una sola firma: la del anexo queda como firma de la orden si todavía
+  // no se firmó abajo.
+  if (data.estado === 'firmado' && data.firma_url && !firmaBlob.value && !firmaUrl.value) {
+    firmaUrl.value = data.firma_url
+  }
+}
+
+function quitarAnexo() {
+  if (firmaDesdeAnexo.value) firmaUrl.value = ''
+  anexo.value = null
+}
+
+function mensajeWhatsAppAnexo() {
+  const nombre = clienteSeleccionado.value?.nombre?.split(' ')[0] ?? ''
+  return `Hola${nombre ? ` ${nombre}` : ''}, soy ${auth.usuario?.nombre ?? 'tu asesor'} de Decasa. ` +
+    `Aquí puedes revisar tu pedido y firmar el documento de garantías: ${anexo.value?.url}`
+}
+function abrirWhatsAppAnexo() {
+  let tel = String(clienteSeleccionado.value?.telefono ?? '').replace(/\D/g, '')
+  if (tel.length === 10) tel = `57${tel}`
+  const url = `https://wa.me/${tel}?text=${encodeURIComponent(mensajeWhatsAppAnexo())}`
+  window.open(url, '_blank', 'noopener')
+}
+async function enviarCorreoAnexo() {
+  if (!anexo.value?.id || enviandoAnexoEmail.value) return
+  enviandoAnexoEmail.value = true
+  try {
+    const { data } = await enviarAnexoEmail(anexo.value.id, emailAnexo.value.trim())
+    toast.success(data.message ?? 'Enviado.')
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudo enviar el correo.')
+  } finally {
+    enviandoAnexoEmail.value = false
+  }
+}
+async function copiarEnlaceAnexo() {
+  try {
+    await navigator.clipboard.writeText(anexo.value.url)
+    toast.success('Enlace copiado.')
+  } catch {
+    toast.info(anexo.value.url)
+  }
+}
+async function verPdfAnexo() {
+  try {
+    const res = await pdfAnexo(anexo.value.id)
+    window.open(URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' })), '_blank')
+  } catch {
+    toast.error('No se pudo abrir el PDF del anexo.')
+  }
+}
+
+// Esperar la firma del cliente: al instante por el canal del anexo y, por si
+// la conexión en vivo se cae, preguntando cada pocos segundos.
+let _canalAnexo = null
+let _sondeoAnexo = null
+async function refrescarAnexo() {
+  if (!anexo.value?.id) return
+  try {
+    const { data } = await getAnexo(anexo.value.id)
+    const yaEstaba = anexo.value?.estado === 'firmado'
+    ponerAnexo(data)
+    if (!yaEstaba && data.estado === 'firmado') {
+      toast.success(`${data.nombre_firmante ?? 'El cliente'} firmó ✓`)
+    }
+  } catch { /* se vuelve a intentar en el siguiente sondeo */ }
+}
+function dejarDeEsperarAnexo() {
+  if (_canalAnexo && window.Echo) window.Echo.leave(_canalAnexo)
+  _canalAnexo = null
+  clearInterval(_sondeoAnexo)
+  _sondeoAnexo = null
+}
+watch(() => [anexo.value?.id, anexo.value?.estado], ([id, estado]) => {
+  dejarDeEsperarAnexo()
+  if (!id || estado !== 'pendiente') return
+  if (window.Echo) {
+    _canalAnexo = `anexo.${id}`
+    window.Echo.channel(_canalAnexo).listen('.anexo.firmado', refrescarAnexo)
+  }
+  _sondeoAnexo = setInterval(() => {
+    if (document.visibilityState === 'visible') refrescarAnexo()
+  }, 5000)
+}, { immediate: true })
+onBeforeUnmount(dejarDeEsperarAnexo)
 
 // Foto del anexo firmado (solo presencial)
 const anexoFotoFile      = ref(null)
@@ -2219,7 +2421,7 @@ const resumenOrden = computed(() => {
     envio:       [direccionEnvio.value, ciudadEnvio.value, departamentoEnvio.value].map(s => (s ?? '').trim()).filter(Boolean).join(', ') || null,
     notas:       notas.value.trim() || null,
     fotosFactura: facturaFotos.value.length,
-    firma:       !!firmaBlob.value,
+    firma:       tieneFirma.value,
     seLlevaTodo: seLlevaTodo.value,
     seLlevaAlgo: seLlevaAlgo.value,
   }
@@ -2341,6 +2543,7 @@ async function submit() {
       factura_fotos:        facturaFotos.value.map(f => f.url).filter(Boolean),
       firma_url:            firmaUrl.value        || undefined,
       anexo_foto_url:       anexoFotoUrl.value    || undefined,
+      anexo_id:             anexo.value?.estado === 'firmado' ? anexo.value.id : undefined,
       departamento_envio:   departamentoEnvio.value || undefined,
       ciudad_envio:         ciudadEnvio.value || undefined,
       direccion_envio:      direccionEnvio.value || undefined,
@@ -2702,7 +2905,7 @@ const camposBorrador = {
   pagoSplit, anticipo_monto1_input, anticipo_metodo2, anticipo_referencia2,
   notas, fechaSugeridaVendedor, esCompartida, covendedorId, tiendaAbonadaId, entregaInmediata,
   departamentoEnvio, ciudadEnvio, direccionEnvio,
-  facturaFotos, firmaBlob, firmaUrl, anexoFotoFile, anexoFotoUrl,
+  facturaFotos, firmaBlob, firmaUrl, anexoFotoFile, anexoFotoUrl, anexo,
   cotizarReceptorId, cotizarNotas,
 }
 
@@ -2939,6 +3142,9 @@ async function cargarBorradorServidor() {
     anexoFotoUrl.value = o.anexo_foto_url ?? ''
 
     consultaYaPedida.value = !!o.consulta_pendiente
+    // El anexo que se firmó antes de guardar el borrador sigue valiendo (si
+    // la orden cambió, el servidor lo dice al crearla).
+    if (o.anexo_firmado) anexo.value = { ...o.anexo_firmado, lo_que_vio: null }
     borradorServidor.value = { id: o.id, cliente: o.cliente?.nombre ?? null }
     step.value = 2
   } catch (e) {
@@ -5316,13 +5522,97 @@ onBeforeUnmount(() => {
         :sugerencia="clienteSeleccionado?.direccion || ''"
       />
 
-      <!-- Foto del anexo firmado — solo cuando la compra es presencial -->
-      <div v-if="canal === 'fisica'">
+      <!-- ── Anexo de garantías ──
+           En la tienda se firma aquí mismo; a distancia se le manda el
+           enlace al cliente y su firma aparece aquí al instante. -->
+      <div class="rounded-xl border border-gray-200 bg-white p-4 space-y-3">
+        <div class="flex items-center justify-between gap-2">
+          <p class="text-sm font-semibold text-gray-800">Anexo de garantías</p>
+          <span v-if="anexo?.estado === 'firmado'" class="text-[11px] font-semibold text-green-700 bg-green-50 border border-green-200 rounded-full px-2 py-0.5">Firmado ✓</span>
+          <span v-else-if="anexo?.estado === 'pendiente'" class="text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">Esperando firma</span>
+        </div>
+
+        <!-- Firmado -->
+        <template v-if="anexo?.estado === 'firmado'">
+          <p class="text-xs text-gray-600">
+            Lo firmó <strong>{{ anexo.nombre_firmante }}</strong>
+            {{ anexo.modo === 'remoto' ? 'desde su teléfono' : 'en la tienda' }}.
+            Su firma queda también como firma de la orden.
+          </p>
+          <div v-if="anexoDesactualizado" class="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 space-y-2">
+            <p>Cambiaste la orden después de que el cliente la firmó: lo que firmó ya no es lo que va. Envíasela de nuevo.</p>
+            <button type="button" @click="quitarAnexo(); enviarAnexoAlCliente()" class="font-semibold underline">Enviar de nuevo</button>
+          </div>
+          <div class="flex gap-2">
+            <button type="button" @click="verPdfAnexo" class="flex-1 text-xs font-semibold border border-gray-300 rounded-lg py-2 hover:bg-gray-50">Ver anexo (PDF)</button>
+            <button type="button" @click="quitarAnexo" class="text-xs font-medium text-gray-500 px-3 hover:text-red-600">Quitar</button>
+          </div>
+        </template>
+
+        <!-- Enviado al cliente, esperando -->
+        <template v-else-if="anexo?.estado === 'pendiente'">
+          <p class="text-xs text-gray-600 flex items-center gap-2">
+            <IconoS class="w-4 h-4" />
+            Esperando a que {{ clienteSeleccionado?.nombre?.split(' ')[0] ?? 'el cliente' }} revise y firme. Aparece aquí solo, sin recargar.
+          </p>
+          <div v-if="anexoDesactualizado" class="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            Cambiaste la orden después de enviarla: el cliente está viendo la versión anterior.
+            <button type="button" @click="quitarAnexo(); enviarAnexoAlCliente()" class="font-semibold underline">Enviar la nueva</button>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <button type="button" @click="abrirWhatsAppAnexo" class="text-xs font-semibold rounded-lg py-2 bg-green-600 text-white hover:bg-green-700">WhatsApp</button>
+            <button type="button" @click="copiarEnlaceAnexo" class="text-xs font-semibold rounded-lg py-2 border border-gray-300 hover:bg-gray-50">Copiar enlace</button>
+          </div>
+          <div class="flex gap-2">
+            <input v-model="emailAnexo" type="email" placeholder="Correo del cliente" class="input text-sm flex-1" />
+            <button type="button" @click="enviarCorreoAnexo" :disabled="enviandoAnexoEmail || !emailAnexo.trim()" class="text-xs font-semibold rounded-lg px-3 border border-gray-300 hover:bg-gray-50 disabled:opacity-40">
+              {{ enviandoAnexoEmail ? '…' : 'Enviar' }}
+            </button>
+          </div>
+          <div class="flex items-center justify-between">
+            <button type="button" @click="refrescarAnexo" class="text-xs text-blue-600 font-medium">Ya firmó, revisar</button>
+            <button type="button" @click="quitarAnexo" class="text-xs text-gray-500 hover:text-red-600">Cancelar envío</button>
+          </div>
+        </template>
+
+        <!-- Vencido -->
+        <template v-else-if="anexo?.estado === 'vencido'">
+          <p class="text-xs text-gray-600">El enlace venció sin que el cliente firmara.</p>
+          <button type="button" @click="quitarAnexo(); enviarAnexoAlCliente()" class="text-xs font-semibold text-blue-600">Enviar uno nuevo</button>
+        </template>
+
+        <!-- Sin anexo todavía -->
+        <template v-else>
+          <p class="text-xs text-gray-500">
+            El cliente lo lee, marca cada parte, responde el check list y firma con el dedo.
+            {{ canal === 'fisica' ? 'Hazlo aquí en la tienda, o mándaselo si se fue.' : 'Mándaselo: ve el resumen de su pedido antes de firmar.' }}
+          </p>
+          <div :class="['grid gap-2', canal === 'fisica' ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1']">
+            <button
+              v-if="canal === 'fisica'"
+              type="button"
+              @click="firmarAnexoAqui"
+              :disabled="preparandoAnexo || !clienteSeleccionado"
+              class="rounded-lg py-2.5 text-sm font-semibold bg-gray-900 text-white hover:bg-gray-800 disabled:opacity-40"
+            >{{ preparandoAnexo ? 'Abriendo…' : 'Llenar y firmar aquí' }}</button>
+            <button
+              type="button"
+              @click="enviarAnexoAlCliente"
+              :disabled="preparandoAnexo || !clienteSeleccionado"
+              :class="['rounded-lg py-2.5 text-sm font-semibold disabled:opacity-40',
+                canal === 'fisica' ? 'border border-gray-300 text-gray-700 hover:bg-gray-50' : 'bg-gray-900 text-white hover:bg-gray-800']"
+            >{{ preparandoAnexo && canal !== 'fisica' ? 'Preparando…' : 'Enviar al cliente para firmar' }}</button>
+          </div>
+        </template>
+      </div>
+
+      <!-- Foto del anexo en papel — sigue siendo posible en la tienda -->
+      <div v-if="canal === 'fisica' && anexo?.estado !== 'firmado'">
         <label class="label">
-          Foto del anexo firmado
+          ¿Lo firmó en papel? Foto del anexo
           <span class="text-xs font-normal text-gray-400 ml-1">(opcional)</span>
         </label>
-        <p class="text-xs text-gray-400 mb-2">Sube la foto del documento firmado por el cliente en la tienda.</p>
+        <p class="text-xs text-gray-400 mb-2">Si el cliente firmó el documento impreso, súbele la foto.</p>
 
         <div v-if="anexoFotoFile" class="space-y-2">
           <div class="relative">
@@ -5482,8 +5772,16 @@ onBeforeUnmount(() => {
           Firma del cliente
           <span class="text-red-500 ml-0.5">*</span>
         </label>
-        <FirmaCanvas v-model="firmaBlob" />
-        <p v-if="!firmaBlob" class="text-xs text-amber-600 flex items-center gap-1 mt-1">
+        <!-- Ya firmó: en el anexo, o al guardar el borrador. No se le pide otra vez. -->
+        <div v-if="firmaUrl && !firmaBlob" class="rounded-xl border border-green-200 bg-green-50 p-3 space-y-2">
+          <img :src="firmaUrl" alt="Firma del cliente" class="h-20 mx-auto object-contain bg-white rounded-lg border border-green-100" />
+          <p class="text-xs text-green-800 text-center">
+            {{ firmaDesdeAnexo ? 'Es la firma que puso en el anexo de garantías.' : 'Ya había firmado.' }}
+          </p>
+          <button type="button" @click="firmaUrl = ''" class="w-full text-xs font-medium text-gray-600 hover:text-gray-900">Firmar de nuevo aquí</button>
+        </div>
+        <FirmaCanvas v-else v-model="firmaBlob" />
+        <p v-if="!tieneFirma" class="text-xs text-amber-600 flex items-center gap-1 mt-1">
           <ExclamationTriangleIcon class="w-4 h-4 text-amber-500 inline-block mr-1" />Se requiere la firma del cliente para confirmar la orden
         </p>
       </div>
@@ -5499,7 +5797,7 @@ onBeforeUnmount(() => {
        <!-- No crea de una: primero el resumen para revisar (ver revisarAntesDeCrear). -->
        <button
          @click="revisarAntesDeCrear"
-         :disabled="submitting || subiendoFactura || cooldown > 0 || clienteRequiereCompletar || (!hayItemsCotizar && !firmaBlob) || !facturaFotoFile || faltanComprobantes"
+         :disabled="submitting || subiendoFactura || cooldown > 0 || clienteRequiereCompletar || (!hayItemsCotizar && !tieneFirma) || !facturaFotos.length || faltanComprobantes || anexoDesactualizado"
          class="btn-primary w-full text-base py-3 flex items-center justify-center gap-2"
        >
          <IconoS v-if="submitting && !modoGuardarBorrador" class="w-5 h-5" />
@@ -5527,6 +5825,29 @@ onBeforeUnmount(() => {
     @volver="mostrarResumen = false"
     @confirmar="confirmarYCrear"
   />
+
+  <!-- Anexo de garantías en la tienda: pantalla completa para que el
+       cliente lo lea con calma en el teléfono o la tableta. -->
+  <Transition name="fade">
+    <div v-if="mostrarAnexoAqui && anexoContenido" class="fixed inset-0 z-[75] bg-white overflow-y-auto">
+      <div class="max-w-lg mx-auto px-4 pb-10">
+        <div class="flex items-center justify-between py-3">
+          <div>
+            <p class="text-base font-bold text-gray-800">Anexo de garantías</p>
+            <p class="text-xs text-gray-500">Para que {{ clienteSeleccionado?.nombre?.split(' ')[0] ?? 'el cliente' }} lo lea y firme</p>
+          </div>
+          <button type="button" @click="mostrarAnexoAqui = false" class="text-gray-400 text-2xl leading-none" aria-label="Cerrar">&times;</button>
+        </div>
+        <AnexoFirma
+          :contenido="anexoContenido.contenido"
+          :nombre="anexoContenido.cliente?.nombre ?? clienteSeleccionado?.nombre ?? ''"
+          :documento="anexoContenido.cliente?.cedula ?? clienteSeleccionado?.cedula ?? ''"
+          :enviando="firmandoAnexo"
+          @firmar="guardarAnexoAqui"
+        />
+      </div>
+    </div>
+  </Transition>
 
   <!-- Modal picker de variante -->
   <Transition name="fade">

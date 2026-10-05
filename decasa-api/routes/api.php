@@ -78,6 +78,13 @@ Route::get('/catalogo/{seccion}', [CatalogoPublicoController::class, 'seccion'])
 
 // Catálogos visuales: el material de diseño maquetado hoja por hoja. La
 // portada lista las categorías; cada slug es un catálogo. También público.
+// Anexo de garantías: la página donde el cliente lo lee y firma, sin sesión.
+// La llave es el token del enlace.
+Route::get('/public/anexos/{token}', [\App\Http\Controllers\AnexoGarantiaController::class, 'publico'])
+    ->where('token', '[A-Za-z0-9]{20,64}')->middleware('throttle:60,1');
+Route::post('/public/anexos/{token}/firmar', [\App\Http\Controllers\AnexoGarantiaController::class, 'firmar'])
+    ->where('token', '[A-Za-z0-9]{20,64}')->middleware('throttle:10,1');
+
 Route::get('/c', [CatalogoPublicoController::class, 'visuales'])->middleware('throttle:60,1');
 Route::get('/c/{slug}', [CatalogoPublicoController::class, 'visual'])->middleware('throttle:60,1');
 
@@ -334,6 +341,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/ordenes/{id}/confirmar-cotizacion',   [OrdenController::class, 'confirmarCotizacion']);
     Route::post('/ordenes/{id}/completar-borrador',     [OrdenController::class, 'completarBorrador']);
     Route::get('/ordenes/{id}/para-continuar',          [OrdenController::class, 'paraContinuar'])->whereNumber('id');
+
+    // Anexo de garantías firmado en el sistema (ver AnexoGarantiaController)
+    Route::post('/anexos',                    [\App\Http\Controllers\AnexoGarantiaController::class, 'crear'])->middleware('throttle:30,1');
+    Route::get('/anexos/{id}',                [\App\Http\Controllers\AnexoGarantiaController::class, 'show'])->whereNumber('id');
+    Route::post('/anexos/{id}/enviar-email',  [\App\Http\Controllers\AnexoGarantiaController::class, 'enviarEmail'])->whereNumber('id')->middleware('throttle:10,1');
+    Route::get('/anexos/{id}/pdf',            [\App\Http\Controllers\AnexoGarantiaController::class, 'pdf'])->whereNumber('id');
     Route::get('/ordenes/{id}/pdf',                     [OrdenController::class, 'pdf']);
     // El cliente devuelve algo ya entregado y lo cambia por otra cosa: la
     // orden se reabre y el producto nuevo se agrega con la edición normal.

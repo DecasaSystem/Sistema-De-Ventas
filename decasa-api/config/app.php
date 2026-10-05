@@ -58,6 +58,11 @@ return [
 
     'url' => env('APP_URL', 'http://localhost'),
 
+    // Dónde vive la app (el frontend): para armar enlaces que se le mandan al
+    // cliente, como el del anexo de garantías. Sin esto se usa la página
+    // desde donde se pidió el enlace.
+    'frontend_url' => env('FRONTEND_URL'),
+
     /*
     |--------------------------------------------------------------------------
     | Application Timezone
