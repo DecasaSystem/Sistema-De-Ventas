@@ -228,6 +228,12 @@ class AnexoGarantiaTest extends TestCase
         $orden = Orden::find($r->json('id'));
         $this->assertSame('https://res.cloudinary.com/x/firma.png', $orden->firma_url, 'sin firmar dos veces');
         $this->assertSame($orden->id, (int) AnexoGarantia::find($id)->orden_id);
+
+        // Como lo carga el detalle de la orden. Con lista de columnas el join
+        // de ofMany dejaba `orden_id` ambiguo y tumbaba el detalle.
+        $cargada = Orden::with('anexoGarantia')->find($orden->id);
+        $this->assertSame($id, $cargada->anexoGarantia->id);
+        $this->assertArrayNotHasKey('token', $cargada->anexoGarantia->toArray());
     }
 
     public function test_si_la_orden_cambio_despues_de_firmar_no_se_crea(): void

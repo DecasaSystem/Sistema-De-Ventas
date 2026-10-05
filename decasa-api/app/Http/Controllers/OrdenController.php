@@ -1292,7 +1292,11 @@ class OrdenController extends Controller
             'pagos.facturacionTomadaPor:id,nombre',
             'ediciones.usuario:id,nombre',
             ...(\App\Models\AnexoGarantia::hayTabla()
-                ? ['anexoGarantia:id,orden_id,modo,estado,nombre_firmante,documento_firmante,firmado_at,firma_url']
+                // Sin lista de columnas: el "último firmado" (ofMany) hace un
+                // join con la misma tabla y en MySQL `orden_id` sin tabla es
+                // ambiguo — tumbaba el detalle de todas las órdenes. El token
+                // y la IP ya van ocultos en el modelo.
+                ? ['anexoGarantia']
                 : []),
         ])->findOrFail($id);
 
