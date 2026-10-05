@@ -755,13 +755,126 @@ const vcPickerGrupos    = ref([])
 const vcPickerCargando  = ref(false)
 const vcPickerSelec     = ref({})     // { tipo_variante_id: { config_id, opcion_nombre, tipo_nombre, precio_adicional, stock } }
 const vcPickerEsFabrica = ref(false)
+// 'stock': se vende lo que hay (solo opciones con existencias).
+// 'personalizar' / 'fabricar': se parte de esa versión del mueble —la cama
+// con baúl, la otra medida— y se hace a pedido, así que el stock no importa.
+const vcPickerModo = ref('stock')
+watch(mostrarVCPicker, (abierto) => { if (!abierto) vcPickerModo.value = 'stock' })
 
-const vcPickerValido = computed(() =>
-  vcPickerGrupos.value.length > 0 &&
-  vcPickerGrupos.value.every(g => vcPickerSelec.value[g.tipo_variante_id])
-)
+const vcPickerValido = computed(() => {
+  if (!vcPickerGrupos.value.length) return false
+  // A pedido basta con lo que cambie: "con baúl" sin tocar la medida.
+  if (vcPickerModo.value !== 'stock') return Object.keys(vcPickerSelec.value).length > 0
+  return vcPickerGrupos.value.every(g => vcPickerSelec.value[g.tipo_variante_id])
+})
+
+function elegirOpcionVC(grupo, opt) {
+  const k = grupo.tipo_variante_id
+  // A pedido se puede dejar un grupo sin elegir: tocar la marcada la quita.
+  if (vcPickerModo.value !== 'stock' && vcPickerSelec.value[k]?.config_id === opt.id) {
+    const { [k]: _, ...resto } = vcPickerSelec.value
+    vcPickerSelec.value = resto
+    return
+  }
+  vcPickerSelec.value = {
+    ...vcPickerSelec.value,
+    [k]: { config_id: opt.id, opcion_nombre: opt.opcion_nombre, tipo_nombre: grupo.tipo.nombre, precio_adicional: opt.precio_adicional ?? 0, stock: opt.stock_disponible ?? 0 },
+  }
+}
+
+/** ¿Se puede escoger esta opción? A pedido, todas; de stock, las que hay. */
+function opcionVCElegible(opt) {
+  return vcPickerModo.value !== 'stock' || (opt.stock_disponible ?? 0) > 0
+}
+
+/**
+ * "Personalizar" o "Fabricar" desde una versión concreta del producto.
+ * Si el producto tiene variantes (medidas, con baúl…) se pregunta de cuál se
+ * parte; si no tiene, se agrega como siempre.
+ */
+async function aPedidoConVariante(producto, modo) {
+  const agregar = modo === 'fabricar' ? fabricarBajoPedido : agregarPersonalizado
+  const tienda = tiendaBusqueda.value || tiendaId.value
+  let grupos = []
+  try {
+    const { data } = await api.get(`/productos/${producto.id}/variante-configs`, { params: { tienda_id: tienda || undefined } })
+    grupos = (data ?? []).filter(g => g.items?.length)
+  } catch { grupos = [] }
+  if (!grupos.length) { agregar(producto); return }
+
+  vcPickerProd.value      = producto
+  vcPickerSelec.value     = {}
+  vcPickerGrupos.value    = grupos
+  vcPickerEsFabrica.value = false
+  vcPickerCargando.value  = false
+  mostrarVCPicker.value   = true
+  vcPickerModo.value      = modo
+}
+
+/** Cambiar de cuál versión se parte en uno a pedido que ya está en el carrito. */
+async function cambiarVersionAPedido(idx) {
+  const item = items.value[idx]
+  abriendoCambio.value = idx
+  try {
+    const tienda = tiendaBusqueda.value || tiendaId.value
+    const [producto, configs] = await Promise.all([
+      api.get(`/productos/${item.producto_id}`, { params: { tienda_id: tienda || undefined } }).then(r => r.data),
+      api.get(`/productos/${item.producto_id}/variante-configs`, { params: { tienda_id: tienda || undefined } }).then(r => r.data).catch(() => []),
+    ])
+    const grupos = (configs ?? []).filter(g => g.items?.length)
+    if (!grupos.length) { toast.info('Este producto no tiene otras versiones registradas.'); return }
+
+    editandoIdx.value       = idx
+    vcPickerProd.value      = producto
+    vcPickerGrupos.value    = grupos
+    vcPickerEsFabrica.value = false
+    vcPickerCargando.value  = false
+    // Queda marcada la que tenía, si se reconoce.
+    const marcada = grupos.flatMap(g => g.items.map(o => ({ g, o }))).find(({ o }) => o.id === item._config_id)
+    vcPickerSelec.value = marcada
+      ? { [marcada.g.tipo_variante_id]: { config_id: marcada.o.id, opcion_nombre: marcada.o.opcion_nombre, tipo_nombre: marcada.g.tipo.nombre, precio_adicional: marcada.o.precio_adicional ?? 0, stock: 0 } }
+      : {}
+    mostrarVCPicker.value = true
+    vcPickerModo.value    = item._fabricar_pedido ? 'fabricar' : 'personalizar'
+  } catch {
+    editandoIdx.value = null
+    toast.error('No se pudo abrir el selector.')
+  } finally {
+    abriendoCambio.value = null
+  }
+}
+
+/** A pedido: lo que se eligió en el selector (o nada, "la normal"). */
+function confirmarVCAPedido(sinVariante = false) {
+  const prod = vcPickerProd.value
+  const selecciones = sinVariante ? [] : Object.values(vcPickerSelec.value)
+  const variante = selecciones.length ? {
+    label:    selecciones.map(s => s.opcion_nombre).join(' · '),
+    precio:   selecciones.reduce((sum, s) => sum + Number(s.precio_adicional ?? 0), 0),
+    configId: selecciones.length === 1 ? (selecciones[0].config_id ?? null) : null,
+  } : null
+
+  if (editandoIdx.value !== null) {
+    // Corrigiendo la versión de uno que ya está en el carrito.
+    const it = items.value[editandoIdx.value]
+    const precio = variante?.precio > 0 ? variante.precio : Number(prod.precio_base ?? it.precio_unitario ?? 0)
+    it.variante_label = variante?.label ?? null
+    it._config_id     = variante?.configId ?? null
+    if (Number(it.precio_unitario) !== precio) {
+      it.precio_unitario = precio
+      toast.info(`Precio actualizado a $${pesos(precio)} por la nueva selección.`)
+    }
+    editandoIdx.value = null
+  } else if (vcPickerModo.value === 'fabricar') {
+    fabricarBajoPedido(prod, variante)
+  } else {
+    agregarPersonalizado(prod, variante)
+  }
+  mostrarVCPicker.value = false
+}
 
 function confirmarVCPickerOrden() {
+  if (vcPickerModo.value !== 'stock') return confirmarVCAPedido()
   const prod = vcPickerProd.value
   const selecciones = Object.values(vcPickerSelec.value)
   if (selecciones.length === 0) return
@@ -1316,7 +1429,9 @@ function _pushItem(producto, variante) {
 }
 
 // Mandar a fabricar un producto del catálogo que no tiene stock
-function fabricarBajoPedido(producto) {
+// `variante` (opcional): la versión de la que se parte —{ label, precio,
+// configId }—, elegida en el selector de variantes. Ver aPedidoConVariante.
+function fabricarBajoPedido(producto, variante = null) {
   // Se puede mandar a fabricar aunque haya stock (el de la tienda es exhibición,
   // lo quieren en otro acabado...). Se avisa para que nadie se extrañe después
   // de que el inventario no bajó.
@@ -1328,6 +1443,7 @@ function fabricarBajoPedido(producto) {
   // sofá en gris y en azul son dos ítems, no uno con cantidad 2.
   const existe = items.value.find(i =>
     i.producto_id === producto.id && i._fabricar_pedido &&
+    (i.variante_label ?? null) === (variante?.label ?? null) &&
     !telaResumidaCampo(i, 'tela') && !(i.specs_notas ?? '').trim() &&
     !Object.values(i.specs ?? {}).some(v => v !== '' && v != null)
   )
@@ -1336,14 +1452,15 @@ function fabricarBajoPedido(producto) {
   items.value.push({
     producto_id: producto.id,
     variante_id: null,
+    _config_id: variante?.configId ?? null,
     tienda_origen_id: null,
     nombre: producto.nombre,
     categoria: producto.categoria,
-    variante_label: null,
+    variante_label: variante?.label ?? null,
     stock_libre: 0,
     personalizable: false,
     cantidad: 1,
-    precio_unitario: Number(producto.precio_base ?? 0),
+    precio_unitario: variante?.precio > 0 ? variante.precio : Number(producto.precio_base ?? 0),
     es_personalizado: true,   // backend crea Produccion y omite reserva de inventario
     specs: {},
     specs_notas: '',
@@ -1367,21 +1484,26 @@ function fabricarBajoPedido(producto) {
 }
 
 // Agregar un producto del catálogo en modo personalizado (sin stock, opción "Personalizar")
-function agregarPersonalizado(producto) {
-  const existe = items.value.find(i => i.producto_id === producto.id && !i._fabricar_pedido)
+function agregarPersonalizado(producto, variante = null) {
+  // La misma cama en otra versión (con baúl, otra medida) es otro ítem.
+  const existe = items.value.find(i =>
+    i.producto_id === producto.id && !i._fabricar_pedido && i.es_personalizado &&
+    (i.variante_label ?? null) === (variante?.label ?? null)
+  )
   if (existe) { existe.cantidad++; return }
 
   items.value.push({
     producto_id:         producto.id,
     variante_id:         null,
+    _config_id:          variante?.configId ?? null,
     tienda_origen_id:    null,
     nombre:              producto.nombre,
     categoria:           producto.categoria,
-    variante_label:      null,
+    variante_label:      variante?.label ?? null,
     stock_libre:         0,
     personalizable:      true,
     cantidad:            1,
-    precio_unitario:     Number(producto.precio_base ?? 0),
+    precio_unitario:     variante?.precio > 0 ? variante.precio : Number(producto.precio_base ?? 0),
     es_personalizado:    true,
     specs:               {},
     specs_notas:         '',
@@ -3360,7 +3482,7 @@ onBeforeUnmount(() => {
               >{{ p.tiene_tallas ? 'Seleccionar talla' : '+ Agregar' }}</button>
 
               <button
-                @click="fabricarBajoPedido(p)"
+                @click="aPedidoConVariante(p, 'fabricar')"
                 :class="['text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors',
                   hayDisponible(p)
                     ? 'border border-orange-300 text-orange-600 hover:bg-orange-50'
@@ -3369,7 +3491,7 @@ onBeforeUnmount(() => {
 
               <button
                 v-if="p.personalizable"
-                @click="agregarPersonalizado(p)"
+                @click="aPedidoConVariante(p, 'personalizar')"
                 :class="['text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors',
                   hayDisponible(p)
                     ? 'border border-purple-300 text-purple-600 hover:bg-purple-50'
@@ -3892,6 +4014,19 @@ onBeforeUnmount(() => {
             <span class="font-medium">🛍️ Se lo lleva ahora</span>
             <span class="text-gray-400">— sale de la tienda con el cliente</span>
           </label>
+
+          <!-- A pedido (personalizado o a fabricar) de un producto del
+               catálogo: de cuál versión se parte —con baúl, otra medida—. -->
+          <button
+            v-if="item.producto_id && (item.es_personalizado || item._fabricar_pedido) && !item._producto_unico && !item._es_restauracion"
+            type="button"
+            @click="cambiarVersionAPedido(idx)"
+            :disabled="abriendoCambio === idx"
+            class="inline-flex items-center gap-1 text-xs font-medium text-purple-600 hover:text-purple-800 disabled:opacity-40"
+          >
+            <SwatchIcon class="w-3.5 h-3.5" />
+            {{ abriendoCambio === idx ? 'Abriendo...' : (item.variante_label ? `Versión: ${item.variante_label} — cambiar` : 'Elegir versión (medida, con baúl…)') }}
+          </button>
 
           <!-- Corregir la tela/medida y de dónde sale, sin sacarlo del carrito.
                Equivocarse de tela es el error más fácil de cometer vendiendo, y
@@ -5550,8 +5685,14 @@ onBeforeUnmount(() => {
       <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 flex flex-col gap-4 max-h-[85vh]">
         <div class="flex items-center justify-between">
           <div>
-            <h3 class="text-base font-bold text-gray-800">Selecciona variantes</h3>
+            <h3 class="text-base font-bold text-gray-800">
+              {{ vcPickerModo === 'stock' ? 'Selecciona variantes' : '¿De cuál versión se parte?' }}
+            </h3>
             <p class="text-xs text-indigo-600 mt-0.5 truncate">{{ vcPickerProd?.nombre }}</p>
+            <p v-if="vcPickerModo !== 'stock'" class="text-[11px] text-gray-500 mt-1">
+              {{ vcPickerModo === 'fabricar' ? 'Se manda a fabricar' : 'Se personaliza' }} a partir de esta versión:
+              no importa si hay en stock. Elige solo lo que cambia.
+            </p>
           </div>
           <button @click="mostrarVCPicker = false" class="text-gray-400 text-2xl leading-none">&times;</button>
         </div>
@@ -5565,12 +5706,12 @@ onBeforeUnmount(() => {
               <button
                 v-for="opt in grupo.items"
                 :key="opt.id"
-                :disabled="(opt.stock_disponible ?? 0) === 0"
-                @click="vcPickerSelec = { ...vcPickerSelec, [grupo.tipo_variante_id]: { config_id: opt.id, opcion_nombre: opt.opcion_nombre, tipo_nombre: grupo.tipo.nombre, precio_adicional: opt.precio_adicional ?? 0, stock: opt.stock_disponible ?? 0 } }"
+                :disabled="!opcionVCElegible(opt)"
+                @click="elegirOpcionVC(grupo, opt)"
                 :class="['w-full text-left px-3 py-2.5 rounded-xl border text-sm transition-colors',
                   vcPickerSelec[grupo.tipo_variante_id]?.config_id === opt.id
                     ? 'border-indigo-500 bg-indigo-50 text-indigo-700 font-medium'
-                    : (opt.stock_disponible ?? 0) > 0
+                    : opcionVCElegible(opt)
                       ? 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
                       : 'border-gray-100 bg-gray-50 text-gray-300 cursor-not-allowed']"
               >
@@ -5578,7 +5719,7 @@ onBeforeUnmount(() => {
                 <span v-if="(opt.precio_adicional ?? 0) > 0" class="text-xs ml-2 text-indigo-600 font-semibold">
                   ${{ Number(opt.precio_adicional).toLocaleString('es-CO') }}
                 </span>
-                <span class="text-xs ml-2 font-semibold" :class="(opt.stock_disponible ?? 0) > 0 ? 'text-green-600' : 'text-red-400'">
+                <span v-if="vcPickerModo === 'stock'" class="text-xs ml-2 font-semibold" :class="(opt.stock_disponible ?? 0) > 0 ? 'text-green-600' : 'text-red-400'">
                   <!-- En juego el stock está en piezas; cada opción con su juego -->
                   <template v-if="piezasDeOpcion(vcPickerProd, opt.id)">
                     juego de {{ piezasDeOpcion(vcPickerProd, opt.id) }} ·
@@ -5598,6 +5739,12 @@ onBeforeUnmount(() => {
         >
           {{ editandoIdx !== null ? 'Guardar cambio' : 'Agregar al pedido' }}
         </button>
+        <button
+          v-if="vcPickerModo !== 'stock'"
+          type="button"
+          @click="confirmarVCAPedido(true)"
+          class="w-full -mt-2 text-xs font-medium text-gray-500 hover:text-gray-700 py-1"
+        >Sin variante — la versión normal</button>
       </div>
     </div>
   </Transition>
