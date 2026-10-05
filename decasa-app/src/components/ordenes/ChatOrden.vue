@@ -38,14 +38,17 @@ const puedeEscribir = computed(() => abierto.value && !enviando.value)
 const hayAlgoQueEnviar = computed(() => !!texto.value.trim() || !!imagenUrl.value)
 
 async function onFoto(e) {
-  const file = (e.target.files || [])[0]
-  if (!file) return
+  const original = (e.target.files || [])[0]
+  if (!original) return
   subiendo.value = true
+  // Se achica antes de mostrarla: la vista previa con la original de la
+  // cámara llenaba la memoria del teléfono.
+  const file = await comprimirImagen(original)
   imagenPreview.value = URL.createObjectURL(file)
   try {
     const token = localStorage.getItem('token')
     const fd = new FormData()
-    fd.append('foto', await comprimirImagen(file), 'chat.jpg')
+    fd.append('foto', file, 'chat.jpg')
     fd.append('folder', 'chat-ordenes')
     const res  = await fetch('/api/upload/foto', {
       method: 'POST', headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' }, body: fd,

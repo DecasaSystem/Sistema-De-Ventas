@@ -31,7 +31,7 @@ import { DocumentIcon, EnvelopeIcon, ChatBubbleLeftEllipsisIcon, ArrowDownTrayIc
 import FirmaCanvas from '@/components/FirmaCanvas.vue'
 import DireccionColombia from '@/components/DireccionColombia.vue'
 import TelaPicker from '@/components/ordenes/TelaPicker.vue'
-import { comprimirImagen } from '@/utils/comprimirImagen'
+import { comprimirImagen, comprimirAlTomar } from '@/utils/comprimirImagen'
 import { pctDeMonto, formatPct } from '@/utils/descuentos'
 import { formatoDuracion } from '@/utils/duracion'
 import { PhotoIcon } from '@heroicons/vue/24/outline'
@@ -409,8 +409,11 @@ const danoFotoFile   = ref(null)
 const danoFotoPreview = ref('')
 const danoGuardando  = ref(false)
 
-function onDanoFoto(e) {
-  const f = e.target.files?.[0] ?? null
+async function onDanoFoto(e) {
+  // Achicada al tomarla: la original de la cámara llena la memoria del teléfono.
+  const original = e.target.files?.[0] ?? null
+  e.target.value = ''
+  const f = original ? await comprimirAlTomar(original) : null
   if (danoFotoPreview.value) URL.revokeObjectURL(danoFotoPreview.value)
   danoFotoFile.value    = f
   danoFotoPreview.value = f ? URL.createObjectURL(f) : ''
@@ -887,17 +890,23 @@ watch(showCompletarBorradorModal, (open) => {
   }
 })
 
-function onBorradorComprobanteChange(e) {
-  const file = e.target.files[0]
-  if (!file) return
+async function onBorradorComprobanteChange(e) {
+  const original = e.target.files[0]
+  e.target.value = ''
+  if (!original) return
+  // Achicada al tomarla: mostrar la original de la cámara llenaba la memoria
+  // del teléfono y dejaba la pantalla en blanco.
+  const file = await comprimirAlTomar(original)
   borradorComprobanteFile.value    = file
   borradorComprobanteUrl.value     = ''
   borradorComprobantePreview.value = URL.createObjectURL(file)
 }
 
-function onBorradorAnexoChange(e) {
-  const file = e.target.files[0]
-  if (!file) return
+async function onBorradorAnexoChange(e) {
+  const original = e.target.files[0]
+  e.target.value = ''
+  if (!original) return
+  const file = await comprimirAlTomar(original)
   borradorAnexoFile.value    = file
   borradorAnexoUrl.value     = ''
   borradorAnexoPreview.value = URL.createObjectURL(file)
@@ -1782,9 +1791,12 @@ watch(anexoConfirmarFile, (file) => {
   anexoConfirmarPreview.value = file ? URL.createObjectURL(file) : ''
 })
 
-function onAnexoConfirmarChange(e) {
-  const file = e.target.files[0]
-  if (file) { anexoConfirmarFile.value = file; anexoConfirmarUrl.value = '' }
+async function onAnexoConfirmarChange(e) {
+  const original = e.target.files[0]
+  e.target.value = ''
+  if (!original) return
+  anexoConfirmarFile.value = await comprimirAlTomar(original)
+  anexoConfirmarUrl.value = ''
 }
 
 function quitarAnexoConfirmar() {

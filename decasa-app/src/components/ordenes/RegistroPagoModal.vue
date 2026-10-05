@@ -2,7 +2,7 @@
 import { ref, watch, computed, onMounted } from 'vue'
 import { registrarPago, getTiendas } from '@/api/ordenes'
 import api from '@/api'
-import { comprimirImagen } from '@/utils/comprimirImagen'
+import { comprimirImagen, comprimirAlTomar } from '@/utils/comprimirImagen'
 import { PhotoIcon, XMarkIcon } from '@heroicons/vue/24/outline'
 import InputPesos from '@/components/common/InputPesos.vue'
 import { formatPct } from '@/utils/descuentos'
@@ -112,12 +112,41 @@ function money(v) {
   return '$' + Math.round(Number(v) || 0).toLocaleString('es-CO')
 }
 
-function onComprobanteChange(e) {
-  for (const file of Array.from(e.target.files ?? [])) {
-    if (comprobantes.value.length >= 10) break
-    comprobantes.value.push({ file, preview: URL.createObjectURL(file), url: '' })
+// Las fotos se achican APENAS se eligen, no al enviar. Antes la vista previa
+// mostraba la original de la cámara (decenas de MB ya decodificada) y en un
+// celular de gama media eso dejaba la pantalla en blanco al subir el
+// comprobante.
+const procesandoFotos = ref(false)
+const arrastrando     = ref(false)
+
+async function agregarComprobantes(archivos) {
+  const todos = Array.from(archivos ?? [])
+  const imagenes = todos.filter(f => f.type?.startsWith('image/') || /\.(jpe?g|png|webp|heic|heif)$/i.test(f.name ?? ''))
+  if (todos.length && !imagenes.length) {
+    error.value = 'Eso no es una foto. Adjunta una imagen del comprobante.'
+    return
   }
+  procesandoFotos.value = true
+  try {
+    for (const original of imagenes) {
+      if (comprobantes.value.length >= 10) break
+      const file = await comprimirAlTomar(original)
+      comprobantes.value.push({ file, preview: URL.createObjectURL(file), url: '' })
+    }
+  } finally {
+    procesandoFotos.value = false
+  }
+}
+
+async function onComprobanteChange(e) {
+  const archivos = Array.from(e.target.files ?? [])
   e.target.value = ''
+  await agregarComprobantes(archivos)
+}
+
+function alSoltarComprobante(e) {
+  arrastrando.value = false
+  if (e.dataTransfer?.files?.length) agregarComprobantes(e.dataTransfer.files)
 }
 
 function quitarComprobante(i = 0) {
@@ -297,12 +326,21 @@ async function submit() {
           <input v-model="referencia" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Número de transacción" />
         </div>
 
-        <!-- Comprobante -->
-        <div>
+        <!-- Comprobante: tocando o arrastrando la foto -->
+        <div
+          @dragover.prevent="arrastrando = true"
+          @dragleave.self="arrastrando = false"
+          @drop.prevent="alSoltarComprobante"
+          :class="['rounded-xl transition-colors', arrastrando ? 'ring-2 ring-blue-300 bg-blue-50 p-2 -m-2' : '']"
+        >
           <label class="block text-sm font-medium text-gray-700 mb-1">
             Foto del comprobante <span class="text-red-500">*</span>
           </label>
-          <div v-if="comprobantes.length" class="space-y-1.5">
+          <p v-if="procesandoFotos" class="flex items-center justify-center gap-2 py-4 text-sm text-blue-700" aria-live="polite">
+            <span class="w-4 h-4 border-2 border-blue-300 border-t-blue-700 rounded-full animate-spin" aria-hidden="true" />
+            Procesando foto…
+          </p>
+          <div v-else-if="comprobantes.length" class="space-y-1.5">
             <div :class="comprobantes.length > 1 ? 'grid grid-cols-2 gap-2' : ''">
               <div v-for="(c, i) in comprobantes" :key="c.preview" class="relative">
                 <img :src="c.preview" :class="['w-full rounded-xl border-2 border-gray-200 bg-gray-50', comprobantes.length > 1 ? 'h-28 object-cover' : 'object-contain max-h-40']" />
@@ -318,7 +356,7 @@ async function submit() {
           </div>
           <label v-else class="flex flex-col items-center gap-2 border-2 border-dashed border-amber-300 rounded-xl p-4 cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors">
             <PhotoIcon class="w-7 h-7 text-amber-300" />
-            <span class="text-sm text-gray-500">Toca para adjuntar comprobante</span>
+            <span class="text-sm text-gray-500">Toca para adjuntar comprobante<span class="hidden sm:inline"> o arrástralo aquí</span></span>
             <span class="text-xs text-gray-400">puedes subir varias fotos</span>
             <input type="file" accept="image/*" multiple @change="onComprobanteChange" class="hidden" />
           </label>
