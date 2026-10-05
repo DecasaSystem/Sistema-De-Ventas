@@ -436,4 +436,35 @@ class VerOrdenesCompartidasTest extends TestCase
         $this->actingAs($this->vendedor('Marta', 1))
             ->getJson("/api/ordenes/{$orden->id}")->assertStatus(403);
     }
+
+    // ── Una orden que no existe ──────────────────────────────────────────────
+
+    public function test_una_orden_que_no_existe_se_dice_en_palabras(): void
+    {
+        $r = $this->actingAs($this->vendedor('Marta', 1))->getJson('/api/ordenes/939');
+
+        $r->assertStatus(404)->assertJson(['no_existe' => true]);
+        $this->assertStringNotContainsString('No query results', $r->json('message'));
+        $this->assertStringContainsString('ya no existe', $r->json('message'));
+    }
+
+    public function test_si_se_elimino_dice_cuando_quien_y_por_que(): void
+    {
+        Schema::create('ordenes_eliminadas', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('orden_id'); $t->string('referencia')->nullable();
+            $t->string('cliente_nombre')->nullable(); $t->string('motivo'); $t->unsignedBigInteger('eliminada_por_id');
+            $t->timestamps();
+        });
+        $jefe = $this->vendedor('Jefa', 1);
+        DB::table('ordenes_eliminadas')->insert([
+            'orden_id' => 939, 'referencia' => '#4311', 'cliente_nombre' => 'Jorge Adkins',
+            'motivo' => 'Duplicada', 'eliminada_por_id' => $jefe->id,
+            'created_at' => '2026-10-02 15:00:00', 'updated_at' => '2026-10-02 15:00:00',
+        ]);
+
+        $r = $this->actingAs($this->vendedor('Marta', 1))->getJson('/api/ordenes/939');
+
+        $r->assertStatus(404)->assertJson(['no_existe' => true, 'eliminada' => true]);
+        $this->assertSame('La orden #4311 (de Jorge Adkins) se eliminó el 02/10/2026 por Jefa. Motivo: Duplicada', $r->json('message'));
+    }
 }

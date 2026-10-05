@@ -658,6 +658,145 @@ class DespachoController extends Controller
      * un día, el comedor otro— y cada una tiene su acta y sus fotos; ver solo
      * la última dejaba las anteriores como si no hubieran pasado.
      */
+    /**
+     * ¿Puede esta persona deshacer esta entrega?
+     *
+     * El supervisor, siempre. Y quien la hizo, durante las 24 horas
+     * siguientes: es el "me acabo de equivocar de orden", que se nota en el
+     * momento. Pasado eso, ya se le pide a un supervisor.
+     */
+    private function puedeDeshacerEntrega(DespachoItem $entrega, Usuario $usuario): bool
+    {
+        if (! in_array($entrega->estado, ['entregado', 'devuelto'], true)) return false;
+        if ($usuario->rol === 'supervisor') return true;
+
+        $despacho = $entrega->despacho;
+        $laHizo = $despacho && in_array((int) $usuario->id, [(int) $despacho->entregado_por_id, (int) $despacho->conductor_id], true);
+
+        return $laHizo && $entrega->entregado_at && $entrega->entregado_at->gt(now()->subDay());
+    }
+
+    /**
+     * POST /api/despacho/entregas/{despachoItemId}/deshacer  { motivo }
+     *
+     * Deshace UNA entrega —parcial o completa, directa o de ruta— que se hizo
+     * por error ("entregué la orden que no era"):
+     *  - lo que salió vuelve al inventario, apartado otra vez para la orden;
+     *  - baja lo entregado de cada producto y lo del taller vuelve a "listo";
+     *  - la orden queda en el estado que le toca con lo que de verdad lleva
+     *    entregado (lista para entregar, en producción...), no siempre en
+     *    "pendiente de anticipo" como la reversión vieja;
+     *  - queda escrito en la orden quién la deshizo, por qué y la evidencia
+     *    que tenía (fotos, firma), porque la entrega se borra.
+     *
+     * El cobro que se haya registrado en esa entrega NO se borra: esa plata
+     * pudo haber entrado de verdad. Se avisa cuánto fue para que, si también
+     * fue un error, se corrija en Pagos.
+     */
+    public function deshacerEntrega(Request $request, int $despachoItemId)
+    {
+        $usuario = $request->user();
+        $entrega = DespachoItem::with('despacho', 'orden')->findOrFail($despachoItemId);
+
+        if (! $this->puedeDeshacerEntrega($entrega, $usuario)) {
+            return response()->json([
+                'message' => $entrega->estado === 'pendiente'
+                    ? 'Esa entrega todavía no se ha hecho: no hay nada que deshacer.'
+                    : 'Solo un supervisor puede deshacer esta entrega (quien la hizo puede hacerlo durante las primeras 24 horas).',
+            ], $entrega->estado === 'pendiente' ? 422 : 403);
+        }
+
+        if (! $entrega->lineas()->exists()) {
+            return response()->json([
+                'message' => 'Es una entrega de antes de que se entregara por producto y no dice qué se llevó: '
+                           . 'pídele a un supervisor que use "Revertir entrega" en la orden.',
+            ], 422);
+        }
+
+        // Si en esa entrega el cliente devolvió algo, eso ya abrió su propio
+        // trámite (taller, cambio): deshacerla a ciegas lo dejaría colgado.
+        if (\App\Models\Devolucion::where('despacho_item_id', $entrega->id)->exists()) {
+            return response()->json([
+                'message' => 'En esa entrega el cliente devolvió algo, y eso ya tiene su propio trámite. Resuélvelo primero en Devoluciones.',
+            ], 422);
+        }
+
+        $data = $request->validate(['motivo' => 'required|string|min:3|max:300'], [
+            'motivo.required' => 'Escribe por qué se deshace la entrega.',
+            'motivo.min'      => 'Escribe por qué se deshace la entrega.',
+        ]);
+
+        $orden   = $entrega->orden->loadMissing('items.producto:id,nombre');
+        $antes   = $orden->estado;
+        // Qué se había llevado, en palabras: "Sofá tres puestos × 1, Silla × 6".
+        $resumen = $entrega->lineas()->whereIn('resultado', EntregaLinea::SE_QUEDO)->get()
+            ->map(function ($l) use ($orden) {
+                $it = $orden->items->firstWhere('id', $l->orden_item_id);
+                return ($it?->nombre_custom ?: ($it?->producto?->nombre ?? 'Producto')) . " × {$l->cantidad}";
+            })->join(', ');
+        $evidencia = array_values(array_filter([
+            ...array_column((array) ($entrega->fotos_producto ?? []), 'url'),
+            $entrega->foto_producto, $entrega->firma_recibido_url,
+        ]));
+
+        // Lo cobrado en esa entrega: los pagos de la orden entre que se abrió
+        // la entrega y que se cerró. No se tocan, solo se avisa.
+        $cobrado = $entrega->despacho && $entrega->entregado_at
+            ? (float) Pago::where('orden_id', $orden->id)
+                ->whereBetween('created_at', [$entrega->despacho->created_at, $entrega->entregado_at->copy()->addMinutes(2)])
+                ->sum('monto')
+            : 0.0;
+
+        DB::transaction(function () use ($entrega, $usuario, $data, $orden, $antes, $resumen, $evidencia) {
+            EntregaService::revertir($entrega, $usuario, $data['motivo']);
+
+            // El estado que le toca con lo que de verdad lleva entregado.
+            $orden->refresh()->load('items.produccion');
+            $nuevo = $orden->estadoTrasEntrega();
+            if ($nuevo === 'entregado' && ! $orden->todoEntregado()) {
+                // Lo que se había entregado ya estaba listo: vuelve a estarlo.
+                $nuevo = 'listo_entrega';
+            }
+            $orden->update(['estado' => $nuevo] + ($nuevo !== 'listo_entrega' ? ['listo_entrega_at' => null] : []));
+
+            \App\Models\OrdenEdicion::create([
+                'orden_id'   => $orden->id,
+                'usuario_id' => $usuario->id,
+                'cambios'    => [[
+                    'campo'     => 'entrega',
+                    'label'     => 'Entrega deshecha',
+                    'antes'     => trim("{$resumen} — {$antes}", ' —'),
+                    'despues'   => "{$nuevo} — {$data['motivo']}",
+                    'evidencia' => $evidencia,
+                ]],
+            ]);
+        });
+
+        $orden->refresh();
+
+        // Que el vendedor se entere: su orden volvió a estar por entregar.
+        if ($orden->vendedor_id && (int) $orden->vendedor_id !== (int) $usuario->id) {
+            NotificacionService::crear(
+                'orden_editada',
+                'Se deshizo una entrega',
+                "{$usuario->nombre} deshizo la entrega de la orden {$orden->referencia} ({$resumen}). Motivo: {$data['motivo']}",
+                ['orden_id' => $orden->id],
+                $orden->vendedor_id,
+            );
+        }
+
+        $cop = fn ($v) => '$' . number_format($v, 0, ',', '.');
+
+        return response()->json([
+            'message'      => 'Entrega deshecha: lo entregado volvió al inventario y la orden quedó por entregar.',
+            'estado_orden' => $orden->estado,
+            'cobrado_en_esa_entrega' => $cobrado,
+            'aviso'        => $cobrado > 0
+                ? "En esa entrega se registró un cobro de {$cop($cobrado)}. Sigue en la orden: si también fue un error, corrígelo en Pagos."
+                : null,
+        ]);
+    }
+
     public function entregasDe(Request $request, int $ordenId)
     {
         $usuario = $request->user();
@@ -678,7 +817,7 @@ class DespachoController extends Controller
             ->whereIn('estado', ['entregado', 'devuelto'])
             ->orderByDesc('entregado_at')->orderByDesc('id')
             ->get()
-            ->map(function (DespachoItem $e) use ($nombres) {
+            ->map(function (DespachoItem $e) use ($nombres, $usuario) {
                 $agrupa = fn ($lineas) => $lineas->groupBy('orden_item_id')
                     ->map(fn ($g, $itemId) => [
                         'orden_item_id' => (int) $itemId,
@@ -704,6 +843,9 @@ class DespachoController extends Controller
                     'foto_producto' => $e->foto_producto,
                     'fotos_producto' => $e->fotos_producto,
                     'foto_pago'     => $e->foto_pago,
+                    // Se puede deshacer (ver deshacerEntrega). Las de antes de las
+                    // entregas por producto no dicen qué se llevó: esas no.
+                    'puede_deshacer' => $e->lineas->isNotEmpty() && $this->puedeDeshacerEntrega($e, $usuario),
                 ];
             });
 

@@ -248,8 +248,9 @@ class EntregaService
     /**
      * Deshace una entrega: lo que salió vuelve al inventario y a la cuenta.
      *
-     * Solo para entregas directas (mostrador, vendedor, supervisor). La del
-     * conductor tiene acta firmada y se corrige desde Despacho.
+     * Sirve para entregas directas y de ruta (ver
+     * DespachoController::deshacerEntrega, que deja constancia del acta y las
+     * fotos en la orden antes de llamar aquí).
      */
     public static function revertir(DespachoItem $entrega, Usuario $quien, string $motivo): void
     {
@@ -274,7 +275,12 @@ class EntregaService
             $despacho = $entrega->despacho;
             $entrega->lineas()->delete();
             $entrega->delete();
-            $despacho?->delete();
+            // Una entrega directa es su propio despacho: se va con ella. Una
+            // de ruta NO: la ruta del conductor lleva otras paradas, y solo
+            // se borra si ésta era la única que le quedaba.
+            if ($despacho && ($despacho->tipo === 'directa' || ! $despacho->items()->exists())) {
+                $despacho->delete();
+            }
         });
     }
 

@@ -32,6 +32,7 @@ export const descargarHojaRuta       = (id)     => api.get(`/despacho/${id}/hoja
 export const despachoPorOrden        = (id)     => api.get(`/despacho/por-orden/${id}`)
 // Todas las entregas ya hechas de una orden (puede haber varias, por partes).
 export const entregasDeOrden         = (id)     => api.get(`/despacho/entregas-de/${id}`)
+export const deshacerEntrega         = (entregaId, motivo) => api.post(`/despacho/entregas/${entregaId}/deshacer`, { motivo })
 // Qué va en una entrega abierta, antes de entregarla: lo que imprime la orden de entrega.
 export const fijarLineasEntrega      = (id, lineas) => api.patch(`/despacho/mis-entregas/${id}/lineas`, { lineas })
 

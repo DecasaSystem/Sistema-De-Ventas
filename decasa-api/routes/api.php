@@ -596,6 +596,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/por-orden/{ordenId}', [DespachoController::class, 'porOrden']);
         // Todas las entregas que ya se hicieron de la orden (puede haber varias).
         Route::get('/entregas-de/{ordenId}', [DespachoController::class, 'entregasDe'])->whereNumber('ordenId');
+        // Deshacer UNA entrega hecha por error (parcial o completa, directa o
+        // de ruta). Supervisor, o quien la hizo en las primeras 24 horas.
+        Route::post('/entregas/{despachoItemId}/deshacer', [DespachoController::class, 'deshacerEntrega'])
+            ->whereNumber('despachoItemId')->middleware('throttle:20,1');
 
         // Antes era solo supervisor; ahora hace falta el permiso, que el
         // supervisor trae de por defecto en el respaldo de la migración.

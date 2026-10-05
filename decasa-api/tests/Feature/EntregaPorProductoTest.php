@@ -709,4 +709,115 @@ class EntregaPorProductoTest extends TestCase
             ],
         ], ['Accept' => 'application/json'])->assertStatus(422);
     }
+
+    // ── Deshacer una entrega hecha por error ─────────────────────────────────
+
+    private function deshacer(Usuario $quien, int $entregaId, string $motivo = 'Entregué la orden que no era')
+    {
+        return $this->actingAs($quien)->postJson("/api/despacho/entregas/{$entregaId}/deshacer", ['motivo' => $motivo]);
+    }
+
+    public function test_quien_hizo_una_entrega_parcial_la_puede_deshacer(): void
+    {
+        $v     = $this->vendedora();
+        $orden = $this->venderRelojYMueble($v, relojSeLoLleva: false);
+        $this->entregar($v, $orden, [['orden_item_id' => $this->reloj($orden)->id, 'cantidad' => 1]])->assertOk();
+        $entregaId = DespachoItem::where('orden_id', $orden->id)->value('id');
+        $this->assertSame([2, 0], $this->stockReloj(), 'el reloj salió');
+
+        $this->deshacer($v, $entregaId)->assertOk();
+
+        $orden->refresh();
+        $this->assertSame([3, 1], $this->stockReloj(), 'volvió y quedó apartado otra vez para la orden');
+        $this->assertSame(0, (int) $this->reloj($orden)->cantidad_entregada);
+        $this->assertSame('en_produccion', $orden->estado, 'el comedor sigue en el taller');
+        $this->assertSame(0, DespachoItem::where('orden_id', $orden->id)->count());
+        // Y queda escrito por qué.
+        $this->assertTrue(\App\Models\OrdenEdicion::where('orden_id', $orden->id)->get()
+            ->contains(fn ($e) => collect($e->cambios)->contains('label', 'Entrega deshecha')));
+    }
+
+    public function test_una_entrega_completa_deshecha_deja_la_orden_lista_para_entregar(): void
+    {
+        $v = $this->vendedora();
+        $this->actingAs($v)->postJson('/api/ordenes', [
+            'cliente_id' => 1, 'tienda_id' => 1, 'canal' => 'fisica', 'anticipo_monto' => 0,
+            'firma_url' => 'https://ejemplo/firma.png',
+            'items' => [['producto_id' => self::RELOJ, 'cantidad' => 2, 'precio_unitario' => 200000, 'llevar_ahora' => true]],
+        ])->assertCreated();
+        $orden = Orden::latest('id')->first();
+        $this->assertSame('entregado', $orden->estado);
+        $this->assertSame([1, 0], $this->stockReloj());
+
+        $this->deshacer($this->supervisora(), DespachoItem::where('orden_id', $orden->id)->value('id'))->assertOk();
+
+        $this->assertSame('listo_entrega', $orden->fresh()->estado, 'no "pendiente de anticipo": ya estaba lista');
+        $this->assertSame([3, 2], $this->stockReloj());
+    }
+
+    public function test_otro_vendedor_no_la_puede_deshacer(): void
+    {
+        $v     = $this->vendedora();
+        $orden = $this->venderRelojYMueble($v, relojSeLoLleva: false);
+        $this->entregar($v, $orden, [['orden_item_id' => $this->reloj($orden)->id, 'cantidad' => 1]])->assertOk();
+
+        $this->deshacer($this->vendedora(), DespachoItem::where('orden_id', $orden->id)->value('id'))->assertStatus(403);
+        $this->assertSame([2, 0], $this->stockReloj(), 'nada cambió');
+    }
+
+    public function test_pasado_un_dia_solo_el_supervisor_la_deshace(): void
+    {
+        $v     = $this->vendedora();
+        $orden = $this->venderRelojYMueble($v, relojSeLoLleva: false);
+        $this->entregar($v, $orden, [['orden_item_id' => $this->reloj($orden)->id, 'cantidad' => 1]])->assertOk();
+        $entregaId = DespachoItem::where('orden_id', $orden->id)->value('id');
+
+        $this->travel(25)->hours();
+        $this->deshacer($v, $entregaId)->assertStatus(403);
+        $this->deshacer($this->supervisora(), $entregaId)->assertOk();
+    }
+
+    public function test_en_una_ruta_se_deshace_solo_esa_parada(): void
+    {
+        $jefa = $this->despachadora();
+        $una  = $this->venderRelojYMueble($this->vendedora(), relojSeLoLleva: false);
+        $otra = $this->venderRelojYMueble($this->vendedora(), relojSeLoLleva: false);
+
+        $ruta = $this->actingAs($jefa)->postJson('/api/despacho/rutas', [
+            'nombre_ruta' => 'Norte', 'fecha_despacho' => now()->toDateString(),
+        ])->assertStatus(201)->json();
+        $paradas = [];
+        foreach ([$una, $otra] as $o) {
+            $paradas[] = $this->actingAs($jefa)->postJson("/api/despacho/rutas/{$ruta['id']}/ordenes", [
+                'orden_id' => $o->id,
+                'lineas'   => [['orden_item_id' => $this->reloj($o)->id, 'cantidad' => 1]],
+            ])->assertStatus(201)->json('id');
+        }
+        $conductor = Usuario::create(['nombre' => 'Conduce', 'email' => 'c@d.com', 'password' => 'x', 'rol' => 'conductor', 'created_at' => now()]);
+        DB::table('despachos')->where('id', $ruta['id'])->update(['estado' => 'en_ruta', 'conductor_id' => $conductor->id]);
+        foreach ($paradas as $p) {
+            $this->actingAs($conductor)->post("/api/despacho/mis-entregas/{$p}/pago", [
+                'firma_omitida_motivo' => 'prueba', 'monto' => 0, 'foto_producto' => UploadedFile::fake()->image('p.jpg'),
+            ], ['Accept' => 'application/json'])->assertOk();
+            $this->actingAs($conductor)->patchJson("/api/despacho/mis-entregas/{$p}/entregar")->assertOk();
+        }
+
+        // El conductor se equivocó en la primera: él mismo la deshace.
+        $this->deshacer($conductor, $paradas[0])->assertOk();
+
+        $this->assertNotNull(DB::table('despachos')->where('id', $ruta['id'])->first(), 'la ruta sigue: tiene la otra parada');
+        $this->assertSame(1, DespachoItem::where('despacho_id', $ruta['id'])->count());
+        $this->assertSame(0, (int) $this->reloj($una->fresh())->cantidad_entregada);
+        $this->assertSame(1, (int) $this->reloj($otra->fresh())->cantidad_entregada, 'la otra entrega no se toca');
+    }
+
+    public function test_el_historial_dice_a_quien_le_sale_el_boton(): void
+    {
+        $v     = $this->vendedora();
+        $orden = $this->venderRelojYMueble($v, relojSeLoLleva: false);
+        $this->entregar($v, $orden, [['orden_item_id' => $this->reloj($orden)->id, 'cantidad' => 1]])->assertOk();
+
+        $this->assertTrue($this->actingAs($v)->getJson("/api/despacho/entregas-de/{$orden->id}")->json('0.puede_deshacer'));
+        $this->assertTrue($this->actingAs($this->supervisora())->getJson("/api/despacho/entregas-de/{$orden->id}")->json('0.puede_deshacer'));
+    }
 }

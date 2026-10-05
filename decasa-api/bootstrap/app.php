@@ -29,5 +29,21 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        //
+        // "No encontrado" en palabras, no "No query results for model
+        // [App\Models\Orden] 939". Ver App\Support\NoEncontrado.
+        $exceptions->render(function (\Symfony\Component\HttpKernel\Exception\NotFoundHttpException $e, \Illuminate\Http\Request $request) {
+            if (! $request->is('api/*') && ! $request->expectsJson()) {
+                return null;
+            }
+
+            $modelo = $e->getPrevious();
+            if ($modelo instanceof \Illuminate\Database\Eloquent\ModelNotFoundException) {
+                return response()->json(\App\Support\NoEncontrado::respuesta($modelo), 404);
+            }
+
+            return response()->json([
+                'message'   => 'Eso no existe o ya no está disponible.',
+                'no_existe' => true,
+            ], 404);
+        });
     })->create();

@@ -14,7 +14,7 @@ import { getOrden, updateEstado, previsualizarAnulacion, revertirEntrega, descar
 import api from '@/api'
 import { useTiposProceso } from '@/composables/useTiposProceso'
 import { updateCliente } from '@/api/clientes'
-import { despachoPorOrden, crearEntregaDirecta, cancelarEntregaDirecta, entregasDeOrden } from '@/api/despacho'
+import { despachoPorOrden, crearEntregaDirecta, cancelarEntregaDirecta, entregasDeOrden, deshacerEntrega as deshacerEntregaApi } from '@/api/despacho'
 import EntregaDetalleModal from '@/components/despacho/EntregaDetalleModal.vue'
 import { getDevoluciones, crearDevolucion } from '@/api/devoluciones'
 import { tomarFacturacion, marcarFacturada } from '@/api/pagos'
@@ -58,6 +58,9 @@ function urlsFotosProducto(e) {
 }
 const bocetoModal = ref('')
 const error = ref('')
+// La orden no existe (se eliminó, o el enlace o aviso es viejo): no es una falla,
+// se muestra como pantalla propia y no como texto rojo del servidor.
+const noExiste = ref(null)   // { mensaje, eliminada }
 const showPagoModal   = ref(false)
 const showEditarModal = ref(false)
 const changingEstado  = ref(false)
@@ -1038,6 +1041,7 @@ function fmtFechaCorta(f) {
 async function cargarOrden() {
   loading.value = true
   error.value = ''
+  noExiste.value = null
   try {
     const { data } = await getOrden(route.params.id)
     orden.value = data
@@ -1069,7 +1073,16 @@ async function cargarOrden() {
       devoluciones.value = []
     }
   } catch (e) {
-    error.value = e.response?.data?.message ?? 'No se pudo cargar la orden.'
+    if (e.response?.status === 404) {
+      noExiste.value = {
+        mensaje:   e.response?.data?.message ?? 'Esta orden ya no existe.',
+        eliminada: !!e.response?.data?.eliminada,
+      }
+    } else if (e.response?.status === 403) {
+      error.value = 'Esta orden no es de tu tienda ni la vendiste tú, así que no la puedes abrir.'
+    } else {
+      error.value = e.response?.data?.message ?? 'No se pudo cargar la orden. Revisa la conexión e inténtalo otra vez.'
+    }
   } finally {
     loading.value = false
   }
@@ -1118,8 +1131,39 @@ async function cargarEntregas(ordenId) {
 // Se muestra cuando "Pruebas de entrega" no alcanza a contar la historia: la
 // orden sigue abierta con algo ya entregado, o hubo más de una entrega.
 const historialEntregasVisible = computed(() =>
-  entregas.value.length > 0 && (orden.value?.estado !== 'entregado' || entregas.value.length > 1)
+  entregas.value.length > 0 && (orden.value?.estado !== 'entregado' || entregas.value.length > 1
+    // Y siempre que haya una que se pueda deshacer: ahí está el botón.
+    || entregas.value.some(e => e.puede_deshacer))
 )
+
+/**
+ * Deshacer una entrega hecha por error ("entregué la orden que no era"):
+ * parcial o completa. Lo entregado vuelve al inventario y la orden queda por
+ * entregar. El cobro que se haya registrado en esa entrega NO se borra: si
+ * también fue un error, se corrige en Pagos (el servidor avisa cuánto fue).
+ */
+const deshaciendoEntrega = ref(null)
+async function deshacerEntregaDe(e) {
+  if (deshaciendoEntrega.value) return
+  const que = e.llevo_todo ? 'la orden completa' : e.entregados.map(l => `${l.nombre} ×${l.cantidad}`).join(', ')
+  const motivo = prompt(
+    `¿Deshacer esta entrega (${que})?\n\nLo entregado vuelve al inventario y la orden queda por entregar.\n\nEscribe por qué:`,
+  )
+  if (motivo === null) return
+  if (motivo.trim().length < 3) { toast.error('Escribe por qué se deshace la entrega.'); return }
+
+  deshaciendoEntrega.value = e.id
+  try {
+    const { data } = await deshacerEntregaApi(e.id, motivo.trim())
+    toast.success(data.message ?? 'Entrega deshecha.')
+    if (data.aviso) toast.info(data.aviso, 9000)
+    await cargarOrden()
+  } catch (err) {
+    toast.error(err.response?.data?.message ?? 'No se pudo deshacer la entrega.')
+  } finally {
+    deshaciendoEntrega.value = null
+  }
+}
 
 const descargandoActaDe = ref(null)
 async function descargarActaDe(entrega) {
@@ -2061,6 +2105,23 @@ onMounted(() => { cargarTipos(); cargarOrden() })
     <!-- Loading -->
     <AppSpinner v-if="loading" />
 
+    <!-- La orden no existe: se eliminó, o el enlace/aviso era viejo -->
+    <div v-else-if="noExiste" class="bg-white rounded-2xl shadow-sm px-6 py-10 text-center max-w-md mx-auto">
+      <p class="text-lg font-semibold text-gray-800">Esta orden ya no existe</p>
+      <p class="text-sm text-gray-600 mt-2 leading-relaxed">{{ noExiste.mensaje }}</p>
+      <div class="mt-6 flex flex-col gap-2">
+        <button
+          @click="router.push({ name: 'ordenes' })"
+          class="w-full min-h-11 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700"
+        >Ir a la lista de órdenes</button>
+        <button
+          v-if="noExiste.eliminada && auth.isSupervisor"
+          @click="router.push({ name: 'ordenes-eliminadas' })"
+          class="w-full min-h-11 rounded-xl border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50"
+        >Ver órdenes eliminadas</button>
+      </div>
+    </div>
+
     <!-- Error -->
     <div v-else-if="error" class="bg-red-50 rounded-xl px-4 py-3 text-sm text-red-600">
       {{ error }}
@@ -2793,6 +2854,14 @@ onMounted(() => { cargarTipos(); cargarOrden() })
           <p v-if="e.conforme === false" class="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">
             Con novedad: {{ e.observaciones || 'sin detalle' }}
           </p>
+
+          <!-- Se entregó por error: deshacerla devuelve todo como estaba -->
+          <button
+            v-if="e.puede_deshacer"
+            @click="deshacerEntregaDe(e)"
+            :disabled="deshaciendoEntrega === e.id"
+            class="min-h-10 px-3 rounded-lg border border-red-200 text-red-700 text-xs font-semibold hover:bg-red-50 disabled:opacity-50"
+          >{{ deshaciendoEntrega === e.id ? 'Deshaciendo…' : 'Deshacer esta entrega' }}</button>
           <p v-else-if="e.firma_omitida_motivo" class="text-xs text-gray-500">Sin firma: {{ e.firma_omitida_motivo }}</p>
 
           <div v-if="e.foto_producto || e.foto_pago" class="flex flex-wrap gap-2 pt-1">
