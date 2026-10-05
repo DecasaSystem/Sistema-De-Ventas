@@ -173,7 +173,10 @@ function alSoltar(e, recibir) {
 
 function quitarFotoDeProducto(oi, i) {
   const lista = [...fotosDe(oi)]
-  lista.splice(i, 1)
+  const [quitada] = lista.splice(i, 1)
+  // Se suelta de una vez: si no, cada foto quitada seguía ocupando memoria
+  // hasta cerrar el formulario.
+  if (quitada?.preview) URL.revokeObjectURL(quitada.preview)
   fotosProducto.value = { ...fotosProducto.value, [oi.id]: lista }
 }
 // Varias fotos del comprobante: dos transferencias, o el pantallazo que no
@@ -437,7 +440,38 @@ async function onFotoPago(e) {
 }
 
 function quitarFotoPago(i) {
-  fotosPago.value.splice(i, 1)
+  const [quitada] = fotosPago.value.splice(i, 1)
+  if (quitada?.preview) URL.revokeObjectURL(quitada.preview)
+}
+
+function quitarFotoAnexo() {
+  if (fotoAnexoPreview.value) URL.revokeObjectURL(fotoAnexoPreview.value)
+  fotoAnexo.value = null
+  fotoAnexoPreview.value = null
+}
+
+/**
+ * Cerrar sin perder lo cargado por accidente.
+ *
+ * En el teléfono la franja oscura de arriba queda justo donde cae el dedo:
+ * un roce cerraba el formulario y se perdían las fotos, la firma y el
+ * comprobante, y había que empezar de cero en la puerta del cliente. Si ya
+ * hay algo cargado, se pregunta antes.
+ */
+const hayAlgoCargado = computed(() =>
+  Object.values(fotosProducto.value).some(l => l.length)
+  || fotosPago.value.length > 0
+  || !!fotoAnexo.value || !!fotoNovedad.value || !!fotoDevolucion.value
+  || !!firmaBlob.value
+)
+
+function intentarCerrar() {
+  if (registrando.value) return
+  if (!esEntregado.value && hayAlgoCargado.value
+      && !confirm('¿Salir sin registrar la entrega? Se pierden las fotos y la firma que ya cargaste.')) {
+    return
+  }
+  emit('cerrar')
 }
 
 async function agregarFotoAnexo(archivos) {
@@ -532,12 +566,12 @@ async function guardarPagoYEntregar() {
 
 <template>
   <div class="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
-    <div class="fixed inset-0 bg-black/40" @click="emit('cerrar')" />
+    <div class="fixed inset-0 bg-black/40" @click="intentarCerrar" />
 
     <!-- min-w-0: sin esto el panel crecía con lo más ancho de adentro (el
          lienzo de la firma en un teléfono de alta resolución) y se salía de
          la pantalla por la derecha. -->
-    <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full min-w-0 sm:max-w-lg panel-alto flex flex-col overflow-hidden z-10">
+    <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full min-w-0 sm:max-w-lg panel-alto panel-fijo flex flex-col z-10" @scroll="$event.target.scrollTop = 0">
       <!-- Header -->
       <div class="shrink-0 bg-white border-b border-gray-100 pl-5 pr-2 py-2 flex items-center justify-between">
         <div class="flex items-center gap-2 min-w-0">
@@ -547,13 +581,13 @@ async function guardarPagoYEntregar() {
           </h3>
         </div>
         <button
-          @click="emit('cerrar')"
+          @click="intentarCerrar"
           class="w-11 h-11 flex items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 hover:text-gray-700 text-2xl leading-none"
           aria-label="Cerrar"
         >&times;</button>
       </div>
 
-      <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+      <div class="relative flex-1 min-h-0 overflow-y-auto overscroll-contain">
 
       <div v-if="cargando" class="p-8 text-center text-sm text-gray-400">Cargando…</div>
 
@@ -646,7 +680,7 @@ async function guardarPagoYEntregar() {
             <div class="space-y-1.5">
               <label
                 v-for="p in entregables" :key="p.id"
-                :class="['flex items-center gap-3 rounded-xl px-3 py-2.5 min-h-14 border-2 cursor-pointer transition-colors',
+                :class="['relative flex items-center gap-3 rounded-xl px-3 py-2.5 min-h-14 border-2 cursor-pointer transition-colors',
                   llevar[p.id] ? 'bg-emerald-50 border-emerald-400' : 'bg-white border-gray-200']"
               >
                 <input
@@ -805,7 +839,7 @@ async function guardarPagoYEntregar() {
                   <!-- Sin fotos: un botón grande, fácil de atinar con el pulgar -->
                   <label
                     v-else-if="!fotosDe(oi).length"
-                    class="flex items-center justify-center gap-2 min-h-12 rounded-xl border-2 border-dashed border-blue-300 bg-blue-50/60 text-blue-700 text-sm font-semibold cursor-pointer active:bg-blue-100 focus-within:ring-2 focus-within:ring-blue-500"
+                    class="relative flex items-center justify-center gap-2 min-h-12 rounded-xl border-2 border-dashed border-blue-300 bg-blue-50/60 text-blue-700 text-sm font-semibold cursor-pointer active:bg-blue-100 focus-within:ring-2 focus-within:ring-blue-500"
                   >
                     <input type="file" accept="image/*" multiple class="sr-only" @change="onFotoDeProducto(oi, $event)" />
                     <CameraIcon class="w-5 h-5" aria-hidden="true" />
@@ -825,7 +859,7 @@ async function guardarPagoYEntregar() {
                     </div>
                     <label
                       v-if="fotosDe(oi).length < MAX_FOTOS_POR_PRODUCTO"
-                      class="aspect-square flex flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-gray-300 text-gray-500 text-xs font-medium cursor-pointer active:bg-gray-50 focus-within:ring-2 focus-within:ring-blue-500"
+                      class="relative aspect-square flex flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-gray-300 text-gray-500 text-xs font-medium cursor-pointer active:bg-gray-50 focus-within:ring-2 focus-within:ring-blue-500"
                     >
                       <input type="file" accept="image/*" multiple class="sr-only" @change="onFotoDeProducto(oi, $event)" />
                       <CameraIcon class="w-6 h-6" aria-hidden="true" />
@@ -921,7 +955,7 @@ async function guardarPagoYEntregar() {
                     </p>
                     <label
                       v-else-if="!fotosPago.length"
-                      class="flex items-center justify-center gap-2 min-h-12 rounded-xl border-2 border-dashed border-blue-300 bg-blue-50/60 text-blue-700 text-sm font-semibold cursor-pointer active:bg-blue-100 focus-within:ring-2 focus-within:ring-blue-500"
+                      class="relative flex items-center justify-center gap-2 min-h-12 rounded-xl border-2 border-dashed border-blue-300 bg-blue-50/60 text-blue-700 text-sm font-semibold cursor-pointer active:bg-blue-100 focus-within:ring-2 focus-within:ring-blue-500"
                     >
                       <input type="file" accept="image/*" multiple class="sr-only" @change="onFotoPago" />
                       <CameraIcon class="w-5 h-5" aria-hidden="true" />
@@ -936,7 +970,7 @@ async function guardarPagoYEntregar() {
                       </div>
                       <label
                         v-if="fotosPago.length < 6"
-                        class="aspect-square flex flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-gray-300 text-gray-500 text-xs font-medium cursor-pointer active:bg-gray-50 focus-within:ring-2 focus-within:ring-blue-500"
+                        class="relative aspect-square flex flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-gray-300 text-gray-500 text-xs font-medium cursor-pointer active:bg-gray-50 focus-within:ring-2 focus-within:ring-blue-500"
                       >
                         <input type="file" accept="image/*" multiple class="sr-only" @change="onFotoPago" />
                         <CameraIcon class="w-6 h-6" aria-hidden="true" />
@@ -1021,7 +1055,7 @@ async function guardarPagoYEntregar() {
                   />
                   <label
                     @dragover.prevent="arrastrando = 'novedad'" @dragleave.self="arrastrando = null" @drop.prevent="alSoltar($event, agregarFotoNovedad)"
-                    :class="['flex items-center justify-center min-h-12 border-2 border-dashed rounded-xl p-2 text-center cursor-pointer', arrastrando === 'novedad' ? 'border-blue-500 bg-blue-50' : 'border-amber-300']">
+                    :class="['relative flex items-center justify-center min-h-12 border-2 border-dashed rounded-xl p-2 text-center cursor-pointer', arrastrando === 'novedad' ? 'border-blue-500 bg-blue-50' : 'border-amber-300']">
                     <input type="file" accept="image/*" capture="environment" class="hidden" @change="onFotoNovedad" />
                     <img v-if="fotoNovedadPreview" :src="fotoNovedadPreview" class="w-full h-24 object-cover rounded-lg" />
                     <span v-else class="inline-flex items-center gap-1.5 text-sm font-medium text-amber-800"><CameraIcon class="w-5 h-5" aria-hidden="true" /> Foto de la novedad (opcional)</span>
@@ -1074,7 +1108,7 @@ async function guardarPagoYEntregar() {
               <div v-if="fotoAnexoPreview" class="relative">
                 <img :src="fotoAnexoPreview" alt="Anexo firmado" class="w-full h-32 object-cover rounded-xl border border-gray-200" />
                 <button
-                  type="button" @click="fotoAnexo = null; fotoAnexoPreview = null"
+                  type="button" @click="quitarFotoAnexo"
                   class="absolute top-2 right-2 w-8 h-8 flex items-center justify-center rounded-full bg-black/60 text-white"
                   aria-label="Quitar anexo"
                 ><XMarkIcon class="w-4 h-4" aria-hidden="true" /></button>
@@ -1082,7 +1116,7 @@ async function guardarPagoYEntregar() {
               <label
                 v-else
                 @dragover.prevent="arrastrando = 'anexo'" @dragleave.self="arrastrando = null" @drop.prevent="alSoltar($event, agregarFotoAnexo)"
-                :class="['flex items-center justify-center gap-2 min-h-12 rounded-xl border-2 border-dashed text-sm font-medium cursor-pointer active:bg-gray-50 focus-within:ring-2 focus-within:ring-blue-500', arrastrando === 'anexo' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-600']"
+                :class="['relative flex items-center justify-center gap-2 min-h-12 rounded-xl border-2 border-dashed text-sm font-medium cursor-pointer active:bg-gray-50 focus-within:ring-2 focus-within:ring-blue-500', arrastrando === 'anexo' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-600']"
               >
                 <input type="file" accept="image/*" class="sr-only" @change="onFotoAnexo" />
                 <CameraIcon class="w-5 h-5" aria-hidden="true" /> Foto del anexo
@@ -1161,7 +1195,7 @@ async function guardarPagoYEntregar() {
                   <div class="space-y-1">
                     <label
                       v-for="op in PREFERENCIAS" :key="op.v"
-                      :class="['flex items-start gap-2 rounded-lg px-2 py-1.5 border cursor-pointer',
+                      :class="['relative flex items-start gap-2 rounded-lg px-2 py-1.5 border cursor-pointer',
                         preferencia === op.v ? 'bg-white border-orange-400' : 'bg-white/60 border-transparent']"
                     >
                       <input type="radio" :value="op.v" v-model="preferencia" class="mt-0.5 text-orange-600 focus:ring-orange-500" />
@@ -1170,7 +1204,7 @@ async function guardarPagoYEntregar() {
                         <span class="block text-xs text-gray-500 leading-snug">{{ op.d }}</span>
                       </span>
                     </label>
-                    <label :class="['flex items-center gap-2 rounded-lg px-2 py-1.5 border cursor-pointer', preferencia === '' ? 'bg-white border-orange-400' : 'bg-white/60 border-transparent']">
+                    <label :class="['relative flex items-center gap-2 rounded-lg px-2 py-1.5 border cursor-pointer', preferencia === '' ? 'bg-white border-orange-400' : 'bg-white/60 border-transparent']">
                       <input type="radio" value="" v-model="preferencia" class="text-orange-600 focus:ring-orange-500" />
                       <span class="text-xs text-gray-600">No sabe todavía — que decida producción</span>
                     </label>
@@ -1179,7 +1213,7 @@ async function guardarPagoYEntregar() {
 
                 <label
                   @dragover.prevent="arrastrando = 'devolucion'" @dragleave.self="arrastrando = null" @drop.prevent="alSoltar($event, agregarFotoDevolucion)"
-                  :class="['flex items-center justify-center min-h-12 border-2 border-dashed rounded-xl p-2 text-center cursor-pointer', arrastrando === 'devolucion' ? 'border-blue-500 bg-blue-50' : 'border-orange-300']">
+                  :class="['relative flex items-center justify-center min-h-12 border-2 border-dashed rounded-xl p-2 text-center cursor-pointer', arrastrando === 'devolucion' ? 'border-blue-500 bg-blue-50' : 'border-orange-300']">
                   <input type="file" accept="image/*" capture="environment" class="sr-only" @change="onFotoDevolucion" />
                   <img v-if="fotoDevolucionPreview" :src="fotoDevolucionPreview" alt="Foto del daño" class="w-full h-24 object-cover rounded-lg" />
                   <span v-else class="inline-flex items-center gap-1.5 text-sm font-medium text-orange-800"><CameraIcon class="w-5 h-5" aria-hidden="true" /> Foto del daño (recomendada)</span>
@@ -1239,6 +1273,15 @@ async function guardarPagoYEntregar() {
 .panel-alto {
   max-height: 94vh;
   max-height: 94dvh;
+}
+/* El panel no se desplaza nunca: lo que se desplaza es la zona de adentro.
+   Con `hidden` el navegador igual lo corría para mostrar un campo enfocado
+   (el de la foto al volver de la cámara) y el modal quedaba sin título y con
+   un hueco blanco abajo. `clip` no deja moverlo; `hidden` queda de respaldo
+   para navegadores viejos, que además lo devuelven a su sitio (@scroll). */
+.panel-fijo {
+  overflow: hidden;
+  overflow: clip;
 }
 @media (min-width: 640px) {
   .panel-alto { max-height: 90vh; }
