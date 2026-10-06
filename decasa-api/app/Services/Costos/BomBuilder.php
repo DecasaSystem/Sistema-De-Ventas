@@ -2,6 +2,7 @@
 
 namespace App\Services\Costos;
 
+use Illuminate\Support\Facades\DB;
 use OpenAI\Laravel\Facades\OpenAI;
 
 /**
@@ -14,8 +15,25 @@ use OpenAI\Laravel\Facades\OpenAI;
  */
 class BomBuilder
 {
-    /** Cargos válidos — deben existir en salarios_cargo */
-    private const CARGOS = ['carpintero', 'tapicero', 'costurera', 'lacador'];
+    /** Cargos de respaldo si la tabla salarios_cargo está vacía */
+    private const CARGOS_BASE = ['carpintero', 'tapicero', 'costurera', 'lacador'];
+
+    private ?array $cargos = null;
+
+    /**
+     * Cargos válidos: los de salarios_cargo, incluidos los que se crean en Costos › Tarifas
+     * (un "pintor" nuevo debe poder entrar en la receta, no descartarse).
+     */
+    private function cargos(): array
+    {
+        return $this->cargos ??= (function () {
+            $cargos = DB::table('salarios_cargo')->pluck('cargo')
+                ->map(fn ($c) => mb_strtolower(trim($c)))
+                ->filter()->unique()->values()->all();
+
+            return $cargos ?: self::CARGOS_BASE;
+        })();
+    }
 
     /**
      * @param string      $contexto    Descripción del trabajo a cotizar.
@@ -126,7 +144,7 @@ class BomBuilder
                 if (! is_numeric($mo['horas'])) continue;
 
                 $cargo = mb_strtolower(trim((string) $mo['cargo']));
-                if (! in_array($cargo, self::CARGOS, true)) continue;
+                if (! in_array($cargo, $this->cargos(), true)) continue;
 
                 $manoObra[] = [
                     'cargo'   => $cargo,
@@ -153,7 +171,7 @@ class BomBuilder
 
     private function systemPrompt(): string
     {
-        $cargos = implode(', ', self::CARGOS);
+        $cargos = implode(', ', $this->cargos());
 
         return <<<EOT
 Eres el ebanista jefe de Decasa (muebles, Colombia). Tu trabajo es descomponer un mueble en su

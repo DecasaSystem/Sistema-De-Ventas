@@ -280,7 +280,10 @@ function descargarBoceto(url) {
 onMounted(() => {
   cargar()
   cargarMensajes()
-  getMateriales('').then(r => { materialesCatalogo.value = r.data ?? [] }).catch(() => {})
+  // El catálogo trae precios de costo: solo lo ve quien atiende consultas
+  if (authStore.puedeCostos || authStore.usuario?.rol === 'ebanista') {
+    getMateriales('').then(r => { materialesCatalogo.value = r.data ?? [] }).catch(() => {})
+  }
 
   listen(`consulta.${route.params.id}`, 'consulta.mensaje', (data) => {
     if (!mensajes.value.some(m => m.id === data.id)) {

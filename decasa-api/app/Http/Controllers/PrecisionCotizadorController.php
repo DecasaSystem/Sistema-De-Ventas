@@ -14,13 +14,9 @@ use Illuminate\Support\Facades\DB;
  */
 class PrecisionCotizadorController extends Controller
 {
+    // El acceso lo decide la ruta (permiso:acceso_costos,ebanista), igual que el resto de Costos
     public function index(Request $request)
     {
-        $usuario = $request->user();
-        if (! ($usuario->rol === 'supervisor' || $usuario->acceso_costos)) {
-            return response()->json(['message' => 'No autorizado.'], 403);
-        }
-
         $corregidos = DB::table('estimados_ia')
             ->whereNotNull('precio_humano')
             ->where('precio_humano', '>', 0)

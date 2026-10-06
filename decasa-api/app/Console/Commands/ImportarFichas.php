@@ -4,13 +4,14 @@ namespace App\Console\Commands;
 
 use App\Models\FichaTecnica;
 use App\Models\FichaTecnicaItem;
+use App\Models\Material;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 
 class ImportarFichas extends Command
 {
-    protected $signature = 'fichas:importar {carpeta? : Ruta base de la carpeta de materiales}';
+    protected $signature = 'fichas:importar {carpeta? : Ruta base de la carpeta de materiales} {--force : No pedir confirmación antes de borrar las fichas actuales}';
     protected $description = 'Importa fichas técnicas desde archivos Excel';
 
     private const SECTION_KEYWORDS = [
@@ -33,6 +34,15 @@ class ImportarFichas extends Command
 
         $totalProductos = 0;
         $totalErrores   = 0;
+
+        // Esto borra TODAS las fichas, incluidas las creadas desde la app, sus fotos,
+        // su vínculo con las tarifas y su índice del cotizador.
+        $actuales = DB::table('fichas_tecnicas')->count();
+        if ($actuales > 0 && ! $this->option('force')
+            && ! $this->confirm("Se borrarán las {$actuales} fichas técnicas actuales y se recargarán desde el Excel. ¿Continuar?")) {
+            $this->info('Cancelado.');
+            return 0;
+        }
 
         DB::statement('DELETE FROM ficha_tecnica_items');
         DB::statement('DELETE FROM fichas_tecnicas');
@@ -88,7 +98,17 @@ class ImportarFichas extends Command
             }
         }
 
+        // Enlazar los materiales con el catálogo (los del Excel vienen solo por nombre)
+        $nombres = DB::table('ficha_tecnica_items')->where('es_mano_obra', false)->distinct()->pluck('descripcion');
+        foreach (Material::idsPorNombre($nombres) as $clave => $id) {
+            DB::table('ficha_tecnica_items')
+                ->where('es_mano_obra', false)
+                ->whereRaw('LOWER(TRIM(descripcion)) = ?', [$clave])
+                ->update(['material_id' => $id]);
+        }
+
         $this->info("✓ Importados: $totalProductos productos. Errores: $totalErrores");
+        $this->line('Corre `php artisan fichas:reindex` para que el cotizador vea las fichas nuevas.');
         return 0;
     }
 

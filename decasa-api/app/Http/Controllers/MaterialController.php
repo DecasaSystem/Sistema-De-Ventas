@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Models\FichaTecnica;
-use App\Models\FichaTecnicaItem;
 use App\Models\Material;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -12,7 +11,13 @@ class MaterialController extends Controller
 {
     public function index(Request $request)
     {
-        $query = Material::query();
+        // `usos`: en cuántas fichas aparece, para saber qué toca un cambio de precio
+        $query = Material::query()->select('materiales.*')->selectSub(
+            DB::table('ficha_tecnica_items')
+                ->whereColumn('material_id', 'materiales.id')
+                ->selectRaw('COUNT(DISTINCT ficha_tecnica_id)'),
+            'usos',
+        );
 
         if ($search = $request->query('search')) {
             $term = '%' . mb_strtolower($search) . '%';
@@ -37,7 +42,12 @@ class MaterialController extends Controller
             'precio_unitario' => 'required|numeric|min:0',
         ]);
 
-        $material = Material::create($data);
+        $material = DB::transaction(function () use ($data) {
+            $material = Material::create($data);
+            // Los ítems que ya estaban escritos con este nombre pasan a ser de este material
+            $this->enlazarPorNombre();
+            return $material;
+        });
 
         return response()->json($material, 201);
     }
@@ -54,46 +64,80 @@ class MaterialController extends Controller
         $precioAnterior = (float) $material->precio_unitario;
         $precioNuevo    = (float) $data['precio_unitario'];
         $nombreAnterior = $material->nombre;
+        $unidadAnterior = $material->unidad;
 
-        $material->update($data);
+        $usuarioId = $request->user()?->id;
 
-        // Si cambió el precio, propagar a todos los ítems con ese nombre
-        if ($precioNuevo !== $precioAnterior || (isset($data['nombre']) && $data['nombre'] !== $nombreAnterior)) {
-            $nombre = $material->nombre;
+        $afectados = DB::transaction(function () use ($material, $data, $precioNuevo, $precioAnterior, $nombreAnterior, $unidadAnterior, $usuarioId) {
+            // Se buscan antes del cambio: los que no tienen material_id todavía se
+            // reconocen por el nombre que tenían ANTES (si no, un renombre los soltaría).
+            $items = $this->itemsDe($material->id, $nombreAnterior);
 
-            // Actualizar precio y subtotal en un solo UPDATE eficiente
-            DB::table('ficha_tecnica_items')
-                ->whereRaw('TRIM(descripcion) = TRIM(?)', [$nombre])
-                ->where('es_mano_obra', false)
-                ->update([
-                    'precio_unitario' => $precioNuevo,
-                    'subtotal'        => DB::raw("ROUND(cantidad * $precioNuevo, 2)"),
-                    'updated_at'      => now(),
-                ]);
+            $material->update($data);
 
-            // Recalcular totales de todas las fichas afectadas
-            $fichaIds = FichaTecnicaItem::whereRaw('TRIM(descripcion) = TRIM(?)', [$nombre])
-                ->pluck('ficha_tecnica_id')
-                ->unique();
+            $renombrado = trim($material->nombre) !== trim($nombreAnterior);
+            if ($precioNuevo === $precioAnterior && ! $renombrado && $material->unidad === $unidadAnterior) {
+                return 0;
+            }
 
-            foreach ($fichaIds as $fichaId) {
-                $todos           = FichaTecnicaItem::where('ficha_tecnica_id', $fichaId)->get();
-                $costoMateriales = $todos->where('es_mano_obra', false)->sum('subtotal');
-                $costoManoObra   = $todos->where('es_mano_obra', true)->sum('subtotal');
+            $fichaIds      = (clone $items)->distinct()->pluck('ficha_tecnica_id');
+            $subtotalAntes = (float) (clone $items)->sum('subtotal');
+            $cantidadTotal = (float) (clone $items)->sum('cantidad');
 
-                FichaTecnica::where('id', $fichaId)->update([
-                    'costo_materiales' => $costoMateriales,
-                    'costo_mano_obra'  => $costoManoObra,
-                    'costo_total'      => $costoMateriales + $costoManoObra,
+            if ($precioNuevo !== $precioAnterior) {
+                DB::table('material_precio_historial')->insert([
+                    'material_id'         => $material->id,
+                    'material_nombre'     => $material->nombre,
+                    'precio_anterior'     => $precioAnterior,
+                    'precio_nuevo'        => $precioNuevo,
+                    'productos_afectados' => $fichaIds->count(),
+                    'impacto_total'       => round($cantidadTotal * $precioNuevo - $subtotalAntes, 2),
+                    'usuario_id'          => $usuarioId,
+                    'created_at'          => now(),
                 ]);
             }
 
-            $material->productos_afectados = $fichaIds->count();
-        } else {
-            $material->productos_afectados = 0;
-        }
+            $campos = [
+                'material_id'     => $material->id,
+                'descripcion'     => trim($material->nombre),
+                'precio_unitario' => $precioNuevo,
+                'subtotal'        => DB::raw('ROUND(cantidad * ' . $precioNuevo . ', 2)'),
+                'updated_at'      => now(),
+            ];
+            // La unidad de cada ítem viene del Excel y puede variar; solo se pisa si la cambiaron aquí
+            if ($material->unidad !== $unidadAnterior) $campos['unidad'] = $material->unidad;
+
+            $items->update($campos);
+
+            foreach ($fichaIds as $fichaId) {
+                FichaTecnica::recalcularTotales($fichaId);
+            }
+
+            return $fichaIds->count();
+        });
+
+        $material->productos_afectados = $afectados;
 
         return response()->json($material);
+    }
+
+    /**
+     * GET /materiales/{id}/historial — cambios de precio, del más reciente al más viejo.
+     */
+    public function historial(Material $material)
+    {
+        $cambios = DB::table('material_precio_historial as h')
+            ->leftJoin('usuarios as u', 'u.id', '=', 'h.usuario_id')
+            ->where('h.material_id', $material->id)
+            ->orderByDesc('h.created_at')
+            ->orderByDesc('h.id')
+            ->limit(50)
+            ->get([
+                'h.id', 'h.precio_anterior', 'h.precio_nuevo', 'h.productos_afectados',
+                'h.impacto_total', 'h.created_at', 'u.nombre as usuario',
+            ]);
+
+        return response()->json($cambios);
     }
 
     /**
@@ -101,16 +145,15 @@ class MaterialController extends Controller
      */
     public function usos(Material $material)
     {
-        $usos = DB::table('ficha_tecnica_items as fti')
+        $usos = $this->itemsDe($material->id, $material->nombre, 'fti')
             ->join('fichas_tecnicas as ft', 'ft.id', '=', 'fti.ficha_tecnica_id')
-            ->whereRaw('TRIM(fti.descripcion) = TRIM(?)', [$material->nombre])
-            ->where('fti.es_mano_obra', false)
             ->select(
                 'ft.id   as ficha_id',
                 'ft.nombre as ficha_nombre',
                 'ft.categoria as ficha_categoria',
                 'fti.id  as item_id',
                 'fti.cantidad',
+                'fti.unidad',
                 'fti.precio_unitario',
                 'fti.subtotal',
             )
@@ -127,7 +170,7 @@ class MaterialController extends Controller
     /**
      * Elimina un material reemplazando o vaciando sus usos en fichas técnicas.
      * Body: { reemplazar_con_id?: int|null }
-     *   - Si se provee id: sustituye descripcion/unidad/precio en todos los ítems
+     *   - Si se provee id: sustituye material/descripcion/unidad/precio en todos los ítems
      *   - Si es null: deja los ítems con descripcion='' y precio=0
      */
     public function destroy(Request $request, Material $material)
@@ -137,49 +180,36 @@ class MaterialController extends Controller
         ]);
 
         DB::transaction(function () use ($material, $data) {
+            $items = $this->itemsDe($material->id, $material->nombre);
+
             // Obtener fichas afectadas ANTES de modificar los ítems
-            $fichaIds = DB::table('ficha_tecnica_items')
-                ->whereRaw('TRIM(descripcion) = TRIM(?)', [$material->nombre])
-                ->where('es_mano_obra', false)
-                ->pluck('ficha_tecnica_id')
-                ->unique();
+            $fichaIds = (clone $items)->distinct()->pluck('ficha_tecnica_id');
 
             if (!empty($data['reemplazar_con_id'])) {
                 $nuevo = Material::findOrFail($data['reemplazar_con_id']);
                 $nuevoPrecio = (float) $nuevo->precio_unitario;
-                DB::table('ficha_tecnica_items')
-                    ->whereRaw('TRIM(descripcion) = TRIM(?)', [$material->nombre])
-                    ->where('es_mano_obra', false)
-                    ->update([
-                        'descripcion'     => $nuevo->nombre,
-                        'unidad'          => $nuevo->unidad,
-                        'precio_unitario' => $nuevoPrecio,
-                        'subtotal'        => DB::raw("ROUND(cantidad * {$nuevoPrecio}, 2)"),
-                        'updated_at'      => now(),
-                    ]);
+                $items->update([
+                    'material_id'     => $nuevo->id,
+                    'descripcion'     => $nuevo->nombre,
+                    'unidad'          => $nuevo->unidad,
+                    'precio_unitario' => $nuevoPrecio,
+                    'subtotal'        => DB::raw("ROUND(cantidad * {$nuevoPrecio}, 2)"),
+                    'updated_at'      => now(),
+                ]);
             } else {
                 // Limpiar sin reemplazar
-                DB::table('ficha_tecnica_items')
-                    ->whereRaw('TRIM(descripcion) = TRIM(?)', [$material->nombre])
-                    ->where('es_mano_obra', false)
-                    ->update([
-                        'descripcion'     => '',
-                        'precio_unitario' => 0,
-                        'subtotal'        => 0,
-                        'updated_at'      => now(),
-                    ]);
+                $items->update([
+                    'material_id'     => null,
+                    'descripcion'     => '',
+                    'precio_unitario' => 0,
+                    'subtotal'        => 0,
+                    'updated_at'      => now(),
+                ]);
             }
 
             // Recalcular totales de cada ficha afectada
             foreach ($fichaIds as $fichaId) {
-                $todos           = FichaTecnicaItem::where('ficha_tecnica_id', $fichaId)->get();
-                $costoMateriales = $todos->where('es_mano_obra', false)->sum('subtotal');
-                $costoManoObra   = $todos->where('es_mano_obra', true)->sum('subtotal');
-                FichaTecnica::where('id', $fichaId)->update([
-                    'costo_materiales' => $costoMateriales,
-                    'costo_mano_obra'  => $costoManoObra,
-                    'costo_total'      => $costoMateriales + $costoManoObra,
-                ]);
+                FichaTecnica::recalcularTotales($fichaId);
             }
 
             $material->delete();
@@ -198,6 +228,7 @@ class MaterialController extends Controller
 
         $items = DB::table('ficha_tecnica_items')
             ->where('es_mano_obra', false)
+            ->whereNull('material_id')
             ->whereNotNull('descripcion')
             ->where('descripcion', '!=', '')
             ->select(
@@ -210,23 +241,67 @@ class MaterialController extends Controller
             ->orderByDesc('usos')
             ->get();
 
-        $nuevos = 0;
-        foreach ($items as $item) {
-            $key = strtoupper(trim($item->nombre));
-            if ($existentes->has($key)) continue;
+        $nuevos = DB::transaction(function () use ($items, $existentes) {
+            $nuevos = 0;
+            foreach ($items as $item) {
+                $key = strtoupper(trim($item->nombre));
+                if ($existentes->has($key)) continue;
 
-            Material::create([
-                'nombre'          => $item->nombre,
-                'unidad'          => $item->unidad,
-                'precio_unitario' => $item->precio_promedio,
-            ]);
-            $existentes->put($key, true);
-            $nuevos++;
-        }
+                Material::create([
+                    'nombre'          => $item->nombre,
+                    'unidad'          => $item->unidad,
+                    'precio_unitario' => $item->precio_promedio,
+                ]);
+                $existentes->put($key, true);
+                $nuevos++;
+            }
+
+            $this->enlazarPorNombre();
+
+            return $nuevos;
+        });
 
         return response()->json([
             'mensaje'     => "Importados $nuevos materiales nuevos",
             'total'       => Material::count(),
         ]);
+    }
+
+    /**
+     * Ítems de material de las fichas que son de este material: los enlazados por id y,
+     * mientras queden ítems viejos sin enlazar, los que se llaman igual.
+     */
+    private function itemsDe(int $materialId, string $nombre, string $alias = 'ficha_tecnica_items')
+    {
+        $tabla = $alias === 'ficha_tecnica_items' ? $alias : "ficha_tecnica_items as {$alias}";
+
+        return DB::table($tabla)
+            ->where("{$alias}.es_mano_obra", false)
+            ->where(function ($q) use ($alias, $materialId, $nombre) {
+                $q->where("{$alias}.material_id", $materialId)
+                  ->orWhere(function ($q) use ($alias, $nombre) {
+                      $q->whereNull("{$alias}.material_id")
+                        ->whereRaw("LOWER(TRIM({$alias}.descripcion)) = ?", [mb_strtolower(trim($nombre))]);
+                  });
+            });
+    }
+
+    /** Enlaza con el catálogo los ítems de material que se llaman como un material y no tienen material_id. */
+    private function enlazarPorNombre(): void
+    {
+        $nombres = DB::table('ficha_tecnica_items')
+            ->where('es_mano_obra', false)
+            ->whereNull('material_id')
+            ->where('descripcion', '!=', '')
+            ->distinct()
+            ->pluck('descripcion');
+
+        foreach (Material::idsPorNombre($nombres) as $clave => $id) {
+            DB::table('ficha_tecnica_items')
+                ->where('es_mano_obra', false)
+                ->whereNull('material_id')
+                ->whereRaw('LOWER(TRIM(descripcion)) = ?', [$clave])
+                ->update(['material_id' => $id]);
+        }
     }
 }

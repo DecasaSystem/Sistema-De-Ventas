@@ -745,14 +745,12 @@ class AgentService
         $tipo      = $args['tipo_producto'];
         $categoria = $args['categoria'] ?? $tipo;
 
-        // Salarios por cargo para mostrar la fórmula al usuario
+        // Incentivo por hora de cada cargo: es lo que cuesta la mano de obra en todo el
+        // cotizador (CostoCalculator y Costos › Tarifas usan la misma fórmula).
         $salarios = DB::table('salarios_cargo')
-            ->get(['cargo', 'descripcion', 'salario_mensual', 'dias_laborales_mes'])
-            ->map(fn($s) => array_merge((array) $s, [
-                'tarifa_diaria' => round($s->salario_mensual / $s->dias_laborales_mes, 0),
-            ]));
+            ->get(['cargo', 'descripcion', 'tarifa_hora']);
 
-        // Tarifas de mano de obra: tarifa = salario_diario × dias_por_unidad
+        // tarifa = tarifa_hora × horas del proceso (dias_por_unidad × 8)
         $tarifas = DB::table('tarifas_proceso')
             ->orderBy('aplica_a')
             ->orderBy('proceso')
@@ -793,12 +791,12 @@ class AgentService
                 'alto'  => $args['alto_cm']  ?? null,
             ],
             'num_puestos'         => $args['num_puestos'] ?? null,
-            'salarios_cargo'      => $salarios,   // tarifa_diaria = salario_mensual / dias_laborales_mes
-            'tarifas_proceso'     => $tarifas,    // tarifa = tarifa_diaria × dias_por_unidad
+            'salarios_cargo'      => $salarios,   // tarifa_hora = incentivo por hora del cargo
+            'tarifas_proceso'     => $tarifas,    // tarifa = tarifa_hora × dias_por_unidad × 8
             'materiales_catalogo' => $materiales,
             'fichas_referencia'   => $fichasRef,
             'items_referencia'    => $itemsRef,
-            'nota_calculo'        => 'Mano de obra = dias_por_unidad × (salario_mensual / dias_laborales_mes). Muestra esta fórmula en tu respuesta para que el cálculo sea transparente.',
+            'nota_calculo'        => 'Mano de obra = horas × tarifa_hora del cargo (horas de un proceso = dias_por_unidad × 8; el campo tarifa ya trae ese cálculo por unidad). Muestra esta fórmula en tu respuesta para que el cálculo sea transparente.',
         ];
     }
 

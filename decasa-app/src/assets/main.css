@@ -57,6 +57,11 @@ html.dark .border-gray-300 { border-color: #475569 !important; }
 /* Divisores */
 html.dark .divide-gray-100 > :not([hidden]) ~ :not([hidden]) { border-color: #1e293b !important; }
 html.dark .divide-gray-200 > :not([hidden]) ~ :not([hidden]) { border-color: #334155 !important; }
+/* Tailwind v4 pinta el divisor en el borde de abajo de cada hijo menos el último
+   (no en el de arriba de los siguientes, como v3): sin esto el primer divisor
+   quedaba blanco en modo oscuro. */
+html.dark .divide-gray-100 > :not(:last-child) { border-color: #1e293b !important; }
+html.dark .divide-gray-200 > :not(:last-child) { border-color: #334155 !important; }
 
 /* Inputs, textarea, select */
 html.dark input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),

@@ -15,6 +15,8 @@ class FichaTecnicaItem extends Model
         'precio_unitario',
         'subtotal',
         'es_mano_obra',
+        'material_id',
+        'tarifa_proceso_id',
         'orden',
     ];
 

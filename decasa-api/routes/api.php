@@ -659,14 +659,16 @@ Route::middleware('auth:sanctum')->group(function () {
         });
     });
 
-    // Materiales (catálogo maestro)
-    Route::get('/materiales',               [MaterialController::class, 'index']);
-    Route::get('/materiales/{material}/usos', [MaterialController::class, 'usos']);
-    Route::middleware('role:supervisor,ebanista')->group(function () {
+    // Materiales (catálogo maestro). Son precios de costo: leerlos y editarlos
+    // pide acceso_costos (el ebanista sigue automático), igual que las fichas.
+    Route::middleware('permiso:acceso_costos,ebanista')->group(function () {
+        Route::get('/materiales',               [MaterialController::class, 'index']);
+        Route::get('/materiales/{material}/usos', [MaterialController::class, 'usos']);
+        Route::get('/materiales/{material}/historial', [MaterialController::class, 'historial']);
         Route::post('/materiales',             [MaterialController::class, 'store']);
         Route::patch('/materiales/{material}', [MaterialController::class, 'update']);
     });
-    Route::middleware('role:supervisor')->group(function () {
+    Route::middleware(['role:supervisor', 'permiso:acceso_costos'])->group(function () {
         Route::post('/materiales/importar',      [MaterialController::class, 'importar']);
         Route::delete('/materiales/{material}',  [MaterialController::class, 'destroy']);
     });
@@ -766,15 +768,20 @@ Route::middleware('auth:sanctum')->group(function () {
         });
     });
 
-    // Fichas Técnicas (costos de producción)
-    Route::get('/fichas-tecnicas',                        [FichaTecnicaController::class, 'index']);
-    Route::get('/fichas-tecnicas/materiales-sugeridos',   [FichaTecnicaController::class, 'materialesSugeridos']);
-    Route::get('/fichas-tecnicas/{fichaTecnica}',         [FichaTecnicaController::class, 'show']);
+    // Fichas Técnicas (costos de producción). Ya no hay "reimportar" por HTTP:
+    // borraba todas las fichas y las recargaba desde una carpeta local que en
+    // el servidor no existe. Queda solo como `php artisan fichas:importar`.
     Route::middleware('permiso:acceso_costos,ebanista')->group(function () {
+        Route::get('/fichas-tecnicas',                           [FichaTecnicaController::class, 'index']);
+        Route::get('/fichas-tecnicas/materiales-sugeridos',      [FichaTecnicaController::class, 'materialesSugeridos']);
+        Route::get('/fichas-tecnicas/{fichaTecnica}',            [FichaTecnicaController::class, 'show']);
         Route::post('/fichas-tecnicas',                          [FichaTecnicaController::class, 'store']);
         Route::patch('/fichas-tecnicas/{fichaTecnica}/items',    [FichaTecnicaController::class, 'updateItems']);
+        Route::post('/fichas-tecnicas/{fichaTecnica}/duplicar',  [FichaTecnicaController::class, 'duplicar']);
+        Route::patch('/fichas-tecnicas/{fichaTecnica}/producto', [FichaTecnicaController::class, 'vincularProducto']);
     });
+    // Borrar una ficha le quita una referencia al cotizador: igual que borrar materiales
     Route::middleware(['role:supervisor', 'permiso:acceso_costos'])->group(function () {
-        Route::post('/fichas-tecnicas/reimportar',               [FichaTecnicaController::class, 'reimportar']);
+        Route::delete('/fichas-tecnicas/{fichaTecnica}',         [FichaTecnicaController::class, 'destroy']);
     });
 });

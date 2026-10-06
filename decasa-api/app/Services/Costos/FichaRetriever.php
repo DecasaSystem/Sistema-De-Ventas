@@ -229,6 +229,33 @@ class FichaRetriever
         return implode(' | ', array_filter($partes));
     }
 
+    /**
+     * Genera (o regenera) el embedding de una sola ficha. Sin él, el cotizador no la ve
+     * como referencia: las fichas creadas o renombradas desde la app se indexan aquí.
+     */
+    public function indexarFicha(int $fichaId): bool
+    {
+        $ficha = DB::table('fichas_tecnicas')->where('id', $fichaId)->first(['id', 'nombre', 'categoria']);
+        if (! $ficha) return false;
+
+        $secciones = DB::table('ficha_tecnica_items')
+            ->where('ficha_tecnica_id', $fichaId)
+            ->whereNotNull('seccion')
+            ->distinct()
+            ->pluck('seccion')
+            ->all();
+
+        $vector = $this->embed($this->textoDeFicha($ficha, $secciones));
+        if (! $vector) return false;
+
+        DB::table('fichas_tecnicas')->where('id', $fichaId)->update([
+            'embedding'    => json_encode($vector),
+            'embedding_at' => now(),
+        ]);
+
+        return true;
+    }
+
     /** @return array<float>|null */
     public function embed(string $texto): ?array
     {
