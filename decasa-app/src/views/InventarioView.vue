@@ -21,6 +21,7 @@ import {
   ChevronRightIcon,
   ArrowRightIcon,
   ArrowDownTrayIcon,
+  ArrowsUpDownIcon,
 } from '@heroicons/vue/24/outline'
 import { exportarExcelHojas } from '@/utils/exportarExcel'
 import { getInventario, getDesgloseVariantes, getResumenCategoria, addStock, removeStock, getVariantes, crearVariante, addStockVariante, getMovimientos, getReservas, getDescuadres, corregirDescuadre as postCorregirDescuadre, getVarianteUso, eliminarVariante } from '@/api/inventario'
@@ -82,7 +83,51 @@ const tiendaId = ref(auth.usuario?.tienda_default_id ?? '')
 const inventario = ref([])
 const busqueda = ref('')
 const categoriaFiltro = ref('')
-useFiltrosRecordados('inventario', { tiendaId, busqueda, categoriaFiltro })
+const ordenInv        = ref('stock_desc')
+const existenciaInv   = ref('')
+useFiltrosRecordados('inventario', { tiendaId, busqueda, categoriaFiltro, ordenInv, existenciaInv })
+
+// ── Ordenar y filtrar por existencias ────────────────────────────────────────
+const ORDENES_INV = [
+  { valor: 'stock_desc',  corto: 'Más stock',      largo: 'Más stock primero' },
+  { valor: 'stock_asc',   corto: 'Menos stock',    largo: 'Menos stock primero' },
+  { valor: 'libre_desc',  corto: 'Más disponible', largo: 'Más disponible (sin apartados)' },
+  { valor: 'nombre_asc',  corto: 'A → Z',          largo: 'Nombre A → Z' },
+  { valor: 'nombre_desc', corto: 'Z → A',          largo: 'Nombre Z → A' },
+  { valor: 'precio_desc', corto: 'Mayor precio',   largo: 'Precio: mayor a menor' },
+  { valor: 'precio_asc',  corto: 'Menor precio',   largo: 'Precio: menor a mayor' },
+]
+const ordenAbierto = ref(false)
+const ordenActual  = computed(() => ORDENES_INV.find(o => o.valor === ordenInv.value) ?? ORDENES_INV[0])
+
+// "Bajo mínimo" solo en una tienda: el mínimo es de cada tienda.
+const EXISTENCIAS_INV = computed(() => [
+  { valor: '',          texto: 'Todo' },
+  { valor: 'con_stock', texto: 'Con stock' },
+  { valor: 'agotados',  texto: 'Agotados' },
+  ...(tiendaId.value === 'todas' ? [] : [{ valor: 'bajo_minimo', texto: 'Bajo mínimo' }]),
+])
+
+const filtrosInv = () => ({ orden: ordenInv.value, existencia: existenciaInv.value })
+
+function elegirOrden(valor) {
+  ordenAbierto.value = false
+  if (ordenInv.value === valor) return
+  ordenInv.value = valor
+  cargarInventario(true)
+}
+
+function elegirExistencia(valor) {
+  if (existenciaInv.value === valor) return
+  existenciaInv.value = valor
+  cargarInventario(true)
+}
+
+function limpiarFiltrosInv() {
+  ordenInv.value      = 'stock_desc'
+  existenciaInv.value = ''
+  cargarInventario(true)
+}
 const copiado = ref(false)
 
 /**
@@ -923,7 +968,7 @@ async function cargarInventario(reset = false) {
   let nuevosItems = []
   try {
     const page = reset ? 1 : currentPage.value + 1
-    const { data } = await getInventario(tiendaId.value, busqueda.value.trim(), page, categoriaFiltro.value)
+    const { data } = await getInventario(tiendaId.value, busqueda.value.trim(), page, categoriaFiltro.value, null, filtrosInv())
     nuevosItems = data.data
     if (reset) {
       inventario.value = nuevosItems
@@ -1068,7 +1113,7 @@ async function exportarExcelInventario() {
     let lastP = 1
     const todos = []
     do {
-      const { data } = await getInventario(tiendaId.value, busqueda.value.trim(), page, categoriaFiltro.value, 200)
+      const { data } = await getInventario(tiendaId.value, busqueda.value.trim(), page, categoriaFiltro.value, 200, filtrosInv())
       todos.push(...(data.data ?? []))
       lastP = data.last_page ?? 1
       page++
@@ -2300,7 +2345,7 @@ onMounted(async () => {
       <label class="block text-xs font-medium text-gray-500 mb-1">Tienda</label>
       <select
         v-model="tiendaId"
-        @change="categoriaFiltro = ''; resumenCategoria = null; cargarInventario(true)"
+        @change="categoriaFiltro = ''; resumenCategoria = null; if (tiendaId === 'todas' && existenciaInv === 'bajo_minimo') existenciaInv = ''; cargarInventario(true)"
         class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
       >
         <option value="">Seleccionar tienda...</option>
@@ -2366,6 +2411,53 @@ onMounted(async () => {
       >
         {{ CATEGORY_LABELS[cat] ?? cat }}
       </button>
+    </div>
+
+    <!-- Ordenar y existencias: aplican a "Todas" y a cada categoría -->
+    <div v-if="tiendaId" class="flex items-center gap-2">
+      <div class="relative flex-shrink-0">
+        <button
+          type="button"
+          @click="ordenAbierto = !ordenAbierto"
+          :class="['flex items-center gap-1.5 rounded-full border pl-2.5 pr-2 py-1.5 text-xs font-semibold transition-colors',
+            ordenInv !== 'stock_desc' ? 'border-blue-500 text-blue-600 bg-white' : 'border-gray-300 text-gray-700 bg-white hover:border-gray-400']"
+        >
+          <ArrowsUpDownIcon class="w-3.5 h-3.5" />
+          {{ ordenActual.corto }}
+          <ChevronDownIcon :class="['w-3.5 h-3.5 transition-transform', ordenAbierto ? 'rotate-180' : '']" />
+        </button>
+
+        <template v-if="ordenAbierto">
+          <div class="fixed inset-0 z-30" @click="ordenAbierto = false" />
+          <div class="absolute left-0 top-full mt-1.5 z-40 w-64 bg-white rounded-xl border border-gray-200 shadow-lg py-1.5">
+            <p class="px-3 pt-1 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Ordenar por</p>
+            <button
+              v-for="o in ORDENES_INV"
+              :key="o.valor"
+              type="button"
+              @click="elegirOrden(o.valor)"
+              :class="['w-full flex items-center justify-between gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50',
+                ordenInv === o.valor ? 'text-blue-600 font-semibold' : 'text-gray-700']"
+            >
+              {{ o.largo }}
+              <CheckIcon v-if="ordenInv === o.valor" class="w-4 h-4 flex-shrink-0" />
+            </button>
+          </div>
+        </template>
+      </div>
+
+      <div class="w-px h-5 bg-gray-200 flex-shrink-0" />
+
+      <div class="flex gap-1.5 overflow-x-auto scrollbar-hide">
+        <button
+          v-for="e in EXISTENCIAS_INV"
+          :key="e.valor"
+          type="button"
+          @click="elegirExistencia(e.valor)"
+          :class="['shrink-0 rounded-full border px-2.5 py-1.5 text-xs font-semibold transition-colors',
+            existenciaInv === e.valor ? 'border-blue-500 text-blue-600 bg-white' : 'border-gray-200 text-gray-500 bg-white hover:border-gray-300']"
+        >{{ e.texto }}</button>
+      </div>
     </div>
 
     <!-- Total de la categoría: la lista de abajo llega paginada, así que este
@@ -2640,8 +2732,11 @@ onMounted(async () => {
     <!-- Empty — las sugerencias van arriba, pegadas al buscador -->
     <div v-else-if="tiendaId && inventario.length === 0">
       <EmptyState
-        :message="busqueda.trim() ? `No se encontró “${busqueda.trim()}”.` : (esVistaGlobal ? 'No hay productos en ninguna tienda.' : 'No hay productos en esta tienda.')"
+        :message="busqueda.trim() ? `No se encontró “${busqueda.trim()}”.` : existenciaInv ? 'Ningún producto cumple el filtro elegido.' : (esVistaGlobal ? 'No hay productos en ninguna tienda.' : 'No hay productos en esta tienda.')"
       />
+      <div v-if="existenciaInv" class="text-center -mt-2">
+        <button @click="limpiarFiltrosInv" class="text-sm font-semibold text-blue-600 hover:underline">Quitar filtros</button>
+      </div>
     </div>
 
     <!-- Lista -->

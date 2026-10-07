@@ -1,7 +1,15 @@
 import api from './index'
 
-export const getInventario  = (tiendaId, search = '', page = 1, categoria = '', perPage = null) =>
-  api.get('/inventario', { params: { tienda_id: tiendaId, search, page, ...(categoria ? { categoria } : {}), ...(perPage ? { per_page: perPage } : {}) } })
+// filtros: { orden, existencia } — el orden y el filtro de existencias van al
+// servidor porque la lista llega paginada: ordenar aquí solo ordenaría lo cargado.
+export const getInventario  = (tiendaId, search = '', page = 1, categoria = '', perPage = null, filtros = {}) =>
+  api.get('/inventario', { params: {
+    tienda_id: tiendaId, search, page,
+    ...(categoria ? { categoria } : {}),
+    ...(perPage ? { per_page: perPage } : {}),
+    ...(filtros.orden && filtros.orden !== 'stock_desc' ? { orden: filtros.orden } : {}),
+    ...(filtros.existencia ? { existencia: filtros.existencia } : {}),
+  } })
 
 export const getDesgloseVariantes = (tiendaId) =>
   api.get('/inventario/desglose-variantes', { params: { tienda_id: tiendaId } })

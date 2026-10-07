@@ -47,26 +47,26 @@ class InventarioOrdenStockTest extends TestCase
         DB::table('tiendas')->insert([['id' => 1, 'nombre' => 'Centro'], ['id' => 2, 'nombre' => 'Norte']]);
         // En orden alfabético quedan revueltos: Armonia 6, Avioneta 1, Banca 0, Base 2k 1, Base cama 0.
         DB::table('productos')->insert([
-            ['id' => 1, 'nombre' => 'Armonia',   'categoria' => 'sillas'],
-            ['id' => 2, 'nombre' => 'Avioneta',  'categoria' => 'accesorios'],
-            ['id' => 3, 'nombre' => 'Banca',     'categoria' => 'bancas'],
-            ['id' => 4, 'nombre' => 'Base 2k',   'categoria' => 'comedores'],
-            ['id' => 5, 'nombre' => 'Base cama', 'categoria' => 'camas'],
+            ['id' => 1, 'nombre' => 'Armonia',   'categoria' => 'sillas',     'precio_base' => 780000],
+            ['id' => 2, 'nombre' => 'Avioneta',  'categoria' => 'accesorios', 'precio_base' => 168000],
+            ['id' => 3, 'nombre' => 'Banca',     'categoria' => 'bancas',     'precio_base' => 1980000],
+            ['id' => 4, 'nombre' => 'Base 2k',   'categoria' => 'comedores',  'precio_base' => 1480000],
+            ['id' => 5, 'nombre' => 'Base cama', 'categoria' => 'camas',      'precio_base' => 980000],
         ]);
         DB::table('inventario')->insert([
-            ['producto_id' => 1, 'tienda_id' => 1, 'cantidad_disponible' => 6],
-            ['producto_id' => 2, 'tienda_id' => 1, 'cantidad_disponible' => 1],
-            ['producto_id' => 3, 'tienda_id' => 1, 'cantidad_disponible' => 0],
-            ['producto_id' => 4, 'tienda_id' => 1, 'cantidad_disponible' => 1],
+            ['producto_id' => 1, 'tienda_id' => 1, 'cantidad_disponible' => 6, 'cantidad_reservada' => 6, 'stock_minimo' => 0],
+            ['producto_id' => 2, 'tienda_id' => 1, 'cantidad_disponible' => 1, 'cantidad_reservada' => 0, 'stock_minimo' => 2],
+            ['producto_id' => 3, 'tienda_id' => 1, 'cantidad_disponible' => 0, 'cantidad_reservada' => 0, 'stock_minimo' => 1],
+            ['producto_id' => 4, 'tienda_id' => 1, 'cantidad_disponible' => 1, 'cantidad_reservada' => 0, 'stock_minimo' => 0],
             // Base cama: 0 en Centro, 3 en Norte.
-            ['producto_id' => 5, 'tienda_id' => 2, 'cantidad_disponible' => 3],
+            ['producto_id' => 5, 'tienda_id' => 2, 'cantidad_disponible' => 3, 'cantidad_reservada' => 0, 'stock_minimo' => 0],
         ]);
     }
 
-    private function nombres(string $tienda): array
+    private function nombres(string $tienda, string $extra = ''): array
     {
         $u = Usuario::create(['nombre' => 'Jefa', 'email' => 'j@d.com', 'password' => 'x', 'rol' => 'supervisor', 'created_at' => now()]);
-        return collect($this->actingAs($u)->getJson("/api/inventario?tienda_id={$tienda}")->assertOk()->json('data'))
+        return collect($this->actingAs($u)->getJson("/api/inventario?tienda_id={$tienda}{$extra}")->assertOk()->json('data'))
             ->pluck('producto.nombre')->all();
     }
 
@@ -79,5 +79,32 @@ class InventarioOrdenStockTest extends TestCase
     public function test_en_todas_las_tiendas_suma_y_va_de_mas_a_menos(): void
     {
         $this->assertSame(['Armonia', 'Base cama', 'Avioneta', 'Base 2k', 'Banca'], $this->nombres('todas'));
+    }
+
+    public function test_otros_ordenes(): void
+    {
+        $this->assertSame(['Banca', 'Base cama', 'Avioneta', 'Base 2k', 'Armonia'], $this->nombres('1', '&orden=stock_asc'));
+        // Armonia tiene 6 pero las 6 apartadas: libre 0, cae detrás de los de 1.
+        $this->assertSame(['Avioneta', 'Base 2k', 'Armonia', 'Banca', 'Base cama'], $this->nombres('1', '&orden=libre_desc'));
+        $this->assertSame(['Armonia', 'Avioneta', 'Banca', 'Base 2k', 'Base cama'], $this->nombres('1', '&orden=nombre_asc'));
+        $this->assertSame(['Base cama', 'Base 2k', 'Banca', 'Avioneta', 'Armonia'], $this->nombres('1', '&orden=nombre_desc'));
+        $this->assertSame(['Banca', 'Base 2k', 'Base cama', 'Armonia', 'Avioneta'], $this->nombres('todas', '&orden=precio_desc'));
+        $this->assertSame(['Avioneta', 'Armonia', 'Base cama', 'Base 2k', 'Banca'], $this->nombres('todas', '&orden=precio_asc'));
+        // Uno desconocido no rompe: queda el de siempre.
+        $this->assertSame(['Armonia', 'Avioneta', 'Base 2k', 'Banca', 'Base cama'], $this->nombres('1', '&orden=xyz'));
+    }
+
+    public function test_filtro_de_existencias(): void
+    {
+        $this->assertSame(['Armonia', 'Avioneta', 'Base 2k'], $this->nombres('1', '&existencia=con_stock'));
+        $this->assertSame(['Banca', 'Base cama'], $this->nombres('1', '&existencia=agotados'));
+        // Bajo mínimo: solo con mínimo puesto (Avioneta 1 de 2, Banca 0 de 1).
+        $this->assertSame(['Avioneta', 'Banca'], $this->nombres('1', '&existencia=bajo_minimo'));
+
+        // En todas las tiendas cuenta la suma: Base cama tiene 3 en Norte.
+        $this->assertSame(['Armonia', 'Base cama', 'Avioneta', 'Base 2k'], $this->nombres('todas', '&existencia=con_stock'));
+        $this->assertSame(['Banca'], $this->nombres('todas', '&existencia=agotados'));
+        $u = Usuario::first();
+        $this->actingAs($u)->getJson('/api/inventario?tienda_id=todas&existencia=agotados')->assertJsonPath('total', 1);
     }
 }

@@ -243,6 +243,8 @@ class InventarioController extends Controller
         $tiendaId = $request->query('tienda_id');
         $search   = $request->query('search');
         $categoria = $request->query('categoria');
+        $orden      = $request->query('orden');
+        $existencia = $request->query('existencia');
 
         // Descargar el inventario completo son ~19 viajes de 20 filas. Se deja
         // pedir mas por pagina para que el Excel salga en dos. El tope evita
@@ -251,7 +253,7 @@ class InventarioController extends Controller
         $perPage = is_numeric($pedido) ? min(max((int) $pedido, 1), 200) : 20;
 
         if ($tiendaId === 'todas') {
-            return $this->inventarioTodas($search, $categoria, $perPage);
+            return $this->inventarioTodas($search, $categoria, $perPage, $orden, $existencia);
         }
 
         $request->validate([
@@ -295,19 +297,10 @@ class InventarioController extends Controller
             });
         }
 
-        // El desempate por id no es cosmetico: sin el, "ordenar por cantidad"
-        // deja el orden indefinido entre filas empatadas (aqui hay categorias
-        // con 33 productos en el mismo numero), y con LIMIT/OFFSET eso permite
-        // que una fila salga en dos paginas y otra en ninguna. Quien recorre
-        // todas las paginas para descargar el Excel se lo llevaria repetido.
         if ($categoria) {
             $query->where('productos.categoria', $categoria);
         }
-        // De más a menos stock, con o sin categoría. Antes "Todos" iba por
-        // nombre y los de 0 quedaban revueltos entre los que sí hay.
-        $query->orderBy(DB::raw('COALESCE(inventario.cantidad_disponible, 0)'), 'desc')
-              ->orderBy('productos.nombre')
-              ->orderBy('productos.id');
+        $this->ordenarYFiltrarExistencia($query, $orden, $existencia, false);
 
         return response()->json($query->paginate($perPage)->through(function ($inv) {
             $inv->stock_libre = $inv->cantidad_disponible - $inv->cantidad_reservada;
@@ -335,7 +328,7 @@ class InventarioController extends Controller
     /**
      * Devuelve inventario agrupado por producto de TODAS las tiendas.
      */
-    private function inventarioTodas($search = null, $categoria = null, $perPage = 20)
+    private function inventarioTodas($search = null, $categoria = null, $perPage = 20, $orden = null, $existencia = null)
     {
         $query = DB::table('productos')
             ->leftJoin('inventario', 'inventario.producto_id', '=', 'productos.id')
@@ -385,10 +378,7 @@ class InventarioController extends Controller
         if ($categoria) {
             $query->where('productos.categoria', $categoria);
         }
-        // De más a menos stock también en "Todos", igual que en index().
-        $query->orderByRaw('COALESCE(SUM(inventario.cantidad_disponible), 0) DESC')
-              ->orderBy('productos.nombre')
-              ->orderBy('productos.id');   // desempate, ver index()
+        $this->ordenarYFiltrarExistencia($query, $orden, $existencia, true);
 
         $pagina = $query->paginate($perPage);
 
@@ -433,6 +423,55 @@ class InventarioController extends Controller
                     ],
                 ];
             }));
+    }
+
+    /**
+     * Orden y filtro de existencias de la lista de inventario.
+     *
+     * orden:      stock_desc (por defecto), stock_asc, libre_desc,
+     *             nombre_asc, nombre_desc, precio_desc, precio_asc
+     * existencia: con_stock, agotados, bajo_minimo (este solo en una tienda:
+     *             el mínimo es de cada tienda)
+     *
+     * Un valor que no se conoce se ignora en vez de dar error: la lista no
+     * debe caerse porque una versión vieja de la app mande otra cosa.
+     *
+     * Con "todas las tiendas" la consulta va agrupada, así que se ordena y se
+     * filtra sobre las sumas (HAVING).
+     *
+     * El desempate final por id no es cosmético: sin él el orden entre filas
+     * empatadas queda indefinido (hay categorías con 33 productos en el mismo
+     * número), y con LIMIT/OFFSET una fila puede salir en dos páginas y otra
+     * en ninguna. Quien recorre todas las páginas para el Excel se la llevaría
+     * repetida.
+     */
+    private function ordenarYFiltrarExistencia($query, $orden, $existencia, bool $agrupado): void
+    {
+        $disp  = $agrupado ? 'COALESCE(SUM(inventario.cantidad_disponible), 0)' : 'COALESCE(inventario.cantidad_disponible, 0)';
+        $res   = $agrupado ? 'COALESCE(SUM(inventario.cantidad_reservada), 0)'  : 'COALESCE(inventario.cantidad_reservada, 0)';
+        $donde = $agrupado ? 'havingRaw' : 'whereRaw';
+
+        if ($existencia === 'con_stock') {
+            $query->{$donde}("{$disp} > 0");
+        } elseif ($existencia === 'agotados') {
+            $query->{$donde}("{$disp} <= 0");
+        } elseif ($existencia === 'bajo_minimo' && ! $agrupado) {
+            // Solo los que tienen un mínimo puesto: sin mínimo no hay "bajo".
+            $query->whereRaw('COALESCE(inventario.stock_minimo, 0) > 0')
+                  ->whereRaw("{$disp} <= COALESCE(inventario.stock_minimo, 0)");
+        }
+
+        match ($orden) {
+            'stock_asc'   => $query->orderByRaw("{$disp} ASC"),
+            'libre_desc'  => $query->orderByRaw("({$disp} - {$res}) DESC")->orderByRaw("{$disp} DESC"),
+            'nombre_asc'  => $query->orderBy('productos.nombre'),
+            'nombre_desc' => $query->orderBy('productos.nombre', 'desc'),
+            'precio_desc' => $query->orderBy('productos.precio_base', 'desc'),
+            'precio_asc'  => $query->orderBy('productos.precio_base'),
+            default       => $query->orderByRaw("{$disp} DESC"),
+        };
+
+        $query->orderBy('productos.nombre')->orderBy('productos.id');
     }
 
     /**
