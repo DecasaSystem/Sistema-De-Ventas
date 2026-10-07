@@ -1261,6 +1261,7 @@ function openGestionar(item) {
   vcOpcionesAgregadas.value = {}
   vcBusqueda.value          = ''
   vcEdicion.value           = null
+  vcSelectorAbierto.value   = false
   mostrarGestionar.value  = true
   cargarVarConfigs()
 }
@@ -1500,6 +1501,31 @@ async function cargarVarConfigs() {
   } finally {
     vcCargando.value = false
   }
+}
+
+// ── Selector del tipo a agregar (lista con buscador) ─────────────────────────
+const vcSelectorAbierto  = ref(false)
+const vcSelectorBusqueda = ref('')
+const vcSelectorInput    = ref(null)
+
+const vcTiposDisponibles = computed(() => {
+  const q = vcNormalizar(vcSelectorBusqueda.value.trim())
+  return vcTodosLosTipos.value
+    .filter(t => !vcTiposAsignados.value.some(a => a.tipo_variante_id === t.id))
+    .filter(t => !q || vcNormalizar(t.nombre).includes(q) || t.opciones.some(o => vcNormalizar(o.nombre).includes(q)))
+})
+
+function vcAbrirSelector() {
+  vcSelectorBusqueda.value = ''
+  vcSelectorAbierto.value  = true
+  nextTick(() => vcSelectorInput.value?.focus())
+}
+
+function vcElegirTipo(tipo) {
+  if (!tipo.opciones.length) return
+  vcAddTipoId.value       = tipo.id
+  vcSelectorAbierto.value = false
+  vcIniciarAgregar()
 }
 
 function vcIniciarAgregar() {
@@ -3671,25 +3697,60 @@ onMounted(async () => {
                   Este producto aún no tiene variantes.
                 </p>
 
-                <!-- Agregar un tipo nuevo -->
-                <div v-if="!vcPendingOpciones.length" class="flex gap-2">
-                  <select
-                    v-model="vcAddTipoId"
-                    class="flex-1 min-w-0 text-sm rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                  >
-                    <option value="">Elegir tipo de variante…</option>
-                    <option
-                      v-for="tipo in vcTodosLosTipos.filter(t => !vcTiposAsignados.some(a => a.tipo_variante_id === t.id))"
-                      :key="tipo.id"
-                      :value="tipo.id"
-                    >{{ tipo.nombre }}</option>
-                  </select>
+                <!-- Agregar un tipo nuevo: lista con buscador -->
+                <template v-if="!vcPendingOpciones.length">
                   <button
-                    @click="vcIniciarAgregar"
-                    :disabled="!vcAddTipoId"
-                    class="inline-flex items-center gap-1 text-sm font-semibold text-blue-600 border border-blue-200 rounded-lg px-3 py-2 hover:bg-blue-50 disabled:opacity-40 transition-colors"
-                  ><PlusIcon class="w-4 h-4" />Agregar</button>
-                </div>
+                    v-if="!vcSelectorAbierto"
+                    @click="vcAbrirSelector"
+                    class="w-full flex items-center justify-center gap-1.5 text-sm font-semibold text-blue-600 border border-dashed border-blue-300 rounded-xl py-2.5 hover:bg-blue-50 transition-colors"
+                  ><PlusIcon class="w-4 h-4" />Agregar tipo de variante</button>
+
+                  <div v-else class="rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+                    <div class="flex items-center gap-2 px-3 py-2 border-b border-gray-200">
+                      <MagnifyingGlassIcon class="w-4 h-4 text-gray-400 flex-shrink-0" />
+                      <input
+                        ref="vcSelectorInput"
+                        v-model="vcSelectorBusqueda"
+                        type="text"
+                        placeholder="Buscar tipo u opción…"
+                        @keydown.esc="vcSelectorAbierto = false"
+                        @keydown.enter.prevent="vcTiposDisponibles.filter(t => t.opciones.length).length === 1 && vcElegirTipo(vcTiposDisponibles.find(t => t.opciones.length))"
+                        class="flex-1 min-w-0 text-sm bg-transparent py-1 outline-none border-0"
+                      />
+                      <button @click="vcSelectorAbierto = false" class="p-1 text-gray-400 hover:text-gray-600 flex-shrink-0" title="Cerrar">
+                        <XMarkIcon class="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div class="max-h-64 overflow-y-auto divide-y divide-gray-100">
+                      <button
+                        v-for="tipo in vcTiposDisponibles"
+                        :key="tipo.id"
+                        @click="vcElegirTipo(tipo)"
+                        :disabled="!tipo.opciones.length"
+                        class="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-gray-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        <div class="flex-1 min-w-0">
+                          <p :class="['text-sm font-medium truncate', tipo.opciones.length ? 'text-gray-800' : 'text-gray-400']">{{ tipo.nombre }}</p>
+                          <p class="text-[11px] text-gray-400 truncate">
+                            {{ tipo.opciones.length ? tipo.opciones.map(o => o.nombre).join(' · ') : 'Sin opciones: agrégalas en Variantes' }}
+                          </p>
+                        </div>
+                        <span :class="['text-[11px] font-semibold rounded-full px-2 py-0.5 flex-shrink-0 whitespace-nowrap',
+                          tipo.afecta_precio ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500']">
+                          {{ tipo.afecta_precio ? 'Afecta precio' : 'Solo diferencia' }}
+                        </span>
+                        <ChevronRightIcon v-if="tipo.opciones.length" class="w-4 h-4 text-gray-300 flex-shrink-0" />
+                      </button>
+
+                      <p v-if="!vcTiposDisponibles.length" class="px-3 py-4 text-sm text-gray-400 text-center">
+                        {{ vcSelectorBusqueda.trim()
+                          ? `Ningún tipo coincide con "${vcSelectorBusqueda}".`
+                          : 'Este producto ya tiene todos los tipos. Crea uno nuevo en Variantes.' }}
+                      </p>
+                    </div>
+                  </div>
+                </template>
 
                 <!-- Configurando el tipo nuevo -->
                 <div v-if="vcPendingOpciones.length" class="rounded-xl border-2 border-blue-500/30 overflow-hidden">
