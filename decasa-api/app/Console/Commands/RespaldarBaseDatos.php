@@ -15,8 +15,8 @@ use Illuminate\Mail\Message;
  * cliente de MariaDB que trae la imagen no sabe hablar ese idioma. Se vuelca
  * con la misma conexión que usa la aplicación, que ya funciona.
  *
- * Sale un .sql.gz de dos o tres megas —los datos de verdad son unos 17— así
- * que cabe de sobra en un correo. Va al buzón de la empresa a propósito: si
+ * Sale un .zip de dos o tres megas —los datos de verdad son unos 17— así
+ * que cabe de sobra en un correo (con --guardar se escribe un .sql.gz). Va al buzón de la empresa a propósito: si
  * un día se pierde la cuenta de Aiven o la de Render, la copia sigue estando
  * en un sitio que no depende de ninguna de las dos.
  */
@@ -50,7 +50,6 @@ class RespaldarBaseDatos extends Command
         }
 
         $comprimido = gzencode($sql, 9);
-        $nombre     = 'decasa_' . now()->format('Y-m-d_Hi') . '.sql.gz';
 
         $this->info(sprintf(
             '%d tablas, %s filas, %s sin comprimir, %s comprimido',
@@ -68,12 +67,22 @@ class RespaldarBaseDatos extends Command
 
         $destino = $this->option('a') ?: config('mail.from.address');
 
+        // Por correo va en .zip, no en .gz: Brevo (por donde salen los correos)
+        // rechaza los .gz con "Unsupported file format: gz" y la copia dejó de
+        // llegar sin que se notara hasta el aviso de fallo (octubre 2026). Su
+        // lista de adjuntos permitidos trae zip; gz no.
         try {
-            Mail::raw($this->cuerpoDelCorreo($resumen, $sql, $comprimido, $inicio),
-                function (Message $m) use ($destino, $nombre, $comprimido) {
+            [$zip, $nombreZip] = $this->enZip($sql);
+        } catch (\Throwable $e) {
+            return $this->fallar('No se pudo comprimir: ' . $e->getMessage());
+        }
+
+        try {
+            Mail::raw($this->cuerpoDelCorreo($resumen, $sql, $zip, $inicio),
+                function (Message $m) use ($destino, $nombreZip, $zip) {
                     $m->to($destino)
                       ->subject('Copia de seguridad — ' . now()->format('d/m/Y'))
-                      ->attachData($comprimido, $nombre, ['mime' => 'application/gzip']);
+                      ->attachData($zip, $nombreZip, ['mime' => 'application/zip']);
                 });
         } catch (\Throwable $e) {
             return $this->fallar('No se pudo enviar el correo: ' . $e->getMessage());
@@ -187,6 +196,29 @@ class RespaldarBaseDatos extends Command
         return [$sql . "\n", $filas];
     }
 
+    /**
+     * El .sql dentro de un .zip, en memoria. Devuelve [bytes, nombre del zip].
+     * Se descomprime con doble clic en cualquier computador.
+     */
+    private function enZip(string $sql): array
+    {
+        $base = 'decasa_' . now()->format('Y-m-d_Hi');
+        $tmp  = tempnam(sys_get_temp_dir(), 'respaldo');
+
+        $zip = new \ZipArchive();
+        if ($zip->open($tmp, \ZipArchive::OVERWRITE) !== true) {
+            throw new \RuntimeException('no se pudo abrir el archivo temporal');
+        }
+        $zip->addFromString($base . '.sql', $sql);
+        $zip->setCompressionName($base . '.sql', \ZipArchive::CM_DEFLATE, 9);
+        $zip->close();
+
+        $bytes = file_get_contents($tmp);
+        @unlink($tmp);
+
+        return [$bytes, $base . '.zip'];
+    }
+
     private function cuerpoDelCorreo(array $resumen, string $sql, string $gz, float $inicio): string
     {
         return "Copia de seguridad de la base de datos de Decasa.\n\n"
@@ -195,7 +227,7 @@ class RespaldarBaseDatos extends Command
              . 'Filas: ' . number_format($resumen['filas']) . "\n"
              . 'Tamaño: ' . $this->enMegas(strlen($gz)) . ' (' . $this->enMegas(strlen($sql)) . " sin comprimir)\n"
              . 'Tardó: ' . round(microtime(true) - $inicio, 1) . " segundos\n\n"
-             . "Para restaurarla hace falta descomprimir el archivo y cargarlo en una base\n"
+             . "Para restaurarla hace falta descomprimir el .zip y cargar el .sql en una base\n"
              . "vacía. Guarda este correo: si un día se pierde el servidor, esto es lo único\n"
              . "que queda.\n\n"
              . "Si algún día deja de llegar este correo, avisa: significa que la copia no se\n"

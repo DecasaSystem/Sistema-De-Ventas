@@ -169,7 +169,11 @@ y export de objeto plano; Chrome headless por CDP con el `WebSocket` de Node 24
 - Variable `PROGRAMADOR_ACTIVO` (default 1) en `entrypoint.sh`: con dos
   servidores vivos, solo uno puede tenerla en 1 o las tareas diarias se duplican.
 - BD: MySQL en Aiven (`defaultdb`). Respaldo diario 03:00 por correo
-  (`respaldo:base`).
+  (`respaldo:base`). **Los correos salen por Brevo (API), que rechaza adjuntos
+  `.gz`**: el respaldo estuvo fallando ("Unsupported file format: gz", visto
+  el 2026-10-07). Desde entonces va en `.zip` (permitido por Brevo). Antes de
+  cualquier operación grande en la base (mudanza, cambio de plan), confirmar
+  que llegó el correo del respaldo de ese día.
 - Variables del front en Vercel: `VITE_REVERB_APP_KEY`, `VITE_REVERB_HOST`,
   `VITE_REVERB_PORT`, `VITE_REVERB_SCHEME` (sin key → sin tiempo real, polling).
 
