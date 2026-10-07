@@ -1390,6 +1390,8 @@ class DespachoController extends Controller
                 Pago::create([
                     'orden_id'    => $item->orden_id,
                     'vendedor_id' => $usuario->id,
+                    // Cobrado al entregar: el efectivo no entra a la caja de la tienda
+                    'despacho_item_id' => $item->id,
                     // En la última entrega es el saldo; en una parcial, un abono.
                     'tipo'        => $esLaUltima ? 'saldo_final' : 'abono',
                     'monto'       => $data['monto'],

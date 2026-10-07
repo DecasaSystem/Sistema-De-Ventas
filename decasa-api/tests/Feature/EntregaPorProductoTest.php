@@ -344,6 +344,61 @@ class EntregaPorProductoTest extends TestCase
         $this->assertTrue($orden->resumenEntrega()['completa']);
     }
 
+    public function test_el_efectivo_cobrado_al_entregar_no_entra_a_la_caja(): void
+    {
+        Schema::create('caja_movimientos', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('tienda_id'); $t->unsignedBigInteger('usuario_id')->nullable();
+            $t->string('tipo'); $t->decimal('monto', 15, 2); $t->string('concepto')->nullable();
+            $t->text('descripcion')->nullable(); $t->string('comprobante_url')->nullable(); $t->timestamps();
+        });
+
+        $v     = $this->vendedora();
+        $orden = $this->venderRelojYMueble($v, relojSeLoLleva: false);
+
+        // En la tienda: un abono en efectivo. Ese sí va al cajón.
+        $this->actingAs($v)->postJson("/api/ordenes/{$orden->id}/pagos", [
+            'monto' => 100000, 'metodo' => 'efectivo', 'comprobante_url' => 'https://foto/abono.jpg',
+        ])->assertStatus(201);
+
+        // Al entregar el reloj: otro abono en efectivo. Ese no.
+        $this->entregar($v, $orden, [['orden_item_id' => $this->reloj($orden)->id, 'cantidad' => 1]],
+            ['monto' => 200000, 'metodo' => 'efectivo'])->assertOk();
+
+        $deEntrega = $orden->pagos()->whereNotNull('despacho_item_id')->first();
+        $this->assertNotNull($deEntrega, 'el cobro de la entrega queda atado a la entrega');
+        $this->assertEquals(200000, $deEntrega->monto);
+        $this->assertNull($orden->pagos()->where('monto', 100000)->value('despacho_item_id'));
+
+        // Los dos cuentan como pagado en la orden…
+        $this->assertEquals(300000, $orden->fresh()->totalPagado());
+
+        // …pero a la caja solo entra lo de la tienda
+        $caja = $this->actingAs($v)->getJson('/api/caja/balance')->assertOk();
+        $this->assertEquals(100000, $caja->json('ingreso_ventas'));
+        $movs = $this->actingAs($v)->getJson('/api/caja/movimientos')->assertOk()->json();
+        $this->assertSame([100000.0], array_map(fn ($m) => (float) $m['monto'], $movs));
+    }
+
+    public function test_el_comando_marca_los_cobros_de_entrega_viejos_por_la_foto(): void
+    {
+        $v     = $this->vendedora();
+        $orden = $this->venderRelojYMueble($v, relojSeLoLleva: false);
+        $this->entregar($v, $orden, [['orden_item_id' => $this->reloj($orden)->id, 'cantidad' => 1]],
+            ['monto' => 200000, 'metodo' => 'efectivo'])->assertOk();
+
+        // Como quedaban antes de este cambio: sin la entrega en el pago
+        DB::table('pagos')->update(['despacho_item_id' => null]);
+        // Un abono de tienda con otra foto no se toca
+        DB::table('pagos')->insert(['orden_id' => $orden->id, 'tipo' => 'abono', 'monto' => 50000, 'metodo' => 'efectivo',
+            'comprobante_url' => 'https://foto/tienda.jpg', 'created_at' => now()]);
+
+        $this->artisan('caja:cobros-de-entrega')->assertSuccessful();
+        $this->assertSame(0, DB::table('pagos')->whereNotNull('despacho_item_id')->count(), 'sin --aplicar no cambia nada');
+
+        $this->artisan('caja:cobros-de-entrega', ['--aplicar' => true])->assertSuccessful();
+        $this->assertSame([200000.0], DB::table('pagos')->whereNotNull('despacho_item_id')->pluck('monto')->map(fn ($m) => (float) $m)->all());
+    }
+
     public function test_un_abono_en_una_parcial_queda_como_abono(): void
     {
         $v     = $this->vendedora();

@@ -2194,18 +2194,17 @@ class AgentService
             $mostrarTodas = false;
         }
 
-        // Función de balance para una tienda
+        // Función de balance para una tienda. Con las mismas consultas que la
+        // pantalla de Caja: antes sumaba todos los pagos (también transferencias,
+        // tarjeta y lo cobrado al entregar) y daba otra cifra que la caja real.
         $balanceTienda = function (int $id, string $nombre) {
-            $ingresoVentas = DB::table('pagos as p')
-                ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
-                ->where('o.tienda_id', $id)
-                ->sum('p.monto');
+            $ingresoVentas = \App\Http\Controllers\CajaController::efectivoDeTienda($id)->sum('monto');
 
-            $ingresoManual = DB::table('caja_movimientos')
-                ->where('tienda_id', $id)->where('tipo', 'ingreso_manual')->sum('monto');
+            $ingresoManual = \App\Http\Controllers\CajaController::movimientosDeTienda($id)
+                ->where('tipo', 'ingreso_manual')->sum('monto');
 
-            $egresos = DB::table('caja_movimientos')
-                ->where('tienda_id', $id)->where('tipo', 'egreso')->sum('monto');
+            $egresos = \App\Http\Controllers\CajaController::movimientosDeTienda($id)
+                ->where('tipo', 'egreso')->sum('monto');
 
             return [
                 'tienda_id'      => $id,
@@ -2218,7 +2217,9 @@ class AgentService
         };
 
         if ($mostrarTodas) {
-            $tiendas = DB::table('tiendas')->where('activa', true)->orderBy('nombre')->get(['id', 'nombre']);
+            // La sede de los independientes no es una caja (igual que en Caja)
+            $tiendas = DB::table('tiendas')->where('activa', true)->where('es_independientes', false)
+                ->orderBy('nombre')->get(['id', 'nombre']);
             $resumen = $tiendas->map(fn($t) => $balanceTienda($t->id, $t->nombre))->values();
 
             return [
@@ -2227,7 +2228,7 @@ class AgentService
                 'total_ingresos'  => round($resumen->sum('ingreso_ventas') + $resumen->sum('ingreso_manual'), 2),
                 'total_egresos'   => round($resumen->sum('egresos'), 2),
                 'por_tienda'      => $resumen,
-                'nota'            => 'balance = ingreso_ventas + ingreso_manual - egresos. Ingreso_ventas acumula TODOS los pagos recibidos desde el inicio del sistema.',
+                'nota'            => 'balance = ingreso_ventas + ingreso_manual - egresos. Ingreso_ventas es el efectivo recibido en la tienda desde el inicio del sistema; no incluye transferencias, tarjeta ni el efectivo cobrado al entregar.',
             ];
         }
 
@@ -2244,24 +2245,35 @@ class AgentService
                 ? $this->parsePeriodo($args['periodo'])
                 : [null, null];
 
-            $pagos = DB::table('pagos as p')
-                ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
-                ->leftJoin('usuarios as u', 'u.id', '=', 'p.vendedor_id')
-                ->where('o.tienda_id', $tiendaId)
-                ->when($desde, fn($q) => $q->whereBetween('p.created_at', [$desde . ' 00:00:00', $hasta . ' 23:59:59']))
-                ->selectRaw("'ingreso_venta' AS tipo, p.monto, CONCAT('Venta #', p.orden_id) AS concepto, u.nombre AS usuario, p.metodo, p.created_at AS fecha")
-                ->orderByDesc('p.created_at')
+            $pagos = \App\Http\Controllers\CajaController::efectivoDeTienda($tiendaId)
+                ->with('vendedor:id,nombre')
+                ->when($desde, fn($q) => $q->whereBetween('created_at', [$desde . ' 00:00:00', $hasta . ' 23:59:59']))
+                ->latest()
                 ->limit(30)
-                ->get();
+                ->get()
+                ->map(fn($p) => (object) [
+                    'tipo'     => 'ingreso_venta',
+                    'monto'    => $p->monto,
+                    'concepto' => 'Venta #' . $p->orden_id,
+                    'usuario'  => $p->vendedor?->nombre,
+                    'metodo'   => $p->metodo,
+                    'fecha'    => $p->created_at,
+                ]);
 
-            $manuales = DB::table('caja_movimientos as cm')
-                ->leftJoin('usuarios as u', 'u.id', '=', 'cm.usuario_id')
-                ->where('cm.tienda_id', $tiendaId)
-                ->when($desde, fn($q) => $q->whereBetween('cm.created_at', [$desde . ' 00:00:00', $hasta . ' 23:59:59']))
-                ->selectRaw("cm.tipo, cm.monto, cm.concepto, u.nombre AS usuario, NULL AS metodo, cm.created_at AS fecha")
-                ->orderByDesc('cm.created_at')
+            $manuales = \App\Http\Controllers\CajaController::movimientosDeTienda($tiendaId)
+                ->with('usuario:id,nombre')
+                ->when($desde, fn($q) => $q->whereBetween('created_at', [$desde . ' 00:00:00', $hasta . ' 23:59:59']))
+                ->latest()
                 ->limit(30)
-                ->get();
+                ->get()
+                ->map(fn($m) => (object) [
+                    'tipo'     => $m->tipo,
+                    'monto'    => $m->monto,
+                    'concepto' => $m->concepto,
+                    'usuario'  => $m->usuario?->nombre,
+                    'metodo'   => null,
+                    'fecha'    => $m->created_at,
+                ]);
 
             $movimientos = $pagos->concat($manuales)
                 ->sortByDesc('fecha')

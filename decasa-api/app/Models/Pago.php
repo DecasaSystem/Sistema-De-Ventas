@@ -29,6 +29,8 @@ class Pago extends Model
         'orden_id',
         'vendedor_id',
         'tienda_id',
+        // La entrega en la que se cobró; null si se cobró en la tienda.
+        'despacho_item_id',
         'tipo',
         'monto',
         'metodo',
@@ -46,6 +48,21 @@ class Pago extends Model
             'comprobante_fotos'   => 'array',
             'facturacion_hecha_at' => 'datetime',
         ];
+    }
+
+    /**
+     * Lo que entra a una caja: el efectivo recibido en la tienda.
+     *
+     * El efectivo cobrado al entregar (conductor, o la entrega registrada desde
+     * el detalle de la orden) no pasa por el cajón y no cuenta. La venta con
+     * entrega inmediata sí: se cobra en el mostrador, como anticipo de la orden.
+     *
+     * Es la única regla de "qué pago es de caja": la usan la pantalla de Caja y
+     * el asistente, para que nunca den cifras distintas.
+     */
+    public function scopeEntraACaja($query)
+    {
+        return $query->where('metodo', 'efectivo')->whereNull('despacho_item_id');
     }
 
     public function orden()

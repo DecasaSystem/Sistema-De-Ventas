@@ -69,6 +69,7 @@ abstract class TestCase extends BaseTestCase
         $agregar('orden_items',    'producto_unico',     fn ($t) => $t->boolean('producto_unico')->default(false));
         $agregar('pagos',          'comprobante_url',    fn ($t) => $t->string('comprobante_url')->nullable());
         $agregar('pagos',          'comprobante_fotos',  fn ($t) => $t->json('comprobante_fotos')->nullable());
+        $agregar('pagos',          'despacho_item_id',   fn ($t) => $t->unsignedBigInteger('despacho_item_id')->nullable());
         $agregar('despacho_items', 'fotos_pago',         fn ($t) => $t->json('fotos_pago')->nullable());
         $agregar('devoluciones',   'preferencia_cliente', fn ($t) => $t->string('preferencia_cliente')->nullable());
         $agregar('despacho_items', 'firma_omitida_motivo', fn ($t) => $t->string('firma_omitida_motivo')->nullable());

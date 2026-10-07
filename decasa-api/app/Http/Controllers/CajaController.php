@@ -46,12 +46,15 @@ class CajaController extends Controller
      * puede abonar en otra sede. Los pagos anteriores a que existiera ese campo
      * caen a la tienda de su orden, que es lo que se asumía entonces.
      *
+     * Lo cobrado al entregar no cuenta (ver Pago::scopeEntraACaja).
+     *
      * Va en un solo sitio a propósito: el saldo, la lista de movimientos y el
      * resumen por tienda deben filtrar igual o el total no cuadra con el detalle.
+     * El asistente (AgentService) también lo usa.
      */
-    private function efectivoDeTienda(int $tiendaId)
+    public static function efectivoDeTienda(int $tiendaId)
     {
-        return Pago::where('metodo', 'efectivo')
+        return Pago::entraACaja()
             ->where(fn($q) => $q->where('tienda_id', $tiendaId)
                 ->orWhere(fn($q2) => $q2->whereNull('tienda_id')
                     ->whereHas('orden', fn($q3) => $q3->where('tienda_id', $tiendaId))))
@@ -71,7 +74,7 @@ class CajaController extends Controller
      *
      * Es el mismo criterio que usa efectivoDeTienda() con los pagos.
      */
-    private static function movimientosDeTienda(int $tiendaId)
+    public static function movimientosDeTienda(int $tiendaId)
     {
         return CajaMovimiento::where('tienda_id', $tiendaId)
             ->whereDoesntHave('usuario', fn($q) => self::esDeCajaPropia($q));
@@ -79,7 +82,7 @@ class CajaController extends Controller
 
     private function balancePorUsuario(int $userId): array
     {
-        $ingresoVentas = Pago::where('vendedor_id', $userId)->where('metodo', 'efectivo')->sum('monto');
+        $ingresoVentas = Pago::entraACaja()->where('vendedor_id', $userId)->sum('monto');
         $ingresoManual = CajaMovimiento::where('usuario_id', $userId)->where('tipo', 'ingreso_manual')->sum('monto');
         $egresos       = CajaMovimiento::where('usuario_id', $userId)->where('tipo', 'egreso')->sum('monto');
 
@@ -116,7 +119,7 @@ class CajaController extends Controller
             ]);
         }
 
-        $ingresoVentas = $this->efectivoDeTienda($tiendaId)->sum('monto');
+        $ingresoVentas = self::efectivoDeTienda($tiendaId)->sum('monto');
 
         $ingresoManual = self::movimientosDeTienda($tiendaId)
             ->where('tipo', 'ingreso_manual')
@@ -142,8 +145,8 @@ class CajaController extends Controller
                 // Para mostrar "#4261" o "FV2-1" en vez del id interno de la tabla
                 'orden:id,numero_orden,serie,serie_numero,cotizacion_numero,estado',
             ])
+            ->entraACaja()
             ->where('vendedor_id', $userId)
-            ->where('metodo', 'efectivo')
             ->latest()->limit($limite)->get()
             ->map(fn($p) => [
                 'id'              => 'pago_' . $p->id,
@@ -196,7 +199,7 @@ class CajaController extends Controller
             return response()->json([]);
         }
 
-        $pagos = $this->efectivoDeTienda($tiendaId)
+        $pagos = self::efectivoDeTienda($tiendaId)
             ->with([
                 'vendedor:id,nombre',
                 // Para mostrar "#4261" o "FV2-1" en vez del id interno de la tabla
@@ -298,7 +301,7 @@ class CajaController extends Controller
         $tiendas = Tienda::where('activa', true)->where('es_independientes', false)->get();
 
         $resumen = $tiendas->map(function ($tienda) {
-            $ingresoVentas = $this->efectivoDeTienda($tienda->id)->sum('monto');
+            $ingresoVentas = self::efectivoDeTienda($tienda->id)->sum('monto');
 
             $ingresoManual = self::movimientosDeTienda($tienda->id)
                 ->where('tipo', 'ingreso_manual')
