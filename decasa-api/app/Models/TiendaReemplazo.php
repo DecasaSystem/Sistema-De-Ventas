@@ -15,6 +15,17 @@ use Illuminate\Database\Eloquent\Model;
  */
 class TiendaReemplazo extends Model
 {
+    /**
+     * Lo que se guarda o se borra fila por fila deja el caché sin efecto solo.
+     * Las escrituras en bloque (`->where(...)->delete()`) no disparan esto:
+     * esas siguen llamando a olvidarCache() a mano, como siempre.
+     */
+    protected static function booted(): void
+    {
+        static::saved(fn () => self::olvidarCache());
+        static::deleted(fn () => self::olvidarCache());
+    }
+
     protected $table = 'tienda_reemplazos';
 
     /** Ocupa el puesto de alguien: lo que gana uno lo pierde el otro. */
@@ -176,18 +187,29 @@ class TiendaReemplazo extends Model
     private static function queSolapan(Carbon $inicio, Carbon $fin)
     {
         $clave = $inicio->format('Y-m');
+        $desde = $inicio->toDateString();
+        $hasta = $fin->toDateString();
 
-        return self::$cache[$clave] ??= static::query()
-            ->whereDate('desde', '<=', $fin->toDateString())
-            ->where(fn ($q) => $q->whereNull('hasta')
-                                 ->orWhereDate('hasta', '>=', $inicio->toDateString()))
-            ->get();
+        // La tabla se lee una vez por petición y cada mes se filtra en
+        // memoria, con la misma condición que tenía la consulta: un cálculo
+        // de comisiones recorre más de un año, y eran tantas consultas como
+        // meses (ver docs/plan-rendimiento.md).
+        self::$todos ??= static::query()->get();
+
+        return self::$cache[$clave] ??= self::$todos
+            ->filter(fn ($r) => Carbon::parse($r->desde)->toDateString() <= $hasta
+                && ($r->hasta === null || Carbon::parse($r->hasta)->toDateString() >= $desde))
+            ->values();
     }
+
+    /** Todos los reemplazos. Ver queSolapan(). */
+    private static ?\Illuminate\Support\Collection $todos = null;
 
     /** Se vuelve a preguntar a la base: algo cambió. */
     public static function olvidarCache(): void
     {
         self::$cache = [];
+        self::$todos = null;
     }
 
     /**

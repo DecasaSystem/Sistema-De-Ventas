@@ -92,6 +92,39 @@ ins('produccion', $prod);
 $sup = DB::table('usuarios')->where('rol', 'supervisor')->value('id');
 $n = []; for ($i = 0; $i < 3000; $i++) $n[] = ['usuario_id' => $i % 3 ? $sup : $vids[0], 'tipo' => 'abono_registrado', 'titulo' => "Aviso $i", 'mensaje' => 'm', 'leida' => $i > 50 ? 1 : 0, 'created_at' => now()->subMinutes($i * 30)];
 ins('notificaciones', $n);
+
+// Lo que alimenta comisiones y caja, para que la comparación antes/después
+// de una optimización tenga algo que comparar ahí.
+$tiendasVenta = array_slice($tids, 0, 5);
+$meses = []; for ($i = 13; $i >= 0; $i--) $meses[] = now()->startOfMonth()->subMonths($i)->format('Y-m');
+$asesores = []; $metas = [];
+foreach ($tiendasVenta as $t) {
+    $equipo = array_keys(array_filter($vend, fn ($tt) => $tt == $t));
+    foreach ([$meses[0], $meses[5], $meses[10]] as $k => $mes) {           // el equipo cambia dos veces
+        foreach (array_slice($equipo, 0, 3 + $k % 2) as $v) $asesores[] = ['tienda_id' => $t, 'mes' => $mes, 'vendedor_id' => $v, 'created_at' => now()];
+    }
+    foreach ($meses as $i => $mes) if ($i % 3 === 0) $metas[] = ['tienda_id' => $t, 'mes' => $mes, 'meta' => 30000000 + $t * 1000000, 'divisor_asesores' => 3, 'created_at' => now()];
+}
+ins('tienda_asesores_comision', $asesores); ins('metas_tienda', $metas);
+$reemp = [];
+foreach (array_slice($vids, 0, 8) as $i => $v) $reemp[] = ['tienda_id' => $tiendasVenta[($i + 1) % 5], 'usuario_id' => $v, 'reemplaza_a_id' => $vids[$i + 8],
+    'desde' => now()->subDays(30 * $i + 5)->toDateString(), 'hasta' => $i % 3 ? now()->subDays(30 * $i - 5)->toDateString() : null, 'tipo' => 'reemplazo', 'created_at' => now()];
+ins('tienda_reemplazos', $reemp);
+$ant = [];
+foreach (array_slice($vids, 0, 12) as $i => $v) {
+    foreach ($meses as $mes) $ant[] = ['vendedor_id' => $v, 'tipo' => 'anticipo', 'mes' => $mes, 'monto' => 200000, 'clave' => "$v-$mes", 'created_at' => now()];
+    if ($i % 2) $ant[] = ['vendedor_id' => $v, 'tipo' => 'descuento', 'mes' => $meses[6], 'monto' => 350000 + $i * 1000, 'created_at' => now()];
+}
+ins('comision_anticipos', $ant);
+$cfg = []; foreach (array_slice($vids, 0, 12) as $v) $cfg[] = ['vendedor_id' => $v, 'desde_mes' => $meses[0], 'monto' => 200000, 'activo' => 1, 'created_at' => now()];
+ins('comision_anticipos_config', $cfg);
+$caja = [];
+foreach ($tids as $t) for ($k = 0; $k < 40; $k++)
+    $caja[] = ['tienda_id' => $t, 'usuario_id' => $vids[$k % count($vids)], 'tipo' => $k % 3 ? 'egreso' : 'ingreso_manual', 'monto' => 10000 * ($k + 1), 'concepto' => 'x', 'created_at' => now()->subDays($k)];
+ins('caja_movimientos', $caja);
+// Un vendedor con caja propia (sus movimientos no cuentan en la tienda) y una tienda cerrada.
+DB::table('usuarios')->where('id', $vids[1])->update(['independiente' => 1]);
+DB::table('tiendas')->where('id', $tiendasVenta[2])->update(['cerrada_en' => now()->subMonths(4)->toDateString()]);
 DB::commit();
 
 foreach (['tiendas','usuarios','productos','inventario','clientes','ordenes','orden_items','pagos','comisiones','produccion','notificaciones'] as $t)

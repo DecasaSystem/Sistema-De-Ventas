@@ -1227,16 +1227,27 @@ class InventarioController extends Controller
                 }
             });
 
-        return $itemsEntregados
+        $pendientes = $itemsEntregados
             ->filter(function ($item) use ($cubiertos) {
                 $tienda = $item->tienda_origen_id ?? $item->orden->tienda_id;
                 return ! isset($cubiertos["{$item->orden_id}-{$item->producto_id}-{$tienda}"]);
             })
-            ->groupBy(fn ($item) => $item->producto_id . '-' . ($item->tienda_origen_id ?? $item->orden->tienda_id))
-            ->map(function ($items) {
+            ->groupBy(fn ($item) => $item->producto_id . '-' . ($item->tienda_origen_id ?? $item->orden->tienda_id));
+
+        // El inventario, el nombre del producto y el de la tienda de todas las
+        // filas en tres consultas, no tres por fila (con muchas filas eran
+        // miles de viajes a la base).
+        $productoIds = $pendientes->map(fn ($g) => $g->first()->producto_id)->unique()->values();
+        $inventarios = Inventario::whereIn('producto_id', $productoIds)->get()
+            ->keyBy(fn ($i) => $i->producto_id . '-' . $i->tienda_id);
+        $productos   = \App\Models\Producto::whereIn('id', $productoIds)->get()->keyBy('id');
+        $tiendas     = Tienda::all()->keyBy('id');
+
+        return $pendientes
+            ->map(function ($items) use ($inventarios) {
                 $primero = $items->first();
                 $tienda  = $primero->tienda_origen_id ?? $primero->orden->tienda_id;
-                $inv     = Inventario::where('producto_id', $primero->producto_id)->where('tienda_id', $tienda)->first();
+                $inv     = $inventarios[$primero->producto_id . '-' . $tienda] ?? null;
 
                 return [
                     'producto_id'         => $primero->producto_id,
@@ -1259,9 +1270,9 @@ class InventarioController extends Controller
                 ];
             })
             ->values()
-            ->map(function ($fila) {
-                $prod   = \App\Models\Producto::find($fila['producto_id']);
-                $tienda = Tienda::find($fila['tienda_id']);
+            ->map(function ($fila) use ($productos, $tiendas) {
+                $prod   = $productos[$fila['producto_id']] ?? null;
+                $tienda = $tiendas[$fila['tienda_id']] ?? null;
                 return array_merge($fila, [
                     'producto_nombre' => $prod->nombre ?? '—',
                     'tienda_nombre'   => $tienda->nombre ?? '—',

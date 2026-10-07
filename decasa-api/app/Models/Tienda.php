@@ -51,21 +51,41 @@ class Tienda extends Model
     {
         if (isset(self::$cerradas[$mes])) return self::$cerradas[$mes];
 
+        // Cerrada antes del día 1 del mes = cerrada en un mes anterior.
+        $primero = $mes . '-01';
+
+        return self::$cerradas[$mes] = collect(self::fechasDeCierre())
+            ->filter(fn (string $fecha) => $fecha < $primero)
+            ->map(fn () => true)->all();
+    }
+
+    /**
+     * [tienda_id => 'Y-m-d' de cierre] de las que cerraron, leído UNA vez.
+     *
+     * Comisiones pregunta mes por mes (un cálculo recorre más de un año), y
+     * cada pregunta eran dos viajes a la base —¿existe la columna?, ¿cuáles
+     * cerraron?—: 40 consultas para una lista de dos o tres tiendas.
+     */
+    private static function fechasDeCierre(): array
+    {
+        if (self::$fechasDeCierre !== null) return self::$fechasDeCierre;
+
         if (! \Illuminate\Support\Facades\Schema::hasColumn('tiendas', 'cerrada_en')) {
-            return self::$cerradas[$mes] = [];
+            return self::$fechasDeCierre = [];
         }
 
-        // Cerrada antes del día 1 del mes = cerrada en un mes anterior.
-        return self::$cerradas[$mes] = static::whereNotNull('cerrada_en')
-            ->whereDate('cerrada_en', '<', $mes . '-01')
-            ->pluck('id')->map(fn ($v) => (int) $v)->flip()->all();
+        return self::$fechasDeCierre = static::whereNotNull('cerrada_en')->get(['id', 'cerrada_en'])
+            ->mapWithKeys(fn ($t) => [(int) $t->id => $t->cerrada_en->toDateString()])
+            ->all();
     }
 
     private static array $cerradas = [];
+    private static ?array $fechasDeCierre = null;
 
     public static function olvidarCerradas(): void
     {
-        self::$cerradas = [];
+        self::$cerradas       = [];
+        self::$fechasDeCierre = null;
     }
 
     public function usuarios()

@@ -112,6 +112,48 @@ class CatalogoVisualTest extends TestCase
         $this->getJson('/api/c')->assertOk()->assertJsonCount(0, 'catalogos');
     }
 
+    /**
+     * La grilla buscaba la primera página de cada catálogo sin portada uno por
+     * uno: la portada pública hacía 17 consultas (3 s con la base lejos). Con
+     * 2 o con 6 catálogos tienen que ser las mismas consultas, y cada uno
+     * tiene que salir con su portada correcta.
+     */
+    public function test_las_portadas_de_la_grilla_no_cuestan_una_consulta_por_catalogo(): void
+    {
+        $jefe = $this->jefe();
+        $crear = function (string $nombre, array $imgs, ?string $portada = null) use ($jefe) {
+            $id = $this->actingAs($jefe)->postJson('/api/catalogos-visuales', ['nombre' => $nombre])->json('id');
+            $this->actingAs($jefe)->postJson("/api/catalogos-visuales/{$id}/paginas", ['imagenes' => $imgs]);
+            if ($portada) {
+                $this->actingAs($jefe)->patchJson("/api/catalogos-visuales/{$id}", ['portada_url' => $portada]);
+            }
+            return $id;
+        };
+        $consultasDe = function (string $url, bool $conSesion = false) use ($jefe) {
+            $n = 0;
+            \Illuminate\Support\Facades\DB::listen(function () use (&$n) { $n++; });
+            $conSesion ? $this->actingAs($jefe)->getJson($url)->assertOk() : $this->getJson($url)->assertOk();
+            return $n;
+        };
+
+        $crear('Salas', [$this->img('s1'), $this->img('s2')]);
+        $crear('Camas', [$this->img('c1'), $this->img('c2')], portada: $this->img('c2'));
+        $conDos  = $consultasDe('/api/c');
+        $adminDos = $consultasDe('/api/catalogos-visuales', true);
+
+        foreach (['Mesas', 'Sillas', 'Relojes', 'Espejos'] as $i => $n) {
+            $crear($n, [$this->img("{$i}a"), $this->img("{$i}b")]);
+        }
+        $this->assertSame($conDos, $consultasDe('/api/c'), 'la portada pública no crece con los catálogos');
+        $this->assertSame($adminDos, $consultasDe('/api/catalogos-visuales', true), 'la lista de Gestión tampoco');
+
+        // Y cada uno con su portada: la marcada, o si no, su primera página.
+        $grilla = collect($this->getJson('/api/c')->json('catalogos'))->keyBy('slug');
+        $this->assertSame($this->img('s1'), $grilla['salas']['portada_url']);
+        $this->assertSame($this->img('c2'), $grilla['camas']['portada_url']);
+        $this->assertSame($this->img('3a'), $grilla['espejos']['portada_url']);
+    }
+
     public function test_un_catalogo_sin_paginas_no_sale_en_la_portada_publica(): void
     {
         $jefe = $this->jefe();

@@ -208,6 +208,40 @@ antes/después (mismos campos que usa la pantalla) y se prueba la pantalla.
 | `/productos` | ~200 KB | columnas justas para listas/buscadores |
 | Endpoints que no se pudieron medir en SQLite (`/stats/panel`, `/stats/tiendas`, `/comisiones`, `/produccion`) | — | medirlos en producción con `Server-Timing` (fase 1) y atacar los que salgan arriba en el log de lentas |
 
+**Cambio de enfoque al medir (2026-10-07):** con ~180 ms por consulta, lo que
+más pesa es el **número de consultas**, no los bytes. Las respuestas grandes de
+la tabla de arriba lo son en el arnés porque los datos sintéticos tienen miles
+de órdenes vivas; en producción son decenas. Se priorizaron las **consultas
+dentro de ciclos** que encontró el barrido de las ~155 rutas GET (supervisor y
+vendedor). El recorte de columnas de `/despacho/cola` queda para cuando el log
+`[lenta]` lo justifique (tiene muchos consumidores en el front).
+
+**Hecho (local, sin subir), cada cambio verificado con prueba diferencial**
+(38 respuestas guardadas con el código viejo vs el nuevo: **idénticas byte a
+byte**, sobre datos con equipos, metas, reemplazos, anticipos, caja propia y
+una tienda cerrada):
+
+| Endpoint | Consultas antes → después | Qué se hizo |
+|---|---|---|
+| `/inventario/descuadres` | **8.475 → 18** | inventario/producto/tienda precargados, no 3 `find` por fila |
+| `/comisiones/resumen` | 109 → **38** | anticipos de todos en 2 consultas (`debeHastaDeVarios`), `asegurarHasta` lee lo anotado de una vez |
+| `/comisiones` | 188 → **85** | tiendas cerradas, equipos y reemplazos se leen 1 vez por petición, no 1 por mes; lista de independientes 1 vez |
+| `/comisiones/vendedores` | 132 → **79** | ídem |
+| `/stats/mis-tiendas` (vendedor) | 80 → **29** | ídem (usa el cálculo de comisiones) |
+| `/caja/resumen-tiendas` | 34 → **17** | movimientos manuales de todas las tiendas en 1 consulta |
+| `/api/c` y Gestión → Catálogos | 1 + 1 por catálogo → **fijo** | `Catalogo::precargarPortadas` (test nuevo: no crece con los catálogos) |
+
+Seguridad agregada: `App\Support\CachesDePeticion::olvidarTodo()` limpia todos
+los cachés estáticos antes de cada trabajo de la cola (`Queue::before`) y de
+cada prueba; `TiendaAsesor` y `TiendaReemplazo` se limpian solos al guardar o
+borrar una fila. Al pagar comisiones se sigue usando `debeHasta()` sin caché.
+
+**Pendiente de la fase 4** (medido, sin tocar todavía): `/stats/vendedor/{id}`
+45 consultas, `/stats/vendedores/me` 25, `/stats/tiendas` 22, `/stats/panel`
+14 — son muchos agregados distintos (no repetidos); juntarlos es más invasivo.
+Independientes: 5 consultas por mes del cálculo (órdenes, restauraciones,
+comisiones) — reestructurar `ComisionIndependientes` es lógica de plata.
+
 ### FASE 5 — Ajustes finos (según lo que muestre el log de lentas)
 
 - Índices compuestos donde el log lo justifique (ej. `notificaciones(usuario_id, created_at)`).
@@ -251,6 +285,8 @@ curl -sI https://decasa-api-b91v.onrender.com/api/push/vapid-key | grep -i serve
 | 2026-10-07 | Fase 1 implementada (local, **sin subir**) | Arnés con `CACHE_STORE=database`: vapid-key 8 → **0** consultas; `/tiendas` 12 → 4 (1ª) / 3 (siguientes, sin `UPDATE`); `/ordenes` 16 → 10. Proyectado a 200 ms/consulta: vapid-key 1,65 s → 0,05 s, `/ordenes` 3,3 s → 2,1 s. Test `CostoFijoDeCadaPeticionTest` 4/4 (rojo con el código viejo). Suite: 713 tests, solo los 10 fallos preexistentes. |
 | 2026-10-07 | **Fase 1 en producción** ✅ | `vapid-key` 2,1 → **0,39 s** (0 consultas, 6 ms en el servidor); por Vercel 2,8 → **0,56 s**; login 3,2 → **0,33 s**; `/api/c` 6 → **3,4 s**. Assets con caché de 1 año; asset inexistente → 404. |
 | 2026-10-07 | Fase 3 implementada (local, **sin subir**) | Arranque del supervisor: cola de despacho 7,7 MB → conteo de 14 bytes; consultas: lista completa → conteo; telas: 38 KB menos en cada apertura; VAPID desde el aparato. Suite: 715 tests, solo los 10 fallos preexistentes; build OK. |
+| 2026-10-07 | Fase 3 **en producción** ✅ | `d804596`; `/despacho/cola/conteo` y `/consultas-costo/conteo` responden (401 sin sesión = existen). |
+| 2026-10-07 | Fase 4 (parte 1) local, **sin subir** | Ver tabla de la fase 4. Prueba diferencial 38/38 idénticas; suite 716 tests, solo los 10 preexistentes; 158/158 en los tests de comisiones, caja, inventario y catálogos. |
 | 2026-10-07 | Dato para la fase 2 | `/api/c`: `Server-Timing: app;dur=3037, db;dur=3019;desc="17 consultas"` → **~178 ms por consulta**, el 99 % del tiempo es la base lejos. También candidato a fase 4 (17 consultas para la portada de catálogos). |
 
 **Archivos de la fase 1:** `config/cache.php` (`limiter`), `phpunit.xml`,

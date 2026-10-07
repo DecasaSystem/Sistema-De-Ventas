@@ -611,10 +611,14 @@ class ComisionController extends Controller
         // trimestre) y cuánto se le descontaría de lo que ya está listo.
         if (AnticiposComision::hayTablas()) {
             AnticiposComision::asegurarHasta(max($mes, self::hoy()->format('Y-m')));
-            $grouped = $grouped->map(function ($fila) use ($mes) {
-                $corte = self::esTiendaTrimestral((int) $fila['tienda_id'])
-                    ? self::mesesDeTrimestre(self::trimestreDeMes($mes))[2] : $mes;
-                $debe  = AnticiposComision::debeHasta((int) $fila['vendedor_id'], $corte);
+            $corteDe = fn ($fila) => self::esTiendaTrimestral((int) $fila['tienda_id'])
+                ? self::mesesDeTrimestre(self::trimestreDeMes($mes))[2] : $mes;
+            // Lo que debe cada uno, en dos consultas para todos (no dos por fila).
+            $deudas = AnticiposComision::debeHastaDeVarios(
+                $grouped->map(fn ($fila) => [(int) $fila['vendedor_id'], $corteDe($fila)])->all()
+            );
+            $grouped = $grouped->map(function ($fila, $k) use ($deudas) {
+                $debe  = $deudas[$k];
                 if ($debe <= 0) return $fila;
 
                 $lista = (float) ($fila['es_independiente'] ?? false

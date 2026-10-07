@@ -6,6 +6,17 @@ use Illuminate\Database\Eloquent\Model;
 
 class TiendaAsesor extends Model
 {
+    /**
+     * Lo que se guarda o se borra fila por fila deja el caché sin efecto solo.
+     * Las escrituras en bloque (`->where(...)->delete()`) no disparan esto:
+     * esas siguen llamando a olvidarCache() a mano, como siempre.
+     */
+    protected static function booted(): void
+    {
+        static::saved(fn () => self::olvidarCache());
+        static::deleted(fn () => self::olvidarCache());
+    }
+
     protected $table = 'tienda_asesores_comision';
 
     protected $fillable = ['tienda_id', 'mes', 'vendedor_id'];
@@ -49,8 +60,13 @@ class TiendaAsesor extends Model
         // dejarla aquí la hacía pesar días en un reparto que no existe.
         $cerradas = Tienda::cerradasAntesDe($mes);
 
-        $filas = static::with('vendedor:id,nombre')
-            ->where('mes', '<=', $mes)->orderBy('mes')->get()
+        // La tabla entera se lee una vez por petición y cada mes se filtra en
+        // memoria: un cálculo de comisiones recorre más de un año y antes eran
+        // tantas consultas como meses (medido, ver docs/plan-rendimiento.md).
+        self::$todas ??= static::with('vendedor:id,nombre')->orderBy('mes')->get();
+
+        $filas = self::$todas
+            ->filter(fn ($f) => $f->mes <= $mes)
             ->reject(fn ($f) => isset($cerradas[(int) $f->tienda_id]));
 
         // Al recorrer de mes viejo a nuevo, el último que queda por tienda es
@@ -73,10 +89,14 @@ class TiendaAsesor extends Model
     /** [mes => equipos]. Ver vigentesEn(). */
     private static array $cache = [];
 
+    /** Todas las filas, en orden de mes. Ver vigentesEn(). */
+    private static ?\Illuminate\Support\Collection $todas = null;
+
     /** Se vuelve a preguntar: el equipo cambió. */
     public static function olvidarCache(): void
     {
         self::$cache = [];
+        self::$todas = null;
     }
 
     /**

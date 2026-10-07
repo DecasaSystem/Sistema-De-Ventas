@@ -24,6 +24,8 @@ class CatalogoVisualController extends Controller
             ->orderBy('nombre')
             ->get();
 
+        Catalogo::precargarPortadas($catalogos);
+
         return response()->json($catalogos->map(fn (Catalogo $c) => [
             'id'            => $c->id,
             'nombre'        => $c->nombre,

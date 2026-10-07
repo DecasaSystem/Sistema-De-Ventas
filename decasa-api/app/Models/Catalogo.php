@@ -54,6 +54,36 @@ class Catalogo extends Model
     /** La imagen que representa el catálogo en la grilla. */
     public function portadaResuelta(): ?string
     {
-        return $this->portada_url ?: $this->paginas()->value('imagen_url');
+        if ($this->portada_url) return $this->portada_url;
+
+        return $this->primeraPagina !== false
+            ? $this->primeraPagina
+            : $this->paginas()->value('imagen_url');
     }
+
+    /**
+     * La primera página de cada catálogo sin portada marcada, en UNA consulta.
+     *
+     * La grilla le preguntaba a la base por la primera página de cada
+     * catálogo, uno por uno: la portada pública (/c) hacía 17 consultas, y
+     * con la base lejos eso eran 3 segundos (medido). Se piden todas las
+     * páginas de esos catálogos —solo el id del catálogo y la imagen— en el
+     * mismo orden que `paginas()`, y a cada uno le queda la primera.
+     */
+    public static function precargarPortadas($catalogos): void
+    {
+        $sinPortada = collect($catalogos)->filter(fn (Catalogo $c) => ! $c->portada_url);
+        if ($sinPortada->isEmpty()) return;
+
+        $primeras = CatalogoPagina::whereIn('catalogo_id', $sinPortada->pluck('id'))
+            ->orderBy('orden')->orderBy('id')
+            ->get(['catalogo_id', 'imagen_url'])
+            ->groupBy('catalogo_id')
+            ->map(fn ($paginas) => $paginas->first()->imagen_url);
+
+        $sinPortada->each(fn (Catalogo $c) => $c->primeraPagina = $primeras[$c->id] ?? null);
+    }
+
+    /** false = no se precargó (se pregunta a la base); null = no tiene páginas. */
+    private string|null|false $primeraPagina = false;
 }

@@ -103,11 +103,20 @@ class ComisionIndependientes
      *   independientes:array, almacenes:array, ordenes:array
      * }
      */
+    /** Quiénes son independientes. Ver delMes() y olvidarCache(). */
+    private static ?\Illuminate\Support\Collection $independientes = null;
+
+    public static function olvidarCache(): void
+    {
+        self::$independientes = null;
+    }
+
     public static function delMes(string $mes): array
     {
         [$desde, $hasta] = self::rangoUtc($mes);
 
-        $independientes = Usuario::where('independiente', true)->get(['id', 'nombre']);
+        // La misma lista para cada mes del cálculo: se pide una vez.
+        $independientes = self::$independientes ??= Usuario::where('independiente', true)->get(['id', 'nombre']);
         if ($independientes->isEmpty()) {
             return ['mes' => $mes, 'base' => 0.0, 'base_venta' => 0.0, 'base_restauracion' => 0.0,
                     'base_restauracion_almacenes' => 0.0, 'bolson_restauraciones' => 0.0,

@@ -100,7 +100,11 @@ escribiendo precios (Fase 1b).
 - **Rendimiento** (`docs/plan-rendimiento.md`): la causa n.º 1 de la lentitud
   era el limitador de peticiones guardando su contador en Aiven (8 consultas,
   ~1,7 s por llamada) y cada consulta cuesta ~200 ms (base lejos del servidor).
-  Fase 1 hecha en local el 2026-10-07, **sin subir**. Regiones confirmadas por
+  **Fase 1 subida y medida el 2026-10-07** (commits d72eea0 + 57dfcdb):
+  vapid-key 2,1 → 0,39 s, login 3,2 → 0,33 s. Lo que queda es ~180 ms por
+  consulta a la base. Decisión del usuario: hacer fases 3–5 y DESPUÉS mudar
+  Aiven a DigitalOcean San Francisco (`do-sfo`, en vivo, la URI no cambia).
+  Regiones confirmadas por
   el usuario (2026-10-07): **Aiven = DigitalOcean NYC, Render = Oregon** →
   recomendado mudar Render a Virginia (pasos en el plan, Fase 2). Aiven tiene
   la allowlist de IPs **abierta a todo internet**: cerrarla tras la mudanza.
@@ -126,10 +130,19 @@ escribiendo precios (Fase 1b).
   Laravel deduce la ruta base de la ubicación del `vendor` y el classmap apunta
   al `app/` del principal: los tests corren el código VIEJO sin avisar. Copiar
   el `vendor` y correr `composer dump-autoload` dentro del worktree.
+- **Prueba diferencial antes de optimizar algo de plata:** `GUARDAR=dir` en
+  `medir.sh` guarda cada respuesta; capturar con el código viejo (`git stash
+  push -m <tag> -- app`), restaurar, capturar con el nuevo y `cmp`. Tiene que
+  dar idéntico byte a byte. Así se hizo la fase 4 de rendimiento (comisiones).
+- **Cachés estáticos** (por petición): registrar cada uno nuevo en
+  `App\Support\CachesDePeticion::olvidarTodo()` — se limpia antes de cada
+  trabajo de la cola y de cada prueba.
 - **Medir rendimiento sin producción:** `bash decasa-api/scripts/perf/medir.sh`
-  (esquema real en SQLite + datos sintéticos; cuenta consultas por endpoint).
-  Los endpoints con SQL de MySQL (`/stats/panel`, `/comisiones`…) dan 500 ahí:
-  esos se miden en producción con la cabecera `Server-Timing`.
+  (esquema real en SQLite + datos sintéticos; cuenta consultas por endpoint y
+  detecta N+1). Emula las funciones de MySQL que usa la app (FIELD,
+  DATE_FORMAT, CONVERT_TZ, DATEDIFF…) y la vista `v_saldo_ordenes`, así que
+  `/stats/*` y `/comisiones*` ya se pueden medir. En producción: cabecera
+  `Server-Timing` y log `[lenta]` en Render.
 
 ### Ver pantallas sin backend (lo que funcionó 2026-10-06)
 Servidor falso en Node (`http.createServer`, puerto 8787) que responde los

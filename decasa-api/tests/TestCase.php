@@ -24,16 +24,7 @@ abstract class TestCase extends BaseTestCase
     {
         parent::setUp();
 
-        \App\Models\TiendaAsesor::olvidarCache();
-        \App\Models\TiendaReemplazo::olvidarCache();
-        \App\Http\Controllers\ComisionController::olvidarQuienComparte();
-        \App\Http\Controllers\ComisionController::olvidarPeriodicidades();
-        \App\Http\Controllers\ComisionController::olvidarEsquema();
-        \App\Models\Orden::olvidarEsquema();
-        \App\Services\AnticiposComision::olvidarEsquema();
-        \App\Models\Orden::olvidarSedes();
-        \App\Services\ConsumoTelas::olvidarCache();
-        \App\Models\Tienda::olvidarCerradas();
+        \App\Support\CachesDePeticion::olvidarTodo();
     }
 
     /**

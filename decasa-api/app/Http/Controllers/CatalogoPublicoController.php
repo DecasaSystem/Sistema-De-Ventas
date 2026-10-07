@@ -87,6 +87,9 @@ class CatalogoPublicoController extends Controller
             ->filter(fn (Catalogo $c) => $c->paginas_count > 0)
             ->values();
 
+        // Las portadas de todos en una consulta, no una por catálogo.
+        Catalogo::precargarPortadas($catalogos);
+
         return response()->json([
             'catalogos' => $catalogos->map(fn (Catalogo $c) => [
                 'nombre'      => $c->nombre,

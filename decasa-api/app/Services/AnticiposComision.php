@@ -89,10 +89,13 @@ class AnticiposComision
         $configs = DB::table('comision_anticipos_config')->where('desde_mes', '<=', $hasta)
             ->orderBy('desde_mes')->orderBy('id')->get()->groupBy('vendedor_id');
 
+        // Lo ya anotado de todos, en una consulta (antes era una por vendedor).
+        $anotados = DB::table('comision_anticipos')
+            ->whereIn('vendedor_id', $configs->keys())->where('tipo', self::ANTICIPO)
+            ->get()->groupBy(fn ($f) => (int) $f->vendedor_id);
+
         foreach ($configs as $vendedorId => $filas) {
-            $existentes = DB::table('comision_anticipos')
-                ->where('vendedor_id', $vendedorId)->where('tipo', self::ANTICIPO)
-                ->get()->keyBy('mes');
+            $existentes = collect($anotados[(int) $vendedorId] ?? [])->keyBy('mes');
 
             $mes = Carbon::parse($filas->first()->desde_mes . '-01');
             $fin = Carbon::parse($hasta . '-01');
@@ -132,17 +135,73 @@ class AnticiposComision
     {
         if (! self::hayTablas()) return 0.0;
 
-        // Sin depender de que alguien haya abierto la pantalla o de que haya
-        // corrido la tarea del día: antes de contar, se anota lo que falte.
+        self::anotarLoQueFalteHasta($mes);
+
+        return (float) DB::table('comision_anticipos')->where('vendedor_id', $vendedorId)
+            ->where('tipo', self::ANTICIPO)->where('mes', '<=', $mes)->sum('monto');
+    }
+
+    /**
+     * Sin depender de que alguien haya abierto la pantalla o de que haya
+     * corrido la tarea del día: antes de contar, se anota lo que falte.
+     */
+    private static function anotarLoQueFalteHasta(string $mes): void
+    {
         $hoy = Carbon::now(\App\Http\Controllers\StatsController::TZ_NEGOCIO)->format('Y-m');
         $hasta = max($mes, $hoy);
         if ((self::$aseguradoHasta ?? '') < $hasta) {
             self::asegurarHasta($hasta);
             self::$aseguradoHasta = $hasta;
         }
+    }
 
-        return (float) DB::table('comision_anticipos')->where('vendedor_id', $vendedorId)
-            ->where('tipo', self::ANTICIPO)->where('mes', '<=', $mes)->sum('monto');
+    /**
+     * debeHasta() para muchos de una vez: [clave => debe], con la clave que se
+     * le dé a cada par [vendedor_id, corte].
+     *
+     * El resumen del mes preguntaba vendedor por vendedor —dos consultas por
+     * fila, 50 en un mes normal— y con la base lejos eso eran segundos. Aquí
+     * son dos consultas para todos, y la cuenta es la misma: anticipos hasta
+     * el corte (incluido) menos lo ya descontado, redondeado, nunca negativo.
+     *
+     * Solo para LEER (pantallas). Al pagar se sigue usando debeHasta(), que
+     * pregunta a la base en el momento: ahí lo que importa es el dato al día.
+     *
+     * @param array<string, array{0:int, 1:string}> $pares
+     * @return array<string, float>
+     */
+    public static function debeHastaDeVarios(array $pares): array
+    {
+        if (! $pares) return [];
+        if (! self::hayTablas()) return array_map(fn () => 0.0, $pares);
+
+        // Lo mismo que haría anticiposHasta() con cada corte.
+        foreach (array_unique(array_column($pares, 1)) as $corte) {
+            self::anotarLoQueFalteHasta($corte);
+        }
+
+        $ids = array_values(array_unique(array_map('intval', array_column($pares, 0))));
+
+        $porMes = DB::table('comision_anticipos')->whereIn('vendedor_id', $ids)
+            ->where('tipo', self::ANTICIPO)
+            ->groupBy('vendedor_id', 'mes')
+            ->selectRaw('vendedor_id, mes, SUM(monto) AS total')
+            ->get()->groupBy(fn ($f) => (int) $f->vendedor_id);
+
+        $descontado = DB::table('comision_anticipos')->whereIn('vendedor_id', $ids)
+            ->where('tipo', self::DESCUENTO)
+            ->groupBy('vendedor_id')
+            ->selectRaw('vendedor_id, SUM(monto) AS total')
+            ->pluck('total', 'vendedor_id');
+
+        $out = [];
+        foreach ($pares as $clave => [$vendedorId, $corte]) {
+            $anticipos = (float) collect($porMes[(int) $vendedorId] ?? [])
+                ->filter(fn ($f) => $f->mes <= $corte)->sum('total');
+            $out[$clave] = max(0.0, round($anticipos - (float) ($descontado[$vendedorId] ?? 0)));
+        }
+
+        return $out;
     }
 
     /** Lo que ya se le descontó de comisiones. */

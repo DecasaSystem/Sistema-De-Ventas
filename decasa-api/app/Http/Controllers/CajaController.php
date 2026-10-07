@@ -300,16 +300,21 @@ class CajaController extends Controller
         // caja personal de cada uno, que se lista aparte más abajo.
         $tiendas = Tienda::where('activa', true)->where('es_independientes', false)->get();
 
-        $resumen = $tiendas->map(function ($tienda) {
+        // Los movimientos manuales de todas las tiendas en UNA consulta (antes
+        // eran dos por tienda), con el mismo filtro que movimientosDeTienda().
+        $manuales = CajaMovimiento::whereIn('tienda_id', $tiendas->pluck('id'))
+            ->whereDoesntHave('usuario', fn($q) => self::esDeCajaPropia($q))
+            ->whereIn('tipo', ['ingreso_manual', 'egreso'])
+            ->groupBy('tienda_id', 'tipo')
+            ->selectRaw('tienda_id, tipo, SUM(monto) AS total')
+            ->get()
+            ->mapWithKeys(fn ($f) => [$f->tienda_id . '|' . $f->tipo => $f->total]);
+
+        $resumen = $tiendas->map(function ($tienda) use ($manuales) {
             $ingresoVentas = self::efectivoDeTienda($tienda->id)->sum('monto');
 
-            $ingresoManual = self::movimientosDeTienda($tienda->id)
-                ->where('tipo', 'ingreso_manual')
-                ->sum('monto');
-
-            $egresos = self::movimientosDeTienda($tienda->id)
-                ->where('tipo', 'egreso')
-                ->sum('monto');
+            $ingresoManual = $manuales[$tienda->id . '|ingreso_manual'] ?? 0;
+            $egresos       = $manuales[$tienda->id . '|egreso'] ?? 0;
 
             return [
                 'tienda_id'      => $tienda->id,

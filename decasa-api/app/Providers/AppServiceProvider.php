@@ -3,9 +3,11 @@
 namespace App\Providers;
 
 use App\Models\PersonalAccessToken;
+use App\Support\CachesDePeticion;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Sanctum\Sanctum;
@@ -20,6 +22,10 @@ class AppServiceProvider extends ServiceProvider
     {
         // Sin el UPDATE de last_used_at en cada petición (ver el modelo).
         Sanctum::usePersonalAccessTokenModel(PersonalAccessToken::class);
+
+        // El trabajador de la cola vive horas: que un trabajo no herede lo que
+        // el anterior dejó guardado (ver CachesDePeticion).
+        Queue::before(fn () => CachesDePeticion::olvidarTodo());
 
         Mail::extend('brevo', function (array $config) {
             $factory = new BrevoTransportFactory();
