@@ -1,506 +1,192 @@
-# AGENT.md — Plan de mejora del cotizador IA de Decasa
+# AGENT.md — Cómo trabajar en el Sistema de Ventas Decasa
 
-Documento de trabajo para elevar la **exactitud del cálculo de costos de fabricación** de la IA.
-No cubre la parte conversacional/informativa del agente (esa ya funciona bien y se toca lo mínimo).
+Instrucciones que **todo agente** (Claude Code, Codex, Cursor, etc.) debe seguir
+siempre en este repositorio. Léelo completo antes de tocar código.
 
----
-
-## 1. Diagnóstico
-
-### El error de raíz
-
-**La IA está haciendo la aritmética.**
-
-En `AgentService::calcularPrecioItem()` (`decasa-api/app/Services/AgentService.php:2416`) el backend
-recolecta fichas técnicas, materiales y tarifas, se los pasa a `gpt-4o` como un blob JSON dentro del
-prompt, y le pide que devuelva:
-
-```json
-{ "precio_fabricacion": <entero>, "desglose_materiales": [{"descripcion","subtotal"}], ... }
-```
-
-El modelo **escribe los números**. Y en la línea 2616 el resultado se hace `json_decode` y se devuelve
-tal cual, sin ninguna validación:
-
-- no se verifica que `sum(desglose) == precio_fabricacion`;
-- no se verifica que los precios unitarios usados existan en la tabla `materiales`;
-- no se verifica que las horas × tarifa correspondan a un cargo real de `salarios_cargo`.
-
-Mientras esto siga así, **ninguna mejora de prompt da exactitud** — solo mueve el margen de error.
-
-### Estado de los datos (bueno)
-
-Consulta a la BD de producción (Aiven, `defaultdb`):
-
-| Tabla | Filas |
-|---|---|
-| `fichas_tecnicas` | 306 |
-| `ficha_tecnica_items` | 4.666 |
-| `materiales` | 314 |
-| `tarifas_proceso` | 16 |
-| `salarios_cargo` | 4 |
-
-- **3.806 de 3.845 items de material (99%) hacen match exacto con `materiales`.** Las fichas son
-  consistentes con el catálogo de precios. Base sana.
-- La mano de obra ya está normalizada a **horas × tarifa_hora** (carpintero/tapicero/lacador
-  $14.423/h; costurera $12.019/h).
-- Las fichas están divididas en **secciones** = componentes (`ESQUELETERIA`, `TAPICERIA`,
-  `CORTE Y COSTURA`, `CARPINTERIA`). Esto es justo lo que se necesita para muebles híbridos
-  (ej. cama-escritorio).
-- Ningún material tiene precio 0 o nulo.
-
-### Problemas concretos de exactitud
-
-| # | Problema | Ubicación |
-|---|---|---|
-| 1 | La IA inventa precios; cero validación del JSON de salida | `AgentService.php:2538-2618` |
-| 2 | Selección de fichas de referencia con **sesgo a la baja**: hace `LIKE` por palabra y toma de cada match la ficha **más barata** (`orderBy('costo_total')`) | `fichasReferenciaPorContexto()` :839 |
-| 3 | Los materiales que se le pasan al modelo son casi ruido: `LIKE` por keyword `limit 60`, y si hay <20 rellena con `ORDER BY nombre LIMIT 40` (los primeros alfabéticamente: ANGULO, BANAS, BISAGRAS…) | `materialesRelevantes()` :786 |
-| 4 | Unidades sucias y materiales duplicados: `LAMINA`/`LAMINAS`, `METRO`/`METROS`/`MTS`/`MRTROS`, `PIELEAS`, `JUEGO    PINTADA`; CARPINCOL / CARPINFLEX / COLBON / COBON son todos pegante a $18.000/botella | tabla `materiales` |
-| 5 | Constantes mágicas sin fundamento: array `ESCALA` (0.85 esqueletería, 0.80 laca…), `× 0.70` en mano de obra al escalar, multiplicadores de venta 2.2 / 2.4 / 2.6 (ya marcados como placeholder) | `AgentService.php:13-25`, `:611`, `:2531` |
-| 6 | El ground truth del ebanista (`consultas_costo`) **se descarta**: nadie compara el estimado de la IA contra la corrección humana | `ConsultaCostoController` |
-| 7 | Imágenes enviadas con `detail: 'low'` (512×512) — insuficiente para contar cajones o juzgar proporciones | `:2605`, `:2735`, `:2861` |
+- Contexto vivo (decisiones, reglas de negocio, estado del trabajo): [`MEMORY.md`](MEMORY.md)
+- Documentación completa módulo por módulo: [`docs/PROYECTO.md`](docs/PROYECTO.md)
+- Plan del cotizador IA (las "Fase N" que citan los comentarios del código): [`docs/plan-cotizador-ia.md`](docs/plan-cotizador-ia.md)
 
 ---
 
-## 2. Principio rector del rediseño
+## 1. Qué es esto en 30 segundos
 
-> **La IA arma la receta. El código calcula el precio.**
+Decasa es una fábrica de muebles con tiendas en **Armenia** y **Pereira**
+(Colombia). Este sistema lleva todo el negocio: órdenes de venta, cotizaciones,
+inventario por tienda, producción en el taller, despacho y entregas, pagos y
+caja, comisiones, nómina, costos de fabricación con IA, y más.
 
-La IA hace solo lo que sabe hacer bien: mirar la foto, entender el texto, descomponer el mueble en
-componentes y decidir **qué** materiales lleva, **cuántas** unidades de cada uno y **cuántas horas**
-de cada oficio.
-
-Devuelve identificadores y cantidades — **nunca un precio**:
-
-```json
-{
-  "componentes": [
-    {
-      "nombre": "Base cama 140×190",
-      "materiales": [
-        { "material_id": 129, "cantidad": 0.7, "justificacion": "chapilla pino para cabecero" }
-      ],
-      "mano_obra": [
-        { "cargo": "carpintero", "proceso": "esqueleteria_cama", "horas": 8.0 }
-      ]
-    },
-    { "nombre": "Módulo escritorio", "materiales": [...], "mano_obra": [...] }
-  ],
-  "supuestos": ["medidas asumidas 140×190×90 cm"],
-  "consultar": ["⚠️ colchón visible en la foto — no incluido"]
-}
-```
-
-El backend trae `materiales.precio_unitario` **por ID desde la BD**, multiplica, suma, aplica margen.
-Determinístico, auditable, siempre cuadra. **Alucinar un precio se vuelve estructuralmente imposible**
-y el desglose que ve el vendedor apunta a materiales que existen de verdad.
-
----
-
-## 3. Fases
-
-Orden pensado para que cada fase entregue exactitud por sí sola y sin romper lo anterior.
-`calcular-precio-item` lo consume `NuevaOrdenView.vue` (3 llamadas: :278, :1006, :1025) — el contrato
-de respuesta se mantiene compatible en todas las fases.
-
----
-
-### FASE 1 — Cálculo determinístico ✅ IMPLEMENTADA
-
-**Objetivo:** que la IA deje de escribir precios.
-
-**Archivos**
-- `decasa-api/app/Services/Costos/BomBuilder.php` *(nuevo)* — llama al LLM, devuelve la receta (BOM).
-- `decasa-api/app/Services/Costos/CostoCalculator.php` *(nuevo)* — aritmética pura, sin IA.
-- `AgentService::calcularPrecioItem()` — pasa a orquestar: `BomBuilder` → `CostoCalculator`.
-
-**Trabajo**
-1. Reescribir el system prompt del cotizador para que devuelva la estructura de receta de arriba
-   (`material_id` + cantidad, `cargo`/`proceso` + horas). Prohibir explícitamente cualquier campo de
-   precio en la salida.
-2. Pasarle al modelo el catálogo de materiales candidatos **con su ID** (ver Fase 3 para que esos
-   candidatos sean buenos; por ahora sirve el listado actual).
-3. `CostoCalculator`:
-   - `subtotal_material = cantidad × materiales.precio_unitario` (SELECT por ID).
-   - `subtotal_mo = horas × salarios_cargo.tarifa_hora` (SELECT por cargo).
-   - `precio_fabricacion = Σ materiales + Σ mano_obra`.
-   - `precio_sugerido_venta = precio_fabricacion × multiplicador` (Fase 5).
-4. **Rechazo duro**: si el LLM devuelve un `material_id` inexistente o un `cargo` desconocido, se
-   descarta esa línea y se registra en `supuestos`; si quedan 0 materiales, se devuelve
-   `requiere_revision: true` en vez de un número inventado.
-5. Mantener la forma de respuesta actual (`precio_fabricacion`, `desglose_materiales`,
-   `desglose_mano_obra`, `notas`) para no tocar el front — ahora construida por el calculador.
-
-**Pendiente de esta fase:** la ruta de **restauración** (`es_restauracion: true` →
-`calcularPrecioRestauracion()`) sigue en el camino viejo, con la IA escribiendo precios. Sus
-materiales (telas) viven en otras tablas (`catalogo_telas` / `inventario_telas`), así que migrarla
-al BOM requiere ampliar los candidatos a esas tablas. Queda para una Fase 1b.
-
-**Aceptación**
-- `sum(desglose_materiales) + sum(desglose_mano_obra) == precio_fabricacion`, exacto, siempre.
-- Todo `precio_unitario` del desglose existe en `materiales` o `salarios_cargo`.
-- Test: fichas conocidas → el estimado reconstruido queda dentro de ±10% del `costo_total` real.
-
-**Resultado medido** (`php artisan tinker scripts/benchmark_cotizador.php`, 5 fichas al azar):
-
-| Ficha | Costo real | Estimado IA | Desviación |
+| Parte | Carpeta | Stack | Dónde corre |
 |---|---|---|---|
-| MODULO 1 PUESTO CON BRAZO | $463.272 | $454.022 | **-2,0%** ✅ |
-| CAMA TARIMA 1.00 CON NICHO Y CAJONES | $920.890 | $838.890 | **-8,9%** ✅ |
-| MESA CENTRO NUEVA 1.00×0.60 | $416.802 | $289.385 | -30,6% |
-| CAMA FLOR MORADO 1,40 | $1.167.359 | $1.715.123 | +46,9% |
-| CAMA SUIZA ENCHAPADA | $1.967.238 | $864.744 | -56,0% |
+| API | `decasa-api/` | Laravel 13, PHP 8.4, MySQL (Aiven), Sanctum, Reverb, colas en BD | Render (Docker) — `https://decasa-api-b91v.onrender.com` |
+| App | `decasa-app/` | Vue 3 + Vite 8 + Pinia + Tailwind 4, PWA | Vercel — `https://sistema-de-ventas-olive.vercel.app` |
 
-- ✅ **Criterios duros: 5/5.** El desglose siempre suma exacto al total y el 100% de los precios
-  unitarios vienen de la BD. **La alucinación de precios está eliminada.**
-- ⚠️ **Exactitud: 2/5 dentro de ±10%.** El error que queda ya **no está en los precios sino en las
-  cantidades y en la elección de la ficha de referencia** — que es precisamente lo que arreglan las
-  Fases 3 y 4. El caso CAMA SUIZA (-56%) es el síntoma clásico del `orderBy('costo_total')`
-  ascendente: se ancló en una cama barata que no se le parece.
-
-`scripts/benchmark_cotizador.php` queda como métrica de regresión para medir las fases siguientes.
+La app llama a `/api/*` y Vercel lo reescribe al backend de Render (`decasa-app/vercel.json`).
 
 ---
 
-### FASE 2 — Limpieza de datos base ✅ IMPLEMENTADA
+## 2. Reglas que NO se rompen
 
-**Objetivo:** que el modelo pueda razonar cantidad × precio sin ambigüedad.
-
-**Archivos**
-- `decasa-api/database/migrations/*_normalizar_unidades_materiales.php` *(nuevo)*
-- `decasa-api/database/migrations/*_marcar_materiales_duplicados.php` *(nuevo)*
-
-**Trabajo**
-1. Añadir `materiales.unidad_norm` (enum: `lamina`, `metro`, `unidad`, `juego`, `tabla`, `botella`,
-   `sabana`, `tira`, `par`, `pulgada`, `telera`…) mapeando desde `unidad`. **No borrar `unidad`** —
-   las fichas viejas la referencian.
-2. Añadir `materiales.activo` (bool) y `materiales.equivalente_a_id` (self-FK nullable). Marcar los
-   duplicados obvios (CARPINCOL / CARPINFLEX / COLBON / COBON → uno canónico) sin borrar filas, para
-   no romper el 99% de match de las fichas existentes.
-3. Corregir typos de unidad (`MRTROS`, `PIELEAS`, `JUEGO    PINTADA`).
-4. Al construir los candidatos para el LLM, filtrar `activo = true` y colapsar equivalentes.
-
-**Aceptación**
-- 100% de `materiales` con `unidad_norm` no nula.
-- Los 4.666 `ficha_tecnica_items` siguen resolviendo a un material válido (no se rompió nada).
-
-**Resultado medido** (migración `2026_07_14_120000_normalizar_materiales`, ya aplicada a producción):
-
-- **91 valores distintos de `unidad` → 15 unidades canónicas.** Reparto: `lamina` 102, `unidad` 71,
-  `juego` 36, `metro` 34, `tabla` 16, `telera` 8, `sabana` 7, `botella` 6, `tornillo` 6, `pulgada` 5,
-  `carril` 4, `tira` 4, `bolsa` 2, `piel` 1, y **`otro` 12**.
-- Los 12 `otro` son genuinamente ambiguos y se dejan marcados a propósito (`CHAPILLA [CTMS]`,
-  `COJINES [TELA,FIBROTEX,CAMBRE]`, `TABLA BASTIDOR [55 X 55]`…). El prompt le dice al modelo que si
-  usa uno de esos, declare en `supuestos` qué asumió — mejor eso que inventar una unidad.
-- Typos corregidos: `MRTROS`→`METROS`, `PIELEAS`→`PIELES`, `JUEGO␣␣␣␣PINTADA`→`JUEGO PINTADA`.
-- Duplicados marcados (no borrados): `COLBON`, `CARPINFLEX`, `COBON` → canónico `CARPINCOL`.
-- ✅ **Cero regresión:** el match de fichas sigue en **3.806 / 3.845**, idéntico a antes de la
-  migración.
-
-**Dato que cambió una decisión:** 313 de los 314 materiales están referenciados por alguna ficha —
-no hay basura que borrar. Por eso ninguna fila se elimina ni se renombra; `activo = false` solo
-saca a los duplicados de la lista de candidatos que ve el LLM, y `AgentService::colapsarEquivalentes()`
-sustituye cualquier duplicado que venga de una ficha por su canónico.
+1. **Nunca hacer commit, push ni deploy sin que el usuario lo pida en ese momento.**
+   Un push a `main` redespliega Render y tumba las peticiones de los vendedores
+   que estén creando órdenes (se han visto 503). Al terminar: verificar y
+   reportar "listo, sin subir". Un "súbelo" autoriza **solo esa** subida.
+2. **No tocar la base de producción** (Aiven) salvo lectura y con permiso
+   explícito. Nunca correr migraciones, seeders, `limpiar:ordenes`,
+   `decasa:limpiar-datos` ni scripts de datos contra producción por tu cuenta.
+3. **No cambiar reglas de negocio de plata** (comisiones, descuentos, pagos,
+   numeración, IVA) sin preguntar. Si una regla parece un bug, pregunta antes:
+   en este proyecto casi siempre es una decisión del negocio (ver `MEMORY.md`).
+4. **Notificaciones siempre con `NotificacionService::crear`** (guarda + broadcast
+   + push al PWA). Nunca `Notificacion::create` directo. Nunca borrar avisos
+   automáticamente: solo los borra la persona.
+5. **Visibilidad de órdenes siempre con `Orden::visiblesPara()` / `laPuedeVer()` /
+   `laPuedeCobrar()` / `laPuedeEditar()`.** Nunca un `where('vendedor_id', ...)`
+   propio: las ventas de una tienda son de la tienda **y** de quien las vendió.
+6. **Secretos fuera del repo.** `.env`, credenciales de Aiven, Cloudinary, OpenAI,
+   Gmail, VAPID, `.vercel/` y scripts tipo `dbcheck.mjs` nunca se versionan.
+7. **Migraciones: solo hacia adelante y compatibles.** En Render corren solas al
+   arrancar (`entrypoint.sh` → `php artisan migrate --force`). No borrar ni
+   renombrar columnas que el código viejo todavía lee; no borrar filas de datos
+   de negocio (ej. `materiales` duplicados se marcan `activo=false`, no se borran).
+8. **No reescribir en bloque.** Cambios mínimos y localizados; los controladores
+   son grandes (OrdenController ~4.400 líneas) y llenos de casos de negocio
+   documentados en comentarios. Lee el comentario antes de "simplificar".
 
 ---
 
-### FASE 3 — Recuperación de referencias por similitud real ✅ IMPLEMENTADA
+## 3. Flujo de trabajo obligatorio
 
-**Objetivo:** que las fichas y materiales que se le dan al modelo sean los correctos, y sin sesgo.
-
-**Archivos**
-- `decasa-api/app/Services/Costos/FichaRetriever.php` *(nuevo)* — reemplaza
-  `fichasReferenciaPorContexto()` y `materialesRelevantes()`.
-- migración `*_add_embedding_to_fichas_tecnicas.php` *(nuevo)*
-
-**Trabajo**
-1. **Quitar el `orderBy('costo_total')` ascendente** — es la causa directa del sesgo a la baja.
-2. Generar embeddings (`text-embedding-3-small`) de las 306 fichas a partir de
-   `nombre + categoría + nombres de secciones`, guardados en una columna `embedding` (JSON) +
-   comando `php artisan fichas:reindex`. Con 306 filas la similitud coseno en memoria es
-   instantánea; **no hace falta vector DB**.
-3. Recuperar top-k fichas por similitud, con filtro por rango de medidas cuando el usuario las dé.
-4. **Descomposición de híbridos**: si el mueble combina funciones (cama+escritorio), recuperar la
-   mejor ficha por cada componente y pasar **las fichas completas con sus items reales**.
-5. Materiales candidatos: los que aparecen en las fichas recuperadas (precios reales del contexto)
-   + los de la misma categoría. **Eliminar el relleno alfabético** de `materialesRelevantes()`.
-
-**Aceptación**
-- Consulta "cama con escritorio integrado" → recupera una ficha de CAMAS y una de ESCRITORIOS.
-- Ninguna respuesta del retriever incluye materiales sin relación con el mueble.
-
-**Resultado medido** (`php artisan tinker scripts/benchmark_cotizador.php`, 10 fichas **fijas** —
-el benchmark ya no es aleatorio, para que las fases sean comparables):
-
-| Ficha | Real | Estimado | Ahora | Antes |
-|---|---|---|---|---|
-| ESCRITORIO PATA ELE 1,20×0,50 | $474.846 | $474.846 | **-0,0%** ✅ | +3,9% |
-| MODULO 1 PUESTO CON BRAZO | $463.272 | $454.272 | **-1,9%** ✅ | -2,0% |
-| CAMA MACARENA 1.40 FLOR MORADO | $892.638 | $921.359 | **+3,2%** ✅ | +66,2% |
-| CAMA DIAMANTE TOLEDO 1.40 | $1.197.448 | $1.257.448 | **+5,0%** ✅ | -60,2% |
-| MESA CENTRO NUEVA 1.00×0.60 | $416.802 | $392.762 | **-5,8%** ✅ | -30,6% |
-| CAMA TARIMA 1.00 CON NICHO | $920.890 | $820.890 | -10,9% | -8,9% |
-| CAMA FLOR MORADO 1,40 | $1.167.359 | $1.385.311 | +18,7% | +46,9% |
-| JUEGO MESAS REDONDAS X3 TOLEDO | $340.217 | $269.448 | -20,8% | +53,3% |
-| CAMA ESPECIAL 140 TERRA | $1.419.748 | $957.498 | -32,6% | -79,0% |
-| CAMA SUIZA ENCHAPADA | — | requiere revisión | — | -56,0% |
-
-- **Error absoluto medio: 39,0% → 11,0%.**
-- **Dentro de ±10%: 3/9 → 5/9.** 8 de 9 mejoraron.
-- ✅ Criterios duros siguen en pie: el desglose cuadra y todos los precios vienen de la BD.
-- La `CAMA SUIZA ENCHAPADA` quedó en `requiere revisión` por **rate limit de OpenAI** (10 llamadas
-  en ráfaga), no por un fallo de lógica: el sistema prefirió no dar precio antes que inventarlo.
-  Se añadió reintento con backoff en `BomBuilder`. En uso real (un vendedor cotizando de a uno)
-  no se toca ese límite.
-
-**Detalle de implementación que cambió sobre lo planeado:** el caché de embeddings en disco devolvía
-`__PHP_Incomplete_Class` al deserializar los vectores. Se reemplazó por un memo en memoria dentro de
-`FichaRetriever` — son 306 filas, cargarlas por request cuesta milisegundos.
-
-**Lo que queda de error** ya no es el retrieval sino las **cantidades** (`CAMA ESPECIAL 140 TERRA`
--32,6%: el modelo subestima material). Eso es lo que ataca la Fase 4 (estimación por diferencias +
-`SanityChecker` que marcaría justamente ese caso como fuera de banda).
+1. **Entender antes de cambiar.** Lee `MEMORY.md` y la sección del módulo en
+   `docs/PROYECTO.md`. Busca el comentario del método que vas a tocar: casi
+   todos explican *por qué* son así (bugs reales que corrigieron).
+2. **Ramas** (`docs/flujo-de-ramas-git.md`): `main` = producción, `develop` =
+   integración. Trabajo en `feature/…`, `fix/…`, `chore/…` desde `develop`;
+   `hotfix/…` desde `main`.
+3. **Commits** en español: `tipo(alcance): mensaje` — tipos `feat`, `fix`,
+   `chore`, `docs`, `refactor`. Alcances usuales: `ordenes`, `comisiones`,
+   `inventario`, `produccion`, `nomina`, `telas`, `reportes`, `entregas`,
+   `despacho`, `cotizador`, `pwa`…
+4. **Verificar antes de decir "listo":**
+   - Backend: `cd decasa-api && /c/php/php.exe artisan test --filter NombreDelTest`
+     (SQLite en memoria, no necesita `.env`). Suite completa:
+     `/c/php/php.exe -d memory_limit=1G vendor/bin/phpunit`.
+   - Frontend: `cd decasa-app && npx vite build` sin errores.
+   - Hay fallos de tests **preexistentes** (ver `MEMORY.md` → Entorno). Compara
+     **por clase de test**, no por número total.
+5. **Si la rama trae migración**, dilo explícitamente en el resumen/PR.
+6. **Actualiza `MEMORY.md`** cuando aprendas algo durable: una decisión del
+   usuario, una regla de negocio, una trampa del código, el estado de un trabajo
+   a medias. Ver §8.
 
 ---
 
-### FASE 4 — Estimación por analogía + validación de cordura ✅ IMPLEMENTADA
+## 4. Convenciones del backend (`decasa-api`)
 
-**Objetivo:** no construir desde cero, y no entregar números absurdos con confianza.
+- **Idioma:** todo en español (modelos, columnas, métodos, comentarios, mensajes).
+  Los comentarios explican el *porqué* con casos reales ("Manuela vendió el 31…").
+  Mantén ese estilo y esa densidad.
+- **Autorización:**
+  - `role:supervisor,vendedor` → compara `usuarios.rol` (string sincronizado con
+    `roles.clave`).
+  - `permiso:acceso_x[,rolExtra]` → bandera booleana por usuario
+    (`acceso_costos`, `acceso_despacho`, `acceso_nomina`, `acceso_compras`…).
+  - Reglas finas viven **en el modelo** (`Orden::laPuede*`, `Usuario::veProduccion()`,
+    `soloVeSusOrdenes()`) o dentro del controlador. No dupliques la regla.
+- **Rutas:** todas en `routes/api.php`. Rutas literales (`/lote`, `/pendientes`,
+  `/sugerencias`) **antes** de las de `{id}`, y usa `->whereNumber('id')`.
+- **Transacciones** para todo lo que mueva stock, plata o numeración
+  (`DB::transaction`, `lockForUpdate` en consecutivos).
+- **Lógica compartida en `app/Services/`** — una sola puerta por operación:
+  `EntregaService` (entregar), `MovimientoTraslado` (mover stock entre tiendas),
+  `ConsumoTelas` (apartar/descontar tela), `NumeracionOrdenes` (corregir números),
+  `Cartera`, `RangoFechas` (filtros de fecha en hora de Bogotá), `CambiosDePlata`.
+  Si vas a repetir una cuenta, búscala primero ahí.
+- **Fechas:** la BD guarda UTC; el negocio vive en `America/Bogota`. Usa
+  `RangoFechas` / `CicloNomina::fecha()` y nunca compares medianoches de zonas
+  distintas.
+- **Estados que no son venta:** `cotizacion` y `borrador` (`Orden::ESTADOS_NO_COMERCIALES`,
+  `scopeComerciales`). Exclúyelos de reportes, comisiones y cartera.
+- **Columnas opcionales:** el código revisa `Schema::hasColumn(...)` en varios
+  sitios porque los tests montan esquemas a mano. Si agregas una columna que
+  escriben órdenes/entregas, agrégala también a `tests/TestCase::completarEsquemaDeEntregas()`.
+- **Archivos/fotos:** se suben a Cloudinary vía `POST /upload/foto`
+  (`UploadController`, lista blanca de carpetas). Varias fotos = columna JSON
+  (`factura_fotos`, `comprobante_fotos`) + la primera en la columna vieja por compatibilidad.
+- **Tiempo real:** eventos en `app/Events` → Reverb. Si Reverb falla, el flujo
+  sigue (try/catch). La app tiene polling de respaldo.
+- **PDFs:** DomPDF con vistas en `resources/views/pdf`. Imágenes remotas se
+  convierten a base64 (`ConvierteImagenesPdf`, solo dominios permitidos).
+- **IA:** OpenAI (`gpt-4o`, `text-embedding-3-small`). **La IA arma la receta,
+  el código calcula el precio** — nunca dejes que el modelo escriba cifras de costo
+  (ver `docs/plan-cotizador-ia.md`).
 
-**Archivos**
-- `decasa-api/app/Services/Costos/SanityChecker.php` *(nuevo)*
-- prompt de `BomBuilder`
+## 5. Convenciones del frontend (`decasa-app`)
 
-**Trabajo**
-1. El prompt pasa a ser: *"aquí tienes las 3–5 fichas más similares **completas**; construye la
-   receta del mueble nuevo **por diferencias** respecto a ellas"*. Mucho más preciso que pedirle una
-   receta desde cero.
-2. `SanityChecker`: calcular métricas por categoría a partir de las 306 fichas (mediana de
-   costo/m², costo/puesto, costo total). Si el resultado se sale **±30% de la mediana** de su
-   categoría → `requiere_revision: true` con el motivo.
-3. El front muestra ese caso como *"requiere revisión de ebanista"* y sugiere abrir una
-   `consulta_costo`, en lugar de mostrar un precio falso.
-4. Subir las imágenes a `detail: 'high'` (`:2605`, `:2735`, `:2861`). Cuesta poco y mejora el conteo
-   de cajones/proporciones.
-
-**Aceptación**
-- Un estimado fuera de banda nunca llega al vendedor como precio en firme.
-
-**Resultado medido** (`php artisan cotizador:benchmark`, 10 fichas fijas, corrida limpia):
-
-| Ficha | Real | Estimado | Ahora | Antes |
-|---|---|---|---|---|
-| CAMA DIAMANTE TOLEDO 1.40 | $1.197.448 | $1.197.448 | **-0,0%** ✅ | -60,2% |
-| MESA CENTRO NUEVA 1.00×0.60 | $416.802 | $416.802 | **+0,0%** ✅ | -30,6% |
-| ESCRITORIO PATA ELE 1,20×0,50 | $474.846 | $479.846 | **+1,1%** ✅ | +3,9% |
-| CAMA TARIMA 1.00 CON NICHO | $920.890 | $969.530 | **+5,3%** ✅ | -8,9% |
-| CAMA FLOR MORADO 1,40 | $1.167.359 | $1.077.359 | **-7,7%** ✅ | +46,9% |
-| MODULO 1 PUESTO CON BRAZO | $463.272 | $403.272 | -13,0% | -2,0% |
-| CAMA SUIZA ENCHAPADA | $1.967.238 | $1.701.430 | -13,5% | -56,0% |
-| CAMA MACARENA 1.40 | $892.638 | $1.086.359 | +21,7% | +66,2% |
-| JUEGO MESAS REDONDAS X3 | $340.217 | $230.217 | -32,3% | +53,3% |
-| CAMA ESPECIAL 140 TERRA | — | requiere revisión | — | -79,0% |
-
-- **Error absoluto medio: 36,4% → 10,5%.** Dentro de ±10%: 3/9 → 5/9. 9 de 10 mejoraron vs baseline.
-- ✅ **El SanityChecker atrapó el caso catastrófico:** `CAMA ESPECIAL 140 TERRA` — el modelo la estimó
-  en $766.502 cuando su costo real es $1.419.748 (subestimó el material). Se desvió -46% de la ficha
-  más parecida → marcada **requiere revisión** en vez de entregar un precio falso. **Este es
-  exactamente el fallo que la Fase 4 debía cazar.**
-- ✅ Los criterios duros siguen intactos.
-
-**Dos errores míos que se corrigieron durante la fase** (quedan documentados porque cambiaron el diseño):
-1. El check de rango arrancó como `p10–p90` de la categoría. Por construcción, el 20% de las fichas
-   reales cae fuera de su propio p10–p90 — marcaba estimados perfectos (`MODULO 1 PUESTO` a $463.272,
-   con p10 de SOFAS en $584.655). Se cambió a límites de absurdo: `< min×0.5` o `> max×2`.
-2. El check contra fichas de referencia usaba la **mediana** de las 5 recuperadas, que mezcla muebles
-   distintos e infla el esperado. Se cambió a la ficha **top-1** (la más similar; el retriever ya las
-   ordena).
-
-**Lo que queda** es variabilidad del propio modelo (`MODULO` -13%, `CAMA SUIZA` -13,5% — corridas
-distintas dan recetas algo distintas). No se baja con más reglas: se baja **anclando el modelo a
-correcciones reales**, que es la Fase 5 (few-shot con el ground truth del ebanista).
-
-**Infra:** el benchmark dejó de ser un script de `tinker` (mantenía un REPL abierto que colgaba el
-proceso) y ahora es el comando `php artisan cotizador:benchmark [--sleep=N]`, con exit code limpio.
-Las imágenes subieron a `detail: 'high'` en las tres rutas que las usan.
-
----
-
-### FASE 5 — Bucle de aprendizaje (el que hace crecer la exactitud con el uso) ✅ IMPLEMENTADA
-
-**Objetivo:** que las correcciones del ebanista mejoren los estimados futuros.
-
-**Contexto:** `consultas_costo` + `consulta_costo_items` + `consulta_costo_desglose` ya existen y ahí
-el ebanista corrige el precio a mano (`precio_manual` o desglose + margen). **Hoy eso se descarta.**
-`orden_items` personalizados está en **0**, así que estamos justo a tiempo de capturarlo desde el
-primer caso real.
-
-**Archivos**
-- migración `*_create_estimados_ia.php` *(nuevo)*
-- `ConsultaCostoController::guardarItem()` / `enviar()` — enganchar la captura.
-- `decasa-api/app/Services/Costos/FewShotProvider.php` *(nuevo)*
-
-**Trabajo**
-1. Tabla `estimados_ia`: `input_json` (descripción, medidas, categoría, boceto_url),
-   `bom_json` (la receta que generó la IA), `precio_ia`, `precio_humano`, `consulta_item_id`,
-   `error_pct`, `embedding`.
-2. Al llamar `/calcular-precio-item` → guardar el estimado. Cuando el ebanista responde la consulta
-   (`guardarItem` / `enviar`) → escribir `precio_humano` y `error_pct` en la fila correspondiente.
-3. `FewShotProvider`: al cotizar algo nuevo, buscar los 2–3 casos corregidos más similares
-   (por embedding) y **inyectarlos como ejemplos en el prompt**: *"un mueble parecido fue estimado en
-   X y el ebanista lo corrigió a Y por estas razones"*.
-4. Panel de supervisor: `error_pct` promedio por categoría. Es la métrica que dice si la IA está
-   mejorando.
-
-**Aceptación**
-- Toda consulta respondida deja una fila con `precio_ia` y `precio_humano`.
-- El `error_pct` promedio baja a medida que se acumulan casos.
-
-**Resultado medido** (`php artisan cotizador:test-aprendizaje`, ciclo completo simulado):
-
-1. ✅ Registrar estimado de la IA → fila en `estimados_ia` con `precio_ia`, `bom_json`, `embedding`.
-2. ✅ Corrección del ebanista → `precio_humano` y `error_pct` escritos (test: IA 700k vs real 1.050k
-   → `error_pct = -33,33%`).
-3. ✅ Cotizar un mueble parecido → recupera esa corrección como ejemplo few-shot.
-4. ✅ Cotizar algo distinto (una silla) → **no** trae la cama.
-
-**Decisión de diseño (vínculo estimado ↔ corrección):** el estimado se genera *antes* de que exista
-el `orden_item` (la orden se crea después), y la corrección del ebanista llega *después* vía
-`ConsultaCosto`. Se vincula por hash grueso `sha1(categoria|nombre_mueble)` contra el estimado más
-reciente sin corregir. No es trazabilidad exacta, pero para few-shot basta: el estimado se generó
-minutos antes y comparte nombre y categoría. `calcularPrecioItem` devuelve `estimado_id` para que,
-si más adelante se quiere, el front pueda cerrar el vínculo de forma exacta sin cambiar el backend.
-
-**Se compara COSTO contra COSTO:** `precio_ia` es costo de fabricación, así que la captura usa el
-`precio_base` del ebanista (su costo sin margen), no `precio_final` (con margen de venta). Comparar
-contra el precio de venta habría inflado `error_pct` con el margen.
-
-**Un problema que encontró la prueba y se corrigió:** con umbral de coseno 0.30, una cama aparecía
-como ejemplo para una silla — `text-embedding-3-small` da cosenos altos a todo el dominio "mueble".
-Se ancló en la **categoría**: mismo categoría exige coseno > 0.35; categoría distinta, > 0.62. Así
-la categoría filtra el grueso y el embedding ordena dentro.
-
-**Todo el aprendizaje es best-effort:** si falla el registro o la captura (API de embeddings caída,
-etc.), la cotización y el envío de la consulta se completan igual — nunca rompen el flujo del usuario.
-
-**Panel de precisión ✅ IMPLEMENTADO.** `GET /cotizador/precision`
-(`PrecisionCotizadorController`, solo supervisor/ebanista) + pestaña **"Precisión IA"** en
-`CostosView`. Compara `precio_ia` vs `precio_humano` de `estimados_ia` corregidos y muestra:
-- **Global**: nº de casos, error medio absoluto, sesgo medio (negativo = la IA subestima → riesgo de
-  vender a pérdida, se resalta en rojo) y % dentro de ±10%.
-- **Por categoría**: mismas métricas, para ver dónde falla más el cotizador.
-- **Correcciones recientes**: mueble, estimado IA, precio real del ebanista y desviación.
-
-Estado vacío explicado (aún no hay correcciones). Verificado con datos sembrados: global, agregación
-por categoría y recientes cuadran; el estado sin datos responde `hay_datos:false`.
+- Vue 3 `<script setup>`, Pinia (stores en `src/stores`), llamadas HTTP solo por
+  los módulos de `src/api/*.js` (axios con token Bearer en `src/api/index.js`).
+- **Permisos en la UI** salen de `useAuthStore()` (`isSupervisor`, `puedeCostos`,
+  `puedeDespacho`…); el guard de rutas está en `src/router/index.js`. El backend
+  vuelve a validar siempre: la UI solo esconde.
+- **Patrón visual** (el usuario pide seguirlo, no inventar estética):
+  contenedor `p-4 max-w-2xl mx-auto space-y-4`, título `h2 text-lg font-bold`,
+  pestañas en pastilla (`bg-gray-100 rounded-xl p-1`, activa `bg-white shadow-sm`),
+  tarjetas `bg-white rounded-xl shadow-sm`, chips `rounded-full text-xs font-semibold`,
+  botón primario `bg-blue-600 rounded-lg text-xs font-semibold`, modales como hoja
+  inferior (`fixed inset-0 bg-black/40 … rounded-t-2xl sm:rounded-2xl`),
+  carga con `AppSpinner`, avisos con `useToast` (no `alert`), `confirm()` solo
+  para borrar/descartar.
+- **Modo oscuro:** no hay variantes `dark:`; son overrides en `src/assets/main.css`
+  (solo grises y blanco). Evita rellenos grandes de color claro (`*-50`).
+- **Mobile first:** se usa en celulares (390 px). Revisa ahí y en oscuro.
+- Muchas peticiones a la vez → `src/utils/colaPeticiones.js` (`crearCola`,
+  `conReintento`). Peticiones de fondo con `{ silencioso: true }`.
+- Dinero con `src/utils/pesos.js` / `MoneyDisplay` / `InputPesos`.
 
 ---
 
-### FASE 6 — Precio de venta sugerido configurable ✅ IMPLEMENTADA
+## 6. Entorno local (máquina Windows del usuario)
 
-**Reenfoque (decisión del negocio):** el jefe aclaró que el sistema **solo** debe dar el **costo de
-fabricación** — la ganancia la pone el supervisor a mano. Pero sí quiere que, **como referencia**, se
-le **sugiera** un precio de venta. Así que la fase dejó de ser "calibrar el margen real" (que ya no
-aplica: no hay margen que el sistema deba clavar) y pasó a: mostrar el costo real + sugerir una venta
-con un factor **configurable**.
-
-**Trabajo**
-1. Se eliminaron los multiplicadores inventados `2.2 / 2.4 / 2.6` (uno distinto por tipo de cálculo).
-2. Un único **factor de venta sugerido**, guardado en `configuracion` (`factor_venta_sugerido`),
-   default **×2.0** (definido por el negocio). `precio_sugerido_venta = precio_fabricacion × factor`.
-3. Ajustable desde la app: `PUT /configuracion/costos/factor-venta` + input en la pantalla de
-   Costos → pestaña Tarifas ("Precio de venta sugerido"), sin tocar código.
-4. El **costo de fabricación no se infla**: el supervisor lo quiere real. El requisito "que nunca
-   deje en pérdidas" queda cubierto de facto — sugerir vender al **doble** del costo deja un colchón
-   enorme aunque el costo estimado quede algo corto — y el SanityChecker (Fase 4) avisa si el costo
-   se ve anormalmente bajo.
-
-**Resultado medido** (`cotizador:test-factor`, ya borrado): mismo mueble, `factor=2.0` → venta =
-costo × 2.00; `factor=2.5` → venta = costo × 2.50. El precio sugerido sigue el factor configurable.
-
-**Nota:** ya NO se derivan por regresión el array `ESCALA` ni el `× 0.70`. Esas constantes vivían en
-el escalado por puestos del código viejo; el flujo nuevo (BOM por diferencias contra fichas reales)
-no las usa para el precio que ve el usuario. Quedan en métodos heredados sin efecto sobre el
-resultado; se pueden limpiar en un pase posterior.
+- PHP 8.4 en `C:\php\php.exe` (en Git Bash: `/c/php/php.exe`), Composer en
+  `C:\php\composer.phar`, Node 24. **No hay Python.**
+- No hay backend local corriendo (sin `.env`, producción es MySQL). Para ver
+  pantallas: servidor falso en Node + Vite con proxy + Chrome headless (ver
+  `MEMORY.md` → "Ver pantallas sin backend").
+- Deploy del front (solo si lo piden): `npx -y vercel@latest deploy --prod --yes`
+  desde la **raíz** del repo (`.vercelignore` deja subir solo `decasa-app`).
+- Deploy del back: push a `main` → Render reconstruye el Docker y migra solo.
 
 ---
 
-### FASE 7 — Llevar el motor determinístico al CHAT de la IA ✅ IMPLEMENTADA
+## 7. Mapa rápido: ¿dónde está…?
 
-**Motivo:** hay **dos** flujos que cotizan costos y hasta la Fase 6 solo uno estaba blindado.
-
-| Flujo | Ruta | Estado antes de Fase 7 |
+| Necesito… | Backend | Frontend |
 |---|---|---|
-| Cotizador de Nueva Orden | `POST /calcular-precio-item` → `calcularPrecioItem()` | ✅ motor determinístico completo (Fases 1–6) |
-| **Chat de la IA** | `POST /agent/chat` → `chat()` → tools | ⚠️ el modelo **redacta los números** en texto |
+| Crear/editar órdenes | `OrdenController` (store/update/updateEstado) | `NuevaOrdenView`, `OrdenDetalleView`, `components/ordenes/*` |
+| Entregas / rutas | `DespachoController`, `EntregaService` | `DespachoView`, `MisEntregasView`, `components/despacho/*` |
+| Taller | `ProduccionController`, `TipoProcesoController`, `RetornoAlTaller` | `ProduccionView`, `EbanistaView` (Mis pasos) |
+| Inventario | `InventarioController`, `VarianteController`, `ProductoVarianteConfigController`, `Support/StockVariantes` | `InventarioView`, `components/inventario/*` |
+| Surtir / traslados / reserva | `SurtidoController`, `TrasladoController`, `ReservaController` | `SurtirView`, `ReservaView` |
+| Comisiones | `ComisionController`, `ComisionIndependientes`, `AnticiposComision` | `ComisionesView`, `components/comisiones/*` |
+| Pagos / caja | `PagoController`, `CajaController`, `DescuentoCondicionadoService` | `RegistroPagoModal`, `CajaView` |
+| Costos / IA | `AgentService`, `Services/Costos/*`, `FichaTecnicaController`, `MaterialController` | `CostosView`, `components/costos/*`, `AgentChat` |
+| Nómina | `Nomina*Controller`, `NominaLiquidador`, `CicloNomina` | `NominaView` |
+| Reportes / stats | `ReporteController`, `StatsController` | `ReportesView`, `StatsVendedorView` |
 
-El chat ya se beneficiaba de la Fase 2 (materiales limpios) y Fase 3 (fichas de referencia por
-similitud), porque sus tools `calcular_costo_medidas` / `calcular_costo_personalizado` llaman a
-`fichasReferenciaPorContexto()`. Pero esos tools devuelven **datos de referencia** y es el LLM quien
-arma el precio → en el chat el desglose podía **no cuadrar**, no había SanityChecker ni few-shot.
-Como las consultas de costo también se hacen por el chat, tiene que ser igual de preciso.
-
-**Trabajo**
-1. Nuevo tool `cotizar_fabricacion` que internamente llama a `calcularPrecioItem()` — el mismo motor
-   determinístico (BomBuilder → CostoCalculator → SanityChecker → few-shot). Devuelve el resultado
-   ya calculado: `precio_fabricacion`, `precio_sugerido_venta`, desgloses, `requiere_revision`.
-2. `ejecutarTool()` mapea el nuevo tool a `calcularPrecioItem()`.
-3. Se retiran de la definición de tools `calcular_costo_medidas` y `calcular_costo_personalizado`
-   (sus métodos privados siguen existiendo porque `calcularPrecioItem` los usa internamente).
-   `obtener_ficha_tecnica` se mantiene: para un producto de catálogo exacto ya devuelve el costo
-   real de la ficha (determinístico, no lo redacta el modelo).
-4. System prompt del chat: al pedir costo de fabricación de algo personalizado → usar
-   `cotizar_fabricacion` y **presentar sus números tal cual**, incluyendo el aviso cuando
-   `requiere_revision` sea true. Prohibido recalcular o inventar cifras.
-
-**Aceptación**
-- Preguntar en el chat "¿cuánto cuesta fabricar [mueble personalizado]?" da un desglose que **cuadra
-  exacto** y con precios de la BD, igual que Nueva Orden.
-- Un estimado dudoso responde "requiere revisión del ebanista" en vez de un número con falsa confianza.
-
-**Resultado medido** (prueba `cotizador:test-chat`, ya borrada): al preguntar en el chat *"¿cuánto
-cuesta fabricar una cama sencilla de 1.40 en flor morado con dos cajones?"*:
-- El chat pasó por el motor determinístico (registró un `estimado_ia`, categoría `camas`).
-- Desglose: mano de obra $136.154 + materiales $844.688 = **$980.842, cuadra exacto**.
-- Precio de venta sugerido = $980.842 × 2.0 = **$1.961.684** (respeta el factor de la Fase 6).
-- Incluyó el aviso `⚠️ CONSULTAR: colchón no especificado` que generó el BomBuilder.
-- Presentó los números tal cual, sin recalcular.
-
-**Costo:** el tool hace una llamada extra a OpenAI dentro del loop del chat (la del BomBuilder). Más
-latencia, pero correcto. Aceptable para consultas de a una.
-
-**Ahora ambos flujos comparten el mismo motor** — el chat y Nueva Orden dan el mismo costo para el
-mismo mueble. `obtener_ficha_tecnica` se mantiene aparte para productos de catálogo exactos (ya era
-determinístico). Los métodos `handleCalcularCostoPorMedidas` / `handleCalcularCostoPersonalizado`
-siguen existiendo como privados porque `calcularPrecioItem` los usa internamente; solo se retiraron
-como tools expuestos al modelo.
-
-**Imágenes en el chat (corregido):** antes, en el chat el modelo veía la foto pero al cotizar le
-pasaba al motor solo una descripción en texto — el `BomBuilder` no recibía la imagen y se perdía el
-detalle (contar cajones, proporciones). Ahora `chat()` captura la última imagen del usuario
-(`extraerUltimoBoceto()`) y `handleCotizarFabricacion` la propaga como `boceto_url` a
-`calcularPrecioItem` → `BomBuilder` (a `detail:high`), igual que en Nueva Orden. Verificado con
-`cotizador:test-boceto` (captura la imagen correcta, incluso si la foto y la pregunta van en mensajes
-separados). En ambos flujos la receta ahora "ve" la foto.
+Detalle completo en [`docs/PROYECTO.md`](docs/PROYECTO.md).
 
 ---
 
-## 4. Riesgos y decisiones abiertas
+## 8. Cómo mantener la memoria del proyecto
 
-- ~~**Margen de venta real** — bloquea la Fase 6.~~ **Resuelto:** el negocio solo quiere el costo de
-  fabricación + una sugerencia de venta ×2.0 configurable. Ver Fase 6.
-- **Costo por token**: pasar fichas completas como contexto sube el prompt. Mitigable con el
-  retriever (Fase 3) que manda 3–5 fichas en vez de un volcado.
-- **No borrar materiales duplicados** — el 99% de match de las fichas depende de los nombres
-  actuales. Solo marcar (`activo`, `equivalente_a_id`).
-- **Compatibilidad del front**: el contrato de `/calcular-precio-item` no cambia en ninguna fase.
-- **Rate limit de OpenAI**: el tier actual es estrecho; el benchmark espacia las llamadas y
-  `BomBuilder` reintenta con backoff. En uso real (cotizaciones de a una) no se toca el límite.
+`MEMORY.md` es la memoria compartida entre agentes y sesiones. Reglas:
 
-## 5. Orden recomendado
-
-`Fase 1` → `Fase 2` → `Fase 3` → `Fase 4` → `Fase 5` → `Fase 6`
-
-La Fase 1 sola ya elimina la alucinación de precios. Las Fases 3 y 4 elevan la calidad del estimado.
-La Fase 5 es la que hace que el sistema mejore solo con el tiempo.
+- **Agrega** una entrada cuando: el usuario confirma/rechaza una regla de negocio,
+  da una preferencia de trabajo, se termina o se deja a medias un trabajo, o
+  descubres una trampa que costó tiempo.
+- **Formato:** fecha absoluta (`2026-10-07`), qué, **por qué**, y cómo aplicarlo.
+- **Corrige** en vez de duplicar; borra lo que resulte falso.
+- No guardes lo que ya dice el código o `git log`; guarda lo que **no** se deduce
+  de ahí (decisiones, razones, estado).
+- Si cambias un módulo de forma importante, actualiza también su sección en
+  `docs/PROYECTO.md`.
