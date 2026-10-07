@@ -1,0 +1,6 @@
+# Vercel solo construye el frontend (rootDirectory = decasa-app).
+# Lo demás no se sube: el backend, logs, exportes de base de datos, etc.
+/*
+!/decasa-app
+/decasa-app/node_modules
+/decasa-app/dist
