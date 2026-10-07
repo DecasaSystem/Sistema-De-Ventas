@@ -43,7 +43,18 @@ relanzar() {
 # procesos corrieran como root crearían carpetas de root ahí dentro, y Apache
 # ya no podría escribir en ellas —el límite de peticiones fallaría con un 500
 # al azar—.
-relanzar queue runuser -u www-data -- php artisan queue:work --tries=3 --timeout=60 --sleep=3
+#
+# La cola vive en la base, que comparten todos los servidores. Un servidor que
+# todavía no recibe tráfico (el nuevo, durante una mudanza de región) se
+# arranca con COLA_ACTIVA=0: si no, tomaría trabajos que encoló el que sí
+# atiende —entre ellos los avisos en tiempo real— y los mandaría por SU
+# Reverb, al que no hay nadie conectado: la gente dejaría de ver los cambios
+# al instante.
+if [ "${COLA_ACTIVA:-1}" = "1" ]; then
+    relanzar queue runuser -u www-data -- php artisan queue:work --tries=3 --timeout=60 --sleep=3
+else
+    echo "[decasa] COLA_ACTIVA=0: este servidor no procesa la cola" >&2
+fi
 relanzar reverb php artisan reverb:start --host=0.0.0.0 --port=8080 --no-interaction
 
 # Las tareas programadas (comisiones 6:30, respaldo 3:00, avisos…) corren en

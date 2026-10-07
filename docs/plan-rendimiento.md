@@ -96,6 +96,18 @@ que hace 6 llamadas en paralelo baja de ~4–6 s a ~1–2 s.
 > La base no se toca; servidor↔base pasa de ~200 ms a ~5–10 ms por consulta y
 > el usuario queda más cerca del servidor.
 
+> **Decisión del usuario (2026-10-07):** mover Render a Virginia, no subir Aiven
+> a Startup (US$19/mes recurrente vs ~US$2 una sola vez: Render cobra por
+> segundo). Crear el servidor hoy **sin conectarlo** y conectarlo al día
+> siguiente en la mañana.
+>
+> El servidor nuevo, mientras no recibe tráfico, va con **`PROGRAMADOR_ACTIVO=0`
+> y `COLA_ACTIVA=0`**: la base (y su cola de trabajos) es compartida; si su
+> trabajador tomara trabajos de Oregón, los avisos en tiempo real saldrían por
+> el Reverb de Virginia, al que nadie está conectado. Para no redesplegar
+> Oregón en horario de ventas, `COLA_ACTIVA` va primero en la rama
+> `infra/servidor-virginia` y el servicio nuevo se crea desde esa rama.
+
 #### Mudanza de Render a Virginia, sin tiempo caído
 
 Render no cambia la región de un servicio existente: se crea uno nuevo en
