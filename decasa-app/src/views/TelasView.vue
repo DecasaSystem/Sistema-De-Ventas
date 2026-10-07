@@ -17,9 +17,11 @@ import { useModulosStore } from '@/stores/modulos'
 import { useToast } from '@/composables/useToast'
 import api from '@/api'
 import { comprimirImagen } from '@/utils/comprimirImagen'
-import { TELAS_CATALOGO } from '@/data/telasCatalogo'
+import { TELAS_CATALOGO, asegurarCatalogoDB } from '@/data/telasCatalogo'
 import { exportarExcel } from '@/utils/exportarExcel'
 import ConsumoTelasPanel from '@/components/inventario/ConsumoTelasPanel.vue'
+// Lee TELAS_CATALOGO directo: las telas de la base se piden al entrar.
+asegurarCatalogoDB()
 
 const props = defineProps({
   /** 'telas' es el módulo de siempre; otra clave, uno creado a partir de él. */

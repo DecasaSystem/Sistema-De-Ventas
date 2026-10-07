@@ -31,8 +31,10 @@ import api from '@/api'
 import { useToast } from '@/composables/useToast'
 import ComboInput from '@/components/common/ComboInput.vue'
 import { useTelaFotos } from '@/composables/useTelaFotos'
-import { TELAS_CATALOGO, marcasOrdenadas, tiposTelaDeM, coloresDeTela } from '@/data/telasCatalogo'
+import { TELAS_CATALOGO, marcasOrdenadas, tiposTelaDeM, coloresDeTela, asegurarCatalogoDB } from '@/data/telasCatalogo'
 import { pesos } from '@/utils/pesos'
+// Lee TELAS_CATALOGO directo: las telas de la base se piden al entrar.
+asegurarCatalogoDB()
 
 const toast = useToast()
 const auth  = useAuthStore()

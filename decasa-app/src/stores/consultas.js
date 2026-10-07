@@ -1,22 +1,25 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
-import { getConsultas } from '@/api/consultas'
+import { ref } from 'vue'
+import { getConteoConsultas } from '@/api/consultas'
 
+/**
+ * El número de consultas de costo pendientes que sale en el menú.
+ *
+ * Antes se descargaban TODAS las consultas —con sus ítems y desgloses, sin
+ * límite— solo para contar las pendientes, cada vez que se abría la app. La
+ * lista completa la pide la pantalla de Consultas cuando se entra a ella.
+ */
 export const useConsultasStore = defineStore('consultas', () => {
-  const items = ref([])
-
-  const pendientesCount = computed(() =>
-    items.value.filter(c => c.estado === 'pendiente').length
-  )
+  const pendientesCount = ref(0)
 
   async function cargar() {
     try {
-      const { data } = await getConsultas()
-      items.value = Array.isArray(data) ? data : []
+      const { data } = await getConteoConsultas()
+      pendientesCount.value = Number(data?.pendientes) || 0
     } catch {
-      items.value = []
+      pendientesCount.value = 0
     }
   }
 
-  return { items, pendientesCount, cargar }
+  return { pendientesCount, cargar }
 })

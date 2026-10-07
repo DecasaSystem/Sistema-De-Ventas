@@ -14,7 +14,6 @@ import { useSurtidosSocket } from '@/composables/useSurtidosSocket'
 import { useCargaGlobal } from '@/composables/useCargaGlobal'
 import { useToast } from '@/composables/useToast'
 import { registrarPush, cancelarPush } from '@/composables/usePushNotifications'
-import { cargarCatalogoDB } from '@/data/telasCatalogo'
 import CargandoS from '@/components/common/CargandoS.vue'
 import ScrollToTop from '@/components/common/ScrollToTop.vue'
 import ToastContainer from '@/components/common/ToastContainer.vue'
@@ -164,9 +163,12 @@ watch(() => auth.isAuthenticated, (isAuth) => {
   modulos.cargar()
   notif.cargar()
   registrarPush()
-  cargarCatalogoDB(api)
-  if (auth.isSupervisor) {
-    despacho.refrescar()
+  // Solo el número del menú. La cola entera (órdenes, clientes, productos)
+  // la pide Despacho al entrar; bajarla aquí la traía en cada apertura de la
+  // app, entrara o no a Despacho. Y solo con el permiso: sin él la API
+  // responde 403 y el viaje se paga igual.
+  if (auth.isSupervisor && auth.puedeDespacho) {
+    despacho.cargarConteo()
   }
   if (auth.usuario?.rol === 'conductor') {
     despacho.cargarMisEntregas()

@@ -530,10 +530,13 @@ class EntregaPorProductoTest extends TestCase
         $orden = $this->venderRelojYMueble($this->vendedora(), relojSeLoLleva: false);
         $this->assertNotSame('listo_entrega', $orden->estado, 'el comedor sigue en el taller');
 
-        $cola = $this->actingAs($this->despachadora())->getJson('/api/despacho/cola')->assertOk()->json();
+        $jefa = $this->despachadora();
+        $cola = $this->actingAs($jefa)->getJson('/api/despacho/cola')->assertOk()->json();
 
         $this->assertCount(1, $cola);
         $this->assertSame($orden->id, $cola[0]['id']);
+        // El número del menú cuenta lo mismo que la lista.
+        $this->actingAs($jefa)->getJson('/api/despacho/cola/conteo')->assertOk()->assertExactJson(['total' => 1]);
         // Y dice qué se puede subir al camión y qué no.
         $items = collect($cola[0]['items'])->keyBy('id');
         $this->assertTrue($items[$this->reloj($orden)->id]['entregable']);
@@ -545,7 +548,9 @@ class EntregaPorProductoTest extends TestCase
         $orden = $this->venderRelojYMueble($this->vendedora(), relojSeLoLleva: true);
         $this->assertSame('en_produccion', $orden->fresh()->estado);
 
-        $this->actingAs($this->despachadora())->getJson('/api/despacho/cola')->assertOk()->assertJsonCount(0);
+        $jefa = $this->despachadora();
+        $this->actingAs($jefa)->getJson('/api/despacho/cola')->assertOk()->assertJsonCount(0);
+        $this->actingAs($jefa)->getJson('/api/despacho/cola/conteo')->assertOk()->assertExactJson(['total' => 0]);
     }
 
     public function test_la_ruta_lleva_solo_lo_que_se_marco_y_el_conductor_entrega_eso(): void
@@ -600,9 +605,11 @@ class EntregaPorProductoTest extends TestCase
         Produccion::query()->update(['estado' => 'listo']);
         $orden->update(['estado' => 'listo_entrega']);
 
-        $cola = $this->actingAs($this->despachadora())->getJson('/api/despacho/cola')->assertOk()->json();
+        $jefa = $this->despachadora();
+        $cola = $this->actingAs($jefa)->getJson('/api/despacho/cola')->assertOk()->json();
         $this->assertCount(1, $cola);
         $this->assertTrue($cola[0]['entrega']['parcial']);
+        $this->actingAs($jefa)->getJson('/api/despacho/cola/conteo')->assertOk()->assertExactJson(['total' => 1]);
         $items = collect($cola[0]['items'])->keyBy('id');
         $this->assertSame(0, $items[$this->reloj($orden)->id]['pendiente_entregar']);
         $this->assertSame(1, $items[$this->mueble($orden)->id]['pendiente_entregar']);

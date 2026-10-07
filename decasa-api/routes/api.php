@@ -623,6 +623,8 @@ Route::middleware('auth:sanctum')->group(function () {
         // supervisor trae de por defecto en el respaldo de la migración.
         Route::middleware('permiso:acceso_despacho')->group(function () {
             Route::get('/cola',          [DespachoController::class, 'cola']);
+            // Solo el número, para el menú (la cola entera se pide al entrar).
+            Route::get('/cola/conteo',   [DespachoController::class, 'conteoCola']);
             Route::get('/asignados',     [DespachoController::class, 'asignados']);
             Route::post('/asignar',      [DespachoController::class, 'asignar']);
             Route::get('/conductores',   [DespachoController::class, 'conductores']);
@@ -685,6 +687,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // Consultas de costo (cotizaciones para productos personalizados)
     Route::get('/consultas-costo/receptores',                    [ConsultaCostoController::class, 'receptores']);
     Route::get('/consultas-costo',                               [ConsultaCostoController::class, 'index']);
+    // Solo el número de pendientes, para el menú.
+    Route::get('/consultas-costo/conteo',                        [ConsultaCostoController::class, 'conteo']);
     Route::post('/consultas-costo',                              [ConsultaCostoController::class, 'store']);
     Route::get('/consultas-costo/{id}',                          [ConsultaCostoController::class, 'show'])->whereNumber('id');
     Route::put('/consultas-costo/{id}/items/{itemId}',           [ConsultaCostoController::class, 'guardarItem'])->whereNumber('id')->whereNumber('itemId');

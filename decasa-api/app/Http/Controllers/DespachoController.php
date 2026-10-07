@@ -43,26 +43,12 @@ class DespachoController extends Controller
      */
     public function cola(Request $request)
     {
-        $ordenes = Orden::with([
+        $ordenes = $this->ordenesDeLaCola([
             'cliente:id,nombre,telefono,direccion',
             'tienda:id,nombre',
             'items.producto:id,nombre,foto_url',
             'items.produccion:id,orden_item_id,estado',
-        ])->withSum('pagos', 'monto')
-            ->whereIn('estado', ['listo_entrega', 'en_produccion', 'pendiente_anticipo'])
-            ->whereDoesntHave('despachoItem', fn($q) =>
-                $q->whereHas('despacho', fn($q2) =>
-                    $q2->whereIn('estado', ['borrador', 'asignado', 'en_ruta'])
-                )
-            )
-            // Lo listo primero, y dentro de eso lo que lleva más tiempo esperando.
-            ->orderByRaw("estado = 'listo_entrega' DESC")
-            ->orderBy('listo_entrega_at')
-            ->orderBy('created_at')
-            ->get()
-            // Del taller solo entra lo que tiene algo listo para hoy.
-            ->filter(fn ($o) => self::cabeEnRuta($o))
-            ->values();
+        ]);
 
         \App\Models\OrdenItem::precargarVariantes($ordenes->pluck('items')->flatten());
 
@@ -75,6 +61,60 @@ class DespachoController extends Controller
         });
 
         return response()->json($ordenes);
+    }
+
+    /**
+     * GET /api/despacho/cola/conteo
+     *
+     * Cuántas órdenes hay en la cola, y nada más. Es el número del menú: antes
+     * se sacaba descargando la cola ENTERA —órdenes, clientes, productos— cada
+     * vez que un supervisor abría la app, aunque nunca entrara a Despacho.
+     * Cuenta con el mismo filtro que la cola, así que no puede decir otro número.
+     */
+    public function conteoCola()
+    {
+        // Lo listo entra siempre (ver cabeEnRuta): se cuenta en la base, sin
+        // traer nada. Solo lo que sigue en el taller necesita mirar sus ítems.
+        $listas = $this->candidatasDeLaCola()->where('estado', 'listo_entrega')->count();
+
+        $delTaller = $this->candidatasDeLaCola()
+            ->whereIn('estado', ['en_produccion', 'pendiente_anticipo'])
+            ->with('items.produccion:id,orden_item_id,estado')
+            ->get()
+            ->filter(fn ($o) => self::cabeEnRuta($o))
+            ->count();
+
+        return response()->json(['total' => $listas + $delTaller]);
+    }
+
+    /**
+     * Las órdenes que están esperando camión, en el orden en que se atienden.
+     * La misma consulta para la lista y para el conteo: si cada uno tuviera la
+     * suya, tarde o temprano el número del menú no cuadraría con la lista.
+     */
+    private function ordenesDeLaCola(array $relaciones)
+    {
+        return $this->candidatasDeLaCola()->with($relaciones)->withSum('pagos', 'monto')
+            // Lo listo primero, y dentro de eso lo que lleva más tiempo esperando.
+            ->orderByRaw("estado = 'listo_entrega' DESC")
+            ->orderBy('listo_entrega_at')
+            ->orderBy('created_at')
+            ->get()
+            // Del taller solo entra lo que tiene algo listo para hoy.
+            ->filter(fn ($o) => self::cabeEnRuta($o))
+            ->values();
+    }
+
+    /** Las que podrían ir en un camión: vivas y sin un despacho en curso. */
+    private function candidatasDeLaCola()
+    {
+        return Orden::query()
+            ->whereIn('estado', ['listo_entrega', 'en_produccion', 'pendiente_anticipo'])
+            ->whereDoesntHave('despachoItem', fn($q) =>
+                $q->whereHas('despacho', fn($q2) =>
+                    $q2->whereIn('estado', ['borrador', 'asignado', 'en_ruta'])
+                )
+            );
     }
 
     /** Deja en cada producto cuánto falta por entregar y si ya se puede. */

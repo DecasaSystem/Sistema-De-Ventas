@@ -1,7 +1,8 @@
 # Plan de rendimiento — "el programa es lento para cargar"
 
-**Estado:** diagnóstico hecho y Fase 1 implementada y probada en local (2026-10-07),
-**sin subir**. Fase 2 la revisa el usuario en los paneles. Fases 3–5 esperan visto bueno.
+**Estado (2026-10-07):** Fase 1 **en producción y medida** ✅. Decisión del usuario:
+terminar las fases 3–5 primero y después mudar la base de región (Aiven NYC →
+DigitalOcean San Francisco, `do-sfo`).
 **Regla de oro:** cada fase se **mide antes y después** con los mismos comandos.
 Si un número no mejora, el cambio no se queda. Nada cambia reglas de negocio.
 
@@ -175,6 +176,24 @@ Aiven. Se mide antes de dejarlo.
 **Aceptación:** número de peticiones y bytes al abrir la app (medido en el
 navegador) baja a la mitad o menos; los contadores muestran lo mismo que antes.
 
+**Hecho (2026-10-07, local, sin subir):**
+- 3.1 ✅ `GET /despacho/cola/conteo` + store `despacho.cargarConteo()`; `App.vue`
+  lo pide solo si `isSupervisor && puedeDespacho`. Las `listo_entrega` se
+  cuentan en SQL; solo las del taller revisan ítems (`cabeEnRuta`). Local:
+  **7,7 MB → 14 bytes**. Tests de la cola verifican `total == len(cola)`.
+- 3.2 ✅ `GET /consultas-costo/conteo` (mismo alcance por rol que la lista,
+  extraído a `soloLasQueLeTocan`); el store `consultas` ya no baja todas las
+  consultas con ítems y desgloses. Test `ConteoConsultasCostoTest`.
+- 3.3 ✅ Catálogo de telas a demanda (`asegurarCatalogoDB()`): lo piden los
+  accesos `marcasOrdenadas` / `tiposTelaDeM` / `coloresDeTela`, y Telas y
+  Surtir al montarse. Ya no viaja en cada apertura.
+- Push: la llave VAPID se recuerda en el aparato (un viaje menos). La
+  suscripción **se sigue mandando en cada apertura a propósito** (que los
+  avisos lleguen pesa más; no se pudo verificar en qué casos el servidor
+  borra suscripciones).
+- 3.4 (`/arranque` único): **pospuesto**. Con 3.1–3.3 el arranque ya no
+  descarga listas; se reevalúa con el log `[lenta]` de producción.
+
 ### FASE 4 — Respuestas pesadas (API, riesgo medio, una pantalla a la vez)
 
 Para cada endpoint: elegir solo las columnas que la pantalla pinta, mover filtros
@@ -230,7 +249,9 @@ curl -sI https://decasa-api-b91v.onrender.com/api/push/vapid-key | grep -i serve
 |---|---|---|
 | 2026-10-07 | Diagnóstico | vapid-key 2,1 s; login 3,2 s; /api/c 6 s; 8 consultas de limitador por petición |
 | 2026-10-07 | Fase 1 implementada (local, **sin subir**) | Arnés con `CACHE_STORE=database`: vapid-key 8 → **0** consultas; `/tiendas` 12 → 4 (1ª) / 3 (siguientes, sin `UPDATE`); `/ordenes` 16 → 10. Proyectado a 200 ms/consulta: vapid-key 1,65 s → 0,05 s, `/ordenes` 3,3 s → 2,1 s. Test `CostoFijoDeCadaPeticionTest` 4/4 (rojo con el código viejo). Suite: 713 tests, solo los 10 fallos preexistentes. |
-| _pendiente_ | Fase 1 en producción | Medir tras "súbelo": `vapid-key` < 0,6 s y leer `Server-Timing` |
+| 2026-10-07 | **Fase 1 en producción** ✅ | `vapid-key` 2,1 → **0,39 s** (0 consultas, 6 ms en el servidor); por Vercel 2,8 → **0,56 s**; login 3,2 → **0,33 s**; `/api/c` 6 → **3,4 s**. Assets con caché de 1 año; asset inexistente → 404. |
+| 2026-10-07 | Fase 3 implementada (local, **sin subir**) | Arranque del supervisor: cola de despacho 7,7 MB → conteo de 14 bytes; consultas: lista completa → conteo; telas: 38 KB menos en cada apertura; VAPID desde el aparato. Suite: 715 tests, solo los 10 fallos preexistentes; build OK. |
+| 2026-10-07 | Dato para la fase 2 | `/api/c`: `Server-Timing: app;dur=3037, db;dur=3019;desc="17 consultas"` → **~178 ms por consulta**, el 99 % del tiempo es la base lejos. También candidato a fase 4 (17 consultas para la portada de catálogos). |
 
 **Archivos de la fase 1:** `config/cache.php` (`limiter`), `phpunit.xml`,
 `app/Models/PersonalAccessToken.php`, `app/Providers/AppServiceProvider.php`,

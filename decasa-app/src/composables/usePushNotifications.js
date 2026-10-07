@@ -2,13 +2,42 @@ import api from '@/api'
 
 let registrado = false
 
+/*
+ * La llave pública del servidor no cambia: se recuerda en el aparato en vez
+ * de pedirla en cada apertura (un viaje menos al servidor).
+ */
+const KEY_LLAVE = 'pushVapidKey'
+
+function leer(clave) {
+  try { return JSON.parse(localStorage.getItem(clave) ?? 'null') } catch { return null }
+}
+function guardar(clave, valor) {
+  try { localStorage.setItem(clave, JSON.stringify(valor)) } catch { /* sin almacenamiento: se pide siempre */ }
+}
+
+async function llaveVapid(refrescar = false) {
+  if (!refrescar) {
+    const guardada = leer(KEY_LLAVE)
+    if (guardada) return guardada
+  }
+  const { data } = await api.get('/push/vapid-key', { silencioso: true })
+  if (data?.key) guardar(KEY_LLAVE, data.key)
+  return data?.key ?? null
+}
+
+async function suscribir(registro, llave) {
+  return registro.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: urlBase64ToUint8Array(llave),
+  })
+}
+
 export async function registrarPush() {
   if (registrado) return
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) return
 
   try {
-    const { data } = await api.get('/push/vapid-key')
-    const vapidPublicKey = data.key
+    let vapidPublicKey = await llaveVapid()
     if (!vapidPublicKey) return
 
     const registro = await navigator.serviceWorker.ready
@@ -17,18 +46,26 @@ export async function registrarPush() {
     const permiso = await Notification.requestPermission()
     if (permiso !== 'granted') return
 
-    // Suscribir al push
-    const suscripcion = await registro.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
-    })
+    // Suscribir al push. Si falla con la llave recordada, puede que el
+    // servidor la haya cambiado: se pide de nuevo y se intenta otra vez.
+    let suscripcion
+    try {
+      suscripcion = await suscribir(registro, vapidPublicKey)
+    } catch {
+      vapidPublicKey = await llaveVapid(true)
+      if (!vapidPublicKey) return
+      suscripcion = await suscribir(registro, vapidPublicKey)
+    }
 
+    // Se manda en cada apertura a propósito: si en el servidor se borró (o es
+    // otra persona en este aparato), así vuelve a quedar. Que los avisos
+    // lleguen al celular pesa más que ahorrarse esta petición.
     const json = suscripcion.toJSON()
     await api.post('/push/subscribe', {
       endpoint:   json.endpoint,
       p256dh:     json.keys.p256dh,
       auth_token: json.keys.auth,
-    })
+    }, { silencioso: true })
 
     registrado = true
   } catch (e) {

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { colaDespacho, asignados, misEntregas } from '@/api/despacho'
+import { colaDespacho, conteoColaDespacho, asignados, misEntregas } from '@/api/despacho'
 
 export const useDespachoStore = defineStore('despacho', () => {
   const cola              = ref([])
@@ -8,7 +8,14 @@ export const useDespachoStore = defineStore('despacho', () => {
   const pendientes        = ref(0)
   const misEntregasArr    = ref([])
 
-  const ordenesPendientes       = computed(() => cola.value.length)
+  // El número del menú. Mientras no se haya entrado a Despacho sale de un
+  // conteo liviano; una vez cargada la cola, de la cola misma, que es la que
+  // se mantiene al día con los cambios.
+  const conteoCola              = ref(0)
+  const colaCargada             = ref(false)
+  const ordenesPendientes       = computed(() =>
+    colaCargada.value ? cola.value.length : conteoCola.value
+  )
   const misEntregasPendientes   = computed(() =>
     misEntregasArr.value.filter(e => e.estado !== 'entregado').length
   )
@@ -17,6 +24,15 @@ export const useDespachoStore = defineStore('despacho', () => {
     try {
       const { data } = await colaDespacho()
       cola.value = data
+      colaCargada.value = true
+    } catch {}
+  }
+
+  /** Solo cuántas hay en la cola: para el menú, sin bajar la cola entera. */
+  async function cargarConteo() {
+    try {
+      const { data } = await conteoColaDespacho()
+      conteoCola.value = Number(data?.total) || 0
     } catch {}
   }
 
@@ -61,6 +77,7 @@ export const useDespachoStore = defineStore('despacho', () => {
     ordenesPendientes,
     misEntregasPendientes,
     cargarCola,
+    cargarConteo,
     cargarAsignados,
     cargarMisEntregas,
     refrescar,

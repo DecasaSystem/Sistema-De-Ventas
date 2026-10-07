@@ -3,6 +3,10 @@ import api from './index'
 export const getReceptores = () =>
   api.get('/consultas-costo/receptores')
 
+// Solo cuántas esperan respuesta: es el número del menú.
+export const getConteoConsultas = () =>
+  api.get('/consultas-costo/conteo', { silencioso: true })
+
 export const getConsultas = () =>
   api.get('/consultas-costo')
 

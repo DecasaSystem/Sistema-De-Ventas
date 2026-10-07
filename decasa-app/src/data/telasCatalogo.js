@@ -1,4 +1,5 @@
 import { reactive, computed } from 'vue'
+import api from '@/api'
 
 const _static = {
   'Visual': {
@@ -77,21 +78,50 @@ function _mergeDB(data) {
   }
 }
 
-// Called once from App.vue after the user authenticates
-export async function cargarCatalogoDB(api) {
+/**
+ * Las telas de la base se piden la PRIMERA vez que una pantalla las usa, no al
+ * abrir la app. Antes llegaban en cada apertura (unos 38 KB) a todo el mundo,
+ * aunque solo las usan órdenes, inventario, surtir, reserva, producción y
+ * telas. Los tres accesos de abajo las piden solos, así que una pantalla nueva
+ * que los use no tiene que acordarse de nada; la que lea TELAS_CATALOGO
+ * directo llama a `asegurarCatalogoDB()` al montarse.
+ */
+let _cargado  = false
+let _cargando = null
+
+export function asegurarCatalogoDB() {
+  if (_cargado) return Promise.resolve()
+  if (!_cargando) {
+    _cargando = api.get('/catalogo-telas', { silencioso: true })
+      .then(({ data }) => { _mergeDB(data); _cargado = true })
+      .catch(() => {})
+      // Si falló, se puede volver a intentar, pero no en cada repintada.
+      .finally(() => { setTimeout(() => { _cargando = null }, _cargado ? 0 : 30_000) })
+  }
+  return _cargando
+}
+
+// Vuelve a pedirlas aunque ya estén: después de agregar una tela nueva.
+export async function cargarCatalogoDB(apiCliente = api) {
   try {
-    const { data } = await api.get('/catalogo-telas')
+    const { data } = await apiCliente.get('/catalogo-telas')
     _mergeDB(data)
+    _cargado = true
   } catch {}
 }
 
 // computed ref — auto-unwrapped in templates (script setup)
-export const marcasOrdenadas = computed(() => Object.keys(TELAS_CATALOGO).sort())
+export const marcasOrdenadas = computed(() => {
+  asegurarCatalogoDB()
+  return Object.keys(TELAS_CATALOGO).sort()
+})
 
 export function tiposTelaDeM(marca) {
+  asegurarCatalogoDB()
   return Object.keys(TELAS_CATALOGO[marca] ?? {}).sort()
 }
 
 export function coloresDeTela(marca, tela) {
+  asegurarCatalogoDB()
   return TELAS_CATALOGO[marca]?.[tela] ?? []
 }

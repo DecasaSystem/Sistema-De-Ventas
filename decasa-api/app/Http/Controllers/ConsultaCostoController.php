@@ -59,19 +59,7 @@ class ConsultaCostoController extends Controller
             'items.desglose',
         ]);
 
-        if ($usuario->rol === 'vendedor') {
-            $query->where('solicitado_por_id', $usuario->id);
-        } elseif ($usuario->rol === 'supervisor') {
-            // Con ?monitoreo=1 el supervisor ve TODAS las consultas del sistema
-            if (! $request->boolean('monitoreo')) {
-                $query->where(function ($q) use ($usuario) {
-                    $q->where('asignado_a_id', $usuario->id)
-                      ->orWhere('solicitado_por_id', $usuario->id);
-                });
-            }
-        } elseif ($usuario->acceso_costos) {
-            $query->where('asignado_a_id', $usuario->id);
-        } else {
+        if (! $this->soloLasQueLeTocan($query, $usuario, $request->boolean('monitoreo'))) {
             return response()->json([]);
         }
 
@@ -80,6 +68,51 @@ class ConsultaCostoController extends Controller
             ->get();
 
         return response()->json($consultas);
+    }
+
+    /**
+     * GET /api/consultas-costo/conteo
+     *
+     * Cuántas le esperan respuesta, para el número del menú. Antes ese número
+     * salía de descargar TODAS las consultas —con sus ítems y desgloses, sin
+     * límite, y crecen para siempre— cada vez que alguien abría la app.
+     * Mismo alcance que la lista (sin `monitoreo`, que es la vista completa
+     * del supervisor y no la suya).
+     */
+    public function conteo(Request $request)
+    {
+        $query = ConsultaCosto::query();
+
+        if (! $this->soloLasQueLeTocan($query, $request->user(), false)) {
+            return response()->json(['pendientes' => 0]);
+        }
+
+        return response()->json(['pendientes' => $query->where('estado', 'pendiente')->count()]);
+    }
+
+    /**
+     * Deja en la consulta solo lo que esta persona puede ver. Devuelve false si
+     * no puede ver ninguna (y entonces no hay nada que buscar).
+     */
+    private function soloLasQueLeTocan($query, $usuario, bool $monitoreo): bool
+    {
+        if ($usuario->rol === 'vendedor') {
+            $query->where('solicitado_por_id', $usuario->id);
+        } elseif ($usuario->rol === 'supervisor') {
+            // Con ?monitoreo=1 el supervisor ve TODAS las consultas del sistema
+            if (! $monitoreo) {
+                $query->where(function ($q) use ($usuario) {
+                    $q->where('asignado_a_id', $usuario->id)
+                      ->orWhere('solicitado_por_id', $usuario->id);
+                });
+            }
+        } elseif ($usuario->acceso_costos) {
+            $query->where('asignado_a_id', $usuario->id);
+        } else {
+            return false;
+        }
+
+        return true;
     }
 
     /**

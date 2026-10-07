@@ -1,6 +1,8 @@
 import api from './index'
 
 export const colaDespacho            = ()       => api.get('/despacho/cola')
+// Solo el número de la cola, para el menú.
+export const conteoColaDespacho     = ()       => api.get('/despacho/cola/conteo', { silencioso: true })
 export const asignados               = (params) => api.get('/despacho/asignados', { params })
 export const asignar                 = (data)   => api.post('/despacho/asignar', data)
 export const conductores             = ()       => api.get('/despacho/conductores')
