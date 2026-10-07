@@ -2,6 +2,7 @@
 
 use App\Http\Middleware\CheckPermiso;
 use App\Http\Middleware\CheckRole;
+use App\Http\Middleware\MedirPeticion;
 use App\Http\Middleware\SecurityHeaders;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -23,6 +24,10 @@ return Application::configure(basePath: dirname(__DIR__))
         // rutas de casi trescientas tenían límite. El cupo se define en
         // AppServiceProvider (limitador 'api').
         $middleware->throttleApi();
+
+        // Por fuera de todo lo de la API (límite, sesión, controlador), para
+        // que lo que mide sea la petición entera. Ver MedirPeticion.
+        $middleware->prependToGroup('api', MedirPeticion::class);
         $middleware->alias([
             'role'    => CheckRole::class,
             'permiso' => CheckPermiso::class,

@@ -46,7 +46,17 @@ relanzar() {
 relanzar queue runuser -u www-data -- php artisan queue:work --tries=3 --timeout=60 --sleep=3
 relanzar reverb php artisan reverb:start --host=0.0.0.0 --port=8080 --no-interaction
 
-(while true; do runuser -u www-data -- php artisan schedule:run --no-interaction 2>/dev/null; sleep 60; done) &
+# Las tareas programadas (comisiones 6:30, respaldo 3:00, avisos…) corren en
+# UN solo servidor. Mientras convivan dos —al mudar el servicio de región, ver
+# docs/plan-rendimiento.md— el que no manda se arranca con
+# PROGRAMADOR_ACTIVO=0; si no, cada tarea correría dos veces (avisos dobles,
+# dos respaldos). `withoutOverlapping` no lo evita: su candado está en la caché
+# de archivos de cada contenedor.
+if [ "${PROGRAMADOR_ACTIVO:-1}" = "1" ]; then
+    (while true; do runuser -u www-data -- php artisan schedule:run --no-interaction 2>/dev/null; sleep 60; done) &
+else
+    echo "[decasa] PROGRAMADOR_ACTIVO=0: las tareas programadas no corren en este servidor" >&2
+fi
 
 # Apache no abre hasta que Reverb esté escuchando.
 #

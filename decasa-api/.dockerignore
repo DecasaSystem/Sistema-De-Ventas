@@ -13,3 +13,5 @@ tests/
 Dockerfile
 .dockerignore
 *.md
+scripts/perf/
+storage/perf/

@@ -2,11 +2,13 @@
 
 namespace App\Providers;
 
+use App\Models\PersonalAccessToken;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
+use Laravel\Sanctum\Sanctum;
 use Symfony\Component\Mailer\Bridge\Brevo\Transport\BrevoTransportFactory;
 use Symfony\Component\Mailer\Transport\Dsn;
 
@@ -16,6 +18,9 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        // Sin el UPDATE de last_used_at en cada petición (ver el modelo).
+        Sanctum::usePersonalAccessTokenModel(PersonalAccessToken::class);
+
         Mail::extend('brevo', function (array $config) {
             $factory = new BrevoTransportFactory();
             return $factory->create(

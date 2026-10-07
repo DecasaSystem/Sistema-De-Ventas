@@ -18,6 +18,21 @@ return [
     'default' => env('CACHE_STORE', 'database'),
 
     /*
+    | El contador del límite de peticiones va SIEMPRE en archivos, sin
+    | importar CACHE_STORE.
+    |
+    | Se lee y se escribe en CADA llamada a la API. Producción terminó con el
+    | contador en la base (Aiven) —el panel de Render no tomó el CACHE_STORE
+    | de render.yaml— y eso eran 8 consultas antes de hacer nada: ~1,7 s en
+    | cada petición, medido (ver docs/plan-rendimiento.md). Fijarlo aquí deja
+    | de depender de lo que diga el panel.
+    |
+    | Vale mientras haya un solo contenedor: con dos, cada uno contaría por su
+    | lado y habría que pasarlo a Redis.
+    */
+    'limiter' => env('CACHE_LIMITER_STORE', 'file'),
+
+    /*
     |--------------------------------------------------------------------------
     | Cache Stores
     |--------------------------------------------------------------------------
