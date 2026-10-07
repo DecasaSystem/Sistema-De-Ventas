@@ -67,6 +67,43 @@ class TipoVarianteEliminadoTest extends TestCase
             ->assertCreated()->assertJsonCount(1, 'opciones');
     }
 
+    public function test_se_renombra_un_tipo(): void
+    {
+        $jefa = $this->supervisor();
+        $id   = $this->actingAs($jefa)->postJson('/api/tipos-variante', ['nombre' => 'alerones', 'afecta_precio' => true])->json('id');
+        $otro = $this->actingAs($jefa)->postJson('/api/tipos-variante', ['nombre' => 'color', 'afecta_precio' => false])->json('id');
+
+        $this->actingAs($jefa)->patchJson("/api/tipos-variante/{$id}", ['nombre' => ' Alas '])
+            ->assertOk()->assertJsonFragment(['id' => $id, 'nombre' => 'Alas']);
+
+        // Con el de otro que está en uso, no.
+        $this->actingAs($jefa)->patchJson("/api/tipos-variante/{$id}", ['nombre' => 'color'])
+            ->assertStatus(422)->assertJsonFragment(['nombre' => ['Ya hay un tipo de variante con ese nombre.']]);
+
+        // Con el de uno eliminado, sí: el eliminado deja libre el nombre.
+        $this->actingAs($jefa)->deleteJson("/api/tipos-variante/{$otro}")->assertOk();
+        $this->actingAs($jefa)->patchJson("/api/tipos-variante/{$id}", ['nombre' => 'color'])->assertOk();
+        $this->assertSame("color (eliminado #{$otro})", DB::table('tipos_variante')->where('id', $otro)->value('nombre'));
+    }
+
+    public function test_se_renombra_una_opcion(): void
+    {
+        $jefa = $this->supervisor();
+        $id   = $this->actingAs($jefa)->postJson('/api/tipos-variante', ['nombre' => 'tamaño', 'afecta_precio' => true])->json('id');
+        $ops  = collect($this->actingAs($jefa)->postJson("/api/tipos-variante/{$id}/opciones", ['opciones' => ['2 pustos', '3 puestos', '4 puestos']])
+            ->json('opciones'))->pluck('id', 'nombre');
+
+        $this->actingAs($jefa)->patchJson("/api/tipos-variante/opciones/{$ops['2 pustos']}", ['nombre' => '2 puestos'])
+            ->assertOk()->assertJsonFragment(['id' => $ops['2 pustos'], 'nombre' => '2 puestos']);
+
+        $this->actingAs($jefa)->patchJson("/api/tipos-variante/opciones/{$ops['2 pustos']}", ['nombre' => '3 puestos'])
+            ->assertStatus(422)->assertJsonFragment(['nombre' => ['Este tipo ya tiene una opción con ese nombre.']]);
+
+        // La de un eliminado se libera.
+        $this->actingAs($jefa)->deleteJson("/api/tipos-variante/opciones/{$ops['4 puestos']}")->assertOk();
+        $this->actingAs($jefa)->patchJson("/api/tipos-variante/opciones/{$ops['3 puestos']}", ['nombre' => '4 puestos'])->assertOk();
+    }
+
     public function test_uno_en_uso_sigue_sin_poder_repetirse(): void
     {
         $jefa = $this->supervisor();

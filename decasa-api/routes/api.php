@@ -510,7 +510,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/tipos-variante', [TipoVarianteController::class, 'index']);
     Route::middleware('role:supervisor')->group(function () {
         Route::post('/tipos-variante',                          [TipoVarianteController::class, 'store']);
+        Route::patch('/tipos-variante/{id}',                    [TipoVarianteController::class, 'update'])->whereNumber('id');
         Route::delete('/tipos-variante/{id}',                   [TipoVarianteController::class, 'destroy'])->whereNumber('id');
+        Route::patch('/tipos-variante/opciones/{id}',           [TipoVarianteController::class, 'updateOpcion'])->whereNumber('id');
         Route::post('/tipos-variante/{id}/opciones',            [TipoVarianteController::class, 'storeOpciones'])->whereNumber('id');
         Route::delete('/tipos-variante/opciones/{id}',          [TipoVarianteController::class, 'destroyOpcion'])->whereNumber('id');
     });

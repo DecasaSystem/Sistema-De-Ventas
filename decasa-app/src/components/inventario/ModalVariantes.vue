@@ -1,7 +1,7 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, nextTick } from 'vue'
 import {
-  XMarkIcon, PlusIcon, TrashIcon,
+  XMarkIcon, PlusIcon, TrashIcon, PencilIcon, CheckIcon,
   ChevronDownIcon, ChevronRightIcon, MagnifyingGlassIcon,
 } from '@heroicons/vue/24/outline'
 import api from '@/api'
@@ -144,6 +144,46 @@ async function guardarOpciones(tipo) {
   }
 }
 
+// ── Renombrar tipo u opción ───────────────────────────────────────────────────
+// Una sola edición a la vez: { clase: 'tipo' | 'opcion', id, nombre }
+const edicion        = ref(null)
+const guardandoEdic  = ref(false)
+const edicionInput   = ref(null)
+// El campo vive dentro de un v-for: con ref de función queda uno solo, no una lista.
+const fijarEdicionInput = el => { if (el) edicionInput.value = el }
+
+function editar(clase, item) {
+  edicion.value = { clase, id: item.id, nombre: item.nombre, original: item.nombre }
+  nextTick(() => { edicionInput.value?.focus(); edicionInput.value?.select() })
+}
+
+function editando(clase, id) {
+  return edicion.value?.clase === clase && edicion.value.id === id
+}
+
+async function guardarEdicion() {
+  const e = edicion.value
+  if (!e || guardandoEdic.value) return
+  const nombre = e.nombre.trim()
+  if (!nombre || nombre === e.original) { edicion.value = null; return }
+
+  guardandoEdic.value = true
+  try {
+    const url = e.clase === 'tipo' ? `/tipos-variante/${e.id}` : `/tipos-variante/opciones/${e.id}`
+    const { data } = await api.patch(url, { nombre })
+    // Las dos rutas devuelven el tipo completo con sus opciones.
+    const idx = tipos.value.findIndex(t => t.id === data.id)
+    if (idx !== -1) tipos.value[idx] = data
+    if (e.clase === 'tipo') tipos.value.sort((a, b) => a.nombre.localeCompare(b.nombre))
+    edicion.value = null
+    toast.success('Nombre actualizado')
+  } catch (err) {
+    toast.error(err.response?.data?.errors?.nombre?.[0] ?? err.response?.data?.message ?? 'No se pudo renombrar')
+  } finally {
+    guardandoEdic.value = false
+  }
+}
+
 async function eliminarOpcion(tipo, opcion) {
   try {
     await api.delete(`/tipos-variante/opciones/${opcion.id}`)
@@ -244,17 +284,38 @@ async function eliminarOpcion(tipo, opcion) {
               <div v-for="tipo in tiposFiltrados" :key="tipo.id" class="border border-gray-200 rounded-xl overflow-hidden">
 
                 <!-- Cabecera del tipo -->
-                <div class="flex items-center gap-2 px-4 py-2.5 bg-gray-50">
-                  <button @click="tipoAbierto = tipoAbierto === tipo.id ? null : tipo.id" class="flex-1 flex items-center gap-2 text-left">
+                <!-- Renombrando el tipo -->
+                <form v-if="editando('tipo', tipo.id)" @submit.prevent="guardarEdicion" class="flex items-center gap-2 px-3 py-2 bg-gray-50">
+                  <input
+                    :ref="fijarEdicionInput"
+                    v-model="edicion.nombre"
+                    maxlength="100"
+                    @keydown.esc="edicion = null"
+                    class="flex-1 min-w-0 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                  <button type="submit" :disabled="guardandoEdic || !edicion.nombre.trim()" title="Guardar"
+                    class="p-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">
+                    <CheckIcon class="w-4 h-4" />
+                  </button>
+                  <button type="button" @click="edicion = null" title="Cancelar" class="p-1.5 text-gray-400 hover:text-gray-600">
+                    <XMarkIcon class="w-4 h-4" />
+                  </button>
+                </form>
+
+                <div v-else class="flex items-center gap-1 pl-3 pr-2 py-2.5 bg-gray-50">
+                  <button @click="tipoAbierto = tipoAbierto === tipo.id ? null : tipo.id" class="flex-1 min-w-0 flex items-center gap-2 text-left">
                     <component :is="estaAbierto(tipo) ? ChevronDownIcon : ChevronRightIcon" class="w-4 h-4 text-gray-400 shrink-0" />
-                    <span class="text-sm font-semibold text-gray-800">{{ tipo.nombre }}</span>
-                    <span :class="['text-xs px-2 py-0.5 rounded-full font-medium',
+                    <span class="text-sm font-semibold text-gray-800 truncate">{{ tipo.nombre }}</span>
+                    <span :class="['text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap flex-shrink-0',
                       tipo.afecta_precio ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500']">
                       {{ tipo.afecta_precio ? 'Afecta precio' : 'Solo diferencia' }}
                     </span>
-                    <span class="text-xs text-gray-400 ml-auto mr-2">{{ tipo.opciones.length }} opciones</span>
+                    <span class="text-xs text-gray-400 ml-auto whitespace-nowrap flex-shrink-0">{{ tipo.opciones.length }} opc.</span>
                   </button>
-                  <button @click="eliminarTipo(tipo.id, tipo.nombre)" class="text-gray-300 hover:text-red-500 transition-colors p-1">
+                  <button @click="editar('tipo', tipo)" class="text-gray-400 hover:text-blue-600 transition-colors p-1" title="Cambiar nombre">
+                    <PencilIcon class="w-4 h-4" />
+                  </button>
+                  <button @click="eliminarTipo(tipo.id, tipo.nombre)" class="text-gray-300 hover:text-red-500 transition-colors p-1" title="Eliminar tipo">
                     <TrashIcon class="w-4 h-4" />
                   </button>
                 </div>
@@ -264,16 +325,38 @@ async function eliminarOpcion(tipo, opcion) {
 
                   <!-- Opciones existentes -->
                   <div v-if="opcionesFiltradas(tipo).length" class="flex flex-wrap gap-1.5">
-                    <span
-                      v-for="op in opcionesFiltradas(tipo)"
-                      :key="op.id"
-                      class="flex items-center gap-1 text-xs bg-white border border-gray-200 rounded-full px-2.5 py-1"
-                    >
-                      {{ op.nombre }}
-                      <button @click="eliminarOpcion(tipo, op)" class="text-gray-300 hover:text-red-500 transition-colors">
-                        <TrashIcon class="w-3 h-3" />
-                      </button>
-                    </span>
+                    <template v-for="op in opcionesFiltradas(tipo)" :key="op.id">
+                      <!-- Renombrando la opción -->
+                      <form
+                        v-if="editando('opcion', op.id)"
+                        @submit.prevent="guardarEdicion"
+                        class="flex items-center gap-1 border border-blue-400 rounded-full pl-2.5 pr-1 py-0.5 bg-white"
+                      >
+                        <input
+                          :ref="fijarEdicionInput"
+                          v-model="edicion.nombre"
+                          maxlength="100"
+                          @keydown.esc="edicion = null"
+                          class="w-32 text-xs outline-none bg-transparent py-0.5"
+                        />
+                        <button type="submit" :disabled="guardandoEdic || !edicion.nombre.trim()" title="Guardar"
+                          class="p-0.5 rounded-full text-blue-600 hover:bg-blue-50 disabled:opacity-50">
+                          <CheckIcon class="w-3.5 h-3.5" />
+                        </button>
+                        <button type="button" @click="edicion = null" title="Cancelar" class="p-0.5 text-gray-400 hover:text-gray-600">
+                          <XMarkIcon class="w-3.5 h-3.5" />
+                        </button>
+                      </form>
+                      <span v-else class="flex items-center gap-1 text-xs bg-white border border-gray-200 rounded-full pl-2.5 pr-1.5 py-1">
+                        <button @click="editar('opcion', op)" class="flex items-center gap-1 hover:text-blue-600" title="Cambiar nombre">
+                          {{ op.nombre }}
+                          <PencilIcon class="w-3 h-3 text-gray-300" />
+                        </button>
+                        <button @click="eliminarOpcion(tipo, op)" class="text-gray-300 hover:text-red-500 transition-colors" title="Eliminar opción">
+                          <TrashIcon class="w-3 h-3" />
+                        </button>
+                      </span>
+                    </template>
                   </div>
                   <p v-else-if="busqueda.trim()" class="text-xs text-gray-400">Sin opciones que coincidan con la búsqueda.</p>
                   <p v-else class="text-xs text-gray-400">Sin opciones aún.</p>

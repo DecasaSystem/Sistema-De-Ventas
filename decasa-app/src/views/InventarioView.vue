@@ -9,8 +9,8 @@ import {
   ExclamationTriangleIcon,
   PlusIcon,
   PencilIcon,
-
-  
+  TrashIcon,
+  CheckIcon,
   ArchiveBoxIcon,
   PhotoIcon,
   XMarkIcon,
@@ -204,6 +204,84 @@ const vcPendingOpciones = ref([])
 const vcPrecios         = ref({})
 const vcGuardando       = ref({})
 const vcOpcionesAgregadas = ref({}) // { tipoId: [{ opcion_id, opcion_nombre }] }
+const vcBusqueda          = ref('')
+
+function vcNormalizar(txt) {
+  return (txt ?? '').toString().normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+}
+
+// Coincide si lo buscado está en el nombre de la opción o del tipo.
+function vcCoincide(nombre, grupoNombre = '') {
+  const q = vcNormalizar(vcBusqueda.value.trim())
+  return !q || vcNormalizar(nombre).includes(q) || vcNormalizar(grupoNombre).includes(q)
+}
+
+// El buscador solo aparece cuando la lista ya es larga.
+const vcTotalOpciones = computed(() =>
+  vcTiposAsignados.value.reduce((s, g) => s + g.items.length, 0))
+
+const vcGruposVisibles = computed(() => vcTiposAsignados.value.filter(g =>
+  vcCoincide(g.tipo.nombre) ||
+  g.items.some(i => vcCoincide(i.opcion_nombre)) ||
+  (vcOpcionesAgregadas.value[g.tipo_variante_id] ?? []).some(o => vcCoincide(o.opcion_nombre)) ||
+  vcOpcFaltantesGrupo(g).some(o => vcCoincide(o.nombre))))
+
+// Hay algo sin guardar en el grupo: un precio distinto o una opción nueva.
+function vcGrupoCambiado(grupo) {
+  const tipoId = grupo.tipo_variante_id
+  if ((vcOpcionesAgregadas.value[tipoId] ?? []).length) return true
+  const precios = vcPrecios.value[tipoId] ?? {}
+  return grupo.items.some(i => Number(precios[i.opcion_id] ?? 0) !== Number(i.precio_adicional ?? 0))
+}
+
+function vcSetPrecio(tipoId, opcionId, valor) {
+  vcPrecios.value[tipoId] = { ...vcPrecios.value[tipoId], [opcionId]: Number(valor) || 0 }
+}
+
+function vcPrecioFinal(tipoId, opcionId) {
+  const base = Number(itemGestionar.value?.producto?.precio_base ?? 0)
+  return base + Number(vcPrecios.value[tipoId]?.[opcionId] ?? 0)
+}
+
+// ── Renombrar una opción desde gestionar ─────────────────────────────────────
+// La opción es del catálogo de variantes, no del producto: el nombre nuevo
+// sale en todos los productos que la usan. Las órdenes ya hechas no cambian.
+const vcEdicion        = ref(null)   // { opcionId, nombre, original }
+const vcEdicionLoading = ref(false)
+const vcEdicionInput   = ref(null)
+const fijarVcEdicionInput = el => { if (el) vcEdicionInput.value = el }
+
+function vcEditarOpcion(item) {
+  vcEdicion.value = { opcionId: item.opcion_id, nombre: item.opcion_nombre, original: item.opcion_nombre }
+  nextTick(() => { vcEdicionInput.value?.focus(); vcEdicionInput.value?.select() })
+}
+
+async function vcGuardarNombreOpcion() {
+  const e = vcEdicion.value
+  if (!e || vcEdicionLoading.value) return
+  const nombre = e.nombre.trim()
+  if (!nombre || nombre === e.original) { vcEdicion.value = null; return }
+
+  vcEdicionLoading.value = true
+  try {
+    await api.patch(`/tipos-variante/opciones/${e.opcionId}`, { nombre })
+    // Las tarjetas de otros productos ya cargadas también la muestran.
+    for (const grupos of Object.values(vcConfigsCard.value)) {
+      for (const g of grupos ?? []) {
+        for (const it of g.items ?? []) if (it.opcion_id === e.opcionId) it.opcion_nombre = nombre
+      }
+    }
+    vcEdicion.value = null
+    toast.success('Nombre actualizado.')
+    await cargarVarConfigs()
+  } catch (err) {
+    toast.error(err.response?.data?.errors?.nombre?.[0] ?? err.response?.data?.message ?? 'No se pudo renombrar.')
+  } finally {
+    vcEdicionLoading.value = false
+  }
+}
+
+const vcTipoNuevo = computed(() => vcTodosLosTipos.value.find(t => t.id == vcAddTipoId.value))
 
 const vcStockModal    = ref(false)
 const vcStockItem     = ref(null)   // { config: item, grupo }
@@ -1181,6 +1259,8 @@ function openGestionar(item) {
   vcPrecios.value           = {}
   vcGuardando.value         = {}
   vcOpcionesAgregadas.value = {}
+  vcBusqueda.value          = ''
+  vcEdicion.value           = null
   mostrarGestionar.value  = true
   cargarVarConfigs()
 }
@@ -3289,7 +3369,7 @@ onMounted(async () => {
                   <p class="text-sm font-medium text-gray-700">Se vende en juego</p>
                   <p class="text-xs text-gray-400">
                     <template v-if="juegoGestionar">
-                      Juego de {{ juegoGestionar }} piezas · pieza suelta a ${{ pesos(precioPieza(itemGestionar?.producto)) }}
+                      Juego de {{ juegoGestionar }} piezas · pieza suelta a {{ pesos(precioPieza(itemGestionar?.producto)) }}
                     </template>
                     <template v-else>Para lo que viene de a varios (mesas de a 2, sillas de a 6)</template>
                   </p>
@@ -3333,7 +3413,7 @@ onMounted(async () => {
                   </div>
                 </div>
                 <p class="text-xs text-gray-500">
-                  El juego completo sigue a ${{ pesos(itemGestionar?.producto?.precio_base) }}. Si no pones precio a la
+                  El juego completo sigue a {{ pesos(itemGestionar?.producto?.precio_base) }}. Si no pones precio a la
                   pieza suelta, es el del juego entre {{ juegoForm.piezas || 'N' }}.
                 </p>
                 <!-- Piezas por opción: unas alas que vienen de a 2 o de a 4 -->
@@ -3410,139 +3490,254 @@ onMounted(async () => {
             <div class="border-t border-gray-100" />
 
             <!-- Variantes personalizadas -->
-            <div>
-              <div class="flex items-center justify-between mb-2">
-                <p class="text-sm font-medium text-gray-700">Variantes personalizadas</p>
-                <span v-if="vcCargando" class="text-xs text-gray-400">Cargando...</span>
+            <div class="space-y-3">
+              <div class="flex items-end justify-between gap-2">
+                <div>
+                  <p class="text-sm font-medium text-gray-700">Variantes personalizadas</p>
+                  <p class="text-xs text-gray-400">Lo que el cliente elige al comprar este producto</p>
+                </div>
+                <span v-if="vcTiposAsignados.length" class="text-xs font-semibold text-gray-500 bg-gray-100 rounded-full px-2 py-0.5 flex-shrink-0">
+                  {{ vcTiposAsignados.length }} {{ vcTiposAsignados.length === 1 ? 'tipo' : 'tipos' }}
+                </span>
               </div>
 
-              <!-- Tipos asignados -->
-              <div v-for="grupo in vcTiposAsignados" :key="grupo.tipo_variante_id" class="mb-3 rounded-lg border border-gray-200 p-3">
-                <div class="flex items-center justify-between mb-2">
-                  <span class="text-sm font-medium text-gray-700">
-                    {{ grupo.tipo.nombre }}
-                    <span v-if="grupo.tipo.afecta_precio" class="text-xs font-normal text-blue-500 ml-1">· afecta precio</span>
-                  </span>
-                  <button @click="vcQuitarTipo(grupo.tipo_variante_id)" class="text-xs text-red-400 hover:text-red-600">Quitar</button>
+              <!-- Cargando -->
+              <div v-if="vcCargando && !vcTiposAsignados.length" class="space-y-2">
+                <div v-for="i in 2" :key="i" class="h-20 bg-gray-100 rounded-xl animate-pulse" />
+              </div>
+
+              <template v-else>
+                <!-- Buscador: solo cuando la lista ya es larga -->
+                <div v-if="vcTotalOpciones > 4" class="relative">
+                  <MagnifyingGlassIcon class="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    v-model="vcBusqueda"
+                    type="text"
+                    placeholder="Buscar opción…"
+                    class="w-full rounded-lg border border-gray-300 pl-9 pr-8 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <button v-if="vcBusqueda" @click="vcBusqueda = ''" class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                    <XMarkIcon class="w-4 h-4" />
+                  </button>
                 </div>
-                <div class="space-y-1.5">
-                  <div v-for="item in grupo.items" :key="item.opcion_id" class="flex items-center gap-2">
-                    <span class="text-xs text-gray-600 flex-1 min-w-0 truncate">{{ item.opcion_nombre }}</span>
-                    <div v-if="grupo.tipo.afecta_precio" class="flex items-center gap-1">
-                      <span class="text-xs text-gray-400">+$</span>
-                      <input
-                        :value="vcPrecios[grupo.tipo_variante_id]?.[item.opcion_id] ?? 0"
-                        @input="vcPrecios[grupo.tipo_variante_id] = { ...vcPrecios[grupo.tipo_variante_id], [item.opcion_id]: Number($event.target.value) }"
-                        type="number"
-                        min="0"
-                        step="1000"
-                        class="w-24 text-xs rounded border border-gray-300 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500 text-right"
-                      />
-                    </div>
-                    <span v-else class="text-xs text-gray-400 italic">sin precio</span>
+
+                <p v-if="vcBusqueda.trim() && !vcGruposVisibles.length" class="text-sm text-gray-400 text-center py-3">
+                  Ninguna opción coincide con "{{ vcBusqueda }}".
+                </p>
+
+                <!-- Un tipo asignado = una tarjeta -->
+                <div
+                  v-for="grupo in vcGruposVisibles"
+                  :key="grupo.tipo_variante_id"
+                  class="rounded-xl border border-gray-200 overflow-hidden"
+                >
+                  <div class="flex items-center gap-2 px-3 py-2.5 bg-gray-50 border-b border-gray-200">
+                    <span class="text-sm font-semibold text-gray-800 truncate">{{ grupo.tipo.nombre }}</span>
+                    <span :class="['text-[11px] font-semibold rounded-full px-2 py-0.5 flex-shrink-0',
+                      grupo.tipo.afecta_precio ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500']">
+                      {{ grupo.tipo.afecta_precio ? 'Afecta precio' : 'Solo diferencia' }}
+                    </span>
+                    <span class="ml-auto text-xs text-gray-400 flex-shrink-0">{{ grupo.items.length }} opc.</span>
                     <button
-                      v-if="!esVistaGlobal && item.stock_disponible !== null"
-                      @click="abrirStockVarConfig(item, grupo)"
-                      class="flex-shrink-0 text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 rounded px-1.5 py-0.5 hover:bg-emerald-100 font-medium"
-                    >{{ item.stock_disponible }} uds.</button>
+                      @click="vcQuitarTipo(grupo.tipo_variante_id)"
+                      class="p-1 -mr-1 text-gray-400 hover:text-red-500 transition-colors flex-shrink-0"
+                      title="Quitar este tipo del producto"
+                    ><TrashIcon class="w-4 h-4" /></button>
                   </div>
 
-                  <!-- Opciones recién añadidas (pendientes de guardar) -->
+                  <div class="divide-y divide-gray-100">
+                    <!-- Opciones ya guardadas -->
+                    <template v-for="item in grupo.items" :key="item.opcion_id">
+                      <!-- Renombrando la opción -->
+                      <form
+                        v-if="vcCoincide(item.opcion_nombre, grupo.tipo.nombre) && vcEdicion?.opcionId === item.opcion_id"
+                        @submit.prevent="vcGuardarNombreOpcion"
+                        class="px-3 py-2 space-y-1"
+                      >
+                        <div class="flex items-center gap-2">
+                          <input
+                            :ref="fijarVcEdicionInput"
+                            v-model="vcEdicion.nombre"
+                            maxlength="100"
+                            @keydown.esc="vcEdicion = null"
+                            class="flex-1 min-w-0 rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                          <button type="submit" :disabled="vcEdicionLoading || !vcEdicion.nombre.trim()" title="Guardar nombre"
+                            class="p-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 flex-shrink-0">
+                            <CheckIcon class="w-4 h-4" />
+                          </button>
+                          <button type="button" @click="vcEdicion = null" title="Cancelar" class="p-1.5 text-gray-400 hover:text-gray-600 flex-shrink-0">
+                            <XMarkIcon class="w-4 h-4" />
+                          </button>
+                        </div>
+                        <p class="text-[11px] text-gray-400">Cambia en todos los productos que usan esta opción. Las órdenes ya hechas no cambian.</p>
+                      </form>
+                      <div v-else-if="vcCoincide(item.opcion_nombre, grupo.tipo.nombre)" class="flex items-center gap-2 px-3 py-2">
+                        <div class="flex-1 min-w-0">
+                          <button @click="vcEditarOpcion(item)" class="group flex items-center gap-1.5 max-w-full text-left" title="Cambiar nombre">
+                            <span class="text-sm text-gray-700 truncate">{{ item.opcion_nombre }}</span>
+                            <PencilIcon class="w-3.5 h-3.5 text-gray-300 group-hover:text-blue-600 flex-shrink-0" />
+                          </button>
+                          <p v-if="grupo.tipo.afecta_precio" class="text-[11px] text-gray-400">
+                            Se vende en {{ pesos(vcPrecioFinal(grupo.tipo_variante_id, item.opcion_id)) }}
+                          </p>
+                        </div>
+                        <div
+                          v-if="grupo.tipo.afecta_precio"
+                          class="flex items-center w-32 rounded-lg border border-gray-300 bg-white overflow-hidden focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 flex-shrink-0"
+                        >
+                          <span class="pl-2.5 text-xs font-semibold text-gray-400 select-none">+$</span>
+                          <InputPesos
+                            :model-value="vcPrecios[grupo.tipo_variante_id]?.[item.opcion_id] ?? 0"
+                            @update:model-value="vcSetPrecio(grupo.tipo_variante_id, item.opcion_id, $event)"
+                            placeholder="0"
+                            class="w-full min-w-0 bg-transparent px-1.5 py-1.5 text-sm text-right tabular-nums focus:outline-none"
+                          />
+                        </div>
+                        <button
+                          v-if="!esVistaGlobal && item.stock_disponible !== null"
+                          @click="abrirStockVarConfig(item, grupo)"
+                          :class="['flex-shrink-0 text-xs font-semibold rounded-full px-2.5 py-1 border transition-colors tabular-nums',
+                            item.stock_disponible > 0
+                              ? 'text-emerald-700 border-emerald-200 hover:bg-emerald-50'
+                              : 'text-gray-400 border-gray-200 hover:bg-gray-50']"
+                          title="Ajustar stock de esta opción"
+                        >{{ item.stock_disponible }} uds.</button>
+                      </div>
+                    </template>
+
+                    <!-- Opciones recién añadidas (sin guardar) -->
+                    <template v-for="op in (vcOpcionesAgregadas[grupo.tipo_variante_id] ?? [])" :key="'pend-' + op.opcion_id">
+                      <div v-if="vcCoincide(op.opcion_nombre, grupo.tipo.nombre)" class="relative flex items-center gap-2 px-3 py-2">
+                        <span class="absolute left-0 inset-y-0 w-0.5 bg-blue-500" />
+                        <div class="flex-1 min-w-0">
+                          <p class="text-sm text-gray-700 truncate">
+                            {{ op.opcion_nombre }}
+                            <span class="ml-1 text-[10px] font-semibold uppercase tracking-wide text-blue-600">nueva</span>
+                          </p>
+                          <p v-if="grupo.tipo.afecta_precio" class="text-[11px] text-gray-400">
+                            Se vende en {{ pesos(vcPrecioFinal(grupo.tipo_variante_id, op.opcion_id)) }}
+                          </p>
+                        </div>
+                        <div
+                          v-if="grupo.tipo.afecta_precio"
+                          class="flex items-center w-32 rounded-lg border border-gray-300 bg-white overflow-hidden focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 flex-shrink-0"
+                        >
+                          <span class="pl-2.5 text-xs font-semibold text-gray-400 select-none">+$</span>
+                          <InputPesos
+                            :model-value="vcPrecios[grupo.tipo_variante_id]?.[op.opcion_id] ?? 0"
+                            @update:model-value="vcSetPrecio(grupo.tipo_variante_id, op.opcion_id, $event)"
+                            placeholder="0"
+                            class="w-full min-w-0 bg-transparent px-1.5 py-1.5 text-sm text-right tabular-nums focus:outline-none"
+                          />
+                        </div>
+                        <button
+                          @click="vcQuitarOpcionAgregada(grupo.tipo_variante_id, op.opcion_id)"
+                          class="p-1 text-gray-400 hover:text-red-500 flex-shrink-0"
+                          title="No agregar"
+                        ><XMarkIcon class="w-4 h-4" /></button>
+                      </div>
+                    </template>
+                  </div>
+
+                  <!-- Opciones del tipo que este producto aún no tiene -->
                   <div
-                    v-for="op in (vcOpcionesAgregadas[grupo.tipo_variante_id] ?? [])"
-                    :key="'pend-' + op.opcion_id"
-                    class="flex items-center gap-2 bg-blue-50 rounded px-2 py-1"
+                    v-if="vcOpcFaltantesGrupo(grupo).some(o => vcCoincide(o.nombre, grupo.tipo.nombre))"
+                    class="px-3 py-2.5 border-t border-dashed border-gray-200"
                   >
-                    <span class="text-xs text-blue-700 flex-1 truncate">{{ op.opcion_nombre }}</span>
-                    <div v-if="grupo.tipo.afecta_precio" class="flex items-center gap-1">
-                      <span class="text-xs text-gray-400">+$</span>
-                      <input
-                        :value="vcPrecios[grupo.tipo_variante_id]?.[op.opcion_id] ?? 0"
-                        @input="vcPrecios[grupo.tipo_variante_id] = { ...vcPrecios[grupo.tipo_variante_id], [op.opcion_id]: Number($event.target.value) }"
-                        type="number" min="0" step="1000"
-                        class="w-24 text-xs rounded border border-blue-300 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white text-right"
-                      />
-                    </div>
-                    <span v-else class="text-xs text-blue-400 italic">sin precio</span>
-                    <button @click="vcQuitarOpcionAgregada(grupo.tipo_variante_id, op.opcion_id)" class="text-gray-300 hover:text-red-400">✕</button>
-                  </div>
-
-                  <!-- Opciones del tipo que aún no están en este producto -->
-                  <div v-if="vcOpcFaltantesGrupo(grupo).length" class="pt-1 border-t border-dashed border-gray-200 mt-1">
-                    <p class="text-xs text-gray-400 mb-1">Sin añadir en este producto:</p>
-                    <div class="flex flex-wrap gap-1">
+                    <p class="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1.5">Agregar a este producto</p>
+                    <div class="flex flex-wrap gap-1.5">
                       <button
-                        v-for="op in vcOpcFaltantesGrupo(grupo)"
+                        v-for="op in vcOpcFaltantesGrupo(grupo).filter(o => vcCoincide(o.nombre, grupo.tipo.nombre))"
                         :key="op.id"
                         @click="vcAgregarOpcionAGrupo(grupo, op)"
-                        class="text-xs bg-gray-100 text-gray-600 border border-gray-300 rounded-full px-2.5 py-0.5 hover:bg-blue-100 hover:text-blue-700 hover:border-blue-300 transition-colors"
-                      >+ {{ op.nombre }}</button>
+                        class="inline-flex items-center gap-1 text-xs font-medium text-gray-600 border border-dashed border-gray-300 rounded-full px-2.5 py-1 hover:border-blue-400 hover:text-blue-600 transition-colors"
+                      ><PlusIcon class="w-3 h-3" />{{ op.nombre }}</button>
                     </div>
                   </div>
+
+                  <!-- Guardar: aparece solo cuando algo cambió -->
+                  <div v-if="vcGrupoCambiado(grupo)" class="px-3 py-2.5 border-t border-gray-100 flex items-center justify-end gap-3">
+                    <span class="text-xs text-amber-600 font-medium mr-auto">Cambios sin guardar</span>
+                    <button
+                      @click="vcGuardarTipo(grupo.tipo_variante_id)"
+                      :disabled="!!vcGuardando[grupo.tipo_variante_id]"
+                      class="bg-blue-600 text-white rounded-lg px-4 py-1.5 text-xs font-semibold hover:bg-blue-700 disabled:opacity-40 transition-colors"
+                    >{{ vcGuardando[grupo.tipo_variante_id] ? 'Guardando…' : 'Guardar cambios' }}</button>
+                  </div>
                 </div>
-                <button
-                  v-if="grupo.tipo.afecta_precio || (vcOpcionesAgregadas[grupo.tipo_variante_id]?.length)"
-                  @click="vcGuardarTipo(grupo.tipo_variante_id)"
-                  :disabled="!!vcGuardando[grupo.tipo_variante_id]"
-                  class="mt-2 text-xs bg-blue-600 text-white rounded px-3 py-1.5 hover:bg-blue-700 disabled:opacity-50"
-                >{{ vcGuardando[grupo.tipo_variante_id] ? 'Guardando...' : (grupo.tipo.afecta_precio ? 'Guardar precios' : 'Guardar opciones') }}</button>
-              </div>
 
-              <!-- Selector para agregar nuevo tipo -->
-              <div v-if="!vcPendingOpciones.length" class="flex gap-2">
-                <select
-                  v-model="vcAddTipoId"
-                  class="flex-1 text-sm rounded-lg border border-gray-300 px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                >
-                  <option value="">+ Agregar tipo de variante</option>
-                  <option
-                    v-for="tipo in vcTodosLosTipos.filter(t => !vcTiposAsignados.some(a => a.tipo_variante_id === t.id))"
-                    :key="tipo.id"
-                    :value="tipo.id"
-                  >{{ tipo.nombre }}</option>
-                </select>
-                <button
-                  @click="vcIniciarAgregar"
-                  :disabled="!vcAddTipoId"
-                  class="text-sm bg-gray-100 text-gray-700 rounded-lg px-3 py-1.5 hover:bg-gray-200 disabled:opacity-40"
-                >Configurar</button>
-              </div>
-
-              <!-- Configuración del nuevo tipo pendiente -->
-              <div v-if="vcPendingOpciones.length" class="border border-blue-200 rounded-lg p-3 bg-blue-50">
-                <p class="text-xs font-medium text-blue-700 mb-2">
-                  {{ vcTodosLosTipos.find(t => t.id == vcAddTipoId)?.nombre }}
-                  <span v-if="vcTodosLosTipos.find(t => t.id == vcAddTipoId)?.afecta_precio" class="font-normal text-blue-500"> — precio adicional por opción</span>
-                  <span v-else class="font-normal text-blue-400"> — sin cambio de precio</span>
+                <p v-if="!vcTiposAsignados.length && !vcPendingOpciones.length" class="text-sm text-gray-400 text-center py-2">
+                  Este producto aún no tiene variantes.
                 </p>
-                <div class="space-y-1.5">
-                  <div v-for="op in vcPendingOpciones" :key="op.opcion_id" class="flex items-center gap-2">
-                    <span class="text-xs text-gray-600 flex-1 min-w-0 truncate">{{ op.nombre }}</span>
-                    <div v-if="vcTodosLosTipos.find(t => t.id == vcAddTipoId)?.afecta_precio" class="flex items-center gap-1">
-                      <span class="text-xs text-gray-400">+$</span>
-                      <input
-                        v-model.number="op.precio_adicional"
-                        type="number"
-                        min="0"
-                        step="1000"
-                        class="w-24 text-xs rounded border border-blue-300 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white text-right"
-                      />
+
+                <!-- Agregar un tipo nuevo -->
+                <div v-if="!vcPendingOpciones.length" class="flex gap-2">
+                  <select
+                    v-model="vcAddTipoId"
+                    class="flex-1 min-w-0 text-sm rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  >
+                    <option value="">Elegir tipo de variante…</option>
+                    <option
+                      v-for="tipo in vcTodosLosTipos.filter(t => !vcTiposAsignados.some(a => a.tipo_variante_id === t.id))"
+                      :key="tipo.id"
+                      :value="tipo.id"
+                    >{{ tipo.nombre }}</option>
+                  </select>
+                  <button
+                    @click="vcIniciarAgregar"
+                    :disabled="!vcAddTipoId"
+                    class="inline-flex items-center gap-1 text-sm font-semibold text-blue-600 border border-blue-200 rounded-lg px-3 py-2 hover:bg-blue-50 disabled:opacity-40 transition-colors"
+                  ><PlusIcon class="w-4 h-4" />Agregar</button>
+                </div>
+
+                <!-- Configurando el tipo nuevo -->
+                <div v-if="vcPendingOpciones.length" class="rounded-xl border-2 border-blue-500/30 overflow-hidden">
+                  <div class="flex items-center gap-2 px-3 py-2.5 border-b border-gray-200">
+                    <span class="text-sm font-semibold text-gray-800 truncate">{{ vcTipoNuevo?.nombre }}</span>
+                    <span :class="['text-[11px] font-semibold rounded-full px-2 py-0.5 flex-shrink-0',
+                      vcTipoNuevo?.afecta_precio ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500']">
+                      {{ vcTipoNuevo?.afecta_precio ? 'Afecta precio' : 'Solo diferencia' }}
+                    </span>
+                    <span class="ml-auto text-[10px] font-semibold uppercase tracking-wide text-blue-600 flex-shrink-0">Nuevo</span>
+                  </div>
+                  <p v-if="vcTipoNuevo?.afecta_precio" class="px-3 pt-2 text-xs text-gray-500">
+                    Pon cuánto se le suma al precio base. Déjalo en 0 si cuesta lo mismo.
+                  </p>
+                  <div class="divide-y divide-gray-100">
+                    <div v-for="op in vcPendingOpciones" :key="op.opcion_id" class="flex items-center gap-2 px-3 py-2">
+                      <div class="flex-1 min-w-0">
+                        <p class="text-sm text-gray-700 truncate">{{ op.nombre }}</p>
+                        <p v-if="vcTipoNuevo?.afecta_precio" class="text-[11px] text-gray-400">
+                          Se vende en {{ pesos(Number(itemGestionar?.producto?.precio_base ?? 0) + Number(op.precio_adicional || 0)) }}
+                        </p>
+                      </div>
+                      <div
+                        v-if="vcTipoNuevo?.afecta_precio"
+                        class="flex items-center w-32 rounded-lg border border-gray-300 bg-white overflow-hidden focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 flex-shrink-0"
+                      >
+                        <span class="pl-2.5 text-xs font-semibold text-gray-400 select-none">+$</span>
+                        <InputPesos
+                          v-model="op.precio_adicional"
+                          placeholder="0"
+                          class="w-full min-w-0 bg-transparent px-1.5 py-1.5 text-sm text-right tabular-nums focus:outline-none"
+                        />
+                      </div>
                     </div>
-                    <span v-else class="text-xs text-blue-400 italic">sin precio</span>
+                  </div>
+                  <div class="flex gap-2 px-3 py-2.5 border-t border-gray-100">
+                    <button
+                      @click="vcAddTipoId = ''; vcPendingOpciones = []"
+                      class="flex-1 text-sm text-gray-600 border border-gray-300 rounded-lg py-2 hover:bg-gray-50"
+                    >Cancelar</button>
+                    <button
+                      @click="vcGuardarNuevoTipo"
+                      :disabled="!!vcGuardando['nuevo']"
+                      class="flex-1 text-sm font-semibold text-white bg-blue-600 rounded-lg py-2 hover:bg-blue-700 disabled:opacity-50"
+                    >{{ vcGuardando['nuevo'] ? 'Guardando…' : 'Agregar al producto' }}</button>
                   </div>
                 </div>
-                <div class="flex gap-2 mt-3">
-                  <button
-                    @click="vcGuardarNuevoTipo"
-                    :disabled="!!vcGuardando['nuevo']"
-                    class="flex-1 text-xs bg-blue-600 text-white rounded-lg py-1.5 hover:bg-blue-700 disabled:opacity-50 font-medium"
-                  >{{ vcGuardando['nuevo'] ? 'Guardando...' : 'Guardar' }}</button>
-                  <button
-                    @click="vcAddTipoId = ''; vcPendingOpciones = []"
-                    class="text-xs text-gray-500 hover:text-gray-700 px-3 py-1.5"
-                  >Cancelar</button>
-                </div>
-              </div>
+              </template>
             </div>
 
             <div class="border-t border-gray-100" />
