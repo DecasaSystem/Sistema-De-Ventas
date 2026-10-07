@@ -813,6 +813,10 @@ class ComisionController extends Controller
         if ($mes === null) return response()->json(['message' => 'Mes inválido (YYYY-MM).'], 422);
 
         try {
+            // Los nombres de todas las tiendas de una vez: `$a->tienda` iba a la
+            // base por cada asesor (tres veces la misma tienda, una por persona).
+            $nombresTienda = \App\Models\Tienda::pluck('nombre', 'id');
+
             // Se arrastra la última lista puesta: el equipo casi nunca cambia y
             // nadie lo vuelve a registrar cada mes. Antes se filtraba por el
             // mes exacto y en agosto salían todas las tiendas sin gente.
@@ -821,7 +825,7 @@ class ComisionController extends Controller
                 ->map(fn ($a) => [
                     'id'              => $a->id,
                     'tienda_id'       => $a->tienda_id,
-                    'tienda_nombre'   => $a->tienda?->nombre,
+                    'tienda_nombre'   => $nombresTienda[$a->tienda_id] ?? null,
                     'vendedor_id'     => $a->vendedor_id,
                     'vendedor_nombre' => $a->vendedor?->nombre,
                     // Viene de un mes anterior. Al tocar el equipo se copia a
@@ -939,14 +943,26 @@ class ComisionController extends Controller
 
         $usuarios = Usuario::whereIn('id', $ids)->with('tiendaDefault:id,nombre')->get()->keyBy('id');
 
-        return response()->json($ids->map(function ($vid) use ($vigentes, $usuarios, $hoy) {
+        // Lo de todos los vendedores en cuatro consultas, no cuatro por
+        // vendedor (eran ~50 con una docena de personas). Mismo orden y mismo
+        // tope de 24 movimientos que antes, aplicados en memoria.
+        $proximos = DB::table('comision_anticipos_config')->whereIn('vendedor_id', $ids)
+            ->where('desde_mes', '>', $hoy)->orderBy('desde_mes')->orderBy('id')->get()
+            ->groupBy(fn ($f) => (int) $f->vendedor_id)->map->first();
+        $movimientos = DB::table('comision_anticipos as a')
+            ->leftJoin('comisiones as c', 'c.id', '=', 'a.comision_id')
+            ->whereIn('a.vendedor_id', $ids)->orderByDesc('a.mes')->orderByDesc('a.id')
+            ->get(['a.vendedor_id', 'a.id', 'a.tipo', 'a.mes', 'a.monto', 'a.editado_a_mano', 'a.nota', 'a.created_at', 'c.fecha_pago'])
+            ->groupBy(fn ($f) => (int) $f->vendedor_id);
+        $deudas = AnticiposComision::debeHastaDeVarios(
+            $ids->mapWithKeys(fn ($vid) => [$vid => [$vid, $hoy]])->all()
+        );
+
+        return response()->json($ids->map(function ($vid) use ($vigentes, $usuarios, $proximos, $movimientos, $deudas) {
             $cfg  = $vigentes[$vid] ?? null;
-            $prox = DB::table('comision_anticipos_config')->where('vendedor_id', $vid)
-                ->where('desde_mes', '>', $hoy)->orderBy('desde_mes')->first();
-            $mov  = DB::table('comision_anticipos as a')
-                ->leftJoin('comisiones as c', 'c.id', '=', 'a.comision_id')
-                ->where('a.vendedor_id', $vid)->orderByDesc('a.mes')->orderByDesc('a.id')->limit(24)
-                ->get(['a.id', 'a.tipo', 'a.mes', 'a.monto', 'a.editado_a_mano', 'a.nota', 'a.created_at', 'c.fecha_pago']);
+            $prox = $proximos[$vid] ?? null;
+            $mov  = collect($movimientos[$vid] ?? [])->take(24)
+                ->map(function ($m) { unset($m->vendedor_id); return $m; })->values();
 
             return [
                 'vendedor_id' => $vid,
@@ -957,7 +973,7 @@ class ComisionController extends Controller
                 'desde_mes'   => $cfg->desde_mes ?? null,
                 'proximo'     => $prox ? ['desde_mes' => $prox->desde_mes, 'monto' => (float) $prox->monto, 'activo' => (bool) $prox->activo] : null,
                 // Todo lo que se ha llevado hasta hoy menos lo ya descontado.
-                'debe'        => AnticiposComision::debeHasta($vid, $hoy),
+                'debe'        => $deudas[$vid],
                 'movimientos' => $mov,
             ];
         })->sortBy('nombre')->values());

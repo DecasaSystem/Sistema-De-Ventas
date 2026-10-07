@@ -25,6 +25,9 @@ class PagoController extends Controller
         }
 
         $pagos = $orden->pagos()->orderBy('created_at')->get();
+        // Con los pagos ya en la mano, el total y el saldo se suman de aquí
+        // (ver Orden::totalPagado) en vez de volver dos veces a la base.
+        $orden->setRelation('pagos', $pagos);
 
         return response()->json([
             'orden_id'       => $orden->id,

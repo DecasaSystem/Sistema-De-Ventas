@@ -112,7 +112,8 @@ Laravel 13 / PHP 8.4. Dependencias clave: `laravel/sanctum`, `laravel/reverb`,
 | `app/Models/` | 76 modelos Eloquent (ver §9) |
 | `app/Services/` | Lógica de negocio compartida (ver abajo) |
 | `app/Services/Costos/` | Motor del cotizador: `BomBuilder`, `CostoCalculator`, `FichaRetriever`, `SanityChecker`, `FewShotProvider` |
-| `app/Support/` | Utilidades: `AnexoGarantiaTexto`, `ConvierteImagenesPdf`, `NoEncontrado`, `NombresParecidos` ("¿quisiste decir…?"), `PdfOrdenUnaHoja`, `StockVariantes` |
+| `app/Support/` | Utilidades: `AnexoGarantiaTexto`, `ConvierteImagenesPdf`, `NoEncontrado`, `NombresParecidos` ("¿quisiste decir…?"), `PdfOrdenUnaHoja`, `StockVariantes`, `CachesDePeticion` (limpia los cachés estáticos antes de cada trabajo de la cola y de cada prueba) |
+| `scripts/perf/` | Arnés de rendimiento: esquema real en SQLite + datos sintéticos; cuenta consultas por endpoint, detecta N+1 y consultas repetidas, y guarda respuestas para pruebas diferenciales (ver `docs/plan-rendimiento.md`) |
 | `app/Events/` | 14 eventos de broadcast (OrdenActualizada, ProduccionActualizada, NuevaNotificacion, Surtido*, DespachoAsignado…) |
 | `app/Jobs/` | `EnviarPush`, alertas diarias, traslados/surtidos programados |
 | `app/Console/Commands/` | Comandos artisan de soporte (ver §8) |

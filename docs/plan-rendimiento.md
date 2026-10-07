@@ -1,8 +1,9 @@
 # Plan de rendimiento — "el programa es lento para cargar"
 
-**Estado (2026-10-07):** Fase 1 **en producción y medida** ✅. Decisión del usuario:
-terminar las fases 3–5 primero y después mudar la base de región (Aiven NYC →
-DigitalOcean San Francisco, `do-sfo`).
+**Estado (2026-10-07):** fases 1, 3 y 4 **en producción y medidas** ✅; fase 5
+lista. **Lo único que queda es la mudanza de la base** (Aiven NYC →
+DigitalOcean San Francisco, `do-sfo`), decisión del usuario para después de las
+fases de código. Ver "Registro de avances" al final.
 **Regla de oro:** cada fase se **mide antes y después** con los mismos comandos.
 Si un número no mejora, el cambio no se queda. Nada cambia reglas de negocio.
 
@@ -242,7 +243,39 @@ borrar una fila. Al pagar comisiones se sigue usando `debeHasta()` sin caché.
 Independientes: 5 consultas por mes del cálculo (órdenes, restauraciones,
 comisiones) — reestructurar `ComisionIndependientes` es lógica de plata.
 
-### FASE 5 — Ajustes finos (según lo que muestre el log de lentas)
+### FASE 5 — Ajustes finos ✅ (2026-10-07)
+
+Barrido con dos detectores nuevos en el arnés: `VER_TODO=1` (todas las
+consultas en orden) y `VER_EXACTAS=1` (la misma consulta con los mismos
+parámetros dentro de una petición: trabajo repetido puro). Prueba diferencial:
+**44 respuestas idénticas** al código anterior.
+
+| Endpoint | Consultas antes → después | Qué se hizo |
+|---|---|---|
+| `/comisiones/anticipos` | 57 → **13** | config futura, últimos 24 movimientos y deuda de todos en 4 consultas |
+| `/comisiones/asesores-asignados` | 14–16 → **3–5** | nombres de tienda en 1 consulta (era una carga perezosa por asesor) |
+| `/stats/vendedor/{id}` | 44 → **38** | `ventasParaMeta` 1 vez por petición en Stats (Comisiones lo sigue calculando fresco) |
+| `/ordenes/{id}/pagos` | 6 → **4** | el total y el saldo se suman de los pagos ya cargados |
+
+**Evaluado y NO hecho (con razón), para no repetir el análisis:**
+- **Cachear el token/usuario** de Sanctum (−2 consultas por petición): un
+  usuario desactivado o con permisos cambiados seguiría entrando hasta que
+  venza el caché. Riesgo de seguridad > ganancia; tras la mudanza de región
+  la ganancia es casi nula.
+- **Conexiones persistentes a MySQL** (ahorra abrir la conexión con TLS,
+  ~400 ms medidos hoy): hay que conocer el `max_connections` del plan de Aiven
+  y limitar los procesos de Apache. Se reevalúa **después** de la mudanza; ahí
+  abrir la conexión cuesta mucho menos.
+- **Índice extra en `notificaciones`**: InnoDB ya ordena el índice de
+  `usuario_id` por `id`, que es justo lo que pide la campana. Solo si el log
+  `[lenta]` muestra `/notificaciones`.
+- **Llamar a Render directo** (sin el salto de Vercel, −0,2 s): con `Authorization`
+  cada petición dispara un preflight CORS; no compensa.
+- **Bundle del front**: el service worker ya sirve los JS de caché.
+- **Recorte de columnas de `/despacho/cola`** y los agregados de `/stats/*`
+  (muchos totales distintos, no repetidos): solo si el log `[lenta]` los señala.
+
+### Ajustes finos — referencia original
 
 - Índices compuestos donde el log lo justifique (ej. `notificaciones(usuario_id, created_at)`).
 - Caché corta (30–60 s) de datos de catálogo que casi no cambian (tiendas, roles, tipos de proceso, módulos), invalidada al guardarlos.
@@ -286,7 +319,9 @@ curl -sI https://decasa-api-b91v.onrender.com/api/push/vapid-key | grep -i serve
 | 2026-10-07 | **Fase 1 en producción** ✅ | `vapid-key` 2,1 → **0,39 s** (0 consultas, 6 ms en el servidor); por Vercel 2,8 → **0,56 s**; login 3,2 → **0,33 s**; `/api/c` 6 → **3,4 s**. Assets con caché de 1 año; asset inexistente → 404. |
 | 2026-10-07 | Fase 3 implementada (local, **sin subir**) | Arranque del supervisor: cola de despacho 7,7 MB → conteo de 14 bytes; consultas: lista completa → conteo; telas: 38 KB menos en cada apertura; VAPID desde el aparato. Suite: 715 tests, solo los 10 fallos preexistentes; build OK. |
 | 2026-10-07 | Fase 3 **en producción** ✅ | `d804596`; `/despacho/cola/conteo` y `/consultas-costo/conteo` responden (401 sin sesión = existen). |
-| 2026-10-07 | Fase 4 (parte 1) local, **sin subir** | Ver tabla de la fase 4. Prueba diferencial 38/38 idénticas; suite 716 tests, solo los 10 preexistentes; 158/158 en los tests de comisiones, caja, inventario y catálogos. |
+| 2026-10-07 | Fase 5 local, **sin subir** | Ver tabla de la fase 5. Diferencial 44/44 idénticas; suite 716 tests, solo los 10 preexistentes; build OK. **Queda solo la mudanza de la base** (Aiven NYC → DigitalOcean San Francisco). |
+| 2026-10-07 | Fase 4 (parte 1) **en producción** ✅ (`3dd6fef`) | `/api/c`: 17 → **2 consultas**, 3,4 → **1,2 s** (`Server-Timing: app;dur≈840, db;dur≈820;desc="2 consultas"`). Dato: 2 consultas ≈ 800 ms → abrir la conexión a Aiven (TLS, NYC) pesa ~400 ms por petición; refuerza la mudanza y el paso 2.4 (conexiones persistentes) si después sigue pesando. |
+| 2026-10-07 | Fase 4 (parte 1) local, antes de subir | Ver tabla de la fase 4. Prueba diferencial 38/38 idénticas; suite 716 tests, solo los 10 preexistentes; 158/158 en los tests de comisiones, caja, inventario y catálogos. |
 | 2026-10-07 | Dato para la fase 2 | `/api/c`: `Server-Timing: app;dur=3037, db;dur=3019;desc="17 consultas"` → **~178 ms por consulta**, el 99 % del tiempo es la base lejos. También candidato a fase 4 (17 consultas para la portada de catálogos). |
 
 **Archivos de la fase 1:** `config/cache.php` (`limiter`), `phpunit.xml`,

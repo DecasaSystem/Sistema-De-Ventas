@@ -100,10 +100,13 @@ escribiendo precios (Fase 1b).
 - **Rendimiento** (`docs/plan-rendimiento.md`): la causa n.º 1 de la lentitud
   era el limitador de peticiones guardando su contador en Aiven (8 consultas,
   ~1,7 s por llamada) y cada consulta cuesta ~200 ms (base lejos del servidor).
-  **Fase 1 subida y medida el 2026-10-07** (commits d72eea0 + 57dfcdb):
-  vapid-key 2,1 → 0,39 s, login 3,2 → 0,33 s. Lo que queda es ~180 ms por
-  consulta a la base. Decisión del usuario: hacer fases 3–5 y DESPUÉS mudar
-  Aiven a DigitalOcean San Francisco (`do-sfo`, en vivo, la URI no cambia).
+  **Fases 1, 3, 4 y 5 hechas el 2026-10-07** (1: d72eea0+57dfcdb, 3: d804596,
+  4: 3dd6fef; 5 pendiente de subir al cierre de ese día). vapid-key 2,1 → 0,39 s,
+  login 3,2 → 0,33 s, /api/c 6 → 1,2 s, comisiones y estadísticas con la mitad o
+  menos de consultas. **Queda solo mudar Aiven a DigitalOcean San Francisco**
+  (`do-sfo`, en vivo, la URI no cambia). Lo evaluado y descartado (cachear
+  token, conexiones persistentes antes de mudar, índice de notificaciones…)
+  está en el plan, Fase 5: no repetir ese análisis.
   Regiones confirmadas por
   el usuario (2026-10-07): **Aiven = DigitalOcean NYC, Render = Oregon** →
   recomendado mudar Render a Virginia (pasos en el plan, Fase 2). Aiven tiene

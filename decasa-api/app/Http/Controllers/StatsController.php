@@ -23,6 +23,21 @@ class StatsController extends Controller
      */
     public const TZ_NEGOCIO = 'America/Bogota';
 
+    /**
+     * Lo que suma cada tienda para su meta, resuelto UNA vez por petición.
+     *
+     * Es un cálculo pesado (siete consultas sobre comisiones y metas) y la
+     * misma pantalla lo pedía dos veces —las tarjetas de tienda y la meta del
+     * vendedor—. Aquí solo se lee; Comisiones lo sigue calculando fresco cada
+     * vez, que es lo que necesita al escribir (ver cargarTotales).
+     */
+    private ?array $ventasParaMeta = null;
+
+    private function ventasParaMeta(): array
+    {
+        return $this->ventasParaMeta ??= ComisionController::ventasParaMeta();
+    }
+
     private function rangoUtc(string $desde, string $hasta): array
     {
         return [
@@ -601,7 +616,7 @@ class StatsController extends Controller
         $mesActual = $this->mesDeMeta($hasta);
         $metasVigentes = \App\Models\MetaTienda::vigentesEn($mesActual);
         // Se resuelve una vez para todas las tiendas, no una consulta por cada una.
-        $ventasParaMeta = ComisionController::ventasParaMeta();
+        $ventasParaMeta = $this->ventasParaMeta();
         $porSuCuenta = $this->idsPorSuCuenta();
 
         // Todo lo de todas las tiendas, de una vez. Antes se pedía ocho veces
@@ -1635,7 +1650,7 @@ class StatsController extends Controller
 
         // Lo mismo que ve la pantalla de comisiones, no una suma aparte.
         $totalTiendaMes = $tiendaId
-            ? (ComisionController::ventasParaMeta()[$tiendaId . '_' . $mesActual] ?? 0.0)
+            ? ($this->ventasParaMeta()[$tiendaId . '_' . $mesActual] ?? 0.0)
             : 0;
 
         $meta = $metaReg ? (float) $metaReg->meta : null;

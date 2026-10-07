@@ -63,14 +63,19 @@ $token = $u->createToken('perf')->plainTextToken;
 $rutas = array_slice($argv, 2) ?: explode(',', getenv('RUTAS'));
 $RTT = (float) (getenv('RTT_MS') ?: 0);
 
-$q = 0; $qt = 0.0; $sqls = [];
-DB::listen(function ($e) use (&$q, &$qt, &$sqls) { $q++; $qt += $e->time; $sqls[] = $e->sql; });
+$q = 0; $qt = 0.0; $sqls = []; $exactas = [];
+DB::listen(function ($e) use (&$q, &$qt, &$sqls, &$exactas) {
+    $q++; $qt += $e->time; $sqls[] = $e->sql;
+    // La misma consulta con los mismos parámetros: trabajo repetido puro.
+    $k = $e->sql . ' | ' . json_encode($e->bindings);
+    $exactas[$k] = ($exactas[$k] ?? 0) + 1;
+});
 
 printf("%-48s %5s %6s %8s %9s %s\n", "endpoint ($quien)", 'http', 'consul', 'ms_local', "ms+RTT$RTT", 'bytes');
 foreach ($rutas as $r) {
     $r = trim($r); if ($r === '') continue;
     [$met, $path] = str_contains($r, ' ') ? explode(' ', $r, 2) : ['GET', $r];
-    $q = 0; $qt = 0; $sqls = []; $perezosas = [];
+    $q = 0; $qt = 0; $sqls = []; $perezosas = []; $exactas = [];
     Illuminate\Support\Facades\Auth::forgetGuards();
     $req = Illuminate\Http\Request::create('/api' . $path, $met, [], [], [], [
         'HTTP_AUTHORIZATION' => "Bearer $token", 'HTTP_ACCEPT' => 'application/json', 'REMOTE_ADDR' => '10.0.0.' . mt_rand(1, 250)]);
@@ -85,10 +90,18 @@ foreach ($rutas as $r) {
         @mkdir($dir, 0777, true);
         file_put_contents($dir . '/' . $quien . '_' . preg_replace('/[^a-z0-9]+/i', '_', trim($path, '/')) . '.json', $res->getContent());
     }
+    foreach ($exactas as $k => $n) if ($n > 1 && getenv("VER_EXACTAS")) echo "      EXACTA x$n  " . substr(preg_replace("/\s+/", " ", $k), 0, 170) . "
+";
     foreach ($perezosas as $rel => $n) if ($n > 1) echo "      N+1 x$n  $rel
 ";
     if (getenv('VER_SQL') && $res->getStatusCode() < 400) {
         $c = array_count_values(array_map(fn ($s) => preg_replace('/\d+/', 'N', substr($s, 0, 90)), $sqls));
+        // VER_TODO=1: todas las consultas en orden, no solo las repetidas.
+        if (getenv('VER_TODO')) {
+            foreach ($sqls as $i => $s) {
+                echo '      ' . str_pad($i + 1, 3, ' ', STR_PAD_LEFT) . '  ' . substr(preg_replace('/\s+/', ' ', $s), 0, 150) . "\n";
+            }
+        }
         arsort($c); foreach (array_slice($c, 0, 6, true) as $s => $n) if ($n > 1) echo "      x$n  $s\n";
     }
     if ($res->getStatusCode() >= 500) echo '      ERR ' . substr(json_decode($res->getContent())->message ?? $res->getContent(), 0, 160) . "\n";
