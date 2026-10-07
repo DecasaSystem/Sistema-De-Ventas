@@ -302,11 +302,12 @@ class InventarioController extends Controller
         // todas las paginas para descargar el Excel se lo llevaria repetido.
         if ($categoria) {
             $query->where('productos.categoria', $categoria);
-            $query->orderBy(DB::raw('COALESCE(inventario.cantidad_disponible, 0)'), 'desc');
-        } else {
-            $query->orderBy('productos.nombre');
         }
-        $query->orderBy('productos.id');
+        // De más a menos stock, con o sin categoría. Antes "Todos" iba por
+        // nombre y los de 0 quedaban revueltos entre los que sí hay.
+        $query->orderBy(DB::raw('COALESCE(inventario.cantidad_disponible, 0)'), 'desc')
+              ->orderBy('productos.nombre')
+              ->orderBy('productos.id');
 
         return response()->json($query->paginate($perPage)->through(function ($inv) {
             $inv->stock_libre = $inv->cantidad_disponible - $inv->cantidad_reservada;
@@ -383,11 +384,11 @@ class InventarioController extends Controller
 
         if ($categoria) {
             $query->where('productos.categoria', $categoria);
-            $query->orderByRaw('COALESCE(SUM(inventario.cantidad_disponible), 0) DESC');
-        } else {
-            $query->orderBy('productos.nombre');
         }
-        $query->orderBy('productos.id');   // desempate, ver index()
+        // De más a menos stock también en "Todos", igual que en index().
+        $query->orderByRaw('COALESCE(SUM(inventario.cantidad_disponible), 0) DESC')
+              ->orderBy('productos.nombre')
+              ->orderBy('productos.id');   // desempate, ver index()
 
         $pagina = $query->paginate($perPage);
 
