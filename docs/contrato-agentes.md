@@ -24,6 +24,17 @@ validación. **Un 4xx hace que el agente descarte el aviso y alerte**; un 5xx o
 un timeout hacen que lo reintente hasta por un día. No devuelvas 4xx por errores
 transitorios.
 
+### `GET /api/agentes/pedidos?telefono=…` (solo WhatsApp)
+
+`AgentePedidosController`. Mismo token (middleware `agente` = `TokenDelAgente`, que ahora
+protege también el webhook). "¿Cómo va mi pedido?": devuelve las órdenes del cliente cuyo
+teléfono (o `contacto_telefono`) termina en los mismos 10 dígitos: `referencia`, `estado` en
+palabras, `fecha_compra`, `entrega_estimada` (`Orden::fechaEntregaEstimada`), `entregados` /
+`unidades` (`resumenEntrega`) y nombres de `productos`. **Nada de montos, saldo, pagos,
+vendedor, tienda, dirección ni notas** (decisión del dueño, 2026-10-08). Sin borradores,
+cotizaciones ni anuladas; las entregadas o canceladas solo de los últimos 60 días. El agente
+consulta solo el número desde el que escribe (Twilio lo verifica), nunca otro que le dicten.
+
 ## 2. La base de datos (la misma de Aiven)
 
 ### Lo que los agentes LEEN de tablas de Laravel
@@ -33,16 +44,38 @@ No renombres ni borres estas columnas sin cambiar antes los agentes
 
 | Tabla | Columnas |
 |---|---|
-| `productos` | id, nombre, precio_base, foto_url, foto_url_2, medidas, material, categoria, activo |
+| `productos` | id, nombre, precio_base, foto_url, foto_url_2, medidas, material, categoria, activo, descripcion, piezas_por_juego, precio_pieza. Con `piezas_por_juego` el bot dice que el precio es **del juego** y da la pieza suelta como `Producto::precioPieza` |
 | `inventario` | producto_id, tienda_id, cantidad_disponible, cantidad_reservada |
-| `tiendas` | id, nombre, es_fabrica, activa (los ids 1–5 están fijos en `negocio.json` de los agentes) |
-| `producto_variante_configs` | producto_id, tipo_variante_id, opcion_id, precio_adicional (**precio absoluto**, 0 = precio_base). Con dos o más tipos con precio, el sistema suma; el bot **no** cotiza esa combinación, la pasa a un asesor (`core/precio-variantes.js`) |
+| `tiendas` | id, nombre, es_fabrica, activa. Los ids de las sedes están en `negocio.json` de los agentes; cada hora comparan con `activa` y **dejan de ofrecer para citas la sede cuya tienda esté cerrada**, y alertan |
+| `producto_variante_configs` | producto_id, tipo_variante_id, opcion_id, precio_adicional (**precio absoluto**, 0 = precio_base), piezas_por_juego (opcional, consulta aparte). Con dos o más tipos con precio, el sistema suma; el bot **no** cotiza esa combinación, la pasa a un asesor (`core/precio-variantes.js`) |
 | `tipos_variante` | id, nombre, afecta_precio, activo |
 | `tipo_variante_opciones` | id, nombre, activo |
 | `producto_variantes` | producto_id, medida, precio_variante, activo |
 | `herramientas` | clave (`catalogo_*`), contenido, activo, orden. Es la fuente de los catálogos que manda el bot |
 | `configuracion` | clave, valor. Respaldo viejo de catálogos (no borrar las filas `catalogo_*` todavía) |
 | `conversaciones_wa` | telefono, estado, tipo, created_at. El bot se calla si hay una tarjeta `tomada`. "Archivar terminadas" llena `archivada_at`; **no borres filas**: el bot las mira para saber si un asesor ya atendió |
+
+| `catalogos`, `catalogo_paginas` | nombre, slug, activo, orden · catalogo_id. Catálogos visuales de Gestión (opcionales para el bot) |
+
+### Enlaces públicos que mandan los agentes
+
+`enviar_catalogo` busca en este orden y manda el primero que exista:
+
+1. Catálogo de Gestión → Catálogos (visual): `https://<app>/c/<slug>`, si está activo y
+   tiene páginas. Es el catálogo oficial; reemplazó a los PDF de Drive.
+2. Página de la sección del inventario: `https://<app>/catalogo/<categoría>`, la misma del
+   botón Compartir de Inventario (`CatalogoPublicoController::seccion`). Existe para toda
+   categoría con productos activos, aunque no tenga catálogo (p. ej. Cunas).
+3. Enlace viejo de Herramientas (`herramientas.clave = catalogo_*`), solo si no hay nada de
+   lo anterior. Si da 404/410 no se manda, y el bot alerta por Telegram.
+
+Sin categoría ("el catálogo") el bot manda la portada `https://<app>/c`. La categoría se
+compara por palabras (sin tildes ni conectores, singular/plural) y tienen que ser las
+mismas: lo ambiguo ("sillas") se le pregunta al cliente.
+
+`<app>` sale de `catalogoPublico.urlBase` en `negocio.json` de los agentes (o la variable
+`CATALOGO_PUBLICO_URL`). **Si cambian estas rutas del front, el dominio de Vercel o la forma
+de comparar la categoría en `CatalogoPublicoController::normalizar`, avisar a los agentes.**
 
 ### Lo que los agentes ESCRIBEN (tablas suyas, sin migración de Laravel)
 
@@ -51,3 +84,27 @@ No renombres ni borres estas columnas sin cambiar antes los agentes
 **No las toques desde migraciones de Laravel.** Laravel solo escribe
 `estado_usuario.transferido` (`RedesController::silenciarBot`, al Tomar/Terminar)
 y lee `wa_eventos` / `ig_eventos` para `/redes/metricas`.
+
+### Categorías
+
+Los agentes conocen las categorías de `categorias` / `mapaCategoriasBD` en su
+`negocio.json`. Si en Inventario aparece una categoría nueva, sus productos se venden igual
+(las búsquedas y la foto usan la base), pero el bot avisa una vez por Telegram para que se
+le ponga nombre en `negocio.json`.
+
+## 3. Reglas de este sistema que el bot copia (cambiarlas en los dos lados)
+
+| Regla aquí | Dónde está en el agente | Qué pasa si cambia solo aquí |
+|---|---|---|
+| Precio de variante = suma de `precio_adicional` de lo elegido (0 → `precio_base`), sin mirar `afecta_precio` (`NuevaOrdenView`) | `core/precio-variantes.js` | El bot cotiza distinto de lo que se cobra. Con 2+ tipos con precio, el bot no suma: pasa a un asesor |
+| Venta por juego: `piezas_por_juego`, `Producto::precioPieza()` y `piezasDelJuego()` (por opción) | `core/precio-variantes.js → infoVentaPorJuego` | El bot dice el precio del juego como si fuera de una pieza |
+| Stock libre = `cantidad_disponible − cantidad_reservada` | `consultarStock` en los `db.js` | Solo afecta `/debug-stock` (el bot no promete stock al cliente) |
+| Tienda cerrada: `tiendas.activa = 0` (+ `cerrada_en`) | `negocio.json → sedes[].activa` + `verificarSedes` cada hora | El bot deja de ofrecerla solo y alerta para actualizar `negocio.json` |
+| Categorías de `productos.categoria` | `negocio.json → categorias / mapaCategoriasBD` | Se vende igual; el bot alerta "categoría nueva" para nombrarla |
+| Catálogos: Gestión → Catálogos (`/c/<slug>`) y sección de Inventario (`/catalogo/<cat>`) | `core/catalogos.js` | — (los lee de la base) |
+| Estados de una orden y sus nombres para el cliente | `AgentePedidosController::ESTADOS` (aquí) | Un estado nuevo sale como "En proceso" hasta agregarlo |
+| Formas de pago: efectivo, transferencia, tarjeta, Addi | `negocio.json → pagos` | El bot ofrece una forma de pago que no existe |
+| Teléfono del cliente: se compara por los últimos 10 dígitos | `AgentePedidosController` | — |
+
+Decisiones del dueño que viven en los agentes (2026-10-08): **no se abre en festivos**
+(los agentes los calculan solos, Ley Emiliani); Circunvalar cerró el 2026-08-27.

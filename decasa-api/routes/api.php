@@ -3,6 +3,7 @@
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CitaController;
 use App\Http\Controllers\RedesController;
+use App\Http\Controllers\AgentePedidosController;
 use App\Http\Controllers\ClienteController;
 use App\Http\Controllers\InventarioController;
 use App\Http\Controllers\NotificacionController;
@@ -66,8 +67,12 @@ use Illuminate\Support\Facades\Route;
 Route::post('/auth/login',  [AuthController::class, 'login'])->middleware('throttle:10,1');
 Route::post('/auth/google', [AuthController::class, 'loginGoogle'])->middleware('throttle:10,1');
 
-// ── Webhook del agente WA (público con token secreto) ────────────────────────
-Route::post('/redes/webhook', [RedesController::class, 'webhook'])->middleware('throttle:60,1');
+// ── Agentes de WhatsApp e Instagram (sin usuario, con token: TokenDelAgente) ──
+// Ver docs/contrato-agentes.md.
+Route::post('/redes/webhook', [RedesController::class, 'webhook'])->middleware(['agente', 'throttle:60,1']);
+// Estado de los pedidos de un cliente, por su número de WhatsApp. Solo lectura y
+// solo lo que el cliente puede saber de lo suyo (ver AgentePedidosController).
+Route::get('/agentes/pedidos', [AgentePedidosController::class, 'index'])->middleware(['agente', 'throttle:60,1']);
 
 // ── Catálogo público ─────────────────────────────────────────────────────────
 // El link que se le manda a un cliente por WhatsApp. Sin contraseña, porque el

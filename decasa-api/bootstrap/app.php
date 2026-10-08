@@ -4,6 +4,7 @@ use App\Http\Middleware\CheckPermiso;
 use App\Http\Middleware\CheckRole;
 use App\Http\Middleware\MedirPeticion;
 use App\Http\Middleware\SecurityHeaders;
+use App\Http\Middleware\TokenDelAgente;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -31,6 +32,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'role'    => CheckRole::class,
             'permiso' => CheckPermiso::class,
+            'agente'  => TokenDelAgente::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
