@@ -177,6 +177,33 @@ y export de objeto plano; Chrome headless por CDP con el `WebSocket` de Node 24
 - Variables del front en Vercel: `VITE_REVERB_APP_KEY`, `VITE_REVERB_HOST`,
   `VITE_REVERB_PORT`, `VITE_REVERB_SCHEME` (sin key → sin tiempo real, polling).
 
+## 5b. Agentes de chat (repo aparte `C:\Users\LENOVO\Desktop\Agentes`)
+
+Revisado 2026-10-07. `Agente-ws` (WhatsApp/Twilio) y `Agente-ig` (Instagram/Meta),
+Node + OpenAI, cada uno con su repo en GitHub (DecasaSystem/Agente-ws, Agente-ig);
+`core/` se copia a los dos con `npm run sync`. Se conectan con este sistema por
+**dos vías**:
+1. **HTTP:** `POST /api/redes/webhook` con `X-Agent-Token` (= `AGENT_TOKEN` aquí,
+   `DECASA_AGENT_TOKEN` allá) → tarjeta en `conversaciones_wa` + aviso `redes`.
+2. **La misma BD de Aiven:** leen `productos`, `inventario`, `tiendas`,
+   variantes, `configuracion` y `conversaciones_wa`; escriben sus propias tablas
+   (`clientes_wa`, `estado_usuario`, `pedidos`, `citas_agentes`, `wa_*`, `ig_*`,
+   creadas por ellos, no por migraciones). `RedesController::silenciarBot`
+   escribe en `estado_usuario` del bot al Tomar/Terminar.
+**Renombrar columnas de esas tablas rompe a los bots sin aviso** (no hay tests
+cruzados). El contrato está en [`docs/contrato-agentes.md`](docs/contrato-agentes.md)
+y en `core/contrato-bd.js` allá (los bots lo verifican al arrancar y alertan).
+Plan y bitácora: `Desktop/Agentes/PLAN-INTEGRACION-SISTEMA-VENTAS.md`. Fase 1 hecha
+el 2026-10-07, **sin subir**: catálogos desde `herramientas`, `idempotencia` por
+aviso, cancelación de cita, métricas en hora de Bogotá. Fase 2 hecha el
+2026-10-08, **sin subir** y con 2 migraciones (`citas.cita_agente_id`,
+`conversaciones_wa.archivada_at`). El dueño delegó las decisiones al criterio "el
+sistema es dueño de la plata; los bots se adaptan; donde hay plata decide una
+persona": archivar en vez de borrar; citas cruzadas por id; el pedido del bot solo
+**pre-llena** Nueva orden (nunca crea órdenes solo); el bot no cotiza combinaciones
+de dos o más tipos de variante con precio (las pasa a un asesor); stock por variante
+no se construye hasta que el bot lo necesite.
+
 ## 6. Trampas conocidas
 
 - Basura versionada por accidente (comandos de tinker mal escritos):

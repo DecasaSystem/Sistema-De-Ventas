@@ -3158,6 +3158,42 @@ async function cargarBorradorServidor() {
 }
 onMounted(cargarBorradorServidor)
 
+// ── Venta que viene de Redes ──────────────────────────────────────────────────
+// "Armar orden con este carrito" en la tarjeta de un pedido de WhatsApp/Instagram
+// trae aquí el carrito que el cliente armó con el agente (en el state del router,
+// sin pasar datos por la URL). NO se agrega nada solo: el vendedor elige cada
+// producto con el buscador de siempre, así la variante, el stock y el precio
+// salen por el mismo camino que cualquier venta y la orden se crea por la única
+// puerta que hay (numeración, descuentos y comisión incluidos).
+const desdeRedes = ref(!borradorId ? (window.history.state?.desdeRedes ?? null) : null)
+
+// "CAMA MIAMI (1.60)" → "CAMA MIAMI": la variante se escoge en el selector.
+function nombreSinVariante(texto) {
+  return String(texto ?? '').replace(/\s*\([^)]*\)\s*$/, '').trim()
+}
+
+// El precio que vio el cliente en el chat, para comparar con el que quede en la orden.
+function precioDelChat(item) {
+  return '$' + pesos(Number(String(item.precio ?? 0).replace(/\D/g, '')) || 0)
+}
+
+function buscarDelCarrito(item) {
+  productoQuery.value = nombreSinVariante(item.producto)
+  buscarProducto()
+}
+
+onMounted(() => {
+  const r = desdeRedes.value
+  if (!r) return
+  // Los teléfonos de clientes se guardan sin el +57: se busca por los últimos 10.
+  const tel = String(r.telefono ?? '').replace(/\D/g, '').slice(-10)
+  nuevoCliente.value = { ...nuevoCliente.value, nombre: r.nombre ?? '', telefono: tel }
+  if (tel) {
+    clienteQuery.value = tel
+    buscarCliente()
+  }
+})
+
 function haceCuanto(ts) {
   const min = Math.round((Date.now() - ts) / 60000)
   if (min < 1)  return 'hace un momento'
@@ -3194,6 +3230,33 @@ onBeforeUnmount(() => {
         {{ modoCotizacion ? 'Nueva cotización' : borradorId ? 'Seguir borrador' : 'Nueva Orden' }}
       </h2>
       <span class="text-xs text-gray-400">{{ step }}/3</span>
+    </div>
+
+    <!-- Carrito que el cliente armó con el agente (Redes) -->
+    <div v-if="desdeRedes?.carrito?.length" class="bg-white rounded-xl shadow-sm p-3 space-y-2">
+      <div class="flex items-center justify-between gap-2">
+        <p class="text-sm font-semibold text-gray-800">Carrito del chat</p>
+        <span class="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">
+          {{ desdeRedes.fuente === 'instagram' ? 'Instagram' : 'WhatsApp' }}
+        </span>
+      </div>
+      <p class="text-xs text-gray-500">
+        {{ step === 1 ? 'Elige o crea el cliente; en el paso 2 agregas cada producto.' : 'Toca Buscar y elige el producto como siempre. El precio del chat es solo referencia.' }}
+      </p>
+      <div v-for="(item, i) in desdeRedes.carrito" :key="i" class="flex items-center justify-between gap-2 text-xs">
+        <div class="min-w-0">
+          <p class="font-medium text-gray-800 truncate">
+            {{ item.producto }}<span v-if="(item.cantidad || 1) > 1" class="text-gray-500"> ×{{ item.cantidad }}</span>
+          </p>
+          <p class="text-gray-500">{{ precioDelChat(item) }} en el chat</p>
+        </div>
+        <button
+          v-if="step === 2"
+          type="button"
+          @click="buscarDelCarrito(item)"
+          class="shrink-0 bg-blue-600 text-white rounded-lg text-xs font-semibold px-3 py-1.5"
+        >Buscar</button>
+      </div>
     </div>
 
     <!-- Siguiendo un borrador guardado -->

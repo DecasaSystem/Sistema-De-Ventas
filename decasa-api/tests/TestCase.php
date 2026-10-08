@@ -209,5 +209,14 @@ abstract class TestCase extends BaseTestCase
                 str_replace(['%Y', '%m', '%d'], ['Y', 'm', 'd'], $formato)
             );
         }, 2);
+
+        // FIELD(valor, a, b, c…): la posición de `valor` en la lista (1, 2, 3…)
+        // o 0 si no está. Lo usan los listados que ordenan por estado
+        // (pendiente → tomada → terminada en Redes).
+        $pdo->sqliteCreateFunction('FIELD', function ($valor, ...$lista) {
+            $pos = array_search($valor, $lista, false);
+
+            return $pos === false ? 0 : $pos + 1;
+        }, -1);
     }
 }

@@ -20,7 +20,10 @@ class RedesController extends Controller
         $usuario = $request->user();
         $estado  = $request->query('estado'); // pendiente | tomada | terminada | null (todas)
 
+        // Las archivadas ("Limpiar terminadas") no salen en la bandeja, pero siguen
+        // en la base para el agente y las métricas.
         $q = ConversacionWa::with('tomadaPor:id,nombre')
+            ->whereNull('archivada_at')
             ->orderByRaw("FIELD(estado, 'pendiente', 'tomada', 'terminada')")
             ->orderBy('created_at', 'desc');
 
@@ -74,14 +77,27 @@ class RedesController extends Controller
             'whatsapp_url'   => 'nullable|string',
             'contacto_url'   => 'nullable|string',
             'fuente'         => 'nullable|string|in:whatsapp,instagram',
+            'idempotencia'   => 'nullable|string|max:100',
         ]);
 
         $tipos_validos  = ['pedido', 'cita', 'asesor', 'personalizacion', 'otro'];
         $data['tipo']   = in_array($data['tipo'], $tipos_validos) ? $data['tipo'] : 'otro';
         $data['fuente'] = $data['fuente'] ?? 'whatsapp';
 
-        // Idempotencia: si llega el mismo webhook dos veces (retry de WhatsApp) no duplicar
-        $hash = hash('sha256', ($data['telefono'] ?? '') . '|' . ($data['resumen'] ?? '') . '|' . date('Y-m-d H:i'));
+        // Idempotencia: el mismo aviso no puede crear dos tarjetas.
+        //
+        // Los agentes mandan una clave por notificación (`idempotencia`) que se
+        // conserva en su cola de reintentos. Hace falta porque el hash por minuto
+        // no alcanza: si Render tarda más de 25 s en contestar, el agente da la
+        // llamada por perdida y la repite a los 6 s —o la encola y la repite
+        // horas después—, ya en otro minuto, y salían dos tarjetas y dos avisos
+        // al celular de cada vendedor. Sin clave (agente viejo) se usa el hash
+        // de siempre.
+        $clave = $data['idempotencia'] ?? null;
+        unset($data['idempotencia']);
+        $hash = $clave
+            ? hash('sha256', 'id|' . $clave)
+            : hash('sha256', ($data['telefono'] ?? '') . '|' . ($data['resumen'] ?? '') . '|' . date('Y-m-d H:i'));
         $data['hash_idempotencia'] = $hash;
 
         $existente = ConversacionWa::where('hash_idempotencia', $hash)->first();
@@ -89,7 +105,18 @@ class RedesController extends Controller
             return response()->json($existente, 200);
         }
 
-        $conv = ConversacionWa::create($data);
+        try {
+            $conv = ConversacionWa::create($data);
+        } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
+            // Dos entregas del mismo aviso al mismo tiempo: la otra ya la guardó.
+            return response()->json(ConversacionWa::where('hash_idempotencia', $hash)->firstOrFail(), 200);
+        }
+
+        // El cliente canceló su cita con el agente: la cita que ya estaba en el
+        // módulo Citas se marca cancelada para que nadie lo espere en la tienda.
+        if ($this->esCancelacionDeCita($conv)) {
+            $this->cancelarCitaDelCliente($conv);
+        }
 
         try {
             broadcast(new NuevaConversacionWa($conv));
@@ -107,7 +134,9 @@ class RedesController extends Controller
             'personalizacion' => "Solicitud de personalización ({$canal})",
             'otro'            => "Mensaje de {$canal}",
         ];
-        $titulo  = $titulos[$conv->tipo] ?? "Mensaje de {$canal}";
+        $titulo  = $this->esCancelacionDeCita($conv)
+            ? "Cita cancelada ({$canal})"
+            : ($titulos[$conv->tipo] ?? "Mensaje de {$canal}");
         $mensaje = ($conv->nombre_cliente ? $conv->nombre_cliente . ': ' : '') . $conv->resumen;
 
         // Solo usuarios con acceso al módulo de redes
@@ -164,7 +193,11 @@ class RedesController extends Controller
         $citaCreada = false;
         $citaId     = null;
 
-        if ($conv->tipo === 'cita') {
+        // Una tarjeta de cita crea la cita en el módulo Citas, salvo que sea el
+        // aviso de una cancelación, o que el cliente ya la haya cancelado con el
+        // agente antes de que alguien tomara la tarjeta: antes las dos terminaban
+        // en una cita "confirmada" de alguien que avisó que no iba.
+        if ($conv->tipo === 'cita' && ! $this->esCancelacionDeCita($conv) && ! $this->seCanceloDespues($conv)) {
             try {
                 $dc   = $conv->datos_cita ?? [];
                 $cita = Cita::firstOrCreate(
@@ -180,7 +213,8 @@ class RedesController extends Controller
                         'hora'           => $dc['hora']   ?? 'Por definir',
                         'motivo'         => $dc['motivo'] ?? null,
                         'estado'         => 'confirmada',
-                        'fecha_cita'     => !empty($dc['dia']) ? $this->parsearFechaCita($dc['dia']) : null,
+                        'fecha_cita'     => $this->fechaDeCita($dc),
+                        'cita_agente_id' => $this->citaAgenteId($dc),
                     ]
                 );
                 $citaCreada = $cita->wasRecentlyCreated;
@@ -201,6 +235,99 @@ class RedesController extends Controller
             'cita_creada' => $citaCreada,
             'cita_id'     => $citaId,
         ]));
+    }
+
+    // El agente avisa la cancelación de una cita con tipo 'cita' y
+    // datos_cita.cancelada = true (Agente-ws / Agente-ig, herramienta cancelar_cita).
+    private function esCancelacionDeCita(ConversacionWa $conv): bool
+    {
+        return $conv->tipo === 'cita' && ! empty(($conv->datos_cita ?? [])['cancelada']);
+    }
+
+    // ¿Las dos cosas hablan del mismo día de cita? El agente manda el día como
+    // texto ("Jueves 9 de octubre"); si los dos se pueden leer como fecha se
+    // comparan fechas, y si no, el texto sin mayúsculas ni espacios de más.
+    private function mismoDiaDeCita(?string $diaA, ?string $diaB, ?string $fechaB = null): bool
+    {
+        if (! $diaA) return false;
+        $fechaA = $this->parsearFechaCita($diaA);
+        $fechaB = $fechaB ?: ($diaB ? $this->parsearFechaCita($diaB) : null);
+        if ($fechaA && $fechaB) return $fechaA === substr($fechaB, 0, 10);
+
+        $norm = fn ($s) => mb_strtolower(trim(preg_replace('/\s+/', ' ', (string) $s)));
+        return $diaB !== null && $norm($diaA) === $norm($diaB);
+    }
+
+    // La fecha real de la cita. Los agentes nuevos la mandan en ISO (`fecha`);
+    // con los viejos se adivina del texto del día como antes.
+    private function fechaDeCita(array $dc): ?string
+    {
+        if (! empty($dc['fecha']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $dc['fecha'])) {
+            return $dc['fecha'];
+        }
+        return ! empty($dc['dia']) ? $this->parsearFechaCita($dc['dia']) : null;
+    }
+
+    // Id de la cita en el agente (citas_agentes.id), si vino y es un número.
+    private function citaAgenteId(array $dc): ?int
+    {
+        $id = $dc['cita_agente_id'] ?? null;
+        return is_numeric($id) && (int) $id > 0 ? (int) $id : null;
+    }
+
+    // ¿Llegó, después de esta tarjeta de cita, el aviso de que el cliente la canceló?
+    private function seCanceloDespues(ConversacionWa $conv): bool
+    {
+        $dc = $conv->datos_cita ?? [];
+        if (! $conv->telefono || (empty($dc['dia']) && ! $this->citaAgenteId($dc))) return false;
+
+        return ConversacionWa::where('telefono', $conv->telefono)
+            ->where('tipo', 'cita')
+            ->where('id', '>', $conv->id)
+            ->get(['id', 'datos_cita'])
+            ->contains(function ($c) use ($dc) {
+                $cancelacion = $c->datos_cita ?? [];
+                if (empty($cancelacion['cancelada'])) return false;
+
+                // Con los dos ids (agentes nuevos) se compara la identidad, no el día.
+                $idCancelada = $this->citaAgenteId(['cita_agente_id' => $cancelacion['cita_id'] ?? null]);
+                $idAgendada  = $this->citaAgenteId($dc);
+                if ($idCancelada && $idAgendada) return $idCancelada === $idAgendada;
+
+                return $this->mismoDiaDeCita($cancelacion['dia'] ?? null, $dc['dia'] ?? null, $this->fechaDeCita($dc));
+            });
+    }
+
+    // Cancela en el módulo Citas la cita de ese cliente para el día que avisó.
+    private function cancelarCitaDelCliente(ConversacionWa $conv): void
+    {
+        $dc = $conv->datos_cita ?? [];
+        try {
+            $citas = Cita::where('telefono', $conv->telefono)
+                ->whereIn('estado', ['pendiente', 'confirmada'])
+                ->get();
+
+            // El agente manda el id de SU cita (citas_agentes.id) en `cita_id`.
+            // Si la cita del módulo lo tiene guardado, se cruza por ahí; si no
+            // (citas creadas antes de este cambio), por el día.
+            $idCancelada = $this->citaAgenteId(['cita_agente_id' => $dc['cita_id'] ?? null]);
+
+            foreach ($citas as $cita) {
+                $coincide = ($idCancelada && $cita->cita_agente_id)
+                    ? (int) $cita->cita_agente_id === $idCancelada
+                    : $this->mismoDiaDeCita($dc['dia'] ?? null, $cita->dia, $cita->fecha_cita?->toDateString());
+                if (! $coincide) {
+                    continue;
+                }
+                $nota = 'Cancelada por el cliente con el agente' . (! empty($dc['motivo']) ? ': ' . $dc['motivo'] : '.');
+                $cita->update([
+                    'estado' => 'cancelada',
+                    'notas'  => trim(($cita->notas ? $cita->notas . "\n" : '') . $nota),
+                ]);
+            }
+        } catch (\Throwable $e) {
+            \Log::warning('[redes] no se pudo cancelar la cita del cliente: ' . $e->getMessage(), ['conv_id' => $conv->id]);
+        }
     }
 
     // Los bots de WhatsApp/Instagram comparten esta misma base de datos y se
@@ -257,10 +384,18 @@ class RedesController extends Controller
     }
 
     // DELETE /api/redes/conversaciones/terminadas — solo supervisor
+    //
+    // Archiva, no borra (ver migración archivar_conversaciones_de_redes): el
+    // agente usa estas filas para saber si un asesor ya atendió al cliente, y las
+    // métricas se calculan con ellas. Se sigue respondiendo `eliminadas` porque
+    // es lo que lee la pantalla.
     public function limpiarTerminadas()
     {
-        $eliminadas = ConversacionWa::where('estado', 'terminada')->delete();
-        return response()->json(['eliminadas' => $eliminadas]);
+        $archivadas = ConversacionWa::where('estado', 'terminada')
+            ->whereNull('archivada_at')
+            ->update(['archivada_at' => now()]);
+
+        return response()->json(['eliminadas' => $archivadas, 'archivadas' => $archivadas]);
     }
 
     // POST /api/redes/conversaciones/{id}/terminar
@@ -303,7 +438,13 @@ class RedesController extends Controller
     public function metricas(Request $request)
     {
         [$desde, $hasta] = $this->rangoMetricas($request);
-        $rango = [$desde . ' 00:00:00', $hasta . ' 23:59:59'];
+        // Los días son de Bogotá y la base guarda UTC: sin pasar el rango a UTC,
+        // lo que llegaba después de las 7 p. m. se contaba en el día siguiente
+        // (y "hoy" quedaba vacío a esa hora). Mismo criterio que StatsController.
+        $rango = [
+            Carbon::parse($desde, 'America/Bogota')->startOfDay()->setTimezone('UTC')->toDateTimeString(),
+            Carbon::parse($hasta, 'America/Bogota')->endOfDay()->setTimezone('UTC')->toDateTimeString(),
+        ];
 
         $base  = ConversacionWa::whereBetween('created_at', $rango);
         $total = (clone $base)->count();
@@ -324,7 +465,7 @@ class RedesController extends Controller
             ->groupBy('vendedor')->orderByDesc('n')->limit(15)->get();
 
         // Serie diaria para el gráfico de tendencia.
-        $serie = (clone $base)->selectRaw('DATE(created_at) as dia, COUNT(*) as n')
+        $serie = (clone $base)->selectRaw("DATE(CONVERT_TZ(created_at, '+00:00', '-05:00')) as dia, COUNT(*) as n")
             ->groupBy('dia')->orderBy('dia')->get();
 
         // Embudo del bot de Instagram. La tabla ig_eventos la crea el agente IG; si aún no

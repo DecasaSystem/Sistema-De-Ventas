@@ -14,7 +14,7 @@ class ConversacionWa extends Model
         'tipo', 'telefono', 'nombre_cliente', 'resumen',
         'historial', 'carrito', 'datos_cita', 'tienda_id',
         'whatsapp_url', 'contacto_url', 'fuente', 'estado',
-        'tomada_por', 'tomada_at', 'terminada_at',
+        'tomada_por', 'tomada_at', 'terminada_at', 'archivada_at',
     ];
 
     protected $casts = [
@@ -23,6 +23,7 @@ class ConversacionWa extends Model
         'datos_cita'   => 'array',
         'tomada_at'    => 'datetime',
         'terminada_at' => 'datetime',
+        'archivada_at' => 'datetime',
     ];
 
     public function tomadaPor()

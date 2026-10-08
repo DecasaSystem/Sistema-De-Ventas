@@ -390,6 +390,9 @@ Niveles: propio (`/encargos/mios`), `acceso_encargos` (ver), `revisa_encargos` (
 ### 6.15 Redes (WhatsApp), citas y catálogos
 - `RedesController`: webhook público con token para el agente de WhatsApp;
   bandeja de conversaciones (tomar/terminar), métricas (`acceso_redes`).
+  Los agentes de WhatsApp/Instagram leen tablas de este sistema directo de la
+  BD: **antes de migrar `productos`, `inventario`, variantes, `tiendas` o
+  `herramientas`, lee [`contrato-agentes.md`](contrato-agentes.md)**.
 - `CitaController`: citas presenciales o por mensaje; recordatorios diarios.
 - **Catálogo público** (`/catalogo/:seccion`) y **catálogos visuales** tipo
   revista (`/c`, `/c/:slug`, gestionados en Gestión → Catálogos, con QR).

@@ -106,12 +106,12 @@ const limpiando = ref(false)
 async function limpiarTerminadas() {
   const n = badges.value.terminada
   if (!n) return
-  if (!confirm(`¿Eliminar las ${n} conversaciones terminadas? Esta acción no se puede deshacer.`)) return
+  if (!confirm(`¿Archivar las ${n} conversaciones terminadas? Dejan de verse aquí, pero se conservan para el historial y las métricas.`)) return
   limpiando.value = true
   try {
     const { data } = await api.delete('/redes/conversaciones/terminadas')
     items.value = items.value.filter(c => c.estado !== 'terminada')
-    toast.success(`${data.eliminadas} conversaciones eliminadas`)
+    toast.success(`${data.archivadas ?? data.eliminadas} conversaciones archivadas`)
   } catch (e) {
     toast.error('Error al limpiar las terminadas')
   } finally {
@@ -149,7 +149,9 @@ function contactoUrl(conv) {
   const saludo = conv.nombre_cliente ? `Hola ${conv.nombre_cliente}, ` : 'Hola, '
   let texto = `${saludo}soy ${asesor} de DeCasa Muebles y Decoración 🛋️ Me da mucho gusto atenderte.`
 
-  if (conv.tipo === 'cita' && conv.datos_cita?.dia) {
+  if (conv.tipo === 'cita' && conv.datos_cita?.cancelada) {
+    texto += `\n\nVi que cancelaste tu cita del ${conv.datos_cita.dia}. ¿Te ayudo a buscar otro día?`
+  } else if (conv.tipo === 'cita' && conv.datos_cita?.dia) {
     texto += `\n\nYa vi tu cita agendada para el ${conv.datos_cita.dia} a las ${conv.datos_cita.hora}.`
     if (conv.datos_cita.motivo) texto += ` (${conv.datos_cita.motivo})`
   } else if (conv.resumen) {
@@ -181,7 +183,9 @@ async function abrirContacto(conv) {
     const asesor = auth.usuario?.nombre || 'tu asesor'
     const saludo = conv.nombre_cliente ? `Hola ${conv.nombre_cliente}, ` : 'Hola, '
     let msg = `${saludo}soy ${asesor} de DeCasa Muebles y Decoración 🛋️ Me da mucho gusto atenderte.`
-    if (conv.tipo === 'cita' && conv.datos_cita?.dia) {
+    if (conv.tipo === 'cita' && conv.datos_cita?.cancelada) {
+      msg += `\n\nVi que cancelaste tu cita del ${conv.datos_cita.dia}. ¿Te ayudo a buscar otro día?`
+    } else if (conv.tipo === 'cita' && conv.datos_cita?.dia) {
       msg += `\n\nYa vi tu cita agendada para el ${conv.datos_cita.dia} a las ${conv.datos_cita.hora}.`
       if (conv.datos_cita.motivo) msg += ` (${conv.datos_cita.motivo})`
     } else if (conv.resumen) {
@@ -195,6 +199,24 @@ async function abrirContacto(conv) {
     }
   }
   window.open(url, '_blank', 'noopener')
+}
+
+// Abre Nueva orden con el cliente y el carrito del chat a la vista. No crea nada:
+// el vendedor elige cada producto y guarda por el flujo normal de órdenes. Los
+// datos van en el state del router, no en la URL (son datos del cliente).
+function armarOrden(conv) {
+  router.push({
+    name: 'nueva-orden',
+    state: {
+      desdeRedes: {
+        id: conv.id,
+        fuente: conv.fuente,
+        nombre: conv.nombre_cliente ?? '',
+        telefono: conv.fuente === 'instagram' ? '' : (conv.telefono ?? ''),
+        carrito: JSON.parse(JSON.stringify(conv.carrito ?? [])),
+      },
+    },
+  })
 }
 
 function totalCarrito(carrito) {
@@ -309,7 +331,7 @@ onUnmounted(() => {
         class="flex items-center gap-1.5 text-xs font-semibold text-red-600 border border-red-200 bg-red-50 hover:bg-red-100 rounded-lg px-3 py-1.5 transition-colors disabled:opacity-50"
       >
         <TrashIcon class="w-3.5 h-3.5" />
-        {{ limpiando ? 'Eliminando…' : `Limpiar terminadas (${badges.terminada})` }}
+        {{ limpiando ? 'Archivando…' : `Archivar terminadas (${badges.terminada})` }}
       </button>
     </div>
 
@@ -363,7 +385,10 @@ onUnmounted(() => {
 
         <!-- Datos de cita -->
         <div v-if="conv.tipo === 'cita' && conv.datos_cita" class="mb-3 bg-blue-50 rounded-lg p-3 text-xs space-y-1">
-          <p class="font-semibold text-blue-700 flex items-center gap-1">
+          <p v-if="conv.datos_cita.cancelada" class="font-semibold text-red-600 flex items-center gap-1">
+            <CalendarDaysIcon class="w-3.5 h-3.5" /> Cita cancelada por el cliente
+          </p>
+          <p v-else class="font-semibold text-blue-700 flex items-center gap-1">
             <CalendarDaysIcon class="w-3.5 h-3.5" /> Cita agendada
           </p>
           <p class="text-blue-800">
@@ -392,6 +417,12 @@ onUnmounted(() => {
             <span>Total</span>
             <span>{{ formatPeso(totalCarrito(conv.carrito)) }}</span>
           </div>
+          <button
+            v-if="conv.estado === 'tomada' && conv.tomada_por?.id === auth.usuario?.id"
+            type="button"
+            @click="armarOrden(conv)"
+            class="mt-2 w-full bg-blue-600 text-white rounded-lg text-xs font-semibold py-2"
+          >Armar orden con este carrito</button>
         </div>
 
         <!-- Historial colapsable -->

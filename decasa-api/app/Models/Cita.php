@@ -9,7 +9,7 @@ class Cita extends Model
     protected $table = 'citas';
 
     protected $fillable = [
-        'conversacion_wa_id', 'asesor_id', 'tienda_id',
+        'conversacion_wa_id', 'cita_agente_id', 'asesor_id', 'tienda_id',
         'nombre_cliente', 'telefono', 'contacto_url', 'fuente',
         'dia', 'hora', 'motivo', 'estado', 'notas', 'fecha_cita',
     ];
