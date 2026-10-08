@@ -110,7 +110,11 @@ escribiendo precios (Fase 1b).
   celular**, aunque no pida asesor (`guardar_contacto` → `POST /api/agentes/clientes-redes`,
   sin tarjeta), y Elena lleva un resumen de lo que busca (`interes`). **Regla del dueño:
   si la IA no sabe un dato, no lo inventa: lo pasa a un asesor** (está por encima de
-  cualquier técnica de venta; sección SI NO LO SABES del prompt). Orden de despliegue
+  cualquier técnica de venta; sección SI NO LO SABES del prompt). Evaluación con el modelo
+  real (`npm run eval`, la clave la pone el dueño en su PowerShell; aquí no hay
+  `OPENAI_API_KEY`): 72 %/67 % → 97 %/92 %. Trampa: aunque el prompt lo prohíba, gpt-4o
+  decía "te envío el catálogo" sin llamar la herramienta; por eso existe
+  `core/verificacion.js` (revisión antes de enviar). Orden de despliegue
   sugerido: backend, agentes, front.
   Los `npm run eval` nuevos (9 casos de ventas) **no se han corrido** (cuestan dinero).
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
