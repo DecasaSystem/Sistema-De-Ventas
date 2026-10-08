@@ -33,7 +33,8 @@ import {
 const route  = useRoute()
 const router = useRouter()
 
-const WHATSAPP = '573217770621'
+// Sin botones de WhatsApp en los catálogos públicos, a pedido: el link lo
+// manda un asesor que ya está hablando con el cliente.
 
 const nombre    = ref('')
 const descrip   = ref('')
@@ -396,9 +397,6 @@ const notaActual = computed(() => paginas.value[i.value]?.nota || '')
         <RouterLink :to="{ name: 'catalogos-portada' }" class="bg-white/10 text-white text-sm font-semibold rounded-xl px-4 py-2.5">
           Ver otros catálogos
         </RouterLink>
-        <a :href="`https://wa.me/${WHATSAPP}`" target="_blank" class="bg-emerald-600 text-white text-sm font-semibold rounded-xl px-4 py-2.5">
-          WhatsApp
-        </a>
       </div>
     </div>
 

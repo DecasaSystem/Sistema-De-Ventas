@@ -10,7 +10,6 @@ import { RouterLink } from 'vue-router'
 import { portadaCatalogos } from '@/api/catalogos'
 import { cloudinaryOpt } from '@/utils/cloudinary'
 
-const WHATSAPP = '573217770621'
 
 const catalogos = ref([])
 const cargando   = ref(true)
@@ -48,11 +47,7 @@ const portada = (url) => cloudinaryOpt(url, 700)
 
     <div v-else-if="!catalogos.length" class="max-w-md mx-auto text-center py-20 px-6">
       <p class="text-lg font-semibold text-gray-700">Todavía no hay catálogos publicados</p>
-      <p class="text-sm text-gray-500 mt-1">Vuelve pronto o escríbenos y te contamos qué tenemos.</p>
-      <a :href="`https://wa.me/${WHATSAPP}`" target="_blank"
-        class="inline-block mt-5 bg-emerald-600 text-white text-sm font-semibold rounded-xl px-5 py-2.5">
-        Escribirnos por WhatsApp
-      </a>
+      <p class="text-sm text-gray-500 mt-1">Vuelve pronto.</p>
     </div>
 
     <main v-else class="max-w-4xl mx-auto px-4 py-5 pb-12">
@@ -80,12 +75,6 @@ const portada = (url) => cloudinaryOpt(url, 700)
         </RouterLink>
       </div>
 
-      <div class="mt-10 text-center">
-        <a :href="`https://wa.me/${WHATSAPP}`" target="_blank"
-          class="inline-block bg-emerald-600 text-white text-sm font-semibold rounded-xl px-6 py-3 shadow-sm hover:bg-emerald-700 transition-colors">
-          Escribirnos por WhatsApp
-        </a>
-      </div>
     </main>
   </div>
 </template>
