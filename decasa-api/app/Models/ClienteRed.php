@@ -18,6 +18,7 @@ class ClienteRed extends Model
     protected $fillable = [
         'canal', 'identificador', 'nombre', 'telefono', 'usuario_red', 'contacto_url',
         'ciudad', 'forma_pago', 'espacio', 'presupuesto', 'preferencias', 'productos_interes',
+        'categorias_interes', 'interes',
         'ultimo_interes', 'ultimo_tipo', 'estado', 'notas', 'no_quiso_dar_datos',
         'tienda_id', 'cliente_id', 'ultima_conversacion_id', 'total_conversaciones',
         'primer_contacto_at', 'ultimo_contacto_at',
@@ -26,6 +27,7 @@ class ClienteRed extends Model
     protected $casts = [
         'preferencias'       => 'array',
         'productos_interes'  => 'array',
+        'categorias_interes' => 'array',
         'presupuesto'        => 'integer',
         'no_quiso_dar_datos' => 'boolean',
         'primer_contacto_at' => 'datetime',

@@ -8,7 +8,7 @@ import { PhoneIcon, PencilSquareIcon } from '@heroicons/vue/24/outline'
 import { getClienteRed, updateClienteRed, convertirClienteRed } from '@/api/clientes'
 import { useToast } from '@/composables/useToast'
 import { pesos } from '@/utils/pesos'
-import { ESTADOS_RED, TIPOS_AVISO, canalBadge, haceCuanto, numeroWhatsApp } from './clientesRedes'
+import { ESTADOS_RED, TIPOS_AVISO, canalBadge, haceCuanto, numeroWhatsApp, nombreCategoria } from './clientesRedes'
 
 const props = defineProps({ id: { type: Number, required: true } })
 const emit = defineEmits(['cerrar', 'actualizado'])
@@ -171,6 +171,15 @@ onMounted(cargar)
                 :class="['px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors',
                   ficha.estado === e.value ? `${e.chip} border-transparent` : 'bg-white text-gray-500 border-gray-200']"
               >{{ e.label }}</button>
+            </div>
+          </div>
+
+          <!-- Lo que busca (lo resume Elena y lo va actualizando) -->
+          <div v-if="ficha.interes || ficha.categorias_interes?.length" class="space-y-1.5">
+            <p class="text-xs font-medium text-gray-500">Lo que busca</p>
+            <p v-if="ficha.interes" class="text-sm text-gray-800">{{ ficha.interes }}</p>
+            <div v-if="ficha.categorias_interes?.length" class="flex flex-wrap gap-1">
+              <span v-for="c in ficha.categorias_interes" :key="c" class="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">{{ nombreCategoria(c) }}</span>
             </div>
           </div>
 

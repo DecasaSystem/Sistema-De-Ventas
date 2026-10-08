@@ -35,8 +35,10 @@ export function haceCuanto(fecha) {
   return new Date(fecha).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', timeZone: 'America/Bogota' })
 }
 
-// Una línea de qué busca: lo que vio, o el aviso sin el título ni la línea de contacto.
+// Una línea de qué busca: lo que resumió Elena, lo que vio, o el aviso sin el título ni la
+// línea de contacto.
 export function interesCorto(f) {
+  if (f.interes) return f.interes
   if (f.productos_interes?.length) return `Vio: ${f.productos_interes.slice(0, 3).join(', ')}`
   const lineas = String(f.ultimo_interes ?? '')
     .split('\n')
@@ -50,4 +52,12 @@ export function numeroWhatsApp(telefono) {
   const d = String(telefono ?? '').replace(/\D/g, '')
   if (!d) return null
   return d.length === 10 ? `57${d}` : d
+}
+
+// "sofas_modulares" → "Sofás modulares". Las claves vienen de las categorías de los agentes.
+const NOMBRES_CATEGORIA = { sofas: 'Sofás', sofas_modulares: 'Sofás modulares', sofas_camas: 'Sofás cama', bases_comedores: 'Comedores', mesas_tv: 'Mesas de TV', cajoneros_bifes: 'Cajoneros' }
+export function nombreCategoria(clave) {
+  if (NOMBRES_CATEGORIA[clave]) return NOMBRES_CATEGORIA[clave]
+  const t = String(clave ?? '').replace(/_/g, ' ').trim()
+  return t ? t[0].toUpperCase() + t.slice(1) : ''
 }

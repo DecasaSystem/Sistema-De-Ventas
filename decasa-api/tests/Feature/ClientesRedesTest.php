@@ -106,6 +106,61 @@ class ClientesRedesTest extends TestCase
         $this->assertSame(ConversacionWa::sole()->id, $ficha->ultima_conversacion_id);
     }
 
+    private function datosDelAgente(array $datos)
+    {
+        return $this->withHeader('X-Agent-Token', 'secreto-de-prueba')
+            ->postJson('/api/agentes/clientes-redes', array_merge([
+                'fuente' => 'whatsapp', 'telefono' => '+573001112233',
+            ], $datos));
+    }
+
+    public function test_apenas_da_su_nombre_queda_guardado_sin_crear_tarjeta(): void
+    {
+        $this->datosDelAgente(['contacto' => [
+            'nombre' => 'Carolina Ruiz', 'telefono' => '+573001112233',
+            'interes' => 'Cama queen para la habitación principal, madera clara',
+            'categorias_interes' => ['camas'],
+        ]])->assertOk()->assertExactJson(['ok' => true, 'guardado' => true]);
+
+        $ficha = ClienteRed::sole();
+        $this->assertSame('Carolina Ruiz', $ficha->nombre);
+        $this->assertSame('Cama queen para la habitación principal, madera clara', $ficha->interes);
+        $this->assertSame(['camas'], $ficha->categorias_interes);
+        $this->assertSame(0, $ficha->total_conversaciones, 'no es un aviso de Redes');
+        $this->assertSame(0, ConversacionWa::count(), 'no se crea tarjeta ni se avisa a nadie');
+    }
+
+    public function test_sin_nombre_ni_celular_no_se_crea_ficha(): void
+    {
+        $this->datosDelAgente(['contacto' => ['interes' => 'Mira sofás']])
+            ->assertOk()->assertJsonPath('guardado', false);
+        $this->assertSame(0, ClienteRed::count());
+    }
+
+    public function test_el_interes_se_va_actualizando_y_el_aviso_posterior_usa_la_misma_ficha(): void
+    {
+        $this->datosDelAgente(['fuente' => 'instagram', 'telefono' => 'ig_77', 'contacto_url' => 'https://ig.me/m/laura.g',
+            'contacto' => ['nombre' => 'Laura', 'telefono' => '3104445566', 'usuario_red' => '@laura.g']]);
+        $this->datosDelAgente(['fuente' => 'instagram', 'telefono' => 'ig_77',
+            'contacto' => ['interes' => 'Sofá en L gris para sala pequeña, máximo $4 M', 'categorias_interes' => ['sofas', 'sofas_modulares']]]);
+        $this->avisar(['idempotencia' => 'tr', 'fuente' => 'instagram', 'telefono' => 'ig_77', 'tipo' => 'asesor', 'resumen' => 'Quiere un asesor']);
+
+        $ficha = ClienteRed::sole();
+        $this->assertSame('Laura', $ficha->nombre);
+        $this->assertSame('+573104445566', $ficha->telefono);
+        $this->assertSame('Sofá en L gris para sala pequeña, máximo $4 M', $ficha->interes);
+        $this->assertSame(['sofas', 'sofas_modulares'], $ficha->categorias_interes);
+        $this->assertSame('https://ig.me/m/laura.g', $ficha->contacto_url);
+        $this->assertSame(1, $ficha->total_conversaciones);
+    }
+
+    public function test_la_puerta_de_los_agentes_pide_el_token(): void
+    {
+        $this->postJson('/api/agentes/clientes-redes', ['fuente' => 'whatsapp', 'telefono' => 'x', 'contacto' => ['nombre' => 'Ana']])
+            ->assertStatus(401);
+        $this->assertSame(0, ClienteRed::count());
+    }
+
     public function test_un_segundo_aviso_actualiza_la_misma_ficha_sin_borrar_lo_que_ya_dijo(): void
     {
         $this->avisar(['idempotencia' => 'a1', 'contacto' => ['nombre' => 'Carolina', 'ciudad' => 'Armenia']]);

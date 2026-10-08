@@ -248,7 +248,9 @@ Job diario avisa las que van a vencer.
 que escribieron por WhatsApp o Instagram, con el nombre y el celular que le dieron a
 Elena antes de pasar con un asesor. Tabla `clientes_redes` (una fila por `canal` +
 `identificador`), la arma el webhook de Redes con `ClientesRedes::registrarDesdeAviso`
-(nunca tumba la tarjeta). `ClienteRedController`: listado con filtros y conteos por
+(nunca tumba la tarjeta) y, apenas el cliente da nombre o celular aunque no pida asesor,
+`POST /api/agentes/clientes-redes` → `ClientesRedes::registrarDesdeAgente` (sin tarjeta).
+Elena mantiene `interes` (lo que busca, en una frase) y `categorias_interes`. `ClienteRedController`: listado con filtros y conteos por
 estado (`nuevo`, `contactado`, `compro`, `perdido`), ficha con sus tarjetas de Redes,
 estado/notas/contacto y **Pasar a clientes** (crea un `Cliente` "interesado" o lo enlaza
 con el que ya tiene ese celular). Permiso `acceso_redes` o supervisor; un vendedor con

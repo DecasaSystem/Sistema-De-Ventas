@@ -35,26 +35,100 @@ class ClientesRedes
         $identificador = mb_substr(trim((string) $conv->telefono), 0, 80);
         if ($identificador === '') return null;
 
+        $guardar = function () use ($conv, $canal, $identificador, $contacto, $esCancelacion) {
+            $ficha = ClienteRed::firstOrNew(['canal' => $canal, 'identificador' => $identificador]);
+            $esNueva = ! $ficha->exists;
+
+            self::aplicarContacto($ficha, $canal, $identificador, $contacto ?? [], $conv->nombre_cliente);
+            if ($conv->contacto_url) $ficha->contacto_url = mb_substr($conv->contacto_url, 0, 255);
+            if ($conv->tienda_id) $ficha->tienda_id = $conv->tienda_id;
+
+            $ficha->ultimo_interes = mb_substr((string) $conv->resumen, 0, 1000);
+            $ficha->ultimo_tipo = mb_substr((string) $conv->tipo, 0, 20);
+            $ficha->ultima_conversacion_id = $conv->id;
+            $ficha->total_conversaciones = ($ficha->total_conversaciones ?? 0) + 1;
+
+            return self::cerrar($ficha, $esNueva, reabrir: ! $esCancelacion);
+        };
+
         try {
-            return self::guardar($conv, $canal, $identificador, $contacto ?? [], $esCancelacion);
+            return $guardar();
         } catch (UniqueConstraintViolationException) {
             // Dos avisos de la misma persona al mismo tiempo: el otro ya creó la fila.
-            return self::guardar($conv, $canal, $identificador, $contacto ?? [], $esCancelacion);
+            return $guardar();
         }
     }
 
-    private static function guardar(ConversacionWa $conv, string $canal, string $identificador, array $c, bool $esCancelacion): ClienteRed
+    /**
+     * El cliente dio sus datos (o se aprendió algo de lo que busca) en medio de la
+     * conversación, sin pedir asesor: se guarda la ficha SIN crear tarjeta en Redes ni
+     * avisar a nadie. Dueño, 2026-10-08: "que se guarden apenas da los datos".
+     *
+     * Solo se CREA la ficha si trae nombre o celular: una persona que solo saludó no es
+     * todavía un cliente de redes. Si ya existe, se actualiza (por ejemplo, el interés).
+     * Devuelve null si no había nada que guardar.
+     */
+    public static function registrarDesdeAgente(string $canal, string $identificador, array $contacto, ?string $contactoUrl = null): ?ClienteRed
     {
-        $ficha = ClienteRed::firstOrNew(['canal' => $canal, 'identificador' => $identificador]);
-        $esNueva = ! $ficha->exists;
+        if (! Schema::hasTable('clientes_redes')) return null;
+        $canal = $canal === 'instagram' ? 'instagram' : 'whatsapp';
+        $identificador = mb_substr(trim($identificador), 0, 80);
+        if ($identificador === '') return null;
 
-        // Lo nuevo manda, salvo que venga vacío: un aviso sin ciudad no borra la que dio antes.
+        $guardar = function () use ($canal, $identificador, $contacto, $contactoUrl) {
+            $ficha = ClienteRed::firstOrNew(['canal' => $canal, 'identificador' => $identificador]);
+            $esNueva = ! $ficha->exists;
+            $traeDatos = self::texto($contacto['nombre'] ?? null, 120) || self::telefono($contacto['telefono'] ?? null);
+            if ($esNueva && ! $traeDatos) return null;
+
+            self::aplicarContacto($ficha, $canal, $identificador, $contacto);
+            if ($contactoUrl) $ficha->contacto_url = mb_substr($contactoUrl, 0, 255);
+
+            return self::cerrar($ficha, $esNueva, reabrir: true);
+        };
+
+        try {
+            return $guardar();
+        } catch (UniqueConstraintViolationException) {
+            return $guardar();
+        }
+    }
+
+    /** Fechas, estado y enlace con el cliente oficial; guarda. */
+    private static function cerrar(ClienteRed $ficha, bool $esNueva, bool $reabrir): ClienteRed
+    {
+        $ficha->primer_contacto_at ??= now();
+        $ficha->ultimo_contacto_at = now();
+
+        // Estado: quien ya compró o se había dado por perdido y vuelve a escribir es una
+        // oportunidad nueva. Si alguien lo está trabajando ("contactado"), se respeta. La
+        // cancelación de una cita no reabre nada.
+        if ($esNueva) {
+            $ficha->estado = 'nuevo';
+        } elseif ($reabrir && in_array($ficha->estado, ['compro', 'perdido'], true)) {
+            $ficha->estado = 'nuevo';
+        }
+
+        if (! $ficha->cliente_id && $ficha->telefono) {
+            $ficha->cliente_id = self::clientePorTelefono($ficha->telefono);
+        }
+
+        $ficha->save();
+        return $ficha;
+    }
+
+    /**
+     * Copia a la ficha lo que trae `contacto`. Lo nuevo manda, salvo que venga vacío: un
+     * aviso sin ciudad no borra la que dio antes.
+     */
+    private static function aplicarContacto(ClienteRed $ficha, string $canal, string $identificador, array $c, ?string $nombreRespaldo = null): void
+    {
         $nombre = self::texto($c['nombre'] ?? null, 120);
         if ($nombre) {
             $ficha->nombre = $nombre;
-        } elseif (! $ficha->nombre && $conv->nombre_cliente) {
+        } elseif (! $ficha->nombre && $nombreRespaldo) {
             // Respaldo: el nombre del perfil de WhatsApp o de Instagram.
-            $ficha->nombre = self::texto($conv->nombre_cliente, 120);
+            $ficha->nombre = self::texto($nombreRespaldo, 120);
         }
 
         $telefono = self::telefono($c['telefono'] ?? null);
@@ -72,41 +146,20 @@ class ClientesRedes
         if (is_numeric($c['presupuesto'] ?? null) && (int) $c['presupuesto'] > 0) {
             $ficha->presupuesto = (int) $c['presupuesto'];
         }
-        foreach (['preferencias' => 5, 'productos_interes' => 6] as $campo => $max) {
+        foreach (['preferencias' => 5, 'productos_interes' => 6, 'categorias_interes' => 6] as $campo => $max) {
             $lista = self::lista($c[$campo] ?? null, $max);
             if ($lista) $ficha->{$campo} = $lista;
         }
+        // Lo que busca, en palabras de Elena ("cama queen para la habitación principal,
+        // madera clara, máximo $3 M"). Lo va actualizando ella a medida que aprende.
+        $interes = self::texto($c['interes'] ?? null, 500);
+        if ($interes) $ficha->interes = $interes;
+
         if (! empty($c['no_quiso_dar_datos'])) {
             $ficha->no_quiso_dar_datos = true;
         } elseif ($nombre || $telefono) {
             $ficha->no_quiso_dar_datos = false;
         }
-
-        if ($conv->contacto_url) $ficha->contacto_url = mb_substr($conv->contacto_url, 0, 255);
-        if ($conv->tienda_id) $ficha->tienda_id = $conv->tienda_id;
-
-        $ficha->ultimo_interes = mb_substr((string) $conv->resumen, 0, 1000);
-        $ficha->ultimo_tipo = mb_substr((string) $conv->tipo, 0, 20);
-        $ficha->ultima_conversacion_id = $conv->id;
-        $ficha->total_conversaciones = ($ficha->total_conversaciones ?? 0) + 1;
-        $ficha->primer_contacto_at ??= now();
-        $ficha->ultimo_contacto_at = now();
-
-        // Estado: quien ya compró o se había dado por perdido y vuelve a escribir es una
-        // oportunidad nueva. Si alguien lo está trabajando ("contactado"), se respeta. La
-        // cancelación de una cita no reabre nada.
-        if ($esNueva) {
-            $ficha->estado = 'nuevo';
-        } elseif (! $esCancelacion && in_array($ficha->estado, ['compro', 'perdido'], true)) {
-            $ficha->estado = 'nuevo';
-        }
-
-        if (! $ficha->cliente_id && $ficha->telefono) {
-            $ficha->cliente_id = self::clientePorTelefono($ficha->telefono);
-        }
-
-        $ficha->save();
-        return $ficha;
     }
 
     /**

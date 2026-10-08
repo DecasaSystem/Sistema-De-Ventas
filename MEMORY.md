@@ -105,7 +105,12 @@ escribiendo precios (Fase 1b).
   y **nombre + celular antes de transferir** → ficha en Clientes → Redes. Si el cliente no
   quiere dar datos se transfiere igual. **El catálogo va primero**: si el cliente pide una
   categoría ("quiero ver camas"), Elena lo manda de una vez y en el mismo mensaje pregunta
-  para entender qué busca ("el catálogo antoja al cliente", dueño). Orden de despliegue
+  para entender qué busca (dueño: el catálogo despierta el interés; **no usar la palabra
+  "antojar"**, le parece rara). El cliente queda en Clientes → Redes **apenas da nombre o
+  celular**, aunque no pida asesor (`guardar_contacto` → `POST /api/agentes/clientes-redes`,
+  sin tarjeta), y Elena lleva un resumen de lo que busca (`interes`). **Regla del dueño:
+  si la IA no sabe un dato, no lo inventa: lo pasa a un asesor** (está por encima de
+  cualquier técnica de venta; sección SI NO LO SABES del prompt). Orden de despliegue
   sugerido: backend, agentes, front.
   Los `npm run eval` nuevos (9 casos de ventas) **no se han corrido** (cuestan dinero).
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`

@@ -32,7 +32,8 @@ class ClienteRedController extends Controller
             $base->where(function ($q) use ($term, $digitos) {
                 $q->whereRaw('LOWER(nombre) LIKE ?', [$term])
                   ->orWhereRaw('LOWER(usuario_red) LIKE ?', [$term])
-                  ->orWhereRaw('LOWER(ultimo_interes) LIKE ?', [$term]);
+                  ->orWhereRaw('LOWER(ultimo_interes) LIKE ?', [$term])
+                  ->orWhereRaw('LOWER(interes) LIKE ?', [$term]);
                 if (strlen($digitos) >= 4) {
                     $q->orWhere('telefono', 'like', '%' . $digitos . '%')
                       ->orWhere('identificador', 'like', '%' . $digitos . '%');
@@ -143,6 +144,28 @@ class ClienteRedController extends Controller
 
             return response()->json(['cliente_id' => $cliente->id, 'creado' => true], 201);
         });
+    }
+
+    /**
+     * POST /api/agentes/clientes-redes — lo llaman los agentes (token, sin usuario).
+     * El cliente dio su nombre o celular en medio de la conversación, o Elena aprendió
+     * qué busca: se guarda la ficha sin crear tarjeta ni avisar a nadie.
+     *
+     * Como el webhook, solo se exige la forma: lo de adentro de `contacto` lo limpia
+     * ClientesRedes. Responde lo mínimo (regla de los agentes: nunca devolver datos).
+     */
+    public function desdeAgente(Request $request)
+    {
+        $data = $request->validate([
+            'fuente'       => 'required|string|in:whatsapp,instagram',
+            'telefono'     => 'required|string|max:80',   // número del chat o ig_<psid>
+            'contacto'     => 'required|array',
+            'contacto_url' => 'nullable|string|max:255',
+        ]);
+
+        $ficha = ClientesRedes::registrarDesdeAgente($data['fuente'], $data['telefono'], $data['contacto'], $data['contacto_url'] ?? null);
+
+        return response()->json(['ok' => true, 'guardado' => (bool) $ficha]);
     }
 
     private function visibles(Request $request)

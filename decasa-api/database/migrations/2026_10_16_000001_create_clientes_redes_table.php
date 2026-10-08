@@ -19,7 +19,9 @@ use Illuminate\Support\Facades\Schema;
  * enlazados por `cliente_id`.
  *
  * Una fila por persona y canal (`canal` + `identificador`): cada aviso nuevo del
- * agente la actualiza en vez de duplicarla. Los agentes no leen esta tabla.
+ * agente la actualiza en vez de duplicarla. Se crea apenas el cliente da su nombre o
+ * su celular (aunque no pida asesor) y Elena le va actualizando el interés. Los
+ * agentes no leen esta tabla: la escriben por la API.
  */
 return new class extends Migration
 {
@@ -41,7 +43,9 @@ return new class extends Migration
             $table->unsignedBigInteger('presupuesto')->nullable();
             $table->json('preferencias')->nullable();
             $table->json('productos_interes')->nullable();
-            $table->text('ultimo_interes')->nullable();
+            $table->json('categorias_interes')->nullable();     // camas, sofás… (lo que pidió ver)
+            $table->string('interes', 500)->nullable();         // lo que busca, resumido por Elena
+            $table->text('ultimo_interes')->nullable();         // resumen de la última tarjeta de Redes
             $table->string('ultimo_tipo', 20)->nullable();     // asesor | pedido | cita | personalizacion
             $table->string('estado', 20)->default('nuevo');    // nuevo | contactado | compro | perdido
             $table->text('notas')->nullable();

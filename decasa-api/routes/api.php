@@ -74,6 +74,9 @@ Route::post('/redes/webhook', [RedesController::class, 'webhook'])->middleware([
 // Estado de los pedidos de un cliente, por su número de WhatsApp. Solo lectura y
 // solo lo que el cliente puede saber de lo suyo (ver AgentePedidosController).
 Route::get('/agentes/pedidos', [AgentePedidosController::class, 'index'])->middleware(['agente', 'throttle:60,1']);
+// El cliente le dio a Elena su nombre o celular (o ella aprendió qué busca): se guarda en
+// Clientes → Redes sin crear tarjeta. Solo escribe; no devuelve datos del cliente.
+Route::post('/agentes/clientes-redes', [ClienteRedController::class, 'desdeAgente'])->middleware(['agente', 'throttle:120,1']);
 
 // ── Catálogo público ─────────────────────────────────────────────────────────
 // El link que se le manda a un cliente por WhatsApp. Sin contraseña, porque el

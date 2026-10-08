@@ -18,12 +18,23 @@ agentes la variable se llama `DECASA_AGENT_TOKEN`. Hay que rotarla en los tres s
 | `carrito` | `[{producto, precio, cantidad}]` |
 | `idempotencia` | UUID por notificación, el mismo en todos los reintentos. Sin él, se usa el hash viejo (teléfono + resumen + minuto) |
 | `fuente` | `whatsapp` / `instagram` |
-| `contacto` | (desde 2026-10-08) `{nombre, telefono, usuario_red, ciudad, forma_pago, presupuesto, espacio, preferencias[], productos_interes[], no_quiso_dar_datos}`, todo opcional. Arma la ficha en **Clientes → Redes** (`clientes_redes`, `ClientesRedes::registrarDesdeAviso`). Solo se valida que sea un objeto: lo de adentro se limpia en el servicio para no dar 422 por un dato raro del chat. El resumen trae además una línea `Contacto: Nombre · +57…` |
+| `contacto` | (desde 2026-10-08) `{nombre, telefono, usuario_red, ciudad, forma_pago, presupuesto, espacio, interes, preferencias[], productos_interes[], categorias_interes[], no_quiso_dar_datos}`, todo opcional. Arma la ficha en **Clientes → Redes** (`clientes_redes`, `ClientesRedes::registrarDesdeAviso`). Solo se valida que sea un objeto: lo de adentro se limpia en el servicio para no dar 422 por un dato raro del chat. El resumen trae además una línea `Contacto: Nombre · +57…` |
 
 Antes de transferir o confirmar un pedido, Elena pide **nombre y celular** (`core/contacto.js`):
 si faltan, la herramienta no transfiere y le pide que los pregunte en un mensaje; si el
 cliente no quiere darlos, transfiere igual con `no_quiso_dar_datos`. Los agentes **no leen**
 `clientes_redes`.
+
+### `POST /api/agentes/clientes-redes` (sin tarjeta)
+
+`ClienteRedController::desdeAgente`, middleware `agente`. Elena pide nombre y celular
+**temprano** (aunque no transfiera) y los guarda con la herramienta `guardar_contacto`; también
+se llama al actualizar lo que busca (`recordar_preferencia` con `interes`) o al mandar un
+catálogo. Cuerpo: `{fuente, telefono (número del chat o ig_<psid>), contacto, contacto_url}`.
+No crea tarjeta ni avisa a nadie. Solo **crea** la ficha si `contacto` trae nombre o celular;
+si ya existe, la actualiza. Responde `{ok, guardado}` y nada más (regla: los agentes nunca
+reciben datos de clientes). Sin cola de reintentos: si falla, la próxima sincronización o el
+aviso de transferencia llevan lo mismo.
 
 Respuestas: `201` creada, `200` repetida (idempotencia), `401` token, `422`
 validación. **Un 4xx hace que el agente descarte el aviso y alerte**; un 5xx o
