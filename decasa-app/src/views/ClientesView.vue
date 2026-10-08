@@ -1,7 +1,7 @@
 ﻿<script setup>
-import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useFiltrosRecordados } from '@/composables/useFiltrosRecordados'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import {
   MagnifyingGlassIcon,
   ChevronRightIcon,
@@ -13,6 +13,7 @@ import {
 } from '@heroicons/vue/24/outline'
 import { getClientes, createCliente, updateCliente, exportarClientes, verificarDuplicadoCliente } from '@/api/clientes'
 import EmptyState from '@/components/common/EmptyState.vue'
+import ClientesRedesPanel from '@/components/clientes/ClientesRedesPanel.vue'
 import { useAuthStore } from '@/stores/auth'
 import api from '@/api'
 
@@ -20,6 +21,21 @@ const auth = useAuthStore()
 const tiendas = ref([])
 
 const router = useRouter()
+const route = useRoute()
+
+// Clientes | Redes. Redes son los que escribieron por WhatsApp/Instagram (con el nombre y
+// celular que le dieron a Elena); los ve quien tiene el módulo Redes y los supervisores,
+// igual que el backend (permiso:acceso_redes,supervisor).
+const veRedes = computed(() => auth.tieneAccesoRedes || auth.isSupervisor)
+const seccionPedida = ref(route.query.seccion === 'redes' ? 'redes' : 'clientes')
+// Sin permiso de Redes siempre es "clientes", aunque llegue un enlace con ?seccion=redes.
+const seccion = computed(() => (veRedes.value ? seccionPedida.value : 'clientes'))
+function cambiarSeccion(s) {
+  seccionPedida.value = s
+  router.replace({ query: { ...route.query, seccion: s === 'redes' ? 'redes' : undefined } })
+  // Al volver, el sentinel del scroll infinito es otro elemento: hay que observarlo de nuevo.
+  if (s === 'clientes') setupObserver()
+}
 
 const clientes = ref([])
 const loading  = ref(true)
@@ -237,6 +253,7 @@ onUnmounted(() => {
     <!-- Header -->
     <div class="flex flex-wrap items-center gap-2">
       <h2 class="text-lg font-bold text-gray-800 flex-1">Clientes</h2>
+      <template v-if="seccion === 'clientes'">
       <button
         @click="exportar"
         :disabled="exportando || loading"
@@ -253,8 +270,24 @@ onUnmounted(() => {
         <PlusIcon class="w-4 h-4" />
         Crear
       </button>
+      </template>
     </div>
 
+    <!-- Clientes | Redes -->
+    <div v-if="veRedes" class="flex bg-gray-100 rounded-xl p-1">
+      <button
+        v-for="s in [{ value: 'clientes', label: 'Clientes' }, { value: 'redes', label: 'Redes (WhatsApp / IG)' }]"
+        :key="s.value"
+        @click="cambiarSeccion(s.value)"
+        :aria-pressed="seccion === s.value"
+        :class="['flex-1 py-1.5 rounded-lg text-sm font-medium transition-colors',
+          seccion === s.value ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500']"
+      >{{ s.label }}</button>
+    </div>
+
+    <ClientesRedesPanel v-if="veRedes && seccion === 'redes'" />
+
+    <template v-else>
     <!-- Filtros de tipo -->
     <div class="flex gap-2 flex-wrap">
       <button
@@ -330,6 +363,7 @@ onUnmounted(() => {
         <div v-if="loadingMore" class="text-sm text-gray-400">Cargando más...</div>
         <div v-else-if="!hasMore && clientes.length > 0" class="text-xs text-gray-300">No hay más clientes.</div>
       </div>
+    </template>
     </template>
 
     <!-- Modal crear cliente -->

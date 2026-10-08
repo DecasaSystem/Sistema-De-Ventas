@@ -78,6 +78,9 @@ escribiendo precios (Fase 1b).
 - Descuento condicionado: solo vale si pagan en efectivo/transferencia; tarjeta,
   Addi u "otro" lo hacen perder. Tarjeta y Addi cobran franquicia (5,5 %) y no
   se comisiona sobre eso.
+- **Elena puede ofrecer 5 % pagando en efectivo o transferencia** (dueño,
+  2026-10-08). "Un poco más" lo decide un asesor humano: el bot nunca promete más.
+  La cifra con descuento la calcula el código (`negocio.conDescuentoEfectivo`).
 - Numeración: consecutivo por grupo (Armenia vs Pereira). FV2 y R (restauración
   pura) llevan serie propia. Borradores y "esperando precio" no gastan número.
 - Un vendedor no cambia plata solo: lo pide (`SolicitudCambio`) y un supervisor
@@ -94,6 +97,17 @@ escribiendo precios (Fase 1b).
 - Ramas remotas sin cerrar: `develop`, `feat/entregas-parciales`,
   `fix/comisiones-reemplazos`, `seguridad/hardening-auditoria`. Confirmar con el
   usuario si siguen vivas antes de basarse en ellas.
+- **Elena asesora experta + Clientes de redes** (`docs/plan-elena-asesora-ventas.md`),
+  hecho el 2026-10-08, **sin subir**, rama `claude/ai-sales-improvement-feddff` + repo
+  `Desktop/Agentes`. Trae **migración** (`2026_10_16_000001_create_clientes_redes_table`,
+  solo crea tabla). Pedido del dueño: método de venta consultivo, pregunta de enganche al
+  final, asesor humano siempre a la mano, un intento de retener al que se va, 5 % efectivo,
+  y **nombre + celular antes de transferir** → ficha en Clientes → Redes. Si el cliente no
+  quiere dar datos se transfiere igual. **El catálogo va primero**: si el cliente pide una
+  categoría ("quiero ver camas"), Elena lo manda de una vez y en el mismo mensaje pregunta
+  para entender qué busca ("el catálogo antoja al cliente", dueño). Orden de despliegue
+  sugerido: backend, agentes, front.
+  Los `npm run eval` nuevos (9 casos de ventas) **no se han corrido** (cuestan dinero).
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 
@@ -218,6 +232,11 @@ Decisiones del dueño del 2026-10-08:
 - Circunvalar cerró el 2026-08-27; los agentes ya no la ofrecen.
 - Trampa: Nueva orden cobra la suma de `precio_adicional` sin mirar `afecta_precio` (la
   marca solo esconde el campo en Inventario).
+- Trampa (2026-10-08): en `wa_seguimientos`/`ig_seguimientos` el índice único incluye
+  `referencia`, y en MySQL dos NULL no chocan: con `referencia = NULL` cada llamada creaba
+  otra fila (un cliente con 3 productos recibía 3 recordatorios). Los seguimientos de "uno
+  por cliente" usan referencia fija (`carrito`, `interes`). Y nunca programar a 24 h exactas:
+  la ventana de WhatsApp/IG ya cerró y se descarta (se usan 20 h).
 - Lección de la auditoría: antes de tocar un bot, contrastar **cada dato que le dice al
   cliente** con su dueño en el sistema (catálogos, sedes, categorías, precios, juegos).
 

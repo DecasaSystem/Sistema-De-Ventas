@@ -7,6 +7,7 @@ use App\Models\Cita;
 use App\Models\ConversacionWa;
 use App\Models\Herramienta;
 use App\Models\Usuario;
+use App\Services\ClientesRedes;
 use App\Services\NotificacionService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -59,7 +60,13 @@ class RedesController extends Controller
             'contacto_url'   => 'nullable|string',
             'fuente'         => 'nullable|string|in:whatsapp,instagram',
             'idempotencia'   => 'nullable|string|max:100',
+            // Nombre, celular y lo que contó el cliente (desde 2026-10-08). Solo se exige
+            // que sea un objeto: lo de adentro lo limpia ClientesRedes. Un 422 aquí haría
+            // que el agente descartara el aviso entero, tarjeta incluida.
+            'contacto'       => 'nullable|array',
         ]);
+        $contacto = $data['contacto'] ?? null;
+        unset($data['contacto']);
 
         $tipos_validos  = ['pedido', 'cita', 'asesor', 'personalizacion', 'otro'];
         $data['tipo']   = in_array($data['tipo'], $tipos_validos) ? $data['tipo'] : 'otro';
@@ -97,6 +104,14 @@ class RedesController extends Controller
         // módulo Citas se marca cancelada para que nadie lo espere en la tienda.
         if ($this->esCancelacionDeCita($conv)) {
             $this->cancelarCitaDelCliente($conv);
+        }
+
+        // Ficha en Clientes → Redes (nombre, celular, qué busca). Nunca debe tumbar la
+        // tarjeta: si falla, se registra y la tarjeta sigue su camino.
+        try {
+            ClientesRedes::registrarDesdeAviso($conv, $contacto, $this->esCancelacionDeCita($conv));
+        } catch (\Throwable $e) {
+            \Log::warning('[clientes-redes] no se pudo registrar el aviso ' . $conv->id . ': ' . $e->getMessage());
         }
 
         try {

@@ -243,6 +243,17 @@ Job diario avisa las que van a vencer.
 `ClienteController`: CRUD, verificación de duplicados, exportar a Excel,
 órdenes del cliente. Borrar solo supervisor.
 
+**Clientes de redes** (2026-10-08, pestaña *Redes* en `ClientesView`,
+`components/clientes/ClientesRedesPanel.vue` + `ClienteRedModal.vue`): las personas
+que escribieron por WhatsApp o Instagram, con el nombre y el celular que le dieron a
+Elena antes de pasar con un asesor. Tabla `clientes_redes` (una fila por `canal` +
+`identificador`), la arma el webhook de Redes con `ClientesRedes::registrarDesdeAviso`
+(nunca tumba la tarjeta). `ClienteRedController`: listado con filtros y conteos por
+estado (`nuevo`, `contactado`, `compro`, `perdido`), ficha con sus tarjetas de Redes,
+estado/notas/contacto y **Pasar a clientes** (crea un `Cliente` "interesado" o lo enlaza
+con el que ya tiene ese celular). Permiso `acceso_redes` o supervisor; un vendedor con
+tienda ve las de su tienda y las sin tienda. Prueba: `ClientesRedesTest`.
+
 ### 6.4 Pagos, caja y facturación
 - `PagoController`: abonos, anticipo de órdenes que quedaron en $0,
   `verificar-pago` (avisa si se pierde el descuento condicionado), editar pago

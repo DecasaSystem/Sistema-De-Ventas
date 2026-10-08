@@ -36,3 +36,9 @@ export const CATEGORIAS_DISPONIBLES = [
   'Mesas auxiliares',
   'Camas o colchones',
 ]
+
+// Clientes de redes: quienes escribieron por WhatsApp/Instagram (ver ClienteRedController).
+export const getClientesRedes = (params = {}) => api.get('/clientes-redes', { params })
+export const getClienteRed = (id) => api.get(`/clientes-redes/${id}`)
+export const updateClienteRed = (id, data) => api.put(`/clientes-redes/${id}`, data)
+export const convertirClienteRed = (id) => api.post(`/clientes-redes/${id}/convertir`)

@@ -18,6 +18,12 @@ agentes la variable se llama `DECASA_AGENT_TOKEN`. Hay que rotarla en los tres s
 | `carrito` | `[{producto, precio, cantidad}]` |
 | `idempotencia` | UUID por notificación, el mismo en todos los reintentos. Sin él, se usa el hash viejo (teléfono + resumen + minuto) |
 | `fuente` | `whatsapp` / `instagram` |
+| `contacto` | (desde 2026-10-08) `{nombre, telefono, usuario_red, ciudad, forma_pago, presupuesto, espacio, preferencias[], productos_interes[], no_quiso_dar_datos}`, todo opcional. Arma la ficha en **Clientes → Redes** (`clientes_redes`, `ClientesRedes::registrarDesdeAviso`). Solo se valida que sea un objeto: lo de adentro se limpia en el servicio para no dar 422 por un dato raro del chat. El resumen trae además una línea `Contacto: Nombre · +57…` |
+
+Antes de transferir o confirmar un pedido, Elena pide **nombre y celular** (`core/contacto.js`):
+si faltan, la herramienta no transfiere y le pide que los pregunte en un mensaje; si el
+cliente no quiere darlos, transfiere igual con `no_quiso_dar_datos`. Los agentes **no leen**
+`clientes_redes`.
 
 Respuestas: `201` creada, `200` repetida (idempotencia), `401` token, `422`
 validación. **Un 4xx hace que el agente descarte el aviso y alerte**; un 5xx o
@@ -105,6 +111,8 @@ le ponga nombre en `negocio.json`.
 | Estados de una orden y sus nombres para el cliente | `AgentePedidosController::ESTADOS` (aquí) | Un estado nuevo sale como "En proceso" hasta agregarlo |
 | Formas de pago: efectivo, transferencia, tarjeta, Addi | `negocio.json → pagos` | El bot ofrece una forma de pago que no existe |
 | Teléfono del cliente: se compara por los últimos 10 dígitos | `AgentePedidosController` | — |
+| Descuento por pago en efectivo o transferencia: **5 %**; más lo decide un asesor (dueño, 2026-10-08). Tarjeta y Addi sin descuento | `negocio.json → pagos.descuentos.porcentaje` + `negocio.conDescuentoEfectivo` (el código calcula la cifra) | El bot promete un porcentaje que ya no es |
+| Celular: `+57` + 10 dígitos (3… o 60…) | `core/contacto.js → normalizarTelefono` y `ClientesRedes::telefono` | La ficha y el bot guardan el número en formatos distintos |
 
 Decisiones del dueño que viven en los agentes (2026-10-08): **no se abre en festivos**
 (los agentes los calculan solos, Ley Emiliani); Circunvalar cerró el 2026-08-27.

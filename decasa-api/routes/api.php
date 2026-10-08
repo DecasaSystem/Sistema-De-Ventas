@@ -5,6 +5,7 @@ use App\Http\Controllers\CitaController;
 use App\Http\Controllers\RedesController;
 use App\Http\Controllers\AgentePedidosController;
 use App\Http\Controllers\ClienteController;
+use App\Http\Controllers\ClienteRedController;
 use App\Http\Controllers\InventarioController;
 use App\Http\Controllers\NotificacionController;
 use App\Http\Controllers\OrdenController;
@@ -329,6 +330,16 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/clientes/{id}',          [ClienteController::class, 'update']);
     Route::delete('/clientes/{id}',       [ClienteController::class, 'destroy'])->middleware('role:supervisor');
     Route::get('/clientes/{id}/ordenes',  [ClienteController::class, 'ordenes']);
+
+    // Clientes de redes: quienes escribieron por WhatsApp/Instagram, con el nombre y
+    // celular que le dieron a Elena (las fichas las crea el webhook de Redes). Mismo
+    // permiso que el módulo Redes; los supervisores entran siempre.
+    Route::middleware('permiso:acceso_redes,supervisor')->group(function () {
+        Route::get('/clientes-redes',                   [ClienteRedController::class, 'index']);
+        Route::get('/clientes-redes/{id}',              [ClienteRedController::class, 'show'])->whereNumber('id');
+        Route::put('/clientes-redes/{id}',              [ClienteRedController::class, 'update'])->whereNumber('id');
+        Route::post('/clientes-redes/{id}/convertir',   [ClienteRedController::class, 'convertir'])->whereNumber('id');
+    });
 
     // Órdenes
     Route::get('/ordenes',              [OrdenController::class, 'index']);
