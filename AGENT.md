@@ -6,6 +6,8 @@ siempre en este repositorio. Léelo completo antes de tocar código.
 - Contexto vivo (decisiones, reglas de negocio, estado del trabajo): [`MEMORY.md`](MEMORY.md)
 - Documentación completa módulo por módulo: [`docs/PROYECTO.md`](docs/PROYECTO.md)
 - Plan del cotizador IA (las "Fase N" que citan los comentarios del código): [`docs/plan-cotizador-ia.md`](docs/plan-cotizador-ia.md)
+- Qué leen y llaman los agentes de WhatsApp/Instagram de este sistema: [`docs/contrato-agentes.md`](docs/contrato-agentes.md)
+- Herramientas para agentes (skills, mapa de código, revisión de seguridad): §9
 
 ---
 
@@ -20,8 +22,15 @@ caja, comisiones, nómina, costos de fabricación con IA, y más.
 |---|---|---|---|
 | API | `decasa-api/` | Laravel 13, PHP 8.4, MySQL (Aiven), Sanctum, Reverb, colas en BD | Render (Docker) — `https://decasa-api-b91v.onrender.com` |
 | App | `decasa-app/` | Vue 3 + Vite 8 + Pinia + Tailwind 4, PWA | Vercel — `https://sistema-de-ventas-olive.vercel.app` |
+| Agentes de chat (Elena) | **otro repo:** `Desktop/Agentes` (`Agente-ws`, `Agente-ig`) | Node + Express + OpenAI, Twilio / Meta | Render, uno por canal |
 
 La app llama a `/api/*` y Vercel lo reescribe al backend de Render (`decasa-app/vercel.json`).
+
+Los agentes atienden a los clientes por WhatsApp e Instagram y son **parte del sistema**:
+leen la misma base de datos (productos, precios, variantes, inventario, tiendas,
+catálogos) y le hablan a esta API por `POST /api/redes/webhook` (tarjetas de Redes) y
+`GET /api/agentes/pedidos` ("¿cómo va mi pedido?"). Un cambio aquí puede cambiar lo que
+Elena le dice a un cliente: ver `docs/contrato-agentes.md` y la regla 9.
 
 ---
 
@@ -44,7 +53,8 @@ La app llama a `/api/*` y Vercel lo reescribe al backend de Render (`decasa-app/
    `laPuedeCobrar()` / `laPuedeEditar()`.** Nunca un `where('vendedor_id', ...)`
    propio: las ventas de una tienda son de la tienda **y** de quien las vendió.
 6. **Secretos fuera del repo.** `.env`, credenciales de Aiven, Cloudinary, OpenAI,
-   Gmail, VAPID, `.vercel/` y scripts tipo `dbcheck.mjs` nunca se versionan.
+   Gmail, VAPID, `AGENT_TOKEN` y scripts tipo `dbcheck.mjs` nunca se versionan.
+   (`.vercel/project.json` sí está versionado desde antes; solo trae ids, no secretos.)
 7. **Migraciones: solo hacia adelante y compatibles.** En Render corren solas al
    arrancar (`entrypoint.sh` → `php artisan migrate --force`). No borrar ni
    renombrar columnas que el código viejo todavía lee; no borrar filas de datos
@@ -52,6 +62,17 @@ La app llama a `/api/*` y Vercel lo reescribe al backend de Render (`decasa-app/
 8. **No reescribir en bloque.** Cambios mínimos y localizados; los controladores
    son grandes (OrdenController ~4.400 líneas) y llenos de casos de negocio
    documentados en comentarios. Lee el comentario antes de "simplificar".
+9. **No romper a los agentes de chat.** Antes de renombrar o quitar columnas de
+   `productos`, `inventario`, `tiendas`, variantes, `herramientas`, `catalogos` o
+   `conversaciones_wa`, o de cambiar las rutas públicas `/c/:slug` y
+   `/catalogo/:seccion`, lee `docs/contrato-agentes.md`. Los agentes verifican el
+   esquema al arrancar y alertan, pero el cambio igual hay que coordinarlo en los dos
+   repos. Las rutas de los agentes van con el middleware `agente` (`TokenDelAgente`,
+   cabecera `X-Agent-Token` = `AGENT_TOKEN`) y **nunca devuelven plata ni datos
+   internos** (`AgentePedidosController`).
+10. **Lo que Elena le dice al cliente sale de aquí.** Cerrar una tienda (`tiendas.activa`),
+    crear una categoría, cambiar un precio de variante o un catálogo de Gestión cambia
+    lo que responde el bot. Ver la tabla de reglas compartidas en `docs/contrato-agentes.md`.
 
 ---
 
@@ -74,6 +95,11 @@ La app llama a `/api/*` y Vercel lo reescribe al backend de Render (`decasa-app/
    - Frontend: `cd decasa-app && npx vite build` sin errores.
    - Hay fallos de tests **preexistentes** (ver `MEMORY.md` → Entorno). Compara
      **por clase de test**, no por número total.
+   - **En un worktree** (`.claude/worktrees/…`): copia el `vendor` del repo principal
+     y corre `composer dump-autoload` adentro. Nunca un enlace (junction): los tests
+     correrían el `app/` viejo del principal sin avisar. Para el front, `npm ci`.
+   - Si el cambio toca algo de `docs/contrato-agentes.md`, corre también las pruebas
+     de los agentes (`npm test` en `Desktop/Agentes`).
 5. **Si la rama trae migración**, dilo explícitamente en el resumen/PR.
 6. **Actualiza `MEMORY.md`** cuando aprendas algo durable: una decisión del
    usuario, una regla de negocio, una trampa del código, el estado de un trabajo
@@ -148,7 +174,12 @@ La app llama a `/api/*` y Vercel lo reescribe al backend de Render (`decasa-app/
 ## 6. Entorno local (máquina Windows del usuario)
 
 - PHP 8.4 en `C:\php\php.exe` (en Git Bash: `/c/php/php.exe`), Composer en
-  `C:\php\composer.phar`, Node 24. **No hay Python.**
+  `C:\php\composer.phar`, Node 24. **No hay Python del sistema**: solo el que maneja
+  `uv` (`~/.local/bin/uv.exe`) para `graphify`. No uses Python para scripts del proyecto.
+- Sin `winget` (Windows 10 LTSC). Herramientas de terceros: descargar de la release
+  oficial y verificar el checksum.
+- Comandos que necesitan red (`npx skills`, `vercel`, `curl` a GitHub) fallan dentro
+  del sandbox ("Not authorized" en Vercel): corren fuera de él.
 - No hay backend local corriendo (sin `.env`, producción es MySQL). Para ver
   pantallas: servidor falso en Node + Vite con proxy + Chrome headless (ver
   `MEMORY.md` → "Ver pantallas sin backend").
@@ -172,6 +203,9 @@ La app llama a `/api/*` y Vercel lo reescribe al backend de Render (`decasa-app/
 | Costos / IA | `AgentService`, `Services/Costos/*`, `FichaTecnicaController`, `MaterialController` | `CostosView`, `components/costos/*`, `AgentChat` |
 | Nómina | `Nomina*Controller`, `NominaLiquidador`, `CicloNomina` | `NominaView` |
 | Reportes / stats | `ReporteController`, `StatsController` | `ReportesView`, `StatsVendedorView` |
+| Redes (tarjetas de los agentes), citas | `RedesController` (webhook, tomar/terminar, archivar, métricas), `CitaController` | `RedesView`, `MetricasRedesView`, `CitasView` |
+| Lo que consultan los agentes | `AgentePedidosController`, middleware `TokenDelAgente` | — |
+| Catálogos públicos | `CatalogoPublicoController` (`/catalogo/:seccion`, `/c`, `/c/:slug`), `CatalogoVisualController` (Gestión) | `CatalogoPublicoView`, `CatalogosPortadaView`, `CatalogoVisorView` |
 
 Detalle completo en [`docs/PROYECTO.md`](docs/PROYECTO.md).
 
@@ -190,3 +224,29 @@ Detalle completo en [`docs/PROYECTO.md`](docs/PROYECTO.md).
   de ahí (decisiones, razones, estado).
 - Si cambias un módulo de forma importante, actualiza también su sección en
   `docs/PROYECTO.md`.
+
+---
+
+## 9. Herramientas para agentes
+
+Instaladas el 2026-10-08. Se cargan al **abrir una sesión nueva**.
+
+- **Skills del proyecto** (`.agents/skills/`, registro en `skills-lock.json`; los accesos
+  de `.claude/skills/` los ignora git): `laravel-specialist`, `laravel-security`,
+  `vue-best-practices`, `sql-optimization`, las 25 de `addyosmani/agent-skills`
+  (revisión de código, TDD, depuración, seguridad, rendimiento, migraciones sin caída,
+  planeación…) y las de antes (`deploy-to-vercel`, `diagnosing-bugs`, `ui-taste`…).
+  Úsalas como guía, pero **este archivo manda**: si una skill dice "haz commit", "abre un
+  PR" o "despliega", la regla 1 sigue valiendo.
+- **Mapa de código (graphify):** `graphify-out/` (no se versiona). Para preguntas de
+  "¿qué toca X?" o "¿dónde se usa Y?": `graphify query "…"`, `graphify explain "X"`,
+  `graphify path "A" "B"`. Después de cambiar código: `graphify update .` (local, sin
+  costo). Vista para el usuario: `graphify-out/graph.html`. `CLAUDE.md` y
+  `.claude/settings.json` traen su sección y sus hooks (solo recuerdan, no bloquean).
+- **Revisión de seguridad:** plugin `claude-security` (Anthropic, a nivel de usuario).
+  Hace escaneo de vulnerabilidades con hallazgos verificados y parches que **el usuario**
+  decide aplicar.
+- **Buscar más skills:** `npx skills find <tema>`. Antes de instalar, revisar
+  instalaciones, estrellas del repo y el contenido (ver lo que se hizo en `MEMORY.md`).
+  **No instalar OmniRoute** ni gateways que reenvíen el código a proveedores de
+  terceros (decisión del usuario, 2026-10-08).

@@ -129,6 +129,9 @@ escribiendo precios (Fase 1b).
   por clase.
 - Front: `cd decasa-app && npx vite build`.
 - **Recontado 2026-10-07: 713 tests, 10 fallos preexistentes** (las mismas 6 clases).
+- **Recontado 2026-10-08: 734 tests, 10 fallos preexistentes** (las mismas 6 clases).
+- Herramientas instaladas el 2026-10-08 (skills, graphify, claude-security): ver `AGENT.md` §9.
+  Los agentes de chat tienen su propio `AGENT.md` en `Desktop/Agentes/`.
 - **Trampa en worktrees:** no enlazar (junction) el `vendor` del repo principal.
   Laravel deduce la ruta base de la ubicación del `vendor` y el classmap apunta
   al `app/` del principal: los tests corren el código VIEJO sin avisar. Copiar
@@ -203,6 +206,20 @@ persona": archivar en vez de borrar; citas cruzadas por id; el pedido del bot so
 **pre-llena** Nueva orden (nunca crea órdenes solo); el bot no cotiza combinaciones
 de dos o más tipos de variante con precio (las pasa a un asesor); stock por variante
 no se construye hasta que el bot lo necesite.
+
+Decisiones del dueño del 2026-10-08:
+- **No abren en festivos** (Colombia). Los agentes los calculan solos (`fechas.js`) y no
+  agendan citas esos días.
+- **El agente de WhatsApp puede consultar los pedidos del cliente por su número**
+  (`GET /api/agentes/pedidos`), "sin dar información de más": nada de montos ni datos
+  internos, y solo el número verificado desde el que escribe.
+- **"Eléctrica" no es una categoría**: es una opción de variante (silla reclinable Manual
+  con palanca / Eléctrica con botón) que cambia el precio, como las medidas de las camas.
+- Circunvalar cerró el 2026-08-27; los agentes ya no la ofrecen.
+- Trampa: Nueva orden cobra la suma de `precio_adicional` sin mirar `afecta_precio` (la
+  marca solo esconde el campo en Inventario).
+- Lección de la auditoría: antes de tocar un bot, contrastar **cada dato que le dice al
+  cliente** con su dueño en el sistema (catálogos, sedes, categorías, precios, juegos).
 
 ## 6. Trampas conocidas
 

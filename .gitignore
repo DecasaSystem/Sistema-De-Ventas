@@ -16,3 +16,6 @@ decasa-api/storage/fonts/
 .claude/skills/
 # Comprimido que trae una skill de ejemplo; no hace falta en el repo.
 .agents/skills/deploy-to-vercel/Archive.zip
+
+# Mapa de código generado por graphify (graphify update .): se regenera, no se versiona
+graphify-out/
