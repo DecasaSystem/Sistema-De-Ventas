@@ -32,6 +32,10 @@ class OrdenItem extends Model
         'cantidad',
         // Cuántas ya se entregaron. Caché de entrega_lineas: ver EntregaLinea.
         'cantidad_entregada',
+        // De lo entregado, cuántas unidades volvieron a estar por entregar
+        // porque se están arreglando por garantía. Ya salieron del inventario
+        // la primera vez: al volverlas a entregar no se descuenta otra vez.
+        'cantidad_en_garantia',
         'precio_unitario',
         'es_personalizado',
         'fabricar_pedido',
@@ -72,6 +76,7 @@ class OrdenItem extends Model
             'piezas_juego'          => 'integer',
             'es_pieza_suelta'       => 'boolean',
             'cantidad_entregada'    => 'integer',
+            'cantidad_en_garantia'  => 'integer',
             'specs_personalizacion' => 'array',
             'boceto_fotos'          => 'array',
             'fecha_entrega_prom'    => 'date',
@@ -468,6 +473,19 @@ class OrdenItem extends Model
     }
 
     /**
+     * ¿Tiene que esperar al taller para entregarse?
+     *
+     * Lo que se fabrica o se retapiza (`vaAlTaller`), y además lo que se está
+     * arreglando por garantía aunque sea de catálogo: la mesa de noche que
+     * volvió con la pata floja no se entrega otra vez hasta que el taller la
+     * dé por lista.
+     */
+    public function pasaPorElTaller(): bool
+    {
+        return $this->vaAlTaller() || (int) $this->cantidad_en_garantia > 0;
+    }
+
+    /**
      * ¿Se puede entregar hoy?
      *
      * Lo de catálogo sí siempre (está apartado en la tienda), lo que ya está
@@ -479,7 +497,7 @@ class OrdenItem extends Model
     public function estaListoParaEntregar(): bool
     {
         if ($this->pendienteEntregar() <= 0) return false;
-        if (! $this->vaAlTaller())            return true;
+        if (! $this->pasaPorElTaller())       return true;
 
         $produccion = $this->relationLoaded('produccion') ? $this->produccion : $this->produccion()->first();
 

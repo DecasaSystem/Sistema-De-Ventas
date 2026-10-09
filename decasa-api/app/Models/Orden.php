@@ -767,7 +767,7 @@ class Orden extends Model
         $pendientes = $this->items->filter(fn ($i) => $i->pendienteEntregar() > 0);
 
         $hayEnTaller = $pendientes->contains(fn ($i) =>
-            $i->vaAlTaller()
+            $i->pasaPorElTaller()
             && ($i->produccion === null || ! in_array($i->produccion->estado, ['listo', 'entregado'], true))
         );
         if ($hayEnTaller) return 'en_produccion';

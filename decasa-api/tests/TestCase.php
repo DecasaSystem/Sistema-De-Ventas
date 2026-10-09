@@ -156,6 +156,10 @@ abstract class TestCase extends BaseTestCase
                 $t->timestamp('created_at')->nullable();
             });
         }
+        // Garantías: lo arreglado que vuelve a la casa no mueve inventario.
+        $agregar('orden_items',    'cantidad_en_garantia', fn ($t) => $t->unsignedInteger('cantidad_en_garantia')->default(0));
+        $agregar('entrega_lineas', 'unidades_garantia',    fn ($t) => $t->unsignedInteger('unidades_garantia')->default(0));
+
         if (! \Illuminate\Support\Facades\Schema::hasTable('produccion')) {
             \Illuminate\Support\Facades\Schema::create('produccion', function ($t) {
                 $t->id(); $t->unsignedBigInteger('orden_item_id')->nullable(); $t->string('estado')->default('pendiente');

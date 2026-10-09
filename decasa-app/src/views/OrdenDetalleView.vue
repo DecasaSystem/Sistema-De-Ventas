@@ -16,6 +16,10 @@ import { useTiposProceso } from '@/composables/useTiposProceso'
 import { despachoPorOrden, crearEntregaDirecta, cancelarEntregaDirecta, entregasDeOrden, deshacerEntrega as deshacerEntregaApi } from '@/api/despacho'
 import EntregaDetalleModal from '@/components/despacho/EntregaDetalleModal.vue'
 import { getDevoluciones, crearDevolucion } from '@/api/devoluciones'
+import { getGarantias } from '@/api/garantias'
+import ReportarGarantiaModal from '@/components/garantias/ReportarGarantiaModal.vue'
+import GarantiaTarjeta from '@/components/garantias/GarantiaTarjeta.vue'
+import { ShieldCheckIcon } from '@heroicons/vue/24/outline'
 import { tomarFacturacion, marcarFacturada } from '@/api/pagos'
 import { getReceptores, crearConsulta, getConsultas, ajustarPrecio as ajustarPrecioApi } from '@/api/consultas'
 import { pdfAnexo } from '@/api/anexos'
@@ -509,6 +513,53 @@ async function guardarDano() {
   }
 }
 
+// ── Garantías (después de entregado) ────────────────────────────────────────
+// Se dañó algo que el cliente ya tenía en la casa. Se reporta por producto;
+// quien decide lo manda al taller, a domicilio, lo cambia o lo cierra. Si va
+// al taller, el producto vuelve a estar "por entregar" en esta misma orden y
+// se le entrega otra vez con acta.
+const garantias     = ref([])
+const garantiaItem  = ref(null)
+
+async function cargarGarantias(ordenId) {
+  try {
+    garantias.value = (await getGarantias({ orden_id: ordenId }, { silencioso: true })).data
+  } catch {
+    garantias.value = []
+  }
+}
+
+const ESTADOS_SIN_GARANTIA = ['cancelado', 'borrador', 'cotizacion', 'pendiente_cotizacion']
+
+/** Unidades que el cliente tiene en la casa y no están ya en un reclamo sin dictamen. */
+function reclamables(item) {
+  const enTramite = garantias.value
+    .filter(g => g.orden_item_id === item.id && ['pendiente', 'a_domicilio', 'por_devolver'].includes(g.estado))
+    .reduce((s, g) => s + g.cantidad, 0)
+  return Number(item.cantidad_entregada || 0) - enTramite
+}
+
+function puedeGarantia(item) {
+  return orden.value && !ESTADOS_SIN_GARANTIA.includes(orden.value.estado)
+    && !item.devuelto_en && reclamables(item) > 0
+}
+
+/** La garantía abierta de este renglón, o la que lo trajo como reemplazo. */
+function garantiaDeItem(item) {
+  const abierta = garantias.value.find(g => g.orden_item_id === item.id
+    && !['resuelta', 'no_procede'].includes(g.estado))
+  if (abierta) return { texto: 'En garantía', cls: 'bg-blue-50 text-blue-700 border-blue-200' }
+  if (garantias.value.some(g => g.orden_item_nuevo_id === item.id)) {
+    return { texto: 'Reposición por garantía', cls: 'bg-teal-50 text-teal-700 border-teal-200' }
+  }
+  return null
+}
+
+async function garantiaGuardada() {
+  garantiaItem.value = null
+  await cargarOrden()
+}
+
 /** Las fotos del comprobante de un pago; los viejos traen una sola. */
 function fotosDePago(pago) {
   const lista = pago?.comprobante_fotos
@@ -774,6 +825,7 @@ async function cargarOrden() {
     } catch {
       devoluciones.value = []
     }
+    cargarGarantias(data.id)
   } catch (e) {
     if (e.response?.status === 404) {
       noExiste.value = {
@@ -1330,6 +1382,8 @@ const tipoPagoLabel = {
   anticipo: 'Anticipo',
   abono: 'Abono',
   saldo_final: 'Saldo final',
+  // Pago negativo: la plata que se le devolvió por una garantía.
+  reembolso: 'Reembolso (garantía)',
 }
 
 // ── Compartir ─────────────────────────────────────────────────────────────────
@@ -2368,6 +2422,21 @@ onMounted(() => { cargarTipos(); cargarOrden() })
                 <ExclamationTriangleIcon class="w-3 h-3" />
                 ¿Se dañó? Reportarlo
               </button>
+              <span
+                v-if="garantiaDeItem(item)"
+                :class="['inline-block mt-1 ml-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border', garantiaDeItem(item).cls]"
+              >{{ garantiaDeItem(item).texto }}</span>
+              <!-- Ya lo tiene el cliente y se dañó después: eso es garantía,
+                   no un daño antes de entregar. -->
+              <button
+                v-if="puedeGarantia(item)"
+                @click="garantiaItem = item"
+                type="button"
+                class="inline-flex items-center gap-1 mt-1.5 ml-1 text-[11px] font-medium text-gray-500 border border-dashed border-gray-300 rounded-full px-2 py-0.5 hover:text-blue-700 hover:border-blue-400 transition-colors"
+              >
+                <ShieldCheckIcon class="w-3 h-3" />
+                Garantía
+              </button>
               <p v-if="origenInventario(item)" class="text-xs text-emerald-600 mt-1 flex items-center gap-1">
                 <BuildingOffice2Icon class="w-3.5 h-3.5" /> Inventario {{ origenInventario(item) }}
               </p>
@@ -2763,6 +2832,17 @@ onMounted(() => { cargarTipos(); cargarOrden() })
             </div>
           </div>
         </div>
+      </div>
+
+      <!-- ── Garantías ───────────────────────────────────────────────────────
+           Lo que se dañó después de entregado, con su historia: qué se
+           reportó, qué se decidió y cómo terminó. -->
+      <div v-if="garantias.length" class="bg-white rounded-xl shadow-sm p-4 space-y-2">
+        <p class="text-xs font-semibold text-gray-500 uppercase flex items-center gap-1.5">
+          <ShieldCheckIcon class="w-4 h-4" />
+          Garantías ({{ garantias.length }})
+        </p>
+        <GarantiaTarjeta v-for="g in garantias" :key="g.id" :garantia="g" @cambio="cargarOrden" />
       </div>
 
       <!-- Historial de pagos -->
@@ -3422,6 +3502,15 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         </div>
       </div>
     </template>
+
+    <!-- Modal: garantía de algo ya entregado -->
+    <ReportarGarantiaModal
+      v-if="garantiaItem"
+      :item="garantiaItem"
+      :orden="orden"
+      @cerrar="garantiaItem = null"
+      @guardada="garantiaGuardada"
+    />
 
     <!-- Modal: reportar un producto dañado antes de entregarlo -->
     <Teleport to="body">

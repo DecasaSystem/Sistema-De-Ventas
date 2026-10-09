@@ -29,6 +29,7 @@ import EmptyState from '@/components/common/EmptyState.vue'
 import ProcesosModal from '@/components/produccion/ProcesosModal.vue'
 import ProducirModal from '@/components/produccion/ProducirModal.vue'
 import DevolucionesPendientes from '@/components/produccion/DevolucionesPendientes.vue'
+import GarantiasPendientes from '@/components/garantias/GarantiasPendientes.vue'
 import RegresarAlTallerModal from '@/components/produccion/RegresarAlTallerModal.vue'
 import { SPECS_TEMPLATES, resolverCategoria } from '@/constants/specsConfig'
 
@@ -765,6 +766,10 @@ onUnmounted(() => {
          resolverla, la pieza que vuelve al taller aparece en la lista de abajo,
          así que se recarga. -->
     <DevolucionesPendientes @resuelta="fetchProduccion(1)" />
+
+    <!-- Garantías: lo que se dañó después de entregado y espera dictamen, que
+         lo recojan o la visita a domicilio. Hay un plazo legal corriendo. -->
+    <GarantiasPendientes @resuelta="fetchProduccion(1)" />
 
     <p v-if="!auth.gestionaProduccion" class="text-[11px] text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1.5">
       Estás viendo en qué va el taller. Para arrancar procesos o cambiarle el estado a

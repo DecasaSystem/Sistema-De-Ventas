@@ -3083,6 +3083,16 @@ class OrdenController extends Controller
             ], 422);
         }
 
+        // Con una garantía de por medio, revertir a ciegas devolvería al
+        // inventario un mueble que el cliente tiene en la casa o que está en
+        // el taller por el reclamo.
+        if (\Illuminate\Support\Facades\Schema::hasTable('garantias')
+            && \App\Models\Garantia::where('orden_id', $orden->id)->where('estado', '!=', 'no_procede')->exists()) {
+            return response()->json([
+                'message' => 'Esta orden tiene una garantía registrada: no se puede revertir la entrega. Resuélvela desde la garantía.',
+            ], 422);
+        }
+
         $data = $request->validate([
             'motivo' => 'required|string|min:3|max:300',
         ]);

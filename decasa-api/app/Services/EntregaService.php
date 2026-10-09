@@ -182,7 +182,17 @@ class EntregaService
                 $item = $orden->items->firstWhere('id', $linea->orden_item_id);
                 if (! $item) continue;
 
-                self::sacarDelInventario($orden, $item, (int) $linea->cantidad, $quienEntregaId, $etiquetaCanal);
+                // Lo que vuelve a la casa después de arreglarlo por garantía es
+                // la MISMA pieza: ya salió del inventario la primera vez.
+                // Descontarla otra vez dejaba el stock con una unidad menos de
+                // las que hay en la tienda.
+                $deGarantia = min((int) $linea->cantidad, (int) $item->cantidad_en_garantia);
+                if ($deGarantia > 0) {
+                    $linea->update(['unidades_garantia' => $deGarantia]);
+                    $item->decrement('cantidad_en_garantia', $deGarantia);
+                }
+
+                self::sacarDelInventario($orden, $item, (int) $linea->cantidad - $deGarantia, $quienEntregaId, $etiquetaCanal);
 
                 // La pieza fabricada llegó: su producción termina aquí.
                 if ($item->produccion && in_array($item->produccion->estado, ['pendiente', 'en_proceso', 'listo', 'retrasado'], true)) {
@@ -199,6 +209,11 @@ class EntregaService
                 'estado'       => $seDevolvioTodo ? 'devuelto' : 'entregado',
                 'entregado_at' => $now,
             ]);
+
+            // Si con esto le llegó al cliente el mueble arreglado o el
+            // reemplazo, la garantía se cierra aquí: es el único sitio por
+            // donde pasan todas las entregas.
+            $garantiasResueltas = GarantiaService::alEntregar($entrega, $quienEntregaId);
 
             $orden->refresh()->load('items.produccion');
             $estado = $orden->estadoTrasEntrega($hayDevolucion);
@@ -220,6 +235,7 @@ class EntregaService
                 'hay_devolucion'   => $hayDevolucion,
                 'estado_orden'     => $estado,
                 'lineas'           => $lineas->whereIn('resultado', EntregaLinea::SE_QUEDO)->count(),
+                'garantias'        => $garantiasResueltas,
             ];
         });
     }
@@ -257,11 +273,23 @@ class EntregaService
         DB::transaction(function () use ($entrega, $quien, $motivo) {
             $orden = Orden::with('items.produccion')->lockForUpdate()->findOrFail($entrega->orden_id);
 
+            // Las garantías que esta entrega había cerrado vuelven a quedar
+            // abiertas: el mueble arreglado (o el reemplazo) no llegó.
+            GarantiaService::alRevertir($entrega);
+
             foreach ($entrega->lineas()->whereIn('resultado', EntregaLinea::SE_QUEDO)->get() as $linea) {
                 $item = $orden->items->firstWhere('id', $linea->orden_item_id);
                 if (! $item) continue;
 
-                self::devolverAlInventario($orden, $item, (int) $linea->cantidad, $quien->id, $motivo);
+                // Lo que era una pieza arreglada por garantía no le restó al
+                // inventario al entregarla; deshacerla tampoco le suma. Vuelve
+                // a contar como "en garantía".
+                $deGarantia = (int) ($linea->unidades_garantia ?? 0);
+                if ($deGarantia > 0) {
+                    $item->increment('cantidad_en_garantia', $deGarantia);
+                }
+
+                self::devolverAlInventario($orden, $item, (int) $linea->cantidad - $deGarantia, $quien->id, $motivo);
 
                 if ($item->produccion && $item->produccion->estado === 'entregado') {
                     $item->produccion->update(['estado' => 'listo']);
@@ -292,7 +320,8 @@ class EntregaService
         // Lo fabricado no tiene stock que bajar: nunca lo tuvo. Solo lo de
         // catálogo, que se apartó al vender.
         $tocaStock = ! $item->es_personalizado;
-        if (! $tocaStock || ! $item->producto_id) return;
+        // Cero: la línea era toda una pieza arreglada por garantía.
+        if (! $tocaStock || ! $item->producto_id || $cantidad <= 0) return;
 
         $origenId = $item->tienda_origen_id ?? $orden->tienda_id;
 
@@ -339,7 +368,7 @@ class EntregaService
     private static function devolverAlInventario(Orden $orden, OrdenItem $item, int $cantidad, int $quienId, string $motivo): void
     {
         $tocaStock = ! $item->es_personalizado;
-        if (! $tocaStock || ! $item->producto_id) return;
+        if (! $tocaStock || ! $item->producto_id || $cantidad <= 0) return;
 
         $origenId = $item->tienda_origen_id ?? $orden->tienda_id;
 

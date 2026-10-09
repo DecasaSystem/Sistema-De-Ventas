@@ -342,6 +342,26 @@ tienda ve las de su tienda y las sin tienda. Prueba: `ClientesRedesTest`.
   `cambio_mismo`. La orden queda `devuelto` mientras tanto.
 - PDFs: acta de entrega, orden de entrega, hoja de ruta.
 
+### 6.9b Garantías (posventa)
+`GarantiaController`, `GarantiaService`, modelo `Garantia`. Detalle y decisiones:
+[`plan-garantias-posventa.md`](plan-garantias-posventa.md).
+
+- Lo que se daña **después de entregado** (las devoluciones son para lo que vuelve
+  en el camión o se daña antes de salir). Se reporta por producto desde la orden
+  (botón "Garantía"); el sistema calcula la vigencia del anexo y el plazo legal
+  (15 días hábiles, con festivos: `Support/FestivosColombia`).
+- Dictamen (gestiona producción o supervisor): **taller** (el producto se
+  reactiva en la orden, su producción se reabre con pasos de arreglo marcados
+  `garantia_id` y se vuelve a entregar con acta, sin descontar stock otra vez:
+  `orden_items.cantidad_en_garantia`), **domicilio** (quién va y la visita),
+  **otro igual** / **otro producto** (renglón nuevo apartado en la tienda que
+  tenga libres o para fabricar; el de otro producto solo supervisor, con precio)
+  o **devolver la plata** (supervisor; sale al recibir el producto como pago
+  negativo `tipo=reembolso`, y lo devuelto deja de ser venta) o **no procede**
+  (causal del anexo).
+- Se cierra sola al entregar el arreglo o el reemplazo (`EntregaService`).
+  Bandeja en Producción; las visitas propias en "Mis pasos".
+
 ### 6.10 Comisiones
 `ComisionController` (el más complejo), `ComisionIndependientes`,
 `AnticiposComision`, modelos `Comision`, `MetaTienda`, `TiendaAsesor`,
@@ -494,7 +514,7 @@ Tablas por dominio:
 |---|---|
 | Personas y acceso | `usuarios`, `roles`, `perfiles_alternos`, `personal_access_tokens`, `push_subscriptions`, `sessions` |
 | Tiendas | `tiendas`, `tienda_trimestres` |
-| Ventas | `ordenes`, `orden_items`, `orden_secuencias`, `orden_ediciones`, `orden_mensajes`, `orden_fijadas`, `ordenes_eliminadas`, `solicitudes_cambio`, `clientes`, `citas`, `anexos_garantia` |
+| Ventas | `ordenes`, `orden_items`, `orden_secuencias`, `orden_ediciones`, `orden_mensajes`, `orden_fijadas`, `ordenes_eliminadas`, `solicitudes_cambio`, `clientes`, `citas`, `anexos_garantia`, `garantias` |
 | Plata | `pagos`, `caja_movimientos`, `comisiones`, `comisiones_bitacora`, `comision_anticipos`, `comision_anticipos_config`, `metas_tienda`, `tienda_asesores_comision`, `tienda_reemplazos` |
 | Catálogo e inventario | `productos`, `producto_variantes`, `tipos_variante`, `tipo_variante_opciones`, `producto_variante_configs`, `inventario`, `inventario_variantes`, `inventario_variante_configs`, `inventario_variante_combinaciones`, `inventario_movimientos` |
 | Telas y módulos | `catalogo_telas`, `inventario_telas`, `tela_reservas`, `producto_consumo_telas`, `modulos`, `modulo_items`, `herramientas` |
@@ -507,6 +527,7 @@ Tablas por dominio:
 Estados importantes:
 - `ordenes.estado`: `cotizacion, borrador, pendiente_cotizacion, pendiente_anticipo, en_produccion, listo_entrega, en_camino, devuelto, entregado, cancelado`.
 - `devoluciones.estado`: `pendiente, a_produccion, reembolsada, cambio, cambio_mismo`.
+- `garantias.estado`: `pendiente, por_recoger, en_taller, a_domicilio, cambio, resuelta, no_procede`.
 
 ---
 
@@ -546,5 +567,6 @@ Estados importantes:
 | `docs/flujo-de-ramas-git.md` | Vigente |
 | `docs/plan-cotizador-ia.md` | Fases 1–7 implementadas; pendiente Fase 1b (restauración) |
 | `docs/plan-entregas-parciales.md` | Fases A–D implementadas |
+| `docs/plan-garantias-posventa.md` | Implementado 2026-10-09 (sin subir) |
 | `docs/plan-venta-abonada-a-tienda.md` | Implementado (el documento dice lo contrario: es histórico) |
 | `explicacion_modulo_comisiones.txt` | Explicación para negocio del cálculo de comisiones |

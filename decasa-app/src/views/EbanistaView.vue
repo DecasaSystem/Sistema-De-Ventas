@@ -13,6 +13,7 @@ import { useRealtime } from '@/composables/useRealtime'
 import { usePasosStore } from '@/stores/pasos'
 import EmptyState from '@/components/common/EmptyState.vue'
 import PasoTrabajadoresModal from '@/components/produccion/PasoTrabajadoresModal.vue'
+import GarantiasPendientes from '@/components/garantias/GarantiasPendientes.vue'
 
 const router = useRouter()
 const auth   = useAuthStore()
@@ -254,6 +255,10 @@ onMounted(async () => {
     <p class="text-xs text-gray-500">
       Los pasos del taller que tienes a tu cargo
     </p>
+
+    <!-- Las visitas de garantía que le tocan a uno: van a la casa del cliente,
+         no al tablero, así que no salen como paso. -->
+    <GarantiasPendientes solo-visitas-mias />
 
     <!-- Tabs -->
     <div class="flex gap-1 bg-gray-100 rounded-xl p-1">

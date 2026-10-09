@@ -761,6 +761,15 @@ class DespachoController extends Controller
             ], 422);
         }
 
+        // Lo mismo con una garantía: el cliente ya reclamó por un mueble de
+        // esa entrega, y la garantía cuenta con que se le entregó. Deshacerla
+        // devolvería al inventario una pieza que está en su casa (o en el taller).
+        if (\App\Services\GarantiaService::bloqueaDeshacer($entrega)) {
+            return response()->json([
+                'message' => 'El cliente ya pidió garantía por algo de esa entrega. Resuelve la garantía primero.',
+            ], 422);
+        }
+
         $data = $request->validate(['motivo' => 'required|string|min:3|max:300'], [
             'motivo.required' => 'Escribe por qué se deshace la entrega.',
             'motivo.min'      => 'Escribe por qué se deshace la entrega.',
@@ -1988,8 +1997,28 @@ class DespachoController extends Controller
         );
 
         // Facturar cuando el cliente ya tiene todo: una entrega parcial no
-        // cierra la venta.
-        if (! $parcial && $resultado['estado_orden'] === 'entregado') {
+        // cierra la venta. Tampoco la que solo le devuelve el mueble arreglado
+        // por garantía: esa venta ya se facturó la primera vez. Si hubo un
+        // cambio por otro producto con diferencia de valor, sí hay algo que
+        // revisar en la factura, y se avisa así.
+        $garantias = ! empty($resultado['garantias'])
+            ? \App\Models\Garantia::whereIn('id', $resultado['garantias'])->get()
+            : collect();
+        $difGarantia = (float) $garantias->sum('diferencia_valor');
+        if ($garantias->isNotEmpty() && abs($difGarantia) >= 0.01) {
+            foreach (Usuario::where('rol', 'vendedor')->where('facturacion', true)
+                         ->where('tienda_default_id', $orden->tienda_id)->get() as $vendedor) {
+                NotificacionService::crear(
+                    'facturar',
+                    'Cambio por garantía: revisar la factura',
+                    "Orden {$orden->referencia} de {$orden->cliente->nombre}: se entregó un cambio por garantía con diferencia de $"
+                        . number_format($difGarantia, 0, ',', '.') . '.',
+                    ['orden_id' => $item->orden_id],
+                    $vendedor->id,
+                );
+            }
+        }
+        if (! $parcial && $resultado['estado_orden'] === 'entregado' && $garantias->isEmpty()) {
             $facturacionVendedores = Usuario::where('rol', 'vendedor')
                 ->where('facturacion', true)
                 ->where('tienda_default_id', $orden->tienda_id)

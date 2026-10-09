@@ -350,6 +350,15 @@ class PagoController extends Controller
             return response()->json(['message' => 'No autorizado.'], 403);
         }
 
+        // El reembolso de una garantía es un pago negativo atado a la garantía
+        // (y a lo que volvió al inventario): corregirlo como un abono lo
+        // descuadraría. Se habla con un supervisor.
+        if ($pago->tipo === 'reembolso') {
+            return response()->json([
+                'message' => 'Este es el reembolso de una garantía: no se edita desde aquí. Pídeselo a un supervisor.',
+            ], 422);
+        }
+
         // Corregir el MEDIO de pago se permite siempre: si un pago quedó marcado
         // como efectivo cuando en realidad fue transferencia, hay que poder
         // arreglarlo aunque la orden ya se haya entregado. Bloquearlo obligaba a

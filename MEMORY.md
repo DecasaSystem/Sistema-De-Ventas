@@ -66,6 +66,25 @@ comisión no cambia por la entrega (≥50 % pagado + fecha); en daños, el vende
 anota las opciones que dio al cliente y **decide el supervisor**; cambiar producto
 puede ser por el mismo o por otro de distinto valor (se recalcula el saldo).
 
+### Garantías (lo que se daña después de entregado) — dueño, 2026-10-09
+Plan y flujo: `docs/plan-garantias-posventa.md`. Decisiones del dueño:
+- Cambio por **otro producto** de distinto precio: **lo decide quien aprueba**, que
+  es un supervisor (mueve el valor y la comisión). Por defecto, el precio de lista.
+- **No procede** (vencida o exclusión del anexo): se cierra con la causal; un
+  arreglo pagado es una orden de restauración aparte.
+- Se arregla **en el taller o a domicilio**.
+- La vigencia sale del tipo de daño (y la línea, si es madera) que se escoge al
+  reportar; el sistema avisa si está vencida, pero decide la persona.
+- **Reembolso**: lo aprueba un supervisor (monto sugerido = lo que pagó por esas
+  unidades, editable); la plata sale **cuando el cliente devuelve el producto**; lo
+  devuelto **deja de contar como venta** (total, meta, comisión pendiente; la ya
+  pagada no se toca); lo devuelto va a inventario o merma según se decida al
+  recibirlo. Se guarda como **pago negativo `tipo=reembolso`** (así saldo, caja,
+  cartera y el 50 % lo cuentan solos): no editarlo como un abono.
+La regla técnica que no hay que romper: al arreglar en el taller el producto se
+**reactiva** en la misma orden y se vuelve a entregar por el camino normal, **sin
+descontar stock otra vez** (`orden_items.cantidad_en_garantia`, `EntregaService`).
+
 ### Cotizador IA de costos (`docs/plan-cotizador-ia.md`, fases 1–7 hechas)
 "La IA arma la receta, el código calcula el precio." El sistema da **costo de
 fabricación real**; la ganancia la pone el supervisor. Precio de venta sugerido =
@@ -117,6 +136,13 @@ escribiendo precios (Fase 1b).
   `core/verificacion.js` (revisión antes de enviar). Orden de despliegue
   sugerido: backend, agentes, front.
   Los `npm run eval` nuevos (9 casos de ventas) **no se han corrido** (cuestan dinero).
+- **Garantías posventa** (`docs/plan-garantias-posventa.md`), hechas el 2026-10-09,
+  **sin subir**, rama `claude/warranty-post-sale-management-b20972`. Trae **migración**
+  (`2026_10_17_000001_garantias_posventa`, solo agrega). De paso se corrigió que
+  `ProduccionController::crearPasos` borraba los pasos completados (y en cascada las
+  horas/calificaciones de `paso_trabajadores`) al rearrancar una pieza: ahora solo quita
+  lo no hecho y agrega después (`agregarPasos`). Recoger el mueble de la casa no es ruta
+  de conductor: se marca a mano "Ya llegó al taller".
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 
@@ -153,6 +179,7 @@ escribiendo precios (Fase 1b).
 - Front: `cd decasa-app && npx vite build`.
 - **Recontado 2026-10-07: 713 tests, 10 fallos preexistentes** (las mismas 6 clases).
 - **Recontado 2026-10-08: 734 tests, 10 fallos preexistentes** (las mismas 6 clases).
+- **Recontado 2026-10-09 (rama de garantías): 767 tests, 10 fallos preexistentes** (las mismas 6 clases).
 - Herramientas instaladas el 2026-10-08 (skills, graphify, claude-security): ver `AGENT.md` §9.
   Los agentes de chat tienen su propio `AGENT.md` en `Desktop/Agentes/`.
 - **Trampa en worktrees:** no enlazar (junction) el `vendor` del repo principal.

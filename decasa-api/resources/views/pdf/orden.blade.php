@@ -346,12 +346,13 @@
                                     @case('anticipo') Anticipo @break
                                     @case('abono') Abono @break
                                     @case('saldo_final') Saldo Final @break
+                                    @case('reembolso') Reembolso @break
                                     @default {{ $pago->tipo }}
                                 @endswitch
                             </td>
                             <td style="padding: 4px 5px; text-transform: capitalize;">{{ $pago->metodo }}</td>
                             <td style="padding: 4px 5px;">{{ $pago->referencia ?? '—' }}</td>
-                            <td style="padding: 4px 5px; text-align: right; color: #16a34a; font-weight: bold;">$ {{ number_format($pago->monto, 0, ',', '.') }}</td>
+                            <td style="padding: 4px 5px; text-align: right; color: {{ $pago->monto < 0 ? '#dc2626' : '#16a34a' }}; font-weight: bold;">$ {{ number_format($pago->monto, 0, ',', '.') }}</td>
                             <td style="padding: 4px 5px; text-align: right;">{{ \Carbon\Carbon::parse($pago->created_at)->format('d/m/Y H:i') }}</td>
                         </tr>
                     @endforeach

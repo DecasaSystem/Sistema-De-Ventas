@@ -1167,7 +1167,29 @@ class ProduccionController extends Controller
      */
     private function crearPasos(Produccion $produccion, array $pasos, string $linea, bool $conDespacho): ?ProduccionPaso
     {
-        ProduccionPaso::where('produccion_id', $produccion->id)->delete();
+        return self::agregarPasos($produccion, $pasos, $linea, $conDespacho);
+    }
+
+    /**
+     * Le agrega a la pieza un flujo de pasos y activa el primero.
+     *
+     * Lo que ya se HIZO no se borra. Antes se borraban todos los pasos de la
+     * pieza, y con ellos (en cascada) las horas y las calificaciones de quien
+     * los trabajó: una pieza que volvía al taller —una devolución que se manda
+     * a arreglar, una garantía— perdía toda su historia de fabricación justo
+     * cuando más hacía falta mirarla. Ahora solo se quita lo que nadie ha
+     * terminado, y lo nuevo va DESPUÉS de lo que ya estaba.
+     *
+     * $garantiaId marca los pasos que se hacen para arreglar una garantía, para
+     * que la hoja de vida del mueble distinga fabricación de arreglo.
+     */
+    public static function agregarPasos(Produccion $produccion, array $pasos, string $linea, bool $conDespacho, ?int $garantiaId = null): ?ProduccionPaso
+    {
+        ProduccionPaso::where('produccion_id', $produccion->id)
+            ->whereIn('estado', ['pendiente', 'en_proceso'])
+            ->delete();
+
+        $base = (int) ProduccionPaso::where('produccion_id', $produccion->id)->max('orden');
 
         $delTaller = collect($pasos)
             ->reject(fn ($p) => $p['tipo_proceso'] === ProduccionPaso::DESPACHO)
@@ -1185,17 +1207,20 @@ class ProduccionController extends Controller
             return null;
         }
 
-        foreach ($ordenados as $paso) {
+        // Se numeran seguidos, después de lo que ya estaba: el flujo siempre
+        // busca "el siguiente pendiente por orden", y lo hecho queda atrás.
+        foreach ($ordenados->values() as $i => $paso) {
             ProduccionPaso::create([
                 'produccion_id' => $produccion->id,
                 'tipo_proceso'  => $paso['tipo_proceso'],
                 'linea'         => $linea,
-                'orden'         => $paso['orden'],
+                'orden'         => $base + $i + 1,
                 'estado'        => 'pendiente',
-            ]);
+            ] + ($garantiaId ? ['garantia_id' => $garantiaId] : []));
         }
 
         $primerPaso = ProduccionPaso::where('produccion_id', $produccion->id)
+            ->where('estado', 'pendiente')
             ->orderBy('orden')
             ->first();
 
@@ -1545,7 +1570,7 @@ class ProduccionController extends Controller
         });
     }
 
-    private function notificarTrabajadores(string $tipoProceso, string $linea, int $produccionId, ?int $ordenId, string $productoNombre): void
+    public static function notificarTrabajadores(string $tipoProceso, string $linea, int $produccionId, ?int $ordenId, string $productoNombre): void
     {
         $label = ProduccionPaso::labelProceso($tipoProceso);
 

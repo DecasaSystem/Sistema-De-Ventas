@@ -33,5 +33,6 @@ class CachesDePeticion
         \App\Services\ConsumoTelas::olvidarCache();
         \App\Models\Tienda::olvidarCerradas();
         \App\Services\ComisionIndependientes::olvidarCache();
+        \App\Services\GarantiaService::olvidarCache();
     }
 }

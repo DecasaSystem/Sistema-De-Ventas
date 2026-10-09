@@ -24,7 +24,9 @@ class EntregaLinea extends Model
     /** Los resultados en los que el producto se quedó en la casa. */
     public const SE_QUEDO = [self::ENTREGADO, self::CON_NOVEDAD];
 
-    protected $fillable = ['despacho_item_id', 'orden_item_id', 'cantidad', 'resultado'];
+    // unidades_garantia: de esas, cuántas eran una pieza arreglada por garantía
+    // que volvía a la casa. No movieron inventario (ver EntregaService).
+    protected $fillable = ['despacho_item_id', 'orden_item_id', 'cantidad', 'unidades_garantia', 'resultado'];
 
     public function entrega()
     {

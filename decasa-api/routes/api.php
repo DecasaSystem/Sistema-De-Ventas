@@ -21,6 +21,7 @@ use App\Http\Controllers\ProveedorController;
 use App\Http\Controllers\CompraController;
 use App\Http\Controllers\EncargoController;
 use App\Http\Controllers\DevolucionController;
+use App\Http\Controllers\GarantiaController;
 use App\Http\Controllers\ReporteController;
 use App\Http\Controllers\RolController;
 use App\Http\Controllers\TiendaController;
@@ -299,6 +300,18 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/devoluciones',                [DevolucionController::class, 'index']);
     Route::post('/devoluciones',               [DevolucionController::class, 'store']);
     Route::post('/devoluciones/{id}/decidir',  [DevolucionController::class, 'decidir'])->whereNumber('id');
+
+    // Garantías: lo que se daña después de entregado. Reporta quien ve la
+    // orden; decide quien gestiona el taller o un supervisor (el cambio por
+    // otro producto, solo supervisor). Lo valida el controlador.
+    Route::get('/garantias',                   [GarantiaController::class, 'index']);
+    Route::get('/garantias/opciones',          [GarantiaController::class, 'opciones']);
+    Route::get('/garantias/stock',             [GarantiaController::class, 'stock']);
+    Route::post('/garantias',                  [GarantiaController::class, 'store']);
+    Route::post('/garantias/{id}/decidir',     [GarantiaController::class, 'decidir'])->whereNumber('id');
+    Route::post('/garantias/{id}/recibir',     [GarantiaController::class, 'recibir'])->whereNumber('id');
+    Route::post('/garantias/{id}/visita',      [GarantiaController::class, 'visita'])->whereNumber('id');
+    Route::post('/garantias/{id}/recibir-devolucion', [GarantiaController::class, 'recibirDevolucion'])->whereNumber('id');
 
     // Reserva / Fábrica
     Route::get('/reserva/info',                          [ReservaController::class, 'info']);

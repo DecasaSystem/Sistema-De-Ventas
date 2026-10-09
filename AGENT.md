@@ -195,6 +195,7 @@ Elena le dice a un cliente: ver `docs/contrato-agentes.md` y la regla 9.
 |---|---|---|
 | Crear/editar órdenes | `OrdenController` (store/update/updateEstado) | `NuevaOrdenView`, `OrdenDetalleView`, `components/ordenes/*` |
 | Entregas / rutas | `DespachoController`, `EntregaService` | `DespachoView`, `MisEntregasView`, `components/despacho/*` |
+| Garantías (daño después de entregado) | `GarantiaController`, `GarantiaService` | `components/garantias/*` (en `OrdenDetalleView`, `ProduccionView`, `EbanistaView`) |
 | Taller | `ProduccionController`, `TipoProcesoController`, `RetornoAlTaller` | `ProduccionView`, `EbanistaView` (Mis pasos) |
 | Inventario | `InventarioController`, `VarianteController`, `ProductoVarianteConfigController`, `Support/StockVariantes` | `InventarioView`, `components/inventario/*` |
 | Surtir / traslados / reserva | `SurtidoController`, `TrasladoController`, `ReservaController` | `SurtirView`, `ReservaView` |

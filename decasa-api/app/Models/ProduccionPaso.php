@@ -33,6 +33,8 @@ class ProduccionPaso extends Model
         'ultimo_rechazo',
         'rechazado_por_id',
         'rechazado_at',
+        // El paso se hizo para arreglar una garantía, no para fabricar.
+        'garantia_id',
     ];
 
     protected function casts(): array
