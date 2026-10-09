@@ -8,12 +8,13 @@ class OrdenMensaje extends Model
 {
     protected $table = 'orden_mensajes';
 
-    protected $fillable = ['orden_id', 'usuario_id', 'mensaje', 'imagen_url', 'mencionados'];
+    protected $fillable = ['orden_id', 'usuario_id', 'mensaje', 'imagen_url', 'imagenes', 'mencionados'];
 
     protected function casts(): array
     {
         return [
             'mencionados' => 'array',
+            'imagenes'    => 'array',
         ];
     }
 

@@ -22,21 +22,27 @@ class OrdenMensajeController extends Controller
     private const ESTADOS_CERRADOS = ['listo_entrega', 'entregado', 'cancelado'];
 
     /**
-     * Quién puede leer y escribir: el vendedor de la orden (y su covendedor) y
-     * cualquier supervisor. Los supervisores que no fueron mencionados ven el
-     * hilo igual y responden si quieren — no se les notifica, pero pueden
-     * intervenir.
+     * Quién puede leer y escribir: quien puede editar la orden (el vendedor, su
+     * covendedor, los compañeros de la tienda —la venta de la tienda es de la
+     * tienda— y la tienda a la que se le abona), cualquier supervisor y la gente
+     * de Producción (quien la gestiona o ve el tablero). Los que no fueron mencionados ven el hilo igual y
+     * responden si quieren — no se les notifica, pero pueden intervenir.
+     *
+     * Antes la gente de Producción que no era supervisora no podía abrirlo (la
+     * pantalla escondía el chat sin decir nada), y la comparación de ids era
+     * estricta (int contra lo que viniera de la base): a unos les salía y a
+     * otros no.
      */
     private function puedeParticipar(Usuario $u, Orden $orden): bool
     {
         return $u->rol === 'supervisor'
-            || $u->id === $orden->vendedor_id
-            || $u->id === $orden->covendedor_id
-            // La tienda con la que se comparte la venta también es parte: si
-            // el cliente llega allá, quien lo atiende tiene que poder
-            // preguntar lo mismo que el vendedor.
-            || ($orden->tienda_abonada_id && $u->tienda_default_id
-                && (int) $orden->tienda_abonada_id === (int) $u->tienda_default_id);
+            || (bool) $u->gestiona_produccion
+            || (bool) $u->acceso_produccion
+            || (int) $u->id === (int) $orden->vendedor_id
+            || (int) $u->id === (int) $orden->covendedor_id
+            // Entre vendedores, la regla de siempre. Solo a ellos: para un
+            // conductor o alguien del taller `laPuedeEditar` dice que sí a todo.
+            || ($u->rol === 'vendedor' && $orden->laPuedeEditar($u));
     }
 
     /**
@@ -53,7 +59,9 @@ class OrdenMensajeController extends Controller
 
         return Usuario::where('activo', true)
             ->where('id', '!=', $usuario->id)
-            ->where(fn ($q) => $q->where('rol', 'supervisor')->orWhereIn('id', $idsOrden ?: [0]))
+            // Y quien gestiona Producción: es a quien se le pregunta por el taller.
+            ->where(fn ($q) => $q->where('rol', 'supervisor')->orWhere('gestiona_produccion', true)
+                ->orWhereIn('id', $idsOrden ?: [0]))
             ->orderBy('nombre')
             ->get(['id', 'nombre', 'rol'])
             ->map(fn ($u) => [
@@ -61,7 +69,7 @@ class OrdenMensajeController extends Controller
                 'nombre' => $u->nombre,
                 // Para que el supervisor distinga de un vistazo a quién le
                 // está preguntando entre siete nombres iguales
-                'es_de_la_orden' => in_array($u->id, $idsOrden, true),
+                'es_de_la_orden' => in_array((int) $u->id, array_map('intval', $idsOrden), true),
             ]);
     }
 
@@ -105,11 +113,14 @@ class OrdenMensajeController extends Controller
             ], 422);
         }
 
-        // Se puede mandar solo una foto, sin escribir nada: a veces la duda se
-        // resuelve mostrando y no hay más que decir.
+        // Se pueden mandar solo fotos, sin escribir nada: a veces la duda se
+        // resuelve mostrando y no hay más que decir. Varias en un mismo
+        // mensaje (la tela, la veta y el golpe), solo por https.
         $data = $request->validate([
-            'mensaje'         => 'required_without:imagen_url|nullable|string|max:2000',
-            'imagen_url'      => 'nullable|string|max:500',
+            'mensaje'         => 'required_without_all:imagen_url,imagenes|nullable|string|max:2000',
+            'imagen_url'      => ['nullable', 'string', 'max:500', 'regex:#^https://#'],
+            'imagenes'        => 'nullable|array|max:6',
+            'imagenes.*'      => ['string', 'max:500', 'regex:#^https://#'],
             'mencionados'     => 'nullable|array|max:5',
             'mencionados.*'   => 'integer|exists:usuarios,id',
         ]);
@@ -119,13 +130,17 @@ class OrdenMensajeController extends Controller
             ->unique()->reject(fn ($uid) => (int) $uid === $usuario->id)
             ->values()->all();
 
+        // La lista completa; la primera también en `imagen_url` (lo de antes).
+        $imagenes = array_values(array_unique(array_filter($data['imagenes'] ?? [])));
+        if (! $imagenes && ! empty($data['imagen_url'])) $imagenes = [$data['imagen_url']];
+
         $msg = OrdenMensaje::create([
             'orden_id'    => $id,
             'usuario_id'  => $usuario->id,
             'mensaje'     => trim($data['mensaje'] ?? ''),
-            'imagen_url'  => $data['imagen_url'] ?? null,
+            'imagen_url'  => $imagenes[0] ?? null,
             'mencionados' => $mencionados ?: null,
-        ]);
+        ] + (count($imagenes) > 1 && self::hayColumnaImagenes() ? ['imagenes' => $imagenes] : []));
 
         $msg->load('usuario:id,nombre,rol');
         $payload = $this->formato($msg);
@@ -175,7 +190,7 @@ class OrdenMensajeController extends Controller
         $ref     = $orden->referencia;
         $resumen = $msg->mensaje !== ''
             ? \Illuminate\Support\Str::limit($msg->mensaje, 120)
-            : 'te mandó una foto';
+            : (count($msg->imagenes ?? []) > 1 ? 'te mandó ' . count($msg->imagenes) . ' fotos' : 'te mandó una foto');
 
         foreach ($destinos as $uid) {
             $preguntado = in_array($uid, $mencionados, true);
@@ -192,12 +207,28 @@ class OrdenMensajeController extends Controller
         }
     }
 
+    private static ?bool $hayImagenes = null;
+
+    /** Las pruebas montan el esquema a mano y casi ninguna tiene la columna. */
+    private static function hayColumnaImagenes(): bool
+    {
+        return self::$hayImagenes ??= \Illuminate\Support\Facades\Schema::hasColumn('orden_mensajes', 'imagenes');
+    }
+
+    /** Ver CachesDePeticion. */
+    public static function olvidarCache(): void
+    {
+        self::$hayImagenes = null;
+    }
+
     private function formato(OrdenMensaje $m): array
     {
         return [
             'id'          => $m->id,
             'mensaje'     => $m->mensaje,
             'imagen_url'  => $m->imagen_url,
+            // Todas las fotos del mensaje; los viejos traen solo `imagen_url`.
+            'imagenes'    => $m->imagenes ?: ($m->imagen_url ? [$m->imagen_url] : []),
             'mencionados' => $m->mencionados ?? [],
             'created_at'  => $m->created_at,
             'usuario'     => [

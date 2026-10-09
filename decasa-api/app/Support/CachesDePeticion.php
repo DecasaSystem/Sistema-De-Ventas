@@ -34,5 +34,6 @@ class CachesDePeticion
         \App\Models\Tienda::olvidarCerradas();
         \App\Services\ComisionIndependientes::olvidarCache();
         \App\Services\GarantiaService::olvidarCache();
+        \App\Http\Controllers\OrdenMensajeController::olvidarCache();
     }
 }

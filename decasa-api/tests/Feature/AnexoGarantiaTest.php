@@ -333,6 +333,8 @@ class AnexoGarantiaTest extends TestCase
                 'envio' => ['ciudad' => 'Armenia', 'direccion' => 'Cra 14 # 5-20'],
                 'items' => [[
                     'nombre' => 'Sofá Milán', 'detalle' => 'Lino gris', 'cantidad' => 1, 'precio' => 1500000,
+                    'tipo' => 'Personalizado: se fabrica con tus especificaciones', 'precio_lista' => 1700000,
+                    'fecha_entrega' => '2026-11-20', 'obsequio' => false,
                     'foto' => 'https://res.cloudinary.com/x/sofa.jpg',
                     'bocetos' => ['https://res.cloudinary.com/x/boceto.jpg'],
                     'specs' => [['label' => 'Largo', 'value' => '220']],
@@ -344,6 +346,8 @@ class AnexoGarantiaTest extends TestCase
         $this->getJson('/api/public/anexos/' . $r->json('token'))->assertOk()
             ->assertJsonPath('resumen.items.0.bocetos.0', 'https://res.cloudinary.com/x/boceto.jpg')
             ->assertJsonPath('resumen.items.0.specs.0.label', 'Largo')
+            ->assertJsonPath('resumen.items.0.tipo', 'Personalizado: se fabrica con tus especificaciones')
+            ->assertJsonPath('resumen.items.0.precio_lista', 1700000)
             ->assertJsonPath('resumen.saldo', 750000)
             ->assertJsonPath('cliente.telefono', '3001112233')
             ->assertJsonPath('cliente.direccion', 'Cra 14 # 5-20');

@@ -18,7 +18,7 @@ const ETIQUETAS = {
 }
 
 // Marcas internas que no le dicen nada al cliente.
-const INTERNAS = new Set(['retapizar', 'notas'])
+const INTERNAS = new Set(['retapizar', 'notas', 'trabajo'])
 
 /** Las especificaciones de lo personalizado, con nombres que se entienden. */
 export function specsParaCliente(specs, nombre, categoria) {
@@ -46,4 +46,38 @@ export function specsParaCliente(specs, nombre, categoria) {
 /** Solo direcciones https (Cloudinary): nada de blobs del teléfono ni otras cosas. */
 export function soloHttps(urls) {
   return (urls ?? []).filter(u => typeof u === 'string' && u.startsWith('https://')).slice(0, 10)
+}
+
+/**
+ * Qué es cada producto, dicho para el cliente. Son las mismas clases que
+ * `OrdenItem::tipo_item` en el servidor; el de inventario no lleva etiqueta
+ * (es lo normal).
+ */
+const TRABAJOS = { tela: 'Cambio de tela', color: 'Cambio de color', arreglo: 'Arreglo' }
+
+export function tipoParaCliente(tipo, trabajo = null) {
+  switch (tipo) {
+    case 'fabricar':        return 'Se fabrica para ti'
+    case 'personalizado':   return 'Personalizado: se fabrica con tus especificaciones'
+    case 'diseno_especial': return 'Diseño especial: se fabrica a la medida'
+    case 'restauracion':    return 'Restauración de tu mueble'
+    case 'retapizar':       return `${trabajo || 'Cambio de tela'} en nuestra fábrica`
+    case 'producto_unico':  return 'Mueble único: ya está hecho y se entrega como está'
+    default:                return null
+  }
+}
+
+/** El tipo de un producto del carrito de Nueva orden (mismas reglas que el servidor). */
+export function tipoDeItemCarrito(i) {
+  if (i._es_restauracion) return 'restauracion'
+  if (i._producto_unico)  return 'producto_unico'
+  if (i._retapizar)       return 'retapizar'
+  if (!i.es_personalizado) return 'catalogo'
+  if (!i.producto_id)     return 'diseno_especial'
+  if (i._fabricar_pedido) return 'fabricar'
+  return 'personalizado'
+}
+
+export function trabajoTexto(clave) {
+  return TRABAJOS[clave] ?? null
 }

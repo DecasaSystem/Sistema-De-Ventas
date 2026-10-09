@@ -15,7 +15,7 @@ import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
 import { enviarOrdenAFirmar, firmaRemotaDeOrden, enviarAnexoEmail, anularAnexo } from '@/api/anexos'
-import { specsParaCliente, soloHttps } from '@/utils/resumenParaFirma'
+import { specsParaCliente, soloHttps, tipoParaCliente } from '@/utils/resumenParaFirma'
 import { PencilSquareIcon } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -55,11 +55,19 @@ function resumen() {
   const items = vivos.value.map(i => {
     const nombre = i.producto?.nombre ?? i.nombre_custom ?? 'Producto'
     const categoria = i.producto?.categoria ?? i.categoria_custom
+    const entregadas = Number(i.cantidad_entregada || 0)
     return {
       nombre,
-      detalle:  [i.variante_texto, i.es_regalo ? 'Obsequio' : null].filter(Boolean).join(' · ') || null,
+      tipo:     tipoParaCliente(i.tipo_item, i.trabajo_fabrica_label),
+      juego:    i.juego_texto || null,
+      detalle:  [i.variante_texto, i.es_regalo ? 'Obsequio (sin costo)' : null].filter(Boolean).join(' · ') || null,
       cantidad: Number(i.cantidad),
       precio:   Number(i.precio_unitario),
+      obsequio: !!i.es_regalo,
+      fecha_entrega: (i.fecha_entrega_prom || '').slice(0, 10) || null,
+      // Lo que ya recibió de esta orden, para que no lo confunda con lo pendiente.
+      entregado: entregadas >= Number(i.cantidad) ? 'Ya entregado'
+        : (entregadas > 0 ? `${entregadas} de ${i.cantidad} ya entregados` : null),
       specs:    (i.es_personalizado || i.retapizar) ? specsParaCliente(i.specs_personalizacion, nombre, categoria) : [],
       bocetos:  soloHttps(i.bocetos_list ?? (i.boceto_url ? [i.boceto_url] : [])),
     }

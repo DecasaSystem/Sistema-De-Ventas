@@ -169,10 +169,25 @@ async function firmar(payload) {
                   </button>
                   <div class="flex-1 min-w-0">
                     <p class="text-[1em] font-medium text-gray-800">{{ it.nombre }}</p>
+                    <!-- Qué es: se fabrica, es una restauración, un mueble único... -->
+                    <p v-if="it.tipo" class="text-[0.8em] font-semibold text-blue-700">{{ it.tipo }}</p>
                     <p v-if="it.detalle" class="text-[0.85em] text-gray-500">{{ it.detalle }}</p>
-                    <p class="text-[0.85em] text-gray-500">{{ it.cantidad }} × {{ it.precio ? pesos(it.precio) : 'precio por confirmar' }}</p>
+                    <p v-if="it.juego" class="text-[0.85em] text-gray-500">{{ it.juego }}</p>
+                    <p class="text-[0.85em] text-gray-500">
+                      {{ it.cantidad }} ×
+                      <span v-if="it.precio_lista" class="line-through mr-1">{{ pesos(it.precio_lista) }}</span>
+                      {{ it.precio ? pesos(it.precio) : (it.obsequio ? '$0' : 'precio por confirmar') }}
+                    </p>
+                    <p v-if="it.precio_lista" class="text-[0.85em] text-green-700">
+                      Descuento en este producto: <span class="whitespace-nowrap">−{{ pesos((it.precio_lista - it.precio) * it.cantidad) }}</span>
+                    </p>
+                    <p v-if="it.fecha_entrega && it.fecha_entrega !== resumen.fecha_entrega" class="text-[0.85em] text-gray-500">
+                      Entrega de este producto: {{ fecha(it.fecha_entrega) }}
+                    </p>
+                    <p v-if="it.se_lo_lleva" class="text-[0.85em] font-medium text-gray-700">Te lo llevas hoy</p>
+                    <p v-if="it.entregado" class="text-[0.85em] font-medium text-gray-700">{{ it.entregado }}</p>
                   </div>
-                  <p class="text-[1em] font-semibold text-gray-800 whitespace-nowrap">{{ it.precio ? pesos(it.precio * it.cantidad) : '—' }}</p>
+                  <p class="text-[1em] font-semibold text-gray-800 whitespace-nowrap">{{ it.precio ? pesos(it.precio * it.cantidad) : (it.obsequio ? '$0' : '—') }}</p>
                 </div>
                 <!-- Cómo se va a hacer lo personalizado -->
                 <dl v-if="it.specs?.length" class="rounded-lg bg-gray-50 px-3 py-2 space-y-0.5 text-[0.85em]">
@@ -218,6 +233,9 @@ async function firmar(payload) {
             </div>
             <p v-if="resumen.descuento_efectivo > 0" class="px-4 pb-3 text-[0.8em] text-gray-500">
               El descuento por efectivo o transferencia se pierde si alguna parte se paga con tarjeta o Addi.
+            </p>
+            <p v-if="resumen.precio_pendiente" class="px-4 pb-3 text-[0.8em] text-amber-700">
+              El total todavía no incluye los productos con precio por confirmar: tu asesor te lo confirma antes de fabricarlos.
             </p>
           </section>
 

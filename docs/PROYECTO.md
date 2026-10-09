@@ -229,6 +229,9 @@ ExcelJS/xlsx para exportar, `qrcode`, `dompurify`. PWA (manifest + `public/sw.js
   queda en `ordenes_eliminadas`), **cambiar producto** después de entregado,
   **revertir entrega**, **fechas de entrega** por ítem, **PDF** de una hoja,
   **chat** de la orden, **fijar** órdenes, búsqueda con "¿quisiste decir?".
+- **Chat de la orden** (`OrdenMensajeController`, `ChatOrden.vue`): dudas entre vendedores,
+  supervisores y Producción; varias fotos por mensaje (`orden_mensajes.imagenes`), cada
+  una se sube al elegirla con reintento. Se cierra al quedar lista para entrega.
 - **Visibilidad:** `Orden::scopeVisiblesPara` / `laPuedeVer` / `laPuedeCobrar` /
   `laPuedeEditar` (ver `MEMORY.md` §2).
 

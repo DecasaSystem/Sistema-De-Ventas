@@ -3111,10 +3111,10 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         </div>
       </div>
 
-      <!-- Chat de dudas de la orden. Solo para quien participa: el vendedor,
-           su covendedor, la tienda con la que se comparte y los supervisores. -->
+      <!-- Chat de dudas de la orden. Quién participa lo decide el servidor
+           (vendedores que pueden editarla —también los de la tienda—,
+           supervisores y Producción); si no, el chat se esconde solo. -->
       <ChatOrden
-        v-if="auth.isSupervisor || esParteDeLaOrden"
         :orden-id="orden.id"
         :estado="orden.estado"
       />

@@ -126,6 +126,47 @@ class ChatOrdenNotificacionTest extends TestCase
             Notificacion::where('usuario_id', $this->admin->id)->sole()->mensaje);
     }
 
+    public function test_varias_fotos_en_un_mismo_mensaje(): void
+    {
+        Queue::fake();
+        Schema::table('orden_mensajes', fn (Blueprint $t) => $t->json('imagenes')->nullable());
+        \App\Support\CachesDePeticion::olvidarTodo();
+
+        $fotos = ['https://x/tela.jpg', 'https://x/veta.jpg', 'https://x/golpe.jpg'];
+        $this->escribir($this->paola, ['mensaje' => 'Así llegó', 'imagenes' => $fotos, 'mencionados' => [$this->admin->id]])
+            ->assertCreated()
+            ->assertJsonPath('imagenes', $fotos)
+            // La primera sigue en la columna de siempre.
+            ->assertJsonPath('imagen_url', 'https://x/tela.jpg');
+
+        $this->actingAs($this->admin)->getJson("/api/ordenes/{$this->orden->id}/mensajes")
+            ->assertJsonPath('mensajes.0.imagenes', $fotos);
+
+        // Solo fotos, sin texto, también vale; el aviso dice cuántas.
+        $this->escribir($this->paola, ['imagenes' => ['https://x/a.jpg', 'https://x/b.jpg'], 'mencionados' => [$this->admin->id]])->assertCreated();
+        $this->assertSame('Paola: te mandó 2 fotos',
+            Notificacion::where('usuario_id', $this->admin->id)->latest('id')->first()->mensaje);
+
+        // Nada que no sea una foto por https.
+        $this->escribir($this->paola, ['imagenes' => ['javascript:alert(1)']])->assertStatus(422);
+        $this->escribir($this->paola, ['imagenes' => array_fill(0, 7, 'https://x/a.jpg')])->assertStatus(422);
+    }
+
+    public function test_produccion_participa_y_un_conductor_no(): void
+    {
+        Schema::table('usuarios', function (Blueprint $t) {
+            $t->boolean('gestiona_produccion')->default(false); $t->boolean('acceso_produccion')->default(false);
+            $t->boolean('ve_todas_ordenes')->default(false);
+        });
+        $taller    = Usuario::forceCreate(['nombre' => 'Don Jairo', 'rol' => 'taller', 'gestiona_produccion' => true]);
+        $conductor = Usuario::forceCreate(['nombre' => 'Wilson', 'rol' => 'conductor']);
+
+        $this->actingAs($taller)->getJson("/api/ordenes/{$this->orden->id}/mensajes")->assertOk();
+        $this->escribir($taller, ['mensaje' => 'La tela llega el lunes'])->assertCreated();
+
+        $this->actingAs($conductor)->getJson("/api/ordenes/{$this->orden->id}/mensajes")->assertForbidden();
+    }
+
     public function test_leer_la_notificacion_no_la_borra(): void
     {
         Queue::fake();

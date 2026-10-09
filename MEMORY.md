@@ -152,6 +152,15 @@ escribiendo precios (Fase 1b).
   está mal, se lo dice al asesor: no edita nada). Detalle en `docs/PROYECTO.md` §6.16.
   Trampa: SQLite convierte en texto las columnas que no existen entre comillas; en las
   pruebas, crear de verdad las columnas que se leen (`clientes.telefono`...).
+- **Chat de la orden con varias fotos** (2026-10-09, **subido**). Trae **migración**
+  `2026_10_18_000001_varias_fotos_en_chat_de_orden` (`orden_mensajes.imagenes`, solo
+  agrega; `imagen_url` sigue con la primera). Qué fallaba: una sola foto; el input no se
+  limpiaba si algo salía mal (elegir la misma foto otra vez no hacía nada); una foto que
+  fallaba borraba a otra que sí subió; `fetch` a mano sin reintento. Además el chat se
+  escondía en silencio a Producción y a los compañeros de tienda. Ahora participan
+  supervisores, `gestiona_produccion`/`acceso_produccion` y, entre vendedores,
+  `Orden::laPuedeEditar` (no conductores); la pantalla pinta el chat y se esconde sola
+  si el servidor responde 403.
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 

@@ -23,7 +23,7 @@ import { ArrowPathIcon as ArrowPathOutlineIcon, PhotoIcon, UserGroupIcon, Buildi
 import { getReceptores, crearConsulta } from '@/api/consultas'
 import FirmaCanvas from '@/components/FirmaCanvas.vue'
 import AnexoFirma from '@/components/anexo/AnexoFirma.vue'
-import { specsParaCliente, soloHttps } from '@/utils/resumenParaFirma'
+import { specsParaCliente, soloHttps, tipoParaCliente, tipoDeItemCarrito, trabajoTexto } from '@/utils/resumenParaFirma'
 import { crearAnexo, getAnexo, getAnexoPublico, firmarAnexo, enviarAnexoEmail, pdfAnexo, anularAnexo } from '@/api/anexos'
 import BocetoCanvas from '@/components/BocetoCanvas.vue'
 import DireccionColombia from '@/components/DireccionColombia.vue'
@@ -1857,16 +1857,29 @@ function resumenParaCliente() {
   const total    = Math.round(valorTotal.value)
   const anticipo = Math.round(Number(anticipo_monto.value) || 0)
   return {
-    items: items.value.map(i => ({
-      nombre:   i.nombre,
-      detalle:  [i.variante_label, i._regalo ? 'Obsequio' : null, i._cotizarPrecio ? 'Precio por confirmar' : null].filter(Boolean).join(' · ') || null,
-      cantidad: i.cantidad,
-      precio:   i._cotizarPrecio ? 0 : precioEfectivo(i),
-      specs:    (i.es_personalizado || i._retapizar)
-        ? specsParaCliente({ ...(i.specs ?? {}), notas: i.specs_notas || undefined }, i.nombre, i.categoria)
-        : [],
-      bocetos:  soloHttps(i.boceto_urls),
-    })),
+    items: items.value.map(i => {
+      const precio = i._cotizarPrecio ? 0 : precioEfectivo(i)
+      // El descuento propio de ese producto: el cliente ve el precio de
+      // antes y cuánto se le rebajó, no solo el precio final.
+      const rebaja = i._cotizarPrecio ? 0 : descuentoItemMonto(i)
+      return {
+        nombre:   i.nombre,
+        tipo:     tipoParaCliente(tipoDeItemCarrito(i), i._retapizar ? trabajoTexto(trabajoDe(i)) : null),
+        juego:    textoJuegoItem(i),
+        detalle:  [i.variante_label, i._regalo ? 'Obsequio (sin costo)' : null, i._cotizarPrecio ? 'Precio por confirmar' : null].filter(Boolean).join(' · ') || null,
+        cantidad: i.cantidad,
+        precio,
+        precio_lista: rebaja > 0 ? Number(i.precio_unitario) : null,
+        // Cuando se le prometió una fecha distinta a este producto.
+        fecha_entrega: i.fecha_entrega_prometida || null,
+        se_lo_lleva: !!(sePuedeLlevar(i) && i._llevar_ahora),
+        obsequio: !!i._regalo,
+        specs:    specsParaCliente(specsParaGuardar(i), i.nombre, i.categoria),
+        bocetos:  soloHttps(i.boceto_urls),
+      }
+    }),
+    // Lo que espera precio del taller no suma al total todavía.
+    precio_pendiente:   items.value.some(i => i._cotizarPrecio),
     subtotal:           Math.round(subtotalItems.value),
     descuentos:         Math.round((Number(descuentoTotal.value) || 0) + (Number(descuentoCondicionado.value) || 0)),
     descuento_efectivo: Math.round(Number(descuentoCondicionado.value) || 0),
@@ -1882,6 +1895,28 @@ function resumenParaCliente() {
     },
     lineas:             lineasDeLaOrden(),
   }
+}
+
+/**
+ * Las especificaciones de lo que se fabrica o se lleva al taller, tal como se
+ * guardan en la orden: con la tela elegida y el trabajo de fábrica. Es la
+ * misma cuenta para crear la orden y para lo que el cliente ve al firmar —si
+ * no, el cliente no veía la tela que escogió para su personalizado—.
+ */
+function specsParaGuardar(i) {
+  if (!(i.es_personalizado || i._retapizar)) return undefined
+  const s = { ...i.specs }
+  // Un arreglo o un cambio de color no lleva tela nueva: si se colara una, el
+  // servidor le apartaría metros que nadie usa.
+  if (!i._retapizar || esCambioTela(i)) {
+    for (const key of Object.keys(i._telaSelections ?? {})) {
+      const tela = telaResumidaCampo(i, key)
+      if (tela) s[key] = tela
+    }
+  }
+  if (i.specs_notas) s.notas = i.specs_notas
+  if (i._retapizar) s.trabajo = trabajoDe(i)
+  return Object.keys(s).length ? s : undefined
 }
 
 /**
@@ -2617,22 +2652,7 @@ async function submit() {
         // lo que todavia espera cotizacion, y son cosas distintas.
         es_regalo:               i._regalo || undefined,
         fecha_entrega_prometida: i.fecha_entrega_prometida || undefined,
-        specs_personalizacion:   (i.es_personalizado || i._retapizar)
-          ? (() => {
-              const s = { ...i.specs }
-              // Un arreglo o un cambio de color no lleva tela nueva: si se
-              // colara una, el servidor le apartaría metros que nadie usa.
-              if (!i._retapizar || esCambioTela(i)) {
-                for (const key of Object.keys(i._telaSelections ?? {})) {
-                  const tela = telaResumidaCampo(i, key)
-                  if (tela) s[key] = tela
-                }
-              }
-              if (i.specs_notas) s.notas = i.specs_notas
-              if (i._retapizar) s.trabajo = trabajoDe(i)
-              return Object.keys(s).length ? s : undefined
-            })()
-          : undefined,
+        specs_personalizacion:   specsParaGuardar(i),
         boceto_urls:             (i.es_personalizado || i._retapizar) && i.boceto_urls.some(Boolean)
           ? i.boceto_urls.filter(Boolean)
           : undefined,
