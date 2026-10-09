@@ -1,6 +1,6 @@
 # Garantías: lo que se daña después de entregado
 
-**Estado:** implementado el 2026-10-09, **sin subir**, rama
+**Estado:** implementado y **subido** el 2026-10-09 (commit 95e0c15), rama
 `claude/warranty-post-sale-management-b20972`. Trae **migración**
 (`2026_10_17_000001_garantias_posventa`: crea `garantias` y agrega
 `orden_items.cantidad_en_garantia`, `entrega_lineas.unidades_garantia`,

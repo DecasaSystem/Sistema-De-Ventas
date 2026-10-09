@@ -136,13 +136,22 @@ escribiendo precios (Fase 1b).
   `core/verificacion.js` (revisión antes de enviar). Orden de despliegue
   sugerido: backend, agentes, front.
   Los `npm run eval` nuevos (9 casos de ventas) **no se han corrido** (cuestan dinero).
-- **Garantías posventa** (`docs/plan-garantias-posventa.md`), hechas el 2026-10-09,
-  **sin subir**, rama `claude/warranty-post-sale-management-b20972`. Trae **migración**
+- **Garantías posventa** (`docs/plan-garantias-posventa.md`), hechas y **subidas** el
+  2026-10-09 (commit 95e0c15, rama `claude/warranty-post-sale-management-b20972`). Trae **migración**
   (`2026_10_17_000001_garantias_posventa`, solo agrega). De paso se corrigió que
   `ProduccionController::crearPasos` borraba los pasos completados (y en cascada las
   horas/calificaciones de `paso_trabajadores`) al rearrancar una pieza: ahora solo quita
   lo no hecho y agrega después (`agregarPasos`). Recoger el mueble de la casa no es ruta
   de conductor: se marca a mano "Ya llegó al taller".
+- **Firma remota de la orden** (2026-10-09, **subida** junto con el arreglo de fotos de
+  borrador y la revisión del anexo; misma rama, sin migración).
+  Decisiones del dueño: orden y anexo se firman **juntos, una sola firma**; se manda
+  desde Nueva orden **y** desde una orden ya creada sin firma; **sin firma no se crea
+  la orden** (venta virtual: se manda el enlace y se guarda como borrador si el cliente
+  se demora); el cliente ve productos completos, plata, entrega y sus datos (si algo
+  está mal, se lo dice al asesor: no edita nada). Detalle en `docs/PROYECTO.md` §6.16.
+  Trampa: SQLite convierte en texto las columnas que no existen entre comillas; en las
+  pruebas, crear de verdad las columnas que se leen (`clientes.telefono`...).
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 

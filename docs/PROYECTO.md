@@ -435,6 +435,20 @@ Niveles: propio (`/encargos/mios`), `acceso_encargos` (ver), `revisa_encargos` (
 Firma presencial (en el aparato del vendedor) o remota (enlace `/firmar/:token`
 por WhatsApp/correo). Se pega a la orden al crearla; PDF y envío por correo.
 
+**Firma remota de la orden (2026-10-09):** el enlace es "revisa tu pedido y fírmalo":
+el cliente ve la orden completa (sus datos, productos con tela/medida, foto del
+catálogo —la pone el servidor—, especificaciones y bocetos de lo personalizado,
+subtotal/descuentos/total/anticipo/saldo, fecha y dirección de entrega), lee el anexo
+y firma **una vez**: esa firma es la de la orden y la del anexo. Se manda desde Nueva
+orden (antes de crearla; sin firma no se crea) o desde una orden ya creada que quedó
+sin firma (`POST/GET /ordenes/{id}/firma-remota`, `components/ordenes/FirmaRemotaOrden.vue`;
+al firmar queda en `ordenes.firma_url` y "Confirmar" ya no pide firma ni foto del
+anexo). La huella (`AnexoGarantia::huella`/`coincideCon`) cubre productos, tela,
+opción, cantidades, precios y descuentos (redondeados); si la orden cambia, la firma
+no vale (al crear) o el enlace no deja firmar (orden existente, 409). Un enlace vivo
+por cliente/orden: los anteriores se anulan; "Cancelar envío" lo anula
+(`POST /anexos/{id}/anular`). El vendedor ve las respuestas "No" del check list.
+
 ### 6.17 Proveedores y compras
 `ProveedorController` (libreta; crear/editar con `acceso_proveedores`, borrar
 supervisor). `CompraController`: lista de "hay que comprar", marcar comprado con
@@ -567,6 +581,6 @@ Estados importantes:
 | `docs/flujo-de-ramas-git.md` | Vigente |
 | `docs/plan-cotizador-ia.md` | Fases 1–7 implementadas; pendiente Fase 1b (restauración) |
 | `docs/plan-entregas-parciales.md` | Fases A–D implementadas |
-| `docs/plan-garantias-posventa.md` | Implementado 2026-10-09 (sin subir) |
+| `docs/plan-garantias-posventa.md` | Implementado y subido 2026-10-09 |
 | `docs/plan-venta-abonada-a-tienda.md` | Implementado (el documento dice lo contrario: es histórico) |
 | `explicacion_modulo_comisiones.txt` | Explicación para negocio del cálculo de comisiones |

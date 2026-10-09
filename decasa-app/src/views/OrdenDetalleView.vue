@@ -19,6 +19,7 @@ import { getDevoluciones, crearDevolucion } from '@/api/devoluciones'
 import { getGarantias } from '@/api/garantias'
 import ReportarGarantiaModal from '@/components/garantias/ReportarGarantiaModal.vue'
 import GarantiaTarjeta from '@/components/garantias/GarantiaTarjeta.vue'
+import FirmaRemotaOrden from '@/components/ordenes/FirmaRemotaOrden.vue'
 import { ShieldCheckIcon } from '@heroicons/vue/24/outline'
 import { tomarFacturacion, marcarFacturada } from '@/api/pagos'
 import { getReceptores, crearConsulta, getConsultas, ajustarPrecio as ajustarPrecioApi } from '@/api/consultas'
@@ -1635,9 +1636,14 @@ const metodosOpts = [
   { value: 'otro',          label: 'Otro' },
 ]
 
+// El cliente ya firmó la orden a distancia (por el enlace): no se le pide
+// otra vez, y el anexo que firmó ahí reemplaza la foto del papel.
+const firmoADistancia = computed(() => !!orden.value?.firma_url)
+const anexoYaFirmado  = computed(() => !!orden.value?.anexo_garantia)
+
 async function doConfirmarCotizacion() {
-  if (!firmaConfirmarBlob.value && !firmaConfirmarUrl.value) return
-  const esPresencial = orden.value?.canal === 'fisica'
+  if (!firmoADistancia.value && !firmaConfirmarBlob.value && !firmaConfirmarUrl.value) return
+  const esPresencial = orden.value?.canal === 'fisica' && !anexoYaFirmado.value
   if (esPresencial && !anexoConfirmarFile.value && !anexoConfirmarUrl.value) {
     toast.error('Adjunta la foto del anexo firmado antes de confirmar.')
     return
@@ -1665,7 +1671,7 @@ async function doConfirmarCotizacion() {
     }
 
     await confirmarCotizacion(orden.value.id, {
-      firma_url:           firmaConfirmarUrl.value,
+      firma_url:           firmaConfirmarUrl.value || undefined,
       anexo_foto_url:      anexoConfirmarUrl.value || undefined,
       anticipo_monto:      anticipoConfirmar.value,
       anticipo_metodo:     metodoPagoConfirmar.value,
@@ -2834,6 +2840,15 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         </div>
       </div>
 
+      <!-- La orden quedó sin firma del cliente (venta virtual, o creada
+           esperando precio): se le manda para que la revise y la firme. -->
+      <FirmaRemotaOrden
+        v-if="!orden.firma_url && !['cancelado', 'borrador', 'cotizacion'].includes(orden.estado)"
+        :orden="orden"
+        :puede-editar="puedeEditar"
+        @firmada="cargarOrden"
+      />
+
       <!-- ── Garantías ───────────────────────────────────────────────────────
            Lo que se dañó después de entregado, con su historia: qué se
            reportó, qué se decidió y cómo terminó. -->
@@ -3729,7 +3744,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
           </h3>
 
           <!-- Foto del anexo firmado (solo si canal físico) -->
-          <div v-if="orden?.canal === 'fisica'" class="space-y-1">
+          <div v-if="orden?.canal === 'fisica' && !anexoYaFirmado" class="space-y-1">
             <label class="block text-xs font-semibold text-gray-600 uppercase">
               Foto del anexo firmado <span class="text-red-500">*</span>
             </label>
@@ -3763,8 +3778,13 @@ onMounted(() => { cargarTipos(); cargarOrden() })
             <label class="block text-xs font-semibold text-gray-600 uppercase">
               Firma del cliente <span class="text-red-500">*</span>
             </label>
-            <FirmaCanvas v-model="firmaConfirmarBlob" />
-            <p v-if="!firmaConfirmarBlob" class="text-xs text-amber-600">Se requiere la firma para confirmar.</p>
+            <p v-if="firmoADistancia" class="text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+              El cliente ya revisó y firmó esta orden a distancia. No hace falta firmar otra vez.
+            </p>
+            <template v-else>
+              <FirmaCanvas v-model="firmaConfirmarBlob" />
+              <p v-if="!firmaConfirmarBlob" class="text-xs text-amber-600">Se requiere la firma para confirmar.</p>
+            </template>
           </div>
 
           <!-- Anticipo -->
@@ -3877,7 +3897,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
             </button>
             <button
               @click="doConfirmarCotizacion"
-              :disabled="!firmaConfirmarBlob || (orden?.canal === 'fisica' && !anexoConfirmarFile && !anexoConfirmarUrl) || confirmando"
+              :disabled="(!firmoADistancia && !firmaConfirmarBlob) || (orden?.canal === 'fisica' && !anexoYaFirmado && !anexoConfirmarFile && !anexoConfirmarUrl) || confirmando"
               class="flex-1 bg-green-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-green-700 disabled:opacity-40 transition-colors"
             >
               {{ confirmando ? 'Confirmando...' : 'Confirmar' }}

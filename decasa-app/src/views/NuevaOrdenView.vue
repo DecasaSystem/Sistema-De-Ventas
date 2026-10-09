@@ -23,7 +23,8 @@ import { ArrowPathIcon as ArrowPathOutlineIcon, PhotoIcon, UserGroupIcon, Buildi
 import { getReceptores, crearConsulta } from '@/api/consultas'
 import FirmaCanvas from '@/components/FirmaCanvas.vue'
 import AnexoFirma from '@/components/anexo/AnexoFirma.vue'
-import { crearAnexo, getAnexo, getAnexoPublico, firmarAnexo, enviarAnexoEmail, pdfAnexo } from '@/api/anexos'
+import { specsParaCliente, soloHttps } from '@/utils/resumenParaFirma'
+import { crearAnexo, getAnexo, getAnexoPublico, firmarAnexo, enviarAnexoEmail, pdfAnexo, anularAnexo } from '@/api/anexos'
 import BocetoCanvas from '@/components/BocetoCanvas.vue'
 import DireccionColombia from '@/components/DireccionColombia.vue'
 import ComboInput from '@/components/common/ComboInput.vue'
@@ -1834,6 +1835,9 @@ function lineasDeLaOrden() {
     return {
       producto_id:   i.producto_id || null,
       nombre_custom: i.producto_id ? null : (i.nombre_custom || null),
+      // La tela y la medida también: si se cambian, lo firmado ya no es lo que va.
+      variante_id:     i.variante_id || null,
+      combo_config_id: i._config_id  || null,
       cantidad,
       precio_unitario,
     }
@@ -1843,21 +1847,62 @@ function huellaLocal() {
   return JSON.stringify({ l: lineasDeLaOrden(), t: Math.round(valorTotal.value) })
 }
 
-/** Lo que el cliente ve de su pedido antes de firmar. */
+/**
+ * Lo que el cliente ve de su pedido antes de firmar: TODO, como si tuviera la
+ * orden en la mano —productos con su tela y medida, cómo se hace lo
+ * personalizado y sus bocetos, la plata y la entrega—. La foto de cada
+ * producto la pone el servidor desde el catálogo. Ver utils/resumenParaFirma.
+ */
 function resumenParaCliente() {
+  const total    = Math.round(valorTotal.value)
+  const anticipo = Math.round(Number(anticipo_monto.value) || 0)
   return {
     items: items.value.map(i => ({
       nombre:   i.nombre,
       detalle:  [i.variante_label, i._regalo ? 'Obsequio' : null, i._cotizarPrecio ? 'Precio por confirmar' : null].filter(Boolean).join(' · ') || null,
       cantidad: i.cantidad,
       precio:   i._cotizarPrecio ? 0 : precioEfectivo(i),
+      specs:    (i.es_personalizado || i._retapizar)
+        ? specsParaCliente({ ...(i.specs ?? {}), notas: i.specs_notas || undefined }, i.nombre, i.categoria)
+        : [],
+      bocetos:  soloHttps(i.boceto_urls),
     })),
-    descuentos:    Math.round((Number(descuentoTotal.value) || 0) + (Number(descuentoCondicionado.value) || 0)),
-    total:         Math.round(valorTotal.value),
-    anticipo:      Math.round(Number(anticipo_monto.value) || 0),
-    fecha_entrega: fechaSugeridaVendedor.value || null,
-    tienda:        tiendas.value.find(t => t.id == tiendaId.value)?.nombre ?? null,
-    lineas:        lineasDeLaOrden(),
+    subtotal:           Math.round(subtotalItems.value),
+    descuentos:         Math.round((Number(descuentoTotal.value) || 0) + (Number(descuentoCondicionado.value) || 0)),
+    descuento_efectivo: Math.round(Number(descuentoCondicionado.value) || 0),
+    total,
+    anticipo,
+    saldo:              Math.max(0, total - anticipo),
+    fecha_entrega:      fechaSugeridaVendedor.value || null,
+    tienda:             tiendas.value.find(t => t.id == tiendaId.value)?.nombre ?? null,
+    envio: {
+      departamento: departamentoEnvio.value || null,
+      ciudad:       ciudadEnvio.value || null,
+      direccion:    direccionEnvio.value || null,
+    },
+    lineas:             lineasDeLaOrden(),
+  }
+}
+
+/**
+ * Sube los bocetos/fotos de lo personalizado que todavía estén solo en el
+ * teléfono. Lo usa crear la orden y también mandarla a firmar: el cliente
+ * tiene que ver el boceto de lo que va a firmar.
+ */
+async function subirBocetosPendientes() {
+  for (const item of items.value) {
+    if (!(item.es_personalizado || item._retapizar)) continue
+    for (let fi = 0; fi < item.boceto_blobs.length; fi++) {
+      if (item.boceto_blobs[fi] && !item.boceto_urls[fi]) {
+        const fd = new FormData()
+        fd.append('foto', await comprimirImagen(item.boceto_blobs[fi]), fi === 0 ? 'boceto.jpg' : `boceto_${fi}.jpg`)
+        fd.append('folder', 'bocetos')
+        const { data: uploadData } = await api.post('/upload/foto', fd, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        })
+        item.boceto_urls[fi] = uploadData.url
+      }
+    }
   }
 }
 
@@ -1907,6 +1952,7 @@ async function enviarAnexoAlCliente() {
   if (!items.value.length) { toast.error('Agrega los productos antes de enviárselo al cliente.'); return }
   preparandoAnexo.value = true
   try {
+    await subirBocetosPendientes()
     const lo_que_vio = huellaLocal()
     const { data } = await crearAnexo({ cliente_id: clienteSeleccionado.value.id, modo: 'remoto', resumen: resumenParaCliente() })
     anexo.value = { ...data, lo_que_vio }
@@ -1930,13 +1976,18 @@ function ponerAnexo(data) {
 
 function quitarAnexo() {
   if (firmaDesdeAnexo.value) firmaUrl.value = ''
+  // El enlace que el cliente tiene en el WhatsApp deja de servir: si no,
+  // podía firmar una versión que ya nadie está esperando.
+  if (anexo.value?.estado === 'pendiente' && anexo.value.id) {
+    anularAnexo(anexo.value.id).catch(() => {})
+  }
   anexo.value = null
 }
 
 function mensajeWhatsAppAnexo() {
   const nombre = clienteSeleccionado.value?.nombre?.split(' ')[0] ?? ''
   return `Hola${nombre ? ` ${nombre}` : ''}, soy ${auth.usuario?.nombre ?? 'tu asesor'} de Decasa. ` +
-    `Aquí puedes revisar tu pedido y firmar el documento de garantías: ${anexo.value?.url}`
+    `Aquí puedes revisar tu pedido completo y firmarlo junto con el documento de garantías: ${anexo.value?.url}`
 }
 function abrirWhatsAppAnexo() {
   let tel = String(clienteSeleccionado.value?.telefono ?? '').replace(/\D/g, '')
@@ -2445,9 +2496,12 @@ async function submit() {
 
   submitting.value = true
   try {
-    // Subir las fotos del comprobante que falten (no aplica para borrador).
+    // Subir las fotos del comprobante que falten. También al guardar como
+    // borrador: antes se saltaban, la foto se quedaba solo en el teléfono y
+    // al seguir el borrador ya no estaba (había que tomarla otra vez). Lo que
+    // ya se haya tomado se guarda; lo que falte se pide al confirmar.
     // Una por una: si se cae la red a mitad, las que ya subieron se quedan.
-    if (!modoGuardarBorrador.value && facturaFotos.value.some(f => !f.url)) {
+    if (facturaFotos.value.some(f => !f.url)) {
       subiendoFactura.value = true
       for (const f of facturaFotos.value) {
         if (f.url) continue
@@ -2464,24 +2518,11 @@ async function submit() {
 
     // Bocetos/fotos de ítems personalizados (y del que se retapiza): subir
     // los que tengan blob pendiente
-    for (const item of items.value) {
-      if (item.es_personalizado || item._retapizar) {
-        for (let fi = 0; fi < item.boceto_blobs.length; fi++) {
-          if (item.boceto_blobs[fi] && !item.boceto_urls[fi]) {
-            const fd = new FormData()
-            fd.append('foto', await comprimirImagen(item.boceto_blobs[fi]), fi === 0 ? 'boceto.jpg' : `boceto_${fi}.jpg`)
-            fd.append('folder', 'bocetos')
-            const { data: uploadData } = await api.post('/upload/foto', fd, {
-              headers: { 'Content-Type': 'multipart/form-data' },
-            })
-            item.boceto_urls[fi] = uploadData.url
-          }
-        }
-      }
-    }
+    await subirBocetosPendientes()
 
-    // Foto del anexo firmado (no aplica para borrador)
-    if (!modoGuardarBorrador.value && anexoFotoFile.value && !anexoFotoUrl.value) {
+    // Foto del anexo firmado. También en el borrador, por lo mismo que el
+    // comprobante: si ya se tomó, que siga ahí al continuarlo.
+    if (anexoFotoFile.value && !anexoFotoUrl.value) {
       subiendoAnexo.value = true
       const fd = new FormData()
       fd.append('foto', await comprimirImagen(anexoFotoFile.value), 'anexo.jpg')
@@ -2493,8 +2534,9 @@ async function submit() {
       subiendoAnexo.value = false
     }
 
-    // Firma del cliente: subir el blob dibujado en el canvas (no aplica para borrador)
-    if (!modoGuardarBorrador.value && firmaBlob.value && !firmaUrl.value) {
+    // Firma del cliente: subir el blob dibujado en el canvas. También en el
+    // borrador: si el cliente ya firmó, no se le vuelve a pedir al continuarlo.
+    if (firmaBlob.value && !firmaUrl.value) {
       const fd = new FormData()
       fd.append('foto', firmaBlob.value, 'firma.png')
       fd.append('folder', 'firmas')
@@ -2656,6 +2698,12 @@ async function submit() {
       router.push({ name: 'orden-detalle', params: { id: e.response.data.orden_id } })
       return
     }
+    // El servidor dice que la orden ya no es la que el cliente firmó (pasa al
+    // seguir un borrador: aquí no quedó guardado lo que vio). Se marca el
+    // anexo como desactualizado para que salga el botón "Enviar de nuevo".
+    if (e.response?.data?.codigo === 'anexo_desactualizado' && anexo.value) {
+      anexo.value = { ...anexo.value, modo: 'remoto', lo_que_vio: '__cambio_servidor__' }
+    }
     const errores = e.response?.data?.errors
     const detalle = errores ? ' · ' + Object.entries(errores).map(([k, v]) => `${k}: ${v[0]}`).join(', ') : ''
     // Sin respuesta del servidor no es lo mismo que un 422: puede ser que la
@@ -2687,6 +2735,9 @@ async function submit() {
   } finally {
     submitting.value = false
     subiendoFactura.value = false
+    // Si la subida del anexo falla a mitad, el botón no se puede quedar
+    // trabado en "subiendo".
+    subiendoAnexo.value = false
     modoGuardarBorrador.value = false
     enviarPdfAlGuardarBorrador.value = false
   }
@@ -5590,7 +5641,7 @@ onBeforeUnmount(() => {
            enlace al cliente y su firma aparece aquí al instante. -->
       <div class="rounded-xl border border-gray-200 bg-white p-4 space-y-3">
         <div class="flex items-center justify-between gap-2">
-          <p class="text-sm font-semibold text-gray-800">Anexo de garantías</p>
+          <p class="text-sm font-semibold text-gray-800">Firma del cliente y anexo de garantías</p>
           <span v-if="anexo?.estado === 'firmado'" class="text-[11px] font-semibold text-green-700 bg-green-50 border border-green-200 rounded-full px-2 py-0.5">Firmado ✓</span>
           <span v-else-if="anexo?.estado === 'pendiente'" class="text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">Esperando firma</span>
         </div>
@@ -5602,6 +5653,12 @@ onBeforeUnmount(() => {
             {{ anexo.modo === 'remoto' ? 'desde su teléfono' : 'en la tienda' }}.
             Su firma queda también como firma de la orden.
           </p>
+          <!-- Firmar se puede igual, pero si algo no le quedó claro hay que explicárselo. -->
+          <div v-if="anexo.respuestas_no?.length" class="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 space-y-1">
+            <p class="font-semibold">El cliente respondió "No" en el check list:</p>
+            <p v-for="q in anexo.respuestas_no" :key="q">• {{ q }}</p>
+            <p>Explícaselo antes de cerrar la venta.</p>
+          </div>
           <div v-if="anexoDesactualizado" class="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 space-y-2">
             <p>Cambiaste la orden después de que el cliente la firmó: lo que firmó ya no es lo que va. Envíasela de nuevo.</p>
             <button type="button" @click="quitarAnexo(); enviarAnexoAlCliente()" class="font-semibold underline">Enviar de nuevo</button>
@@ -5647,8 +5704,10 @@ onBeforeUnmount(() => {
         <!-- Sin anexo todavía -->
         <template v-else>
           <p class="text-xs text-gray-500">
-            El cliente lo lee, marca cada parte, responde el check list y firma con el dedo.
-            {{ canal === 'fisica' ? 'Hazlo aquí en la tienda, o mándaselo si se fue.' : 'Mándaselo: ve el resumen de su pedido antes de firmar.' }}
+            El cliente lee el anexo, responde el check list y firma con el dedo; esa firma es también la de la orden.
+            {{ canal === 'fisica'
+              ? 'Hazlo aquí en la tienda, o mándaselo si se fue: desde su teléfono ve toda la orden antes de firmar.'
+              : 'Mándaselo: desde su teléfono ve toda la orden (productos, valor, entrega y sus datos) antes de firmar.' }}
           </p>
           <div :class="['grid gap-2', canal === 'fisica' ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1']">
             <button
@@ -5664,7 +5723,7 @@ onBeforeUnmount(() => {
               :disabled="preparandoAnexo || !clienteSeleccionado"
               :class="['rounded-lg py-2.5 text-sm font-semibold disabled:opacity-40',
                 canal === 'fisica' ? 'border border-gray-300 text-gray-700 hover:bg-gray-50' : 'bg-gray-900 text-white hover:bg-gray-800']"
-            >{{ preparandoAnexo && canal !== 'fisica' ? 'Preparando…' : 'Enviar al cliente para firmar' }}</button>
+            >{{ preparandoAnexo && canal !== 'fisica' ? 'Preparando…' : 'Enviar al cliente para revisar y firmar' }}</button>
           </div>
         </template>
       </div>
@@ -5677,7 +5736,8 @@ onBeforeUnmount(() => {
         </label>
         <p class="text-xs text-gray-400 mb-2">Si el cliente firmó el documento impreso, súbele la foto.</p>
 
-        <div v-if="anexoFotoFile" class="space-y-2">
+        <!-- También la que ya estaba subida en el borrador (sin archivo en el teléfono). -->
+        <div v-if="anexoFotoFile || anexoFotoUrl" class="space-y-2">
           <div class="relative">
             <img
               :src="anexoFotoUrl || anexoFotoPreview"

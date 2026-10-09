@@ -52,18 +52,31 @@ class AnexoGarantiaController extends Controller
             'cliente_id'       => 'required|integer|exists:clientes,id',
             'modo'             => 'required|in:presencial,remoto',
             'resumen'          => 'nullable|array',
-            'resumen.total'      => 'nullable|numeric',
-            'resumen.descuentos' => 'nullable|numeric|min:0',
             'resumen.lineas'   => 'nullable|array',
-            'resumen.items'    => 'nullable|array|max:100',
+            ...self::reglasResumen(),
         ]);
 
         $resumen = $data['modo'] === 'remoto' ? ($data['resumen'] ?? null) : null;
         $huella  = $resumen && isset($resumen['lineas'])
             ? AnexoGarantia::huella($resumen['lineas'], (float) ($resumen['descuentos'] ?? 0))
             : null;
+        // La foto de cada producto sale del catálogo (las líneas van en el
+        // mismo orden que lo que ve el cliente).
+        if ($resumen && isset($resumen['items'], $resumen['lineas'])) {
+            $resumen['items'] = self::ponerFotos($resumen['items'], $resumen['lineas']);
+        }
         // Las líneas solo sirven para la huella: el cliente no las necesita.
         if ($resumen) unset($resumen['lineas']);
+
+        // Los enlaces anteriores de este vendedor a este cliente que nadie ha
+        // firmado ni usado dejan de servir. Si no, al "Enviar de nuevo" el
+        // cliente podía abrir el WhatsApp viejo y firmar la versión anterior
+        // del pedido, y en la pantalla del vendedor nunca aparecía la firma.
+        AnexoGarantia::where('vendedor_id', $request->user()->id)
+            ->where('cliente_id', $data['cliente_id'])
+            ->where('estado', 'pendiente')
+            ->whereNull('orden_id')
+            ->update(['estado' => 'anulado', 'updated_at' => now()]);
 
         $anexo = AnexoGarantia::create([
             'token'        => Str::random(48),
@@ -80,12 +93,184 @@ class AnexoGarantiaController extends Controller
         return response()->json($this->paraVendedor($anexo, conToken: true, request: $request), 201);
     }
 
+    /**
+     * Lo que puede traer el resumen que ve el cliente: el pedido completo
+     * (productos con su tela, especificaciones, foto y bocetos; la plata; la
+     * entrega). Las imágenes solo por https: nada que no venga de Cloudinary.
+     * Es lo que se le MUESTRA; la plata de verdad la cuida la huella.
+     */
+    private static function reglasResumen(): array
+    {
+        $https = ['nullable', 'string', 'max:500', 'regex:#^https://#'];
+
+        return [
+            'resumen.total'              => 'nullable|numeric',
+            'resumen.subtotal'           => 'nullable|numeric',
+            'resumen.descuentos'         => 'nullable|numeric|min:0',
+            'resumen.descuento_efectivo' => 'nullable|numeric|min:0',
+            'resumen.anticipo'           => 'nullable|numeric|min:0',
+            'resumen.pagado'             => 'nullable|numeric',
+            'resumen.saldo'              => 'nullable|numeric',
+            'resumen.fecha_entrega'      => 'nullable|date',
+            'resumen.tienda'             => 'nullable|string|max:150',
+            'resumen.referencia'         => 'nullable|string|max:60',
+            'resumen.envio'              => 'nullable|array',
+            'resumen.envio.departamento' => 'nullable|string|max:100',
+            'resumen.envio.ciudad'       => 'nullable|string|max:100',
+            'resumen.envio.direccion'    => 'nullable|string|max:300',
+            'resumen.items'              => 'nullable|array|max:100',
+            'resumen.items.*.nombre'     => 'nullable|string|max:200',
+            'resumen.items.*.detalle'    => 'nullable|string|max:300',
+            'resumen.items.*.cantidad'   => 'nullable|numeric',
+            'resumen.items.*.precio'     => 'nullable|numeric',
+            'resumen.items.*.foto'       => $https,
+            'resumen.items.*.bocetos'    => 'nullable|array|max:10',
+            'resumen.items.*.bocetos.*'  => $https,
+            'resumen.items.*.specs'      => 'nullable|array|max:40',
+            'resumen.items.*.specs.*.label' => 'nullable|string|max:80',
+            'resumen.items.*.specs.*.value' => 'nullable|string|max:500',
+        ];
+    }
+
+    /**
+     * POST /api/ordenes/{id}/firma-remota  { resumen }
+     *
+     * Mandarle a firmar una orden que YA existe y quedó sin firma —la que se
+     * creó esperando el precio del taller, o la de una venta virtual que se
+     * confirmó sin el cliente al lado—. Es el mismo enlace de siempre (orden +
+     * anexo, una sola firma); al firmar, la firma queda en la orden.
+     *
+     * La huella sale de la orden guardada, no de lo que mande la pantalla: si
+     * alguien la edita antes de que el cliente firme, el enlace ya no deja
+     * firmar.
+     */
+    public function enviarOrden(Request $request, int $id)
+    {
+        $orden = Orden::with('items')->findOrFail($id);
+        $u     = $request->user();
+
+        if (! $orden->laPuedeEditar($u)) {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+        if (in_array($orden->estado, ['cancelado', 'borrador', 'cotizacion'], true)) {
+            return response()->json(['message' => 'Esta orden no se puede mandar a firmar en su estado actual.'], 422);
+        }
+        if ($orden->firma_url) {
+            return response()->json(['message' => 'Esta orden ya tiene la firma del cliente.'], 422);
+        }
+        if ($orden->items->filter->estaVivo()->contains(fn ($i) => $i->esperaCotizacion())) {
+            return response()->json(['message' => 'Todavía hay productos sin precio. Cuando el taller los cotice, se manda a firmar con el precio final.'], 422);
+        }
+        if (! $orden->cliente_id) {
+            return response()->json(['message' => 'La orden no tiene cliente.'], 422);
+        }
+
+        $data = $request->validate(['resumen' => 'required|array', ...self::reglasResumen()]);
+        $resumen = $data['resumen'];
+        unset($resumen['lineas']);
+        $resumen['orden_existente'] = true;
+        $resumen['referencia']      = $orden->referencia;
+        if (isset($resumen['items'])) {
+            $resumen['items'] = self::ponerFotos($resumen['items'], $orden->items->filter->estaVivo()->values()
+                ->map(fn ($i) => ['producto_id' => $i->producto_id, 'variante_id' => $i->variante_id])->all());
+        }
+
+        // Un solo enlace vivo por orden.
+        AnexoGarantia::where('orden_id', $orden->id)->where('estado', 'pendiente')
+            ->update(['estado' => 'anulado', 'updated_at' => now()]);
+
+        $anexo = AnexoGarantia::create([
+            'token'        => Str::random(48),
+            'orden_id'     => $orden->id,
+            'cliente_id'   => $orden->cliente_id,
+            'vendedor_id'  => $u->id,
+            'version'      => AnexoGarantiaTexto::VERSION,
+            'modo'         => 'remoto',
+            'estado'       => 'pendiente',
+            'resumen'      => $resumen,
+            'resumen_hash' => self::huellaDeOrden($orden),
+            'vence_at'     => now()->addDays(self::DIAS_VIGENCIA),
+        ]);
+
+        return response()->json($this->paraVendedor($anexo, conToken: true, request: $request), 201);
+    }
+
+    /**
+     * GET /api/ordenes/{id}/firma-remota — el último enlace de firma de la
+     * orden (esperando, firmado o vencido), o null si nunca se mandó.
+     */
+    public function deOrden(Request $request, int $id)
+    {
+        $orden = Orden::findOrFail($id);
+        if (! $orden->laPuedeVer($request->user())) {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+
+        $anexo = AnexoGarantia::with('cliente:id,nombre,email,telefono')
+            ->where('orden_id', $orden->id)->where('modo', 'remoto')
+            ->where('estado', '!=', 'anulado')
+            ->latest('id')->first();
+
+        return response()->json($anexo ? $this->paraVendedor($anexo, conToken: $orden->laPuedeEditar($request->user()), request: $request) : null);
+    }
+
+    /**
+     * Le pone a cada producto del resumen su foto del catálogo (la de la tela
+     * si la tiene, si no la del producto), cuando la pantalla no mandó una.
+     * Solo fotos por https.
+     */
+    private static function ponerFotos(array $items, array $lineas): array
+    {
+        $prodIds = collect($lineas)->pluck('producto_id')->filter()->unique()->all();
+        $varIds  = collect($lineas)->pluck('variante_id')->filter()->unique()->all();
+        $fotosP  = $prodIds ? \App\Models\Producto::whereIn('id', $prodIds)->pluck('foto_url', 'id') : collect();
+        $fotosV  = $varIds ? \App\Models\ProductoVariante::whereIn('id', $varIds)->pluck('foto_url', 'id') : collect();
+
+        foreach ($items as $k => $it) {
+            if (! is_array($it) || ! empty($it['foto'])) continue;
+            $l    = $lineas[$k] ?? [];
+            $foto = ($fotosV[$l['variante_id'] ?? 0] ?? null) ?: ($fotosP[$l['producto_id'] ?? 0] ?? null);
+            if ($foto && str_starts_with($foto, 'https://')) $items[$k]['foto'] = $foto;
+        }
+
+        return $items;
+    }
+
+    /** La huella de una orden guardada, con la misma cuenta que la de Nueva orden. */
+    private static function huellaDeOrden(Orden $orden): string
+    {
+        $lineas = $orden->items->filter->estaVivo()->map(fn ($i) => [
+            'producto_id'     => $i->producto_id,
+            'nombre_custom'   => $i->producto_id ? null : $i->nombre_custom,
+            'variante_id'     => $i->variante_id,
+            'combo_config_id' => $i->combo_config_id,
+            'cantidad'        => $i->cantidad,
+            'precio_unitario' => $i->precio_unitario,
+        ])->values()->all();
+
+        return AnexoGarantia::huella($lineas, (float) $orden->descuento_total + (float) $orden->descuento_condicionado);
+    }
+
     /** GET /api/anexos/{id} — el estado, para quien lo está esperando. */
     public function show(Request $request, int $id)
     {
         $anexo = $this->delVendedor($request, $id);
 
         return response()->json($this->paraVendedor($anexo, conToken: true, request: $request));
+    }
+
+    /**
+     * POST /api/anexos/{id}/anular — "Cancelar envío": el enlace deja de
+     * servir. Solo lo que no se ha firmado; lo firmado es un documento.
+     */
+    public function anular(Request $request, int $id)
+    {
+        $anexo = $this->delVendedor($request, $id);
+        if ($anexo->estado === 'pendiente' && ! $anexo->orden_id) {
+            $anexo->update(['estado' => 'anulado']);
+        }
+
+        return response()->json($this->paraVendedor($anexo->fresh(), request: $request));
     }
 
     /** POST /api/anexos/{id}/enviar-email  { email? } */
@@ -141,7 +326,7 @@ class AnexoGarantiaController extends Controller
     /** GET /api/public/anexos/{token} */
     public function publico(string $token)
     {
-        $anexo = AnexoGarantia::with('cliente:id,nombre,cedula', 'vendedor:id,nombre')
+        $anexo = AnexoGarantia::with('cliente:id,nombre,cedula,telefono,email,direccion', 'vendedor:id,nombre')
             ->where('token', $token)->first();
 
         if (! $anexo || $anexo->estado === 'anulado') {
@@ -155,9 +340,14 @@ class AnexoGarantiaController extends Controller
             'estado'     => $anexo->estado,
             'modo'       => $anexo->modo,
             'firmado_at' => $anexo->firmado_at,
+            // Sus datos, para que vea que están bien antes de firmar (solo
+            // quien tiene el enlace los ve).
             'cliente'    => [
-                'nombre' => $anexo->cliente?->nombre,
-                'cedula' => $anexo->cliente?->cedula,
+                'nombre'    => $anexo->cliente?->nombre,
+                'cedula'    => $anexo->cliente?->cedula,
+                'telefono'  => $anexo->cliente?->telefono,
+                'email'     => $anexo->cliente?->email,
+                'direccion' => $anexo->cliente?->direccion,
             ],
             'vendedor'   => $anexo->vendedor?->nombre,
             'resumen'    => $anexo->resumen,
@@ -209,6 +399,14 @@ class AnexoGarantiaController extends Controller
             return response()->json(['message' => 'Responde todas las preguntas del check list.'], 422);
         }
 
+        // Una orden que ya existe: si la editaron después de mandar el enlace,
+        // lo que el cliente está viendo ya no es lo que va. No se firma.
+        $orden = ($anexo->resumen['orden_existente'] ?? false) && $anexo->orden_id
+            ? Orden::with('items')->find($anexo->orden_id) : null;
+        if ($orden && ($orden->estado === 'cancelado' || ! hash_equals((string) $anexo->resumen_hash, self::huellaDeOrden($orden)))) {
+            return response()->json(['message' => 'Tu pedido cambió después de que te enviaron este enlace. Pídele a tu asesor que te mande el nuevo.'], 409);
+        }
+
         if (! preg_match('#^data:image/png;base64,([A-Za-z0-9+/=]+)$#', $data['firma'], $m)) {
             return response()->json(['message' => 'La firma no llegó bien. Vuelve a firmar.'], 422);
         }
@@ -242,6 +440,25 @@ class AnexoGarantiaController extends Controller
             return response()->json(['ok' => true, 'ya_firmado' => true]);
         }
 
+        // La orden que ya existía queda firmada: es la firma del cliente.
+        if ($orden) {
+            try {
+                if (! $orden->firma_url) $orden->update(['firma_url' => $url]);
+                \App\Models\OrdenMensaje::create([
+                    'orden_id'   => $orden->id,
+                    'usuario_id' => $anexo->vendedor_id,
+                    'mensaje'    => "✍️ El cliente revisó la orden y la firmó a distancia (" . trim($data['nombre']) . ", doc. " . trim($data['documento']) . ").",
+                    'imagen_url' => $url,
+                ]);
+                if ($orden->vendedor_id && (int) $orden->vendedor_id !== (int) $anexo->vendedor_id) {
+                    NotificacionService::crear('anexo_firmado', 'El cliente firmó la orden',
+                        "La orden {$orden->referencia} ya tiene la firma del cliente.", ['orden_id' => $orden->id], (int) $orden->vendedor_id);
+                }
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        }
+
         // Al vendedor que lo está esperando: en la pantalla al instante y,
         // si la cerró, como notificación en el teléfono. Que el aviso falle
         // no deshace la firma.
@@ -252,8 +469,10 @@ class AnexoGarantiaController extends Controller
                 NotificacionService::crear(
                     'anexo_firmado',
                     'El cliente firmó',
-                    "{$cliente} leyó y firmó el anexo de garantías. Ya puedes crear la orden.",
-                    ['anexo_id' => $anexo->id],
+                    $orden
+                        ? "{$cliente} revisó y firmó la orden {$orden->referencia}."
+                        : "{$cliente} revisó su pedido y firmó. Ya puedes crear la orden.",
+                    ['anexo_id' => $anexo->id] + ($orden ? ['orden_id' => $orden->id] : []),
                     $anexo->vendedor_id,
                 );
             } catch (\Throwable $e) {
@@ -269,7 +488,11 @@ class AnexoGarantiaController extends Controller
     private function esSuyo(Request $request, AnexoGarantia $anexo): bool
     {
         $u = $request->user();
-        return (int) $anexo->vendedor_id === (int) $u->id || $u->rol === 'supervisor';
+        if ((int) $anexo->vendedor_id === (int) $u->id || $u->rol === 'supervisor') return true;
+
+        // El de una orden lo sigue cualquiera que pueda editarla: la venta de
+        // la tienda es de la tienda.
+        return $anexo->orden_id && ($o = Orden::find($anexo->orden_id)) && $o->laPuedeEditar($u);
     }
 
     private function delVendedor(Request $request, int $id): AnexoGarantia
@@ -292,6 +515,13 @@ class AnexoGarantiaController extends Controller
             'documento_firmante' => $anexo->documento_firmante,
             'firmado_at'         => $anexo->firmado_at,
             'orden_id'           => $anexo->orden_id,
+            // Las preguntas del check list que el cliente respondió "No" (no
+            // le quedó claro el proceso, no le explicaron la espuma...). Firmar
+            // se puede igual, pero el vendedor tiene que saberlo para
+            // explicarle antes de cerrar la venta.
+            'respuestas_no'      => collect(AnexoGarantiaTexto::checklist())
+                ->filter(fn ($q) => ($anexo->respuestas['checklist'][$q['id']] ?? null) === 'no')
+                ->pluck('pregunta')->values(),
             ...($conToken ? [
                 'token' => $anexo->token,
                 'url'   => $this->enlace($anexo, $request),

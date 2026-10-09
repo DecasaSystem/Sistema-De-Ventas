@@ -39,9 +39,10 @@ class AnexoGarantiaTest extends TestCase
             $t->boolean('comisiones_compartidas')->default(false);
         });
         Schema::create('clientes', function (Blueprint $t) {
-            $t->id(); $t->string('nombre'); $t->string('cedula')->nullable(); $t->string('email')->nullable(); $t->timestamps();
+            $t->id(); $t->string('nombre'); $t->string('cedula')->nullable(); $t->string('email')->nullable();
+            $t->string('telefono')->nullable(); $t->string('direccion')->nullable(); $t->timestamps();
         });
-        Schema::create('productos', function (Blueprint $t) { $t->id(); $t->string('nombre'); $t->string('categoria')->nullable(); });
+        Schema::create('productos', function (Blueprint $t) { $t->id(); $t->string('nombre'); $t->string('categoria')->nullable(); $t->string('foto_url')->nullable(); });
         Schema::create('ordenes', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('cliente_id')->nullable(); $t->unsignedBigInteger('tienda_id')->nullable();
             $t->unsignedBigInteger('vendedor_id')->nullable(); $t->string('canal')->nullable();
@@ -118,14 +119,18 @@ class AnexoGarantiaTest extends TestCase
             $t->string('referencia')->nullable(); $t->text('notas')->nullable();
             $t->timestamp('created_at')->nullable();
         });
+        Schema::create('orden_mensajes', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('orden_id'); $t->unsignedBigInteger('usuario_id')->nullable();
+            $t->text('mensaje'); $t->string('imagen_url')->nullable(); $t->json('mencionados')->nullable(); $t->timestamps();
+        });
         $this->completarEsquemaDeEntregas();
 
         (require base_path('database/migrations/2026_10_12_000001_anexos_de_garantia.php'))->up();
 
         DB::table('tiendas')->insert(['id' => 1, 'nombre' => 'Decasa Norte']);
-        DB::table('clientes')->insert(['id' => 1, 'nombre' => 'Ana Ruiz', 'cedula' => '123', 'email' => 'ana@x.com', 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('clientes')->insert(['id' => 1, 'nombre' => 'Ana Ruiz', 'cedula' => '123', 'email' => 'ana@x.com', 'telefono' => '3001112233', 'direccion' => 'Cra 14 # 5-20', 'created_at' => now(), 'updated_at' => now()]);
         DB::table('clientes')->insert(['id' => 2, 'nombre' => 'Otro', 'created_at' => now(), 'updated_at' => now()]);
-        DB::table('productos')->insert(['id' => 5, 'nombre' => 'Mesa', 'categoria' => 'comedores']);
+        DB::table('productos')->insert(['id' => 5, 'nombre' => 'Mesa', 'categoria' => 'comedores', 'foto_url' => 'https://res.cloudinary.com/x/mesa.jpg']);
         DB::table('inventario')->insert(['producto_id' => 5, 'tienda_id' => 1, 'cantidad_disponible' => 3, 'cantidad_reservada' => 0]);
     }
 
@@ -265,6 +270,152 @@ class AnexoGarantiaTest extends TestCase
 
         $this->postJson("/api/public/anexos/{$token}/firmar", $this->respuestas())->assertOk();
         $this->actingAs($v)->postJson('/api/ordenes', $base + ['cliente_id' => 2])->assertStatus(422);
+    }
+
+    public function test_enviar_de_nuevo_deja_sin_servir_el_enlace_anterior(): void
+    {
+        $v = $this->vendedor();
+        [$viejoId, $viejoToken] = $this->anexoRemoto($v);
+        [$nuevoId, $nuevoToken] = $this->anexoRemoto($v, 2);
+
+        // El cliente abre el WhatsApp viejo: ya no sirve, no firma la versión anterior.
+        $this->getJson("/api/public/anexos/{$viejoToken}")->assertNotFound();
+        $this->postJson("/api/public/anexos/{$viejoToken}/firmar", $this->respuestas())->assertNotFound();
+        $this->assertSame('anulado', AnexoGarantia::find($viejoId)->estado);
+        $this->getJson("/api/public/anexos/{$nuevoToken}")->assertOk();
+
+        // "Cancelar envío" también lo apaga.
+        $this->actingAs($v)->postJson("/api/anexos/{$nuevoId}/anular")->assertOk()->assertJsonPath('estado', 'anulado');
+        $this->getJson("/api/public/anexos/{$nuevoToken}")->assertNotFound();
+    }
+
+    public function test_al_vendedor_le_dice_lo_que_el_cliente_respondio_que_no(): void
+    {
+        $v = $this->vendedor();
+        [$id, $token] = $this->anexoRemoto($v);
+        $this->postJson("/api/public/anexos/{$token}/firmar", $this->respuestas())->assertOk();
+
+        $preguntas = $this->actingAs($v)->getJson("/api/anexos/{$id}")->assertOk()->json('respuestas_no');
+        $this->assertCount(1, $preguntas);
+        $this->assertStringContainsString('espuma', $preguntas[0]);
+    }
+
+    public function test_la_huella_ve_el_cambio_de_tela_pero_no_los_centavos_del_descuento(): void
+    {
+        $linea = ['producto_id' => 5, 'variante_id' => 3, 'cantidad' => 1, 'precio_unitario' => 1500000];
+
+        // Otra tela al mismo precio: ya no es lo que el cliente vio.
+        $this->assertNotSame(
+            AnexoGarantia::huella([$linea], 0),
+            AnexoGarantia::huella([['variante_id' => 4] + $linea], 0),
+        );
+        // La pantalla manda el descuento redondeado; la orden, con centavos.
+        $this->assertSame(
+            AnexoGarantia::huella([$linea], 75000),
+            AnexoGarantia::huella([$linea], 74999.6),
+        );
+
+        // Un anexo firmado con la huella de antes de este cambio sigue sirviendo.
+        $viejo = new AnexoGarantia(['resumen_hash' => AnexoGarantia::huella([$linea], 75000, formatoViejo: true)]);
+        $this->assertTrue($viejo->coincideCon([$linea], 75000));
+        $this->assertFalse($viejo->coincideCon([['cantidad' => 2] + $linea], 75000));
+    }
+
+    // ── Firmar a distancia la orden completa ─────────────────────────────────
+
+    public function test_el_cliente_ve_su_pedido_completo_y_sus_datos(): void
+    {
+        $v = $this->vendedor();
+        $r = $this->actingAs($v)->postJson('/api/anexos', [
+            'cliente_id' => 1, 'modo' => 'remoto',
+            'resumen' => [
+                'total' => 1500000, 'subtotal' => 1500000, 'anticipo' => 750000, 'saldo' => 750000,
+                'envio' => ['ciudad' => 'Armenia', 'direccion' => 'Cra 14 # 5-20'],
+                'items' => [[
+                    'nombre' => 'Sofá Milán', 'detalle' => 'Lino gris', 'cantidad' => 1, 'precio' => 1500000,
+                    'foto' => 'https://res.cloudinary.com/x/sofa.jpg',
+                    'bocetos' => ['https://res.cloudinary.com/x/boceto.jpg'],
+                    'specs' => [['label' => 'Largo', 'value' => '220']],
+                ]],
+                'lineas' => [['producto_id' => 5, 'cantidad' => 1, 'precio_unitario' => 1500000]],
+            ],
+        ])->assertCreated();
+
+        $this->getJson('/api/public/anexos/' . $r->json('token'))->assertOk()
+            ->assertJsonPath('resumen.items.0.bocetos.0', 'https://res.cloudinary.com/x/boceto.jpg')
+            ->assertJsonPath('resumen.items.0.specs.0.label', 'Largo')
+            ->assertJsonPath('resumen.saldo', 750000)
+            ->assertJsonPath('cliente.telefono', '3001112233')
+            ->assertJsonPath('cliente.direccion', 'Cra 14 # 5-20');
+
+        // Solo imágenes por https: nada de otra cosa en la página del cliente.
+        $this->actingAs($v)->postJson('/api/anexos', [
+            'cliente_id' => 1, 'modo' => 'remoto',
+            'resumen' => ['items' => [['nombre' => 'X', 'foto' => 'javascript:alert(1)']]],
+        ])->assertStatus(422);
+    }
+
+    /** Una orden ya creada que quedó sin firma (esperaba el precio del taller). */
+    private function ordenSinFirma(array $extra = []): Orden
+    {
+        $orden = Orden::create($extra + ['cliente_id' => 1, 'tienda_id' => 1, 'vendedor_id' => 1, 'canal' => 'whatsapp',
+            'estado' => 'pendiente_anticipo', 'valor_total' => 200000, 'numero_orden' => 777]);
+        DB::table('orden_items')->insert(['orden_id' => $orden->id, 'producto_id' => 5, 'cantidad' => 2,
+            'precio_unitario' => 100000, 'created_at' => now(), 'updated_at' => now()]);
+
+        return $orden;
+    }
+
+    private function resumenDeOrden(): array
+    {
+        return ['resumen' => ['total' => 200000, 'items' => [['nombre' => 'Mesa', 'cantidad' => 2, 'precio' => 100000]]]];
+    }
+
+    public function test_una_orden_creada_sin_firma_se_manda_y_queda_firmada(): void
+    {
+        $v = $this->vendedor();
+        $orden = $this->ordenSinFirma();
+
+        $r = $this->actingAs($v)->postJson("/api/ordenes/{$orden->id}/firma-remota", $this->resumenDeOrden())->assertCreated();
+        $this->actingAs($v)->getJson("/api/ordenes/{$orden->id}/firma-remota")->assertOk()->assertJsonPath('estado', 'pendiente');
+
+        $this->getJson('/api/public/anexos/' . $r->json('token'))->assertOk()
+            ->assertJsonPath('resumen.orden_existente', true)
+            // La foto del producto la pone el servidor desde el catálogo.
+            ->assertJsonPath('resumen.items.0.foto', 'https://res.cloudinary.com/x/mesa.jpg')
+            ->assertJsonPath('resumen.referencia', $orden->fresh()->referencia);
+
+        $this->postJson('/api/public/anexos/' . $r->json('token') . '/firmar', $this->respuestas())->assertOk();
+
+        // La firma quedó en la orden, y el anexo pegado a ella.
+        $this->assertSame('https://res.cloudinary.com/x/firma.png', $orden->fresh()->firma_url);
+        $this->assertSame('firmado', AnexoGarantia::find($r->json('id'))->estado);
+        $this->assertSame(1, DB::table('orden_mensajes')->where('orden_id', $orden->id)->count());
+
+        // Ya firmada no se vuelve a mandar.
+        $this->actingAs($v)->postJson("/api/ordenes/{$orden->id}/firma-remota", $this->resumenDeOrden())->assertStatus(422);
+    }
+
+    public function test_si_editan_la_orden_despues_de_mandarla_no_se_firma(): void
+    {
+        $v = $this->vendedor();
+        $orden = $this->ordenSinFirma();
+        $r = $this->actingAs($v)->postJson("/api/ordenes/{$orden->id}/firma-remota", $this->resumenDeOrden())->assertCreated();
+
+        DB::table('orden_items')->where('orden_id', $orden->id)->update(['precio_unitario' => 90000]);
+
+        $this->postJson('/api/public/anexos/' . $r->json('token') . '/firmar', $this->respuestas())->assertStatus(409);
+        $this->assertNull($orden->fresh()->firma_url);
+    }
+
+    public function test_no_se_manda_a_firmar_con_productos_sin_precio(): void
+    {
+        $orden = $this->ordenSinFirma(['estado' => 'pendiente_cotizacion']);
+        DB::table('orden_items')->insert(['orden_id' => $orden->id, 'nombre_custom' => 'Sofá a la medida', 'cantidad' => 1,
+            'precio_unitario' => 0, 'es_personalizado' => true, 'created_at' => now(), 'updated_at' => now()]);
+
+        $this->actingAs($this->vendedor())->postJson("/api/ordenes/{$orden->id}/firma-remota", $this->resumenDeOrden())
+            ->assertStatus(422);
     }
 
     public function test_solo_quien_lo_creo_ve_el_estado(): void

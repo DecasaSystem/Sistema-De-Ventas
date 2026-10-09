@@ -656,8 +656,7 @@ class OrdenController extends Controller
                 return response()->json(['message' => 'El anexo lo firmó otro cliente.'], 422);
             }
             if ($anexo->resumen_hash && ! $guardarBorrador) {
-                $huella = \App\Models\AnexoGarantia::huella($data['items'], (float) $descuentoTotal + (float) $descuentoCondicionado);
-                if (! hash_equals($anexo->resumen_hash, $huella)) {
+                if (! $anexo->coincideCon($data['items'], (float) $descuentoTotal + (float) $descuentoCondicionado)) {
                     return response()->json([
                         'message' => 'La orden cambió después de que el cliente la firmó (productos, cantidades o precios). '
                                    . 'Envíale el enlace otra vez para que firme lo que de verdad va.',
@@ -1355,13 +1354,18 @@ class OrdenController extends Controller
         }
 
         $esPresencial = $orden->canal === 'fisica';
+        // El cliente ya firmó a distancia (orden + anexo por el enlace): esa
+        // firma vale, y el anexo firmado reemplaza la foto del papel.
+        $yaFirmo        = (bool) $orden->firma_url;
+        $anexoFirmado   = \App\Models\AnexoGarantia::hayTabla()
+            && \App\Models\AnexoGarantia::where('orden_id', $orden->id)->where('estado', 'firmado')->exists();
 
         $data = $request->validate([
-            'firma_url'          => 'required|string|max:500',
+            'firma_url'          => ($yaFirmo ? 'nullable' : 'required') . '|string|max:500',
             'factura_foto_url'   => 'nullable|string|max:500',
             'factura_fotos'      => 'nullable|array|max:10',
             'factura_fotos.*'    => 'string|max:500',
-            'anexo_foto_url'     => ($esPresencial ? 'required' : 'nullable') . '|string|max:500',
+            'anexo_foto_url'     => ($esPresencial && ! $anexoFirmado ? 'required' : 'nullable') . '|string|max:500',
             'anticipo_monto'              => 'required|numeric|min:0',
             'anticipo_metodo'             => 'required|in:efectivo,transferencia,tarjeta,addi,otro',
             'anticipo_referencia'         => 'nullable|string|max:100',
@@ -1373,7 +1377,7 @@ class OrdenController extends Controller
 
         DB::transaction(function () use ($orden, $data, $usuario) {
             $orden->update([
-                'firma_url'        => $data['firma_url'],
+                'firma_url'        => ($data['firma_url'] ?? null) ?: $orden->firma_url,
                 'factura_foto_url' => ($data['factura_fotos'][0] ?? null) ?: ($data['factura_foto_url'] ?? null),
                 'factura_fotos'    => ! empty($data['factura_fotos']) ? array_values($data['factura_fotos']) : (! empty($data['factura_foto_url']) ? [$data['factura_foto_url']] : null),
                 'anexo_foto_url'   => $data['anexo_foto_url'] ?? null,

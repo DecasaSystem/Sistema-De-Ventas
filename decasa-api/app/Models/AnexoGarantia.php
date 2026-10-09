@@ -75,22 +75,43 @@ class AnexoGarantia extends Model
      * El total se saca de las mismas líneas menos los descuentos —y no del
      * total que calculó la pantalla—: en un juego el precio por pieza se
      * redondea al centavo, y dos sumas por caminos distintos no darían igual.
+     * Los descuentos también se redondean aquí: la pantalla los manda
+     * redondeados al crear el enlace y la orden los trae con centavos (un
+     * descuento por %), y por un peso la orden salía "cambiada" sin serlo.
      *
-     * @param array<int,array{producto_id?:int|null,nombre_custom?:string|null,cantidad:int|float,precio_unitario:int|float}> $lineas
+     * La tela/variante y la opción (medida) entran en la huella: el cliente
+     * vio "Sofá Milán · Lino gris" y si después se cambia a otra tela al
+     * mismo precio, lo que firmó ya no es lo que va.
+     *
+     * @param array<int,array{producto_id?:int|null,nombre_custom?:string|null,variante_id?:int|null,combo_config_id?:int|null,cantidad:int|float,precio_unitario:int|float}> $lineas
      */
-    public static function huella(array $lineas, float $descuentos): string
+    public static function huella(array $lineas, float $descuentos, bool $formatoViejo = false): string
     {
         $subtotal = collect($lineas)->sum(fn ($i) => (float) ($i['cantidad'] ?? 0) * (float) ($i['precio_unitario'] ?? 0));
-        $total    = max(0, $subtotal - $descuentos);
+        $total    = max(0, $subtotal - ($formatoViejo ? $descuentos : round($descuentos)));
 
         $items = collect($lineas)
             ->map(fn ($i) => (! empty($i['producto_id'])
                     ? 'p' . (int) $i['producto_id']
                     : 'c:' . mb_strtolower(trim((string) ($i['nombre_custom'] ?? ''))))
                 . '|' . (int) ($i['cantidad'] ?? 0)
-                . '|' . round((float) ($i['precio_unitario'] ?? 0)))
+                . '|' . round((float) ($i['precio_unitario'] ?? 0))
+                . ($formatoViejo ? '' : '|v' . (int) ($i['variante_id'] ?? 0) . '|c' . (int) ($i['combo_config_id'] ?? 0)))
             ->sort()->values()->all();
 
         return hash('sha256', json_encode(['total' => round($total), 'items' => $items]));
+    }
+
+    /**
+     * ¿La orden es la que el cliente vio? Acepta también la huella de antes de
+     * que entraran la tela y el redondeo (2026-10-09): un anexo firmado antes
+     * de ese cambio no puede salir "desactualizado" solo por el formato.
+     */
+    public function coincideCon(array $lineas, float $descuentos): bool
+    {
+        if (! $this->resumen_hash) return true;
+
+        return hash_equals($this->resumen_hash, self::huella($lineas, $descuentos))
+            || hash_equals($this->resumen_hash, self::huella($lineas, $descuentos, formatoViejo: true));
     }
 }
