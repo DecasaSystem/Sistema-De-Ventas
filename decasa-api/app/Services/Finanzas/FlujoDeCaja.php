@@ -24,7 +24,10 @@ class FlujoDeCaja
     public static function meses(string $desde, string $hasta): array
     {
         $cobros   = FuenteVentas::cobradoPorMes($desde, $hasta);
-        $nomina   = FuenteNomina::porMes($desde, $hasta, false);
+        // Con lo sin pagar incluido aunque aquí solo se lee la caja (eso solo
+        // suma al costo): es la misma carga que piden el estado de resultados y
+        // la proyección en esta petición, y así nomina_pagos se lee una vez.
+        $nomina   = FuenteNomina::porMes($desde, $hasta);
         $comision = FuenteComisiones::cajaPorMes($desde, $hasta);
         $gastos   = FuenteGastos::porMes($desde, $hasta);
 

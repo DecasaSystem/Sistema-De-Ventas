@@ -327,8 +327,8 @@ class Proyeccion
     {
         [$ini] = Periodo::limites($desde);
         [, $fin] = Periodo::limites($hasta);
-        $plantillas = GastoRecurrente::where('activo', true)->get();
-        $sugeridos  = ObligacionesRecurrentes::montosSugeridos($plantillas);
+        $plantillas = ObligacionesRecurrentes::plantillasActivas();
+        $sugeridos  = ObligacionesRecurrentes::montosSugeridosActivas();
         $meses = array_flip(Periodo::meses($desde, $hasta));
 
         $out = [];

@@ -44,11 +44,24 @@ class Periodo
             $actual = self::mesActual();
             $lo = min($desde, self::sumarMeses($actual, -15), $c['desde'] ?? $desde);
             $hi = max($hasta, $actual, $c['hasta'] ?? $hasta);
-            $c = $todo[$clave] = ['desde' => $lo, 'hasta' => $hi, 'datos' => $cargar($lo, $hi)];
-            self::$recordado[$req] = $todo;
+            $c = ['desde' => $lo, 'hasta' => $hi, 'datos' => $cargar($lo, $hi)];
+            self::guardarRecordado($req, $clave, $c);
         }
 
         return array_filter($c['datos'], fn ($mes) => $mes >= $desde && $mes <= $hasta, ARRAY_FILTER_USE_KEY);
+    }
+
+    /**
+     * Guarda sobre lo que haya AHORA, no sobre la copia de antes de cargar: lo
+     * que se carga recuerda cosas por dentro (la nómina pide los empleados) y
+     * escribir la copia vieja las borraba. Así `usuarios` se consultaba tres
+     * veces en el resumen aunque estuviera "recordado" (2026-10-10).
+     */
+    private static function guardarRecordado(object $req, string $clave, mixed $valor): void
+    {
+        $todo = self::$recordado[$req] ?? [];
+        $todo[$clave] = $valor;
+        self::$recordado[$req] = $todo;
     }
 
     /**
@@ -62,12 +75,12 @@ class Periodo
 
         self::$recordado ??= new \WeakMap();
         $todo = self::$recordado[$req] ?? [];
-        if (! array_key_exists("uno:$clave", $todo)) {
-            $todo["uno:$clave"] = $cargar();
-            self::$recordado[$req] = $todo;
-        }
+        if (array_key_exists("uno:$clave", $todo)) return $todo["uno:$clave"];
 
-        return $todo["uno:$clave"];
+        $valor = $cargar();
+        self::guardarRecordado($req, "uno:$clave", $valor);
+
+        return $valor;
     }
 
     public static function olvidarRecordado(): void

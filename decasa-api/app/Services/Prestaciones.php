@@ -167,11 +167,13 @@ class Prestaciones
     {
         $hoy = CicloNomina::hoy();
         $out = [];
-        foreach (NominaLiquidador::pendientes($hoy) as $l) {
+        // Los mismos trabajadores para los dos recorridos: una consulta, no dos.
+        $empleados = NominaLiquidador::empleadosLiquidables();
+        foreach (NominaLiquidador::pendientes($hoy, $empleados) as $l) {
             if ($usuarioId && $l['usuario_id'] !== $usuarioId) continue;
             $out[] = $l + ['fecha_corte' => $l['fecha_fin']];
         }
-        foreach (NominaLiquidador::empleadosLiquidables() as $e) {
+        foreach ($empleados as $e) {
             if ($usuarioId && $e->id !== $usuarioId) continue;
             $l = NominaLiquidador::cicloActual($e, $hoy);
             if ($l['cerrado'] || $l['dias'] <= 0) continue;

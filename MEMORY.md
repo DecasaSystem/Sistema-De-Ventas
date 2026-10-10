@@ -240,6 +240,11 @@ escribiendo precios (Fase 1b).
   `->selectRaw('… AS mes')->groupBy('mes')` con una tabla que tiene columna `mes`
   (`comision_anticipos`, `presupuestos_gasto`, `metas_tienda`…) revienta en producción
   (ONLY_FULL_GROUP_BY) y pasa en las pruebas. Agrupar por la expresión (`groupByRaw`).
+- Rendimiento de Finanzas (2026-10-10): lo recordado por petición va con
+  `Periodo::recordar` / `porMesRecordado`. Trampa: guardar sobre lo que haya al
+  terminar de cargar, no sobre una copia de antes (lo que se carga recuerda cosas
+  por dentro y se perdían). `Esquema` guarda en la caché solo los "sí existe"
+  (llave con la versión de las migraciones). Resumen: 55 → ~26 consultas.
 - Trampa SQLite: Eloquent guarda las fechas como `Y-m-d H:i:s`; comparar columnas de fecha con `whereDate`, no con `where(fecha, "<=", "Y-m-d")`.
 - **Trampa (2026-10-10): Finanzas daba 502 en producción** recién subido. Los pagos de nómina de
   antes de la migración no traen el costo congelado y `CostoEmpleador::dePago` buscaba trabajador y

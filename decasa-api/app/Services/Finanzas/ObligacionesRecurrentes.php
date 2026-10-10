@@ -75,17 +75,18 @@ class ObligacionesRecurrentes
         $desde = $hoy->copy()->subDays(self::DIAS_ATRAS);
         $hasta = $hoy->copy()->addDays($dias);
 
-        $plantillas = GastoRecurrente::with(['categoria:id,nombre,icono,naturaleza', 'tienda:id,nombre'])
-            ->where('activo', true)->get();
+        $plantillas = self::plantillasActivas();
         if ($plantillas->isEmpty()) return collect();
 
-        $hechos = Gasto::whereIn('gasto_recurrente_id', $plantillas->pluck('id'))
+        // El resumen pide pendientes dos veces (semáforo y calendario) y la
+        // proyección otra: lo que no depende de `$dias`, una vez por petición.
+        $hechos = Periodo::recordar('recurrentes-hechos', fn () => Gasto::whereIn('gasto_recurrente_id', $plantillas->pluck('id'))
             ->whereIn('estado', [Gasto::PAGADO, Gasto::OMITIDO])
             ->get(['gasto_recurrente_id', 'periodo'])
             ->map(fn ($g) => $g->gasto_recurrente_id . '|' . $g->periodo)
-            ->flip();
+            ->flip());
 
-        $sugeridos = self::montosSugeridos($plantillas);
+        $sugeridos = self::montosSugeridosActivas();
 
         $out = collect();
         foreach ($plantillas as $g) {
@@ -115,6 +116,19 @@ class ObligacionesRecurrentes
         }
 
         return $out->sortBy('vence')->values();
+    }
+
+    /** Las plantillas activas, una vez por petición. */
+    public static function plantillasActivas(): Collection
+    {
+        return Periodo::recordar('recurrentes-activas', fn () => GastoRecurrente::with(['categoria:id,nombre,icono,naturaleza', 'tienda:id,nombre'])
+            ->where('activo', true)->get());
+    }
+
+    /** montosSugeridos de las plantillas activas, una vez por petición. */
+    public static function montosSugeridosActivas(): array
+    {
+        return Periodo::recordar('recurrentes-sugeridos', fn () => self::montosSugeridos(self::plantillasActivas()));
     }
 
     /**

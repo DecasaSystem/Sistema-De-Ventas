@@ -144,7 +144,7 @@ class FuenteGastos
      */
     public static function primerMesConGastos(): ?string
     {
-        $primero = Gasto::where('estado', Gasto::PAGADO)->min('cubre_desde');
+        $primero = Periodo::recordar('primer-gasto', fn () => Gasto::where('estado', Gasto::PAGADO)->min('cubre_desde'));
 
         return $primero ? Periodo::mesDe($primero) : null;
     }
