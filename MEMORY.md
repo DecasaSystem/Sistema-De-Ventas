@@ -235,6 +235,11 @@ escribiendo precios (Fase 1b).
 - **Recontado 2026-10-08: 734 tests, 10 fallos preexistentes** (las mismas 6 clases).
 - **Recontado 2026-10-09 (rama de garantías): 767 tests, 10 fallos preexistentes** (las mismas 6 clases).
 - **Recontado 2026-10-10 (finanzas + prestaciones): 817 tests, 10 fallos preexistentes** (las mismas 6 clases).
+- Trampa MySQL vs SQLite (2026-10-10, 500 en `/finanzas/resumen`): `GROUP BY alias` en
+  MySQL busca **primero una columna de las tablas** con ese nombre; SQLite usa el alias.
+  `->selectRaw('… AS mes')->groupBy('mes')` con una tabla que tiene columna `mes`
+  (`comision_anticipos`, `presupuestos_gasto`, `metas_tienda`…) revienta en producción
+  (ONLY_FULL_GROUP_BY) y pasa en las pruebas. Agrupar por la expresión (`groupByRaw`).
 - Trampa SQLite: Eloquent guarda las fechas como `Y-m-d H:i:s`; comparar columnas de fecha con `whereDate`, no con `where(fecha, "<=", "Y-m-d")`.
 - **Trampa (2026-10-10): Finanzas daba 502 en producción** recién subido. Los pagos de nómina de
   antes de la migración no traen el costo congelado y `CostoEmpleador::dePago` buscaba trabajador y

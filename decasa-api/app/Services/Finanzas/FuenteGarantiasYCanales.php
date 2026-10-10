@@ -55,11 +55,14 @@ class FuenteGarantiasYCanales
         $rango = Periodo::rangoUtc($mes, $mes);
         $divisor = ConfigFinanzas::divisorIva();
 
+        // Por la expresión, no por el alias: en MySQL `GROUP BY canal` es la
+        // columna `o.canal`, y las de canal NULL y las de 'otro' salían en dos
+        // filas con la misma llave (keyBy se quedaba con una sola).
         $ventas = DB::table('ordenes as o')
             ->whereBetween('o.created_at', $rango)
             ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_REPORTES)
             ->selectRaw("COALESCE(o.canal, 'otro') AS canal, COUNT(*) AS ordenes, SUM(o.valor_total) AS vendido")
-            ->groupBy('canal')->get()->keyBy('canal');
+            ->groupByRaw("COALESCE(o.canal, 'otro')")->get()->keyBy('canal');
 
         // Publicidad: los gastos marcados con canal, más los de la categoría de
         // publicidad sin canal (van a "sin canal").

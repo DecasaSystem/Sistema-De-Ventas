@@ -80,13 +80,20 @@ class FuenteComisiones
 
         if (self::hayAnticipos()) {
             // Lo descontado de anticipos no salió el día del pago: ya había salido.
+            // Se agrupa por la expresión y no por el alias: `comision_anticipos`
+            // tiene su propia columna `mes`, y en un GROUP BY MySQL busca primero
+            // en las tablas. `GROUP BY mes` agrupaba por `a.mes` y, con
+            // ONLY_FULL_GROUP_BY, la consulta fallaba siempre: 500 en
+            // /finanzas/resumen y /finanzas/flujo-caja (2026-10-10). SQLite usa
+            // el alias, por eso las pruebas no lo veían.
+            $mesPago = Periodo::sqlMes('c.fecha_pago');
             $descuentos = DB::table('comision_anticipos as a')->join('comisiones as c', 'c.id', '=', 'a.comision_id')
                 ->where('a.tipo', 'descuento')->where('c.estado', 'pagada')
                 ->whereBetween('c.fecha_pago', $rango)
-                ->selectRaw(Periodo::sqlMes('c.fecha_pago') . ' AS mes, SUM(a.monto) AS total')
-                ->groupBy('mes')->get();
+                ->selectRaw($mesPago . ' AS mes_pago, SUM(a.monto) AS total')
+                ->groupByRaw($mesPago)->get();
             foreach ($descuentos as $f) {
-                $poner($f->mes, 'pagado', -(float) $f->total);
+                $poner($f->mes_pago, 'pagado', -(float) $f->total);
             }
 
             $anticipos = DB::table('comision_anticipos')->where('tipo', 'anticipo')
