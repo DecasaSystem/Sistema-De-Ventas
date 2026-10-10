@@ -2,9 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\NominaConceptoTrabajador;
 use App\Models\NominaPago;
 use App\Models\Usuario;
 use App\Services\CicloNomina;
+use App\Services\CostoEmpleador;
+use Illuminate\Support\Facades\DB;
 use App\Services\NominaLiquidador;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -50,6 +53,14 @@ class EmpleadoController extends Controller
             'nomina_seguridad_social'     => $e->aportaSeguridadSocial(),
             'valor_auxilio_mes_efectivo'          => $e->valorAuxilioMesEfectivo(),
             'valor_seguridad_social_mes_efectivo' => $e->valorSeguridadSocialMesEfectivo(),
+            'nomina_tipo_contrato'        => $e->nomina_tipo_contrato,
+            'nomina_fondo_cesantias'      => $e->nomina_fondo_cesantias,
+            'nomina_retiro'               => $e->nomina_retiro?->toDateString(),
+            // Lo que paga la empresa por detrás, concepto por concepto: si le
+            // aplica, con qué porcentaje y si es una excepción suya.
+            'conceptos_empleador'         => CostoEmpleador::hayTablas()
+                ? CostoEmpleador::conceptosDe($e, $hoy ?? CicloNomina::hoy())
+                : [],
             'label_efectivo'      => $e->labelEfectivo(),
         ];
 
@@ -119,7 +130,20 @@ class EmpleadoController extends Controller
             // El mismo sueldo lo comparten unos con y otros sin.
             'nomina_auxilio'         => 'sometimes|boolean',
             'nomina_seguridad_social' => 'sometimes|boolean',
+            // Sus excepciones a lo que paga la empresa por detrás: a uno no se
+            // le paga pensión, otro tiene la ARL del taller. `aplica` null =
+            // quitar la excepción y volver a lo de la empresa.
+            // Contrato y fondo de cesantías: los usa la liquidación y la consignación.
+            'nomina_tipo_contrato'   => ['sometimes', 'nullable', Rule::in(array_keys(\App\Models\NominaLiquidacion::CONTRATOS))],
+            'nomina_fondo_cesantias' => 'sometimes|nullable|string|max:120',
+            'conceptos_empleador'                => 'sometimes|array',
+            'conceptos_empleador.*.concepto_id'  => 'required|integer|exists:nomina_conceptos_empleador,id',
+            'conceptos_empleador.*.aplica'       => 'nullable|boolean',
+            'conceptos_empleador.*.porcentaje'   => 'nullable|numeric|min:0|max:100',
         ]);
+
+        $conceptos = $data['conceptos_empleador'] ?? null;
+        unset($data['conceptos_empleador']);
 
         // Entra a nómina ahora: desde hoy, salvo que se diga otra fecha. Sin
         // esto, los ciclos ya cerrados le saldrían como pagos atrasados.
@@ -128,7 +152,24 @@ class EmpleadoController extends Controller
             $data['nomina_desde'] = now()->toDateString();
         }
 
-        $trabajador->update($data);
+        DB::transaction(function () use ($trabajador, $data, $conceptos) {
+            $trabajador->update($data);
+
+            foreach ($conceptos ?? [] as $c) {
+                $sinExcepcion = ($c['aplica'] ?? null) === null && ($c['porcentaje'] ?? null) === null;
+                if ($sinExcepcion) {
+                    NominaConceptoTrabajador::where('usuario_id', $trabajador->id)
+                        ->where('concepto_id', $c['concepto_id'])->delete();
+                    continue;
+                }
+
+                NominaConceptoTrabajador::updateOrCreate(
+                    ['usuario_id' => $trabajador->id, 'concepto_id' => $c['concepto_id']],
+                    // Solo el porcentaje distinto: le sigue aplicando.
+                    ['aplica' => $c['aplica'] ?? true, 'porcentaje' => $c['porcentaje'] ?? null],
+                );
+            }
+        });
 
         return response()->json($this->comoJson(
             $trabajador->fresh(NominaLiquidador::relaciones()), CicloNomina::hoy()

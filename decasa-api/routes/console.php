@@ -39,6 +39,20 @@ Schedule::job(new AvisarCotizacionesPorVencer())
 // Encargos: a quién le toca revista. Diario, para que el aviso llegue el DÍA
 // que toca y no cuando cuadre; el propio job se guarda de repetir a los
 // atrasados todos los días (esos se recuerdan los lunes).
+// El día 1: cómo cerró el mes anterior, al celular de quien ve Finanzas.
+Schedule::job(new \App\Jobs\ResumenFinancieroMensual())
+    ->monthlyOn(1, '07:30')
+    ->timezone('America/Bogota')
+    ->name('resumen-financiero-mensual')
+    ->withoutOverlapping();
+
+// Gastos fijos por vencer: a quien ve Finanzas, una vez al día con la lista.
+Schedule::job(new \App\Jobs\AvisarGastosPorVencer())
+    ->dailyAt('08:15')
+    ->timezone('America/Bogota')
+    ->name('avisar-gastos-por-vencer')
+    ->withoutOverlapping();
+
 Schedule::job(new AvisarRevisionesEncargos())
     ->dailyAt('08:45')
     ->timezone('America/Bogota')

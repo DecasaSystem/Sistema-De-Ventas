@@ -174,6 +174,7 @@ class AuthController extends Controller
             'acceso_produccion'  => (bool) $usuario->acceso_produccion,
             'acceso_reserva'     => (bool) $usuario->acceso_reserva,
             'acceso_nomina'      => (bool) $usuario->acceso_nomina,
+            'acceso_finanzas'    => (bool) $usuario->acceso_finanzas,
             'acceso_compras'     => (bool) $usuario->acceso_compras,
             // Encargos: administrar el módulo. `lleva_encargos` viaja también
             // porque con esa sola —sin el permiso— la persona ya puede abrir

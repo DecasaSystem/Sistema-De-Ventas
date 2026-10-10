@@ -130,6 +130,17 @@ class NominaLiquidador
 
         $bono = self::evaluarBono($empleado, $inicio, $fin, $hasta);
 
+        // Lo que la empresa pone por detrás (aportes y prestaciones). No toca
+        // el `total`: eso sigue siendo lo que recibe la persona. Lo lee
+        // Finanzas para saber cuánto cuesta de verdad la nómina.
+        $costoEmpleador = CostoEmpleador::deLiquidacion($empleado, [
+            'subtotal'              => $subtotal,
+            'descuento_faltas'      => $descuentoFaltas,
+            'auxilio_transporte'    => $auxilioTransporte,
+            'descuento_incapacidad' => $descuentoIncapacidad,
+            'bonificacion'          => $bono['monto'],
+        ], $fin);
+
         return [
             'periodicidad'       => $empleado->periodicidad,
             'periodicidad_label' => CicloNomina::label($empleado->periodicidad),
@@ -182,6 +193,8 @@ class NominaLiquidador
                                     - (float) $descuentoFaltas - (float) $descuentoIncapacidad
                                     - (float) $seguridadSocial
                                     + (float) $totalAjustes + $bono['monto'] - (float) $totalCuotas,
+            // Por detrás: no se le paga al trabajador (ver CostoEmpleador).
+            'costo_empleador'    => $costoEmpleador,
             'faltas'             => $faltas->map(fn (NominaAusencia $a) => self::faltaComoJson($a, $valorHora))->values(),
             'faltas_programadas' => $programadas->map(fn (NominaAusencia $a) => self::faltaComoJson($a, $valorHora))->values(),
             'incapacidades'      => $incapacidades->map(fn (NominaAusencia $a) => self::incapacidadComoJson($a, $valorAuxilioDia))->values(),
@@ -443,7 +456,11 @@ class NominaLiquidador
             'ajustes'      => $sinCobrar,
             'prestamos'    => $prestamosVivos,
             'producciones' => $recientes,
-        ];
+        ] + (CostoEmpleador::hayTablas()
+            // Sus excepciones a lo que paga la empresa por detrás, de una vez
+            // para todos y no una consulta por trabajador.
+            ? ['conceptosEmpleador' => fn ($q) => $q]
+            : []);
     }
 
     /** Las filas de una colección ya cargada que caen dentro de un rango. */

@@ -38,6 +38,7 @@ const routes = [
   { path: '/usuarios', name: 'usuarios', component: () => import('@/views/UsuariosView.vue'), meta: { requiresAuth: true, requiresSupervisor: true } },
   { path: '/gestion', name: 'gestion', component: () => import('@/views/GestionView.vue'), meta: { requiresAuth: true, requiresSupervisor: true } },
   { path: '/nomina', name: 'nomina', component: () => import('@/views/NominaView.vue'), meta: { requiresAuth: true, requiresNomina: true } },
+  { path: '/finanzas', name: 'finanzas', component: () => import('@/views/FinanzasView.vue'), meta: { requiresAuth: true, requiresFinanzas: true } },
   { path: '/usuarios/crear', name: 'usuario-crear', component: () => import('@/views/UsuarioCrearView.vue'), meta: { requiresAuth: true, requiresSupervisor: true } },
   { path: '/usuarios/:id', name: 'usuario-detalle', component: () => import('@/views/UsuarioDetalleView.vue'), meta: { requiresAuth: true, requiresSupervisor: true } },
   { path: '/perfil', name: 'perfil', component: () => import('@/views/PerfilView.vue'), meta: { requiresAuth: true } },
@@ -135,6 +136,7 @@ router.beforeEach((to) => {
   if (to.meta.requiresComisiones  && !auth.tieneAccesoComisiones)  return { name: 'dashboard' }
   if (to.meta.requiresDespacho    && !auth.puedeDespacho)          return { name: 'dashboard' }
   if (to.meta.requiresNomina      && !auth.puedeNomina)            return { name: 'dashboard' }
+  if (to.meta.requiresFinanzas    && !auth.puedeFinanzas)          return { name: 'dashboard' }
   if (to.meta.requiresCompras     && !auth.puedeCompras)           return { name: 'dashboard' }
   // Entra quien administra el módulo y también quien solo responde por lo
   // suyo: ver de qué respondes tú no es administrar nada.

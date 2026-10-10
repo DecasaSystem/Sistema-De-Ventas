@@ -358,9 +358,11 @@ class ReporteController extends Controller
         [$desde, $hasta] = $this->rango($r);
         $tiendaId = $r->query('tienda_id');
 
+        // Sin órdenes canceladas: ni su valor ni lo que se les abonó.
         $base = DB::table('pagos as p')
             ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
             ->whereBetween('p.created_at', [$desde . ' 00:00:00', $hasta . ' 23:59:59'])
+            ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_REPORTES)
             ->when($tiendaId, fn($q) => $q->where('o.tienda_id', $tiendaId));
 
         $resumen = (clone $base)
@@ -423,9 +425,12 @@ class ReporteController extends Controller
         $rango = [$desde . ' 00:00:00', $hasta . ' 23:59:59'];
 
         return DB::table('usuarios as u')
+            // Las canceladas se quedan fuera del join: ni cuentan como orden
+            // ni lo abonado a ellas como cobrado.
             ->leftJoin('ordenes as o', fn($j) => $j
                 ->on('o.vendedor_id', '=', 'u.id')
                 ->whereBetween('o.created_at', $rango)
+                ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_REPORTES)
             )
             ->leftJoin('pagos as p', 'p.orden_id', '=', 'o.id')
             ->whereIn('u.rol', ['vendedor', 'supervisor'])
@@ -444,6 +449,7 @@ class ReporteController extends Controller
                 DB::table('ordenes as o2')
                     ->whereColumn('o2.vendedor_id', 'u.id')
                     ->whereBetween('o2.created_at', $rango)
+                    ->whereNotIn('o2.estado', Orden::ESTADOS_FUERA_DE_REPORTES)
                     ->selectRaw('COALESCE(AVG(o2.valor_total), 0)'),
                 'ticket_promedio'
             )
@@ -567,6 +573,7 @@ class ReporteController extends Controller
             ->join('tiendas as t',  't.id', '=', 'o.tienda_id')
             ->join('usuarios as u', 'u.id', '=', 'p.vendedor_id')
             ->whereBetween('p.created_at', [$desde . ' 00:00:00', $hasta . ' 23:59:59'])
+            ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_REPORTES)
             ->when($tiendaId, fn($q) => $q->where('o.tienda_id', $tiendaId))
             ->when($vendedorId, fn($q) => $q->where('o.vendedor_id', $vendedorId))
             ->select(

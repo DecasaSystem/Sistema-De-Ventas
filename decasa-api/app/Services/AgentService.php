@@ -447,6 +447,19 @@ class AgentService
             [
                 'type' => 'function',
                 'function' => [
+                    'name' => 'resumen_financiero',
+                    'description' => 'Cómo va la empresa en plata: estado de resultados del mes (ventas, IVA, materiales estimados, nómina con lo que pone la empresa, comisiones, gastos, utilidad y márgenes), punto de equilibrio, cartera, caja, alertas y próximos pagos (nómina, prima, cesantías, gastos fijos, comisiones). Úsala ante "¿cómo vamos este mes?", "¿estamos ganando o perdiendo?", "¿cuánto gastamos en nómina?", "¿cuánto falta para no perder?", "¿qué hay que pagar esta semana?". Solo supervisores con acceso a Finanzas.',
+                    'parameters' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'mes' => ['type' => 'string', 'description' => 'Mes en formato YYYY-MM (por defecto, el mes en curso)'],
+                        ],
+                    ],
+                ],
+            ],
+            [
+                'type' => 'function',
+                'function' => [
                     'name' => 'consultar_interesados',
                     'description' => 'Consulta estadísticas de clientes interesados (leads): cuántos hay, qué categorías preguntan más, distribución por tienda y por canal. Úsala ante preguntas como "¿qué es lo que más preguntan?", "¿cuántos interesados tenemos?", "¿qué se pregunta más en tienda X?", "¿qué deberíamos fabricar según la demanda?".',
                     'parameters' => [
@@ -1246,9 +1259,11 @@ class AgentService
             $tiendaId = $usuario->tienda_default_id;
         }
 
+        // Mismo criterio que Reportes: lo de órdenes canceladas no cuenta.
         $base = DB::table('pagos as p')
             ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
-            ->whereBetween('p.created_at', $rango);
+            ->whereBetween('p.created_at', $rango)
+            ->whereNotIn('o.estado', \App\Models\Orden::ESTADOS_FUERA_DE_REPORTES);
         if ($tiendaId) $base->where('o.tienda_id', $tiendaId);
 
         $resumen = (clone $base)->selectRaw('
@@ -2357,8 +2372,50 @@ class AgentService
             'consultar_telas'              => $this->handleConsultarTelas($args),
             'consultar_caja'               => $this->handleConsultarCaja($args, $usuario),
             'consultar_comisiones'         => $this->handleConsultarComisiones($args, $usuario),
+            'resumen_financiero'           => $this->handleResumenFinanciero($args, $usuario),
             default                        => ['error' => "Tool '{$toolName}' no reconocida."],
         };
+    }
+
+    /**
+     * El resumen de Finanzas para el chat. Las cifras salen de los mismos
+     * servicios que la pantalla (App\Services\Finanzas): el modelo solo las
+     * explica, nunca las calcula. Mismo permiso que la pantalla: supervisor
+     * con acceso_finanzas; a cualquier otro no se le dice nada de la utilidad.
+     */
+    private function handleResumenFinanciero(array $args, Usuario $usuario): array
+    {
+        if ($usuario->rol !== 'supervisor' || ! $usuario->acceso_finanzas) {
+            return ['error' => 'No tienes acceso a Finanzas. Pídeselo a un supervisor con ese permiso.'];
+        }
+
+        $mes = \App\Services\Finanzas\Periodo::valido($args['mes'] ?? null) ? $args['mes'] : \App\Services\Finanzas\Periodo::mesActual();
+        [$anterior, $m] = \App\Services\Finanzas\EstadoResultados::meses(\App\Services\Finanzas\Periodo::sumarMeses($mes, -1), $mes)['meses'];
+        $ind = \App\Services\Finanzas\Indicadores::delMes($mes, $m, $anterior);
+
+        return [
+            'mes'                => $m['nombre'],
+            'en_curso'           => $m['parcial'],
+            'ventas_con_iva'     => $m['ventas'],
+            'iva'                => $m['iva'],
+            'ingresos_netos'     => $m['ingresos_netos'],
+            'materiales_estimados' => $m['costo_produccion']['monto'],
+            'nomina_costo_empresa' => $m['nomina']['total'],
+            'comisiones'         => $m['comisiones']['total'],
+            'gastos'             => $m['gastos']['total'],
+            'gastos_financieros' => $m['financieros']['total'],
+            'utilidad_operativa' => $m['utilidad_operativa'],
+            'margen_operativo_pct' => $m['margenes']['operativo'] !== null ? round($m['margenes']['operativo'] * 100, 1) : null,
+            'cobrado_en_el_mes'  => $m['cobrado'],
+            'mes_anterior'       => ['ventas' => $anterior['ventas'], 'utilidad_operativa' => $anterior['utilidad_operativa']],
+            'punto_equilibrio'   => $ind['punto_equilibrio'],
+            'cartera'            => ['total' => $ind['cartera']['total'], 'dias' => $ind['cartera']['dias']],
+            'caja'               => $ind['caja'],
+            'alertas'            => array_map(fn ($s) => $s['titulo'] . ': ' . $s['texto'], array_filter($ind['semaforo'], fn ($s) => $s['nivel'] !== 'bien')),
+            'proximos_pagos'     => array_map(fn ($p) => ['fecha' => $p['fecha'], 'que' => $p['titulo'], 'monto' => $p['monto'], 'vencido' => $p['vencido']],
+                array_slice(\App\Services\Finanzas\CalendarioPagos::proximos(15), 0, 8)),
+            'nota'               => 'Los materiales son una estimación con las fichas técnicas; las comisiones sin pagar están al día de hoy. Detalle en Finanzas.',
+        ];
     }
 
     /**

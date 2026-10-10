@@ -22,7 +22,7 @@ class UploadController extends Controller
         // convertirla, y Cloudinary la recibe igual.
         $request->validate([
             'foto'  => 'required|file|mimes:jpg,jpeg,png,gif,webp,bmp,heic,heif|max:10240',
-            'folder' => 'nullable|string|in:productos,facturas,firmas,bocetos,comprobantes,telas,anexos,compras,catalogos,modulos,chat-ordenes,devoluciones,garantias,produccion,soportes',
+            'folder' => 'nullable|string|in:productos,facturas,firmas,bocetos,comprobantes,telas,anexos,compras,catalogos,modulos,chat-ordenes,devoluciones,garantias,produccion,soportes,gastos',
         ], [
             'foto.max'   => 'La foto pesa más de 10 MB.',
             'foto.mimes' => 'Ese archivo no es una foto que se pueda subir (JPG, PNG, WEBP o HEIC).',

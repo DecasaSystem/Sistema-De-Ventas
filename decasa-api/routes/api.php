@@ -62,6 +62,13 @@ use App\Http\Controllers\NominaBonificacionController;
 use App\Http\Controllers\NominaPrestamoController;
 use App\Http\Controllers\NominaProduccionController;
 use App\Http\Controllers\NominaSueldoController;
+use App\Http\Controllers\NominaConceptoEmpleadorController;
+use App\Http\Controllers\NominaPrestacionController;
+use App\Http\Controllers\FinanzasController;
+use App\Http\Controllers\GastoController;
+use App\Http\Controllers\GastoRecurrenteController;
+use App\Http\Controllers\CategoriaGastoController;
+use App\Http\Controllers\CuentaPorPagarController;
 use App\Http\Controllers\NominaAusenciaController;
 use Illuminate\Support\Facades\Route;
 
@@ -188,6 +195,34 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/sueldos',             [NominaSueldoController::class, 'store']);
         Route::patch('/sueldos/{id}',       [NominaSueldoController::class, 'update'])->whereNumber('id');
         Route::delete('/sueldos/{id}',      [NominaSueldoController::class, 'destroy'])->whereNumber('id');
+
+        // Lo que la empresa paga por detrás de la nómina (aportes y
+        // prestaciones): no se le paga al trabajador, lo lee Finanzas. Todo
+        // configurable porque la ley cambia: conceptos, porcentaje con fecha.
+        // Ojo con el orden: /ajustes y /tarifas/{id} antes de /{id}.
+        Route::get('/conceptos-empleador',                 [NominaConceptoEmpleadorController::class, 'index']);
+        Route::post('/conceptos-empleador',                [NominaConceptoEmpleadorController::class, 'store']);
+        Route::put('/conceptos-empleador/ajustes',         [NominaConceptoEmpleadorController::class, 'guardarAjustes']);
+        Route::delete('/conceptos-empleador/tarifas/{id}', [NominaConceptoEmpleadorController::class, 'quitarTarifa'])->whereNumber('id');
+        Route::patch('/conceptos-empleador/{id}',          [NominaConceptoEmpleadorController::class, 'update'])->whereNumber('id');
+        Route::post('/conceptos-empleador/{id}/tarifas',   [NominaConceptoEmpleadorController::class, 'agregarTarifa'])->whereNumber('id');
+
+        // Prestaciones que se pagan (prima, cesantías, intereses, vacaciones) y
+        // liquidaciones al retiro. Lo que se debe sale de lo provisionado en
+        // cada pago. Literales antes de {id}.
+        Route::get('/prestaciones',                    [NominaPrestacionController::class, 'index']);
+        Route::get('/prestaciones/vacaciones',         [NominaPrestacionController::class, 'vacaciones']);
+        Route::post('/prestaciones/vacaciones',        [NominaPrestacionController::class, 'registrarVacaciones']);
+        Route::get('/prestaciones/historial',          [NominaPrestacionController::class, 'historial']);
+        Route::get('/prestaciones/ajustes',            [NominaPrestacionController::class, 'ajustes']);
+        Route::put('/prestaciones/ajustes',            [NominaPrestacionController::class, 'guardarAjustes']);
+        Route::post('/prestaciones/pagar',             [NominaPrestacionController::class, 'pagar']);
+        Route::post('/prestaciones/{id}/anular',       [NominaPrestacionController::class, 'anular'])->whereNumber('id');
+        Route::get('/liquidaciones',                   [NominaPrestacionController::class, 'liquidaciones']);
+        Route::post('/liquidaciones/calcular',         [NominaPrestacionController::class, 'calcular']);
+        Route::post('/liquidaciones',                  [NominaPrestacionController::class, 'store']);
+        Route::post('/liquidaciones/{id}/anular',      [NominaPrestacionController::class, 'anularLiquidacion'])->whereNumber('id');
+        Route::get('/liquidaciones/{id}/pdf',          [NominaPrestacionController::class, 'pdf'])->whereNumber('id');
 
         // Los trabajadores NO se crean acá: se dan de alta una sola vez en
         // Trabajadores (/usuarios) y aparecen solos en esta lista. Desde acá
@@ -617,6 +652,48 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/vendedor/{id}',    [StatsController::class, 'statsVendedor']);
             Route::get('/conductores',      [StatsController::class, 'conductores']);
         });
+    });
+
+    // Finanzas — lo que entra y lo que sale de la empresa (docs/plan-gestion-financiera.md).
+    // Supervisor Y acceso_finanzas: la utilidad es lo más sensible del sistema.
+    // Ojo con el orden: las rutas literales antes de las de {id}.
+    Route::middleware(['role:supervisor', 'permiso:acceso_finanzas'])->prefix('finanzas')->group(function () {
+        Route::get('/resumen',            [FinanzasController::class, 'resumen']);
+        Route::get('/estado-resultados',  [FinanzasController::class, 'estadoResultados']);
+        Route::get('/flujo-caja',         [FinanzasController::class, 'flujoCaja']);
+        Route::get('/calendario',         [FinanzasController::class, 'calendario']);
+        Route::get('/proyeccion',         [FinanzasController::class, 'proyeccion']);
+        Route::get('/por-tienda',         [FinanzasController::class, 'porTienda']);
+        Route::get('/por-canal',          [FinanzasController::class, 'porCanal']);
+        Route::get('/cierres',            [FinanzasController::class, 'cierres']);
+        Route::post('/cierres',           [FinanzasController::class, 'cerrarMes']);
+        Route::post('/cierres/{mes}/reabrir', [FinanzasController::class, 'reabrirMes'])->where('mes', '\d{4}-\d{2}');
+
+        // Facturas de proveedores a crédito.
+        Route::get('/cuentas-por-pagar',               [CuentaPorPagarController::class, 'index']);
+        Route::post('/cuentas-por-pagar',              [CuentaPorPagarController::class, 'store']);
+        Route::post('/cuentas-por-pagar/{id}/pagar',   [CuentaPorPagarController::class, 'pagar'])->whereNumber('id');
+        Route::post('/cuentas-por-pagar/{id}/anular',  [CuentaPorPagarController::class, 'anular'])->whereNumber('id');
+        Route::get('/exportar',           [FinanzasController::class, 'exportar']);
+        Route::get('/ajustes',            [FinanzasController::class, 'ajustes']);
+        Route::put('/ajustes',            [FinanzasController::class, 'guardarAjustes']);
+
+        Route::get('/categorias',         [CategoriaGastoController::class, 'index']);
+        Route::post('/categorias',        [CategoriaGastoController::class, 'store']);
+        Route::patch('/categorias/{id}',  [CategoriaGastoController::class, 'update'])->whereNumber('id');
+        Route::get('/presupuesto',        [CategoriaGastoController::class, 'presupuesto']);
+        Route::put('/presupuesto',        [CategoriaGastoController::class, 'guardarPresupuesto']);
+
+        Route::get('/recurrentes',        [GastoRecurrenteController::class, 'index']);
+        Route::post('/recurrentes',       [GastoRecurrenteController::class, 'store'])->middleware('throttle:30,1');
+        Route::patch('/recurrentes/{id}', [GastoRecurrenteController::class, 'update'])->whereNumber('id');
+
+        Route::get('/gastos/pendientes',  [GastoController::class, 'pendientes']);
+        Route::post('/gastos/omitir',     [GastoController::class, 'omitir'])->middleware('throttle:30,1');
+        Route::get('/gastos',             [GastoController::class, 'index']);
+        Route::post('/gastos',            [GastoController::class, 'store'])->middleware('throttle:60,1');
+        Route::patch('/gastos/{id}',      [GastoController::class, 'update'])->whereNumber('id');
+        Route::post('/gastos/{id}/anular', [GastoController::class, 'anular'])->whereNumber('id');
     });
 
     // Reportes

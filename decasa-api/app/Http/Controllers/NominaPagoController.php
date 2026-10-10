@@ -10,6 +10,7 @@ use App\Models\NominaPrestamo;
 use App\Models\NominaPrestamoCuota;
 use App\Models\NominaProduccion;
 use App\Services\CicloNomina;
+use App\Services\CostoEmpleador;
 use App\Services\NominaLiquidador;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -57,6 +58,8 @@ class NominaPagoController extends Controller
         return response()->json([
             'pendientes'    => $pendientes,
             'total_general' => array_sum(array_column($pendientes, 'total')),
+            // Lo que además pone la empresa por esos mismos ciclos.
+            'costo_empleador_total' => array_sum(array_map(fn ($p) => $p['costo_empleador']['total'], $pendientes)),
             'sin_sueldo'    => $sinSueldo,
         ]);
     }
@@ -183,10 +186,14 @@ class NominaPagoController extends Controller
     /**
      * Congela el desglose del ciclo y engancha las faltas y ajustes que
      * caen adentro. Corre dentro de una transacción.
+     *
+     * Con `$corte` (la liquidación de quien se retira) el ciclo se paga hasta
+     * ese día aunque no haya terminado: la quincena del 1 al 15 de quien se va
+     * el 9 se paga del 1 al 9. Lo usa App\Services\LiquidacionContrato.
      */
-    private function registrar(Usuario $empleado, Carbon $fechaInicio, ?string $observaciones): NominaPago
+    public function registrar(Usuario $empleado, Carbon $fechaInicio, ?string $observaciones, ?Carbon $corte = null): NominaPago
     {
-        $hoy = $this->hoy();
+        $hoy = $corte ? CicloNomina::fecha($corte) : $this->hoy();
         [$inicio, $fin] = CicloNomina::rango($empleado->periodicidad, $fechaInicio);
 
         // El inicio tiene que ser el de un ciclo real de esta frecuencia:
@@ -198,10 +205,14 @@ class NominaPagoController extends Controller
             ]);
         }
 
-        if ($fin->greaterThan($hoy)) {
+        if ($fin->greaterThan($hoy) && ! $corte) {
             throw ValidationException::withMessages([
                 'fecha_inicio' => ["El ciclo de {$empleado->nombre} todavía no termina: se puede cobrar el {$fin->day}."],
             ]);
+        }
+        // Con corte, el ciclo termina ese día.
+        if ($corte && $fin->greaterThan($hoy)) {
+            $fin = $hoy->copy();
         }
 
         if (NominaPago::where('usuario_id', $empleado->id)->whereDate('fecha_inicio', $inicio->toDateString())->exists()) {
@@ -248,7 +259,12 @@ class NominaPagoController extends Controller
             'total'            => $l['total'],
             'observaciones'    => $observaciones,
             'pagado_at'        => now(),
-        ]);
+        ] + (self::hayCostoEmpleador() ? [
+            // Lo que la empresa pone por detrás, congelado como el resto: si
+            // el año que viene cambian los porcentajes, este pago no se mueve.
+            'costo_empleador'         => $l['costo_empleador']['total'],
+            'costo_empleador_detalle' => $l['costo_empleador'],
+        ] : []));
 
         // Mismo rango que usó la liquidación (el ciclo está cerrado, así
         // que su `hasta` es `fin`): lo que se descontó es exactamente lo
@@ -309,6 +325,15 @@ class NominaPagoController extends Controller
         return mb_substr($bono['periodo_label'] . ' · ' . implode(' · ', $partes), 0, 255);
     }
 
+    /**
+     * ¿Ya corrió la migración del costo del empleador? Las pruebas montan
+     * `nomina_pagos` a mano y no todas traen las columnas nuevas.
+     */
+    private static function hayCostoEmpleador(): bool
+    {
+        return \Illuminate\Support\Facades\Schema::hasColumn('nomina_pagos', 'costo_empleador');
+    }
+
     /** El trabajador con todo lo que la liquidación necesita cargado. */
     private function trabajadorLiquidable(int|string $id): Usuario
     {
@@ -352,6 +377,8 @@ class NominaPagoController extends Controller
             'bonificacion_nombre'  => $p->bonificacion_nombre,
             'bonificacion_detalle' => $p->bonificacion_detalle,
             'total'               => (float) $p->total,
+            // Por detrás: no se le pagó al trabajador (ver CostoEmpleador).
+            'costo_empleador'    => CostoEmpleador::dePago($p),
             'observaciones'      => $p->observaciones,
             'pagado_at'          => $p->pagado_at?->toIso8601String(),
             'faltas'             => $p->ausencias

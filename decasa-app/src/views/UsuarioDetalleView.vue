@@ -42,7 +42,7 @@ const editForm = ref({
   nombre: '', email: '', rol_id: '', facturacion: false, independiente: false,
   notif_asignar_fecha: true, notif_stock: false, acceso_redes: false, acceso_comisiones: false,
   recarga_telas: false, acceso_telas: false, acceso_surtir: false, acceso_costos: false, acceso_proveedores: false,
-  acceso_despacho: false, acceso_entregas: false, acceso_produccion: false, gestiona_produccion: false, acceso_nomina: false, acceso_reserva: false,
+  acceso_despacho: false, acceso_entregas: false, acceso_produccion: false, gestiona_produccion: false, acceso_nomina: false, acceso_finanzas: false, acceso_reserva: false,
   acceso_compras: false,
   lleva_encargos: false, acceso_encargos: false, revisa_encargos: false,
   ve_todas_ordenes: false, puede_fv2_sin_iva: false, tienda_default_id: '',
@@ -145,6 +145,7 @@ function openEditModal() {
     acceso_produccion: usuario.value.acceso_produccion ?? false,
     gestiona_produccion: usuario.value.gestiona_produccion ?? false,
     acceso_nomina: usuario.value.acceso_nomina ?? false,
+    acceso_finanzas: usuario.value.acceso_finanzas ?? false,
     acceso_compras: usuario.value.acceso_compras ?? false,
     lleva_encargos: usuario.value.lleva_encargos ?? false,
     acceso_encargos: usuario.value.acceso_encargos ?? false,
@@ -201,6 +202,7 @@ async function submitEdit() {
       acceso_produccion: editForm.value.acceso_produccion,
       gestiona_produccion: editForm.value.acceso_produccion && editForm.value.gestiona_produccion,
       acceso_nomina: editArquetipo.value === 'supervisor' ? editForm.value.acceso_nomina : false,
+      acceso_finanzas: editArquetipo.value === 'supervisor' ? editForm.value.acceso_finanzas : false,
       acceso_compras: editForm.value.acceso_compras,
       // Responder por herramientas vale también para quien no usa el programa;
       // mirar el módulo y hacer los checks, no.
@@ -469,6 +471,15 @@ onMounted(async () => {
           </div>
           <div>
             <p class="text-xs text-gray-400">Producción</p>
+            <p class="font-medium text-blue-700">Acceso habilitado</p>
+          </div>
+        </div>
+        <div v-if="usuario.acceso_finanzas && usuario.arquetipo === 'supervisor'" class="flex items-center gap-3">
+          <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
+            <span class="text-sm">📈</span>
+          </div>
+          <div>
+            <p class="text-xs text-gray-400">Finanzas</p>
             <p class="font-medium text-blue-700">Acceso habilitado</p>
           </div>
         </div>
@@ -1012,6 +1023,18 @@ onMounted(async () => {
                 <div>
                   <label for="edit-acceso-nomina" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a Nómina</label>
                   <p class="text-xs text-gray-500 mt-0.5">Podrá gestionar el pago quincenal de los trabajadores del taller.</p>
+                </div>
+              </div>
+              <div class="flex items-start gap-3 py-1">
+                <input
+                  id="edit-acceso-finanzas"
+                  type="checkbox"
+                  v-model="editForm.acceso_finanzas"
+                  class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <div>
+                  <label for="edit-acceso-finanzas" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a Finanzas</label>
+                  <p class="text-xs text-gray-500 mt-0.5">Verá cuánto gana o pierde la empresa, los gastos y las proyecciones, y podrá registrar gastos.</p>
                 </div>
               </div>
             </template>

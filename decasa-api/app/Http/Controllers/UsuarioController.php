@@ -47,6 +47,7 @@ class UsuarioController extends Controller
             'gestiona_produccion' => (bool) $u->gestiona_produccion,
             'acceso_reserva'      => (bool) $u->acceso_reserva,
             'acceso_nomina'       => (bool) $u->acceso_nomina,
+            'acceso_finanzas'     => (bool) $u->acceso_finanzas,
             'acceso_compras'      => (bool) $u->acceso_compras,
             // Responde por herramientas (le sirve a cualquiera, use o no el
             // programa) / administra el módulo de Encargos (eso sí es del
@@ -155,6 +156,7 @@ class UsuarioController extends Controller
             'gestiona_produccion' => 'boolean',
             'acceso_reserva'      => 'boolean',
             'acceso_nomina'       => 'boolean',
+            'acceso_finanzas'     => 'boolean',
             'acceso_compras'      => 'boolean',
             'lleva_encargos'      => 'boolean',
             'acceso_encargos'     => 'boolean',
@@ -242,6 +244,7 @@ class UsuarioController extends Controller
             'gestiona_produccion' => $request->boolean('gestiona_produccion'),
             'acceso_reserva'      => $request->boolean('acceso_reserva'),
             'acceso_nomina'       => $request->boolean('acceso_nomina'),
+            'acceso_finanzas'     => $request->boolean('acceso_finanzas'),
             'acceso_compras'      => $request->boolean('acceso_compras'),
             // Que responda por herramientas vale para cualquiera: el de los
             // taladros suele ser justo el que no entra al programa.
@@ -300,6 +303,7 @@ class UsuarioController extends Controller
             'gestiona_produccion' => 'nullable|boolean',
             'acceso_reserva'      => 'nullable|boolean',
             'acceso_nomina'       => 'nullable|boolean',
+            'acceso_finanzas'     => 'nullable|boolean',
             'acceso_compras'      => 'nullable|boolean',
             've_todas_ordenes'    => 'nullable|boolean',
             'puede_fv2_sin_iva'   => 'nullable|boolean',
@@ -403,6 +407,9 @@ class UsuarioController extends Controller
         }
         if ($request->has('acceso_nomina')) {
             $data['acceso_nomina'] = $request->boolean('acceso_nomina');
+        }
+        if ($request->has('acceso_finanzas')) {
+            $data['acceso_finanzas'] = $request->boolean('acceso_finanzas');
         }
         if ($request->has('acceso_compras')) {
             $data['acceso_compras'] = $request->boolean('acceso_compras');

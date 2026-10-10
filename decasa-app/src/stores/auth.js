@@ -185,6 +185,9 @@ export const useAuthStore = defineStore('auth', () => {
   const gestionaProduccion    = computed(() => !!usuario.value?.gestiona_produccion)
   const puedeReserva          = computed(() => !!usuario.value?.acceso_reserva)
   const puedeNomina           = computed(() => !!usuario.value?.acceso_nomina)
+  // Finanzas: supervisor Y la bandera. La utilidad de la empresa es lo más
+  // sensible del sistema; el backend vuelve a validar las dos cosas.
+  const puedeFinanzas         = computed(() => isSupervisor.value && !!usuario.value?.acceso_finanzas)
   // Sin excepción para supervisor a propósito: es una bandera activable
   // persona por persona para cualquier rol, no atada a ser supervisor.
   const puedeCompras          = computed(() => !!usuario.value?.acceso_compras)
@@ -442,7 +445,7 @@ export const useAuthStore = defineStore('auth', () => {
     isIndependiente, llevaCajaPropia,
     tieneAccesoPasos,
     isFacturador, esVendedorLimitado, tieneAccesoRedes, tieneAccesoComisiones, puedeRecargarTelas, puedeUsarTelas, puedeSurtir,
-    puedeCostos, puedeProveedores, puedeDespacho, puedeEntregar, puedeProduccion, gestionaProduccion, puedeReserva, puedeNomina, puedeCompras,
+    puedeCostos, puedeProveedores, puedeDespacho, puedeEntregar, puedeProduccion, gestionaProduccion, puedeReserva, puedeNomina, puedeFinanzas, puedeCompras,
     puedeEncargos, revisaEncargos, llevaEncargos, veTodasOrdenes, soloVeSusOrdenes,
     tienePerfilAlternativo, puedeAgregarPerfil, perfiles, perfilesRecordados, perfilesPorActivar, perfilAlternativo, perfilActivoIdx,
     login, loginConGoogle, fetchMe, setFirma, setNavFavoritos, setEmail, logout, clearSession,

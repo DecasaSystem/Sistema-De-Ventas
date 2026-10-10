@@ -161,6 +161,42 @@ escribiendo precios (Fase 1b).
   supervisores, `gestiona_produccion`/`acceso_produccion` y, entre vendedores,
   `Orden::laPuedeEditar` (no conductores); la pantalla pinta el chat y se esconde sola
   si el servidor responde 403.
+- **Módulo de Finanzas** (`docs/plan-gestion-financiera.md`): **implementado el
+  2026-10-10 y subido a `main` ese día** (el dueño pidió subirlo al terminar). Trae **3
+  migraciones** (`2026_10_19_000001_costo_empleador_en_nomina`,
+  `2026_10_20_000001_crear_finanzas`, `2026_10_21_000001_prestaciones_y_liquidaciones`;
+  solo crean/agregan). Incluye las recomendaciones: herramienta `resumen_financiero` del
+  asistente, cierre de mes (foto congelada; no se registran gastos en meses cerrados),
+  resumen del día 1, cuentas por pagar a proveedores (la factura es gasto del mes de la
+  factura; sus abonos solo cuentan como caja), garantías, rentabilidad por canal y
+  estacionalidad. **El costo de producción real NO está listo** (dueño, 2026-10-10): sigue
+  el estimado por fichas, apagable en Ajustes. Nómina ahora tiene **Prestaciones**
+  (prima, cesantías, intereses, vacaciones: debido = provisionado en pagos − pagado) y
+  **liquidaciones** al retiro (`LiquidacionContrato`: ciclos pendientes, prestaciones,
+  vacaciones, indemnización art. 64 configurable, préstamos; se puede anular). Falta
+  que el dueño/contador confirme los valores por defecto de Finanzas → Ajustes y de
+  Prestaciones (SMMLV, fechas límite, días de vacaciones, indemnización). El simulador usa el factor real de la nómina, no un % fijo. "+ Gasto" va en
+  el encabezado y no flotando: abajo a la derecha está el asistente de IA. Junta ventas,
+  nómina, comisiones, caja y compras con gastos fijos (plantillas recurrentes calculadas
+  como los ciclos de nómina) y variables; P&G (devengado) y flujo de caja, calendario de
+  pagos y proyecciones. Fase 0 (huecos) **hecha el 2026-10-09, sin subir**; faltan P1, P2,
+  P4–P10 (§12). Decisiones del dueño ese día:
+  - **Los reportes no cuentan órdenes canceladas** (ni lo vendido ni lo abonado):
+    `Orden::ESTADOS_FUERA_DE_REPORTES` en Stats, Reportes y el asistente. El conteo de
+    "canceladas" sigue saliendo aparte.
+  - **La nómina cuesta más de lo que se le paga al trabajador**: aportes del empleador y
+    prestaciones se calculan **por detrás** en Nómina (`Services/CostoEmpleador`), sin tocar
+    el `total`, y se congelan en `nomina_pagos.costo_empleador(_detalle)`. **Trae migración**
+    `2026_10_19_000001_costo_empleador_en_nomina` (solo crea tablas y agrega columnas).
+    **Todo personalizable** (pedido del dueño: cambia la ley y no a todos les toca lo mismo):
+    conceptos como filas, porcentaje con fecha de vigencia (un cambio de ley se carga
+    "desde" y no mueve lo de antes), excepciones por trabajador (sin pensión, ARL del
+    taller). Nunca volver a meter porcentajes fijos en el código. Vienen los de ley 2026
+    (salud/ICBF/SENA apagados por exoneración, ARL 1): **revisar con el contador**.
+  - **La caja de tienda no entra a Finanzas** (es el efectivo de las ventas, ya en `pagos`).
+  Trampas: `nomina_pagos.total` es NETO (sin seguridad social ni cuotas de préstamo);
+  `ComisionController::resumenDelMes()` escribe (no llamarlo desde lecturas: Finanzas lee
+  `comisiones.monto_comision`, que `comisiones:poner-al-dia` deja al día a las 6:30).
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 
@@ -198,6 +234,11 @@ escribiendo precios (Fase 1b).
 - **Recontado 2026-10-07: 713 tests, 10 fallos preexistentes** (las mismas 6 clases).
 - **Recontado 2026-10-08: 734 tests, 10 fallos preexistentes** (las mismas 6 clases).
 - **Recontado 2026-10-09 (rama de garantías): 767 tests, 10 fallos preexistentes** (las mismas 6 clases).
+- **Recontado 2026-10-10 (finanzas + prestaciones): 817 tests, 10 fallos preexistentes** (las mismas 6 clases).
+- Trampa SQLite: Eloquent guarda las fechas como `Y-m-d H:i:s`; comparar columnas de fecha con `whereDate`, no con `where(fecha, "<=", "Y-m-d")`.
+- Trampa (2026-10-10): `php -r` con `preg_replace` desde Git Bash rompe los `$` y, si el
+  patrón falla, `file_put_contents` escribe vacío: así se vació `UsuarioController.php`
+  (se restauró con `git checkout`). Para cambiar código, usar la herramienta Edit.
 - Herramientas instaladas el 2026-10-08 (skills, graphify, claude-security): ver `AGENT.md` §9.
   Los agentes de chat tienen su propio `AGENT.md` en `Desktop/Agentes/`.
 - **Trampa en worktrees:** no enlazar (junction) el `vendor` del repo principal.

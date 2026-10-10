@@ -35,5 +35,14 @@ class CachesDePeticion
         \App\Services\ComisionIndependientes::olvidarCache();
         \App\Services\GarantiaService::olvidarCache();
         \App\Http\Controllers\OrdenMensajeController::olvidarCache();
+        \App\Services\CostoEmpleador::olvidarCache();
+        \App\Services\Prestaciones::olvidarCache();
+        \App\Services\Finanzas\ConfigFinanzas::olvidarCache();
+        \App\Services\Finanzas\FuenteVentas::olvidarCache();
+        \App\Services\Finanzas\FuenteNomina::olvidarCache();
+        \App\Services\Finanzas\FuenteComisiones::olvidarCache();
+        \App\Services\Finanzas\CostoProduccion::olvidarCache();
+        \App\Services\Finanzas\Proyeccion::olvidarCache();
+        \App\Services\Finanzas\Cierres::olvidarCache();
     }
 }

@@ -486,6 +486,7 @@ function destinoNotificacion(tipo, datos) {
   if (datos.cita_id)          return { name: 'citas' }
   if (datos.conversacion_id || tipo === 'redes')     return { name: 'redes' }
   if (datos.comision_id || tipo === 'comisiones')    return { name: 'comisiones' }
+  if (tipo === 'finanzas')    return { name: 'finanzas', query: datos.pestana ? { pestana: datos.pestana } : {} }
   if (datos.produccion_id)    return { name: auth.tieneAccesoPasos ? 'mis-pasos' : 'produccion' }
   // Encargos: el descuento le llega al trabajador y lo lleva a su propia
   // ficha, donde puede ver qué se contó ese día; el aviso de "toca revisar"
@@ -540,7 +541,8 @@ function tipoIcono(tipo) {
     stock_agotado:      ArchiveBoxArrowDownIcon,
     redes:              ChatBubbleLeftRightIcon,
     comisiones:         ReceiptPercentIcon,
-    cita_recordatorio:          CalendarDaysIcon,
+    finanzas:           PresentationChartLineIcon,
+    cita_recordatorio:         CalendarDaysIcon,
     despacho_asignado:          TruckIcon,
     ruta_atrasada:              ExclamationTriangleIcon,
     consulta_costo_nueva:       CurrencyDollarIcon,

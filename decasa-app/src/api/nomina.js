@@ -5,6 +5,16 @@ export const crearSueldo       = (payload) => api.post('/nomina/sueldos', payloa
 export const actualizarSueldo  = (id, payload) => api.patch(`/nomina/sueldos/${id}`, payload)
 export const eliminarSueldo    = (id) => api.delete(`/nomina/sueldos/${id}`)
 
+// Lo que la empresa paga por detrás (aportes y prestaciones). Todo configurable
+// porque la ley cambia: conceptos, y el porcentaje con la fecha desde la que rige.
+export const getConceptosEmpleador   = (incluirInactivos = false) =>
+  api.get('/nomina/conceptos-empleador', { params: incluirInactivos ? { incluir_inactivos: 1 } : {} })
+export const crearConceptoEmpleador  = (payload) => api.post('/nomina/conceptos-empleador', payload)
+export const editarConceptoEmpleador = (id, payload) => api.patch(`/nomina/conceptos-empleador/${id}`, payload)
+export const agregarTarifaConcepto   = (id, payload) => api.post(`/nomina/conceptos-empleador/${id}/tarifas`, payload)
+export const quitarTarifaConcepto    = (tarifaId) => api.delete(`/nomina/conceptos-empleador/tarifas/${tarifaId}`)
+export const guardarAjustesConceptos = (payload) => api.put('/nomina/conceptos-empleador/ajustes', payload)
+
 // Los ciclos no se crean: el backend los calcula del calendario y devuelve
 // lo que ya está cerrado y sin cobrar.
 export const getPagosPendientes = () => api.get('/nomina/pagos/pendientes')
@@ -48,3 +58,19 @@ export const getPrestamos   = (usuarioId = null, incluirSaldados = false) =>
 export const crearPrestamo  = (payload) => api.post('/nomina/prestamos', payload)
 export const editarPrestamo = (id, payload) => api.patch(`/nomina/prestamos/${id}`, payload)
 export const borrarPrestamo = (id) => api.delete(`/nomina/prestamos/${id}`)
+
+// ── Prestaciones (prima, cesantías, intereses, vacaciones) y liquidaciones ──
+// Lo que se debe lo calcula el servidor con lo provisionado en cada pago.
+export const getPrestaciones        = (tipo, fecha) => api.get('/nomina/prestaciones', { params: { tipo, fecha } })
+export const pagarPrestacion        = (payload) => api.post('/nomina/prestaciones/pagar', payload)
+export const getVacaciones          = () => api.get('/nomina/prestaciones/vacaciones')
+export const registrarVacaciones    = (payload) => api.post('/nomina/prestaciones/vacaciones', payload)
+export const getHistorialPrestaciones = (params = {}) => api.get('/nomina/prestaciones/historial', { params })
+export const anularPrestacion       = (id, motivo) => api.post(`/nomina/prestaciones/${id}/anular`, { motivo })
+export const getAjustesPrestaciones = () => api.get('/nomina/prestaciones/ajustes')
+export const guardarAjustesPrestaciones = (payload) => api.put('/nomina/prestaciones/ajustes', payload)
+export const getLiquidaciones       = () => api.get('/nomina/liquidaciones')
+export const calcularLiquidacion    = (payload) => api.post('/nomina/liquidaciones/calcular', payload)
+export const registrarLiquidacion   = (payload) => api.post('/nomina/liquidaciones', payload)
+export const anularLiquidacion      = (id, motivo) => api.post(`/nomina/liquidaciones/${id}/anular`, { motivo })
+export const pdfLiquidacion         = (id) => api.get(`/nomina/liquidaciones/${id}/pdf`, { responseType: 'blob' })

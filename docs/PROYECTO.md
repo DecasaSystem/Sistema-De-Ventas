@@ -188,6 +188,7 @@ ExcelJS/xlsx para exportar, `qrcode`, `dompurify`. PWA (manifest + `public/sw.js
 | `/caja` | `CajaView` | Caja de tienda / propia |
 | `/comisiones` | `ComisionesView` | Metas, pools, pagos, anticipos, reemplazos |
 | `/nomina` | `NominaView` | Sueldos, pagos, ausencias, préstamos, bonos |
+| `/finanzas` | `FinanzasView` | Estado de resultados, gastos fijos y variables, flujo de caja, proyecciones, rentabilidad por tienda |
 | `/costos`, `/consultas-costo` | `CostosView`, `ConsultasView`, `ConsultaDetalleView` | Fichas, materiales, tarifas, precisión IA; consultas al ebanista |
 | `/reportes`, `/mis-stats`, `/stats/vendedor/:id`, `/mis-stats-conductor` | `ReportesView`, `StatsVendedor*`, `StatsConductorView` | Reportes y estadísticas |
 | `/facturacion` | `FacturacionView` | Para vendedores con `facturacion` |
@@ -417,6 +418,24 @@ producciones, bonificaciones), `NominaLiquidador`, `CicloNomina`. Bajo `acceso_n
   se guarda hasta marcar "Pagado" (`nomina_pagos`).
 - Ausencias/incapacidades, préstamos por cuotas, ajustes, bonos con escalera de
   metas según producción. Encargos perdidos pueden descontarse en nómina.
+- **Costo del empleador, por detrás** (2026-10-09, `Services/CostoEmpleador`):
+  aportes (pensión, ARL por clase de riesgo, caja; salud/ICBF/SENA si no está
+  exonerada) y prestaciones (prima, cesantías, intereses, vacaciones). No cambia
+  lo que cobra el trabajador; se congela en `nomina_pagos.costo_empleador` y lo
+  lee Finanzas. Todo configurable porque la ley cambia: conceptos
+  (`nomina_conceptos_empleador`), porcentaje con fecha de vigencia
+  (`nomina_concepto_tarifas`) y excepciones por persona
+  (`nomina_concepto_trabajador`). Se maneja en Sueldos y en la ficha del
+  trabajador (`/nomina/conceptos-empleador`, `NominaConceptoEmpleadorController`).
+- **Prestaciones y liquidaciones** (2026-10-10, pestaña Prestaciones,
+  `NominaPrestacionController`, `Services/Prestaciones`, `Services/LiquidacionContrato`):
+  lo que se debe de prima, cesantías, intereses y vacaciones = lo provisionado en
+  los pagos − lo pagado (`nomina_prestaciones_pagos`), con sus fechas límite. La
+  liquidación al retiro paga los ciclos pendientes hasta el último día, las
+  prestaciones del periodo, las vacaciones pendientes, la indemnización (art. 64,
+  configurable) y descuenta préstamos; queda en `nomina_liquidaciones`, con PDF, y
+  se puede anular (deshace todo). Valores (SMMLV, fechas, días) en
+  `configuracion.nomina_prestaciones_config`. Finanzas lee lo pagado.
 
 ### 6.14 Encargos (herramientas a cargo)
 `EncargoController`, `RevisionEncargos`. Qué herramientas/equipos tiene cada
@@ -462,7 +481,34 @@ costo y factura (`acceso_compras`, sin excepción para supervisor).
 canales, resumen mensual + Excel, retrasos) y `StatsController` (panel, tendencia,
 categorías, cartera, tiendas, vendedores, conductores, "mis estadísticas").
 Desglose por tipo (venta / FV2 / restauración) con `Orden::sqlTipo()`.
-Periodos con `RangoFechas`.
+Periodos con `RangoFechas`. **Nada de lo cancelado cuenta** (ni vendido ni
+abonado): filtro `Orden::ESTADOS_FUERA_DE_REPORTES`; las canceladas solo salen
+en su conteo.
+
+### 6.18b Finanzas
+`FinanzasController`, `GastoController`, `GastoRecurrenteController`,
+`CategoriaGastoController`, servicios `app/Services/Finanzas/*`. Plan y decisiones:
+[`plan-gestion-financiera.md`](plan-gestion-financiera.md). Solo supervisores con
+`acceso_finanzas`.
+
+- **No recalcula nada por su cuenta:** ventas y cobros con el criterio de Reportes
+  (`FuenteVentas`, prueba "cuadra con Reportes"), nómina de `nomina_pagos` +
+  `NominaLiquidador` + `CostoEmpleador` (`FuenteNomina`), comisiones leyendo
+  `comisiones.monto_comision` sin escribir (`FuenteComisiones`).
+- **Dos lentes:** estado de resultados devengado (`EstadoResultados`: cada peso a su
+  mes; materiales estimados con fichas, con cobertura) y flujo de caja (`FlujoDeCaja`:
+  el mes en que entró o salió; saldo si hay saldo de partida).
+- **Gastos:** sueltos y plantillas recurrentes (`gastos_recurrentes`) cuyas
+  obligaciones se **calculan** del calendario (`ObligacionesRecurrentes`) y solo se
+  guardan al pagar u omitir; prorrateo de licencias anuales; anular con motivo (nunca
+  borrar); bitácora; presupuesto por categoría. La caja de tienda no entra.
+- **Proyección** (`Proyeccion`): lo determinístico (nómina por ciclos, plantillas,
+  comisiones del 20) más ventas por promedio ponderado (<6 meses) o tendencia lineal,
+  con banda de error; flujo de 13 semanas; punto de equilibrio e indicadores con
+  semáforo (`Indicadores`); calendario (`CalendarioPagos`); rentabilidad por tienda.
+- Ajustes del negocio (IVA, franquicia, reparto, umbrales, saldo) en
+  `configuracion.finanzas_config` (`ConfigFinanzas`). Aviso diario 08:15 de gastos por
+  vencer. Prueba: `FinanzasTest`.
 
 ### 6.19 Gestión y personalización
 `GestionView`: tiendas (`TiendaController`), roles configurables
@@ -481,7 +527,7 @@ asesor (textos para copiar), catálogos visuales. `PersonalizacionController`.
   `acceso_redes`, `acceso_comisiones`, `recarga_telas`, `acceso_telas`,
   `acceso_surtir`, `acceso_costos`, `acceso_proveedores`, `acceso_despacho`,
   `acceso_entregas`, `acceso_produccion`, `gestiona_produccion`, `acceso_reserva`,
-  `acceso_nomina`, `acceso_compras`, `lleva_encargos`, `acceso_encargos`,
+  `acceso_nomina`, `acceso_finanzas` (además de ser supervisor), `acceso_compras`, `lleva_encargos`, `acceso_encargos`,
   `revisa_encargos`, `ve_todas_ordenes`, `puede_fv2_sin_iva`, `apto_comisiones`,
   `apto_produccion`, `no_usa_programa`, `notif_*`.
 - Backend: middleware `role:` y `permiso:` + reglas en modelos/controladores.
@@ -585,5 +631,6 @@ Estados importantes:
 | `docs/plan-cotizador-ia.md` | Fases 1–7 implementadas; pendiente Fase 1b (restauración) |
 | `docs/plan-entregas-parciales.md` | Fases A–D implementadas |
 | `docs/plan-garantias-posventa.md` | Implementado y subido 2026-10-09 |
+| `docs/plan-gestion-financiera.md` | Plan del módulo de Finanzas (2026-10-09). Fase 0 hecha (reportes sin canceladas, costo del empleador en Nómina); el módulo está sin implementar y quedan decisiones del dueño (§12) |
 | `docs/plan-venta-abonada-a-tienda.md` | Implementado (el documento dice lo contrario: es histórico) |
 | `explicacion_modulo_comisiones.txt` | Explicación para negocio del cálculo de comisiones |

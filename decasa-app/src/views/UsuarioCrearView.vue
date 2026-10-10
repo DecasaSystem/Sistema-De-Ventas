@@ -57,6 +57,7 @@ const form = ref({
   acceso_produccion: false,
   gestiona_produccion: false,
   acceso_nomina: false,
+  acceso_finanzas: false,
   ve_todas_ordenes: false,
   puede_fv2_sin_iva: false,
   tienda_default_id: '',
@@ -160,6 +161,7 @@ async function submit() {
       acceso_produccion: form.value.acceso_produccion,
       gestiona_produccion: form.value.acceso_produccion && form.value.gestiona_produccion,
       acceso_nomina: arquetipo.value === 'supervisor' ? form.value.acceso_nomina : false,
+      acceso_finanzas: arquetipo.value === 'supervisor' ? form.value.acceso_finanzas : false,
       acceso_compras: form.value.acceso_compras,
       acceso_reserva: form.value.acceso_reserva,
       ve_todas_ordenes: arquetipo.value === 'vendedor' ? form.value.ve_todas_ordenes : false,
@@ -700,6 +702,18 @@ async function submit() {
           <div>
             <label for="acceso_nomina" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a Nómina</label>
             <p class="text-xs text-gray-500 mt-0.5">Podrá gestionar el pago quincenal de los trabajadores del taller.</p>
+          </div>
+        </div>
+        <div class="flex items-start gap-3 py-2">
+          <input
+            id="acceso_finanzas"
+            type="checkbox"
+            v-model="form.acceso_finanzas"
+            class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+          <div>
+            <label for="acceso_finanzas" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a Finanzas</label>
+            <p class="text-xs text-gray-500 mt-0.5">Verá cuánto gana o pierde la empresa, los gastos y las proyecciones, y podrá registrar gastos.</p>
           </div>
         </div>
       </template>

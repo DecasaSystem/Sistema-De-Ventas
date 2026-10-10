@@ -24,6 +24,8 @@ class NominaPago extends Model
         'auxilio_transporte', 'valor_seguridad_social_dia', 'descuento_seguridad_social',
         'total_ajustes', 'produccion_total', 'bonificacion',
         'bonificacion_nombre', 'bonificacion_detalle', 'total', 'observaciones', 'pagado_at',
+        // Lo que la empresa puso por detrás (CostoEmpleador), congelado.
+        'costo_empleador', 'costo_empleador_detalle',
     ];
 
     protected function casts(): array
@@ -46,6 +48,8 @@ class NominaPago extends Model
             'produccion_total' => 'decimal:2',
             'bonificacion'     => 'decimal:2',
             'total'            => 'decimal:2',
+            'costo_empleador'  => 'decimal:2',
+            'costo_empleador_detalle' => 'array',
             'pagado_at'        => 'datetime',
         ];
     }

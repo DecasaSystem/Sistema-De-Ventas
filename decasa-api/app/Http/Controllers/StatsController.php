@@ -72,9 +72,13 @@ class StatsController extends Controller
         // importar de qué mes sea la orden. Un abono de septiembre sobre una
         // restauración de julio entra aquí. Es flujo de caja, no "cuánto de lo
         // que vendimos este mes ya está cobrado".
+        //
+        // Lo abonado a una orden que después se canceló no se cuenta: la
+        // orden no existe para los reportes (Orden::ESTADOS_FUERA_DE_REPORTES).
         $cobranzaQ = DB::table('pagos as p')
             ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
-            ->whereBetween('p.created_at', $rango);
+            ->whereBetween('p.created_at', $rango)
+            ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_REPORTES);
         // El ingreso se le acredita a la tienda que recibió el dinero, que puede
         // no ser la de la orden. Los pagos viejos sin tienda caen a la de su orden.
         if ($tiendaId)   $cobranzaQ->whereRaw('COALESCE(p.tienda_id, o.tienda_id) = ?', [$tiendaId]);
@@ -89,20 +93,22 @@ class StatsController extends Controller
         $cobradoVendidoQ = DB::table('pagos as p')
             ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
             ->whereBetween('o.created_at', $rango)
-            ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES);
+            ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_REPORTES);
         if ($tiendaId)   $cobradoVendidoQ->where('o.tienda_id',   $tiendaId);
         if ($vendedorId) $cobradoVendidoQ->where('o.vendedor_id', $vendedorId);
         $ingresos = (float) $cobradoVendidoQ->sum('p.monto');
 
         // Conteos de órdenes creadas en el período (sin cotizaciones ni borradores:
-        // todavía no son ventas)
+        // todavía no son ventas). Las canceladas se cuentan aparte y NO entran
+        // en el total: con ellas adentro el ticket promedio se dividía entre
+        // órdenes que ya no existen.
         $ordenesQ = DB::table('ordenes')
             ->whereBetween('created_at', $rango)
             ->whereNotIn('estado', Orden::ESTADOS_NO_COMERCIALES);
         if ($tiendaId)   $ordenesQ->where('tienda_id',   $tiendaId);
         if ($vendedorId) $ordenesQ->where('vendedor_id', $vendedorId);
         $ord = $ordenesQ->selectRaw('
-            COUNT(*)                                                           AS total,
+            SUM(estado <> "cancelado")                                         AS total,
             SUM(estado = "entregado")                                          AS entregadas,
             SUM(estado = "cancelado")                                          AS canceladas,
             SUM(estado NOT IN ("entregado","cancelado"))                       AS pendientes
@@ -117,9 +123,12 @@ class StatsController extends Controller
         // llevaba filtro de fecha: era toda la deuda histórica. Al mes de 4 días
         // eso daba $56.543.534 cuando lo vendido eran $18.340.000 — tres veces
         // más, porque venía arrastrando lo que se debía de meses anteriores.
+        //
+        // Sin las canceladas: una orden cancelada conserva su valor_total y se
+        // estaba sumando como vendida.
         $vendidoQ = DB::table('ordenes as o')
             ->whereBetween('created_at', $rango)
-            ->whereNotIn('estado', Orden::ESTADOS_NO_COMERCIALES);
+            ->whereNotIn('estado', Orden::ESTADOS_FUERA_DE_REPORTES);
         if ($tiendaId)   $vendidoQ->where('tienda_id',   $tiendaId);
         if ($vendedorId) $vendidoQ->where('vendedor_id', $vendedorId);
         $totalVendido = (float) (clone $vendidoQ)->sum('valor_total');
@@ -245,6 +254,7 @@ class StatsController extends Controller
         $cobradoQ = DB::table('pagos as p')
             ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
             ->whereBetween('p.created_at', $rango)
+            ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_REPORTES)
             ->selectRaw("DATE_FORMAT(" . sprintf($aHoraLocal, 'p.created_at') . ", '{$fmtMysql}') AS periodo, SUM(p.monto) AS total")
             ->groupBy('periodo')->orderBy('periodo');
         if ($tiendaId)   $cobradoQ->where('o.tienda_id',   $tiendaId);
@@ -253,7 +263,7 @@ class StatsController extends Controller
         // Valor de órdenes creadas por período
         $ordenesQ = DB::table('ordenes')
             ->whereBetween('created_at', $rango)
-            ->whereNotIn('estado', Orden::ESTADOS_NO_COMERCIALES)
+            ->whereNotIn('estado', Orden::ESTADOS_FUERA_DE_REPORTES)
             ->selectRaw("DATE_FORMAT(" . sprintf($aHoraLocal, 'created_at') . ", '{$fmtMysql}') AS periodo, SUM(valor_total) AS total")
             ->groupBy('periodo')->orderBy('periodo');
         if ($tiendaId)   $ordenesQ->where('tienda_id',   $tiendaId);
@@ -504,7 +514,7 @@ class StatsController extends Controller
 
         $conVentas = DB::table('ordenes')
             ->whereBetween('created_at', $rango)
-            ->whereNotIn('estado', Orden::ESTADOS_NO_COMERCIALES)
+            ->whereNotIn('estado', Orden::ESTADOS_FUERA_DE_REPORTES)
             ->where('vendedor_id', $user->id)
             ->distinct()->pluck('tienda_id')->filter()->all();
 
@@ -558,7 +568,7 @@ class StatsController extends Controller
 
         $ppal = DB::table('ordenes as o')
             ->whereBetween('o.created_at', $rango)
-            ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES)
+            ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_REPORTES)
             ->where('o.vendedor_id', $vendedorId)
             ->whereIn('o.tienda_id', $tiendaIds)
             ->selectRaw("o.tienda_id AS quien, COUNT(*) AS total, SUM($valor) AS vendido")
@@ -567,7 +577,7 @@ class StatsController extends Controller
         $co = DB::table('ordenes as o')->join('usuarios as u', 'u.id', '=', 'o.covendedor_id')
             ->where('o.es_compartida', true)
             ->whereBetween('o.created_at', $rango)
-            ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES)
+            ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_REPORTES)
             ->where('o.covendedor_id', $vendedorId)
             ->whereIn('u.tienda_default_id', $tiendaIds)
             ->selectRaw("u.tienda_default_id AS quien, COUNT(*) AS total, SUM($valor) AS vendido")
@@ -727,6 +737,7 @@ class StatsController extends Controller
         $cobros = DB::table('pagos as p')->join('ordenes as o', 'o.id', '=', 'p.orden_id')
             ->whereIn('o.vendedor_id', $ids)
             ->whereBetween('p.created_at', $rango)
+            ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_REPORTES)
             ->selectRaw('o.vendedor_id AS quien, SUM(p.monto) as total')
             ->groupBy('o.vendedor_id')->get()->keyBy('quien');
 
@@ -734,7 +745,7 @@ class StatsController extends Controller
         $cobradoP = DB::table('pagos as p')->join('ordenes as o', 'o.id', '=', 'p.orden_id')
             ->whereIn('o.vendedor_id', $ids)
             ->whereBetween('o.created_at', $rangoCreacion)
-            ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES)
+            ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_REPORTES)
             ->selectRaw('o.vendedor_id AS quien, SUM(p.monto) as total, ' . Orden::selectMontosPorTipo('p.monto'))
             ->groupBy('o.vendedor_id')->get()->keyBy('quien');
 
@@ -749,7 +760,7 @@ class StatsController extends Controller
         $ordenes = DB::table('ordenes')
             ->whereIn('vendedor_id', $ids)
             ->whereBetween('created_at', $rango)
-            ->whereNotIn('estado', Orden::ESTADOS_NO_COMERCIALES)
+            ->whereNotIn('estado', Orden::ESTADOS_FUERA_DE_REPORTES)
             ->selectRaw("vendedor_id AS quien, COUNT(*) AS total, SUM(estado='entregado') AS entregadas, SUM(valor_total) AS vendido, "
                         . Orden::selectMontosPorTipo('valor_total', 'ordenes'))
             ->groupBy('vendedor_id')->get()->keyBy('quien');
@@ -813,6 +824,7 @@ class StatsController extends Controller
 
         $ppal = DB::table('pagos as p')->join('ordenes as o', 'o.id', '=', 'p.orden_id')
             ->whereBetween('p.created_at', $rango)
+            ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_REPORTES)
             // Lo que vende quien va por su cuenta no es de esta tienda
             ->when($porSuCuenta, fn ($q) => $q->whereNotIn('o.vendedor_id', $porSuCuenta))
             ->selectRaw("COALESCE(p.tienda_id, o.tienda_id) AS quien, SUM($monto) as total, "
@@ -823,6 +835,7 @@ class StatsController extends Controller
             ->join('usuarios as u', 'u.id', '=', 'o.covendedor_id')
             ->where('o.es_compartida', true)
             ->whereBetween('p.created_at', $rango)
+            ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_REPORTES)
             ->when($porSuCuenta, fn ($q) => $q->whereNotIn('o.vendedor_id', $porSuCuenta))
             ->selectRaw('u.tienda_default_id AS quien, SUM(p.monto / 2) as total, '
                         . Orden::selectMontosPorTipo('p.monto / 2'))
@@ -907,7 +920,7 @@ class StatsController extends Controller
 
         $filas = DB::table('ordenes as o')
             ->whereBetween('o.created_at', $rango)
-            ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES)
+            ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_REPORTES)
             ->whereIn('o.vendedor_id', $porSuCuenta)
             ->whereNotNull('o.tienda_abonada_id')
             ->whereRaw(Orden::sqlTipo('o') . " = 'restauracion'")
@@ -938,7 +951,7 @@ class StatsController extends Controller
                . Orden::selectMontosPorTipo($valor);
 
         $ppal = DB::table('ordenes as o')->whereBetween('o.created_at', $rango)
-            ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES)
+            ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_REPORTES)
             ->when($porSuCuenta, fn ($q) => $q->whereNotIn('o.vendedor_id', $porSuCuenta))
             ->selectRaw("o.tienda_id AS quien, $cols")
             ->groupBy('o.tienda_id')->get();
@@ -946,7 +959,7 @@ class StatsController extends Controller
         $co = DB::table('ordenes as o')->join('usuarios as u', 'u.id', '=', 'o.covendedor_id')
             ->where('o.es_compartida', true)
             ->whereBetween('o.created_at', $rango)
-            ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES)
+            ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_REPORTES)
             ->when($porSuCuenta, fn ($q) => $q->whereNotIn('o.vendedor_id', $porSuCuenta))
             ->selectRaw("u.tienda_default_id AS quien, $cols")
             ->groupBy('u.tienda_default_id')->get();
@@ -982,7 +995,7 @@ class StatsController extends Controller
 
         $ppal = DB::table('pagos as p')->join('ordenes as o', 'o.id', '=', 'p.orden_id')
             ->whereBetween('o.created_at', $rango)
-            ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES)
+            ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_REPORTES)
             ->when($porSuCuenta, fn ($q) => $q->whereNotIn('o.vendedor_id', $porSuCuenta))
             ->selectRaw("o.tienda_id AS quien, SUM($monto) as total, " . Orden::selectMontosPorTipo($monto))
             ->groupBy('o.tienda_id')->get();
@@ -991,7 +1004,7 @@ class StatsController extends Controller
             ->join('usuarios as u', 'u.id', '=', 'o.covendedor_id')
             ->where('o.es_compartida', true)
             ->whereBetween('o.created_at', $rango)
-            ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES)
+            ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_REPORTES)
             ->when($porSuCuenta, fn ($q) => $q->whereNotIn('o.vendedor_id', $porSuCuenta))
             ->selectRaw('u.tienda_default_id AS quien, SUM(p.monto / 2) as total, ' . Orden::selectMontosPorTipo('p.monto / 2'))
             ->groupBy('u.tienda_default_id')->get();
@@ -1022,6 +1035,7 @@ class StatsController extends Controller
             ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
             ->join('usuarios as u', 'u.id', '=', 'o.vendedor_id')
             ->whereBetween('p.created_at', $rango)
+            ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_REPORTES)
             ->when($porSuCuenta, fn ($q) => $q->whereNotIn('o.vendedor_id', $porSuCuenta))
             ->selectRaw('COALESCE(p.tienda_id, o.tienda_id) AS tienda, u.id, u.nombre,
                          SUM(CASE WHEN o.es_compartida = 1 THEN p.monto / 2 ELSE p.monto END) AS ingresos')
@@ -1054,12 +1068,14 @@ class StatsController extends Controller
 
         $filas = DB::table('pagos as p')->join('ordenes as o', 'o.id', '=', 'p.orden_id')
             ->whereBetween('p.created_at', $rango)
+            ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_REPORTES)
             ->whereNotNull('o.vendedor_id')
             ->selectRaw("o.vendedor_id AS quien, SUM($suyas) as total, " . Orden::selectMontosPorTipo($suyas))
             ->groupBy('o.vendedor_id')->get();
 
         $comoCo = DB::table('pagos as p')->join('ordenes as o', 'o.id', '=', 'p.orden_id')
             ->whereBetween('p.created_at', $rango)
+            ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_REPORTES)
             ->where('o.es_compartida', true)->whereNotNull('o.covendedor_id')
             ->selectRaw('o.covendedor_id AS quien, SUM(p.monto / 2) as total, ' . Orden::selectMontosPorTipo('p.monto / 2'))
             ->groupBy('o.covendedor_id')->get();
@@ -1085,8 +1101,10 @@ class StatsController extends Controller
      */
     private function ordenesPorVendedor(array $rango): array
     {
-        $valor = 'CASE WHEN es_compartida = 1 THEN valor_total / 2 ELSE valor_total END';
-        $cols  = "COUNT(*) AS total, SUM(estado='entregado') AS entregadas,
+        // Las canceladas entran a la consulta solo para contarlas: el total de
+        // órdenes y lo vendido son sin ellas (Orden::ESTADOS_FUERA_DE_REPORTES).
+        $valor = "CASE WHEN estado = 'cancelado' THEN 0 WHEN es_compartida = 1 THEN valor_total / 2 ELSE valor_total END";
+        $cols  = "SUM(estado <> 'cancelado') AS total, SUM(estado='entregado') AS entregadas,
                   SUM(estado='cancelado') AS canceladas, SUM($valor) AS vendido";
 
         $suyas = DB::table('ordenes')->whereBetween('created_at', $rango)
@@ -1200,7 +1218,8 @@ class StatsController extends Controller
                 'total_vendido'      => $totalVendido,
                 'ordenes_totales'    => $ordenesTotales,
                 'ordenes_entregadas' => $entregadas,
-                'ordenes_canceladas' => (int) ($ord->canceladas ?? 0),
+                // $ord es un arreglo: con `$ord->canceladas` salía siempre 0.
+                'ordenes_canceladas' => (int) ($ord['canceladas'] ?? 0),
                 'ticket_promedio'    => $ordenesTotales > 0 ? round($totalVendido / $ordenesTotales) : 0,
                 'cartera_pendiente'  => $cartera,
             ];
@@ -1248,6 +1267,7 @@ class StatsController extends Controller
             $rango       = $this->rangoUtc($f['desde'], $f['hasta']);
             $totalEquipo = (float) DB::table('pagos as p')
                 ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
+                ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_REPORTES)
                 ->whereBetween('p.created_at', $rango)->sum('p.monto');
             $nVendedores = DB::table('usuarios')->whereIn('rol', ['vendedor', 'supervisor'])->where('activo', true)->count();
 
@@ -1421,8 +1441,10 @@ class StatsController extends Controller
         $filtroVend = fn ($q) => $esVendedor
             ? $q->where($whereVendedorO)
             : $q->where("o.$columna", $valor);
+        // Lo abonado a órdenes canceladas no cuenta (ESTADOS_FUERA_DE_REPORTES).
         $pagosBase  = fn () => $filtroVend(
             DB::table('pagos as p')->join('ordenes as o', 'o.id', '=', 'p.orden_id')
+                ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_REPORTES)
         );
 
         // Cobranza del período: TODO lo que entró en el rango, sin importar de
@@ -1437,7 +1459,7 @@ class StatsController extends Controller
         // cobrado que vendido" cuando el mes recibía plata de órdenes viejas.
         $ingresos = (float) $pagosBase()
             ->whereBetween('o.created_at', $rango)
-            ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES)
+            ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_REPORTES)
             ->selectRaw($montoExpr)->value('total') ?? 0;
 
         // Conteo de órdenes
@@ -1445,10 +1467,11 @@ class StatsController extends Controller
             ? DB::table('ordenes')->where($whereVendedor)
             : DB::table('ordenes')->where($columna, $valor);
 
+        // Las canceladas se cuentan aparte; el total es sin ellas.
         $ord = $ordBase->whereBetween('created_at', $rango)
             ->whereNotIn('estado', Orden::ESTADOS_NO_COMERCIALES)
             ->selectRaw('
-                COUNT(*)                                        AS total,
+                SUM(estado <> "cancelado")                      AS total,
                 SUM(estado = "entregado")                       AS entregadas,
                 SUM(estado NOT IN ("entregado","cancelado"))    AS pendientes,
                 SUM(estado = "cancelado")                       AS canceladas
@@ -1467,7 +1490,7 @@ class StatsController extends Controller
 
         $vendidoQ = DB::table('ordenes as o')
             ->whereBetween('o.created_at', $rango)
-            ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES);
+            ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_REPORTES);
         if ($esVendedor) $vendidoQ->where($whereVendedorO);
         else             $vendidoQ->where("o.$columna", $valor);
 
@@ -1545,7 +1568,7 @@ class StatsController extends Controller
             ->join('clientes as c', 'c.id', '=', 'o.cliente_id')
             ->leftJoin('v_saldo_ordenes as v', 'v.orden_id', '=', 'o.id')
             ->whereBetween('o.created_at', $rango)
-            ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES);
+            ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_REPORTES);
 
         if ($esVendedor) $recientesBase->where($whereVendedorO);
         else             $recientesBase->where("o.$columna", $valor);
@@ -1559,7 +1582,7 @@ class StatsController extends Controller
         // Canales
         $canalesBase = DB::table('ordenes')
             ->whereBetween('created_at', $rango)
-            ->whereNotIn('estado', Orden::ESTADOS_NO_COMERCIALES);
+            ->whereNotIn('estado', Orden::ESTADOS_FUERA_DE_REPORTES);
         if ($esVendedor) $canalesBase->where($whereVendedor);
         else             $canalesBase->where($columna, $valor);
 
@@ -1679,7 +1702,7 @@ class StatsController extends Controller
     {
         return (float) DB::table('ordenes as o')
             ->whereBetween('o.created_at', $this->rangoUtc($desde, $hasta))
-            ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES)
+            ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_REPORTES)
             ->where(function ($q) use ($vendedorId) {
                 $q->where('o.vendedor_id', $vendedorId)
                   ->orWhere(fn ($q2) => $q2->where('o.covendedor_id', $vendedorId)->where('o.es_compartida', true));
@@ -1728,7 +1751,7 @@ class StatsController extends Controller
             ->join('ordenes as o', 'o.id', '=', 'c.orden_id')
             ->where('c.vendedor_id', $vendedorId)
             ->where('c.mes_venta', $mes)
-            ->whereNotIn('o.estado', Orden::ESTADOS_NO_COMERCIALES)
+            ->whereNotIn('o.estado', Orden::ESTADOS_FUERA_DE_REPORTES)
             ->selectRaw('c.tienda_id, SUM(c.valor_orden) AS total')
             ->groupBy('c.tienda_id')
             ->orderByDesc('total')

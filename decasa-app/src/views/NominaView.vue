@@ -3,6 +3,9 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useToast } from '@/composables/useToast'
 import InputPesos from '@/components/common/InputPesos.vue'
+import CostoEmpleadorDetalle from '@/components/nomina/CostoEmpleadorDetalle.vue'
+import CostoEmpleadorConfig from '@/components/nomina/CostoEmpleadorConfig.vue'
+import PrestacionesPanel from '@/components/nomina/PrestacionesPanel.vue'
 import { getEmpleados, actualizarEmpleado, eliminarEmpleado, asignarEnLote } from '@/api/empleados'
 import { getPrestamos, crearPrestamo, editarPrestamo, borrarPrestamo } from '@/api/nomina'
 import {
@@ -60,6 +63,8 @@ const PERIODICIDADES = [
 const pendientes     = ref([])
 const totalGeneral   = ref(0)
 const sinSueldo      = ref(0)
+// Lo que además pone la empresa por esos ciclos (aportes y prestaciones).
+const costoEmpleadorTotal = ref(0)
 const cargandoPagos  = ref(true)
 const pagandoClave   = ref(null)
 const pagandoTodos   = ref(false)
@@ -74,6 +79,7 @@ async function cargarPendientes() {
     pendientes.value   = data.pendientes
     totalGeneral.value = data.total_general
     sinSueldo.value    = data.sin_sueldo
+    costoEmpleadorTotal.value = data.costo_empleador_total ?? 0
   } catch {
     toast.error('No se pudo cargar lo que hay por pagar')
   } finally {
@@ -521,7 +527,30 @@ const formEmpleado        = ref({
   // Si le toca auxilio de transporte y si aporta seguridad social. Los
   // valores están en el sueldo; aquí solo si le aplican a esta persona.
   nomina_auxilio: true, nomina_seguridad_social: true,
+  // Lo que paga la empresa por detrás, concepto por concepto: 'empresa' (lo
+  // que diga Sueldos), 'si' (con su porcentaje, si es distinto) o 'no'.
+  conceptos_empleador: [],
+  // Para prestaciones y liquidación.
+  nomina_tipo_contrato: 'indefinido', nomina_fondo_cesantias: '',
 })
+
+function conceptosParaForm(lista) {
+  return (lista ?? []).map(c => ({
+    ...c,
+    estado: c.excepcion_aplica === null ? 'empresa' : (c.excepcion_aplica ? 'si' : 'no'),
+    porcentaje_propio: c.excepcion_porcentaje,
+  }))
+}
+
+// Lo que se manda: sin excepción → null (vuelve a lo de la empresa).
+function conceptosParaGuardar(lista) {
+  return lista.map(c => {
+    const propio = c.porcentaje_propio === '' || c.porcentaje_propio == null ? null : Number(c.porcentaje_propio)
+    if (c.estado === 'empresa') return { concepto_id: c.concepto_id, aplica: null, porcentaje: null }
+    if (c.estado === 'no')      return { concepto_id: c.concepto_id, aplica: false, porcentaje: null }
+    return { concepto_id: c.concepto_id, aplica: true, porcentaje: propio }
+  })
+}
 const guardandoEmpleado   = ref(false)
 
 async function cargarEmpleados() {
@@ -572,6 +601,9 @@ function abrirEditarEmpleado(e) {
     periodicidad: e.periodicidad || 'quincenal',
     nomina_auxilio: e.nomina_auxilio !== false,
     nomina_seguridad_social: e.nomina_seguridad_social !== false,
+    conceptos_empleador: conceptosParaForm(e.conceptos_empleador),
+    nomina_tipo_contrato: e.nomina_tipo_contrato ?? 'indefinido',
+    nomina_fondo_cesantias: e.nomina_fondo_cesantias ?? '',
   }
   mostrarFormEmpleado.value = true
 }
@@ -593,6 +625,9 @@ async function guardarEmpleado() {
       periodicidad: formEmpleado.value.periodicidad,
       nomina_auxilio: !!formEmpleado.value.nomina_auxilio,
       nomina_seguridad_social: !!formEmpleado.value.nomina_seguridad_social,
+      conceptos_empleador: conceptosParaGuardar(formEmpleado.value.conceptos_empleador),
+      nomina_tipo_contrato: formEmpleado.value.nomina_tipo_contrato || null,
+      nomina_fondo_cesantias: formEmpleado.value.nomina_fondo_cesantias || null,
     })
     toast.success('Trabajador actualizado')
     mostrarFormEmpleado.value = false
@@ -1006,7 +1041,16 @@ async function quitarAjuste(id) {
       >
         Bonos
       </button>
+      <!-- Prima, cesantías, intereses, vacaciones y liquidaciones al retiro. -->
+      <button
+        @click="tab = 'prestaciones'"
+        :class="['flex-1 text-xs font-semibold rounded-lg py-2 px-1 whitespace-nowrap transition-colors', tab === 'prestaciones' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500']"
+      >
+        Prestaciones
+      </button>
     </div>
+
+    <PrestacionesPanel v-if="tab === 'prestaciones'" />
 
     <!-- ═══════════ PAGOS ═══════════ -->
     <template v-if="tab === 'pagos'">
@@ -1036,6 +1080,9 @@ async function quitarAjuste(id) {
               <div>
                 <p class="text-xs text-gray-400">Total por pagar</p>
                 <p class="text-2xl font-bold text-gray-800">{{ formatoPesos(totalGeneral) }}</p>
+                <p v-if="costoEmpleadorTotal > 0" class="text-[11px] text-gray-400 mt-0.5">
+                  + {{ formatoPesos(costoEmpleadorTotal) }} que pone la empresa por detrás
+                </p>
               </div>
               <p class="text-xs text-gray-400 text-right">{{ pendientes.length }} pago(s)<br>pendiente(s)</p>
             </div>
@@ -1175,6 +1222,8 @@ async function quitarAjuste(id) {
                       se paga completo en el pago que la cierre.
                     </p>
                   </div>
+
+                  <CostoEmpleadorDetalle :costo="p.costo_empleador" />
 
                   <p class="text-[11px] text-gray-400">
                     Para agregar una falta, un ajuste o producción a este ciclo, hazlo desde el trabajador en la pestaña Gente.
@@ -1449,6 +1498,54 @@ async function quitarAjuste(id) {
                   </label>
                 </div>
 
+                <!-- Lo que la empresa pone por detrás: no cambia lo que cobra,
+                     pero es lo que Finanzas cuenta como costo de la nómina. -->
+                <!-- Contrato y fondo: los usan la consignación de cesantías y la liquidación. -->
+                <div v-if="sueldoElegido" class="grid grid-cols-2 gap-2">
+                  <div>
+                    <label class="block text-xs font-semibold text-gray-500 mb-1">Contrato</label>
+                    <select v-model="formEmpleado.nomina_tipo_contrato" class="w-full text-sm border border-gray-200 rounded-lg px-2 py-2">
+                      <option value="indefinido">Indefinido</option>
+                      <option value="fijo">Término fijo</option>
+                      <option value="obra_labor">Obra o labor</option>
+                      <option value="aprendizaje">Aprendizaje</option>
+                      <option value="servicios">Prestación de servicios</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="block text-xs font-semibold text-gray-500 mb-1">Fondo de cesantías</label>
+                    <input v-model="formEmpleado.nomina_fondo_cesantias" maxlength="120" placeholder="Ej. Porvenir"
+                      class="w-full text-sm border border-gray-200 rounded-lg px-2 py-2" />
+                  </div>
+                </div>
+
+                <div v-if="sueldoElegido && formEmpleado.conceptos_empleador.length" class="space-y-2">
+                  <div>
+                    <p class="text-xs font-semibold text-gray-500">Lo que paga la empresa por esta persona</p>
+                    <p class="text-[11px] text-gray-400">No cambia lo que cobra. "Empresa" = lo que se puso en Sueldos; cámbialo si a esta persona no le toca o le toca distinto.</p>
+                  </div>
+                  <div v-for="c in formEmpleado.conceptos_empleador" :key="c.concepto_id" class="rounded-lg border border-gray-100 px-2.5 py-2">
+                    <div class="flex items-center justify-between gap-2">
+                      <span class="text-sm text-gray-700 min-w-0 truncate">{{ c.nombre }}</span>
+                      <div class="flex gap-0.5 shrink-0 bg-gray-100 rounded-lg p-0.5">
+                        <button v-for="op in ['empresa', 'si', 'no']" :key="op" type="button" @click="c.estado = op"
+                          :class="['text-[11px] font-semibold rounded-md px-2 py-1 transition-colors',
+                            c.estado === op ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500']">
+                          {{ op === 'empresa' ? `Empresa (${c.aplica_por_defecto ? 'sí' : 'no'})` : op === 'si' ? 'Sí' : 'No' }}
+                        </button>
+                      </div>
+                    </div>
+                    <div v-if="c.estado === 'si'" class="flex items-center gap-1.5 mt-1.5">
+                      <span class="text-[11px] text-gray-400">Su porcentaje</span>
+                      <input v-model.number="c.porcentaje_propio" type="number" step="0.001" min="0" max="100" inputmode="decimal"
+                        :placeholder="String(c.porcentaje_empresa)"
+                        class="w-20 text-right text-sm border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      <span class="text-xs text-gray-400">%</span>
+                      <span v-if="c.clave === 'arl'" class="text-[10px] text-gray-400">riesgo 1: 0,522 · 3 (taller): 2,436</span>
+                    </div>
+                  </div>
+                </div>
+
                 <div v-if="sueldoElegido" class="bg-blue-50 border border-blue-100 rounded-xl px-3.5 py-2.5 text-xs text-blue-700 space-y-0.5">
                   <p class="font-semibold">
                     {{ formatoPesos(sueldoElegido.valor) }}/{{ sueldoElegido.unidad === 'hora' ? 'hora' : 'día' }}
@@ -1549,6 +1646,9 @@ async function quitarAjuste(id) {
             <button @click="reactivarSueldo(s)" class="text-xs font-semibold text-blue-600 hover:text-blue-700 shrink-0">Reactivar</button>
           </div>
         </template>
+
+        <!-- Aportes y prestaciones: lo que la empresa paga por detrás. -->
+        <CostoEmpleadorConfig class="mt-4" @guardado="cargarPendientes" />
       </div>
 
       <!-- Nuevo / editar sueldo -->
@@ -2292,6 +2392,7 @@ async function quitarAjuste(id) {
                     <p v-if="p.bonificacion_nombre" class="text-[11px] text-purple-500 mt-0.5">{{ p.bonificacion_nombre }}</p>
                     <p v-if="p.bonificacion_detalle" class="text-[10px] text-gray-400 mt-0.5">{{ p.bonificacion_detalle }}</p>
                     <p class="text-[11px] text-gray-400 mt-1">Pagado el {{ formatoFechaHora(p.pagado_at) }}</p>
+                    <CostoEmpleadorDetalle :costo="p.costo_empleador" class="mt-2 bg-white" />
                   </div>
                   <div class="flex flex-col items-end gap-1.5 shrink-0">
                     <p class="font-bold text-sm text-gray-800">{{ formatoPesos(p.total) }}</p>

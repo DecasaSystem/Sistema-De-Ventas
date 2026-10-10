@@ -34,6 +34,7 @@ import {
   BuildingOffice2Icon,
   SwatchIcon,
   BanknotesIcon,
+  PresentationChartBarIcon,
   ReceiptPercentIcon,
   BuildingStorefrontIcon,
   Cog6ToothIcon,
@@ -203,6 +204,9 @@ const accesosAdmin = computed(() => {
   }
   if (auth.puedeNomina) {
     items.push({ modulo: 'nomina', label: 'Nómina', icon: BanknotesIcon, to: { name: 'nomina' } })
+  }
+  if (auth.puedeFinanzas) {
+    items.push({ modulo: 'finanzas', label: 'Finanzas', icon: PresentationChartBarIcon, to: { name: 'finanzas' } })
   }
   return modulos.soloVisibles(items)
 })

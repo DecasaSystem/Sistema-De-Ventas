@@ -56,6 +56,8 @@ class Usuario extends Authenticatable
         'gestiona_produccion',
         'acceso_reserva',
         'acceso_nomina',
+        // Ve Finanzas (además de ser supervisor): la utilidad de la empresa.
+        'acceso_finanzas',
         'acceso_compras',
         // Encargos: responder por herramientas es una cosa (`lleva_encargos`,
         // que le sirve hasta a quien no entra al programa) y administrar el
@@ -81,6 +83,11 @@ class Usuario extends Authenticatable
         // social. Los valores viven en el sueldo; aquí solo si le aplican.
         'nomina_auxilio',
         'nomina_seguridad_social',
+        // Prestaciones y liquidación: cuándo se retiró, qué contrato tenía y a
+        // qué fondo se le consignan las cesantías.
+        'nomina_retiro',
+        'nomina_tipo_contrato',
+        'nomina_fondo_cesantias',
         'periodicidad',
         'tienda_default_id',
         'activo',
@@ -114,6 +121,7 @@ class Usuario extends Authenticatable
             'gestiona_produccion' => 'boolean',
             'acceso_reserva'      => 'boolean',
             'acceso_nomina'       => 'boolean',
+            'acceso_finanzas'     => 'boolean',
             'acceso_compras'      => 'boolean',
             'lleva_encargos'      => 'boolean',
             'acceso_encargos'     => 'boolean',
@@ -126,6 +134,7 @@ class Usuario extends Authenticatable
             'nomina_auxilio'      => 'boolean',
             'nomina_seguridad_social' => 'boolean',
             'nomina_desde'        => 'date',
+            'nomina_retiro'       => 'date',
             'nav_favoritos'       => 'array',
         ];
     }
@@ -219,6 +228,15 @@ class Usuario extends Authenticatable
     public function aportaSeguridadSocial(): bool
     {
         return (bool) ($this->nomina_seguridad_social ?? true);
+    }
+
+    /**
+     * Sus excepciones a lo que paga la empresa por detrás: a quién no se le
+     * paga pensión, quién tiene otra ARL (ver App\Services\CostoEmpleador).
+     */
+    public function conceptosEmpleador()
+    {
+        return $this->hasMany(\App\Models\NominaConceptoTrabajador::class, 'usuario_id');
     }
 
     /**

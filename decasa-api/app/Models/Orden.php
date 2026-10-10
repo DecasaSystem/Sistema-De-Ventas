@@ -16,6 +16,17 @@ class Orden extends Model
     public const ESTADOS_NO_COMERCIALES = ['cotizacion', 'borrador'];
 
     /**
+     * Lo que NO cuenta en Reportes ni en Finanzas: lo que no es venta y lo
+     * cancelado. Una orden cancelada conserva su `valor_total` y sus pagos,
+     * y con solo ESTADOS_NO_COMERCIALES el "Total vendido" del Resumen las
+     * seguía sumando, mientras el resumen mensual y la cartera ya las sacaban:
+     * dos pantallas, dos cifras para el mismo mes. Decisión del dueño
+     * (2026-10-09): los reportes no cuentan órdenes canceladas, ni lo vendido
+     * ni lo cobrado de ellas.
+     */
+    public const ESTADOS_FUERA_DE_REPORTES = ['cancelado', 'cotizacion', 'borrador'];
+
+    /**
      * Estados en los que una orden NO tiene stock apartado.
      *
      * Los tres primeros porque ya se soltó —se entregó, se canceló o se
