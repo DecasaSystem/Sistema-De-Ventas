@@ -341,11 +341,12 @@ class NominaLiquidador
      *
      * @return array<int, array<string, mixed>>
      */
-    public static function pendientes(Carbon $hoy): array
+    public static function pendientes(Carbon $hoy, ?\Illuminate\Support\Collection $empleados = null): array
     {
         $hoy = CicloNomina::fecha($hoy);
 
-        $empleados = self::empleadosLiquidables();
+        // Finanzas pasa los que ya cargó (los pide varias veces por petición).
+        $empleados ??= self::empleadosLiquidables();
         if ($empleados->isEmpty()) {
             return [];
         }

@@ -44,5 +44,7 @@ class CachesDePeticion
         \App\Services\Finanzas\CostoProduccion::olvidarCache();
         \App\Services\Finanzas\Proyeccion::olvidarCache();
         \App\Services\Finanzas\Cierres::olvidarCache();
+        \App\Services\Finanzas\Periodo::olvidarRecordado();
+        \App\Support\Esquema::olvidar();
     }
 }

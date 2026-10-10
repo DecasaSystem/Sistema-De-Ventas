@@ -27,7 +27,7 @@ class RentabilidadTiendas
     {
         $rango = Periodo::rangoUtc($mes, $mes);
         $divisor = ConfigFinanzas::divisorIva();
-        $sinIva = ConfigFinanzas::get('fv2_sin_iva_no_gravada') && Schema::hasColumn('ordenes', 'sin_descontar_iva')
+        $sinIva = ConfigFinanzas::get('fv2_sin_iva_no_gravada') && \App\Support\Esquema::columna('ordenes', 'sin_descontar_iva')
             ? 'COALESCE(o.sin_descontar_iva, 0) = 1' : '1 = 0';
 
         $ventas = DB::table('ordenes as o')
@@ -117,8 +117,8 @@ class RentabilidadTiendas
 
     private static function materialesPorTienda(array $rango): array
     {
-        if (! ConfigFinanzas::get('usar_costo_fichas') || ! Schema::hasTable('fichas_tecnicas')
-            || ! Schema::hasColumn('fichas_tecnicas', 'producto_id')) {
+        if (! ConfigFinanzas::get('usar_costo_fichas') || ! \App\Support\Esquema::tabla('fichas_tecnicas')
+            || ! \App\Support\Esquema::columna('fichas_tecnicas', 'producto_id')) {
             return [];
         }
 
@@ -162,7 +162,7 @@ class RentabilidadTiendas
             $out[$g->tienda_id] = ($out[$g->tienda_id] ?? 0) + (float) $g->monto * $fr;
         }
 
-        if (\Illuminate\Support\Facades\Schema::hasTable('cuentas_por_pagar')) {
+        if (\App\Support\Esquema::tabla('cuentas_por_pagar')) {
             $facturas = \App\Models\CuentaPorPagar::where('estado', '!=', 'anulada')->whereNotNull('tienda_id')
                 ->whereDate('fecha_factura', '>=', $ini->toDateString())->whereDate('fecha_factura', '<=', $fin->toDateString())
                 ->get(['tienda_id', 'monto']);

@@ -27,6 +27,12 @@ class CostoProduccion
      */
     public static function porMes(string $desde, string $hasta, ?int $tiendaId = null): array
     {
+        return Periodo::porMesRecordado("costo:$tiendaId", $desde, $hasta,
+            fn ($d, $h) => self::cargar($d, $h, $tiendaId));
+    }
+
+    private static function cargar(string $desde, string $hasta, ?int $tiendaId): array
+    {
         if (! ConfigFinanzas::get('usar_costo_fichas') || ! self::hayFichas()) {
             return [];
         }
@@ -75,7 +81,7 @@ class CostoProduccion
 
     private static function hayFichas(): bool
     {
-        return self::$hay ??= Schema::hasTable('fichas_tecnicas') && Schema::hasColumn('fichas_tecnicas', 'producto_id');
+        return self::$hay ??= \App\Support\Esquema::tabla('fichas_tecnicas') && \App\Support\Esquema::columna('fichas_tecnicas', 'producto_id');
     }
 
     public static function olvidarCache(): void

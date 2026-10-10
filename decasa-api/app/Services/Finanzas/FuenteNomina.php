@@ -37,12 +37,18 @@ class FuenteNomina
      */
     public static function porMes(string $desde, string $hasta, bool $incluirSinPagar = true): array
     {
+        return Periodo::porMesRecordado('nomina:' . (int) $incluirSinPagar, $desde, $hasta,
+            fn ($d, $h) => self::cargar($d, $h, $incluirSinPagar));
+    }
+
+    private static function cargar(string $desde, string $hasta, bool $incluirSinPagar): array
+    {
         [$ini] = Periodo::limites($desde);
         [, $fin] = Periodo::limites($hasta);
         $meses = array_flip(Periodo::meses($desde, $hasta));
         $out = [];
 
-        $pagos = NominaPago::with('trabajador.rolAsignado')
+        $pagos = NominaPago::with(CostoEmpleador::relacionesDePago('trabajador.rolAsignado'))
             ->whereDate('fecha_fin', '>=', $ini->toDateString())
             ->whereDate('fecha_inicio', '<=', $fin->toDateString())
             ->get();
@@ -55,7 +61,7 @@ class FuenteNomina
         }
 
         // Caja: el día que se pagó.
-        $cajaPagos = NominaPago::whereBetween('pagado_at', Periodo::rangoUtc($desde, $hasta))->get();
+        $cajaPagos = NominaPago::with(CostoEmpleador::relacionesDePago())->whereBetween('pagado_at', Periodo::rangoUtc($desde, $hasta))->get();
         foreach ($cajaPagos as $p) {
             $mes = Periodo::mesDe($p->pagado_at, true);
             if (! isset($meses[$mes])) continue;
@@ -70,7 +76,7 @@ class FuenteNomina
         // costo nuevo. Y las vacaciones que se tomaron "con la nómina" no
         // salieron aparte: el sueldo de esos días ya se pagó en el ciclo y ya
         // estaba provisionado, así que se resta del sueldo para no contarlo dos veces.
-        if (\Illuminate\Support\Facades\Schema::hasTable('nomina_prestaciones_pagos')) {
+        if (\App\Support\Esquema::tabla('nomina_prestaciones_pagos')) {
             $prest = \App\Models\NominaPrestacionPago::with('trabajador')->where('estado', 'pagado')
                 ->whereDate('fecha_pago', '>=', $ini->toDateString())->whereDate('fecha_pago', '<=', $fin->toDateString())->get();
             foreach ($prest as $p) {
@@ -98,9 +104,9 @@ class FuenteNomina
         // y lo que lleva el ciclo en curso. Va marcado como estimado.
         if ($incluirSinPagar) {
             $hoy = CicloNomina::hoy();
-            $empleados = NominaLiquidador::empleadosLiquidables()->keyBy('id');
+            $empleados = self::empleados()->keyBy('id');
 
-            foreach (NominaLiquidador::pendientes($hoy) as $l) {
+            foreach (self::pendientes() as $l) {
                 self::sumarLiquidacion($out, $meses, $l, $empleados[$l['usuario_id']] ?? null, $l['fecha_fin']);
             }
             foreach ($empleados as $e) {
@@ -132,7 +138,7 @@ class FuenteNomina
     public static function proyeccion(Carbon $hasta): array
     {
         $hoy = CicloNomina::hoy();
-        $empleados = NominaLiquidador::empleadosLiquidables();
+        $empleados = self::empleados();
         $bonos = self::bonoPromedio($empleados->pluck('id')->all());
 
         $meses = [];
@@ -194,7 +200,7 @@ class FuenteNomina
     private static function arquetipos(): array
     {
         try {
-            return self::$arquetipos ??= \Illuminate\Support\Facades\Schema::hasTable('roles')
+            return self::$arquetipos ??= \App\Support\Esquema::tabla('roles')
                 ? DB::table('roles')->pluck('arquetipo', 'id')->all()
                 : [];
         } catch (\Throwable) {
@@ -205,6 +211,18 @@ class FuenteNomina
     public static function olvidarCache(): void
     {
         self::$arquetipos = null;
+    }
+
+    /** Los trabajadores con nómina, una vez por petición (son ~8 consultas con sus relaciones). */
+    public static function empleados(): \Illuminate\Support\Collection
+    {
+        return Periodo::recordar('empleados-nomina', fn () => NominaLiquidador::empleadosLiquidables());
+    }
+
+    /** Los ciclos cerrados sin pagar a hoy, una vez por petición. */
+    public static function pendientes(): array
+    {
+        return Periodo::recordar('nomina-pendientes', fn () => NominaLiquidador::pendientes(CicloNomina::hoy(), self::empleados()));
     }
 
     private static function sumarLiquidacion(array &$out, array $meses, array $l, ?Usuario $e, string $hasta): void

@@ -25,6 +25,12 @@ class FuenteVentas
      */
     public static function vendidoPorMes(string $desde, string $hasta, ?int $tiendaId = null): array
     {
+        return Periodo::porMesRecordado("vendido:$tiendaId", $desde, $hasta,
+            fn ($d, $h) => self::cargarVendido($d, $h, $tiendaId));
+    }
+
+    private static function cargarVendido(string $desde, string $hasta, ?int $tiendaId): array
+    {
         $divisor = ConfigFinanzas::divisorIva();
         // La FV2 "sin descontar IVA" no trae IVA adentro (decisión de cuando se
         // creó esa marca: su comisión tampoco se divide por 1,19).
@@ -72,6 +78,12 @@ class FuenteVentas
      * @return array<string, array> [mes => cobrado, por_metodo, franquicia]
      */
     public static function cobradoPorMes(string $desde, string $hasta, ?int $tiendaId = null): array
+    {
+        return Periodo::porMesRecordado("cobrado:$tiendaId", $desde, $hasta,
+            fn ($d, $h) => self::cargarCobrado($d, $h, $tiendaId));
+    }
+
+    private static function cargarCobrado(string $desde, string $hasta, ?int $tiendaId): array
     {
         $filas = DB::table('pagos as p')
             ->join('ordenes as o', 'o.id', '=', 'p.orden_id')
@@ -127,7 +139,7 @@ class FuenteVentas
 
     private static function hayColumna(string $col): bool
     {
-        return self::$columnas[$col] ??= Schema::hasColumn('ordenes', $col);
+        return self::$columnas[$col] ??= \App\Support\Esquema::columna('ordenes', $col);
     }
 
     public static function olvidarCache(): void

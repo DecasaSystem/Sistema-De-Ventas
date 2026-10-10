@@ -13,6 +13,68 @@ class Periodo
 {
     public const TZ = 'America/Bogota';
 
+    /** @var \WeakMap<object, array>|null lo ya cargado, por petición (ver porMesRecordado) */
+    private static ?\WeakMap $recordado = null;
+
+    /**
+     * Las fuentes "por mes" (ventas, cobros, nómina, comisiones, gastos) se
+     * piden varias veces en una misma petición con rangos distintos: el resumen
+     * arma el mes, los indicadores miran los 3 anteriores, la proyección otros
+     * 3… Eran ~80 consultas a Aiven (~200 ms cada una) y el proxy de Vercel
+     * cortaba /finanzas/resumen con 502 (2026-10-10). Cada fuente calcula cada
+     * mes por separado, así que se carga UNA ventana amplia (los últimos 15
+     * meses y lo pedido) y de ahí se sirven los demás rangos.
+     *
+     * Se recuerda por objeto Request (WeakMap): en las pruebas cada llamada es
+     * una petición nueva y nunca ve lo de la anterior, aunque haya registrado
+     * un gasto en medio.
+     *
+     * @param  callable(string $desde, string $hasta): array<string, mixed>  $cargar
+     */
+    public static function porMesRecordado(string $clave, string $desde, string $hasta, callable $cargar): array
+    {
+        $req = app()->bound('request') ? app('request') : null;
+        if (! $req) return $cargar($desde, $hasta);
+
+        self::$recordado ??= new \WeakMap();
+        $todo = self::$recordado[$req] ?? [];
+        $c = $todo[$clave] ?? null;
+
+        if (! $c || $desde < $c['desde'] || $hasta > $c['hasta']) {
+            $actual = self::mesActual();
+            $lo = min($desde, self::sumarMeses($actual, -15), $c['desde'] ?? $desde);
+            $hi = max($hasta, $actual, $c['hasta'] ?? $hasta);
+            $c = $todo[$clave] = ['desde' => $lo, 'hasta' => $hi, 'datos' => $cargar($lo, $hi)];
+            self::$recordado[$req] = $todo;
+        }
+
+        return array_filter($c['datos'], fn ($mes) => $mes >= $desde && $mes <= $hasta, ARRAY_FILTER_USE_KEY);
+    }
+
+    /**
+     * Lo mismo para algo que no va por meses (los trabajadores de la nómina,
+     * los ciclos pendientes): se calcula una vez por petición.
+     */
+    public static function recordar(string $clave, callable $cargar): mixed
+    {
+        $req = app()->bound('request') ? app('request') : null;
+        if (! $req) return $cargar();
+
+        self::$recordado ??= new \WeakMap();
+        $todo = self::$recordado[$req] ?? [];
+        if (! array_key_exists("uno:$clave", $todo)) {
+            $todo["uno:$clave"] = $cargar();
+            self::$recordado[$req] = $todo;
+        }
+
+        return $todo["uno:$clave"];
+    }
+
+    public static function olvidarRecordado(): void
+    {
+        self::$recordado = null;
+    }
+
     /** El mes en curso ('2026-10'). */
     public static function mesActual(): string
     {

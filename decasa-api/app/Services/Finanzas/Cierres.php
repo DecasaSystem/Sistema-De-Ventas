@@ -28,7 +28,7 @@ class Cierres
     public static function cerrados(): array
     {
         if (self::$cerrados !== null) return self::$cerrados;
-        if (! Schema::hasTable('cierres_financieros')) return self::$cerrados = [];
+        if (! \App\Support\Esquema::tabla('cierres_financieros')) return self::$cerrados = [];
 
         return self::$cerrados = CierreFinanciero::where('estado', 'cerrado')->get()->keyBy('mes')->all();
     }

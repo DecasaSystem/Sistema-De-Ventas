@@ -35,6 +35,12 @@ class FuenteGastos
      */
     public static function porMes(string $desde, string $hasta, ?int $tiendaId = null): array
     {
+        return Periodo::porMesRecordado("gastos:$tiendaId", $desde, $hasta,
+            fn ($d, $h) => self::cargar($d, $h, $tiendaId));
+    }
+
+    private static function cargar(string $desde, string $hasta, ?int $tiendaId): array
+    {
         [$ini] = Periodo::limites($desde);
         [, $fin] = Periodo::limites($hasta);
         $meses = array_flip(Periodo::meses($desde, $hasta));
@@ -74,7 +80,7 @@ class FuenteGastos
 
         // Las facturas de proveedores a crédito: gasto del mes de la factura,
         // se paguen cuando se paguen.
-        if (Schema::hasTable('cuentas_por_pagar')) {
+        if (\App\Support\Esquema::tabla('cuentas_por_pagar')) {
             $facturas = \App\Models\CuentaPorPagar::with('categoria')->where('estado', '!=', 'anulada')
                 ->whereDate('fecha_factura', '>=', $ini->toDateString())->whereDate('fecha_factura', '<=', $fin->toDateString())
                 ->when($tiendaId, fn ($q) => $q->where('tienda_id', $tiendaId))
@@ -92,7 +98,7 @@ class FuenteGastos
         }
 
         // Las compras del taller: en el mes en que se compraron.
-        if (! $tiendaId && Schema::hasTable('compras')) {
+        if (! $tiendaId && \App\Support\Esquema::tabla('compras')) {
             $compras = DB::table('compras')->where('estado', 'comprado')->whereNotNull('precio')
                 ->whereDate('fecha_compra', '>=', $ini->toDateString())->whereDate('fecha_compra', '<=', $fin->toDateString())
                 ->get(['fecha_compra', 'precio']);
@@ -121,7 +127,7 @@ class FuenteGastos
      */
     public static function facturasPorPagar(): array
     {
-        if (! Schema::hasTable('cuentas_por_pagar')) return [];
+        if (! \App\Support\Esquema::tabla('cuentas_por_pagar')) return [];
 
         return \App\Models\CuentaPorPagar::with(['proveedor:id,nombre', 'abonos'])->where('estado', 'pendiente')
             ->orderBy('fecha_vencimiento')->get()

@@ -71,7 +71,7 @@ class Prestaciones
 
         $guardado = [];
         try {
-            if (Schema::hasTable('configuracion')) {
+            if (\App\Support\Esquema::tabla('configuracion')) {
                 $v = DB::table('configuracion')->where('clave', self::CLAVE)->value('valor');
                 $guardado = $v ? (json_decode($v, true) ?: []) : [];
             }
@@ -140,7 +140,7 @@ class Prestaciones
         $hasta = CicloNomina::fecha($hasta);
         $out = [];
 
-        $pagos = NominaPago::with('trabajador')
+        $pagos = NominaPago::with(CostoEmpleador::relacionesDePago())
             ->when($usuarioId, fn ($q) => $q->where('usuario_id', $usuarioId))
             ->whereDate('fecha_fin', '>=', $desde->toDateString())
             ->whereDate('fecha_inicio', '<=', $hasta->toDateString())
@@ -194,7 +194,7 @@ class Prestaciones
     /** ¿Ya corrió la migración de prestaciones? (las pruebas montan esquemas a mano) */
     public static function hayTabla(): bool
     {
-        return self::$hayTabla ??= Schema::hasTable('nomina_prestaciones_pagos');
+        return self::$hayTabla ??= \App\Support\Esquema::tabla('nomina_prestaciones_pagos');
     }
 
     private static function pagadoDeVerdad(string $tipo, Carbon $desde, Carbon $hasta, ?int $usuarioId): array

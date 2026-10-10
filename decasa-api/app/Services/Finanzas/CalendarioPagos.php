@@ -22,7 +22,7 @@ class CalendarioPagos
         $items = [];
 
         // Nómina atrasada: ciclos cerrados sin pagar.
-        $atrasada = collect(NominaLiquidador::pendientes(CicloNomina::hoy()));
+        $atrasada = collect(FuenteNomina::pendientes());
         if ($atrasada->isNotEmpty()) {
             $items[] = [
                 'fecha' => $atrasada->min('fecha_fin'), 'tipo' => 'nomina', 'vencido' => true, 'estimado' => false,

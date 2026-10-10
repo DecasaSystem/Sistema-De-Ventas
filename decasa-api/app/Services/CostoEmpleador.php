@@ -73,20 +73,23 @@ class CostoEmpleador
     private static ?Collection $conceptos = null;
     private static ?bool $hayTablas = null;
     private static ?bool $bono = null;
+    /** dePago() de los pagos sin costo congelado: Finanzas pasa por el mismo pago varias veces por petición. */
+    private static array $porPago = [];
 
     public static function olvidarCache(): void
     {
         self::$conceptos = null;
         self::$hayTablas = null;
         self::$bono      = null;
+        self::$porPago   = [];
     }
 
     public static function hayTablas(): bool
     {
         try {
-            return self::$hayTablas ??= Schema::hasTable('nomina_conceptos_empleador')
-                && Schema::hasTable('nomina_concepto_tarifas')
-                && Schema::hasTable('nomina_concepto_trabajador');
+            return self::$hayTablas ??= \App\Support\Esquema::tabla('nomina_conceptos_empleador')
+                && \App\Support\Esquema::tabla('nomina_concepto_tarifas')
+                && \App\Support\Esquema::tabla('nomina_concepto_trabajador');
         } catch (\Throwable) {
             return self::$hayTablas = false;
         }
@@ -126,7 +129,7 @@ class CostoEmpleador
         if (self::$bono !== null) return self::$bono;
 
         try {
-            $valor = Schema::hasTable('configuracion')
+            $valor = \App\Support\Esquema::tabla('configuracion')
                 ? DB::table('configuracion')->where('clave', self::CLAVE_BONO)->value('valor')
                 : null;
         } catch (\Throwable) {
@@ -213,12 +216,36 @@ class CostoEmpleador
      * ese; los pagos de antes de que existiera esta cuenta se calculan con su
      * desglose congelado y lo de hoy del trabajador (y lo dicen).
      */
+    /**
+     * Lo que hay que cargar (con `with`) en una lista de pagos antes de llamar
+     * dePago() en cada uno. Los pagos de antes del 2026-10-19 no tienen el
+     * costo congelado y se calculan con el trabajador y sus excepciones: sin
+     * esto eran dos consultas por pago (~1.000 pagos en producción → miles de
+     * consultas, y /finanzas/resumen se caía con 502).
+     */
+    public static function relacionesDePago(string ...$extra): array
+    {
+        $con = self::hayTablas() ? ['trabajador.conceptosEmpleador'] : ['trabajador'];
+
+        return array_merge($con, $extra);
+    }
+
     public static function dePago(NominaPago $p): array
     {
         if ($p->costo_empleador_detalle) {
             return $p->costo_empleador_detalle;
         }
 
+        $clave = $p->id ? $p->id . '@' . $p->updated_at : null;
+        if ($clave && isset(self::$porPago[$clave])) {
+            return self::$porPago[$clave];
+        }
+
+        return $clave ? self::$porPago[$clave] = self::calcularDePago($p) : self::calcularDePago($p);
+    }
+
+    private static function calcularDePago(NominaPago $p): array
+    {
         $t = $p->relationLoaded('trabajador') ? $p->trabajador : $p->trabajador()->first();
         if (! $t) {
             return self::vacio() + ['calculado_despues' => true];

@@ -25,6 +25,11 @@ class FuenteComisiones
     /** @return array<string, array> [mes => causada, pagada, por_pagar, por_tienda] */
     public static function causadaPorMes(string $desde, string $hasta): array
     {
+        return Periodo::porMesRecordado('comision-causada', $desde, $hasta, fn ($d, $h) => self::cargarCausada($d, $h));
+    }
+
+    private static function cargarCausada(string $desde, string $hasta): array
+    {
         $filas = DB::table('comisiones as c')
             ->leftJoin('ordenes as o', 'o.id', '=', 'c.orden_id')
             ->whereBetween('c.mes_venta', [$desde, $hasta])
@@ -53,6 +58,11 @@ class FuenteComisiones
 
     /** @return array<string, array> [mes => pagado (neto), anticipos, caja] */
     public static function cajaPorMes(string $desde, string $hasta): array
+    {
+        return Periodo::porMesRecordado('comision-caja', $desde, $hasta, fn ($d, $h) => self::cargarCaja($d, $h));
+    }
+
+    private static function cargarCaja(string $desde, string $hasta): array
     {
         $rango = Periodo::rangoUtc($desde, $hasta);
         $out = [];
@@ -121,7 +131,7 @@ class FuenteComisiones
 
     private static function hayAnticipos(): bool
     {
-        return self::$hayAnticipos ??= Schema::hasTable('comision_anticipos');
+        return self::$hayAnticipos ??= \App\Support\Esquema::tabla('comision_anticipos');
     }
 
     public static function olvidarCache(): void

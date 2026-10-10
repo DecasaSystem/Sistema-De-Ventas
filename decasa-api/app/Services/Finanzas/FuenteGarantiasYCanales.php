@@ -21,7 +21,7 @@ class FuenteGarantiasYCanales
 {
     public static function garantias(string $mes): ?array
     {
-        if (! Schema::hasTable('garantias')) return null;
+        if (! \App\Support\Esquema::tabla('garantias')) return null;
         [$ini, $fin] = Periodo::limites($mes);
 
         $del = DB::table('garantias')
@@ -30,7 +30,7 @@ class FuenteGarantiasYCanales
         $porTipo = (clone $del)->selectRaw('tipo_dano, COUNT(*) AS n')->groupBy('tipo_dano')->pluck('n', 'tipo_dano')->all();
         $porDecision = (clone $del)->whereNotNull('decision')->selectRaw('decision, COUNT(*) AS n')->groupBy('decision')->pluck('n', 'decision')->all();
 
-        $reembolsos = Schema::hasColumn('pagos', 'tipo')
+        $reembolsos = \App\Support\Esquema::columna('pagos', 'tipo')
             ? (float) DB::table('pagos')->where('tipo', 'reembolso')->whereBetween('created_at', Periodo::rangoUtc($mes, $mes))->sum('monto')
             : 0.0;
 
@@ -65,7 +65,7 @@ class FuenteGarantiasYCanales
         // publicidad sin canal (van a "sin canal").
         [$ini, $fin] = Periodo::limites($mes);
         $publicidad = [];
-        if (Schema::hasColumn('gastos', 'canal')) {
+        if (\App\Support\Esquema::columna('gastos', 'canal')) {
             $gastos = \App\Models\Gasto::with('categoria:id,grupo,nombre')->where('estado', 'pagado')
                 ->whereNull('cuenta_por_pagar_id')
                 ->whereDate('cubre_desde', '<=', $fin->toDateString())->whereDate('cubre_hasta', '>=', $ini->toDateString())

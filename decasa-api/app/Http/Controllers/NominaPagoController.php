@@ -147,7 +147,7 @@ class NominaPagoController extends Controller
     /** GET /api/nomina/pagos?usuario_id=&limite= — el historial de lo pagado. */
     public function index(Request $request)
     {
-        $q = NominaPago::with('trabajador', 'ausencias', 'ajustes', 'producciones')
+        $q = NominaPago::with(CostoEmpleador::relacionesDePago('ausencias', 'ajustes', 'producciones'))
             ->orderByDesc('fecha_fin')
             ->orderByDesc('id');
 

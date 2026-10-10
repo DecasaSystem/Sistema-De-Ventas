@@ -236,6 +236,14 @@ escribiendo precios (Fase 1b).
 - **Recontado 2026-10-09 (rama de garantías): 767 tests, 10 fallos preexistentes** (las mismas 6 clases).
 - **Recontado 2026-10-10 (finanzas + prestaciones): 817 tests, 10 fallos preexistentes** (las mismas 6 clases).
 - Trampa SQLite: Eloquent guarda las fechas como `Y-m-d H:i:s`; comparar columnas de fecha con `whereDate`, no con `where(fecha, "<=", "Y-m-d")`.
+- **Trampa (2026-10-10): Finanzas daba 502 en producción** recién subido. Los pagos de nómina de
+  antes de la migración no traen el costo congelado y `CostoEmpleador::dePago` buscaba trabajador y
+  excepciones pago por pago: ~5.000 consultas en /finanzas/resumen. Con la base de `medir.sh` no se
+  veía porque **no tiene nómina**: para medir Finanzas, sembrar `nomina_sueldos`, trabajadores con
+  `nomina_sueldo_id` y ~1.000 `nomina_pagos` sin `costo_empleador_detalle`. Arreglo: `with(
+  CostoEmpleador::relacionesDePago())` en toda lista de pagos que llame `dePago`, y cada fuente "por
+  mes" se carga una vez por petición (`Periodo::porMesRecordado` / `recordar`, `App\Support\Esquema`).
+  Prueba diferencial: respuestas idénticas byte a byte.
 - Trampa (2026-10-10): `php -r` con `preg_replace` desde Git Bash rompe los `$` y, si el
   patrón falla, `file_put_contents` escribe vacío: así se vació `UsuarioController.php`
   (se restauró con `git checkout`). Para cambiar código, usar la herramienta Edit.

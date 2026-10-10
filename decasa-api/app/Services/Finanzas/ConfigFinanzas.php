@@ -48,7 +48,7 @@ class ConfigFinanzas
 
         $guardado = [];
         try {
-            if (Schema::hasTable('configuracion')) {
+            if (\App\Support\Esquema::tabla('configuracion')) {
                 $v = DB::table('configuracion')->where('clave', self::CLAVE)->value('valor');
                 $guardado = $v ? (json_decode($v, true) ?: []) : [];
             }
