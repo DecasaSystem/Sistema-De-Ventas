@@ -397,6 +397,11 @@ en su tienda; un supervisor escoge. Sin migración (la columna `canal` es texto)
   trabajados; reemplazos entre tiendas (`tienda_reemplazos`); periodicidad
   mensual o trimestral por tienda; cada tienda decide si comparte o es individual.
   Disponible el día 20 (o cierre de trimestre).
+- **El avance de la meta es uno solo en toda la app**: lo que tiene el 50 % pagado
+  (`ComisionController::avanceDeMetas()` → `cuenta` y `vendido`). Comisiones, Reportes
+  (tarjeta de tienda), Estadísticas del vendedor y el asistente muestran la misma cifra,
+  y aparte "+ $X vendido sin el 50 % pagado (todavía no cuenta)". No volver a sumar
+  ventas para la meta por otro lado.
 - **Independientes**: 5 % fijo (ver `MEMORY.md`).
 - Pagos por persona (`pagar-listas`), deshacer pago, anticipos mensuales que se
   descuentan, bitácora de cambios, recalcular, y `comisiones:poner-al-dia` diario 06:30.

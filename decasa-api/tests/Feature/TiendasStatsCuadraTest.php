@@ -235,6 +235,76 @@ class TiendasStatsCuadraTest extends TestCase
         $this->assertEquals(40_000_000, $r['meta_mes']['meta']);
     }
 
+    public function test_a_la_meta_solo_le_suma_lo_que_tiene_el_50_pagado_igual_en_todas_las_pantallas(): void
+    {
+        // Lo del perfil del vendedor y del asistente
+        Schema::create('productos', function (Blueprint $t) { $t->id(); $t->string('nombre'); $t->string('categoria')->nullable(); });
+        Schema::create('tienda_asesores_comision', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('tienda_id'); $t->string('mes', 7); $t->unsignedBigInteger('vendedor_id'); $t->timestamps();
+        });
+        Schema::create('tienda_reemplazos', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('tienda_id'); $t->string('tipo')->default('reemplazo');
+            $t->unsignedBigInteger('usuario_id'); $t->unsignedBigInteger('reemplaza_a_id')->nullable();
+            $t->date('desde'); $t->date('hasta')->nullable(); $t->string('nota')->nullable(); $t->timestamps();
+        });
+        Schema::table('tiendas', fn (Blueprint $t) => $t->date('cerrada_en')->nullable());
+        Schema::table('orden_items', fn (Blueprint $t) => $t->unsignedBigInteger('producto_id')->nullable());
+        Schema::table('ordenes', function (Blueprint $t) {
+            $t->unsignedInteger('serie_numero')->nullable(); $t->unsignedInteger('numero_orden')->nullable();
+        });
+        Schema::table('comisiones', function (Blueprint $t) {
+            $t->string('estado')->default('pendiente'); $t->decimal('monto_comision', 15, 2)->nullable();
+        });
+
+        $hoy = Carbon::now('America/Bogota')->startOfDay()->addHours(12)->setTimezone('UTC');
+        $mes = Carbon::now('America/Bogota')->format('Y-m');
+        DB::table('metas_tienda')->insert(['tienda_id' => 1, 'mes' => $mes, 'meta' => 10_000_000]);
+
+        // Vendió 14M: una de 8M con la mitad pagada, otra de 6M con solo 1M.
+        // Con todo lo vendido "pasaba" la meta; con lo que cuenta lleva 8M.
+        foreach ([[8_000_000, 4_000_000], [6_000_000, 1_000_000]] as [$valor, $pagado]) {
+            $id = $this->orden($hoy, $valor);
+            $this->abono($id, $hoy, $pagado);
+            DB::table('comisiones')->insert([
+                'orden_id' => $id, 'vendedor_id' => 1, 'tienda_id' => 1, 'origen' => 'venta',
+                'mes_venta' => $mes, 'valor_orden' => $valor,
+            ]);
+        }
+
+        $jefe = Usuario::create([
+            'nombre' => 'Jefa', 'email' => 'j@d.com', 'password' => 'x', 'rol' => 'supervisor', 'created_at' => now(),
+        ]);
+
+        // Reportes → tarjeta de la tienda
+        $norte = collect($this->actingAs($jefe)->getJson('/api/stats/tiendas?periodo=mes')->assertOk()->json())
+            ->firstWhere('tienda_id', 1);
+        $this->assertEquals(8_000_000, $norte['meta_mes']['total_tienda']);
+        $this->assertEquals(6_000_000, $norte['meta_mes']['sin_mitad'], 'lo vendido que todavía no cuenta, aparte');
+        $this->assertEquals(80, $norte['meta_mes']['pct']);
+        $this->assertFalse($norte['meta_mes']['cumplida'], 'no dice "meta alcanzada" con ventas sin la mitad');
+
+        // Estadísticas del vendedor → lo mismo
+        $perfil = $this->actingAs($jefe)->getJson('/api/stats/vendedor/1?periodo=mes')->assertOk()->json();
+        $this->assertSame(
+            array_intersect_key($norte['meta_mes'], array_flip(['mes', 'meta', 'total_tienda', 'sin_mitad', 'pct', 'cumplida'])),
+            array_intersect_key($perfil['meta_mes'], array_flip(['mes', 'meta', 'total_tienda', 'sin_mitad', 'pct', 'cumplida'])),
+        );
+
+        // Comisiones (el libro del pool, que es lo que se paga) → lo mismo
+        $agente = app(\App\Http\Controllers\ComisionController::class)->avanceMetaParaAgente(1, $mes);
+        $this->assertEquals(8_000_000, $agente['cuenta_para_la_meta']);
+        $this->assertEquals(6_000_000, $agente['vendido_sin_la_mitad_pagada']);
+
+        // Cuando el cliente paga la mitad, ya cuenta y pasa la meta
+        $segunda = DB::table('ordenes')->where('valor_total', 6_000_000)->value('id');
+        $this->abono($segunda, $hoy, 2_000_000);
+        $norte = collect($this->actingAs($jefe)->getJson('/api/stats/tiendas?periodo=mes')->assertOk()->json())
+            ->firstWhere('tienda_id', 1);
+        $this->assertEquals(14_000_000, $norte['meta_mes']['total_tienda']);
+        $this->assertEquals(0, $norte['meta_mes']['sin_mitad']);
+        $this->assertTrue($norte['meta_mes']['cumplida']);
+    }
+
     public function test_una_orden_cancelada_no_cuenta_como_cartera_de_la_tienda(): void
     {
         $esteMes = Carbon::now('America/Bogota')->startOfDay()->addHours(12)->setTimezone('UTC');

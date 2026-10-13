@@ -914,12 +914,18 @@ onBeforeUnmount(() => {
                 <span>Cuenta para la meta: <span class="font-semibold text-gray-600">{{ cop(t.meta_mes.total_tienda) }}</span></span>
                 <span>Meta: <span class="font-semibold text-gray-600">{{ cop(t.meta_mes.meta) }}</span></span>
               </div>
+              <!-- Lo vendido sin el 50% pagado sigue siendo venta, pero no le
+                   suma a la meta hasta que el cliente pague la mitad. -->
+              <p v-if="t.meta_mes.sin_mitad > 0" class="mt-1 text-[11px] text-amber-700">
+                + {{ cop(t.meta_mes.sin_mitad) }} vendido sin el 50% pagado (todavía no cuenta)
+              </p>
               <!-- No es el "vendido" de arriba: la meta se mide como en
-                   Comisiones (mes calendario, sin restauraciones ni cancelados,
-                   con la mitad que abonan los independientes y sin la comisión
-                   del datáfono), y el período de arriba puede ser otro. -->
+                   Comisiones (mes calendario, con el 50% pagado, sin
+                   restauraciones ni cancelados, con la mitad que abonan los
+                   independientes y sin la comisión del datáfono), y el período
+                   de arriba puede ser otro. -->
               <p class="mt-1 text-[10px] text-gray-300 leading-snug">
-                Es lo del mes calendario que cuenta en Comisiones: solo ventas (sin restauraciones ni canceladas),
+                Es lo del mes calendario que cuenta en Comisiones: solo ventas con el 50% pagado (sin restauraciones ni canceladas),
                 más la mitad que le abonan los independientes, y a lo pagado con tarjeta se le quita la comisión del datáfono.
               </p>
               <p v-if="t.meta_mes.cumplida" class="mt-1 text-[11px] font-semibold text-green-600">✓ ¡Meta alcanzada!</p>

@@ -46,7 +46,17 @@ limitar a un vendedor a solo lo suyo.
 - La META también se mide solo con ventas que tienen el 50 % pagado
   (ej. El Edén ago-2026: vendió $49,5 M, con 50 % pagado $39,6 M < $40 M → $0).
   Implementado como "libro del pool" (`ComisionController::libroDelPool`, commit
-  c8eb083). Las tiendas trimestrales **todavía no** usan el libro.
+  c8eb083). Las trimestrales no usan el libro, pero su pool sí mide solo lo que tiene
+  el 50 % pagado (`totalesQueCuentan`).
+- **Revisado a fondo el 2026-10-13 (dueño: "si no ha pagado el 50 % es venta pero no
+  suma a la meta"):** comisiones ya lo cumplían; Reportes (tarjeta de tienda) y
+  Estadísticas del vendedor mostraban el avance con **todo lo vendido** ("¡Meta
+  alcanzada!" sin pool). Ahora todas las pantallas salen de
+  `ComisionController::avanceDeMetas()` (cuenta + vendido) y muestran aparte lo vendido
+  sin el 50 %. Las bonificaciones de Nómina son por **producción del taller**, no por
+  ventas: esta regla no les aplica. Trampa vista: Laravel reusa el controlador entre
+  peticiones del mismo proceso; un caché en una propiedad del controlador sirve datos
+  viejos (Stats ahora guarda el avance en `request()->attributes`).
 - Se pagan todas de una por persona, no orden por orden.
 - *Historia:* el 2026-09-23 se intentó quitar el requisito del 50 % (ca838c2) y el
   usuario lo rechazó con fuerza (revertido en 177f7f9).
@@ -202,8 +212,8 @@ escribiendo precios (Fase 1b).
   Trampas: `nomina_pagos.total` es NETO (sin seguridad social ni cuotas de préstamo);
   `ComisionController::resumenDelMes()` escribe (no llamarlo desde lecturas: Finanzas lee
   `comisiones.monto_comision`, que `comisiones:poner-al-dia` deja al día a las 6:30).
-- **Corregir abonos, no solo el anticipo** (2026-10-13, **sin subir**, rama
-  `claude/edit-order-payments-1cf4f1`, sin migración). Pedido del dueño: el vendedor lo
+- **Corregir abonos, no solo el anticipo** (2026-10-13, **subido a `main`** ese día,
+  commits 230be13 + d3ccfcb, rama `claude/edit-order-payments-1cf4f1`, sin migración). Pedido del dueño: el vendedor lo
   pide (motivo + soporte, como el anticipo), el supervisor lo hace directo; queda en el
   historial. Se reutilizó todo el camino de `SolicitudCambio` / `PATCH /pagos/{id}`; lo
   nuevo es la pantalla ("corregir" en el historial de pagos) y que la solicitud se frena

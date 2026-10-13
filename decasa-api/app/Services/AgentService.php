@@ -2986,7 +2986,8 @@ Dos preguntas deciden todo: ¿es restauración? y ¿la persona está en una tien
 1. Restauración → valor × 5%, completo para quien la hizo. No se le descuenta IVA, no pasa por el pool, no depende de que la tienda alcance la meta, y NO le suma a la meta de la tienda.
 2. Venta de alguien SIN meta (Vía Jardines, Tienda Virtual, independientes) → valor ÷ 1,19 × 5%, individual, sin dividir con nadie. El que no vende no cobra.
 3. Venta de alguien CON meta (Decasa Norte, Vía El Edén, Pereira, Circunvalar) → su parte del pool de la tienda:
-   pool = (ventas de la tienda − meta) ÷ 1,19 × 5%; si la tienda no llega a la meta el pool es $0.
+   pool = (ventas de la tienda QUE YA TIENEN EL 50% PAGADO − meta) ÷ 1,19 × 5%; si con eso la tienda no llega a la meta el pool es $0.
+   Una venta cuyo cliente no ha pagado la mitad NO le suma a la meta (ni en Comisiones, ni en Reportes, ni en Estadísticas) hasta que pague la mitad: sigue siendo una venta, pero todavía no cuenta.
    cada asesor = pool ÷ divisor de asesores; y lo de cada quien se prorratea según cuánto vendió él ese mes.
 
 Una orden es de venta O de restauración, nunca las dos: el sistema lo rechaza. Se hacen en órdenes aparte porque la restauración no suma a la meta.

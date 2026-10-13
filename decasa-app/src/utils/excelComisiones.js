@@ -215,10 +215,10 @@ function comoSeCalculo(c) {
              + `Su parte (${parte}) = ${pesos(c.comision_asesor)}, igual que la de todos. Se le paga en sus ventas que ya cuentan: esta lleva ${pesos(monto)}.`
       }
       if (!c.meta_cumplida) {
-        return `La tienda no llegó a la meta (${pesos(c.total_tienda_mes)} de ${pesos(c.meta_tienda)}): sin excedente no hay pool que repartir.`
+        return `La tienda no llegó a la meta (con la mitad pagada lleva ${pesos(c.total_tienda_mes)} de ${pesos(c.meta_tienda)} este mes): sin excedente no hay pool que repartir.`
       }
       const propor = n(c.total_vendedor_mes) > 0 ? valor / n(c.total_vendedor_mes) : 1
-      return `Pool de la tienda ${pesos(c.comision_pool)} = (${pesos(c.total_tienda_mes)} vendido − ${pesos(c.meta_tienda)} meta) ÷ 1,19 × 5%. `
+      return `Pool de la tienda ${pesos(c.comision_pool)} = (${pesos(c.total_tienda_mes)} con la mitad pagada − ${pesos(c.meta_tienda)} meta) ÷ 1,19 × 5%. `
            + `Su parte (${parte}) = ${pesos(c.comision_asesor)}. `
            + `Esta orden pesa ${(propor * 100).toFixed(1)}% de lo que vendió en la tienda → ${pesos(monto)}.`
     }

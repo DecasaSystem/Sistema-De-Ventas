@@ -2176,7 +2176,7 @@ onMounted(async () => {
             </div>
             <div v-else-if="c.meta_tienda > 0" class="mt-2 pt-2 border-t border-gray-100 text-xs text-gray-500 space-y-0.5">
               <p class="font-semibold text-gray-600 mb-1">Cálculo</p>
-              <p>Ventas tienda mes: {{ cop(c.total_tienda_mes) }}</p>
+              <p>Ventas tienda mes (con el 50% pagado): {{ cop(c.total_tienda_mes) }}</p>
               <p>Meta tienda: − {{ cop(c.meta_tienda) }}</p>
               <p>Sin IVA (÷1.19): {{ cop(Math.max(0, (c.total_tienda_mes - c.meta_tienda) / 1.19)) }}</p>
               <p>Pool 5%: {{ cop(c.comision_pool) }}</p>

@@ -218,7 +218,8 @@ class VentaDigitalCuentaParaLaTiendaDelVendedorTest extends TestCase
         $this->assertSame(self::NORTE, (int) $whatsapp->tienda_id);
 
         // Y así se cuenta contra cada meta.
-        $ventas = ComisionController::ventasParaMeta();
+        // A qué tienda le cuenta (lo vendido; el 50% pagado se prueba aparte).
+        $ventas = array_map(fn ($a) => $a['vendido'], ComisionController::avanceDeMetas());
         $this->assertEquals(10_000_000, $ventas[self::NORTE . '_' . self::MES]);
         $this->assertEquals(25_000_000, $ventas[self::UNICENTRO . '_' . self::MES]);
     }
@@ -234,7 +235,8 @@ class VentaDigitalCuentaParaLaTiendaDelVendedorTest extends TestCase
 
         // Norte no llega a la meta con lo del mostrador, así que de ahí no
         // cobra nada por pool. Lo de Instagram es suyo: 3.000.000 ÷ 1,19 × 5%.
-        $ventas = ComisionController::ventasParaMeta();
+        // A qué tienda le cuenta (lo vendido; el 50% pagado se prueba aparte).
+        $ventas = array_map(fn ($a) => $a['vendido'], ComisionController::avanceDeMetas());
         $this->assertEquals(5_000_000, $ventas[self::NORTE . '_' . self::MES]);
         $this->assertEquals(3_000_000, $ventas[self::VIRTUAL . '_' . self::MES]);
         $this->assertEqualsWithDelta(126_050, $this->loQueCobraCadaUno()['Manuela'], 2);

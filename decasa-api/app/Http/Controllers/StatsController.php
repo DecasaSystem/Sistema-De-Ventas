@@ -31,11 +31,47 @@ class StatsController extends Controller
      * vendedor—. Aquí solo se lee; Comisiones lo sigue calculando fresco cada
      * vez, que es lo que necesita al escribir (ver cargarTotales).
      */
-    private ?array $ventasParaMeta = null;
-
-    private function ventasParaMeta(): array
+    /**
+     * ['tienda_mes' => ['cuenta' => con el 50% pagado, 'vendido' => todo]]
+     *
+     * Se guarda en la petición y no en el controlador: Laravel guarda el
+     * controlador dentro de la ruta y lo reusa en las peticiones siguientes
+     * del mismo proceso, así que un caché aquí mostraría la meta de antes de
+     * que el cliente pagara.
+     */
+    private function avanceDeMetas(): array
     {
-        return $this->ventasParaMeta ??= ComisionController::ventasParaMeta();
+        $attrs = request()->attributes;
+        if (! $attrs->has('avance_de_metas')) {
+            $attrs->set('avance_de_metas', ComisionController::avanceDeMetas());
+        }
+
+        return $attrs->get('avance_de_metas');
+    }
+
+    /**
+     * La meta del mes de una tienda, igual en todas las pantallas: el avance
+     * es lo que tiene el 50% pagado (lo mismo que mide el pool en Comisiones),
+     * y aparte lo vendido que todavía no cuenta. Antes era todo lo vendido y
+     * Reportes podía decir "¡Meta alcanzada!" a una tienda sin pool.
+     */
+    private function metaDelMes(?int $tiendaId, string $mes, ?float $meta): array
+    {
+        $avance  = $tiendaId ? ($this->avanceDeMetas()[$tiendaId . '_' . $mes] ?? null) : null;
+        $cuenta  = (float) ($avance['cuenta'] ?? 0);
+        $vendido = (float) ($avance['vendido'] ?? 0);
+        $pct     = ($meta && $meta > 0) ? min(100, round($cuenta / $meta * 100, 1)) : null;
+
+        return [
+            'mes'          => $mes,
+            'meta'         => $meta,
+            // Lo que cuenta para la meta: ventas con el 50% pagado.
+            'total_tienda' => $cuenta,
+            // Vendido que todavía no cuenta (el cliente no ha pagado la mitad).
+            'sin_mitad'    => round(max(0, $vendido - $cuenta)),
+            'pct'          => $pct,
+            'cumplida'     => $meta !== null && $meta > 0 && $cuenta >= $meta,
+        ];
     }
 
     private function rangoUtc(string $desde, string $hasta): array
@@ -626,7 +662,6 @@ class StatsController extends Controller
         $mesActual = $this->mesDeMeta($hasta);
         $metasVigentes = \App\Models\MetaTienda::vigentesEn($mesActual);
         // Se resuelve una vez para todas las tiendas, no una consulta por cada una.
-        $ventasParaMeta = $this->ventasParaMeta();
         $porSuCuenta = $this->idsPorSuCuenta();
 
         // Todo lo de todas las tiendas, de una vez. Antes se pedía ocho veces
@@ -639,7 +674,7 @@ class StatsController extends Controller
         $tops     = $this->mejorVendedorPorTienda($rango, $porSuCuenta);
         $restCompartidas = $this->restauracionesCompartidasPorTienda($rango, $porSuCuenta);
 
-        $resultado = $tiendas->map(function ($t) use ($mesActual, $metasVigentes, $ventasParaMeta, $cobros, $cobradoP, $carteras, $ordenes, $tops, $restCompartidas) {
+        $resultado = $tiendas->map(function ($t) use ($mesActual, $metasVigentes, $cobros, $cobradoP, $carteras, $ordenes, $tops, $restCompartidas) {
             // Todo esto viene ya resuelto de una sola pasada, agrupado por
             // tienda: antes eran ocho consultas por cada una.
             //
@@ -667,10 +702,7 @@ class StatsController extends Controller
 
             // La meta se arrastra: rige la ultima cargada hasta este mes.
             $metaReg        = $metasVigentes[$t->id] ?? null;
-            // Lo mismo que ve la pantalla de comisiones, no una suma aparte.
-            $totalTiendaMes = $ventasParaMeta[$t->id . '_' . $mesActual] ?? 0.0;
             $metaVal        = $metaReg ? (float) $metaReg->meta : null;
-            $pct            = ($metaVal && $metaVal > 0) ? min(100, round($totalTiendaMes / $metaVal * 100, 1)) : null;
 
             return [
                 'tienda_id'          => $t->id,
@@ -699,13 +731,8 @@ class StatsController extends Controller
                 // Solo informativo, fuera del total: ver restauracionesCompartidasPorTienda().
                 'restauraciones_compartidas' => $restCompartidas[$t->id] ?? null,
                 'vendedor_destacado' => $top,
-                'meta_mes' => [
-                    'mes'          => $mesActual,
-                    'meta'         => $metaVal,
-                    'total_tienda' => $totalTiendaMes,
-                    'pct'          => $pct,
-                    'cumplida'     => $pct !== null && $pct >= 100,
-                ],
+                // Lo mismo que ve la pantalla de comisiones, no una suma aparte.
+                'meta_mes' => $this->metaDelMes((int) $t->id, $mesActual, $metaVal),
             ];
         });
 
@@ -803,7 +830,7 @@ class StatsController extends Controller
                     'ordenes_entregadas' => $entregadas,
                     'ticket_promedio'    => $totalOrd > 0 ? round($totalVendido / $totalOrd) : 0,
                     'vendedor_destacado' => null,
-                    'meta_mes' => ['mes' => null, 'meta' => null, 'total_tienda' => 0, 'pct' => null, 'cumplida' => false],
+                    'meta_mes' => ['mes' => null, 'meta' => null, 'total_tienda' => 0, 'sin_mitad' => 0, 'pct' => null, 'cumplida' => false],
                 ];
             });
     }
@@ -1671,24 +1698,14 @@ class StatsController extends Controller
         $tiendaId   = $tiendaMeta['id'];
         $metaReg    = $tiendaId ? ($vigentes[$tiendaId] ?? null) : null;
 
-        // Lo mismo que ve la pantalla de comisiones, no una suma aparte.
-        $totalTiendaMes = $tiendaId
-            ? ($this->ventasParaMeta()[$tiendaId . '_' . $mesActual] ?? 0.0)
-            : 0;
-
         $meta = $metaReg ? (float) $metaReg->meta : null;
-        $pct  = ($meta && $meta > 0) ? min(100, round($totalTiendaMes / $meta * 100, 1)) : null;
 
+        // Lo mismo que ve la pantalla de comisiones, no una suma aparte.
         $data['meta_mes'] = [
-            'mes'          => $mesActual,
             'tienda_id'    => $tiendaId,
             'tienda'       => $tiendaMeta['nombre'],
             'por_que'      => $tiendaMeta['por_que'],
-            'meta'         => $meta,
-            'total_tienda' => $totalTiendaMes,
-            'pct'          => $pct,
-            'cumplida'     => $pct !== null && $pct >= 100,
-        ];
+        ] + $this->metaDelMes($tiendaId, $mesActual, $meta);
 
         return $data;
     }

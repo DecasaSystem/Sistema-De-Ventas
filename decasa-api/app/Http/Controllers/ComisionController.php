@@ -704,6 +704,7 @@ class ComisionController extends Controller
                 self::esTiendaTrimestral((int) ($primera['tienda_id'] ?? 0))
                     ? self::mesesDeTrimestre(self::trimestreDeMes($mes))[2] : $mes),
             'meta_de_su_tienda'   => $primera['meta_tienda'] ?? 0,
+            // Lo que le cuenta a la meta (con el 50% pagado), no todo lo vendido.
             'lleva_la_tienda'     => $primera['total_tienda_mes'] ?? 0,
             'asesores_que_reparten' => count($this->pesosDe($mes, (int) $primera['tienda_id'])) ?: ($primera['divisor_asesores'] ?? 1),
             // Su fracción del pool: días suyos sobre días de todo el equipo.
@@ -3803,14 +3804,29 @@ class ComisionController extends Controller
      * canceladas y el 5% que un independiente le deja al almacén. A Gladys y a
      * Sebastián les inflaba la meta en $1.300.000.
      *
-     * @return array<string,float>  ['tienda_mes' => vendido]
+     * Y a la meta solo le suma lo que tiene el 50% pagado (`cuenta`), igual
+     * que el pool. Antes devolvía todo lo vendido: Reportes y Estadísticas
+     * decían "¡Meta alcanzada!" a una tienda que en Comisiones no tenía pool
+     * (dueño, 2026-10-13: que no diga cosas distintas según la pantalla).
+     * `vendido` es todo, para mostrar aparte lo que todavía no cuenta.
+     *
+     * @return array<string, array{cuenta: float, vendido: float}>  ['tienda_mes' => …]
      */
-    public static function ventasParaMeta(): array
+    public static function avanceDeMetas(): array
     {
         $c = app(self::class);
         [, $totales, ] = $c->cargarTotales();
+        $cuentan = $c->totalesQueCuentan();
 
-        return collect($totales)->map(fn ($r) => (float) $r->total)->all();
+        $out = [];
+        foreach (array_unique(array_merge(array_keys($cuentan), collect($totales)->keys()->all())) as $clave) {
+            $out[$clave] = [
+                'cuenta'  => (float) ($cuentan[$clave] ?? 0),
+                'vendido' => (float) (isset($totales[$clave]) ? $totales[$clave]->total : 0),
+            ];
+        }
+
+        return $out;
     }
 
     private function cargarTotales(?array $soloMeses = null): array
@@ -3919,9 +3935,12 @@ class ComisionController extends Controller
         $meta    = isset($metas[$metaKey]) ? (float) $metas[$metaKey]->meta    : 0;
         $divisor = isset($metas[$metaKey]) ? (int)   $metas[$metaKey]->divisor_asesores : 1;
 
-        // Total de ventas de toda la tienda en el mes (pool de comisión)
+        // Lo de toda la tienda en el mes que cuenta para la meta: con el 50%
+        // pagado, igual que el libro del pool. Antes era todo lo vendido, y
+        // las filas que no van por el libro (restauraciones, trimestrales,
+        // abonos) mostraban otra cifra que las del pool en la misma pantalla.
         $tiendaKey   = $c->tienda_id . '_' . $c->mes_venta;
-        $totalTienda = isset($totalesTienda[$tiendaKey]) ? (float) $totalesTienda[$tiendaKey]->total : 0;
+        $totalTienda = (float) ($this->totalesQueCuentan()[$tiendaKey] ?? 0);
 
         // Total de ventas del vendedor en esa tienda ese mes (para distribución proporcional)
         $vendedorKey   = $c->vendedor_id . '_' . $c->tienda_id . '_' . $c->mes_venta;
