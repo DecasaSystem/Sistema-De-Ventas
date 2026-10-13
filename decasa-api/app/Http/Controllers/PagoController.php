@@ -243,8 +243,8 @@ class PagoController extends Controller
             return response()->json(['message' => 'No autorizado.'], 403);
         }
 
-        // Los mismos estados en los que se puede corregir el monto de un
-        // anticipo: antes de que la orden salga.
+        // Solo mientras la orden está en espera o en producción: después, lo
+        // que entra ya es un abono ("Registrar pago").
         if (! in_array($orden->estado, ['pendiente_anticipo', 'en_produccion'], true)) {
             return response()->json([
                 'message' => 'En una orden "' . $orden->estado . '" el anticipo ya no se registra por aquí: usa "Registrar pago".',
@@ -365,14 +365,13 @@ class PagoController extends Controller
         // sacar la plata de la caja con un egreso inventado, y ahí es donde se
         // descuadra por unos pesos.
         //
-        // El MONTO sí sigue restringido: cambiarlo en una orden entregada le
-        // dejaría un saldo pendiente a algo que ya se cerró.
-        $puedeCambiarMonto = in_array($orden->estado, ['borrador', 'pendiente_anticipo', 'en_produccion'], true);
-
+        // El MONTO sí sigue restringido (ver problemaConElMonto).
         $data = $request->validate([
             'monto'      => 'required|numeric|min:0.01',
             'metodo'     => 'nullable|in:efectivo,transferencia,tarjeta,addi,otro',
             'referencia' => 'nullable|string|max:100',
+            // Quien corrige confirma que ya sabe que el total sube
+            'aceptar_perdida_descuento' => 'nullable|boolean',
         ]);
 
         // Pasados los días de la garantía el vendedor no corrige ni la
@@ -398,21 +397,25 @@ class PagoController extends Controller
             }
         }
 
-        $montoCambia = (float) $data['monto'] !== (float) $pago->monto;
-
-        if ($montoCambia && ! $puedeCambiarMonto) {
-            return response()->json([
-                'message' => 'En una orden "' . $orden->estado . '" solo se puede corregir el medio de pago, no el monto.',
-                'errors'  => ['monto' => ['El monto no se puede cambiar en este estado.']],
-            ], 422);
+        if ($problema = self::problemaConElMonto($pago, (float) $data['monto'], $data['metodo'] ?? null)) {
+            return response()->json($problema, 422);
         }
 
-        $otrosPagos = $orden->pagos()->where('id', '!=', $pago->id)->sum('monto');
-        if ($otrosPagos + $data['monto'] > (float) $orden->valor_total + 0.01) {
+        // Corregir un pago a tarjeta (o Addi, u otro) hace perder el descuento
+        // por efectivo/transferencia, igual que si se hubiera registrado así:
+        // antes, corregir el medio lo dejaba vivo y el cliente se quedaba con
+        // una rebaja que no le correspondía. Se avisa antes, como al cobrar.
+        $pierdeDescuento = $pago->pierdeDescuentoSiPasaA($data['metodo'] ?? null);
+        if ($pierdeDescuento && ! $request->boolean('aceptar_perdida_descuento')) {
             return response()->json([
-                'message' => "El monto ({$data['monto']}) sumado a los demás pagos supera el total de la orden (" . round((float) $orden->valor_total, 2) . ").",
-                'errors'  => ['monto' => ['No puede superar el valor total de la orden.']],
-            ], 422);
+                'message' => 'Esta orden tiene un descuento por pago en efectivo o transferencia. Si este pago fue con '
+                    . $data['metodo'] . ', el descuento se pierde y el total sube.',
+                'descuento_en_riesgo' => [
+                    'descuento'           => (float) $orden->descuento_condicionado,
+                    'valor_actual'        => (float) $orden->valor_total,
+                    'valor_sin_descuento' => $orden->valorSinDescuentoCondicionado(),
+                ],
+            ], 409);
         }
 
         $tipoLabel = $pago->tipo === 'anticipo' ? 'Anticipo' : ucfirst($pago->tipo);
@@ -429,7 +432,13 @@ class PagoController extends Controller
         }
 
         if (! empty($cambios)) {
-            DB::transaction(function () use ($pago, $data, $orden, $usuario, $cambios) {
+            DB::transaction(function () use ($pago, $data, $orden, $usuario, $cambios, $pierdeDescuento) {
+                // Sube el total, recalcula la comisión y deja su propia
+                // entrada en el historial ("Descuento … retirado").
+                if ($pierdeDescuento) {
+                    \App\Services\DescuentoCondicionadoService::quitar($orden, $usuario, $data['metodo']);
+                }
+
                 $pago->update([
                     'monto'      => $data['monto'],
                     'metodo'     => $data['metodo'] ?? $pago->metodo,
@@ -460,10 +469,58 @@ class PagoController extends Controller
         }
 
         return response()->json([
-            'pago'            => $pago->fresh(),
-            'total_pagado'    => $orden->totalPagado(),
-            'saldo_pendiente' => $orden->saldoPendiente(),
+            'pago'                => $pago->fresh(),
+            'total_pagado'        => $orden->totalPagado(),
+            'saldo_pendiente'     => $orden->saldoPendiente(),
+            'descuento_revertido' => $pierdeDescuento,
         ]);
+    }
+
+    /**
+     * Estados en los que se puede corregir el MONTO de un pago (el medio, siempre).
+     * Lista para entregar y en camino entran (dueño, 2026-10-13): el saldo que se
+     * cobra al entregar también se digita mal, y la orden todavía no se cerró.
+     */
+    public const ESTADOS_CORRIGE_MONTO = ['borrador', 'pendiente_anticipo', 'en_produccion', 'listo_entrega', 'en_camino'];
+
+    /**
+     * Por qué este pago no puede quedar con ese monto, o null si puede. Es la
+     * misma regla para el supervisor que corrige directo y para la solicitud
+     * de un vendedor: así el vendedor se entera al pedirla, y no el supervisor
+     * al aprobarla.
+     *
+     *  - Cambiarlo en una orden ya entregada le dejaría un saldo pendiente a
+     *    algo que ya se cerró.
+     *  - Con los demás pagos no puede pasarse del total de la orden. Si con el
+     *    medio nuevo se pierde el descuento, el total es el de sin descuento.
+     *
+     * @return array{message: string, errors: array}|null
+     */
+    public static function problemaConElMonto(Pago $pago, float $monto, ?string $metodo = null): ?array
+    {
+        if (abs($monto - (float) $pago->monto) < 0.009) return null;
+
+        $orden = $pago->orden;
+        if (! in_array($orden->estado, self::ESTADOS_CORRIGE_MONTO, true)) {
+            return [
+                'message' => 'En una orden "' . $orden->estado . '" solo se puede corregir el medio de pago, no el monto.',
+                'errors'  => ['monto' => ['El monto no se puede cambiar en este estado.']],
+            ];
+        }
+
+        $total = $pago->pierdeDescuentoSiPasaA($metodo)
+            ? $orden->valorSinDescuentoCondicionado()
+            : (float) $orden->valor_total;
+
+        $otrosPagos = (float) $orden->pagos()->where('id', '!=', $pago->id)->sum('monto');
+        if ($otrosPagos + $monto > $total + 0.01) {
+            return [
+                'message' => "El monto ({$monto}) sumado a los demás pagos supera el total de la orden (" . round($total, 2) . ").",
+                'errors'  => ['monto' => ['No puede superar el valor total de la orden.']],
+            ];
+        }
+
+        return null;
     }
 
     /**

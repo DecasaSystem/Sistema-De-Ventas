@@ -1292,7 +1292,18 @@ async function guardar() {
     // con los pagos ya actualizados al recargarse.
     if (cambioAnticipo) {
       const { id, ...datos } = cambioAnticipo
-      await editarPago(id, datos)
+      try {
+        await editarPago(id, datos)
+      } catch (e) {
+        // Pasarlo a tarjeta quita el descuento por efectivo: se confirma antes.
+        const riesgo = e.response?.status === 409 ? e.response.data?.descuento_en_riesgo : null
+        if (!riesgo) throw e
+        const ok = confirm(
+          `${e.response.data.message}\n\nTotal actual: $${Number(riesgo.valor_actual).toLocaleString('es-CO')} → sin descuento: $${Number(riesgo.valor_sin_descuento).toLocaleString('es-CO')}.\n\n¿Corregir el anticipo de todas formas?`
+        )
+        if (!ok) return
+        await editarPago(id, { ...datos, aceptar_perdida_descuento: true })
+      }
     }
 
     const { data } = await editarOrden(props.orden.id, payload)

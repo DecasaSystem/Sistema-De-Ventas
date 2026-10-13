@@ -70,6 +70,21 @@ class Pago extends Model
         return $this->belongsTo(Orden::class, 'orden_id');
     }
 
+    /**
+     * ¿Corregir este pago a ese medio le quita a la orden el descuento por
+     * pagar en efectivo o transferencia? Igual que al registrarlo: si una
+     * parte se pagó con tarjeta, Addi u otro, el descuento se pierde. Solo
+     * cuenta si el medio de verdad cambia (dejarlo en tarjeta no lo quita de
+     * nuevo) y si la orden todavía tiene el descuento.
+     */
+    public function pierdeDescuentoSiPasaA(?string $metodo): bool
+    {
+        return $metodo !== null
+            && $metodo !== $this->metodo
+            && Orden::metodoPierdeDescuento($metodo)
+            && $this->orden?->tieneDescuentoCondicionadoVivo();
+    }
+
     public function vendedor()
     {
         return $this->belongsTo(Usuario::class, 'vendedor_id');

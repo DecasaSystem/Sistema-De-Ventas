@@ -325,6 +325,180 @@ class SolicitudCambioTest extends TestCase
         $this->assertContains("item_{$mesa->id}_precio", $campos);
     }
 
+    // ── Corregir un abono (no solo el anticipo) ──────────────────────────────
+
+    /** Un abono de $200.000 en efectivo, después del anticipo. */
+    private function abono(Orden $orden): Pago
+    {
+        return Pago::create(['orden_id' => $orden->id, 'vendedor_id' => $this->paola->id, 'tienda_id' => 1,
+                             'tipo' => 'abono', 'monto' => 200000, 'metodo' => 'efectivo']);
+    }
+
+    public function test_el_supervisor_corrige_el_monto_de_un_abono_directo_y_queda_en_el_historial(): void
+    {
+        [$orden] = $this->orden();
+        $abono = $this->abono($orden);
+
+        $this->actingAs($this->jefa)->patchJson("/api/pagos/{$abono->id}", ['monto' => 150000, 'metodo' => 'transferencia'])
+            ->assertOk()->assertJsonPath('saldo_pendiente', 250000);
+
+        $this->assertEquals(150000, $abono->fresh()->monto);
+        $this->assertSame('transferencia', $abono->fresh()->metodo);
+        $campos = collect(\App\Models\OrdenEdicion::where('orden_id', $orden->id)->first()->cambios)->pluck('campo')->all();
+        $this->assertSame(["pago_{$abono->id}_monto", "pago_{$abono->id}_metodo"], $campos);
+    }
+
+    public function test_el_vendedor_no_corrige_el_monto_de_un_abono_directo_lo_pide_y_al_aprobarse_se_aplica(): void
+    {
+        [$orden] = $this->orden();
+        $abono = $this->abono($orden);
+
+        $this->actingAs($this->paola)->patchJson("/api/pagos/{$abono->id}", ['monto' => 250000])
+            ->assertStatus(403)->assertJsonPath('requiere_aprobacion', true);
+        $this->assertEquals(200000, $abono->fresh()->monto);
+
+        $id = $this->pedir($orden, ['pago' => ['id' => $abono->id, 'monto' => 250000]])
+            ->assertCreated()->assertJsonPath('resumen.0.label', 'Abono del ' . $abono->created_at->format('d/m/Y') . ' — monto')
+            ->json('id');
+        $this->assertEquals(200000, $abono->fresh()->monto, 'hasta que no lo aprueben no cambia');
+
+        $this->actingAs($this->jefa)->postJson("/api/solicitudes-cambio/{$id}/aprobar")->assertOk();
+
+        $this->assertEquals(250000, $abono->fresh()->monto);
+        $entrada = \App\Models\OrdenEdicion::where('orden_id', $orden->id)->sole()->cambios[0];
+        $this->assertSame('aprobacion_dinero', $entrada['tipo']);
+        $this->assertSame("pago_{$abono->id}_monto", $entrada['cambios'][0]['campo']);
+    }
+
+    public function test_lo_que_no_se_podria_aplicar_se_dice_al_pedirlo_no_al_aprobarlo(): void
+    {
+        [$orden, , $pago] = $this->orden();
+        $abono = $this->abono($orden);
+
+        // Con los demás pagos se pasaría del total ($400.000 + $500.000 > $800.000)
+        $this->pedir($orden, ['pago' => ['id' => $abono->id, 'monto' => 500000]])
+            ->assertStatus(422)->assertJsonValidationErrors('pago.monto');
+
+        // Con la orden ya entregada, el monto no se toca; el medio sí
+        $orden->update(['estado' => 'entregado']);
+        $this->pedir($orden, ['pago' => ['id' => $abono->id, 'monto' => 150000]])
+            ->assertStatus(422)->assertJsonValidationErrors('pago.monto');
+        $this->pedir($orden, ['pago' => ['id' => $abono->id, 'monto' => 200000, 'metodo' => 'tarjeta']])
+            ->assertCreated();
+
+        // El reembolso de una garantía no se corrige como un abono
+        SolicitudCambio::query()->update(['estado' => SolicitudCambio::CANCELADA]);
+        $reembolso = Pago::create(['orden_id' => $orden->id, 'tipo' => 'reembolso', 'monto' => -100000, 'metodo' => 'efectivo']);
+        $this->pedir($orden, ['pago' => ['id' => $reembolso->id, 'monto' => 50000]])->assertStatus(422);
+
+        $this->assertEquals(400000, $pago->fresh()->monto);
+        $this->assertEquals(200000, $abono->fresh()->monto);
+    }
+
+    public function test_el_supervisor_tampoco_cambia_el_monto_en_una_orden_que_ya_salio_pero_si_el_medio(): void
+    {
+        [$orden] = $this->orden('entregado');
+        $abono = $this->abono($orden);
+
+        $this->actingAs($this->jefa)->patchJson("/api/pagos/{$abono->id}", ['monto' => 150000])
+            ->assertStatus(422)->assertJsonValidationErrors('monto');
+        $this->actingAs($this->jefa)->patchJson("/api/pagos/{$abono->id}", ['monto' => 200000, 'metodo' => 'transferencia'])
+            ->assertOk();
+
+        $this->assertEquals(200000, $abono->fresh()->monto);
+        $this->assertSame('transferencia', $abono->fresh()->metodo);
+    }
+
+    public function test_lista_para_entregar_o_en_camino_el_monto_todavia_se_corrige(): void
+    {
+        [$orden] = $this->orden('listo_entrega');
+        $abono = $this->abono($orden);
+
+        $this->actingAs($this->jefa)->patchJson("/api/pagos/{$abono->id}", ['monto' => 150000])->assertOk();
+        $orden->update(['estado' => 'en_camino']);
+        $this->actingAs($this->jefa)->patchJson("/api/pagos/{$abono->id}", ['monto' => 180000])->assertOk();
+        $this->assertEquals(180000, $abono->fresh()->monto);
+
+        // El vendedor, igual: lo pide
+        $this->pedir($orden, ['pago' => ['id' => $abono->id, 'monto' => 200000]])->assertCreated();
+    }
+
+    // ── Pasar un pago a tarjeta hace perder el descuento por efectivo ────────
+
+    /** La mesa con $50.000 de descuento por pagar en efectivo: el total quedó en $750.000. */
+    private function conDescuentoEnEfectivo(Orden $orden): void
+    {
+        $orden->update(['valor_total' => 750000, 'descuento_condicionado' => 50000, 'descuento_condicionado_pct' => 6.25]);
+    }
+
+    public function test_el_supervisor_pasa_un_abono_a_tarjeta_avisa_y_al_aceptar_se_pierde_el_descuento(): void
+    {
+        [$orden] = $this->orden();
+        $this->conDescuentoEnEfectivo($orden);
+        $abono = $this->abono($orden);
+
+        // Primero avisa, sin tocar nada
+        $this->actingAs($this->jefa)->patchJson("/api/pagos/{$abono->id}", ['monto' => 200000, 'metodo' => 'tarjeta'])
+            ->assertStatus(409)->assertJsonPath('descuento_en_riesgo.valor_sin_descuento', 800000);
+        $this->assertSame('efectivo', $abono->fresh()->metodo);
+        $this->assertNull($orden->fresh()->descuento_condicionado_revertido_at);
+
+        $this->actingAs($this->jefa)->patchJson("/api/pagos/{$abono->id}", [
+            'monto' => 200000, 'metodo' => 'tarjeta', 'aceptar_perdida_descuento' => true,
+        ])->assertOk()->assertJsonPath('descuento_revertido', true)->assertJsonPath('saldo_pendiente', 200000);
+
+        $this->assertSame('tarjeta', $abono->fresh()->metodo);
+        $this->assertEquals(800000, $orden->fresh()->valor_total);
+        $this->assertNotNull($orden->fresh()->descuento_condicionado_revertido_at);
+        $campos = \App\Models\OrdenEdicion::where('orden_id', $orden->id)->get()
+            ->flatMap(fn ($e) => collect($e->cambios)->pluck('campo'))->all();
+        $this->assertContains('descuento_condicionado', $campos, 'queda en el historial');
+        $this->assertContains("pago_{$abono->id}_metodo", $campos);
+    }
+
+    public function test_entre_efectivo_y_transferencia_el_descuento_sigue(): void
+    {
+        [$orden] = $this->orden();
+        $this->conDescuentoEnEfectivo($orden);
+        $abono = $this->abono($orden);
+
+        $this->actingAs($this->jefa)->patchJson("/api/pagos/{$abono->id}", ['monto' => 200000, 'metodo' => 'transferencia'])
+            ->assertOk()->assertJsonPath('descuento_revertido', false);
+        $this->assertEquals(750000, $orden->fresh()->valor_total);
+    }
+
+    public function test_con_el_total_sin_descuento_el_monto_puede_subir_al_pasar_a_tarjeta(): void
+    {
+        [$orden] = $this->orden();
+        $this->conDescuentoEnEfectivo($orden);
+        $abono = $this->abono($orden);
+
+        // $400.000 + $400.000 = $800.000: se pasa de $750.000, pero no del total sin descuento
+        $this->actingAs($this->jefa)->patchJson("/api/pagos/{$abono->id}", ['monto' => 400000])->assertStatus(422);
+        $this->actingAs($this->jefa)->patchJson("/api/pagos/{$abono->id}", [
+            'monto' => 400000, 'metodo' => 'tarjeta', 'aceptar_perdida_descuento' => true,
+        ])->assertOk()->assertJsonPath('saldo_pendiente', 0);
+    }
+
+    public function test_la_solicitud_del_vendedor_dice_que_se_pierde_el_descuento_y_al_aprobarla_se_pierde(): void
+    {
+        [$orden] = $this->orden();
+        $this->conDescuentoEnEfectivo($orden);
+        $abono = $this->abono($orden);
+
+        $resp = $this->pedir($orden, ['pago' => ['id' => $abono->id, 'monto' => 200000, 'metodo' => 'tarjeta']])->assertCreated();
+        $labels = collect($resp->json('resumen'))->pluck('label')->all();
+        $this->assertTrue(collect($labels)->contains(fn ($l) => str_starts_with($l, 'Se pierde el descuento')));
+        $this->assertEquals(750000, $orden->fresh()->valor_total, 'pedirlo no cambia nada');
+
+        $this->actingAs($this->jefa)->postJson('/api/solicitudes-cambio/' . $resp->json('id') . '/aprobar')->assertOk();
+
+        $this->assertSame('tarjeta', $abono->fresh()->metodo);
+        $this->assertEquals(800000, $orden->fresh()->valor_total);
+        $entrada = \App\Models\OrdenEdicion::where('orden_id', $orden->id)->sole()->cambios[0];
+        $this->assertContains('descuento_condicionado', collect($entrada['cambios'])->pluck('campo')->all());
+    }
+
     public function test_al_rechazarla_no_se_toca_nada_y_se_dice_por_que(): void
     {
         [$orden, $mesa] = $this->orden();

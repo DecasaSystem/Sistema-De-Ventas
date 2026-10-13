@@ -274,6 +274,14 @@ en su tienda; un supervisor escoge. Sin migración (la columna `canal` es texto)
   `verificar-pago` (avisa si se pierde el descuento condicionado), editar pago
   (con solicitud si es vendedor), facturación de pagos (`tomar-facturacion`, `marcar-facturada`).
   Varias fotos de comprobante.
+- Corregir un pago (anticipo **o abono**) desde el detalle de la orden → "corregir" en
+  el historial de pagos (`PATCH /pagos/{id}`). El medio, en cualquier estado; el monto,
+  hasta `en_camino` (no en `entregado`) y sin pasarse del total
+  (`PagoController::problemaConElMonto`, la misma regla al pedir la solicitud y al
+  aprobarla). Supervisor: directo. Vendedor: solicitud con motivo, foto y supervisor.
+  El reembolso de una garantía no se corrige así. Pasar el pago a tarjeta/Addi/otro
+  quita el descuento condicionado (aviso antes, como al cobrar). Queda en `orden_ediciones` y el pago
+  muestra el sello "Monto corregido de… a… por…".
 - `CajaController`: balance y movimientos por tienda; los independientes (y el
   ebanista) llevan **caja propia**. `pagos.tienda_id` = dónde entró el dinero
   (independiente de a quién se abona la venta). Pagos cobrados en una entrega se

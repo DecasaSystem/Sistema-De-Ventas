@@ -584,46 +584,88 @@ const porcentajePagado = computed(() => {
   return Math.min(100, Math.round((orden.value.total_pagado / orden.value.valor_total) * 100))
 })
 
-// ── Corregir el medio de un pago ─────────────────────────────────────────────
+// ── Corregir un pago: el anticipo o cualquier abono ──────────────────────────
 // Si un pago quedó como efectivo cuando fue transferencia, la caja de la tienda
-// muestra plata que no está. Se puede arreglar en cualquier estado de la orden
-// porque cambiar el medio no mueve montos ni saldos.
-// El vendedor puede corregir sus propios pagos: equivocarse al elegir el medio
-// es normal y no debe depender de que un supervisor esté disponible. Lo que no
-// se puede es negarlo después: cada cambio queda firmado con nombre y hora.
+// muestra plata que no está: el medio se arregla en cualquier estado. Si se
+// digitó mal la cifra de un abono, el monto se arregla mientras la orden no
+// haya salido (antes solo se podía con el anticipo, desde Editar).
+// El vendedor también puede corregir (la de su venta, la del compañero o la
+// que se compartió con su tienda, como al cobrar): lo de plata le llega a un
+// supervisor para aprobar. Lo que no se puede es negarlo después: cada cambio
+// queda firmado con nombre y hora.
 const puedeCorregirMedio = computed(() => {
   if (!orden.value) return false
   if (auth.isSupervisor || auth.isFacturador) return true
-  return Number(orden.value.vendedor_id) === Number(auth.usuario?.id)
+  return puedeEditar.value
 })
 
-/** Si este pago ya fue corregido, quién lo hizo y cuándo. */
-function correccionDe(pago) {
-  const ediciones = orden.value?.ediciones ?? []
-  for (const e of ediciones) {
+/**
+ * Si este pago ya fue corregido (el medio o el monto), quién lo hizo y
+ * cuándo: la última corrección de cada cosa. "Anticipo registrado" también se
+ * anota como pago_X_monto, pero sin "antes": eso no es una corrección.
+ */
+function correccionesDe(pago) {
+  const campos = { [`pago_${pago.id}_metodo`]: 'metodo', [`pago_${pago.id}_monto`]: 'monto' }
+  const hallado = {}
+  for (const e of (orden.value?.ediciones ?? [])) {
     for (const c of (e.cambios ?? [])) {
-      if (c.campo === `pago_${pago.id}_metodo`) {
-        return { usuario: e.usuario?.nombre ?? 'alguien', fecha: e.created_at, ...c }
-      }
       // Corregido por una solicitud aprobada: el cambio va adentro.
-      const dentro = c.tipo === 'aprobacion_dinero'
-        ? (c.cambios ?? []).find(x => x.campo === `pago_${pago.id}_metodo`)
-        : null
-      if (dentro) {
-        return { usuario: `${c.revisado_por} (lo pidió ${c.solicitado_por})`, fecha: e.created_at, ...dentro }
+      const filas = c.tipo === 'aprobacion_dinero'
+        ? (c.cambios ?? []).map(x => ({ ...x, usuario: `${c.revisado_por} (lo pidió ${c.solicitado_por})` }))
+        : [{ ...c, usuario: e.usuario?.nombre ?? 'alguien' }]
+      for (const f of filas) {
+        const que = campos[f.campo]
+        if (!que || hallado[que] || f.antes === null || f.antes === undefined) continue
+        hallado[que] = { ...f, que, fecha: e.created_at }
       }
     }
   }
-  return null
+  return ['monto', 'metodo'].map(q => hallado[q]).filter(Boolean)
 }
 
+const valorCorregido = (c, v) => c.que === 'monto'
+  ? '$' + Math.round(Number(v) || 0).toLocaleString('es-CO')
+  : v
+
+// ── Corregir un pago (anticipo o abono) ──────────────────────────────────────
+// El medio se corrige en cualquier estado; el monto, mientras la orden no haya
+// salido (la misma regla del servidor, PagoController::ESTADOS_CORRIGE_MONTO).
+// Un vendedor no lo guarda directo: va como solicitud, con motivo y soporte.
+const ESTADOS_CORRIGE_MONTO = ['borrador', 'pendiente_anticipo', 'en_produccion', 'listo_entrega', 'en_camino']
 const pagoCorrigiendo = ref(null)
+const montoNuevo      = ref(0)
 const medioNuevo      = ref('efectivo')
 const referenciaNueva = ref('')
 const guardandoMedio  = ref(false)
 
+const puedeCorregirMonto = computed(() => ESTADOS_CORRIGE_MONTO.includes(orden.value?.estado))
+const correccionVaAAprobacion = computed(() =>
+  auth.usuario?.rol === 'vendedor' && orden.value?.estado !== 'borrador')
+
+// El descuento por efectivo/transferencia se pierde si el pago pasa a tarjeta,
+// Addi u otro (la misma regla del servidor, Pago::pierdeDescuentoSiPasaA).
+const correccionPierdeDescuento = computed(() => {
+  const o = orden.value, p = pagoCorrigiendo.value
+  if (!o || !p) return false
+  return Number(o.descuento_condicionado) > 0 && !o.descuento_condicionado_revertido_at
+    && medioNuevo.value !== p.metodo && !['efectivo', 'transferencia'].includes(medioNuevo.value)
+})
+
+// Hasta cuánto puede quedar este pago: el total (sin descuento, si se pierde)
+// menos lo demás que se ha pagado.
+const maximoDelPago = computed(() => {
+  if (!orden.value || !pagoCorrigiendo.value) return 0
+  const otros = (orden.value.pagos ?? [])
+    .filter(p => p.id !== pagoCorrigiendo.value.id)
+    .reduce((s, p) => s + Number(p.monto || 0), 0)
+  const total = Number(orden.value.valor_total || 0)
+    + (correccionPierdeDescuento.value ? Number(orden.value.descuento_condicionado || 0) : 0)
+  return Math.max(0, total - otros)
+})
+
 function abrirCorregirMedio(pago) {
   pagoCorrigiendo.value = pago
+  montoNuevo.value      = Number(pago.monto)
   medioNuevo.value      = pago.metodo ?? 'efectivo'
   referenciaNueva.value = pago.referencia ?? ''
 }
@@ -636,16 +678,26 @@ function cargarSolicitudes() { panelSolicitudes.value?.cargar() }
 
 async function guardarMedio() {
   if (!pagoCorrigiendo.value) return
+  const monto = puedeCorregirMonto.value ? Number(montoNuevo.value) : Number(pagoCorrigiendo.value.monto)
+  if (!(monto > 0)) {
+    toast.error('El monto tiene que ser mayor a $0.')
+    return
+  }
+  // Solo si el monto cambia: corregir el medio no se frena por cómo esté el saldo.
+  if (Math.abs(monto - Number(pagoCorrigiendo.value.monto)) > 0.009 && monto > maximoDelPago.value + 0.01) {
+    toast.error(`Con los demás pagos se pasaría del total de la orden: este pago puede ser hasta $${Math.round(maximoDelPago.value).toLocaleString('es-CO')}.`)
+    return
+  }
   guardandoMedio.value = true
   const datos = {
-    monto:      Number(pagoCorrigiendo.value.monto),   // igual: solo cambia el medio
+    monto,
     metodo:     medioNuevo.value,
     referencia: referenciaNueva.value || null,
   }
   try {
-    // Un vendedor no cambia el medio de un pago solo: va a aprobación. La
-    // referencia sola sí la corrige directo (el servidor no la cuenta).
-    if (auth.usuario?.rol === 'vendedor' && orden.value?.estado !== 'borrador') {
+    // Un vendedor no cambia el monto ni el medio de un pago solo: va a
+    // aprobación. La referencia sola sí la corrige directo (el servidor no la cuenta).
+    if (correccionVaAAprobacion.value) {
       const pedido = { pago: { id: pagoCorrigiendo.value.id, ...datos } }
       const { data: rev } = await revisarCambiosDePlata(orden.value.id, pedido)
       if (rev.cambios?.length) {
@@ -654,12 +706,25 @@ async function guardarMedio() {
         return
       }
     }
-    await editarPago(pagoCorrigiendo.value.id, datos)
-    toast.success('Medio de pago corregido. La caja se ajusta sola.')
+    let resp
+    try {
+      resp = await editarPago(pagoCorrigiendo.value.id, datos)
+    } catch (e) {
+      // Pasarlo a tarjeta quita el descuento por efectivo: el servidor avisa
+      // primero, y solo se sigue si quien corrige lo acepta.
+      const riesgo = e.response?.status === 409 ? e.response.data?.descuento_en_riesgo : null
+      if (!riesgo) throw e
+      const pesos = (n) => '$' + Math.round(Number(n) || 0).toLocaleString('es-CO')
+      if (!confirm(`${e.response.data.message}\n\nTotal actual: ${pesos(riesgo.valor_actual)} → sin descuento: ${pesos(riesgo.valor_sin_descuento)}.\n\n¿Corregir el pago de todas formas?`)) return
+      resp = await editarPago(pagoCorrigiendo.value.id, { ...datos, aceptar_perdida_descuento: true })
+    }
+    toast.success(resp?.data?.descuento_revertido
+      ? 'Pago corregido. Se quitó el descuento por efectivo: el total de la orden subió.'
+      : 'Pago corregido. La caja y el saldo se ajustan solos.')
     pagoCorrigiendo.value = null
     await cargarOrden()
   } catch (e) {
-    toast.error(e.response?.data?.message ?? 'No se pudo corregir el medio de pago.')
+    toast.error(e.response?.data?.message ?? 'No se pudo corregir el pago.')
   } finally {
     guardandoMedio.value = false
   }
@@ -2879,21 +2944,23 @@ onMounted(() => { cargarTipos(); cargarOrden() })
               <p class="text-xs text-gray-400 capitalize">
                 {{ pago.metodo }}
                 <span v-if="pago.referencia">· {{ pago.referencia }}</span>
+                <!-- El reembolso de una garantía no se corrige como un abono -->
                 <button
-                  v-if="puedeCorregirMedio"
+                  v-if="puedeCorregirMedio && pago.tipo !== 'reembolso'"
                   @click="abrirCorregirMedio(pago)"
                   class="ml-1.5 text-blue-600 normal-case hover:underline"
-                >corregir medio</button>
+                >corregir</button>
               </p>
 
               <!-- Sello del cambio: va pegado al pago, no escondido al final -->
               <p
-                v-if="correccionDe(pago)"
-                class="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 mt-1 inline-block"
+                v-for="c in correccionesDe(pago)"
+                :key="c.que"
+                class="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 mt-1 block w-fit"
               >
-                Corregido de <strong>{{ correccionDe(pago).antes }}</strong> a
-                <strong>{{ correccionDe(pago).despues }}</strong>
-                por {{ correccionDe(pago).usuario }} · {{ formatDateTime(correccionDe(pago).fecha) }}
+                {{ c.que === 'monto' ? 'Monto corregido' : 'Corregido' }} de <strong>{{ valorCorregido(c, c.antes) }}</strong> a
+                <strong>{{ valorCorregido(c, c.despues) }}</strong>
+                por {{ c.usuario }} · {{ formatDateTime(c.fecha) }}
               </p>
               <p v-if="pago.notas" class="text-xs text-gray-400">{{ pago.notas }}</p>
               <span v-if="fotosDePago(pago).length" class="inline-flex flex-wrap gap-x-2 mt-0.5">
@@ -3632,17 +3699,28 @@ onMounted(() => { cargarTipos(); cargarOrden() })
       </Transition>
     </Teleport>
 
-    <!-- Modal: corregir el medio de un pago -->
+    <!-- Modal: corregir un pago (monto y medio) -->
     <Transition name="fade">
       <div v-if="pagoCorrigiendo" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="pagoCorrigiendo = null">
         <div class="absolute inset-0 bg-black/40" />
-        <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-3">
-          <h3 class="text-lg font-bold text-gray-800">Corregir medio de pago</h3>
+        <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-3 max-h-[92dvh] overflow-y-auto">
+          <h3 class="text-lg font-bold text-gray-800">Corregir pago</h3>
           <p class="text-sm text-gray-500">
             {{ tipoPagoLabel[pagoCorrigiendo.tipo] ?? pagoCorrigiendo.tipo }} de
-            <strong><MoneyDisplay :amount="pagoCorrigiendo.monto" /></strong>.
-            El monto no cambia, solo cómo se pagó.
+            <strong><MoneyDisplay :amount="pagoCorrigiendo.monto" /></strong>
+            · {{ formatDateTime(pagoCorrigiendo.created_at) }}
           </p>
+
+          <div>
+            <label for="corregir-monto" class="text-xs text-gray-500">Monto</label>
+            <InputPesos id="corregir-monto" v-model="montoNuevo" :disabled="!puedeCorregirMonto" class="input disabled:bg-gray-50 disabled:text-gray-400" />
+            <p v-if="!puedeCorregirMonto" class="text-[11px] text-gray-400 mt-1">
+              La orden ya se entregó: el monto no se cambia, solo cómo se pagó.
+            </p>
+            <p v-else class="text-[11px] text-gray-400 mt-1">
+              Con los demás pagos, este puede ser hasta <MoneyDisplay :amount="maximoDelPago" />.
+            </p>
+          </div>
 
           <div>
             <label class="text-xs text-gray-500">Se pagó con</label>
@@ -3653,6 +3731,12 @@ onMounted(() => { cargarTipos(); cargarOrden() })
               <option value="addi">Addi</option>
               <option value="otro">Otro</option>
             </select>
+            <p v-if="correccionPierdeDescuento" class="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mt-2">
+              Esta orden tiene <MoneyDisplay :amount="orden.descuento_condicionado" /> de descuento por pagar en
+              efectivo o transferencia. Con {{ medioNuevo === 'tarjeta' ? 'tarjeta' : medioNuevo === 'addi' ? 'Addi' : 'otro medio' }}
+              se pierde y el total sube a
+              <strong><MoneyDisplay :amount="Number(orden.valor_total) + Number(orden.descuento_condicionado)" /></strong>.
+            </p>
           </div>
 
           <div v-if="medioNuevo !== 'efectivo'">
@@ -3660,9 +3744,13 @@ onMounted(() => { cargarTipos(); cargarOrden() })
             <input v-model="referenciaNueva" class="input" placeholder="Número de transacción" />
           </div>
 
-          <p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-            Al guardar, la caja de la tienda se ajusta sola: si deja de ser efectivo, esa
-            plata sale del saldo de caja. No necesitas registrar ningún egreso.
+          <p v-if="correccionVaAAprobacion" class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            Cambiar el monto o el medio lo aprueba un supervisor: al continuar te pedimos
+            el motivo y una foto de soporte. Hasta que lo apruebe, el pago sigue como está.
+          </p>
+          <p v-else class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            Al guardar, la caja de la tienda, el saldo y la comisión se ajustan solos.
+            No necesitas registrar ningún egreso.
           </p>
 
           <p class="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
@@ -3676,7 +3764,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
               @click="guardarMedio"
               :disabled="guardandoMedio"
               class="btn-primary flex-1 disabled:opacity-50"
-            >{{ guardandoMedio ? 'Guardando...' : 'Guardar' }}</button>
+            >{{ guardandoMedio ? 'Guardando...' : (correccionVaAAprobacion ? 'Continuar' : 'Guardar') }}</button>
           </div>
         </div>
       </div>

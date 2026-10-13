@@ -165,7 +165,9 @@ class SolicitudCambioController extends Controller
                     $this->aplicar(
                         fn (Request $r) => app(PagoController::class)->update($r, (int) $p['pago_id']),
                         "/api/pagos/{$p['pago_id']}",
-                        array_intersect_key($p, array_flip(['monto', 'metodo', 'referencia'])),
+                        // Si pasa a tarjeta se pierde el descuento: el resumen
+                        // que aprobó el supervisor ya lo decía.
+                        array_intersect_key($p, array_flip(['monto', 'metodo', 'referencia'])) + ['aceptar_perdida_descuento' => true],
                         $supervisor,
                     );
                 }
@@ -327,6 +329,20 @@ class SolicitudCambioController extends Controller
         $cambioPago = [];
         if ($request->filled('pago.id')) {
             $pago = Pago::where('orden_id', $orden->id)->findOrFail((int) $request->input('pago.id'));
+
+            // Lo que la corrección no aceptaría al aprobarse se dice ya, al
+            // pedirlo: si no, el vendedor manda motivo y soporte y es el
+            // supervisor quien se encuentra con que no se puede.
+            if ($pago->tipo === 'reembolso') {
+                throw ValidationException::withMessages([
+                    'pago' => ['Este es el reembolso de una garantía: no se corrige como un abono. Habla con un supervisor.'],
+                ]);
+            }
+            $pago->setRelation('orden', $orden);
+            if ($problema = PagoController::problemaConElMonto($pago, (float) $request->input('pago.monto'), $request->input('pago.metodo'))) {
+                throw ValidationException::withMessages(['pago.monto' => [$problema['message']]]);
+            }
+
             $cambioPago = [
                 'pago_id'    => $pago->id,
                 'monto'      => (float) $request->input('pago.monto'),

@@ -202,6 +202,17 @@ escribiendo precios (Fase 1b).
   Trampas: `nomina_pagos.total` es NETO (sin seguridad social ni cuotas de préstamo);
   `ComisionController::resumenDelMes()` escribe (no llamarlo desde lecturas: Finanzas lee
   `comisiones.monto_comision`, que `comisiones:poner-al-dia` deja al día a las 6:30).
+- **Corregir abonos, no solo el anticipo** (2026-10-13, **sin subir**, rama
+  `claude/edit-order-payments-1cf4f1`, sin migración). Pedido del dueño: el vendedor lo
+  pide (motivo + soporte, como el anticipo), el supervisor lo hace directo; queda en el
+  historial. Se reutilizó todo el camino de `SolicitudCambio` / `PATCH /pagos/{id}`; lo
+  nuevo es la pantalla ("corregir" en el historial de pagos) y que la solicitud se frena
+  al pedirla si al aprobarla no se podría aplicar. Decisiones del dueño ese día: el
+  monto se corrige también en `listo_entrega` y `en_camino` (no en `entregado`); y
+  **corregir un pago a tarjeta/Addi/otro quita el descuento condicionado**, igual que al
+  registrarlo (`Pago::pierdeDescuentoSiPasaA`, aviso 409 + `aceptar_perdida_descuento`;
+  al aprobar la solicitud de un vendedor se acepta solo, porque el resumen ya lo decía).
+  Volver de tarjeta a efectivo **no** devuelve el descuento (tampoco al registrar).
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 

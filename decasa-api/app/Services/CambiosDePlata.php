@@ -161,6 +161,18 @@ class CambiosDePlata
         }
         if (! empty($data['metodo']) && $data['metodo'] !== $pago->metodo) {
             $filas[] = self::fila("{$tipo} del {$fecha} — medio de pago", self::metodo($pago->metodo), self::metodo($data['metodo']));
+
+            // Lo que arrastra: con tarjeta (o Addi, u otro) la orden pierde el
+            // descuento por efectivo/transferencia. Quien aprueba lo ve antes.
+            if ($pago->pierdeDescuentoSiPasaA($data['metodo'])) {
+                $orden = $pago->orden;
+                $filas[] = self::fila(
+                    'Se pierde el descuento por pago en efectivo (' . self::pesos($orden->descuento_condicionado) . ') — total de la orden',
+                    round((float) $orden->valor_total, 2),
+                    round($orden->valorSinDescuentoCondicionado(), 2),
+                    'plata',
+                );
+            }
         }
 
         return $filas;
