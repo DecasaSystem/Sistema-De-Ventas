@@ -332,4 +332,92 @@ class ClientesRedesTest extends TestCase
         $r = $this->actingAs($deLa1)->getJson('/api/clientes-redes')->assertOk();
         $this->assertSame(['Sin tienda'], collect($r->json('data'))->pluck('nombre')->all());
     }
+
+    // ── Registrar a mano (dueño, 2026-10-13) ─────────────────────────────────
+
+    public function test_se_registra_a_mano_alguien_que_llamo(): void
+    {
+        $r = $this->actingAs($this->supervisora)->postJson('/api/clientes-redes', [
+            'nombre' => 'Jorge Díaz', 'canal' => 'llamada', 'telefono' => '311 222 3344',
+            'interes' => 'Comedor de 6 puestos', 'presupuesto' => 2500000, 'ciudad' => 'Pereira',
+        ])->assertStatus(201);
+
+        $ficha = ClienteRed::findOrFail($r->json('id'));
+        $this->assertSame('llamada', $ficha->canal);
+        $this->assertSame('+573112223344', $ficha->telefono);
+        $this->assertStringStartsWith('manual_', $ficha->identificador);
+        $this->assertSame('Comedor de 6 puestos', $ficha->interes);
+        $this->assertSame(2500000, $ficha->presupuesto);
+        $this->assertSame('nuevo', $ficha->estado);
+        $this->assertSame(0, $ficha->total_conversaciones);
+        $this->assertNotNull($ficha->primer_contacto_at);
+    }
+
+    public function test_el_de_whatsapp_registrado_a_mano_lo_sigue_actualizando_elena(): void
+    {
+        $this->actingAs($this->supervisora)->postJson('/api/clientes-redes', [
+            'nombre' => 'Carolina Ruiz', 'canal' => 'whatsapp', 'telefono' => '300 111 2233', 'notas' => 'La atendí en la feria',
+        ])->assertStatus(201);
+
+        // Después escribe por WhatsApp desde ese mismo número.
+        $this->datosDelAgente(['contacto' => ['interes' => 'Cama queen']])->assertOk();
+
+        $ficha = ClienteRed::sole();
+        $this->assertSame('+573001112233', $ficha->identificador);
+        $this->assertSame('Cama queen', $ficha->interes);
+        $this->assertSame('La atendí en la feria', $ficha->notas, 'lo del equipo no se pierde');
+    }
+
+    public function test_no_se_repite_un_celular_y_dice_cual_es(): void
+    {
+        $this->avisar(['idempotencia' => 'd1', 'contacto' => ['nombre' => 'Carolina Ruiz']]);
+        $id = ClienteRed::sole()->id;
+
+        $this->actingAs($this->supervisora)->postJson('/api/clientes-redes', [
+            'nombre' => 'Caro', 'canal' => 'llamada', 'telefono' => '+57 300 111 2233',
+        ])->assertStatus(422)->assertJsonPath('existente_id', $id);
+
+        $this->assertSame(1, ClienteRed::count());
+    }
+
+    public function test_whatsapp_pide_celular_y_el_celular_tiene_que_ser_valido(): void
+    {
+        $this->actingAs($this->supervisora)->postJson('/api/clientes-redes', ['nombre' => 'Ana', 'canal' => 'whatsapp'])
+            ->assertStatus(422);
+        $this->actingAs($this->supervisora)->postJson('/api/clientes-redes', ['nombre' => 'Ana', 'canal' => 'llamada', 'telefono' => '123'])
+            ->assertStatus(422);
+        $this->actingAs($this->supervisora)->postJson('/api/clientes-redes', ['canal' => 'visita'])
+            ->assertStatus(422);
+
+        // Sin celular sí se puede (alguien que vino a la tienda y solo dejó el nombre).
+        $this->actingAs($this->supervisora)->postJson('/api/clientes-redes', ['nombre' => 'Ana', 'canal' => 'visita', 'usuario_red' => 'ana.casa'])
+            ->assertStatus(201)->assertJsonPath('usuario_red', '@ana.casa');
+    }
+
+    public function test_el_vendedor_lo_registra_en_su_tienda_y_sin_permiso_no_puede(): void
+    {
+        $vendedor = Usuario::forceCreate(['nombre' => 'Paola', 'rol' => 'vendedor', 'activo' => true, 'acceso_redes' => true, 'tienda_default_id' => 1]);
+        \DB::table('tiendas')->insert([['id' => 1, 'nombre' => 'Uno'], ['id' => 2, 'nombre' => 'Dos']]);
+
+        $this->actingAs($vendedor)->postJson('/api/clientes-redes', [
+            'nombre' => 'Jorge', 'canal' => 'visita', 'tienda_id' => 2,
+        ])->assertStatus(201)->assertJsonPath('tienda_id', 1);
+
+        $sinRedes = Usuario::forceCreate(['nombre' => 'Luis', 'rol' => 'vendedor', 'activo' => true, 'acceso_redes' => false]);
+        $this->actingAs($sinRedes)->postJson('/api/clientes-redes', ['nombre' => 'X', 'canal' => 'visita'])->assertStatus(403);
+    }
+
+    public function test_filtro_otros_y_al_pasar_a_clientes_queda_con_su_canal(): void
+    {
+        $this->avisar(['idempotencia' => 'f1', 'contacto' => ['nombre' => 'De WhatsApp']]);
+        $id = $this->actingAs($this->supervisora)->postJson('/api/clientes-redes', [
+            'nombre' => 'De la tienda', 'canal' => 'visita', 'telefono' => '3205556677',
+        ])->json('id');
+
+        $r = $this->actingAs($this->supervisora)->getJson('/api/clientes-redes?canal=otros')->assertOk();
+        $this->assertSame(['De la tienda'], collect($r->json('data'))->pluck('nombre')->all());
+
+        $clienteId = $this->actingAs($this->supervisora)->postJson("/api/clientes-redes/{$id}/convertir")->json('cliente_id');
+        $this->assertSame('fisica', Cliente::findOrFail($clienteId)->canal_pref);
+    }
 }

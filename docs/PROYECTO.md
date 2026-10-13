@@ -260,6 +260,15 @@ estado/notas/contacto y **Pasar a clientes** (crea un `Cliente` "interesado" o l
 con el que ya tiene ese celular). Permiso `acceso_redes` o supervisor; un vendedor con
 tienda ve las de su tienda y las sin tienda. Prueba: `ClientesRedesTest`.
 
+**Registro a mano** (2026-10-13, botón *Agregar*, `ClienteRedForm.vue` →
+`POST /api/clientes-redes`): el apartado es la base de datos de interesados, no solo lo
+de Elena. `canal` admite además `llamada`, `visita` (vino a la tienda), `referido` y
+`otro` (`ClienteRed::CANALES`; filtro `canal=otros` = los que no son de los agentes).
+Si es de WhatsApp, el identificador es el celular `+57…`, igual que el del agente: cuando
+esa persona escribe, Elena actualiza esa misma ficha. Los demás llevan `manual_<ulid>`. No
+se repite un celular (422 con `existente_id` para abrir la ficha). Un vendedor la registra
+en su tienda; un supervisor escoge. Sin migración (la columna `canal` es texto).
+
 ### 6.4 Pagos, caja y facturación
 - `PagoController`: abonos, anticipo de órdenes que quedaron en $0,
   `verificar-pago` (avisa si se pierde el descuento condicionado), editar pago

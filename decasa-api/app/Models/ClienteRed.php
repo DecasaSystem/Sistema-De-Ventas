@@ -8,12 +8,23 @@ use Illuminate\Database\Eloquent\Model;
  * Persona que escribió por WhatsApp o Instagram (ver la migración
  * create_clientes_redes_table). La arma y la actualiza el webhook de Redes con
  * lo que manda el agente; el asesor le cambia el estado y le pone notas.
+ * También se registran a mano (ClienteRedController::store): una llamada, alguien
+ * que vino a la tienda, un referido.
  */
 class ClienteRed extends Model
 {
     protected $table = 'clientes_redes';
 
     const ESTADOS = ['nuevo', 'contactado', 'compro', 'perdido'];
+
+    /**
+     * De dónde llegó. WhatsApp e Instagram los registran los agentes (y también se
+     * pueden agregar a mano); los demás solo a mano, desde Clientes → Redes
+     * (dueño, 2026-10-13: que el apartado sirva de base de datos de interesados
+     * aunque no hayan pasado por Elena).
+     */
+    const CANALES = ['whatsapp', 'instagram', 'llamada', 'visita', 'referido', 'otro'];
+    const CANALES_AGENTES = ['whatsapp', 'instagram'];
 
     protected $fillable = [
         'canal', 'identificador', 'nombre', 'telefono', 'usuario_red', 'contacto_url',

@@ -1,13 +1,14 @@
 <script setup>
 // Clientes → Redes: las personas que escribieron por WhatsApp o Instagram, con el nombre
-// y el celular que le dieron a Elena antes de pasar con un asesor (dueño, 2026-10-08).
-// Las fichas las arma el webhook de Redes; aquí se buscan, se filtran por estado y se
-// abren para llamar, anotar o pasarlas a clientes.
+// y el celular que le dieron a Elena antes de pasar con un asesor (dueño, 2026-10-08),
+// y las que el equipo agrega a mano: llamadas, visitas, referidos (dueño, 2026-10-13).
+// Aquí se buscan, se filtran por estado y se abren para llamar, anotar o pasarlas a clientes.
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
-import { MagnifyingGlassIcon, PhoneIcon, ChevronRightIcon } from '@heroicons/vue/24/outline'
+import { MagnifyingGlassIcon, PhoneIcon, ChevronRightIcon, PlusIcon } from '@heroicons/vue/24/outline'
 import { getClientesRedes } from '@/api/clientes'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ClienteRedModal from './ClienteRedModal.vue'
+import ClienteRedForm from './ClienteRedForm.vue'
 import { ESTADOS_RED, canalBadge, haceCuanto, interesCorto } from './clientesRedes'
 
 const lista = ref([])
@@ -20,6 +21,7 @@ const busqueda = ref('')
 const estado = ref('nuevo')
 const canal = ref('')
 const abiertoId = ref(null)
+const creando = ref(false)
 
 const sentinel = ref(null)
 let observer = null
@@ -82,6 +84,14 @@ function alActualizar(ficha) {
   }
 }
 
+// Registrado a mano: queda arriba de "Nuevos" y se abre su ficha.
+function alCrear(ficha) {
+  creando.value = false
+  conteos.value = { ...conteos.value, nuevo: (conteos.value.nuevo ?? 0) + 1 }
+  if (!estado.value || estado.value === 'nuevo') lista.value = [ficha, ...lista.value]
+  abiertoId.value = ficha.id
+}
+
 onMounted(async () => {
   await cargar(1)
   observer = new IntersectionObserver((entries) => {
@@ -95,9 +105,18 @@ onUnmounted(() => { if (observer) observer.disconnect() })
 
 <template>
   <div class="space-y-3">
-    <p class="text-xs text-gray-500">
-      Quienes escribieron por WhatsApp o Instagram. Elena les pide nombre y celular antes de pasarlos con un asesor.
-    </p>
+    <div class="flex items-start gap-3">
+      <p class="text-xs text-gray-500 flex-1">
+        Quienes escribieron por WhatsApp o Instagram (Elena les pide nombre y celular) y los que el equipo agrega a mano.
+      </p>
+      <button
+        @click="creando = true"
+        class="flex-shrink-0 flex items-center gap-1 bg-blue-600 text-white rounded-lg px-3 py-1.5 text-xs font-semibold"
+      >
+        <PlusIcon class="w-4 h-4" />
+        Agregar
+      </button>
+    </div>
 
     <!-- Estados -->
     <div class="flex gap-1.5 overflow-x-auto -mx-4 px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -129,13 +148,14 @@ onUnmounted(() => { if (observer) observer.disconnect() })
       </div>
       <div class="flex bg-gray-100 rounded-xl p-1 flex-shrink-0">
         <button
-          v-for="c in ['whatsapp', 'instagram']"
-          :key="c"
-          @click="cambiarCanal(c)"
-          :aria-pressed="canal === c"
+          v-for="c in [{ value: 'whatsapp', label: 'WA' }, { value: 'instagram', label: 'IG' }, { value: 'otros', label: 'Otros' }]"
+          :key="c.value"
+          @click="cambiarCanal(c.value)"
+          :aria-pressed="canal === c.value"
+          :title="c.value === 'otros' ? 'Llamadas, visitas, referidos…' : undefined"
           :class="['px-2.5 rounded-lg text-xs font-semibold transition-colors',
-            canal === c ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500']"
-        >{{ canalBadge(c).label }}</button>
+            canal === c.value ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500']"
+        >{{ c.label }}</button>
       </div>
     </div>
 
@@ -189,6 +209,13 @@ onUnmounted(() => { if (observer) observer.disconnect() })
       :id="abiertoId"
       @cerrar="abiertoId = null"
       @actualizado="alActualizar"
+    />
+
+    <ClienteRedForm
+      v-if="creando"
+      @cerrar="creando = false"
+      @creado="alCrear"
+      @abrir="id => { creando = false; abiertoId = id }"
     />
   </div>
 </template>

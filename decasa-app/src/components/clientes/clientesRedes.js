@@ -16,11 +16,21 @@ export const TIPOS_AVISO = {
   otro: 'Mensaje',
 }
 
-// Mismos colores que la bandeja de Redes.
+// De dónde llegó (ClienteRed::CANALES). WhatsApp e Instagram los registran los
+// agentes y también se pueden agregar a mano; los demás solo a mano (dueño, 2026-10-13).
+// WhatsApp e Instagram con los mismos colores que la bandeja de Redes.
+export const CANALES_RED = [
+  { value: 'whatsapp',  label: 'WhatsApp',          corto: 'WA',       class: 'bg-green-100 text-green-700' },
+  { value: 'instagram', label: 'Instagram',         corto: 'IG',       class: 'bg-purple-100 text-purple-700' },
+  { value: 'llamada',   label: 'Llamada',           corto: 'Llamada',  class: 'bg-gray-100 text-gray-600' },
+  { value: 'visita',    label: 'Vino a la tienda',  corto: 'Tienda',   class: 'bg-gray-100 text-gray-600' },
+  { value: 'referido',  label: 'Referido',          corto: 'Referido', class: 'bg-gray-100 text-gray-600' },
+  { value: 'otro',      label: 'Otro',              corto: 'Otro',     class: 'bg-gray-100 text-gray-600' },
+]
+
 export function canalBadge(canal) {
-  return canal === 'instagram'
-    ? { label: 'IG', class: 'bg-purple-100 text-purple-700' }
-    : { label: 'WA', class: 'bg-green-100 text-green-700' }
+  const c = CANALES_RED.find(x => x.value === canal) ?? CANALES_RED[0]
+  return { label: c.corto, class: c.class }
 }
 
 export function haceCuanto(fecha) {

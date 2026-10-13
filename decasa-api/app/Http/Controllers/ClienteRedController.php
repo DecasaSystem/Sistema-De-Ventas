@@ -7,6 +7,7 @@ use App\Models\ClienteRed;
 use App\Services\ClientesRedes;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 /**
  * Clientes → Redes: las personas que escribieron por WhatsApp o Instagram, con
@@ -40,8 +41,12 @@ class ClienteRedController extends Controller
                 }
             });
         }
-        if (in_array($canal = $request->query('canal'), ['whatsapp', 'instagram'], true)) {
+        $canal = $request->query('canal');
+        if (in_array($canal, ClienteRed::CANALES, true)) {
             $base->where('canal', $canal);
+        } elseif ($canal === 'otros') {
+            // Los que no llegaron por los agentes: llamada, visita, referido…
+            $base->whereNotIn('canal', ClienteRed::CANALES_AGENTES);
         }
 
         // Los chips de estado muestran cuántos hay con los mismos filtros (sin el de estado).
@@ -75,6 +80,93 @@ class ClienteRedController extends Controller
         return response()->json(array_merge($ficha->toArray(), ['conversaciones' => $conversaciones]));
     }
 
+    /**
+     * POST /api/clientes-redes — registrar a alguien a mano (dueño, 2026-10-13):
+     * una llamada, alguien que vino a la tienda, un referido, o uno de WhatsApp o
+     * Instagram que nunca pasó por Elena. El apartado es la base de datos de
+     * interesados, venga de donde venga.
+     *
+     * - Si es de WhatsApp, la ficha queda con el celular como identificador, igual
+     *   que las que crea el agente: si esa persona escribe después, Elena actualiza
+     *   esta misma ficha en vez de crear otra.
+     * - No se repite un celular: si ya hay una ficha con ese número, se avisa y se
+     *   devuelve cuál es para abrirla.
+     * - Un vendedor la registra en su tienda; un supervisor escoge (o ninguna).
+     */
+    public function store(Request $request)
+    {
+        $data = $request->validate([
+            'nombre'      => 'required|string|max:120',
+            'canal'       => 'required|in:' . implode(',', ClienteRed::CANALES),
+            'telefono'    => 'nullable|string|max:30',
+            'usuario_red' => 'nullable|string|max:80',
+            'ciudad'      => 'nullable|string|max:80',
+            'interes'     => 'nullable|string|max:500',
+            'espacio'     => 'nullable|string|max:120',
+            'presupuesto' => 'nullable|integer|min:0|max:9999999999',
+            'notas'       => 'nullable|string|max:2000',
+            'tienda_id'   => 'nullable|integer|exists:tiendas,id',
+        ]);
+
+        $telefono = null;
+        if (trim((string) ($data['telefono'] ?? '')) !== '') {
+            $telefono = ClientesRedes::telefono($data['telefono']);
+            if (! $telefono) {
+                return response()->json(['message' => 'Ese número no parece un celular válido.'], 422);
+            }
+        }
+        if ($data['canal'] === 'whatsapp' && ! $telefono) {
+            return response()->json(['message' => 'Para WhatsApp pon el celular.'], 422);
+        }
+
+        // ¿Ya está? Por celular (en cualquier canal) o, en WhatsApp, por el número del chat.
+        if ($telefono) {
+            $existente = ClienteRed::where('telefono', $telefono)
+                ->orWhere(fn ($q) => $q->where('canal', 'whatsapp')->where('identificador', $telefono))
+                ->first(['id', 'nombre', 'tienda_id']);
+            if ($existente) {
+                $laVe = $this->visibles($request)->whereKey($existente->id)->exists();
+
+                return response()->json([
+                    'message'     => $laVe
+                        ? "Ese celular ya está registrado ({$existente->nombre})."
+                        : 'Ese celular ya está registrado en otra tienda.',
+                    'existente_id' => $laVe ? $existente->id : null,
+                ], 422);
+            }
+        }
+
+        $usuario = $request->user();
+        $tiendaId = $usuario?->rol === 'supervisor'
+            ? ($data['tienda_id'] ?? null)
+            : ($usuario?->tienda_default_id ?: null);
+
+        $usuarioRed = trim((string) ($data['usuario_red'] ?? ''));
+        if ($usuarioRed !== '' && ! str_starts_with($usuarioRed, '@')) $usuarioRed = '@' . $usuarioRed;
+
+        $ficha = ClienteRed::create([
+            'canal'         => $data['canal'],
+            // WhatsApp: el mismo identificador que usa el agente (el número del chat).
+            // El resto no tiene un chat con quien cruzarse: uno propio que no choca.
+            'identificador' => $data['canal'] === 'whatsapp' ? $telefono : 'manual_' . strtolower((string) Str::ulid()),
+            'nombre'        => trim($data['nombre']),
+            'telefono'      => $telefono,
+            'usuario_red'   => $usuarioRed ?: null,
+            'ciudad'        => $data['ciudad'] ?? null,
+            'interes'       => $data['interes'] ?? null,
+            'espacio'       => $data['espacio'] ?? null,
+            'presupuesto'   => $data['presupuesto'] ?? null,
+            'notas'         => $data['notas'] ?? null,
+            'estado'        => 'nuevo',
+            'tienda_id'     => $tiendaId,
+            'cliente_id'    => $telefono ? ClientesRedes::clientePorTelefono($telefono) : null,
+            'primer_contacto_at' => now(),
+            'ultimo_contacto_at' => now(),
+        ]);
+
+        return response()->json($ficha->fresh(['cliente:id,nombre']), 201);
+    }
+
     /** PUT /api/clientes-redes/{id} — estado, notas y datos de contacto. */
     public function update(Request $request, int $id)
     {
@@ -86,6 +178,9 @@ class ClienteRedController extends Controller
             'nombre'   => 'sometimes|nullable|string|max:120',
             'telefono' => 'sometimes|nullable|string|max:30',
             'ciudad'   => 'sometimes|nullable|string|max:80',
+            // Lo que busca: lo resume Elena, pero en los que se registran a mano lo
+            // escribe el equipo (y lo corrige si cambió).
+            'interes'  => 'sometimes|nullable|string|max:500',
         ]);
 
         if (array_key_exists('telefono', $data) && $data['telefono'] !== null && $data['telefono'] !== '') {
@@ -135,7 +230,12 @@ class ClienteRedController extends Controller
             $cliente = Cliente::create([
                 'nombre'        => $ficha->nombre,
                 'telefono'      => $ficha->telefono,
-                'canal_pref'    => $ficha->canal === 'whatsapp' ? 'whatsapp' : 'red_social',
+                'canal_pref'    => match ($ficha->canal) {
+                    'whatsapp'  => 'whatsapp',
+                    'instagram' => 'red_social',
+                    'visita'    => 'fisica',
+                    default     => 'otro',   // llamada, referido, otro
+                },
                 'tipo'          => 'interesado',
                 'tienda_id'     => $ficha->tienda_id ?? $request->user()?->tienda_default_id,
                 'notas_interes' => mb_substr($notas, 0, 1000) ?: null,

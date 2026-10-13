@@ -136,6 +136,11 @@ escribiendo precios (Fase 1b).
   `core/verificacion.js` (revisión antes de enviar). Orden de despliegue
   sugerido: backend, agentes, front.
   Los `npm run eval` nuevos (9 casos de ventas) **no se han corrido** (cuestan dinero).
+- **Clientes → Redes también a mano** (dueño, 2026-10-13): el apartado es la base de datos
+  de interesados, no solo lo que guarda Elena. Botón *Agregar*: llamada, vino a la tienda,
+  referido, otro, o WhatsApp/Instagram sin pasar por Elena. Un registrado a mano con
+  WhatsApp usa el celular como identificador (igual que el agente) y Elena sigue llenando
+  esa ficha. No se repite celular. Sin migración. Detalle en `docs/PROYECTO.md` (Clientes).
 - **Garantías posventa** (`docs/plan-garantias-posventa.md`), hechas y **subidas** el
   2026-10-09 (commit 95e0c15, rama `claude/warranty-post-sale-management-b20972`). Trae **migración**
   (`2026_10_17_000001_garantias_posventa`, solo agrega). De paso se corrigió que
@@ -245,6 +250,15 @@ escribiendo precios (Fase 1b).
   terminar de cargar, no sobre una copia de antes (lo que se carga recuerda cosas
   por dentro y se perdían). `Esquema` guarda en la caché solo los "sí existe"
   (llave con la versión de las migraciones). Resumen: 55 → ~26 consultas.
+  2026-10-13 (con nómina sembrada, ~1.200 pagos sin costo congelado): `CostoEmpleador`
+  recuerda los conceptos por trabajador + porcentajes vigentes + excepciones (dePago
+  2,4 s → 0,4 s), `Periodo::repartir` sin Carbon (fuzz de 20.000 rangos idéntico; Carbon
+  3 da días float: dividir por float), nómina en una sola lectura, `Configuracion::valor`
+  trae las 3 claves de Finanzas en un viaje, el resumen trae la serie de 12 meses
+  (`?serie=1`) y el front pinta lo último visto mientras recarga (`utils/memoriaFinanzas`,
+  solo memoria; Gastos y "Próximos pagos" nunca con datos viejos: tienen botón Pagar).
+  Queda ~45 consultas × 200 ms: **lo que falta es terminar la mudanza a Virginia**
+  (vercel.json sigue apuntando a `decasa-api-b91v`, Oregón).
 - Trampa SQLite: Eloquent guarda las fechas como `Y-m-d H:i:s`; comparar columnas de fecha con `whereDate`, no con `where(fecha, "<=", "Y-m-d")`.
 - **Trampa (2026-10-10): Finanzas daba 502 en producción** recién subido. Los pagos de nómina de
   antes de la migración no traen el costo congelado y `CostoEmpleador::dePago` buscaba trabajador y

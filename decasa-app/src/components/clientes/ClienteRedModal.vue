@@ -22,7 +22,7 @@ const guardando = ref(false)
 const convirtiendo = ref(false)
 const notas = ref('')
 const editando = ref(false)
-const edicion = ref({ nombre: '', telefono: '', ciudad: '' })
+const edicion = ref({ nombre: '', telefono: '', ciudad: '', interes: '' })
 
 const whatsapp = computed(() => numeroWhatsApp(ficha.value?.telefono))
 const notasCambiaron = computed(() => (notas.value ?? '') !== (ficha.value?.notas ?? ''))
@@ -74,7 +74,7 @@ function cambiarEstado(estado) {
 }
 
 function abrirEdicion() {
-  edicion.value = { nombre: ficha.value.nombre ?? '', telefono: ficha.value.telefono ?? '', ciudad: ficha.value.ciudad ?? '' }
+  edicion.value = { nombre: ficha.value.nombre ?? '', telefono: ficha.value.telefono ?? '', ciudad: ficha.value.ciudad ?? '', interes: ficha.value.interes ?? '' }
   editando.value = true
 }
 
@@ -120,7 +120,7 @@ onMounted(cargar)
                 <span :class="['px-1.5 py-0.5 rounded-full text-[10px] font-semibold', canalBadge(ficha.canal).class]">{{ canalBadge(ficha.canal).label }}</span>
               </div>
               <p class="text-xs text-gray-500">
-                Primer contacto {{ haceCuanto(ficha.primer_contacto_at) }} · {{ ficha.total_conversaciones }} {{ ficha.total_conversaciones === 1 ? 'aviso' : 'avisos' }}
+                Primer contacto {{ haceCuanto(ficha.primer_contacto_at) }}<template v-if="ficha.total_conversaciones"> · {{ ficha.total_conversaciones }} {{ ficha.total_conversaciones === 1 ? 'aviso' : 'avisos' }}</template>
               </p>
             </div>
             <button @click="abrirEdicion" class="p-1.5 text-gray-400 hover:text-gray-600" aria-label="Editar datos de contacto">
@@ -134,6 +134,7 @@ onMounted(cargar)
             <input v-model="edicion.nombre" placeholder="Nombre" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             <input v-model="edicion.telefono" type="tel" inputmode="tel" placeholder="Celular" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             <input v-model="edicion.ciudad" placeholder="Ciudad" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <textarea v-model="edicion.interes" rows="2" maxlength="500" placeholder="Lo que busca" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
             <div class="flex gap-2">
               <button @click="editando = false" class="flex-1 bg-gray-100 text-gray-700 rounded-lg py-2 text-xs font-semibold">Cancelar</button>
               <button @click="guardarEdicion" :disabled="guardando" class="flex-1 bg-blue-600 text-white rounded-lg py-2 text-xs font-semibold disabled:opacity-50">Guardar</button>
@@ -185,7 +186,7 @@ onMounted(cargar)
 
           <!-- Lo que contó -->
           <div v-if="loQueConto.length || ficha.preferencias?.length || ficha.productos_interes?.length" class="space-y-2">
-            <p class="text-xs font-medium text-gray-500">Lo que le contó a Elena</p>
+            <p class="text-xs font-medium text-gray-500">{{ ['whatsapp', 'instagram'].includes(ficha.canal) ? 'Lo que le contó a Elena' : 'Lo que contó' }}</p>
             <dl v-if="loQueConto.length" class="grid grid-cols-2 gap-x-3 gap-y-1.5">
               <template v-for="[k, v] in loQueConto" :key="k">
                 <div>

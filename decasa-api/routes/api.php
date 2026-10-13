@@ -387,6 +387,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // permiso que el módulo Redes; los supervisores entran siempre.
     Route::middleware('permiso:acceso_redes,supervisor')->group(function () {
         Route::get('/clientes-redes',                   [ClienteRedController::class, 'index']);
+        Route::post('/clientes-redes',                  [ClienteRedController::class, 'store'])->middleware('throttle:60,1');
         Route::get('/clientes-redes/{id}',              [ClienteRedController::class, 'show'])->whereNumber('id');
         Route::put('/clientes-redes/{id}',              [ClienteRedController::class, 'update'])->whereNumber('id');
         Route::post('/clientes-redes/{id}/convertir',   [ClienteRedController::class, 'convertir'])->whereNumber('id');
