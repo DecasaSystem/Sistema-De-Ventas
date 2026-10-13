@@ -173,6 +173,19 @@ class CambiosDePlata
                     'plata',
                 );
             }
+
+            // Y al revés: si el pago con tarjeta fue en efectivo, el descuento vuelve.
+            $monto = array_key_exists('monto', $data) ? (float) $data['monto'] : null;
+            if ($pago->recuperaDescuentoSiPasaA($data['metodo'], $monto)) {
+                $orden   = $pago->orden;
+                $perdido = DescuentoCondicionadoService::montoPerdido($orden);
+                $filas[] = self::fila(
+                    'Vuelve el descuento por pago en efectivo (' . self::pesos($perdido) . ') — total de la orden',
+                    round((float) $orden->valor_total, 2),
+                    round(max(0.0, (float) $orden->valor_total - $perdido), 2),
+                    'plata',
+                );
+            }
         }
 
         return $filas;

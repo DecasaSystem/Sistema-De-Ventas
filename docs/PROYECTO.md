@@ -280,7 +280,9 @@ en su tienda; un supervisor escoge. Sin migración (la columna `canal` es texto)
   (`PagoController::problemaConElMonto`, la misma regla al pedir la solicitud y al
   aprobarla). Supervisor: directo. Vendedor: solicitud con motivo, foto y supervisor.
   El reembolso de una garantía no se corrige así. Pasar el pago a tarjeta/Addi/otro
-  quita el descuento condicionado (aviso antes, como al cobrar). Queda en `orden_ediciones` y el pago
+  quita el descuento condicionado (aviso antes, como al cobrar); corregirlo de vuelta a
+  efectivo/transferencia lo devuelve si no queda otro pago con tarjeta y no queda
+  pagado de más. Queda en `orden_ediciones` y el pago
   muestra el sello "Monto corregido de… a… por…".
 - `CajaController`: balance y movimientos por tienda; los independientes (y el
   ebanista) llevan **caja propia**. `pagos.tienda_id` = dónde entró el dinero

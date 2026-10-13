@@ -62,6 +62,88 @@ class DescuentoCondicionadoService
     }
 
     /**
+     * Cuánto descuento perdió la orden al pagar con tarjeta (0 si no lo perdió).
+     *
+     * Al quitarlo, `descuento_condicionado` se queda con la cifra; pero si
+     * después se edita la orden, la cuenta del total lo deja en 0. Entonces la
+     * cifra sale del historial: la entrada "…retirado" guarda el total de antes
+     * y el de después.
+     */
+    public static function montoPerdido(Orden $orden): float
+    {
+        if ($orden->descuento_condicionado_revertido_at === null) return 0.0;
+        if ((float) $orden->descuento_condicionado > 0) return (float) $orden->descuento_condicionado;
+
+        $entrada = \App\Models\OrdenEdicion::where('orden_id', $orden->id)->orderByDesc('id')->get()
+            ->flatMap(fn ($e) => $e->cambios ?? [])
+            ->first(fn ($c) => ($c['campo'] ?? null) === 'descuento_condicionado'
+                && str_starts_with((string) ($c['label'] ?? ''), 'Descuento por pago en efectivo/transferencia retirado'));
+
+        return $entrada ? max(0.0, round((float) $entrada['despues'] - (float) $entrada['antes'], 2)) : 0.0;
+    }
+
+    /**
+     * Lo contrario de quitar(): el descuento vuelve. Pasa cuando el pago que se
+     * marcó con tarjeta en realidad fue en efectivo o transferencia (se
+     * equivocó el cliente o el vendedor) y ya no queda ningún pago con tarjeta
+     * en la orden (dueño, 2026-10-13). Baja el total, ajusta la comisión, deja
+     * la entrada en el historial y avisa a supervisión y facturación.
+     */
+    public static function devolver(Orden $orden, Usuario $usuario, string $metodo): void
+    {
+        $descuento = self::montoPerdido($orden);
+        if ($descuento <= 0) return;
+
+        $valorAntes = (float) $orden->valor_total;
+        $valorNuevo = max(0.0, $valorAntes - $descuento);
+
+        DB::transaction(function () use ($orden, $usuario, $metodo, $descuento, $valorAntes, $valorNuevo) {
+            $orden->update([
+                'valor_total'                         => $valorNuevo,
+                'descuento_condicionado'              => $descuento,
+                'descuento_condicionado_revertido_at' => null,
+            ]);
+
+            \App\Http\Controllers\ComisionController::sincronizarValorOrden($orden->fresh());
+
+            DB::table('orden_ediciones')->insert([
+                'orden_id'   => $orden->id,
+                'usuario_id' => $usuario->id,
+                'cambios'    => json_encode([[
+                    'campo'   => 'descuento_condicionado',
+                    'label'   => "Descuento por pago en efectivo/transferencia devuelto (el pago se corrigió a {$metodo})",
+                    'antes'   => $valorAntes,
+                    'despues' => $valorNuevo,
+                ]], JSON_UNESCAPED_UNICODE),
+                'created_at' => now(),
+            ]);
+        });
+
+        $orden->loadMissing('cliente');
+        $montoFmt = '$ ' . number_format($descuento, 0, ',', '.');
+        $nuevoFmt = '$ ' . number_format($valorNuevo, 0, ',', '.');
+        $cliente  = $orden->cliente?->nombre ?? 'cliente';
+
+        $destinatarios = Usuario::where('activo', true)
+            ->where('id', '!=', $usuario->id)
+            ->where(fn($q) => $q->where('rol', 'supervisor')->orWhere('facturacion', true))
+            ->get();
+
+        foreach ($destinatarios as $d) {
+            NotificacionService::crear(
+                tipo:      'descuento_devuelto',
+                titulo:    'Descuento devuelto: el pago fue en ' . $metodo,
+                mensaje:   "Orden {$orden->referencia} de {$cliente}: se corrigió el pago y volvió el descuento de {$montoFmt} "
+                         . "({$usuario->nombre}). El total quedó en {$nuevoFmt}.",
+                datos:     ['orden_id' => $orden->id],
+                usuarioId: $d->id,
+                // Baja el total de una orden ya vendida: es plata, va marcado.
+                urgente:   true,
+            );
+        }
+    }
+
+    /**
      * Texto para mostrarle al cliente cuando pregunta por qué cambió el precio.
      */
     public static function explicacion(Orden $orden): string

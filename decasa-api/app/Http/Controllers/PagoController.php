@@ -418,6 +418,11 @@ class PagoController extends Controller
             ], 409);
         }
 
+        // Y al revés: si el pago con tarjeta en realidad fue en efectivo o
+        // transferencia (se equivocó el cliente o el vendedor), el descuento
+        // vuelve, siempre que no quede otro pago con tarjeta (dueño, 2026-10-13).
+        $recuperaDescuento = $pago->recuperaDescuentoSiPasaA($data['metodo'] ?? null, (float) $data['monto']);
+
         $tipoLabel = $pago->tipo === 'anticipo' ? 'Anticipo' : ucfirst($pago->tipo);
         $cambios   = [];
 
@@ -432,7 +437,7 @@ class PagoController extends Controller
         }
 
         if (! empty($cambios)) {
-            DB::transaction(function () use ($pago, $data, $orden, $usuario, $cambios, $pierdeDescuento) {
+            DB::transaction(function () use ($pago, $data, $orden, $usuario, $cambios, $pierdeDescuento, $recuperaDescuento) {
                 // Sube el total, recalcula la comisión y deja su propia
                 // entrada en el historial ("Descuento … retirado").
                 if ($pierdeDescuento) {
@@ -450,6 +455,12 @@ class PagoController extends Controller
                     'usuario_id' => $usuario->id,
                     'cambios'    => $cambios,
                 ]);
+
+                // Después del pago: con el pago ya corregido, baja el total y
+                // deja su propia entrada ("Descuento … devuelto").
+                if ($recuperaDescuento) {
+                    \App\Services\DescuentoCondicionadoService::devolver($orden, $usuario, $data['metodo']);
+                }
             });
 
             // Corregir el medio de pago mueve la comisión: si el pago pasa a
@@ -473,6 +484,7 @@ class PagoController extends Controller
             'total_pagado'        => $orden->totalPagado(),
             'saldo_pendiente'     => $orden->saldoPendiente(),
             'descuento_revertido' => $pierdeDescuento,
+            'descuento_devuelto'  => $recuperaDescuento,
         ]);
     }
 

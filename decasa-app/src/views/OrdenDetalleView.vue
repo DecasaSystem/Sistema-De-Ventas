@@ -651,6 +651,17 @@ const correccionPierdeDescuento = computed(() => {
     && medioNuevo.value !== p.metodo && !['efectivo', 'transferencia'].includes(medioNuevo.value)
 })
 
+// Y al revés: si la orden lo perdió y el pago con tarjeta fue en efectivo o
+// transferencia, vuelve, mientras no quede otro pago con tarjeta. El servidor
+// decide al final (si ya pagó el precio completo, no vuelve).
+const correccionRecuperaDescuento = computed(() => {
+  const o = orden.value, p = pagoCorrigiendo.value
+  if (!o || !p || !o.descuento_condicionado_revertido_at) return false
+  if (medioNuevo.value === p.metodo || !['efectivo', 'transferencia'].includes(medioNuevo.value)) return false
+  return !(o.pagos ?? []).some(x => x.id !== p.id && x.tipo !== 'reembolso'
+    && x.metodo && !['efectivo', 'transferencia'].includes(x.metodo))
+})
+
 // Hasta cuánto puede quedar este pago: el total (sin descuento, si se pierde)
 // menos lo demás que se ha pagado.
 const maximoDelPago = computed(() => {
@@ -720,6 +731,8 @@ async function guardarMedio() {
     }
     toast.success(resp?.data?.descuento_revertido
       ? 'Pago corregido. Se quitó el descuento por efectivo: el total de la orden subió.'
+      : resp?.data?.descuento_devuelto
+      ? 'Pago corregido. Volvió el descuento por efectivo: el total de la orden bajó.'
       : 'Pago corregido. La caja y el saldo se ajustan solos.')
     pagoCorrigiendo.value = null
     await cargarOrden()
@@ -3736,6 +3749,11 @@ onMounted(() => { cargarTipos(); cargarOrden() })
               efectivo o transferencia. Con {{ medioNuevo === 'tarjeta' ? 'tarjeta' : medioNuevo === 'addi' ? 'Addi' : 'otro medio' }}
               se pierde y el total sube a
               <strong><MoneyDisplay :amount="Number(orden.valor_total) + Number(orden.descuento_condicionado)" /></strong>.
+            </p>
+            <p v-else-if="correccionRecuperaDescuento" class="text-xs text-green-800 bg-green-50 border border-green-200 rounded-lg px-3 py-2 mt-2">
+              Esta orden perdió el descuento por pagar con tarjeta. Si en realidad se pagó en
+              {{ medioNuevo === 'efectivo' ? 'efectivo' : 'transferencia' }}, el descuento vuelve y el total baja
+              (si el cliente ya pagó el precio completo, se corrige solo el medio).
             </p>
           </div>
 

@@ -212,7 +212,12 @@ escribiendo precios (Fase 1b).
   **corregir un pago a tarjeta/Addi/otro quita el descuento condicionado**, igual que al
   registrarlo (`Pago::pierdeDescuentoSiPasaA`, aviso 409 + `aceptar_perdida_descuento`;
   al aprobar la solicitud de un vendedor se acepta solo, porque el resumen ya lo decía).
-  Volver de tarjeta a efectivo **no** devuelve el descuento (tampoco al registrar).
+  **Y al revés (dueño, mismo día): corregir de tarjeta a efectivo/transferencia
+  devuelve el descuento** ("que tal que se haya equivocado el cliente o el vendedor"),
+  si ya no queda ningún pago con tarjeta/Addi/otro y si con el total rebajado no queda
+  pagado de más (si pagó el precio completo, se corrige solo el medio). La cifra sale de
+  `descuento_condicionado` o, si editar la orden la dejó en 0, del historial
+  (`DescuentoCondicionadoService::montoPerdido` / `devolver`, `Pago::recuperaDescuentoSiPasaA`).
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 

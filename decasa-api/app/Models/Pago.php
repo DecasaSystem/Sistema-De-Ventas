@@ -85,6 +85,39 @@ class Pago extends Model
             && $this->orden?->tieneDescuentoCondicionadoVivo();
     }
 
+    /**
+     * Lo contrario: ¿corregir este pago a efectivo o transferencia le devuelve
+     * el descuento a la orden? Solo si la orden lo perdió y, con la corrección,
+     * ya no queda ningún pago con tarjeta, Addi u otro (si queda uno, el
+     * descuento sigue perdido por ese). El reembolso de una garantía no cuenta:
+     * es plata que sale, no un pago del cliente.
+     *
+     * Y solo si con el total rebajado no queda pagado de más: si el cliente ya
+     * pagó el precio completo, no hay descuento que devolverle sin sacarle
+     * plata de vuelta (eso es otra cosa). Ahí se corrige el medio y ya.
+     * `$monto` es el monto con el que queda este pago (por si también se corrige).
+     */
+    public function recuperaDescuentoSiPasaA(?string $metodo, ?float $monto = null): bool
+    {
+        if ($metodo === null || $metodo === $this->metodo || Orden::metodoPierdeDescuento($metodo)) return false;
+
+        $orden = $this->orden;
+        if (! $orden || $orden->descuento_condicionado_revertido_at === null) return false;
+
+        $quedaOtroConTarjeta = self::where('orden_id', $orden->id)
+            ->where('id', '!=', $this->id)
+            ->where(fn ($q) => $q->whereNull('tipo')->orWhere('tipo', '!=', 'reembolso'))
+            ->whereNotIn('metodo', Orden::METODOS_CON_DESCUENTO)
+            ->exists();
+        if ($quedaOtroConTarjeta) return false;
+
+        $perdido = \App\Services\DescuentoCondicionadoService::montoPerdido($orden);
+        if ($perdido <= 0) return false;
+
+        $otros = (float) self::where('orden_id', $orden->id)->where('id', '!=', $this->id)->sum('monto');
+        return $otros + ($monto ?? (float) $this->monto) <= (float) $orden->valor_total - $perdido + 0.01;
+    }
+
     public function vendedor()
     {
         return $this->belongsTo(Usuario::class, 'vendedor_id');
