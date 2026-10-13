@@ -162,22 +162,34 @@ class Periodo
      */
     public static function repartir(CarbonInterface|string $desde, CarbonInterface|string $hasta): array
     {
-        $d = Carbon::parse($desde instanceof CarbonInterface ? $desde->toDateString() : $desde, self::TZ)->startOfDay();
-        $h = Carbon::parse($hasta instanceof CarbonInterface ? $hasta->toDateString() : $hasta, self::TZ)->startOfDay();
-        if ($h->lessThan($d)) $h = $d->copy();
+        // Con días enteros y no con Carbon: Finanzas reparte así cada pago de
+        // nómina (~1.200) y con Carbon eran 0,3 s solo en esto (2026-10-13).
+        // Misma cuenta que antes: días de cada mes ÷ días del rango.
+        $d = self::diaNumero($desde instanceof CarbonInterface ? $desde->toDateString() : (string) $desde);
+        $h = self::diaNumero($hasta instanceof CarbonInterface ? $hasta->toDateString() : (string) $hasta);
+        if ($h < $d) $h = $d;
 
-        $total = $d->diffInDays($h) + 1;
+        $total = (float) ($h - $d + 1);   // float, como daba Carbon: 1.0 y no 1
         $out = [];
-        $c = $d->copy();
-        while ($c->lessThanOrEqualTo($h)) {
-            $finMes = $c->copy()->endOfMonth()->startOfDay();
-            $corte  = $finMes->lessThan($h) ? $finMes : $h;
-            $dias   = $c->diffInDays($corte) + 1;
-            $out[$c->format('Y-m')] = ($out[$c->format('Y-m')] ?? 0) + $dias / $total;
-            $c = $corte->copy()->addDay();
+        $c = $d;
+        while ($c <= $h) {
+            $ts     = $c * 86400;
+            $finMes = $c + (int) gmdate('t', $ts) - (int) gmdate('j', $ts);
+            $corte  = min($finMes, $h);
+            $mes    = gmdate('Y-m', $ts);
+            $out[$mes] = ($out[$mes] ?? 0) + ($corte - $c + 1) / $total;
+            $c = $corte + 1;
         }
 
         return $out;
+    }
+
+    /** 'Y-m-d' (o 'Y-m-d H:i:s') → días desde 1970, para contar días sin Carbon. */
+    private static function diaNumero(string $fecha): int
+    {
+        [$y, $m, $d] = array_map('intval', explode('-', substr($fecha, 0, 10)));
+
+        return intdiv(gmmktime(0, 0, 0, $m, $d, $y), 86400);
     }
 
     /**

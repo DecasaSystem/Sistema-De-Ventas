@@ -7,6 +7,7 @@ import { getEstadoResultados, exportarResultados, cerrarMes, reabrirMes } from '
 import { pesos, pesosCorto, pct, mesActual, sumarMeses, nombreMes, NOMBRE_AREA } from '@/utils/finanzas'
 import GraficaFinanzas from './GraficaFinanzas.vue'
 import { useToast } from '@/composables/useToast'
+import { recordado, recordar } from '@/utils/memoriaFinanzas'
 
 const props = defineProps({ version: Number })
 const toast = useToast()
@@ -19,14 +20,23 @@ const bajando = ref(false)
 const hasta = mesActual()
 const desde = computed(() => sumarMeses(hasta, -(meses.value - 1)))
 
+let pedido = 0
 async function cargar() {
+  const rango = desde.value
+  const yo = ++pedido
+  // Lo último que se vio de ese rango, al instante, mientras llega lo nuevo (memoriaFinanzas).
+  const antes = recordado(`resultados:${rango}:${hasta}`)
+  if (antes) datos.value = antes
   cargando.value = true
   try {
-    datos.value = (await getEstadoResultados(desde.value, hasta)).data
+    const { data } = await getEstadoResultados(rango, hasta)
+    if (yo !== pedido) return   // ya cambiaron el rango
+    datos.value = data
+    recordar(`resultados:${rango}:${hasta}`, data)
   } catch {
-    toast.error('No se pudo cargar el estado de resultados')
+    if (yo === pedido) toast.error('No se pudo cargar el estado de resultados')
   } finally {
-    cargando.value = false
+    if (yo === pedido) cargando.value = false
   }
 }
 watch(() => [meses.value, props.version], cargar, { immediate: true })

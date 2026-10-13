@@ -6,7 +6,8 @@ import {
   ArrowTrendingUpIcon, ArrowTrendingDownIcon, ExclamationTriangleIcon, CheckCircleIcon,
   InformationCircleIcon, ChevronRightIcon,
 } from '@heroicons/vue/24/outline'
-import { getResumen, getEstadoResultados } from '@/api/finanzas'
+import { getResumen } from '@/api/finanzas'
+import { recordado, recordar } from '@/utils/memoriaFinanzas'
 import { pesos, pesosCorto, pct, sumarMeses, nombreMes, fechaCorta } from '@/utils/finanzas'
 import GraficaFinanzas from './GraficaFinanzas.vue'
 import { useToast } from '@/composables/useToast'
@@ -20,21 +21,42 @@ const datos = ref(null)
 const serie = ref([])
 const verTodoSemaforo = ref(false)
 
+// La serie de la gráfica viene en la misma respuesta (?serie=1): pedirla aparte
+// hacía que el servidor cargara ventas, nómina y gastos dos veces.
+function pintar(r) {
+  datos.value = r
+  const meses = r.serie ?? []
+  // Desde el primer mes con ventas: antes no existía el sistema.
+  const desdeVentas = meses.findIndex(x => x.ventas > 0)
+  serie.value = desdeVentas > 0 ? meses.slice(desdeVentas) : meses
+}
+
+// Los próximos pagos solo se muestran con lo recién traído, nunca con lo
+// recordado: tienen el botón "Pagar" y uno viejo invitaría a pagar dos veces.
+// null = todavía cargando.
+const proximos = ref(null)
+
+let pedido = 0
 async function cargar() {
+  const mes = props.mes
+  const yo = ++pedido
+  proximos.value = null
+  // Lo último que se vio de ese mes, al instante; lo nuevo llega por detrás
+  // (la plantilla lo atenúa mientras tanto).
+  const antes = recordado(`resumen:${mes}`)
+  if (antes) pintar(antes)
+  else datos.value = null
   cargando.value = true
   try {
-    const [r, er] = await Promise.all([
-      getResumen(props.mes),
-      getEstadoResultados(sumarMeses(props.mes, -11), props.mes),
-    ])
-    datos.value = r.data
-    // Desde el primer mes con ventas: antes no existía el sistema.
-    const desdeVentas = er.data.meses.findIndex(x => x.ventas > 0)
-    serie.value = desdeVentas > 0 ? er.data.meses.slice(desdeVentas) : er.data.meses
+    const { data } = await getResumen(mes, { serie: true, silencioso: !!antes })
+    if (yo !== pedido) return   // ya cambiaron de mes
+    recordar(`resumen:${mes}`, data)
+    pintar(data)
+    proximos.value = data.proximos ?? []
   } catch {
-    toast.error('No se pudo cargar el resumen')
+    if (yo === pedido) toast.error('No se pudo cargar el resumen')
   } finally {
-    cargando.value = false
+    if (yo === pedido) cargando.value = false
   }
 }
 watch(() => [props.mes, props.version], cargar, { immediate: true })
@@ -409,9 +431,10 @@ const ICONO_TIPO = { nomina: '👥', comisiones: '🎯', gasto: '🧾', impuesto
         <p class="text-sm font-semibold text-gray-800">Próximos pagos</p>
         <button @click="emit('ir', 'flujo')" class="text-xs font-semibold text-blue-600">Ver calendario</button>
       </div>
-      <p v-if="!datos.proximos.length" class="text-xs text-gray-400">Nada por pagar en los próximos días.</p>
-      <ul class="divide-y divide-gray-100">
-        <li v-for="(p, i) in datos.proximos" :key="i" class="py-2 flex items-center gap-2.5">
+      <p v-if="proximos === null" class="text-xs text-gray-400">Cargando…</p>
+      <p v-else-if="!proximos.length" class="text-xs text-gray-400">Nada por pagar en los próximos días.</p>
+      <ul v-if="proximos" class="divide-y divide-gray-100">
+        <li v-for="(p, i) in proximos" :key="i" class="py-2 flex items-center gap-2.5">
           <span class="text-lg w-6 text-center shrink-0" aria-hidden="true">{{ ICONO_TIPO[p.tipo] }}</span>
           <div class="min-w-0 flex-1">
             <p class="text-sm text-gray-800 truncate">{{ p.titulo }}</p>

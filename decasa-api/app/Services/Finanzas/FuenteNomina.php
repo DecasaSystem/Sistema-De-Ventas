@@ -48,10 +48,24 @@ class FuenteNomina
         $meses = array_flip(Periodo::meses($desde, $hasta));
         $out = [];
 
-        $pagos = NominaPago::with(CostoEmpleador::relacionesDePago('trabajador.rolAsignado'))
-            ->whereDate('fecha_fin', '>=', $ini->toDateString())
-            ->whereDate('fecha_inicio', '<=', $fin->toDateString())
+        // Una sola lectura para el costo (ciclos que tocan el rango) y la caja
+        // (pagados en el rango), y se separan aquí: antes eran dos, y la
+        // segunda volvía a cargar trabajadores y excepciones (3 viajes a Aiven).
+        $iniDia = $ini->toDateString();
+        $finDia = $fin->toDateString();
+        [$cajaDesde, $cajaHasta] = Periodo::rangoUtc($desde, $hasta);
+        $todos = NominaPago::with(CostoEmpleador::relacionesDePago('trabajador.rolAsignado'))
+            ->where(fn ($q) => $q
+                ->where(fn ($q) => $q->whereDate('fecha_fin', '>=', $iniDia)->whereDate('fecha_inicio', '<=', $finDia))
+                ->orWhereBetween('pagado_at', [$cajaDesde, $cajaHasta]))
             ->get();
+
+        $pagos = $todos->filter(fn ($p) => $p->fecha_fin->toDateString() >= $iniDia && $p->fecha_inicio->toDateString() <= $finDia);
+        $cajaPagos = $todos->filter(function ($p) use ($cajaDesde, $cajaHasta) {
+            $pagado = $p->getRawOriginal('pagado_at');
+
+            return $pagado !== null && substr($pagado, 0, 19) >= $cajaDesde && substr($pagado, 0, 19) <= $cajaHasta;
+        });
 
         foreach ($pagos as $p) {
             $costo = CostoEmpleador::dePago($p);
@@ -61,7 +75,6 @@ class FuenteNomina
         }
 
         // Caja: el día que se pagó.
-        $cajaPagos = NominaPago::with(CostoEmpleador::relacionesDePago())->whereBetween('pagado_at', Periodo::rangoUtc($desde, $hasta))->get();
         foreach ($cajaPagos as $p) {
             $mes = Periodo::mesDe($p->pagado_at, true);
             if (! isset($meses[$mes])) continue;

@@ -40,6 +40,7 @@ class ConfigFinanzas
     public static function olvidarCache(): void
     {
         self::$cache = null;
+        \App\Support\Configuracion::olvidar();
     }
 
     public static function todo(): array
@@ -49,7 +50,7 @@ class ConfigFinanzas
         $guardado = [];
         try {
             if (\App\Support\Esquema::tabla('configuracion')) {
-                $v = DB::table('configuracion')->where('clave', self::CLAVE)->value('valor');
+                $v = \App\Support\Configuracion::valor(self::CLAVE, \App\Support\Configuracion::DE_FINANZAS);
                 $guardado = $v ? (json_decode($v, true) ?: []) : [];
             }
         } catch (\Throwable) {

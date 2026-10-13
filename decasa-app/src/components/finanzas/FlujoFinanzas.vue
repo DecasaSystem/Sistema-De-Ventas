@@ -9,6 +9,7 @@ import { pesos, pesosCorto, pct, mesActual, sumarMeses, nombreMes, fechaCorta } 
 import InputPesos from '@/components/common/InputPesos.vue'
 import GraficaFinanzas from './GraficaFinanzas.vue'
 import { useToast } from '@/composables/useToast'
+import { recordado, recordar } from '@/utils/memoriaFinanzas'
 
 const props = defineProps({ version: Number })
 const toast = useToast()
@@ -20,12 +21,16 @@ const editandoSaldo = ref(false)
 const formSaldo = ref({ saldo_inicial: null, saldo_fecha: sumarMeses(mesActual(), -1) })
 
 async function cargar() {
+  // Lo último que se vio, al instante, mientras llega lo nuevo (memoriaFinanzas).
+  const antes = recordado('flujo')
+  if (antes && !flujo.value) [flujo.value, calendario.value] = antes
   cargando.value = true
   try {
     const actual = mesActual()
     const [f, c, a] = await Promise.all([getFlujoCaja(sumarMeses(actual, -5), actual), getCalendario(45), getAjustes()])
     flujo.value = f.data
     calendario.value = c.data
+    recordar('flujo', [f.data, c.data])
     formSaldo.value = { saldo_inicial: a.data.saldo_inicial, saldo_fecha: a.data.saldo_fecha ?? sumarMeses(actual, -1) }
   } catch {
     toast.error('No se pudo cargar el flujo de caja')

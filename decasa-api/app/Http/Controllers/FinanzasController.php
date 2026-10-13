@@ -46,6 +46,12 @@ class FinanzasController extends Controller
             'indicadores' => Indicadores::delMes($mes, $actual, $anterior),
             'proximos'    => array_slice(CalendarioPagos::proximos(20), 0, 8),
             'garantias'   => FuenteGarantiasYCanales::garantias($mes),
+            // ?serie=1: los 12 meses de la gráfica en la misma respuesta. La
+            // pantalla los pedía aparte (estado-resultados) y esa petición volvía
+            // a cargar ventas, nómina y gastos desde cero; aquí ya están cargados.
+            'serie'       => $request->boolean('serie')
+                ? EstadoResultados::meses(Periodo::sumarMeses($mes, -11), $mes)['meses']
+                : null,
             'actualizado' => now(Periodo::TZ)->toIso8601String(),
         ]);
     }

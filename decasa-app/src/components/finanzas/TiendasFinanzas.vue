@@ -8,6 +8,7 @@ import { getPorTienda, getPorCanal } from '@/api/finanzas'
 import { pesos, pesosCorto, pct, nombreMes } from '@/utils/finanzas'
 import GraficaFinanzas from './GraficaFinanzas.vue'
 import { useToast } from '@/composables/useToast'
+import { recordado, recordar } from '@/utils/memoriaFinanzas'
 
 const props = defineProps({ mes: String, version: Number })
 const emit = defineEmits(['ajustes'])
@@ -19,16 +20,25 @@ const abierta = ref(null)
 
 const canales = ref(null)
 
+let pedido = 0
 async function cargar() {
+  const mes = props.mes
+  const yo = ++pedido
+  // Lo último que se vio de ese mes, al instante, mientras llega lo nuevo (memoriaFinanzas).
+  const antes = recordado(`tiendas:${mes}`)
+  if (antes) [datos.value, canales.value] = antes
+  else datos.value = null
   cargando.value = true
   try {
-    const [t, c] = await Promise.all([getPorTienda(props.mes), getPorCanal(props.mes)])
+    const [t, c] = await Promise.all([getPorTienda(mes), getPorCanal(mes)])
+    if (yo !== pedido) return   // ya cambiaron de mes
     datos.value = t.data
     canales.value = c.data
+    recordar(`tiendas:${mes}`, [t.data, c.data])
   } catch {
-    toast.error('No se pudo cargar la rentabilidad por tienda')
+    if (yo === pedido) toast.error('No se pudo cargar la rentabilidad por tienda')
   } finally {
-    cargando.value = false
+    if (yo === pedido) cargando.value = false
   }
 }
 watch(() => [props.mes, props.version], cargar, { immediate: true })

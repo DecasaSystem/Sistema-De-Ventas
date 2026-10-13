@@ -4,7 +4,9 @@ import { comprimirImagen } from '@/utils/comprimirImagen'
 // Finanzas: lo que entra y lo que sale de la empresa. Solo supervisores con
 // acceso_finanzas (el backend lo valida).
 
-export const getResumen          = (mes) => api.get('/finanzas/resumen', { params: { mes } })
+// serie: los 12 meses de la gráfica en la misma respuesta.
+export const getResumen          = (mes, { serie = false, silencioso = false } = {}) =>
+  api.get('/finanzas/resumen', { params: serie ? { mes, serie: 1 } : { mes }, silencioso })
 export const getEstadoResultados = (desde, hasta) => api.get('/finanzas/estado-resultados', { params: { desde, hasta } })
 export const getFlujoCaja        = (desde, hasta) => api.get('/finanzas/flujo-caja', { params: { desde, hasta } })
 export const getCalendario       = (dias = 45) => api.get('/finanzas/calendario', { params: { dias } })

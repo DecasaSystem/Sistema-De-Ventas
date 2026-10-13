@@ -46,5 +46,6 @@ class CachesDePeticion
         \App\Services\Finanzas\Cierres::olvidarCache();
         \App\Services\Finanzas\Periodo::olvidarRecordado();
         \App\Support\Esquema::olvidar();
+        \App\Support\Configuracion::olvidar();
     }
 }

@@ -8,6 +8,7 @@ import { pesos, pesosCorto, pct, nombreMes } from '@/utils/finanzas'
 import GraficaFinanzas from './GraficaFinanzas.vue'
 import InputPesos from '@/components/common/InputPesos.vue'
 import { useToast } from '@/composables/useToast'
+import { recordado, recordar } from '@/utils/memoriaFinanzas'
 
 const props = defineProps({ version: Number })
 const toast = useToast()
@@ -16,9 +17,12 @@ const cargando = ref(true)
 const datos = ref(null)
 
 async function cargar() {
+  // Lo último que se vio, al instante, mientras llega lo nuevo (memoriaFinanzas).
+  datos.value ??= recordado('proyeccion')
   cargando.value = true
   try {
     datos.value = (await getProyeccion(3)).data
+    recordar('proyeccion', datos.value)
   } catch {
     toast.error('No se pudo cargar la proyección')
   } finally {

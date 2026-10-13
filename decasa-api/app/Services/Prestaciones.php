@@ -63,6 +63,7 @@ class Prestaciones
     {
         self::$config = null;
         self::$hayTabla = null;
+        \App\Support\Configuracion::olvidar();
     }
 
     public static function config(): array
@@ -72,7 +73,7 @@ class Prestaciones
         $guardado = [];
         try {
             if (\App\Support\Esquema::tabla('configuracion')) {
-                $v = DB::table('configuracion')->where('clave', self::CLAVE)->value('valor');
+                $v = \App\Support\Configuracion::valor(self::CLAVE, \App\Support\Configuracion::DE_FINANZAS);
                 $guardado = $v ? (json_decode($v, true) ?: []) : [];
             }
         } catch (\Throwable) {

@@ -75,6 +75,12 @@ class CostoEmpleador
     private static ?bool $bono = null;
     /** dePago() de los pagos sin costo congelado: Finanzas pasa por el mismo pago varias veces por petición. */
     private static array $porPago = [];
+    /** @var array<string, string> [día => porcentajes vigentes de cada concepto] */
+    private static array $firmas = [];
+    /** @var array<string, array> conceptosDe ya armados (ver conceptosParaCalcular) */
+    private static array $conceptosCalculo = [];
+    /** @var \WeakMap<Collection, string>|null firma de las excepciones de cada lista cargada */
+    private static ?\WeakMap $firmasExcepciones = null;
 
     public static function olvidarCache(): void
     {
@@ -82,6 +88,9 @@ class CostoEmpleador
         self::$hayTablas = null;
         self::$bono      = null;
         self::$porPago   = [];
+        self::$firmas    = [];
+        self::$conceptosCalculo = [];
+        self::$firmasExcepciones = null;
     }
 
     public static function hayTablas(): bool
@@ -130,7 +139,7 @@ class CostoEmpleador
 
         try {
             $valor = \App\Support\Esquema::tabla('configuracion')
-                ? DB::table('configuracion')->where('clave', self::CLAVE_BONO)->value('valor')
+                ? \App\Support\Configuracion::valor(self::CLAVE_BONO, \App\Support\Configuracion::DE_FINANZAS)
                 : null;
         } catch (\Throwable) {
             $valor = null;
@@ -146,6 +155,7 @@ class CostoEmpleador
             ['valor' => $si ? '1' : '0', 'updated_at' => now()]
         );
         self::$bono = $si;
+        \App\Support\Configuracion::olvidar();
     }
 
     /** Las excepciones de un trabajador, por concepto. */
@@ -265,37 +275,32 @@ class CostoEmpleador
         $salario = max(0.0, $subtotal - $faltas) + (self::bonoEsSalario() ? $bono : 0.0);
         $bases   = ['salario' => $salario, 'salario_auxilio' => $salario + max(0.0, $auxilio)];
 
-        $todos     = self::conceptosDe($e, $fecha);
-        $conceptos = collect($todos)->where('aplica', true);
+        ['pasos' => $pasos, 'orden' => $orden] = self::conceptosParaCalcular($e, $fecha);
 
         // Primero los que van sobre el sueldo y después los que van sobre otro
-        // concepto (los intereses necesitan las cesantías ya calculadas).
+        // concepto (los intereses necesitan las cesantías ya calculadas): ese
+        // orden ya viene armado en `pasos`.
         $montos = [];
         $lineas = [];
-        foreach ([false, true] as $sobreConcepto) {
-            foreach ($conceptos as $c) {
-                if (($c['base'] === 'concepto') !== $sobreConcepto) continue;
+        foreach ($pasos as [$sobreConcepto, $c]) {
+            $base  = $sobreConcepto ? (float) ($montos[$c['base_clave']] ?? 0) : (float) ($bases[$c['base']] ?? 0);
+            $monto = round($base * $c['porcentaje'] / 100);
+            $montos[$c['clave']] = $monto;
 
-                $base  = $sobreConcepto ? (float) ($montos[$c['base_clave']] ?? 0) : (float) ($bases[$c['base']] ?? 0);
-                $monto = round($base * $c['porcentaje'] / 100);
-                $montos[$c['clave']] = $monto;
-
-                if ($monto > 0) {
-                    $lineas[] = [
-                        'clave'         => $c['clave'],
-                        'nombre'        => $c['nombre'],
-                        'grupo'         => $c['grupo'],
-                        'porcentaje'    => $c['porcentaje'],
-                        'base'          => round($base),
-                        'monto'         => $monto,
-                        'personalizado' => $c['personalizado'],
-                    ];
-                }
+            if ($monto > 0) {
+                $lineas[] = [
+                    'clave'         => $c['clave'],
+                    'nombre'        => $c['nombre'],
+                    'grupo'         => $c['grupo'],
+                    'porcentaje'    => $c['porcentaje'],
+                    'base'          => round($base),
+                    'monto'         => $monto,
+                    'personalizado' => $c['personalizado'],
+                ];
             }
         }
 
         // En el orden de los conceptos, no en el del cálculo.
-        $orden  = array_flip(array_column($todos, 'clave'));
         usort($lineas, fn ($a, $b) => $orden[$a['clave']] <=> $orden[$b['clave']]);
 
         $suma = fn (string $g) => (float) array_sum(array_column(
@@ -312,6 +317,75 @@ class CostoEmpleador
             'otros'             => $suma('otros'),
             'total'             => (float) array_sum(array_column($lineas, 'monto')),
         ];
+    }
+
+    /**
+     * conceptosDe() recordado mientras no cambie nada de lo que lo define.
+     *
+     * Finanzas calcula el costo de ~1.200 pagos viejos (sin costo congelado) y
+     * armar los 10 conceptos de cada uno, mirando las tarifas de cada concepto,
+     * eran ~2 ms por pago: 2,4 s de puro PHP en /finanzas/resumen (2026-10-13).
+     * El resultado solo depende del trabajador (si aporta seguridad social y
+     * sus excepciones) y de los porcentajes que rigen ese día, que casi nunca
+     * cambian entre un ciclo y otro: con eso como llave, se arma unas pocas
+     * veces por trabajador. Las excepciones van en la llave para que, si se
+     * editan y se recargan en la misma petición, no salga lo de antes.
+     *
+     * Devuelve, además de los conceptos, los que aplican en el orden en que se
+     * calculan (`pasos`: primero sobre el sueldo, luego sobre otro concepto) y
+     * el orden en que se muestran: lo que desglose() armaba en cada pago.
+     *
+     * @return array{pasos: array<int, array{0: bool, 1: array}>, orden: array<string, int>}
+     */
+    private static function conceptosParaCalcular(Usuario $e, CarbonInterface|string $fecha): array
+    {
+        $dia = $fecha instanceof CarbonInterface ? $fecha->toDateString() : substr((string) $fecha, 0, 10);
+        // Sin las excepciones ya cargadas (o sin id) se arma como siempre: así
+        // no se agrega ninguna consulta para sacar la llave.
+        if (! $e->id || ! $e->relationLoaded('conceptosEmpleador')) {
+            return self::prepararPasos(self::conceptosDe($e, $dia));
+        }
+
+        $llave = $e->id . '|' . (int) $e->aportaSeguridadSocial() . '|' . self::firmaTarifas($dia)
+            . '|' . self::firmaExcepciones($e->getRelation('conceptosEmpleador'));
+
+        return self::$conceptosCalculo[$llave] ??= self::prepararPasos(self::conceptosDe($e, $dia));
+    }
+
+    private static function prepararPasos(array $todos): array
+    {
+        // `==` como el ->where('aplica', true) de la colección que reemplaza.
+        $aplican = array_filter($todos, fn ($c) => $c['aplica'] == true);
+        $pasos = [];
+        foreach ([false, true] as $sobreConcepto) {
+            foreach ($aplican as $c) {
+                if (($c['base'] === 'concepto') === $sobreConcepto) $pasos[] = [$sobreConcepto, $c];
+            }
+        }
+
+        return ['pasos' => $pasos, 'orden' => array_flip(array_column($todos, 'clave'))];
+    }
+
+    /**
+     * Las excepciones del trabajador, en texto, para la llave. Se recuerda por
+     * la colección cargada (WeakMap): si alguien recarga la relación, es otra
+     * colección y se vuelve a leer.
+     */
+    private static function firmaExcepciones(Collection $lista): string
+    {
+        self::$firmasExcepciones ??= new \WeakMap();
+
+        return self::$firmasExcepciones[$lista] ??= json_encode($lista->keyBy('concepto_id')
+            ->map(fn ($x) => [(bool) $x->aplica, $x->porcentaje === null ? null : (float) $x->porcentaje])
+            ->sortKeys()->all());
+    }
+
+    /** Los porcentajes de la empresa que rigen ese día, concepto por concepto. */
+    private static function firmaTarifas(string $dia): string
+    {
+        return self::$firmas[$dia] ??= self::conceptos()
+            ->map(fn (NominaConceptoEmpleador $c) => $c->clave . '=' . $c->porcentajeEn($dia))
+            ->implode(';');
     }
 
     private static function vacio(): array
