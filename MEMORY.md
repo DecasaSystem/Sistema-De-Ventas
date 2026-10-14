@@ -228,6 +228,18 @@ escribiendo precios (Fase 1b).
   pagado de más (si pagó el precio completo, se corrige solo el medio). La cifra sale de
   `descuento_condicionado` o, si editar la orden la dejó en 0, del historial
   (`DescuentoCondicionadoService::montoPerdido` / `devolver`, `Pago::recuperaDescuentoSiPasaA`).
+- **Recibo de entrega y pago + cobro con varios medios** (2026-10-14, **sin subir**,
+  rama `claude/driver-digital-invoice-528994`). Trae **migración**
+  `2026_10_22_000001_recibo_de_entrega` (solo agrega columnas a `despacho_items` y la
+  fila `recibos_entrega` del contador). Pedido del dueño: "una factura digital" que el
+  cliente firme en la entrega, una sola firma con el acta de satisfacción, que se le
+  mande por correo o WhatsApp, y que pueda pagar con dos medios; es **el comprobante del
+  efectivo** (la transferencia tiene su foto y la tarjeta el datáfono), así que el
+  efectivo con firma ya no exige foto. Se llamó **"Acta de entrega y recibo de pago"
+  N.º RC-…** y no "factura": la factura de venta es la electrónica de la DIAN y el
+  papel lo aclara en el pie. Pendiente que confirme el dueño: si quiere razón social y
+  NIT de la empresa en el encabezado (el sistema no los tiene guardados). Detalle en
+  `docs/PROYECTO.md` §6.9.
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 
@@ -266,6 +278,7 @@ escribiendo precios (Fase 1b).
 - **Recontado 2026-10-08: 734 tests, 10 fallos preexistentes** (las mismas 6 clases).
 - **Recontado 2026-10-09 (rama de garantías): 767 tests, 10 fallos preexistentes** (las mismas 6 clases).
 - **Recontado 2026-10-10 (finanzas + prestaciones): 817 tests, 10 fallos preexistentes** (las mismas 6 clases).
+- **Recontado 2026-10-14 (recibo de entrega y pago): 847 tests, 10 fallos preexistentes** (las mismas 6 clases).
 - Trampa MySQL vs SQLite (2026-10-10, 500 en `/finanzas/resumen`): `GROUP BY alias` en
   MySQL busca **primero una columna de las tablas** con ese nombre; SQLite usa el alias.
   `->selectRaw('… AS mes')->groupBy('mes')` con una tabla que tiene columna `mes`

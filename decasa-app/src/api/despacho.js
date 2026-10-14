@@ -38,6 +38,13 @@ export const deshacerEntrega         = (entregaId, motivo) => api.post(`/despach
 // Qué va en una entrega abierta, antes de entregarla: lo que imprime la orden de entrega.
 export const fijarLineasEntrega      = (id, lineas) => api.patch(`/despacho/mis-entregas/${id}/lineas`, { lineas })
 
+// Recibo de entrega y pago: lo que el cliente firma una vez (acta + pago) y
+// se le manda por WhatsApp o correo.
+export const reciboEntrega           = (id)        => api.get(`/despacho/entregas/${id}/recibo`)
+export const descargarReciboEntrega  = (id)        => api.get(`/despacho/entregas/${id}/recibo/pdf`, { responseType: 'blob' })
+export const enviarReciboEmail       = (id, email) => api.post(`/despacho/entregas/${id}/recibo/email`, { email: email || undefined })
+export const marcarReciboWhatsApp    = (id, telefono) => api.post(`/despacho/entregas/${id}/recibo/whatsapp`, { telefono }, { silencioso: true })
+
 // Entrega directa: el vendedor/supervisor dueño entrega su propia orden sin
 // ruta ni conductor. Devuelve { despacho_item_id } para abrir la misma
 // pantalla de entrega del conductor.

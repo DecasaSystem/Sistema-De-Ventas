@@ -364,6 +364,30 @@ en su tienda; un supervisor escoge. Sin migración (la columna `canal` es texto)
   `pendiente`; producción decide `a_produccion`, `reembolsada`, `cambio`,
   `cambio_mismo`. La orden queda `devuelto` mientras tanto.
 - PDFs: acta de entrega, orden de entrega, hoja de ruta.
+- **Cobro con varios medios** (2026-10-14): en la puerta el cliente puede pagar
+  con dos o más medios (efectivo + transferencia, tarjeta + efectivo…, hasta 4).
+  El formulario manda `pagos` (JSON `[{metodo, monto, referencia}]`) y las fotos
+  de cada uno en `comprobantes[i][]`; queda **un `Pago` por medio**, todos con
+  `despacho_item_id`. La pantalla vieja (`monto`/`metodo`/`fotos_pago[]`) sigue
+  funcionando. Soporte: transferencia/tarjeta/Addi/otro llevan foto siempre; el
+  **efectivo no lleva foto si el cliente firma** (su soporte es el recibo); sin
+  firma, sí. Basta que uno de los medios sea tarjeta/Addi/otro para que se pierda
+  el descuento condicionado entero (regla de siempre).
+- **Recibo de entrega y pago** (`ReciboEntrega`, mismo PDF `acta_entrega`): el
+  acta de satisfacción y el recibo del pago se firman **una sola vez**. Si se
+  cobró algo, lleva consecutivo propio `RC-00001` (`despacho_items.recibo_numero`,
+  contador `recibos_entrega` en `orden_secuencias`); sin cobro no gasta número.
+  Dice qué se pagó por medio, lo abonado antes y el saldo, y en el pie que **no
+  reemplaza la factura electrónica** (la de la DIAN es otra cosa: Facturación).
+  Se le manda al cliente al terminar la entrega, desde el detalle de la entrega
+  o desde "Entregas realizadas" de la orden: **WhatsApp** (wa.me desde el teléfono
+  de quien entrega, con el enlace) o **correo** (Brevo, PDF adjunto; si el
+  cliente no tenía correo se le guarda). Enlace público sin sesión:
+  `GET /api/public/recibos/{token}` (`recibo_token`, 40 caracteres). Rutas:
+  `GET /despacho/entregas/{id}/recibo`, `/recibo/pdf`, `POST /recibo/email`,
+  `POST /recibo/whatsapp` (solo anota que se abrió). Ve y manda quien entregó,
+  quien ve la orden (`laPuedeVer`) y facturación. Migración
+  `2026_10_22_000001_recibo_de_entrega` (solo agrega).
 
 ### 6.9b Garantías (posventa)
 `GarantiaController`, `GarantiaService`, modelo `Garantia`. Detalle y decisiones:

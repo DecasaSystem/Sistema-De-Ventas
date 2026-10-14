@@ -54,7 +54,7 @@ class EntregaPorProductoTest extends TestCase
             $t->boolean('comisiones_compartidas')->default(false);
         });
         Schema::create('clientes', function (Blueprint $t) {
-            $t->id(); $t->string('nombre'); $t->string('telefono')->nullable(); $t->string('direccion')->nullable();
+            $t->id(); $t->string('nombre'); $t->string('telefono')->nullable(); $t->string('email')->nullable(); $t->string('direccion')->nullable();
             $t->string('cedula')->nullable(); $t->timestamps();
         });
         Schema::create('productos', function (Blueprint $t) {
@@ -881,5 +881,204 @@ class EntregaPorProductoTest extends TestCase
 
         $this->assertTrue($this->actingAs($v)->getJson("/api/despacho/entregas-de/{$orden->id}")->json('0.puede_deshacer'));
         $this->assertTrue($this->actingAs($this->supervisora())->getJson("/api/despacho/entregas-de/{$orden->id}")->json('0.puede_deshacer'));
+    }
+
+    // ── Recibo de entrega y pago: dos medios, una firma ──────────────────────
+
+    /** La orden lista para la última entrega: debe los $3.200.000 completos. */
+    private function listaParaLaUltima(Usuario $v): Orden
+    {
+        // Otra venta igual en menos de 15 s se toma por doble envío.
+        $this->travel(20)->seconds();
+        $orden = $this->venderRelojYMueble($v, relojSeLoLleva: false);
+        Produccion::query()->update(['estado' => 'listo']);
+        $orden->update(['estado' => 'listo_entrega']);
+        return $orden;
+    }
+
+    /** Abre una entrega directa y registra el cobro tal cual. Devuelve [respuesta, id de la entrega]. */
+    private function cobrar(Usuario $quien, Orden $orden, array $campos, array $archivos = []): array
+    {
+        $entregaId = $this->actingAs($quien)->postJson('/api/despacho/entrega-directa', ['orden_id' => $orden->id])
+            ->assertStatus(201)->json('despacho_item_id');
+
+        $archivos += ['foto_producto' => UploadedFile::fake()->image('p.jpg')];
+        $resp = $this->actingAs($quien)->post("/api/despacho/mis-entregas/{$entregaId}/pago", $campos + $archivos, ['Accept' => 'application/json']);
+
+        return [$resp, $entregaId];
+    }
+
+    private function firma(): array
+    {
+        return ['firma_recibido' => UploadedFile::fake()->image('firma.png'), 'recibido_por_nombre' => 'Cliente'];
+    }
+
+    public function test_el_cliente_paga_con_dos_medios_y_queda_un_pago_por_cada_uno(): void
+    {
+        $v     = $this->vendedora();
+        $orden = $this->listaParaLaUltima($v);
+
+        [$resp, $entregaId] = $this->cobrar($v, $orden, [
+            'pagos' => json_encode([
+                ['metodo' => 'efectivo', 'monto' => 1200000],
+                ['metodo' => 'transferencia', 'monto' => 2000000, 'referencia' => 'T-9'],
+            ]),
+        ], $this->firma() + ['comprobantes' => [1 => [UploadedFile::fake()->image('t.jpg')]]]);
+        $resp->assertOk();
+        $this->actingAs($v)->patchJson("/api/despacho/mis-entregas/{$entregaId}/entregar")->assertOk();
+
+        $pagos = $orden->pagos()->orderBy('id')->get();
+        $this->assertCount(2, $pagos);
+        $this->assertSame(['efectivo', 'transferencia'], $pagos->pluck('metodo')->all());
+        $this->assertEquals([1200000, 2000000], $pagos->pluck('monto')->map(fn ($m) => (float) $m)->all());
+        $this->assertNull($pagos[0]->comprobante_url, 'el efectivo no lleva foto: su soporte es el recibo firmado');
+        $this->assertNotNull($pagos[1]->comprobante_url);
+        $this->assertSame('T-9', $pagos[1]->referencia);
+        $this->assertTrue($pagos->every(fn ($p) => (int) $p->despacho_item_id === (int) $entregaId));
+        $this->assertSame('entregado', $orden->fresh()->estado);
+
+        // El recibo: consecutivo y enlace para el cliente.
+        $entrega = DespachoItem::find($entregaId);
+        $this->assertSame('RC-00001', $entrega->reciboReferencia());
+        $info = $this->actingAs($v)->getJson("/api/despacho/entregas/{$entregaId}/recibo")->assertOk();
+        $this->assertSame('RC-00001', $info->json('referencia'));
+        $this->assertStringContainsString('/api/public/recibos/' . $entrega->recibo_token, $info->json('enlace'));
+        $this->assertStringContainsString('RC-00001', $info->json('mensaje'));
+
+        // El cliente lo abre sin sesión.
+        auth()->forgetGuards();
+        $this->get('/api/public/recibos/' . $entrega->recibo_token)->assertOk()
+            ->assertHeader('content-type', 'application/pdf');
+        $this->getJson('/api/public/recibos/' . str_repeat('x', 40))->assertNotFound();
+    }
+
+    public function test_el_siguiente_recibo_lleva_el_siguiente_numero_y_sin_cobro_no_gasta_numero(): void
+    {
+        $v = $this->vendedora();
+
+        // Sin cobro (el cliente ya pagó todo antes): acta sí, número no.
+        $pagada = $this->venderRelojYMueble($v, relojSeLoLleva: false);
+        $this->actingAs($v)->postJson("/api/ordenes/{$pagada->id}/pagos", [
+            'monto' => 3200000, 'metodo' => 'transferencia', 'comprobante_url' => 'https://foto/t.jpg',
+        ])->assertStatus(201);
+        [$resp, $sinCobro] = $this->cobrar($v, $pagada, ['lineas' => json_encode([['orden_item_id' => $this->reloj($pagada)->id, 'cantidad' => 1]])], $this->firma());
+        $resp->assertOk();
+        $this->assertNull(DespachoItem::find($sinCobro)->recibo_numero);
+        $this->assertNotNull(DespachoItem::find($sinCobro)->recibo_token, 'el acta igual se le puede mandar');
+        $this->actingAs($v)->patchJson("/api/despacho/mis-entregas/{$sinCobro}/entregar")->assertOk();
+
+        foreach ([1, 2] as $n) {
+            $orden = $this->listaParaLaUltima($v);
+            [$resp, $id] = $this->cobrar($v, $orden, ['monto' => 3200000, 'metodo' => 'efectivo'], $this->firma());
+            $resp->assertOk();
+            $this->assertSame($n, (int) DespachoItem::find($id)->recibo_numero);
+            $this->actingAs($v)->patchJson("/api/despacho/mis-entregas/{$id}/entregar")->assertOk();
+        }
+    }
+
+    public function test_el_efectivo_sin_firma_necesita_foto(): void
+    {
+        $v     = $this->vendedora();
+        $orden = $this->listaParaLaUltima($v);
+
+        // Nadie firmó: no hay recibo que respalde el efectivo.
+        [$resp] = $this->cobrar($v, $orden, [
+            'firma_omitida_motivo' => 'se dejó con el portero',
+            'pagos' => json_encode([['metodo' => 'efectivo', 'monto' => 3200000]]),
+        ]);
+        $resp->assertStatus(422);
+        $this->assertSame(0, $orden->pagos()->count());
+    }
+
+    public function test_la_transferencia_y_la_tarjeta_siempre_llevan_su_comprobante(): void
+    {
+        $v     = $this->vendedora();
+        $orden = $this->listaParaLaUltima($v);
+
+        [$resp] = $this->cobrar($v, $orden, [
+            'pagos' => json_encode([
+                ['metodo' => 'efectivo', 'monto' => 1200000],
+                ['metodo' => 'transferencia', 'monto' => 2000000],
+            ]),
+        ], $this->firma());
+        $resp->assertStatus(422)->assertJsonPath('message', 'Falta la foto del comprobante de transferencia.');
+        $this->assertSame(0, $orden->pagos()->count());
+    }
+
+    public function test_con_dos_medios_no_se_puede_cobrar_mas_del_saldo(): void
+    {
+        $v     = $this->vendedora();
+        $orden = $this->listaParaLaUltima($v);
+
+        [$resp] = $this->cobrar($v, $orden, [
+            'pagos' => json_encode([
+                ['metodo' => 'efectivo', 'monto' => 3000000],
+                ['metodo' => 'efectivo', 'monto' => 500000],
+            ]),
+        ], $this->firma());
+        $resp->assertStatus(422);
+        $this->assertSame(0, $orden->pagos()->count());
+    }
+
+    public function test_si_una_parte_va_con_tarjeta_se_pierde_el_descuento_y_se_cobra_completo(): void
+    {
+        $v     = $this->vendedora();
+        $orden = $this->listaParaLaUltima($v);
+        // Tenía $100.000 de descuento por pagar en efectivo o transferencia.
+        $orden->update(['descuento_condicionado' => 100000, 'descuento_condicionado_pct' => 3]);
+
+        $pagos = fn ($tarjeta) => json_encode([
+            ['metodo' => 'efectivo', 'monto' => 1000000],
+            ['metodo' => 'tarjeta', 'monto' => $tarjeta],
+        ]);
+        $voucher = ['comprobantes' => [1 => [UploadedFile::fake()->image('voucher.jpg')]]];
+
+        // Con el valor con descuento no alcanza: con tarjeta el total sube.
+        [$resp] = $this->cobrar($v, $orden, ['pagos' => $pagos(2200000)], $this->firma() + $voucher);
+        $resp->assertStatus(422)->assertJsonPath('descuento_condicionado.saldo_sin_descuento', 3300000);
+
+        [$resp, $id] = $this->cobrar($v, $orden->fresh(), ['pagos' => $pagos(2300000)], $this->firma() + $voucher);
+        $resp->assertOk();
+        $this->actingAs($v)->patchJson("/api/despacho/mis-entregas/{$id}/entregar")->assertOk();
+
+        $orden->refresh();
+        $this->assertEquals(3300000, (float) $orden->valor_total);
+        $this->assertNotNull($orden->descuento_condicionado_revertido_at);
+        $this->assertEquals(3300000, $orden->totalPagado());
+    }
+
+    public function test_el_recibo_se_manda_por_correo_con_el_pdf_y_se_guarda_el_correo(): void
+    {
+        \Illuminate\Support\Facades\Mail::fake();
+
+        $v     = $this->vendedora();
+        $orden = $this->listaParaLaUltima($v);
+        [$resp, $id] = $this->cobrar($v, $orden, ['monto' => 3200000, 'metodo' => 'efectivo'], $this->firma());
+        $resp->assertOk();
+
+        // Sin correo en la ficha y sin escribir uno: se pide.
+        $this->actingAs($v)->postJson("/api/despacho/entregas/{$id}/recibo/email")->assertStatus(422);
+
+        $this->actingAs($v)->postJson("/api/despacho/entregas/{$id}/recibo/email", ['email' => 'cliente@correo.com'])
+            ->assertOk();
+
+        \Illuminate\Support\Facades\Mail::assertSent(\App\Mail\ReciboEntregaMail::class,
+            fn ($m) => $m->hasTo('cliente@correo.com') && count($m->attachments()) === 1);
+        $this->assertSame('cliente@correo.com', DB::table('clientes')->where('id', 1)->value('email'));
+        $this->assertSame('cliente@correo.com', DespachoItem::find($id)->recibo_enviado_a);
+    }
+
+    public function test_un_vendedor_de_otra_tienda_no_ve_el_recibo(): void
+    {
+        $v     = $this->vendedora();
+        $orden = $this->listaParaLaUltima($v);
+        [$resp, $id] = $this->cobrar($v, $orden, ['monto' => 3200000, 'metodo' => 'efectivo'], $this->firma());
+        $resp->assertOk();
+
+        // Un vendedor de otra tienda, que solo ve lo suyo.
+        $otro = Usuario::create(['nombre' => 'Otro', 'email' => 'o@d.com', 'password' => 'x', 'rol' => 'vendedor',
+            'tienda_default_id' => 99, 've_todas_ordenes' => false, 'created_at' => now()]);
+        $this->actingAs($otro)->getJson("/api/despacho/entregas/{$id}/recibo")->assertForbidden();
+        $this->actingAs($otro)->postJson("/api/despacho/entregas/{$id}/recibo/email", ['email' => 'x@y.com'])->assertForbidden();
     }
 }

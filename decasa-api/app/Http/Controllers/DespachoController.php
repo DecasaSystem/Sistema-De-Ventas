@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Events\DespachoAsignado;
 use App\Events\OrdenEntregada;
+use App\Mail\ReciboEntregaMail;
 use App\Models\Camion;
 use App\Models\Despacho;
 use App\Models\DespachoItem;
@@ -19,16 +20,28 @@ use App\Models\Usuario;
 use App\Services\DescuentoCondicionadoService;
 use App\Services\EntregaService;
 use App\Services\NotificacionService;
+use App\Services\ReciboEntrega;
 use App\Support\ConvierteImagenesPdf;
+use App\Support\Esquema;
 use App\Support\StockVariantes;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Str;
 
 class DespachoController extends Controller
 {
     use ConvierteImagenesPdf;
+
+    /** Medios con que se puede cobrar en la puerta. */
+    private const METODOS_DE_COBRO = ['efectivo', 'transferencia', 'tarjeta', 'addi', 'otro'];
+
+    private const NOMBRE_METODO = [
+        'efectivo' => 'efectivo', 'transferencia' => 'transferencia', 'tarjeta' => 'tarjeta',
+        'addi' => 'Addi', 'otro' => 'otro medio',
+    ];
 
     /**
      * GET /api/despacho/cola
@@ -887,6 +900,9 @@ class DespachoController extends Controller
                     'conforme'      => $e->conforme,
                     'observaciones' => $e->observaciones_entrega,
                     'tiene_acta'    => $e->firma_recibido_url !== null,
+                    // Recibo de entrega y pago: se le puede (re)enviar al cliente.
+                    'recibo'        => $e->reciboReferencia(),
+                    'tiene_recibo'  => $e->recibo_token !== null && $e->tieneActa(),
                     'firma_omitida_motivo' => $e->firma_omitida_motivo,
                     'recibido_por'  => $e->recibido_por_nombre,
                     'foto_producto' => $e->foto_producto,
@@ -1234,12 +1250,33 @@ class DespachoController extends Controller
         // pago es opcional: puede abonar, no se le exige.
         $esLaUltima   = $this->completaLaOrden($item->orden, $lineas, $devueltoPorItem);
         $requierePago = $saldoPendiente > 0.01 && $esLaUltima && ! $devuelveTodo;
-        $traePago     = $requierePago || ((float) $request->input('monto', 0) > 0);
+
+        // ── Cómo pagó: puede ser con dos medios ──────────────────────────────
+        // "La mitad en efectivo y el resto por transferencia" pasa seguido en
+        // la puerta. Cada medio queda como un pago aparte, con su soporte.
+        $cobros = $this->leerCobros($request);
+        if ($cobros instanceof \Illuminate\Http\JsonResponse) {
+            return $cobros;
+        }
+        $totalCobrado = round(array_sum(array_column($cobros, 'monto')), 2);
+        $traePago     = $totalCobrado > 0;
+
+        if ($requierePago && ! $traePago) {
+            return response()->json([
+                'message' => 'Falta registrar lo que pagó el cliente.',
+                'errors'  => ['monto' => ['Ingresa el monto cobrado.']],
+            ], 422);
+        }
 
         $data = $request->validate([
-            'monto'         => $requierePago ? 'required|numeric|min:1'                         : 'nullable|numeric|min:0',
-            'metodo'        => $traePago     ? 'required|in:efectivo,transferencia,tarjeta,addi,otro' : 'nullable|in:efectivo,transferencia,tarjeta,addi,otro',
+            'monto'         => 'nullable|numeric|min:0',
+            'metodo'        => 'nullable|in:' . implode(',', self::METODOS_DE_COBRO),
             'referencia'    => 'nullable|string|max:100',
+            'pagos'         => 'nullable|string',
+            // Soporte de cada medio: `comprobantes[{i}][]`, i = su posición en `pagos`.
+            'comprobantes'      => 'nullable|array|max:4',
+            'comprobantes.*'    => 'array|max:6',
+            'comprobantes.*.*'  => 'image|max:10240',
             // Fotos por producto: `fotos_producto[{orden_item_id}][]`, hasta 3
             // de cada uno. `foto_producto` (una sola para todo) queda para un
             // teléfono que todavía tenga la pantalla vieja.
@@ -1311,18 +1348,25 @@ class DespachoController extends Controller
             }
         }
 
-        $archivosPago = $request->hasFile('fotos_pago')
-            ? array_values((array) $request->file('fotos_pago'))
-            : ($request->hasFile('foto_pago') ? [$request->file('foto_pago')] : []);
+        // ── El soporte de cada pago ──────────────────────────────────────────
+        // La transferencia tiene su pantallazo y la tarjeta el voucher del
+        // datáfono: esos llevan foto siempre. El efectivo no deja nada: su
+        // soporte es el recibo que el cliente firma aquí mismo. Si nadie
+        // firma, no hay recibo, y entonces sí se pide la foto.
+        $hayFirma = $request->hasFile('firma_recibido');
+        foreach ($cobros as $c) {
+            if ($c['archivos']) continue;
+            if ($c['metodo'] === 'efectivo' && $hayFirma) continue;
 
-        if ($traePago && ! $archivosPago) {
             return response()->json([
-                'message' => 'Falta la foto del comprobante de pago.',
+                'message' => $c['metodo'] === 'efectivo'
+                    ? 'Sin la firma del cliente no hay recibo del efectivo: sube una foto como soporte.'
+                    : 'Falta la foto del comprobante de ' . (self::NOMBRE_METODO[$c['metodo']] ?? $c['metodo']) . '.',
                 'errors'  => ['foto_pago' => ['Sube la foto o el pantallazo del comprobante.']],
             ], 422);
         }
 
-        if (! $request->hasFile('firma_recibido') && empty($data['firma_omitida_motivo'])) {
+        if (! $hayFirma && empty($data['firma_omitida_motivo'])) {
             return response()->json([
                 'message' => 'Falta la firma de quien recibe. Si no hay quien firme, indica el motivo.',
                 'errors'  => ['firma_recibido' => ['Se requiere la firma o el motivo por el que no se pudo obtener.']],
@@ -1349,10 +1393,14 @@ class DespachoController extends Controller
         // Si el cliente paga con tarjeta pierde el descuento por efectivo o
         // transferencia: hay que quitarlo ANTES de validar el monto, porque el
         // saldo a cobrar sube y con el saldo viejo se rechazaría el pago correcto.
+        // Con dos medios basta que uno sea tarjeta/Addi/otro para perderlo:
+        // es la misma regla de siempre (cualquier pago así lo hace perder).
         $orden = $item->orden;
+        $metodoQuePierde = collect($cobros)->pluck('metodo')
+            ->first(fn ($m) => Orden::metodoPierdeDescuento($m));
         $pierdeDescuento = $traePago
             && $orden->tieneDescuentoCondicionadoVivo()
-            && Orden::metodoPierdeDescuento($data['metodo']);
+            && $metodoQuePierde !== null;
 
         if ($pierdeDescuento) {
             $saldoExigido = round($orden->valorSinDescuentoCondicionado() - $orden->totalPagado(), 2);
@@ -1360,9 +1408,10 @@ class DespachoController extends Controller
             // Con tarjeta no se puede cobrar menos: el descuento ya no aplica.
             // Solo en la última entrega: en una parcial es un abono y el
             // descuento se pierde igual, pero el saldo se cobra al final.
-            if ($requierePago && $data['monto'] < $saldoExigido - 0.01) {
+            if ($requierePago && $totalCobrado < $saldoExigido - 0.01) {
                 return response()->json([
-                    'message' => 'Al pagar con ' . $data['metodo'] . ' el descuento no aplica: debes cobrar '
+                    'message' => 'Al pagar con ' . (self::NOMBRE_METODO[$metodoQuePierde] ?? $metodoQuePierde)
+                        . ' el descuento no aplica: debes cobrar '
                         . '$' . number_format($saldoExigido, 0, ',', '.') . '.',
                     'descuento_condicionado' => [
                         'monto'               => (float) $orden->descuento_condicionado,
@@ -1372,15 +1421,15 @@ class DespachoController extends Controller
                 ], 422);
             }
 
-            DescuentoCondicionadoService::quitar($orden, $usuario, $data['metodo']);
+            DescuentoCondicionadoService::quitar($orden, $usuario, $metodoQuePierde);
             $orden->refresh();
             $item->setRelation('orden', $orden);
             $saldoPendiente = $orden->saldoPendiente();
         }
 
-        if ($traePago && $data['monto'] > $saldoPendiente + 0.01) {
+        if ($traePago && $totalCobrado > $saldoPendiente + 0.01) {
             return response()->json([
-                'message' => "El monto ({$data['monto']}) supera el saldo pendiente (" . round($saldoPendiente, 2) . ").",
+                'message' => "El monto ({$totalCobrado}) supera el saldo pendiente (" . round($saldoPendiente, 2) . ").",
             ], 422);
         }
 
@@ -1393,7 +1442,11 @@ class DespachoController extends Controller
         if ($fotoUnica) {
             $fotosProducto[] = ['orden_item_id' => null, 'url' => $this->subirCloudinary($fotoUnica)];
         }
-        $fotosPago    = array_map(fn ($f) => $this->subirCloudinary($f), $archivosPago);
+        foreach ($cobros as $i => $c) {
+            $cobros[$i]['fotos'] = array_map(fn ($f) => $this->subirCloudinary($f), $c['archivos']);
+        }
+        // En la entrega quedan todas juntas; en cada pago, las suyas.
+        $fotosPago    = array_merge([], ...array_column($cobros, 'fotos'));
         $fotoPago     = $fotosPago[0] ?? null;
         $fotoAnexo    = $request->hasFile('foto_anexo')
             ? $this->subirCloudinary($request->file('foto_anexo'))
@@ -1411,7 +1464,16 @@ class DespachoController extends Controller
         // regla de cierre). Si todo volvió en el camión, la de la devolución.
         $fotoProducto = $fotosProducto[0]['url'] ?? $fotoDevolucion;
 
-        DB::transaction(function () use ($item, $data, $usuario, $fotoProducto, $fotosProducto, $fotoPago, $fotosPago, $fotoAnexo, $traePago, $esLaUltima, $firmaRecibido, $fotoNovedad, $conforme, $devoluciones, $fotoDevolucion, $lineas, $devueltoPorItem) {
+        DB::transaction(function () use ($item, $data, $usuario, $fotoProducto, $fotosProducto, $fotoPago, $fotosPago, $fotoAnexo, $traePago, $esLaUltima, $firmaRecibido, $fotoNovedad, $conforme, $devoluciones, $fotoDevolucion, $lineas, $devueltoPorItem, $cobros) {
+            // El recibo: enlace para mandárselo al cliente y, si pagó algo,
+            // consecutivo propio (es el soporte del efectivo).
+            if (Esquema::columna('despacho_items', 'recibo_token')) {
+                $item->recibo_token ??= Str::random(40);
+                if ($traePago && ! $item->recibo_numero) {
+                    $item->recibo_numero = ReciboEntrega::siguienteNumero();
+                }
+            }
+
             $item->update([
                 'foto_producto'  => $fotoProducto,
                 'fotos_producto' => $fotosProducto ?: null,
@@ -1435,7 +1497,9 @@ class DespachoController extends Controller
             // Qué se llevó el cliente en esta entrega, y qué volvió.
             EntregaService::fijarLineas($item, $lineas, $devueltoPorItem);
 
-            if ($traePago && (float) $data['monto'] > 0) {
+            // Un pago por cada medio: así la caja, la cartera, la franquicia de
+            // la tarjeta y el 50 % lo cuentan como siempre.
+            foreach ($cobros as $c) {
                 Pago::create([
                     'orden_id'    => $item->orden_id,
                     'vendedor_id' => $usuario->id,
@@ -1443,11 +1507,11 @@ class DespachoController extends Controller
                     'despacho_item_id' => $item->id,
                     // En la última entrega es el saldo; en una parcial, un abono.
                     'tipo'        => $esLaUltima ? 'saldo_final' : 'abono',
-                    'monto'       => $data['monto'],
-                    'metodo'      => $data['metodo'],
-                    'referencia'  => $data['referencia'] ?? null,
-                    'comprobante_url'   => $fotoPago,
-                    'comprobante_fotos' => $fotosPago ?: null,
+                    'monto'       => $c['monto'],
+                    'metodo'      => $c['metodo'],
+                    'referencia'  => $c['referencia'],
+                    'comprobante_url'   => $c['fotos'][0] ?? null,
+                    'comprobante_fotos' => $c['fotos'] ?: null,
                 ]);
             }
 
@@ -1506,6 +1570,83 @@ class DespachoController extends Controller
         }
 
         return response()->json($item);
+    }
+
+    /**
+     * Lo que pagó el cliente en la puerta, medio por medio.
+     *
+     * Llega como JSON en `pagos`: [{metodo, monto, referencia}], con las fotos
+     * de cada uno en `comprobantes[{i}][]`. Un teléfono con la pantalla vieja
+     * manda un solo pago en `monto`/`metodo` y sus fotos en `fotos_pago[]`:
+     * se lee igual, como un pago de un solo medio.
+     *
+     * @return array<int, array{metodo:string, monto:float, referencia:?string, archivos:array}>|\Illuminate\Http\JsonResponse
+     */
+    private function leerCobros(Request $request)
+    {
+        $crudo = $request->input('pagos');
+
+        if (! $crudo) {
+            $monto = round((float) $request->input('monto', 0), 2);
+            if ($monto <= 0) return [];
+
+            $metodo = $request->input('metodo');
+            if (! in_array($metodo, self::METODOS_DE_COBRO, true)) {
+                return response()->json([
+                    'message' => 'Escoge el método de pago.',
+                    'errors'  => ['metodo' => ['Escoge el método de pago.']],
+                ], 422);
+            }
+            $archivos = $request->hasFile('fotos_pago')
+                ? array_values(array_filter((array) $request->file('fotos_pago')))
+                : ($request->hasFile('foto_pago') ? [$request->file('foto_pago')] : []);
+
+            return [[
+                'metodo'     => $metodo,
+                'monto'      => $monto,
+                'referencia' => $this->textoCorto($request->input('referencia')),
+                'archivos'   => $archivos,
+            ]];
+        }
+
+        $lista = is_array($crudo) ? $crudo : json_decode($crudo, true);
+        if (! is_array($lista) || ! array_is_list($lista)) {
+            return response()->json(['message' => 'No se entendió cómo pagó el cliente.'], 422);
+        }
+        if (count($lista) > 4) {
+            return response()->json(['message' => 'Máximo 4 medios de pago en una entrega.'], 422);
+        }
+
+        $comprobantes = (array) $request->file('comprobantes', []);
+        $cobros = [];
+        foreach ($lista as $i => $p) {
+            $metodo = $p['metodo'] ?? null;
+            $monto  = round((float) ($p['monto'] ?? 0), 2);
+
+            if (! in_array($metodo, self::METODOS_DE_COBRO, true)) {
+                return response()->json([
+                    'message' => 'Escoge el medio de cada pago.',
+                    'errors'  => ['pagos' => ['Medio de pago no válido.']],
+                ], 422);
+            }
+            // Una fila en cero no es un pago: se ignora (quedó vacía en la pantalla).
+            if ($monto <= 0) continue;
+
+            $cobros[] = [
+                'metodo'     => $metodo,
+                'monto'      => $monto,
+                'referencia' => $this->textoCorto($p['referencia'] ?? null),
+                'archivos'   => array_values(array_filter((array) ($comprobantes[$i] ?? []))),
+            ];
+        }
+
+        return $cobros;
+    }
+
+    private function textoCorto($texto): ?string
+    {
+        $texto = trim((string) $texto);
+        return $texto === '' ? null : mb_substr($texto, 0, 100);
     }
 
     /**
@@ -1878,19 +2019,200 @@ class DespachoController extends Controller
             return response()->json(['message' => 'No autorizado.'], 403);
         }
 
+        $sufijo = $request->query('entrega') ? "-e{$item->id}" : '';
+
+        return $this->pdfDelActa($item)
+            ->download('acta-' . strtolower(str_replace('#', '', $orden->referencia)) . $sufijo . '.pdf');
+    }
+
+    /** Lo que carga el acta para pintarse. */
+    private const RELACIONES_DEL_ACTA = [
+        'despacho.conductor:id,nombre',
+        'despacho.entregadoPor:id,nombre',
+        'orden.cliente:id,nombre,telefono,cedula,email',
+        'orden.tienda:id,nombre,ciudad',
+        'orden.items.producto:id,nombre',
+        'orden.items.produccion:id,orden_item_id,estado',
+        'orden.items.variante', 'orden.items.comboConfig.tipo', 'orden.items.comboConfig.opcion',
+        'lineas',
+    ];
+
+    /**
+     * El acta de entrega y recibo de pago de una entrega, ya armada.
+     *
+     * El mismo papel sirve para la entrega sin cobro (solo acta) y para la
+     * que cobró (acta + recibo con consecutivo RC-…). Lo usan la descarga de
+     * la orden, la del conductor y el enlace que se le manda al cliente.
+     */
+    private function pdfDelActa(DespachoItem $item)
+    {
+        $item->loadMissing(self::RELACIONES_DEL_ACTA);
+        $orden = $item->orden;
+
         [$entregados, $devueltos, $pendientes] = $this->lineasDelActa($orden, $item);
+        $cuentas = ReciboEntrega::cuentas($orden, $item);
 
         $firmaBase64 = $this->urlToBase64($item->firma_recibido_url);
         $logoBase64  = $this->avifToPngBase64(public_path('img/logo.avif'));
 
         $pdf = Pdf::loadView('pdf.acta_entrega', compact(
-            'orden', 'item', 'entregados', 'devueltos', 'pendientes', 'firmaBase64', 'logoBase64'
+            'orden', 'item', 'entregados', 'devueltos', 'pendientes', 'firmaBase64', 'logoBase64', 'cuentas'
         ));
         $pdf->setPaper('letter');
 
-        $sufijo = $request->query('entrega') ? "-e{$item->id}" : '';
+        return $pdf;
+    }
 
-        return $pdf->download('acta-' . strtolower(str_replace('#', '', $orden->referencia)) . $sufijo . '.pdf');
+    private function nombreDelRecibo(DespachoItem $item): string
+    {
+        $ref = $item->reciboReferencia()
+            ?? 'acta-' . strtolower(str_replace('#', '', (string) $item->orden?->referencia)) . "-e{$item->id}";
+
+        return strtolower($ref) . '.pdf';
+    }
+
+    /**
+     * ¿Puede ver y mandar el recibo? Quien hizo la entrega, quien puede ver
+     * la orden y facturación (lo mismo que el acta).
+     */
+    private function puedeVerRecibo(DespachoItem $item, Usuario $usuario): bool
+    {
+        return $this->puedeOperarEntrega($item, $usuario)
+            || $usuario->facturacion
+            || $item->orden->laPuedeVer($usuario);
+    }
+
+    /**
+     * GET /api/despacho/entregas/{despachoItemId}/recibo
+     *
+     * Lo que necesita la pantalla para mandarle el recibo al cliente: el
+     * enlace, el mensaje de WhatsApp ya escrito, y a qué número y correo.
+     */
+    public function reciboInfo(Request $request, int $despachoItemId)
+    {
+        $item = DespachoItem::with('despacho:id,conductor_id,entregado_por_id', 'orden.cliente:id,nombre,telefono,email')
+            ->findOrFail($despachoItemId);
+
+        if (! $this->puedeVerRecibo($item, $request->user())) {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+        if (! $item->recibo_token) {
+            return response()->json(['message' => 'Esta entrega no tiene recibo: se registró antes de que existiera.'], 404);
+        }
+
+        $enlace = ReciboEntrega::enlace($item, $request);
+
+        return response()->json([
+            'referencia'  => $item->reciboReferencia(),
+            'enlace'      => $enlace,
+            'mensaje'     => ReciboEntrega::mensajeWhatsApp($item->orden, $item, $enlace),
+            'telefono'    => $item->orden->cliente?->telefono,
+            'email'       => $item->orden->cliente?->email,
+            'enviado_at'  => $item->recibo_enviado_at,
+            'enviado_a'   => $item->recibo_enviado_a,
+        ]);
+    }
+
+    /** GET /api/despacho/entregas/{despachoItemId}/recibo/pdf */
+    public function reciboPdf(Request $request, int $despachoItemId)
+    {
+        $item = DespachoItem::with('despacho:id,conductor_id,entregado_por_id', 'orden')->findOrFail($despachoItemId);
+
+        if (! $this->puedeVerRecibo($item, $request->user())) {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+        if (! $item->tieneActa()) {
+            return response()->json(['message' => 'Esta entrega todavía no tiene acta.'], 404);
+        }
+
+        return $this->pdfDelActa($item)->download($this->nombreDelRecibo($item));
+    }
+
+    /**
+     * GET /api/public/recibos/{token}
+     *
+     * El recibo que abre el cliente desde WhatsApp o el correo, sin entrar al
+     * sistema. La llave es el token (40 caracteres al azar); solo muestra lo
+     * que el cliente ya sabe: lo que recibió, lo que pagó y su firma.
+     */
+    public function reciboPublico(string $token)
+    {
+        $item = DespachoItem::where('recibo_token', $token)->first();
+
+        if (! $item || ! $item->tieneActa()) {
+            return response()->json(['message' => 'Este recibo no existe.'], 404);
+        }
+
+        return $this->pdfDelActa($item)->stream($this->nombreDelRecibo($item));
+    }
+
+    /**
+     * POST /api/despacho/entregas/{despachoItemId}/recibo/email  { email? }
+     *
+     * Le manda el recibo al cliente por correo, con el PDF adjunto. Si se
+     * escribe un correo y el cliente no tenía, se le guarda en su ficha.
+     */
+    public function enviarReciboEmail(Request $request, int $despachoItemId)
+    {
+        $item = DespachoItem::with('despacho:id,conductor_id,entregado_por_id', 'orden.cliente')->findOrFail($despachoItemId);
+        $usuario = $request->user();
+
+        if (! $this->puedeVerRecibo($item, $usuario)) {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+        if (! $item->recibo_token || ! $item->tieneActa()) {
+            return response()->json(['message' => 'Esta entrega no tiene recibo para enviar.'], 422);
+        }
+
+        $data    = $request->validate(['email' => 'nullable|email|max:150']);
+        $cliente = $item->orden->cliente;
+        $email   = $data['email'] ?? $cliente?->email;
+
+        if (! $email) {
+            return response()->json(['message' => 'El cliente no tiene correo. Escríbelo o mándalo por WhatsApp.'], 422);
+        }
+
+        try {
+            $pdf = $this->pdfDelActa($item)->output();
+            Mail::to($email)->send(new ReciboEntregaMail(
+                $item->id,
+                ReciboEntrega::enlace($item, $request),
+                $pdf,
+                $this->nombreDelRecibo($item),
+            ));
+        } catch (\Throwable $e) {
+            report($e);
+            return response()->json(['message' => 'No se pudo enviar el correo. Prueba por WhatsApp.'], 502);
+        }
+
+        if ($cliente && ! $cliente->email && ! empty($data['email'])) {
+            $cliente->update(['email' => $data['email']]);
+        }
+        $item->update(['recibo_enviado_at' => now(), 'recibo_enviado_a' => $email]);
+
+        return response()->json(['message' => "Enviado a {$email}."]);
+    }
+
+    /**
+     * POST /api/despacho/entregas/{despachoItemId}/recibo/whatsapp
+     *
+     * WhatsApp lo abre el teléfono de quien entrega (wa.me): el sistema no
+     * sabe si de verdad lo mandó. Esto deja anotado que se abrió para
+     * mandarlo, para que no se lo manden dos veces.
+     */
+    public function marcarReciboWhatsApp(Request $request, int $despachoItemId)
+    {
+        $item = DespachoItem::with('despacho:id,conductor_id,entregado_por_id', 'orden.cliente:id,telefono')->findOrFail($despachoItemId);
+
+        if (! $this->puedeVerRecibo($item, $request->user())) {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+
+        $data = $request->validate(['telefono' => 'nullable|string|max:30']);
+        $tel  = $data['telefono'] ?? $item->orden->cliente?->telefono ?? '';
+        $item->update(['recibo_enviado_at' => now(), 'recibo_enviado_a' => trim('WhatsApp ' . $tel)]);
+
+        return response()->json(['ok' => true]);
     }
 
     /**

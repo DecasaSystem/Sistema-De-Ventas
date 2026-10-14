@@ -66,6 +66,16 @@ abstract class TestCase extends BaseTestCase
         $agregar('despacho_items', 'firma_omitida_motivo', fn ($t) => $t->string('firma_omitida_motivo')->nullable());
         $agregar('despacho_items', 'fotos_producto',     fn ($t) => $t->json('fotos_producto')->nullable());
         $agregar('orden_items',    'retapizar',          fn ($t) => $t->boolean('retapizar')->default(false));
+        // Recibo de entrega y pago (consecutivo RC-… y enlace para el cliente)
+        $agregar('despacho_items', 'recibo_numero',      fn ($t) => $t->unsignedInteger('recibo_numero')->nullable());
+        $agregar('despacho_items', 'recibo_token',       fn ($t) => $t->string('recibo_token', 64)->nullable());
+        $agregar('despacho_items', 'recibo_enviado_at',  fn ($t) => $t->timestamp('recibo_enviado_at')->nullable());
+        $agregar('despacho_items', 'recibo_enviado_a',   fn ($t) => $t->string('recibo_enviado_a')->nullable());
+        if (! \Illuminate\Support\Facades\Schema::hasTable('orden_secuencias')) {
+            \Illuminate\Support\Facades\Schema::create('orden_secuencias', function ($t) {
+                $t->string('grupo', 50)->primary(); $t->unsignedInteger('ultimo_numero')->default(0);
+            });
+        }
 
         // Vender con "se lo lleva ahora" abre una entrega de mostrador, así
         // que hasta una prueba que solo crea órdenes necesita dónde escribirla.
@@ -87,6 +97,8 @@ abstract class TestCase extends BaseTestCase
                 $t->string('recibido_por_cedula')->nullable(); $t->boolean('conforme')->nullable();
                 $t->string('observaciones_entrega')->nullable(); $t->string('foto_novedad_url')->nullable();
                 $t->string('firma_omitida_motivo')->nullable(); $t->timestamp('entregado_at')->nullable();
+                $t->unsignedInteger('recibo_numero')->nullable(); $t->string('recibo_token', 64)->nullable();
+                $t->timestamp('recibo_enviado_at')->nullable(); $t->string('recibo_enviado_a')->nullable();
             });
         }
         if (! \Illuminate\Support\Facades\Schema::hasTable('inventario_movimientos')) {

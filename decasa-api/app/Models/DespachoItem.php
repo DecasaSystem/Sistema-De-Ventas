@@ -38,6 +38,12 @@ class DespachoItem extends Model
         'observaciones_entrega',
         'foto_novedad_url',
         'firma_omitida_motivo',
+        // Recibo de entrega y pago: consecutivo (RC-…) si se cobró algo, y la
+        // llave del enlace que se le manda al cliente.
+        'recibo_numero',
+        'recibo_token',
+        'recibo_enviado_at',
+        'recibo_enviado_a',
     ];
 
     protected function casts(): array
@@ -47,7 +53,20 @@ class DespachoItem extends Model
             'conforme'     => 'boolean',
             'fotos_pago'   => 'array',
             'fotos_producto' => 'array',
+            'recibo_enviado_at' => 'datetime',
         ];
+    }
+
+    /** "RC-00012", o null si en esta entrega no se cobró nada. */
+    public function reciboReferencia(): ?string
+    {
+        return $this->recibo_numero ? 'RC-' . str_pad((string) $this->recibo_numero, 5, '0', STR_PAD_LEFT) : null;
+    }
+
+    /** Los pagos que se recibieron en esta entrega (uno por medio). */
+    public function pagos()
+    {
+        return $this->hasMany(Pago::class, 'despacho_item_id');
     }
 
     /** ¿La entrega quedó respaldada con firma o con un motivo de por qué no? */
@@ -129,8 +148,10 @@ class DespachoItem extends Model
         // Entrega parcial: el saldo se cobra en la última.
         if (! $this->completaLaOrden()) return true;
 
-        // Con saldo y es la última: también foto del pago y pago registrado
-        return $this->foto_pago !== null && $this->tienePago();
+        // Con saldo y es la última: pago registrado y su soporte. El de la
+        // transferencia o la tarjeta es la foto; el del efectivo, el recibo
+        // que firmó el cliente (al registrar el pago ya se revisó medio por medio).
+        return $this->tienePago() && ($this->foto_pago !== null || $this->firma_recibido_url !== null);
     }
 
     /** ¿Volvió en el camión todo lo que llevaba esta entrega? */

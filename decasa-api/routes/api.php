@@ -101,6 +101,10 @@ Route::get('/public/anexos/{token}', [\App\Http\Controllers\AnexoGarantiaControl
     ->where('token', '[A-Za-z0-9]{20,64}')->middleware('throttle:60,1');
 Route::post('/public/anexos/{token}/firmar', [\App\Http\Controllers\AnexoGarantiaController::class, 'firmar'])
     ->where('token', '[A-Za-z0-9]{20,64}')->middleware('throttle:10,1');
+// Recibo de entrega y pago: el PDF que se le manda al cliente por WhatsApp o
+// correo. Sin sesión; la llave es el token.
+Route::get('/public/recibos/{token}', [DespachoController::class, 'reciboPublico'])
+    ->where('token', '[A-Za-z0-9]{20,64}')->middleware('throttle:30,1');
 
 Route::get('/c', [CatalogoPublicoController::class, 'visuales'])->middleware('throttle:60,1');
 Route::get('/c/{slug}', [CatalogoPublicoController::class, 'visual'])->middleware('throttle:60,1');
@@ -730,6 +734,14 @@ Route::middleware('auth:sanctum')->group(function () {
         // Deshacer UNA entrega hecha por error (parcial o completa, directa o
         // de ruta). Supervisor, o quien la hizo en las primeras 24 horas.
         Route::post('/entregas/{despachoItemId}/deshacer', [DespachoController::class, 'deshacerEntrega'])
+            ->whereNumber('despachoItemId')->middleware('throttle:20,1');
+        // Recibo de entrega y pago: verlo y mandárselo al cliente. Quien
+        // entregó, quien ve la orden y facturación.
+        Route::get('/entregas/{despachoItemId}/recibo', [DespachoController::class, 'reciboInfo'])->whereNumber('despachoItemId');
+        Route::get('/entregas/{despachoItemId}/recibo/pdf', [DespachoController::class, 'reciboPdf'])->whereNumber('despachoItemId');
+        Route::post('/entregas/{despachoItemId}/recibo/email', [DespachoController::class, 'enviarReciboEmail'])
+            ->whereNumber('despachoItemId')->middleware('throttle:10,1');
+        Route::post('/entregas/{despachoItemId}/recibo/whatsapp', [DespachoController::class, 'marcarReciboWhatsApp'])
             ->whereNumber('despachoItemId')->middleware('throttle:20,1');
 
         // Antes era solo supervisor; ahora hace falta el permiso, que el

@@ -15,6 +15,7 @@ import api from '@/api'
 import { useTiposProceso } from '@/composables/useTiposProceso'
 import { despachoPorOrden, crearEntregaDirecta, cancelarEntregaDirecta, entregasDeOrden, deshacerEntrega as deshacerEntregaApi } from '@/api/despacho'
 import EntregaDetalleModal from '@/components/despacho/EntregaDetalleModal.vue'
+import EnviarReciboEntrega from '@/components/despacho/EnviarReciboEntrega.vue'
 import { getDevoluciones, crearDevolucion } from '@/api/devoluciones'
 import { getGarantias } from '@/api/garantias'
 import ReportarGarantiaModal from '@/components/garantias/ReportarGarantiaModal.vue'
@@ -997,6 +998,9 @@ async function deshacerEntregaDe(e) {
     deshaciendoEntrega.value = null
   }
 }
+
+// La entrega cuyo recibo se está mandando (se abre debajo de ella).
+const reciboAbierto = ref(null)
 
 const descargandoActaDe = ref(null)
 async function descargarActaDe(entrega) {
@@ -2727,6 +2731,17 @@ onMounted(() => { cargarTipos(); cargarOrden() })
               <ArrowDownTrayIcon v-else class="w-3.5 h-3.5" />
               Acta
             </button>
+          </div>
+
+          <!-- Recibo de entrega y pago: mandarlo (o reenviarlo) al cliente -->
+          <div v-if="e.tiene_recibo">
+            <button
+              type="button" @click="reciboAbierto = reciboAbierto === e.id ? null : e.id"
+              class="min-h-11 text-xs text-blue-600 font-semibold"
+            >
+              {{ reciboAbierto === e.id ? 'Ocultar' : (e.recibo ? `Enviar recibo ${e.recibo} al cliente` : 'Enviar acta al cliente') }}
+            </button>
+            <EnviarReciboEntrega v-if="reciboAbierto === e.id" :despacho-item-id="e.id" />
           </div>
 
           <p v-if="e.llevo_todo" class="text-xs text-gray-600">Se entregó la orden completa.</p>
