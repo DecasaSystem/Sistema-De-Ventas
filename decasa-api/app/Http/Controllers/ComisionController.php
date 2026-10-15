@@ -138,6 +138,10 @@ class ComisionController extends Controller
             return response()->json(['error' => 'A un independiente se le paga el mes completo desde su tarjeta, no orden por orden.'], 422);
         }
 
+        if ($frenado = $this->frenarSiHayMesesAnteriores((int) $comision->vendedor_id, $comision->mes_venta)) {
+            return $frenado;
+        }
+
         // Poner al día los renglones del mes ANTES de pagar. La limpieza de
         // los que sobran —el de "no vendió" de alguien que después sí vendió—
         // solo corría al abrir el resumen, así que pagando desde otra pantalla
@@ -2322,17 +2326,33 @@ class ComisionController extends Controller
             'tienda_id'   => 'nullable|integer|exists:tiendas,id',
         ]);
 
+        if ($frenado = $this->frenarSiHayMesesAnteriores((int) $data['vendedor_id'], $data['mes'])) {
+            return $frenado;
+        }
+
+        return $this->pagarMesDe((int) $data['vendedor_id'], $data['mes'], isset($data['tienda_id']) ? (int) $data['tienda_id'] : null, $usuario);
+    }
+
+    /**
+     * Le paga a una persona todo lo listo de UN mes (y una tienda, si se dice).
+     * Es lo que hace "Pagar todo" de un mes, y lo que repite pagar-meses mes
+     * por mes, del más viejo al más nuevo.
+     */
+    private function pagarMesDe(int $vendedorId, string $mes, ?int $tiendaId, Usuario $usuario)
+    {
+        $data = ['vendedor_id' => $vendedorId, 'mes' => $mes, 'tienda_id' => $tiendaId];
+
         // Un independiente cobra con otra cuenta (sus ventas + el bolsón):
         // pagándolo por aquí quedaba registrado otro monto del que se veía.
-        if (Usuario::where('id', $data['vendedor_id'])->value('independiente')) {
-            return $this->conCandado($data['mes'], fn () => $this->pagarIndependiente((int) $data['vendedor_id'], $data['mes'], $usuario));
+        if (Usuario::where('id', $vendedorId)->value('independiente')) {
+            return $this->conCandado($mes, fn () => $this->pagarIndependiente($vendedorId, $mes, $usuario));
         }
 
         // Igual que al pagar una suelta: primero se limpian los renglones que
         // ya no corresponden, y después se paga lo que quede.
-        $this->asegurarPartesDePool($data['mes']);
+        $this->asegurarPartesDePool($mes);
 
-        return $this->conCandado($data['mes'], function () use ($data, $usuario) {
+        return $this->conCandado($mes, function () use ($data, $usuario) {
             [$metas, $totalesTienda, $totalesVendedor] = $this->cargarTotales(self::mesesDelCalculo($data['mes']));
             $poolsTrimestrales = $this->cargarPoolsTrimestrales($metas, $totalesTienda);
             $hoy     = self::hoy();
@@ -2467,6 +2487,291 @@ class ComisionController extends Controller
         ];
     }
 
+    // ── Meses que se juntan ───────────────────────────────────────────────────
+    //
+    // Si el 20 de octubre no se pagó septiembre, el 20 de noviembre ya toca
+    // octubre y septiembre sigue ahí. Antes la pestaña Listas abría solo en el
+    // mes que toca y lo de septiembre no se veía si nadie cambiaba el mes a
+    // mano; el aviso del 20 tampoco lo decía. Y pagar octubre primero le
+    // descontaba los dos anticipos a octubre (el corte de octubre incluye el
+    // de septiembre), así que lo que se le entregaba ese día cambiaba según
+    // el orden en que se pulsara. Ahora:
+    //   - Listas trae todo lo que hay por pagar, un bloque por mes, con la
+    //     fecha en que se debía pagar cada uno;
+    //   - se paga siempre del mes más viejo al más nuevo, y queda un recibo
+    //     por mes;
+    //   - pagar un mes con otro más viejo sin pagar se frena.
+    // Las reglas de cuánto se paga no cambian: cada mes se calcula y se paga
+    // exactamente como antes, solo que en orden.
+
+    /** El último día de pago que ya llegó: el 20 de este mes o el del anterior. */
+    private static function ultimoDiaDePago(Carbon $hoy): Carbon
+    {
+        $dia = $hoy->copy()->startOfMonth()->day(20);
+
+        return $hoy->day >= 20 ? $dia : $dia->subMonthNoOverflow();
+    }
+
+    /** Lo listo de una tarjeta del resumen: lo mismo que suma la pantalla. */
+    private static function loListoDe(array $t): float
+    {
+        return (float) (! empty($t['es_independiente'])
+            ? ($t['comision_lista'] ?? 0)
+            : collect($t['ordenes'] ?? [])->where('estado', 'lista')->sum('monto_comision'));
+    }
+
+    /**
+     * Los meses donde puede haber algo listo sin pagar, hasta el que toca.
+     *
+     * Se buscan por el estado guardado (la tarea de las 6:30 lo pone al día
+     * cada mañana) para no calcular el resumen de todo el historial, y se
+     * agrega siempre el mes que toca y, si cierra trimestre, sus otros dos
+     * meses: lo de hoy puede no estar guardado todavía.
+     */
+    private static function mesesConAlgoListo(string $hasta, ?int $vendedorId = null): array
+    {
+        $meses = Comision::where('estado', 'lista')->where('mes_venta', '<=', $hasta)
+            ->when($vendedorId, fn ($q) => $q->where('vendedor_id', $vendedorId))
+            ->distinct()->pluck('mes_venta')->all();
+        $meses[] = $hasta;
+        if ((int) substr($hasta, 5, 2) % 3 === 0) {
+            $meses = array_merge($meses, self::mesesDeTrimestre(self::trimestreDeMes($hasta)));
+        }
+        $meses = array_values(array_unique(array_filter($meses, fn ($m) => $m <= $hasta)));
+        sort($meses);
+
+        return $meses;
+    }
+
+    // GET /api/comisiones/por-pagar[?mes=YYYY-MM]
+    public function porPagar(Request $request)
+    {
+        if (! $request->user()->acceso_comisiones) {
+            return response()->json(['error' => 'Sin acceso'], 403);
+        }
+
+        $mes = $request->query('mes');
+        if ($mes !== null && ! preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', (string) $mes)) {
+            return response()->json(['message' => 'Mes inválido (YYYY-MM).'], 422);
+        }
+
+        return response()->json($this->loQueHayPorPagar($mes));
+    }
+
+    /**
+     * Todo lo que hay por pagar, por persona y con un bloque por mes.
+     *
+     * Cada bloque es una tarjeta del resumen de ese mes (la misma cuenta que
+     * la pantalla y el pago), con la fecha en que se debía pagar y si ya está
+     * atrasada (su 20 ya pasó y no es el de hoy). Los anticipos se reparten
+     * en el orden en que se van a pagar, del mes más viejo al más nuevo: el
+     * resumen de cada mes, mirado solo, decía lo que debe a ese corte y dos
+     * meses juntos descontaban dos veces el anticipo del más viejo.
+     *
+     * Con $soloMes se mira un mes, como hacía la pantalla antes.
+     */
+    public function loQueHayPorPagar(?string $soloMes = null): array
+    {
+        $hoy        = self::hoy();
+        $diaDePago  = self::ultimoDiaDePago($hoy);
+        $mesQueToca = $diaDePago->copy()->subMonthNoOverflow()->format('Y-m');
+        $meses      = $soloMes ? [$soloMes] : self::mesesConAlgoListo($mesQueToca);
+
+        $bloques = collect();
+        foreach ($meses as $mes) {
+            foreach ($this->resumenDelMes($mes) as $t) {
+                $lista = round(self::loListoDe($t));
+                if ($lista <= 0) continue;
+
+                $seCobra = self::calcularFechaDisponible(Carbon::parse($mes . '-01'), (int) $t['tienda_id']);
+                $bloques->push([
+                    'mes'              => $mes,
+                    'vendedor_id'      => (int) $t['vendedor_id'],
+                    'vendedor_nombre'  => $t['vendedor_nombre'],
+                    'tienda_id'        => (int) $t['tienda_id'],
+                    'tienda_nombre'    => $t['tienda_nombre'],
+                    'periodicidad'     => $t['periodicidad'] ?? 'mensual',
+                    'es_independiente' => ! empty($t['es_independiente']),
+                    'de_restauraciones_compartidas' => $t['de_restauraciones_compartidas'] ?? 0,
+                    'se_cobra_el'      => $seCobra,
+                    'atrasada'         => $seCobra < $diaDePago->toDateString(),
+                    'lista'            => $lista,
+                    'debe'             => (float) ($t['anticipos']['debe'] ?? 0),
+                    'pendientes'       => (int) ($t['pendientes'] ?? 0),
+                    'ordenes_listas'   => collect($t['ordenes'] ?? [])->where('estado', 'lista')->values()->all(),
+                ]);
+            }
+        }
+
+        $personas = $bloques->groupBy('vendedor_id')->map(function ($suyos, $vendedorId) {
+            $nombre = $suyos->first()['vendedor_nombre'];
+            $suyos  = $suyos->sortBy(fn ($b) => $b['mes'] . '_' . str_pad((string) $b['tienda_id'], 6, '0', STR_PAD_LEFT))->values();
+
+            // Lo que debe a cada corte, menos lo que ya se le habrá descontado
+            // en los bloques anteriores. Es lo que va a pasar al pagar en orden.
+            $descontado    = 0.0;
+            $quedaDebiendo = 0.0;
+            $suyos = $suyos->map(function ($b) use (&$descontado, &$quedaDebiendo) {
+                $debe = max(0.0, $b['debe'] - $descontado);
+                $se   = min($debe, $b['lista']);
+                $descontado   += $se;
+                $quedaDebiendo = $debe - $se;
+                unset($b['debe'], $b['vendedor_id'], $b['vendedor_nombre']);
+
+                return $b + ['se_descuenta' => $se, 'entregar' => $b['lista'] - $se];
+            });
+
+            return [
+                'vendedor_id'      => (int) $vendedorId,
+                'vendedor_nombre'  => $nombre,
+                'es_independiente' => $suyos->contains('es_independiente', true),
+                'bloques'          => $suyos->all(),
+                'lista'            => $suyos->sum('lista'),
+                'se_descuenta'     => $descontado,
+                'entregar'         => $suyos->sum('entregar'),
+                'sigue_debiendo'   => $quedaDebiendo,
+                'atrasada'         => $suyos->contains('atrasada', true),
+            ];
+        })
+            // Lo atrasado arriba: es lo que no puede volver a quedarse.
+            ->sort(fn ($a, $b) => [$a['atrasada'] ? 0 : 1, -$a['lista']] <=> [$b['atrasada'] ? 0 : 1, -$b['lista']])
+            ->values();
+
+        // Por mes atrasado: cuánto y desde cuándo se debía.
+        $atrasados = $bloques->where('atrasada', true)->groupBy('mes')
+            ->map(fn ($bs, $mes) => [
+                'mes'         => $mes,
+                'se_cobra_el' => $bs->min('se_cobra_el'),
+                'personas'    => $bs->pluck('vendedor_id')->unique()->count(),
+                'lista'       => $bs->sum('lista'),
+            ])->sortKeys()->values();
+
+        return [
+            'dia_de_pago'  => $diaDePago->toDateString(),
+            'mes_que_toca' => $mesQueToca,
+            'solo_mes'     => $soloMes,
+            'personas'     => $personas->all(),
+            'atrasados'    => $atrasados->all(),
+            'lista'        => $personas->sum('lista'),
+            'se_descuenta' => $personas->sum('se_descuenta'),
+            'entregar'     => $personas->sum('entregar'),
+        ];
+    }
+
+    /**
+     * POST /api/comisiones/pagar-meses
+     *
+     * Paga varios meses de una persona de una vez, siempre del más viejo al
+     * más nuevo (aunque lleguen en otro orden), cada uno con su candado y su
+     * cuenta, igual que si se pagaran uno por uno. Devuelve un recibo por
+     * mes. Si uno falla se para ahí: lo anterior queda pagado y se dice.
+     */
+    public function pagarMeses(Request $request)
+    {
+        $usuario = $request->user();
+        if (! $usuario->acceso_comisiones) {
+            return response()->json(['error' => 'Sin acceso'], 403);
+        }
+
+        $data = $request->validate([
+            'vendedor_id'         => 'required|integer|exists:usuarios,id',
+            'bloques'             => 'required|array|min:1|max:36',
+            'bloques.*.mes'       => ['required', 'string', 'regex:/^\d{4}-(0[1-9]|1[0-2])$/'],
+            'bloques.*.tienda_id' => 'nullable|integer',
+        ]);
+        $vendedorId = (int) $data['vendedor_id'];
+
+        $bloques = collect($data['bloques'])
+            ->map(fn ($b) => ['mes' => $b['mes'], 'tienda_id' => ! empty($b['tienda_id']) ? (int) $b['tienda_id'] : null])
+            ->unique(fn ($b) => $b['mes'] . '_' . ($b['tienda_id'] ?? 0))
+            ->sortBy(fn ($b) => $b['mes'] . '_' . str_pad((string) ($b['tienda_id'] ?? 0), 6, '0', STR_PAD_LEFT))
+            ->values();
+
+        // Que no quede atrás un mes más viejo que no se mandó.
+        if ($frenado = $this->frenarSiHayMesesAnteriores($vendedorId, $bloques->first()['mes'], $bloques->pluck('mes')->all())) {
+            return $frenado;
+        }
+
+        $tiendas = Tienda::whereIn('id', $bloques->pluck('tienda_id')->filter()->all())->pluck('nombre', 'id');
+        $recibos = [];
+
+        foreach ($bloques as $b) {
+            $resp  = $this->pagarMesDe($vendedorId, $b['mes'], $b['tienda_id'], $usuario);
+            $datos = $resp->getData(true);
+
+            if ($resp->getStatusCode() >= 400) {
+                return response()->json([
+                    'error'   => 'Se pagó hasta antes de ' . self::nombreDelMes($b['mes']) . ': ' . ($datos['error'] ?? 'no se pudo pagar.'),
+                    'recibos' => $recibos,
+                ], $resp->getStatusCode());
+            }
+
+            $recibos[] = [
+                'mes'           => $b['mes'],
+                'tienda_id'     => $b['tienda_id'],
+                'tienda_nombre' => $b['tienda_id'] ? ($tiendas[$b['tienda_id']] ?? null) : null,
+                'se_cobra_el'   => self::calcularFechaDisponible(Carbon::parse($b['mes'] . '-01'), (int) $b['tienda_id']),
+            ] + $datos;
+        }
+
+        $recibos = collect($recibos);
+
+        return response()->json([
+            'vendedor_id'           => $vendedorId,
+            'vendedor_nombre'       => Usuario::where('id', $vendedorId)->value('nombre'),
+            'fecha_pago'            => Carbon::now(StatsController::TZ_NEGOCIO)->toDateTimeString(),
+            'recibos'               => $recibos->all(),
+            'pagadas'               => $recibos->sum('pagadas'),
+            'monto'                 => $recibos->sum('monto'),
+            'anticipos_descontados' => $recibos->sum('anticipos_descontados'),
+            'neto'                  => $recibos->sum('neto'),
+        ]);
+    }
+
+    /** "septiembre de 2026". */
+    private static function nombreDelMes(string $mes): string
+    {
+        return Carbon::parse($mes . '-01')->locale('es')->isoFormat('MMMM [de] YYYY');
+    }
+
+    /**
+     * Los meses anteriores a $mes en que la persona tiene algo listo sin
+     * pagar, con la cuenta de hoy (lo guardado solo sirve para no recorrer
+     * todo el historial).
+     */
+    private function mesesListosAntesDe(int $vendedorId, string $mes, array $excepto = []): array
+    {
+        $candidatos = Comision::where('vendedor_id', $vendedorId)->where('estado', 'lista')
+            ->where('mes_venta', '<', $mes)->distinct()->pluck('mes_venta')
+            ->diff($excepto)->sort()->values();
+
+        return $candidatos->filter(fn ($m) => $this->resumenDelMes($m)
+            ->contains(fn ($t) => (int) $t['vendedor_id'] === $vendedorId && round(self::loListoDe($t)) > 0)
+        )->values()->all();
+    }
+
+    /**
+     * Frena un pago si la persona tiene un mes más viejo listo y sin pagar.
+     *
+     * Los anticipos se descuentan "hasta el mes que se paga": pagando octubre
+     * antes que septiembre, a octubre se le descontaban los dos anticipos y a
+     * septiembre ninguno, y lo que se le entregaba ese día no era lo mismo.
+     * Del más viejo al más nuevo, siempre.
+     */
+    private function frenarSiHayMesesAnteriores(int $vendedorId, string $mes, array $excepto = [])
+    {
+        $antes = $this->mesesListosAntesDe($vendedorId, $mes, $excepto);
+        if (! $antes) return null;
+
+        $nombres = implode(', ', array_map(fn ($m) => self::nombreDelMes($m), $antes));
+
+        return response()->json([
+            'error' => "Tiene comisiones de {$nombres} sin pagar. Se pagan del mes más viejo al más nuevo: "
+                . 'págalas juntas desde Comisiones → Listas.',
+            'meses_anteriores' => $antes,
+        ], 409);
+    }
+
     // POST /api/comisiones/recalcular
     public function recalcular(Request $request)
     {
@@ -2595,24 +2900,37 @@ class ComisionController extends Controller
             }
         }
 
-        $listo = fn ($t) => (float) (! empty($t['es_independiente'])
-            ? ($t['comision_lista'] ?? 0)
-            : collect($t['ordenes'] ?? [])->where('estado', 'lista')->sum('monto_comision'));
-
         $porPersona = $tarjetas->groupBy('vendedor_id')
-            ->map(fn ($ts) => ['lista' => $ts->sum($listo), 'debe' => (float) ($ts->first()['anticipos']['debe'] ?? 0)])
+            ->map(fn ($ts) => ['lista' => $ts->sum(fn ($t) => self::loListoDe($t)), 'debe' => (float) ($ts->first()['anticipos']['debe'] ?? 0)])
             ->filter(fn ($p) => $p['lista'] > 0);
 
-        if ($porPersona->isEmpty()) return null;
+        // Lo de meses anteriores que no se pagó a su tiempo: sin decirlo, el
+        // aviso hablaba solo del mes que toca y lo viejo se quedaba olvidado.
+        // Los dos primeros meses del trimestre de las tiendas trimestrales ya
+        // van arriba: tocan hoy, no están atrasados.
+        $delTrimestre = (int) substr($mes, 5, 2) % 3 === 0
+            ? array_slice(self::mesesDeTrimestre(self::trimestreDeMes($mes)), 0, 2) : [];
+        $atrasados = collect(self::mesesConAlgoListo($mes))
+            ->reject(fn ($m) => $m === $mes)
+            ->mapWithKeys(fn ($m) => [$m => round($this->resumenDelMes($m)
+                ->reject(fn ($t) => in_array($m, $delTrimestre, true) && self::esTiendaTrimestral((int) $t['tienda_id']))
+                ->sum(fn ($t) => self::loListoDe($t)))])
+            ->filter(fn ($v) => $v > 0);
+
+        if ($porPersona->isEmpty() && $atrasados->isEmpty()) return null;
 
         $total     = round($porPersona->sum('lista'));
         $anticipos = round($porPersona->sum(fn ($p) => min($p['debe'], $p['lista'])));
         $entregar  = $total - $anticipos;
         $cop       = fn ($v) => '$' . number_format($v, 0, ',', '.');
 
-        $mensaje = "{$porPersona->count()} persona" . ($porPersona->count() === 1 ? '' : 's')
-            . " por {$cop($total)} en comisiones"
-            . ($anticipos > 0 ? "; menos {$cop($anticipos)} de anticipos, a entregar {$cop($entregar)}" : '')
+        $mensaje = ($porPersona->isEmpty() ? 'No hay nada listo de este mes'
+                : "{$porPersona->count()} persona" . ($porPersona->count() === 1 ? '' : 's')
+                . " por {$cop($total)} en comisiones"
+                . ($anticipos > 0 ? "; menos {$cop($anticipos)} de anticipos, a entregar {$cop($entregar)}" : ''))
+            . ($atrasados->isNotEmpty()
+                ? '. Además quedan sin pagar ' . $atrasados->map(fn ($v, $m) => $cop($v) . ' de ' . self::nombreDelMes($m))->implode(', ')
+                : '')
             . '. Ábrelo en Comisiones → Listas.';
 
         foreach ($supervisores as $sup) {

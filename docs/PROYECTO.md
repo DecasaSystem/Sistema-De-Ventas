@@ -411,6 +411,14 @@ en su tienda; un supervisor escoge. Sin migración (la columna `canal` es texto)
 - **Independientes**: 5 % fijo (ver `MEMORY.md`).
 - Pagos por persona (`pagar-listas`), deshacer pago, anticipos mensuales que se
   descuentan, bitácora de cambios, recalcular, y `comisiones:poner-al-dia` diario 06:30.
+- **Meses que se juntan por pagar tarde** (2026-10-15): la pestaña Listas trae todo lo
+  que hay por pagar (`GET /comisiones/por-pagar`, `loQueHayPorPagar`): una tarjeta por
+  persona con un bloque por mes, la fecha en que se debía pagar y la marca "atrasada"
+  si su 20 ya pasó. "Pagar los N meses" (`POST /comisiones/pagar-meses`) paga del mes
+  más viejo al más nuevo y devuelve un recibo por mes. Pagar un mes (o una comisión
+  suelta) con un mes más viejo listo sin pagar se frena con 409 (`frenarSiHayMesesAnteriores`):
+  los anticipos se descuentan "hasta el mes que se paga" y en desorden cambiaba lo que
+  se entregaba. El aviso del 20 dice además lo que quedó sin pagar de meses anteriores.
 - Datáfono: lo pagado con tarjeta/Addi descuenta la franquicia del comisionable.
 
 ### 6.11 Costos de fabricación y cotizador IA

@@ -857,6 +857,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/reemplazos/{id}',           [ComisionController::class, 'editReemplazo'])->middleware('role:supervisor')->whereNumber('id');
         Route::delete('/reemplazos/{id}',        [ComisionController::class, 'removeReemplazo'])->middleware('role:supervisor')->whereNumber('id');
         Route::post('/pagar-listas',             [ComisionController::class, 'pagarListas'])->middleware('role:supervisor');
+        // Todo lo que hay por pagar, un bloque por mes (los meses que se juntan
+        // por pagar tarde), y pagar varios meses del más viejo al más nuevo.
+        Route::get('/por-pagar',                 [ComisionController::class, 'porPagar']);
+        Route::post('/pagar-meses',              [ComisionController::class, 'pagarMeses'])->middleware('role:supervisor');
         Route::post('/{id}/pagar',               [ComisionController::class, 'marcarPagada'])->middleware('role:supervisor')->whereNumber('id');
         // Un pago marcado por error se puede deshacer (queda en la bitácora).
         Route::post('/{id}/deshacer-pago',       [ComisionController::class, 'deshacerPago'])->middleware('role:supervisor')->whereNumber('id');

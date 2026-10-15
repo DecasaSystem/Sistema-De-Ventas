@@ -228,6 +228,15 @@ escribiendo precios (Fase 1b).
   pagado de más (si pagó el precio completo, se corrige solo el medio). La cifra sale de
   `descuento_condicionado` o, si editar la orden la dejó en 0, del historial
   (`DescuentoCondicionadoService::montoPerdido` / `devolver`, `Pago::recuperaDescuentoSiPasaA`).
+- **Comisiones atrasadas: dos meses juntos** (2026-10-15, **sin subir**, sin migración).
+  Pedido del dueño: si se demoran en pagar y se juntan dos pagos, que se sepa qué es de
+  qué fecha. Hecho: Listas muestra todo lo por pagar con un bloque por mes y la fecha
+  en que se debía pagar; se paga del más viejo al más nuevo con un recibo por mes; pagar
+  en desorden se frena. **No cambió ninguna regla de plata**: cada mes se calcula y se paga
+  igual que antes. Por qué el orden: los anticipos se descuentan "hasta el mes que se
+  paga", así que pagar octubre antes que septiembre le descontaba los dos anticipos a
+  octubre y lo entregado ese día cambiaba. Las bonificaciones de Nómina no entran (van
+  en cada pago de nómina). Tests en `ComisionesAtrasadasTest`.
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 
