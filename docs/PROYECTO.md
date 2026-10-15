@@ -230,6 +230,12 @@ ExcelJS/xlsx para exportar, `qrcode`, `dompurify`. PWA (manifest + `public/sw.js
   queda en `ordenes_eliminadas`), **cambiar producto** después de entregado,
   **revertir entrega**, **fechas de entrega** por ítem, **PDF** de una hoja,
   **chat** de la orden, **fijar** órdenes, búsqueda con "¿quisiste decir?".
+- **Orden en imagen** (2026-10-15, botón *Imagen* junto a *PDF* en `OrdenDetalleView`):
+  para los grupos de comprobantes de WhatsApp, que reciben fotos y no PDFs. Es el mismo
+  PDF dibujado en el celular con pdf.js (`utils/pdfAImagen.js`, build *legacy*, se carga
+  solo al usarlo), JPEG de 1600 px con el blanco de abajo recortado. Se muestra la vista
+  previa con *Compartir* (menú del celular → WhatsApp) y *Descargar*: compartir va en su
+  propio botón porque el navegador solo lo abre justo después de un toque. Sin backend.
 - **Chat de la orden** (`OrdenMensajeController`, `ChatOrden.vue`): dudas entre vendedores,
   supervisores y Producción; varias fotos por mensaje (`orden_mensajes.imagenes`), cada
   una se sube al elegirla con reintento. Se cierra al quedar lista para entrega.

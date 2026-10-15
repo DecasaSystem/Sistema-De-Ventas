@@ -2,7 +2,7 @@
 import IconoS from '@/components/common/IconoS.vue'
 import InputPesos from '@/components/common/InputPesos.vue'
 import { cloudinaryOpt } from '@/utils/cloudinary'
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
@@ -40,6 +40,7 @@ import { formatoDuracion } from '@/utils/duracion'
 import { PhotoIcon } from '@heroicons/vue/24/outline'
 import { SPECS_TEMPLATES, resolverCategoria } from '@/constants/specsConfig'
 import { restauracionCompartidaCon } from '@/utils/ordenCompartida'
+import { pdfAImagen, sePuedeCompartir, compartirImagen, descargarImagen } from '@/utils/pdfAImagen'
 
 const route = useRoute()
 const { cargar: cargarTipos, nombre: nombreProceso } = useTiposProceso()
@@ -1419,6 +1420,52 @@ async function descargarPdf() {
   }
 }
 
+// La orden como imagen: a los grupos de comprobantes de WhatsApp se mandan
+// fotos, no PDFs. Es la misma hoja del PDF, dibujada en el celular.
+const generandoImagen = ref(false)
+const imagenOrden     = ref(null) // { blob, url, nombre, compartible }
+
+async function generarImagen() {
+  if (generandoImagen.value) return
+  generandoImagen.value = true
+  try {
+    const response = await descargarPdfOrden(orden.value.id)
+    const blob = await pdfAImagen(new Blob([response.data], { type: 'application/pdf' }))
+    const nombre = `orden-${orden.value.referencia ?? orden.value.id}.jpg`.replace(/[^\w.-]+/g, '-')
+    cerrarImagen()
+    imagenOrden.value = { blob, url: URL.createObjectURL(blob), nombre, compartible: sePuedeCompartir(blob, nombre) }
+  } catch {
+    toast.error('No se pudo generar la imagen de la orden.')
+  } finally {
+    generandoImagen.value = false
+  }
+}
+
+async function compartirImagenOrden() {
+  const img = imagenOrden.value
+  if (!img) return
+  try {
+    if (await compartirImagen(img.blob, img.nombre)) cerrarImagen()
+  } catch {
+    // El navegador no dejó compartir: que se quede con la imagen igual.
+    descargarImagen(img.blob, img.nombre)
+    toast.info('Se descargó la imagen. Envíala desde la galería.')
+  }
+}
+
+function descargarImagenOrden() {
+  const img = imagenOrden.value
+  if (!img) return
+  descargarImagen(img.blob, img.nombre)
+  toast.success('Imagen descargada.')
+}
+
+function cerrarImagen() {
+  if (imagenOrden.value) URL.revokeObjectURL(imagenOrden.value.url)
+  imagenOrden.value = null
+}
+onBeforeUnmount(cerrarImagen)
+
 /** El anexo de garantías firmado en el sistema, como PDF (con el n° de pedido). */
 async function verAnexoGarantia() {
   try {
@@ -1940,6 +1987,17 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         <IconoS v-if="descargandoPdf" class="w-4 h-4" />
         <DocumentIcon v-else class="w-4 h-4" />
         {{ descargandoPdf ? 'Generando...' : 'PDF' }}
+      </button>
+      <button
+        v-if="orden"
+        @click="generarImagen"
+        :disabled="generandoImagen"
+        class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 disabled:opacity-60 transition-colors"
+        title="La orden como imagen, para mandar por WhatsApp"
+      >
+        <IconoS v-if="generandoImagen" class="w-4 h-4" />
+        <PhotoIcon v-else class="w-4 h-4" />
+        {{ generandoImagen ? 'Generando...' : 'Imagen' }}
       </button>
       <BadgeEstado v-if="orden" :estado="orden.estado" :entrega="orden.entrega" />
       <span
@@ -4009,6 +4067,38 @@ onMounted(() => { cargarTipos(); cargarOrden() })
               {{ confirmando ? 'Confirmando...' : 'Confirmar' }}
             </button>
           </div>
+        </div>
+      </div>
+    </Transition>
+
+    <!-- La orden como imagen, lista para mandar. El botón de compartir va
+         aparte porque el navegador solo abre "Compartir" justo después de un
+         toque, y generar la imagen tarda unos segundos. -->
+    <Transition name="fade">
+      <div v-if="imagenOrden" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" @click.self="cerrarImagen">
+        <div class="absolute inset-0 bg-black/40" @click="cerrarImagen" />
+        <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-3 max-h-[92dvh] flex flex-col">
+          <h3 class="text-lg font-bold text-gray-800 flex items-center gap-2">
+            <PhotoIcon class="w-5 h-5 text-blue-600" />
+            Orden {{ orden?.referencia }} en imagen
+          </h3>
+          <div class="min-h-0 overflow-y-auto rounded-lg border border-gray-200">
+            <img :src="imagenOrden.url" alt="Imagen de la orden" class="w-full block bg-white" />
+          </div>
+          <div class="flex gap-2">
+            <button
+              v-if="imagenOrden.compartible"
+              @click="compartirImagenOrden"
+              class="flex-1 bg-blue-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-blue-700"
+            >Compartir</button>
+            <button
+              @click="descargarImagenOrden"
+              :class="imagenOrden.compartible
+                ? 'flex-1 border border-gray-300 text-gray-700 rounded-lg py-2.5 text-sm font-semibold hover:bg-gray-50'
+                : 'flex-1 bg-blue-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-blue-700'"
+            >Descargar</button>
+          </div>
+          <button @click="cerrarImagen" class="w-full text-sm text-gray-500 py-1">Cerrar</button>
         </div>
       </div>
     </Transition>
