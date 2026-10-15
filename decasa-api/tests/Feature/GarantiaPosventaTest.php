@@ -281,6 +281,35 @@ class GarantiaPosventaTest extends TestCase
             ->assertJsonPath('dentro_de_garantia', false);
     }
 
+    public function test_los_plazos_salen_de_gestion_y_no_cambian_lo_ya_reportado(): void
+    {
+        (require base_path('database/migrations/2026_10_22_000001_crear_plantillas_documento.php'))->up();
+        [, $cama, $mesas, $entrega] = $this->ordenEntregada();
+        $entrega->update(['entregado_at' => Carbon::parse('2026-01-15 17:00:00', 'UTC')]);
+        $jefa = $this->jefa();
+
+        $antes = $this->reportar($jefa, $mesas, ['tipo_dano' => 'tela_espuma', 'motivo' => 'Se hundió la espuma'])
+            ->assertCreated()->assertJsonPath('vence_el', '2026-07-15')->json('id');
+
+        // El dueño sube la garantía de telas a 12 meses en Gestión → Documentos.
+        $this->actingAs($jefa)->putJson('/api/plantillas-documento/plazos_garantia', ['contenido' => [
+            'madera_elite_promocional' => 60, 'madera_economica' => 24, 'tela_espuma' => 12,
+        ]])->assertOk()->assertJsonPath('cambio', true);
+        \App\Support\CachesDePeticion::olvidarTodo();
+
+        $this->assertSame(12, \App\Models\Garantia::mesesDeGarantia('tela_espuma', null));
+        $this->actingAs($jefa)->getJson('/api/garantias/opciones')->assertOk()->assertJsonPath('meses.tela_espuma', 12);
+        // La ya reportada conserva su vencimiento; la nueva usa el plazo nuevo.
+        $this->assertStringStartsWith('2026-07-15', (string) DB::table('garantias')->where('id', $antes)->value('vence_el'));
+        $this->reportar($jefa, $cama, ['tipo_dano' => 'tela_espuma', 'motivo' => 'Se rasgó la tela'])
+            ->assertCreated()->assertJsonPath('vence_el', '2027-01-15');
+
+        // Un plazo que no es un número entero no se guarda.
+        $this->actingAs($jefa)->putJson('/api/plantillas-documento/plazos_garantia', ['contenido' => [
+            'madera_elite_promocional' => 'cinco años', 'madera_economica' => 24, 'tela_espuma' => 6,
+        ]])->assertStatus(422);
+    }
+
     public function test_no_se_reclama_mas_de_lo_que_el_cliente_tiene_en_la_casa(): void
     {
         [, $cama, $mesas] = $this->ordenEntregada();

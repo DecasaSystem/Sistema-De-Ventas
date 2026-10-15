@@ -4,6 +4,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
 import api from '@/api'
+import { useTextosNegocio, rellenar, datosEmpresa } from '@/utils/textosNegocio'
 import {
   CalendarDaysIcon,
   MapPinIcon,
@@ -22,6 +23,14 @@ import {
 } from '@heroicons/vue/24/outline'
 
 const auth     = useAuthStore()
+const textosNegocio = useTextosNegocio()
+
+// El saludo se edita en Gestión → Documentos → Mensajes de WhatsApp.
+function saludoRedes(nombre) {
+  return rellenar(textosNegocio.mensajes.saludo_redes, {
+    ...datosEmpresa(textosNegocio), cliente: nombre ?? '', asesor: auth.usuario?.nombre || 'tu asesor',
+  })
+}
 const toast    = useToast()
 const items    = ref([])
 const tab      = ref('activas') // activas | completadas | canceladas
@@ -204,9 +213,7 @@ function fuenteIcon(fuente) {
 
 async function abrirContacto(cita) {
   if (cita.fuente === 'instagram') {
-    const asesor = auth.usuario?.nombre || 'tu asesor'
-    const saludo = cita.nombre_cliente ? `Hola ${cita.nombre_cliente}, ` : 'Hola, '
-    let msg = `${saludo}soy ${asesor} de DeCasa Muebles y Decoración 🛋️ Me da mucho gusto atenderte.`
+    let msg = saludoRedes(cita.nombre_cliente)
     if (cita.dia) msg += `\n\nYa tengo el detalle de tu cita para el ${cita.dia} a las ${cita.hora}.`
     if (cita.motivo) msg += ` (${cita.motivo})`
     try {

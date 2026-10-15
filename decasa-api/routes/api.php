@@ -130,6 +130,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // que entre —son los nombres de su propia pantalla—; cambiarlo, no.
     Route::get('/modulos',      [PersonalizacionController::class, 'modulos']);
     Route::get('/herramientas', [PersonalizacionController::class, 'herramientas']);
+    // Los textos de Gestión → Documentos que la app usa con el cliente
+    // (mensajes de WhatsApp, empresa, acta). Editarlos es de supervisor.
+    Route::get('/textos-del-negocio', [\App\Http\Controllers\PlantillaDocumentoController::class, 'textosDelNegocio']);
 
     // Los ítems de un módulo creado a partir de Telas (Espumas, Hilos...).
     // Es la pantalla de Telas sobre otra tabla; el permiso se mira adentro,
@@ -151,6 +154,12 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/herramientas',        [PersonalizacionController::class, 'crearHerramienta']);
         Route::patch('/herramientas/{id}',  [PersonalizacionController::class, 'actualizarHerramienta'])->whereNumber('id');
         Route::delete('/herramientas/{id}', [PersonalizacionController::class, 'eliminarHerramienta'])->whereNumber('id');
+
+        // Textos de documentos (Gestión → Documentos): anexo de garantías y
+        // orden de entrega. Cada guardado es una versión nueva.
+        Route::get('/plantillas-documento',         [\App\Http\Controllers\PlantillaDocumentoController::class, 'index']);
+        Route::get('/plantillas-documento/{clave}', [\App\Http\Controllers\PlantillaDocumentoController::class, 'show'])->where('clave', '[a-z_]+');
+        Route::put('/plantillas-documento/{clave}', [\App\Http\Controllers\PlantillaDocumentoController::class, 'update'])->where('clave', '[a-z_]+');
 
         // Catálogos visuales (Gestión → Catálogos)
         Route::get('/catalogos-visuales',                        [CatalogoVisualController::class, 'index']);

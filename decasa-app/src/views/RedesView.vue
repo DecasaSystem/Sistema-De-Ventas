@@ -6,6 +6,7 @@ import { useToast } from '@/composables/useToast'
 import { useRouter } from 'vue-router'
 import api from '@/api'
 import RedesHerramientas from '@/components/RedesHerramientas.vue'
+import { useTextosNegocio, rellenar, datosEmpresa } from '@/utils/textosNegocio'
 import {
   ChatBubbleLeftRightIcon,
   PhoneIcon,
@@ -24,6 +25,14 @@ import {
 const mostrarHerramientas = ref(false)
 
 const auth   = useAuthStore()
+const textosNegocio = useTextosNegocio()
+
+// El saludo se edita en Gestión → Documentos → Mensajes de WhatsApp.
+function saludoRedes(nombre) {
+  return rellenar(textosNegocio.mensajes.saludo_redes, {
+    ...datosEmpresa(textosNegocio), cliente: nombre ?? '', asesor: auth.usuario?.nombre || 'tu asesor',
+  })
+}
 const toast  = useToast()
 const router = useRouter()
 const items   = ref([])
@@ -145,9 +154,7 @@ function contactoUrl(conv) {
   const phone = (conv.telefono || '').replace(/\D/g, '')
   if (!phone) return conv.whatsapp_url || '#'
 
-  const asesor = auth.usuario?.nombre || 'tu asesor'
-  const saludo = conv.nombre_cliente ? `Hola ${conv.nombre_cliente}, ` : 'Hola, '
-  let texto = `${saludo}soy ${asesor} de DeCasa Muebles y Decoración 🛋️ Me da mucho gusto atenderte.`
+  let texto = saludoRedes(conv.nombre_cliente)
 
   if (conv.tipo === 'cita' && conv.datos_cita?.cancelada) {
     texto += `\n\nVi que cancelaste tu cita del ${conv.datos_cita.dia}. ¿Te ayudo a buscar otro día?`
@@ -180,9 +187,7 @@ function contactoColor(fuente) {
 async function abrirContacto(conv) {
   const url = contactoUrl(conv)
   if (conv.fuente === 'instagram') {
-    const asesor = auth.usuario?.nombre || 'tu asesor'
-    const saludo = conv.nombre_cliente ? `Hola ${conv.nombre_cliente}, ` : 'Hola, '
-    let msg = `${saludo}soy ${asesor} de DeCasa Muebles y Decoración 🛋️ Me da mucho gusto atenderte.`
+    let msg = saludoRedes(conv.nombre_cliente)
     if (conv.tipo === 'cita' && conv.datos_cita?.cancelada) {
       msg += `\n\nVi que cancelaste tu cita del ${conv.datos_cita.dia}. ¿Te ayudo a buscar otro día?`
     } else if (conv.tipo === 'cita' && conv.datos_cita?.dia) {

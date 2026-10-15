@@ -429,4 +429,125 @@ class AnexoGarantiaTest extends TestCase
 
         $this->actingAs($otro)->getJson("/api/anexos/{$id}")->assertForbidden();
     }
+
+    // ── El texto editable desde Gestión → Documentos ─────────────────────────
+
+    private function supervisor(): Usuario
+    {
+        return Usuario::create(['nombre' => 'Jefa', 'email' => 's@d.com', 'password' => 'x', 'rol' => 'supervisor', 'created_at' => now()]);
+    }
+
+    private function conTablaDePlantillas(): void
+    {
+        (require base_path('database/migrations/2026_10_22_000001_crear_plantillas_documento.php'))->up();
+    }
+
+    /** Un anexo cortico: una sección y una pregunta. */
+    private function textoNuevo(): array
+    {
+        return [
+            'titulo'    => 'Garantías Decasa 2027',
+            'secciones' => [['titulo' => 'Garantía nueva', 'parrafos' => "Diez años en madera.\n\nSeis meses en telas."]],
+            'checklist' => [['pregunta' => '¿Le explicaron la garantía nueva?'], ['pregunta' => '   ']],
+        ];
+    }
+
+    public function test_el_texto_editado_en_gestion_es_el_que_lee_y_firma_el_cliente(): void
+    {
+        $this->conTablaDePlantillas();
+
+        $r = $this->actingAs($this->supervisor())
+            ->putJson('/api/plantillas-documento/anexo_garantia', ['contenido' => $this->textoNuevo(), 'nota' => 'Lo pidió el abogado'])
+            ->assertOk()->assertJsonPath('cambio', true);
+        $version = $r->json('vigente.version');
+        $this->assertSame(now('America/Bogota')->format('Y-m-d'), $version);
+        // Los renglones vacíos no son párrafos y la pregunta en blanco se quita.
+        $this->assertSame(['Diez años en madera.', 'Seis meses en telas.'], $r->json('vigente.contenido.secciones.0.parrafos'));
+        $this->assertCount(1, $r->json('vigente.contenido.checklist'));
+        $this->assertSame('Jefa', $r->json('vigente.autor'));
+
+        [$id, $token] = $this->anexoRemoto($this->vendedor());
+        $this->assertSame($version, AnexoGarantia::find($id)->version);
+
+        $contenido = $this->getJson("/api/public/anexos/{$token}")->assertOk()->json('contenido');
+        $this->assertSame('Garantías Decasa 2027', $contenido['titulo']);
+        $this->assertCount(1, $contenido['secciones']);
+
+        // Se firma con las secciones y preguntas de ESTE texto.
+        $this->postJson("/api/public/anexos/{$token}/firmar", $this->respuestas([
+            'secciones' => [$contenido['secciones'][0]['id']],
+            'checklist' => [$contenido['checklist'][0]['id'] => 'no'],
+        ]))->assertOk();
+
+        $this->assertSame(['¿Le explicaron la garantía nueva?'], $this->getJson("/api/anexos/{$id}")->json('respuestas_no'));
+    }
+
+    public function test_un_enlace_mandado_antes_del_cambio_se_firma_y_se_imprime_con_su_texto(): void
+    {
+        $this->conTablaDePlantillas();
+        $v = $this->vendedor();
+        [$id, $token] = $this->anexoRemoto($v);
+        $this->assertSame(\App\Support\AnexoGarantiaTexto::VERSION, AnexoGarantia::find($id)->version);
+
+        $this->actingAs($this->supervisor())
+            ->putJson('/api/plantillas-documento/anexo_garantia', ['contenido' => $this->textoNuevo()])->assertOk();
+
+        // El cliente sigue viendo lo que se le mandó, y lo firma con eso.
+        $this->getJson("/api/public/anexos/{$token}")->assertOk()
+            ->assertJsonPath('contenido.titulo', \App\Support\AnexoGarantiaTexto::TITULO);
+        $this->postJson("/api/public/anexos/{$token}/firmar", $this->respuestas())->assertOk();
+
+        // El PDF de ese anexo sale con el texto que firmó, no con el de hoy.
+        $texto = null;
+        \Illuminate\Support\Facades\View::composer('pdf.anexo_garantia', function ($vista) use (&$texto) { $texto = $vista->getData()['texto']; });
+        $this->actingAs($v)->get("/api/anexos/{$id}/pdf")->assertOk();
+        // El PDF pone set_time_limit(120): en la suite completa (un solo
+        // proceso) cortaba las pruebas que vienen después.
+        set_time_limit(0);
+        $this->assertSame(\App\Support\AnexoGarantiaTexto::TITULO, $texto['titulo']);
+        $this->assertCount(count(\App\Support\AnexoGarantiaTexto::secciones()), $texto['secciones']);
+
+        // El historial dice cuántos firmaron con cada versión.
+        $historial = $this->actingAs($this->supervisor())->getJson('/api/plantillas-documento/anexo_garantia')->json('historial');
+        $this->assertCount(2, $historial);
+        $this->assertTrue(end($historial)['fabrica']);
+        $this->assertSame(1, end($historial)['firmados']);
+    }
+
+    public function test_solo_supervisor_edita_y_guardar_sin_cambios_no_crea_version(): void
+    {
+        $this->conTablaDePlantillas();
+
+        $this->actingAs($this->vendedor())
+            ->putJson('/api/plantillas-documento/anexo_garantia', ['contenido' => $this->textoNuevo()])->assertForbidden();
+
+        $jefa = $this->supervisor();
+        $fabrica = $this->actingAs($jefa)->getJson('/api/plantillas-documento/anexo_garantia')->assertOk()->json('vigente.contenido');
+        $this->actingAs($jefa)->putJson('/api/plantillas-documento/anexo_garantia', ['contenido' => $fabrica])
+            ->assertOk()->assertJsonPath('cambio', false);
+        $this->assertSame(0, DB::table('plantillas_documento')->count());
+
+        // Sin secciones o con una sección vacía no se guarda.
+        $this->actingAs($jefa)->putJson('/api/plantillas-documento/anexo_garantia', ['contenido' => ['titulo' => 'X', 'secciones' => []]])
+            ->assertStatus(422);
+        $this->actingAs($jefa)->putJson('/api/plantillas-documento/anexo_garantia', ['contenido' => [
+            'titulo' => 'X', 'secciones' => [['titulo' => 'Vacía', 'parrafos' => "\n  \n"]],
+        ]])->assertStatus(422);
+        $this->actingAs($jefa)->getJson('/api/plantillas-documento/no_existe')->assertNotFound();
+
+        // Dos cambios el mismo día: versiones distintas.
+        $this->actingAs($jefa)->putJson('/api/plantillas-documento/anexo_garantia', ['contenido' => $this->textoNuevo()])->assertOk();
+        $otro = $this->textoNuevo(); $otro['titulo'] = 'Otra vez';
+        $r = $this->actingAs($jefa)->putJson('/api/plantillas-documento/anexo_garantia', ['contenido' => $otro])->assertOk();
+        $this->assertSame(now('America/Bogota')->format('Y-m-d') . '.2', $r->json('vigente.version'));
+    }
+
+    public function test_sin_la_tabla_sale_el_texto_de_fabrica(): void
+    {
+        [$id, $token] = $this->anexoRemoto($this->vendedor());
+
+        $this->assertSame(\App\Support\AnexoGarantiaTexto::VERSION, AnexoGarantia::find($id)->version);
+        $this->getJson("/api/public/anexos/{$token}")->assertOk()
+            ->assertJsonPath('contenido.titulo', \App\Support\AnexoGarantiaTexto::TITULO);
+    }
 }

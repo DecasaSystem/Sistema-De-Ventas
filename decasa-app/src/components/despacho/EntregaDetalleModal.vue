@@ -6,6 +6,7 @@ import { descargarOrdenEntrega } from '@/api/ordenes'
 import { useToast } from '@/composables/useToast'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import FirmaCanvas from '@/components/FirmaCanvas.vue'
+import { useTextosNegocio, rellenar } from '@/utils/textosNegocio'
 import { CheckCircleIcon, MapPinIcon, ClockIcon, ExclamationTriangleIcon, CameraIcon, XMarkIcon, PrinterIcon } from '@heroicons/vue/24/outline'
 import InputPesos from '@/components/common/InputPesos.vue'
 import ComoLlegar from '@/components/despacho/ComoLlegar.vue'
@@ -92,6 +93,20 @@ const esLaUltimaEntrega = computed(() =>
   )
 )
 const esParcial = computed(() => hayAlgoQueEntregar.value && !esLaUltimaEntrega.value)
+
+// Lo que declara quien firma el acta (Gestión → Documentos → Acta de
+// satisfacción), armado igual que en el PDF.
+const textosNegocio = useTextosNegocio()
+const declaracionActa = computed(() => {
+  const a = textosNegocio.acta
+  return [
+    a.declaracion,
+    esParcial.value ? a.texto_parcial : '',
+    conforme.value ? a.texto_conforme : a.texto_novedad,
+  ].filter(t => t && t.trim())
+    .map(t => rellenar(t, { referencia: item.value?.orden?.referencia ?? '' }))
+    .join(' ')
+})
 
 // El pago solo es obligatorio en la última entrega con saldo. En una parcial
 // se puede abonar, pero no se exige: al cliente aún le falta recibir algo.
@@ -1070,6 +1085,9 @@ async function guardarPagoYEntregar() {
                   <p class="campo-label">
                     Firma de quien recibe <span class="text-red-500">*</span>
                   </p>
+                  <!-- Lo que firma: el texto del acta de Gestión → Documentos, el
+                       mismo que sale en el PDF. Que lo vea antes de firmar. -->
+                  <p class="text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 mb-2 whitespace-pre-line">{{ declaracionActa }}</p>
                   <FirmaCanvas v-model="firmaBlob" />
                 </div>
               </template>

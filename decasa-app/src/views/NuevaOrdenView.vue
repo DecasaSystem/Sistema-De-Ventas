@@ -23,6 +23,7 @@ import { ArrowPathIcon as ArrowPathOutlineIcon, PhotoIcon, UserGroupIcon, Buildi
 import { getReceptores, crearConsulta } from '@/api/consultas'
 import FirmaCanvas from '@/components/FirmaCanvas.vue'
 import AnexoFirma from '@/components/anexo/AnexoFirma.vue'
+import { useTextosNegocio, cargarTextosNegocio, rellenar, datosEmpresa, FABRICA } from '@/utils/textosNegocio'
 import { specsParaCliente, soloHttps, tipoParaCliente, tipoDeItemCarrito, trabajoTexto } from '@/utils/resumenParaFirma'
 import { crearAnexo, getAnexo, getAnexoPublico, firmarAnexo, enviarAnexoEmail, pdfAnexo, anularAnexo } from '@/api/anexos'
 import BocetoCanvas from '@/components/BocetoCanvas.vue'
@@ -63,7 +64,18 @@ const motivoSerie = ref('')
 const contactoNombre   = ref('')
 const contactoTelefono = ref('')
 const contactoEmail    = ref('')
-const diasVigencia     = ref(15)
+// Los días por defecto se cambian en Gestión → Documentos → Cotización. Solo
+// se ponen si el vendedor no ha escogido otros (ni vienen de un respaldo).
+const textosNegocio    = useTextosNegocio()
+const diasVigencia     = ref(textosNegocio.cotizacion.dias_vigencia)
+let vigenciaTocada = false
+cargarTextosNegocio().then(t => {
+  if (!vigenciaTocada && diasVigencia.value === FABRICA.cotizacion.dias_vigencia) diasVigencia.value = t.cotizacion.dias_vigencia
+})
+// Las opciones de siempre, más la de Gestión si es otra.
+const opcionesVigencia = computed(() =>
+  [...new Set([8, 15, 30, 60, Number(textosNegocio.cotizacion.dias_vigencia), Number(diasVigencia.value)])]
+    .filter(n => n > 0).sort((a, b) => a - b))
 
 // ── Pasos ─────────────────────────────────────────────────────────────────────
 const step = ref(1)
@@ -2019,10 +2031,15 @@ function quitarAnexo() {
   anexo.value = null
 }
 
+// El texto se edita en Gestión → Documentos → Mensajes de WhatsApp.
 function mensajeWhatsAppAnexo() {
-  const nombre = clienteSeleccionado.value?.nombre?.split(' ')[0] ?? ''
-  return `Hola${nombre ? ` ${nombre}` : ''}, soy ${auth.usuario?.nombre ?? 'tu asesor'} de Decasa. ` +
-    `Aquí puedes revisar tu pedido completo y firmarlo junto con el documento de garantías: ${anexo.value?.url}`
+  return rellenar(textosNegocio.mensajes.firma_pedido, {
+    ...datosEmpresa(textosNegocio),
+    cliente: clienteSeleccionado.value?.nombre?.split(' ')[0] ?? '',
+    asesor:  auth.usuario?.nombre ?? 'tu asesor',
+    enlace:  anexo.value?.url ?? '',
+    referencia: '',
+  })
 }
 function abrirWhatsAppAnexo() {
   let tel = String(clienteSeleccionado.value?.telefono ?? '').replace(/\D/g, '')
@@ -3542,11 +3559,8 @@ onBeforeUnmount(() => {
       <!-- Vigencia -->
       <div v-if="modoCotizacion">
         <label class="label">Validez de la cotización</label>
-        <select v-model.number="diasVigencia" class="input">
-          <option :value="8">8 días</option>
-          <option :value="15">15 días</option>
-          <option :value="30">30 días</option>
-          <option :value="60">60 días</option>
+        <select v-model.number="diasVigencia" class="input" @change="vigenciaTocada = true">
+          <option v-for="n in opcionesVigencia" :key="n" :value="n">{{ n }} días</option>
         </select>
         <p class="text-xs text-gray-500 mt-1">
           Aparece en el PDF. Después de esa fecha los precios quedan sujetos a cambio.

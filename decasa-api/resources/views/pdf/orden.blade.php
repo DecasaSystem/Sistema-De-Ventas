@@ -17,11 +17,17 @@
     <table style="width: 100%; border-bottom: 2px solid #2563eb; padding-bottom: 6px; margin-bottom: 10px;">
         <tr>
             <td style="vertical-align: middle;">
+                {{-- Nombre y datos: Gestión → Documentos → Datos de la empresa --}}
+                @php
+                    $empresa        = \App\Support\PlantillasDocumento::empresa();
+                    $renglonEmpresa = \App\Support\PlantillasDocumento::renglonEmpresa();
+                @endphp
                 @if(!empty($logoBase64))
-                    <img src="{{ $logoBase64 }}" style="height: 38px; max-width: 150px; object-fit: contain;" alt="Decasa">
+                    <img src="{{ $logoBase64 }}" style="height: 38px; max-width: 150px; object-fit: contain;" alt="{{ $empresa['nombre'] }}">
                 @else
-                    <h1 style="font-size: 20px; font-weight: bold; color: #2563eb; margin: 0;">DECASA</h1>
+                    <h1 style="font-size: 20px; font-weight: bold; color: #2563eb; margin: 0;">{{ mb_strtoupper($empresa['nombre']) }}</h1>
                 @endif
+                @if($renglonEmpresa)<p style="font-size: 8px; color: #6b7280; margin: 1px 0 0 0;">{{ $renglonEmpresa }}</p>@endif
             </td>
             <td style="text-align: right; vertical-align: middle;">
                 <h2 style="font-size: 16px; font-weight: bold; margin: 0;">Orden {{ $orden->referencia }}</h2>
@@ -376,7 +382,7 @@
                         @endif
                     </div>
                     <p style="font-size: 10px; color: #374151; margin: 2px 0 0 0;"><strong>{{ $orden->vendedor->nombre ?? 'Vendedor' }}</strong></p>
-                    <p style="font-size: 8px; color: #6b7280; margin: 0;">Vendedor — Decasa</p>
+                    <p style="font-size: 8px; color: #6b7280; margin: 0;">Vendedor — {{ $empresa['nombre'] }}</p>
                 </td>
                 <!-- Firma del cliente -->
                 <td style="width: 50%; padding-left: 12px; vertical-align: bottom; border-left: 1px solid #e5e7eb;">
@@ -397,7 +403,7 @@
 
     <!-- Footer -->
     <div style="border-top: 1px solid #e5e7eb; padding-top: 5px; margin-top: 8px; text-align: center;">
-        <p style="font-size: 8px; color: #9ca3af; margin: 0;">Documento generado el {{ now()->format('d/m/Y H:i:s') }} | Decasa - Sistema de Gestión</p>
+        <p style="font-size: 8px; color: #9ca3af; margin: 0;">Documento generado el {{ now()->format('d/m/Y H:i:s') }} | {{ $empresa['nombre'] }}</p>
     </div>
 </body>
 </html>

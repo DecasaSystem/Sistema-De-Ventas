@@ -45,6 +45,7 @@
     @endforeach
   @endforeach
 
+  @if (count($texto['checklist']))
   <h2>Check list</h2>
   @php($resp = $anexo->respuestas['checklist'] ?? [])
   <table class="check">
@@ -56,6 +57,7 @@
       </tr>
     @endforeach
   </table>
+  @endif
 
   <table class="firma">
     <tr>
@@ -79,7 +81,7 @@
   </table>
 
   <div class="pie">
-    Documento firmado electrónicamente en el sistema de Decasa Muebles y Decoración.
+    Documento firmado electrónicamente en el sistema de {{ \App\Support\PlantillasDocumento::empresa()['nombre_completo'] }}.
     @if ($anexo->vendedor) Asesor: {{ $anexo->vendedor->nombre }}. @endif
   </div>
 </body>

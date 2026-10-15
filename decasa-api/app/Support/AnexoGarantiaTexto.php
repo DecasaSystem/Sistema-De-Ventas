@@ -6,10 +6,12 @@ namespace App\Support;
  * El anexo de garantías e instructivo de uso de Decasa, tal como está en el
  * documento impreso ("ANEXO GARANTIAS DE CASA.pdf").
  *
- * Es la única copia del texto: la pantalla donde el cliente lo lee y firma y
- * el PDF que queda guardado salen de aquí, así que nunca dicen cosas
- * distintas. Si el texto cambia, se sube VERSION: cada anexo firmado guarda la
- * versión que leyó.
+ * Este es el texto de FÁBRICA. Desde 2026-10-15 el negocio lo cambia en
+ * Gestión → Documentos (PlantillasDocumento, tabla plantillas_documento): cada
+ * guardado es una versión nueva. La pantalla donde el cliente lo lee y firma y
+ * el PDF que queda guardado salen de vigente() / deVersion(), así que nunca
+ * dicen cosas distintas: cada anexo guarda la versión que leyó.
+ * Si se cambia el texto de aquí, se sube VERSION.
  */
 final class AnexoGarantiaTexto
 {
@@ -124,7 +126,7 @@ final class AnexoGarantiaTexto
         ];
     }
 
-    /** Todo junto, como lo pinta la pantalla. */
+    /** El texto de fábrica todo junto, como lo pinta la pantalla. */
     public static function contenido(): array
     {
         return [
@@ -133,5 +135,28 @@ final class AnexoGarantiaTexto
             'secciones' => self::secciones(),
             'checklist' => self::checklist(),
         ];
+    }
+
+    /**
+     * El texto que se firma hoy: el último que se guardó en Gestión →
+     * Documentos o, si nadie lo ha cambiado, el de fábrica de arriba.
+     */
+    public static function vigente(): array
+    {
+        $v = PlantillasDocumento::vigente(PlantillasDocumento::ANEXO);
+
+        return ['version' => $v['version'], ...$v['contenido']];
+    }
+
+    /**
+     * El texto que leyó (o va a leer) el cliente de un anexo: el de la versión
+     * con que se creó, aunque después se haya cambiado. Un enlace enviado
+     * antes del cambio se firma con el texto que se envió.
+     */
+    public static function deVersion(?string $version): array
+    {
+        $v = PlantillasDocumento::deVersion(PlantillasDocumento::ANEXO, $version);
+
+        return ['version' => $v['version'], ...$v['contenido']];
     }
 }

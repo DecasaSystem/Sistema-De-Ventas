@@ -9,7 +9,13 @@
 
     <table style="width: 100%; border-bottom: 2px solid #2563eb; padding-bottom: 10px; margin-bottom: 18px;">
         <tr>
-            <td><h1 style="font-size: 20px; margin: 0; color: #2563eb;">{{ config('app.name', 'Decasa') }}</h1></td>
+            {{-- Quien liquida: Gestión → Documentos → Datos de la empresa --}}
+            <td>
+                <h1 style="font-size: 20px; margin: 0; color: #2563eb;">{{ \App\Support\PlantillasDocumento::empresa()['nombre_completo'] }}</h1>
+                @if(\App\Support\PlantillasDocumento::empresa()['nit'] !== '')
+                    <p style="font-size: 11px; color: #6b7280; margin: 3px 0 0 0;">NIT {{ \App\Support\PlantillasDocumento::empresa()['nit'] }}</p>
+                @endif
+            </td>
             <td style="text-align: right;">
                 <h2 style="font-size: 16px; margin: 0; color: #2563eb;">LIQUIDACIÓN DEL CONTRATO</h2>
                 <p style="font-size: 11px; color: #6b7280; margin: 3px 0 0 0;">N.º {{ $l->id }} · {{ $l->fecha_pago->format('d/m/Y') }}</p>

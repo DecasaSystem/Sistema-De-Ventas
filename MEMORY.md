@@ -243,6 +243,28 @@ escribiendo precios (Fase 1b).
   contra `explicacion_modulo_comisiones.txt`, que quedó viejo en partes (dice que el pool
   se parte "en partes iguales" y se prorratea por las ventas de cada uno; hoy es por días
   y a nivel tienda con el 50 % pagado). Si cambia una regla, cambiar la ayuda.
+- **Gestión → Documentos** (2026-10-15, **sin subir**, trae **migración**
+  `2026_10_22_000001_crear_plantillas_documento`, solo crea tabla). Pedido del dueño:
+  que Gestión sea un lugar administrativo con cosas editables; empezó por el texto del
+  anexo de garantías y la orden de entrega del conductor. Decisiones: cada guardado es
+  una **versión nueva** (nunca se pisa: hay anexos firmados con cada texto) y cada anexo
+  se lee, firma e imprime con **su** versión; en la orden de entrega solo se edita la
+  redacción, los datos salen de la orden. Detalle en `docs/PROYECTO.md` §6.19. Trampa: los
+  plazos de `Garantia::MESES` no salen del texto del anexo (si el dueño cambia un plazo
+  en el texto, hay que cambiarlo también ahí; está en la lista de candidatos). Trampa de
+  pruebas: `AnexoGarantiaController::pdf` hace `set_time_limit(120)` y en la suite
+  completa (un proceso) mataba las pruebas siguientes: después de pedir ese PDF en una
+  prueba, `set_time_limit(0)`. Trampa Blade: `@php(...)` en línea antes de un bloque
+  `@php … @endphp` rompe el bloque ("Undefined variable"): usar bloque.
+  El mismo día el dueño escogió los 5 recomendados y quedaron hechos (mismo worktree,
+  **sin subir**, sin migración nueva): datos de la empresa (quita los "SODEGE" que veía
+  el cliente), plazos de garantía (`Garantia::meses()`), condiciones y días de la
+  cotización, acta de satisfacción (por fecha de entrega) y mensajes de WhatsApp. Detalle
+  en `docs/PROYECTO.md` §6.19. Pendientes de la lista (no pedidos aún): leyenda de firma de
+  la orden, correos completos, textos de la página pública de firma, días del enlace (7).
+  Trampa de entorno: la herramienta Bash de este equipo se come las barras invertidas
+  (`\App\...` queda `AppSupport...`) en sed/perl/heredocs; para código con `\` usar Edit
+  o Write.
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 
