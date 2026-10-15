@@ -477,6 +477,9 @@ onBeforeUnmount(() => {
         <p v-else class="mt-2 text-xs text-gray-400">
           Faltan <span class="font-semibold text-gray-600">{{ cop(stats.meta_mes.meta - stats.meta_mes.total_tienda) }}</span> para activar comisiones
         </p>
+        <button type="button" @click="router.push({ name: 'comisiones-ayuda' })" class="mt-2 text-[11px] font-semibold text-blue-600">
+          ¿Cómo se calcula mi comisión?
+        </button>
       </div>
 
       <!-- Gráfica tendencia -->

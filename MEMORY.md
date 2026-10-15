@@ -237,6 +237,12 @@ escribiendo precios (Fase 1b).
   paga", así que pagar octubre antes que septiembre le descontaba los dos anticipos a
   octubre y lo entregado ese día cambiaba. Las bonificaciones de Nómina no entran (van
   en cada pago de nómina). Tests en `ComisionesAtrasadasTest`.
+- **Ayuda de Comisiones** (2026-10-15, pedido del dueño: "todo, absolutamente todo, bien
+  explicado"): `/comisiones/ayuda`, sin migración. Cada regla se verificó contra el
+  código (`enriquecer`, `libroDelPool`, `cobraIndividual`, `ComisionIndependientes`), no
+  contra `explicacion_modulo_comisiones.txt`, que quedó viejo en partes (dice que el pool
+  se parte "en partes iguales" y se prorratea por las ventas de cada uno; hoy es por días
+  y a nivel tienda con el 50 % pagado). Si cambia una regla, cambiar la ayuda.
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 

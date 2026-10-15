@@ -55,6 +55,9 @@ const routes = [
   // Métricas no es un módulo aparte: va junto con Redes.
   { path: '/redes/metricas', name: 'metricas-redes', component: () => import('@/views/MetricasRedesView.vue'), meta: { requiresAuth: true, requiresRedes: true } },
   { path: '/comisiones',  name: 'comisiones',  component: () => import('@/views/ComisionesView.vue'),  meta: { requiresAuth: true, requiresComisiones: true } },
+  // Cómo funcionan las comisiones: solo reglas y ejemplos, sin plata de nadie,
+  // así que la puede leer cualquiera (los vendedores también la necesitan).
+  { path: '/comisiones/ayuda', name: 'comisiones-ayuda', component: () => import('@/views/AyudaComisionesView.vue'), meta: { requiresAuth: true } },
   { path: '/citas',  name: 'citas',  component: () => import('@/views/CitasView.vue'),  meta: { requiresAuth: true } },
   { path: '/cotizaciones',     name: 'cotizaciones',       component: () => import('@/views/CotizacionesView.vue'),      meta: { requiresAuth: true } },
   { path: '/cotizaciones/:id', name: 'cotizacion-detalle', component: () => import('@/views/CotizacionDetalleView.vue'), meta: { requiresAuth: true } },

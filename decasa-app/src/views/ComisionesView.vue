@@ -19,6 +19,7 @@ import {
   ChartBarIcon,
   ArrowDownTrayIcon,
   PencilIcon,
+  QuestionMarkCircleIcon,
 } from '@heroicons/vue/24/outline'
 import { exportarComisionesExcel } from '@/utils/excelComisiones'
 import { useAuthStore } from '@/stores/auth'
@@ -1008,6 +1009,13 @@ onMounted(async () => {
           class="text-xs font-semibold text-blue-600 border border-blue-200 bg-blue-50 rounded-lg px-2.5 py-1.5 hover:bg-blue-100 disabled:opacity-50"
         >
           {{ recalculando ? 'Calculando…' : 'Recalcular' }}
+        </button>
+        <button
+          @click="router.push({ name: 'comisiones-ayuda' })"
+          class="flex items-center gap-1 text-xs font-semibold text-gray-600 border border-gray-200 bg-white rounded-lg px-2.5 py-1.5 hover:bg-gray-50"
+        >
+          <QuestionMarkCircleIcon class="w-3.5 h-3.5" />
+          Ayuda
         </button>
       </div>
     </div>

@@ -419,6 +419,12 @@ en su tienda; un supervisor escoge. Sin migración (la columna `canal` es texto)
   suelta) con un mes más viejo listo sin pagar se frena con 409 (`frenarSiHayMesesAnteriores`):
   los anticipos se descuentan "hasta el mes que se paga" y en desorden cambiaba lo que
   se entregaba. El aviso del 20 dice además lo que quedó sin pagar de meses anteriores.
+- **Ayuda** (`/comisiones/ayuda`, `AyudaComisionesView`, 2026-10-15): explica el módulo
+  en todos los casos (pool, individual, compartida, restauraciones, independientes,
+  almacén, tarjeta, FV2, trimestrales, reemplazos, cuándo queda lista, pago, atrasados,
+  anticipos, preguntas). Solo reglas y ejemplos, sin datos: la abre cualquiera con
+  sesión (botón Ayuda en Comisiones y enlace en las estadísticas del vendedor).
+  **Si cambia una regla de comisiones, cambiar también la ayuda.**
 - Datáfono: lo pagado con tarjeta/Addi descuenta la franquicia del comisionable.
 
 ### 6.11 Costos de fabricación y cotizador IA
