@@ -175,7 +175,7 @@ class EntregaPorProductoTest extends TestCase
     private function venderRelojYMueble(Usuario $v, bool $relojSeLoLleva): Orden
     {
         $this->actingAs($v)->postJson('/api/ordenes', [
-            'cliente_id' => 1, 'tienda_id' => 1, 'canal' => 'fisica', 'anticipo_monto' => 0,
+            'cliente_id' => 1, 'tienda_id' => 1, 'canal' => 'fisica', 'anexo_foto_url' => 'https://ejemplo/anexo.png', 'anticipo_monto' => 0,
             'firma_url' => 'https://ejemplo/firma.png',
             'items' => [
                 ['producto_id' => self::RELOJ, 'cantidad' => 1, 'precio_unitario' => 200000, 'llevar_ahora' => $relojSeLoLleva],
@@ -260,7 +260,7 @@ class EntregaPorProductoTest extends TestCase
     {
         $v = $this->vendedora();
         $this->actingAs($v)->postJson('/api/ordenes', [
-            'cliente_id' => 1, 'tienda_id' => 1, 'canal' => 'fisica', 'anticipo_monto' => 0,
+            'cliente_id' => 1, 'tienda_id' => 1, 'canal' => 'fisica', 'anexo_foto_url' => 'https://ejemplo/anexo.png', 'anticipo_monto' => 0,
             'firma_url' => 'https://ejemplo/firma.png',
             'items' => [['producto_id' => self::RELOJ, 'cantidad' => 2, 'precio_unitario' => 200000, 'llevar_ahora' => true]],
         ])->assertCreated();
@@ -458,7 +458,7 @@ class EntregaPorProductoTest extends TestCase
     {
         $v = $this->vendedora();
         $this->actingAs($v)->postJson('/api/ordenes', [
-            'cliente_id' => 1, 'tienda_id' => 1, 'canal' => 'fisica', 'anticipo_monto' => 0,
+            'cliente_id' => 1, 'tienda_id' => 1, 'canal' => 'fisica', 'anexo_foto_url' => 'https://ejemplo/anexo.png', 'anticipo_monto' => 0,
             'firma_url' => 'https://ejemplo/firma.png',
             'items' => [['producto_id' => self::RELOJ, 'cantidad' => 2, 'precio_unitario' => 200000]],
         ])->assertCreated();
@@ -490,7 +490,7 @@ class EntregaPorProductoTest extends TestCase
     {
         $v = $this->vendedora();
         $this->actingAs($v)->postJson('/api/ordenes', [
-            'cliente_id' => 1, 'tienda_id' => 1, 'canal' => 'fisica', 'anticipo_monto' => 0,
+            'cliente_id' => 1, 'tienda_id' => 1, 'canal' => 'fisica', 'anexo_foto_url' => 'https://ejemplo/anexo.png', 'anticipo_monto' => 0,
             'firma_url' => 'https://ejemplo/firma.png',
             'items' => [['producto_id' => self::RELOJ, 'cantidad' => 1, 'precio_unitario' => 200000]],
         ])->assertCreated();
@@ -542,7 +542,7 @@ class EntregaPorProductoTest extends TestCase
     {
         $v = $this->vendedora();
         $this->actingAs($v)->postJson('/api/ordenes', [
-            'cliente_id' => 1, 'tienda_id' => 1, 'canal' => 'fisica', 'anticipo_monto' => 0,
+            'cliente_id' => 1, 'tienda_id' => 1, 'canal' => 'fisica', 'anexo_foto_url' => 'https://ejemplo/anexo.png', 'anticipo_monto' => 0,
             'firma_url' => 'https://ejemplo/firma.png',
             'items' => [['producto_id' => self::RELOJ, 'cantidad' => 1, 'precio_unitario' => 200000]],
         ])->assertCreated();
@@ -767,7 +767,7 @@ class EntregaPorProductoTest extends TestCase
         DB::table('inventario')->insert(['producto_id' => self::LAMPARA, 'tienda_id' => 1, 'cantidad_disponible' => 2, 'cantidad_reservada' => 0]);
 
         $this->actingAs($v)->postJson('/api/ordenes', [
-            'cliente_id' => 1, 'tienda_id' => 1, 'canal' => 'fisica', 'anticipo_monto' => 0,
+            'cliente_id' => 1, 'tienda_id' => 1, 'canal' => 'fisica', 'anexo_foto_url' => 'https://ejemplo/anexo.png', 'anticipo_monto' => 0,
             'firma_url' => 'https://ejemplo/firma.png',
             'items' => [
                 ['producto_id' => self::RELOJ,   'cantidad' => 1, 'precio_unitario' => 100000],
@@ -882,7 +882,7 @@ class EntregaPorProductoTest extends TestCase
     {
         $v = $this->vendedora();
         $this->actingAs($v)->postJson('/api/ordenes', [
-            'cliente_id' => 1, 'tienda_id' => 1, 'canal' => 'fisica', 'anticipo_monto' => 0,
+            'cliente_id' => 1, 'tienda_id' => 1, 'canal' => 'fisica', 'anexo_foto_url' => 'https://ejemplo/anexo.png', 'anticipo_monto' => 0,
             'firma_url' => 'https://ejemplo/firma.png',
             'items' => [['producto_id' => self::RELOJ, 'cantidad' => 2, 'precio_unitario' => 200000, 'llevar_ahora' => true]],
         ])->assertCreated();

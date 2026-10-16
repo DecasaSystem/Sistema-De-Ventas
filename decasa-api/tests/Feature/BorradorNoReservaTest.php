@@ -149,6 +149,7 @@ class BorradorNoReservaTest extends TestCase
             'cliente_id'     => 1,
             'tienda_id'      => 1,
             'canal'          => 'fisica',
+            'anexo_foto_url' => 'https://ejemplo/anexo.png',
             'anticipo_monto' => 0,
             'firma_url'      => 'https://ejemplo/firma.png',
             'items'          => [[
@@ -205,6 +206,93 @@ class BorradorNoReservaTest extends TestCase
 
         $this->assertSame('pendiente_anticipo', Orden::first()->estado);
         $this->assertSame(1, $this->reservado(), 'al confirmar el borrador SÍ se reserva');
+    }
+
+    // ── Anexo de garantías: obligatorio en la venta, opcional en restauración ─
+    // Dueño, 2026-10-16: la garantía es de lo que se vende. En una venta
+    // presencial se pide (firmado en el sistema o la foto del papel); en una
+    // restauración (el mueble es del cliente) no.
+
+    private function completarSinAnexo(Usuario $v, int $ordenId)
+    {
+        return $this->actingAs($v)->postJson("/api/ordenes/{$ordenId}/completar-borrador", [
+            'firma_url'          => 'https://ejemplo/firma-cliente.png',
+            'anticipo_monto'     => 0,
+            'factura_foto_url'   => 'https://ejemplo/factura.png',
+            'departamento_envio' => 'Risaralda',
+            'ciudad_envio'       => 'Pereira',
+            'direccion_envio'    => 'Calle 1 # 2-3',
+        ]);
+    }
+
+    public function test_una_restauracion_presencial_se_completa_sin_anexo(): void
+    {
+        $v = $this->vendedor();
+
+        $r = $this->actingAs($v)->postJson('/api/ordenes', $this->payload([
+            'guardar_borrador' => true,
+            'tipo'  => 'restauracion',
+            'items' => [[
+                'nombre_custom'    => 'Sofá del cliente',
+                'cantidad'         => 1,
+                'precio_unitario'  => 80000,
+                'es_personalizado' => true,
+                'es_restauracion'  => true,
+                'specs_personalizacion' => ['descripcion_trabajo' => 'Cambiar la tela y arreglar un brazo'],
+            ]],
+        ]))->assertCreated();
+
+        $this->completarSinAnexo($v, $r->json('id'))->assertOk();
+        $this->assertSame('pendiente_anticipo', Orden::first()->estado);
+    }
+
+    public function test_una_venta_presencial_sigue_pidiendo_el_anexo(): void
+    {
+        $v = $this->vendedor();
+
+        $r = $this->actingAs($v)->postJson('/api/ordenes', $this->payload(['guardar_borrador' => true]))->assertCreated();
+
+        $this->completarSinAnexo($v, $r->json('id'))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('anexo_foto_url');
+    }
+
+    public function test_crear_una_venta_presencial_sin_anexo_no_se_deja(): void
+    {
+        $v = $this->vendedor();
+
+        $this->actingAs($v)->postJson('/api/ordenes', $this->payload(['anexo_foto_url' => null]))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('anexo_foto_url');
+
+        $this->assertSame(0, Orden::count());
+    }
+
+    public function test_crear_una_restauracion_presencial_sin_anexo_si_se_deja(): void
+    {
+        $v = $this->vendedor();
+
+        $this->actingAs($v)->postJson('/api/ordenes', $this->payload([
+            'anexo_foto_url' => null,
+            'tipo'  => 'restauracion',
+            'items' => [[
+                'nombre_custom'    => 'Sofá del cliente',
+                'cantidad'         => 1,
+                'precio_unitario'  => 80000,
+                'es_personalizado' => true,
+                'es_restauracion'  => true,
+                'specs_personalizacion' => ['descripcion_trabajo' => 'Cambiar la tela y arreglar un brazo'],
+            ]],
+        ]))->assertCreated();
+    }
+
+    public function test_guardar_el_borrador_sin_anexo_si_se_deja(): void
+    {
+        $v = $this->vendedor();
+
+        // El borrador todavía no es venta: el anexo se pide al confirmarlo.
+        $this->actingAs($v)->postJson('/api/ordenes', $this->payload(['anexo_foto_url' => null, 'guardar_borrador' => true]))
+            ->assertCreated();
     }
 
     // ── Seguir el borrador en la pantalla de Nueva orden ─────────────────────

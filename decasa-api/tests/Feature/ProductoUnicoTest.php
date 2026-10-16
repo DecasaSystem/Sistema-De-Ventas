@@ -147,6 +147,7 @@ class ProductoUnicoTest extends TestCase
             'cliente_id'     => 1,
             'tienda_id'      => 1,
             'canal'          => 'fisica',
+            'anexo_foto_url' => 'https://ejemplo/anexo.png',
             'anticipo_monto' => 0,
             'firma_url'      => 'https://ejemplo/firma.png',
             'items'          => $items,

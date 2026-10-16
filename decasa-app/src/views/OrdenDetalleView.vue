@@ -1773,11 +1773,23 @@ const metodosOpts = [
 // otra vez, y el anexo que firmó ahí reemplaza la foto del papel.
 const firmoADistancia = computed(() => !!orden.value?.firma_url)
 const anexoYaFirmado  = computed(() => !!orden.value?.anexo_garantia)
+// El anexo de garantías es de lo que se vende: en una restauración (serie R o
+// todo son muebles del cliente) es opcional. Misma regla que
+// Orden::esSoloRestauracion en el backend.
+const esSoloRestauracion = computed(() => {
+  const o = orden.value
+  if (!o) return false
+  if (o.serie === 'R') return true
+  return !!o.items?.length && o.items.every(i => !!i.es_restauracion)
+})
+// Venta presencial sin anexo firmado en el sistema: se pide la foto del papel.
+const pideFotoAnexo = computed(() => orden.value?.canal === 'fisica' && !anexoYaFirmado.value)
+const exigeFotoAnexo = computed(() => pideFotoAnexo.value && !esSoloRestauracion.value)
 
 async function doConfirmarCotizacion() {
   if (!firmoADistancia.value && !firmaConfirmarBlob.value && !firmaConfirmarUrl.value) return
-  const esPresencial = orden.value?.canal === 'fisica' && !anexoYaFirmado.value
-  if (esPresencial && !anexoConfirmarFile.value && !anexoConfirmarUrl.value) {
+  const esPresencial = pideFotoAnexo.value
+  if (exigeFotoAnexo.value && !anexoConfirmarFile.value && !anexoConfirmarUrl.value) {
     toast.error('Adjunta la foto del anexo firmado antes de confirmar.')
     return
   }
@@ -3921,9 +3933,11 @@ onMounted(() => { cargarTipos(); cargarOrden() })
           </h3>
 
           <!-- Foto del anexo firmado (solo si canal físico) -->
-          <div v-if="orden?.canal === 'fisica' && !anexoYaFirmado" class="space-y-1">
+          <div v-if="pideFotoAnexo" class="space-y-1">
             <label class="block text-xs font-semibold text-gray-600 uppercase">
-              Foto del anexo firmado <span class="text-red-500">*</span>
+              Foto del anexo firmado
+              <span v-if="exigeFotoAnexo" class="text-red-500">*</span>
+              <span v-else class="normal-case font-normal text-gray-400">(opcional en restauración)</span>
             </label>
             <div v-if="anexoConfirmarFile" class="space-y-1.5">
               <div class="relative">
@@ -4074,7 +4088,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
             </button>
             <button
               @click="doConfirmarCotizacion"
-              :disabled="(!firmoADistancia && !firmaConfirmarBlob) || (orden?.canal === 'fisica' && !anexoYaFirmado && !anexoConfirmarFile && !anexoConfirmarUrl) || confirmando"
+              :disabled="(!firmoADistancia && !firmaConfirmarBlob) || (exigeFotoAnexo && !anexoConfirmarFile && !anexoConfirmarUrl) || confirmando"
               class="flex-1 bg-green-600 text-white rounded-lg py-2.5 text-sm font-semibold hover:bg-green-700 disabled:opacity-40 transition-colors"
             >
               {{ confirmando ? 'Confirmando...' : 'Confirmar' }}

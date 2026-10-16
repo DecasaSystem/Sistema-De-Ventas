@@ -395,7 +395,8 @@ class CotizacionController extends Controller
             return response()->json(['message' => 'Esta cotización ya se convirtió en orden.'], 422);
         }
 
-        $esPresencial = $cotizacion->canal === 'fisica';
+        // En una restauración el anexo es opcional (Orden::esSoloRestauracion).
+        $esPresencial = $cotizacion->canal === 'fisica' && ! $cotizacion->esSoloRestauracion();
 
         $data = $request->validate([
             // Cliente formal: obligatorio para una orden. Puede venir uno existente

@@ -263,6 +263,16 @@ const form = ref({
 
 const necesitaCliente = computed(() => !cotizacion.value?.cliente_id)
 const esPresencial    = computed(() => cotizacion.value?.canal === 'fisica')
+// El anexo de garantías es de lo que se vende: en una restauración (serie R o
+// todo son muebles del cliente) es opcional. Misma regla que
+// Orden::esSoloRestauracion en el backend.
+const esSoloRestauracion = computed(() => {
+  const c = cotizacion.value
+  if (!c) return false
+  if (c.serie === 'R') return true
+  return !!c.items?.length && c.items.every(i => !!i.es_restauracion)
+})
+const exigeAnexo = computed(() => esPresencial.value && !esSoloRestauracion.value)
 
 function precargarContacto() {
   form.value.cliente_nombre   = cotizacion.value?.contacto_nombre   ?? ''
@@ -289,7 +299,7 @@ async function hacerConversion() {
     toast.error('Para cerrar la venta necesitas al menos nombre y teléfono del cliente.')
     return
   }
-  if (esPresencial.value && !anexoFile.value) {
+  if (exigeAnexo.value && !anexoFile.value) {
     toast.error('En venta presencial se requiere la foto del anexo firmado.')
     return
   }
@@ -800,7 +810,11 @@ onMounted(cargar)
 
             <!-- Anexo en venta presencial -->
             <div v-if="esPresencial" class="space-y-1 pt-1">
-              <p class="text-xs font-semibold text-gray-700">Foto del anexo firmado *</p>
+              <p class="text-xs font-semibold text-gray-700">
+                Foto del anexo firmado
+                <span v-if="exigeAnexo">*</span>
+                <span v-else class="font-normal text-gray-400">(opcional en restauración)</span>
+              </p>
               <input type="file" accept="image/*" capture="environment" class="text-xs"
                      @change="anexoFile = $event.target.files[0]" />
             </div>

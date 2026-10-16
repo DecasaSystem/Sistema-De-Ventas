@@ -91,6 +91,15 @@ Plan y flujo: `docs/plan-garantias-posventa.md`. Decisiones del dueño:
   pagada no se toca); lo devuelto va a inventario o merma según se decida al
   recibirlo. Se guarda como **pago negativo `tipo=reembolso`** (así saldo, caja,
   cartera y el 50 % lo cuentan solos): no editarlo como un abono.
+- **El anexo de garantías es obligatorio solo en ventas** (dueño, 2026-10-16): en venta
+  presencial se pide firmado en el sistema o la foto del papel; en una **restauración**
+  (serie R o todos los ítems `es_restauracion`) es opcional. Una orden que mezcla producto
+  y restauración es venta y sí lo pide. Regla en `Orden::esSoloRestauracion()` (confirmar
+  cotización, completar borrador, convertir cotización), en `OrdenController::store`
+  (crear desde Nueva orden; antes no lo exigía) y repetida en Nueva orden / OrdenDetalle /
+  CotizacionDetalle. No se pide al guardar borrador ni con precio por consultar (se pide
+  al confirmar), ni en venta virtual. Las pruebas que crean ventas presenciales mandan
+  `anexo_foto_url`.
 La regla técnica que no hay que romper: al arreglar en el taller el producto se
 **reactiva** en la misma orden y se vuelve a entregar por el camino normal, **sin
 descontar stock otra vez** (`orden_items.cantidad_en_garantia`, `EntregaService`).

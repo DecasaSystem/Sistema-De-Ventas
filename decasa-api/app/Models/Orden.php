@@ -431,6 +431,23 @@ class Orden extends Model
     }
 
     /**
+     * La misma regla de `sqlTipo` para una orden ya cargada: es restauración
+     * si va en la serie R o si TODO lo que lleva son muebles del cliente.
+     *
+     * El anexo de garantías es de lo que se vende (dueño, 2026-10-16): en una
+     * restauración es opcional. Una que mezcla un producto con una
+     * restauración es una venta y sí lo pide.
+     */
+    public function esSoloRestauracion(): bool
+    {
+        if ($this->serie === self::SERIE_RESTAURACION) return true;
+
+        $items = $this->relationLoaded('items') ? $this->items : $this->items()->get();
+
+        return $items->isNotEmpty() && $items->every(fn ($i) => (bool) $i->es_restauracion);
+    }
+
+    /**
      * Las tres columnas de plata por tipo, para meter en un SELECT.
      *
      * @param string $monto  qué se suma: el pago cobrado o el valor de la orden

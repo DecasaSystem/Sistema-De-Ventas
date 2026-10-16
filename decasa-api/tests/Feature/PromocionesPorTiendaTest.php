@@ -287,7 +287,7 @@ class PromocionesPorTiendaTest extends TestCase
         $promo = $this->crear([])->assertCreated()->json('id');
 
         $this->actingAs($this->vendedora())->postJson('/api/ordenes', [
-            'cliente_id' => 1, 'tienda_id' => 1, 'canal' => 'fisica', 'anticipo_monto' => 0,
+            'cliente_id' => 1, 'tienda_id' => 1, 'canal' => 'fisica', 'anexo_foto_url' => 'https://ejemplo/anexo.png', 'anticipo_monto' => 0,
             'firma_url'  => 'https://ejemplo/firma.png',
             'items' => [[
                 'producto_id' => 10, 'combo_config_id' => 100, 'variante_detalle' => '1.40',
@@ -316,14 +316,14 @@ class PromocionesPorTiendaTest extends TestCase
         ], $extra);
 
         $this->actingAs($this->vendedora())->postJson('/api/ordenes', [
-            'cliente_id' => 1, 'tienda_id' => 1, 'canal' => 'fisica', 'anticipo_monto' => 0,
+            'cliente_id' => 1, 'tienda_id' => 1, 'canal' => 'fisica', 'anexo_foto_url' => 'https://ejemplo/anexo.png', 'anticipo_monto' => 0,
             'firma_url'  => 'https://ejemplo/firma.png',
             'items' => [$linea(['combo_config_id' => 100])],
         ])->assertCreated();
         $this->assertNull(OrdenItem::first()->promocion_id, 'La tienda 1 no tiene esa promoción');
 
         $this->actingAs($this->vendedora(2))->postJson('/api/ordenes', [
-            'cliente_id' => 1, 'tienda_id' => 2, 'canal' => 'fisica', 'anticipo_monto' => 0,
+            'cliente_id' => 1, 'tienda_id' => 2, 'canal' => 'fisica', 'anexo_foto_url' => 'https://ejemplo/anexo.png', 'anticipo_monto' => 0,
             'firma_url'  => 'https://ejemplo/firma.png',
             'items' => [$linea(['combo_config_id' => 101])],
         ])->assertCreated();

@@ -2148,6 +2148,18 @@ const anexoFotoFile      = ref(null)
 const anexoFotoUrl       = ref('')
 const anexoFotoPreview   = ref('')
 const subiendoAnexo      = ref(false)
+
+// El anexo de garantías es obligatorio en la venta presencial (dueño,
+// 2026-10-16): firmado aquí en el sistema o la foto del papel. En una
+// restauración es opcional (la garantía es de lo que se vende), y con precio
+// por consultar se pide al confirmar la cotización. El servidor lo vuelve a
+// revisar al crear la orden (OrdenController::store).
+const exigeAnexo = computed(() =>
+  canal.value === 'fisica' && tipoOrden.value !== 'restauracion' && !hayItemsCotizar.value && !modoCotizacion.value
+)
+const tieneAnexo = computed(() =>
+  anexo.value?.estado === 'firmado' || !!anexoFotoFile.value || !!anexoFotoUrl.value
+)
 watch(anexoFotoFile, (file) => {
   if (anexoFotoPreview.value) URL.revokeObjectURL(anexoFotoPreview.value)
   anexoFotoPreview.value = file ? URL.createObjectURL(file) : ''
@@ -2422,6 +2434,11 @@ async function validarParaCrear() {
 
   if (esCompartida.value && !covendedorId.value) {
     toast.error('Selecciona el co-vendedor para la venta compartida.')
+    return false
+  }
+
+  if (!modoGuardarBorrador.value && exigeAnexo.value && !tieneAnexo.value) {
+    toast.error('Falta el anexo de garantías: que el cliente lo firme aquí en el sistema o sube la foto del anexo firmado en papel.')
     return false
   }
 
@@ -5807,6 +5824,13 @@ onBeforeUnmount(() => {
 
         <!-- Sin anexo todavía -->
         <template v-else>
+          <p v-if="exigeAnexo && !tieneAnexo" class="text-xs text-amber-600 flex items-center gap-1">
+            <ExclamationTriangleIcon class="w-4 h-4 text-amber-500 flex-shrink-0" />
+            Obligatorio en la venta: fírmalo aquí o sube la foto del anexo en papel.
+          </p>
+          <p v-else-if="canal === 'fisica' && tipoOrden === 'restauracion'" class="text-xs text-gray-400">
+            En una restauración el anexo es opcional.
+          </p>
           <p class="text-xs text-gray-500">
             El cliente lee el anexo, responde el check list y firma con el dedo; esa firma es también la de la orden.
             {{ canal === 'fisica'
@@ -5836,7 +5860,7 @@ onBeforeUnmount(() => {
       <div v-if="canal === 'fisica' && anexo?.estado !== 'firmado'">
         <label class="label">
           ¿Lo firmó en papel? Foto del anexo
-          <span class="text-xs font-normal text-gray-400 ml-1">(opcional)</span>
+          <span v-if="!exigeAnexo" class="text-xs font-normal text-gray-400 ml-1">(opcional)</span>
         </label>
         <p class="text-xs text-gray-400 mb-2">Si el cliente firmó el documento impreso, súbele la foto.</p>
 

@@ -682,6 +682,20 @@ class OrdenController extends Controller
                 ], 422);
             }
 
+            // Anexo de garantías (dueño, 2026-10-16): en una venta presencial
+            // es obligatorio, firmado aquí en el sistema o la foto del papel.
+            // En una restauración es opcional: la garantía es de lo que se
+            // vende (misma regla que Orden::esSoloRestauracion). Con precio
+            // por consultar se pide al confirmar la cotización.
+            $soloRestauracion = collect($data['items'])->every(fn ($i) => ! empty($i['es_restauracion']));
+            if (($data['canal'] ?? null) === 'fisica' && ! $soloRestauracion && ! $tieneItemsCotizacionPendiente
+                && ! $anexo && empty($data['anexo_foto_url'])) {
+                return response()->json([
+                    'message' => 'Falta el anexo de garantías: que el cliente lo firme en el sistema o sube la foto del anexo firmado en papel.',
+                    'errors'  => ['anexo_foto_url' => ['El anexo de garantías es obligatorio en la venta.']],
+                ], 422);
+            }
+
             // No se fuerza un mínimo — el vendedor puede poner cualquier monto ≥ 0
         }
 
@@ -1364,7 +1378,8 @@ class OrdenController extends Controller
             return response()->json(['message' => 'No autorizado.'], 403);
         }
 
-        $esPresencial = $orden->canal === 'fisica';
+        // En una restauración el anexo es opcional (Orden::esSoloRestauracion).
+        $esPresencial = $orden->canal === 'fisica' && ! $orden->esSoloRestauracion();
         // El cliente ya firmó a distancia (orden + anexo por el enlace): esa
         // firma vale, y el anexo firmado reemplaza la foto del papel.
         $yaFirmo        = (bool) $orden->firma_url;
@@ -2679,7 +2694,8 @@ class OrdenController extends Controller
             return response()->json(['message' => 'No tienes permiso para completar esta orden.'], 403);
         }
 
-        $esPresencial = $orden->canal === 'fisica';
+        // En una restauración el anexo es opcional (Orden::esSoloRestauracion).
+        $esPresencial = $orden->canal === 'fisica' && ! $orden->esSoloRestauracion();
 
         $data = $request->validate([
             'firma_url'           => 'required|string|max:500',
