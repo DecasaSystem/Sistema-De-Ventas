@@ -371,6 +371,16 @@ const vendedorEsIndependiente = computed(() => {
   if (id === props.orden?.vendedor_id) return !!props.orden?.vendedor?.independiente
   return !!vendedoresLista.value.find(v => v.id === id)?.independiente
 })
+// Si el vendedor nuevo tiene tienda, la orden se va con él (lo hace el
+// servidor al guardar, salvo que se escoja otra tienda a mano). Se avisa
+// para que no sea una sorpresa.
+const tiendaQueToma = computed(() => {
+  if (!vendedorId.value || vendedorId.value === props.orden?.vendedor_id) return null
+  if (tiendaId.value !== (props.orden?.tienda_id ?? null)) return null
+  const v = vendedoresLista.value.find(x => x.id === vendedorId.value)
+  if (!v?.tienda || v.tienda === '—' || v.tienda === props.orden?.tienda?.nombre) return null
+  return { tienda: v.tienda, nombre: v.nombre }
+})
 const tiendasAbonables = computed(() =>
   tiendasLista.value.filter(t => !t.es_fabrica && !t.es_independientes && t.id !== tiendaId.value)
 )
@@ -1604,6 +1614,10 @@ function solicitudEnviada() {
                 >
                   <option v-for="v in opcionesVendedor" :key="v.id" :value="v.id">{{ v.nombre }}</option>
                 </select>
+                <p v-if="tiendaQueToma" class="text-[11px] text-blue-700 mt-1">
+                  Al guardar, la orden pasa a {{ tiendaQueToma.tienda }}, la tienda de {{ tiendaQueToma.nombre }}.
+                  Lo apartado sigue saliendo de donde está.
+                </p>
               </div>
               <div v-if="!soloPapeles">
                 <label class="block text-xs font-medium text-gray-600 mb-1">Tienda</label>

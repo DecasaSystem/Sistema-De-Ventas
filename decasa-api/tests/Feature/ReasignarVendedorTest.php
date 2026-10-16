@@ -196,14 +196,70 @@ class ReasignarVendedorTest extends TestCase
         $this->assertSame(1, DB::table('orden_ediciones')->where('orden_id', $orden->id)->count(), 'queda en el historial');
     }
 
-    public function test_venta_de_mostrador_a_alguien_de_otra_tienda_sigue_contando_para_la_tienda_de_la_orden(): void
+    public function test_a_alguien_de_otra_tienda_la_orden_pasa_a_su_tienda(): void
     {
-        // Lo físico es de la tienda donde se vendió (tiendaParaComision).
+        // Dueño, 2026-10-16: si el vendedor nuevo tiene tienda, la orden se va
+        // con él. Antes la de mostrador se quedaba contando para Norte.
         $orden = $this->orden(self::PAOLA);
 
         $this->reasignar($orden, ['vendedor_id' => self::JUAN])->assertOk();
 
-        $this->assertSame([self::JUAN => [self::NORTE, 'venta']], $this->comisiones($orden));
+        $this->assertSame(self::UNICENTRO, (int) $orden->fresh()->tienda_id);
+        $this->assertSame([self::JUAN => [self::UNICENTRO, 'venta']], $this->comisiones($orden));
+    }
+
+    public function test_si_el_supervisor_escoge_otra_tienda_manda_la_suya(): void
+    {
+        $orden = $this->orden(self::PAOLA);
+
+        $this->reasignar($orden, ['vendedor_id' => self::JUAN, 'tienda_id' => self::INDEP])->assertOk();
+
+        $this->assertSame(self::INDEP, (int) $orden->fresh()->tienda_id);
+    }
+
+    public function test_el_mueble_sigue_saliendo_de_la_tienda_vieja(): void
+    {
+        // Cambia de quién es la venta, no dónde está el sofá: lo apartado en
+        // Norte se queda apartado en Norte y de ahí se descuenta al entregar.
+        $orden = Orden::create(['cliente_id' => 1, 'tienda_id' => self::NORTE, 'vendedor_id' => self::PAOLA,
+                                'valor_total' => 1340000, 'canal' => 'fisica']);
+        $item = OrdenItem::create(['orden_id' => $orden->id, 'producto_id' => 5, 'cantidad' => 1, 'precio_unitario' => 1340000]);
+        DB::table('inventario')->insert([
+            ['producto_id' => 5, 'tienda_id' => self::NORTE, 'cantidad_disponible' => 3, 'cantidad_reservada' => 1],
+            ['producto_id' => 5, 'tienda_id' => self::UNICENTRO, 'cantidad_disponible' => 2, 'cantidad_reservada' => 0],
+        ]);
+        \App\Http\Controllers\ComisionController::crearParaOrden($orden->fresh());
+
+        $this->reasignar($orden, ['vendedor_id' => self::JUAN])->assertOk();
+
+        $this->assertSame(self::UNICENTRO, (int) $orden->fresh()->tienda_id);
+        $this->assertSame(self::NORTE, (int) $item->fresh()->tienda_origen_id);
+        $this->assertSame(1, (int) DB::table('inventario')->where('tienda_id', self::NORTE)->value('cantidad_reservada'));
+        $this->assertSame(0, (int) DB::table('inventario')->where('tienda_id', self::UNICENTRO)->value('cantidad_reservada'));
+        $this->assertSame(0, DB::table('inventario_movimientos')->count());
+    }
+
+    public function test_restauracion_de_un_independiente_entregada_pasa_a_la_tienda_y_se_reparte(): void
+    {
+        // El caso de la R-1093: la subió Flabio (independiente) y era de
+        // Gladys, de El Edén, donde las restauraciones se parten entre el
+        // equipo. Ya entregada: el selector de tienda ni se ve.
+        $orden = Orden::create(['cliente_id' => 1, 'tienda_id' => self::INDEP, 'vendedor_id' => self::HENRY,
+                                'valor_total' => 1300000, 'serie' => 'R', 'serie_numero' => 1093,
+                                'canal' => 'fisica', 'estado' => 'entregado']);
+        OrdenItem::create(['orden_id' => $orden->id, 'es_restauracion' => true, 'nombre_custom' => 'Sala',
+                           'cantidad' => 1, 'precio_unitario' => 1300000]);
+        \App\Http\Controllers\ComisionController::crearParaOrden($orden->fresh());
+
+        $this->reasignar($orden, ['vendedor_id' => self::PAOLA])->assertOk();
+
+        $this->assertSame(self::NORTE, (int) $orden->fresh()->tienda_id);
+        $this->assertSame([
+            self::PAOLA  => [self::NORTE, 'restauracion_equipo'],
+            self::MARTHA => [self::NORTE, 'restauracion_equipo'],
+        ], $this->comisiones($orden));
+        $this->assertEquals([650000, 650000],
+            Comision::where('orden_id', $orden->id)->orderBy('vendedor_id')->pluck('valor_orden')->map(fn ($v) => (float) $v)->all());
     }
 
     public function test_venta_digital_a_alguien_de_otra_tienda_se_va_a_la_tienda_de_el(): void
@@ -223,6 +279,7 @@ class ReasignarVendedorTest extends TestCase
         $this->reasignar($orden, ['vendedor_id' => self::HENRY])->assertOk();
 
         $this->assertSame([self::HENRY], array_keys($this->comisiones($orden)));
+        $this->assertSame(self::INDEP, (int) $orden->fresh()->tienda_id, 'se va con él a Independientes');
     }
 
     public function test_de_un_independiente_que_compartia_con_un_almacen_a_uno_de_tienda_quita_el_reparto(): void

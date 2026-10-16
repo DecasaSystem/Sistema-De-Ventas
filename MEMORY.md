@@ -114,6 +114,13 @@ escribiendo precios (Fase 1b).
   pura) llevan serie propia. Borradores y "esperando precio" no gastan número.
 - Un vendedor no cambia plata solo: lo pide (`SolicitudCambio`) y un supervisor
   aprueba.
+- **Reasignar el vendedor se lleva la tienda** (dueño, 2026-10-16, caso R-1093:
+  la subió Flabio y era de Gladys, de El Edén). Si el vendedor nuevo tiene tienda,
+  la orden pasa a esa tienda (también entregada) y la comisión se rehace ahí: en
+  una tienda que reparte, la restauración se parte entre el equipo. Si el
+  supervisor escoge otra tienda a mano, manda la suya. Lo apartado **no** se muda:
+  a los ítems se les fija `tienda_origen_id` = tienda vieja (de ahí sigue saliendo
+  el mueble). Tests en `ReasignarVendedorTest`.
 
 ## 3. Trabajo abierto / a medias
 

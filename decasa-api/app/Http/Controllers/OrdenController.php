@@ -1683,6 +1683,8 @@ class OrdenController extends Controller
 
         DB::transaction(function () use ($data, $orden, $usuario, &$cambios, $reasignando, $ajustandoAbono) {
             $updateOrden = [];
+            // La tienda cambió solo porque cambió el vendedor (ver abajo).
+            $soloLaVenta = false;
 
             // ── Cambios a nivel de orden ──────────────────────────────────────
             if (array_key_exists('fecha_sugerida_vendedor', $data)) {
@@ -1796,6 +1798,37 @@ class OrdenController extends Controller
                     $nombreDespues = Usuario::find($data['vendedor_id'])?->nombre ?? $data['vendedor_id'];
                     $cambios[]    = ['campo' => 'vendedor_id', 'label' => 'Vendedor', 'antes' => $nombreAntes, 'despues' => $nombreDespues];
                     $updateOrden['vendedor_id'] = $data['vendedor_id'];
+
+                    // La venta se va con su dueño: si la persona nueva tiene
+                    // tienda, la orden pasa a esa tienda (dueño, 2026-10-16).
+                    // La R-1093 la subió Flabio y era de Gladys, de El Edén: al
+                    // cambiarla se quedaba en "Independientes", Gladys cobraba
+                    // el 5% entero y su compañero nada, cuando en El Edén las
+                    // restauraciones se reparten entre el equipo. Si el
+                    // supervisor escoge otra tienda a mano, manda la suya.
+                    $tiendaDelNuevo = (int) Usuario::where('id', $data['vendedor_id'])->value('tienda_default_id');
+                    if ($tiendaDelNuevo
+                        && $tiendaDelNuevo !== (int) $orden->tienda_id
+                        && ! (array_key_exists('tienda_id', $data) && (int) $data['tienda_id'] !== (int) $orden->tienda_id)) {
+                        $cambios[] = [
+                            'campo'   => 'tienda_id',
+                            'label'   => 'Tienda',
+                            'antes'   => Tienda::find($orden->tienda_id)?->nombre ?? $orden->tienda_id,
+                            'despues' => Tienda::find($tiendaDelNuevo)?->nombre ?? $tiendaDelNuevo,
+                        ];
+                        $updateOrden['tienda_id'] = $tiendaDelNuevo;
+
+                        // Cambia de quién es la venta, no de dónde sale el
+                        // mueble: lo apartado o ya entregado salió de la tienda
+                        // vieja y de ahí se sigue descontando (o devolviendo).
+                        // Por eso no se mudan las reservas, como al cambiar la
+                        // tienda a mano: se deja anotado el origen en cada ítem.
+                        $soloLaVenta = true;
+                        foreach ($orden->items as $item) {
+                            if ($item->es_personalizado || ! $item->producto_id || $item->tienda_origen_id) continue;
+                            $item->update(['tienda_origen_id' => $orden->tienda_id]);
+                        }
+                    }
                 }
                 if (array_key_exists('tienda_id', $data) && (int) $data['tienda_id'] !== (int) $orden->tienda_id) {
                     $nombreAntes  = Tienda::find($orden->tienda_id)?->nombre ?? $orden->tienda_id;
@@ -2422,7 +2455,7 @@ class OrdenController extends Controller
                 // La tienda de la orden es de donde sale lo que tiene apartado,
                 // así que cambiarla hay que llevárselo. Va ANTES del update
                 // para saber todavía de qué tienda venía.
-                if (array_key_exists('tienda_id', $updateOrden)) {
+                if (array_key_exists('tienda_id', $updateOrden) && ! $soloLaVenta) {
                     self::mudarReservas($orden, (int) $updateOrden['tienda_id'], $usuario);
                 }
 
