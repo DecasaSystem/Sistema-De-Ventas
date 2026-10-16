@@ -9,6 +9,7 @@ use App\Models\Producto;
 use App\Models\ProductoVariante;
 use App\Models\Tienda;
 use App\Events\InventarioActualizado;
+use App\Support\OrdenExistencias;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -62,10 +63,17 @@ class ReservaController extends Controller
 
         if ($categoria) {
             $query->where('productos.categoria', $categoria);
-            $query->orderBy(DB::raw('COALESCE(inventario.cantidad_disponible, 0)'), 'desc');
-        } else {
-            $query->orderBy('productos.nombre');
         }
+        // Igual que Inventario: de más a menos stock también en "Todas" (antes
+        // iba por nombre y los de 0 quedaban revueltos entre los que sí hay),
+        // con el mismo menú de orden y filtro de existencias. En la fábrica no
+        // se usa el mínimo de stock: "bajo_minimo" se ignora.
+        $existencia = $request->query('existencia');
+        OrdenExistencias::aplicar(
+            $query,
+            $request->query('orden'),
+            $existencia === 'bajo_minimo' ? null : $existencia,
+        );
 
         $paginated = $query->paginate(20, ['*'], 'page', $page);
 

@@ -340,7 +340,10 @@ en su tienda; un supervisor escoge. Sin migración (la columna `canal` es texto)
   pueden programarse (job `EjecutarTrasladoProgramado`).
 - **Reserva de Fábrica** (`ReservaController`, `ReservaDeposito`): stock
   terminado en la Bodega Fábrica. Producción con `destino = 'reserva'` deposita
-  ahí al terminar ("producir contra stock").
+  ahí al terminar ("producir contra stock"). La lista ordena y filtra igual que
+  Inventario (`App\Support\OrdenExistencias`: de más a menos stock por defecto,
+  menú de orden, Con stock / Agotados; sin "bajo mínimo"), y las variantes de la
+  tarjeta van por stock, colapsadas a 6 con "+N más" y agrupadas por tela al abrir.
 
 ### 6.7 Telas y módulos clonados
 - `CatalogoTelaController` (marca → tipo → color), `InventarioTelaController`
