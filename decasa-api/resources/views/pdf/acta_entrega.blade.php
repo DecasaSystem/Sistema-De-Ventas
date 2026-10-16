@@ -5,19 +5,27 @@
     <title>Acta de satisfacción — Orden {{ $orden->referencia }}</title>
 </head>
 <body style="font-family: 'Helvetica', Arial, sans-serif; font-size: 12px; color: #333; margin: 0; padding: 24px;">
+    @php
+        // Textos: Gestión → Documentos (Acta de satisfacción y Empresa). El
+        // controlador manda el texto vigente el día de la entrega.
+        $acta           = $acta ?? \App\Support\PlantillasDocumento::deFabrica('acta_entrega')['contenido'];
+        $empresa        = \App\Support\PlantillasDocumento::empresa();
+        $renglonEmpresa = \App\Support\PlantillasDocumento::renglonEmpresa();
+    @endphp
 
     <!-- Encabezado -->
     <table style="width: 100%; border-bottom: 2px solid #059669; padding-bottom: 10px; margin-bottom: 20px;">
         <tr>
             <td style="vertical-align: middle;">
                 @if(!empty($logoBase64))
-                    <img src="{{ $logoBase64 }}" style="height: 46px; max-width: 170px; object-fit: contain;" alt="SODEGE">
+                    <img src="{{ $logoBase64 }}" style="height: 46px; max-width: 170px; object-fit: contain;" alt="{{ $empresa['nombre'] }}">
                 @else
-                    <h1 style="font-size: 22px; font-weight: bold; color: #059669; margin: 0;">SODEGE</h1>
+                    <h1 style="font-size: 22px; font-weight: bold; color: #059669; margin: 0;">{{ $empresa['nombre'] }}</h1>
                 @endif
+                @if($renglonEmpresa)<p style="font-size: 9px; color: #6b7280; margin: 2px 0 0 0;">{{ $renglonEmpresa }}</p>@endif
             </td>
             <td style="text-align: right; vertical-align: middle;">
-                <h2 style="font-size: 17px; font-weight: bold; margin: 0; color: #059669;">ACTA DE SATISFACCIÓN</h2>
+                <h2 style="font-size: 17px; font-weight: bold; margin: 0; color: #059669;">{{ $acta['titulo'] }}</h2>
                 <p style="font-size: 11px; color: #6b7280; margin: 3px 0 0 0;">
                     Orden {{ $orden->referencia }}
                     @if($pendientes->isNotEmpty()) · <strong style="color: #b45309;">entrega parcial</strong> @endif
@@ -111,18 +119,14 @@
 
     <!-- Declaración -->
     <div style="border: 1px solid #d1d5db; border-radius: 8px; padding: 14px; margin-bottom: 18px;">
-        <p style="font-size: 11px; line-height: 1.6; margin: 0;">
-            Declaro que recibí los productos relacionados en esta acta, correspondientes a la orden
-            <strong>{{ $orden->referencia }}</strong>, en la fecha y dirección indicadas.
-            @if($pendientes->isNotEmpty())
-                Esta es una <strong>entrega parcial</strong>: lo que aparece como pendiente se entregará aparte.
-            @endif
-            @if($item->conforme)
-                Manifiesto que <strong>llegaron en buen estado y a satisfacción</strong>.
-            @else
-                Dejo constancia de la siguiente <strong>novedad</strong> al momento de recibir.
-            @endif
-        </p>
+        @php
+            $declaracion = trim(implode(' ', array_filter([
+                $acta['declaracion'],
+                $pendientes->isNotEmpty() ? $acta['texto_parcial'] : '',
+                $item->conforme ? $acta['texto_conforme'] : $acta['texto_novedad'],
+            ], fn ($t) => trim((string) $t) !== '')));
+        @endphp
+        <p style="font-size: 11px; line-height: 1.6; margin: 0;">{!! nl2br(e($declaracion)) !!}</p>
     </div>
 
     @if(! $item->conforme && $item->observaciones_entrega)
@@ -148,7 +152,7 @@
                     @if($item->recibido_por_cedula)
                         <p style="font-size: 10px; color: #6b7280; margin: 2px 0 0 0;">C.C. {{ $item->recibido_por_cedula }}</p>
                     @endif
-                    <p style="font-size: 9px; color: #9ca3af; margin: 2px 0 0 0;">Recibe conforme</p>
+                    <p style="font-size: 9px; color: #9ca3af; margin: 2px 0 0 0;">{{ $acta['firma_recibe'] }}</p>
                 </div>
             </td>
             <td style="width: 45%; text-align: center; vertical-align: bottom;">
@@ -162,7 +166,7 @@
     </table>
 
     <p style="text-align: center; font-size: 9px; color: #9ca3af; margin-top: 28px;">
-        SODEGE — {{ $orden->tienda->nombre ?? '' }} · Documento generado el {{ now()->format('d/m/Y H:i') }}
+        {{ $empresa['nombre'] }} — {{ $orden->tienda->nombre ?? '' }} · Documento generado el {{ now()->format('d/m/Y H:i') }}
     </p>
 
 </body>

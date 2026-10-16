@@ -20,6 +20,7 @@ use App\Services\DescuentoCondicionadoService;
 use App\Services\EntregaService;
 use App\Services\NotificacionService;
 use App\Support\ConvierteImagenesPdf;
+use App\Support\PlantillasDocumento;
 use App\Support\StockVariantes;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
@@ -1683,7 +1684,11 @@ class DespachoController extends Controller
         $parcial    = $lineas->isNotEmpty() && $pendientes->isNotEmpty();
 
         $abonos = $orden->totalPagado();
+        // La redacción de la hoja (título, condiciones, rótulos, pie) es la que
+        // se guardó en Gestión → Documentos; los datos salen de la orden.
+        $plantilla = self::plantillaDeEntrega($orden);
         $pdf = Pdf::loadView('pdf.orden_entrega', [
+            'plantilla'   => $plantilla,
             'orden'       => $orden,
             'lineas'      => $lineas,
             'yaEntregado' => $yaEntregado,
@@ -1701,6 +1706,28 @@ class DespachoController extends Controller
         $pdf->setPaper('letter');
 
         return $pdf->download('orden-entrega-' . strtolower(str_replace('#', '', $orden->referencia)) . '.pdf');
+    }
+
+    /**
+     * El texto vigente de la orden de entrega con los datos de esta orden
+     * puestos donde dice {referencia}, {cliente}, {tienda} o {asesor}.
+     */
+    public static function plantillaDeEntrega(Orden $orden): array
+    {
+        $p = PlantillasDocumento::vigente(PlantillasDocumento::ORDEN_ENTREGA)['contenido'];
+        $datos = [
+            'referencia' => $orden->referencia,
+            'cliente'    => $orden->cliente->nombre ?? '',
+            'tienda'     => $orden->tienda->nombre ?? '',
+            'asesor'     => $orden->vendedor->nombre ?? '',
+        ];
+
+        foreach (['titulo', 'etiqueta_saldo', 'firma_recibe', 'firma_recibe_ayuda', 'firma_entrega', 'pie'] as $campo) {
+            $p[$campo] = PlantillasDocumento::conDatos((string) $p[$campo], $datos);
+        }
+        $p['condiciones'] = array_map(fn ($c) => PlantillasDocumento::conDatos($c, $datos), $p['condiciones']);
+
+        return $p;
     }
 
     /**
@@ -1883,8 +1910,16 @@ class DespachoController extends Controller
         $firmaBase64 = $this->urlToBase64($item->firma_recibido_url);
         $logoBase64  = $this->avifToPngBase64(public_path('img/logo.avif'));
 
+        // El texto del acta (Gestión → Documentos) que estaba vigente el día de
+        // la entrega: lo que firmó quien recibió, aunque después se cambie.
+        $acta = PlantillasDocumento::vigenteEn(\App\Support\EsquemasPlantillas::ACTA,
+            $item->entregado_at ? \Carbon\Carbon::parse($item->entregado_at) : null)['contenido'];
+        foreach ($acta as $k => $v) {
+            if (is_string($v)) $acta[$k] = PlantillasDocumento::conDatos($v, ['referencia' => $orden->referencia]);
+        }
+
         $pdf = Pdf::loadView('pdf.acta_entrega', compact(
-            'orden', 'item', 'entregados', 'devueltos', 'pendientes', 'firmaBase64', 'logoBase64'
+            'orden', 'item', 'entregados', 'devueltos', 'pendientes', 'firmaBase64', 'logoBase64', 'acta'
         ));
         $pdf->setPaper('letter');
 

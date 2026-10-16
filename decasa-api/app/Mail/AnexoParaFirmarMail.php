@@ -18,7 +18,8 @@ class AnexoParaFirmarMail extends Mailable
 
     public function envelope(): Envelope
     {
-        return new Envelope(subject: 'Decasa — Revisa y firma tu pedido');
+        // El nombre sale de Gestión → Documentos → Datos de la empresa.
+        return new Envelope(subject: \App\Support\PlantillasDocumento::empresa()['nombre'] . ' — Revisa y firma tu pedido');
     }
 
     public function content(): Content

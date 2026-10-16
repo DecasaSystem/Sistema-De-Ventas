@@ -31,7 +31,7 @@ class CotizacionEnviadaMail extends Mailable
     {
         $c = $this->cargar();
         return new Envelope(
-            subject: 'Cotización Decasa — ' . ($c->cotizacion_ref ?? "#{$this->cotizacionId}"),
+            subject: 'Cotización ' . \App\Support\PlantillasDocumento::empresa()['nombre'] . ' — ' . ($c->cotizacion_ref ?? "#{$this->cotizacionId}"),
         );
     }
 

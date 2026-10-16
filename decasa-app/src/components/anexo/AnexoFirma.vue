@@ -114,7 +114,7 @@ async function firmar() {
         </div>
       </div>
       <div class="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-        <div class="h-full bg-green-600 transition-all" :style="{ width: `${(leidas.size / totalSecciones) * 100}%` }" />
+        <div class="h-full bg-green-600 transition-all" :style="{ width: `${totalSecciones ? (leidas.size / totalSecciones) * 100 : 0}%` }" />
       </div>
     </div>
 
@@ -143,8 +143,8 @@ async function firmar() {
       </div>
     </section>
 
-    <!-- Check list -->
-    <section class="rounded-xl border border-gray-200 bg-white p-4 space-y-3">
+    <!-- Check list (el texto de Gestión → Documentos puede no traer preguntas) -->
+    <section v-if="contenido.checklist.length" class="rounded-xl border border-gray-200 bg-white p-4 space-y-3">
       <p class="text-[1.05em] font-bold text-gray-800">Check list</p>
       <div v-for="q in contenido.checklist" :key="q.id" class="space-y-1.5">
         <p class="text-[1em] text-gray-700">{{ q.pregunta }}</p>

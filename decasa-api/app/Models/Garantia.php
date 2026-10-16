@@ -25,6 +25,7 @@ class Garantia extends Model
      * Cuánto dura la garantía según de qué sea el daño (anexo, numeral 3).
      * "Otro" no tiene plazo propio: accesorios, colchones (los responde el
      * proveedor)... lo valora quien decide.
+     * Son los de FÁBRICA: los vigentes salen de meses() (Gestión → Documentos).
      */
     public const MESES = [
         'madera:elite_promocional' => 60,
@@ -103,11 +104,28 @@ class Garantia extends Model
     /** Meses de garantía para ese tipo de daño, o null si no tiene plazo propio. */
     public static function mesesDeGarantia(string $tipoDano, ?string $linea): ?int
     {
+        $meses = self::meses();
         if ($tipoDano === 'madera') {
-            return self::MESES['madera:' . ($linea ?: 'elite_promocional')];
+            return $meses['madera:' . ($linea ?: 'elite_promocional')] ?? null;
         }
 
-        return self::MESES[$tipoDano] ?? null;
+        return $meses[$tipoDano] ?? null;
+    }
+
+    /**
+     * Los meses vigentes. Desde 2026-10-15 se cambian en Gestión → Documentos →
+     * Plazos de garantía; MESES es el valor de fábrica. Un cambio vale para lo
+     * que se reporte desde ese día: cada garantía guarda su `vence_el`.
+     */
+    public static function meses(): array
+    {
+        $p = \App\Support\PlantillasDocumento::vigente(\App\Support\EsquemasPlantillas::PLAZOS)['contenido'];
+
+        return [
+            'madera:elite_promocional' => (int) $p['madera_elite_promocional'],
+            'madera:economica'         => (int) $p['madera_economica'],
+            'tela_espuma'              => (int) $p['tela_espuma'],
+        ];
     }
 
     /** Hasta cuándo va la garantía, contada desde la entrega (anexo, numeral 2). */

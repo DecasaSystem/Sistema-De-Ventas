@@ -138,7 +138,7 @@
     </table>
 
     <p style="text-align: center; font-size: 9px; color: #888; margin-top: 16px;">
-        Decasa · Hoja de ruta generada el {{ now()->format('d/m/Y H:i') }}
+        {{ \App\Support\PlantillasDocumento::empresa()['nombre'] }} · Hoja de ruta generada el {{ now()->format('d/m/Y H:i') }}
     </p>
 </body>
 </html>

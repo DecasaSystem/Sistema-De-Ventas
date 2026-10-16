@@ -35,7 +35,7 @@ class CotizacionController extends Controller
 {
     use ConvierteImagenesPdf;
 
-    /** Días de vigencia por defecto de una cotización. */
+    /** Días de vigencia de fábrica; los vigentes se cambian en Gestión → Documentos → Cotización. */
     private const DIAS_VIGENCIA = 15;
 
     /**
@@ -191,7 +191,7 @@ class CotizacionController extends Controller
                 'tipo'                    => 'venta',
                 'estado'                  => 'cotizacion',
                 'cotizacion_estado'       => 'abierta',
-                'cotizacion_valida_hasta' => now()->addDays($data['dias_vigencia'] ?? self::DIAS_VIGENCIA)->toDateString(),
+                'cotizacion_valida_hasta' => now()->addDays($data['dias_vigencia'] ?? self::diasVigencia())->toDateString(),
                 'valor_total'             => $valorTotal,
                 'descuento_total'         => $descuentoTotal,
                 'anticipo_pct'            => 0,
@@ -821,6 +821,13 @@ class CotizacionController extends Controller
         }
 
         return $faltantes;
+    }
+
+    /** Los días que vale una cotización si el vendedor no escoge otros. */
+    private static function diasVigencia(): int
+    {
+        return (int) (\App\Support\PlantillasDocumento::vigente(\App\Support\EsquemasPlantillas::COTIZACION)['contenido']['dias_vigencia']
+            ?? self::DIAS_VIGENCIA);
     }
 
     private function veTodas($usuario): bool

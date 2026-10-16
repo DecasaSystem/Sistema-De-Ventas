@@ -19,6 +19,7 @@ import {
 import ModulosPanel from '@/components/gestion/ModulosPanel.vue'
 import HerramientasPanel from '@/components/gestion/HerramientasPanel.vue'
 import CatalogosPanel from '@/components/gestion/CatalogosPanel.vue'
+import DocumentosPanel from '@/components/gestion/DocumentosPanel.vue'
 
 const router = useRouter()
 const toast  = useToast()
@@ -26,13 +27,15 @@ const toast  = useToast()
 const tab = ref('roles')
 
 // Roles y Tiendas son quién trabaja y dónde; Módulos y Herramientas son cómo
-// se llama y qué dice el programa en esta empresa.
+// se llama y qué dice el programa en esta empresa; Documentos, qué dicen los
+// papeles que se firman o se entregan.
 const TABS = [
   { valor: 'roles',        label: 'Roles' },
   { valor: 'tiendas',      label: 'Tiendas' },
   { valor: 'modulos',      label: 'Módulos' },
   { valor: 'herramientas', label: 'Herram.' },
   { valor: 'catalogos',    label: 'Catálogos' },
+  { valor: 'documentos',   label: 'Docs.' },
 ]
 
 // ── Roles (puestos de trabajo) ────────────────────────────────────────────
@@ -258,6 +261,10 @@ const inactivas = computed(() => tiendas.value.filter(t => !t.activa))
 
     <!-- Catálogos visuales: el PDF de diseño hoja por hoja, dentro del sistema -->
     <CatalogosPanel v-if="tab === 'catalogos'" />
+
+    <!-- Lo que dicen los papeles que se firman o se entregan: anexo de
+         garantías y orden de entrega -->
+    <DocumentosPanel v-if="tab === 'documentos'" />
 
     <template v-if="tab === 'roles'">
       <div class="flex items-center justify-between mb-3">

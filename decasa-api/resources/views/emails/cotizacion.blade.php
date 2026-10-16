@@ -1,9 +1,11 @@
+{{-- El nombre de la empresa sale de Gestión → Documentos → Datos de la empresa. --}}
+@php($empresa = \App\Support\PlantillasDocumento::empresa())
 <!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Cotización Decasa #{{ $orden->numero_orden ?? $orden->id }}</title>
+  <title>Cotización {{ $empresa['nombre'] }} #{{ $orden->numero_orden ?? $orden->id }}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: #f3f4f6; color: #1f2937; }
@@ -50,7 +52,7 @@
 
       <!-- Header -->
       <div class="header">
-        <h1>Decasa — Tu Cotización</h1>
+        <h1>{{ $empresa['nombre'] }} — Tu Cotización</h1>
         <p>Orden #{{ $orden->numero_orden ?? $orden->id }} · {{ now()->locale('es')->isoFormat('D [de] MMMM [de] YYYY') }}</p>
       </div>
 
@@ -58,7 +60,7 @@
       <div class="body">
         <p class="greeting">
           Hola <strong>{{ $orden->cliente->nombre }}</strong>,<br>
-          gracias por tu compra en <strong>Decasa</strong>. Adjunto encontrarás la cotización completa de tu pedido en PDF.
+          gracias por tu compra en <strong>{{ $empresa['nombre'] }}</strong>. Adjunto encontrarás la cotización completa de tu pedido en PDF.
         </p>
 
         <!-- KPIs -->
@@ -121,7 +123,7 @@
 
       <!-- Footer -->
       <div class="footer">
-        <strong>Decasa</strong> · {{ $orden->tienda?->nombre }}<br>
+        <strong>{{ $empresa['nombre'] }}</strong> · {{ $orden->tienda?->nombre }}<br>
         Este es un correo automático, por favor no respondas a este mensaje.
       </div>
     </div>

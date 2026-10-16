@@ -294,7 +294,7 @@ class GarantiaController extends Controller
                 ->when(\Illuminate\Support\Facades\Schema::hasColumn('tipos_proceso', 'activo'), fn ($q) => $q->where('activo', true))
                 ->where('clave', '!=', \App\Models\ProduccionPaso::DESPACHO)
                 ->orderBy('orden')->get(['clave', 'nombre']),
-            'meses'    => Garantia::MESES,
+            'meses'    => Garantia::meses(),
             // Quién puede ir a la casa del cliente: tiene que usar el programa,
             // porque le llega el aviso y es quien registra la visita.
             'personas' => \App\Models\Usuario::where('activo', true)->usaElPrograma()

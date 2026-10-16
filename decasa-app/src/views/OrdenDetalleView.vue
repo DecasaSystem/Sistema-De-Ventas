@@ -24,6 +24,7 @@ import { ShieldCheckIcon } from '@heroicons/vue/24/outline'
 import { tomarFacturacion, marcarFacturada } from '@/api/pagos'
 import { getReceptores, crearConsulta, getConsultas, ajustarPrecio as ajustarPrecioApi } from '@/api/consultas'
 import { pdfAnexo } from '@/api/anexos'
+import { useTextosNegocio, rellenar, datosEmpresa } from '@/utils/textosNegocio'
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import RegistroPagoModal from '@/components/ordenes/RegistroPagoModal.vue'
@@ -47,6 +48,7 @@ const route = useRoute()
 const { cargar: cargarTipos, nombre: nombreProceso } = useTiposProceso()
 const router = useRouter()
 const auth = useAuthStore()
+const textosNegocio = useTextosNegocio()
 const toast = useToast()
 
 const orden = ref(null)
@@ -1533,10 +1535,17 @@ function whatsappLink() {
     .map(i => `  • ${i.producto?.nombre ?? i.nombre_custom ?? 'Producto personalizado'} x${i.cantidad}`)
     .join('\n')
 
+  // El comienzo y el final se editan en Gestión → Documentos → Mensajes de
+  // WhatsApp; lo del medio (productos y plata) lo arma siempre el sistema.
+  const datos = {
+    ...datosEmpresa(textosNegocio),
+    cliente:    o.cliente?.nombre ?? '',
+    asesor:     auth.usuario?.nombre ?? '',
+    referencia: o.referencia ?? '#' + (o.numero_orden ?? o.id),
+  }
+  const despedida = rellenar(textosNegocio.mensajes.resumen_despedida, datos)
   const mensaje = [
-    `Hola ${o.cliente?.nombre} 👋`,
-    ``,
-    `Aquí tienes el resumen de tu pedido en *SODEGE* (Orden ${o.referencia ?? '#' + (o.numero_orden ?? o.id)}):`,
+    rellenar(textosNegocio.mensajes.resumen_saludo, datos),
     ``,
     `🛋️ *Productos:*`,
     productos,
@@ -1544,9 +1553,7 @@ function whatsappLink() {
     `💰 *Total:* $${total} COP`,
     `✅ *Anticipo pagado:* $${anticipo} COP`,
     o.saldo_pendiente > 0 ? `💳 *Saldo pendiente:* $${saldo} COP` : `🎉 *¡Pedido totalmente pagado!*`,
-    ``,
-    `Adjunto encontrarás la cotización en PDF con todos los detalles.`,
-    `¡Gracias por tu compra! 🛋️`,
+    ...(despedida.trim() ? [``, despedida] : []),
   ].filter(l => l !== null).join('\n')
 
   return `https://wa.me/${numero}?text=${encodeURIComponent(mensaje)}`

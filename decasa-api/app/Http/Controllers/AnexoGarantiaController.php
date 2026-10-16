@@ -82,7 +82,7 @@ class AnexoGarantiaController extends Controller
             'token'        => Str::random(48),
             'cliente_id'   => $data['cliente_id'],
             'vendedor_id'  => $request->user()->id,
-            'version'      => AnexoGarantiaTexto::VERSION,
+            'version'      => AnexoGarantiaTexto::vigente()['version'],
             'modo'         => $data['modo'],
             'estado'       => 'pendiente',
             'resumen'      => $resumen,
@@ -192,7 +192,7 @@ class AnexoGarantiaController extends Controller
             'orden_id'     => $orden->id,
             'cliente_id'   => $orden->cliente_id,
             'vendedor_id'  => $u->id,
-            'version'      => AnexoGarantiaTexto::VERSION,
+            'version'      => AnexoGarantiaTexto::vigente()['version'],
             'modo'         => 'remoto',
             'estado'       => 'pendiente',
             'resumen'      => $resumen,
@@ -321,7 +321,7 @@ class AnexoGarantiaController extends Controller
 
         $firma = $this->urlToBase64($anexo->firma_url);
         $logo  = $this->avifToPngBase64(public_path('img/logo.avif'));
-        $texto = AnexoGarantiaTexto::contenido();
+        $texto = AnexoGarantiaTexto::deVersion($anexo->version);
 
         $pdf = Pdf::loadView('pdf.anexo_garantia', compact('anexo', 'firma', 'logo', 'texto'))->setPaper('letter');
 
@@ -359,7 +359,7 @@ class AnexoGarantiaController extends Controller
             ],
             'vendedor'   => $anexo->vendedor?->nombre,
             'resumen'    => $anexo->resumen,
-            'contenido'  => AnexoGarantiaTexto::contenido(),
+            'contenido'  => AnexoGarantiaTexto::deVersion($anexo->version),
         ]);
     }
 
@@ -381,8 +381,9 @@ class AnexoGarantiaController extends Controller
             return response()->json(['message' => 'Este enlace venció. Pídele a tu asesor que te envíe uno nuevo.'], 410);
         }
 
-        $idsSecciones = array_column(AnexoGarantiaTexto::secciones(), 'id');
-        $idsChecklist = array_column(AnexoGarantiaTexto::checklist(), 'id');
+        $texto        = AnexoGarantiaTexto::deVersion($anexo->version);
+        $idsSecciones = array_column($texto['secciones'], 'id');
+        $idsChecklist = array_column($texto['checklist'], 'id');
 
         $data = $request->validate([
             'secciones'   => 'required|array',
@@ -527,7 +528,7 @@ class AnexoGarantiaController extends Controller
             // le quedó claro el proceso, no le explicaron la espuma...). Firmar
             // se puede igual, pero el vendedor tiene que saberlo para
             // explicarle antes de cerrar la venta.
-            'respuestas_no'      => collect(AnexoGarantiaTexto::checklist())
+            'respuestas_no'      => collect(AnexoGarantiaTexto::deVersion($anexo->version)['checklist'])
                 ->filter(fn ($q) => ($anexo->respuestas['checklist'][$q['id']] ?? null) === 'no')
                 ->pluck('pregunta')->values(),
             ...($conToken ? [

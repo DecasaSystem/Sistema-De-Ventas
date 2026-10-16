@@ -23,7 +23,7 @@ class CotizacionMail extends Mailable
     {
         $num = $this->cargarOrden()->numero_orden ?? $this->ordenId;
         return new Envelope(
-            subject: "Cotización Decasa — Orden #{$num}",
+            subject: 'Cotización ' . \App\Support\PlantillasDocumento::empresa()['nombre'] . " — Orden #{$num}",
         );
     }
 

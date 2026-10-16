@@ -1,21 +1,23 @@
+{{-- El nombre de la empresa sale de Gestión → Documentos → Datos de la empresa. --}}
+@php($empresa = \App\Support\PlantillasDocumento::empresa())
 <!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Revisa y firma tu pedido — Decasa</title>
+  <title>Revisa y firma tu pedido — {{ $empresa['nombre'] }}</title>
 </head>
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#1f2937;">
   <div style="max-width:560px;margin:0 auto;padding:24px 16px;">
     <div style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.08);">
       <div style="background:#1f2937;padding:24px 28px;">
-        <h1 style="margin:0;color:#fff;font-size:20px;">Decasa Muebles &amp; Decoración</h1>
+        <h1 style="margin:0;color:#fff;font-size:20px;">{{ $empresa['nombre_completo'] }}</h1>
         <p style="margin:6px 0 0;color:#d1d5db;font-size:14px;">Revisa y firma tu pedido</p>
       </div>
       <div style="padding:24px 28px;font-size:15px;line-height:1.55;">
         <p style="margin:0 0 14px;">Hola{{ $cliente ? ' ' . $cliente : '' }},</p>
         <p style="margin:0 0 14px;">
-          {{ $vendedor ? $vendedor . ' te' : 'Te' }} envió el resumen de tu pedido y el documento de garantías de Decasa.
+          {{ $vendedor ? $vendedor . ' te' : 'Te' }} envió el resumen de tu pedido y el documento de garantías de {{ $empresa['nombre'] }}.
           Ábrelo, revisa que todo esté bien, marca lo que leíste y firma con el dedo.
         </p>
         @if ($total)

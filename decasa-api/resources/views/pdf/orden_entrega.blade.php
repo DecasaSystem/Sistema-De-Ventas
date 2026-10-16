@@ -14,16 +14,23 @@
     entregado se anota aparte para que no se lleve dos veces.
 --}}
 <body style="font-family: 'Helvetica', Arial, sans-serif; font-size: 12px; color: #111; margin: 0; padding: 22px 26px;">
+    @php $texto = $plantilla ?? \App\Support\PlantillasDocumento::deFabrica('orden_entrega')['contenido']; @endphp
+    {{-- La redacción (título, condiciones, rótulos de la firma, pie) se edita en
+         Gestión → Documentos. Los datos del cliente, los productos y la plata
+         salen de la orden y no se tocan desde allá. --}}
 
     <table style="width: 100%; border-collapse: collapse; margin-bottom: 10px;">
         <tr>
             <td style="width: 40%; vertical-align: middle;">
                 @if(!empty($logoBase64))
-                    <img src="{{ $logoBase64 }}" style="height: 48px; max-width: 180px; object-fit: contain;" alt="Decasa">
+                    <img src="{{ $logoBase64 }}" style="height: 48px; max-width: 180px; object-fit: contain;" alt="{{ \App\Support\PlantillasDocumento::empresa()['nombre'] }}">
+                @endif
+                @if($renglon = \App\Support\PlantillasDocumento::renglonEmpresa())
+                    <p style="font-size: 9px; color: #555; margin: 2px 0 0 0;">{{ $renglon }}</p>
                 @endif
             </td>
             <td style="text-align: right; vertical-align: middle;">
-                <h2 style="font-size: 18px; font-weight: bold; margin: 0; letter-spacing: 1px;">ORDEN DE ENTREGA</h2>
+                <h2 style="font-size: 18px; font-weight: bold; margin: 0; letter-spacing: 1px;">{{ $texto['titulo'] }}</h2>
                 <p style="font-size: 11px; color: #555; margin: 3px 0 0 0;">
                     Orden {{ $orden->referencia }}
                     @if($parcial) · <strong>entrega parcial</strong> @endif
@@ -76,7 +83,7 @@
                 </tr>
             @endforeach
             {{-- Renglones en blanco, como en la hoja de siempre: para anotar a mano --}}
-            @for($i = count($lineas); $i < 8; $i++)
+            @for($i = count($lineas); $i < (int) $texto['renglones_blanco']; $i++)
                 <tr>
                     <td style="padding: 9px 8px; border-bottom: 1px dotted #999;">&nbsp;</td>
                     <td style="border-bottom: 1px dotted #999;"></td>
@@ -103,7 +110,7 @@
             </tr>
             <tr style="background: #f3f4f6;">
                 <td colspan="2" style="padding: 7px 8px; text-align: right; font-weight: bold; font-size: 12.5px;">
-                    {{ $parcial ? 'SALDO DE LA ORDEN (se cobra en la última entrega)' : 'SALDO CONTRA ENTREGA — TOTAL A CANCELAR' }}
+                    {{ $parcial ? 'SALDO DE LA ORDEN (se cobra en la última entrega)' : $texto['etiqueta_saldo'] }}
                 </td>
                 <td style="padding: 7px 8px; text-align: right; font-weight: bold; font-size: 12.5px;">$ {{ number_format($saldo, 0, ',', '.') }}</td>
             </tr>
@@ -143,18 +150,26 @@
         <p style="font-size: 10.5px; margin: 10px 0 0 0;"><strong>Notas:</strong> {{ $orden->notas }}</p>
     @endif
 
+    @if(!empty($texto['condiciones']))
+        <div style="margin-top: 12px; font-size: 9.5px; color: #333; line-height: 1.4; text-align: justify;">
+            @foreach($texto['condiciones'] as $c)
+                <p style="margin: 0 0 3px 0;">{{ $c }}</p>
+            @endforeach
+        </div>
+    @endif
+
     {{-- Firma --}}
     <table style="width: 100%; margin-top: 38px;">
         <tr>
             <td style="width: 55%; vertical-align: bottom;">
                 <div style="border-top: 1px solid #111; padding-top: 4px; margin-right: 30px;">
-                    <p style="font-size: 11px; font-weight: bold; margin: 0;">RECIBE A SATISFACCIÓN</p>
-                    <p style="font-size: 10px; color: #555; margin: 2px 0 0 0;">Nombre y cédula de quien recibe</p>
+                    <p style="font-size: 11px; font-weight: bold; margin: 0;">{{ $texto['firma_recibe'] }}</p>
+                    @if($texto['firma_recibe_ayuda'] !== '')<p style="font-size: 10px; color: #555; margin: 2px 0 0 0;">{{ $texto['firma_recibe_ayuda'] }}</p>@endif
                 </div>
             </td>
             <td style="width: 45%; vertical-align: bottom;">
                 <div style="border-top: 1px solid #111; padding-top: 4px;">
-                    <p style="font-size: 11px; font-weight: bold; margin: 0;">ENTREGA</p>
+                    <p style="font-size: 11px; font-weight: bold; margin: 0;">{{ $texto['firma_entrega'] }}</p>
                     <p style="font-size: 10px; color: #555; margin: 2px 0 0 0;">{{ $entregador ?? 'Conductor / asesor' }}</p>
                 </div>
             </td>
@@ -162,7 +177,7 @@
     </table>
 
     <p style="text-align: center; font-size: 9px; color: #888; margin-top: 22px;">
-        Decasa — {{ $orden->tienda->nombre ?? '' }} · Generado el {{ now()->format('d/m/Y H:i') }}
+        {{ $texto['pie'] !== '' ? $texto['pie'] . ' — ' : '' }}{{ $orden->tienda->nombre ?? '' }} · Generado el {{ now()->format('d/m/Y H:i') }}
     </p>
 </body>
 </html>

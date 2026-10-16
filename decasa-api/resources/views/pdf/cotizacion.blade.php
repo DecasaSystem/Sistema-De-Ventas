@@ -5,16 +5,24 @@
     <title>Cotización {{ $cotizacion->cotizacion_ref ?? $cotizacion->id }}</title>
 </head>
 <body style="font-family: 'Helvetica', Arial, sans-serif; font-size: 12px; color: #333; margin: 0; padding: 20px;">
+    @php
+        // Nombre, datos y condiciones: Gestión → Documentos (Empresa y Cotización).
+        $empresa        = \App\Support\PlantillasDocumento::empresa();
+        $renglonEmpresa = \App\Support\PlantillasDocumento::renglonEmpresa();
+        $condiciones    = \App\Support\PlantillasDocumento::vigente('cotizacion')['contenido']['condiciones'];
+        $validaHasta   = $cotizacion->cotizacion_valida_hasta?->format('d/m/Y');
+    @endphp
 
     <!-- Header -->
     <table style="width: 100%; border-bottom: 2px solid #7c3aed; padding-bottom: 10px; margin-bottom: 20px;">
         <tr>
             <td style="vertical-align: middle;">
                 @if(!empty($logoBase64))
-                    <img src="{{ $logoBase64 }}" style="height: 50px; max-width: 180px; object-fit: contain;" alt="SODEGE">
+                    <img src="{{ $logoBase64 }}" style="height: 50px; max-width: 180px; object-fit: contain;" alt="{{ $empresa['nombre'] }}">
                 @else
-                    <h1 style="font-size: 24px; font-weight: bold; color: #7c3aed; margin: 0;">SODEGE</h1>
+                    <h1 style="font-size: 24px; font-weight: bold; color: #7c3aed; margin: 0;">{{ $empresa['nombre'] }}</h1>
                 @endif
+                @if($renglonEmpresa)<p style="font-size: 9px; color: #666; margin: 2px 0 0 0;">{{ $renglonEmpresa }}</p>@endif
                 <p style="font-size: 10px; color: #666; margin: 2px 0 0 0;">Cotización — no constituye orden de compra</p>
             </td>
             <td style="text-align: right; vertical-align: middle;">
@@ -190,21 +198,19 @@
     </div>
     @endif
 
-    <!-- Condiciones -->
+    <!-- Condiciones (Gestión → Documentos → Cotización) -->
+    @if(count($condiciones))
     <div style="border: 1px solid #fde68a; background-color: #fffbeb; border-radius: 8px; padding: 12px; margin-bottom: 20px;">
         <p style="font-size: 10px; font-weight: bold; color: #92400e; text-transform: uppercase; margin: 0 0 6px 0;">Condiciones</p>
-        <p style="margin: 3px 0; font-size: 10px; color: #78350f;">
-            • Esta cotización es informativa y <strong>no reserva mercancía</strong>. La disponibilidad se confirma al generar la orden.
-        </p>
-        @if($cotizacion->cotizacion_valida_hasta)
-        <p style="margin: 3px 0; font-size: 10px; color: #78350f;">
-            • Precios válidos hasta el <strong>{{ $cotizacion->cotizacion_valida_hasta->format('d/m/Y') }}</strong> y sujetos a cambio después de esa fecha.
-        </p>
-        @endif
-        <p style="margin: 3px 0; font-size: 10px; color: #78350f;">
-            • Los tiempos de entrega se acuerdan al confirmar la orden y registrar el anticipo.
-        </p>
+        {{-- El renglón que habla de la fecha de validez solo sale si la hay. --}}
+        @foreach($condiciones as $c)
+            @continue(str_contains($c, '{valida_hasta}') && ! $validaHasta)
+            <p style="margin: 3px 0; font-size: 10px; color: #78350f;">
+                • {{ \App\Support\PlantillasDocumento::conDatos($c, ['valida_hasta' => $validaHasta]) }}
+            </p>
+        @endforeach
     </div>
+    @endif
 
     <!-- Firma del asesor -->
     @if(!empty($firmaVendedor))
@@ -222,7 +228,7 @@
     @endif
 
     <p style="text-align: center; font-size: 9px; color: #9ca3af; margin-top: 25px;">
-        SODEGE — {{ $cotizacion->tienda->nombre ?? '' }} · Generada el {{ now()->format('d/m/Y H:i') }}
+        {{ $empresa['nombre'] }} — {{ $cotizacion->tienda->nombre ?? '' }} · Generada el {{ now()->format('d/m/Y H:i') }}
     </p>
 
 </body>

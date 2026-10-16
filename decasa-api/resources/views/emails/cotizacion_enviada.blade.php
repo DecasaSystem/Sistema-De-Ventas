@@ -1,9 +1,11 @@
+{{-- El nombre de la empresa sale de Gestión → Documentos → Datos de la empresa. --}}
+@php($empresa = \App\Support\PlantillasDocumento::empresa())
 <!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Cotización Decasa {{ $cotizacion->cotizacion_ref }}</title>
+  <title>Cotización {{ $empresa['nombre'] }} {{ $cotizacion->cotizacion_ref }}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: #f3f4f6; color: #1f2937; }
@@ -37,7 +39,7 @@
     <div class="card">
       <div class="header">
         <h1>Cotización {{ $cotizacion->cotizacion_ref }}</h1>
-        <p>{{ $cotizacion->tienda->nombre ?? 'Decasa' }}</p>
+        <p>{{ $cotizacion->tienda->nombre ?? $empresa['nombre'] }}</p>
       </div>
 
       <div class="body">
@@ -87,7 +89,7 @@
       </div>
 
       <div class="footer">
-        <strong>Decasa</strong> — Muebles y decoración
+        <strong>{{ $empresa['nombre_completo'] }}</strong>
       </div>
     </div>
   </div>

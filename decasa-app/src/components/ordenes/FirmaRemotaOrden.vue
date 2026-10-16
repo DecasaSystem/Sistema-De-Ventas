@@ -16,6 +16,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
 import { enviarOrdenAFirmar, firmaRemotaDeOrden, enviarAnexoEmail, anularAnexo } from '@/api/anexos'
 import { specsParaCliente, soloHttps, tipoParaCliente } from '@/utils/resumenParaFirma'
+import { useTextosNegocio, rellenar, datosEmpresa } from '@/utils/textosNegocio'
 import { PencilSquareIcon } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -25,6 +26,7 @@ const props = defineProps({
 const emit = defineEmits(['firmada'])
 
 const auth  = useAuthStore()
+const textosNegocio = useTextosNegocio()
 const toast = useToast()
 
 const firma     = ref(null)   // el último enlace: { id, estado, url, nombre_firmante, ... }
@@ -104,10 +106,15 @@ async function enviar() {
   }
 }
 
+// El texto se edita en Gestión → Documentos → Mensajes de WhatsApp.
 function mensajeWhatsApp() {
-  const nombre = props.orden.cliente?.nombre?.split(' ')[0] ?? ''
-  return `Hola${nombre ? ` ${nombre}` : ''}, soy ${auth.usuario?.nombre ?? 'tu asesor'} de Decasa. ` +
-    `Aquí puedes revisar tu orden ${props.orden.referencia ?? ''} completa y firmarla junto con el documento de garantías: ${firma.value?.url}`
+  return rellenar(textosNegocio.mensajes.firma_orden, {
+    ...datosEmpresa(textosNegocio),
+    cliente:    props.orden.cliente?.nombre?.split(' ')[0] ?? '',
+    asesor:     auth.usuario?.nombre ?? 'tu asesor',
+    referencia: props.orden.referencia ?? '',
+    enlace:     firma.value?.url ?? '',
+  })
 }
 function abrirWhatsApp() {
   const tel = String(props.orden.cliente?.telefono ?? '').replace(/\D/g, '')

@@ -514,7 +514,8 @@ Niveles: propio (`/encargos/mios`), `acceso_encargos` (ver), `revisa_encargos` (
   revista (`/c`, `/c/:slug`, gestionados en Gestión → Catálogos, con QR).
 
 ### 6.16 Anexo de garantías
-`AnexoGarantiaController`, `Support/AnexoGarantiaTexto` (texto versionado).
+`AnexoGarantiaController`, `Support/AnexoGarantiaTexto` (texto de fábrica versionado;
+desde 2026-10-15 se edita en Gestión → Documentos, ver §6.19).
 Firma presencial (en el aparato del vendedor) o remota (enlace `/firmar/:token`
 por WhatsApp/correo). Se pega a la orden al crearla; PDF y envío por correo.
 
@@ -575,6 +576,53 @@ en su conteo.
 `GestionView`: tiendas (`TiendaController`), roles configurables
 (`RolController`), módulos renombrables con icono y orden, herramientas del
 asesor (textos para copiar), catálogos visuales. `PersonalizacionController`.
+
+**Documentos (2026-10-15)** — pestaña *Docs.* (`components/gestion/DocumentosPanel.vue`,
+`EditorAnexoGarantia.vue`, `EditorOrdenEntrega.vue`; `PlantillaDocumentoController`,
+`Support/PlantillasDocumento`, tabla `plantillas_documento`, solo supervisores):
+- **Anexo de garantías**: título, secciones (cada renglón un párrafo; se ordenan,
+  agregan y quitan) y check list. Vista "Ver como el cliente" con `AnexoFirma`.
+- **Orden de entrega** (la hoja del conductor, `pdf/orden_entrega`): título, rótulo del
+  saldo, condiciones (con `{referencia}`, `{cliente}`, `{tienda}`, `{asesor}`), rótulos
+  de las firmas, pie y renglones en blanco. Los datos del cliente, los productos, el
+  total, los abonos, el saldo y lo pendiente salen de la orden; el rótulo del saldo en
+  una entrega parcial ("se cobra en la última entrega") es fijo porque describe la regla.
+- Guardar **crea una versión** (`Y-m-d`, `Y-m-d.2`…) con autor y nota; nunca se pisa ni
+  se borra. Vigente = la última; sin filas vale el texto de fábrica del código
+  (`AnexoGarantiaTexto`, `PlantillasDocumento::deFabrica`). "Usar este texto" en el
+  historial carga una versión vieja al editor (al guardar queda como versión nueva).
+- Cada anexo guarda su `version`: `publico`, `firmar` (ids de secciones/preguntas), el
+  PDF y `respuestas_no` usan **la versión del anexo**, no la vigente. Un enlace enviado
+  antes de un cambio se firma e imprime con el texto con que se envió.
+- Los plazos de garantía **no** se leen del texto del anexo: tienen su propia plantilla.
+
+**Plantillas de campos (2026-10-15)** — `Support/EsquemasPlantillas` describe cada una
+(campos, tipo `texto|multilinea|parrafos|numero`, fábrica, datos entre llaves) y el
+mismo editor (`EditorCampos.vue`) sirve para todas:
+- **Datos de la empresa** (`empresa`): nombre corto y completo, NIT, dirección,
+  teléfono, correo, web. Salen en los PDF (orden, cotización, acta, orden de entrega,
+  anexo, hoja de ruta, liquidación — `PlantillasDocumento::empresa()` /
+  `renglonEmpresa()`), en los asuntos y cuerpos de los correos y en los mensajes de
+  WhatsApp. Reemplazó los "SODEGE" que salían al cliente (acta, cotización, resumen por
+  WhatsApp). El logo sigue siendo `public/img/logo.avif`.
+- **Plazos de garantía** (`plazos_garantia`): `Garantia::meses()` /
+  `mesesDeGarantia()`; `Garantia::MESES` quedó como fábrica. Vale para lo que se
+  reporte desde el cambio (cada garantía guarda su `vence_el`).
+- **Cotización** (`cotizacion`): condiciones del PDF (`{valida_hasta}`; el renglón que lo
+  lleva no sale si no hay fecha) y días de validez por defecto (backend y selector de
+  Nueva orden, que agrega la opción si no es 8/15/30/60).
+- **Acta de satisfacción** (`acta_entrega`): título, declaración (`{referencia}`),
+  agregados para parcial/conforme/novedad y rótulo de la firma. El PDF usa la versión
+  vigente **el día de la entrega** (`PlantillasDocumento::vigenteEn`); la pantalla de
+  entrega (`EntregaDetalleModal`) muestra la declaración arriba de la firma.
+- **Mensajes de WhatsApp** (`mensajes_whatsapp`): enlace de firma (Nueva orden y orden
+  ya creada; deben llevar `{enlace}`), comienzo y final del resumen del pedido
+  (`OrdenDetalleView`; productos y plata los arma el sistema) y saludo de Redes/Citas.
+  Datos: `{cliente} {asesor} {empresa} {empresa_completo} {referencia} {enlace}`; un dato
+  vacío se lleva el espacio de antes.
+- La app los lee de `GET /textos-del-negocio` (cualquiera con sesión, sin plata) con
+  `utils/textosNegocio.js` (`useTextosNegocio`, `rellenar`; fábrica de respaldo copiada
+  de `EsquemasPlantillas`: si cambia allá, cambiarla aquí).
 
 ---
 

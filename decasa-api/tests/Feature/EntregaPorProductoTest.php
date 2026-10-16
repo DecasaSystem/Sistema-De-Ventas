@@ -310,6 +310,48 @@ class EntregaPorProductoTest extends TestCase
             ->assertStatus(422)->assertJsonFragment(['message' => 'Todavía no hay nada que entregar: lo de catálogo ya se entregó y lo demás sigue en el taller.']);
     }
 
+    public function test_el_acta_sale_con_el_texto_vigente_el_dia_de_la_entrega(): void
+    {
+        (require base_path('database/migrations/2026_10_22_000001_crear_plantillas_documento.php'))->up();
+        $acta = fn (string $declaracion) => [
+            'titulo' => 'CONSTANCIA DE RECIBIDO', 'declaracion' => $declaracion,
+            'texto_parcial' => 'Lo demás llega después.', 'texto_conforme' => 'Todo llegó bien.',
+            'texto_novedad' => 'Hubo una novedad.', 'firma_recibe' => 'Firma de quien recibe',
+        ];
+        \App\Support\PlantillasDocumento::guardar('empresa', [
+            'nombre' => 'Muebles Norte', 'nombre_completo' => 'Muebles Norte S.A.S.', 'nit' => '900123456-7',
+        ], null);
+        \App\Support\PlantillasDocumento::guardar('acta_entrega', $acta('Recibí lo de la orden {referencia}.'), null);
+
+        $v     = $this->vendedora();
+        $orden = $this->venderRelojYMueble($v, relojSeLoLleva: false);
+        $this->travel(5)->minutes();
+        $this->entregar($v, $orden, [['orden_item_id' => $this->reloj($orden)->id, 'cantidad' => 1]])->assertOk();
+        // El acta sale de una entrega firmada. Una dirección que no es de
+        // Cloudinary: el PDF no la descarga (no sale a internet en la prueba).
+        DB::table('despacho_items')->where('orden_id', $orden->id)->update(['firma_recibido_url' => 'https://ejemplo.test/firma.png']);
+
+        // Después de la entrega cambian el texto: el acta no cambia.
+        $this->travel(5)->minutes();
+        \App\Support\PlantillasDocumento::guardar('acta_entrega', $acta('Texto nuevo de después.'), null);
+        \App\Support\CachesDePeticion::olvidarTodo();
+
+        $datos = null;
+        \Illuminate\Support\Facades\View::composer('pdf.acta_entrega', function ($vista) use (&$datos) { $datos = $vista->getData(); });
+        $this->actingAs($v)->get("/api/ordenes/{$orden->id}/acta-entrega")->assertOk();
+        $html = view('pdf.acta_entrega', $datos)->render();
+
+        $this->assertStringContainsString('CONSTANCIA DE RECIBIDO', $html);
+        $this->assertStringContainsString('Recibí lo de la orden ' . e($orden->fresh()->referencia) . '.', $html);
+        $this->assertStringNotContainsString('Texto nuevo de después', $html);
+        $this->assertStringContainsString('Lo demás llega después.', $html, 'es parcial: el comedor sigue en el taller');
+        $conforme = (bool) DB::table('despacho_items')->where('orden_id', $orden->id)->value('conforme');
+        $this->assertStringContainsString($conforme ? 'Todo llegó bien.' : 'Hubo una novedad.', $html);
+        // Y el nombre de la empresa, no "SODEGE".
+        $this->assertStringContainsString('Muebles Norte S.A.S. · NIT 900123456-7', $html);
+        $this->assertStringNotContainsString('SODEGE', $html);
+    }
+
     public function test_en_una_entrega_parcial_no_se_exige_el_saldo(): void
     {
         // El cliente todavía va a recibir el comedor: no se le cobra todo hoy.
@@ -654,6 +696,43 @@ class EntregaPorProductoTest extends TestCase
         $r = $this->actingAs($v)->get("/api/ordenes/{$orden->id}/orden-entrega");
         $r->assertOk();
         $this->assertStringContainsString('application/pdf', $r->headers->get('content-type'));
+    }
+
+    public function test_la_orden_de_entrega_sale_con_el_texto_de_gestion(): void
+    {
+        (require base_path('database/migrations/2026_10_22_000001_crear_plantillas_documento.php'))->up();
+        $v     = $this->vendedora();
+        $orden = $this->venderRelojYMueble($v, relojSeLoLleva: true);
+
+        // Lo que se guarda en Gestión → Documentos, con un dato de la orden.
+        \App\Support\PlantillasDocumento::guardar('orden_entrega', [
+            'titulo'             => 'REMISIÓN DE ENTREGA',
+            'etiqueta_saldo'     => 'VALOR A PAGAR AL CONDUCTOR',
+            'condiciones'        => "Revise el mueble antes de firmar.\nPedido {referencia} de {tienda}.",
+            'firma_recibe'       => 'RECIBIDO',
+            'firma_recibe_ayuda' => '',
+            'firma_entrega'      => 'ENTREGÓ',
+            'pie'                => 'Decasa Muebles',
+            'renglones_blanco'   => 2,
+        ], null);
+
+        $datos = null;
+        \Illuminate\Support\Facades\View::composer('pdf.orden_entrega', function ($vista) use (&$datos) { $datos = $vista->getData(); });
+        $this->actingAs($v)->get("/api/ordenes/{$orden->id}/orden-entrega")->assertOk();
+
+        $html = view('pdf.orden_entrega', $datos)->render();
+        $this->assertStringContainsString('REMISIÓN DE ENTREGA', $html);
+        $this->assertStringNotContainsString('ORDEN DE ENTREGA</h2>', $html);
+        $this->assertStringContainsString('VALOR A PAGAR AL CONDUCTOR', $html);
+        $this->assertStringContainsString('Pedido ' . e($orden->fresh()->referencia) . ' de ', $html);
+        $this->assertStringContainsString('Decasa Muebles — ', $html);
+        $this->assertStringNotContainsString('{referencia}', $html);
+        // Los datos siguen saliendo de la orden.
+        $this->assertStringContainsString(e(mb_strtoupper('Reloj')), mb_strtoupper($html));
+
+        // Un texto que deja la hoja sin decir qué es no se guarda.
+        $this->expectException(\Illuminate\Validation\ValidationException::class);
+        \App\Support\PlantillasDocumento::guardar('orden_entrega', ['titulo' => '', 'etiqueta_saldo' => 'x', 'firma_recibe' => 'x', 'firma_entrega' => 'x'], null);
     }
 
     public function test_la_hoja_de_ruta_se_imprime(): void
