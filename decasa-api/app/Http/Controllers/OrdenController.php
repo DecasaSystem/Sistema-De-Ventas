@@ -1813,6 +1813,36 @@ class OrdenController extends Controller
                     $cambios[] = ['campo' => 'es_compartida', 'label' => 'Venta compartida', 'antes' => (bool) $orden->es_compartida, 'despues' => (bool) $data['es_compartida']];
                     $updateOrden['es_compartida'] = $data['es_compartida'];
                 }
+
+                // Vendedor y co-vendedor no pueden ser la misma persona: las dos
+                // comisiones caen en la misma fila y la venta "compartida" se
+                // queda con uno solo.
+                $vendedorFinal   = (int) ($updateOrden['vendedor_id'] ?? $orden->vendedor_id);
+                $covendedorFinal = (int) (array_key_exists('covendedor_id', $updateOrden) ? $updateOrden['covendedor_id'] : $orden->covendedor_id);
+                $esCompartidaFin = (bool) ($updateOrden['es_compartida'] ?? $orden->es_compartida);
+                if ($esCompartidaFin && $covendedorFinal && $vendedorFinal === $covendedorFinal) {
+                    abort(422, 'El vendedor y el co-vendedor no pueden ser la misma persona.');
+                }
+
+                // Compartir la venta con un almacén es solo de independientes.
+                // Si la venta era de un independiente que la compartía y en
+                // realidad es de alguien de tienda, el reparto se va con él:
+                // si no, la gente del almacén seguía cobrando su parte del 5%
+                // de una venta que ya cobra entera quien la hizo. La pantalla
+                // esconde el campo al cambiar el vendedor, así que no lo manda.
+                if (isset($updateOrden['vendedor_id'])
+                    && $orden->tienda_abonada_id
+                    && ! array_key_exists('tienda_abonada_id', $data)
+                    && ! Usuario::where('id', $vendedorFinal)->value('independiente')) {
+                    $cambios[] = [
+                        'campo'   => 'tienda_abonada_id',
+                        'label'   => 'Venta compartida con almacén',
+                        'antes'   => Tienda::find($orden->tienda_abonada_id)?->nombre ?? $orden->tienda_abonada_id,
+                        'despues' => null,
+                    ];
+                    $updateOrden['tienda_abonada_id'] = null;
+                }
+
                 if (array_key_exists('tienda_abonada_id', $data)
                     && (int) $data['tienda_abonada_id'] !== (int) $orden->tienda_abonada_id) {
                     // Aqui el dueno de la venta es el vendedor de la orden, no
