@@ -3,8 +3,9 @@ import IconoS from '@/components/common/IconoS.vue'
 import { ref, computed, onMounted, nextTick } from 'vue'
 import {
   MagnifyingGlassIcon, PlusIcon, ArchiveBoxIcon,
-  PhotoIcon, XMarkIcon,
+  PhotoIcon, XMarkIcon, ArrowsUpDownIcon, ChevronDownIcon, CheckIcon,
 } from '@heroicons/vue/24/outline'
+import { useFiltrosRecordados } from '@/composables/useFiltrosRecordados'
 import { getReservaInventario, addReservaStock, addReservaVarianteStock, removeReservaStock, getReservaMovimientos, getReservaInfo } from '@/api/reserva'
 import { getVariantes, crearVariante } from '@/api/inventario'
 import { marcasOrdenadas, tiposTelaDeM, coloresDeTela } from '@/data/telasCatalogo'
@@ -32,6 +33,54 @@ const busqueda              = ref('')
 const categoriaFiltro       = ref('')
 const categoriasDisponibles = ref([])
 const loading               = ref(true)
+const ordenRes              = ref('stock_desc')
+const existenciaRes         = ref('')
+useFiltrosRecordados('reserva', { busqueda, categoriaFiltro, ordenRes, existenciaRes })
+
+// ── Ordenar y filtrar por existencias (igual que Inventario) ─────────────────
+// Van al servidor: la lista llega paginada y ordenar aquí solo ordenaría lo
+// cargado. En la fábrica no hay "bajo mínimo".
+const ORDENES_RES = [
+  { valor: 'stock_desc',  corto: 'Más stock',      largo: 'Más stock primero' },
+  { valor: 'stock_asc',   corto: 'Menos stock',    largo: 'Menos stock primero' },
+  { valor: 'libre_desc',  corto: 'Más libre',      largo: 'Más libre (sin reservados)' },
+  { valor: 'nombre_asc',  corto: 'A → Z',          largo: 'Nombre A → Z' },
+  { valor: 'nombre_desc', corto: 'Z → A',          largo: 'Nombre Z → A' },
+  { valor: 'precio_desc', corto: 'Mayor precio',   largo: 'Precio: mayor a menor' },
+  { valor: 'precio_asc',  corto: 'Menor precio',   largo: 'Precio: menor a mayor' },
+]
+const EXISTENCIAS_RES = [
+  { valor: '',          texto: 'Todo' },
+  { valor: 'con_stock', texto: 'Con stock' },
+  { valor: 'agotados',  texto: 'Agotados' },
+]
+const ordenAbierto = ref(false)
+const ordenActual  = computed(() => ORDENES_RES.find(o => o.valor === ordenRes.value) ?? ORDENES_RES[0])
+
+function elegirOrden(valor) {
+  ordenAbierto.value = false
+  if (ordenRes.value === valor) return
+  ordenRes.value = valor
+  cargarInventario(true)
+}
+
+function elegirExistencia(valor) {
+  if (existenciaRes.value === valor) return
+  existenciaRes.value = valor
+  cargarInventario(true)
+}
+
+function limpiarFiltros() {
+  ordenRes.value      = 'stock_desc'
+  existenciaRes.value = ''
+  categoriaFiltro.value = ''
+  busqueda.value      = ''
+  cargarInventario(true)
+}
+
+const hayFiltros = computed(() =>
+  ordenRes.value !== 'stock_desc' || existenciaRes.value || categoriaFiltro.value || busqueda.value.trim())
+
 const currentPage    = ref(1)
 const tieneMas       = ref(false)
 const loadingMore    = ref(false)
@@ -194,6 +243,73 @@ async function cargarVariantes(item) {
   }
 }
 
+// ── Variantes en la tarjeta (igual que Inventario) ───────────────────────────
+// Colapsada, solo las primeras N (las de más stock) y un "+N más": un tapizado
+// puede tener decenas de telas × colores y pintarlas todas convierte la
+// tarjeta en un muro de pastillas. Abierta, agrupadas por tipo de tela.
+const PREVIEW_VARIANTES      = 6
+const variantesCardAbiertas  = ref({})   // { producto_id: bool }
+
+function toggleVariantesCard(pid) {
+  variantesCardAbiertas.value[pid] = !variantesCardAbiertas.value[pid]
+}
+
+// Con stock primero y de más a menos; se desempata por tela y color para que
+// el orden no baile entre recargas.
+const _ordenVariante = (a, b) =>
+  (b.stock_libre ?? 0) - (a.stock_libre ?? 0)
+  || (a.marca_tela ?? '').localeCompare(b.marca_tela ?? '', 'es')
+  || (a.nombre_color ?? a.medida ?? '').localeCompare(b.nombre_color ?? b.medida ?? '', 'es')
+
+function variantesOrdenadas(item) {
+  return [...(variantesReserva.value[item.producto_id] ?? [])].sort(_ordenVariante)
+}
+
+function variantesConStock(item) {
+  return (variantesReserva.value[item.producto_id] ?? []).filter(v => (v.stock_libre ?? 0) > 0).length
+}
+
+/**
+ * Agrupadas por tipo de tela (Chenille, Lino…), el grupo con más stock
+ * primero. Las tallas no se agrupan. Con un solo tipo no se pone encabezado:
+ * no distingue nada.
+ */
+function gruposVariante(item) {
+  const lista = variantesOrdenadas(item)
+  if (item.producto?.tiene_tallas) return [{ nombre: '', items: lista }]
+  const mapa = new Map()
+  for (const v of lista) {
+    const clave = v.marca_tela || v.marca || 'Otras'
+    if (!mapa.has(clave)) mapa.set(clave, [])
+    mapa.get(clave).push(v)
+  }
+  const grupos = [...mapa.entries()]
+    .map(([nombre, items]) => ({
+      nombre,
+      items,
+      libre: items.reduce((s, v) => s + Math.max(0, v.stock_libre ?? 0), 0),
+    }))
+    .sort((a, b) => b.libre - a.libre || a.nombre.localeCompare(b.nombre, 'es'))
+  if (grupos.length === 1) grupos[0].nombre = ''
+  return grupos
+}
+
+function variantesTarjeta(item) {
+  const lista = variantesOrdenadas(item)
+  if (!variantesCardAbiertas.value[item.producto_id] && lista.length > PREVIEW_VARIANTES) {
+    return [{ nombre: '', items: lista.slice(0, PREVIEW_VARIANTES), resto: lista.length - PREVIEW_VARIANTES }]
+  }
+  return gruposVariante(item)
+}
+
+// Opciones de variante personalizada (medidas, mecanismo…) también de más a
+// menos stock.
+function opcionesOrdenadas(grupo) {
+  return [...grupo.items].sort((a, b) =>
+    (b.stock_disponible ?? 0) - (a.stock_disponible ?? 0)
+    || (a.opcion_nombre ?? '').localeCompare(b.opcion_nombre ?? '', 'es'))
+}
+
 async function cargarVarConfigsReserva(item) {
   const pid = item.producto_id
   if (varianteConfigsReserva.value[pid] !== undefined) return
@@ -261,7 +377,8 @@ async function cargarInventario(reset = false) {
   if (reset) loading.value = true
   try {
     const page = reset ? 1 : currentPage.value + 1
-    const { data } = await getReservaInventario(busqueda.value.trim(), page, categoriaFiltro.value)
+    const { data } = await getReservaInventario(busqueda.value.trim(), page, categoriaFiltro.value,
+      { orden: ordenRes.value, existencia: existenciaRes.value })
     if (reset) {
       inventario.value = data.data
       variantesReserva.value = {}
@@ -560,7 +677,59 @@ onMounted(async () => {
       </button>
     </div>
 
+    <!-- Ordenar y existencias: aplican a "Todas" y a cada categoría -->
+    <div class="flex items-center gap-2">
+      <div class="relative flex-shrink-0">
+        <button
+          type="button"
+          @click="ordenAbierto = !ordenAbierto"
+          :class="['flex items-center gap-1.5 rounded-full border pl-2.5 pr-2 py-1.5 text-xs font-semibold transition-colors',
+            ordenRes !== 'stock_desc' ? 'border-purple-500 text-purple-600 bg-white' : 'border-gray-300 text-gray-700 bg-white hover:border-gray-400']"
+        >
+          <ArrowsUpDownIcon class="w-3.5 h-3.5" />
+          {{ ordenActual.corto }}
+          <ChevronDownIcon :class="['w-3.5 h-3.5 transition-transform', ordenAbierto ? 'rotate-180' : '']" />
+        </button>
+
+        <template v-if="ordenAbierto">
+          <div class="fixed inset-0 z-30" @click="ordenAbierto = false" />
+          <div class="absolute left-0 top-full mt-1.5 z-40 w-64 bg-white rounded-xl border border-gray-200 shadow-lg py-1.5">
+            <p class="px-3 pt-1 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Ordenar por</p>
+            <button
+              v-for="o in ORDENES_RES"
+              :key="o.valor"
+              type="button"
+              @click="elegirOrden(o.valor)"
+              :class="['w-full flex items-center justify-between gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50',
+                ordenRes === o.valor ? 'text-purple-600 font-semibold' : 'text-gray-700']"
+            >
+              {{ o.largo }}
+              <CheckIcon v-if="ordenRes === o.valor" class="w-4 h-4 flex-shrink-0" />
+            </button>
+          </div>
+        </template>
+      </div>
+
+      <div class="w-px h-5 bg-gray-200 flex-shrink-0" />
+
+      <div class="flex gap-1.5 overflow-x-auto scrollbar-hide">
+        <button
+          v-for="e in EXISTENCIAS_RES"
+          :key="e.valor"
+          type="button"
+          @click="elegirExistencia(e.valor)"
+          :class="['shrink-0 rounded-full border px-2.5 py-1.5 text-xs font-semibold transition-colors',
+            existenciaRes === e.valor ? 'border-purple-500 text-purple-600 bg-white' : 'border-gray-200 text-gray-500 bg-white hover:border-gray-300']"
+        >{{ e.texto }}</button>
+      </div>
+    </div>
+
     <AppSpinner v-if="loading" />
+
+    <div v-else-if="inventario.length === 0 && hayFiltros" class="text-center py-10 space-y-2">
+      <p class="text-sm text-gray-500">Ningún producto coincide con estos filtros.</p>
+      <button @click="limpiarFiltros" class="text-xs font-semibold text-purple-600 hover:text-purple-800">Quitar filtros</button>
+    </div>
 
     <EmptyState v-else-if="inventario.length === 0" message="No hay productos en reserva de fábrica." />
 
@@ -618,37 +787,77 @@ onMounted(async () => {
 
           <!-- Variantes tapizado / talla -->
           <div v-if="item.producto?.es_tapizado || item.producto?.tiene_tallas" class="border-t border-gray-100 pt-2">
-            <p class="text-xs font-medium text-purple-700 mb-2">{{ item.producto?.tiene_tallas ? 'Variantes por talla en fábrica' : 'Variantes de tela/color en fábrica' }}</p>
-            <div v-if="varianteCargando[item.producto_id]" class="text-xs text-gray-400">Cargando...</div>
-            <template v-else-if="variantesReserva[item.producto_id]">
-              <div class="flex flex-wrap gap-1.5">
-                <component
-                  :is="soloLectura ? 'span' : 'button'"
-                  v-for="v in variantesReserva[item.producto_id]"
-                  :key="v._config_id !== undefined ? 'cfg-' + v._config_id + '-v' + v.id : 'var-' + v.id"
-                  v-bind="soloLectura ? {} : { onClick: () => abrirStockVariante(v, item.producto_id) }"
-                  :class="['px-2.5 py-1 rounded-full text-xs font-medium border',
-                    v.stock_libre > 0
-                      ? (v._config_label ? 'bg-indigo-50 border-indigo-300 text-indigo-800' : 'bg-green-50 border-green-300 text-green-800')
-                      : 'bg-gray-50 border-gray-200 text-gray-400',
-                    !soloLectura && 'transition-colors']"
-                >
-                  <template v-if="item.producto?.tiene_tallas">
-                    {{ v.medida }}<span v-if="v.precio_variante" class="ml-1 opacity-70">{{ pesos(v.precio_variante) }}</span>
-                  </template>
-                  <template v-else>
-                    {{ [v.marca_tela, v.nombre_color].filter(Boolean).join(' · ') }}<span v-if="v._config_label" class="text-indigo-600"> · {{ v._config_label }}</span>
-                  </template>
-                  <span class="ml-1 font-bold">{{ v.stock_libre ?? 0 }}</span>
-                </component>
-                <span v-if="!variantesReserva[item.producto_id]?.length" class="text-xs text-gray-400 italic">Sin variantes registradas</span>
-              </div>
+            <button
+              type="button"
+              @click="toggleVariantesCard(item.producto_id)"
+              class="w-full flex items-center gap-2 text-left"
+            >
+              <span class="text-xs font-medium text-purple-700">
+                {{ item.producto?.tiene_tallas ? 'Variantes por talla en fábrica' : 'Variantes de tela/color en fábrica' }}
+              </span>
+              <span v-if="variantesReserva[item.producto_id]?.length"
+                class="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full text-xs font-bold">
+                {{ variantesReserva[item.producto_id].length }}
+              </span>
+              <span v-if="variantesReserva[item.producto_id]?.length" class="text-xs text-gray-400">
+                · {{ variantesConStock(item) }} con stock
+              </span>
+              <ChevronDownIcon
+                v-if="(variantesReserva[item.producto_id]?.length ?? 0) > PREVIEW_VARIANTES"
+                class="w-4 h-4 text-gray-400 ml-auto shrink-0 transition-transform"
+                :class="{ 'rotate-180': variantesCardAbiertas[item.producto_id] }"
+              />
+            </button>
+
+            <div class="mt-2 space-y-2.5">
+              <div v-if="varianteCargando[item.producto_id]" class="text-xs text-gray-400">Cargando...</div>
+
+              <template v-else-if="variantesReserva[item.producto_id]?.length">
+                <div v-for="grupo in variantesTarjeta(item)" :key="grupo.nombre || '_'">
+                  <p v-if="grupo.nombre" class="text-[11px] uppercase tracking-wide text-gray-400 font-medium mb-1">
+                    {{ grupo.nombre }} <span class="text-gray-300">· {{ grupo.items.length }}</span>
+                  </p>
+                  <div class="flex flex-wrap gap-1.5">
+                    <component
+                      :is="soloLectura ? 'span' : 'button'"
+                      v-for="v in grupo.items"
+                      :key="v._config_id !== undefined ? 'cfg-' + v._config_id + '-v' + v.id : 'var-' + v.id"
+                      v-bind="soloLectura ? {} : { onClick: () => abrirStockVariante(v, item.producto_id) }"
+                      :class="['inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border',
+                        (v.stock_libre ?? 0) > 0
+                          ? (v._config_label ? 'bg-indigo-50 border-indigo-300 text-indigo-800' : 'bg-green-50 border-green-300 text-green-800')
+                          : 'bg-gray-50 border-gray-200 text-gray-400',
+                        !soloLectura && 'transition-colors hover:opacity-75']"
+                    >
+                      <template v-if="item.producto?.tiene_tallas">
+                        {{ v.medida }}<span v-if="v.precio_variante" class="ml-1 opacity-70">{{ pesos(v.precio_variante) }}</span>
+                      </template>
+                      <template v-else>
+                        {{ [v.marca_tela, v.nombre_color].filter(Boolean).join(' · ') }}<span v-if="v._config_label" class="text-indigo-600"> · {{ v._config_label }}</span>
+                      </template>
+                      <span class="ml-1 font-bold">{{ v.stock_libre ?? 0 }}</span>
+                    </component>
+
+                    <button
+                      v-if="grupo.resto"
+                      type="button"
+                      @click="toggleVariantesCard(item.producto_id)"
+                      class="px-2.5 py-1 rounded-full text-xs font-medium border border-dashed border-gray-300 text-gray-500 hover:bg-gray-50"
+                    >
+                      +{{ grupo.resto }} más
+                    </button>
+                  </div>
+                </div>
+              </template>
+
+              <p v-else-if="variantesReserva[item.producto_id]" class="text-xs text-gray-400 italic">Sin variantes registradas</p>
+
               <button
-                v-if="!soloLectura"
+                v-if="!soloLectura && variantesReserva[item.producto_id] && !varianteCargando[item.producto_id]"
                 @click="abrirNuevaVariante(item.producto_id, item.producto?.tiene_tallas)"
-                class="text-xs text-purple-600 font-medium hover:text-purple-800 mt-1"
-              >+ Nueva variante</button>
-            </template>
+                class="text-xs text-purple-600 font-medium hover:text-purple-800"
+              >{{ item.producto?.tiene_tallas ? '+ Nueva talla' : '+ Nueva variante' }}</button>
+            </div>
           </div>
 
           <!-- Variantes personalizadas en fábrica -->
@@ -661,7 +870,7 @@ onMounted(async () => {
             <div class="flex flex-wrap gap-1.5">
               <component
                 :is="soloLectura ? 'span' : 'button'"
-                v-for="configItem in grupo.items"
+                v-for="configItem in opcionesOrdenadas(grupo)"
                 :key="configItem.id"
                 v-bind="soloLectura ? {} : { onClick: () => abrirVcStock(configItem, grupo, item) }"
                 :class="['px-2.5 py-1 rounded-full text-xs font-medium border',

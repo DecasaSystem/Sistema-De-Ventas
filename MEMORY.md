@@ -291,6 +291,13 @@ escribiendo precios (Fase 1b).
   Trampa de entorno: la herramienta Bash de este equipo se come las barras invertidas
   (`\App\...` queda `AppSupport...`) en sed/perl/heredocs; para código con `\` usar Edit
   o Write.
+- **Reserva de Fábrica con la vista de Inventario** (2026-10-16, commit 42b4b69 subido a su
+  rama, **no a `main`**, rama
+  `claude/reserva-vista-inventario-209f05`, sin migración). Pedido del usuario: que la
+  Reserva acomode por stock de más a menos y colapse las variantes como Inventario. Antes
+  "Todas" iba por nombre (los de 0 revueltos). El orden/filtro salió de
+  `InventarioController` a `App\Support\OrdenExistencias` (los dos lo usan; cambiar uno
+  cambia el otro). Tests en `ReservaOrdenStockTest`.
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 
