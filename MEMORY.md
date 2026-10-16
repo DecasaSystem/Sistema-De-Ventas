@@ -230,7 +230,7 @@ escribiendo precios (Fase 1b).
   (`DescuentoCondicionadoService::montoPerdido` / `devolver`, `Pago::recuperaDescuentoSiPasaA`).
 - **Promociones por tienda** (2026-10-16, **sin subir**, rama
   `claude/inventory-promotions-by-store-d04803`). Trae **migración**
-  `2026_10_22_000001_promociones_por_tienda` (crea `promociones` y `promocion_tienda`,
+  `2026_10_23_000001_promociones_por_tienda` (crea `promociones` y `promocion_tienda`,
   agrega `orden_items.promocion_id`; solo agrega). Pedido del dueño: escoger producto o
   variante (la cama Bali de 1.40), tiendas, cuánto y fechas, "para no cambiarle el valor a
   cada rato". Decisiones que tomé por defecto y **falta que el dueño confirme**: solo un

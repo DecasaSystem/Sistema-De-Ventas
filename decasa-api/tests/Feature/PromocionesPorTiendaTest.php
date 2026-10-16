@@ -143,7 +143,7 @@ class PromocionesPorTiendaTest extends TestCase
         });
         $this->completarEsquemaDeEntregas();
 
-        (require database_path('migrations/2026_10_22_000001_promociones_por_tienda.php'))->up();
+        (require database_path('migrations/2026_10_23_000001_promociones_por_tienda.php'))->up();
 
         DB::table('tiendas')->insert([
             ['id' => 1, 'nombre' => 'Decasa Unicentro'],
