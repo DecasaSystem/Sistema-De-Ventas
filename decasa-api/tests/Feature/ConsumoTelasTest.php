@@ -588,12 +588,12 @@ class ConsumoTelasTest extends TestCase
         $resp->assertJsonPath('activo', false)
              ->assertJsonCount(1, 'productos')          // la mesa no es tapizada
              ->assertJsonPath('productos.0.nombre', 'SOFA ROMA')
-             ->assertJsonPath('productos.0.metros', 6.0)
+             ->assertJsonPath('productos.0.metros', 6)
              ->assertJsonCount(2, 'productos.0.medidas')
              ->assertJsonPath('productos.0.medidas.0.nombre', '1.40')
              ->assertJsonPath('productos.0.medidas.0.metros', null)
              ->assertJsonPath('productos.0.medidas.1.nombre', '1.60')
-             ->assertJsonPath('productos.0.medidas.1.metros', 8.0);
+             ->assertJsonPath('productos.0.medidas.1.metros', 8);
     }
 
     public function test_guardar_metros_crea_actualiza_y_borra(): void
@@ -629,8 +629,8 @@ class ConsumoTelasTest extends TestCase
         $this->actingAs($this->vendedor())
             ->getJson('/api/inventario-telas/validar?marca=Lafayette&tipo=Chenille&color=Gris&producto_id=' . self::SOFA . '&cantidad=4')
             ->assertOk()
-            ->assertJsonPath('metros', 20.0)
-            ->assertJsonPath('metros_necesarios', 24.0)
+            ->assertJsonPath('metros', 20)
+            ->assertJsonPath('metros_necesarios', 24)
             ->assertJsonPath('suficiente', false);
 
         // Sin producto, la respuesta de siempre.

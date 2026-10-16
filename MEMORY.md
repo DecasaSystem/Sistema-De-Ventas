@@ -243,6 +243,17 @@ escribiendo precios (Fase 1b).
   garantía** todavía lo trataban como recargo ("+$", base + opción); se corrigieron el
   2026-10-16 (mismo trabajo). Nunca volver a sumarlo. **Elena todavía no
   sabe de promociones** (lee precios directo de la BD): cotiza a precio de lista.
+- **Perfiles alternos guardados en la cuenta** (2026-10-16, **sin subir**, rama
+  `claude/dual-profiles-persistence-61ee57`). Trae **migración**
+  `2026_10_24_000001_perfiles_alternos_autorizados` (agrega `perfiles_alternos.autorizado_at`).
+  Queja del usuario: la sesión de cada perfil vivía en el localStorage; en otro aparato o si
+  el navegador lo borraba, había que reactivarlos. Ahora: la principal anota (PATCH
+  `mis-perfiles-alternos`) y la otra persona **autoriza con su propia sesión**
+  (`POST /auth/perfiles-alternos/confirmar`); al entrar en cualquier aparato,
+  `POST /auth/perfiles-alternos/sesiones` le abre la sesión a los autorizados que falten.
+  Seguridad: anotar a alguien no lo autoriza (antes cualquiera podía anotar al supervisor);
+  desactivarlo o que cambie su contraseña retira el permiso. Los vínculos viejos se
+  autorizan solos la primera vez que abre la app el aparato que tiene esa sesión.
 - **Comisiones atrasadas: dos meses juntos** (2026-10-15, **sin subir**, sin migración).
   Pedido del dueño: si se demoran en pagar y se juntan dos pagos, que se sepa qué es de
   qué fecha. Hecho: Listas muestra todo lo por pagar con un bloque por mes y la fecha
@@ -318,6 +329,14 @@ escribiendo precios (Fase 1b).
 - **Recontado 2026-10-08: 734 tests, 10 fallos preexistentes** (las mismas 6 clases).
 - **Recontado 2026-10-09 (rama de garantías): 767 tests, 10 fallos preexistentes** (las mismas 6 clases).
 - **Recontado 2026-10-10 (finanzas + prestaciones): 817 tests, 10 fallos preexistentes** (las mismas 6 clases).
+- **2026-10-16: 871 tests, 0 fallos** (rama `claude/dual-profiles-persistence-61ee57`). Se
+  arreglaron los 10: `APP_KEY` de prueba en `phpunit.xml`; `assertJsonPath(x, 6.0)` → `6`
+  (PHP manda 6.0 como 6 en el JSON); esquemas a mano con columna duplicada o filas de
+  `insert` con llaves distintas; AnularOrden con el grupo vacío (caso irreal). Y un **bug
+  real de comisiones** en `TiendaReemplazo::pesosDelMes`: a quien llegaba trasladado y
+  luego se iba a otra tienda el mismo mes se le restaban los días de la otra tienda (y
+  dependía del orden de lectura); ahora solo se resta al equipo fijo. Desde aquí, **un
+  fallo es nuevo**: ya no hay "preexistentes".
 - Trampa MySQL vs SQLite (2026-10-10, 500 en `/finanzas/resumen`): `GROUP BY alias` en
   MySQL busca **primero una columna de las tablas** con ese nombre; SQLite usa el alias.
   `->selectRaw('… AS mes')->groupBy('mes')` con una tabla que tiene columna `mes`

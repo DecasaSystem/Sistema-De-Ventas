@@ -296,7 +296,6 @@ class CambioDeSedeTest extends TestCase
     public function test_cerrar_la_tienda_desde_su_pantalla_le_pone_la_fecha(): void
     {
         Schema::table('tiendas', fn (Blueprint $t) => $t->boolean('es_fabrica')->default(false));
-        Schema::table('tiendas', fn (Blueprint $t) => $t->boolean('es_independientes')->default(false));
         Schema::table('tiendas', fn (Blueprint $t) => $t->string('ciudad')->nullable());
         Schema::table('tiendas', fn (Blueprint $t) => $t->string('direccion')->nullable());
         Schema::table('tiendas', fn (Blueprint $t) => $t->string('telefono')->nullable());

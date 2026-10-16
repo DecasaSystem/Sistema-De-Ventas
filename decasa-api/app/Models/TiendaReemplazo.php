@@ -72,8 +72,10 @@ class TiendaReemplazo extends Model
         $delMes = $fin->day;
 
         $pesos = [];
+        $delEquipo = [];
         foreach ($equipoBase as $uid) {
             $pesos[(int) $uid] = $delMes;
+            $delEquipo[(int) $uid] = true;
         }
 
         foreach (self::queSolapan($inicio, $fin) as $r) {
@@ -85,8 +87,13 @@ class TiendaReemplazo extends Model
             if ((int) $r->tienda_id === $tiendaId) {
                 // Vino a esta tienda: suma los días que estuvo.
                 $pesos[$quien] = min($delMes, ($pesos[$quien] ?? 0) + $dias);
-            } elseif (isset($pesos[$quien])) {
+            } elseif (isset($delEquipo[$quien])) {
                 // Se fue a cubrir a otra parte: esos días no los estuvo aquí.
+                // Solo se le resta a quien es del equipo fijo (tiene el mes
+                // entero): Genesis vino a Unicentro del 20 al 26 y del 27 se
+                // fue a Norte; sus días aquí ya son solo los del 20 al 26, y
+                // restarle los de Norte le dejaba 2 en vez de 7 —o 7, según en
+                // qué orden se leyeran los movimientos—.
                 $pesos[$quien] = max(0, $pesos[$quien] - $dias);
             }
 

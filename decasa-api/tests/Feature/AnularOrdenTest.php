@@ -96,6 +96,10 @@ class AnularOrdenTest extends TestCase
     public function test_anular_la_ultima_numerada_solo_baja_el_contador(): void
     {
         DB::table('orden_secuencias')->insert(['grupo' => 'armenia', 'ultimo_numero' => 4290]);
+        // Como en la vida real, hay ventas de antes: el contador baja hasta la
+        // más alta que queda (con el grupo vacío no hay de dónde sacarlo y se
+        // deja quieto a propósito: bajarlo a 0 repartiría números ya usados).
+        $this->venta(4289, 'entregado');
         $o4290 = $this->venta(4290);
 
         $corridas = NumeracionOrdenes::liberarYCorrer($o4290, $this->supervisor());

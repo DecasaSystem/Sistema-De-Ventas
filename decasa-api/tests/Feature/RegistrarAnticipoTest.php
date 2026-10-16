@@ -95,8 +95,8 @@ class RegistrarAnticipoTest extends TestCase
         $this->actingAs($this->vendedora())
             ->postJson("/api/ordenes/{$orden->id}/anticipo", ['monto' => 500000, 'metodo' => 'transferencia', 'referencia' => 'NEQ-123'])
             ->assertCreated()
-            ->assertJsonPath('total_pagado', 500000.0)
-            ->assertJsonPath('saldo_pendiente', 1250000.0);
+            ->assertJsonPath('total_pagado', 500000)
+            ->assertJsonPath('saldo_pendiente', 1250000);
 
         $pago = Pago::first();
         $this->assertSame('anticipo', $pago->tipo);
@@ -146,7 +146,7 @@ class RegistrarAnticipoTest extends TestCase
         $this->actingAs($v)
             ->postJson("/api/ordenes/{$orden->id}/anticipo", ['monto' => 500000, 'metodo' => 'tarjeta'])
             ->assertStatus(409)
-            ->assertJsonPath('descuento_en_riesgo.valor_sin_descuento', 1850000.0);
+            ->assertJsonPath('descuento_en_riesgo.valor_sin_descuento', 1850000);
         $this->assertSame(0, Pago::count());
 
         $this->actingAs($v)

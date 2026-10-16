@@ -51,7 +51,7 @@ class SupervisorIndependienteTest extends TestCase
             ['id' => 3, 'clave' => 'conductor',  'nombre' => 'Conductor',  'arquetipo' => 'conductor'],
         ]);
         DB::table('tiendas')->insert([
-            ['id' => 1, 'nombre' => 'Decasa Norte'],
+            ['id' => 1, 'nombre' => 'Decasa Norte', 'es_independientes' => false],
             ['id' => 8, 'nombre' => 'Independientes', 'es_independientes' => true],
         ]);
     }
