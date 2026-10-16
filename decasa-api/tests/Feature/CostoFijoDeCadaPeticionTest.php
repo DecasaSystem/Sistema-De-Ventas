@@ -46,7 +46,7 @@ class CostoFijoDeCadaPeticionTest extends TestCase
         });
         Schema::create('perfiles_alternos', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('usuario_id'); $t->unsignedBigInteger('alterno_id');
-            $t->unsignedTinyInteger('posicion')->default(0); $t->timestamps();
+            $t->unsignedTinyInteger('posicion')->default(0); $t->timestamp('autorizado_at')->nullable(); $t->timestamps();
         });
         Schema::create('personal_access_tokens', function (Blueprint $t) {
             $t->id(); $t->morphs('tokenable'); $t->string('name'); $t->string('token', 64)->unique();

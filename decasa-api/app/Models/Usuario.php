@@ -145,11 +145,15 @@ class Usuario extends Authenticatable
     /**
      * Con quiénes alterna, en el orden en que los agregó. Antes era una sola
      * cuenta (`perfil_alterno_id`); ahora hasta MAX_PERFILES - 1.
+     *
+     * `autorizado_at`: cuándo la otra persona escribió su contraseña (o la
+     * confirmó desde un aparato con su sesión) para turnarse con esta cuenta.
+     * Solo los autorizados se abren solos en otro aparato.
      */
     public function perfilesAlternos()
     {
         return $this->belongsToMany(Usuario::class, 'perfiles_alternos', 'usuario_id', 'alterno_id')
-            ->withPivot('posicion')->orderBy('perfiles_alternos.posicion');
+            ->withPivot('posicion', 'autorizado_at')->orderBy('perfiles_alternos.posicion');
     }
 
     public function tiendaDefault()

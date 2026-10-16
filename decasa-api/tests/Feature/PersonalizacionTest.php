@@ -28,7 +28,7 @@ class PersonalizacionTest extends TestCase
 
         Schema::create('perfiles_alternos', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('usuario_id'); $t->unsignedBigInteger('alterno_id');
-            $t->unsignedTinyInteger('posicion')->default(0); $t->timestamps();
+            $t->unsignedTinyInteger('posicion')->default(0); $t->timestamp('autorizado_at')->nullable(); $t->timestamps();
         });
         Schema::create('usuarios', function (Blueprint $t) {
             $t->id(); $t->string('nombre'); $t->string('email')->nullable(); $t->string('password')->nullable();

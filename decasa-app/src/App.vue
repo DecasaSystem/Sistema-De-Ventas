@@ -148,6 +148,9 @@ onMounted(() => {
   // ventana, que llega en el mismo instante, volvía a pedir /me.
   ultimoRefresco = Date.now()
   auth.fetchMe().finally(abrirDesdeNotificacionInicial)
+  // Los perfiles alternos que la cuenta tiene autorizados y a este aparato
+  // le faltan (otro celular, o el navegador borró sus datos).
+  auth.sincronizarPerfiles()
   document.addEventListener('visibilitychange', refrescarPermisos)
   window.addEventListener('focus', refrescarPermisos)
   navigator.serviceWorker?.addEventListener('message', onSwMessage)

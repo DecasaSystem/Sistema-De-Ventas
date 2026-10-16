@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Usuario;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Validation\ValidationException;
@@ -21,12 +22,21 @@ class AuthController extends Controller
      */
     private function usuarioQuePuedeEntrar(string $email): ?Usuario
     {
-        return Usuario::where('email', $email)
+        return $this->quienesPuedenEntrar()->where('email', $email)->first();
+    }
+
+    /**
+     * El mismo candado, para abrir de nuevo la sesión de un perfil alterno:
+     * si a esa persona la desactivaron, no vuelve a entrar por la puerta de
+     * al lado.
+     */
+    private function quienesPuedenEntrar()
+    {
+        return Usuario::query()
             ->whereNotNull('email')
             ->whereNotNull('password')
             ->where('no_usa_programa', false)
-            ->where('activo', true)
-            ->first();
+            ->where('activo', true);
     }
 
     public function login(Request $request)
@@ -191,11 +201,9 @@ class AuthController extends Controller
             've_produccion'      => $usuario->veProduccion(),
             'tienda_default_id'  => $usuario->tienda_default_id,
             // Con qué cuentas alterna (hasta tres), en el orden en que las
-            // agregó. Viaja el QUIÉN, nunca su sesión: el otro aparato tiene
-            // que escribir la contraseña igual.
-            'perfiles_alternos'  => $usuario->perfilesAlternos
-                ->map(fn ($a) => ['id' => $a->id, 'nombre' => $a->nombre, 'email' => $a->email])
-                ->values()->all(),
+            // agregó. Aquí viaja el QUIÉN; la sesión de los autorizados la
+            // entrega aparte POST /auth/perfiles-alternos/sesiones.
+            'perfiles_alternos'  => $this->listaDeAlternos($usuario),
             'firma_url'          => $usuario->firma_url,
             // Su barra de abajo, si la personalizó. Null = la de siempre.
             'nav_favoritos'      => $usuario->nav_favoritos,
@@ -264,11 +272,98 @@ class AuthController extends Controller
 
         // Se reescribe entera con la posición de cada uno: es la única forma
         // de que "quitar al segundo" deje al tercero donde iba.
+        // Solo se manda la posición: a los que siguen en la lista se les
+        // conserva la autorización (sync no toca las demás columnas). Anotar a
+        // alguien aquí NO lo autoriza; eso lo hace él con su sesión (confirmar).
         $yo->perfilesAlternos()->sync(
             collect($ids)->mapWithKeys(fn ($id, $i) => [$id => ['posicion' => $i]])->all()
         );
 
-        return response()->json(['ok' => true, 'usuario_ids' => $ids]);
+        return response()->json([
+            'ok'                => true,
+            'usuario_ids'       => $ids,
+            'perfiles_alternos' => $this->listaDeAlternos($yo->load('perfilesAlternos:id,nombre,email')),
+        ]);
+    }
+
+    /**
+     * POST /api/auth/perfiles-alternos/confirmar  (con la sesión del ALTERNO)
+     *
+     * La otra persona deja dicho que acepta turnarse la sesión con la cuenta
+     * principal. Va con SU token —lo tiene quien acaba de escribir su
+     * contraseña en ese aparato—, nunca con el de la principal: así nadie
+     * queda autorizado sin haber puesto su propia contraseña.
+     *
+     * Solo autoriza un vínculo que la principal ya anotó (PATCH
+     * mis-perfiles-alternos): hacen falta las dos partes de acuerdo.
+     */
+    public function confirmarPerfilAlterno(Request $request)
+    {
+        $data = $request->validate(['principal_id' => 'required|integer']);
+        $yo   = $request->user();
+
+        $tocadas = DB::table('perfiles_alternos')
+            ->where('usuario_id', $data['principal_id'])
+            ->where('alterno_id', $yo->id)
+            ->update(['autorizado_at' => now(), 'updated_at' => now()]);
+
+        if (! $tocadas) {
+            return response()->json(['message' => 'Esa cuenta no te tiene entre sus perfiles.'], 404);
+        }
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
+     * POST /api/auth/perfiles-alternos/sesiones  (con la sesión de la PRINCIPAL)
+     *
+     * Abre la sesión de los perfiles alternos que ya autorizaron, para que al
+     * entrar desde otro celular —o después de que el navegador borró sus
+     * datos— queden listos sin volver a escribir contraseñas. `tengo` son los
+     * que el aparato ya tiene: a esos no se les crea otro token.
+     *
+     * Pasan los mismos candados que al entrar: a quien desactivaron o ya no
+     * usa el programa no se le abre sesión.
+     */
+    public function sesionesDePerfilesAlternos(Request $request)
+    {
+        $data = $request->validate([
+            'tengo'   => 'sometimes|array|max:' . Usuario::MAX_PERFILES,
+            'tengo.*' => 'integer',
+        ]);
+        $tengo = array_map('intval', $data['tengo'] ?? []);
+
+        $yo = $request->user()->load('perfilesAlternos:id,nombre,email');
+
+        $faltan = $yo->perfilesAlternos
+            ->filter(fn ($a) => $a->pivot->autorizado_at && ! in_array((int) $a->id, $tengo, true))
+            ->pluck('id');
+
+        $sesiones = $faltan->isEmpty() ? collect() : $this->quienesPuedenEntrar()
+            ->whereIn('id', $faltan)
+            ->with(['rolAsignado', 'perfilesAlternos:id,nombre,email'])
+            ->get()
+            ->sortBy(fn ($u) => $faltan->search($u->id))
+            ->map(fn ($u) => array_merge($this->sesionIniciada($u), ['email' => $u->email]))
+            ->values();
+
+        return response()->json([
+            'perfiles_alternos' => $this->listaDeAlternos($yo),
+            'sesiones'          => $sesiones,
+        ]);
+    }
+
+    /** Con quiénes alterna, en orden, y si cada uno ya autorizó. */
+    private function listaDeAlternos(Usuario $usuario): array
+    {
+        return $usuario->perfilesAlternos
+            ->map(fn ($a) => [
+                'id'         => $a->id,
+                'nombre'     => $a->nombre,
+                'email'      => $a->email,
+                'autorizado' => (bool) $a->pivot->autorizado_at,
+            ])
+            ->values()->all();
     }
 
     public function guardarFirma(Request $request)
@@ -309,6 +404,13 @@ class AuthController extends Controller
         }
 
         $usuario->update($updates);
+
+        // Cambiar la contraseña retira el permiso que había dado para que otras
+        // cuentas le abrieran la sesión solas: si alguien la cambia es porque
+        // ya no quiere que entren por ella. Vuelve a autorizar escribiéndola.
+        if (isset($updates['password'])) {
+            DB::table('perfiles_alternos')->where('alterno_id', $usuario->id)->update(['autorizado_at' => null]);
+        }
 
         return response()->json([
             'message' => 'Cuenta actualizada correctamente.',

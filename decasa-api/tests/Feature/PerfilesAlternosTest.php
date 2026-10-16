@@ -51,7 +51,7 @@ class PerfilesAlternosTest extends TestCase
         });
         Schema::create('perfiles_alternos', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('usuario_id'); $t->unsignedBigInteger('alterno_id');
-            $t->unsignedTinyInteger('posicion')->default(0); $t->timestamps();
+            $t->unsignedTinyInteger('posicion')->default(0); $t->timestamp('autorizado_at')->nullable(); $t->timestamps();
             $t->unique(['usuario_id', 'alterno_id']);
         });
         Schema::create('personal_access_tokens', function (Blueprint $t) {
@@ -112,5 +112,87 @@ class PerfilesAlternosTest extends TestCase
         $this->actingAs($this->yo())
             ->patchJson('/api/auth/mis-perfiles-alternos', ['usuario_ids' => [999]])
             ->assertStatus(422);
+    }
+
+    /*
+     * Los perfiles ya no viven solo en el aparato: Mónica entra desde otro
+     * celular (o el navegador borró sus datos) y los compañeros que ya
+     * autorizaron le aparecen listos, sin volver a escribir contraseñas.
+     */
+
+    private function sesiones(array $tengo = []): array
+    {
+        return $this->actingAs($this->yo())
+            ->postJson('/api/auth/perfiles-alternos/sesiones', ['tengo' => $tengo])
+            ->assertOk()->json();
+    }
+
+    public function test_anotar_a_alguien_no_le_abre_la_sesion_sin_que_el_autorice(): void
+    {
+        // Sin esto, cualquiera anotaba al supervisor y se quedaba con su sesión.
+        $this->actingAs($this->yo())->patchJson('/api/auth/mis-perfiles-alternos', ['usuario_ids' => [2]])->assertOk();
+
+        $r = $this->sesiones();
+        $this->assertSame([], $r['sesiones']);
+        $this->assertFalse($r['perfiles_alternos'][0]['autorizado']);
+    }
+
+    public function test_quien_autorizo_se_abre_solo_en_otro_aparato(): void
+    {
+        $this->actingAs($this->yo())->patchJson('/api/auth/mis-perfiles-alternos', ['usuario_ids' => [3, 2]])->assertOk();
+        // Laura y Andrés escribieron su contraseña en el PC: con su sesión autorizan.
+        $this->actingAs(Usuario::find(3))->postJson('/api/auth/perfiles-alternos/confirmar', ['principal_id' => 1])->assertOk();
+        $this->actingAs(Usuario::find(2))->postJson('/api/auth/perfiles-alternos/confirmar', ['principal_id' => 1])->assertOk();
+
+        // En el celular, sin nada guardado: llegan los dos, en orden y con token.
+        $r = $this->sesiones();
+        $this->assertSame([3, 2], array_column($r['sesiones'], 'id'));
+        $this->assertNotEmpty($r['sesiones'][0]['token']);
+        $this->assertSame('laura@decasa.com', $r['sesiones'][0]['email']);
+        $this->assertTrue($r['perfiles_alternos'][0]['autorizado']);
+
+        // Un aparato que ya tiene a Laura no recibe otro token suyo.
+        $this->assertSame([2], array_column($this->sesiones([3])['sesiones'], 'id'));
+
+        // El token entregado sirve para entrar como Laura.
+        $this->app['auth']->forgetGuards();
+        $this->withHeader('Authorization', 'Bearer ' . $r['sesiones'][0]['token'])
+            ->getJson('/api/auth/me')->assertOk()->assertJson(['id' => 3]);
+    }
+
+    public function test_no_se_autoriza_un_vinculo_que_la_principal_no_anoto(): void
+    {
+        $this->actingAs(Usuario::find(3))
+            ->postJson('/api/auth/perfiles-alternos/confirmar', ['principal_id' => 1])
+            ->assertStatus(404);
+        $this->assertSame([], $this->sesiones()['perfiles_alternos']);
+    }
+
+    public function test_reordenar_conserva_la_autorizacion(): void
+    {
+        $this->actingAs($this->yo())->patchJson('/api/auth/mis-perfiles-alternos', ['usuario_ids' => [3]])->assertOk();
+        $this->actingAs(Usuario::find(3))->postJson('/api/auth/perfiles-alternos/confirmar', ['principal_id' => 1])->assertOk();
+        $this->actingAs($this->yo())->patchJson('/api/auth/mis-perfiles-alternos', ['usuario_ids' => [2, 3]])
+            ->assertOk()->assertJsonPath('perfiles_alternos.1.autorizado', true);
+
+        $this->assertSame([3], array_column($this->sesiones()['sesiones'], 'id'));
+    }
+
+    public function test_desactivado_o_con_contrasena_nueva_ya_no_se_abre_solo(): void
+    {
+        $this->actingAs($this->yo())->patchJson('/api/auth/mis-perfiles-alternos', ['usuario_ids' => [3, 2]])->assertOk();
+        $this->actingAs(Usuario::find(3))->postJson('/api/auth/perfiles-alternos/confirmar', ['principal_id' => 1])->assertOk();
+        $this->actingAs(Usuario::find(2))->postJson('/api/auth/perfiles-alternos/confirmar', ['principal_id' => 1])->assertOk();
+
+        // A Andrés lo desactivaron: mismo candado que al entrar.
+        Usuario::find(2)->update(['activo' => false]);
+        // Laura cambió su contraseña: retira el permiso que había dado.
+        $this->actingAs(Usuario::find(3))->patchJson('/api/auth/mi-cuenta', [
+            'password_actual' => 'x', 'password_nuevo' => 'nueva-clave', 'password_nuevo_confirmation' => 'nueva-clave',
+        ])->assertOk();
+
+        $r = $this->sesiones();
+        $this->assertSame([], $r['sesiones']);
+        $this->assertFalse($r['perfiles_alternos'][0]['autorizado'], 'Laura sigue anotada, pero sin autorizar');
     }
 }

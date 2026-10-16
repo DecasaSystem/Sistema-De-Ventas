@@ -472,16 +472,16 @@ function rolLabel(usuario) {
         </button>
       </div>
 
-      <!-- La cuenta recuerda con quiénes alterna, aunque este aparato no los
-           tenga activos. La sesión del otro perfil no puede viajar —es su
-           contraseña—, pero saber quién es evita tener que acordarse. -->
+      <!-- La cuenta recuerda con quiénes alterna. Los que ya autorizaron se
+           abren solos en cualquier aparato; aquí solo quedan los que todavía
+           no han escrito su contraseña (vínculos viejos, o la cambiaron). -->
       <div
         v-if="auth.perfilesPorActivar.length && auth.puedeAgregarPerfil"
         class="bg-blue-50 border border-blue-200 rounded-xl px-3 py-2.5 space-y-2"
       >
         <p class="text-xs text-blue-800 leading-snug">
-          En tu cuenta también alternas con estas personas, pero en este dispositivo todavía no
-          están activas. Escribe su contraseña una vez y quedan listas aquí también.
+          En tu cuenta también alternas con estas personas, pero todavía no están activas.
+          Escribe su contraseña una vez y quedan listas en todos tus dispositivos.
         </p>
         <button
           v-for="r in auth.perfilesPorActivar" :key="r.id"

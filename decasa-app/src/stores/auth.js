@@ -213,8 +213,8 @@ export const useAuthStore = defineStore('auth', () => {
   })))
   /**
    * Con quienes alterna segun la CUENTA, aunque en este aparato no esten
-   * activos. La sesion del otro perfil no se puede sincronizar —es una
-   * contrasena ajena—, pero saber quien es sirve para no tener que acordarse.
+   * activos. Los que ya autorizaron se abren solos (sincronizarPerfiles); los
+   * que no, quedan aqui para pedirles la contrasena una vez.
    * Se anotan en la cuenta PRINCIPAL (la que entró primero): es la que
    * arma el grupo.
    */
@@ -250,6 +250,84 @@ export const useAuthStore = defineStore('auth', () => {
     token.value         = data.token
     usuario.value       = u
     _syncStorage()
+    // Y los que la cuenta tiene autorizados, aunque este aparato nunca los
+    // haya visto: es lo que evita volver a escribir contraseñas.
+    sincronizarPerfiles()
+  }
+
+  /** Llamada a la API con el token de un perfil que puede no ser el activo. */
+  async function _conToken(tokenDe, metodo, ruta, cuerpo) {
+    const res = await fetch(`/api${ruta}`, {
+      method: metodo,
+      headers: { Authorization: `Bearer ${tokenDe}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: cuerpo ? JSON.stringify(cuerpo) : undefined,
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    return res.json()
+  }
+
+  /** La otra persona, con SU sesión, acepta turnarse con la principal. */
+  async function _confirmarAlterno(tokenAlterno, principalId) {
+    try {
+      await _conToken(tokenAlterno, 'POST', '/auth/perfiles-alternos/confirmar', { principal_id: principalId })
+      return true
+    } catch { return false }
+  }
+
+  /**
+   * Pone este aparato al día con lo que la CUENTA sabe de sus perfiles.
+   *
+   * Antes la sesión de cada perfil alterno vivía solo en el localStorage: en
+   * otro celular, o cuando el navegador borraba los datos, había que volver a
+   * escribir la contraseña de cada compañero. Ahora el servidor abre la sesión
+   * de los que ya autorizaron (escribieron su contraseña una vez en cualquier
+   * aparato) y aquí solo se agregan los que faltan.
+   *
+   * De paso autoriza los vínculos de antes de este cambio: si este aparato
+   * tiene la sesión de esa persona, ya demostró su contraseña aquí.
+   */
+  let _sincronizando = null
+  function sincronizarPerfiles() {
+    if (!_sincronizando) _sincronizando = _sincronizar().finally(() => { _sincronizando = null })
+    return _sincronizando
+  }
+
+  async function _sincronizar() {
+    const principal = _perfiles.value[0]
+    if (!principal?.token || !principal?.usuario?.id) return
+    const principalId = principal.usuario.id
+
+    let data
+    try {
+      data = await _conToken(principal.token, 'POST', '/auth/perfiles-alternos/sesiones', {
+        tengo: _perfiles.value.slice(1).map(p => p?.usuario?.id).filter(Boolean),
+      })
+    } catch { return }
+
+    // Mientras llegaba la respuesta pudo cerrarse la sesión o entrar otra cuenta.
+    if (_perfiles.value[0]?.usuario?.id !== principalId) return
+
+    const lista = data.perfiles_alternos ?? []
+    const aqui  = new Set(_perfiles.value.map(p => p?.usuario?.id))
+    const nuevos = (data.sesiones ?? [])
+      .filter(s => s?.token && s?.id && !aqui.has(s.id))
+      .slice(0, MAX_PERFILES - _perfiles.value.length)
+      .map(s => ({ token: s.token, usuario: _buildUsuario(s) }))
+
+    // Los de antes de este cambio: anotados en la cuenta pero sin autorizar,
+    // y con su sesión viva en este aparato.
+    for (const r of lista) {
+      if (r.autorizado) continue
+      const enAparato = _perfiles.value.find(p => p?.usuario?.id === r.id && p?.token)
+      if (enAparato && await _confirmarAlterno(enAparato.token, principalId)) r.autorizado = true
+    }
+
+    const p0 = _perfiles.value[0]
+    p0.usuario = { ...p0.usuario, perfiles_alternos: lista }
+    if (nuevos.length) _perfiles.value = [..._perfiles.value, ...nuevos]
+    if (_perfilActivo.value === 0) usuario.value = p0.usuario
+    _syncStorage()
+    _persistirAlt()
   }
 
   async function fetchMe() {
@@ -371,15 +449,15 @@ export const useAuthStore = defineStore('auth', () => {
       .filter(r => r.id !== quitar)
       .slice(0, MAX_PERFILES - 1)
 
+    let guardada = null
     try {
-      await fetch('/api/auth/mis-perfiles-alternos', {
-        method: 'PATCH',
-        headers: { Authorization: `Bearer ${principal.token}`, 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ usuario_ids: lista.map(r => r.id) }),
-      })
+      guardada = (await _conToken(principal.token, 'PATCH', '/auth/mis-perfiles-alternos', {
+        usuario_ids: lista.map(r => r.id),
+      })).perfiles_alternos ?? null
     } catch {}
     // Lo que la cuenta recuerda, actualizado aquí sin esperar otro /auth/me.
-    principal.usuario = { ...principal.usuario, perfiles_alternos: lista }
+    // La respuesta trae además quién ya autorizó.
+    principal.usuario = { ...principal.usuario, perfiles_alternos: guardada ?? lista }
     if (_perfilActivo.value === 0) usuario.value = principal.usuario
     _syncStorage()
   }
@@ -397,7 +475,21 @@ export const useAuthStore = defineStore('auth', () => {
     _syncStorage()
     // Guardar también en clave persistente
     _persistirAlt()
-    _guardarRecordados()
+    // Primero la principal lo anota en la cuenta y después esta persona, con
+    // su propia sesión, lo autoriza: desde ahí se abre solo en cualquier
+    // aparato donde entre la principal. Van en ese orden porque autorizar
+    // solo vale sobre un vínculo que ya existe.
+    const principal = _perfiles.value[0]
+    await _guardarRecordados()
+    if (await _confirmarAlterno(data.token, principal.usuario.id)) {
+      principal.usuario = {
+        ...principal.usuario,
+        perfiles_alternos: (principal.usuario.perfiles_alternos ?? [])
+          .map(r => r.id === data.id ? { ...r, autorizado: true } : r),
+      }
+      if (_perfilActivo.value === 0) usuario.value = principal.usuario
+      _syncStorage()
+    }
     return u
   }
 
@@ -449,6 +541,6 @@ export const useAuthStore = defineStore('auth', () => {
     puedeEncargos, revisaEncargos, llevaEncargos, veTodasOrdenes, soloVeSusOrdenes,
     tienePerfilAlternativo, puedeAgregarPerfil, perfiles, perfilesRecordados, perfilesPorActivar, perfilAlternativo, perfilActivoIdx,
     login, loginConGoogle, fetchMe, setFirma, setNavFavoritos, setEmail, logout, clearSession,
-    loginPerfilAlternativo, cambiarPerfil, eliminarPerfilAlternativo,
+    loginPerfilAlternativo, cambiarPerfil, eliminarPerfilAlternativo, sincronizarPerfiles,
   }
 })
