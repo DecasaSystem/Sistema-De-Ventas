@@ -136,6 +136,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // Los textos de Gestión → Documentos que la app usa con el cliente
     // (mensajes de WhatsApp, empresa, acta). Editarlos es de supervisor.
     Route::get('/textos-del-negocio', [\App\Http\Controllers\PlantillaDocumentoController::class, 'textosDelNegocio']);
+    // Interruptores de Gestión → Ajustes (p. ej. si se califica al taller).
+    // Leerlos, cualquiera; cambiarlos, supervisor.
+    Route::get('/ajustes-sistema', [\App\Http\Controllers\AjustesSistemaController::class, 'index']);
 
     // Los ítems de un módulo creado a partir de Telas (Espumas, Hilos...).
     // Es la pantalla de Telas sobre otra tabla; el permiso se mira adentro,
@@ -157,6 +160,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/herramientas',        [PersonalizacionController::class, 'crearHerramienta']);
         Route::patch('/herramientas/{id}',  [PersonalizacionController::class, 'actualizarHerramienta'])->whereNumber('id');
         Route::delete('/herramientas/{id}', [PersonalizacionController::class, 'eliminarHerramienta'])->whereNumber('id');
+        Route::patch('/ajustes-sistema',    [\App\Http\Controllers\AjustesSistemaController::class, 'update']);
 
         // Textos de documentos (Gestión → Documentos): anexo de garantías y
         // orden de entrega. Cada guardado es una versión nueva.

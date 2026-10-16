@@ -275,7 +275,11 @@ class ProduccionController extends Controller
             'trabajadores'   => $this->nombresDe($participantes),
         ]);
 
-        $this->guardarParticipantes($paso, $participantes, $usuario, conCalificacion: true);
+        // Si en Gestión → Ajustes se apagaron las puntuaciones, se guarda solo
+        // quién lo hizo: tiempo, estrellas y opinión no se anotan aunque una
+        // app abierta desde antes del cambio los mande.
+        $this->guardarParticipantes($paso, $participantes, $usuario,
+            conCalificacion: \App\Support\AjustesSistema::calificaTaller());
 
         $produccion = $paso->produccion;
         // Las piezas para la Reserva no tienen orden ni vendedor.

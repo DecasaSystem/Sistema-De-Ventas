@@ -5,7 +5,8 @@
  * Un solo formulario para los dos momentos:
  *  - "empezar": sólo se elige quién lo va a hacer. Horas y calidad quedan
  *    pendientes, porque todavía no se saben.
- *  - "terminar": se eligen las personas y se les pone horas y estrellas.
+ *  - "terminar": se eligen las personas y se les pone horas y estrellas
+ *    (si en Gestión → Ajustes se apagaron las puntuaciones, solo quién).
  *
  * Existe el modo "empezar" porque al cerrar el paso el encargado muchas veces
  * ya no se acuerda de quién lo hizo. Si se apunta al arrancar, al final sólo
@@ -15,6 +16,7 @@ import { ref, computed, watch } from 'vue'
 import { XMarkIcon, StarIcon, MagnifyingGlassIcon } from '@heroicons/vue/24/outline'
 import { StarIcon as StarSolid } from '@heroicons/vue/24/solid'
 import { getTrabajadoresTaller } from '@/api/produccion'
+import { getAjustesSistema } from '@/api/ajustes'
 import { aHoras, enUnidad, unidadSugerida } from '@/utils/duracion'
 
 const props = defineProps({
@@ -52,6 +54,21 @@ const elegidos  = ref([])
 
 const esTerminar = computed(() => props.modo === 'terminar')
 
+/**
+ * Gestión → Ajustes puede apagar las puntuaciones: entonces al terminar solo
+ * se dice quién lo hizo. Se pregunta al abrir (puede cambiar en el día); si
+ * no responde se deja encendido: el servidor manda y descarta lo que sobre.
+ */
+const calificaTaller = ref(true)
+const califica = computed(() => esTerminar.value && calificaTaller.value)
+
+async function cargarAjustes() {
+  try {
+    const { data } = await getAjustesSistema({ silencioso: true })
+    calificaTaller.value = data?.calificar_trabajadores_taller !== false
+  } catch { /* se queda como estaba */ }
+}
+
 async function cargarCatalogo() {
   cargando.value = true
   try {
@@ -83,7 +100,7 @@ watch(() => props.abierto, async (abierto) => {
       comentario: p.comentario ?? '',
     }
   })
-  await cargarCatalogo()
+  await Promise.all([cargarCatalogo(), cargarAjustes()])
 })
 
 const delProceso = computed(() => catalogo.value.filter(t => t.del_proceso))
@@ -133,13 +150,14 @@ function guardar() {
   if (!elegidos.value.length || faltaDestino.value) return
   emit('guardar', elegidos.value.map(e => ({
     usuario_id: e.usuario_id,
-    // En "empezar" no se manda nada de esto: todavía no se sabe.
+    // En "empezar" no se manda nada de esto: todavía no se sabe. Tampoco si
+    // las puntuaciones están apagadas en Gestión → Ajustes.
     // El número va tal como se escribió y la unidad aparte: quien pasa días a
     // horas es el servidor, para que no dependa de la versión de la app.
-    tiempo:     esTerminar.value && e.tiempo !== '' ? Number(e.tiempo) : null,
-    unidad:     esTerminar.value ? e.unidad : null,
-    calidad:    esTerminar.value ? e.calidad : null,
-    comentario: esTerminar.value ? (e.comentario || null) : null,
+    tiempo:     califica.value && e.tiempo !== '' ? Number(e.tiempo) : null,
+    unidad:     califica.value ? e.unidad : null,
+    calidad:    califica.value ? e.calidad : null,
+    comentario: califica.value ? (e.comentario || null) : null,
   })), { destino_final: props.pedirDestino ? destinoFinal.value : null })
 }
 
@@ -183,7 +201,7 @@ function estrellasDe(promedio) {
                 </button>
               </div>
 
-              <div v-if="esTerminar" class="grid grid-cols-2 gap-2.5">
+              <div v-if="califica" class="grid grid-cols-2 gap-2.5">
                 <div>
                   <label class="block text-[11px] font-semibold text-gray-500 mb-1">Se demoró</label>
                   <div class="flex gap-1">
@@ -217,7 +235,7 @@ function estrellasDe(promedio) {
               </div>
 
               <input
-                v-if="esTerminar"
+                v-if="califica"
                 v-model="e.comentario" type="text" maxlength="300"
                 placeholder="Opinión sobre su trabajo (opcional)"
                 class="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -225,7 +243,7 @@ function estrellasDe(promedio) {
             </div>
           </div>
 
-          <p v-if="esTerminar && elegidos.length" class="text-[11px] text-gray-400">
+          <p v-if="califica && elegidos.length" class="text-[11px] text-gray-400">
             El tiempo y la calidad son opcionales, pero es lo que arma la puntuación
             del trabajador y lo que decide a quién conviene darle más trabajo.
             Un día de taller cuenta como 8 horas.
@@ -264,11 +282,11 @@ function estrellasDe(promedio) {
                   <p class="text-[11px] text-gray-400 truncate">{{ t.rol }}</p>
                 </div>
                 <div class="shrink-0 text-right">
-                  <div v-if="t.calidad_promedio" class="flex items-center gap-0.5 justify-end">
+                  <div v-if="calificaTaller && t.calidad_promedio" class="flex items-center gap-0.5 justify-end">
                     <StarSolid v-for="n in estrellasDe(t.calidad_promedio)" :key="n" class="w-3 h-3 text-amber-400" />
                     <span class="text-[11px] text-gray-500 ml-0.5">{{ t.calidad_promedio }}</span>
                   </div>
-                  <p v-else class="text-[11px] text-gray-300">sin calificar</p>
+                  <p v-else-if="calificaTaller" class="text-[11px] text-gray-300">sin calificar</p>
                   <p class="text-[10px] text-gray-400">{{ t.pasos }} paso(s)</p>
                 </div>
               </button>

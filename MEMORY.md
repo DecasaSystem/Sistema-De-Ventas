@@ -305,6 +305,16 @@ escribiendo precios (Fase 1b).
   "Todas" iba por nombre (los de 0 revueltos). El orden/filtro salió de
   `InventarioController` a `App\Support\OrdenExistencias` (los dos lo usan; cambiar uno
   cambia el otro). Tests en `ReservaOrdenStockTest`.
+- **Apagar las puntuaciones del taller** (2026-10-16, **subido a `main`** ese día, rama
+  `claude/sharp-mcclintock-2308ce`, sin migración). Pedido del dueño: "que se pueda apagar
+  lo de las puntuaciones de los trabajadores cuando de producción pasan de un paso a otro",
+  desde Gestión. Se interpretó como el formulario de "Terminar paso": tiempo, estrellas y
+  opinión de cada trabajador (lo que arma la "puntuación" en Usuarios y el orden de quién
+  conviene poner). Apagado se sigue pidiendo **quién lo hizo** (es el registro del paso y
+  el backend lo exige). Si el dueño quería quitar también eso, es otro cambio. Nueva
+  pestaña Gestión → Ajustes (`Support/AjustesSistema`), pensada para más interruptores.
+  Verificado que no toca plata: Nómina no lee `paso_trabajadores`. Tests en
+  `AjustesCalificarTallerTest`.
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 

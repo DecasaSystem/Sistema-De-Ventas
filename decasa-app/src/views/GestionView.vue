@@ -20,6 +20,7 @@ import ModulosPanel from '@/components/gestion/ModulosPanel.vue'
 import HerramientasPanel from '@/components/gestion/HerramientasPanel.vue'
 import CatalogosPanel from '@/components/gestion/CatalogosPanel.vue'
 import DocumentosPanel from '@/components/gestion/DocumentosPanel.vue'
+import AjustesPanel from '@/components/gestion/AjustesPanel.vue'
 
 const router = useRouter()
 const toast  = useToast()
@@ -28,7 +29,8 @@ const tab = ref('roles')
 
 // Roles y Tiendas son quién trabaja y dónde; Módulos y Herramientas son cómo
 // se llama y qué dice el programa en esta empresa; Documentos, qué dicen los
-// papeles que se firman o se entregan.
+// papeles que se firman o se entregan; Ajustes, interruptores de cómo trabaja
+// el sistema (p. ej. si se califica al taller).
 const TABS = [
   { valor: 'roles',        label: 'Roles' },
   { valor: 'tiendas',      label: 'Tiendas' },
@@ -36,6 +38,7 @@ const TABS = [
   { valor: 'herramientas', label: 'Herram.' },
   { valor: 'catalogos',    label: 'Catálogos' },
   { valor: 'documentos',   label: 'Docs.' },
+  { valor: 'ajustes',      label: 'Ajustes' },
 ]
 
 // ── Roles (puestos de trabajo) ────────────────────────────────────────────
@@ -265,6 +268,9 @@ const inactivas = computed(() => tiendas.value.filter(t => !t.activa))
     <!-- Lo que dicen los papeles que se firman o se entregan: anexo de
          garantías y orden de entrega -->
     <DocumentosPanel v-if="tab === 'documentos'" />
+
+    <!-- Interruptores: cómo trabaja el sistema -->
+    <AjustesPanel v-if="tab === 'ajustes'" />
 
     <template v-if="tab === 'roles'">
       <div class="flex items-center justify-between mb-3">

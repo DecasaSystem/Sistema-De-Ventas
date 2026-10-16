@@ -368,6 +368,8 @@ en su tienda; un supervisor escoge. Sin migración (la columna `canal` es texto)
   **línea** (restauración vs mueble nuevo).
 - "**Mis pasos**" (`EbanistaView`): cada trabajador ve y completa sus pasos,
   apunta participantes con horas y calificación (hoja de vida del taller).
+  La calificación (tiempo, estrellas, opinión) se puede apagar en Gestión → Ajustes
+  (§6.19): apagada, al terminar solo se dice quién lo hizo.
   Devolver un paso; **regresar al taller** desde despacho (`RetornoAlTaller`).
 - Cuando todas las producciones de una orden quedan `listo` → `listo_entrega`.
 - Permisos: `acceso_produccion` (ver tablero), `gestiona_produccion` (mover),
@@ -579,6 +581,19 @@ en su conteo.
 `GestionView`: tiendas (`TiendaController`), roles configurables
 (`RolController`), módulos renombrables con icono y orden, herramientas del
 asesor (textos para copiar), catálogos visuales. `PersonalizacionController`.
+
+**Ajustes (2026-10-16)** — pestaña *Ajustes* (`components/gestion/AjustesPanel.vue`,
+`AjustesSistemaController`, `Support/AjustesSistema`; filas `'1'`/`'0'` en
+`configuracion`, sin fila = valor de fábrica). `GET /ajustes-sistema` cualquiera con
+sesión, `PATCH` solo supervisor. Interruptores:
+- **Calificar a los trabajadores al terminar un paso** (`produccion_calificar_trabajadores`,
+  de fábrica encendido). Apagado, `PasoTrabajadoresModal` no pide tiempo, estrellas ni
+  opinión (solo quién lo hizo) y `ProduccionController::completarPaso` no los guarda
+  aunque una app vieja los mande. Lo ya calificado se conserva y se sigue viendo
+  (Usuarios, detalle de la orden, Mis pasos). No toca plata: Nómina y bonificaciones
+  (`nomina_producciones`, a mano) no leen las calificaciones.
+Para agregar otro: entrada en `AjustesSistema::DEFINICION` y en `todos()`, validación en
+el controlador, y que el backend lo respete.
 
 **Documentos (2026-10-15)** — pestaña *Docs.* (`components/gestion/DocumentosPanel.vue`,
 `EditorAnexoGarantia.vue`, `EditorOrdenEntrega.vue`; `PlantillaDocumentoController`,
