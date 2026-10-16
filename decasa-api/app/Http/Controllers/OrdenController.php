@@ -32,6 +32,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use App\Support\Esquema;
 
 class OrdenController extends Controller
 {
@@ -418,6 +419,8 @@ class OrdenController extends Controller
             'items.*.tienda_origen_id'           => 'nullable|exists:tiendas,id',
             'items.*.cantidad'                   => 'required|integer|min:1',
             'items.*.precio_unitario'            => 'required|numeric|min:0',
+            // La promoción con la que se rebajó (ver promocionDelItem).
+            'items.*.promocion_id'               => 'nullable|integer',
             'items.*.es_personalizado'           => 'nullable|boolean',
             'items.*.fabricar_pedido'            => 'nullable|boolean',
             'items.*.es_restauracion'            => 'nullable|boolean',
@@ -822,6 +825,11 @@ class OrdenController extends Controller
             $itemsPrevios = $borrador ? $orden->items()->get()->keyBy('id') : collect();
             $itemsQueQuedan = [];
 
+            // Con qué promoción se vendió cada producto (Inventario →
+            // Promociones). El precio ya viene rebajado de la pantalla, como
+            // el descuento por producto: esto solo lo deja escrito.
+            $promosDeLaVenta = $this->promocionesDeLaVenta($data['items'], (int) $tiendaId);
+
             // --- 3. Crear items, reservar stock y crear producción ---
             foreach ($data['items'] as $itemData) {
                 $esPersonalizado  = (bool) ($itemData['es_personalizado'] ?? false);
@@ -885,6 +893,7 @@ class OrdenController extends Controller
                     // orden por orden poniéndola; ahora entra sola y quien
                     // supervisa solo corrige la que vea mal.
                     'fecha_entrega_prom'    => $fechaEntregaInicial,
+                    ...$this->promocionDelItem($promosDeLaVenta, $itemData, $varianteId, $comboConfigId),
                 ];
 
                 $previo = ! empty($itemData['id']) ? $itemsPrevios->get((int) $itemData['id']) : null;
@@ -1290,6 +1299,8 @@ class OrdenController extends Controller
             'items.produccion.despachador:id,nombre',
             'pagos.facturacionTomadaPor:id,nombre',
             'ediciones.usuario:id,nombre',
+            // "Promoción" junto al producto que se vendió con una.
+            ...(Esquema::columna('orden_items', 'promocion_id') ? ['items.promocion:id,nombre,tipo,valor'] : []),
             ...(\App\Models\AnexoGarantia::hayTabla()
                 // Sin lista de columnas: el "último firmado" (ofMany) hace un
                 // join con la misma tabla y en MySQL `orden_id` sin tabla es
@@ -2538,6 +2549,33 @@ class OrdenController extends Controller
             : null;
 
         return response()->json($orden);
+    }
+
+    /**
+     * Las promociones que la pantalla dice haber aplicado, si son de verdad
+     * de esta tienda. No se mira la fecha: una orden que se empezó a las
+     * 11:50 p. m. del último día sale con el precio que se le dio al cliente.
+     */
+    private function promocionesDeLaVenta(array $items, int $tiendaId)
+    {
+        if (! Esquema::columna('orden_items', 'promocion_id')) return null;
+        $ids = collect($items)->pluck('promocion_id')->filter()->map(fn ($id) => (int) $id)->unique();
+        if ($ids->isEmpty()) return collect();
+        return \App\Models\Promocion::whereIn('id', $ids)->enTienda($tiendaId)->get()->keyBy('id');
+    }
+
+    /**
+     * ['promocion_id' => …] para el ítem: la que mandó la pantalla si es de ese
+     * producto, o null (así un borrador que la tenía y ya no, la suelta).
+     * [] si la columna no existe todavía.
+     */
+    private function promocionDelItem($promos, array $itemData, $varianteId, $comboConfigId): array
+    {
+        if ($promos === null) return [];
+        $promo = $promos->get((int) ($itemData['promocion_id'] ?? 0));
+        $vale = $promo && ! empty($itemData['producto_id'])
+            && $promo->leAplicaA((int) $itemData['producto_id'], $comboConfigId ? (int) $comboConfigId : null, $varianteId ? (int) $varianteId : null);
+        return ['promocion_id' => $vale ? $promo->id : null];
     }
 
     /** Cuánto hay libre hoy de un ítem de catálogo en la tienda de donde sale. */

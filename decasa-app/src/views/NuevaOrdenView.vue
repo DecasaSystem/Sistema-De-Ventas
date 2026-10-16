@@ -18,6 +18,8 @@ import { comprimirImagen, comprimirAlTomar } from '@/utils/comprimirImagen'
 import { useBorradorLocal } from '@/composables/useBorradorLocal'
 import { piezasPorJuego, piezasDeOpcion, enJuegos, precioPieza } from '@/utils/juegos'
 import { pctDeMonto, montoDePct, formatPct } from '@/utils/descuentos'
+import { getPromocionesVigentes } from '@/api/promociones'
+import { promoParaItem, rebajaDePromo, promosDelProducto, textoRebaja, textoHasta } from '@/utils/promociones'
 import { ArrowPathIcon, SparklesIcon, XMarkIcon } from '@heroicons/vue/24/solid'
 import { ArrowPathIcon as ArrowPathOutlineIcon, PhotoIcon, UserGroupIcon, BuildingStorefrontIcon, ArrowPathIcon as ConvertIcon, ExclamationTriangleIcon, PencilIcon, MapPinIcon, SwatchIcon, CurrencyDollarIcon, PlusIcon, GiftIcon, ChevronDownIcon } from '@heroicons/vue/24/outline'
 import { getReceptores, crearConsulta } from '@/api/consultas'
@@ -284,6 +286,28 @@ async function crearCliente() {
 // ── Paso 1: Tienda + Canal ────────────────────────────────────────────────────
 const tiendaId = ref(auth.usuario?.tienda_default_id ?? '')
 const canal = ref('fisica')
+
+// Promociones que corren hoy en la tienda de la venta (Inventario →
+// Promociones). Cuenta la tienda donde se vende, no de dónde sale el mueble.
+// Si la consulta falla se vende a precio de lista: el vendedor todavía puede
+// poner el descuento a mano.
+const promocionesVigentes = ref([])
+let pedidoPromos = 0
+watch(tiendaId, async (id) => {
+  const este = ++pedidoPromos
+  if (!id) { promocionesVigentes.value = []; return }
+  try {
+    const { data } = await getPromocionesVigentes(id)
+    if (este === pedidoPromos) promocionesVigentes.value = data ?? []
+  } catch {
+    if (este === pedidoPromos) promocionesVigentes.value = []
+  }
+}, { immediate: true })
+
+/** La promoción que le toca a esa línea, o null. */
+function promoDe(item) {
+  return promoParaItem(promocionesVigentes.value, item)
+}
 
 const canalesopts = [
   { value: 'fisica',     label: 'Física' },
@@ -855,6 +879,8 @@ function confirmarVCAPedido(sinVariante = false) {
     label:    selecciones.map(s => s.opcion_nombre).join(' · '),
     precio:   selecciones.reduce((sum, s) => sum + Number(s.precio_adicional ?? 0), 0),
     configId: selecciones.length === 1 ? (selecciones[0].config_id ?? null) : null,
+    // Todas, para saber si alguna está en promoción (1.40 + con baúl).
+    configIds: selecciones.map(s => s.config_id).filter(Boolean),
   } : null
 
   if (editandoIdx.value !== null) {
@@ -863,6 +889,10 @@ function confirmarVCAPedido(sinVariante = false) {
     const precio = variante?.precio > 0 ? variante.precio : Number(prod.precio_base ?? it.precio_unitario ?? 0)
     it.variante_label = variante?.label ?? null
     it._config_id     = variante?.configId ?? null
+    it._config_ids    = variante?.configIds ?? []
+    // Vuelve al precio de lista de la nueva versión: si tiene promoción, le toca.
+    it._sin_promo     = false
+    it._promocion_id  = null
     if (Number(it.precio_unitario) !== precio) {
       it.precio_unitario = precio
       toast.info(`Precio actualizado a $${pesos(precio)} por la nueva selección.`)
@@ -889,10 +919,11 @@ function confirmarVCPickerOrden() {
   // para engancharla, y con dos elegidas guardar la primera sería mentir. El
   // texto sí las lleva todas.
   const configId = selecciones.length === 1 ? (selecciones[0].config_id ?? null) : null
+  const configIds = selecciones.map(s => s.config_id).filter(Boolean)
   if (vcPickerEsFabrica.value) {
-    _pushItemFabricaVC(prod, label, precioAdicional, configId)
+    _pushItemFabricaVC(prod, label, precioAdicional, configId, configIds)
   } else {
-    _pushItemVC(prod, label, precioAdicional, configId)
+    _pushItemVC(prod, label, precioAdicional, configId, configIds)
   }
   mostrarVCPicker.value = false
 }
@@ -1009,11 +1040,11 @@ function _pushItemFabrica(producto, variante) {
   fabricaStock.value = {}
 }
 
-function _pushItemVC(producto, varianteLabel, precioAdicional, configId = null) {
+function _pushItemVC(producto, varianteLabel, precioAdicional, configId = null, configIds = []) {
   const esOtraTienda = tiendaBusqueda.value && tiendaBusqueda.value != tiendaId.value
   const existe = items.value.find(i => i.producto_id === producto.id && i.variante_label === varianteLabel && !i._fabricar_pedido)
   if (! _colocarItem({
-    producto_id: producto.id, variante_id: null, _config_id: configId,
+    producto_id: producto.id, variante_id: null, _config_id: configId, _config_ids: configIds,
     tienda_origen_id: esOtraTienda ? (tiendaBusqueda.value ?? null) : null,
     nombre: producto.nombre, categoria: producto.categoria,
     variante_label: varianteLabel,
@@ -1030,10 +1061,10 @@ function _pushItemVC(producto, varianteLabel, precioAdicional, configId = null) 
   productoQuery.value = ''
 }
 
-function _pushItemFabricaVC(producto, varianteLabel, precioAdicional, configId = null) {
+function _pushItemFabricaVC(producto, varianteLabel, precioAdicional, configId = null, configIds = []) {
   const existe = items.value.find(i => i.producto_id === producto.id && i.variante_label === varianteLabel && i.tienda_origen_id === fabricaId.value && !i._fabricar_pedido)
   if (! _colocarItem({
-    producto_id: producto.id, variante_id: null, _config_id: configId,
+    producto_id: producto.id, variante_id: null, _config_id: configId, _config_ids: configIds,
     tienda_origen_id: fabricaId.value,
     nombre: producto.nombre, categoria: producto.categoria,
     variante_label: varianteLabel,
@@ -1456,6 +1487,7 @@ function fabricarBajoPedido(producto, variante = null) {
     producto_id: producto.id,
     variante_id: null,
     _config_id: variante?.configId ?? null,
+    _config_ids: variante?.configIds ?? [],
     tienda_origen_id: null,
     nombre: producto.nombre,
     categoria: producto.categoria,
@@ -1499,6 +1531,7 @@ function agregarPersonalizado(producto, variante = null) {
     producto_id:         producto.id,
     variante_id:         null,
     _config_id:          variante?.configId ?? null,
+    _config_ids:         variante?.configIds ?? [],
     tienda_origen_id:    null,
     nombre:              producto.nombre,
     categoria:           producto.categoria,
@@ -2131,10 +2164,14 @@ const metodosOpts = [
 /**
  * Precio unitario ya con el descuento del ítem aplicado. El descuento se puede
  * escribir en pesos (por unidad) o en porcentaje; el resultado nunca baja de 0.
+ *
+ * Primero va la promoción de la tienda, si el producto tiene una, y el
+ * descuento que ponga el vendedor se aplica sobre lo que queda (el % de
+ * descuento es del precio de promoción, no del de lista).
  */
 function precioEfectivo(item) {
   if (item._regalo) return 0
-  const base  = item.precio_unitario ?? 0
+  const base  = (item.precio_unitario ?? 0) - rebajaDePromo(promoDe(item), item)
   const valor = Number(item._descuento_valor) || 0
   if (!valor) return base
 
@@ -2651,6 +2688,9 @@ async function submit() {
         // El obsequio se manda, no se deduce del precio: en $0 tambien esta
         // lo que todavia espera cotizacion, y son cosas distintas.
         es_regalo:               i._regalo || undefined,
+        // Con qué promoción salió el precio (ya va rebajado arriba). La del
+        // borrador se conserva: su precio ya la traía.
+        promocion_id:            (promoDe(i)?.id ?? i._promocion_id) || undefined,
         fecha_entrega_prometida: i.fecha_entrega_prometida || undefined,
         specs_personalizacion:   specsParaGuardar(i),
         boceto_urls:             (i.es_personalizado || i._retapizar) && i.boceto_urls.some(Boolean)
@@ -3142,6 +3182,10 @@ function itemDesdeServidor(i) {
                       && precio === 0 && !i.es_regalo && !i.producto_unico,
     _descuento_modo:  'monto',
     _descuento_valor: 0,
+    // El precio guardado ya trae la promoción (o se guardó sin ella): no se
+    // vuelve a aplicar, se recuerda cuál era.
+    _sin_promo:       true,
+    _promocion_id:    i.promocion_id ?? null,
     _mostrarCalculadora: false,
     _calculandoPrecio:   false,
     _precioCalc:         null,
@@ -3783,6 +3827,13 @@ onBeforeUnmount(() => {
                   {{ nombreTiendaBusqueda() }}
                 </span>
               </p>
+              <!-- Para que el vendedor sepa que puede ofrecerla: "1.40 −15 %". -->
+              <p v-if="promosDelProducto(promocionesVigentes, p.id).length" class="flex flex-wrap gap-1 mt-0.5">
+                <span
+                  v-for="pr in promosDelProducto(promocionesVigentes, p.id)" :key="pr.id"
+                  class="bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded-full text-xs font-semibold"
+                >🏷️ {{ pr.version ? pr.version + ' ' : '' }}{{ textoRebaja(pr) }}</span>
+              </p>
             </div>
 
             <span class="text-sm font-bold text-gray-800 flex-shrink-0">
@@ -4336,6 +4387,10 @@ onBeforeUnmount(() => {
                   class="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-medium text-xs">
                   <MapPinIcon class="w-3.5 h-3.5 inline-block mr-0.5 -mt-0.5" />{{ item.tienda_origen }}
                 </span>
+                <span v-if="promoDe(item)"
+                  class="bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded-full text-xs font-semibold">
+                  🏷️ Promoción {{ textoRebaja(promoDe(item)) }}
+                </span>
                 <span v-if="!item._fabricar_pedido && !(item.producto_id === null && item.es_personalizado) && !item.variante_label && !item.tienda_origen" class="text-xs text-gray-400">
                   {{ item.categoria }}
                 </span>
@@ -4452,6 +4507,19 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
+          <!-- Promoción de la tienda: el precio de arriba es el de lista; lo
+               que paga el cliente es este. Lo pone el sistema, no el vendedor. -->
+          <div
+            v-if="promoDe(item)"
+            class="text-xs border border-rose-200 rounded-lg px-2.5 py-1.5 flex items-baseline gap-1.5 flex-wrap"
+          >
+            <span class="font-semibold text-rose-700">{{ promoDe(item).nombre || 'Promoción' }}</span>
+            <span class="text-gray-400 line-through">${{ pesos(item.precio_unitario) }}</span>
+            <span class="text-gray-400">→</span>
+            <span class="font-bold text-gray-800">${{ pesos(item.precio_unitario - rebajaDePromo(promoDe(item), item)) }}</span>
+            <span class="text-gray-400">· hasta el {{ textoHasta(promoDe(item).fecha_fin) }}</span>
+          </div>
+
           <!-- Regalo / cortesía — cualquier ítem se puede obsequiar -->
           <label class="flex items-center gap-2.5 cursor-pointer select-none">
             <div
@@ -4501,10 +4569,11 @@ onBeforeUnmount(() => {
             <!-- En cuánto estaba y en cuánto queda: lo justo para confirmar
                  que el descuento entró bien, sin ir a comprobarlo al total. -->
             <div
-              v-if="descuentoItemMonto(item) > 0"
+              v-if="descuentoItemMonto(item) > 0 && Number(item._descuento_valor)"
               class="text-xs bg-green-50 px-2 py-1 rounded-lg flex items-baseline gap-1.5 flex-shrink-0"
             >
-              <span class="text-gray-400 line-through">${{ pesos(item.precio_unitario) }}</span>
+              <!-- Con promoción, el descuento se hace sobre el precio de promoción. -->
+              <span class="text-gray-400 line-through">${{ pesos(item.precio_unitario - rebajaDePromo(promoDe(item), item)) }}</span>
               <span class="text-gray-400">→</span>
               <span class="text-green-700 font-bold">${{ pesos(precioEfectivo(item)) }}</span>
             </div>
@@ -5019,8 +5088,9 @@ onBeforeUnmount(() => {
           </div>
 
           <p class="text-xs text-right text-gray-500">
+            <!-- Con la promoción y el descuento: lo que suma al total. -->
             Subtotal: <strong class="text-gray-800">
-              ${{ (item.cantidad * item.precio_unitario).toLocaleString('es-CO') }}
+              ${{ pesos(item.cantidad * precioEfectivo(item)) }}
             </strong>
           </p>
         </div>
@@ -5992,7 +6062,6 @@ onBeforeUnmount(() => {
     </div>
   </Transition>
 
-  <!-- Modal picker de variante -->
   <Transition name="fade">
     <!-- Orden sin terminar guardada en el teléfono. No se cierra tocando
          afuera: si se escribe encima sin decidir, lo nuevo pisaría lo que
@@ -6041,7 +6110,12 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </div>
+  </Transition>
 
+  <!-- Modal picker de variante. Va en su propio Transition: compartía uno con
+       el aviso de borrador de arriba, y un Transition admite un solo hijo; en
+       desarrollo eso tumbaba la pantalla entera ("expects exactly one child"). -->
+  <Transition name="fade">
     <div v-if="mostrarVariantePicker" class="fixed inset-0 z-[70] flex items-end sm:items-center justify-center" @click.self="mostrarVariantePicker = false">
       <div class="absolute inset-0 bg-black/50" @click="mostrarVariantePicker = false" />
       <!-- Se topa en la pantalla y rueda la LISTA, no el modal entero: un

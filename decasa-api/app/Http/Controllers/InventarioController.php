@@ -124,9 +124,13 @@ class InventarioController extends Controller
                 'variante'    => $r->opcion,
                 'disponible'  => (int) $r->disponible,
                 'reservado'   => (int) $r->reservado,
-                // Medida/talla: el precio adicional se suma al precio base.
+                // Medida/talla: el valor de la opción es el precio completo de
+                // esa versión (así cobra Nueva orden desde 8be6205); en 0, el
+                // del producto. Antes se sumaba y el Excel decía otra cifra.
                 'precio_base' => (float) $r->precio_base,
-                'precio'      => (float) $r->precio_base + (float) ($r->precio_adicional ?? 0),
+                'precio'      => (float) ($r->precio_adicional ?? 0) > 0
+                    ? (float) $r->precio_adicional
+                    : (float) $r->precio_base,
             ]);
 
         $filas = $porTapizado->concat($porConfig)->values();

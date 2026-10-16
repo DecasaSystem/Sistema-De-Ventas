@@ -36,6 +36,7 @@ import { DocumentIcon, EnvelopeIcon, ChatBubbleLeftEllipsisIcon, ArrowDownTrayIc
 import FirmaCanvas from '@/components/FirmaCanvas.vue'
 import { comprimirImagen, comprimirAlTomar } from '@/utils/comprimirImagen'
 import { pctDeMonto, formatPct } from '@/utils/descuentos'
+import { textoRebaja } from '@/utils/promociones'
 import { formatoDuracion } from '@/utils/duracion'
 import { PhotoIcon } from '@heroicons/vue/24/outline'
 import { SPECS_TEMPLATES, resolverCategoria } from '@/constants/specsConfig'
@@ -2549,6 +2550,11 @@ onMounted(() => { cargarTipos(); cargarOrden() })
               </p>
               <p class="text-xs text-gray-400">{{ item.producto?.categoria ?? item.categoria_custom ?? 'personalizado' }}</p>
               <p class="text-xs text-gray-500 mt-0.5">Cantidad: {{ item.cantidad }}</p>
+              <!-- Se vendió con una promoción de la tienda: el precio ya la trae. -->
+              <span
+                v-if="item.promocion"
+                class="inline-block mt-1 mr-1 bg-rose-100 text-rose-700 text-[11px] font-semibold px-2 py-0.5 rounded-full"
+              >🏷️ {{ item.promocion.nombre || 'Promoción' }} {{ textoRebaja(item.promocion) }}</span>
               <span
                 v-if="entregaDeItem(item)"
                 :class="['inline-block mt-1 text-[11px] font-semibold px-2 py-0.5 rounded-full border', entregaDeItem(item).cls]"

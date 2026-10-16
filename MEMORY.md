@@ -228,6 +228,21 @@ escribiendo precios (Fase 1b).
   pagado de más (si pagó el precio completo, se corrige solo el medio). La cifra sale de
   `descuento_condicionado` o, si editar la orden la dejó en 0, del historial
   (`DescuentoCondicionadoService::montoPerdido` / `devolver`, `Pago::recuperaDescuentoSiPasaA`).
+- **Promociones por tienda** (2026-10-16, **sin subir**, rama
+  `claude/inventory-promotions-by-store-d04803`). Trae **migración**
+  `2026_10_22_000001_promociones_por_tienda` (crea `promociones` y `promocion_tienda`,
+  agrega `orden_items.promocion_id`; solo agrega). Pedido del dueño: escoger producto o
+  variante (la cama Bali de 1.40), tiendas, cuánto y fechas, "para no cambiarle el valor a
+  cada rato". Decisiones que tomé por defecto y **falta que el dueño confirme**: solo un
+  supervisor las programa; cuenta la tienda donde se vende; el descuento manual del
+  vendedor y el 5 % de efectivo se aplican **encima** de la promoción (no se cambió ninguna
+  regla de plata existente); lo mandado a fabricar igual sí la lleva, lo personalizado no.
+  `precio_adicional` de una opción es el **precio completo** de esa versión (commit
+  8be6205; en 0 = el del producto). Inventario → Gestionar, las pastillas de la tarjeta,
+  Reserva, Editar orden, el Excel de inventario y el **precio sugerido del cambio por
+  garantía** todavía lo trataban como recargo ("+$", base + opción); se corrigieron el
+  2026-10-16 (mismo trabajo). Nunca volver a sumarlo. **Elena todavía no
+  sabe de promociones** (lee precios directo de la BD): cotiza a precio de lista.
 - **Comisiones atrasadas: dos meses juntos** (2026-10-15, **sin subir**, sin migración).
   Pedido del dueño: si se demoran en pagar y se juntan dos pagos, que se sepa qué es de
   qué fecha. Hecho: Listas muestra todo lo por pagar con un bloque por mes y la fecha

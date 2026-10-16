@@ -55,6 +55,9 @@ class OrdenItem extends Model
         'boceto_url',
         'boceto_fotos',
         'fecha_entrega_prom',
+        // Con qué promoción se vendió (Inventario → Promociones). El precio ya
+        // quedó rebajado: esto es para saberlo, no para recalcularlo.
+        'promocion_id',
         // El cliente lo devolvió para cambiarlo por otro. Se queda en la orden
         // como rastro, pero deja de sumar al total.
         'devuelto_en',
@@ -540,6 +543,11 @@ class OrdenItem extends Model
     public function producto()
     {
         return $this->belongsTo(Producto::class, 'producto_id');
+    }
+
+    public function promocion()
+    {
+        return $this->belongsTo(Promocion::class, 'promocion_id');
     }
 
     public function produccion()

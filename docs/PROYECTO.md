@@ -313,6 +313,23 @@ en su tienda; un supervisor escoge. Sin migración (la columna `canal` es texto)
 - **Productos únicos** (piezas irrepetibles ya vendidas).
 - **Auditoría de descuadres** (supervisor): reservas fantasma y entregas que no
   descontaron, con corrección.
+- **Promociones por tienda** (2026-10-15, botón *Promociones* en Inventario, supervisor;
+  `PromocionController`, `Promocion`, `components/inventario/PromocionesModal.vue`,
+  `utils/promociones.js`). Se programa una vez: qué se rebaja (el producto entero, una
+  opción de `producto_variante_configs` como la medida 1.40, o una tela/medida de
+  `producto_variantes`), en qué tiendas (`promocion_tienda`), cuánto (`porcentaje`,
+  `monto` o `precio` final) y de qué fecha a qué fecha (días de Bogotá, los dos
+  incluidos). **El precio de lista no se toca.** Nueva orden lee
+  `GET /promociones/vigentes?tienda_id=` (la tienda de la venta, no de dónde sale el
+  mueble) y rebaja la línea sola, antes del descuento manual del vendedor; el precio que
+  se guarda ya va rebajado y `orden_items.promocion_id` dice con cuál (el servidor lo
+  acepta solo si la promoción es de esa tienda y ese producto). Si al mismo producto le
+  aplican dos, gana la de la versión sobre la del producto entero. No se cruzan dos para
+  lo mismo en la misma tienda y fechas; precio final a "todo el producto" no se deja si
+  sus versiones tienen precios distintos. Usada en una venta no se borra: se apaga.
+  Lo personalizado, los regalos, lo que espera precio y lo que viene de un borrador o
+  cotización guardados (`_sin_promo`) no la llevan. Editar una orden (agregar productos)
+  y cotizaciones no la guardan aparte. Prueba: `PromocionesPorTiendaTest`.
 
 ### 6.6 Surtidos, traslados y Reserva de Fábrica
 - **Surtido** (`SurtidoController`): fábrica → tiendas. Lo crea quien tenga

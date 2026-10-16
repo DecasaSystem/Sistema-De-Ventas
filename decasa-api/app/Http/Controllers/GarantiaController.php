@@ -343,10 +343,15 @@ class GarantiaController extends Controller
             ])
             ->values();
 
-        // Sugerencia, no regla: el precio de la tela/medida si lo tiene, si
-        // no el del producto, más lo que sume la opción.
-        $sugerido = (float) ($variante?->precio_variante ?? $producto->precio_base ?? 0)
-                  + (float) ($combo?->precio_adicional ?? 0);
+        // Sugerencia, no regla: el precio de lista como lo cobra Nueva orden.
+        // El valor de la opción (medida 1.40, con baúl) es el precio completo
+        // de esa versión, no un recargo (8be6205); si no tiene, el de la
+        // tela/medida, y si no, el del producto. Antes se sumaba y la cama de
+        // 1.40 salía sugerida en base + $1.800.000.
+        $precioOpcion = (float) ($combo?->precio_adicional ?? 0);
+        $sugerido = $precioOpcion > 0
+            ? $precioOpcion
+            : (float) ($variante?->precio_variante ?? $producto->precio_base ?? 0);
 
         return response()->json([
             'producto'        => ['id' => $producto->id, 'nombre' => $producto->nombre, 'categoria' => $producto->categoria ?? null],

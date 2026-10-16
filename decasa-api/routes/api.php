@@ -17,6 +17,7 @@ use App\Http\Controllers\PersonalizacionController;
 use App\Http\Controllers\ModuloItemController;
 use App\Http\Controllers\ProduccionController;
 use App\Http\Controllers\ProductoController;
+use App\Http\Controllers\PromocionController;
 use App\Http\Controllers\ProveedorController;
 use App\Http\Controllers\CompraController;
 use App\Http\Controllers\EncargoController;
@@ -532,8 +533,18 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('/inventario/traslados/{id}/aceptar',               [TrasladoController::class, 'aceptar'])->whereNumber('id');
     Route::patch('/inventario/traslados/{id}/rechazar',              [TrasladoController::class, 'rechazar'])->whereNumber('id');
 
+    // Promociones por tienda: las programa un supervisor; Nueva orden lee las
+    // que corren hoy en la tienda de la venta.
+    Route::get('/promociones/vigentes', [PromocionController::class, 'vigentes']);
+    Route::middleware('role:supervisor')->group(function () {
+        Route::get('/promociones',            [PromocionController::class, 'index']);
+        Route::post('/promociones',           [PromocionController::class, 'store']);
+        Route::patch('/promociones/{id}',     [PromocionController::class, 'update'])->whereNumber('id');
+        Route::delete('/promociones/{id}',    [PromocionController::class, 'destroy'])->whereNumber('id');
+    });
+
     // Variantes de producto (tela/color)
-    Route::get('/variantes/telas',           [VarianteController::class, 'telas']);
+    Route::get('/variantes/telas',         [VarianteController::class, 'telas']);
     Route::get('/productos/{id}/variantes',  [VarianteController::class, 'index']);
     Route::get('/productos/{id}/variantes/{varianteId}/uso', [VarianteController::class, 'uso'])->whereNumber(['id', 'varianteId']);
     Route::middleware('role:supervisor,vendedor')->group(function () {

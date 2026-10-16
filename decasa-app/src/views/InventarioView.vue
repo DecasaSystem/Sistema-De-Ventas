@@ -1,6 +1,8 @@
 ﻿<script setup>
 import IconoS from '@/components/common/IconoS.vue'
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, nextTick, watch } from 'vue'
+import { getPromocionesVigentes } from '@/api/promociones'
+import { promosDelProducto, textoRebaja } from '@/utils/promociones'
 import { useFiltrosRecordados } from '@/composables/useFiltrosRecordados'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
@@ -22,7 +24,9 @@ import {
   ArrowRightIcon,
   ArrowDownTrayIcon,
   ArrowsUpDownIcon,
+  TagIcon,
 } from '@heroicons/vue/24/outline'
+import PromocionesModal from '@/components/inventario/PromocionesModal.vue'
 import { exportarExcelHojas } from '@/utils/exportarExcel'
 import { getInventario, getDesgloseVariantes, getResumenCategoria, addStock, removeStock, getVariantes, crearVariante, addStockVariante, getMovimientos, getReservas, getDescuadres, corregirDescuadre as postCorregirDescuadre, getVarianteUso, eliminarVariante } from '@/api/inventario'
 import SurtidosPendientesPanel from '@/components/inventario/SurtidosPendientesPanel.vue'
@@ -86,6 +90,19 @@ const categoriaFiltro = ref('')
 const ordenInv        = ref('stock_desc')
 const existenciaInv   = ref('')
 useFiltrosRecordados('inventario', { tiendaId, busqueda, categoriaFiltro, ordenInv, existenciaInv })
+
+// Lo que está en promoción hoy en la tienda que se mira (en "todas" no se
+// marca: cada tienda tiene las suyas).
+const promosTienda = ref([])
+async function cargarPromosTienda() {
+  const id = tiendaId.value
+  if (!id || id === 'todas') { promosTienda.value = []; return }
+  try {
+    const { data } = await getPromocionesVigentes(id)
+    if (id === tiendaId.value) promosTienda.value = data ?? []
+  } catch { promosTienda.value = [] }
+}
+watch(tiendaId, cargarPromosTienda, { immediate: true })
 
 // ── Ordenar y filtrar por existencias ────────────────────────────────────────
 const ORDENES_INV = [
@@ -283,9 +300,17 @@ function vcSetPrecio(tipoId, opcionId, valor) {
   vcPrecios.value[tipoId] = { ...vcPrecios.value[tipoId], [opcionId]: Number(valor) || 0 }
 }
 
+/**
+ * En cuánto se vende esa versión. El valor de la opción es su precio
+ * completo, no un recargo: así lo cobran Nueva orden y Editar orden desde
+ * 8be6205 (y así lo dice Elena). En 0, cuesta lo mismo que el producto.
+ * Aquí decía "base + valor" y "+$": la cama de 1.40 a $1.800.000 salía
+ * "se vende en $3.300.000" y se cobraba $1.800.000.
+ */
 function vcPrecioFinal(tipoId, opcionId) {
-  const base = Number(itemGestionar.value?.producto?.precio_base ?? 0)
-  return base + Number(vcPrecios.value[tipoId]?.[opcionId] ?? 0)
+  const base  = Number(itemGestionar.value?.producto?.precio_base ?? 0)
+  const propio = Number(vcPrecios.value[tipoId]?.[opcionId] ?? 0)
+  return propio > 0 ? propio : base
 }
 
 // ── Renombrar una opción desde gestionar ─────────────────────────────────────
@@ -765,6 +790,7 @@ async function abrirHistorial(item) {
 // ── Agregar producto ──────────────────────────────────────────────────────────
 const mostrarAgregarProducto = ref(false)
 const mostrarVariantes = ref(false)
+const mostrarPromociones = ref(false)
 const creandoProducto = ref(false)
 const subiendoFoto = ref(false)
 const errCrearProducto = ref('')
@@ -2324,6 +2350,15 @@ onMounted(async () => {
       </button>
       <button
         v-if="auth.isSupervisor"
+        @click="mostrarPromociones = true"
+        title="Rebajas por tienda y por fechas"
+        class="flex-shrink-0 flex items-center gap-1.5 bg-white border border-gray-300 text-gray-700 text-sm font-semibold px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors whitespace-nowrap"
+      >
+        <TagIcon class="w-4 h-4 flex-shrink-0" />
+        Promociones
+      </button>
+      <button
+        v-if="auth.isSupervisor"
         @click="abrirDescuadres"
         title="Productos donde &quot;Apartado&quot; no coincide con lo real"
         class="flex-shrink-0 flex items-center gap-1.5 bg-white border border-gray-300 text-gray-700 text-sm font-semibold px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors whitespace-nowrap"
@@ -2774,6 +2809,10 @@ onMounted(async () => {
                 <span v-if="esVistaGlobal && item.tiendas_count" class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
                   {{ item.tiendas_count }} {{ item.tiendas_count === 1 ? 'tienda' : 'tiendas' }}
                 </span>
+                <span
+                  v-for="pr in promosDelProducto(promosTienda, item.producto_id)" :key="pr.id"
+                  class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-semibold bg-rose-100 text-rose-700 whitespace-nowrap"
+                >🏷️ {{ pr.version ? pr.version + ' ' : '' }}{{ textoRebaja(pr) }}</span>
               </div>
             </div>
             <div class="flex items-center gap-2 flex-shrink-0">
@@ -2882,10 +2921,10 @@ onMounted(async () => {
                       ? 'bg-indigo-50 border-indigo-300 text-indigo-800'
                       : 'bg-gray-50 border-gray-200 text-gray-400',
                     (!esVistaGlobal && puedeGestionar) ? 'cursor-pointer hover:opacity-75' : 'cursor-default']"
-                  :title="opt.opcion_nombre + (opt.precio_adicional > 0 ? ' +' + pesos(opt.precio_adicional) : '') + ((!esVistaGlobal && puedeGestionar) ? ' — clic para agregar stock' : '')"
+                  :title="opt.opcion_nombre + (opt.precio_adicional > 0 ? ' ' + pesos(opt.precio_adicional) : '') + ((!esVistaGlobal && puedeGestionar) ? ' — clic para agregar stock' : '')"
                 >
                   {{ opt.opcion_nombre }}
-                  <span v-if="opt.precio_adicional > 0" class="ml-1 text-emerald-600 font-semibold">+{{ pesos(opt.precio_adicional) }}</span>
+                  <span v-if="opt.precio_adicional > 0" class="ml-1 text-emerald-600 font-semibold">{{ pesos(opt.precio_adicional) }}</span>
                   <span class="ml-1 font-bold">{{ opt.stock_disponible ?? 0 }}</span>
                   <!-- En juego: en piezas, y cuántos juegos son con SU número -->
                   <span v-if="piezasPorJuego(item.producto)" class="ml-1 text-[10px] font-normal opacity-75">
@@ -3004,6 +3043,7 @@ onMounted(async () => {
 
     <!-- Modal Catálogo Tela -->
     <ModalVariantes v-if="mostrarVariantes" @close="mostrarVariantes = false" />
+    <PromocionesModal :show="mostrarPromociones" :tiendas="tiendas" @close="mostrarPromociones = false" @cambio="cargarPromosTienda" />
 
     <!-- Modal Agregar Producto -->
     <Transition name="fade">
@@ -3707,7 +3747,7 @@ onMounted(async () => {
                           v-if="grupo.tipo.afecta_precio"
                           class="flex items-center w-32 rounded-lg border border-gray-300 bg-white overflow-hidden focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 flex-shrink-0"
                         >
-                          <span class="pl-2.5 text-xs font-semibold text-gray-400 select-none">+$</span>
+                          <span class="pl-2.5 text-xs font-semibold text-gray-400 select-none">$</span>
                           <InputPesos
                             :model-value="vcPrecios[grupo.tipo_variante_id]?.[item.opcion_id] ?? 0"
                             @update:model-value="vcSetPrecio(grupo.tipo_variante_id, item.opcion_id, $event)"
@@ -3744,7 +3784,7 @@ onMounted(async () => {
                           v-if="grupo.tipo.afecta_precio"
                           class="flex items-center w-32 rounded-lg border border-gray-300 bg-white overflow-hidden focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 flex-shrink-0"
                         >
-                          <span class="pl-2.5 text-xs font-semibold text-gray-400 select-none">+$</span>
+                          <span class="pl-2.5 text-xs font-semibold text-gray-400 select-none">$</span>
                           <InputPesos
                             :model-value="vcPrecios[grupo.tipo_variante_id]?.[op.opcion_id] ?? 0"
                             @update:model-value="vcSetPrecio(grupo.tipo_variante_id, op.opcion_id, $event)"
@@ -3858,21 +3898,21 @@ onMounted(async () => {
                     <span class="ml-auto text-[10px] font-semibold uppercase tracking-wide text-blue-600 flex-shrink-0">Nuevo</span>
                   </div>
                   <p v-if="vcTipoNuevo?.afecta_precio" class="px-3 pt-2 text-xs text-gray-500">
-                    Pon cuánto se le suma al precio base. Déjalo en 0 si cuesta lo mismo.
+                    Pon el precio de venta de cada versión. Déjalo en 0 si cuesta lo mismo que el producto.
                   </p>
                   <div class="divide-y divide-gray-100">
                     <div v-for="op in vcPendingOpciones" :key="op.opcion_id" class="flex items-center gap-2 px-3 py-2">
                       <div class="flex-1 min-w-0">
                         <p class="text-sm text-gray-700 truncate">{{ op.nombre }}</p>
                         <p v-if="vcTipoNuevo?.afecta_precio" class="text-[11px] text-gray-400">
-                          Se vende en {{ pesos(Number(itemGestionar?.producto?.precio_base ?? 0) + Number(op.precio_adicional || 0)) }}
+                          Se vende en {{ pesos(Number(op.precio_adicional) > 0 ? Number(op.precio_adicional) : Number(itemGestionar?.producto?.precio_base ?? 0)) }}
                         </p>
                       </div>
                       <div
                         v-if="vcTipoNuevo?.afecta_precio"
                         class="flex items-center w-32 rounded-lg border border-gray-300 bg-white overflow-hidden focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 flex-shrink-0"
                       >
-                        <span class="pl-2.5 text-xs font-semibold text-gray-400 select-none">+$</span>
+                        <span class="pl-2.5 text-xs font-semibold text-gray-400 select-none">$</span>
                         <InputPesos
                           v-model="op.precio_adicional"
                           placeholder="0"

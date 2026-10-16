@@ -580,4 +580,30 @@ class GarantiaPosventaTest extends TestCase
         $g = $this->reportar($vendedora, $cama)->assertCreated()->json();
         $this->actingAs($vendedora)->postJson("/api/garantias/{$g['id']}/decidir", ['decision' => 'taller'])->assertForbidden();
     }
+
+    /**
+     * Cambio por otro producto: el precio que se sugiere es el de lista, como
+     * lo cobra Nueva orden. El valor de la opción (la medida 1.40) es el precio
+     * completo de esa versión, no un recargo: antes salía base + opción.
+     */
+    public function test_el_precio_sugerido_del_cambio_es_el_de_la_version(): void
+    {
+        // producto_variantes y producto_variante_configs las monta TestCase,
+        // sin las columnas de precio.
+        Schema::table('producto_variantes', fn (Blueprint $t) => $t->decimal('precio_variante', 12, 2)->nullable());
+        Schema::table('producto_variante_configs', fn (Blueprint $t) => $t->decimal('precio_adicional', 12, 2)->default(0));
+        DB::table('productos')->insert(['id' => 30, 'nombre' => 'CAMA BALI', 'precio_base' => 1500000]);
+        DB::table('producto_variante_configs')->insert([
+            ['id' => 300, 'producto_id' => 30, 'precio_adicional' => 1800000],   // 1.40
+            ['id' => 301, 'producto_id' => 30, 'precio_adicional' => 0],         // cuesta lo del producto
+        ]);
+        $jefa = $this->jefa();
+
+        $this->actingAs($jefa)->getJson('/api/garantias/stock?producto_id=30&combo_config_id=300')
+            ->assertOk()->assertJsonPath('precio_sugerido', 1800000);
+        $this->actingAs($jefa)->getJson('/api/garantias/stock?producto_id=30&combo_config_id=301')
+            ->assertOk()->assertJsonPath('precio_sugerido', 1500000);
+        $this->actingAs($jefa)->getJson('/api/garantias/stock?producto_id=30')
+            ->assertOk()->assertJsonPath('precio_sugerido', 1500000);
+    }
 }

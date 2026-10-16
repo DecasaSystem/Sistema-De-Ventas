@@ -669,7 +669,7 @@ onMounted(async () => {
               >
                 {{ configItem.opcion_nombre }}
                 <span v-if="grupo.tipo.afecta_precio && configItem.precio_adicional > 0" class="opacity-70 ml-1">
-                  +{{ pesos(configItem.precio_adicional) }}
+                  {{ pesos(configItem.precio_adicional) }}
                 </span>
                 <span class="ml-1 font-bold">{{ configItem.stock_disponible ?? 0 }}</span>
               </component>

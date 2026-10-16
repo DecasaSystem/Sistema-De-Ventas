@@ -2282,7 +2282,7 @@ function solicitudEnviada() {
                             : ((op.stock_disponible ?? 0) > 0 ? 'bg-white text-gray-700 border-gray-300 hover:border-purple-400' : 'bg-gray-50 text-gray-400 border-gray-200')]"
                       >
                         {{ op.opcion_nombre }}
-                        <span v-if="op.precio_adicional > 0" class="text-emerald-600">+${{ Number(op.precio_adicional).toLocaleString('es-CO') }}</span>
+                        <span v-if="op.precio_adicional > 0" class="text-emerald-600">${{ Number(op.precio_adicional).toLocaleString('es-CO') }}</span>
                         <span class="ml-1 font-bold">{{ op.stock_disponible ?? 0 }}</span>
                       </button>
                     </div>
