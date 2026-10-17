@@ -510,6 +510,13 @@ Decisiones del dueño del 2026-10-08:
 
 ## 6. Trampas conocidas
 
+- **Recarga en bucle de una pantalla** (2026-10-17, queja: "en otro PC Producción se
+  queda cargando en bucle rápido"). `router.onError` recargaba la página cada vez que una
+  pantalla no cargaba su archivo, sin límite: si fallaba siempre (navegador viejo, la
+  compilación de Vite 8 + Tailwind 4 pide Chrome/Edge ≥ 111; Windows 7 se queda en
+  Chrome 109), recargaba sin fin. Ahora (subido a `main` el 2026-10-17) recarga una vez por pantalla por minuto y luego
+  avisa. Si vuelve a pasar, preguntar navegador y versión de ese PC.
+
 - Basura versionada por accidente (comandos de tinker mal escritos):
   `decasa-api/count())`, `decasa-api/get()`, `decasa-api/pluck('categoria')`,
   `decasa-api/pluck('tarifa'`, y en la raíz `C:UsersLenovoDesktopconfiguracion_export.sql`.

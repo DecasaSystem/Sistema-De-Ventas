@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useModulosStore } from '@/stores/modulos'
+import { useToast } from '@/composables/useToast'
 
 /**
  * Quién entra a un módulo creado a partir de otro: el mismo que entra al
@@ -111,7 +112,12 @@ const router = createRouter({
   },
 })
 
-// Cuando un chunk lazy falla por cache stale (deployment nuevo), navegar directamente
+// Cuando un chunk lazy falla por cache stale (deployment nuevo), navegar directamente.
+// Una sola vez por pantalla: si al recargar vuelve a fallar (navegador viejo que no
+// entiende el archivo, antivirus o red que lo bloquea), recargar otra vez no lo
+// arregla y la página se quedaba recargando en bucle ("se queda cargando rapidito"
+// en el PC de otra persona y en el mío no). Ahí se para y se dice qué pasa.
+const LLAVE_RECARGA = 'recarga-por-chunk'
 router.onError((err, to) => {
   const isChunkError = err?.message && (
     err.message.includes('Failed to fetch dynamically imported module') ||
@@ -119,9 +125,17 @@ router.onError((err, to) => {
     err.message.includes('error loading dynamically imported module') ||
     err.message.includes('MIME type')
   )
-  if (isChunkError) {
-    window.location.href = to?.fullPath ?? window.location.pathname
+  if (!isChunkError) return
+  const destino = to?.fullPath ?? window.location.pathname
+  let anterior = null
+  try { anterior = JSON.parse(sessionStorage.getItem(LLAVE_RECARGA) ?? 'null') } catch { /* sin almacenamiento */ }
+  if (anterior?.ruta === destino && Date.now() - anterior.en < 60_000) {
+    console.error('[router] La pantalla no carga ni recargando:', err)
+    useToast().error('Esta pantalla no cargó. Actualiza el navegador (Chrome o Edge al día) o borra los datos del sitio e intenta de nuevo.', 15000)
+    return
   }
+  try { sessionStorage.setItem(LLAVE_RECARGA, JSON.stringify({ ruta: destino, en: Date.now() })) } catch { /* sin almacenamiento */ }
+  window.location.href = destino
 })
 
 router.beforeEach((to) => {
