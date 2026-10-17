@@ -17,6 +17,9 @@ import { registrarPush, cancelarPush } from '@/composables/usePushNotifications'
 import CargandoS from '@/components/common/CargandoS.vue'
 import ScrollToTop from '@/components/common/ScrollToTop.vue'
 import ToastContainer from '@/components/common/ToastContainer.vue'
+import VisorFoto from '@/components/common/VisorFoto.vue'
+import { useVisorFoto } from '@/composables/useVisorFoto'
+import { esUrlDeFoto } from '@/utils/fotos'
 import AppInstallPrompt from '@/components/common/AppInstallPrompt.vue'
 import AgentChat from '@/components/AgentChat.vue'
 import {
@@ -140,7 +143,28 @@ function abrirDesdeNotificacionInicial() {
   } catch { /* dirección manipulada: se queda en el inicio */ }
 }
 
+// Toda foto de la app que se abría en otra pestaña (<a href="…jpg" target="_blank">:
+// facturas, soportes, chat, garantías…) se abre en el visor, que trae Descargar
+// (en JPG, no el WebP "raro" de Cloudinary) y Compartir. Ctrl/clic medio sigue
+// abriendo pestaña; `data-sin-visor` deja un enlace como estaba.
+const { abrirFoto } = useVisorFoto()
+function abrirEnlaceDeFoto(e) {
+  if (e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return
+  const a = e.target.closest?.('a[href]')
+  if (!a || a.hasAttribute('download') || a.hasAttribute('data-sin-visor')) return
+  const url = a.getAttribute('href')
+  if (!esUrlDeFoto(url)) return
+  e.preventDefault()
+  // Si el enlace está en una fila de fotos (soportes, chat), se pueden pasar todas.
+  const grupo = a.parentElement
+    ? [...a.parentElement.querySelectorAll(':scope > a[href]')].map(x => x.getAttribute('href')).filter(esUrlDeFoto)
+    : [url]
+  const fotos = grupo.length > 1 ? grupo : [url]
+  abrirFoto(fotos, { indice: Math.max(fotos.indexOf(url), 0), nombre: a.getAttribute('data-nombre-foto') || '' })
+}
+
 onMounted(() => {
+  document.addEventListener('click', abrirEnlaceDeFoto)
   // Los módulos no se piden aquí: ya los pide el watch de isAuthenticated de
   // abajo (immediate), y pedirlos en los dos sitios eran dos llamadas iguales
   // al abrir la app.
@@ -156,6 +180,7 @@ onMounted(() => {
   navigator.serviceWorker?.addEventListener('message', onSwMessage)
 })
 onUnmounted(() => {
+  document.removeEventListener('click', abrirEnlaceDeFoto)
   navigator.serviceWorker?.removeEventListener('message', onSwMessage)
   document.removeEventListener('visibilitychange', refrescarPermisos)
   window.removeEventListener('focus', refrescarPermisos)
@@ -912,6 +937,9 @@ function formatFecha(iso) {
 
     <!-- Toasts globales -->
     <ToastContainer />
+
+    <!-- Foto en grande con Descargar y Compartir (useVisorFoto) -->
+    <VisorFoto />
 
     <!-- Agente de IA — solo supervisor, vendedor y ebanista -->
     <!-- Tampoco en las páginas para el cliente (catálogos): aunque quien las

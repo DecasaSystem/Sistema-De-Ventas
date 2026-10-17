@@ -2,6 +2,8 @@
 import IconoS from '@/components/common/IconoS.vue'
 import InputPesos from '@/components/common/InputPesos.vue'
 import { cloudinaryOpt } from '@/utils/cloudinary'
+import { useVisorFoto } from '@/composables/useVisorFoto'
+import { descargarFoto } from '@/utils/fotos'
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
@@ -56,14 +58,14 @@ const orden = ref(null)
 // la lleva el cliente y es el comprobante de lo que compró.
 const devoluciones = ref([])
 const loading = ref(true)
-const verFactura = ref(false)
+// Fotos en grande (facturas, comprobantes, bocetos…) con Descargar y Compartir.
+const { abrirFoto } = useVisorFoto()
 
 /** Las fotos de lo entregado en una entrega: todas las de cada producto, o la única de las entregas de antes. */
 function urlsFotosProducto(e) {
   if (e?.fotos_producto?.length) return e.fotos_producto.map(f => f.url)
   return e?.foto_producto ? [e.foto_producto] : []
 }
-const bocetoModal = ref('')
 const error = ref('')
 // La orden no existe (se eliminó, o el enlace o aviso es viejo): no es una falla,
 // se muestra como pantalla propia y no como texto rojo del servidor.
@@ -1580,19 +1582,8 @@ async function enviarEmail(emailDestino = null) {
   }
 }
 
-async function descargarBoceto(url) {
-  try {
-    const resp = await fetch(url)
-    const blob = await resp.blob()
-    const ext = blob.type.includes('png') ? 'png' : blob.type.includes('jpg') || blob.type.includes('jpeg') ? 'jpg' : 'png'
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = `boceto.${ext}`
-    a.click()
-    setTimeout(() => URL.revokeObjectURL(a.href), 5000)
-  } catch {
-    // noop
-  }
+function descargarBoceto(url) {
+  return descargarFoto(url, 'boceto')
 }
 
 async function guardarFechas() {
@@ -2391,7 +2382,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
           :src="cloudinaryOpt(fotosComprobante[0], 800)"
           alt="Comprobante"
           class="w-full rounded-lg border border-gray-200 object-contain max-h-72 cursor-pointer"
-          @click="verFactura = fotosComprobante[0]"
+          @click="abrirFoto(fotosComprobante[0])"
         />
         <div v-else class="grid grid-cols-2 gap-2">
           <img
@@ -2400,7 +2391,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
             :src="cloudinaryOpt(url, 600)"
             :alt="`Comprobante ${i + 1}`"
             class="w-full h-40 rounded-lg border border-gray-200 object-cover cursor-pointer"
-            @click="verFactura = url"
+            @click="abrirFoto(url)"
           />
         </div>
       </div>
@@ -2449,7 +2440,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
           :src="cloudinaryOpt(orden.anexo_foto_url, 800)"
           alt="Anexo firmado"
           class="w-full rounded-lg border border-gray-200 object-contain max-h-72 cursor-pointer"
-          @click="verFactura = orden.anexo_foto_url"
+          @click="abrirFoto(orden.anexo_foto_url)"
         />
       </div>
 
@@ -2558,7 +2549,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
               :src="cloudinaryOpt(item.producto.foto_url, 200)"
               :alt="item.producto?.nombre ?? 'Producto'"
               class="w-16 h-16 rounded-lg object-cover flex-shrink-0 border border-gray-100 cursor-pointer"
-              @click="bocetoModal = item.producto.foto_url"
+              @click="abrirFoto([item.producto.foto_url, item.producto.foto_url_2], { nombre: item.producto.nombre })"
             />
             <div class="flex-1 min-w-0">
               <p class="font-medium text-sm text-gray-800">{{ item.producto?.nombre ?? item.nombre_custom ?? 'Producto personalizado' }}</p>
@@ -2646,7 +2637,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
                       :src="url"
                       :alt="`Boceto ${fi + 1}`"
                       class="w-full h-full rounded-lg border border-purple-200 object-cover bg-white cursor-pointer"
-                      @click="bocetoModal = url"
+                      @click="abrirFoto(item.boceto_fotos?.length ? item.boceto_fotos : [item.boceto_url], { indice: fi, nombre: 'Boceto' })"
                     />
                     <button
                       @click.stop="descargarBoceto(url)"
@@ -2841,9 +2832,9 @@ onMounted(() => { cargarTipos(); cargarOrden() })
               v-for="url in urlsFotosProducto(e)" :key="url"
               :src="cloudinaryOpt(url, 200)"
               class="w-14 h-14 object-cover rounded-lg border border-gray-200 cursor-pointer"
-              @click="verFactura = url"
+              @click="abrirFoto(url)"
             />
-            <img v-if="e.foto_pago" :src="cloudinaryOpt(e.foto_pago, 200)" class="w-14 h-14 object-cover rounded-lg border border-gray-200 cursor-pointer" @click="verFactura = e.foto_pago" />
+            <img v-if="e.foto_pago" :src="cloudinaryOpt(e.foto_pago, 200)" class="w-14 h-14 object-cover rounded-lg border border-gray-200 cursor-pointer" @click="abrirFoto(e.foto_pago)" />
           </div>
         </div>
       </div>
@@ -2861,7 +2852,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
               <img
                 :src="cloudinaryOpt(url, 600)"
                 class="w-full h-32 object-cover rounded-lg border border-gray-200 cursor-pointer"
-                @click="verFactura = url"
+                @click="abrirFoto(url)"
               />
             </div>
             <div v-if="despachoEntrega.foto_pago">
@@ -2869,7 +2860,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
               <img
                 :src="cloudinaryOpt(despachoEntrega.foto_pago, 600)"
                 class="w-full h-32 object-cover rounded-lg border border-gray-200 cursor-pointer"
-                @click="verFactura = despachoEntrega.foto_pago"
+                @click="abrirFoto(despachoEntrega.foto_pago)"
               />
             </div>
           </div>
@@ -2916,7 +2907,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
                 v-if="despachoEntrega.foto_novedad_url"
                 :src="cloudinaryOpt(despachoEntrega.foto_novedad_url, 600)"
                 class="w-full h-32 object-cover rounded-lg border border-amber-200 cursor-pointer"
-                @click="verFactura = despachoEntrega.foto_novedad_url"
+                @click="abrirFoto(despachoEntrega.foto_novedad_url)"
               />
             </div>
             <p v-else-if="despachoEntrega.conforme" class="text-sm text-green-700 flex items-center gap-1.5">
@@ -2929,7 +2920,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
               <img
                 :src="cloudinaryOpt(despachoEntrega.firma_recibido_url, 200)"
                 class="h-16 w-32 object-contain bg-white rounded-lg border border-gray-200 cursor-pointer flex-shrink-0"
-                @click="verFactura = despachoEntrega.firma_recibido_url"
+                @click="abrirFoto(despachoEntrega.firma_recibido_url)"
               />
               <div class="min-w-0 text-sm">
                 <p class="font-medium text-gray-800 truncate">{{ despachoEntrega.recibido_por_nombre }}</p>
@@ -4192,60 +4183,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
       </div>
     </Transition>
 
-    <!-- Lightbox boceto -->
-    <Transition name="fade">
-      <div
-        v-if="bocetoModal"
-        class="fixed inset-0 z-[60] flex items-center justify-center p-6"
-        @click.self="bocetoModal = ''"
-      >
-        <div class="absolute inset-0 bg-black/85" @click="bocetoModal = ''" />
-        <div class="relative w-full max-w-lg">
-          <button
-            @click="bocetoModal = ''"
-            class="absolute -top-3 -right-3 z-10 bg-white rounded-full p-1.5 shadow-lg"
-          >
-            <XMarkIcon class="w-5 h-5 text-gray-700" />
-          </button>
-          <div class="bg-white rounded-2xl overflow-hidden shadow-2xl p-2">
-            <img :src="cloudinaryOpt(bocetoModal, 1200)" alt="Boceto" class="w-full object-contain max-h-[70vh] rounded-xl" />
-            <button
-              @click="descargarBoceto(bocetoModal)"
-              class="mt-2 w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl py-2 text-sm font-semibold transition-colors"
-            >
-              <ArrowDownTrayIcon class="w-4 h-4" />
-              Descargar boceto
-            </button>
-          </div>
-        </div>
-      </div>
-    </Transition>
 
-    <!-- Lightbox foto factura -->
-    <Transition name="fade">
-      <div
-        v-if="verFactura"
-        class="fixed inset-0 z-[60] flex items-center justify-center p-6"
-        @click.self="verFactura = false"
-      >
-        <div class="absolute inset-0 bg-black/85" @click="verFactura = false" />
-        <div class="relative w-full max-w-lg">
-          <button
-            @click="verFactura = false"
-            class="absolute -top-3 -right-3 z-10 bg-white rounded-full p-1.5 shadow-lg"
-          >
-            <XMarkIcon class="w-5 h-5 text-gray-700" />
-          </button>
-          <div class="bg-white rounded-2xl overflow-hidden shadow-2xl">
-            <img
-              :src="verFactura"
-              alt="Foto"
-              class="w-full object-contain max-h-96"
-            />
-          </div>
-        </div>
-      </div>
-    </Transition>
 
     <!-- Confirmación: descartar borrador -->
     <Transition name="fade">

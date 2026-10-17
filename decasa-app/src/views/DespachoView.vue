@@ -1,6 +1,7 @@
 <script setup>
 import IconoS from '@/components/common/IconoS.vue'
 import { cloudinaryOpt } from '@/utils/cloudinary'
+import { useVisorFoto } from '@/composables/useVisorFoto'
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useFiltrosRecordados } from '@/composables/useFiltrosRecordados'
 import { useRouter } from 'vue-router'
@@ -547,7 +548,7 @@ function fmtDinero(n) {
   return Number(n || 0).toLocaleString('es-CO')
 }
 
-const verFactura = ref(false)
+const { abrirFoto } = useVisorFoto()
 
 async function toggleDetalle(despachoId) {
   if (detalleExpandido.value?.id === despachoId) {
@@ -1318,13 +1319,13 @@ onBeforeUnmount(() => {
                       :key="url"
                       :src="cloudinaryOpt(fotoUrl(url), 200)"
                       class="w-16 h-16 object-cover rounded-lg border border-gray-200 cursor-pointer"
-                      @click="verFactura = url"
+                      @click="abrirFoto(url)"
                       />
                     <img
                       v-if="item.foto_pago"
                       :src="cloudinaryOpt(fotoUrl(item.foto_pago), 200)"
                       class="w-16 h-16 object-cover rounded-lg border border-gray-200 cursor-pointer"
-                      @click="verFactura = item.foto_pago"
+                      @click="abrirFoto(item.foto_pago)"
                     />
                   </div>
                 </div>
@@ -1442,13 +1443,13 @@ onBeforeUnmount(() => {
                         :key="url"
                         :src="cloudinaryOpt(fotoUrl(url), 200)"
                         class="w-16 h-16 object-cover rounded-lg border border-gray-200 cursor-pointer"
-                        @click="verFactura = url"
+                        @click="abrirFoto(url)"
                         />
                       <img
                         v-if="item.foto_pago"
                         :src="cloudinaryOpt(fotoUrl(item.foto_pago), 200)"
                         class="w-16 h-16 object-cover rounded-lg border border-gray-200 cursor-pointer"
-                        @click="verFactura = item.foto_pago"
+                        @click="abrirFoto(item.foto_pago)"
                       />
                     </div>
                   </div>
@@ -1532,29 +1533,6 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <!-- Lightbox -->
-    <div
-      v-if="verFactura"
-      class="fixed inset-0 z-[60] flex items-center justify-center p-6"
-      @click.self="verFactura = false"
-    >
-      <div class="absolute inset-0 bg-black/85" @click="verFactura = false" />
-      <div class="relative w-full max-w-lg">
-        <button
-          @click="verFactura = false"
-          class="absolute -top-3 -right-3 z-10 bg-white rounded-full p-1.5 shadow-lg"
-        >
-          <XMarkIcon class="w-5 h-5 text-gray-700" />
-        </button>
-        <div class="bg-white rounded-2xl overflow-hidden shadow-2xl">
-          <img
-            :src="verFactura"
-            alt="Foto"
-            class="w-full object-contain max-h-96"
-          />
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 

@@ -13,6 +13,7 @@ import { getSolicitudesCambio, aprobarSolicitudCambio, rechazarSolicitudCambio, 
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
 import { cloudinaryOpt } from '@/utils/cloudinary'
+import { useVisorFoto } from '@/composables/useVisorFoto'
 import { ShieldCheckIcon, ArrowRightIcon, CheckIcon, XMarkIcon, ChevronDownIcon } from '@heroicons/vue/24/outline'
 
 const props = defineProps({
@@ -63,7 +64,7 @@ const ESTADO = {
   cancelada: { texto: 'Retirada',  cls: 'bg-gray-100 text-gray-600' },
 }
 
-const fotoAmpliada = ref(null)
+const { abrirFoto } = useVisorFoto()
 
 // ── Responder ───────────────────────────────────────────────────────────────
 const trabajando   = ref(false)
@@ -157,7 +158,7 @@ async function retirar() {
           <p class="text-[11px] font-semibold text-amber-900 uppercase tracking-wide mb-1">Soporte</p>
           <div class="flex flex-wrap gap-2">
             <button v-for="(url, i) in pendiente.soportes" :key="url" type="button"
-              @click="fotoAmpliada = url" :aria-label="`Ver soporte ${i + 1}`"
+              @click="abrirFoto(pendiente.soportes, { indice: i, nombre: 'Soporte' })" :aria-label="`Ver soporte ${i + 1}`"
               class="w-20 h-20 rounded-lg overflow-hidden border border-amber-200 bg-white">
               <img :src="cloudinaryOpt(url, 160)" alt="" class="w-full h-full object-cover" />
             </button>
@@ -230,9 +231,5 @@ async function retirar() {
       </ul>
     </section>
 
-    <!-- Soporte ampliado -->
-    <div v-if="fotoAmpliada" class="fixed inset-0 z-[90] bg-black/90 flex items-center justify-center p-4" @click="fotoAmpliada = null">
-      <img :src="cloudinaryOpt(fotoAmpliada, 1400)" alt="Soporte" class="max-w-full max-h-full object-contain rounded-lg" />
-    </div>
   </div>
 </template>

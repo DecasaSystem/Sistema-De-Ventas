@@ -17,6 +17,7 @@ import { getFicha, actualizarFicha, eliminarFicha, duplicarFicha, vincularProduc
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
 import { cloudinaryOpt } from '@/utils/cloudinary'
+import { useVisorFoto } from '@/composables/useVisorFoto'
 import { comprimirImagen } from '@/utils/comprimirImagen'
 import AppSpinner from '@/components/common/AppSpinner.vue'
 import IconoS from '@/components/common/IconoS.vue'
@@ -307,7 +308,7 @@ async function eliminar() {
   }
 }
 
-const fotoGrande = ref('')
+const { abrirFoto } = useVisorFoto()
 </script>
 
 <template>
@@ -372,7 +373,7 @@ const fotoGrande = ref('')
       <section class="space-y-3">
         <div class="flex items-start gap-3">
           <div class="relative flex-shrink-0">
-            <button v-if="vista.foto_url" @click="!editando && (fotoGrande = vista.foto_url)" :disabled="editando"
+            <button v-if="vista.foto_url" @click="!editando && abrirFoto(vista.foto_url, { nombre: vista.nombre })" :disabled="editando"
               class="block" aria-label="Ver foto en grande">
               <img :src="fotoArchivo ? vista.foto_url : cloudinaryOpt(vista.foto_url, 160)" alt=""
                 class="w-16 h-16 rounded-xl object-cover border border-gray-200" />
@@ -482,9 +483,4 @@ const fotoGrande = ref('')
   <PickerProducto v-if="pickerProducto && ficha" :ficha="ficha" :ocupado="vinculando"
     @elegir="p => vincular(p.id)" @cerrar="pickerProducto = false" />
 
-  <Teleport to="body">
-    <div v-if="fotoGrande" class="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4" @click="fotoGrande = ''">
-      <img :src="cloudinaryOpt(fotoGrande, 1200)" alt="" class="max-w-full max-h-full object-contain rounded-lg" />
-    </div>
-  </Teleport>
 </template>

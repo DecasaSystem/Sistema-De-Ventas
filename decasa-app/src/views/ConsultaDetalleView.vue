@@ -1,5 +1,7 @@
 <script setup>
 import { cloudinaryOpt } from '@/utils/cloudinary'
+import { useVisorFoto } from '@/composables/useVisorFoto'
+import { descargarFoto } from '@/utils/fotos'
 import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
@@ -21,8 +23,8 @@ const toast     = useToast()
 const authStore = useAuthStore()
 const { listen } = useRealtime()
 
-// ── Lightbox ──────────────────────────────────────────────────────────────────
-const imagenAmpliada = ref(null)
+// ── Fotos en grande (visor único, con Descargar y Compartir) ──────────────────
+const { abrirFoto } = useVisorFoto()
 
 // ── Chat ─────────────────────────────────────────────────────────────────────
 const mensajes        = ref([])
@@ -271,10 +273,7 @@ async function enviar() {
 }
 
 function descargarBoceto(url) {
-  const a = document.createElement('a')
-  a.href = url
-  a.target = '_blank'
-  a.click()
+  return descargarFoto(url, 'boceto')
 }
 
 onMounted(() => {
@@ -407,7 +406,7 @@ watch(() => consulta.value?.estado, (estado) => {
             >
               <img
                 :src="url"
-                @click="imagenAmpliada = url"
+                @click="abrirFoto(item.orden_item.boceto_fotos?.length ? item.orden_item.boceto_fotos : [item.orden_item.boceto_url], { indice: fi, nombre: 'Boceto' })"
                 class="w-full h-full object-cover rounded-lg border border-violet-200 bg-white cursor-zoom-in"
               />
               <button
@@ -762,32 +761,4 @@ watch(() => consulta.value?.estado, (estado) => {
     </template>
   </div>
 
-  <!-- Lightbox -->
-  <Teleport to="body">
-    <Transition name="fade">
-      <div
-        v-if="imagenAmpliada"
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
-        @click.self="imagenAmpliada = null"
-      >
-        <button
-          @click="imagenAmpliada = null"
-          class="absolute top-4 right-4 bg-white/10 hover:bg-white/20 text-white rounded-full p-2 transition-colors"
-        >
-          <XMarkIcon class="w-6 h-6" />
-        </button>
-        <img
-          :src="imagenAmpliada"
-          class="max-w-[92vw] max-h-[88vh] rounded-xl object-contain shadow-2xl"
-        />
-        <button
-          @click="descargarBoceto(imagenAmpliada)"
-          class="absolute bottom-4 right-4 flex items-center gap-1.5 bg-white/10 hover:bg-white/20 text-white text-sm font-medium rounded-xl px-4 py-2 transition-colors"
-        >
-          <ArrowDownTrayIcon class="w-4 h-4" />
-          Descargar
-        </button>
-      </div>
-    </Transition>
-  </Teleport>
 </template>

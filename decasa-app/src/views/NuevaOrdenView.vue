@@ -14,6 +14,7 @@ import { useTelas } from '@/composables/useTelas'
 import TelaPicker from '@/components/ordenes/TelaPicker.vue'
 import ResumenOrdenModal from '@/components/ordenes/ResumenOrdenModal.vue'
 import { cloudinaryOpt } from '@/utils/cloudinary'
+import { useVisorFoto } from '@/composables/useVisorFoto'
 import { comprimirImagen, comprimirAlTomar } from '@/utils/comprimirImagen'
 import { useBorradorLocal } from '@/composables/useBorradorLocal'
 import { piezasPorJuego, piezasDeOpcion, enJuegos, precioPieza } from '@/utils/juegos'
@@ -2174,12 +2175,10 @@ const direccionEnvio       = ref('')
 // Fecha mínima = hoy (para el date-picker de los ítems)
 const hoy = new Date().toISOString().split('T')[0]
 
-const fotoModal    = ref(false)
-const fotoProducto = ref(null)
-
+// Visor único: foto en grande con Descargar (JPG) y Compartir.
+const { abrirFoto } = useVisorFoto()
 function verFoto(p) {
-  fotoProducto.value = p
-  fotoModal.value = true
+  abrirFoto([p?.foto_url, p?.foto_url_2], { nombre: p?.nombre, detalle: p?.categoria })
 }
 
 const metodosOpts = [
@@ -6394,35 +6393,6 @@ onBeforeUnmount(() => {
     </div>
   </Transition>
 
-  <!-- Lightbox foto producto -->
-  <Transition name="fade">
-    <div
-      v-if="fotoModal"
-      class="fixed inset-0 z-[60] flex items-center justify-center p-6"
-      @click.self="fotoModal = false"
-    >
-      <div class="absolute inset-0 bg-black/85" @click="fotoModal = false" />
-      <div class="relative w-full max-w-sm">
-        <button
-          @click="fotoModal = false"
-          class="absolute -top-3 -right-3 z-10 bg-white rounded-full p-1.5 shadow-lg"
-        >
-          <XMarkIcon class="w-5 h-5 text-gray-700" />
-        </button>
-        <div class="bg-white rounded-2xl overflow-hidden shadow-2xl">
-          <img
-            :src="cloudinaryOpt(fotoProducto?.foto_url, 800)"
-            :alt="fotoProducto?.nombre"
-            class="w-full object-contain max-h-72"
-          />
-          <div class="px-4 py-3 border-t border-gray-100">
-            <p class="text-sm font-semibold text-gray-800 text-center">{{ fotoProducto?.nombre }}</p>
-            <p v-if="fotoProducto?.categoria" class="text-xs text-gray-400 text-center mt-0.5">{{ fotoProducto?.categoria }}</p>
-          </div>
-        </div>
-      </div>
-    </div>
-  </Transition>
   </div>
 </template>
 

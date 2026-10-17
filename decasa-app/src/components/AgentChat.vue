@@ -1,6 +1,7 @@
 <script setup>
 import { ref, nextTick, onMounted, onUnmounted } from 'vue'
 import DOMPurify from 'dompurify'
+import { useVisorFoto } from '@/composables/useVisorFoto'
 import { chatWithAgent } from '@/api/agent.js'
 import {
   SparklesIcon,
@@ -73,7 +74,7 @@ function onBtnPointerUp() {
   }
 }
 const inputText = ref('')
-const imagenAmpliada = ref(null)   // src de la imagen en lightbox
+const { abrirFoto, cerrarFoto } = useVisorFoto()   // imagen en grande (visor único)
 const mensajes  = ref([
   {
     role: 'assistant',
@@ -229,12 +230,12 @@ function onKeydown(e) {
     enviar()
   }
   if (e.key === 'Escape') {
-    imagenAmpliada.value = null
+    cerrarFoto()
   }
 }
 
 function onEscGlobal(e) {
-  if (e.key === 'Escape') imagenAmpliada.value = null
+  if (e.key === 'Escape') cerrarFoto()
 }
 onMounted(() => {
   window.addEventListener('keydown', onEscGlobal)
@@ -366,7 +367,7 @@ function formatearTexto(texto) {
                 v-if="msg.image"
                 :src="msg.image"
                 class="w-full max-h-40 object-cover cursor-zoom-in"
-                @click="imagenAmpliada = msg.image"
+                @click="abrirFoto(msg.image)"
               />
               <div class="px-3 py-2" v-html="formatearTexto(msg.content)" />
             </div>
@@ -407,7 +408,7 @@ function formatearTexto(texto) {
 
           <!-- Preview imagen adjunta -->
           <div v-if="imagenPendiente" class="flex items-center gap-2 mb-2 bg-blue-50 border border-blue-100 rounded-xl px-3 py-2">
-            <img :src="imagenPendiente.base64" class="w-10 h-10 rounded-lg object-cover flex-shrink-0 cursor-zoom-in" @click="imagenAmpliada = imagenPendiente.base64" />
+            <img :src="imagenPendiente.base64" class="w-10 h-10 rounded-lg object-cover flex-shrink-0 cursor-zoom-in" @click="abrirFoto(imagenPendiente.base64, { nombre: imagenPendiente.nombre })" />
             <span class="flex-1 text-xs text-gray-600 truncate">{{ imagenPendiente.nombre }}</span>
             <button @click="quitarImagen" class="text-gray-400 hover:text-red-500 transition-colors flex-shrink-0">
               <XMarkIcon class="w-4 h-4" />
@@ -489,26 +490,6 @@ function formatearTexto(texto) {
       />
     </Transition>
 
-    <!-- Lightbox -->
-    <Transition name="fade">
-      <div
-        v-if="imagenAmpliada"
-        class="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4"
-        @click="imagenAmpliada = null"
-      >
-        <img
-          :src="imagenAmpliada"
-          class="max-w-full max-h-full rounded-xl shadow-2xl object-contain"
-          @click.stop
-        />
-        <button
-          class="absolute top-4 right-4 w-9 h-9 rounded-full bg-white/20 hover:bg-white/40 text-white flex items-center justify-center transition-colors"
-          @click="imagenAmpliada = null"
-        >
-          <XMarkIcon class="w-5 h-5" />
-        </button>
-      </div>
-    </Transition>
   </Teleport>
 </template>
 

@@ -10,6 +10,7 @@
  * la unidad que la empresa le puso y nadie los aparta desde una venta.
  */
 import { cloudinaryOpt } from '@/utils/cloudinary'
+import { useVisorFoto } from '@/composables/useVisorFoto'
 import { ref, computed, onMounted, watch } from 'vue'
 import { MagnifyingGlassIcon, PlusIcon, MinusIcon, ArrowDownTrayIcon, PhotoIcon, XMarkIcon, TrashIcon, PencilSquareIcon } from '@heroicons/vue/24/outline'
 import { useAuthStore } from '@/stores/auth'
@@ -95,7 +96,7 @@ const pestana = ref('inventario')
 
 // ── Foto ─────────────────────────────────────────────────────────────────────
 const subiendoFotoCrear = ref(false)
-const fotoModal = ref('')   // url de la foto ampliada
+const { abrirFoto } = useVisorFoto()   // foto en grande con Descargar y Compartir
 
 async function subirFoto(file) {
   const fd = new FormData()
@@ -680,7 +681,7 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
           <img
             v-if="item.foto_url"
             :src="cloudinaryOpt(item.foto_url, 96)"
-            @click="fotoModal = item.foto_url"
+            @click="abrirFoto(item.foto_url, { nombre: nombreVenta(item) })"
             class="w-12 h-12 rounded-lg object-cover border border-gray-200 flex-shrink-0 cursor-pointer"
           />
           <div class="flex-1 min-w-0">
@@ -1149,16 +1150,6 @@ watch(pestana, v => { if (v === 'inventario') cargar() })
       </div>
     </Transition>
 
-    <!-- Visor de foto -->
-    <Transition name="fade">
-      <div v-if="fotoModal" class="fixed inset-0 z-[60] flex items-center justify-center p-4" @click="fotoModal = ''">
-        <div class="absolute inset-0 bg-black/80" />
-        <img :src="fotoModal" class="relative max-w-full max-h-[85vh] rounded-lg object-contain" />
-        <button @click="fotoModal = ''" class="absolute top-4 right-4 text-white/80 hover:text-white">
-          <XMarkIcon class="w-7 h-7" />
-        </button>
-      </div>
-    </Transition>
   </div>
 </template>
 

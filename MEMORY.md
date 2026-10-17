@@ -324,6 +324,17 @@ escribiendo precios (Fase 1b).
   pestaña Gestión → Ajustes (`Support/AjustesSistema`), pensada para más interruptores.
   Verificado que no toca plata: Nómina no lee `paso_trabajadores`. Tests en
   `AjustesCalificarTallerTest`.
+- **Visor único de fotos con Descargar y Compartir** (2026-10-17, **subido a `main`** ese día, rama
+  `claude/image-download-share-buttons-481f08`, sin migración, solo front). Queja del
+  usuario: las fotos se bajaban "en un formato raro" (es el WebP/AVIF que entrega
+  Cloudinary por el `f_auto` de `cloudinaryOpt`). Ahora toda foto en grande va por
+  `useVisorFoto().abrirFoto(...)` (`components/common/VisorFoto.vue`, montado en App.vue):
+  descarga el original en **JPG** (`f_jpg`, o se convierte en el navegador) con nombre
+  legible y comparte el archivo con la hoja del celular (`utils/fotos.js`). App.vue además
+  intercepta los `<a href="…foto" target="_blank">` (PDF no); `data-sin-visor` lo evita.
+  Se quitaron los visores propios de Inventario, Nueva orden, Reserva, Telas, Despacho,
+  Orden, Consultas, Costos, soportes de cambios, chat de IA, catálogo público y firma del
+  anexo. **Para una foto nueva en grande, usar el visor; no hacer otro lightbox.**
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 

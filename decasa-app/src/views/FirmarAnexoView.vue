@@ -13,6 +13,7 @@ import AnexoFirma from '@/components/anexo/AnexoFirma.vue'
 import { getAnexoPublico, firmarAnexo } from '@/api/anexos'
 import { CheckCircleIcon } from '@heroicons/vue/24/solid'
 import { useTamanoLetra } from '@/composables/useTamanoLetra'
+import { useVisorFoto } from '@/composables/useVisorFoto'
 
 // El mismo tamaño que el anexo de abajo: se agranda todo junto.
 const { escala, esMinima, esMaxima, cambiar: cambiarLetra } = useTamanoLetra()
@@ -28,7 +29,7 @@ const errorFirma = ref('')
 const listo    = ref(false)
 
 const resumen = computed(() => datos.value?.resumen ?? null)
-const imagenGrande = ref(null)
+const { abrirFoto } = useVisorFoto()
 
 // Sus datos tal como están en el sistema: si algo está mal, se lo dice al asesor.
 const datosCliente = computed(() => {
@@ -164,7 +165,7 @@ async function firmar(payload) {
             <ul class="divide-y divide-gray-100">
               <li v-for="(it, i) in resumen.items" :key="i" class="px-4 py-3 space-y-2">
                 <div class="flex items-start gap-3">
-                  <button v-if="it.foto" type="button" @click="imagenGrande = it.foto" class="flex-shrink-0">
+                  <button v-if="it.foto" type="button" @click="abrirFoto(it.foto, { nombre: it.nombre })" class="flex-shrink-0">
                     <img :src="it.foto" alt="" class="w-16 h-16 rounded-lg object-cover border border-gray-100" />
                   </button>
                   <div class="flex-1 min-w-0">
@@ -197,7 +198,7 @@ async function firmar(payload) {
                   </div>
                 </dl>
                 <div v-if="it.bocetos?.length" class="flex flex-wrap gap-2">
-                  <button v-for="b in it.bocetos" :key="b" type="button" @click="imagenGrande = b">
+                  <button v-for="b in it.bocetos" :key="b" type="button" @click="abrirFoto(it.bocetos, { indice: it.bocetos.indexOf(b), nombre: 'Boceto' })">
                     <img :src="b" alt="Boceto" class="w-16 h-16 rounded-lg object-cover border border-gray-200" />
                   </button>
                 </div>
@@ -257,10 +258,6 @@ async function firmar(payload) {
           </p>
         </template>
 
-        <!-- Una imagen en grande (foto del producto o boceto) -->
-        <div v-if="imagenGrande" class="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" @click="imagenGrande = null">
-          <img :src="imagenGrande" alt="" class="max-w-full max-h-full rounded-lg" />
-        </div>
 
         <AnexoFirma
           :contenido="datos.contenido"

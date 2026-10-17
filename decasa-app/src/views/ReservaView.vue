@@ -10,6 +10,7 @@ import { getReservaInventario, addReservaStock, addReservaVarianteStock, removeR
 import { getVariantes, crearVariante } from '@/api/inventario'
 import { marcasOrdenadas, tiposTelaDeM, coloresDeTela } from '@/data/telasCatalogo'
 import { cloudinaryOpt } from '@/utils/cloudinary'
+import { useVisorFoto } from '@/composables/useVisorFoto'
 import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
 import EmptyState from '@/components/common/EmptyState.vue'
@@ -110,8 +111,7 @@ const movimientos       = ref([])
 const loadMovimientos   = ref(false)
 
 // Foto modal
-const fotoModal    = ref(false)
-const fotoProducto = ref(null)
+const { abrirFoto } = useVisorFoto()
 
 // Variantes tapizado / talla
 const variantesReserva    = ref({})   // { producto_id: variante[] }
@@ -739,7 +739,7 @@ onMounted(async () => {
           <div class="flex items-start gap-3">
             <!-- Foto -->
             <button
-              @click="item.producto?.foto_url && (fotoProducto = item.producto, fotoModal = true)"
+              @click="item.producto?.foto_url && abrirFoto([item.producto.foto_url, item.producto.foto_url_2], { nombre: item.producto.nombre })"
               :class="['flex-shrink-0 w-12 h-12 rounded-lg overflow-hidden bg-gray-100 flex items-center justify-center',
                 item.producto?.foto_url ? 'cursor-pointer hover:opacity-75' : 'cursor-default']"
             >
@@ -893,23 +893,6 @@ onMounted(async () => {
       </div>
     </template>
 
-    <!-- Lightbox foto -->
-    <Transition name="fade">
-      <div v-if="fotoModal" class="fixed inset-0 z-[60] flex items-center justify-center p-6" @click="fotoModal = false">
-        <div class="absolute inset-0 bg-black/85" />
-        <div class="relative w-full max-w-sm">
-          <button @click="fotoModal = false" class="absolute -top-3 -right-3 z-10 bg-white rounded-full p-1.5 shadow-lg">
-            <XMarkIcon class="w-5 h-5 text-gray-700" />
-          </button>
-          <div class="bg-white rounded-2xl overflow-hidden shadow-2xl">
-            <img :src="cloudinaryOpt(fotoProducto?.foto_url, 800)" :alt="fotoProducto?.nombre" class="w-full object-contain max-h-72" />
-            <div class="px-4 py-3 border-t border-gray-100">
-              <p class="text-sm font-semibold text-gray-800 text-center">{{ fotoProducto?.nombre }}</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </Transition>
 
     <!-- Modal Agregar stock -->
     <Transition name="fade">

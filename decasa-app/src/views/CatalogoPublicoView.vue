@@ -15,6 +15,7 @@ import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '@/api'
 import { cloudinaryOpt } from '@/utils/cloudinary'
+import { useVisorFoto } from '@/composables/useVisorFoto'
 
 const route  = useRoute()
 const router = useRouter()
@@ -91,10 +92,11 @@ function cerrar() {
 }
 // Al cerrar la ficha (con el botón o con el "atrás" del celular) no puede
 // quedar una foto ampliada encima de la lista.
-watch(() => route.query.p, () => { fotoAmpliada.value = null; fotoIdx.value = 0 })
+watch(() => route.query.p, () => { cerrarFoto(); fotoIdx.value = 0 })
 
-// Foto a pantalla completa: en el celular la miniatura no deja ver el mueble.
-const fotoAmpliada = ref(null)
+// Foto a pantalla completa (visor único, con Descargar y Compartir): en el
+// celular la miniatura no deja ver el mueble.
+const { abrirFoto, cerrarFoto } = useVisorFoto()
 </script>
 
 <template>
@@ -138,7 +140,7 @@ const fotoAmpliada = ref(null)
       <div class="sm:grid sm:grid-cols-2 sm:gap-12">
         <div>
           <button v-if="fotosDe(abierto).length" type="button"
-            @click="fotoAmpliada = fotosDe(abierto)[fotoIdx]"
+            @click="abrirFoto(fotosDe(abierto), { indice: fotoIdx, nombre: abierto.nombre })"
             class="relative block w-full aspect-[4/5] bg-[#E7DDCF] sm:rounded-[20px] overflow-hidden"
             :aria-label="`Ampliar la foto de ${abierto.nombre}`">
             <img :src="cloudinaryOpt(fotosDe(abierto)[fotoIdx], 900)" :alt="abierto.nombre" class="w-full h-full object-cover" />
@@ -267,15 +269,6 @@ const fotoAmpliada = ref(null)
       </footer>
     </main>
 
-    <!-- ── Foto a pantalla completa ───────────────────────────────────── -->
-    <div v-if="fotoAmpliada" class="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
-      @click="fotoAmpliada = null">
-      <button type="button" @click.stop="fotoAmpliada = null" aria-label="Cerrar foto"
-        class="absolute top-4 right-4 w-11 h-11 rounded-full bg-white/15 text-white flex items-center justify-center">
-        <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
-      </button>
-      <img :src="cloudinaryOpt(fotoAmpliada, 1400)" class="max-w-full max-h-full object-contain rounded-lg" alt="" />
-    </div>
   </div>
 </template>
 
