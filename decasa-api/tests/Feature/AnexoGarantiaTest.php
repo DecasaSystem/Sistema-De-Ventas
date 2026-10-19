@@ -352,6 +352,14 @@ class AnexoGarantiaTest extends TestCase
             ->assertJsonPath('cliente.telefono', '3001112233')
             ->assertJsonPath('cliente.direccion', 'Cra 14 # 5-20');
 
+        // Las notas largas de un personalizado también se mandan a firmar.
+        $this->actingAs($v)->postJson('/api/anexos', [
+            'cliente_id' => 1, 'modo' => 'remoto',
+            'resumen' => ['items' => [['nombre' => 'Sofá a la medida', 'specs' => [
+                ['label' => 'Notas', 'value' => str_repeat('Brazo recto, patas en madera. ', 40)],
+            ]]]],
+        ])->assertCreated();
+
         // Solo imágenes por https: nada de otra cosa en la página del cliente.
         $this->actingAs($v)->postJson('/api/anexos', [
             'cliente_id' => 1, 'modo' => 'remoto',

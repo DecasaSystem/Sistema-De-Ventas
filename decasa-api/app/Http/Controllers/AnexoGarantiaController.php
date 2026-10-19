@@ -136,7 +136,11 @@ class AnexoGarantiaController extends Controller
             'resumen.items.*.bocetos.*'  => $https,
             'resumen.items.*.specs'      => 'nullable|array|max:40',
             'resumen.items.*.specs.*.label' => 'nullable|string|max:80',
-            'resumen.items.*.specs.*.value' => 'nullable|string|max:500',
+            // La orden guarda las especificaciones sin tope (las notas de un
+            // personalizado o la descripción de un diseño especial pasan de
+            // 500 letras): con 500 aquí, Nueva orden no dejaba mandar a firmar
+            // una orden que sí se podía crear.
+            'resumen.items.*.specs.*.value' => 'nullable|string|max:5000',
         ];
     }
 
