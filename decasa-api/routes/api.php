@@ -876,6 +876,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/anticipos',                 [ComisionController::class, 'anticipos']);
         Route::post('/anticipos',                [ComisionController::class, 'setAnticipo'])->middleware('role:supervisor');
         Route::put('/anticipos/mes',             [ComisionController::class, 'setAnticipoDelMes'])->middleware('role:supervisor');
+        // Abono: una parte de una comisión ya lista que se dio antes de pagarla toda.
+        Route::post('/abonos',                   [ComisionController::class, 'registrarAbono'])->middleware('role:supervisor');
+        Route::delete('/abonos/{id}',            [ComisionController::class, 'quitarAbono'])->middleware('role:supervisor')->whereNumber('id');
         Route::delete('/asesores-asignados/{id}',[ComisionController::class, 'removeAsesor'])->middleware('role:supervisor')->whereNumber('id');
         // Quién fue a cubrir a otra tienda y por cuántos días: es lo que
         // reparte el pool cuando alguien reemplaza.

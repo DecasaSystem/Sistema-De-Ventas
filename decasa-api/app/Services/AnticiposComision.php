@@ -56,6 +56,50 @@ class AnticiposComision
     }
 
     /**
+     * Un abono a la comisión de un mes ya listo: se le dio una parte antes de
+     * pagarle todo (dueño, 2026-10-19: "ayer a los vendedores les dieron cierto
+     * abono del pago de agosto, no todo"). No es todos los meses ni un monto
+     * fijo: se anota el día que se da.
+     *
+     * Es un renglón `anticipo` más, con el mes de esa comisión, así que la
+     * cuenta de siempre (anticipos hasta el corte − lo descontado) lo resta
+     * sola al pagar y Listas muestra lo que falta. Va en su propio renglón y no
+     * en el del anticipo fijo del mes: si no, uno pisaba al otro. Puede haber
+     * varios en el mismo mes, por eso la clave lleva un sufijo único.
+     */
+    public const PREFIJO_ABONO = 'abono:';
+
+    public static function claveDeAbono(int $vendedorId, string $mes): string
+    {
+        return self::PREFIJO_ABONO . "{$vendedorId}:{$mes}:" . bin2hex(random_bytes(4));
+    }
+
+    public static function esAbono(?string $clave): bool
+    {
+        return $clave !== null && str_starts_with($clave, self::PREFIJO_ABONO);
+    }
+
+    /**
+     * Los abonos de unas personas, por mes: [vendedor_id => [mes => monto]].
+     *
+     * @param int[] $vendedorIds
+     * @return array<int, array<string, float>>
+     */
+    public static function abonosPorMes(array $vendedorIds): array
+    {
+        if (! self::hayTablas() || ! $vendedorIds) return [];
+
+        $out = [];
+        foreach (DB::table('comision_anticipos')->whereIn('vendedor_id', $vendedorIds)
+                     ->where('tipo', self::ANTICIPO)->where('clave', 'like', self::PREFIJO_ABONO . '%')
+                     ->get(['vendedor_id', 'mes', 'monto']) as $f) {
+            $out[(int) $f->vendedor_id][$f->mes] = ($out[(int) $f->vendedor_id][$f->mes] ?? 0) + (float) $f->monto;
+        }
+
+        return $out;
+    }
+
+    /**
      * La configuración que rige en un mes para cada vendedor que alguna vez
      * tuvo anticipo: la última puesta hasta ese mes.
      *
@@ -95,7 +139,9 @@ class AnticiposComision
             ->get()->groupBy(fn ($f) => (int) $f->vendedor_id);
 
         foreach ($configs as $vendedorId => $filas) {
-            $existentes = collect($anotados[(int) $vendedorId] ?? [])->keyBy('mes');
+            // Por clave y no por mes: un abono del mismo mes es otro renglón
+            // y no se puede confundir con el anticipo fijo (se lo pisaba).
+            $existentes = collect($anotados[(int) $vendedorId] ?? [])->keyBy('clave');
 
             $mes = Carbon::parse($filas->first()->desde_mes . '-01');
             $fin = Carbon::parse($hasta . '-01');
@@ -104,7 +150,7 @@ class AnticiposComision
                 $m       = $mes->format('Y-m');
                 $vigente = $filas->filter(fn ($f) => $f->desde_mes <= $m)->last();
                 $monto   = ($vigente && $vigente->activo) ? round((float) $vigente->monto) : 0.0;
-                $ya      = $existentes[$m] ?? null;
+                $ya      = $existentes[self::claveDe((int) $vendedorId, $m)] ?? null;
 
                 if ($ya && $ya->editado_a_mano) {
                     // Corregido a mano: manda lo que se escribió.

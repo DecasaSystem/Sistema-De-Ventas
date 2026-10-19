@@ -441,6 +441,13 @@ en su tienda; un supervisor escoge. Sin migración (la columna `canal` es texto)
   suelta) con un mes más viejo listo sin pagar se frena con 409 (`frenarSiHayMesesAnteriores`):
   los anticipos se descuentan "hasta el mes que se paga" y en desorden cambiaba lo que
   se entregaba. El aviso del 20 dice además lo que quedó sin pagar de meses anteriores.
+- **Abonos** (2026-10-19): dar una parte de una comisión ya lista y el resto después.
+  Listas → "Registrar abono" (`POST /comisiones/abonos`, supervisor). Es un renglón
+  `anticipo` de `comision_anticipos` con el mes de esa comisión y clave `abono:…`
+  (`AnticiposComision::PREFIJO_ABONO`), así que la cuenta de anticipos lo descuenta sola
+  al pagar. Tope: lo que falta por entregar de ese mes. Se quita (`DELETE
+  /comisiones/abonos/{id}`) solo si no se ha descontado. En Finanzas cuenta en la caja
+  del día en que se dio (`created_at`), no en el mes de la comisión. Sin migración.
 - **Ayuda** (`/comisiones/ayuda`, `AyudaComisionesView`, 2026-10-15): explica el módulo
   en todos los casos (pool, individual, compartida, restauraciones, independientes,
   almacén, tarjeta, FV2, trimestrales, reemplazos, cuándo queda lista, pago, atrasados,

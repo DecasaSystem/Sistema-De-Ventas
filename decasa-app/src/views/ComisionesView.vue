@@ -391,11 +391,24 @@ function toggleExpandLista(clave) {
   expandidosListas.value = s
 }
 
+/** Lo que se descuenta de un mes que es anticipo (lo demás es abono ya dado). */
+function anticipoDelBloque(b) {
+  return Math.max(0, (Number(b.se_descuenta) || 0) - (Number(b.abonos) || 0))
+}
+
+/** "− 200.000 anticipo − 100.000 abono", lo que aplique. */
+function textoDescuentoBloque(b) {
+  const partes = []
+  if (anticipoDelBloque(b) > 0) partes.push(`− ${cop(anticipoDelBloque(b))} anticipo`)
+  if (b.abonos > 0) partes.push(`− ${cop(b.abonos)} abono ya dado`)
+  return partes.join(' ')
+}
+
 /** El texto del confirm: mes por mes, en el orden en que se va a pagar. */
 function textoPagoPersona(p) {
   const lineas = p.bloques.map(b =>
     `• ${nombreMes(b.mes)}${b.atrasada ? ' (atrasada)' : ''}: ${cop(b.lista)}`
-    + (b.se_descuenta > 0 ? ` − ${cop(b.se_descuenta)} anticipo = ${cop(b.entregar)}` : ''))
+    + (b.se_descuenta > 0 ? ` ${textoDescuentoBloque(b)} = ${cop(b.entregar)}` : ''))
   return lineas.join('\n')
     + `\n\nA entregar: ${cop(p.entregar)}`
     + (p.sigue_debiendo > 0 ? `\n(Sigue debiendo ${cop(p.sigue_debiendo)} de anticipos)` : '')
@@ -425,6 +438,73 @@ async function pagarPersona(p) {
   } finally {
     pagandoListas.value = null
     await Promise.all([cargarListas(), cargar()])
+  }
+}
+
+// ── Abono: una parte de una comisión lista, antes de pagarla toda ──────────
+// Pasó el día de pago y a la persona le dan un abono, no todo (dueño,
+// 2026-10-19). No es todos los meses: se anota el día que se da. Listas sigue
+// mostrando lo que falta y al pagar se descuenta como un anticipo de ese mes.
+// La comisión no cambia, ni el pool, ni lo de los compañeros.
+const abonoForm = ref(null)   // { persona, mes, monto, nota }
+const guardandoAbono = ref(false)
+
+/** Los meses de la tarjeta a los que todavía les falta algo por entregar. */
+function mesesAbonables(p) {
+  const porMes = {}
+  for (const b of p.bloques) porMes[b.mes] = (porMes[b.mes] || 0) + (Number(b.entregar) || 0)
+  return Object.entries(porMes).filter(([, falta]) => falta > 0).map(([mes, falta]) => ({ mes, falta }))
+}
+
+function abrirAbono(p) {
+  const meses = mesesAbonables(p)
+  if (!meses.length) return toast.error('No le falta nada por entregar')
+  abonoForm.value = { persona: p, mes: meses[0].mes, monto: '', nota: '' }
+}
+
+const faltaDelAbono = computed(() => {
+  const f = abonoForm.value
+  return f ? (mesesAbonables(f.persona).find(m => m.mes === f.mes)?.falta ?? 0) : 0
+})
+
+async function guardarAbono() {
+  const f = abonoForm.value
+  const monto = Number(f.monto) || 0
+  if (monto <= 0) return toast.error('Escribe cuánto se le dio')
+  if (monto > faltaDelAbono.value) return toast.error(`Es más de lo que falta (${cop(faltaDelAbono.value)})`)
+  guardandoAbono.value = true
+  try {
+    const { data } = await api.post('/comisiones/abonos', {
+      vendedor_id: f.persona.vendedor_id, mes: f.mes, monto, nota: f.nota.trim() || null,
+    })
+    toast.success(`Abono de ${cop(data.monto)} registrado. Falta entregarle ${cop(data.queda)} de ${nombreMes(f.mes)}`, 6000)
+    abonoForm.value = null
+    await cargarListas()
+    if (verAnticipos.value) cargarAnticipos()
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo registrar el abono')
+  } finally {
+    guardandoAbono.value = false
+  }
+}
+
+/** El día en que se dio un abono, en hora de Bogotá (la base guarda UTC). */
+function diaDelAbono(creado) {
+  if (!creado) return ''
+  const d = new Date(String(creado).replace(' ', 'T') + (/[zZ]|[+-]\d\d:?\d\d$/.test(creado) ? '' : 'Z'))
+  return isNaN(d) ? '' : d.toLocaleDateString('es-CO', { day: 'numeric', month: 'short', timeZone: 'America/Bogota' })
+}
+
+/** Un abono anotado por error (solo mientras no se haya pagado ese mes). */
+async function quitarAbono(a, m) {
+  if (!confirm(`¿Quitar el abono de ${cop(m.monto)} a ${a.nombre} (${nombreMes(m.mes)})?`)) return
+  try {
+    await api.delete(`/comisiones/abonos/${m.id}`)
+    toast.success('Abono quitado')
+    await cargarAnticipos()
+    cargarListas()
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo quitar')
   }
 }
 
@@ -705,6 +785,7 @@ const ACCIONES_BITACORA = {
   movimiento_quitado: 'Quitó reemplazo/traslado', pago: 'Pagó una comisión', pago_mes: 'Pagó el mes de alguien',
   deshacer_pago: 'Deshizo un pago', recalcular: 'Recalculó',
   anticipo_config: 'Cambió el anticipo de comisión', anticipo_mes: 'Corrigió el anticipo de un mes',
+  abono: 'Registró un abono de comisión', abono_quitado: 'Quitó un abono de comisión',
   trimestre_liquidado: 'Se liquidó el trimestre',
 }
 async function abrirBitacora() {
@@ -1195,7 +1276,8 @@ onMounted(async () => {
             <div v-for="m in a.movimientos" :key="m.id" class="flex items-center justify-between text-[11px] tabular-nums">
               <span class="text-gray-600">
                 {{ m.mes }} ·
-                <template v-if="m.tipo === 'anticipo'">se llevó<span v-if="m.editado_a_mano" class="text-amber-600"> (corregido)</span></template>
+                <template v-if="m.es_abono">abono a esa comisión <span class="text-gray-400">({{ diaDelAbono(m.created_at) }})</span></template>
+                <template v-else-if="m.tipo === 'anticipo'">se llevó<span v-if="m.editado_a_mano" class="text-amber-600"> (corregido)</span></template>
                 <template v-else>descontado de su comisión</template>
                 <span v-if="m.nota" class="text-gray-400"> — {{ m.nota }}</span>
               </span>
@@ -1204,7 +1286,12 @@ onMounted(async () => {
                   {{ m.tipo === 'anticipo' ? '+' : '−' }}{{ cop(m.monto) }}
                 </span>
                 <button
-                  v-if="m.tipo === 'anticipo' && auth.usuario?.rol === 'supervisor'"
+                  v-if="m.es_abono && auth.usuario?.rol === 'supervisor'"
+                  @click="quitarAbono(a, m)"
+                  class="text-[10px] font-semibold text-red-600 hover:text-red-800"
+                >Quitar</button>
+                <button
+                  v-else-if="m.tipo === 'anticipo' && auth.usuario?.rol === 'supervisor'"
                   @click="corregirAnticipoMes(a, m.mes, m.monto)"
                   class="text-[10px] font-semibold text-indigo-600 hover:text-indigo-800"
                 >Editar</button>
@@ -2040,7 +2127,7 @@ onMounted(async () => {
                       <p class="text-[11px] text-gray-400 mt-0.5">
                         <template v-if="variasTiendas(p)">{{ b.tienda_nombre }} · </template>
                         {{ b.ordenes_listas.length }} {{ b.ordenes_listas.length !== 1 ? 'órdenes' : 'orden' }}
-                        <template v-if="b.se_descuenta > 0"> · <span class="text-red-600">− {{ cop(b.se_descuenta) }} anticipo</span></template>
+                        <template v-if="b.se_descuenta > 0"> · <span class="text-red-600">{{ textoDescuentoBloque(b) }}</span></template>
                       </p>
                       <p v-if="b.pendientes > 0" class="text-[10px] text-orange-500 mt-0.5">
                         {{ b.pendientes }} todavía pendiente{{ b.pendientes !== 1 ? 's' : '' }} (el cliente no ha pagado la mitad)
@@ -2094,7 +2181,7 @@ onMounted(async () => {
               </div>
 
               <div v-if="p.se_descuenta > 0" class="flex justify-between text-[11px] text-gray-500 border-t border-gray-100 pt-2">
-                <span>Comisión {{ cop(p.lista) }} · anticipos − {{ cop(p.se_descuenta) }}</span>
+                <span>Comisión {{ cop(p.lista) }} · {{ p.bloques.some(b => b.abonos > 0) ? 'anticipos y abonos' : 'anticipos' }} − {{ cop(p.se_descuenta) }}</span>
                 <span v-if="p.sigue_debiendo > 0" class="text-orange-600">sigue debiendo {{ cop(p.sigue_debiendo) }}</span>
               </div>
 
@@ -2113,7 +2200,65 @@ onMounted(async () => {
               <p v-if="p.bloques.length > 1" class="text-[10px] text-gray-400 mt-1.5 text-center">
                 Se paga primero {{ nombreMes(p.bloques[0].mes) }}. Queda un recibo por mes.
               </p>
+              <button
+                v-if="auth.usuario?.rol === 'supervisor' && p.entregar > 0"
+                type="button"
+                @click="abrirAbono(p)"
+                class="mt-2 w-full text-xs font-semibold text-green-700 hover:text-green-800 border border-green-200 rounded-lg py-2"
+              >Registrar abono</button>
             </div>
+          </div>
+        </div>
+
+        <!-- Registrar abono: una parte de lo listo, antes de pagarlo todo -->
+        <div v-if="abonoForm" class="fixed inset-0 bg-black/40 z-[60] flex items-end sm:items-center justify-center" @click.self="abonoForm = null">
+          <div class="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-4 space-y-3">
+            <div class="flex items-start justify-between gap-2">
+              <div>
+                <h3 class="text-base font-bold text-gray-800">Registrar abono</h3>
+                <p class="text-xs text-gray-500">{{ abonoForm.persona.vendedor_nombre }}</p>
+              </div>
+              <button type="button" @click="abonoForm = null" class="text-gray-400 hover:text-gray-600" aria-label="Cerrar">
+                <XMarkIcon class="w-5 h-5" />
+              </button>
+            </div>
+
+            <p class="text-[11px] text-gray-500 leading-snug">
+              Lo que se le dio hoy de una comisión que ya está lista. Sigue saliendo aquí lo que falta,
+              y al pagar se descuenta el abono. La comisión no cambia.
+            </p>
+
+            <div v-if="mesesAbonables(abonoForm.persona).length > 1">
+              <p class="text-[10px] text-gray-400 mb-0.5">De la comisión de</p>
+              <select v-model="abonoForm.mes" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white capitalize">
+                <option v-for="m in mesesAbonables(abonoForm.persona)" :key="m.mes" :value="m.mes">{{ nombreMes(m.mes) }}</option>
+              </select>
+            </div>
+            <p v-else class="text-xs text-gray-700">De la comisión de <span class="font-semibold capitalize">{{ nombreMes(abonoForm.mes) }}</span></p>
+
+            <div>
+              <div class="flex justify-between items-baseline mb-0.5">
+                <p class="text-[10px] text-gray-400">Cuánto se le dio</p>
+                <p class="text-[10px] text-gray-500">Falta por entregar: <span class="font-semibold">{{ cop(faltaDelAbono) }}</span></p>
+              </div>
+              <InputPesos v-model="abonoForm.monto" placeholder="0" class="w-full text-sm text-right border border-gray-200 rounded-lg px-3 py-2" />
+            </div>
+
+            <div>
+              <p class="text-[10px] text-gray-400 mb-0.5">Nota (opcional)</p>
+              <input v-model="abonoForm.nota" maxlength="200" placeholder="Ej: abono del 18 de octubre, en efectivo" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2" />
+            </div>
+
+            <p v-if="Number(abonoForm.monto) > 0 && Number(abonoForm.monto) <= faltaDelAbono" class="text-xs text-gray-600">
+              Después le falta <span class="font-semibold">{{ cop(faltaDelAbono - Number(abonoForm.monto)) }}</span>
+            </p>
+
+            <button
+              type="button"
+              @click="guardarAbono"
+              :disabled="guardandoAbono"
+              class="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg py-2.5 text-xs font-semibold"
+            >{{ guardandoAbono ? 'Guardando…' : 'Registrar abono' }}</button>
           </div>
         </div>
 
@@ -2144,7 +2289,7 @@ onMounted(async () => {
                 · {{ r.pagadas }} renglón{{ r.pagadas !== 1 ? 'es' : '' }}
               </p>
               <p v-if="r.anticipos_descontados > 0" class="text-[11px] text-gray-500 mt-0.5">
-                Comisión {{ cop(r.monto) }} − anticipo {{ cop(r.anticipos_descontados) }}
+                Comisión {{ cop(r.monto) }} − anticipos y abonos {{ cop(r.anticipos_descontados) }}
               </p>
             </div>
 
