@@ -289,6 +289,40 @@ class AnexoGarantiaTest extends TestCase
         $this->getJson("/api/public/anexos/{$nuevoToken}")->assertNotFound();
     }
 
+    public function test_nueva_orden_retoma_el_enlace_que_espera_firma_despues_de_recargar(): void
+    {
+        $v = $this->vendedor();
+        $otro = Usuario::create([
+            'nombre' => 'Otro', 'email' => 'o@d.com', 'password' => 'x', 'rol' => 'vendedor', 'created_at' => now(),
+        ]);
+        $this->actingAs($v)->getJson('/api/anexos/en-curso?cliente_id=1')->assertOk()->assertExactJson([]);
+
+        // Mandó el enlace y la página se recargó: al escoger el cliente, sigue esperando.
+        [$id, $token] = $this->anexoRemoto($v);
+        $this->actingAs($v)->getJson('/api/anexos/en-curso?cliente_id=1')->assertOk()
+            ->assertJsonPath('id', $id)->assertJsonPath('estado', 'pendiente')->assertJsonPath('token', $token);
+        // Es de quien lo mandó y de ese cliente.
+        $this->actingAs($otro)->getJson('/api/anexos/en-curso?cliente_id=1')->assertOk()->assertExactJson([]);
+        $this->actingAs($v)->getJson('/api/anexos/en-curso?cliente_id=2')->assertOk()->assertExactJson([]);
+
+        // El cliente firmó mientras la app estaba cerrada: vuelve firmado.
+        $this->postJson("/api/public/anexos/{$token}/firmar", $this->respuestas())->assertOk();
+        $this->actingAs($v)->getJson('/api/anexos/en-curso?cliente_id=1')->assertOk()
+            ->assertJsonPath('id', $id)->assertJsonPath('estado', 'firmado');
+
+        // Firmado hace días es de otra venta que no se cerró: no se retoma.
+        AnexoGarantia::whereKey($id)->update(['firmado_at' => now()->subDays(5)]);
+        $this->actingAs($v)->getJson('/api/anexos/en-curso?cliente_id=1')->assertOk()->assertExactJson([]);
+
+        // Ni el cancelado ni el vencido.
+        [$id2] = $this->anexoRemoto($v);
+        $this->actingAs($v)->postJson("/api/anexos/{$id2}/anular")->assertOk();
+        $this->actingAs($v)->getJson('/api/anexos/en-curso?cliente_id=1')->assertOk()->assertExactJson([]);
+        [$id3] = $this->anexoRemoto($v);
+        AnexoGarantia::whereKey($id3)->update(['vence_at' => now()->subMinute()]);
+        $this->actingAs($v)->getJson('/api/anexos/en-curso?cliente_id=1')->assertOk()->assertExactJson([]);
+    }
+
     public function test_al_vendedor_le_dice_lo_que_el_cliente_respondio_que_no(): void
     {
         $v = $this->vendedor();

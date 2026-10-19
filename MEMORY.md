@@ -335,6 +335,14 @@ escribiendo precios (Fase 1b).
   Se quitaron los visores propios de Inventario, Nueva orden, Reserva, Telas, Despacho,
   Orden, Consultas, Costos, soportes de cambios, chat de IA, catálogo público y firma del
   anexo. **Para una foto nueva en grande, usar el visor; no hacer otro lightbox.**
+- **Retomar la firma remota en Nueva orden** (2026-10-19, **sin subir**, rama
+  `claude/nueva-orden-data-persistence-d8771d`, sin migración). Queja: si la página se
+  recargaba o el vendedor salía, Nueva orden volvía a ofrecer "Enviar al cliente" en vez de
+  "Esperando firma"; reenviar anulaba el enlace que el cliente ya tenía. La espera vivía
+  solo en la pantalla/respaldo del teléfono. Ahora `GET /anexos/en-curso?cliente_id=`
+  (remoto, de ese vendedor, sin orden, pendiente vigente o firmado ≤ 3 días) y la pantalla
+  lo retoma al escoger el cliente; al recuperar el respaldo pregunta el estado ya; el aviso
+  "el cliente firmó" sin orden abre Nueva orden.
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 

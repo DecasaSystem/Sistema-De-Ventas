@@ -499,6 +499,9 @@ function destinoNotificacion(tipo, datos) {
     if (tipo === 'paso_produccion' && auth.tieneAccesoPasos) return { name: 'mis-pasos' }
     return { name: 'orden-detalle', params: { id: datos.orden_id } }
   }
+  // El cliente firmó el enlace de una orden que todavía no se ha creado: a
+  // Nueva orden, donde se retoma la que se dejó a medias con su firma.
+  if (tipo === 'anexo_firmado' && datos.anexo_id) return { name: 'nueva-orden' }
   // Un surtido por validar se acepta en Inventario, sea quien sea.
   if (datos.surtido_id)       return { name: 'inventario' }
   if (tipo === 'stock_agotado') return { name: auth.isSupervisor ? 'surtir' : 'inventario' }

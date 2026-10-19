@@ -3,6 +3,9 @@ import api from './index'
 // Anexo de garantías firmado en el sistema (ver AnexoGarantiaController).
 export const crearAnexo        = (data)      => api.post('/anexos', data)
 export const getAnexo          = (id)        => api.get(`/anexos/${id}`, { silencioso: true })
+// El enlace que se le mandó a este cliente desde Nueva orden y sigue sin orden
+// (esperando firma o recién firmado): para retomarlo si la página se recargó.
+export const anexoEnCurso      = (clienteId) => api.get('/anexos/en-curso', { params: { cliente_id: clienteId }, silencioso: true })
 // "Cancelar envío": el enlace deja de servir.
 export const anularAnexo        = (id)        => api.post(`/anexos/${id}/anular`, {}, { silencioso: true })
 export const enviarAnexoEmail  = (id, email) => api.post(`/anexos/${id}/enviar-email`, { email: email || undefined })
