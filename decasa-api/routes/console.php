@@ -73,6 +73,21 @@ Schedule::command('comisiones:poner-al-dia')
     ->name('comisiones-poner-al-dia')
     ->withoutOverlapping();
 
+// El botón Recalcular solo deja el pedido: hacerlo dentro de la petición
+// tardaba minutos y el proxy la cortaba con un 502 (2026-10-19). Se revisa
+// cada minuto y corre aparte (en segundo plano, para no frenar las demás
+// tareas mientras tanto). Sin pedido no hace nada.
+Artisan::command('comisiones:recalcular-pedido', function () {
+    $r = app(\App\Http\Controllers\ComisionController::class)->correrRecalculoPedido();
+    if ($r) $this->info("Recalculado: {$r['actualizadas']} cambiaron de estado, {$r['revaluadas']} revaluadas.");
+})->purpose('Corre el recálculo de comisiones que alguien pidió con el botón');
+
+Schedule::command('comisiones:recalcular-pedido')
+    ->everyMinute()
+    ->name('comisiones-recalcular-pedido')
+    ->withoutOverlapping(30)
+    ->runInBackground();
+
 // La nómina ya no necesita un job: los ciclos de pago se calculan del
 // calendario cuando se abre la pantalla (App\Services\CicloNomina), así que
 // no hay períodos que generar de madrugada.

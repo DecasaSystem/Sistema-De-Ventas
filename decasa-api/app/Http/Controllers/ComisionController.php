@@ -2889,10 +2889,92 @@ class ComisionController extends Controller
             return response()->json(['error' => 'Sin acceso'], 403);
         }
 
-        $resultado = $this->ponerAlDia();
-        self::anotar('recalcular', null, null, $resultado);
+        // Ya pedido o corriendo: no se pide otra vez (dos a la vez se pisan).
+        $estado = self::estadoDelRecalculo();
+        if (in_array($estado['estado'], ['pedido', 'corriendo'], true)) {
+            return response()->json($estado, 202);
+        }
 
-        return response()->json($resultado);
+        $estado = ['estado' => 'pedido', 'pedido_at' => now()->toIso8601String(), 'por' => $usuario->nombre];
+        \Illuminate\Support\Facades\Cache::put(self::CLAVE_RECALCULO, $estado, now()->addDay());
+        self::anotar('recalcular', null, null, ['pedido' => true]);
+
+        return response()->json($estado, 202);
+    }
+
+    /**
+     * Recalcular ya no corre dentro de la petición.
+     *
+     * Pone al día TODAS las comisiones sin pagar, orden por orden, y cada
+     * consulta a la base cuesta ~200 ms (está lejos del servidor): con ~300
+     * renglones abiertos son minutos, y el proxy corta la petición con un 502
+     * (2026-10-19, al corregir el pago con tarjeta de una venta de agosto). La
+     * tarea de las 6:30 hace lo mismo sin ese límite y nunca falló.
+     *
+     * Ahora el botón deja el pedido anotado y la tarea `comisiones:recalcular-pedido`,
+     * que el programador revisa cada minuto, lo corre por fuera (ponerAlDia(),
+     * lo mismo de siempre). La pantalla pregunta aquí hasta que termine.
+     */
+    public const CLAVE_RECALCULO = 'comisiones:recalculo';
+
+    /** Cuánto puede quedarse "pedido" o "corriendo" antes de darlo por perdido. */
+    private const RECALCULO_VENCE_MIN = 30;
+
+    /** @return array{estado: string} 'nada' | 'pedido' | 'corriendo' | 'listo' | 'fallo', y sus fechas */
+    public static function estadoDelRecalculo(): array
+    {
+        $estado = \Illuminate\Support\Facades\Cache::get(self::CLAVE_RECALCULO) ?? ['estado' => 'nada'];
+
+        // Si el servidor se reinició a mitad, no puede quedarse "corriendo"
+        // para siempre: el botón no volvería a funcionar.
+        if (in_array($estado['estado'], ['pedido', 'corriendo'], true)) {
+            $desde = $estado['corriendo_at'] ?? $estado['pedido_at'] ?? null;
+            if (! $desde || Carbon::parse($desde)->lt(now()->subMinutes(self::RECALCULO_VENCE_MIN))) {
+                return ['estado' => 'nada'];
+            }
+        }
+
+        return $estado;
+    }
+
+    // GET /api/comisiones/recalcular/estado
+    public function estadoRecalcular(Request $request)
+    {
+        if (! $request->user()->acceso_comisiones) {
+            return response()->json(['error' => 'Sin acceso'], 403);
+        }
+
+        return response()->json(self::estadoDelRecalculo());
+    }
+
+    /**
+     * Corre el recálculo pedido con el botón, si hay uno. Lo llama la tarea
+     * programada; devuelve null si no había nada pedido.
+     */
+    public function correrRecalculoPedido(): ?array
+    {
+        $estado = self::estadoDelRecalculo();
+        if ($estado['estado'] !== 'pedido') return null;
+
+        $cache = \Illuminate\Support\Facades\Cache::store();
+        $cache->put(self::CLAVE_RECALCULO, array_merge($estado, [
+            'estado' => 'corriendo', 'corriendo_at' => now()->toIso8601String(),
+        ]), now()->addDay());
+
+        try {
+            $resultado = $this->ponerAlDia();
+        } catch (\Throwable $e) {
+            $cache->put(self::CLAVE_RECALCULO, array_merge($estado, [
+                'estado' => 'fallo', 'terminado_at' => now()->toIso8601String(),
+            ]), now()->addDay());
+            throw $e;
+        }
+
+        $cache->put(self::CLAVE_RECALCULO, array_merge($estado, [
+            'estado' => 'listo', 'terminado_at' => now()->toIso8601String(), 'resultado' => $resultado,
+        ]), now()->addDay());
+
+        return $resultado;
     }
 
     /**

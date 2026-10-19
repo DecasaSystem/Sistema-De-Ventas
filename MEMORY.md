@@ -279,7 +279,7 @@ escribiendo precios (Fase 1b).
   paga", así que pagar octubre antes que septiembre le descontaba los dos anticipos a
   octubre y lo entregado ese día cambiaba. Las bonificaciones de Nómina no entran (van
   en cada pago de nómina). Tests en `ComisionesAtrasadasTest`.
-- **Abonos de comisión** (2026-10-19, **sin subir**, sin migración, rama
+- **Abonos de comisión** (2026-10-19, **subido a `main`** ese día, commit 8f59fdd, sin migración, rama
   `claude/compassionate-blackwell-a0a2df`). Pedido del dueño: pasó el día de pago de agosto
   y a los vendedores les dieron un abono, no todo; que Listas siga mostrando lo que falta.
   No es todos los meses: se anota el día que se da (Listas → "Registrar abono"). Se guarda
@@ -519,6 +519,15 @@ Decisiones del dueño del 2026-10-08:
   cliente** con su dueño en el sistema (catálogos, sedes, categorías, precios, juegos).
 
 ## 6. Trampas conocidas
+
+- **Recalcular comisiones daba 502** (2026-10-19, **sin subir**, sin migración). Pone al día
+  todas las comisiones sin pagar orden por orden; con ~300 renglones abiertos y ~200 ms por
+  consulta son minutos y el proxy cortaba la petición (la bitácora no tenía ni un
+  "recalcular" que hubiera terminado). La tarea de las 6:30 sí funcionaba (sin límite). Ahora
+  el botón deja el pedido en caché (`ComisionController::CLAVE_RECALCULO`), la tarea
+  `comisiones:recalcular-pedido` (cada minuto, en segundo plano) lo corre y la pantalla
+  pregunta en `GET /comisiones/recalcular/estado`. No se metió a la cola: con un solo
+  trabajador habría frenado los push varios minutos. Algo pesado en una petición = lo mismo.
 
 - **Recarga en bucle de una pantalla** (2026-10-17, queja: "en otro PC Producción se
   queda cargando en bucle rápido"). `router.onError` recargaba la página cada vez que una

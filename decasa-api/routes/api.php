@@ -862,6 +862,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/asesores-asignados',        [ComisionController::class, 'getAsesoresAsignados']);
         Route::post('/metas',                    [ComisionController::class, 'setMeta'])->middleware('role:supervisor');
         Route::post('/recalcular',               [ComisionController::class, 'recalcular'])->middleware('role:supervisor');
+        // Recalcular corre aparte (tardaba minutos): la pantalla pregunta cómo va.
+        Route::get('/recalcular/estado',         [ComisionController::class, 'estadoRecalcular']);
         Route::post('/asesores-asignados',       [ComisionController::class, 'addAsesor'])->middleware('role:supervisor');
         // Si en esa tienda la comision es del equipo o de cada quien.
         Route::patch('/tiendas/{id}/compartidas', [ComisionController::class, 'setComisionesCompartidas'])

@@ -358,6 +358,40 @@ class ComisionesAtrasadasTest extends TestCase
         $this->assertEquals(300_000, $caja['2026-11']['anticipos']);   // anticipo de noviembre + abono
     }
 
+    // ── Recalcular corre aparte (dentro de la petición daba 502) ────────────
+
+    public function test_recalcular_deja_el_pedido_y_la_tarea_lo_corre(): void
+    {
+        $r = $this->jefe()->postJson('/api/comisiones/recalcular')->assertStatus(202)->json();
+        $this->assertSame('pedido', $r['estado']);
+
+        // Pulsar otra vez no pide otro: es el mismo.
+        $this->assertSame($r['pedido_at'], $this->jefe()->postJson('/api/comisiones/recalcular')
+            ->assertStatus(202)->json('pedido_at'));
+
+        // Un vendedor no lo pide.
+        $this->actingAs(Usuario::find(self::JUAN))->postJson('/api/comisiones/recalcular')->assertStatus(403);
+
+        $this->artisan('comisiones:recalcular-pedido')->assertSuccessful();
+
+        $e = $this->jefe()->getJson('/api/comisiones/recalcular/estado')->assertOk()->json();
+        $this->assertSame('listo', $e['estado']);
+        $this->assertArrayHasKey('actualizadas', $e['resultado']);
+
+        // Sin pedido, la tarea no hace nada; y ya se puede pedir de nuevo.
+        $this->artisan('comisiones:recalcular-pedido')->assertSuccessful();
+        $this->assertSame('pedido', $this->jefe()->postJson('/api/comisiones/recalcular')->json('estado'));
+    }
+
+    public function test_un_pedido_que_se_quedo_colgado_no_bloquea_el_boton(): void
+    {
+        \Illuminate\Support\Facades\Cache::put(ComisionController::CLAVE_RECALCULO,
+            ['estado' => 'corriendo', 'corriendo_at' => now()->subHour()->toIso8601String()]);
+
+        $this->assertSame('nada', $this->jefe()->getJson('/api/comisiones/recalcular/estado')->json('estado'));
+        $this->assertSame('pedido', $this->jefe()->postJson('/api/comisiones/recalcular')->json('estado'));
+    }
+
     public function test_el_historial_de_anticipos_marca_el_abono(): void
     {
         $this->abonar(100_000)->assertOk();

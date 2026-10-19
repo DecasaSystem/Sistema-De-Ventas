@@ -1,6 +1,6 @@
 <script setup>
 import IconoS from '@/components/common/IconoS.vue'
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useToast } from '@/composables/useToast'
 import { useRouter } from 'vue-router'
 import api from '@/api'
@@ -272,21 +272,53 @@ async function cargarTodosVendedores() {
   } catch { /* silencioso */ }
 }
 
+// Recalcular corre aparte en el servidor: dentro de la petición tardaba
+// minutos y el proxy la cortaba con un 502. El botón lo pide y aquí se
+// pregunta cada 10 s hasta que termina; al terminar se recarga la pantalla.
+let esperaRecalculo = null
+
 async function recalcular() {
   recalculando.value = true
   try {
     const { data } = await api.post('/comisiones/recalcular')
-    toast.success(`Recalculado — ${data.actualizadas} actualizadas` + (data.notificadas ? ` · aviso del día de pago enviado` : ''))
-    await cargar()
-    if (vistaTab.value === 'resumen') await cargarResumen()
-  cargarIndependientes()
-  cargarListas()
-  } catch {
-    toast.error('Error al recalcular')
-  } finally {
+    toast.success(data.estado === 'corriendo'
+      ? 'Ya se está recalculando. La pantalla se actualiza sola al terminar.'
+      : 'Recalculando… puede tardar unos minutos. La pantalla se actualiza sola al terminar.', 6000)
+    esperarRecalculo()
+  } catch (e) {
+    toast.error(e.response?.data?.error || 'Error al recalcular')
     recalculando.value = false
   }
 }
+
+function esperarRecalculo() {
+  clearTimeout(esperaRecalculo)
+  esperaRecalculo = setTimeout(async () => {
+    let estado
+    try {
+      ({ data: estado } = await api.get('/comisiones/recalcular/estado', { silencioso: true }))
+    } catch {
+      return esperarRecalculo()   // un tropiezo de red: se vuelve a preguntar
+    }
+    if (estado.estado === 'pedido' || estado.estado === 'corriendo') return esperarRecalculo()
+
+    recalculando.value = false
+    if (estado.estado === 'listo') {
+      const r = estado.resultado || {}
+      toast.success(`Recalculado — ${r.actualizadas ?? 0} actualizadas` + (r.notificadas ? ' · aviso del día de pago enviado' : ''))
+      await cargar()
+      if (vistaTab.value === 'resumen') await cargarResumen()
+      cargarIndependientes()
+      cargarListas()
+    } else if (estado.estado === 'fallo') {
+      toast.error('El recálculo falló. Intenta de nuevo en un momento.')
+    } else {
+      toast.error('El recálculo no arrancó. Intenta de nuevo.')
+    }
+  }, 10000)
+}
+
+onBeforeUnmount(() => clearTimeout(esperaRecalculo))
 
 async function pagar(id) {
   if (!confirm('¿Marcar esta comisión como pagada?')) return
@@ -1054,6 +1086,14 @@ onMounted(async () => {
   cargarListas()
   await cargar()
   await cargarTodosVendedores()
+  // Si quedó un recálculo andando (se salió y volvió), se sigue esperando.
+  try {
+    const { data } = await api.get('/comisiones/recalcular/estado', { silencioso: true })
+    if (data.estado === 'pedido' || data.estado === 'corriendo') {
+      recalculando.value = true
+      esperarRecalculo()
+    }
+  } catch { /* sin acceso o sin red: nada que esperar */ }
 })
 </script>
 
