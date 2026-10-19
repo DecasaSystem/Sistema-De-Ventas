@@ -428,6 +428,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Anexo de garantías firmado en el sistema (ver AnexoGarantiaController)
     Route::post('/anexos',                    [\App\Http\Controllers\AnexoGarantiaController::class, 'crear'])->middleware('throttle:30,1');
+    Route::get('/anexos/en-curso',            [\App\Http\Controllers\AnexoGarantiaController::class, 'enCurso']);
     Route::get('/anexos/{id}',                [\App\Http\Controllers\AnexoGarantiaController::class, 'show'])->whereNumber('id');
     Route::post('/ordenes/{id}/firma-remota', [\App\Http\Controllers\AnexoGarantiaController::class, 'enviarOrden'])->whereNumber('id')->middleware('throttle:30,1');
     Route::get('/ordenes/{id}/firma-remota',  [\App\Http\Controllers\AnexoGarantiaController::class, 'deOrden'])->whereNumber('id');

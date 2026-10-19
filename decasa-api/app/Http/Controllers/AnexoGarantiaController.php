@@ -37,6 +37,9 @@ class AnexoGarantiaController extends Controller
     /** Días que vive un enlace sin firmar. */
     private const DIAS_VIGENCIA = 7;
 
+    /** Días que un anexo firmado y sin orden se retoma en Nueva orden. */
+    private const DIAS_FIRMADO_EN_CURSO = 3;
+
     /**
      * POST /api/anexos  { cliente_id, modo, resumen? }
      *
@@ -261,6 +264,38 @@ class AnexoGarantiaController extends Controller
         ])->values()->all();
 
         return AnexoGarantia::huella($lineas, (float) $orden->descuento_total + (float) $orden->descuento_condicionado);
+    }
+
+    /**
+     * GET /api/anexos/en-curso?cliente_id= — el enlace de firma que este
+     * vendedor le mandó a este cliente desde Nueva orden y que todavía no es
+     * de ninguna orden: esperando la firma, o ya firmado hace poco.
+     *
+     * Por qué existe: la espera vivía solo en la pantalla (y en el respaldo
+     * del teléfono). Si la página se recargaba, Android cerraba la app o se
+     * seguía desde un borrador o desde otro aparato, Nueva orden volvía a
+     * ofrecer "Enviar al cliente" como si nada; si el vendedor lo mandaba de
+     * nuevo, el enlace que el cliente ya tenía dejaba de servir, y si el
+     * cliente firmaba, la firma nunca aparecía. Con esto, al escoger el
+     * cliente, la pantalla retoma la espera.
+     *
+     * El firmado se busca solo de los últimos días: uno más viejo es de otra
+     * venta que no se cerró. Si la orden cambió, el servidor lo dice al crearla.
+     */
+    public function enCurso(Request $request)
+    {
+        $data = $request->validate(['cliente_id' => 'required|integer']);
+
+        $anexo = AnexoGarantia::where('vendedor_id', $request->user()->id)
+            ->where('cliente_id', $data['cliente_id'])
+            ->where('modo', 'remoto')
+            ->whereNull('orden_id')
+            ->where(fn ($q) => $q
+                ->where(fn ($p) => $p->where('estado', 'pendiente')->where(fn ($v) => $v->whereNull('vence_at')->orWhere('vence_at', '>', now())))
+                ->orWhere(fn ($f) => $f->where('estado', 'firmado')->where('firmado_at', '>=', now()->subDays(self::DIAS_FIRMADO_EN_CURSO))))
+            ->latest('id')->first();
+
+        return response()->json($anexo ? $this->paraVendedor($anexo, conToken: true, request: $request) : null);
     }
 
     /** GET /api/anexos/{id} — el estado, para quien lo está esperando. */

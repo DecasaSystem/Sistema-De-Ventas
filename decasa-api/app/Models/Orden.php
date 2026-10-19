@@ -813,13 +813,12 @@ class Orden extends Model
      * completó sin entregar esta orden, o una entrega que después se revirtió—
      * dejan su fila ahí para siempre, y esa fila vieja no puede seguir
      * bloqueando la orden: por eso se mira el estado del despacho y no la sola
-     * existencia del item.
+     * existencia del item. Tampoco cuenta la parada que ya se entregó en una
+     * ruta que sigue andando (ver DespachoItem::scopeVivas).
      */
     public function tieneDespachoActivo(): bool
     {
-        return DespachoItem::where('orden_id', $this->id)
-            ->whereHas('despacho', fn ($q) => $q->whereIn('estado', ['borrador', 'asignado', 'en_ruta']))
-            ->exists();
+        return DespachoItem::where('orden_id', $this->id)->vivas()->exists();
     }
 
     public function items()

@@ -28,7 +28,7 @@ import FirmaCanvas from '@/components/FirmaCanvas.vue'
 import AnexoFirma from '@/components/anexo/AnexoFirma.vue'
 import { useTextosNegocio, cargarTextosNegocio, rellenar, datosEmpresa, FABRICA } from '@/utils/textosNegocio'
 import { specsParaCliente, soloHttps, tipoParaCliente, tipoDeItemCarrito, trabajoTexto } from '@/utils/resumenParaFirma'
-import { crearAnexo, getAnexo, getAnexoPublico, firmarAnexo, enviarAnexoEmail, pdfAnexo, anularAnexo } from '@/api/anexos'
+import { crearAnexo, getAnexo, anexoEnCurso, getAnexoPublico, firmarAnexo, enviarAnexoEmail, pdfAnexo, anularAnexo } from '@/api/anexos'
 import BocetoCanvas from '@/components/BocetoCanvas.vue'
 import DireccionColombia from '@/components/DireccionColombia.vue'
 import ComboInput from '@/components/common/ComboInput.vue'
@@ -2144,6 +2144,27 @@ watch(() => [anexo.value?.id, anexo.value?.estado], ([id, estado]) => {
 }, { immediate: true })
 onBeforeUnmount(dejarDeEsperarAnexo)
 
+// Retomar la espera al escoger el cliente. Si la página se recargó, Android
+// cerró la app, se siguió desde un borrador o desde otro aparato, la pantalla
+// no sabía que ya se le había mandado el enlace: volvía a ofrecer "Enviar",
+// y mandarlo otra vez dejaba sin servir el que el cliente tenía en el
+// WhatsApp (y su firma nunca aparecía aquí). El servidor sabe cuál está en
+// curso. No se sabe qué versión de la orden vio (`lo_que_vio` null): si
+// cambió, el servidor lo dice al crearla y sale "Enviar de nuevo".
+watch(() => clienteSeleccionado.value?.id, async (id) => {
+  if (!id || anexo.value || modoCotizacion.value) return
+  try {
+    const { data } = await anexoEnCurso(id)
+    // Mientras tanto se pudo cambiar de cliente o poner otro anexo.
+    if (!data?.id || anexo.value || clienteSeleccionado.value?.id !== id) return
+    ponerAnexo(data)
+    emailAnexo.value = clienteSeleccionado.value?.email ?? ''
+    toast.info(data.estado === 'firmado'
+      ? `${data.nombre_firmante ?? 'El cliente'} ya había firmado el enlace que le mandaste.`
+      : 'El enlace que le mandaste a este cliente sigue esperando su firma.')
+  } catch { /* sin conexión: se puede enviar como siempre */ }
+})
+
 // Foto del anexo firmado (solo presencial)
 const anexoFotoFile      = ref(null)
 const anexoFotoUrl       = ref('')
@@ -3126,6 +3147,9 @@ async function restaurarBorrador(d) {
   poner()
 
   if (step.value === 3 && hayItemsCotizar.value) cargarReceptoresCotizar()
+  // Si se le mandó el enlace al cliente, pudo firmar mientras la app estaba
+  // cerrada: se pregunta ya, sin esperar el siguiente sondeo.
+  if (anexo.value?.estado === 'pendiente') refrescarAnexo()
   toast.success('Recuperamos la orden que llevabas.')
 }
 

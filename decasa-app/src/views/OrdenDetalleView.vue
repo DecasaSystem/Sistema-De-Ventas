@@ -115,11 +115,13 @@ const miEntregaDirectaPendiente = computed(() => {
 // El despacho que de verdad la tiene tomada. Una orden puede arrastrar el
 // despacho de una ruta que ya se cerró sin entregarla, o de una entrega que
 // se revirtió; esa fila vieja no la está despachando nadie y no debe tapar el
-// botón. Es el mismo criterio del backend.
+// botón. Tampoco la parada que ya se entregó en una ruta que sigue andando
+// (entrega parcial: lo que falta se entrega aparte). Es el mismo criterio del
+// backend (DespachoItem::scopeVivas).
 const ESTADOS_DESPACHO_VIVO = ['borrador', 'asignado', 'en_ruta']
 const despachoActivo = computed(() => {
   const d = despachoEntrega.value
-  return d && ESTADOS_DESPACHO_VIVO.includes(d.despacho?.estado) ? d : null
+  return d && d.estado === 'pendiente' && ESTADOS_DESPACHO_VIVO.includes(d.despacho?.estado) ? d : null
 })
 
 // Quién la tiene agarrada, en palabras. No toda entrega viva es "una ruta":

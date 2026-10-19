@@ -50,6 +50,23 @@ class DespachoItem extends Model
         ];
     }
 
+    /** Estados de un despacho que todavía puede llevar algo. */
+    public const DESPACHOS_VIVOS = ['borrador', 'asignado', 'en_ruta'];
+
+    /**
+     * Las entregas que todavía tienen tomada la orden: su despacho sigue vivo
+     * Y la parada no se ha hecho. Mirar solo el despacho no basta: con
+     * entregas parciales el conductor deja la modular hoy y la ruta sigue en
+     * curso por las otras paradas; esa parada ya entregada no puede seguir
+     * escondiendo la orden de la cola y de "Entregar ahora" cuando la mesa
+     * sale del taller (orden #4348, ruta #128).
+     */
+    public function scopeVivas($query)
+    {
+        return $query->where('estado', 'pendiente')
+            ->whereHas('despacho', fn ($q) => $q->whereIn('estado', self::DESPACHOS_VIVOS));
+    }
+
     /** ¿La entrega quedó respaldada con firma o con un motivo de por qué no? */
     public function tieneActa(): bool
     {
