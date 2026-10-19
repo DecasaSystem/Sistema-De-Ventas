@@ -111,11 +111,9 @@ class DespachoController extends Controller
     {
         return Orden::query()
             ->whereIn('estado', ['listo_entrega', 'en_produccion', 'pendiente_anticipo'])
-            ->whereDoesntHave('despachoItem', fn($q) =>
-                $q->whereHas('despacho', fn($q2) =>
-                    $q2->whereIn('estado', ['borrador', 'asignado', 'en_ruta'])
-                )
-            );
+            // Una parada ya entregada de una ruta que sigue andando no la
+            // tiene tomada: lo que falta vuelve a la cola (DespachoItem::scopeVivas).
+            ->whereDoesntHave('entregas', fn($q) => $q->vivas());
     }
 
     /** Deja en cada producto cuánto falta por entregar y si ya se puede. */
@@ -316,9 +314,7 @@ class DespachoController extends Controller
             return response()->json(['message' => 'La orden no está en cola de entrega.'], 422);
         }
 
-        $yaEnRuta = DespachoItem::where('orden_id', $data['orden_id'])
-            ->whereHas('despacho', fn($q) => $q->whereIn('estado', ['borrador', 'asignado', 'en_ruta']))
-            ->exists();
+        $yaEnRuta = DespachoItem::where('orden_id', $data['orden_id'])->vivas()->exists();
 
         if ($yaEnRuta) {
             return response()->json(['message' => 'Esta orden ya está en una ruta activa.'], 422);
@@ -561,9 +557,7 @@ class DespachoController extends Controller
                 if (is_string($lineas)) abort(422, $lineas);
                 if (! $lineas) abort(422, "La orden {$orden->referencia} no tiene nada listo para entregar.");
 
-                $yaAsignada = DespachoItem::where('orden_id', $item['orden_id'])
-                    ->whereHas('despacho', fn($q) => $q->whereIn('estado', ['borrador', 'asignado', 'en_ruta']))
-                    ->exists();
+                $yaAsignada = DespachoItem::where('orden_id', $item['orden_id'])->vivas()->exists();
 
                 if ($yaAsignada) {
                     abort(422, "La orden {$orden->referencia} ya está en un despacho activo.");
@@ -930,7 +924,7 @@ class DespachoController extends Controller
             // que duplicarle el despacho.
             $yaActiva = DespachoItem::with('despacho')
                 ->where('orden_id', $orden->id)
-                ->whereHas('despacho', fn ($q) => $q->whereIn('estado', ['borrador', 'asignado', 'en_ruta']))
+                ->vivas()
                 ->first();
 
             if ($yaActiva) {

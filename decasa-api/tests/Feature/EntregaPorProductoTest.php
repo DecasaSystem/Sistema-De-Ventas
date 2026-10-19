@@ -952,6 +952,91 @@ class EntregaPorProductoTest extends TestCase
         $this->assertSame(1, (int) $this->reloj($otra->fresh())->cantidad_entregada, 'la otra entrega no se toca');
     }
 
+    /**
+     * Orden #4348: la modular salió en la ruta #128 y la mesa seguía en el
+     * taller. El conductor entregó la modular, pero la ruta siguió en curso
+     * por otra parada; cuando la mesa quedó lista, la orden no salía ni en la
+     * cola ni con "Entregar ahora": la parada ya entregada la tenía tomada.
+     */
+    public function test_la_parada_ya_entregada_no_retiene_la_orden_mientras_la_ruta_sigue(): void
+    {
+        $jefa  = $this->despachadora();
+        $orden = $this->venderRelojYMueble($this->vendedora(), relojSeLoLleva: false);
+        $otra  = $this->venderRelojYMueble($this->vendedora(), relojSeLoLleva: false);
+
+        $ruta = $this->actingAs($jefa)->postJson('/api/despacho/rutas', [
+            'nombre_ruta' => 'Norte', 'fecha_despacho' => now()->toDateString(),
+        ])->assertStatus(201)->json();
+        $paradas = [];
+        foreach ([$orden, $otra] as $o) {
+            $paradas[] = $this->actingAs($jefa)->postJson("/api/despacho/rutas/{$ruta['id']}/ordenes", [
+                'orden_id' => $o->id,
+                'lineas'   => [['orden_item_id' => $this->reloj($o)->id, 'cantidad' => 1]],
+            ])->assertStatus(201)->json('id');
+        }
+        $conductor = Usuario::create(['nombre' => 'Conduce', 'email' => 'c@d.com', 'password' => 'x', 'rol' => 'conductor', 'created_at' => now()]);
+        DB::table('despachos')->where('id', $ruta['id'])->update(['estado' => 'en_ruta', 'conductor_id' => $conductor->id]);
+
+        // Solo la primera parada: la otra sigue pendiente y la ruta, en curso.
+        $this->actingAs($conductor)->post("/api/despacho/mis-entregas/{$paradas[0]}/pago", [
+            'firma_omitida_motivo' => 'prueba', 'monto' => 0, 'foto_producto' => UploadedFile::fake()->image('p.jpg'),
+        ], ['Accept' => 'application/json'])->assertOk();
+        $this->actingAs($conductor)->patchJson("/api/despacho/mis-entregas/{$paradas[0]}/entregar")->assertOk();
+        $this->assertSame('en_ruta', DB::table('despachos')->where('id', $ruta['id'])->value('estado'));
+
+        // El taller termina el mueble.
+        Produccion::whereIn('orden_item_id', [$this->mueble($orden)->id])->update(['estado' => 'listo']);
+        $orden->update(['estado' => 'listo_entrega']);
+
+        // Vuelve a la cola con lo que falta (la otra orden sigue en el camión).
+        $cola = $this->actingAs($jefa)->getJson('/api/despacho/cola')->assertOk()->json();
+        $this->assertSame([$orden->id], array_column($cola, 'id'));
+        $this->actingAs($jefa)->getJson('/api/despacho/cola/conteo')->assertOk()->assertExactJson(['total' => 1]);
+        $this->assertFalse($orden->fresh()->tieneDespachoActivo());
+        $this->assertTrue($otra->fresh()->tieneDespachoActivo(), 'la parada pendiente sí la retiene');
+
+        // Y se puede entregar directo, o subir a otra ruta.
+        $this->actingAs($jefa)->postJson('/api/despacho/entrega-directa', ['orden_id' => $orden->id])->assertSuccessful();
+    }
+
+    public function test_la_orden_con_parada_entregada_se_puede_subir_a_otra_ruta(): void
+    {
+        $jefa  = $this->despachadora();
+        $orden = $this->venderRelojYMueble($this->vendedora(), relojSeLoLleva: false);
+        $otra  = $this->venderRelojYMueble($this->vendedora(), relojSeLoLleva: false);
+
+        $ruta = $this->actingAs($jefa)->postJson('/api/despacho/rutas', [
+            'nombre_ruta' => 'Norte', 'fecha_despacho' => now()->toDateString(),
+        ])->assertStatus(201)->json();
+        $paradas = [];
+        foreach ([$orden, $otra] as $o) {
+            $paradas[] = $this->actingAs($jefa)->postJson("/api/despacho/rutas/{$ruta['id']}/ordenes", [
+                'orden_id' => $o->id,
+                'lineas'   => [['orden_item_id' => $this->reloj($o)->id, 'cantidad' => 1]],
+            ])->assertStatus(201)->json('id');
+        }
+        $conductor = Usuario::create(['nombre' => 'Conduce', 'email' => 'c@d.com', 'password' => 'x', 'rol' => 'conductor', 'created_at' => now()]);
+        DB::table('despachos')->where('id', $ruta['id'])->update(['estado' => 'en_ruta', 'conductor_id' => $conductor->id]);
+        $this->actingAs($conductor)->post("/api/despacho/mis-entregas/{$paradas[0]}/pago", [
+            'firma_omitida_motivo' => 'prueba', 'monto' => 0, 'foto_producto' => UploadedFile::fake()->image('p.jpg'),
+        ], ['Accept' => 'application/json'])->assertOk();
+        $this->actingAs($conductor)->patchJson("/api/despacho/mis-entregas/{$paradas[0]}/entregar")->assertOk();
+
+        Produccion::whereIn('orden_item_id', [$this->mueble($orden)->id])->update(['estado' => 'listo']);
+        $orden->update(['estado' => 'listo_entrega']);
+
+        $nueva = $this->actingAs($jefa)->postJson('/api/despacho/rutas', [
+            'nombre_ruta' => 'Sur', 'fecha_despacho' => now()->toDateString(),
+        ])->assertStatus(201)->json();
+        $this->actingAs($jefa)->postJson("/api/despacho/rutas/{$nueva['id']}/ordenes", [
+            'orden_id' => $orden->id,
+        ])->assertStatus(201);
+        // La que sigue pendiente en el camión no se puede repetir.
+        $this->actingAs($jefa)->postJson("/api/despacho/rutas/{$nueva['id']}/ordenes", [
+            'orden_id' => $otra->id,
+        ])->assertStatus(422);
+    }
+
     public function test_el_historial_dice_a_quien_le_sale_el_boton(): void
     {
         $v     = $this->vendedora();
