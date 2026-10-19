@@ -269,4 +269,103 @@ class ComisionesAtrasadasTest extends TestCase
         $this->assertStringContainsString('Además quedan sin pagar', $mensaje);
         $this->assertStringContainsString('septiembre de 2026', $mensaje);
     }
+
+    // ── Abono: una parte de un mes que ya está listo ─────────────────────────
+    //
+    // El caso del dueño (2026-10-19): pasó el día de pago y a los vendedores
+    // les dieron un abono, no todo. Septiembre: 420.168 de comisión y 200.000
+    // de anticipo fijo → faltaban 220.168. Le dan 100.000 de abono.
+
+    private function abonar(float $monto, string $mes = '2026-09')
+    {
+        return $this->jefe()->postJson('/api/comisiones/abonos', [
+            'vendedor_id' => self::JUAN, 'mes' => $mes, 'monto' => $monto, 'nota' => 'Abono del 18 de octubre',
+        ]);
+    }
+
+    public function test_un_abono_baja_lo_que_falta_en_listas_y_al_pagar_se_entrega_el_resto(): void
+    {
+        $this->abonar(100_000)->assertOk()->assertJsonPath('queda', 120_168);
+
+        $sep = $this->jefe()->getJson('/api/comisiones/por-pagar')->json('personas.0.bloques.0');
+        $this->assertEqualsWithDelta(420_168, $sep['lista'], 2);   // la comisión no cambia
+        $this->assertEquals(300_000, $sep['se_descuenta']);        // anticipo + abono
+        $this->assertEquals(100_000, $sep['abonos']);
+        $this->assertEqualsWithDelta(120_168, $sep['entregar'], 2);
+
+        // El anticipo fijo de septiembre sigue ahí: el abono no lo pisa, ni al revés.
+        AnticiposComision::asegurarHasta('2026-11');
+        $this->assertEquals([100_000, 200_000], DB::table('comision_anticipos')->where('tipo', 'anticipo')
+            ->where('mes', '2026-09')->orderBy('monto')->pluck('monto')->map(fn ($m) => (float) $m)->all());
+
+        $recibo = $this->jefe()->postJson('/api/comisiones/pagar-listas', [
+            'vendedor_id' => self::JUAN, 'mes' => '2026-09', 'tienda_id' => self::EDEN,
+        ])->assertOk()->json();
+        $this->assertEqualsWithDelta(420_168, $recibo['monto'], 2);
+        $this->assertEquals(300_000, $recibo['anticipos_descontados']);
+        $this->assertEqualsWithDelta(120_168, $recibo['neto'], 2);
+
+        // Octubre descuenta solo su anticipo: el abono era de septiembre.
+        $oct = $this->jefe()->getJson('/api/comisiones/por-pagar')->json('personas.0.bloques.0');
+        $this->assertSame('2026-10', $oct['mes']);
+        $this->assertEquals(200_000, $oct['se_descuenta']);
+        $this->assertEquals(0, $oct['abonos']);
+    }
+
+    public function test_el_abono_no_puede_pasar_de_lo_que_falta_ni_ser_de_un_mes_sin_nada_listo(): void
+    {
+        $this->abonar(220_169)->assertStatus(422);
+        $this->abonar(100_000, '2026-08')->assertStatus(422);
+
+        // Dos abonos del mismo mes suman, y el segundo tiene de tope lo que quedó.
+        $this->abonar(100_000)->assertOk();
+        $this->abonar(120_169)->assertStatus(422);
+        $this->abonar(120_168)->assertOk()->assertJsonPath('queda', 0);
+    }
+
+    public function test_un_abono_por_error_se_quita_mientras_no_se_haya_pagado(): void
+    {
+        $id = $this->abonar(100_000)->json('id');
+
+        $this->jefe()->deleteJson("/api/comisiones/abonos/{$id}")->assertOk();
+        $this->assertEquals(200_000, $this->jefe()->getJson('/api/comisiones/por-pagar')
+            ->json('personas.0.bloques.0.se_descuenta'));
+
+        $id = $this->abonar(100_000)->json('id');
+        $this->jefe()->postJson('/api/comisiones/pagar-listas', [
+            'vendedor_id' => self::JUAN, 'mes' => '2026-09', 'tienda_id' => self::EDEN,
+        ])->assertOk();
+        $this->jefe()->deleteJson("/api/comisiones/abonos/{$id}")->assertStatus(422);
+
+        // El anticipo fijo no se quita por aquí.
+        $fijo = DB::table('comision_anticipos')->where('clave', AnticiposComision::claveDe(self::JUAN, '2026-10'))->value('id');
+        $this->jefe()->deleteJson("/api/comisiones/abonos/{$fijo}")->assertStatus(404);
+    }
+
+    public function test_un_vendedor_no_registra_abonos(): void
+    {
+        $this->actingAs(Usuario::find(self::JUAN))->postJson('/api/comisiones/abonos', [
+            'vendedor_id' => self::JUAN, 'mes' => '2026-09', 'monto' => 100_000,
+        ])->assertStatus(403);
+    }
+
+    public function test_en_finanzas_el_abono_sale_de_caja_el_dia_que_se_dio(): void
+    {
+        $this->abonar(100_000)->assertOk();   // 21 de noviembre
+
+        $caja = \App\Services\Finanzas\FuenteComisiones::cajaPorMes('2026-09', '2026-11');
+        $this->assertEquals(200_000, $caja['2026-09']['anticipos']);
+        $this->assertEquals(300_000, $caja['2026-11']['anticipos']);   // anticipo de noviembre + abono
+    }
+
+    public function test_el_historial_de_anticipos_marca_el_abono(): void
+    {
+        $this->abonar(100_000)->assertOk();
+
+        $movs = collect($this->jefe()->getJson('/api/comisiones/anticipos')->json('0.movimientos'));
+        $abono = $movs->firstWhere('es_abono', true);
+        $this->assertEquals(100_000, $abono['monto']);
+        $this->assertSame('2026-09', $abono['mes']);
+        $this->assertArrayNotHasKey('clave', $abono);
+    }
 }

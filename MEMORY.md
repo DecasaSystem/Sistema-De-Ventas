@@ -279,6 +279,16 @@ escribiendo precios (Fase 1b).
   paga", así que pagar octubre antes que septiembre le descontaba los dos anticipos a
   octubre y lo entregado ese día cambiaba. Las bonificaciones de Nómina no entran (van
   en cada pago de nómina). Tests en `ComisionesAtrasadasTest`.
+- **Abonos de comisión** (2026-10-19, **sin subir**, sin migración, rama
+  `claude/compassionate-blackwell-a0a2df`). Pedido del dueño: pasó el día de pago de agosto
+  y a los vendedores les dieron un abono, no todo; que Listas siga mostrando lo que falta.
+  No es todos los meses: se anota el día que se da (Listas → "Registrar abono"). Se guarda
+  como un anticipo más del mes de esa comisión, en **su propio renglón** (clave `abono:…`):
+  antes `asegurarHasta` buscaba el anticipo fijo por mes y un segundo renglón del mismo mes
+  lo habría pisado; ahora busca por clave. No cambia ninguna regla de plata (comisión,
+  pool, partes del equipo iguales); solo lo que se entrega al pagar. Trampa evitada: anotarlo
+  con el mes de hoy (octubre) no lo descontaba de agosto (el corte de agosto es agosto).
+  Tests en `ComisionesAtrasadasTest` (sección abono).
 - **Ayuda de Comisiones** (2026-10-15, pedido del dueño: "todo, absolutamente todo, bien
   explicado"): `/comisiones/ayuda`, sin migración. Cada regla se verificó contra el
   código (`enriquecer`, `libroDelPool`, `cobraIndividual`, `ComisionIndependientes`), no

@@ -957,7 +957,7 @@ class ComisionController extends Controller
         $movimientos = DB::table('comision_anticipos as a')
             ->leftJoin('comisiones as c', 'c.id', '=', 'a.comision_id')
             ->whereIn('a.vendedor_id', $ids)->orderByDesc('a.mes')->orderByDesc('a.id')
-            ->get(['a.vendedor_id', 'a.id', 'a.tipo', 'a.mes', 'a.monto', 'a.editado_a_mano', 'a.nota', 'a.created_at', 'c.fecha_pago'])
+            ->get(['a.vendedor_id', 'a.id', 'a.tipo', 'a.mes', 'a.monto', 'a.editado_a_mano', 'a.nota', 'a.created_at', 'a.clave', 'c.fecha_pago'])
             ->groupBy(fn ($f) => (int) $f->vendedor_id);
         $deudas = AnticiposComision::debeHastaDeVarios(
             $ids->mapWithKeys(fn ($vid) => [$vid => [$vid, $hoy]])->all()
@@ -967,7 +967,12 @@ class ComisionController extends Controller
             $cfg  = $vigentes[$vid] ?? null;
             $prox = $proximos[$vid] ?? null;
             $mov  = collect($movimientos[$vid] ?? [])->take(24)
-                ->map(function ($m) { unset($m->vendedor_id); return $m; })->values();
+                ->map(function ($m) {
+                    // Un abono no se corrige como el anticipo del mes: se quita.
+                    $m->es_abono = AnticiposComision::esAbono($m->clave);
+                    unset($m->vendedor_id, $m->clave);
+                    return $m;
+                })->values();
 
             return [
                 'vendedor_id' => $vid,
@@ -1078,6 +1083,105 @@ class ComisionController extends Controller
             'ok'   => true,
             'debe' => AnticiposComision::debeHasta((int) $data['vendedor_id'], self::hoy()->format('Y-m')),
         ]);
+    }
+
+    /**
+     * POST /api/comisiones/abonos
+     *
+     * Le dieron a alguien una parte de una comisión que ya está lista, sin
+     * pagarle todo (dueño, 2026-10-19: el pago de agosto ya había pasado y a
+     * los vendedores les dieron un abono, no todo). Se anota el día que se da
+     * y Listas sigue mostrando lo que falta; al pagar se descuenta como un
+     * anticipo de ese mes (ver AnticiposComision::PREFIJO_ABONO).
+     *
+     * No cambia cuánto gana nadie: la comisión del mes se calcula igual, el
+     * pool se reparte igual y la comisión queda registrada completa. Solo
+     * cambia lo que se entrega el día del pago.
+     *
+     * Tope: lo que falta por entregarle de ese mes. Un abono de más quedaría
+     * como deuda para los meses siguientes, y eso es un anticipo, no un abono.
+     */
+    public function registrarAbono(Request $request)
+    {
+        if (! $request->user()->acceso_comisiones) {
+            return response()->json(['error' => 'Sin acceso'], 403);
+        }
+        if (! AnticiposComision::hayTablas()) {
+            return response()->json(['message' => 'Falta correr la migración de anticipos.'], 503);
+        }
+
+        $data = $request->validate([
+            'vendedor_id' => 'required|integer|exists:usuarios,id',
+            'mes'         => ['required', 'regex:/^\d{4}-(0[1-9]|1[0-2])$/'],
+            'monto'       => 'required|numeric|min:1|max:100000000',
+            'nota'        => 'nullable|string|max:200',
+        ]);
+        $monto = round((float) $data['monto']);
+
+        // Lo que le falta por entregar de ese mes, con la misma cuenta de Listas
+        // (ya resta anticipos y abonos anteriores).
+        $persona = collect($this->loQueHayPorPagar()['personas'])
+            ->firstWhere('vendedor_id', (int) $data['vendedor_id']);
+        $falta = round((float) collect($persona['bloques'] ?? [])
+            ->where('mes', $data['mes'])->sum('entregar'));
+
+        if ($falta <= 0) {
+            return response()->json(['message' => 'No tiene comisión lista sin pagar de ' . self::nombreDelMes($data['mes'])
+                . '. El abono es para una comisión que ya está en Listas.'], 422);
+        }
+        if ($monto > $falta) {
+            return response()->json(['message' => 'El abono es más de lo que falta por entregarle de '
+                . self::nombreDelMes($data['mes']) . ' ($' . number_format($falta, 0, ',', '.') . ').'], 422);
+        }
+
+        $id = DB::table('comision_anticipos')->insertGetId([
+            'vendedor_id' => $data['vendedor_id'], 'tipo' => AnticiposComision::ANTICIPO, 'mes' => $data['mes'],
+            'monto' => $monto, 'clave' => AnticiposComision::claveDeAbono((int) $data['vendedor_id'], $data['mes']),
+            'editado_a_mano' => true, 'nota' => $data['nota'] ?? null,
+            'creado_por' => $request->user()->id, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        self::anotar('abono', null, $data['mes'], [
+            'vendedor_id' => (int) $data['vendedor_id'], 'monto' => $monto,
+            'faltaba' => $falta, 'queda' => $falta - $monto, 'motivo' => $data['nota'] ?? null,
+        ]);
+
+        return response()->json(['ok' => true, 'id' => $id, 'monto' => $monto, 'queda' => $falta - $monto]);
+    }
+
+    /**
+     * DELETE /api/comisiones/abonos/{id}
+     *
+     * Un abono anotado por error. Solo mientras no se haya descontado: si ya
+     * se pagó la comisión de ese mes, quitarlo dejaría el descuento sin su
+     * abono (se deshace primero el pago).
+     */
+    public function quitarAbono(Request $request, int $id)
+    {
+        if (! $request->user()->acceso_comisiones) {
+            return response()->json(['error' => 'Sin acceso'], 403);
+        }
+
+        $fila = AnticiposComision::hayTablas() ? DB::table('comision_anticipos')->where('id', $id)->first() : null;
+        if (! $fila || $fila->tipo !== AnticiposComision::ANTICIPO || ! AnticiposComision::esAbono($fila->clave)) {
+            return response()->json(['message' => 'Ese abono no existe.'], 404);
+        }
+
+        // Hasta el mes del abono: los anticipos de meses siguientes que todavía
+        // debe no cuentan (si no, parecía que el abono seguía sin descontarse).
+        $debe = AnticiposComision::debeHasta((int) $fila->vendedor_id, $fila->mes);
+        if ($debe < round((float) $fila->monto)) {
+            return response()->json(['message' => 'Ese abono ya se descontó al pagar la comisión. '
+                . 'Para quitarlo, primero deshaz ese pago.'], 422);
+        }
+
+        DB::table('comision_anticipos')->where('id', $id)->delete();
+
+        self::anotar('abono_quitado', null, $fila->mes, [
+            'vendedor_id' => (int) $fila->vendedor_id, 'monto' => (float) $fila->monto, 'nota' => $fila->nota,
+        ]);
+
+        return response()->json(['ok' => true]);
     }
 
     /**
@@ -2602,6 +2706,11 @@ class ComisionController extends Controller
                 ]);
             }
         }
+
+        // Los abonos que ya se le dieron de cada mes: van dentro de lo que se
+        // descuenta, pero se dicen aparte para que se vea de dónde salen.
+        $abonos  = AnticiposComision::abonosPorMes($bloques->pluck('vendedor_id')->unique()->values()->all());
+        $bloques = $bloques->map(fn ($b) => $b + ['abonos' => (float) ($abonos[$b['vendedor_id']][$b['mes']] ?? 0)]);
 
         $personas = $bloques->groupBy('vendedor_id')->map(function ($suyos, $vendedorId) {
             $nombre = $suyos->first()['vendedor_nombre'];

@@ -35,6 +35,7 @@ const SECCIONES = [
   { id: 'pago',          titulo: 'Cómo se paga',                       icono: BanknotesIcon },
   { id: 'atrasados',     titulo: 'Si se atrasa el pago',               icono: ClockIcon },
   { id: 'anticipos',     titulo: 'Anticipos de comisión',              icono: ReceiptPercentIcon },
+  { id: 'abonos',        titulo: 'Abonos: pagar una parte',            icono: BanknotesIcon },
   { id: 'preguntas',     titulo: 'Preguntas frecuentes',               icono: ExclamationTriangleIcon },
 ]
 
@@ -404,6 +405,24 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
             <p>$200.000 de anticipo al mes. Al pagar jul–sep se descuentan los tres: <b>$600.000</b>.</p>
           </div>
           <p class="nota">La comisión queda registrada completa; el descuento va aparte, para poder ver las dos cosas.</p>
+        </template>
+
+        <!-- ── Abonos ───────────────────────────────────────────────────── -->
+        <template v-else-if="s.id === 'abonos'">
+          <p>A veces, cuando ya pasó el día de pago, a alguien se le da <b>una parte</b> de lo que tiene listo y el resto después. No es todos los meses: se anota el día que se da.</p>
+          <ul>
+            <li>En <b>Comisiones → Listas</b>, en la tarjeta de la persona, pulsa <b>Registrar abono</b> (solo supervisores).</li>
+            <li>Escoge de qué mes es (si tiene varios), escribe cuánto se le dio y, si quieres, una nota.</li>
+            <li>Listas sigue mostrando la comisión completa y, aparte, "abono ya dado". El botón de pagar dice <b>lo que falta por entregar</b>.</li>
+            <li>Cuando se le paga el resto, el recibo muestra la comisión completa menos anticipos y abonos.</li>
+            <li>No puede ser más de lo que falta por entregarle de ese mes.</li>
+            <li>Si se anotó por error, se quita en <b>Metas → Anticipos de comisión</b> (botón Quitar), mientras ese mes no se haya pagado.</li>
+          </ul>
+          <div class="ejemplo">
+            <p class="ej-titulo">Ejemplo</p>
+            <p>Agosto: comisión de $420.168 y anticipo de $200.000 → faltan $220.168. Se le dan $100.000 de abono → en Listas quedan <b>$120.168</b> por entregar. Al pagar: $420.168 − $200.000 − $100.000 = $120.168.</p>
+          </div>
+          <p class="nota">El abono no cambia cuánto gana nadie: la comisión del mes, el pool de la tienda y la parte de cada compañero se calculan igual. Solo cambia lo que se entrega el día del pago. En Finanzas cuenta como plata que salió el día en que se dio.</p>
         </template>
 
         <!-- ── Preguntas ────────────────────────────────────────────────── -->

@@ -97,10 +97,24 @@ class FuenteComisiones
             }
 
             $anticipos = DB::table('comision_anticipos')->where('tipo', 'anticipo')
+                ->where(fn ($q) => $q->whereNull('clave')
+                    ->orWhere('clave', 'not like', \App\Services\AnticiposComision::PREFIJO_ABONO . '%'))
                 ->whereBetween('mes', [$desde, $hasta])
                 ->selectRaw('mes, SUM(monto) AS total')->groupBy('mes')->get();
             foreach ($anticipos as $f) {
                 $poner($f->mes, 'anticipos', (float) $f->total);
+            }
+
+            // Un abono es de la comisión de un mes que ya pasó (agosto), pero la
+            // plata salió el día que se dio (octubre): cuenta en la caja de ese día.
+            $mesAbono = Periodo::sqlMes('created_at');
+            $abonos = DB::table('comision_anticipos')->where('tipo', 'anticipo')
+                ->where('clave', 'like', \App\Services\AnticiposComision::PREFIJO_ABONO . '%')
+                ->whereBetween('created_at', $rango)
+                ->selectRaw($mesAbono . ' AS mes_abono, SUM(monto) AS total')
+                ->groupByRaw($mesAbono)->get();
+            foreach ($abonos as $f) {
+                $poner($f->mes_abono, 'anticipos', (float) $f->total);
             }
         }
 
