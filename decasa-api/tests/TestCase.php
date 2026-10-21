@@ -183,6 +183,13 @@ abstract class TestCase extends BaseTestCase
                 $t->unsignedBigInteger('caja_movimiento_id')->nullable(); $t->timestamps();
             });
         }
+        // Cambio de producto: a dónde va lo devuelto y cuándo se recoge.
+        $agregar('devoluciones',   'destino',            fn ($t) => $t->string('destino', 20)->nullable());
+        $agregar('devoluciones',   'tienda_destino_id',  fn ($t) => $t->unsignedBigInteger('tienda_destino_id')->nullable());
+        $agregar('devoluciones',   'recoger_el',         fn ($t) => $t->date('recoger_el')->nullable());
+        $agregar('devoluciones',   'recoger_con_entrega', fn ($t) => $t->boolean('recoger_con_entrega')->default(false));
+        $agregar('devoluciones',   'recibido_at',        fn ($t) => $t->timestamp('recibido_at')->nullable());
+        $agregar('devoluciones',   'recibido_por_id',    fn ($t) => $t->unsignedBigInteger('recibido_por_id')->nullable());
     }
 
     /**

@@ -18,6 +18,7 @@ import RegresarAlTallerModal from '@/components/produccion/RegresarAlTallerModal
 import BadgeEstado from '@/components/common/BadgeEstado.vue'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
+import RecogidasPendientes from '@/components/despacho/RecogidasPendientes.vue'
 
 const router   = useRouter()
 const despacho = useDespachoStore()
@@ -687,6 +688,9 @@ onBeforeUnmount(() => {
 
     <!-- Tab: Cola pendiente -->
     <div v-if="tab === 'pendientes'" class="space-y-3">
+      <!-- Lo que un cliente devolvió en un cambio de producto y falta traer -->
+      <RecogidasPendientes />
+
       <div v-if="asignando" class="text-center py-4 text-sm text-gray-400">Asignando...</div>
 
       <template v-if="despacho.cola.length === 0">

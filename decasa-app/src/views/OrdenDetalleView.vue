@@ -12,7 +12,7 @@ import SolicitudesCambioPanel from '@/components/ordenes/SolicitudesCambioPanel.
 import SolicitarCambioModal from '@/components/ordenes/SolicitarCambioModal.vue'
 import PedirCambioDineroModal from '@/components/ordenes/PedirCambioDineroModal.vue'
 import { revisarCambiosDePlata } from '@/api/ordenes'
-import { getOrden, updateEstado, previsualizarAnulacion, revertirEntrega, descargarPdfOrden, descargarActaEntrega, descargarOrdenEntrega, reenviarCotizacion, asignarFechasEntrega, confirmarCotizacion, editarPago, eliminarBorrador as eliminarBorradorApi, previsualizarEliminacion, eliminarOrden as eliminarOrdenApi, previsualizarNumeracion, convertirSerie, cambiarNumeroOrden, cambiarProductoEntregado } from '@/api/ordenes'
+import { getOrden, updateEstado, previsualizarAnulacion, revertirEntrega, descargarPdfOrden, descargarActaEntrega, descargarOrdenEntrega, reenviarCotizacion, asignarFechasEntrega, confirmarCotizacion, editarPago, eliminarBorrador as eliminarBorradorApi, previsualizarEliminacion, eliminarOrden as eliminarOrdenApi, previsualizarNumeracion, convertirSerie, cambiarNumeroOrden } from '@/api/ordenes'
 import api from '@/api'
 import { useTiposProceso } from '@/composables/useTiposProceso'
 import { despachoPorOrden, crearEntregaDirecta, cancelarEntregaDirecta, entregasDeOrden, deshacerEntrega as deshacerEntregaApi } from '@/api/despacho'
@@ -32,6 +32,8 @@ import BadgeEstado from '@/components/common/BadgeEstado.vue'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import RegistroPagoModal from '@/components/ordenes/RegistroPagoModal.vue'
 import EditarOrdenModal from '@/components/ordenes/EditarOrdenModal.vue'
+import CambioProductoModal from '@/components/ordenes/CambioProductoModal.vue'
+import RecogidaAcciones from '@/components/despacho/RecogidaAcciones.vue'
 import ChatOrden from '@/components/ordenes/ChatOrden.vue'
 // Se usaba sin importar: mientras cargaba la orden no se veía nada
 import AppSpinner from '@/components/common/AppSpinner.vue'
@@ -1090,56 +1092,35 @@ async function doRevertirEntrega() {
 }
 
 // ── Cambiar un producto ya entregado ─────────────────────────────────────────
-// La señora recibio la mesa, la devolvio y quiere otra. Lo que ya pago queda a
-// su favor: reabrimos la orden y el reemplazo se agrega con "Editar orden",
-// que ya sabe mandar a produccion y reservar stock.
-const showCambio     = ref(false)
-const cambioItemId   = ref(null)
-const cambioMotivo   = ref('')
-const cambioAlStock  = ref(true)
-const cambiando      = ref(false)
+// La señora recibio el sofa y despues dice que no le sirvio (no se daño: eso
+// es garantia). Lo devuelve y en el mismo paso se escoge el reemplazo —del
+// catalogo, para fabricar o un diseño especial—. Lo que ya pago queda a su
+// favor; si lo nuevo vale mas, la venta sube. Todo en CambioProductoModal.
+const showCambio = ref(false)
 
-// Lo que todavia se le puede devolver: lo que sigue vivo en la orden.
+// Lo que sigue vivo en la orden (tambien es la lista de items de la pantalla).
 const itemsCambiables = computed(() =>
   (orden.value?.items ?? []).filter(i => !i.devuelto_en)
 )
-const cambioItemEsRetapizado = computed(() =>
-  !!itemsCambiables.value.find(i => i.id === cambioItemId.value)?.retapizar
-)
 
-function abrirCambio() {
-  cambioItemId.value  = itemsCambiables.value[0]?.id ?? null
-  cambioMotivo.value  = ''
-  cambioAlStock.value = true
-  showCambio.value    = true
-}
+// ¿Tiene algo en la casa que pueda devolver? En una orden entregada, todo; en
+// una entregada en parte, lo que ya se le llevo. Con un camion andando o en
+// estados que no son venta, no.
+const ESTADOS_CAMBIO = ['entregado', 'listo_entrega', 'en_produccion', 'pendiente_anticipo']
+// Recibir o reprogramar lo que falta traer de la casa del cliente: quien
+// despacha, quien maneja el taller o un supervisor (lo valida el servidor).
+const puedeRecoger = computed(() => auth.isSupervisor || auth.puedeDespacho || auth.gestionaProduccion)
 
-async function doCambiarProducto() {
-  if (!cambioItemId.value) return toast.error('Elige qué producto devuelve.')
-  if (cambioMotivo.value.trim().length < 3) return toast.error('Escribe por qué lo devuelve.')
+const puedeCambiarProducto = computed(() => {
+  const o = orden.value
+  if (!o || !ESTADOS_CAMBIO.includes(o.estado)) return false
+  return itemsCambiables.value.some(i =>
+    o.estado === 'entregado' || (Number(i.cantidad_entregada) || 0) > 0)
+})
 
-  cambiando.value = true
-  try {
-    const { data } = await cambiarProductoEntregado(orden.value.id, {
-      orden_item_id: cambioItemId.value,
-      motivo: cambioMotivo.value.trim(),
-      vuelve_al_stock: cambioAlStock.value,
-    })
-    showCambio.value = false
-    await cargarOrden()
-    const aFavor = -Math.round(Number(data.saldo_pendiente) || 0)
-    const cola   = data.quedo_vacia
-      ? ' La orden quedó sin productos: agrégale el reemplazo desde Editar.'
-      : ' Agrégale el producto nuevo desde Editar.'
-    toast.success(
-      (aFavor > 0 ? `Listo. Le quedan $${aFavor.toLocaleString('es-CO')} a favor.` : 'Listo.') + cola,
-      9000,
-    )
-  } catch (e) {
-    toast.error(e.response?.data?.message ?? 'No se pudo reabrir la orden.', 7000)
-  } finally {
-    cambiando.value = false
-  }
+async function onCambioHecho() {
+  showCambio.value = false
+  await cargarOrden()
 }
 
 async function cambiarEstado() {
@@ -3121,6 +3102,19 @@ onMounted(() => { cargarTipos(); cargarOrden() })
                 </template>
               </p>
               <p v-if="d.notas_decision" class="text-[11px] text-gray-500 italic mt-0.5">{{ d.notas_decision }}</p>
+              <!-- Cambio de producto: el mueble que falta traer de la casa, o
+                   a dónde llegó. La orden ya cambió; esto es solo el mueble. -->
+              <div v-if="d.por_recoger" class="mt-2">
+                <RecogidaAcciones v-if="puedeRecoger" :devolucion="d" @cambio="cargarOrden" />
+                <p v-else class="text-[11px] font-semibold text-amber-700">
+                  Falta recogerlo{{ d.recoger_el ? ` el ${fmtFechaCorta(d.recoger_el)}` : ' con la entrega del nuevo' }}
+                  · {{ d.destino === 'merma' ? 'sale como merma' : `va a ${d.tienda_destino}` }}
+                </p>
+              </div>
+              <p v-else-if="d.destino && d.recibido_at" class="text-[11px] text-gray-500 mt-0.5">
+                {{ d.destino === 'merma' ? 'Salió como merma' : `Llegó a ${d.tienda_destino}` }}
+                el {{ new Date(d.recibido_at).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' }) }}<span v-if="d.recibido_por"> — lo recibió {{ d.recibido_por }}</span>
+              </p>
             </div>
           </div>
         </div>
@@ -3297,75 +3291,34 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         </button>
       </div>
 
-      <!-- Acciones sobre una orden ya entregada.
+      <!-- Acciones sobre una orden ya entregada (o entregada en parte).
            Van en su propio bloque a proposito: el de "Acciones" de arriba se
            oculta cuando la orden esta entregada y pagada —no hay estado que
-           cambiar ni saldo que cobrar— y estos dos botones son justamente los
+           cambiar ni saldo que cobrar— y estos botones son justamente los
            que hacen falta en ese momento. -->
-      <div v-if="auth.isSupervisor && orden.estado === 'entregado'" class="bg-white rounded-xl shadow-sm p-4 space-y-3">
+      <div v-if="auth.isSupervisor && (orden.estado === 'entregado' || puedeCambiarProducto)" class="bg-white rounded-xl shadow-sm p-4 space-y-3">
         <p class="text-xs font-semibold text-gray-500 uppercase">Después de entregada</p>
 
-        <!-- El cliente devuelve algo y lo cambia por otra cosa. Distinto de
+        <!-- El cliente devuelve algo que ya recibió porque no le sirvió y lo
+             cambia por otra cosa (no es garantía: no se dañó). Distinto de
              revertir: acá la entrega sí ocurrió, y lo que pagó se le abona al
              producto nuevo. -->
-        <div v-if="itemsCambiables.length" class="space-y-2">
+        <div v-if="puedeCambiarProducto" class="space-y-1.5">
           <button
-            v-if="!showCambio"
-            @click="abrirCambio"
-            class="w-full text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-xl py-2.5 hover:bg-amber-100 transition-colors"
-          >El cliente devolvió algo y lo quiere cambiar</button>
-
-          <div v-else class="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2.5">
-            <p class="text-xs font-semibold text-amber-900">¿Qué devuelve?</p>
-
-            <select v-model="cambioItemId" class="w-full rounded-lg border border-amber-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
-              <option v-for="i in itemsCambiables" :key="i.id" :value="i.id">
-                {{ i.cantidad }} × {{ i.producto?.nombre ?? i.nombre_custom ?? 'Producto' }}
-              </option>
-            </select>
-
-            <textarea
-              v-model="cambioMotivo"
-              rows="2"
-              placeholder="Por qué lo devuelve. Ej: no le gustó el color, lo quiere más grande"
-              class="w-full rounded-lg border border-amber-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
-            />
-
-            <label class="flex items-start gap-2 cursor-pointer">
-              <input type="checkbox" v-model="cambioAlStock" class="mt-0.5 rounded border-gray-300 text-amber-600 focus:ring-amber-500" />
-              <span class="text-[11px] text-amber-900">
-                Vuelve al inventario para vender. Desmárcalo si llegó dañado.
-                <!-- Ya no es de la tela de su variante: entra al stock base y
-                     en Inventario le asignan la tela que tiene ahora. -->
-                <span v-if="cambioItemEsRetapizado" class="block mt-0.5 text-orange-800">
-                  A este mueble se le cambió la tela: si vuelve, entra al producto sin tela asignada
-                  ({{ itemsCambiables.find(i => i.id === cambioItemId)?.variante_texto }}). Asígnale la tela en Inventario.
-                </span>
-              </span>
-            </label>
-
-            <p class="text-[11px] text-amber-800 bg-amber-100 rounded-lg px-2.5 py-2">
-              Lo que ya pagó queda a su favor: el producto devuelto deja de cobrarse y la orden
-              vuelve a estar abierta. El reemplazo se agrega desde <strong>Editar orden</strong>,
-              y si hay que fabricarlo entra a producción con su fecha.
-              <span v-if="itemsCambiables.length === 1" class="block mt-1 font-semibold">
-                Es el único producto de la orden, así que va a quedar vacía hasta que le agregues
-                el reemplazo.
-              </span>
-            </p>
-
-            <div class="flex gap-2">
-              <button @click="showCambio = false" class="flex-1 bg-white text-gray-700 border border-gray-300 rounded-lg py-2 text-xs font-semibold">Cancelar</button>
-              <button
-                @click="doCambiarProducto" :disabled="cambiando"
-                class="flex-1 bg-amber-600 text-white rounded-lg py-2 text-xs font-semibold hover:bg-amber-700 disabled:opacity-50"
-              >{{ cambiando ? 'Guardando...' : 'Reabrir para el cambio' }}</button>
-            </div>
-          </div>
+            @click="showCambio = true"
+            class="w-full flex items-center justify-center gap-1.5 text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-xl py-2.5 hover:bg-amber-100 transition-colors"
+          >
+            <ArrowUturnLeftIcon class="w-4 h-4" />
+            Cambio de producto: el cliente devolvió algo
+          </button>
+          <p class="text-[11px] text-gray-400 leading-snug">
+            Para lo que no le sirvió. Lo devuelto deja de cobrarse y el reemplazo (del catálogo, para fabricar
+            o diseño especial) entra de una: si vale más, la venta sube. Si se dañó, usa Garantía.
+          </p>
         </div>
 
         <!-- Deshacer una entrega marcada por error -->
-        <div class="space-y-2">
+        <div v-if="orden.estado === 'entregado'" class="space-y-2">
           <button
             v-if="!showRevertir"
             @click="showRevertir = true"
@@ -3810,6 +3763,13 @@ onMounted(() => { cargarTipos(); cargarOrden() })
     </template>
 
     <!-- Modal: garantía de algo ya entregado -->
+    <CambioProductoModal
+      v-if="showCambio && orden"
+      :orden="orden"
+      @cerrar="showCambio = false"
+      @hecho="onCambioHecho"
+    />
+
     <ReportarGarantiaModal
       v-if="garantiaItem"
       :item="garantiaItem"
@@ -3819,12 +3779,14 @@ onMounted(() => { cargarTipos(); cargarOrden() })
     />
 
     <!-- Modal: reportar un producto dañado antes de entregarlo -->
+    <!-- Definir la tela de lo que se vendió solo con la medida, y reportar un
+         daño. Cada modal en su propio <Transition>: con dos hijos (o un
+         comentario adentro) la pantalla no compila en desarrollo. -->
     <Teleport to="body">
       <Transition
         enter-active-class="transition-opacity duration-200" enter-from-class="opacity-0"
         leave-active-class="transition-opacity duration-150" leave-to-class="opacity-0"
       >
-        <!-- Definir la tela de lo que se vendió solo con la medida -->
         <div v-if="telaItem" class="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center" @click.self="telaItem = null">
           <div class="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md shadow-xl max-h-[85vh] flex flex-col">
             <div class="flex items-center gap-3 px-5 py-4 border-b border-gray-100">
@@ -3872,7 +3834,12 @@ onMounted(() => { cargarTipos(); cargarOrden() })
             </div>
           </div>
         </div>
+      </Transition>
 
+      <Transition
+        enter-active-class="transition-opacity duration-200" enter-from-class="opacity-0"
+        leave-active-class="transition-opacity duration-150" leave-to-class="opacity-0"
+      >
         <div v-if="danoItem" class="fixed inset-0 bg-black/50 backdrop-blur-[2px] z-50 flex items-end sm:items-center justify-center" @click.self="danoItem = null">
           <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full sm:max-w-md shadow-2xl max-h-[92vh] flex flex-col">
             <!-- Encabezado -->

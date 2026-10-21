@@ -11,7 +11,9 @@ use App\Models\Orden;
 use App\Models\OrdenMensaje;
 use App\Models\Produccion;
 use App\Models\Usuario;
+use App\Services\CambioDeProducto;
 use App\Services\NotificacionService;
+use App\Support\Esquema;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -63,7 +65,110 @@ class DevolucionController extends Controller
             'monto_devuelto' => $d->monto_devuelto !== null ? (float) $d->monto_devuelto : null,
             'monto_sugerido' => $d->montoSugerido(),
             'registrado_en'  => $d->created_at->toIso8601String(),
+            // Cambio de producto: a dónde va lo devuelto y si falta recogerlo.
+            'destino'             => $d->destino,
+            'tienda_destino_id'   => $d->tienda_destino_id,
+            'tienda_destino'      => $d->tienda_destino_id ? $d->tiendaDestino?->nombre : null,
+            'recoger_el'          => $d->recoger_el?->toDateString(),
+            'recoger_con_entrega' => (bool) $d->recoger_con_entrega,
+            'recibido_at'         => $d->recibido_at?->toIso8601String(),
+            'recibido_por'        => $d->recibido_por_id ? $d->recibidoPor?->nombre : null,
+            'por_recoger'         => $d->porRecoger(),
         ];
+    }
+
+    /** Recoge y recibe lo devuelto quien despacha, quien maneja el taller o un supervisor. */
+    private function puedeRecoger(?Usuario $u): bool
+    {
+        return $u && ($u->rol === 'supervisor' || (bool) $u->acceso_despacho || (bool) $u->gestiona_produccion);
+    }
+
+    /**
+     * GET /api/devoluciones/destinos
+     *
+     * A dónde puede ir lo devuelto: las tiendas abiertas y la fábrica/bodega
+     * (que `/tiendas` deja por fuera porque no vende).
+     */
+    public function destinos(Request $request)
+    {
+        if (! $this->puedeRecoger($request->user())) {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+
+        return response()->json(\App\Models\Tienda::query()
+            ->where(fn ($q) => $q->whereNull('activa')->orWhere('activa', true))
+            ->where(fn ($q) => $q->whereNull('es_independientes')->orWhere('es_independientes', false))
+            ->orderByDesc('es_fabrica')->orderBy('nombre')
+            ->get(['id', 'nombre', 'es_fabrica']));
+    }
+
+    /**
+     * GET /api/devoluciones/por-recoger
+     *
+     * Lo que hay que traer de la casa de un cliente que cambió un producto.
+     * Lo más urgente arriba: lo programado por fecha y después lo que se
+     * recoge con la entrega del nuevo. Con dirección y teléfono: es para ir.
+     */
+    public function porRecoger(Request $request)
+    {
+        if (! $this->puedeRecoger($request->user())) {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+        if (! Esquema::columna('devoluciones', 'destino')) {
+            return response()->json([]);
+        }
+
+        $lista = Devolucion::faltaRecoger()
+            ->with(['orden:id,referencia,cliente_id,tienda_id,estado,direccion_envio,serie,serie_numero,numero_orden,cotizacion_numero',
+                    'orden.cliente:id,nombre,telefono,direccion', 'item', 'item.producto:id,nombre',
+                    'tiendaDestino:id,nombre', 'reportadoPor:id,nombre'])
+            ->orderByRaw('recoger_el IS NULL')->orderBy('recoger_el')->orderBy('id')
+            ->get()
+            ->map(fn (Devolucion $d) => $this->comoJson($d) + [
+                'telefono'  => $d->orden?->cliente?->telefono,
+                'direccion' => $d->orden?->direccion_envio ?: $d->orden?->cliente?->direccion,
+            ]);
+
+        return response()->json($lista);
+    }
+
+    /**
+     * POST /api/devoluciones/{id}/recibir  { destino?, tienda_id? }
+     *
+     * Llegó: entra al inventario de donde se dijo. Se puede cambiar el
+     * destino al recibirlo (llegó rayado → merma; mejor a la fábrica).
+     */
+    public function recibir(Request $request, int $id)
+    {
+        if (! $this->puedeRecoger($request->user())) {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+
+        $data = $request->validate([
+            'destino'   => 'nullable|in:tienda,merma',
+            'tienda_id' => 'nullable|integer|exists:tiendas,id',
+        ]);
+
+        $d = CambioDeProducto::recibir(Devolucion::findOrFail($id), $data, $request->user());
+
+        return response()->json($this->comoJson($d->load(['orden.cliente', 'item', 'tiendaDestino', 'recibidoPor'])));
+    }
+
+    /** PATCH /api/devoluciones/{id}/recogida  { recogida: programada|con_entrega, fecha_recogida? } */
+    public function reprogramar(Request $request, int $id)
+    {
+        if (! $this->puedeRecoger($request->user())) {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+
+        $data = $request->validate([
+            'recogida'       => 'required|in:programada,con_entrega',
+            'fecha_recogida' => 'required_if:recogida,programada|nullable|date',
+        ], ['fecha_recogida.required_if' => 'Escoge qué día se recoge.']);
+
+        $d = CambioDeProducto::reprogramar(Devolucion::findOrFail($id), $data, $request->user());
+
+        return response()->json($this->comoJson($d->load(['orden.cliente', 'item', 'tiendaDestino'])));
     }
 
     /**

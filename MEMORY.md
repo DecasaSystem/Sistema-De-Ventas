@@ -389,6 +389,23 @@ escribiendo precios (Fase 1b).
   `completarBorrador` (camino viejo) sigue sin revisar stock, como antes. Tests en
   `VentaPorMedidaSinTelaTest`. Falla aparte: `MisEstadisticasVendedorTest::test_se_compara_con_el_periodo_anterior`
   falla solo el día 20 de cada mes (sus dos fechas caen el mismo día); no es de este cambio.
+- **Cambio de producto entregado, con reemplazo** (2026-10-21, **subido a `main`** ese día, rama
+  `claude/order-detail-return-function-8db111`, trae **migración**
+  `2026_10_27_000001_recogida_de_devoluciones`, solo agrega columnas). Pedido del usuario: un
+  respaldo de la devolución del conductor para cuando el cliente ya recibió y "no le
+  sirvió" (no es garantía), cambiándolo por catálogo (stock o fabricar) o diseño especial;
+  si vale más, la venta sube. Se amplió `cambiarProducto` (`Services/CambioDeProducto`,
+  `CambioProductoModal`); sin reemplazo hace lo mismo de antes. Decisiones que tomé por
+  defecto (**falta que el dueño confirme**): solo supervisor (como antes: mueve plata);
+  el precio del nuevo lo pone él (por defecto el de lista); si vale menos, queda **a
+  favor** (no se reembolsa aquí). Mismo día, pedido del usuario: escoger qué pasa con
+  lo devuelto (a qué tienda, a la fábrica/bodega o merma) y **programar la recogida**
+  "como opción porque puede que sea de una": la orden cambia ya, el inventario espera a
+  "Ya llegó" (Despacho → Por recoger). Recoger es manual, no parada de ruta (igual que
+  en garantías). Detalle en
+  `docs/PROYECTO.md` §6.9c. De paso: el modal "Definir tela" (6b92f09) estaba dentro del
+  `<Transition>` del de daño y en desarrollo Detalle de la orden no compilaba (en
+  producción sí); ahora cada uno tiene el suyo. Tests en `CambioProductoConReemplazoTest`.
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 
@@ -563,6 +580,17 @@ Decisiones del dueño del 2026-10-08:
   cliente** con su dueño en el sistema (catálogos, sedes, categorías, precios, juegos).
 
 ## 6. Trampas conocidas
+
+- **"Sin conexión" al crear la orden que era una foto borrada** (2026-10-21, consola:
+  `/api/upload/foto net::ERR_FILE_NOT_FOUND` + `AxiosError: Network Error`, repetido en
+  cada reintento). No es la red ni el servidor: el `File` del selector apunta al archivo
+  del teléfono y se lee al subir; si Android lo borró (temporales de la cámara), se movió
+  o era de la nube, la subida falla siempre. Solo pasaba con fotos de **menos de 1 MB**
+  (capturas de transferencias, WhatsApp): las grandes se comprimían y quedaban en memoria.
+  Arreglo (**subido a `main`** el 2026-10-21, commit a08967a): `comprimirAlTomar` copia a
+  memoria también las chicas, y Nueva orden revisa cada foto antes de subirla
+  (`fotoSigueAhi`), quita la perdida y lo dice claro. Para fotos nuevas: tomarlas siempre
+  con `comprimirAlTomar`.
 
 - **Enlace de firma con la dirección de Render** (2026-10-21, queja: "el enlace no abre
   nada"). `AnexoGarantiaController::enlace` usaba `FRONTEND_URL` (no está en Render) o el

@@ -3360,139 +3360,73 @@ class OrdenController extends Controller
      * orden entregada no se puede editar— y tocaba abrir otra orden a mano,
      * dejando la plata pagada colgando en la vieja.
      *
-     * Acá solo se DEVUELVE: el producto nuevo se agrega después con la edición
-     * normal de la orden, que ya sabe reservar stock, mandar a producción y
-     * ponerle fecha. Separarlo evita reescribir todo eso, y deja que el
-     * vendedor arme el reemplazo con calma —a veces hay que cotizarlo primero—.
+     * Antes aquí solo se DEVOLVÍA y el producto nuevo se agregaba después con
+     * Editar. Ahora el reemplazo puede ir de una vez (`reemplazo`): de
+     * catálogo apartado en una tienda, de catálogo para fabricar, o un diseño
+     * especial. Sin `reemplazo` se comporta como antes —a veces hay que
+     * cotizarlo primero—. La cuenta completa está en `CambioDeProducto`.
      */
     public function cambiarProducto(Request $request, int $id)
     {
         $usuario = $request->user();
 
         if ($usuario->rol !== 'supervisor') {
-            return response()->json(['message' => 'Solo un supervisor puede reabrir una orden entregada.'], 403);
+            return response()->json(['message' => 'Solo un supervisor puede cambiar un producto entregado: mueve el valor de la venta.'], 403);
         }
 
         $data = $request->validate([
             'orden_item_id' => 'required|integer|exists:orden_items,id',
+            // Cuántas devuelve (de 4 sillas, 1). Sin decirlo, todas las que
+            // tiene en la casa.
+            'cantidad'      => 'nullable|integer|min:1',
             'motivo'        => 'required|string|min:3|max:1000',
             'foto_url'      => 'nullable|string|max:500',
             'fecha'         => 'nullable|date',
             // Lo devuelto vuelve al inventario salvo que llegue dañado: ahí es
             // merma y ponerlo a la venta otra vez sería vender un producto roto.
-            'vuelve_al_stock' => 'boolean',
+            'vuelve_al_stock'    => 'boolean',
+            'tienda_devuelto_id' => 'nullable|integer|exists:tiendas,id',
+            // Lo nuevo: a dónde va lo devuelto (una tienda, la fábrica o
+            // merma) y si ya está aquí o se recoge después. La orden cambia
+            // igual de una; lo que se programa es la recogida.
+            'devuelto'                => 'nullable|array',
+            'devuelto.destino'        => 'required_with:devuelto|in:tienda,merma',
+            'devuelto.tienda_id'      => 'nullable|integer',
+            'devuelto.recogida'       => 'required_with:devuelto|in:ya,programada,con_entrega',
+            'devuelto.fecha_recogida' => 'nullable|date',
+
+            'reemplazo'                    => 'nullable|array',
+            'reemplazo.tipo'               => 'required_with:reemplazo|in:catalogo,diseno_especial',
+            'reemplazo.cantidad'           => 'required_with:reemplazo|integer|min:1|max:999',
+            // El precio lo pone el supervisor (por defecto el de lista, que
+            // pone la pantalla). Si pasa del anterior, la venta sube.
+            'reemplazo.precio_unitario'    => 'required_with:reemplazo|numeric|min:0',
+            'reemplazo.fecha_entrega_prom' => 'nullable|date',
+            'reemplazo.producto_id'        => 'required_if:reemplazo.tipo,catalogo|nullable|integer',
+            'reemplazo.variante_id'        => 'nullable|integer',
+            'reemplazo.combo_config_id'    => 'nullable|integer',
+            'reemplazo.tienda_id'          => 'nullable|integer',
+            'reemplazo.fabricar'           => 'boolean',
+            'reemplazo.nombre'             => 'required_if:reemplazo.tipo,diseno_especial|nullable|string|max:150',
+            'reemplazo.categoria'          => 'nullable|string|max:100',
+            'reemplazo.detalles'           => 'nullable|string|max:3000',
+            'reemplazo.madera'             => 'nullable|string|max:200',
+            'reemplazo.tela'               => 'nullable|string|max:200',
+            'reemplazo.ancho'              => 'nullable|string|max:60',
+            'reemplazo.largo'              => 'nullable|string|max:60',
+            'reemplazo.alto'               => 'nullable|string|max:60',
+            'reemplazo.boceto_urls'        => 'nullable|array|max:8',
+            'reemplazo.boceto_urls.*'      => 'string|max:500',
         ], [
-            'motivo.required' => 'Escribe por qué lo devuelve.',
+            'motivo.required'                 => 'Escribe por qué lo devuelve.',
+            'reemplazo.producto_id.required_if' => 'Escoge el producto nuevo.',
+            'reemplazo.nombre.required_if'    => 'Escribe qué mueble es el diseño especial.',
+            'reemplazo.precio_unitario.required_with' => 'Falta el precio del producto nuevo.',
         ]);
 
         $orden = Orden::with(['items', 'cliente:id,nombre'])->findOrFail($id);
 
-        if ($orden->estado !== 'entregado') {
-            return response()->json([
-                'message' => 'Esto es para cambiar algo ya entregado. Esta orden está en "' . $orden->estado . '".',
-            ], 422);
-        }
-
-        $item = $orden->items->firstWhere('id', $data['orden_item_id']);
-
-        if (! $item) {
-            return response()->json(['message' => 'Ese producto no es de esta orden.'], 422);
-        }
-        if (! $item->estaVivo()) {
-            return response()->json(['message' => 'Ese producto ya se había devuelto.'], 422);
-        }
-        // Se permite devolver hasta el último producto de la orden: el caso
-        // más común es justo ese —una orden de un solo mueble que el cliente
-        // cambia por otro—. La orden queda un momento sin nada y con toda la
-        // plata a favor, hasta que se le agrega el reemplazo. Bloquearlo dejaba
-        // fuera el caso para el que se hizo esto.
-        $ultimo = $orden->items->where('devuelto_en', null)->count() <= 1;
-
-        $fecha = $data['fecha'] ?? now()->toDateString();
-
-        DB::transaction(function () use ($orden, $item, $data, $fecha, $usuario, $request) {
-            // 1. Queda escrito qué se devolvió y por qué.
-            $item->update([
-                'devuelto_en'       => $fecha,
-                'motivo_devolucion' => $data['motivo'],
-            ]);
-
-            \App\Models\Devolucion::create([
-                'orden_id'         => $orden->id,
-                'orden_item_id'    => $item->id,
-                'cantidad'         => $item->cantidad,
-                'motivo'           => $data['motivo'],
-                'foto_url'         => $data['foto_url'] ?? null,
-                'fecha'            => $fecha,
-                'reportado_por_id' => $usuario->id,
-                // Ya está resuelta: se cambia por otro producto. No espera que
-                // nadie decida nada, a diferencia de la que llega dañada.
-                'estado'           => 'cambio',
-                'decidido_por_id'  => $usuario->id,
-                'decidido_at'      => now(),
-                'notas_decision'   => 'El cliente lo cambia por otro producto.',
-            ]);
-
-            // 2. El producto vuelve al inventario si está para vender.
-            if ($request->boolean('vuelve_al_stock', true) && ! $item->es_personalizado && $item->producto_id) {
-                $tiendaId = $item->tienda_origen_id ?? $orden->tienda_id;
-
-                Inventario::where('producto_id', $item->producto_id)->where('tienda_id', $tiendaId)
-                    ->increment('cantidad_disponible', $item->cantidad);
-
-                // Al que se le cambió la tela no se le devuelve a su variante:
-                // ya no es de esa tela. Entra al stock base del producto, y
-                // en el inventario le asignan la tela que tiene ahora.
-                if ($item->variante_id && ! $item->retapizar) {
-                    InventarioVariante::where('variante_id', $item->variante_id)->where('tienda_id', $tiendaId)
-                        ->increment('cantidad_disponible', $item->cantidad);
-                }
-
-                InventarioMovimiento::create([
-                    'producto_id' => $item->producto_id,
-                    'tienda_id'   => $tiendaId,
-                    'tipo'        => 'entrada',
-                    'cantidad'    => $item->cantidad,
-                    'motivo'      => "Devolución para cambio — orden {$orden->referencia}"
-                        . ($item->retapizar ? " (retapizado: {$item->variante_texto})" : ''),
-                    'usuario_id'  => $usuario->id,
-                ]);
-            }
-
-            // 3. Lo que se devolvió deja de cobrarse. Lo ya pagado no se toca:
-            //    esa plata queda a favor del cliente contra el total nuevo, que
-            //    es justo lo que hace que no pague dos veces.
-            $orden->refresh()->load('items');
-            $orden->recalcularTotal();
-
-            // 4. La orden vuelve a estar viva para poder ponerle el reemplazo.
-            $orden->update(['estado' => 'pendiente_anticipo']);
-
-            OrdenMensaje::create([
-                'orden_id'   => $orden->id,
-                'usuario_id' => $usuario->id,
-                'mensaje'    => "🔁 Se devolvió {$item->cantidad} × "
-                              . ($item->nombre_custom ?: ($item->producto?->nombre ?? 'un producto'))
-                              . " el " . \Carbon\Carbon::parse($fecha)->format('d/m/Y')
-                              . ". Motivo: {$data['motivo']}. La orden vuelve a estar abierta para el cambio.",
-                'imagen_url' => $data['foto_url'] ?? null,
-            ]);
-        });
-
-        $orden->refresh()->load(['items.producto:id,nombre', 'pagos']);
-
-        // El valor de la orden cambió: la comisión tiene que seguirlo.
-        ComisionController::sincronizarValorOrden($orden);
-
-        return response()->json([
-            'message'        => $ultimo
-                ? 'Orden reabierta y sin productos: agrégale el reemplazo desde Editar para no dejarla vacía.'
-                : 'Orden reabierta. Ya puedes agregarle el producto nuevo desde Editar.',
-            'quedo_vacia'    => $ultimo,
-            'valor_total'    => (float) $orden->valor_total,
-            'total_pagado'   => $orden->totalPagado(),
-            'saldo_pendiente'=> $orden->saldoPendiente(),
-        ]);
+        return response()->json(\App\Services\CambioDeProducto::ejecutar($orden, $data, $usuario));
     }
 
     public function revertirEntrega(Request $request, int $id)

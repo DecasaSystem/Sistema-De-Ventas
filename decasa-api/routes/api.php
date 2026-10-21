@@ -355,6 +355,11 @@ Route::middleware('auth:sanctum')->group(function () {
     // orden de su cliente—; decidir qué se hace lo valida el controlador
     // contra gestiona_produccion, que es la supervisora del taller.
     Route::get('/devoluciones',                [DevolucionController::class, 'index']);
+    // Lo que el cliente devolvió en un cambio de producto y falta recoger.
+    Route::get('/devoluciones/por-recoger',    [DevolucionController::class, 'porRecoger']);
+    Route::get('/devoluciones/destinos',       [DevolucionController::class, 'destinos']);
+    Route::post('/devoluciones/{id}/recibir',  [DevolucionController::class, 'recibir'])->whereNumber('id');
+    Route::patch('/devoluciones/{id}/recogida', [DevolucionController::class, 'reprogramar'])->whereNumber('id');
     Route::post('/devoluciones',               [DevolucionController::class, 'store']);
     Route::post('/devoluciones/{id}/decidir',  [DevolucionController::class, 'decidir'])->whereNumber('id');
 

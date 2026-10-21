@@ -23,6 +23,10 @@ class Devolucion extends Model
         'motivo', 'foto_url', 'preferencia_cliente', 'fecha', 'reportado_por_id', 'estado',
         'decidido_por_id', 'decidido_at', 'notas_decision',
         'monto_devuelto', 'caja_movimiento_id',
+        // Cambio de producto: a dónde va lo devuelto y cuándo se recoge
+        // (migración 2026_10_27_000001_recogida_de_devoluciones).
+        'destino', 'tienda_destino_id', 'recoger_el', 'recoger_con_entrega',
+        'recibido_at', 'recibido_por_id',
     ];
 
     protected function casts(): array
@@ -31,6 +35,9 @@ class Devolucion extends Model
             'fecha'          => 'date',
             'decidido_at'    => 'datetime',
             'monto_devuelto' => 'decimal:2',
+            'recoger_el'     => 'date',
+            'recoger_con_entrega' => 'boolean',
+            'recibido_at'    => 'datetime',
         ];
     }
 
@@ -52,6 +59,30 @@ class Devolucion extends Model
     public function decididoPor()
     {
         return $this->belongsTo(Usuario::class, 'decidido_por_id');
+    }
+
+    public function tiendaDestino()
+    {
+        return $this->belongsTo(Tienda::class, 'tienda_destino_id');
+    }
+
+    public function recibidoPor()
+    {
+        return $this->belongsTo(Usuario::class, 'recibido_por_id');
+    }
+
+    /**
+     * ¿Falta que llegue el mueble? Solo las de cambio de producto con destino
+     * llevan este control; las viejas (sin destino) ya se movieron solas.
+     */
+    public function porRecoger(): bool
+    {
+        return $this->destino !== null && $this->recibido_at === null;
+    }
+
+    public function scopeFaltaRecoger($query)
+    {
+        return $query->whereNotNull('destino')->whereNull('recibido_at');
     }
 
     public function estaPendiente(): bool
