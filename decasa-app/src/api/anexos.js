@@ -19,3 +19,12 @@ export const firmarAnexo       = (token, data) => api.post(`/public/anexos/${tok
 // una sola firma). `resumen` es lo que ve el cliente.
 export const enviarOrdenAFirmar  = (ordenId, resumen) => api.post(`/ordenes/${ordenId}/firma-remota`, { resumen })
 export const firmaRemotaDeOrden  = (ordenId)          => api.get(`/ordenes/${ordenId}/firma-remota`, { silencioso: true })
+
+// Declaración de diseños especiales (va con el anexo, misma firma).
+export const pdfDeclaracion     = (id)            => api.get(`/anexos/${id}/declaracion/pdf`, { responseType: 'blob' })
+// El cliente le pide un cambio al asesor en vez de firmar.
+export const pedirCambioAnexo   = (token, mensaje) => api.post(`/public/anexos/${token}/cambio`, { mensaje })
+// Lo que el cliente firmó, descargado desde su enlace (doc: 'anexo' | 'declaracion').
+export const pdfPublicoAnexo    = (token, doc)    => api.get(`/public/anexos/${token}/pdf/${doc}`, { responseType: 'blob' })
+// La ficha del mueble especial de una orden ya creada.
+export const guardarFichaEspecial = (itemId, ficha) => api.patch(`/orden-items/${itemId}/ficha-especial`, { ficha })

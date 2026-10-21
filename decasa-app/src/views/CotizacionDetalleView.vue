@@ -14,6 +14,7 @@ import {
   enviarCotizacionEmail,
 } from '@/api/cotizaciones'
 import { urlWhatsapp, tieneWhatsapp } from '@/utils/whatsapp'
+import { useAjustesDeclaracion, aplicaDeclaracion } from '@/utils/declaracionEspeciales'
 import { getReceptores, crearConsulta, getConsultas } from '@/api/consultas'
 import {
   DocumentArrowDownIcon, PaperAirplaneIcon, CheckCircleIcon,
@@ -274,6 +275,17 @@ const esSoloRestauracion = computed(() => {
 })
 const exigeAnexo = computed(() => esPresencial.value && !esSoloRestauracion.value)
 
+// La declaración de diseños especiales (lo que se fabrica fuera del catálogo):
+// donde se pide el anexo, aquí también, en papel. Si queda algo sin precio, la
+// orden queda esperando cotización y se pide al confirmarla (como el servidor).
+const ajustesDeclaracion = useAjustesDeclaracion()
+const declaracionFile = ref(null)
+const exigeDeclaracion = computed(() => {
+  const its = cotizacion.value?.items ?? []
+  const sinPrecio = its.some(i => i.es_personalizado && Number(i.precio_unitario) === 0 && !i.es_regalo)
+  return exigeAnexo.value && !sinPrecio && its.some(i => aplicaDeclaracion(i.tipo_item, ajustesDeclaracion.value))
+})
+
 function precargarContacto() {
   form.value.cliente_nombre   = cotizacion.value?.contacto_nombre   ?? ''
   form.value.cliente_telefono = cotizacion.value?.contacto_telefono ?? ''
@@ -303,6 +315,10 @@ async function hacerConversion() {
     toast.error('En venta presencial se requiere la foto del anexo firmado.')
     return
   }
+  if (exigeDeclaracion.value && !declaracionFile.value) {
+    toast.error('Hay productos de diseño especial: adjunta la foto de la declaración firmada.')
+    return
+  }
 
   convirtiendo.value = true
   try {
@@ -310,10 +326,14 @@ async function hacerConversion() {
     const anexoUrl = anexoFile.value
       ? await subirArchivo(await comprimirImagen(anexoFile.value), 'facturas', 'anexo.jpg')
       : undefined
+    const declaracionUrl = declaracionFile.value
+      ? await subirArchivo(await comprimirImagen(declaracionFile.value), 'facturas', 'declaracion.jpg')
+      : undefined
 
     const payload = {
       firma_url:      firmaUrl,
       anexo_foto_url: anexoUrl,
+      declaracion_foto_url: declaracionUrl,
       anticipo_monto: Number(form.value.anticipo_monto) || 0,
       anticipo_metodo: form.value.anticipo_metodo,
       anticipo_referencia: form.value.anticipo_referencia || undefined,
@@ -817,6 +837,14 @@ onMounted(cargar)
               </p>
               <input type="file" accept="image/*" capture="environment" class="text-xs"
                      @change="anexoFile = $event.target.files[0]" />
+            </div>
+
+            <!-- Declaración de diseños especiales (lo que se fabrica fuera del catálogo) -->
+            <div v-if="exigeDeclaracion" class="space-y-1 pt-1">
+              <p class="text-xs font-semibold text-gray-700">Foto de la declaración de diseños especiales *</p>
+              <p class="text-[11px] text-gray-500">El papel con la descripción, las medidas y el tipo de cada mueble especial, firmado por el cliente.</p>
+              <input type="file" accept="image/*" capture="environment" class="text-xs"
+                     @change="declaracionFile = $event.target.files[0]" />
             </div>
 
             <!-- Firma -->

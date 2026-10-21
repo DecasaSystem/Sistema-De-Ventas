@@ -54,6 +54,9 @@ class OrdenItem extends Model
         'specs_personalizacion',
         'boceto_url',
         'boceto_fotos',
+        // Cómo va el mueble especial, dicho para el cliente: lo que aprueba y
+        // firma en la declaración de diseños especiales (DeclaracionEspeciales).
+        'ficha_especial',
         'fecha_entrega_prom',
         // Con qué promoción se vendió (Inventario → Promociones). El precio ya
         // quedó rebajado: esto es para saberlo, no para recalcularlo.
@@ -82,6 +85,7 @@ class OrdenItem extends Model
             'cantidad_en_garantia'  => 'integer',
             'specs_personalizacion' => 'array',
             'boceto_fotos'          => 'array',
+            'ficha_especial'        => 'array',
             'fecha_entrega_prom'    => 'date',
             'devuelto_en'           => 'date',
         ];

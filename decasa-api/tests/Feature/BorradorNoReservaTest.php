@@ -150,6 +150,7 @@ class BorradorNoReservaTest extends TestCase
             'tienda_id'      => 1,
             'canal'          => 'fisica',
             'anexo_foto_url' => 'https://ejemplo/anexo.png',
+            'declaracion_foto_url' => 'https://ejemplo/declaracion.png',
             'anticipo_monto' => 0,
             'firma_url'      => 'https://ejemplo/firma.png',
             'items'          => [[
@@ -199,6 +200,7 @@ class BorradorNoReservaTest extends TestCase
             'anticipo_monto'     => 0,
             'factura_foto_url'   => 'https://ejemplo/factura.png',
             'anexo_foto_url'     => 'https://ejemplo/anexo.png',
+            'declaracion_foto_url' => 'https://ejemplo/declaracion.png',
             'departamento_envio' => 'Risaralda',
             'ciudad_envio'       => 'Pereira',
             'direccion_envio'    => 'Calle 1 # 2-3',

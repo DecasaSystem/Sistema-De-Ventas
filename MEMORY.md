@@ -353,6 +353,22 @@ escribiendo precios (Fase 1b).
   (remoto, de ese vendedor, sin orden, pendiente vigente o firmado ≤ 3 días) y la pantalla
   lo retoma al escoger el cliente; al recuperar el respaldo pregunta el estado ya; el aviso
   "el cliente firmó" sin orden abre Nueva orden.
+- **Declaración de diseños y medidas especiales** (2026-10-21, **sin subir**, rama
+  `claude/special-warranty-client-signature-ed7f21`, trae **migración**
+  `2026_10_25_000001_declaracion_disenos_especiales`, solo agrega). Pedido del dueño: el papel
+  "suministré las medidas… los exonero" que se firma en lo que no está en el catálogo, en el
+  sistema, con ficha + bocetos, que el cliente lo vea y firme, PDF o imagen, editable en Gestión.
+  Decisiones del dueño: **seguro en diseños especiales; en personalizados "que sea activable"**
+  (Gestión → Ajustes, apagado). Decisiones que tomé por defecto (**falta que el dueño confirme**):
+  una sola firma con el anexo pero dos documentos (igual que orden+anexo, 2026-10-09); se exige
+  donde se exige el anexo, y en la tienda vale la foto del papel; el cliente no edita: "pide un
+  cambio" y el asesor corrige y reenvía; los bocetos no entran a la huella (quedan congelados en
+  el anexo). Al subirlo, las órdenes presenciales con diseño especial empiezan a pedir la
+  declaración. Detalle en `docs/PROYECTO.md` §6.16. Trampa vista: la clase CSS `input` solo existe
+  en el `<style>` de NuevaOrdenView; en la página pública del cliente las cajas salían sin borde
+  (los componentes nuevos y AnexoFirma usan clases explícitas).
+  `MisEstadisticasVendedorTest::test_se_compara_con_el_periodo_anterior` falla también en el repo
+  principal (depende de la fecha): no es de este trabajo.
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 

@@ -18,6 +18,10 @@ class AnexoGarantia extends Model
         'token', 'orden_id', 'cliente_id', 'vendedor_id', 'version', 'modo', 'estado',
         'resumen', 'resumen_hash', 'respuestas', 'nombre_firmante', 'documento_firmante',
         'firma_url', 'firmado_at', 'ip', 'user_agent', 'vence_at',
+        // La declaración de diseños especiales que va con este anexo (misma
+        // firma): versión del texto, los productos tal como el cliente los
+        // aprobó, su huella y el cambio que pidió en vez de firmar.
+        'declaracion_version', 'especiales', 'especiales_hash', 'cambio_pedido', 'cambio_pedido_at',
     ];
 
     // El token es la llave del enlace: no sale en las respuestas de la API
@@ -31,7 +35,15 @@ class AnexoGarantia extends Model
             'respuestas' => 'array',
             'firmado_at' => 'datetime',
             'vence_at'   => 'datetime',
+            'especiales' => 'array',
+            'cambio_pedido_at' => 'datetime',
         ];
+    }
+
+    /** ¿Lleva la declaración de diseños especiales? */
+    public function tieneDeclaracion(): bool
+    {
+        return ! empty($this->especiales);
     }
 
     public function orden(): BelongsTo

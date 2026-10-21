@@ -376,6 +376,8 @@ class OrdenController extends Controller
             'factura_fotos.*'                    => 'string|max:500',
             'firma_url'                          => 'nullable|string|max:500',
             'anexo_foto_url'                     => 'nullable|string|max:500',
+            // La declaración de diseños especiales firmada en papel.
+            'declaracion_foto_url'               => 'nullable|string|max:500',
             'departamento_envio'                 => 'nullable|string|max:100',
             'ciudad_envio'                       => 'nullable|string|max:100',
             'direccion_envio'                    => 'nullable|string|max:300',
@@ -433,6 +435,8 @@ class OrdenController extends Controller
             // "Se lo lleva ahora": este producto sale con el cliente de una.
             'items.*.llevar_ahora'               => 'nullable|boolean',
             'items.*.specs_personalizacion'      => 'nullable|array',
+            // Cómo va el mueble especial, dicho para el cliente (DeclaracionEspeciales).
+            'items.*.ficha_especial'             => 'nullable|array',
             'items.*.boceto_url'                 => 'nullable|string|max:500',
             'items.*.boceto_urls'                => 'nullable|array|max:10',
             'items.*.boceto_urls.*'              => 'nullable|string|max:500',
@@ -667,6 +671,24 @@ class OrdenController extends Controller
                     ], 422);
                 }
             }
+            // La declaración de diseños especiales va con ese anexo: si la
+            // orden trae productos que la piden, el cliente tuvo que aprobar
+            // ESAS fichas. Si después se cambió una medida o la tela, o se
+            // agregó un especial, lo que firmó ya no es lo que se va a hacer.
+            // (Con la foto del papel no se mira: el papel es la constancia.)
+            // Firmado sin declaración y con precio por consultar: se pide al
+            // confirmar la cotización, no aquí.
+            $especialesPedido = \App\Support\DeclaracionEspeciales::lineasQueAplican($data['items']);
+            if (! $guardarBorrador && $especialesPedido && empty($data['declaracion_foto_url'])
+                && ! (! $anexo->especiales_hash && $tieneItemsCotizacionPendiente)
+                && ! hash_equals((string) $anexo->especiales_hash, \App\Support\DeclaracionEspeciales::huella($especialesPedido))) {
+                return response()->json([
+                    'message' => $anexo->especiales_hash
+                        ? 'Las especificaciones de los productos especiales cambiaron después de que el cliente las aprobó. Que firme otra vez lo que de verdad se va a fabricar.'
+                        : 'El cliente firmó sin la declaración de los productos especiales. Que firme otra vez para aprobarlos.',
+                    'codigo'  => 'anexo_desactualizado',
+                ], 422);
+            }
             // Una sola firma: la del anexo sirve de firma de la orden.
             if (empty($data['firma_url']) && $anexo->firma_url) {
                 $data['firma_url'] = $anexo->firma_url;
@@ -693,6 +715,19 @@ class OrdenController extends Controller
                 return response()->json([
                     'message' => 'Falta el anexo de garantías: que el cliente lo firme en el sistema o sube la foto del anexo firmado en papel.',
                     'errors'  => ['anexo_foto_url' => ['El anexo de garantías es obligatorio en la venta.']],
+                ], 422);
+            }
+
+            // Declaración de diseños especiales (dueño, 2026-10-21): donde se
+            // pide el anexo, lo que se fabrica fuera del catálogo la pide
+            // también — firmada en el sistema con el anexo (revisado arriba) o
+            // la foto del papel. Con precio por consultar se pide al confirmar.
+            if (($data['canal'] ?? null) === 'fisica' && ! $soloRestauracion && ! $tieneItemsCotizacionPendiente
+                && ! $anexo && empty($data['declaracion_foto_url'])
+                && \App\Support\DeclaracionEspeciales::lineasQueAplican($data['items'])) {
+                return response()->json([
+                    'message' => 'Falta la declaración de diseños especiales: que el cliente la firme en el sistema con el anexo o sube la foto de la declaración firmada en papel.',
+                    'errors'  => ['declaracion_foto_url' => ['La declaración de diseños especiales es obligatoria en lo que se fabrica a la medida.']],
                 ], 422);
             }
 
@@ -807,6 +842,8 @@ class OrdenController extends Controller
                 'factura_fotos'     => $fotosFactura ?: null,
                 'firma_url'           => $data['firma_url'] ?? null,
                 'anexo_foto_url'      => $data['anexo_foto_url'] ?? null,
+                // Solo si vino: así una base sin la columna no se entera.
+                ...(! empty($data['declaracion_foto_url']) ? ['declaracion_foto_url' => $data['declaracion_foto_url']] : []),
                 'departamento_envio' => $data['departamento_envio'] ?? null,
                 'ciudad_envio'       => $data['ciudad_envio'] ?? null,
                 'direccion_envio'    => $data['direccion_envio'] ?? null,
@@ -908,6 +945,10 @@ class OrdenController extends Controller
                     // supervisa solo corrige la que vea mal.
                     'fecha_entrega_prom'    => $fechaEntregaInicial,
                     ...$this->promocionDelItem($promosDeLaVenta, $itemData, $varianteId, $comboConfigId),
+                    // La ficha que el cliente aprueba en la declaración. Solo
+                    // si trae algo (un ítem de catálogo nunca la lleva).
+                    ...(($ficha = \App\Support\DeclaracionEspeciales::normalizarFicha($itemData['ficha_especial'] ?? null))
+                        ? ['ficha_especial' => $ficha] : []),
                 ];
 
                 $previo = ! empty($itemData['id']) ? $itemsPrevios->get((int) $itemData['id']) : null;
@@ -915,7 +956,9 @@ class OrdenController extends Controller
                     // Si iba en juego y ya no, lo de antes no puede quedarse
                     // pegado (si sigue en juego, $atributosItem ya lo trae).
                     $limpiarJuego = $previo->piezas_juego ? ['piezas_juego' => null, 'es_pieza_suelta' => false] : [];
-                    $previo->update($atributosItem + $limpiarJuego);
+                    // La ficha que se borró en el borrador también se borra.
+                    $limpiarFicha = $previo->ficha_especial && ! isset($atributosItem['ficha_especial']) ? ['ficha_especial' => null] : [];
+                    $previo->update($atributosItem + $limpiarJuego + $limpiarFicha);
                     $item = $previo;
                     $itemsQueQuedan[] = $previo->id;
                 } else {
@@ -1357,7 +1400,70 @@ class OrdenController extends Controller
         });
         $orden->entrega = $orden->resumenEntrega();
 
+        // La declaración de diseños especiales: qué productos la piden y, si
+        // falta (o se cambió una ficha después de firmar), por qué. La pantalla
+        // lo usa para pedir la ficha, mandarla a firmar o pedir la foto.
+        $aplican = \App\Support\DeclaracionEspeciales::itemsQueAplican($orden);
+        $orden->declaracion = $aplican->isEmpty() ? null : [
+            'items' => $aplican->pluck('id')->values(),
+            'falta' => \App\Support\DeclaracionEspeciales::faltaEnOrden($orden),
+            // Las que no tienen la ficha completa: sin eso no se manda a firmar.
+            'sin_ficha' => $aplican->filter(fn ($i) => \App\Support\DeclaracionEspeciales::faltaEnFicha($i->ficha_especial))->pluck('id')->values(),
+        ];
+
         return response()->json($orden);
+    }
+
+    /**
+     * PATCH /api/orden-items/{id}/ficha-especial  { ficha: {...} }
+     *
+     * La ficha del mueble especial de una orden ya creada: lo que el cliente
+     * aprueba en la declaración de diseños especiales. Para llenarla antes de
+     * mandarla a firmar, o corregirla. Si el cliente ya había firmado la
+     * declaración y la ficha cambia, deja de valer: hay que firmar otra vez
+     * (la firmada queda guardada como estaba, con su PDF).
+     */
+    public function fichaEspecial(Request $request, int $id)
+    {
+        $item  = OrdenItem::with('orden')->findOrFail($id);
+        $orden = $item->orden;
+        if (! $orden || ! $orden->laPuedeEditar($request->user())) {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+        if (in_array($orden->estado, ['entregado', 'cancelado', 'devuelto'], true)) {
+            return response()->json(['message' => 'Esta orden ya no se puede cambiar.'], 422);
+        }
+        if (! Esquema::columna('orden_items', 'ficha_especial')) {
+            return response()->json(['message' => 'Falta correr la migración de la declaración de diseños especiales.'], 409);
+        }
+
+        $request->validate(['ficha' => 'nullable|array']);
+        $ficha = \App\Support\DeclaracionEspeciales::normalizarFicha($request->input('ficha'));
+        $antes = $item->ficha_especial;
+        $item->update(['ficha_especial' => $ficha]);
+
+        // Que quede escrito en el chat de la orden: si ya estaba firmada, el
+        // cliente tiene que volver a aprobarla.
+        if ($antes != $ficha) {
+            try {
+                $nombre = $item->producto?->nombre ?? $item->nombre_custom ?? 'el producto';
+                \App\Models\OrdenMensaje::create([
+                    'orden_id'   => $orden->id,
+                    'usuario_id' => $request->user()->id,
+                    'mensaje'    => "📝 Se " . ($antes ? 'cambió' : 'llenó') . " la ficha de {$nombre} para la declaración de diseños especiales.",
+                ]);
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        }
+
+        $orden->unsetRelation('items');
+
+        return response()->json([
+            'ficha_especial' => $item->ficha_especial,
+            'falta_en_ficha' => \App\Support\DeclaracionEspeciales::faltaEnFicha($ficha),
+            'falta'          => \App\Support\DeclaracionEspeciales::faltaEnOrden($orden),
+        ]);
     }
 
     /**
@@ -1392,6 +1498,7 @@ class OrdenController extends Controller
             'factura_fotos'      => 'nullable|array|max:10',
             'factura_fotos.*'    => 'string|max:500',
             'anexo_foto_url'     => ($esPresencial && ! $anexoFirmado ? 'required' : 'nullable') . '|string|max:500',
+            'declaracion_foto_url' => 'nullable|string|max:500',
             'anticipo_monto'              => 'required|numeric|min:0',
             'anticipo_metodo'             => 'required|in:efectivo,transferencia,tarjeta,addi,otro',
             'anticipo_referencia'         => 'nullable|string|max:100',
@@ -1401,12 +1508,23 @@ class OrdenController extends Controller
             'anticipo_pagos.*.referencia' => 'nullable|string|max:100',
         ]);
 
+        // Declaración de diseños especiales: donde se pide el anexo, también.
+        // Vale la firmada a distancia con las fichas como están hoy, o la foto
+        // del papel.
+        if ($esPresencial && ($falta = \App\Support\DeclaracionEspeciales::faltaEnOrden($orden, $data['declaracion_foto_url'] ?? null))) {
+            return response()->json([
+                'message' => $falta,
+                'errors'  => ['declaracion_foto_url' => [$falta]],
+            ], 422);
+        }
+
         DB::transaction(function () use ($orden, $data, $usuario) {
             $orden->update([
                 'firma_url'        => ($data['firma_url'] ?? null) ?: $orden->firma_url,
                 'factura_foto_url' => ($data['factura_fotos'][0] ?? null) ?: ($data['factura_foto_url'] ?? null),
                 'factura_fotos'    => ! empty($data['factura_fotos']) ? array_values($data['factura_fotos']) : (! empty($data['factura_foto_url']) ? [$data['factura_foto_url']] : null),
                 'anexo_foto_url'   => $data['anexo_foto_url'] ?? null,
+                ...(! empty($data['declaracion_foto_url']) ? ['declaracion_foto_url' => $data['declaracion_foto_url']] : []),
                 'estado'           => 'pendiente_anticipo',
             ]);
 
@@ -2623,8 +2741,13 @@ class OrdenController extends Controller
         $orden->anexo_firmado = \App\Models\AnexoGarantia::hayTabla()
             ? \App\Models\AnexoGarantia::where('orden_id', $orden->id)
                 ->where('estado', 'firmado')->latest('id')
-                ->first(['id', 'modo', 'estado', 'resumen_hash', 'firma_url', 'nombre_firmante', 'documento_firmante', 'firmado_at'])
+                ->first(['id', 'modo', 'estado', 'resumen_hash', 'firma_url', 'nombre_firmante', 'documento_firmante', 'firmado_at',
+                    // Si trae la declaración de diseños especiales.
+                    ...(\App\Support\DeclaracionEspeciales::hayColumnas() ? ['especiales_hash'] : [])])
             : null;
+        if ($orden->anexo_firmado) {
+            $orden->anexo_firmado->setAttribute('declaracion', ! empty($orden->anexo_firmado->especiales_hash));
+        }
 
         return response()->json($orden);
     }
@@ -2711,6 +2834,7 @@ class OrdenController extends Controller
             'factura_fotos'       => 'nullable|array|max:10',
             'factura_fotos.*'     => 'string|max:500',
             'anexo_foto_url'      => ($esPresencial ? 'required' : 'nullable') . '|string|max:500',
+            'declaracion_foto_url' => 'nullable|string|max:500',
             'departamento_envio'  => 'required|string|max:100',
             'ciudad_envio'        => 'required|string|max:100',
             'direccion_envio'     => 'required|string|max:300',
@@ -2761,6 +2885,14 @@ class OrdenController extends Controller
             }
         }
         $orden->load('items.produccion');
+
+        // Declaración de diseños especiales: donde se pide el anexo, también.
+        if ($esPresencial && ($falta = \App\Support\DeclaracionEspeciales::faltaEnOrden($orden, $data['declaracion_foto_url'] ?? null))) {
+            return response()->json([
+                'message' => $falta,
+                'errors'  => ['declaracion_foto_url' => [$falta]],
+            ], 422);
+        }
 
         // Un personalizado sin especificaciones no se puede fabricar: al
         // completar el borrador se crean las órdenes de producción, y el ebanista
@@ -2832,6 +2964,7 @@ class OrdenController extends Controller
                     ? array_values(array_filter($data['factura_fotos']))
                     : (! empty($data['factura_foto_url']) ? [$data['factura_foto_url']] : $orden->factura_fotos),
                 'anexo_foto_url'     => $data['anexo_foto_url']     ?? $orden->anexo_foto_url,
+                ...(! empty($data['declaracion_foto_url']) ? ['declaracion_foto_url' => $data['declaracion_foto_url']] : []),
                 'departamento_envio' => $data['departamento_envio'] ?? $orden->departamento_envio,
                 'ciudad_envio'       => $data['ciudad_envio']       ?? $orden->ciudad_envio,
                 'direccion_envio'    => $data['direccion_envio']    ?? $orden->direccion_envio,

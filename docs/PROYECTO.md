@@ -545,6 +545,33 @@ no vale (al crear) o el enlace no deja firmar (orden existente, 409). Un enlace 
 por cliente/orden: los anteriores se anulan; "Cancelar envío" lo anula
 (`POST /anexos/{id}/anular`). El vendedor ve las respuestas "No" del check list.
 
+**Declaración de diseños y medidas especiales (2026-10-21):** el papel que el cliente
+firmaba para lo que no está en el catálogo, ahora en el sistema. `Support/DeclaracionEspeciales`
+(reglas), migración `2026_10_25_000001_declaracion_disenos_especiales` (solo agrega:
+`orden_items.ficha_especial`, `ordenes.declaracion_foto_url`, `anexos_garantia.declaracion_version
+/ especiales / especiales_hash / cambio_pedido(_at)`).
+- **Qué productos:** Gestión → Ajustes (`AjustesSistema`): diseños especiales (prendido) y
+  personalizados (apagado; el dueño no estaba seguro).
+- **Ficha** por producto (`FichaEspecialEditor`): tipo de mueble, madera, tela, relleno, pintura,
+  ancho/largo/alto/profundidad y detalles + los bocetos de siempre. Completa = tipo + una
+  descripción + dos medidas. En Nueva orden (también en cotización) y en el detalle de una orden
+  ya creada (`DeclaracionOrden`, `PATCH /orden-items/{id}/ficha-especial`).
+- **Una firma, dos documentos:** va con el anexo (presencial o remoto). El cliente aprueba
+  producto por producto (`DeclaracionAprobar`) y firma una vez. El anexo congela lo que vio
+  (`especiales`) y su huella (`especiales_hash`: producto + ficha; sin cantidad, precio ni bocetos).
+  Si la ficha cambia después, `store` responde `anexo_desactualizado` y el enlace de una orden
+  existente no deja firmar (409). Una orden ya firmada sin declaración se puede mandar solo por eso.
+- **Dónde se exige:** donde se exige el anexo (venta presencial no restauración): `store`,
+  `confirmarCotizacion`, `completarBorrador`, `convertir`. Vale firmada en el sistema o la foto
+  del papel (`declaracion_foto_url`). Con precio por consultar se pide al confirmar.
+- **El cliente puede pedir un cambio** desde el enlace en vez de firmar
+  (`POST /public/anexos/{token}/cambio`): aviso `anexo_cambio` al vendedor, chat de la orden.
+- **Documentos:** PDF `pdf/declaracion_especiales` (`GET /anexos/{id}/declaracion/pdf`); el cliente
+  descarga anexo y declaración desde su enlace ya firmado (`/public/anexos/{token}/pdf/{doc}`), en
+  PDF o imagen (`utils/pdfAImagen`). Texto editable en Gestión → Documentos
+  (`EsquemasPlantillas::DECLARACION`, versionado como el anexo). Producción ve "Aprobado por el
+  cliente" con la ficha. Tests: `DeclaracionEspecialesTest`.
+
 ### 6.17 Proveedores y compras
 `ProveedorController` (libreta; crear/editar con `acceso_proveedores`, borrar
 supervisor). `CompraController`: lista de "hay que comprar", marcar comprado con

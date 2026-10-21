@@ -151,6 +151,8 @@ class CotizacionController extends Controller
             'items.*.fabricar_pedido'            => 'nullable|boolean',
             'items.*.producto_unico'             => 'nullable|boolean',
             'items.*.specs_personalizacion'      => 'nullable|array',
+            // La ficha de la declaración de diseños especiales (DeclaracionEspeciales).
+            'items.*.ficha_especial'             => 'nullable|array',
             'items.*.boceto_url'                 => 'nullable|string|max:500',
             'items.*.boceto_urls'                => 'nullable|array',
             // Igual que en las órdenes: la clave del envío, repetida en cada
@@ -245,6 +247,8 @@ class CotizacionController extends Controller
                         ? array_values(array_filter($itemData['boceto_urls']))
                         : null,
                     'fecha_entrega_prom'    => null,
+                    ...(($ficha = \App\Support\DeclaracionEspeciales::normalizarFicha($itemData['ficha_especial'] ?? null))
+                        ? ['ficha_especial' => $ficha] : []),
                 ]);
             }
 
@@ -419,6 +423,8 @@ class CotizacionController extends Controller
             'anticipo_pct'        => 'nullable|numeric|min:0|max:100',
 
             'anexo_foto_url'      => ($esPresencial ? 'required' : 'nullable') . '|string|max:500',
+            // La declaración de diseños especiales en papel (DeclaracionEspeciales).
+            'declaracion_foto_url' => 'nullable|string|max:500',
             'departamento_envio'  => 'nullable|string|max:100',
             'ciudad_envio'        => 'nullable|string|max:100',
             'direccion_envio'     => 'nullable|string|max:300',
@@ -451,6 +457,17 @@ class CotizacionController extends Controller
                 'message' => 'Algunos precios cambiaron desde que se cotizó.',
                 'precios_cambiados' => $cambios,
             ], 409);
+        }
+
+        // Declaración de diseños especiales: donde se pide el anexo, también
+        // lo que se fabrica a la medida la pide (aquí, la foto del papel). Con
+        // productos sin precio queda esperando cotización y se pide al confirmarla.
+        $quedaSinPrecio = $cotizacion->items->contains(fn ($i) => $i->es_personalizado && (float) $i->precio_unitario === 0.0 && ! $i->es_regalo);
+        if ($esPresencial && ! $quedaSinPrecio && ($falta =\App\Support\DeclaracionEspeciales::faltaEnOrden($cotizacion, $data['declaracion_foto_url'] ?? null))) {
+            return response()->json([
+                'message' => $falta,
+                'errors'  => ['declaracion_foto_url' => [$falta]],
+            ], 422);
         }
 
         $esFv2     = $request->boolean('es_fv2', false);
@@ -548,6 +565,7 @@ class CotizacionController extends Controller
                 'firma_url'          => $data['firma_url'],
                 'fecha_sugerida_vendedor' => $data['fecha_sugerida_vendedor'] ?? null,
                 'anexo_foto_url'     => $data['anexo_foto_url']     ?? null,
+                ...(! empty($data['declaracion_foto_url']) ? ['declaracion_foto_url' => $data['declaracion_foto_url']] : []),
                 'departamento_envio' => $data['departamento_envio'] ?? null,
                 'ciudad_envio'       => $data['ciudad_envio']       ?? null,
                 'direccion_envio'    => $data['direccion_envio']    ?? null,

@@ -22,6 +22,7 @@ import { getGarantias } from '@/api/garantias'
 import ReportarGarantiaModal from '@/components/garantias/ReportarGarantiaModal.vue'
 import GarantiaTarjeta from '@/components/garantias/GarantiaTarjeta.vue'
 import FirmaRemotaOrden from '@/components/ordenes/FirmaRemotaOrden.vue'
+import DeclaracionOrden from '@/components/anexo/DeclaracionOrden.vue'
 import { ShieldCheckIcon } from '@heroicons/vue/24/outline'
 import { tomarFacturacion, marcarFacturada } from '@/api/pagos'
 import { getReceptores, crearConsulta, getConsultas, ajustarPrecio as ajustarPrecioApi } from '@/api/consultas'
@@ -1473,6 +1474,27 @@ function cerrarImagen() {
 }
 onBeforeUnmount(cerrarImagen)
 
+/**
+ * El anexo firmado como imagen (pedido del dueño: "que se puedan descargar en
+ * PDF o en imágenes"). Usa la misma vista previa que la imagen de la orden.
+ */
+const anexoImagenCargando = ref(false)
+async function anexoComoImagen() {
+  if (anexoImagenCargando.value) return
+  anexoImagenCargando.value = true
+  try {
+    const res = await pdfAnexo(orden.value.anexo_garantia.id)
+    const blob = await pdfAImagen(new Blob([res.data], { type: 'application/pdf' }))
+    const nombre = `anexo-garantias-${orden.value.referencia ?? orden.value.id}.jpg`.replace(/[^\w.-]+/g, '-')
+    cerrarImagen()
+    imagenOrden.value = { blob, url: URL.createObjectURL(blob), nombre, compartible: sePuedeCompartir(blob, nombre), titulo: 'Anexo de garantías en imagen' }
+  } catch {
+    toast.error('No se pudo generar la imagen del anexo.')
+  } finally {
+    anexoImagenCargando.value = false
+  }
+}
+
 /** El anexo de garantías firmado en el sistema, como PDF (con el n° de pedido). */
 async function verAnexoGarantia() {
   try {
@@ -1779,11 +1801,40 @@ const esSoloRestauracion = computed(() => {
 const pideFotoAnexo = computed(() => orden.value?.canal === 'fisica' && !anexoYaFirmado.value)
 const exigeFotoAnexo = computed(() => pideFotoAnexo.value && !esSoloRestauracion.value)
 
+// La declaración de diseños especiales: en la tienda, si no la firmó en el
+// sistema con las fichas como están, se pide la foto del papel (el servidor
+// dice si falta: orden.declaracion.falta).
+const exigeFotoDeclaracion = computed(() =>
+  orden.value?.canal === 'fisica' && !esSoloRestauracion.value && !!orden.value?.declaracion?.falta && !orden.value?.declaracion_foto_url
+)
+const declaracionConfirmarFile    = ref(null)
+const declaracionConfirmarUrl     = ref('')
+const declaracionConfirmarPreview = ref('')
+async function onDeclaracionConfirmarChange(e) {
+  const original = e.target.files?.[0]
+  e.target.value = ''
+  if (!original) return
+  declaracionConfirmarFile.value = await comprimirAlTomar(original)
+  if (declaracionConfirmarPreview.value) URL.revokeObjectURL(declaracionConfirmarPreview.value)
+  declaracionConfirmarPreview.value = URL.createObjectURL(declaracionConfirmarFile.value)
+  declaracionConfirmarUrl.value = ''
+}
+function quitarDeclaracionConfirmar() {
+  declaracionConfirmarFile.value = null
+  declaracionConfirmarUrl.value  = ''
+  if (declaracionConfirmarPreview.value) URL.revokeObjectURL(declaracionConfirmarPreview.value)
+  declaracionConfirmarPreview.value = ''
+}
+
 async function doConfirmarCotizacion() {
   if (!firmoADistancia.value && !firmaConfirmarBlob.value && !firmaConfirmarUrl.value) return
   const esPresencial = pideFotoAnexo.value
   if (exigeFotoAnexo.value && !anexoConfirmarFile.value && !anexoConfirmarUrl.value) {
     toast.error('Adjunta la foto del anexo firmado antes de confirmar.')
+    return
+  }
+  if (exigeFotoDeclaracion.value && !declaracionConfirmarFile.value && !declaracionConfirmarUrl.value) {
+    toast.error('Falta la declaración de diseños especiales: mándasela a firmar o adjunta la foto del papel firmado.')
     return
   }
   confirmando.value = true
@@ -1807,10 +1858,18 @@ async function doConfirmarCotizacion() {
       const { data: up } = await api.post('/upload/foto', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
       anexoConfirmarUrl.value = up.url
     }
+    if (declaracionConfirmarFile.value && !declaracionConfirmarUrl.value) {
+      const fd = new FormData()
+      fd.append('foto', await comprimirImagen(declaracionConfirmarFile.value), 'declaracion.jpg')
+      fd.append('folder', 'anexos')
+      const { data: up } = await api.post('/upload/foto', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      declaracionConfirmarUrl.value = up.url
+    }
 
     await confirmarCotizacion(orden.value.id, {
       firma_url:           firmaConfirmarUrl.value || undefined,
       anexo_foto_url:      anexoConfirmarUrl.value || undefined,
+      declaracion_foto_url: declaracionConfirmarUrl.value || undefined,
       anticipo_monto:      anticipoConfirmar.value,
       anticipo_metodo:     metodoPagoConfirmar.value,
       anticipo_referencia: confirmarPagoSplit.value ? undefined : (refPagoConfirmar.value || undefined),
@@ -2411,15 +2470,31 @@ onMounted(() => { cargarTipos(); cargarOrden() })
             · {{ formatDateTime(orden.anexo_garantia.firmado_at) }}
           </p>
         </div>
-        <button
-          type="button"
-          @click="verAnexoGarantia"
-          class="flex-shrink-0 flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium"
-        >
-          <ArrowDownTrayIcon class="w-3.5 h-3.5" />
-          Ver PDF
-        </button>
+        <div class="flex-shrink-0 flex flex-col items-end gap-1">
+          <button
+            type="button"
+            @click="verAnexoGarantia"
+            class="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium"
+          >
+            <ArrowDownTrayIcon class="w-3.5 h-3.5" />
+            Ver PDF
+          </button>
+          <!-- Como imagen, para mandarla por WhatsApp o guardarla en el celular. -->
+          <button
+            type="button"
+            @click="anexoComoImagen"
+            :disabled="anexoImagenCargando"
+            class="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium disabled:opacity-50"
+          >
+            <PhotoIcon class="w-3.5 h-3.5" />
+            {{ anexoImagenCargando ? 'Preparando…' : 'Imagen' }}
+          </button>
+        </div>
       </div>
+
+      <!-- Declaración de diseños especiales: la ficha de cada mueble fuera
+           del catálogo y si el cliente ya la aprobó y firmó. -->
+      <DeclaracionOrden :orden="orden" :puede-editar="puedeEditar" @cambio="cargarOrden" />
 
       <!-- Foto del anexo firmado -->
       <div v-if="orden.anexo_foto_url" class="bg-white rounded-xl shadow-sm p-4 space-y-2">
@@ -2996,8 +3071,11 @@ onMounted(() => { cargarTipos(); cargarOrden() })
 
       <!-- La orden quedó sin firma del cliente (venta virtual, o creada
            esperando precio): se le manda para que la revise y la firme. -->
+      <!-- También si ya tiene firma pero le falta la declaración de diseños
+           especiales (se firmó antes de llenar la ficha, o la ficha cambió). -->
       <FirmaRemotaOrden
-        v-if="!orden.firma_url && !['cancelado', 'borrador', 'cotizacion'].includes(orden.estado)"
+        v-if="!['cancelado', 'borrador', 'cotizacion'].includes(orden.estado)
+          && (!orden.firma_url || (orden.declaracion?.falta && !orden.declaracion_foto_url && orden.estado !== 'entregado'))"
         :orden="orden"
         :puede-editar="puedeEditar"
         @firmada="cargarOrden"
@@ -3953,6 +4031,25 @@ onMounted(() => { cargarTipos(); cargarOrden() })
               <input type="file" accept="image/*" @change="onAnexoConfirmarChange" class="hidden" />
             </label>
           </div>
+
+          <!-- Declaración de diseños especiales en papel (si no la firmó en el sistema) -->
+          <div v-if="exigeFotoDeclaracion" class="space-y-1">
+            <label class="block text-xs font-semibold text-gray-600 uppercase">
+              Foto de la declaración de diseños especiales <span class="text-red-500">*</span>
+            </label>
+            <p class="text-[11px] text-gray-500">O mándasela a firmar desde la orden (con la ficha y los bocetos) y confirma cuando firme.</p>
+            <div v-if="declaracionConfirmarFile" class="relative">
+              <img :src="declaracionConfirmarPreview" class="w-full rounded-xl border-2 border-gray-200 object-contain bg-gray-50 max-h-40" />
+              <button @click="quitarDeclaracionConfirmar" class="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1.5 shadow" aria-label="Quitar la foto">
+                <XMarkIcon class="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <label v-else class="flex flex-col items-center gap-2 border-2 border-dashed border-gray-300 rounded-xl p-4 cursor-pointer hover:border-green-400 hover:bg-green-50 transition-colors">
+              <DocumentIcon class="w-7 h-7 text-gray-300" />
+              <span class="text-sm text-gray-500">Toca para adjuntar la declaración</span>
+              <input type="file" accept="image/*" @change="onDeclaracionConfirmarChange" class="hidden" />
+            </label>
+          </div>
           <p v-else class="text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2">
             El comprobante de pago será subido por el conductor al momento de la entrega.
           </p>
@@ -4100,7 +4197,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-3 max-h-[92dvh] flex flex-col">
           <h3 class="text-lg font-bold text-gray-800 flex items-center gap-2">
             <PhotoIcon class="w-5 h-5 text-blue-600" />
-            Orden {{ orden?.referencia }} en imagen
+            {{ imagenOrden.titulo ?? `Orden ${orden?.referencia} en imagen` }}
           </h3>
           <div class="min-h-0 overflow-y-auto rounded-lg border border-gray-200">
             <img :src="imagenOrden.url" alt="Imagen de la orden" class="w-full block bg-white" />

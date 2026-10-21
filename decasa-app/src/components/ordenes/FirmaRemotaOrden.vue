@@ -36,6 +36,12 @@ const mandandoCorreo = ref(false)
 
 const vivos = computed(() => (props.orden.items ?? []).filter(i => !i.devuelto_en))
 
+// Ya tiene la firma, pero le falta la declaración de diseños especiales: se
+// manda para que apruebe eso (la firma de la orden no se toca).
+const soloDeclaracion = computed(() => !!props.orden.firma_url && !!props.orden.declaracion?.falta)
+// Sin la ficha completa de cada especial no se puede mandar (lo frena el servidor).
+const faltaFicha = computed(() => (props.orden.declaracion?.sin_ficha?.length ?? 0) > 0)
+
 // Con productos sin precio no se manda: el cliente firmaría un valor que no es.
 const faltaPrecio = computed(() => vivos.value.some(i =>
   !i.es_regalo && Number(i.precio_unitario) === 0 && (i.es_personalizado || i.retapizar)))
@@ -176,6 +182,7 @@ onBeforeUnmount(dejarDeEsperar)
         <PencilSquareIcon class="w-4 h-4" /> Firma del cliente
       </p>
       <span v-if="firma?.estado === 'pendiente'" class="text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">Esperando firma</span>
+      <span v-else-if="soloDeclaracion" class="text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">Falta la declaración</span>
       <span v-else class="text-[11px] font-semibold text-red-700 bg-red-50 border border-red-200 rounded-full px-2 py-0.5">Sin firma</span>
     </div>
 
@@ -185,6 +192,15 @@ onBeforeUnmount(dejarDeEsperar)
         Se le mandó a {{ orden.cliente?.nombre?.split(' ')[0] ?? 'el cliente' }} para que revise la orden completa y la firme.
         Cuando firme, aparece aquí sola.
       </p>
+      <p v-if="firma.declaracion" class="text-xs text-gray-500">
+        Incluye la declaración de diseños especiales: {{ firma.productos_declarados?.join(', ') }}.
+      </p>
+      <!-- El cliente revisó y pidió un cambio en vez de firmar -->
+      <div v-if="firma.cambio_pedido" class="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 space-y-1">
+        <p class="font-semibold">{{ orden.cliente?.nombre?.split(' ')[0] ?? 'El cliente' }} pidió un cambio:</p>
+        <p class="whitespace-pre-wrap">"{{ firma.cambio_pedido }}"</p>
+        <p>Corrige la orden (o la ficha) y manda uno nuevo.</p>
+      </div>
       <template v-if="puedeEditar">
         <div class="grid grid-cols-2 gap-2">
           <button type="button" @click="abrirWhatsApp" class="text-xs font-semibold rounded-lg py-2 bg-green-600 text-white hover:bg-green-700">WhatsApp</button>
@@ -212,13 +228,22 @@ onBeforeUnmount(dejarDeEsperar)
     <template v-else>
       <p class="text-xs text-gray-600">
         <template v-if="firma?.estado === 'vencido'">El enlace venció sin que el cliente firmara. </template>
-        Esta orden no tiene la firma del cliente. Mándasela: desde su teléfono ve toda la orden
-        (sus datos, productos, valor y entrega), lee el anexo de garantías y firma una sola vez.
+        <template v-if="soloDeclaracion">
+          El cliente firmó la orden, pero falta que apruebe la declaración de diseños especiales. Mándasela:
+          ve la ficha y los bocetos de cada mueble especial, los aprueba y firma.
+        </template>
+        <template v-else>
+          Esta orden no tiene la firma del cliente. Mándasela: desde su teléfono ve toda la orden
+          (sus datos, productos, valor y entrega), lee el anexo de garantías y firma una sola vez.
+        </template>
       </p>
       <p v-if="faltaPrecio" class="text-xs text-amber-700">
         Todavía hay productos sin precio. Cuando el taller los cotice, se le manda con el precio final.
       </p>
-      <button v-if="puedeEditar" type="button" @click="enviar" :disabled="enviando || faltaPrecio"
+      <p v-if="faltaFicha" class="text-xs text-amber-700">
+        Antes llena la ficha de los productos especiales (arriba, en Declaración de diseños especiales).
+      </p>
+      <button v-if="puedeEditar" type="button" @click="enviar" :disabled="enviando || faltaPrecio || faltaFicha"
         class="w-full bg-blue-600 text-white text-xs font-semibold rounded-lg py-2.5 hover:bg-blue-700 disabled:opacity-50">
         {{ enviando ? 'Preparando…' : 'Enviar al cliente para revisar y firmar' }}
       </button>
