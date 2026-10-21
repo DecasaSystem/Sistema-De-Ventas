@@ -341,4 +341,28 @@ class ElApartadoAlEntregarYCancelarTest extends TestCase
         $this->assertGreaterThanOrEqual(0, $apartado);
         $this->assertSame(2, $disponible, 'y el Disponible sigue diciendo la verdad');
     }
+    // ── Orden abierta con todo ya en la casa (caso #1231) ────────────────────
+
+    public function test_se_cierra_como_entregada_si_ya_tiene_todo_sin_tocar_el_stock(): void
+    {
+        // Le quitaron lo que faltaba (o se cambió y no se agregó otro): la orden
+        // quedó abierta con todo lo demás ya entregado. Antes decía "No queda
+        // nada por entregar" y no se podía cerrar nunca.
+        $orden = $this->orden([], ['cantidad_entregada' => 1]);
+        $antes = $this->tarjeta();
+
+        $this->actingAs($this->usuario())
+            ->patchJson("/api/ordenes/{$orden->id}/estado", ['estado' => 'entregado'])->assertOk();
+
+        $this->assertSame('entregado', $orden->fresh()->estado);
+        $this->assertSame($antes, $this->tarjeta(), 'ya había salido: no se descuenta otra vez');
+    }
+
+    public function test_una_orden_sin_productos_no_se_marca_entregada(): void
+    {
+        $orden = $this->orden([], ['devuelto_en' => '2026-09-23']);
+
+        $this->actingAs($this->usuario())
+            ->patchJson("/api/ordenes/{$orden->id}/estado", ['estado' => 'entregado'])->assertStatus(422);
+    }
 }

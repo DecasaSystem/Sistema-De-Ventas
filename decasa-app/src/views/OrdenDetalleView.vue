@@ -3087,7 +3087,19 @@ onMounted(() => { cargarTipos(); cargarOrden() })
                   'text-red-700':    d.estado === 'reembolsada',
                 }"
               >
-                <template v-if="d.estado === 'pendiente'">Esperando que producción decida</template>
+                <template v-if="d.estado === 'pendiente'">
+                  Esperando que producción decida. Mientras tanto la orden no se puede cerrar ni cambiar.
+                  <!-- Antes no llevaba a ningún lado y la orden parecía sin salida (#1231). -->
+                  <button v-if="auth.gestionaProduccion" type="button" @click="router.push({ name: 'produccion' })"
+                    class="block mt-1 text-blue-600 font-semibold">Resolver en Producción →</button>
+                  <span v-else class="block mt-0.5 text-gray-500 font-normal">La resuelve quien gestiona Producción.</span>
+                </template>
+                <template v-else-if="d.estado === 'reentrega'">
+                  Se le vuelve a llevar<span v-if="d.decidido_por"> — {{ d.decidido_por }}</span>
+                </template>
+                <template v-else-if="d.estado === 'quitada'">
+                  Se quitó de la orden: el cliente se queda sin eso<span v-if="d.decidido_por"> — {{ d.decidido_por }}</span>
+                </template>
                 <template v-else-if="d.estado === 'a_produccion'">
                   Volvió al taller para arreglo<span v-if="d.decidido_por"> — {{ d.decidido_por }}</span>
                 </template>

@@ -581,6 +581,18 @@ Decisiones del dueño del 2026-10-08:
 
 ## 6. Trampas conocidas
 
+- **Orden trabada en `devuelto` (#1231, 2026-10-21, subido a `main` ese día)**. En la entrega los 2
+  tomacorrientes volvieron en el camión; la orden quedó en `devuelto` (a propósito no se
+  sale a mano: solo decidiendo la devolución en Producción). Pero ninguna salida servía:
+  "Otra igual" pedía OTRAS unidades libres y las únicas eran las apartadas para la orden;
+  "Otro producto" la dejaba en `pendiente_anticipo` con todo entregado y "Marcar entregado"
+  decía "No queda nada por entregar" (trabada para siempre). Arreglo: decisiones nuevas
+  `reentregar` (estaba bien, se lleva otra vez, no mueve inventario: lo que vuelve en el
+  camión nunca salió y sigue apartado) y `quitar` (el cliente se queda sin eso; al
+  inventario soltando el apartado, o merma; lo pagado de más queda a favor); y "entregado"
+  cierra una orden que ya tiene todo en la casa. Lo que vuelve en el camión ≠ lo que el
+  cliente ya tenía: mirar `pendienteEntregar()` antes de mover inventario.
+
 - **"Sin conexión" al crear la orden que era una foto borrada** (2026-10-21, consola:
   `/api/upload/foto net::ERR_FILE_NOT_FOUND` + `AxiosError: Network Error`, repetido en
   cada reintento). No es la red ni el servidor: el `File` del selector apunta al archivo

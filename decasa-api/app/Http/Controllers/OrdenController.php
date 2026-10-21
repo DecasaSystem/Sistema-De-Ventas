@@ -3711,19 +3711,23 @@ class OrdenController extends Controller
         if ($estadoNuevo === 'entregado') {
             $orden->load('items.produccion');
             $faltan = $orden->items->filter(fn ($i) => $i->pendienteEntregar() > 0);
-            if ($faltan->isEmpty()) {
-                return response()->json(['message' => 'No queda nada por entregar en esta orden.'], 422);
+            // Ya tiene todo en la casa pero la orden quedó abierta (se quitó lo
+            // que faltaba, o se cambió un producto y no se le agregó otro):
+            // antes respondía "No queda nada por entregar" y la orden no se
+            // podía cerrar nunca (#1231). Se cierra sin mover inventario.
+            if ($faltan->isEmpty() && $orden->items->filter->estaVivo()->isEmpty()) {
+                return response()->json(['message' => 'La orden no tiene productos: agrégale uno o cancélala.'], 422);
             }
-            if ($faltan->contains(fn ($i) => ! $i->estaListoParaEntregar())) {
+            if ($faltan->isNotEmpty() && $faltan->contains(fn ($i) => ! $i->estaListoParaEntregar())) {
                 return response()->json([
                     'message' => 'Hay productos que el taller no ha dado por listos. Usa "Entregar ahora" para entregar solo lo que ya está.',
                 ], 422);
             }
-            if ($orden->tieneDespachoActivo()) {
+            if ($faltan->isNotEmpty() && $orden->tieneDespachoActivo()) {
                 return response()->json(['message' => 'Esta orden ya está en un despacho activo.'], 422);
             }
 
-            EntregaService::entregarEnMostrador(
+            if ($faltan->isNotEmpty()) EntregaService::entregarEnMostrador(
                 $orden,
                 $faltan->mapWithKeys(fn ($i) => [$i->id => $i->pendienteEntregar()])->all(),
                 $usuario,
@@ -3809,8 +3813,12 @@ class OrdenController extends Controller
                     ->delete();
             }
 
-            // La entrega ya dejó la orden como le toca.
-            if ($estadoNuevo === 'entregado') return;
+            // La entrega ya dejó la orden como le toca. Si no hubo entrega
+            // (ya tenía todo en la casa, ver arriba), se cierra aquí.
+            if ($estadoNuevo === 'entregado') {
+                if ($orden->fresh()->estado !== 'entregado') $orden->update(['estado' => 'entregado']);
+                return;
+            }
 
             $updateData = ['estado' => $estadoNuevo];
             if ($estadoNuevo === 'listo_entrega') {

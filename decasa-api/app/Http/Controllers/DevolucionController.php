@@ -283,7 +283,11 @@ class DevolucionController extends Controller
         }
 
         $data = $request->validate([
-            'decision' => 'required|in:a_produccion,reembolso,cambio_mismo,cambio_otro',
+            // reentregar: estaba bien, se le vuelve a llevar el mismo.
+            // quitar: el cliente se queda sin eso; deja de cobrarse.
+            'decision' => 'required|in:a_produccion,reembolso,cambio_mismo,cambio_otro,reentregar,quitar',
+            // Solo para quitar: ¿lo devuelto está para vender? Si no, merma.
+            'vuelve_al_stock' => 'boolean',
             'notas'    => 'nullable|string|max:1000',
             // Solo para el reembolso. Se sugiere lo que pagó por esas unidades,
             // pero manda lo que se escriba: a veces se devuelve de más por el
@@ -304,6 +308,8 @@ class DevolucionController extends Controller
                 'a_produccion' => $this->mandarAProduccion($devolucion, $usuario),
                 'cambio_mismo' => $this->cambiarPorElMismo($devolucion, $usuario),
                 'cambio_otro'  => $this->cambiarPorOtro($devolucion, $usuario),
+                'reentregar'   => $this->reentregar($devolucion, $usuario),
+                'quitar'       => $this->quitarDeLaOrden($devolucion, (bool) ($data['vuelve_al_stock'] ?? true), $usuario),
                 default        => $this->reembolsar($devolucion, (float) $data['monto'], $usuario),
             };
 
@@ -486,6 +492,151 @@ class DevolucionController extends Controller
             $devolucion, $usuario,
             'se cambia por otro producto. La orden queda abierta: agrégale el nuevo desde Editar y el saldo se ajusta solo',
         );
+    }
+
+    /**
+     * Estaba bien: se le vuelve a llevar el mismo producto.
+     *
+     * Caso real, orden #1231: en la entrega los tomacorrientes volvieron en el
+     * camión ("no eran los que iban") y la orden quedó en `devuelto` sin
+     * salida. "Otra igual" pedía OTRAS dos unidades libres en la tienda, y las
+     * únicas dos eran justamente esas, todavía apartadas para la orden. Lo que
+     * vuelve en el camión nunca salió del inventario: sigue apartado y sigue
+     * "por entregar". No hay que mover nada; solo destrabar la orden.
+     */
+    private function reentregar(Devolucion $devolucion, Usuario $usuario): void
+    {
+        $item = $devolucion->item;
+
+        if (! $item || ! $item->estaVivo() || $item->pendienteEntregar() < (int) $devolucion->cantidad) {
+            throw new \Illuminate\Http\Exceptions\HttpResponseException(response()->json([
+                'message' => 'Esas unidades ya se le habían entregado al cliente: no hay qué volver a llevar. Usa "Otra igual" o "Al taller".',
+            ], 422));
+        }
+
+        $devolucion->estado = 'reentrega';
+        $this->ponerOrdenAlDia($devolucion);
+
+        $this->anotarEnLaOrden($devolucion, $usuario, 'estaba bien: se le vuelve a llevar. Queda por entregar en Despacho');
+    }
+
+    /**
+     * El cliente se queda sin eso: deja de cobrarse y la orden sigue con lo
+     * demás. Lo que ya pagó queda a su favor (devolverle la plata es
+     * "Devolver la plata", aparte).
+     *
+     * Lo devuelto vuelve a la venta o sale como merma. Si volvió en el camión
+     * nunca salió del inventario: basta con soltarlo (o, si es merma, sacarlo).
+     * Si ya se le había entregado y lo trajo después, vuelve a entrar.
+     */
+    private function quitarDeLaOrden(Devolucion $devolucion, bool $vuelveAlStock, Usuario $usuario): void
+    {
+        $item  = $devolucion->item;
+        $orden = $devolucion->orden;
+        $n     = (int) $devolucion->cantidad;
+
+        if (! $item || ! $item->estaVivo()) {
+            throw new \Illuminate\Http\Exceptions\HttpResponseException(response()->json([
+                'message' => 'Ese producto ya no está en la orden.',
+            ], 422));
+        }
+
+        // ¿Volvió en el camión (nunca salió) o ya lo tenía el cliente?
+        $nuncaSalio = $item->pendienteEntregar() >= $n;
+
+        if (! $item->es_personalizado && $item->producto_id) {
+            if ($nuncaSalio) {
+                $vuelveAlStock
+                    ? $this->soltarReserva($devolucion, $usuario)
+                    : $this->sacarDeInventario($devolucion, $usuario);
+            } elseif ($vuelveAlStock) {
+                $tiendaId = $item->tienda_origen_id ?? $orden->tienda_id;
+                Inventario::firstOrCreate(['producto_id' => $item->producto_id, 'tienda_id' => $tiendaId],
+                    ['cantidad_disponible' => 0, 'cantidad_reservada' => 0])->increment('cantidad_disponible', $n);
+                if ($item->variante_id && ! $item->retapizar) {
+                    InventarioVariante::where('variante_id', $item->variante_id)->where('tienda_id', $tiendaId)
+                        ->increment('cantidad_disponible', $n);
+                }
+                InventarioMovimiento::create([
+                    'producto_id' => $item->producto_id, 'tienda_id' => $tiendaId, 'tipo' => 'entrada',
+                    'cantidad' => $n, 'motivo' => "Devuelto, se quita de la orden {$orden->referencia}",
+                    'usuario_id' => $usuario->id,
+                ]);
+            }
+        }
+
+        if ($n >= (int) $item->cantidad) {
+            $item->update(['devuelto_en' => $devolucion->fecha, 'motivo_devolucion' => $devolucion->motivo]);
+        } else {
+            $item->update([
+                'cantidad'           => (int) $item->cantidad - $n,
+                'cantidad_entregada' => $nuncaSalio ? (int) $item->cantidad_entregada : max(0, (int) $item->cantidad_entregada - $n),
+            ]);
+        }
+
+        $orden->refresh();
+        $orden->recalcularTotal();
+        \App\Http\Controllers\ComisionController::sincronizarValorOrden($orden->fresh());
+
+        $devolucion->estado = 'quitada';
+        $this->ponerOrdenAlDia($devolucion);
+
+        $saldo = $orden->fresh()->saldoPendiente();
+        $this->anotarEnLaOrden(
+            $devolucion, $usuario,
+            'el cliente se queda sin eso: deja de cobrarse ($' . number_format($n * (float) $item->precio_unitario, 0, ',', '.') . ')'
+            . ($vuelveAlStock && $item->producto_id && ! $item->es_personalizado ? ' y vuelve al inventario' : ' y sale como merma')
+            . ($saldo < -0.5 ? '. Le quedan $' . number_format(-$saldo, 0, ',', '.') . ' a favor' : ''),
+        );
+    }
+
+    /** Lo que volvió en el camión sigue apartado: se suelta para que otro lo compre. */
+    private function soltarReserva(Devolucion $devolucion, Usuario $usuario): void
+    {
+        $item     = $devolucion->item;
+        $tiendaId = $item->tienda_origen_id ?? $devolucion->orden->tienda_id;
+        $n        = (int) $devolucion->cantidad;
+
+        $soltar = function ($fila) use ($n) {
+            if ($fila) $fila->update(['cantidad_reservada' => max((int) $fila->cantidad_reservada - $n, 0)]);
+        };
+        if ($item->variante_id) {
+            $soltar(InventarioVariante::where('variante_id', $item->variante_id)->where('tienda_id', $tiendaId)->first());
+        }
+        $soltar(Inventario::where('producto_id', $item->producto_id)->where('tienda_id', $tiendaId)->first());
+
+        InventarioMovimiento::create([
+            'producto_id' => $item->producto_id, 'tienda_id' => $tiendaId, 'tipo' => 'liberacion',
+            'cantidad' => $n, 'motivo' => "Devuelto en la entrega, se quita de la orden {$devolucion->orden->referencia}",
+            'usuario_id' => $usuario->id,
+        ]);
+    }
+
+    /**
+     * La orden sale de `devuelto` al estado que le toca. Si queda otra
+     * devolución sin decidir, sigue en `devuelto`. Si ya no le falta nada,
+     * queda entregada; si no le queda ningún producto, abierta (con lo pagado
+     * a favor) para que se le agregue algo o se resuelva la plata.
+     */
+    private function ponerOrdenAlDia(Devolucion $devolucion): void
+    {
+        $orden = $devolucion->orden->refresh()->load('items.produccion');
+
+        $otraPendiente = Devolucion::where('orden_id', $orden->id)->where('estado', 'pendiente')
+            ->where('id', '!=', $devolucion->id)->exists();
+        if ($otraPendiente) return;
+
+        if ($orden->items->filter->estaVivo()->isEmpty()) {
+            $orden->update(['estado' => 'pendiente_anticipo']);
+            return;
+        }
+
+        $estado = $orden->estadoTrasEntrega();
+        // Sale de `devuelto`: si no le falta nada del taller, está lista para
+        // llevarse (estadoTrasEntrega ya lo dice así desde `devuelto`).
+        $cambios = ['estado' => $estado];
+        if ($estado === 'listo_entrega' && ! $orden->listo_entrega_at && Esquema::columna('ordenes', 'listo_entrega_at')) $cambios['listo_entrega_at'] = now();
+        $orden->update($cambios);
     }
 
     /**
