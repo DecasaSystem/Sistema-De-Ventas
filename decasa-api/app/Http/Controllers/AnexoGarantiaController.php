@@ -802,9 +802,37 @@ class AnexoGarantiaController extends Controller
      */
     private function enlace(AnexoGarantia $anexo, ?Request $request): string
     {
-        $base = config('app.frontend_url')
-            ?: ($request?->headers->get('origin') ?: config('app.url'));
+        return self::baseApp($request) . '/firmar/' . $anexo->token;
+    }
 
-        return rtrim((string) $base, '/') . '/firmar/' . $anexo->token;
+    /** La app (Vercel) cuando no hay FRONTEND_URL ni el navegador dice desde dónde pide. */
+    public const APP_POR_DEFECTO = 'https://sistema-de-ventas-olive.vercel.app';
+
+    /**
+     * La dirección de la app para los enlaces que se le mandan al cliente.
+     *
+     * Antes caía en `app.url` (la API en Render) y el cliente recibía un
+     * enlace que no abría nada (visto 2026-10-21): los navegadores solo mandan
+     * `Origin` en los POST, y la pantalla del vendedor pregunta el estado por
+     * GET cada pocos segundos (y al retomar la espera tras recargar), así que el
+     * enlace bueno se cambiaba por el de Render. Ahora: FRONTEND_URL, el Origin,
+     * el Referer y, si nada, la app. Nunca la dirección de la API.
+     */
+    public static function baseApp(?Request $request): string
+    {
+        $candidatos = [
+            config('app.frontend_url'),
+            $request?->headers->get('origin'),
+            ($ref = $request?->headers->get('referer'))
+                ? (parse_url($ref, PHP_URL_SCHEME) . '://' . parse_url($ref, PHP_URL_HOST) . (parse_url($ref, PHP_URL_PORT) ? ':' . parse_url($ref, PHP_URL_PORT) : ''))
+                : null,
+        ];
+        $api = parse_url((string) config('app.url'), PHP_URL_HOST);
+        foreach ($candidatos as $c) {
+            $host = $c ? parse_url((string) $c, PHP_URL_HOST) : null;
+            if ($host && $host !== $api) return rtrim((string) $c, '/');
+        }
+
+        return self::APP_POR_DEFECTO;
     }
 }

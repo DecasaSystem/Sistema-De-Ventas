@@ -564,6 +564,14 @@ Decisiones del dueño del 2026-10-08:
 
 ## 6. Trampas conocidas
 
+- **Enlace de firma con la dirección de Render** (2026-10-21, queja: "el enlace no abre
+  nada"). `AnexoGarantiaController::enlace` usaba `FRONTEND_URL` (no está en Render) o el
+  `Origin`, y si no, `app.url` (la API). Los navegadores solo mandan `Origin` en POST: al
+  preguntar el estado por GET (cada 5 s, y al retomar la espera) el enlace bueno se cambiaba
+  por `…onrender.com/firmar/…`. Ahora `baseApp()`: FRONTEND_URL → Origin → Referer → la app en
+  Vercel, nunca el host de la API; y `routes/web.php` redirige `/firmar/{token}` de Render a la
+  app (los enlaces ya mandados abren). Para links al cliente, usar `baseApp()`.
+
 - **Recalcular comisiones daba 502** (2026-10-19, **sin subir**, sin migración). Pone al día
   todas las comisiones sin pagar orden por orden; con ~300 renglones abiertos y ~200 ms por
   consulta son minutos y el proxy cortaba la petición (la bitácora no tenía ni un

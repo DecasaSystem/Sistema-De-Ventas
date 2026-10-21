@@ -578,4 +578,37 @@ class DeclaracionEspecialesTest extends TestCase
         $hist = $this->actingAs($jefa)->getJson('/api/plantillas-documento/declaracion_especiales')->assertOk()->json('historial');
         $this->assertSame(1, collect($hist)->firstWhere('version', 'fabrica')['firmados']);
     }
+
+    // ── El enlace que se le manda al cliente ──────────────────────────────────
+
+    public function test_el_enlace_es_de_la_app_aunque_se_pregunte_por_get(): void
+    {
+        config(['app.url' => 'https://decasa-api-b91v.onrender.com', 'app.frontend_url' => null]);
+        $v = $this->vendedor();
+
+        // Al crearlo (POST) el navegador manda de dónde viene.
+        $r = $this->actingAs($v)->withHeaders(['Origin' => 'https://sistema-de-ventas-olive.vercel.app'])
+            ->postJson('/api/anexos', ['cliente_id' => 1, 'modo' => 'remoto', 'especiales' => $this->especiales()])->assertCreated();
+        $this->assertStringStartsWith('https://sistema-de-ventas-olive.vercel.app/firmar/', $r->json('url'));
+
+        // Al preguntar el estado (GET) no lo manda: antes salía el de Render.
+        $this->flushHeaders();
+        $sinOrigen = $this->actingAs($v)->getJson('/api/anexos/' . $r->json('id'))->json('url');
+        $this->assertStringStartsWith(\App\Http\Controllers\AnexoGarantiaController::APP_POR_DEFECTO . '/firmar/', $sinOrigen);
+        $this->assertStringNotContainsString('onrender.com', $sinOrigen);
+
+        // Con el Referer de la app, esa.
+        $this->flushHeaders();
+        $conReferer = $this->actingAs($v)->withHeaders(['Referer' => 'http://localhost:5173/ordenes/nueva'])
+            ->getJson('/api/anexos/en-curso?cliente_id=1')->json('url');
+        $this->assertStringStartsWith('http://localhost:5173/firmar/', $conReferer);
+    }
+
+    public function test_un_enlace_viejo_de_render_lleva_a_la_app(): void
+    {
+        config(['app.frontend_url' => null]);
+        $token = str_repeat('a', 48);
+
+        $this->get("/firmar/{$token}")->assertRedirect(\App\Http\Controllers\AnexoGarantiaController::APP_POR_DEFECTO . "/firmar/{$token}");
+    }
 }
