@@ -119,7 +119,7 @@ class DevolucionController extends Controller
         }
 
         $lista = Devolucion::faltaRecoger()
-            ->with(['orden:id,referencia,cliente_id,tienda_id,estado,direccion_envio,serie,serie_numero,numero_orden,cotizacion_numero',
+            ->with(['orden',
                     'orden.cliente:id,nombre,telefono,direccion', 'item', 'item.producto:id,nombre',
                     'tiendaDestino:id,nombre', 'reportadoPor:id,nombre'])
             ->orderByRaw('recoger_el IS NULL')->orderBy('recoger_el')->orderBy('id')
@@ -181,7 +181,10 @@ class DevolucionController extends Controller
     public function index(Request $request)
     {
         $q = Devolucion::with([
-            'orden:id,referencia,cliente_id,tienda_id,estado',
+            // La orden entera: `referencia` no es columna (se arma con serie, número
+            // y estado). Pedirla en el select tumbaba la lista en MySQL y la orden
+            // #1231 quedó sin que nadie viera su devolución. SQLite no lo notaba.
+            'orden',
             'orden.cliente:id,nombre',
             'item', 'item.producto:id,nombre',
             'reportadoPor:id,nombre', 'decididoPor:id,nombre',

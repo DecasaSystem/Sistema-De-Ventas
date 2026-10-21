@@ -513,4 +513,25 @@ class DevolucionTest extends TestCase
 
         $this->assertSame('devuelto', $orden->fresh()->estado);
     }
+    /**
+     * `referencia` no es columna de `ordenes`: se arma en el modelo. Pedirla en
+     * un select revienta en MySQL ("Unknown column") y la lista salía vacía en
+     * la orden y en Producción: nadie veía la devolución de la #1231. SQLite
+     * lo deja pasar (la toma como texto), así que se mira la consulta misma.
+     */
+    public function test_la_lista_no_pide_columnas_que_no_existen(): void
+    {
+        [$orden, , , $dev] = $this->orden1231();
+        $consultas = [];
+        DB::listen(function ($q) use (&$consultas) { $consultas[] = $q->sql; });
+
+        $this->actingAs($this->jefa())->getJson("/api/devoluciones?orden_id={$orden->id}")->assertOk()
+            ->assertJsonPath('0.id', $dev->id)
+            ->assertJsonPath('0.orden_referencia', '#1231');
+        $this->actingAs($this->jefa())->getJson('/api/devoluciones?estado=pendiente')->assertOk()->assertJsonCount(1);
+
+        foreach ($consultas as $sql) {
+            $this->assertStringNotContainsString('"referencia"', $sql, "Pide una columna que no existe: {$sql}");
+        }
+    }
 }

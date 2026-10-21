@@ -592,6 +592,11 @@ Decisiones del dueño del 2026-10-08:
   inventario soltando el apartado, o merma; lo pagado de más queda a favor); y "entregado"
   cierra una orden que ya tiene todo en la casa. Lo que vuelve en el camión ≠ lo que el
   cliente ya tenía: mirar `pendienteEntregar()` antes de mover inventario.
+  **Causa de fondo (hallada después de subir):** `GET /devoluciones` pedía
+  `orden:id,referencia,…` y `referencia` NO es columna (es accesor): en MySQL daba 500,
+  la pantalla lo tragaba y la lista salía vacía en la orden y en Producción. Nadie podía
+  ver ni decidir la devolución. Nunca poner `referencia` en un select/`with(':cols')`;
+  test `test_la_lista_no_pide_columnas_que_no_existen` revisa el SQL (SQLite no falla).
 
 - **"Sin conexión" al crear la orden que era una foto borrada** (2026-10-21, consola:
   `/api/upload/foto net::ERR_FILE_NOT_FOUND` + `AxiosError: Network Error`, repetido en
