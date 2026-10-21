@@ -50,6 +50,7 @@ abstract class TestCase extends BaseTestCase
         $agregar('ordenes',        'factura_fotos',      fn ($t) => $t->json('factura_fotos')->nullable());
         $agregar('orden_items',    'cantidad_entregada', fn ($t) => $t->unsignedInteger('cantidad_entregada')->default(0));
         $agregar('orden_items',    'llevar_ahora',       fn ($t) => $t->boolean('llevar_ahora')->default(false));
+        $agregar('orden_items',    'tela_por_definir',   fn ($t) => $t->boolean('tela_por_definir')->default(false));
         $agregar('orden_items',    'devuelto_en',        fn ($t) => $t->date('devuelto_en')->nullable());
         $agregar('orden_items',    'motivo_devolucion',  fn ($t) => $t->text('motivo_devolucion')->nullable());
         $agregar('ordenes',        'descuento_total',    fn ($t) => $t->decimal('descuento_total', 15, 2)->default(0));

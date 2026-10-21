@@ -547,7 +547,7 @@ por cliente/orden: los anteriores se anulan; "Cancelar envío" lo anula
 
 **Declaración de diseños y medidas especiales (2026-10-21):** el papel que el cliente
 firmaba para lo que no está en el catálogo, ahora en el sistema. `Support/DeclaracionEspeciales`
-(reglas), migración `2026_10_25_000001_declaracion_disenos_especiales` (solo agrega:
+(reglas), migración `2026_10_26_000001_declaracion_disenos_especiales` (solo agrega:
 `orden_items.ficha_especial`, `ordenes.declaracion_foto_url`, `anexos_garantia.declaracion_version
 / especiales / especiales_hash / cambio_pedido(_at)`).
 - **Qué productos:** Gestión → Ajustes (`AjustesSistema`): diseños especiales (prendido) y

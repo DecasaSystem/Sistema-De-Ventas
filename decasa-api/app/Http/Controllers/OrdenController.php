@@ -24,6 +24,7 @@ use App\Models\Producto;
 use App\Models\ProductoVariante;
 use App\Models\Tienda;
 use App\Support\ConvierteImagenesPdf;
+use App\Support\StockMedida;
 use App\Support\StockVariantes;
 use App\Services\NumeracionOrdenes;
 use App\Support\PdfOrdenUnaHoja;
@@ -415,6 +416,9 @@ class OrdenController extends Controller
             // descartaba y el ítem se guardaba sin decir cuál era.
             'items.*.combo_config_id'            => 'nullable|integer|exists:producto_variante_configs,id',
             'items.*.variante_detalle'           => 'nullable|string|max:200',
+            // Se sabe la medida pero no la tela: se define después desde la
+            // orden y no se despacha sin ella (ver definirTela).
+            'items.*.tela_por_definir'           => 'nullable|boolean',
             // Producto en juego: 'juego' (cantidad = juegos × piezas) o
             // 'pieza' (piezas sueltas). Ver OrdenItem::datosDeJuego.
             'items.*.venta_juego'                => 'nullable|in:juego,pieza',
@@ -572,8 +576,10 @@ class OrdenController extends Controller
             $seLleva = $quiereEntregaInmediata || ! empty($i['llevar_ahora']);
             // Lo que se retapiza existe, pero se va a la fábrica, no con el
             // cliente: no se puede llevar hoy.
+            // Con la tela por definir tampoco: no se sabe cuál sale.
             $existe  = ! empty($i['producto_unico'])
-                    || (empty($i['es_personalizado']) && ! empty($i['producto_id']) && ! $retapizar);
+                    || (empty($i['es_personalizado']) && ! empty($i['producto_id']) && ! $retapizar
+                        && empty($i['tela_por_definir']));
             $data['items'][$k]['llevar_ahora'] = $seLleva && $existe;
         }
         $hayParaLlevar = collect($data['items'])->contains(fn ($i) => $i['llevar_ahora']);
@@ -776,22 +782,48 @@ class OrdenController extends Controller
             }
 
             // --- 1. Verificar stock para items no personalizados (con bloqueo) ---
+            // La medida se suma por orden: dos líneas de la misma 1.40 piden dos.
+            $pedidoPorMedida = [];
             foreach ($data['items'] as $item) {
-                if (! ($item['es_personalizado'] ?? false) && ! empty($item['producto_id'])) {
+                if (! ($item['es_personalizado'] ?? false) && ! empty($item['producto_id']) && empty($item['producto_unico'])) {
                     $varianteId    = $item['variante_id']      ?? null;
                     $origenTiendaId = $item['tienda_origen_id'] ?? $tiendaId;
+                    $comboConfigIdCheck = $item['combo_config_id'] ?? null;
+
+                    // La medida se revisa aparte de la tela: se puede saber que
+                    // es la 1.40 sin saber de qué tela (ver StockMedida).
+                    if ($comboConfigIdCheck) {
+                        $claveMedida = $comboConfigIdCheck . '-' . $origenTiendaId;
+                        $pedidoPorMedida[$claveMedida] = ($pedidoPorMedida[$claveMedida] ?? 0) + (int) $item['cantidad'];
+                        $libreMedida = StockMedida::libre((int) $comboConfigIdCheck, (int) $origenTiendaId, $borradorId, true);
+                        if ($libreMedida !== null && $libreMedida < $pedidoPorMedida[$claveMedida]) {
+                            abort(422, $this->mensajeSinStock($item, null, $origenTiendaId, $libreMedida));
+                        }
+                    }
 
                     if ($varianteId) {
-                        $comboConfigIdCheck = $item['combo_config_id'] ?? null;
-                        if ($comboConfigIdCheck) {
-                            $inv = InventarioVarianteCombinacion::where('variante_id', $varianteId)
+                        // Tela y medida juntas solo si esa combinación se
+                        // registró. Si no, la tela se revisa sola: antes se
+                        // buscaba la combinación, no existía y daba "0 libres"
+                        // aunque hubiera de esa tela y de esa medida.
+                        $inv = $comboConfigIdCheck
+                            ? InventarioVarianteCombinacion::where('variante_id', $varianteId)
                                 ->where('config_id', $comboConfigIdCheck)
                                 ->where('tienda_id', $origenTiendaId)
-                                ->lockForUpdate()->first();
-                        } else {
+                                ->lockForUpdate()->first()
+                            : null;
+                        if (! $inv) {
                             $inv = InventarioVariante::where('variante_id', $varianteId)
                                 ->where('tienda_id', $origenTiendaId)
                                 ->lockForUpdate()->first();
+                            // Con medida elegida, lo de esa tela que ya está
+                            // anotado en OTRA medida (gris 1.60) no sirve.
+                            if ($inv && $comboConfigIdCheck) {
+                                $enOtras = (int) InventarioVarianteCombinacion::where('variante_id', $varianteId)
+                                    ->where('tienda_id', $origenTiendaId)
+                                    ->sum(DB::raw('CASE WHEN cantidad_disponible > cantidad_reservada THEN cantidad_disponible - cantidad_reservada ELSE 0 END'));
+                                $inv = (clone $inv)->setAttribute('cantidad_reservada', (int) $inv->cantidad_reservada + $enOtras);
+                            }
                         }
                     } else {
                         $inv = Inventario::where('producto_id', $item['producto_id'])
@@ -804,8 +836,7 @@ class OrdenController extends Controller
                         : 0;
 
                     if ($stockLibre < $item['cantidad']) {
-                        $where = $varianteId ? "variante ID {$varianteId}" : "producto ID {$item['producto_id']}";
-                        abort(422, "Stock insuficiente para {$where}. Stock libre: {$stockLibre}, solicitado: {$item['cantidad']}.");
+                        abort(422, $this->mensajeSinStock($item, $inv, $origenTiendaId, $stockLibre));
                     }
                 }
             }
@@ -932,6 +963,10 @@ class OrdenController extends Controller
                     'retapizar'             => $retapizar,
                     'es_regalo'             => (bool) ($itemData['es_regalo'] ?? false),
                     'llevar_ahora'          => (bool) ($itemData['llevar_ahora'] ?? false),
+                    ...(Esquema::columna('orden_items', 'tela_por_definir') ? [
+                        'tela_por_definir' => ! empty($itemData['tela_por_definir']) && ! $varianteId
+                            && ! $esPersonalizado && ! $esProductoCustom && ! $esProductoUnico,
+                    ] : []),
                     'specs_personalizacion' => $specsExtra,
                     'boceto_url'            => isset($itemData['boceto_urls'])
                         ? (array_values(array_filter($itemData['boceto_urls']))[0] ?? null)
@@ -1298,6 +1333,148 @@ class OrdenController extends Controller
         }
 
         return response()->json($ordenCargada, 201);
+    }
+
+    /**
+     * Lo que se le dice al vendedor cuando un producto ya no tiene stock libre.
+     *
+     * Antes decía "Stock insuficiente para variante ID 36. Stock libre: 0,
+     * solicitado: 1." y el vendedor no tenía cómo saber cuál de los productos
+     * del carrito era, ni en qué tienda. El stock que ve en la lista es el del
+     * producto entero (todas sus medidas o telas): una medida puede estar en 0
+     * aunque el producto diga "3 en stock". Por eso se nombra la medida/tela y
+     * se dice si lo que hay ya está apartado para otra orden.
+     */
+    private function mensajeSinStock(array $item, $inv, $tiendaId, int|float $libre): string
+    {
+        $nombre  = Producto::find($item['producto_id'])?->nombre ?? 'un producto';
+        $detalle = OrdenItem::detalleDeVariante(
+            $item['variante_detalle'] ?? null, $item['combo_config_id'] ?? null, $item['variante_id'] ?? null
+        );
+        $que    = $detalle ? "\"{$nombre} ({$detalle})\"" : "\"{$nombre}\"";
+        $tienda = Tienda::find($tiendaId)?->nombre ?? 'esa tienda';
+        $libre  = max(0, (int) $libre);
+        $lleva  = (int) $item['cantidad'];
+
+        $hay      = (int) ($inv?->cantidad_disponible ?? 0);
+        $apartado = (int) ($inv?->cantidad_reservada ?? 0);
+        $porQue   = $libre === 0 && $hay > 0 && $apartado > 0
+            ? " Hay {$hay}, pero ya está apartado para otra orden."
+            : '';
+
+        $cuanto = $libre === 0 ? 'no queda ninguno libre' : "solo quedan {$libre} libres y la orden lleva {$lleva}";
+
+        return "No hay stock de {$que} en {$tienda}: {$cuanto}.{$porQue} "
+             . 'Escoge otra medida o tela, otra tienda, o mándalo a fabricar.';
+    }
+
+    /**
+     * POST /api/ordenes/{id}/items/{itemId}/definir-tela   { variante_id }
+     *
+     * La cama se vendió sabiendo la medida pero no la tela ("la 1.40, la tela
+     * la escoge en la casa"). Aquí se escoge. Mientras no se defina no se
+     * despacha (EntregaService::entregablesDe): se mandaría la que no es.
+     *
+     * Aparta la tela como la habría apartado la venta si se hubiera escogido
+     * desde el principio: la medida y el total ya se habían apartado al vender.
+     */
+    public function definirTela(Request $request, int $id, int $itemId)
+    {
+        $data = $request->validate([
+            'variante_id' => 'required|integer|exists:producto_variantes,id',
+        ]);
+        $usuario = $request->user();
+
+        $item = DB::transaction(function () use ($id, $itemId, $data, $usuario) {
+            $orden = Orden::lockForUpdate()->findOrFail($id);
+            if (! $orden->laPuedeEditar($usuario)) {
+                abort(403, 'No tienes permiso para cambiar esta orden.');
+            }
+
+            $item = OrdenItem::where('orden_id', $orden->id)->lockForUpdate()->findOrFail($itemId);
+            if (! $item->tela_por_definir) {
+                abort(422, 'Este producto ya tiene la tela definida.');
+            }
+
+            $variante = ProductoVariante::find($data['variante_id']);
+            if (! $variante || (int) $variante->producto_id !== (int) $item->producto_id || ! $variante->activo) {
+                abort(422, 'Esa tela no es de este producto.');
+            }
+
+            $origenId = (int) ($item->tienda_origen_id ?? $orden->tienda_id);
+            $cantidad = $item->pendienteEntregar();
+            $aparta   = $cantidad > 0 && ! in_array($orden->estado, Orden::ESTADOS_SIN_RESERVA, true);
+
+            $combo = $item->combo_config_id
+                ? InventarioVarianteCombinacion::where('variante_id', $variante->id)
+                    ->where('config_id', $item->combo_config_id)
+                    ->where('tienda_id', $origenId)
+                    ->lockForUpdate()->first()
+                : null;
+
+            if ($aparta) {
+                // La misma cuenta que al vender (store): la combinación si se
+                // registró; si no, la tela menos lo de ella anotado en otras medidas.
+                if ($combo) {
+                    $libre = (int) $combo->cantidad_disponible - (int) $combo->cantidad_reservada;
+                } else {
+                    $inv = InventarioVariante::where('variante_id', $variante->id)
+                        ->where('tienda_id', $origenId)->lockForUpdate()->first();
+                    $enOtras = $item->combo_config_id
+                        ? (int) InventarioVarianteCombinacion::where('variante_id', $variante->id)
+                            ->where('tienda_id', $origenId)
+                            ->sum(DB::raw('CASE WHEN cantidad_disponible > cantidad_reservada THEN cantidad_disponible - cantidad_reservada ELSE 0 END'))
+                        : 0;
+                    $libre = $inv ? (int) $inv->cantidad_disponible - (int) $inv->cantidad_reservada - $enOtras : 0;
+                }
+
+                if ($libre < $cantidad) {
+                    $tela   = trim(implode(' · ', array_filter([$variante->marca_tela, $variante->nombre_color])));
+                    $tienda = Tienda::find($origenId)?->nombre ?? 'esa tienda';
+                    abort(422, $libre > 0
+                        ? "De la tela \"{$tela}\" solo quedan {$libre} libres en {$tienda} y este producto lleva {$cantidad}. Escoge otra tela."
+                        : "La tela \"{$tela}\" no tiene stock libre en {$tienda} para este producto. Escoge otra tela.");
+                }
+
+                InventarioVariante::where('variante_id', $variante->id)->where('tienda_id', $origenId)
+                    ->increment('cantidad_reservada', $cantidad);
+                $combo?->increment('cantidad_reservada', $cantidad);
+
+                InventarioMovimiento::create([
+                    'producto_id' => $item->producto_id,
+                    'tienda_id'   => $origenId,
+                    'variante_id' => $variante->id,
+                    'tipo'        => 'reserva',
+                    'cantidad'    => $cantidad,
+                    'motivo'      => "Orden #{$orden->id} — tela definida ({$variante->marca_tela} - {$variante->nombre_color}) por {$usuario->nombre}",
+                    'usuario_id'  => $usuario->id,
+                ]);
+            }
+
+            // La medida que ya decía y, ahora, la tela.
+            $medida = $item->combo_config_id ? OrdenItem::detalleDeVariante(null, $item->combo_config_id) : null;
+            $tela   = trim(implode(' · ', array_filter([$variante->marca, $variante->marca_tela, $variante->nombre_color])));
+
+            $item->update([
+                'variante_id'           => $variante->id,
+                'variante_detalle'      => mb_substr(implode(' · ', array_filter([$medida, $tela])), 0, 200) ?: null,
+                'tela_por_definir'      => false,
+                'specs_personalizacion' => array_merge($item->specs_personalizacion ?? [], [
+                    'variante_marca' => $variante->marca_tela,
+                    'variante_color' => $variante->nombre_color,
+                ]),
+            ]);
+
+            return $item;
+        });
+
+        try {
+            event(new InventarioActualizado(
+                (int) ($item->tienda_origen_id ?? $item->orden->tienda_id), (int) $item->producto_id, 'reserva'
+            ));
+        } catch (\Throwable) {}
+
+        return response()->json($item->fresh(['variante', 'comboConfig.opcion']));
     }
 
     /**
@@ -2412,6 +2589,18 @@ class OrdenController extends Controller
                         if ($stockLibre < $cantidad) {
                             $nomProd = Producto::find($productoId)?->nombre ?? "Producto #{$productoId}";
                             abort(422, "Stock insuficiente para \"{$nomProd}\". Libre: {$stockLibre}, necesario: {$cantidad}.");
+                        }
+                        // La medida, aparte de la tela (ver StockMedida). Lo
+                        // que esta orden ya tenía sí cuenta: también la espera.
+                        if (! empty($nuevoData['combo_config_id'])) {
+                            $libreMedida = StockMedida::libre((int) $nuevoData['combo_config_id'], (int) $origenId, null, true);
+                            if ($libreMedida !== null && $libreMedida < $cantidad) {
+                                abort(422, $this->mensajeSinStock(
+                                    ['producto_id' => $productoId, 'cantidad' => $cantidad, 'combo_config_id' => $nuevoData['combo_config_id'],
+                                     'variante_id' => $varianteId, 'variante_detalle' => $nuevoData['variante_detalle'] ?? null],
+                                    null, $origenId, $libreMedida
+                                ));
+                            }
                         }
                     }
 

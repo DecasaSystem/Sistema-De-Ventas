@@ -7,6 +7,7 @@ use App\Models\Inventario;
 use App\Models\InventarioMovimiento;
 use App\Models\InventarioVariante;
 use App\Models\ProductoVariante;
+use App\Support\StockMedida;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -41,7 +42,7 @@ class VarianteController extends Controller
                     ->join('tipo_variante_opciones as tvo', 'pvc.opcion_id', '=', 'tvo.id')
                     ->join('tipos_variante as tv', 'pvc.tipo_variante_id', '=', 'tv.id')
                     ->where('pvc.producto_id', $productoId)
-                    ->select(['pvc.id as config_id', 'tvo.nombre as opcion_nombre', 'tv.nombre as tipo_nombre'])
+                    ->select(['pvc.id as config_id', 'tvo.nombre as opcion_nombre', 'tv.nombre as tipo_nombre', 'pvc.precio_adicional'])
                     ->get();
 
                 if ($customConfigs->isNotEmpty()) {
@@ -52,6 +53,18 @@ class VarianteController extends Controller
                         ->whereIn('variante_id', $varianteIds)
                         ->get()
                         ->groupBy('variante_id');
+
+                    // Para vender (Nueva orden): la medida se mira aparte de la
+                    // tela. Con `para_venta` cada combinación no ofrece más de
+                    // lo que queda libre de su medida, y cada medida trae una
+                    // fila "tela por definir": se sabe que es la 1.40 aunque no
+                    // de qué tela. Inventario no lo pide y ve lo de siempre.
+                    $paraVenta   = $request->boolean('para_venta');
+                    $libreMedida = $paraVenta
+                        ? $customConfigs->mapWithKeys(fn ($c) => [
+                            $c->config_id => StockMedida::libre((int) $c->config_id, (int) $tiendaId),
+                        ])
+                        : collect();
 
                     $result = collect();
                     foreach ($variantes as $v) {
@@ -66,6 +79,9 @@ class VarianteController extends Controller
                             $entry['stock_disponible'] = $combo?->cantidad_disponible ?? 0;
                             $entry['stock_reservado']  = $combo?->cantidad_reservada  ?? 0;
                             $entry['stock_libre']      = max(0, ($combo?->cantidad_disponible ?? 0) - ($combo?->cantidad_reservada ?? 0));
+                            if ($paraVenta && $libreMedida[$config->config_id] !== null) {
+                                $entry['stock_libre'] = min($entry['stock_libre'], $libreMedida[$config->config_id]);
+                            }
                             $result->push($entry);
                         }
 
@@ -93,6 +109,34 @@ class VarianteController extends Controller
                             $result->push($entry);
                         }
                     }
+
+                    // La medida sin tela: van primero, es lo que más se busca
+                    // ("la cama de 1.40") cuando la tela no se sabe todavía.
+                    if ($paraVenta) {
+                        $sinTela = collect();
+                        foreach ($customConfigs as $config) {
+                            $libre = $libreMedida[$config->config_id];
+                            if (! $libre) continue;   // null (no se lleva por medida) o 0
+                            $sinTela->push([
+                                'id'                => null,
+                                'producto_id'       => $productoId,
+                                'marca'             => null,
+                                'marca_tela'        => null,
+                                'nombre_color'      => null,
+                                'medida'            => null,
+                                // El precio completo de esa medida (en 0 = el del producto).
+                                'precio_variante'   => (float) $config->precio_adicional > 0 ? (float) $config->precio_adicional : null,
+                                '_combo_id'         => null,
+                                '_config_id'        => $config->config_id,
+                                '_config_label'     => $config->opcion_nombre,
+                                '_tipo_nombre'      => $config->tipo_nombre,
+                                '_tela_por_definir' => true,
+                                'stock_libre'       => $libre,
+                            ]);
+                        }
+                        $result = $sinTela->concat($result);
+                    }
+
                     return response()->json($result->values());
                 }
 

@@ -15,6 +15,7 @@ use App\Models\Orden;
 use App\Models\OrdenItem;
 use App\Models\Produccion;
 use App\Models\Usuario;
+use App\Support\StockMedida;
 use App\Support\StockVariantes;
 use Illuminate\Support\Facades\DB;
 
@@ -68,8 +69,29 @@ class EntregaService
     public static function entregablesDe(Orden $orden): array
     {
         return $orden->itemsEntregables()
+            // Vendido con la medida y sin tela: no se sabe cuál cargar.
+            ->reject(fn (OrdenItem $i) => (bool) $i->tela_por_definir)
             ->mapWithKeys(fn (OrdenItem $i) => [$i->id => $i->pendienteEntregar()])
             ->all();
+    }
+
+    /**
+     * Por qué no se puede despachar lo que tiene la tela por definir, o null
+     * si a la orden no le falta ninguna. Lo usan los caminos que entregan
+     * "todo lo que se pueda": sin esto decían "no hay nada listo" y nadie
+     * sabía que era por la tela.
+     */
+    public static function faltaDefinirTela(Orden $orden): ?string
+    {
+        $item = $orden->items->first(fn (OrdenItem $i) => $i->tela_por_definir && $i->pendienteEntregar() > 0);
+        if (! $item) return null;
+
+        return self::mensajeTelaPorDefinir($item->nombre_custom ?: ($item->producto?->nombre ?? 'un producto'));
+    }
+
+    private static function mensajeTelaPorDefinir(string $nombre): string
+    {
+        return "A \"{$nombre}\" le falta definir la tela. Defínela en la orden (botón \"Definir tela\") antes de despacharlo.";
     }
 
     /**
@@ -96,6 +118,9 @@ class EntregaService
             }
             $nombre = $item->nombre_custom ?: ($item->producto?->nombre ?? 'ese producto');
 
+            if ($item->tela_por_definir && $item->pendienteEntregar() > 0) {
+                return self::mensajeTelaPorDefinir($nombre);
+            }
             if (! isset($entregables[$id])) {
                 return "\"{$nombre}\" todavía no se puede entregar: "
                     . ($item->pendienteEntregar() <= 0 ? 'ya se entregó.' : 'el taller no lo ha dado por listo.');
@@ -346,6 +371,12 @@ class EntregaService
                 'cantidad_reservada'  => DB::raw("cantidad_reservada - {$cantidad}"),
             ]);
 
+        // La medida que se vendió es la que sale. Antes no se tocaba y cuadrar
+        // (abajo) recortaba la del montón más grande: se vendía la 1.60 y
+        // bajaba la 1.40. Lo apartado de la medida no lleva contador (ver
+        // StockMedida): solo se mueve lo disponible.
+        StockMedida::mover($item->combo_config_id, (int) $origenId, -$cantidad);
+
         // Bajó el stock base: el reparto por tela/medida tiene que seguir
         // cabiendo dentro de lo que quedó.
         StockVariantes::cuadrar((int) $item->producto_id, (int) $origenId, "Entrega orden #{$orden->id}");
@@ -392,6 +423,7 @@ class EntregaService
                 'cantidad_disponible' => DB::raw("cantidad_disponible + {$cantidad}"),
                 'cantidad_reservada'  => DB::raw("cantidad_reservada + {$cantidad}"),
             ]);
+        StockMedida::mover($item->combo_config_id, (int) $origenId, $cantidad);
 
         InventarioMovimiento::create([
             'producto_id' => $item->producto_id,

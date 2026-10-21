@@ -449,6 +449,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // El cliente devuelve algo ya entregado y lo cambia por otra cosa: la
     // orden se reabre y el producto nuevo se agrega con la edición normal.
     Route::post('/ordenes/{id}/cambiar-producto',       [OrdenController::class, 'cambiarProducto'])->whereNumber('id');
+    // Se vendió la medida sin escoger tela: aquí se escoge después.
+    Route::post('/ordenes/{id}/items/{itemId}/definir-tela', [OrdenController::class, 'definirTela'])->whereNumber(['id', 'itemId']);
     // Acta de satisfacción firmada por quien recibió la entrega
     Route::get('/ordenes/{id}/acta-entrega',            [DespachoController::class, 'actaEntrega'])->whereNumber('id');
     // La hoja de entrega para imprimir: lo que va, el total y lo que se cobra.

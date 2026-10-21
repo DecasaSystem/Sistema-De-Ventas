@@ -132,7 +132,7 @@ class DeclaracionEspecialesTest extends TestCase
         $this->completarEsquemaDeEntregas();
 
         (require base_path('database/migrations/2026_10_12_000001_anexos_de_garantia.php'))->up();
-        (require base_path('database/migrations/2026_10_25_000001_declaracion_disenos_especiales.php'))->up();
+        (require base_path('database/migrations/2026_10_26_000001_declaracion_disenos_especiales.php'))->up();
 
         DB::table('tiendas')->insert(['id' => 1, 'nombre' => 'Decasa Norte']);
         DB::table('clientes')->insert(['id' => 1, 'nombre' => 'Ana Ruiz', 'cedula' => '123', 'email' => 'ana@x.com', 'telefono' => '3001112233', 'direccion' => 'Cra 14 # 5-20', 'created_at' => now(), 'updated_at' => now()]);
