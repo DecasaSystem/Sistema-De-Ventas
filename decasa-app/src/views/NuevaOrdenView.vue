@@ -15,7 +15,7 @@ import TelaPicker from '@/components/ordenes/TelaPicker.vue'
 import ResumenOrdenModal from '@/components/ordenes/ResumenOrdenModal.vue'
 import { cloudinaryOpt } from '@/utils/cloudinary'
 import { useVisorFoto } from '@/composables/useVisorFoto'
-import { comprimirImagen, comprimirAlTomar } from '@/utils/comprimirImagen'
+import { comprimirImagen, comprimirAlTomar, fotoSigueAhi, errorFotoPerdida } from '@/utils/comprimirImagen'
 import { useBorradorLocal } from '@/composables/useBorradorLocal'
 import { piezasPorJuego, piezasDeOpcion, enJuegos, precioPieza } from '@/utils/juegos'
 import { pctDeMonto, montoDePct, formatPct } from '@/utils/descuentos'
@@ -1985,6 +1985,9 @@ async function subirBocetosPendientes() {
     if (!(item.es_personalizado || item._retapizar)) continue
     for (let fi = 0; fi < item.boceto_blobs.length; fi++) {
       if (item.boceto_blobs[fi] && !item.boceto_urls[fi]) {
+        if (!(await fotoSigueAhi(item.boceto_blobs[fi]))) {
+          throw errorFotoPerdida(`del boceto de "${item.nombre ?? 'un producto'}"`, { yaSeQuito: false })
+        }
         const fd = new FormData()
         fd.append('foto', await comprimirImagen(item.boceto_blobs[fi]), fi === 0 ? 'boceto.jpg' : `boceto_${fi}.jpg`)
         fd.append('folder', 'bocetos')
@@ -2773,8 +2776,14 @@ async function submit() {
     // Una por una: si se cae la red a mitad, las que ya subieron se quedan.
     if (facturaFotos.value.some(f => !f.url)) {
       subiendoFactura.value = true
-      for (const f of facturaFotos.value) {
+      for (const f of [...facturaFotos.value]) {
         if (f.url) continue
+        // Ya no está en el teléfono: se quita y se pide otra vez (ver
+        // comprimirAlTomar). Reintentar con la misma nunca funcionaría.
+        if (!(await fotoSigueAhi(f.file))) {
+          removeFacturaFoto(facturaFotos.value.indexOf(f))
+          throw errorFotoPerdida('del comprobante')
+        }
         const fd = new FormData()
         fd.append('foto', await comprimirImagen(f.file), 'factura.jpg')
         fd.append('folder', 'facturas')
@@ -2793,6 +2802,10 @@ async function submit() {
     // Foto del anexo firmado. También en el borrador, por lo mismo que el
     // comprobante: si ya se tomó, que siga ahí al continuarlo.
     if (anexoFotoFile.value && !anexoFotoUrl.value) {
+      if (!(await fotoSigueAhi(anexoFotoFile.value))) {
+        anexoFotoFile.value = null
+        throw errorFotoPerdida('del anexo')
+      }
       subiendoAnexo.value = true
       const fd = new FormData()
       fd.append('foto', await comprimirImagen(anexoFotoFile.value), 'anexo.jpg')
@@ -2805,6 +2818,10 @@ async function submit() {
     }
     // La declaración de diseños especiales en papel, igual.
     if (declaracionFotoFile.value && !declaracionFotoUrl.value) {
+      if (!(await fotoSigueAhi(declaracionFotoFile.value))) {
+        declaracionFotoFile.value = null
+        throw errorFotoPerdida('de la declaración')
+      }
       subiendoDeclaracion.value = true
       const fd = new FormData()
       fd.append('foto', await comprimirImagen(declaracionFotoFile.value), 'declaracion.jpg')
@@ -2985,6 +3002,8 @@ async function submit() {
     // petición nunca salió (un error de JS armando la orden) o que se cortó
     // por tiempo. Decir cuál es lo que permite saber dónde buscar.
     let mensaje = e.response?.data?.message
+    // Una foto que el teléfono ya borró no es falta de internet.
+    if (e.fotoPerdida) mensaje = e.message
     if (!mensaje) {
       if (e.response) {
         mensaje = `Error del servidor (${e.response.status}) al crear la orden`

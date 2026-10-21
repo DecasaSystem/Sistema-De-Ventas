@@ -103,9 +103,53 @@ async function decodificar(archivo, maxDim = 1920) {
  * @param {File} archivo
  * @returns {Promise<File|Blob>}
  */
+/**
+ * ¿Todavía se puede leer la foto? Una que se escogió antes de este arreglo, o
+ * que viene del respaldo local, puede apuntar a un archivo que el teléfono ya
+ * borró. Mejor saberlo antes de subirla que mostrar "sin conexión".
+ *
+ * @param {File|Blob} archivo
+ * @returns {Promise<boolean>}
+ */
+export async function fotoSigueAhi(archivo) {
+  if (!archivo) return false
+  try {
+    await archivo.slice(0, 1).arrayBuffer()
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Error para cuando una foto ya no está en el teléfono: la pantalla muestra
+ * el mensaje tal cual (no es un problema de conexión).
+ */
+export function errorFotoPerdida(queEs, { yaSeQuito = true } = {}) {
+  const e = new Error(`La foto ${queEs} ya no está en el teléfono (se borró o se movió después de escogerla). `
+    + (yaSeQuito ? 'La quité: tómala o escógela otra vez y dale de nuevo.' : 'Quítala, tómala o escógela otra vez y dale de nuevo.'))
+  e.fotoPerdida = true
+  return e
+}
+
 export async function comprimirAlTomar(archivo) {
   const blob = await comprimirImagen(archivo)
-  if (blob === archivo) return archivo
+  // No se comprimió (pesa menos de 1 MB: capturas de transferencias, fotos de
+  // WhatsApp). El File que da el selector NO trae la foto adentro: apunta al
+  // archivo del teléfono, y se lee recién al subirlo. Si mientras tanto el
+  // teléfono lo borra (la cámara guarda en una carpeta temporal que Android
+  // limpia), lo mueve o era de la nube, la subida falla con
+  // net::ERR_FILE_NOT_FOUND —que se ve como "sin conexión"— y reintentar no
+  // sirve nunca. Se copia a memoria ahora, que el archivo todavía está.
+  if (blob === archivo) {
+    try {
+      return new File([await archivo.arrayBuffer()], archivo.name || 'foto.jpg', {
+        type: archivo.type || 'image/jpeg', lastModified: archivo.lastModified || Date.now(),
+      })
+    } catch {
+      return archivo
+    }
+  }
   const nombre = (archivo.name || 'foto').replace(/\.[^.]+$/, '') + '.jpg'
   try {
     return new File([blob], nombre, { type: blob.type || 'image/jpeg', lastModified: Date.now() })
