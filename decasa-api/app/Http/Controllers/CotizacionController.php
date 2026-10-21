@@ -16,6 +16,7 @@ use App\Mail\CotizacionEnviadaMail;
 use App\Services\ConsumoTelas;
 use App\Services\NotificacionService;
 use App\Support\ConvierteImagenesPdf;
+use App\Support\StockMedida;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -486,6 +487,17 @@ class CotizacionController extends Controller
                 if ($stockLibre < $item->cantidad) {
                     $nombre = $item->producto->nombre ?? $item->nombre_custom ?? 'ítem';
                     abort(422, "Ya no hay stock suficiente de \"{$nombre}\". Libre: {$stockLibre}, necesario: {$item->cantidad}.");
+                }
+
+                // La medida va aparte de la tela (ver StockMedida). La
+                // cotización misma no se cuenta como competencia.
+                if ($item->combo_config_id) {
+                    $libreMedida = StockMedida::libre((int) $item->combo_config_id, (int) $origenTiendaId, (int) $cotizacion->id, true);
+                    if ($libreMedida !== null && $libreMedida < $item->cantidad) {
+                        $nombre  = $item->producto->nombre ?? 'ítem';
+                        $detalle = $item->variante_detalle ? " ({$item->variante_detalle})" : '';
+                        abort(422, "Ya no hay stock de \"{$nombre}{$detalle}\" en esa medida: quedan {$libreMedida} libres y la cotización lleva {$item->cantidad}.");
+                    }
                 }
 
                 if ($item->variante_id) {

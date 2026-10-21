@@ -483,6 +483,48 @@ function puedeDanarse(item) {
     && (Number(item.pendiente_entregar ?? (item.cantidad - (item.cantidad_entregada || 0))) > 0)
 }
 
+// ── Definir la tela ──────────────────────────────────────────────────────
+// Se vendió la medida sin escoger tela ("la 1.40, la tela la escoge en la
+// casa"). Mientras no se defina, despacho no la deja cargar.
+const telaItem      = ref(null)
+const telaOpciones  = ref([])
+const telaCargando  = ref(false)
+const telaElegida   = ref(null)
+const telaGuardando = ref(false)
+
+async function abrirDefinirTela(item) {
+  telaItem.value     = item
+  telaElegida.value  = null
+  telaOpciones.value = []
+  telaCargando.value = true
+  try {
+    // Las telas solas (sin cruzarlas con las medidas): la medida ya está.
+    const { data } = await api.get(`/productos/${item.producto_id}/variantes`, {
+      params: { tienda_id: item.tienda_origen_id ?? orden.value.tienda_id, skip_combos: 1 },
+    })
+    telaOpciones.value = (data ?? []).filter(v => v.marca_tela || v.nombre_color)
+  } catch {
+    toast.error('No se pudieron cargar las telas.')
+  } finally {
+    telaCargando.value = false
+  }
+}
+
+async function guardarTela() {
+  if (!telaItem.value || !telaElegida.value || telaGuardando.value) return
+  telaGuardando.value = true
+  try {
+    await api.post(`/ordenes/${orden.value.id}/items/${telaItem.value.id}/definir-tela`, { variante_id: telaElegida.value })
+    toast.success('Tela definida.')
+    telaItem.value = null
+    await cargarOrden()
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudo definir la tela.')
+  } finally {
+    telaGuardando.value = false
+  }
+}
+
 function abrirDano(item) {
   danoItem.value = item
   danoMotivo.value = ''
@@ -2560,6 +2602,21 @@ onMounted(() => { cargarTipos(); cargarOrden() })
               <p v-if="item.variante_texto" class="text-sm font-bold text-red-600 leading-tight">
                 {{ item.variante_texto }}
               </p>
+              <!-- Se vendió la medida sin tela: no se despacha hasta escogerla. -->
+              <div v-if="item.tela_por_definir" class="flex flex-wrap items-center gap-1.5 mt-1">
+                <span class="bg-amber-100 text-amber-800 text-[11px] font-semibold px-2 py-0.5 rounded-full">
+                  Tela por definir · no se despacha sin ella
+                </span>
+                <button
+                  v-if="puedeEditar"
+                  type="button"
+                  @click="abrirDefinirTela(item)"
+                  class="inline-flex items-center gap-1 bg-blue-600 text-white text-[11px] font-semibold px-2.5 py-1 rounded-lg hover:bg-blue-700"
+                >
+                  <SwatchIcon class="w-3.5 h-3.5" />
+                  Definir tela
+                </button>
+              </div>
               <p class="text-xs text-gray-400">{{ item.producto?.categoria ?? item.categoria_custom ?? 'personalizado' }}</p>
               <p class="text-xs text-gray-500 mt-0.5">Cantidad: {{ item.cantidad }}</p>
               <!-- Se vendió con una promoción de la tienda: el precio ya la trae. -->
@@ -3689,6 +3746,55 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         enter-active-class="transition-opacity duration-200" enter-from-class="opacity-0"
         leave-active-class="transition-opacity duration-150" leave-to-class="opacity-0"
       >
+        <!-- Definir la tela de lo que se vendió solo con la medida -->
+        <div v-if="telaItem" class="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center" @click.self="telaItem = null">
+          <div class="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md shadow-xl max-h-[85vh] flex flex-col">
+            <div class="flex items-center gap-3 px-5 py-4 border-b border-gray-100">
+              <div class="min-w-0 flex-1">
+                <p class="font-semibold text-gray-800 truncate">Definir tela</p>
+                <p class="text-[11px] text-gray-400 truncate">{{ telaItem.producto?.nombre }} · {{ telaItem.variante_texto }}</p>
+              </div>
+              <button @click="telaItem = null" class="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 shrink-0">
+                <XMarkIcon class="w-5 h-5" />
+              </button>
+            </div>
+            <div class="flex-1 min-h-0 overflow-y-auto px-5 py-3 space-y-2">
+              <AppSpinner v-if="telaCargando" />
+              <template v-else>
+                <button
+                  v-for="v in telaOpciones"
+                  :key="v.id"
+                  type="button"
+                  :disabled="v.stock_libre <= 0"
+                  @click="telaElegida = v.id"
+                  :class="['w-full text-left px-3 py-2.5 rounded-xl border text-sm transition-colors',
+                    telaElegida === v.id ? 'border-blue-500 bg-blue-50 text-blue-700 font-medium'
+                      : v.stock_libre > 0 ? 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                      : 'border-gray-100 bg-gray-50 text-gray-300 cursor-not-allowed']"
+                >
+                  <span v-if="v.marca" class="text-xs text-gray-400">{{ v.marca }} · </span>
+                  <span class="font-medium">{{ v.marca_tela }}</span>
+                  <span v-if="v.nombre_color"> · {{ v.nombre_color }}</span>
+                  <span :class="['text-xs ml-2 font-semibold', v.stock_libre > 0 ? 'text-green-600' : 'text-red-400']">
+                    {{ v.stock_libre > 0 ? `${v.stock_libre} disponible${v.stock_libre > 1 ? 's' : ''}` : 'Sin stock' }}
+                  </span>
+                </button>
+                <p v-if="!telaOpciones.length" class="text-xs text-gray-400 text-center py-4">
+                  Este producto no tiene telas registradas en esa tienda.
+                </p>
+              </template>
+            </div>
+            <div class="px-5 py-3 border-t border-gray-100">
+              <button
+                type="button"
+                @click="guardarTela"
+                :disabled="!telaElegida || telaGuardando"
+                class="w-full bg-blue-600 text-white rounded-lg py-2.5 text-xs font-semibold hover:bg-blue-700 disabled:opacity-50"
+              >{{ telaGuardando ? 'Guardando...' : 'Guardar tela' }}</button>
+            </div>
+          </div>
+        </div>
+
         <div v-if="danoItem" class="fixed inset-0 bg-black/50 backdrop-blur-[2px] z-50 flex items-end sm:items-center justify-center" @click.self="danoItem = null">
           <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full sm:max-w-md shadow-2xl max-h-[92vh] flex flex-col">
             <!-- Encabezado -->

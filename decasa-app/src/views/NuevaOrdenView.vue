@@ -1266,7 +1266,7 @@ async function cambiarVariante(idx) {
   try {
     const [producto, telas] = await Promise.all([
       api.get(`/productos/${item.producto_id}`, { params: { tienda_id: tienda } }).then(r => r.data),
-      getVariantes(item.producto_id, tienda).then(r => r.data).catch(() => []),
+      getVariantes(item.producto_id, tienda, false, true).then(r => r.data).catch(() => []),
     ])
 
     editandoIdx.value = idx
@@ -1366,7 +1366,7 @@ async function agregarItem(producto) {
     cargandoVariantes.value = true
     mostrarVariantePicker.value = true
     try {
-      const { data } = await getVariantes(producto.id, tiendaConsulta)
+      const { data } = await getVariantes(producto.id, tiendaConsulta, false, true)
       variantesDisponibles.value = data
       // Si no hay variantes tapizado registradas, buscar variantes personalizadas
       if (data.length === 0 && tiendaConsulta) {
@@ -1429,15 +1429,22 @@ function _pushItem(producto, variante) {
     ? (variante.stock_libre ?? 0)
     : stockLibre(producto)
 
+  // La medida sin tela ("1.40 · tela por definir"): la tela se escoge
+  // después, desde la orden, y no se despacha sin ella.
+  const telaPorDefinir = !!variante?._tela_por_definir
   const varianteLabel = variante
-    ? (variante.medida
-        ? variante.medida
-        : [variante.marca, variante.marca_tela, variante.nombre_color, variante._config_label].filter(Boolean).join(' · '))
+    ? (telaPorDefinir
+        ? `${variante._config_label} · tela por definir`
+        : variante.medida
+          ? variante.medida
+          : [variante.marca, variante.marca_tela, variante.nombre_color, variante._config_label].filter(Boolean).join(' · '))
     : null
 
   const comboKey = variante?._combo_id ?? null
+  // La medida también separa: "1.40 sin tela" y "sin especificar" no son el mismo.
   const existe = items.value.find((i) =>
-    i.producto_id === producto.id && i.variante_id === (variante?.id ?? null) && i._combo_id === comboKey && !i._fabricar_pedido
+    i.producto_id === producto.id && i.variante_id === (variante?.id ?? null) && i._combo_id === comboKey &&
+    (i._config_id ?? null) === (variante?._config_id ?? null) && !i._fabricar_pedido
   )
 
   if (! _colocarItem({
@@ -1445,6 +1452,7 @@ function _pushItem(producto, variante) {
     variante_id: variante?.id ?? null,
     _combo_id:   variante?._combo_id ?? null,
     _config_id:  variante?._config_id ?? null,
+    _tela_por_definir: telaPorDefinir,
     tienda_origen_id: esOtraTienda ? (tiendaBusqueda.value ?? null) : null,
     nombre: producto.nombre,
     categoria: producto.categoria,
@@ -2360,6 +2368,8 @@ const hayItemsCotizar = computed(() =>
 function sePuedeLlevar(i) {
   // El que se manda a cambiar de tela existe, pero se va a la fábrica.
   if (i._retapizar) return false
+  // Sin tela escogida no se sabe cuál sale con el cliente.
+  if (i._tela_por_definir) return false
   return !!i._producto_unico || (!i.es_personalizado && !!i.producto_id)
 }
 const itemsQueSePuedenLlevar = computed(() => items.value.filter(sePuedeLlevar))
@@ -2465,6 +2475,26 @@ async function validarParaCrear() {
   if (!modoGuardarBorrador.value && comprobantesRequeridos.value === 2 && faltanComprobantes.value) {
     toast.error('El pago va en dos métodos: sube el comprobante de cada uno.')
     return false
+  }
+
+  // Lo de stock que no alcanza se frena aquí, con el nombre del producto. Antes
+  // pasaba hasta el servidor y volvía "Stock insuficiente para variante ID 36":
+  // el vendedor veía el producto "con stock" (la lista suma todas las medidas o
+  // telas) y no sabía cuál del carrito era. El borrador no aparta stock, así
+  // que no se frena; sin dato de stock (null) decide el servidor.
+  if (!modoGuardarBorrador.value) {
+    const sinStock = items.value.find(i =>
+      !i.es_personalizado && i.producto_id && !i._producto_unico &&
+      i.stock_libre != null && i.cantidad > stockEnUnidad(i)
+    )
+    if (sinStock) {
+      const que = sinStock.variante_label ? `${sinStock.nombre} (${sinStock.variante_label})` : sinStock.nombre
+      const libre = stockEnUnidad(sinStock)
+      toast.error(libre > 0
+        ? `De "${que}" solo hay ${libre} en esa tienda y llevas ${sinStock.cantidad}. Baja la cantidad, escoge otra tienda o mándalo a fabricar.`
+        : `"${que}" no tiene stock en esa tienda. Cambia la medida o la tela, escoge otra tienda o mándalo a fabricar.`)
+      return false
+    }
   }
 
   // Validar disponibilidad de tela para lo que el taller va a tapizar: lo que
@@ -2726,6 +2756,8 @@ async function submit() {
         // Qué se eligió, escrito: la medida de la cama, la tela. Sin esto la
         // orden y el PDF salían con el nombre del mueble a secas.
         variante_detalle:        i.variante_label || undefined,
+        // Se sabe la medida, la tela se define después desde la orden.
+        tela_por_definir:        (!i.variante_id && i._tela_por_definir) || undefined,
         tienda_origen_id:        i.tienda_origen_id || undefined,
         // En piezas si va en juego: así se cuenta el stock (ver lineaParaEnviar).
         ...lineaParaEnviar(i, i._cotizarPrecio ? 0 : precioEfectivo(i)),
@@ -3205,6 +3237,7 @@ function itemDesdeServidor(i) {
     variante_id:      i.variante_id ?? null,
     _combo_id:        null,
     _config_id:       i.combo_config_id ?? null,
+    _tela_por_definir: !!i.tela_por_definir,
     tienda_origen_id: i.tienda_origen_id ?? null,
     tienda_origen:    i.tienda_origen?.nombre ?? null,
     nombre,
@@ -4510,6 +4543,14 @@ onBeforeUnmount(() => {
               </span>
             </div>
           </div>
+
+          <!-- Sin esto solo se veía "0 disp." en gris y la orden se caía al crearla. -->
+          <p v-if="!item._piezas_por_juego && !item.es_personalizado && !item._producto_unico && item.producto_id && item.stock_libre != null && item.cantidad > stockEnUnidad(item)"
+            class="text-xs text-red-600 font-medium">
+            {{ stockEnUnidad(item) > 0
+              ? `Solo hay ${stockEnUnidad(item)} en esa tienda.`
+              : 'Sin stock en esa tienda: cambia la medida o la tela, la tienda, o mándalo a fabricar.' }}
+          </p>
 
           <!-- Producto que viene en juego: se vende completo o por piezas
                (el cliente quiere una sola, o solo queda media pareja). -->
@@ -6226,7 +6267,16 @@ onBeforeUnmount(() => {
                   ? 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
                   : 'border-gray-100 bg-gray-50 text-gray-300 cursor-not-allowed']"
           >
-            <template v-if="v.medida">
+            <!-- Se sabe la medida, no la tela: se escoge después desde la orden. -->
+            <template v-if="v._tela_por_definir">
+              <span class="font-medium">{{ v._config_label }}</span>
+              <span class="text-gray-400 mx-1">·</span>
+              <span class="text-amber-600">tela por definir</span>
+              <span v-if="v.precio_variante" class="text-xs ml-2 font-semibold text-blue-600">
+                ${{ Number(v.precio_variante).toLocaleString('es-CO') }}
+              </span>
+            </template>
+            <template v-else-if="v.medida">
               <span class="font-medium">{{ v.medida }}</span>
               <span v-if="v.precio_variante" class="text-xs ml-2 font-semibold text-blue-600">
                 ${{ Number(v.precio_variante).toLocaleString('es-CO') }}

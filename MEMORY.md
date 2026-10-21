@@ -353,6 +353,26 @@ escribiendo precios (Fase 1b).
   (remoto, de ese vendedor, sin orden, pendiente vigente o firmado ≤ 3 días) y la pantalla
   lo retoma al escoger el cliente; al recuperar el respaldo pregunta el estado ya; el aviso
   "el cliente firmó" sin orden abre Nueva orden.
+- **Vender la medida sin la tela** (2026-10-20, **sin subir**, rama
+  `claude/orden-creation-422-error-1b173c`). Trae **migración**
+  `2026_10_25_000001_tela_por_definir_en_orden_items` (solo agrega `orden_items.tela_por_definir`).
+  Queja del usuario: Nueva orden daba 422 "Stock insuficiente para variante ID 36" con una
+  cama de 1.40 que sí tenía stock por medida; el selector obligaba a escoger tela × medida y,
+  sin combinaciones registradas, todo salía "Sin stock" ("muchas veces se sabe el tamaño de la
+  cama pero no la tela"). Hecho y aprobado por el usuario: la medida se revisa aparte
+  (`Support/StockMedida`), fila "1.40 · tela por definir" en el selector (`?para_venta=1`; sin
+  el parámetro Inventario ve lo de siempre), botón "Definir tela" en la orden
+  (`POST /ordenes/{id}/items/{itemId}/definir-tela`) y **no se despacha sin la tela**
+  (`EntregaService::entregablesDe`). Mensajes de stock con nombre, medida y tienda (nada de IDs).
+  Trampas: (1) las ventas **nunca apartaban ni descontaban la medida**; al entregar,
+  `StockVariantes::cuadrar` recortaba la del montón más grande (se vendía la 1.60 y bajaba la
+  1.40). Ahora la entrega baja la medida vendida. (2) Lo apartado de la medida **no lleva
+  contador**: se cuenta de las órdenes abiertas (así las órdenes viejas cuentan bien); no
+  agregarle un `increment` a `inventario_variante_configs.cantidad_reservada`. (3) Si ninguna
+  medida del producto tiene stock anotado en esa tienda, no se frena por medida (manda el total).
+  `completarBorrador` (camino viejo) sigue sin revisar stock, como antes. Tests en
+  `VentaPorMedidaSinTelaTest`. Falla aparte: `MisEstadisticasVendedorTest::test_se_compara_con_el_periodo_anterior`
+  falla solo el día 20 de cada mes (sus dos fechas caen el mismo día); no es de este cambio.
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 
