@@ -3257,12 +3257,23 @@ const camposBorrador = {
   cotizarReceptorId, cotizarNotas,
 }
 
+// Al seguir un borrador del servidor, una copia guardada antes de la última vez
+// que se guardó el borrador ya está vieja: lo pisaría. Se sabe al cargarlo.
+let avisarBorradorCargado = () => {}
+const borradorCargadoEn = borradorId
+  ? new Promise(resolve => { avisarBorradorCargado = resolve })
+  : null
+
 const borradorLocal = useBorradorLocal({
   // Seguir un borrador del servidor tiene su propio respaldo: no se mezcla
   // con una orden nueva que se haya dejado a medias en el teléfono.
   clave: auth.usuario?.id
     ? `nueva-orden:${auth.usuario.id}:${modoCotizacion.value ? 'cotizacion' : 'orden'}${borradorId ? `:b${borradorId}` : ''}`
     : null,
+  // También en la cuenta: lo que se empezó en el celular se sigue en el
+  // computador (y al revés), y al crearla deja de ofrecerse en los dos.
+  nube: true,
+  noAntesDe: borradorCargadoEn ? () => borradorCargadoEn : null,
   fuentes: Object.values(camposBorrador),
   // Las vistas previas (blob:) no sirven después de recargar: se rehacen
   // desde la foto guardada.
@@ -3289,7 +3300,20 @@ const borradorLocal = useBorradorLocal({
   restaurar: restaurarBorrador,
 })
 const borradorPendiente = borradorLocal.pendiente
+const borradorConflicto = borradorLocal.conflicto
 const confirmandoDescarte = ref(false)
+// El aviso va arriba del formulario; si se está más abajo, que se entere igual.
+watch(borradorConflicto, (c) => {
+  if (c) toast.info(c.tipo === 'editada'
+    ? `Esta orden se siguió en ${c.aparato}: arriba escoges con cuál sigues.`
+    : 'Esta orden ya se terminó en otro aparato: mira el aviso de arriba.', 6000)
+})
+
+// La orden ya se terminó en otro aparato: aquí se suelta y se va a la lista.
+async function soltarBorrador() {
+  await borradorLocal.soltar()
+  router.replace({ name: modoCotizacion.value ? 'cotizaciones' : 'ordenes' })
+}
 
 async function restaurarBorrador(d) {
   if (d.claveEnvio) claveEnvio = d.claveEnvio
@@ -3505,7 +3529,9 @@ async function cargarBorradorServidor() {
     if (o.anexo_firmado) anexo.value = { ...o.anexo_firmado, lo_que_vio: null }
     borradorServidor.value = { id: o.id, cliente: o.cliente?.nombre ?? null }
     step.value = 2
+    avisarBorradorCargado(o.updated_at ? Date.parse(o.updated_at) : null)
   } catch (e) {
+    avisarBorradorCargado(null)
     const orden = e.response?.data?.orden_id
     toast.error(e.response?.data?.message ?? 'No se pudo abrir el borrador.')
     // Ya se confirmó (otra pestaña, otra persona): a la orden.
@@ -3629,6 +3655,44 @@ onBeforeUnmount(() => {
         Está todo como lo dejaste. Puedes cambiar productos, precios y descuentos; al crear la orden
         se confirma este mismo borrador, sin duplicarlo. "Guardar borrador" lo deja guardado otra vez.
       </p>
+    </div>
+
+    <!-- Se siguió (o se terminó) en otro aparato mientras esta pantalla estaba
+         abierta: no se pisa nada hasta que la persona escoja. -->
+    <div v-if="borradorConflicto" class="bg-white border border-amber-300 rounded-xl shadow-sm p-3 space-y-2">
+      <template v-if="borradorConflicto.tipo === 'editada'">
+        <p class="text-sm font-semibold text-gray-800">
+          Esta {{ modoCotizacion ? 'cotización' : 'orden' }} se siguió en {{ borradorConflicto.aparato }}
+        </p>
+        <p class="text-xs text-gray-500">
+          Allá se guardó {{ haceCuanto(borradorConflicto.guardadoEn) }}. ¿Con cuál sigues?
+        </p>
+        <div class="flex flex-wrap gap-2">
+          <button @click="borradorLocal.traerDelOtro()" class="bg-blue-600 text-white rounded-lg text-xs font-semibold px-3 py-2">
+            Traer lo de {{ borradorConflicto.aparato }}
+          </button>
+          <button @click="borradorLocal.quedarmeConEste()" class="border border-gray-300 text-gray-700 rounded-lg text-xs font-semibold px-3 py-2">
+            Seguir con lo de aquí
+          </button>
+        </div>
+      </template>
+      <template v-else>
+        <p class="text-sm font-semibold text-gray-800">
+          Esta {{ modoCotizacion ? 'cotización' : 'orden' }} ya se terminó en otro aparato
+        </p>
+        <p class="text-xs text-gray-500">
+          Se creó o se descartó {{ haceCuanto(borradorConflicto.guardadoEn) }}. Si la sigues aquí, revisa
+          en la lista que no quede repetida.
+        </p>
+        <div class="flex flex-wrap gap-2">
+          <button @click="soltarBorrador" class="bg-blue-600 text-white rounded-lg text-xs font-semibold px-3 py-2">
+            Ir a {{ modoCotizacion ? 'cotizaciones' : 'órdenes' }}
+          </button>
+          <button @click="borradorLocal.quedarmeConEste()" class="border border-gray-300 text-gray-700 rounded-lg text-xs font-semibold px-3 py-2">
+            Seguir aquí igual
+          </button>
+        </div>
+      </template>
     </div>
 
     <!-- Barra de pasos -->
@@ -6400,7 +6464,8 @@ onBeforeUnmount(() => {
             Tienes {{ modoCotizacion ? 'una cotización' : 'una orden' }} sin terminar
           </h3>
           <p class="text-xs text-gray-500 mt-0.5">
-            Se guardó en este teléfono {{ haceCuanto(borradorPendiente.guardadoEn) }}.
+            Se guardó {{ borradorPendiente.aparato ? `en ${borradorPendiente.aparato}` : 'en este aparato' }}
+            {{ haceCuanto(borradorPendiente.guardadoEn) }}.
           </p>
         </div>
         <div v-if="borradorPendiente.resumen" class="bg-gray-50 border border-gray-200 rounded-xl p-3">

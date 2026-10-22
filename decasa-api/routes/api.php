@@ -437,6 +437,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/ordenes/{id}/completar-borrador',     [OrdenController::class, 'completarBorrador']);
     Route::get('/ordenes/{id}/para-continuar',          [OrdenController::class, 'paraContinuar'])->whereNumber('id');
 
+    // Nueva orden a medio hacer, para seguirla en otro aparato (ver BorradorEnCursoController)
+    Route::get('/borradores-en-curso/{clave}',    [\App\Http\Controllers\BorradorEnCursoController::class, 'show'])->where('clave', '[A-Za-z0-9:_\-]+');
+    Route::put('/borradores-en-curso/{clave}',    [\App\Http\Controllers\BorradorEnCursoController::class, 'guardar'])->where('clave', '[A-Za-z0-9:_\-]+')->middleware('throttle:120,1');
+    Route::delete('/borradores-en-curso/{clave}', [\App\Http\Controllers\BorradorEnCursoController::class, 'borrar'])->where('clave', '[A-Za-z0-9:_\-]+');
+
     // Anexo de garantías firmado en el sistema (ver AnexoGarantiaController)
     Route::post('/anexos',                    [\App\Http\Controllers\AnexoGarantiaController::class, 'crear'])->middleware('throttle:30,1');
     Route::get('/anexos/en-curso',            [\App\Http\Controllers\AnexoGarantiaController::class, 'enCurso']);
