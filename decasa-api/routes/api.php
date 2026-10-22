@@ -655,6 +655,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/usuarios/{id}',                 [UsuarioController::class, 'update']);
         Route::patch('/usuarios/{id}/toggle-activo', [UsuarioController::class, 'toggleActivo']);
         Route::post('/usuarios/{id}/reset-password', [UsuarioController::class, 'resetPassword']);
+        // Qué grupos de avisos le llegan (ver App\Support\TiposNotificacion)
+        Route::get('/usuarios/{id}/notificaciones',  [\App\Http\Controllers\NotificacionesUsuarioController::class, 'show'])->whereNumber('id');
+        Route::put('/usuarios/{id}/notificaciones',  [\App\Http\Controllers\NotificacionesUsuarioController::class, 'update'])->whereNumber('id');
     });
 
     // Producción — listado y gestión (supervisor y vendedor)

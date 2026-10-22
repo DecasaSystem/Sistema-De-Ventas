@@ -108,6 +108,8 @@ class Usuario extends Authenticatable
             'independiente'       => 'boolean',
             'notif_asignar_fecha' => 'boolean',
             'notif_stock'         => 'boolean',
+            // Grupos de avisos apagados (App\Support\TiposNotificacion).
+            'notificaciones_apagadas' => 'array',
             'acceso_redes'        => 'boolean',
             'acceso_comisiones'   => 'boolean',
             'recarga_telas'       => 'boolean',

@@ -6,9 +6,15 @@ use App\Events\NuevaNotificacion;
 use App\Jobs\EnviarPush;
 use App\Models\Notificacion;
 use App\Models\Usuario;
+use App\Support\TiposNotificacion;
 
 class NotificacionService
 {
+    /**
+     * Si la persona apagó ese grupo de avisos (Trabajadores → Notificaciones,
+     * ver TiposNotificacion), no se crea ni le llega al celular: devuelve null.
+     * Nadie usa lo que devuelve; es solo para quien lo necesite.
+     */
     public static function crear(
         string $tipo,
         string $titulo,
@@ -16,7 +22,7 @@ class NotificacionService
         array  $datos = [],
         ?int   $usuarioId = null,
         bool   $urgente = false,
-    ): Notificacion {
+    ): ?Notificacion {
         if ($usuarioId === null) {
             $supervisores = Usuario::where('rol', 'supervisor')
                 ->where('activo', true)
@@ -24,10 +30,18 @@ class NotificacionService
 
             $last = null;
             foreach ($supervisores as $sup) {
+                if (TiposNotificacion::estaApagado($sup->id, $tipo)) continue;
                 $last = self::crearParaUsuario($tipo, $titulo, $mensaje, $datos, $sup->id, $urgente);
             }
-            return $last ?? self::crearParaUsuario($tipo, $titulo, $mensaje, $datos, null, $urgente);
+            // Sin supervisores activos se guarda sin dueño (como siempre). Si
+            // los hay y todos lo apagaron, no se guarda: lo pidieron así.
+            if ($supervisores->isEmpty()) {
+                return self::crearParaUsuario($tipo, $titulo, $mensaje, $datos, null, $urgente);
+            }
+            return $last;
         }
+
+        if (TiposNotificacion::estaApagado($usuarioId, $tipo)) return null;
 
         return self::crearParaUsuario($tipo, $titulo, $mensaje, $datos, $usuarioId, $urgente);
     }

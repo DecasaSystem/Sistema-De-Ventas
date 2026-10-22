@@ -16,6 +16,7 @@ import { getTiendas } from '@/api/ordenes'
 import { getRoles } from '@/api/roles'
 import EmptyState from '@/components/common/EmptyState.vue'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
+import NotificacionesTrabajador from '@/components/usuarios/NotificacionesTrabajador.vue'
 import { useToast } from '@/composables/useToast'
 
 const route = useRoute()
@@ -181,8 +182,6 @@ async function submitEdit() {
       rol_id: editForm.value.rol_id,
       facturacion: editArquetipo.value === 'vendedor' ? editForm.value.facturacion : false,
       independiente: editEsIndependiente.value,
-      notif_asignar_fecha: editArquetipo.value === 'supervisor' ? editForm.value.notif_asignar_fecha : false,
-      notif_stock: editArquetipo.value === 'supervisor' ? editForm.value.notif_stock : false,
       acceso_redes: ['vendedor', 'supervisor'].includes(editArquetipo.value) ? editForm.value.acceso_redes : false,
       acceso_comisiones: editArquetipo.value === 'supervisor' ? editForm.value.acceso_comisiones : false,
       apto_comisiones: editForm.value.apto_comisiones,
@@ -314,28 +313,6 @@ onMounted(async () => {
           <div>
             <p class="text-xs text-gray-400">Función especial</p>
             <p class="font-medium text-green-700">Facturación habilitada</p>
-          </div>
-        </div>
-        <div v-if="usuario.arquetipo === 'supervisor'" class="flex items-center gap-3">
-          <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
-            <span class="text-sm">{{ usuario.notif_asignar_fecha ? '🔔' : '🔕' }}</span>
-          </div>
-          <div>
-            <p class="text-xs text-gray-400">Notif. asignación de fecha</p>
-            <p class="font-medium" :class="usuario.notif_asignar_fecha ? 'text-gray-800' : 'text-gray-400'">
-              {{ usuario.notif_asignar_fecha ? 'Habilitada' : 'Deshabilitada' }}
-            </p>
-          </div>
-        </div>
-        <div v-if="usuario.arquetipo === 'supervisor'" class="flex items-center gap-3">
-          <div class="w-5 h-5 flex-shrink-0 flex items-center justify-center">
-            <span class="text-sm">{{ usuario.notif_stock ? '📦' : '🔕' }}</span>
-          </div>
-          <div>
-            <p class="text-xs text-gray-400">Avisos de producto agotado</p>
-            <p class="font-medium" :class="usuario.notif_stock ? 'text-gray-800' : 'text-gray-400'">
-              {{ usuario.notif_stock ? 'Habilitados — es quien surte' : 'Deshabilitados' }}
-            </p>
           </div>
         </div>
         <div v-if="usuario.acceso_redes && ['vendedor', 'supervisor'].includes(usuario.arquetipo)" class="flex items-center gap-3">
@@ -520,6 +497,9 @@ onMounted(async () => {
           </div>
         </div>
       </div>
+
+      <!-- Qué avisos le llegan (un trabajador sin programa no recibe ninguno) -->
+      <NotificacionesTrabajador v-if="!usuario.no_usa_programa" :usuario-id="usuario.id" />
 
       <!-- Acciones -->
       <div class="space-y-3">
@@ -718,32 +698,6 @@ onMounted(async () => {
                 <p class="text-xs text-gray-500 mt-0.5">Podrá ver órdenes entregadas de toda la tienda para facturación externa.</p>
               </div>
             </div>
-            <template v-if="editArquetipo === 'supervisor'">
-              <div class="flex items-start gap-3 py-1">
-                <input
-                  id="edit-notif-fecha"
-                  type="checkbox"
-                  v-model="editForm.notif_asignar_fecha"
-                  class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                <div>
-                  <label for="edit-notif-fecha" class="text-sm font-medium text-gray-700 cursor-pointer">Recibe notificaciones de asignación de fecha</label>
-                  <p class="text-xs text-gray-500 mt-0.5">Recibirá una alerta cada vez que se cree una orden nueva para asignar fecha de entrega.</p>
-                </div>
-              </div>
-              <div class="flex items-start gap-3 py-1">
-                <input
-                  id="edit-notif-stock"
-                  type="checkbox"
-                  v-model="editForm.notif_stock"
-                  class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                <div>
-                  <label for="edit-notif-stock" class="text-sm font-medium text-gray-700 cursor-pointer">Recibe avisos de producto agotado</label>
-                  <p class="text-xs text-gray-500 mt-0.5">Para quien surte: le llega cuando se vende la última unidad de un producto en una tienda.</p>
-                </div>
-              </div>
-            </template>
             <div v-if="['vendedor', 'supervisor'].includes(editArquetipo)" class="flex items-start gap-3 py-1">
               <input
                 id="edit-acceso-redes"

@@ -370,6 +370,19 @@ escribiendo precios (Fase 1b).
   "Leí esta sección", y la firma apagada no decía nada. Ahora `AnexoFirma` lleva a lo primero
   que falta (producto, sección, pregunta, datos) al tocar la firma o el botón, lo nombra y lo
   marca en ámbar. No cambió qué se exige para firmar.
+- **Apagar notificaciones por persona** (2026-10-22, **subido a `main`** ese día, trae **migración**
+  `2026_10_30_000001_notificaciones_apagadas_en_usuarios`, solo agrega columna JSON). Pedido
+  del dueño: "hay supervisores que no necesitan las de cambios de dinero, ni productos
+  atrasados ni las de próximos de entrega pero sí las de nuevas ventas, chats". Se apaga por
+  **grupo** (22 grupos que juntan los ~60 tipos) en Trabajadores → ficha → Notificaciones.
+  Catálogo en `App\Support\TiposNotificacion`; el filtro está en `NotificacionService::crear`
+  (lo apagado no se guarda ni sale al celular; lo que ya tiene no se borra). **Un tipo de aviso
+  nuevo hay que meterlo en un grupo** (`NotificacionesApagablesTest` falla si no). Los dos
+  interruptores viejos (`notif_asignar_fecha`, `notif_stock`) quedaron como grupos del panel
+  pero siguen en su columna y se revisan donde se manda el aviso; se quitaron del formulario
+  Editar. Decisión que tomé por defecto (**falta que el dueño confirme**): todo se puede apagar,
+  también lo que pide una acción (solicitudes, consultas de precio, traslados, rutas); la
+  pantalla advierte en ámbar. Lo cambia solo un supervisor.
 - **Declaración de diseños y medidas especiales** (2026-10-21, **subido a `main`** ese día, rama
   `claude/special-warranty-client-signature-ed7f21`, trae **migración**
   `2026_10_26_000001_declaracion_disenos_especiales`, solo agrega). Pedido del dueño: el papel

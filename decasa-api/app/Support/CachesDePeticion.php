@@ -48,5 +48,6 @@ class CachesDePeticion
         \App\Support\Esquema::olvidar();
         \App\Support\Configuracion::olvidar();
         \App\Support\PlantillasDocumento::olvidarCache();
+        \App\Support\TiposNotificacion::olvidarCache();
     }
 }
