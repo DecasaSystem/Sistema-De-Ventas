@@ -353,6 +353,23 @@ escribiendo precios (Fase 1b).
   (remoto, de ese vendedor, sin orden, pendiente vigente o firmado ≤ 3 días) y la pantalla
   lo retoma al escoger el cliente; al recuperar el respaldo pregunta el estado ya; el aviso
   "el cliente firmó" sin orden abre Nueva orden.
+- **Nueva orden a medio hacer se sigue en otro aparato** (2026-10-22, **subido a `main`** ese día, rama
+  `claude/cross-device-order-sync-2ede47`, trae **migración**
+  `2026_10_29_000001_crear_borradores_en_curso`, solo crea tabla). Queja del usuario: se
+  recargaba en el celular, en el computador "me da la opción de seguir pero no se guarda bien".
+  Causa: el respaldo vivía solo en el IndexedDB de cada aparato; el otro ofrecía **su** copia
+  vieja, al seguir un borrador del servidor la copia vieja pisaba lo nuevo, y al crear la orden
+  en uno el otro la seguía ofreciendo (se podía crear dos veces). Ahora `useBorradorLocal` con
+  `nube: true` guarda también en la cuenta (`BorradorEnCursoController`, una fila por persona
+  y clave, `revision` para no pisar: 409 = otro aparato siguió o terminó → aviso "¿con cuál
+  sigues?"). Fotos a Cloudinary carpeta `borradores` (quedan ahí; no se limpian). Al crear la
+  orden o "Empezar de cero" se borra en todos lados. Consecuencia: **una sola orden a medio
+  hacer por persona** entre todos sus aparatos (antes una por aparato). Tests en `BorradorEnCursoTest`.
+- **Anexo: "yo ya marqué todo"** (2026-10-22, subido a `main` ese día, solo front). La última
+  sección se abre sola al marcar la penúltima; el cliente la leía y bajaba a firmar sin tocar
+  "Leí esta sección", y la firma apagada no decía nada. Ahora `AnexoFirma` lleva a lo primero
+  que falta (producto, sección, pregunta, datos) al tocar la firma o el botón, lo nombra y lo
+  marca en ámbar. No cambió qué se exige para firmar.
 - **Declaración de diseños y medidas especiales** (2026-10-21, **subido a `main`** ese día, rama
   `claude/special-warranty-client-signature-ed7f21`, trae **migración**
   `2026_10_26_000001_declaracion_disenos_especiales`, solo agrega). Pedido del dueño: el papel

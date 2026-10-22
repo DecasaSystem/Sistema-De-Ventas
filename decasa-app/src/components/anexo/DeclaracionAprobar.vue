@@ -39,6 +39,7 @@ const ROTULOS = {
     <div class="p-3 space-y-3">
       <article
         v-for="(p, i) in declaracion.productos" :key="i"
+        :data-pendiente="`p-${i}`"
         :class="['rounded-xl border transition-colors', aprobados.has(i) ? 'border-green-200 bg-green-50/40' : 'border-gray-200 bg-white']"
       >
         <button type="button" @click="emit('alternar', i)" class="w-full flex items-center gap-3 px-3 py-3 text-left">

@@ -8,7 +8,7 @@
  * El texto llega del servidor (AnexoGarantiaTexto): aquí no se escribe nada
  * del documento.
  */
-import { ref, computed } from 'vue'
+import { ref, computed, nextTick } from 'vue'
 import FirmaCanvas from '@/components/FirmaCanvas.vue'
 import DeclaracionAprobar from '@/components/anexo/DeclaracionAprobar.vue'
 import { useTamanoLetra } from '@/composables/useTamanoLetra'
@@ -73,14 +73,52 @@ const pasosHechos = computed(() => leidas.value.size + aprobados.value.size)
 const listo = computed(() =>
   todoLeido.value && todoRespondido.value && nombreF.value.trim() && docF.value.trim() && firmaBlob.value
 )
-const falta = computed(() => {
-  if (!todoAprobado.value) return `Revisa y aprueba cada producto especial (${aprobados.value.size} de ${productos.value.length}).`
-  if (!todoLeido.value) return `Marca como leídas las secciones (${leidas.value.size} de ${totalSecciones.value}).`
-  if (!todoRespondido.value) return 'Responde el check list.'
-  if (!nombreF.value.trim() || !docF.value.trim()) return 'Escribe el nombre y el documento de quien firma.'
-  if (!firmaBlob.value) return 'Falta la firma.'
-  return ''
+/**
+ * Lo primero que falta, en el orden en que se llena. Los clientes decían "ya
+ * marqué todo" y no era así: la última sección se abre sola al marcar la
+ * penúltima, se lee, y se baja a firmar sin tocar "Leí esta sección". Se veía
+ * hecha. Ahora se dice cuál falta por su nombre y, al tocar firmar, se lleva
+ * ahí.
+ */
+const pendiente = computed(() => {
+  const i = productos.value.findIndex((_, k) => !aprobados.value.has(k))
+  if (i >= 0) {
+    const p = productos.value[i]
+    return { clave: `p-${i}`, abrir: () => abiertosDecl.value = new Set([...abiertosDecl.value, i]),
+      texto: `Falta aprobar el producto ${i + 1}: «${p.nombre}».` }
+  }
+  const secciones = props.contenido.secciones
+  const s = secciones.find(x => !leidas.value.has(x.id))
+  if (s) {
+    const n = secciones.indexOf(s) + 1
+    return { clave: `s-${s.id}`, abrir: () => abiertas.value = new Set([...abiertas.value, s.id]),
+      texto: `Falta marcar como leída la sección ${n}: «${s.titulo}». Ábrela y toca "Leí esta sección".` }
+  }
+  const q = props.contenido.checklist.find(x => !checklist.value[x.id])
+  if (q) return { clave: `q-${q.id}`, texto: `Falta responder Sí o No: «${q.pregunta}».` }
+  if (!nombreF.value.trim() || !docF.value.trim()) return { clave: 'datos', texto: 'Escribe el nombre y el documento de quien firma.' }
+  if (!firmaBlob.value) return { clave: 'firma', texto: 'Falta la firma.' }
+  return null
 })
+const falta = computed(() => pendiente.value?.texto ?? '')
+
+// Después de intentar firmar, lo que falta se marca en ámbar en la pantalla.
+const intento = ref(false)
+const raiz = ref(null)
+
+async function irAPendiente() {
+  const p = pendiente.value
+  if (!p) return
+  intento.value = true
+  p.abrir?.()
+  await nextTick()
+  const el = raiz.value?.querySelector(`[data-pendiente="${p.clave}"]`)
+  if (!el) return
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  // Un destello para que el ojo lo encuentre.
+  el.classList.add('ring-4', 'ring-amber-400')
+  setTimeout(() => el.classList.remove('ring-4', 'ring-amber-400'), 2200)
+}
 
 function marcarLeida(s) {
   const l = new Set(leidas.value)
@@ -113,7 +151,8 @@ function aDataUrl(blob) {
 }
 
 async function firmar() {
-  if (!listo.value || props.enviando) return
+  if (props.enviando) return
+  if (!listo.value) return irAPendiente()
   emit('firmar', {
     secciones: [...leidas.value],
     checklist: { ...checklist.value },
@@ -127,13 +166,17 @@ async function firmar() {
 </script>
 
 <template>
-  <div class="space-y-4" :style="{ fontSize: `${14 * escala}px` }">
+  <div ref="raiz" class="space-y-4" :style="{ fontSize: `${14 * escala}px` }">
     <!-- Cuánto falta por leer, y el tamaño de la letra -->
     <div class="sticky top-0 z-10 -mx-4 px-4 py-2 bg-white/95 backdrop-blur border-b border-gray-100">
       <div class="flex items-center justify-between gap-3 mb-1" style="font-size: 13px;">
         <span class="font-medium text-gray-600">
           {{ productos.length ? 'Revisado' : 'Leído' }} {{ pasosHechos }} de {{ totalPasos }}
           <span v-if="todoLeido" class="text-green-700 ml-1">Listo ✓</span>
+          <!-- Desde arriba también se llega a lo que falta. -->
+          <button v-else type="button" @click="irAPendiente" class="ml-1 text-amber-700 font-semibold underline">
+            Ver qué falta
+          </button>
         </span>
         <!-- Para quien no ve bien: agranda todo el documento. -->
         <div class="flex items-center gap-1" role="group" aria-label="Tamaño de la letra">
@@ -170,7 +213,9 @@ async function firmar() {
     <!-- Secciones -->
     <section
       v-for="(s, i) in contenido.secciones" :key="s.id"
-      :class="['rounded-xl border transition-colors', leidas.has(s.id) ? 'border-green-200 bg-green-50/40' : 'border-gray-200 bg-white']"
+      :data-pendiente="`s-${s.id}`"
+      :class="['rounded-xl border transition-colors', leidas.has(s.id) ? 'border-green-200 bg-green-50/40'
+        : intento ? 'border-amber-400 bg-white' : 'border-gray-200 bg-white']"
     >
       <button type="button" @click="alternar(s.id)" class="w-full flex items-center gap-3 px-4 py-3 text-left">
         <span :class="['w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0',
@@ -178,7 +223,10 @@ async function firmar() {
           <CheckCircleIcon v-if="leidas.has(s.id)" class="w-4 h-4" />
           <template v-else>{{ i + 1 }}</template>
         </span>
-        <span class="flex-1 text-[1.05em] font-semibold text-gray-800">{{ s.titulo }}</span>
+        <span class="flex-1 min-w-0">
+          <span class="block text-[1.05em] font-semibold text-gray-800">{{ s.titulo }}</span>
+          <span v-if="intento && !leidas.has(s.id)" class="block text-[0.8em] font-semibold text-amber-700">Falta marcarla como leída</span>
+        </span>
         <ChevronDownIcon :class="['w-4 h-4 text-gray-400 transition-transform', abiertas.has(s.id) ? 'rotate-180' : '']" />
       </button>
       <div v-if="abiertas.has(s.id)" class="px-4 pb-4 space-y-2">
@@ -195,8 +243,9 @@ async function firmar() {
     <!-- Check list (el texto de Gestión → Documentos puede no traer preguntas) -->
     <section v-if="contenido.checklist.length" class="rounded-xl border border-gray-200 bg-white p-4 space-y-3">
       <p class="text-[1.05em] font-bold text-gray-800">Check list</p>
-      <div v-for="q in contenido.checklist" :key="q.id" class="space-y-1.5">
+      <div v-for="q in contenido.checklist" :key="q.id" :data-pendiente="`q-${q.id}`" class="space-y-1.5 rounded-lg">
         <p class="text-[1em] text-gray-700">{{ q.pregunta }}</p>
+        <p v-if="intento && !checklist[q.id]" class="text-[0.8em] font-semibold text-amber-700">Falta responder</p>
         <div class="grid grid-cols-2 gap-2">
           <button
             v-for="op in [{ v: 'si', l: 'Sí' }, { v: 'no', l: 'No' }]" :key="op.v"
@@ -214,7 +263,7 @@ async function firmar() {
     <!-- Quién firma y la firma -->
     <section class="rounded-xl border border-gray-200 bg-white p-4 space-y-3">
       <p class="text-[1.05em] font-bold text-gray-800">Firma del cliente</p>
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+      <div data-pendiente="datos" class="grid grid-cols-1 sm:grid-cols-2 gap-2 rounded-lg">
         <div>
           <label class="text-[0.85em] text-gray-500">Nombre</label>
           <input v-model="nombreF" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 text-[1em]" autocomplete="name" />
@@ -224,18 +273,31 @@ async function firmar() {
           <input v-model="docF" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 text-[1em]" inputmode="numeric" />
         </div>
       </div>
-      <div :class="!todoLeido || !todoRespondido ? 'opacity-50 pointer-events-none' : ''">
-        <FirmaCanvas v-model="firmaBlob" />
+      <!-- Firmar sin haber terminado: tocar la firma lleva a lo que falta
+           (antes no hacía nada y parecía dañada). -->
+      <div data-pendiente="firma" class="relative rounded-lg">
+        <div :class="!todoLeido || !todoRespondido ? 'opacity-40 pointer-events-none' : ''">
+          <FirmaCanvas v-model="firmaBlob" />
+        </div>
+        <button
+          v-if="!todoLeido || !todoRespondido"
+          type="button" @click="irAPendiente"
+          class="absolute inset-0 flex items-center justify-center p-4 text-center"
+        >
+          <span class="rounded-lg bg-white border border-amber-300 shadow-sm px-3 py-2 text-[0.9em] font-semibold text-amber-800">
+            Antes de firmar falta algo. Toca aquí para ir.
+          </span>
+        </button>
       </div>
-      <p v-if="!todoLeido || !todoRespondido" class="text-[0.85em] text-gray-500">La firma se habilita cuando todo esté leído y respondido.</p>
     </section>
 
     <button
       type="button"
       @click="firmar"
-      :disabled="!listo || enviando"
-      class="w-full rounded-xl py-3.5 text-[1.1em] font-semibold bg-green-600 text-white hover:bg-green-700 disabled:opacity-40 transition-colors"
+      :disabled="enviando"
+      :class="['w-full rounded-xl py-3.5 text-[1.1em] font-semibold bg-green-600 text-white hover:bg-green-700 disabled:opacity-40 transition-colors',
+        listo ? '' : 'opacity-60']"
     >{{ enviando ? 'Guardando…' : textoBoton }}</button>
-    <p v-if="falta" class="text-[0.85em] text-center text-gray-500 -mt-2">{{ falta }}</p>
+    <p v-if="falta" :class="['text-[0.85em] text-center -mt-2', intento ? 'text-amber-700 font-semibold' : 'text-gray-500']">{{ falta }}</p>
   </div>
 </template>
