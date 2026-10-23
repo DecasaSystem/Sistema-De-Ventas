@@ -383,7 +383,8 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
           <ul>
             <li>Arriba sale un aviso rojo con cuánto quedó sin pagar y desde qué fecha.</li>
             <li>Cada persona tiene un <b>bloque por mes</b>: "Atrasada · tocaba el 20 oct" o "Toca el 20 nov".</li>
-            <li>Un solo botón paga todo, <b>siempre del mes más viejo al más nuevo</b>, y deja un recibo por mes.</li>
+            <li>Un botón paga todo, <b>siempre del mes más viejo al más nuevo</b>, y deja un recibo por mes.</li>
+            <li>Si se quiere pagar <b>un mes y después el otro</b>, el botón <b>"Pagar solo (el mes más viejo)"</b> paga únicamente ese mes; lo demás sigue en Listas.</li>
             <li>No se puede pagar un mes si hay uno más viejo listo sin pagar.</li>
           </ul>
           <div class="ejemplo">

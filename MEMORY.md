@@ -344,10 +344,23 @@ escribiendo precios (Fase 1b).
   Margarita **no suman al pool de Norte**. Se hizo la marca por orden "fuera del pool" (no
   suma a meta ni pool y no paga comisión; ver `docs/PROYECTO.md`), **sin subir**, con
   **migración** `2026_10_31_000001_ordenes_fuera_del_pool` (solo agrega). Subida a `main` el 2026-10-23 (ver git log). Falta que
-  un supervisor marque #4275, #4276, #4306, FV2-1, FV2-14 (Jessica) y FV2-7, FV2-12, FV2-13
-  (Margarita). No cambia ninguna otra tienda ni regla. Los otros puntos de Norte (Martha
-  "ingresó 4 agosto", Paola sola con Olga #4277, restauraciones ÷1,19, tarjeta en sept) siguen
-  sin decidir.
+  un supervisor marque #4275, #4306, FV2-1, FV2-14 (Jessica: las que se le pagaron) y FV2-7,
+  FV2-12, FV2-13 (Margarita). **#4276 (César Martínez) es de Paola: NO se marca** (dueño,
+  2026-10-23). Más decisiones de ese día: **Martha no estuvo del 1 al 4 de agosto** (27 días;
+  se registra como reemplazo de Paola a Martha del 1 al 4, así Paola no pasa de 31 y solo baja
+  Martha); **Helena Grosso #4293 vale $4.640.000** (los $2.190.000 del Excel son lo que le falta
+  pagar); Aura #4307 ya está pagada. Con eso agosto da Paola/NN $306.817 y Martha $271.097
+  (pool $794.731 + R-1094 $30.000 c/u). La hoja de la tienda ($503.946 Paola/NN) no se puede
+  reproducir: lo más probable es que les dejaron las ventas de Jessica dentro del pool.
+  Débito sí paga 5,5 %; restauraciones sin IVA y con el 50 % (ver §2 Restauraciones).
+  **Norte ago y sep CERRADOS (2026-10-23)**, confirmado en Listas: ago Paola/NN $306.816,
+  Martha $271.098; sep Martha/Manuela/NN $892.262; Jessica $0. Las 7 órdenes quedaron marcadas
+  "fuera del pool" y el reemplazo "Paola cubre a Martha 1–4 ago" registrado (en realidad la
+  cubrió Jessica, de vacaciones; entonces la reemplazo cobraba el 5 % de sus ventas, ya pagado:
+  registrar a Jessica le habría dado ~$34.000 más del pool). Desde septiembre, los reemplazos
+  se registran con quien de verdad cubrió. Quedan sueltos (no cambian la comisión): pagos que
+  faltan en sep (#4348 $3,28 M, #4361 $1,4 M, #4343 $900.000), restauración de Alba Lucía
+  Ovalle sin subir, R-1101 con un cojín de $0 sin marcar como restauración.
   Archivo: `Downloads/Conciliacion Norte ago-sep 2026.xlsx`. Script reutilizable:
   `conciliar.php` + un archivo de filas por tienda (en el scratchpad de la sesión; se pierde con ella).
   Archivo: `Downloads/Conciliacion ordenes Pereira ago-sep 2026.xlsx`.

@@ -247,6 +247,34 @@ class ComisionesAtrasadasTest extends TestCase
         $this->assertSame([], $this->jefe()->getJson('/api/comisiones/por-pagar')->json('personas'));
     }
 
+    public function test_se_puede_pagar_solo_el_mes_mas_viejo_y_el_otro_queda_igual(): void
+    {
+        // El botón "Pagar solo septiembre" (dueño, 2026-10-23): un mes y luego el otro.
+        $antes = $this->jefe()->getJson('/api/comisiones/por-pagar')->json('personas.0.bloques.1');
+
+        $r = $this->jefe()->postJson('/api/comisiones/pagar-meses', [
+            'vendedor_id' => self::JUAN, 'bloques' => [['mes' => '2026-09', 'tienda_id' => self::EDEN]],
+        ])->assertOk()->json();
+
+        $this->assertSame(['2026-09'], array_column($r['recibos'], 'mes'));
+        $this->assertEquals(200_000, $r['recibos'][0]['anticipos_descontados']);
+        $this->assertEqualsWithDelta(220_168, $r['neto'], 2);
+
+        // Octubre sigue en Listas con lo mismo que mostraba antes, su anticipo incluido.
+        $oct = $this->jefe()->getJson('/api/comisiones/por-pagar')->json('personas.0.bloques');
+        $this->assertCount(1, $oct);
+        $this->assertSame('2026-10', $oct[0]['mes']);
+        $this->assertEquals($antes['lista'], $oct[0]['lista']);
+        $this->assertEquals($antes['se_descuenta'], $oct[0]['se_descuenta']);
+        $this->assertEquals($antes['entregar'], $oct[0]['entregar']);
+
+        // Y después se paga octubre suelto.
+        $this->jefe()->postJson('/api/comisiones/pagar-meses', [
+            'vendedor_id' => self::JUAN, 'bloques' => [['mes' => '2026-10', 'tienda_id' => self::EDEN]],
+        ])->assertOk()->assertJsonPath('recibos.0.mes', '2026-10');
+        $this->assertSame([], $this->jefe()->getJson('/api/comisiones/por-pagar')->json('personas'));
+    }
+
     public function test_pagar_meses_sin_el_mas_viejo_se_frena(): void
     {
         $this->jefe()->postJson('/api/comisiones/pagar-meses', [

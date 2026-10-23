@@ -436,25 +436,54 @@ function textoDescuentoBloque(b) {
   return partes.join(' ')
 }
 
-/** El texto del confirm: mes por mes, en el orden en que se va a pagar. */
-function textoPagoPersona(p) {
-  const lineas = p.bloques.map(b =>
-    `• ${nombreMes(b.mes)}${b.atrasada ? ' (atrasada)' : ''}: ${cop(b.lista)}`
-    + (b.se_descuenta > 0 ? ` ${textoDescuentoBloque(b)} = ${cop(b.entregar)}` : ''))
-  return lineas.join('\n')
-    + `\n\nA entregar: ${cop(p.entregar)}`
-    + (p.sigue_debiendo > 0 ? `\n(Sigue debiendo ${cop(p.sigue_debiendo)} de anticipos)` : '')
-    + (p.bloques.length > 1 ? '\nSe paga primero el mes más viejo. Queda un recibo por mes.' : '')
+/**
+ * Los meses distintos de una tarjeta. Un mes puede venir en dos bloques
+ * (Manuela: agosto en El Edén y en Tienda Virtual): eso es un mes, no dos.
+ */
+function mesesDe(p) {
+  return [...new Set(p.bloques.map(b => b.mes))]
 }
 
-async function pagarPersona(p) {
-  const meses = p.bloques.length === 1 ? nombreMes(p.bloques[0].mes) : `${p.bloques.length} meses`
-  if (!confirm(`¿Pagar ${meses} de ${p.vendedor_nombre}?\n\n${textoPagoPersona(p)}`)) return
-  pagandoListas.value = clavePersona(p)
+/** Los bloques del mes más viejo: es lo único que se puede pagar suelto. */
+function bloquesDelMesMasViejo(p) {
+  return p.bloques.filter(b => b.mes === p.bloques[0].mes)
+}
+
+/** El texto del confirm: mes por mes, en el orden en que se va a pagar. */
+function textoPagoPersona(p, bloques = p.bloques) {
+  const lineas = bloques.map(b =>
+    `• ${nombreMes(b.mes)}${variasTiendas(p) ? ` (${b.tienda_nombre})` : ''}${b.atrasada ? ' (atrasada)' : ''}: ${cop(b.lista)}`
+    + (b.se_descuenta > 0 ? ` ${textoDescuentoBloque(b)} = ${cop(b.entregar)}` : ''))
+  const soloUnaParte = bloques.length < p.bloques.length
+  const entregar = soloUnaParte ? bloques.reduce((s, b) => s + (Number(b.entregar) || 0), 0) : p.entregar
+  return lineas.join('\n')
+    + `\n\nA entregar: ${cop(entregar)}`
+    + (!soloUnaParte && p.sigue_debiendo > 0 ? `\n(Sigue debiendo ${cop(p.sigue_debiendo)} de anticipos)` : '')
+    + (!soloUnaParte && mesesDe(p).length > 1 ? '\nSe paga primero el mes más viejo. Queda un recibo por mes.' : '')
+    + (soloUnaParte ? `\n\nLo demás (${mesesDe(p).slice(1).map(nombreMes).join(', ')}) sigue en Listas para pagarlo después.` : '')
+}
+
+/** Lo que se entrega si se paga solo el mes más viejo. */
+function entregarMesMasViejo(p) {
+  return bloquesDelMesMasViejo(p).reduce((s, b) => s + (Number(b.entregar) || 0), 0)
+}
+
+/**
+ * Pagar todo, o solo el mes más viejo (pedido del dueño, 2026-10-23: "un
+ * botón para poder pagar un mes y luego el otro"). Siempre del más viejo al
+ * más nuevo: el servidor frena si se salta uno, porque los anticipos se
+ * descuentan "hasta el mes que se paga".
+ */
+async function pagarPersona(p, soloElMasViejo = false) {
+  const bloques = soloElMasViejo ? bloquesDelMesMasViejo(p) : p.bloques
+  const meses = mesesDe({ bloques })
+  const titulo = meses.length === 1 ? nombreMes(meses[0]) : `${meses.length} meses`
+  if (!confirm(`¿Pagar ${titulo} de ${p.vendedor_nombre}?\n\n${textoPagoPersona(p, bloques)}`)) return
+  pagandoListas.value = clavePersona(p) + (soloElMasViejo ? '_mes' : '')
   try {
     const { data } = await api.post('/comisiones/pagar-meses', {
       vendedor_id: p.vendedor_id,
-      bloques: p.bloques.map(b => ({ mes: b.mes, tienda_id: b.tienda_id || null })),
+      bloques: bloques.map(b => ({ mes: b.mes, tienda_id: b.tienda_id || null })),
     })
     recibo.value = data
   } catch (e) {
@@ -2151,7 +2180,7 @@ onMounted(async () => {
                   <p class="font-semibold text-gray-800 text-sm truncate">{{ p.vendedor_nombre }}</p>
                   <p class="text-xs text-gray-400 mt-0.5 truncate">
                     {{ variasTiendas(p) ? 'Varias tiendas' : p.bloques[0].tienda_nombre }}
-                    <template v-if="p.bloques.length > 1"> · {{ p.bloques.length }} meses por pagar</template>
+                    <template v-if="mesesDe(p).length > 1"> · {{ mesesDe(p).length }} meses por pagar</template>
                   </p>
                 </div>
                 <p class="text-lg font-bold text-green-700 shrink-0">{{ cop(p.lista) }}</p>
@@ -2238,12 +2267,26 @@ onMounted(async () => {
               >
                 <span class="text-xs font-semibold">
                   {{ pagandoListas === clavePersona(p) ? 'Pagando…'
-                    : (p.bloques.length > 1 ? `Pagar los ${p.bloques.length} meses` : 'Pagar todo')
+                    : (mesesDe(p).length > 1 ? `Pagar los ${mesesDe(p).length} meses` : 'Pagar todo')
                       + (p.se_descuenta > 0 ? ' · a entregar' : '') }}
                 </span>
                 <span class="text-sm font-bold">{{ cop(p.entregar) }}</span>
               </button>
-              <p v-if="p.bloques.length > 1" class="text-[10px] text-gray-400 mt-1.5 text-center">
+              <!-- Pagar un mes y después el otro: solo el más viejo, que es
+                   el único que se puede pagar sin saltarse ninguno. -->
+              <button
+                v-if="mesesDe(p).length > 1"
+                type="button"
+                @click="pagarPersona(p, true)"
+                :disabled="pagandoListas === clavePersona(p) + '_mes'"
+                class="mt-2 w-full flex items-center justify-between border border-green-600 text-green-700 hover:bg-green-50 disabled:opacity-50 rounded-xl px-4 py-2 transition-colors"
+              >
+                <span class="text-xs font-semibold">
+                  {{ pagandoListas === clavePersona(p) + '_mes' ? 'Pagando…' : `Pagar solo ${nombreMes(p.bloques[0].mes)}` }}
+                </span>
+                <span class="text-sm font-bold">{{ cop(entregarMesMasViejo(p)) }}</span>
+              </button>
+              <p v-if="mesesDe(p).length > 1" class="text-[10px] text-gray-400 mt-1.5 text-center">
                 Se paga primero {{ nombreMes(p.bloques[0].mes) }}. Queda un recibo por mes.
               </p>
               <button
