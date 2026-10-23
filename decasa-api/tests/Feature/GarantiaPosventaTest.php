@@ -81,7 +81,7 @@ class GarantiaPosventaTest extends TestCase
             $t->decimal('precio_unitario', 12, 2)->default(0); $t->boolean('es_personalizado')->default(false);
             $t->boolean('es_restauracion')->default(false); $t->boolean('es_regalo')->default(false);
             $t->boolean('fabricar_pedido')->default(false); $t->boolean('usa_stock_tienda')->default(false);
-            $t->date('fecha_entrega_prom')->nullable(); $t->timestamps();
+            $t->date('fecha_entrega_prom')->nullable(); $t->json('specs_personalizacion')->nullable(); $t->timestamps();
         });
         Schema::create('produccion', function (Blueprint $t) {
             $t->id(); $t->unsignedBigInteger('orden_item_id')->nullable(); $t->string('destino')->default('orden');
@@ -423,6 +423,22 @@ class GarantiaPosventaTest extends TestCase
         $this->assertSame([3, 0], $this->inv(7, 1));
         $this->assertSame('resuelta', Garantia::find($g['id'])->estado);
         $this->assertSame('entregado', $orden->fresh()->estado);
+    }
+
+    public function test_lo_que_se_manda_a_fabricar_lleva_notas_para_el_taller(): void
+    {
+        [$orden, $cama] = $this->ordenEntregada();
+        $jefa = $this->jefa();
+        $g = $this->reportar($jefa, $cama)->json();
+
+        $this->actingAs($jefa)->postJson("/api/garantias/{$g['id']}/decidir", [
+            'decision' => 'cambio_otro', 'producto_id' => 8, 'fabricar' => true, 'precio_unitario' => 1500000,
+            'notas_taller' => '  Patas en negro mate  ',
+        ])->assertOk();
+
+        $nuevo = OrdenItem::where('orden_id', $orden->id)->latest('id')->first();
+        $this->assertTrue((bool) $nuevo->fabricar_pedido);
+        $this->assertSame(['notas' => 'Patas en negro mate'], $nuevo->specs_personalizacion);
     }
 
     public function test_sin_stock_en_esa_tienda_no_se_inventa_el_cambio(): void

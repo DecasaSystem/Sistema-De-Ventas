@@ -282,6 +282,7 @@ class GarantiaService
             'combo_config_id' => $item->combo_config_id,
             'tienda_id'       => $data['tienda_id'] ?? null,
             'fabricar'        => (bool) ($data['fabricar'] ?? false),
+            'notas_taller'    => $data['notas_taller'] ?? null,
         ], (float) $item->precio_unitario, $quien);
 
         self::anotar($g->orden, $quien, '🛡️ Garantía de ' . self::nombre($item) . ': se cambia por otra unidad igual'
@@ -306,6 +307,7 @@ class GarantiaService
             'combo_config_id' => $data['combo_config_id'] ?? null,
             'tienda_id'       => $data['tienda_id'] ?? null,
             'fabricar'        => (bool) ($data['fabricar'] ?? false),
+            'notas_taller'    => $data['notas_taller'] ?? null,
         ], (float) $data['precio_unitario'], $quien);
 
         $dif = (float) $g->diferencia_valor;
@@ -772,7 +774,11 @@ class GarantiaService
      * en ninguna, se puede mandar a fabricar: el renglón nace "para fabricar"
      * con su producción pendiente, como cualquier pedido.
      *
-     * @param array{producto_id:int, variante_id:?int, combo_config_id:?int, tienda_id:?int, fabricar:bool} $r
+     * Lo que se manda a fabricar guarda sus notas para el taller donde las
+     * guarda Nueva orden (specs_personalizacion.notas): así salen en la tarjeta
+     * de Producción igual que las de cualquier pedido.
+     *
+     * @param array{producto_id:int, variante_id:?int, combo_config_id:?int, tienda_id:?int, fabricar:bool, notas_taller?:?string} $r
      */
     private static function crearReemplazo(Garantia $g, array $r, float $precio, Usuario $quien): OrdenItem
     {
@@ -805,6 +811,8 @@ class GarantiaService
             }
         }
 
+        $notasTaller = $fabricar ? trim((string) ($r['notas_taller'] ?? '')) : '';
+
         $nuevo = OrdenItem::create([
             'orden_id'         => $orden->id,
             'producto_id'      => $producto->id,
@@ -817,7 +825,7 @@ class GarantiaService
             'fabricar_pedido'  => $fabricar,
             'es_restauracion'  => false,
             'tienda_origen_id' => $fabricar ? null : ($tiendaId !== (int) $orden->tienda_id ? $tiendaId : null),
-        ]);
+        ] + ($notasTaller !== '' ? ['specs_personalizacion' => ['notas' => $notasTaller]] : []));
 
         if ($fabricar) {
             Produccion::create([

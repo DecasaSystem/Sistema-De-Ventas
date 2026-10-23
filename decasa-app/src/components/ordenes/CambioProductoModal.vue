@@ -86,6 +86,9 @@ const varianteId    = ref(null)
 const comboId       = ref(null)
 const tiendaId      = ref(null)
 const fabricar      = ref(false)
+// Lo que se manda a fabricar casi nunca sale idéntico: otras patas, otro
+// acabado. Va al taller como las notas de Nueva orden.
+const notasTaller   = ref('')
 
 let tBusqueda = null
 watch(busqueda, (q) => {
@@ -245,6 +248,7 @@ async function guardar() {
         combo_config_id: comboId.value || null,
         fabricar: fabricar.value,
         tienda_id: fabricar.value ? null : tiendaId.value,
+        notas: fabricar.value ? (notasTaller.value.trim() || null) : null,
         cantidad: Number(cantNueva.value),
         precio_unitario: Number(precio.value) || 0,
         fecha_entrega_prom: fechaEntrega.value || null,
@@ -389,6 +393,11 @@ const inputCls = 'w-full rounded-xl border border-gray-200 px-3 py-2 text-sm foc
                     </span>
                     <span class="block text-[11px] text-gray-500">Entra a producción como un pedido para fabricar.</span>
                   </button>
+                  <div v-if="fabricar">
+                    <label class="block text-xs font-semibold text-gray-500 mb-1.5">Notas para el taller <span class="font-normal text-gray-400">— opcional</span></label>
+                    <textarea v-model="notasTaller" rows="2" :class="inputCls + ' resize-none'"
+                      placeholder="Ej: patas en negro mate, sin botones en el espaldar, laca nogal…" />
+                  </div>
                 </div>
               </div>
             </template>

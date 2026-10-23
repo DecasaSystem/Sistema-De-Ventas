@@ -532,6 +532,10 @@ class CambioDeProducto
         if ($varianteId && ! $fabricar && $v = ProductoVariante::find($varianteId)) {
             $specs = ['variante_marca' => $v->marca_tela, 'variante_color' => $v->nombre_color];
         }
+        // Lo que se manda a fabricar lleva sus notas para el taller, en el
+        // mismo sitio que Nueva orden: salen en la tarjeta de Producción.
+        $notasTaller = $fabricar ? trim((string) ($r['notas'] ?? '')) : '';
+        if ($notasTaller !== '') $specs = ['notas' => $notasTaller];
 
         $nuevo = OrdenItem::create([
             'orden_id'              => $orden->id,

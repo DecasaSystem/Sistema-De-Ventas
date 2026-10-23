@@ -187,6 +187,9 @@ class GarantiaController extends Controller
             'combo_config_id' => 'nullable|integer',
             'tienda_id'       => 'nullable|integer',
             'fabricar'        => 'nullable|boolean',
+            // Lo que se manda a fabricar lleva sus notas para el taller, como
+            // en Nueva orden (otro color de patas, sin botones…).
+            'notas_taller'    => 'nullable|string|max:1000',
             'precio_unitario' => 'required_if:decision,cambio_otro|nullable|numeric|min:0',
             // Reembolso: cuánto se le devuelve (lo aprueba un supervisor).
             'monto'           => 'required_if:decision,reembolso|nullable|numeric|min:0',

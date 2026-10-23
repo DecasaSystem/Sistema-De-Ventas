@@ -3407,6 +3407,7 @@ class OrdenController extends Controller
             'reemplazo.combo_config_id'    => 'nullable|integer',
             'reemplazo.tienda_id'          => 'nullable|integer',
             'reemplazo.fabricar'           => 'boolean',
+            'reemplazo.notas'              => 'nullable|string|max:1000',
             'reemplazo.nombre'             => 'required_if:reemplazo.tipo,diseno_especial|nullable|string|max:150',
             'reemplazo.categoria'          => 'nullable|string|max:100',
             'reemplazo.detalles'           => 'nullable|string|max:3000',
