@@ -24,13 +24,19 @@ final class EsquemasPlantillas
     public const COTIZACION = 'cotizacion';
     public const ACTA       = 'acta_entrega';
     public const MENSAJES   = 'mensajes_whatsapp';
+    /**
+     * La declaración de diseños y medidas especiales que el cliente firma con
+     * el anexo cuando pide algo fuera del catálogo (DeclaracionEspeciales).
+     * Como el anexo, es texto que se firma: cada anexo guarda la versión.
+     */
+    public const DECLARACION = 'declaracion_especiales';
 
     /** Los datos de los mensajes de WhatsApp, iguales en todos. */
     private const DATOS_MENSAJE = ['cliente', 'asesor', 'empresa', 'empresa_completo', 'referencia', 'enlace'];
 
     public static function claves(): array
     {
-        return [self::ACTA, self::COTIZACION, self::EMPRESA, self::PLAZOS, self::MENSAJES];
+        return [self::ACTA, self::COTIZACION, self::DECLARACION, self::EMPRESA, self::PLAZOS, self::MENSAJES];
     }
 
     public static function tiene(string $clave): bool
@@ -102,6 +108,30 @@ final class EsquemasPlantillas
                     self::campo('texto_conforme', 'multilinea', 'Si llegó bien, se agrega', 'Manifiesto que llegaron en buen estado y a satisfacción.', max: 500, requerido: true),
                     self::campo('texto_novedad', 'multilinea', 'Si hubo novedad, se agrega', 'Dejo constancia de la siguiente novedad al momento de recibir.', max: 500, requerido: true),
                     self::campo('firma_recibe', 'texto', 'Rótulo bajo la firma', 'Recibe conforme', max: 60, requerido: true),
+                ],
+            ],
+            self::DECLARACION => [
+                'nombre'      => 'Declaración de diseños especiales',
+                'descripcion' => 'Lo que el cliente aprueba y firma, junto con el anexo, cuando pide un mueble fuera del catálogo: cómo va cada producto (lo escribe el vendedor en la orden), los bocetos y esta constancia. Queda en PDF con su firma.',
+                'grupo'       => 'documentos',
+                'datos'       => [],
+                'aviso'       => 'Cada declaración firmada guarda el texto que leyó el cliente: cambiarlo aquí no cambia las ya firmadas. En qué productos se pide se escoge en Gestión → Ajustes.',
+                'campos'      => [
+                    self::campo('titulo', 'texto', 'Título', 'DECLARACIÓN PARA LA FABRICACIÓN DE MUEBLES CON DISEÑOS Y MEDIDAS ESPECIALES', max: 200, requerido: true),
+                    self::campo('ciudad', 'texto', 'Ciudad del encabezado', 'Armenia, Quindío', max: 80,
+                        ayuda: 'Sale antes de la fecha: "Armenia, Quindío, 21 de octubre de 2026".'),
+                    self::campo('introduccion', 'multilinea', 'Antes de los productos', 'De los muebles descritos a continuación:', max: 600, requerido: true),
+                    self::campo('rotulo_descripcion', 'texto', 'I. Rótulo de la descripción',
+                        'Descripción del producto a fabricar (tipo de madera, tela, relleno y pintura)', max: 200, requerido: true),
+                    self::campo('rotulo_medidas', 'texto', 'II. Rótulo de las medidas',
+                        'Descripción detallada de las medidas (ancho, largo, altura y profundidad)', max: 200, requerido: true),
+                    self::campo('rotulo_tipo', 'texto', 'III. Rótulo del tipo de mueble', 'Descripción del tipo de mueble a fabricar', max: 200, requerido: true),
+                    self::campo('constancia', 'multilinea', 'Constancia del cliente',
+                        'Igualmente me permito dejar constancia de que suministré las medidas y el tamaño de los muebles que deseo que DE CASA MUEBLES Y DECORACIÓN fabrique y, por ende, lo exonero de cualquier responsabilidad en cuanto a las mismas, toda vez que, por tratarse de un diseño exclusivo, las medidas, condiciones y especificaciones técnicas obedecen a una labor que desempeñé personalmente teniendo en cuenta el lugar y el espacio donde quedarán ubicados una vez realicen su entrega, además de que los mismos son diseñados a mi gusto y expectativas.',
+                        max: 4000, requerido: true),
+                    self::campo('aprobacion', 'texto', 'Botón para aprobar cada producto', 'Revisé este diseño y lo apruebo', max: 120, requerido: true,
+                        ayuda: 'El cliente lo toca en cada producto antes de poder firmar.'),
+                    self::campo('cierre', 'texto', 'Antes de la firma', 'Cordialmente,', max: 120),
                 ],
             ],
             self::MENSAJES => [

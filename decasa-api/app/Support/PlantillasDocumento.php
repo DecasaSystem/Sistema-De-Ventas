@@ -160,7 +160,11 @@ final class PlantillasDocumento
     /** Todas las versiones guardadas, de la más nueva a la más vieja, y al final la de fábrica. */
     public static function historial(string $clave): array
     {
-        $usos = $clave === self::ANEXO ? self::anexosFirmadosPorVersion() : [];
+        $usos = match ($clave) {
+            self::ANEXO                      => self::anexosFirmadosPorVersion(),
+            EsquemasPlantillas::DECLARACION  => self::anexosFirmadosPorVersion('declaracion_version'),
+            default                          => [],
+        };
 
         $filas = self::hayTabla()
             ? PlantillaDocumento::with('autor:id,nombre')->where('clave', $clave)->orderByDesc('id')->get()
@@ -455,13 +459,15 @@ final class PlantillasDocumento
     }
 
     /** Cuántos anexos firmados hay con cada versión: para saber qué texto tiene firmado la gente. */
-    private static function anexosFirmadosPorVersion(): array
+    private static function anexosFirmadosPorVersion(string $columna = 'version'): array
     {
         if (! Esquema::tabla('anexos_garantia')) return [];
+        if ($columna !== 'version' && ! Esquema::columna('anexos_garantia', $columna)) return [];
 
-        return DB::table('anexos_garantia')->where('estado', 'firmado')
-            ->selectRaw('version, COUNT(*) AS total')->groupBy('version')
-            ->pluck('total', 'version')->map(fn ($n) => (int) $n)->all();
+        // Agrupar por la columna y no por el alias (trampa de MySQL: ver MEMORY).
+        return DB::table('anexos_garantia')->where('estado', 'firmado')->whereNotNull($columna)
+            ->selectRaw("$columna AS v, COUNT(*) AS total")->groupBy($columna)
+            ->pluck('total', 'v')->map(fn ($n) => (int) $n)->all();
     }
 
     private static function texto(mixed $v): string

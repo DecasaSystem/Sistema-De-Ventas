@@ -409,6 +409,89 @@ escribiendo precios (Fase 1b).
   (remoto, de ese vendedor, sin orden, pendiente vigente o firmado ≤ 3 días) y la pantalla
   lo retoma al escoger el cliente; al recuperar el respaldo pregunta el estado ya; el aviso
   "el cliente firmó" sin orden abre Nueva orden.
+- **Nueva orden a medio hacer se sigue en otro aparato** (2026-10-22, **subido a `main`** ese día, rama
+  `claude/cross-device-order-sync-2ede47`, trae **migración**
+  `2026_10_29_000001_crear_borradores_en_curso`, solo crea tabla). Queja del usuario: se
+  recargaba en el celular, en el computador "me da la opción de seguir pero no se guarda bien".
+  Causa: el respaldo vivía solo en el IndexedDB de cada aparato; el otro ofrecía **su** copia
+  vieja, al seguir un borrador del servidor la copia vieja pisaba lo nuevo, y al crear la orden
+  en uno el otro la seguía ofreciendo (se podía crear dos veces). Ahora `useBorradorLocal` con
+  `nube: true` guarda también en la cuenta (`BorradorEnCursoController`, una fila por persona
+  y clave, `revision` para no pisar: 409 = otro aparato siguió o terminó → aviso "¿con cuál
+  sigues?"). Fotos a Cloudinary carpeta `borradores` (quedan ahí; no se limpian). Al crear la
+  orden o "Empezar de cero" se borra en todos lados. Consecuencia: **una sola orden a medio
+  hacer por persona** entre todos sus aparatos (antes una por aparato). Tests en `BorradorEnCursoTest`.
+- **Anexo: "yo ya marqué todo"** (2026-10-22, subido a `main` ese día, solo front). La última
+  sección se abre sola al marcar la penúltima; el cliente la leía y bajaba a firmar sin tocar
+  "Leí esta sección", y la firma apagada no decía nada. Ahora `AnexoFirma` lleva a lo primero
+  que falta (producto, sección, pregunta, datos) al tocar la firma o el botón, lo nombra y lo
+  marca en ámbar. No cambió qué se exige para firmar.
+- **Apagar notificaciones por persona** (2026-10-22, **subido a `main`** ese día, trae **migración**
+  `2026_10_30_000001_notificaciones_apagadas_en_usuarios`, solo agrega columna JSON). Pedido
+  del dueño: "hay supervisores que no necesitan las de cambios de dinero, ni productos
+  atrasados ni las de próximos de entrega pero sí las de nuevas ventas, chats". Se apaga por
+  **grupo** (22 grupos que juntan los ~60 tipos) en Trabajadores → ficha → Notificaciones.
+  Catálogo en `App\Support\TiposNotificacion`; el filtro está en `NotificacionService::crear`
+  (lo apagado no se guarda ni sale al celular; lo que ya tiene no se borra). **Un tipo de aviso
+  nuevo hay que meterlo en un grupo** (`NotificacionesApagablesTest` falla si no). Los dos
+  interruptores viejos (`notif_asignar_fecha`, `notif_stock`) quedaron como grupos del panel
+  pero siguen en su columna y se revisan donde se manda el aviso; se quitaron del formulario
+  Editar. Decisión que tomé por defecto (**falta que el dueño confirme**): todo se puede apagar,
+  también lo que pide una acción (solicitudes, consultas de precio, traslados, rutas); la
+  pantalla advierte en ámbar. Lo cambia solo un supervisor.
+- **Declaración de diseños y medidas especiales** (2026-10-21, **subido a `main`** ese día, rama
+  `claude/special-warranty-client-signature-ed7f21`, trae **migración**
+  `2026_10_26_000001_declaracion_disenos_especiales`, solo agrega). Pedido del dueño: el papel
+  "suministré las medidas… los exonero" que se firma en lo que no está en el catálogo, en el
+  sistema, con ficha + bocetos, que el cliente lo vea y firme, PDF o imagen, editable en Gestión.
+  Decisiones del dueño: **seguro en diseños especiales; en personalizados "que sea activable"**
+  (Gestión → Ajustes, apagado). Decisiones que tomé por defecto (**falta que el dueño confirme**):
+  una sola firma con el anexo pero dos documentos (igual que orden+anexo, 2026-10-09); se exige
+  donde se exige el anexo, y en la tienda vale la foto del papel; el cliente no edita: "pide un
+  cambio" y el asesor corrige y reenvía; los bocetos no entran a la huella (quedan congelados en
+  el anexo). Al subirlo, las órdenes presenciales con diseño especial empiezan a pedir la
+  declaración. Detalle en `docs/PROYECTO.md` §6.16. Trampa vista: la clase CSS `input` solo existe
+  en el `<style>` de NuevaOrdenView; en la página pública del cliente las cajas salían sin borde
+  (los componentes nuevos y AnexoFirma usan clases explícitas).
+  `MisEstadisticasVendedorTest::test_se_compara_con_el_periodo_anterior` falla también en el repo
+  principal (depende de la fecha): no es de este trabajo.
+- **Vender la medida sin la tela** (2026-10-20, **sin subir**, rama
+  `claude/orden-creation-422-error-1b173c`). Trae **migración**
+  `2026_10_25_000001_tela_por_definir_en_orden_items` (solo agrega `orden_items.tela_por_definir`).
+  Queja del usuario: Nueva orden daba 422 "Stock insuficiente para variante ID 36" con una
+  cama de 1.40 que sí tenía stock por medida; el selector obligaba a escoger tela × medida y,
+  sin combinaciones registradas, todo salía "Sin stock" ("muchas veces se sabe el tamaño de la
+  cama pero no la tela"). Hecho y aprobado por el usuario: la medida se revisa aparte
+  (`Support/StockMedida`), fila "1.40 · tela por definir" en el selector (`?para_venta=1`; sin
+  el parámetro Inventario ve lo de siempre), botón "Definir tela" en la orden
+  (`POST /ordenes/{id}/items/{itemId}/definir-tela`) y **no se despacha sin la tela**
+  (`EntregaService::entregablesDe`). Mensajes de stock con nombre, medida y tienda (nada de IDs).
+  Trampas: (1) las ventas **nunca apartaban ni descontaban la medida**; al entregar,
+  `StockVariantes::cuadrar` recortaba la del montón más grande (se vendía la 1.60 y bajaba la
+  1.40). Ahora la entrega baja la medida vendida. (2) Lo apartado de la medida **no lleva
+  contador**: se cuenta de las órdenes abiertas (así las órdenes viejas cuentan bien); no
+  agregarle un `increment` a `inventario_variante_configs.cantidad_reservada`. (3) Si ninguna
+  medida del producto tiene stock anotado en esa tienda, no se frena por medida (manda el total).
+  `completarBorrador` (camino viejo) sigue sin revisar stock, como antes. Tests en
+  `VentaPorMedidaSinTelaTest`. Falla aparte: `MisEstadisticasVendedorTest::test_se_compara_con_el_periodo_anterior`
+  falla solo el día 20 de cada mes (sus dos fechas caen el mismo día); no es de este cambio.
+- **Cambio de producto entregado, con reemplazo** (2026-10-21, **subido a `main`** ese día, rama
+  `claude/order-detail-return-function-8db111`, trae **migración**
+  `2026_10_27_000001_recogida_de_devoluciones`, solo agrega columnas). Pedido del usuario: un
+  respaldo de la devolución del conductor para cuando el cliente ya recibió y "no le
+  sirvió" (no es garantía), cambiándolo por catálogo (stock o fabricar) o diseño especial;
+  si vale más, la venta sube. Se amplió `cambiarProducto` (`Services/CambioDeProducto`,
+  `CambioProductoModal`); sin reemplazo hace lo mismo de antes. Decisiones que tomé por
+  defecto (**falta que el dueño confirme**): solo supervisor (como antes: mueve plata);
+  el precio del nuevo lo pone él (por defecto el de lista); si vale menos, queda **a
+  favor** (no se reembolsa aquí). Mismo día, pedido del usuario: escoger qué pasa con
+  lo devuelto (a qué tienda, a la fábrica/bodega o merma) y **programar la recogida**
+  "como opción porque puede que sea de una": la orden cambia ya, el inventario espera a
+  "Ya llegó" (Despacho → Por recoger). Recoger es manual, no parada de ruta (igual que
+  en garantías). Detalle en
+  `docs/PROYECTO.md` §6.9c. De paso: el modal "Definir tela" (6b92f09) estaba dentro del
+  `<Transition>` del de daño y en desarrollo Detalle de la orden no compilaba (en
+  producción sí); ahora cada uno tiene el suyo. Tests en `CambioProductoConReemplazoTest`.
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 
@@ -583,6 +666,42 @@ Decisiones del dueño del 2026-10-08:
   cliente** con su dueño en el sistema (catálogos, sedes, categorías, precios, juegos).
 
 ## 6. Trampas conocidas
+
+- **Orden trabada en `devuelto` (#1231, 2026-10-21, subido a `main` ese día)**. En la entrega los 2
+  tomacorrientes volvieron en el camión; la orden quedó en `devuelto` (a propósito no se
+  sale a mano: solo decidiendo la devolución en Producción). Pero ninguna salida servía:
+  "Otra igual" pedía OTRAS unidades libres y las únicas eran las apartadas para la orden;
+  "Otro producto" la dejaba en `pendiente_anticipo` con todo entregado y "Marcar entregado"
+  decía "No queda nada por entregar" (trabada para siempre). Arreglo: decisiones nuevas
+  `reentregar` (estaba bien, se lleva otra vez, no mueve inventario: lo que vuelve en el
+  camión nunca salió y sigue apartado) y `quitar` (el cliente se queda sin eso; al
+  inventario soltando el apartado, o merma; lo pagado de más queda a favor); y "entregado"
+  cierra una orden que ya tiene todo en la casa. Lo que vuelve en el camión ≠ lo que el
+  cliente ya tenía: mirar `pendienteEntregar()` antes de mover inventario.
+  **Causa de fondo (hallada después de subir):** `GET /devoluciones` pedía
+  `orden:id,referencia,…` y `referencia` NO es columna (es accesor): en MySQL daba 500,
+  la pantalla lo tragaba y la lista salía vacía en la orden y en Producción. Nadie podía
+  ver ni decidir la devolución. Nunca poner `referencia` en un select/`with(':cols')`;
+  test `test_la_lista_no_pide_columnas_que_no_existen` revisa el SQL (SQLite no falla).
+
+- **"Sin conexión" al crear la orden que era una foto borrada** (2026-10-21, consola:
+  `/api/upload/foto net::ERR_FILE_NOT_FOUND` + `AxiosError: Network Error`, repetido en
+  cada reintento). No es la red ni el servidor: el `File` del selector apunta al archivo
+  del teléfono y se lee al subir; si Android lo borró (temporales de la cámara), se movió
+  o era de la nube, la subida falla siempre. Solo pasaba con fotos de **menos de 1 MB**
+  (capturas de transferencias, WhatsApp): las grandes se comprimían y quedaban en memoria.
+  Arreglo (**subido a `main`** el 2026-10-21, commit a08967a): `comprimirAlTomar` copia a
+  memoria también las chicas, y Nueva orden revisa cada foto antes de subirla
+  (`fotoSigueAhi`), quita la perdida y lo dice claro. Para fotos nuevas: tomarlas siempre
+  con `comprimirAlTomar`.
+
+- **Enlace de firma con la dirección de Render** (2026-10-21, queja: "el enlace no abre
+  nada"). `AnexoGarantiaController::enlace` usaba `FRONTEND_URL` (no está en Render) o el
+  `Origin`, y si no, `app.url` (la API). Los navegadores solo mandan `Origin` en POST: al
+  preguntar el estado por GET (cada 5 s, y al retomar la espera) el enlace bueno se cambiaba
+  por `…onrender.com/firmar/…`. Ahora `baseApp()`: FRONTEND_URL → Origin → Referer → la app en
+  Vercel, nunca el host de la API; y `routes/web.php` redirige `/firmar/{token}` de Render a la
+  app (los enlaces ya mandados abren). Para links al cliente, usar `baseApp()`.
 
 - **Recalcular comisiones daba 502** (2026-10-19, **sin subir**, sin migración). Pone al día
   todas las comisiones sin pagar orden por orden; con ~300 renglones abiertos y ~200 ms por

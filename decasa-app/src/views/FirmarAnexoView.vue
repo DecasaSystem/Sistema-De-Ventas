@@ -10,8 +10,10 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import AnexoFirma from '@/components/anexo/AnexoFirma.vue'
-import { getAnexoPublico, firmarAnexo } from '@/api/anexos'
+import { getAnexoPublico, firmarAnexo, pedirCambioAnexo, pdfPublicoAnexo } from '@/api/anexos'
+import { pdfAImagen, sePuedeCompartir, compartirImagen, descargarImagen } from '@/utils/pdfAImagen'
 import { CheckCircleIcon } from '@heroicons/vue/24/solid'
+import { DocumentArrowDownIcon, PhotoIcon, PencilSquareIcon } from '@heroicons/vue/24/outline'
 import { useTamanoLetra } from '@/composables/useTamanoLetra'
 import { useVisorFoto } from '@/composables/useVisorFoto'
 
@@ -72,6 +74,69 @@ onMounted(async () => {
   }
 })
 
+// ── Pedirle un cambio al asesor (en vez de firmar) ───────────────────────────
+// El cliente no edita nada: le escribe al asesor, que corrige y le manda el
+// enlace nuevo. Queda escrito para los dos.
+const cambioAbierto = ref(false)
+const cambioTexto   = ref('')
+const enviandoCambio = ref(false)
+const cambioEnviado = ref(false)
+function abrirCambio(nombreProducto) {
+  cambioTexto.value = nombreProducto && !cambioTexto.value ? `${nombreProducto}: ` : cambioTexto.value
+  cambioAbierto.value = true
+}
+async function enviarCambio() {
+  if (!cambioTexto.value.trim() || enviandoCambio.value) return
+  enviandoCambio.value = true
+  try {
+    await pedirCambioAnexo(token, cambioTexto.value.trim())
+    datos.value = { ...datos.value, cambio_pedido: cambioTexto.value.trim(), cambio_pedido_at: new Date().toISOString() }
+    cambioEnviado.value = true
+    cambioAbierto.value = false
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  } catch (e) {
+    errorFirma.value = e.response?.data?.message ?? 'No se pudo enviar. Revisa tu conexión.'
+    cambioAbierto.value = false
+  } finally {
+    enviandoCambio.value = false
+  }
+}
+
+// ── Lo firmado, para guardarlo (PDF o imagen) ────────────────────────────────
+const documentos = computed(() => [
+  { doc: 'anexo', nombre: 'Anexo de garantías', archivo: 'anexo-garantias' },
+  ...(datos.value?.declaracion ? [{ doc: 'declaracion', nombre: 'Declaración de diseños especiales', archivo: 'declaracion-disenos-especiales' }] : []),
+])
+const bajando = ref('')
+// La imagen lista para compartir: el menú de compartir solo abre desde un toque.
+const imagenLista = ref(null)   // { blob, nombre }
+async function bajarDocumento(d, formato) {
+  if (bajando.value) return
+  bajando.value = `${d.doc}-${formato}`
+  try {
+    const { data } = await pdfPublicoAnexo(token, d.doc)
+    const pdf = new Blob([data], { type: 'application/pdf' })
+    if (formato === 'pdf') {
+      descargarImagen(pdf, `${d.archivo}.pdf`)
+    } else {
+      const img = await pdfAImagen(pdf)
+      const nombre = `${d.archivo}.jpg`
+      if (sePuedeCompartir(img, nombre)) imagenLista.value = { blob: img, nombre }
+      else descargarImagen(img, nombre)
+    }
+  } catch {
+    errorFirma.value = 'No se pudo descargar. Inténtalo otra vez en un momento.'
+  } finally {
+    bajando.value = ''
+  }
+}
+async function compartirLista() {
+  const i = imagenLista.value
+  if (!i) return
+  try { await compartirImagen(i.blob, i.nombre) } catch { descargarImagen(i.blob, i.nombre) }
+  imagenLista.value = null
+}
+
 async function firmar(payload) {
   enviando.value = true
   errorFirma.value = ''
@@ -79,6 +144,7 @@ async function firmar(payload) {
     await firmarAnexo(token, {
       secciones: payload.secciones,
       checklist: payload.checklist,
+      declaracion_aprobados: payload.declaracion_aprobados,
       nombre:    payload.nombre,
       documento: payload.documento,
       firma:     payload.firma,
@@ -125,13 +191,48 @@ async function firmar(payload) {
         <p class="text-[1em] text-gray-600">{{ error }}</p>
       </div>
 
-      <div v-else-if="listo" class="bg-white border border-green-200 rounded-xl p-6 text-center space-y-3">
-        <CheckCircleIcon class="w-14 h-14 text-green-600 mx-auto" />
-        <p class="text-[1.3em] font-bold text-gray-800">¡Listo, quedó firmado!</p>
-        <p class="text-[1em] text-gray-600">
-          {{ datos?.vendedor ? `${datos.vendedor} ya` : 'Tu asesor ya' }} recibió tu firma. Ya puedes cerrar esta página.
-        </p>
-      </div>
+      <template v-else-if="listo">
+        <div class="bg-white border border-green-200 rounded-xl p-6 text-center space-y-3">
+          <CheckCircleIcon class="w-14 h-14 text-green-600 mx-auto" />
+          <p class="text-[1.3em] font-bold text-gray-800">¡Listo, quedó firmado!</p>
+          <p class="text-[1em] text-gray-600">
+            {{ datos?.vendedor ? `${datos.vendedor} ya` : 'Tu asesor ya' }} recibió tu firma. Guarda una copia si quieres; ya puedes cerrar esta página.
+          </p>
+        </div>
+
+        <!-- Lo que firmó, para guardarlo: en PDF o como imagen -->
+        <section class="bg-white border border-gray-200 rounded-xl overflow-hidden">
+          <p class="px-4 py-3 border-b border-gray-100 text-[1.05em] font-bold text-gray-800">Tus documentos firmados</p>
+          <div class="divide-y divide-gray-100">
+            <div v-for="d in documentos" :key="d.doc" class="px-4 py-3 space-y-2">
+              <p class="text-[1em] font-medium text-gray-800">{{ d.nombre }}</p>
+              <div class="grid grid-cols-2 gap-2">
+                <button
+                  type="button" @click="bajarDocumento(d, 'pdf')" :disabled="!!bajando"
+                  class="flex items-center justify-center gap-1.5 rounded-lg border border-gray-300 bg-white py-2.5 text-[0.95em] font-semibold text-gray-700 disabled:opacity-50"
+                >
+                  <DocumentArrowDownIcon class="w-4 h-4" />
+                  {{ bajando === `${d.doc}-pdf` ? 'Bajando…' : 'PDF' }}
+                </button>
+                <button
+                  type="button" @click="bajarDocumento(d, 'imagen')" :disabled="!!bajando"
+                  class="flex items-center justify-center gap-1.5 rounded-lg border border-gray-300 bg-white py-2.5 text-[0.95em] font-semibold text-gray-700 disabled:opacity-50"
+                >
+                  <PhotoIcon class="w-4 h-4" />
+                  {{ bajando === `${d.doc}-imagen` ? 'Preparando…' : 'Imagen' }}
+                </button>
+              </div>
+            </div>
+          </div>
+          <div v-if="imagenLista" class="px-4 pb-4">
+            <button
+              type="button" @click="compartirLista"
+              class="w-full rounded-lg bg-green-600 py-2.5 text-[1em] font-semibold text-white"
+            >Guardar o compartir la imagen</button>
+          </div>
+        </section>
+        <p v-if="errorFirma" class="text-red-600 text-center text-[0.9em]">{{ errorFirma }}</p>
+      </template>
 
       <template v-else-if="datos">
         <p class="text-[1em] text-gray-700" :style="{ fontSize: `${14 * escala}px` }">
@@ -258,17 +359,57 @@ async function firmar(payload) {
           </p>
         </template>
 
+        <!-- Ya le pidió un cambio al asesor: que lo vea y sepa qué sigue. -->
+        <div v-if="datos.cambio_pedido" class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 space-y-1" :style="{ fontSize: `${14 * escala}px` }">
+          <p class="text-[1em] font-semibold text-amber-900">{{ cambioEnviado ? 'Listo, se lo enviamos a tu asesor' : 'Le pediste un cambio a tu asesor' }}</p>
+          <p class="text-[0.9em] text-amber-900 whitespace-pre-wrap">"{{ datos.cambio_pedido }}"</p>
+          <p class="text-[0.85em] text-amber-800">
+            Cuando lo corrija te manda un enlace nuevo para firmar. Si de todas formas está bien así, puedes firmar aquí.
+          </p>
+        </div>
 
         <AnexoFirma
           :contenido="datos.contenido"
+          :declaracion="datos.declaracion"
+          :puede-pedir-cambio="true"
           :nombre="datos.cliente?.nombre ?? ''"
           :documento="datos.cliente?.cedula ?? ''"
           :enviando="enviando"
           :texto-boton="resumen ? 'Confirmo mi pedido y firmo' : 'Acepto y firmo'"
           @firmar="firmar"
+          @pedir-cambio="abrirCambio"
         />
+        <button
+          type="button" @click="abrirCambio('')"
+          class="w-full flex items-center justify-center gap-1.5 rounded-xl border border-gray-300 bg-white py-3 text-[1em] font-semibold text-gray-700"
+          :style="{ fontSize: `${14 * escala}px` }"
+        >
+          <PencilSquareIcon class="w-5 h-5" /> Algo no está bien: escribirle a mi asesor
+        </button>
         <p v-if="errorFirma" class="text-red-600 text-center" :style="{ fontSize: `${14 * escala}px` }">{{ errorFirma }}</p>
       </template>
     </main>
+
+    <!-- Pedirle un cambio al asesor -->
+    <div v-if="cambioAbierto" class="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center" @click.self="cambioAbierto = false">
+      <div class="w-full max-w-lg bg-white rounded-t-2xl sm:rounded-2xl p-4 space-y-3" :style="{ fontSize: `${14 * escala}px` }">
+        <p class="text-[1.1em] font-bold text-gray-800">¿Qué quieres cambiar?</p>
+        <p class="text-[0.9em] text-gray-600">
+          Escríbelo con tus palabras (una medida, la tela, el color, el boceto…). Le llega a
+          {{ datos?.vendedor ?? 'tu asesor' }} y te manda el pedido corregido para firmar.
+        </p>
+        <textarea
+          v-model="cambioTexto" rows="4" maxlength="1500"
+          class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 text-[1em] resize-y" placeholder="Ej: la biblioteca la necesito de 230 cm de ancho, no de 240."
+        />
+        <div class="grid grid-cols-2 gap-2">
+          <button type="button" @click="cambioAbierto = false" class="rounded-lg border border-gray-300 py-2.5 text-[1em] font-semibold text-gray-600">Cancelar</button>
+          <button
+            type="button" @click="enviarCambio" :disabled="!cambioTexto.trim() || enviandoCambio"
+            class="rounded-lg bg-blue-600 py-2.5 text-[1em] font-semibold text-white disabled:opacity-40"
+          >{{ enviandoCambio ? 'Enviando…' : 'Enviar a mi asesor' }}</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>

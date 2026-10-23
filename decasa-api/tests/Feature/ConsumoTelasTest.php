@@ -263,6 +263,7 @@ class ConsumoTelasTest extends TestCase
             'tienda_id'      => 1,
             'canal'          => 'fisica',
             'anexo_foto_url' => 'https://ejemplo/anexo.png',
+            'declaracion_foto_url' => 'https://ejemplo/declaracion.png',
             'anticipo_monto' => 0,
             'firma_url'      => 'https://ejemplo/firma.png',
             'items'          => $items,

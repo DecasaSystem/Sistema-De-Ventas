@@ -405,4 +405,133 @@ class DevolucionTest extends TestCase
         // Queda esperando decisión, y la orden lo dice.
         $this->assertSame('devuelto', $orden->fresh()->estado);
     }
+    // ── Caso real #1231: lo que volvió en el camión y dejó la orden trabada ──
+
+    /**
+     * Cama ($5.780.000) y bolsa de obsequio entregadas; los 2 tomacorrientes
+     * ($165.000 c/u) volvieron en el camión porque no eran los que iban.
+     * Pagada completa. Los tomas siguen apartados en la tienda (2 de 2).
+     */
+    private function orden1231(): array
+    {
+        DB::table('tiendas')->insert(['id' => 1, 'nombre' => 'Decasa Unicentro Pereira']);
+        DB::table('clientes')->insert(['id' => 1, 'nombre' => 'INOVAR', 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('productos')->insert([['id' => 4, 'nombre' => 'CAMA FIGY'], ['id' => 385, 'nombre' => 'Toma corriente cama']]);
+
+        $orden = Orden::create(['cliente_id' => 1, 'tienda_id' => 1, 'estado' => 'devuelto',
+                                'valor_total' => 6110000, 'numero_orden' => 1231]);
+        $cama  = OrdenItem::create(['orden_id' => $orden->id, 'producto_id' => 4, 'cantidad' => 1, 'cantidad_entregada' => 1,
+                                    'precio_unitario' => 5780000, 'es_personalizado' => false]);
+        $tomas = OrdenItem::create(['orden_id' => $orden->id, 'producto_id' => 385, 'cantidad' => 2, 'cantidad_entregada' => 0,
+                                    'precio_unitario' => 165000, 'es_personalizado' => false]);
+        DB::table('inventario')->insert(['producto_id' => 385, 'tienda_id' => 1, 'cantidad_disponible' => 2, 'cantidad_reservada' => 2]);
+        DB::table('pagos')->insert(['orden_id' => $orden->id, 'monto' => 6110000, 'metodo' => 'tarjeta', 'tipo' => 'anticipo', 'created_at' => now()]);
+
+        $dev = Devolucion::create(['orden_id' => $orden->id, 'orden_item_id' => $tomas->id, 'cantidad' => 2,
+                                   'motivo' => 'nocheros por toma corriente', 'fecha' => '2026-09-23', 'estado' => 'pendiente',
+                                   'despacho_item_id' => 82]);
+
+        return [$orden, $cama, $tomas, $dev];
+    }
+
+    private function invTomas(): array
+    {
+        $f = DB::table('inventario')->where('producto_id', 385)->first();
+
+        return [(int) $f->cantidad_disponible, (int) $f->cantidad_reservada];
+    }
+
+    public function test_1231_otra_igual_falla_porque_las_unicas_son_las_apartadas(): void
+    {
+        [, , , $dev] = $this->orden1231();
+
+        // Lo que pasaba: pide OTRAS dos libres y no las hay.
+        $this->actingAs($this->jefa())->postJson("/api/devoluciones/{$dev->id}/decidir", ['decision' => 'cambio_mismo'])
+            ->assertStatus(422);
+    }
+
+    public function test_1231_se_le_vuelve_a_llevar_sin_mover_inventario(): void
+    {
+        [$orden, , $tomas, $dev] = $this->orden1231();
+
+        $this->actingAs($this->jefa())->postJson("/api/devoluciones/{$dev->id}/decidir", ['decision' => 'reentregar'])
+            ->assertOk()->assertJsonPath('estado', 'reentrega');
+
+        // Sale de "devuelto": lista para llevarle los tomas.
+        $this->assertSame('listo_entrega', $orden->fresh()->estado);
+        // Siguen apartados para ella y por entregar; el valor no cambia.
+        $this->assertSame([2, 2], $this->invTomas());
+        $this->assertSame(2, $tomas->fresh()->pendienteEntregar());
+        $this->assertEquals(6110000, (float) $orden->fresh()->valor_total);
+    }
+
+    public function test_1231_se_queda_sin_los_tomas_y_la_orden_se_cierra(): void
+    {
+        [$orden, , $tomas, $dev] = $this->orden1231();
+
+        $this->actingAs($this->jefa())->postJson("/api/devoluciones/{$dev->id}/decidir",
+            ['decision' => 'quitar', 'vuelve_al_stock' => true])
+            ->assertOk()->assertJsonPath('estado', 'quitada');
+
+        $orden->refresh();
+        // Ya tiene todo lo demás en la casa: queda entregada.
+        $this->assertSame('entregado', $orden->estado);
+        // Los tomas dejan de cobrarse; lo pagado queda a favor.
+        $this->assertNotNull($tomas->fresh()->devuelto_en);
+        $this->assertEquals(5780000, (float) $orden->valor_total);
+        $this->assertEquals(-330000, $orden->saldoPendiente());
+        // Estaban buenos: se sueltan para venderlos (nunca salieron de la tienda).
+        $this->assertSame([2, 0], $this->invTomas());
+    }
+
+    public function test_1231_si_estaban_danados_salen_como_merma(): void
+    {
+        [, , , $dev] = $this->orden1231();
+
+        $this->actingAs($this->jefa())->postJson("/api/devoluciones/{$dev->id}/decidir",
+            ['decision' => 'quitar', 'vuelve_al_stock' => false])->assertOk();
+
+        $this->assertSame([0, 0], $this->invTomas());
+    }
+
+    public function test_no_se_vuelve_a_llevar_lo_que_el_cliente_ya_tiene(): void
+    {
+        [, , $tomas, $dev] = $this->orden1231();
+        $tomas->update(['cantidad_entregada' => 2]);
+
+        $this->actingAs($this->jefa())->postJson("/api/devoluciones/{$dev->id}/decidir", ['decision' => 'reentregar'])
+            ->assertStatus(422);
+    }
+
+    public function test_con_otra_devolucion_sin_decidir_la_orden_sigue_devuelta(): void
+    {
+        [$orden, $cama, , $dev] = $this->orden1231();
+        Devolucion::create(['orden_id' => $orden->id, 'orden_item_id' => $cama->id, 'cantidad' => 1,
+                            'motivo' => 'Rayada', 'fecha' => '2026-09-23', 'estado' => 'pendiente']);
+
+        $this->actingAs($this->jefa())->postJson("/api/devoluciones/{$dev->id}/decidir", ['decision' => 'reentregar'])->assertOk();
+
+        $this->assertSame('devuelto', $orden->fresh()->estado);
+    }
+    /**
+     * `referencia` no es columna de `ordenes`: se arma en el modelo. Pedirla en
+     * un select revienta en MySQL ("Unknown column") y la lista salía vacía en
+     * la orden y en Producción: nadie veía la devolución de la #1231. SQLite
+     * lo deja pasar (la toma como texto), así que se mira la consulta misma.
+     */
+    public function test_la_lista_no_pide_columnas_que_no_existen(): void
+    {
+        [$orden, , , $dev] = $this->orden1231();
+        $consultas = [];
+        DB::listen(function ($q) use (&$consultas) { $consultas[] = $q->sql; });
+
+        $this->actingAs($this->jefa())->getJson("/api/devoluciones?orden_id={$orden->id}")->assertOk()
+            ->assertJsonPath('0.id', $dev->id)
+            ->assertJsonPath('0.orden_referencia', '#1231');
+        $this->actingAs($this->jefa())->getJson('/api/devoluciones?estado=pendiente')->assertOk()->assertJsonCount(1);
+
+        foreach ($consultas as $sql) {
+            $this->assertStringNotContainsString('"referencia"', $sql, "Pide una columna que no existe: {$sql}");
+        }
+    }
 }

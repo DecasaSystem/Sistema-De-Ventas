@@ -15,7 +15,7 @@ import TelaPicker from '@/components/ordenes/TelaPicker.vue'
 import ResumenOrdenModal from '@/components/ordenes/ResumenOrdenModal.vue'
 import { cloudinaryOpt } from '@/utils/cloudinary'
 import { useVisorFoto } from '@/composables/useVisorFoto'
-import { comprimirImagen, comprimirAlTomar } from '@/utils/comprimirImagen'
+import { comprimirImagen, comprimirAlTomar, fotoSigueAhi, errorFotoPerdida } from '@/utils/comprimirImagen'
 import { useBorradorLocal } from '@/composables/useBorradorLocal'
 import { piezasPorJuego, piezasDeOpcion, enJuegos, precioPieza } from '@/utils/juegos'
 import { pctDeMonto, montoDePct, formatPct } from '@/utils/descuentos'
@@ -28,7 +28,9 @@ import FirmaCanvas from '@/components/FirmaCanvas.vue'
 import AnexoFirma from '@/components/anexo/AnexoFirma.vue'
 import { useTextosNegocio, cargarTextosNegocio, rellenar, datosEmpresa, FABRICA } from '@/utils/textosNegocio'
 import { specsParaCliente, soloHttps, tipoParaCliente, tipoDeItemCarrito, trabajoTexto } from '@/utils/resumenParaFirma'
-import { crearAnexo, getAnexo, anexoEnCurso, getAnexoPublico, firmarAnexo, enviarAnexoEmail, pdfAnexo, anularAnexo } from '@/api/anexos'
+import { crearAnexo, getAnexo, anexoEnCurso, getAnexoPublico, firmarAnexo, enviarAnexoEmail, pdfAnexo, anularAnexo, pdfDeclaracion } from '@/api/anexos'
+import FichaEspecialEditor from '@/components/anexo/FichaEspecialEditor.vue'
+import { useAjustesDeclaracion, aplicaDeclaracion, limpiarFicha, faltaEnFicha } from '@/utils/declaracionEspeciales'
 import BocetoCanvas from '@/components/BocetoCanvas.vue'
 import DireccionColombia from '@/components/DireccionColombia.vue'
 import ComboInput from '@/components/common/ComboInput.vue'
@@ -1266,7 +1268,7 @@ async function cambiarVariante(idx) {
   try {
     const [producto, telas] = await Promise.all([
       api.get(`/productos/${item.producto_id}`, { params: { tienda_id: tienda } }).then(r => r.data),
-      getVariantes(item.producto_id, tienda).then(r => r.data).catch(() => []),
+      getVariantes(item.producto_id, tienda, false, true).then(r => r.data).catch(() => []),
     ])
 
     editandoIdx.value = idx
@@ -1366,7 +1368,7 @@ async function agregarItem(producto) {
     cargandoVariantes.value = true
     mostrarVariantePicker.value = true
     try {
-      const { data } = await getVariantes(producto.id, tiendaConsulta)
+      const { data } = await getVariantes(producto.id, tiendaConsulta, false, true)
       variantesDisponibles.value = data
       // Si no hay variantes tapizado registradas, buscar variantes personalizadas
       if (data.length === 0 && tiendaConsulta) {
@@ -1429,15 +1431,22 @@ function _pushItem(producto, variante) {
     ? (variante.stock_libre ?? 0)
     : stockLibre(producto)
 
+  // La medida sin tela ("1.40 · tela por definir"): la tela se escoge
+  // después, desde la orden, y no se despacha sin ella.
+  const telaPorDefinir = !!variante?._tela_por_definir
   const varianteLabel = variante
-    ? (variante.medida
-        ? variante.medida
-        : [variante.marca, variante.marca_tela, variante.nombre_color, variante._config_label].filter(Boolean).join(' · '))
+    ? (telaPorDefinir
+        ? `${variante._config_label} · tela por definir`
+        : variante.medida
+          ? variante.medida
+          : [variante.marca, variante.marca_tela, variante.nombre_color, variante._config_label].filter(Boolean).join(' · '))
     : null
 
   const comboKey = variante?._combo_id ?? null
+  // La medida también separa: "1.40 sin tela" y "sin especificar" no son el mismo.
   const existe = items.value.find((i) =>
-    i.producto_id === producto.id && i.variante_id === (variante?.id ?? null) && i._combo_id === comboKey && !i._fabricar_pedido
+    i.producto_id === producto.id && i.variante_id === (variante?.id ?? null) && i._combo_id === comboKey &&
+    (i._config_id ?? null) === (variante?._config_id ?? null) && !i._fabricar_pedido
   )
 
   if (! _colocarItem({
@@ -1445,6 +1454,7 @@ function _pushItem(producto, variante) {
     variante_id: variante?.id ?? null,
     _combo_id:   variante?._combo_id ?? null,
     _config_id:  variante?._config_id ?? null,
+    _tela_por_definir: telaPorDefinir,
     tienda_origen_id: esOtraTienda ? (tiendaBusqueda.value ?? null) : null,
     nombre: producto.nombre,
     categoria: producto.categoria,
@@ -1975,6 +1985,9 @@ async function subirBocetosPendientes() {
     if (!(item.es_personalizado || item._retapizar)) continue
     for (let fi = 0; fi < item.boceto_blobs.length; fi++) {
       if (item.boceto_blobs[fi] && !item.boceto_urls[fi]) {
+        if (!(await fotoSigueAhi(item.boceto_blobs[fi]))) {
+          throw errorFotoPerdida(`del boceto de "${item.nombre ?? 'un producto'}"`, { yaSeQuito: false })
+        }
         const fd = new FormData()
         fd.append('foto', await comprimirImagen(item.boceto_blobs[fi]), fi === 0 ? 'boceto.jpg' : `boceto_${fi}.jpg`)
         fd.append('folder', 'bocetos')
@@ -1990,18 +2003,104 @@ async function subirBocetosPendientes() {
 // Si el cliente firmó a distancia y después se cambió la orden, lo que firmó
 // ya no es lo que va. El servidor tampoco la deja crear así.
 const anexoDesactualizado = computed(() =>
-  anexo.value?.modo === 'remoto' && anexo.value?.lo_que_vio && anexo.value.lo_que_vio !== huellaLocal()
+  (anexo.value?.modo === 'remoto' && anexo.value?.lo_que_vio && anexo.value.lo_que_vio !== huellaLocal())
+  || declaracionDesactualizada.value
 )
+
+// ── Declaración de diseños especiales ────────────────────────────────────────
+// Lo que no está en el catálogo (y lo personalizado, si lo prenden en Gestión
+// → Ajustes) lleva una ficha que el cliente aprueba producto por producto y
+// firma con el anexo: una sola firma, dos documentos. Ver
+// utils/declaracionEspeciales.js y App\Support\DeclaracionEspeciales.
+const ajustesDeclaracion = useAjustesDeclaracion()
+function pideDeclaracion(i) {
+  return aplicaDeclaracion(tipoDeItemCarrito(i), ajustesDeclaracion.value)
+}
+const itemsDeclaracion = computed(() => items.value.filter(pideDeclaracion))
+
+/** Los productos que el cliente aprueba, como los guarda el servidor. */
+function especialesParaCliente() {
+  return itemsDeclaracion.value.map(i => ({
+    nombre:        i.nombre,
+    cantidad:      i.cantidad,
+    tipo:          tipoDeItemCarrito(i) === 'diseno_especial' ? 'Diseño especial' : 'Personalizado',
+    // Lo mismo que viaja al crear la orden: con esto se sabe si cambió.
+    producto_id:   i.producto_id || null,
+    nombre_custom: i.producto_id ? null : (i.nombre_custom || null),
+    ficha:         limpiarFicha(i.ficha_especial),
+    bocetos:       soloHttps(i.boceto_urls),
+  }))
+}
+/** Lo que el cliente aprobó, para saber si después se cambió (sin los bocetos). */
+function huellaDeclaracionLocal() {
+  return JSON.stringify(itemsDeclaracion.value.map(i => [i.producto_id || i.nombre_custom || i.nombre, limpiarFicha(i.ficha_especial)]))
+}
+/** El primero al que le falta algo en la ficha: sin eso no se puede mandar a aprobar. */
+const fichaIncompleta = computed(() => {
+  for (const i of itemsDeclaracion.value) {
+    const falta = faltaEnFicha(i.ficha_especial)
+    if (falta) return { item: i, falta }
+  }
+  return null
+})
+function avisarFichaIncompleta() {
+  const f = fichaIncompleta.value
+  if (!f) return false
+  toast.error(`Llena la ficha de "${f.item.nombre}" para la declaración de diseños especiales: falta ${f.falta}.`)
+  return true
+}
+// El cliente firmó (o tiene el enlace) sin estos productos especiales, o con
+// otra ficha: lo que aprobó ya no es lo que se va a fabricar. Con precio por
+// consultar y sin declaración, se pide al confirmar la cotización (igual que
+// el servidor).
+const declaracionDesactualizada = computed(() => {
+  if (!anexo.value || modoCotizacion.value || !itemsDeclaracion.value.length) return false
+  if (!anexo.value.declaracion) return !hayItemsCotizar.value
+  return !!anexo.value.lo_que_vio_decl && anexo.value.lo_que_vio_decl !== huellaDeclaracionLocal()
+})
+
+async function verPdfDeclaracion() {
+  try {
+    const res = await pdfDeclaracion(anexo.value.id)
+    window.open(URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' })), '_blank')
+  } catch {
+    toast.error('No se pudo abrir el PDF de la declaración.')
+  }
+}
+
+// Firmó en papel: la foto de la declaración, como la del anexo.
+const declaracionFotoFile    = ref(null)
+const declaracionFotoUrl     = ref('')
+const declaracionFotoPreview = ref('')
+const subiendoDeclaracion    = ref(false)
+watch(declaracionFotoFile, (file) => {
+  if (declaracionFotoPreview.value) URL.revokeObjectURL(declaracionFotoPreview.value)
+  declaracionFotoPreview.value = file ? URL.createObjectURL(file) : ''
+  declaracionFotoUrl.value = ''
+})
+async function onDeclaracionFotoChange(e) {
+  const original = e.target.files?.[0]
+  e.target.value = ''
+  if (original) declaracionFotoFile.value = await comprimirAlTomar(original)
+}
 
 async function firmarAnexoAqui() {
   if (!clienteSeleccionado.value?.id || preparandoAnexo.value) return
+  if (avisarFichaIncompleta()) return
   preparandoAnexo.value = true
   try {
-    const { data } = await crearAnexo({ cliente_id: clienteSeleccionado.value.id, modo: 'presencial' })
+    // En la tienda el cliente también ve los bocetos: hay que subirlos antes.
+    if (itemsDeclaracion.value.length) await subirBocetosPendientes()
+    const lo_que_vio_decl = huellaDeclaracionLocal()
+    const { data } = await crearAnexo({
+      cliente_id: clienteSeleccionado.value.id, modo: 'presencial',
+      especiales: especialesParaCliente(),
+    })
     const { data: pub } = await getAnexoPublico(data.token)
     anexoIdAqui.value    = data.id
     anexoToken.value     = data.token
     anexoContenido.value = pub
+    anexoContenido.value._lo_que_vio_decl = lo_que_vio_decl
     mostrarAnexoAqui.value = true
   } catch (e) {
     toast.error(e.response?.data?.message ?? 'No se pudo abrir el anexo.')
@@ -2015,12 +2114,15 @@ async function guardarAnexoAqui(payload) {
   try {
     await firmarAnexo(anexoToken.value, {
       secciones: payload.secciones, checklist: payload.checklist,
+      declaracion_aprobados: payload.declaracion_aprobados,
       nombre: payload.nombre, documento: payload.documento, firma: payload.firma,
     })
     const { data } = await getAnexo(anexoIdAqui.value)
     ponerAnexo(data)
+    // Lo que aprobó de los especiales: si después se cambia una ficha, se nota.
+    anexo.value = { ...anexo.value, lo_que_vio_decl: anexoContenido.value?._lo_que_vio_decl ?? null }
     mostrarAnexoAqui.value = false
-    toast.success('Anexo firmado.')
+    toast.success(data.declaracion ? 'Anexo y declaración firmados.' : 'Anexo firmado.')
   } catch (e) {
     toast.error(e.response?.data?.message ?? 'No se pudo guardar el anexo. Vuelve a darle.')
   } finally {
@@ -2031,12 +2133,17 @@ async function guardarAnexoAqui(payload) {
 async function enviarAnexoAlCliente() {
   if (!clienteSeleccionado.value?.id || preparandoAnexo.value) return
   if (!items.value.length) { toast.error('Agrega los productos antes de enviárselo al cliente.'); return }
+  if (avisarFichaIncompleta()) return
   preparandoAnexo.value = true
   try {
     await subirBocetosPendientes()
     const lo_que_vio = huellaLocal()
-    const { data } = await crearAnexo({ cliente_id: clienteSeleccionado.value.id, modo: 'remoto', resumen: resumenParaCliente() })
-    anexo.value = { ...data, lo_que_vio }
+    const lo_que_vio_decl = huellaDeclaracionLocal()
+    const { data } = await crearAnexo({
+      cliente_id: clienteSeleccionado.value.id, modo: 'remoto', resumen: resumenParaCliente(),
+      especiales: especialesParaCliente(),
+    })
+    anexo.value = { ...data, lo_que_vio, lo_que_vio_decl }
     emailAnexo.value = clienteSeleccionado.value?.email ?? ''
   } catch (e) {
     toast.error(e.response?.data?.message ?? 'No se pudo preparar el enlace.')
@@ -2047,7 +2154,12 @@ async function enviarAnexoAlCliente() {
 
 function ponerAnexo(data) {
   const antes = anexo.value
-  anexo.value = { ...data, lo_que_vio: antes?.id === data.id ? antes.lo_que_vio : null }
+  const mismo = antes?.id === data.id
+  anexo.value = { ...data, lo_que_vio: mismo ? antes.lo_que_vio : null, lo_que_vio_decl: mismo ? antes.lo_que_vio_decl : null }
+  // El cliente pidió un cambio en vez de firmar: que se note aquí al instante.
+  if (mismo && data.cambio_pedido && data.cambio_pedido_at !== antes.cambio_pedido_at) {
+    toast.info(`${clienteSeleccionado.value?.nombre?.split(' ')[0] ?? 'El cliente'} pidió un cambio: ${data.cambio_pedido}`)
+  }
   // Una sola firma: la del anexo queda como firma de la orden si todavía
   // no se firmó abajo.
   if (data.estado === 'firmado' && data.firma_url && !firmaBlob.value && !firmaUrl.value) {
@@ -2181,6 +2293,13 @@ const exigeAnexo = computed(() =>
 )
 const tieneAnexo = computed(() =>
   anexo.value?.estado === 'firmado' || !!anexoFotoFile.value || !!anexoFotoUrl.value
+)
+// La declaración de diseños especiales se pide donde se pide el anexo, si hay
+// productos que la piden: firmada aquí con el anexo, o la foto del papel.
+const exigeDeclaracion = computed(() => exigeAnexo.value && itemsDeclaracion.value.length > 0)
+const tieneDeclaracion = computed(() =>
+  (anexo.value?.estado === 'firmado' && !!anexo.value.declaracion && !declaracionDesactualizada.value)
+  || !!declaracionFotoFile.value || !!declaracionFotoUrl.value
 )
 watch(anexoFotoFile, (file) => {
   if (anexoFotoPreview.value) URL.revokeObjectURL(anexoFotoPreview.value)
@@ -2360,6 +2479,8 @@ const hayItemsCotizar = computed(() =>
 function sePuedeLlevar(i) {
   // El que se manda a cambiar de tela existe, pero se va a la fábrica.
   if (i._retapizar) return false
+  // Sin tela escogida no se sabe cuál sale con el cliente.
+  if (i._tela_por_definir) return false
   return !!i._producto_unico || (!i.es_personalizado && !!i.producto_id)
 }
 const itemsQueSePuedenLlevar = computed(() => items.value.filter(sePuedeLlevar))
@@ -2461,10 +2582,36 @@ async function validarParaCrear() {
     toast.error('Falta el anexo de garantías: que el cliente lo firme aquí en el sistema o sube la foto del anexo firmado en papel.')
     return false
   }
+  if (!modoGuardarBorrador.value && exigeDeclaracion.value && !tieneDeclaracion.value) {
+    toast.error(declaracionDesactualizada.value
+      ? 'Cambiaron los productos especiales después de que el cliente firmó: que firme otra vez o sube la foto de la declaración en papel.'
+      : 'Falta la declaración de diseños especiales: que el cliente la firme con el anexo o sube la foto de la declaración en papel.')
+    return false
+  }
 
   if (!modoGuardarBorrador.value && comprobantesRequeridos.value === 2 && faltanComprobantes.value) {
     toast.error('El pago va en dos métodos: sube el comprobante de cada uno.')
     return false
+  }
+
+  // Lo de stock que no alcanza se frena aquí, con el nombre del producto. Antes
+  // pasaba hasta el servidor y volvía "Stock insuficiente para variante ID 36":
+  // el vendedor veía el producto "con stock" (la lista suma todas las medidas o
+  // telas) y no sabía cuál del carrito era. El borrador no aparta stock, así
+  // que no se frena; sin dato de stock (null) decide el servidor.
+  if (!modoGuardarBorrador.value) {
+    const sinStock = items.value.find(i =>
+      !i.es_personalizado && i.producto_id && !i._producto_unico &&
+      i.stock_libre != null && i.cantidad > stockEnUnidad(i)
+    )
+    if (sinStock) {
+      const que = sinStock.variante_label ? `${sinStock.nombre} (${sinStock.variante_label})` : sinStock.nombre
+      const libre = stockEnUnidad(sinStock)
+      toast.error(libre > 0
+        ? `De "${que}" solo hay ${libre} en esa tienda y llevas ${sinStock.cantidad}. Baja la cantidad, escoge otra tienda o mándalo a fabricar.`
+        : `"${que}" no tiene stock en esa tienda. Cambia la medida o la tela, escoge otra tienda o mándalo a fabricar.`)
+      return false
+    }
   }
 
   // Validar disponibilidad de tela para lo que el taller va a tapizar: lo que
@@ -2629,8 +2776,14 @@ async function submit() {
     // Una por una: si se cae la red a mitad, las que ya subieron se quedan.
     if (facturaFotos.value.some(f => !f.url)) {
       subiendoFactura.value = true
-      for (const f of facturaFotos.value) {
+      for (const f of [...facturaFotos.value]) {
         if (f.url) continue
+        // Ya no está en el teléfono: se quita y se pide otra vez (ver
+        // comprimirAlTomar). Reintentar con la misma nunca funcionaría.
+        if (!(await fotoSigueAhi(f.file))) {
+          removeFacturaFoto(facturaFotos.value.indexOf(f))
+          throw errorFotoPerdida('del comprobante')
+        }
         const fd = new FormData()
         fd.append('foto', await comprimirImagen(f.file), 'factura.jpg')
         fd.append('folder', 'facturas')
@@ -2649,6 +2802,10 @@ async function submit() {
     // Foto del anexo firmado. También en el borrador, por lo mismo que el
     // comprobante: si ya se tomó, que siga ahí al continuarlo.
     if (anexoFotoFile.value && !anexoFotoUrl.value) {
+      if (!(await fotoSigueAhi(anexoFotoFile.value))) {
+        anexoFotoFile.value = null
+        throw errorFotoPerdida('del anexo')
+      }
       subiendoAnexo.value = true
       const fd = new FormData()
       fd.append('foto', await comprimirImagen(anexoFotoFile.value), 'anexo.jpg')
@@ -2658,6 +2815,22 @@ async function submit() {
       })
       anexoFotoUrl.value  = uploadData.url
       subiendoAnexo.value = false
+    }
+    // La declaración de diseños especiales en papel, igual.
+    if (declaracionFotoFile.value && !declaracionFotoUrl.value) {
+      if (!(await fotoSigueAhi(declaracionFotoFile.value))) {
+        declaracionFotoFile.value = null
+        throw errorFotoPerdida('de la declaración')
+      }
+      subiendoDeclaracion.value = true
+      const fd = new FormData()
+      fd.append('foto', await comprimirImagen(declaracionFotoFile.value), 'declaracion.jpg')
+      fd.append('folder', 'facturas')
+      const { data: uploadData } = await api.post('/upload/foto', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      declaracionFotoUrl.value  = uploadData.url
+      subiendoDeclaracion.value = false
     }
 
     // Firma del cliente: subir el blob dibujado en el canvas. También en el
@@ -2711,6 +2884,7 @@ async function submit() {
       factura_fotos:        facturaFotos.value.map(f => f.url).filter(Boolean),
       firma_url:            firmaUrl.value        || undefined,
       anexo_foto_url:       anexoFotoUrl.value    || undefined,
+      declaracion_foto_url: declaracionFotoUrl.value || undefined,
       anexo_id:             anexo.value?.estado === 'firmado' ? anexo.value.id : undefined,
       departamento_envio:   departamentoEnvio.value || undefined,
       ciudad_envio:         ciudadEnvio.value || undefined,
@@ -2726,6 +2900,8 @@ async function submit() {
         // Qué se eligió, escrito: la medida de la cama, la tela. Sin esto la
         // orden y el PDF salían con el nombre del mueble a secas.
         variante_detalle:        i.variante_label || undefined,
+        // Se sabe la medida, la tela se define después desde la orden.
+        tela_por_definir:        (!i.variante_id && i._tela_por_definir) || undefined,
         tienda_origen_id:        i.tienda_origen_id || undefined,
         // En piezas si va en juego: así se cuenta el stock (ver lineaParaEnviar).
         ...lineaParaEnviar(i, i._cotizarPrecio ? 0 : precioEfectivo(i)),
@@ -2747,6 +2923,8 @@ async function submit() {
         promocion_id:            (promoDe(i)?.id ?? i._promocion_id) || undefined,
         fecha_entrega_prometida: i.fecha_entrega_prometida || undefined,
         specs_personalizacion:   specsParaGuardar(i),
+        // Lo que el cliente aprueba en la declaración de diseños especiales.
+        ficha_especial:          pideDeclaracion(i) ? (limpiarFicha(i.ficha_especial) ?? undefined) : undefined,
         boceto_urls:             (i.es_personalizado || i._retapizar) && i.boceto_urls.some(Boolean)
           ? i.boceto_urls.filter(Boolean)
           : undefined,
@@ -2824,6 +3002,8 @@ async function submit() {
     // petición nunca salió (un error de JS armando la orden) o que se cortó
     // por tiempo. Decir cuál es lo que permite saber dónde buscar.
     let mensaje = e.response?.data?.message
+    // Una foto que el teléfono ya borró no es falta de internet.
+    if (e.fotoPerdida) mensaje = e.message
     if (!mensaje) {
       if (e.response) {
         mensaje = `Error del servidor (${e.response.status}) al crear la orden`
@@ -2852,6 +3032,7 @@ async function submit() {
     // Si la subida del anexo falla a mitad, el botón no se puede quedar
     // trabado en "subiendo".
     subiendoAnexo.value = false
+    subiendoDeclaracion.value = false
     modoGuardarBorrador.value = false
     enviarPdfAlGuardarBorrador.value = false
   }
@@ -2936,6 +3117,7 @@ async function submitCotizacion() {
               return Object.keys(s).length ? s : undefined
             })()
           : undefined,
+        ficha_especial: pideDeclaracion(i) ? (limpiarFicha(i.ficha_especial) ?? undefined) : undefined,
         boceto_urls: i.es_personalizado && i.boceto_urls.some(Boolean)
           ? i.boceto_urls.filter(Boolean)
           : undefined,
@@ -3071,8 +3253,16 @@ const camposBorrador = {
   notas, fechaSugeridaVendedor, esCompartida, covendedorId, tiendaAbonadaId, entregaInmediata,
   departamentoEnvio, ciudadEnvio, direccionEnvio,
   facturaFotos, firmaBlob, firmaUrl, anexoFotoFile, anexoFotoUrl, anexo,
+  declaracionFotoFile, declaracionFotoUrl,
   cotizarReceptorId, cotizarNotas,
 }
+
+// Al seguir un borrador del servidor, una copia guardada antes de la última vez
+// que se guardó el borrador ya está vieja: lo pisaría. Se sabe al cargarlo.
+let avisarBorradorCargado = () => {}
+const borradorCargadoEn = borradorId
+  ? new Promise(resolve => { avisarBorradorCargado = resolve })
+  : null
 
 const borradorLocal = useBorradorLocal({
   // Seguir un borrador del servidor tiene su propio respaldo: no se mezcla
@@ -3080,6 +3270,10 @@ const borradorLocal = useBorradorLocal({
   clave: auth.usuario?.id
     ? `nueva-orden:${auth.usuario.id}:${modoCotizacion.value ? 'cotizacion' : 'orden'}${borradorId ? `:b${borradorId}` : ''}`
     : null,
+  // También en la cuenta: lo que se empezó en el celular se sigue en el
+  // computador (y al revés), y al crearla deja de ofrecerse en los dos.
+  nube: true,
+  noAntesDe: borradorCargadoEn ? () => borradorCargadoEn : null,
   fuentes: Object.values(camposBorrador),
   // Las vistas previas (blob:) no sirven después de recargar: se rehacen
   // desde la foto guardada.
@@ -3106,7 +3300,20 @@ const borradorLocal = useBorradorLocal({
   restaurar: restaurarBorrador,
 })
 const borradorPendiente = borradorLocal.pendiente
+const borradorConflicto = borradorLocal.conflicto
 const confirmandoDescarte = ref(false)
+// El aviso va arriba del formulario; si se está más abajo, que se entere igual.
+watch(borradorConflicto, (c) => {
+  if (c) toast.info(c.tipo === 'editada'
+    ? `Esta orden se siguió en ${c.aparato}: arriba escoges con cuál sigues.`
+    : 'Esta orden ya se terminó en otro aparato: mira el aviso de arriba.', 6000)
+})
+
+// La orden ya se terminó en otro aparato: aquí se suelta y se va a la lista.
+async function soltarBorrador() {
+  await borradorLocal.soltar()
+  router.replace({ name: modoCotizacion.value ? 'cotizaciones' : 'ordenes' })
+}
 
 async function restaurarBorrador(d) {
   if (d.claveEnvio) claveEnvio = d.claveEnvio
@@ -3205,6 +3412,7 @@ function itemDesdeServidor(i) {
     variante_id:      i.variante_id ?? null,
     _combo_id:        null,
     _config_id:       i.combo_config_id ?? null,
+    _tela_por_definir: !!i.tela_por_definir,
     tienda_origen_id: i.tienda_origen_id ?? null,
     tienda_origen:    i.tienda_origen?.nombre ?? null,
     nombre,
@@ -3225,6 +3433,7 @@ function itemDesdeServidor(i) {
     boceto_blobs:     fotos.map(() => null),
     boceto_urls:      [...fotos],
     boceto_previews:  [...fotos],
+    ficha_especial:   i.ficha_especial ?? null,
     _fabricar_pedido: !!i.fabricar_pedido,
     _es_restauracion: !!i.es_restauracion,
     _producto_unico:  !!i.producto_unico,
@@ -3312,6 +3521,7 @@ async function cargarBorradorServidor() {
       .map(url => ({ file: null, preview: url, url }))
     firmaUrl.value     = o.firma_url ?? ''
     anexoFotoUrl.value = o.anexo_foto_url ?? ''
+    declaracionFotoUrl.value = o.declaracion_foto_url ?? ''
 
     consultaYaPedida.value = !!o.consulta_pendiente
     // El anexo que se firmó antes de guardar el borrador sigue valiendo (si
@@ -3319,7 +3529,9 @@ async function cargarBorradorServidor() {
     if (o.anexo_firmado) anexo.value = { ...o.anexo_firmado, lo_que_vio: null }
     borradorServidor.value = { id: o.id, cliente: o.cliente?.nombre ?? null }
     step.value = 2
+    avisarBorradorCargado(o.updated_at ? Date.parse(o.updated_at) : null)
   } catch (e) {
+    avisarBorradorCargado(null)
     const orden = e.response?.data?.orden_id
     toast.error(e.response?.data?.message ?? 'No se pudo abrir el borrador.')
     // Ya se confirmó (otra pestaña, otra persona): a la orden.
@@ -3443,6 +3655,44 @@ onBeforeUnmount(() => {
         Está todo como lo dejaste. Puedes cambiar productos, precios y descuentos; al crear la orden
         se confirma este mismo borrador, sin duplicarlo. "Guardar borrador" lo deja guardado otra vez.
       </p>
+    </div>
+
+    <!-- Se siguió (o se terminó) en otro aparato mientras esta pantalla estaba
+         abierta: no se pisa nada hasta que la persona escoja. -->
+    <div v-if="borradorConflicto" class="bg-white border border-amber-300 rounded-xl shadow-sm p-3 space-y-2">
+      <template v-if="borradorConflicto.tipo === 'editada'">
+        <p class="text-sm font-semibold text-gray-800">
+          Esta {{ modoCotizacion ? 'cotización' : 'orden' }} se siguió en {{ borradorConflicto.aparato }}
+        </p>
+        <p class="text-xs text-gray-500">
+          Allá se guardó {{ haceCuanto(borradorConflicto.guardadoEn) }}. ¿Con cuál sigues?
+        </p>
+        <div class="flex flex-wrap gap-2">
+          <button @click="borradorLocal.traerDelOtro()" class="bg-blue-600 text-white rounded-lg text-xs font-semibold px-3 py-2">
+            Traer lo de {{ borradorConflicto.aparato }}
+          </button>
+          <button @click="borradorLocal.quedarmeConEste()" class="border border-gray-300 text-gray-700 rounded-lg text-xs font-semibold px-3 py-2">
+            Seguir con lo de aquí
+          </button>
+        </div>
+      </template>
+      <template v-else>
+        <p class="text-sm font-semibold text-gray-800">
+          Esta {{ modoCotizacion ? 'cotización' : 'orden' }} ya se terminó en otro aparato
+        </p>
+        <p class="text-xs text-gray-500">
+          Se creó o se descartó {{ haceCuanto(borradorConflicto.guardadoEn) }}. Si la sigues aquí, revisa
+          en la lista que no quede repetida.
+        </p>
+        <div class="flex flex-wrap gap-2">
+          <button @click="soltarBorrador" class="bg-blue-600 text-white rounded-lg text-xs font-semibold px-3 py-2">
+            Ir a {{ modoCotizacion ? 'cotizaciones' : 'órdenes' }}
+          </button>
+          <button @click="borradorLocal.quedarmeConEste()" class="border border-gray-300 text-gray-700 rounded-lg text-xs font-semibold px-3 py-2">
+            Seguir aquí igual
+          </button>
+        </div>
+      </template>
     </div>
 
     <!-- Barra de pasos -->
@@ -4511,6 +4761,14 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
+          <!-- Sin esto solo se veía "0 disp." en gris y la orden se caía al crearla. -->
+          <p v-if="!item._piezas_por_juego && !item.es_personalizado && !item._producto_unico && item.producto_id && item.stock_libre != null && item.cantidad > stockEnUnidad(item)"
+            class="text-xs text-red-600 font-medium">
+            {{ stockEnUnidad(item) > 0
+              ? `Solo hay ${stockEnUnidad(item)} en esa tienda.`
+              : 'Sin stock en esa tienda: cambia la medida o la tela, la tienda, o mándalo a fabricar.' }}
+          </p>
+
           <!-- Producto que viene en juego: se vende completo o por piezas
                (el cliente quiere una sola, o solo queda media pareja). -->
           <div v-if="item._piezas_por_juego" class="space-y-1">
@@ -5022,6 +5280,17 @@ onBeforeUnmount(() => {
             </div>
 
           </template>
+
+          <!-- Declaración de diseños especiales: lo que el cliente aprueba y
+               firma de este mueble (Gestión → Ajustes dice en cuáles). -->
+          <FichaEspecialEditor
+            v-if="pideDeclaracion(item)"
+            v-model="item.ficha_especial"
+            :specs="specsParaGuardar(item) ?? null"
+            :nombre="item.nombre"
+            :bocetos="item.boceto_previews.length"
+            :firmada="anexo?.estado === 'firmado' && !!anexo?.declaracion"
+          />
 
           <!-- Cotizador de precio con IA. El mueble único no lo lleva: no se
                estima lo que cuesta fabricar algo que ya está fabricado. -->
@@ -5803,12 +6072,22 @@ onBeforeUnmount(() => {
             <p v-for="q in anexo.respuestas_no" :key="q">• {{ q }}</p>
             <p>Explícaselo antes de cerrar la venta.</p>
           </div>
+          <p v-if="anexo.declaracion && !declaracionDesactualizada" class="text-xs text-green-800 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+            Con la declaración de diseños especiales: aprobó
+            {{ anexo.productos_declarados?.length ? anexo.productos_declarados.join(', ') : 'los productos especiales' }}.
+          </p>
           <div v-if="anexoDesactualizado" class="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 space-y-2">
-            <p>Cambiaste la orden después de que el cliente la firmó: lo que firmó ya no es lo que va. Envíasela de nuevo.</p>
-            <button type="button" @click="quitarAnexo(); enviarAnexoAlCliente()" class="font-semibold underline">Enviar de nuevo</button>
+            <p v-if="declaracionDesactualizada && anexo.declaracion">Cambiaste la ficha de un producto especial después de que el cliente la aprobó: lo que firmó ya no es lo que se va a fabricar.</p>
+            <p v-else-if="declaracionDesactualizada">El cliente firmó sin la declaración de los productos especiales que tiene la orden: tiene que aprobarlos y firmar otra vez.</p>
+            <p v-else>Cambiaste la orden después de que el cliente la firmó: lo que firmó ya no es lo que va. Envíasela de nuevo.</p>
+            <div class="flex flex-wrap gap-x-4 gap-y-1">
+              <button v-if="canal === 'fisica'" type="button" @click="quitarAnexo(); firmarAnexoAqui()" class="font-semibold underline">Firmar de nuevo aquí</button>
+              <button type="button" @click="quitarAnexo(); enviarAnexoAlCliente()" class="font-semibold underline">Enviar de nuevo</button>
+            </div>
           </div>
           <div class="flex gap-2">
-            <button type="button" @click="verPdfAnexo" class="flex-1 text-xs font-semibold border border-gray-300 rounded-lg py-2 hover:bg-gray-50">Ver anexo (PDF)</button>
+            <button type="button" @click="verPdfAnexo" class="flex-1 text-xs font-semibold border border-gray-300 rounded-lg py-2 hover:bg-gray-50">Anexo (PDF)</button>
+            <button v-if="anexo.declaracion" type="button" @click="verPdfDeclaracion" class="flex-1 text-xs font-semibold border border-gray-300 rounded-lg py-2 hover:bg-gray-50">Declaración (PDF)</button>
             <button type="button" @click="quitarAnexo" class="text-xs font-medium text-gray-500 px-3 hover:text-red-600">Quitar</button>
           </div>
         </template>
@@ -5819,6 +6098,16 @@ onBeforeUnmount(() => {
             <IconoS class="w-4 h-4" />
             Esperando a que {{ clienteSeleccionado?.nombre?.split(' ')[0] ?? 'el cliente' }} revise y firme. Aparece aquí solo, sin recargar.
           </p>
+          <p v-if="anexo.declaracion" class="text-xs text-gray-500">
+            Incluye la declaración de diseños especiales: {{ anexo.productos_declarados?.join(', ') }}.
+          </p>
+          <!-- El cliente revisó y pidió un cambio en vez de firmar -->
+          <div v-if="anexo.cambio_pedido" class="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 space-y-1">
+            <p class="font-semibold">{{ clienteSeleccionado?.nombre?.split(' ')[0] ?? 'El cliente' }} pidió un cambio:</p>
+            <p class="whitespace-pre-wrap">"{{ anexo.cambio_pedido }}"</p>
+            <p>Corrige la orden y mándale la nueva versión.</p>
+            <button type="button" @click="quitarAnexo(); enviarAnexoAlCliente()" class="font-semibold underline">Ya lo corregí: enviar la nueva</button>
+          </div>
           <div v-if="anexoDesactualizado" class="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
             Cambiaste la orden después de enviarla: el cliente está viendo la versión anterior.
             <button type="button" @click="quitarAnexo(); enviarAnexoAlCliente()" class="font-semibold underline">Enviar la nueva</button>
@@ -5853,6 +6142,14 @@ onBeforeUnmount(() => {
           </p>
           <p v-else-if="canal === 'fisica' && tipoOrden === 'restauracion'" class="text-xs text-gray-400">
             En una restauración el anexo es opcional.
+          </p>
+          <p v-if="itemsDeclaracion.length" class="text-xs text-blue-800 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+            Lleva la declaración de diseños especiales: el cliente aprueba
+            {{ itemsDeclaracion.length === 1 ? `"${itemsDeclaracion[0].nombre}"` : `los ${itemsDeclaracion.length} productos especiales` }}
+            (ficha y bocetos) y firma una sola vez.
+            <span v-if="fichaIncompleta" class="block mt-1 text-amber-700 font-medium">
+              Antes llena la ficha de "{{ fichaIncompleta.item.nombre }}": falta {{ fichaIncompleta.falta }}.
+            </span>
           </p>
           <p class="text-xs text-gray-500">
             El cliente lee el anexo, responde el check list y firma con el dedo; esa firma es también la de la orden.
@@ -5916,6 +6213,37 @@ onBeforeUnmount(() => {
             @change="onAnexoFotoChange"
             class="hidden"
           />
+        </label>
+      </div>
+
+      <!-- Foto de la declaración de diseños especiales en papel -->
+      <div v-if="canal === 'fisica' && itemsDeclaracion.length && !(anexo?.estado === 'firmado' && anexo.declaracion && !declaracionDesactualizada)">
+        <label class="label">
+          ¿La declaración de diseños especiales la firmó en papel? Foto
+          <span v-if="!exigeDeclaracion" class="text-xs font-normal text-gray-400 ml-1">(opcional)</span>
+        </label>
+        <p class="text-xs text-gray-400 mb-2">Si no la firmó en el sistema con el anexo, súbele la foto del papel firmado.</p>
+        <div v-if="declaracionFotoFile || declaracionFotoUrl" class="relative">
+          <img
+            :src="declaracionFotoUrl || declaracionFotoPreview"
+            alt="Declaración en papel"
+            class="w-full rounded-xl border-2 border-gray-200 object-contain bg-gray-50"
+            style="max-height: 200px;"
+          />
+          <button
+            type="button"
+            @click="declaracionFotoFile = null; declaracionFotoUrl = ''; declaracionFotoPreview = ''"
+            class="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1.5 shadow-lg"
+            aria-label="Quitar la foto de la declaración"
+          >
+            <XMarkIcon class="w-4 h-4" />
+          </button>
+          <p v-if="subiendoDeclaracion" class="text-xs text-blue-600 mt-1">Subiendo imagen...</p>
+        </div>
+        <label v-else class="flex flex-col items-center gap-2 border-2 border-dashed border-gray-300 rounded-xl p-5 cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors">
+          <PhotoIcon class="w-7 h-7 text-gray-300" />
+          <span class="text-sm text-gray-500">Toca para adjuntar foto de la declaración</span>
+          <input type="file" accept="image/*" @change="onDeclaracionFotoChange" class="hidden" />
         </label>
       </div>
 
@@ -6114,6 +6442,7 @@ onBeforeUnmount(() => {
         </div>
         <AnexoFirma
           :contenido="anexoContenido.contenido"
+          :declaracion="anexoContenido.declaracion"
           :nombre="anexoContenido.cliente?.nombre ?? clienteSeleccionado?.nombre ?? ''"
           :documento="anexoContenido.cliente?.cedula ?? clienteSeleccionado?.cedula ?? ''"
           :enviando="firmandoAnexo"
@@ -6135,7 +6464,8 @@ onBeforeUnmount(() => {
             Tienes {{ modoCotizacion ? 'una cotización' : 'una orden' }} sin terminar
           </h3>
           <p class="text-xs text-gray-500 mt-0.5">
-            Se guardó en este teléfono {{ haceCuanto(borradorPendiente.guardadoEn) }}.
+            Se guardó {{ borradorPendiente.aparato ? `en ${borradorPendiente.aparato}` : 'en este aparato' }}
+            {{ haceCuanto(borradorPendiente.guardadoEn) }}.
           </p>
         </div>
         <div v-if="borradorPendiente.resumen" class="bg-gray-50 border border-gray-200 rounded-xl p-3">
@@ -6226,7 +6556,16 @@ onBeforeUnmount(() => {
                   ? 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
                   : 'border-gray-100 bg-gray-50 text-gray-300 cursor-not-allowed']"
           >
-            <template v-if="v.medida">
+            <!-- Se sabe la medida, no la tela: se escoge después desde la orden. -->
+            <template v-if="v._tela_por_definir">
+              <span class="font-medium">{{ v._config_label }}</span>
+              <span class="text-gray-400 mx-1">·</span>
+              <span class="text-amber-600">tela por definir</span>
+              <span v-if="v.precio_variante" class="text-xs ml-2 font-semibold text-blue-600">
+                ${{ Number(v.precio_variante).toLocaleString('es-CO') }}
+              </span>
+            </template>
+            <template v-else-if="v.medida">
               <span class="font-medium">{{ v.medida }}</span>
               <span v-if="v.precio_variante" class="text-xs ml-2 font-semibold text-blue-600">
                 ${{ Number(v.precio_variante).toLocaleString('es-CO') }}

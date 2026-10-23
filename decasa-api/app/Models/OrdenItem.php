@@ -51,9 +51,14 @@ class OrdenItem extends Model
         // "Se lo lleva de una": el cliente sale de la tienda con esto en la
         // mano. Por producto, no por orden: el reloj se lo lleva, el mueble no.
         'llevar_ahora',
+        // Se vendió con la medida pero sin tela: falta definirla antes de despachar.
+        'tela_por_definir',
         'specs_personalizacion',
         'boceto_url',
         'boceto_fotos',
+        // Cómo va el mueble especial, dicho para el cliente: lo que aprueba y
+        // firma en la declaración de diseños especiales (DeclaracionEspeciales).
+        'ficha_especial',
         'fecha_entrega_prom',
         // Con qué promoción se vendió (Inventario → Promociones). El precio ya
         // quedó rebajado: esto es para saberlo, no para recalcularlo.
@@ -76,12 +81,14 @@ class OrdenItem extends Model
             'es_regalo'             => 'boolean',
             'usa_stock_tienda'      => 'boolean',
             'llevar_ahora'          => 'boolean',
+            'tela_por_definir'      => 'boolean',
             'piezas_juego'          => 'integer',
             'es_pieza_suelta'       => 'boolean',
             'cantidad_entregada'    => 'integer',
             'cantidad_en_garantia'  => 'integer',
             'specs_personalizacion' => 'array',
             'boceto_fotos'          => 'array',
+            'ficha_especial'        => 'array',
             'fecha_entrega_prom'    => 'date',
             'devuelto_en'           => 'date',
         ];

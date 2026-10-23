@@ -11,6 +11,7 @@ use App\Services\Cloudinary;
 use App\Services\NotificacionService;
 use App\Support\AnexoGarantiaTexto;
 use App\Support\ConvierteImagenesPdf;
+use App\Support\DeclaracionEspeciales;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
@@ -57,7 +58,15 @@ class AnexoGarantiaController extends Controller
             'resumen'          => 'nullable|array',
             'resumen.lineas'   => 'nullable|array',
             ...self::reglasResumen(),
+            // Los productos especiales que el cliente aprueba en la
+            // declaración (en la tienda y a distancia). Ver DeclaracionEspeciales.
+            'especiales'       => 'nullable|array|max:50',
         ]);
+
+        [$especiales, $error] = DeclaracionEspeciales::normalizarProductos($request->input('especiales'));
+        if ($error) {
+            return response()->json(['message' => $error, 'codigo' => 'ficha_incompleta'], 422);
+        }
 
         $resumen = $data['modo'] === 'remoto' ? ($data['resumen'] ?? null) : null;
         $huella  = $resumen && isset($resumen['lineas'])
@@ -91,9 +100,26 @@ class AnexoGarantiaController extends Controller
             'resumen'      => $resumen,
             'resumen_hash' => $huella,
             'vence_at'     => now()->addDays(self::DIAS_VIGENCIA),
+            ...self::conDeclaracion($especiales),
         ]);
 
         return response()->json($this->paraVendedor($anexo, conToken: true, request: $request), 201);
+    }
+
+    /**
+     * Las columnas de la declaración de diseños especiales para un anexo
+     * nuevo: el texto vigente, los productos tal como el cliente los va a ver
+     * (congelados) y su huella. Sin productos especiales, nada.
+     */
+    private static function conDeclaracion(array $especiales): array
+    {
+        if (! $especiales || ! DeclaracionEspeciales::hayColumnas()) return [];
+
+        return [
+            'declaracion_version' => DeclaracionEspeciales::vigente()['version'],
+            'especiales'          => $especiales,
+            'especiales_hash'     => DeclaracionEspeciales::huella($especiales),
+        ];
     }
 
     /**
@@ -170,7 +196,10 @@ class AnexoGarantiaController extends Controller
         if (in_array($orden->estado, ['cancelado', 'borrador', 'cotizacion'], true)) {
             return response()->json(['message' => 'Esta orden no se puede mandar a firmar en su estado actual.'], 422);
         }
-        if ($orden->firma_url) {
+        // Firmada pero sin la declaración de sus productos especiales (se
+        // firmó antes de llenar la ficha, o se cambió la ficha): se puede
+        // mandar para que el cliente apruebe eso. La firma de la orden no se toca.
+        if ($orden->firma_url && ! DeclaracionEspeciales::faltaEnOrden($orden)) {
             return response()->json(['message' => 'Esta orden ya tiene la firma del cliente.'], 422);
         }
         if ($orden->items->filter->estaVivo()->contains(fn ($i) => $i->esperaCotizacion())) {
@@ -178,6 +207,14 @@ class AnexoGarantiaController extends Controller
         }
         if (! $orden->cliente_id) {
             return response()->json(['message' => 'La orden no tiene cliente.'], 422);
+        }
+
+        // Los productos especiales salen de la orden guardada (no de la
+        // pantalla): es lo que se va a fabricar. Sin la ficha completa no se
+        // manda; el cliente no puede aprobar un mueble que no dice cómo va.
+        [$especiales, $error] = DeclaracionEspeciales::productosDeOrden($orden);
+        if ($error) {
+            return response()->json(['message' => $error . ' Llénala en Editar orden.', 'codigo' => 'ficha_incompleta'], 422);
         }
 
         $data = $request->validate(['resumen' => 'required|array', ...self::reglasResumen()]);
@@ -205,6 +242,7 @@ class AnexoGarantiaController extends Controller
             'resumen'      => $resumen,
             'resumen_hash' => self::huellaDeOrden($orden),
             'vence_at'     => now()->addDays(self::DIAS_VIGENCIA),
+            ...self::conDeclaracion($especiales),
         ]);
 
         return response()->json($this->paraVendedor($anexo, conToken: true, request: $request), 201);
@@ -347,14 +385,58 @@ class AnexoGarantiaController extends Controller
     /** GET /api/anexos/{id}/pdf — el anexo firmado, como documento. */
     public function pdf(Request $request, int $id)
     {
-        $anexo = AnexoGarantia::with('orden', 'cliente', 'vendedor:id,nombre')->findOrFail($id);
-        if ($anexo->orden && ! $anexo->orden->laPuedeVer($request->user())) {
-            return response()->json(['message' => 'No autorizado.'], 403);
+        $anexo = $this->paraDocumento($request, $id);
+
+        return $this->documentoAnexo($anexo);
+    }
+
+    /**
+     * GET /api/anexos/{id}/declaracion/pdf — la declaración de diseños
+     * especiales que se firmó con el anexo: cada producto como el cliente lo
+     * aprobó (ficha y bocetos), la constancia y la firma.
+     */
+    public function pdfDeclaracion(Request $request, int $id)
+    {
+        $anexo = $this->paraDocumento($request, $id);
+        abort_unless($anexo->tieneDeclaracion(), 404, 'Este anexo no lleva declaración de diseños especiales.');
+
+        return $this->documentoDeclaracion($anexo);
+    }
+
+    /**
+     * GET /api/public/anexos/{token}/pdf/{doc} — el cliente descarga lo que
+     * firmó (anexo | declaracion) desde su mismo enlace. Solo ya firmado:
+     * antes no hay documento que guardar.
+     */
+    public function pdfPublico(string $token, string $doc)
+    {
+        $anexo = AnexoGarantia::with('orden', 'cliente', 'vendedor:id,nombre')->where('token', $token)->first();
+        if (! $anexo || ! $anexo->estaFirmado()) {
+            return response()->json(['message' => 'Este documento todavía no está firmado.'], 404);
         }
-        if (! $anexo->orden && ! $this->esSuyo($request, $anexo)) {
-            return response()->json(['message' => 'No autorizado.'], 403);
+        if ($doc === 'declaracion') {
+            abort_unless($anexo->tieneDeclaracion(), 404);
+            return $this->documentoDeclaracion($anexo);
         }
 
+        return $this->documentoAnexo($anexo);
+    }
+
+    private function paraDocumento(Request $request, int $id): AnexoGarantia
+    {
+        $anexo = AnexoGarantia::with('orden', 'cliente', 'vendedor:id,nombre')->findOrFail($id);
+        if ($anexo->orden && ! $anexo->orden->laPuedeVer($request->user())) {
+            abort(403, 'No autorizado.');
+        }
+        if (! $anexo->orden && ! $this->esSuyo($request, $anexo)) {
+            abort(403, 'No autorizado.');
+        }
+
+        return $anexo;
+    }
+
+    private function documentoAnexo(AnexoGarantia $anexo)
+    {
         ini_set('memory_limit', '512M');
         set_time_limit(120);
 
@@ -366,6 +448,37 @@ class AnexoGarantiaController extends Controller
 
         $nombre = 'anexo-garantias-' . ($anexo->orden?->referencia ?? $anexo->id) . '.pdf';
         return $pdf->stream(Str::slug(pathinfo($nombre, PATHINFO_FILENAME)) . '.pdf');
+    }
+
+    private function documentoDeclaracion(AnexoGarantia $anexo)
+    {
+        ini_set('memory_limit', '512M');
+        set_time_limit(120);
+
+        $firma = $this->urlToBase64($anexo->firma_url);
+        $logo  = $this->avifToPngBase64(public_path('img/logo.avif'));
+        $texto = DeclaracionEspeciales::deVersion($anexo->declaracion_version);
+
+        // Los bocetos, en JPG y de un tamaño que quepa en la hoja: Cloudinary
+        // los convierte (DomPDF no lee WebP ni AVIF).
+        $productos = collect($anexo->especiales ?? [])->map(fn ($p) => [
+            ...$p,
+            'grupos'  => DeclaracionEspeciales::grupos($p['ficha'] ?? null),
+            'imagenes' => collect($p['bocetos'] ?? [])->map(fn ($u) => $this->urlToBase64(self::comoJpg($u)))->filter()->values()->all(),
+        ])->all();
+
+        $pdf = Pdf::loadView('pdf.declaracion_especiales', compact('anexo', 'firma', 'logo', 'texto', 'productos'))->setPaper('letter');
+
+        $nombre = 'declaracion-disenos-especiales-' . ($anexo->orden?->referencia ?? $anexo->id);
+        return $pdf->stream(Str::slug($nombre) . '.pdf');
+    }
+
+    /** Una imagen de Cloudinary pedida en JPG y a lo sumo 900 px de ancho. */
+    private static function comoJpg(string $url): string
+    {
+        return str_contains($url, 'res.cloudinary.com') && str_contains($url, '/image/upload/')
+            ? preg_replace('#/image/upload/#', '/image/upload/f_jpg,q_80,w_900,c_limit/', $url, 1)
+            : $url;
     }
 
     // ── Página pública (sin sesión) ──────────────────────────────────────────
@@ -399,7 +512,83 @@ class AnexoGarantiaController extends Controller
             'vendedor'   => $anexo->vendedor?->nombre,
             'resumen'    => $anexo->resumen,
             'contenido'  => AnexoGarantiaTexto::deVersion($anexo->version),
+            // La declaración de diseños especiales, si el pedido trae
+            // productos fuera del catálogo: el texto que va a firmar y cada
+            // producto como lo escribió el vendedor, para aprobarlo uno por uno.
+            'declaracion' => $anexo->tieneDeclaracion() ? [
+                'contenido' => DeclaracionEspeciales::deVersion($anexo->declaracion_version),
+                'productos' => collect($anexo->especiales)->map(fn ($p) => [
+                    'nombre'   => $p['nombre'] ?? '',
+                    'cantidad' => $p['cantidad'] ?? 1,
+                    'tipo'     => $p['tipo'] ?? null,
+                    'grupos'   => DeclaracionEspeciales::grupos($p['ficha'] ?? null),
+                    'bocetos'  => $p['bocetos'] ?? [],
+                ])->values(),
+                'aprobados' => $anexo->respuestas['declaracion']['aprobados'] ?? [],
+            ] : null,
+            // Si ya le pidió un cambio al asesor: que lo vea y no lo repita.
+            'cambio_pedido'    => $anexo->cambio_pedido,
+            'cambio_pedido_at' => $anexo->cambio_pedido_at,
         ]);
+    }
+
+    /**
+     * POST /api/public/anexos/{token}/cambio  { mensaje }
+     *
+     * El cliente revisó y algo no está como lo quiere (una medida, la tela,
+     * el boceto…). No edita nada: se lo dice al asesor desde aquí, y al asesor
+     * le llega al instante. El asesor corrige la orden y le manda el enlace
+     * nuevo; este deja de servir al mandarlo.
+     */
+    public function pedirCambio(Request $request, string $token)
+    {
+        $anexo = AnexoGarantia::where('token', $token)->first();
+        if (! $anexo || $anexo->estado === 'anulado') {
+            return response()->json(['message' => 'Este enlace no existe o ya no está vigente.'], 404);
+        }
+        if ($anexo->estaFirmado()) {
+            return response()->json(['message' => 'Este pedido ya se firmó. Escríbele a tu asesor.'], 422);
+        }
+        if ($anexo->vencido()) {
+            return response()->json(['message' => 'Este enlace venció. Pídele a tu asesor que te envíe uno nuevo.'], 410);
+        }
+        if (! DeclaracionEspeciales::hayColumnas()) {
+            return response()->json(['message' => 'Escríbele a tu asesor.'], 409);
+        }
+
+        $data = $request->validate(['mensaje' => 'required|string|max:1500'], [
+            'mensaje.required' => 'Escribe qué quieres cambiar.',
+        ]);
+        $mensaje = trim($data['mensaje']);
+
+        $anexo->update(['cambio_pedido' => $mensaje, 'cambio_pedido_at' => now()]);
+
+        $cliente = Cliente::find($anexo->cliente_id)?->nombre ?? 'El cliente';
+        try {
+            if ($anexo->orden_id) {
+                \App\Models\OrdenMensaje::create([
+                    'orden_id'   => $anexo->orden_id,
+                    'usuario_id' => $anexo->vendedor_id,
+                    'mensaje'    => "✏️ {$cliente} revisó la orden antes de firmar y pidió un cambio: {$mensaje}",
+                ]);
+            }
+            if ($anexo->vendedor_id) {
+                NotificacionService::crear(
+                    'anexo_cambio',
+                    'El cliente pidió un cambio',
+                    "{$cliente}: " . Str::limit($mensaje, 160),
+                    ['anexo_id' => $anexo->id] + ($anexo->orden_id ? ['orden_id' => $anexo->orden_id] : []),
+                    $anexo->vendedor_id,
+                );
+            }
+        } catch (\Throwable $e) {
+            report($e);
+        }
+        // La pantalla del vendedor que lo espera se refresca sola (el mismo
+        // canal de la firma: solo dice "algo cambió, vuelve a preguntar").
+        try { event(new AnexoFirmado($anexo->id)); } catch (\Throwable) {}
+
+        return response()->json(['ok' => true]);
     }
 
     /**
@@ -447,11 +636,26 @@ class AnexoGarantiaController extends Controller
             return response()->json(['message' => 'Responde todas las preguntas del check list.'], 422);
         }
 
+        // La declaración de diseños especiales: cada producto aprobado, uno
+        // por uno (lo que se aprueba es ESE diseño, no "todo lo de arriba").
+        $aprobados = [];
+        if ($anexo->tieneDeclaracion()) {
+            $aprobados = array_values(array_unique(array_map('intval', (array) $request->input('declaracion_aprobados', []))));
+            $total     = count($anexo->especiales);
+            if (count(array_intersect(range(0, $total - 1), $aprobados)) < $total) {
+                return response()->json(['message' => 'Revisa y aprueba cada uno de los productos especiales antes de firmar.'], 422);
+            }
+            $aprobados = range(0, $total - 1);
+        }
+
         // Una orden que ya existe: si la editaron después de mandar el enlace,
-        // lo que el cliente está viendo ya no es lo que va. No se firma.
+        // lo que el cliente está viendo ya no es lo que va. No se firma. Lo
+        // mismo si cambió cómo va un mueble especial (su ficha).
         $orden = ($anexo->resumen['orden_existente'] ?? false) && $anexo->orden_id
             ? Orden::with('items')->find($anexo->orden_id) : null;
-        if ($orden && ($orden->estado === 'cancelado' || ! hash_equals((string) $anexo->resumen_hash, self::huellaDeOrden($orden)))) {
+        if ($orden && ($orden->estado === 'cancelado'
+            || ! hash_equals((string) $anexo->resumen_hash, self::huellaDeOrden($orden))
+            || ($anexo->tieneDeclaracion() && ! hash_equals((string) $anexo->especiales_hash, (string) DeclaracionEspeciales::huellaDeOrden($orden))))) {
             return response()->json(['message' => 'Tu pedido cambió después de que te enviaron este enlace. Pídele a tu asesor que te mande el nuevo.'], 409);
         }
 
@@ -472,10 +676,17 @@ class AnexoGarantiaController extends Controller
         // no pisa a la primera.
         $actualizadas = AnexoGarantia::whereKey($anexo->id)->where('estado', 'pendiente')->update([
             'estado'             => 'firmado',
-            'respuestas'         => [
+            'respuestas'         => json_encode([
                 'secciones' => array_values(array_intersect($idsSecciones, $data['secciones'])),
                 'checklist' => array_intersect_key($data['checklist'], array_flip($idsChecklist)),
-            ],
+                // Los datos con que firmó la declaración (el papel pedía
+                // dirección y teléfono): como estaban ese día, aunque cambien.
+                ...($anexo->tieneDeclaracion() ? ['declaracion' => [
+                    'aprobados' => $aprobados,
+                    'direccion' => Cliente::find($anexo->cliente_id)?->direccion,
+                    'telefono'  => Cliente::find($anexo->cliente_id)?->telefono,
+                ]] : []),
+            ], JSON_UNESCAPED_UNICODE),
             'nombre_firmante'    => trim($data['nombre']),
             'documento_firmante' => trim($data['documento']),
             'firma_url'          => $url,
@@ -570,6 +781,14 @@ class AnexoGarantiaController extends Controller
             'respuestas_no'      => collect(AnexoGarantiaTexto::deVersion($anexo->version)['checklist'])
                 ->filter(fn ($q) => ($anexo->respuestas['checklist'][$q['id']] ?? null) === 'no')
                 ->pluck('pregunta')->values(),
+            // La declaración de diseños especiales que va con este anexo: de
+            // qué productos, y su huella para saber si la orden ya no es esa.
+            'declaracion'        => $anexo->tieneDeclaracion(),
+            'especiales_hash'    => $anexo->especiales_hash,
+            'productos_declarados' => collect($anexo->especiales ?? [])->pluck('nombre')->values(),
+            // Lo que el cliente pidió cambiar en vez de firmar.
+            'cambio_pedido'      => $anexo->cambio_pedido,
+            'cambio_pedido_at'   => $anexo->cambio_pedido_at,
             ...($conToken ? [
                 'token' => $anexo->token,
                 'url'   => $this->enlace($anexo, $request),
@@ -583,9 +802,37 @@ class AnexoGarantiaController extends Controller
      */
     private function enlace(AnexoGarantia $anexo, ?Request $request): string
     {
-        $base = config('app.frontend_url')
-            ?: ($request?->headers->get('origin') ?: config('app.url'));
+        return self::baseApp($request) . '/firmar/' . $anexo->token;
+    }
 
-        return rtrim((string) $base, '/') . '/firmar/' . $anexo->token;
+    /** La app (Vercel) cuando no hay FRONTEND_URL ni el navegador dice desde dónde pide. */
+    public const APP_POR_DEFECTO = 'https://sistema-de-ventas-olive.vercel.app';
+
+    /**
+     * La dirección de la app para los enlaces que se le mandan al cliente.
+     *
+     * Antes caía en `app.url` (la API en Render) y el cliente recibía un
+     * enlace que no abría nada (visto 2026-10-21): los navegadores solo mandan
+     * `Origin` en los POST, y la pantalla del vendedor pregunta el estado por
+     * GET cada pocos segundos (y al retomar la espera tras recargar), así que el
+     * enlace bueno se cambiaba por el de Render. Ahora: FRONTEND_URL, el Origin,
+     * el Referer y, si nada, la app. Nunca la dirección de la API.
+     */
+    public static function baseApp(?Request $request): string
+    {
+        $candidatos = [
+            config('app.frontend_url'),
+            $request?->headers->get('origin'),
+            ($ref = $request?->headers->get('referer'))
+                ? (parse_url($ref, PHP_URL_SCHEME) . '://' . parse_url($ref, PHP_URL_HOST) . (parse_url($ref, PHP_URL_PORT) ? ':' . parse_url($ref, PHP_URL_PORT) : ''))
+                : null,
+        ];
+        $api = parse_url((string) config('app.url'), PHP_URL_HOST);
+        foreach ($candidatos as $c) {
+            $host = $c ? parse_url((string) $c, PHP_URL_HOST) : null;
+            if ($host && $host !== $api) return rtrim((string) $c, '/');
+        }
+
+        return self::APP_POR_DEFECTO;
     }
 }

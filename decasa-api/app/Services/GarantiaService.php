@@ -880,7 +880,7 @@ class GarantiaService
         return min($base, $fino);
     }
 
-    private static function apartar(OrdenItem $item, int $tiendaId, Usuario $quien, string $motivo): void
+    public static function apartar(OrdenItem $item, int $tiendaId, Usuario $quien, string $motivo): void
     {
         $n = (int) $item->cantidad;
 
@@ -914,7 +914,7 @@ class GarantiaService
      * (algo está en el taller) o "lista para entrega" (el reemplazo ya está
      * apartado); cuando todo vuelve a la casa, la entrega la cierra sola.
      */
-    private static function ponerOrdenAlDia(Orden $orden): void
+    public static function ponerOrdenAlDia(Orden $orden): void
     {
         $orden->refresh()->load('items.produccion');
 

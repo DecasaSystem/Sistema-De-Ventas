@@ -14,6 +14,7 @@ import { usePasosStore } from '@/stores/pasos'
 import EmptyState from '@/components/common/EmptyState.vue'
 import PasoTrabajadoresModal from '@/components/produccion/PasoTrabajadoresModal.vue'
 import GarantiasPendientes from '@/components/garantias/GarantiasPendientes.vue'
+import { fichaEnUnaLinea } from '@/utils/declaracionEspeciales'
 
 const router = useRouter()
 const auth   = useAuthStore()
@@ -401,6 +402,14 @@ onMounted(async () => {
             >
               <span class="text-gray-400 capitalize">{{ key }}:</span> {{ val }}
             </p>
+          </div>
+          <!-- Lo que el cliente aprobó y firmó: así tiene que quedar. -->
+          <div
+            v-if="fichaEnUnaLinea(paso.produccion?.orden_item?.ficha_especial)"
+            class="bg-white border border-blue-200 rounded-lg px-3 py-2 text-xs text-blue-800"
+          >
+            <span class="font-semibold">Aprobado por el cliente:</span>
+            {{ fichaEnUnaLinea(paso.produccion.orden_item.ficha_especial) }}
           </div>
 
           <!-- Motivo de devolución -->

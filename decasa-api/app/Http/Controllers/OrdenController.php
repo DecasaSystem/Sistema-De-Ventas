@@ -24,6 +24,7 @@ use App\Models\Producto;
 use App\Models\ProductoVariante;
 use App\Models\Tienda;
 use App\Support\ConvierteImagenesPdf;
+use App\Support\StockMedida;
 use App\Support\StockVariantes;
 use App\Services\NumeracionOrdenes;
 use App\Support\PdfOrdenUnaHoja;
@@ -376,6 +377,8 @@ class OrdenController extends Controller
             'factura_fotos.*'                    => 'string|max:500',
             'firma_url'                          => 'nullable|string|max:500',
             'anexo_foto_url'                     => 'nullable|string|max:500',
+            // La declaración de diseños especiales firmada en papel.
+            'declaracion_foto_url'               => 'nullable|string|max:500',
             'departamento_envio'                 => 'nullable|string|max:100',
             'ciudad_envio'                       => 'nullable|string|max:100',
             'direccion_envio'                    => 'nullable|string|max:300',
@@ -413,6 +416,9 @@ class OrdenController extends Controller
             // descartaba y el ítem se guardaba sin decir cuál era.
             'items.*.combo_config_id'            => 'nullable|integer|exists:producto_variante_configs,id',
             'items.*.variante_detalle'           => 'nullable|string|max:200',
+            // Se sabe la medida pero no la tela: se define después desde la
+            // orden y no se despacha sin ella (ver definirTela).
+            'items.*.tela_por_definir'           => 'nullable|boolean',
             // Producto en juego: 'juego' (cantidad = juegos × piezas) o
             // 'pieza' (piezas sueltas). Ver OrdenItem::datosDeJuego.
             'items.*.venta_juego'                => 'nullable|in:juego,pieza',
@@ -433,6 +439,8 @@ class OrdenController extends Controller
             // "Se lo lleva ahora": este producto sale con el cliente de una.
             'items.*.llevar_ahora'               => 'nullable|boolean',
             'items.*.specs_personalizacion'      => 'nullable|array',
+            // Cómo va el mueble especial, dicho para el cliente (DeclaracionEspeciales).
+            'items.*.ficha_especial'             => 'nullable|array',
             'items.*.boceto_url'                 => 'nullable|string|max:500',
             'items.*.boceto_urls'                => 'nullable|array|max:10',
             'items.*.boceto_urls.*'              => 'nullable|string|max:500',
@@ -568,8 +576,10 @@ class OrdenController extends Controller
             $seLleva = $quiereEntregaInmediata || ! empty($i['llevar_ahora']);
             // Lo que se retapiza existe, pero se va a la fábrica, no con el
             // cliente: no se puede llevar hoy.
+            // Con la tela por definir tampoco: no se sabe cuál sale.
             $existe  = ! empty($i['producto_unico'])
-                    || (empty($i['es_personalizado']) && ! empty($i['producto_id']) && ! $retapizar);
+                    || (empty($i['es_personalizado']) && ! empty($i['producto_id']) && ! $retapizar
+                        && empty($i['tela_por_definir']));
             $data['items'][$k]['llevar_ahora'] = $seLleva && $existe;
         }
         $hayParaLlevar = collect($data['items'])->contains(fn ($i) => $i['llevar_ahora']);
@@ -667,6 +677,24 @@ class OrdenController extends Controller
                     ], 422);
                 }
             }
+            // La declaración de diseños especiales va con ese anexo: si la
+            // orden trae productos que la piden, el cliente tuvo que aprobar
+            // ESAS fichas. Si después se cambió una medida o la tela, o se
+            // agregó un especial, lo que firmó ya no es lo que se va a hacer.
+            // (Con la foto del papel no se mira: el papel es la constancia.)
+            // Firmado sin declaración y con precio por consultar: se pide al
+            // confirmar la cotización, no aquí.
+            $especialesPedido = \App\Support\DeclaracionEspeciales::lineasQueAplican($data['items']);
+            if (! $guardarBorrador && $especialesPedido && empty($data['declaracion_foto_url'])
+                && ! (! $anexo->especiales_hash && $tieneItemsCotizacionPendiente)
+                && ! hash_equals((string) $anexo->especiales_hash, \App\Support\DeclaracionEspeciales::huella($especialesPedido))) {
+                return response()->json([
+                    'message' => $anexo->especiales_hash
+                        ? 'Las especificaciones de los productos especiales cambiaron después de que el cliente las aprobó. Que firme otra vez lo que de verdad se va a fabricar.'
+                        : 'El cliente firmó sin la declaración de los productos especiales. Que firme otra vez para aprobarlos.',
+                    'codigo'  => 'anexo_desactualizado',
+                ], 422);
+            }
             // Una sola firma: la del anexo sirve de firma de la orden.
             if (empty($data['firma_url']) && $anexo->firma_url) {
                 $data['firma_url'] = $anexo->firma_url;
@@ -693,6 +721,19 @@ class OrdenController extends Controller
                 return response()->json([
                     'message' => 'Falta el anexo de garantías: que el cliente lo firme en el sistema o sube la foto del anexo firmado en papel.',
                     'errors'  => ['anexo_foto_url' => ['El anexo de garantías es obligatorio en la venta.']],
+                ], 422);
+            }
+
+            // Declaración de diseños especiales (dueño, 2026-10-21): donde se
+            // pide el anexo, lo que se fabrica fuera del catálogo la pide
+            // también — firmada en el sistema con el anexo (revisado arriba) o
+            // la foto del papel. Con precio por consultar se pide al confirmar.
+            if (($data['canal'] ?? null) === 'fisica' && ! $soloRestauracion && ! $tieneItemsCotizacionPendiente
+                && ! $anexo && empty($data['declaracion_foto_url'])
+                && \App\Support\DeclaracionEspeciales::lineasQueAplican($data['items'])) {
+                return response()->json([
+                    'message' => 'Falta la declaración de diseños especiales: que el cliente la firme en el sistema con el anexo o sube la foto de la declaración firmada en papel.',
+                    'errors'  => ['declaracion_foto_url' => ['La declaración de diseños especiales es obligatoria en lo que se fabrica a la medida.']],
                 ], 422);
             }
 
@@ -741,22 +782,48 @@ class OrdenController extends Controller
             }
 
             // --- 1. Verificar stock para items no personalizados (con bloqueo) ---
+            // La medida se suma por orden: dos líneas de la misma 1.40 piden dos.
+            $pedidoPorMedida = [];
             foreach ($data['items'] as $item) {
-                if (! ($item['es_personalizado'] ?? false) && ! empty($item['producto_id'])) {
+                if (! ($item['es_personalizado'] ?? false) && ! empty($item['producto_id']) && empty($item['producto_unico'])) {
                     $varianteId    = $item['variante_id']      ?? null;
                     $origenTiendaId = $item['tienda_origen_id'] ?? $tiendaId;
+                    $comboConfigIdCheck = $item['combo_config_id'] ?? null;
+
+                    // La medida se revisa aparte de la tela: se puede saber que
+                    // es la 1.40 sin saber de qué tela (ver StockMedida).
+                    if ($comboConfigIdCheck) {
+                        $claveMedida = $comboConfigIdCheck . '-' . $origenTiendaId;
+                        $pedidoPorMedida[$claveMedida] = ($pedidoPorMedida[$claveMedida] ?? 0) + (int) $item['cantidad'];
+                        $libreMedida = StockMedida::libre((int) $comboConfigIdCheck, (int) $origenTiendaId, $borradorId, true);
+                        if ($libreMedida !== null && $libreMedida < $pedidoPorMedida[$claveMedida]) {
+                            abort(422, $this->mensajeSinStock($item, null, $origenTiendaId, $libreMedida));
+                        }
+                    }
 
                     if ($varianteId) {
-                        $comboConfigIdCheck = $item['combo_config_id'] ?? null;
-                        if ($comboConfigIdCheck) {
-                            $inv = InventarioVarianteCombinacion::where('variante_id', $varianteId)
+                        // Tela y medida juntas solo si esa combinación se
+                        // registró. Si no, la tela se revisa sola: antes se
+                        // buscaba la combinación, no existía y daba "0 libres"
+                        // aunque hubiera de esa tela y de esa medida.
+                        $inv = $comboConfigIdCheck
+                            ? InventarioVarianteCombinacion::where('variante_id', $varianteId)
                                 ->where('config_id', $comboConfigIdCheck)
                                 ->where('tienda_id', $origenTiendaId)
-                                ->lockForUpdate()->first();
-                        } else {
+                                ->lockForUpdate()->first()
+                            : null;
+                        if (! $inv) {
                             $inv = InventarioVariante::where('variante_id', $varianteId)
                                 ->where('tienda_id', $origenTiendaId)
                                 ->lockForUpdate()->first();
+                            // Con medida elegida, lo de esa tela que ya está
+                            // anotado en OTRA medida (gris 1.60) no sirve.
+                            if ($inv && $comboConfigIdCheck) {
+                                $enOtras = (int) InventarioVarianteCombinacion::where('variante_id', $varianteId)
+                                    ->where('tienda_id', $origenTiendaId)
+                                    ->sum(DB::raw('CASE WHEN cantidad_disponible > cantidad_reservada THEN cantidad_disponible - cantidad_reservada ELSE 0 END'));
+                                $inv = (clone $inv)->setAttribute('cantidad_reservada', (int) $inv->cantidad_reservada + $enOtras);
+                            }
                         }
                     } else {
                         $inv = Inventario::where('producto_id', $item['producto_id'])
@@ -769,8 +836,7 @@ class OrdenController extends Controller
                         : 0;
 
                     if ($stockLibre < $item['cantidad']) {
-                        $where = $varianteId ? "variante ID {$varianteId}" : "producto ID {$item['producto_id']}";
-                        abort(422, "Stock insuficiente para {$where}. Stock libre: {$stockLibre}, solicitado: {$item['cantidad']}.");
+                        abort(422, $this->mensajeSinStock($item, $inv, $origenTiendaId, $stockLibre));
                     }
                 }
             }
@@ -807,6 +873,8 @@ class OrdenController extends Controller
                 'factura_fotos'     => $fotosFactura ?: null,
                 'firma_url'           => $data['firma_url'] ?? null,
                 'anexo_foto_url'      => $data['anexo_foto_url'] ?? null,
+                // Solo si vino: así una base sin la columna no se entera.
+                ...(! empty($data['declaracion_foto_url']) ? ['declaracion_foto_url' => $data['declaracion_foto_url']] : []),
                 'departamento_envio' => $data['departamento_envio'] ?? null,
                 'ciudad_envio'       => $data['ciudad_envio'] ?? null,
                 'direccion_envio'    => $data['direccion_envio'] ?? null,
@@ -895,6 +963,10 @@ class OrdenController extends Controller
                     'retapizar'             => $retapizar,
                     'es_regalo'             => (bool) ($itemData['es_regalo'] ?? false),
                     'llevar_ahora'          => (bool) ($itemData['llevar_ahora'] ?? false),
+                    ...(Esquema::columna('orden_items', 'tela_por_definir') ? [
+                        'tela_por_definir' => ! empty($itemData['tela_por_definir']) && ! $varianteId
+                            && ! $esPersonalizado && ! $esProductoCustom && ! $esProductoUnico,
+                    ] : []),
                     'specs_personalizacion' => $specsExtra,
                     'boceto_url'            => isset($itemData['boceto_urls'])
                         ? (array_values(array_filter($itemData['boceto_urls']))[0] ?? null)
@@ -908,6 +980,10 @@ class OrdenController extends Controller
                     // supervisa solo corrige la que vea mal.
                     'fecha_entrega_prom'    => $fechaEntregaInicial,
                     ...$this->promocionDelItem($promosDeLaVenta, $itemData, $varianteId, $comboConfigId),
+                    // La ficha que el cliente aprueba en la declaración. Solo
+                    // si trae algo (un ítem de catálogo nunca la lleva).
+                    ...(($ficha = \App\Support\DeclaracionEspeciales::normalizarFicha($itemData['ficha_especial'] ?? null))
+                        ? ['ficha_especial' => $ficha] : []),
                 ];
 
                 $previo = ! empty($itemData['id']) ? $itemsPrevios->get((int) $itemData['id']) : null;
@@ -915,7 +991,9 @@ class OrdenController extends Controller
                     // Si iba en juego y ya no, lo de antes no puede quedarse
                     // pegado (si sigue en juego, $atributosItem ya lo trae).
                     $limpiarJuego = $previo->piezas_juego ? ['piezas_juego' => null, 'es_pieza_suelta' => false] : [];
-                    $previo->update($atributosItem + $limpiarJuego);
+                    // La ficha que se borró en el borrador también se borra.
+                    $limpiarFicha = $previo->ficha_especial && ! isset($atributosItem['ficha_especial']) ? ['ficha_especial' => null] : [];
+                    $previo->update($atributosItem + $limpiarJuego + $limpiarFicha);
                     $item = $previo;
                     $itemsQueQuedan[] = $previo->id;
                 } else {
@@ -1258,6 +1336,148 @@ class OrdenController extends Controller
     }
 
     /**
+     * Lo que se le dice al vendedor cuando un producto ya no tiene stock libre.
+     *
+     * Antes decía "Stock insuficiente para variante ID 36. Stock libre: 0,
+     * solicitado: 1." y el vendedor no tenía cómo saber cuál de los productos
+     * del carrito era, ni en qué tienda. El stock que ve en la lista es el del
+     * producto entero (todas sus medidas o telas): una medida puede estar en 0
+     * aunque el producto diga "3 en stock". Por eso se nombra la medida/tela y
+     * se dice si lo que hay ya está apartado para otra orden.
+     */
+    private function mensajeSinStock(array $item, $inv, $tiendaId, int|float $libre): string
+    {
+        $nombre  = Producto::find($item['producto_id'])?->nombre ?? 'un producto';
+        $detalle = OrdenItem::detalleDeVariante(
+            $item['variante_detalle'] ?? null, $item['combo_config_id'] ?? null, $item['variante_id'] ?? null
+        );
+        $que    = $detalle ? "\"{$nombre} ({$detalle})\"" : "\"{$nombre}\"";
+        $tienda = Tienda::find($tiendaId)?->nombre ?? 'esa tienda';
+        $libre  = max(0, (int) $libre);
+        $lleva  = (int) $item['cantidad'];
+
+        $hay      = (int) ($inv?->cantidad_disponible ?? 0);
+        $apartado = (int) ($inv?->cantidad_reservada ?? 0);
+        $porQue   = $libre === 0 && $hay > 0 && $apartado > 0
+            ? " Hay {$hay}, pero ya está apartado para otra orden."
+            : '';
+
+        $cuanto = $libre === 0 ? 'no queda ninguno libre' : "solo quedan {$libre} libres y la orden lleva {$lleva}";
+
+        return "No hay stock de {$que} en {$tienda}: {$cuanto}.{$porQue} "
+             . 'Escoge otra medida o tela, otra tienda, o mándalo a fabricar.';
+    }
+
+    /**
+     * POST /api/ordenes/{id}/items/{itemId}/definir-tela   { variante_id }
+     *
+     * La cama se vendió sabiendo la medida pero no la tela ("la 1.40, la tela
+     * la escoge en la casa"). Aquí se escoge. Mientras no se defina no se
+     * despacha (EntregaService::entregablesDe): se mandaría la que no es.
+     *
+     * Aparta la tela como la habría apartado la venta si se hubiera escogido
+     * desde el principio: la medida y el total ya se habían apartado al vender.
+     */
+    public function definirTela(Request $request, int $id, int $itemId)
+    {
+        $data = $request->validate([
+            'variante_id' => 'required|integer|exists:producto_variantes,id',
+        ]);
+        $usuario = $request->user();
+
+        $item = DB::transaction(function () use ($id, $itemId, $data, $usuario) {
+            $orden = Orden::lockForUpdate()->findOrFail($id);
+            if (! $orden->laPuedeEditar($usuario)) {
+                abort(403, 'No tienes permiso para cambiar esta orden.');
+            }
+
+            $item = OrdenItem::where('orden_id', $orden->id)->lockForUpdate()->findOrFail($itemId);
+            if (! $item->tela_por_definir) {
+                abort(422, 'Este producto ya tiene la tela definida.');
+            }
+
+            $variante = ProductoVariante::find($data['variante_id']);
+            if (! $variante || (int) $variante->producto_id !== (int) $item->producto_id || ! $variante->activo) {
+                abort(422, 'Esa tela no es de este producto.');
+            }
+
+            $origenId = (int) ($item->tienda_origen_id ?? $orden->tienda_id);
+            $cantidad = $item->pendienteEntregar();
+            $aparta   = $cantidad > 0 && ! in_array($orden->estado, Orden::ESTADOS_SIN_RESERVA, true);
+
+            $combo = $item->combo_config_id
+                ? InventarioVarianteCombinacion::where('variante_id', $variante->id)
+                    ->where('config_id', $item->combo_config_id)
+                    ->where('tienda_id', $origenId)
+                    ->lockForUpdate()->first()
+                : null;
+
+            if ($aparta) {
+                // La misma cuenta que al vender (store): la combinación si se
+                // registró; si no, la tela menos lo de ella anotado en otras medidas.
+                if ($combo) {
+                    $libre = (int) $combo->cantidad_disponible - (int) $combo->cantidad_reservada;
+                } else {
+                    $inv = InventarioVariante::where('variante_id', $variante->id)
+                        ->where('tienda_id', $origenId)->lockForUpdate()->first();
+                    $enOtras = $item->combo_config_id
+                        ? (int) InventarioVarianteCombinacion::where('variante_id', $variante->id)
+                            ->where('tienda_id', $origenId)
+                            ->sum(DB::raw('CASE WHEN cantidad_disponible > cantidad_reservada THEN cantidad_disponible - cantidad_reservada ELSE 0 END'))
+                        : 0;
+                    $libre = $inv ? (int) $inv->cantidad_disponible - (int) $inv->cantidad_reservada - $enOtras : 0;
+                }
+
+                if ($libre < $cantidad) {
+                    $tela   = trim(implode(' · ', array_filter([$variante->marca_tela, $variante->nombre_color])));
+                    $tienda = Tienda::find($origenId)?->nombre ?? 'esa tienda';
+                    abort(422, $libre > 0
+                        ? "De la tela \"{$tela}\" solo quedan {$libre} libres en {$tienda} y este producto lleva {$cantidad}. Escoge otra tela."
+                        : "La tela \"{$tela}\" no tiene stock libre en {$tienda} para este producto. Escoge otra tela.");
+                }
+
+                InventarioVariante::where('variante_id', $variante->id)->where('tienda_id', $origenId)
+                    ->increment('cantidad_reservada', $cantidad);
+                $combo?->increment('cantidad_reservada', $cantidad);
+
+                InventarioMovimiento::create([
+                    'producto_id' => $item->producto_id,
+                    'tienda_id'   => $origenId,
+                    'variante_id' => $variante->id,
+                    'tipo'        => 'reserva',
+                    'cantidad'    => $cantidad,
+                    'motivo'      => "Orden #{$orden->id} — tela definida ({$variante->marca_tela} - {$variante->nombre_color}) por {$usuario->nombre}",
+                    'usuario_id'  => $usuario->id,
+                ]);
+            }
+
+            // La medida que ya decía y, ahora, la tela.
+            $medida = $item->combo_config_id ? OrdenItem::detalleDeVariante(null, $item->combo_config_id) : null;
+            $tela   = trim(implode(' · ', array_filter([$variante->marca, $variante->marca_tela, $variante->nombre_color])));
+
+            $item->update([
+                'variante_id'           => $variante->id,
+                'variante_detalle'      => mb_substr(implode(' · ', array_filter([$medida, $tela])), 0, 200) ?: null,
+                'tela_por_definir'      => false,
+                'specs_personalizacion' => array_merge($item->specs_personalizacion ?? [], [
+                    'variante_marca' => $variante->marca_tela,
+                    'variante_color' => $variante->nombre_color,
+                ]),
+            ]);
+
+            return $item;
+        });
+
+        try {
+            event(new InventarioActualizado(
+                (int) ($item->tienda_origen_id ?? $item->orden->tienda_id), (int) $item->producto_id, 'reserva'
+            ));
+        } catch (\Throwable) {}
+
+        return response()->json($item->fresh(['variante', 'comboConfig.opcion']));
+    }
+
+    /**
      * POST /api/ordenes/{id}/reenviar-cotizacion
      * Re-envía la cotización por email al cliente.
      */
@@ -1357,7 +1577,70 @@ class OrdenController extends Controller
         });
         $orden->entrega = $orden->resumenEntrega();
 
+        // La declaración de diseños especiales: qué productos la piden y, si
+        // falta (o se cambió una ficha después de firmar), por qué. La pantalla
+        // lo usa para pedir la ficha, mandarla a firmar o pedir la foto.
+        $aplican = \App\Support\DeclaracionEspeciales::itemsQueAplican($orden);
+        $orden->declaracion = $aplican->isEmpty() ? null : [
+            'items' => $aplican->pluck('id')->values(),
+            'falta' => \App\Support\DeclaracionEspeciales::faltaEnOrden($orden),
+            // Las que no tienen la ficha completa: sin eso no se manda a firmar.
+            'sin_ficha' => $aplican->filter(fn ($i) => \App\Support\DeclaracionEspeciales::faltaEnFicha($i->ficha_especial))->pluck('id')->values(),
+        ];
+
         return response()->json($orden);
+    }
+
+    /**
+     * PATCH /api/orden-items/{id}/ficha-especial  { ficha: {...} }
+     *
+     * La ficha del mueble especial de una orden ya creada: lo que el cliente
+     * aprueba en la declaración de diseños especiales. Para llenarla antes de
+     * mandarla a firmar, o corregirla. Si el cliente ya había firmado la
+     * declaración y la ficha cambia, deja de valer: hay que firmar otra vez
+     * (la firmada queda guardada como estaba, con su PDF).
+     */
+    public function fichaEspecial(Request $request, int $id)
+    {
+        $item  = OrdenItem::with('orden')->findOrFail($id);
+        $orden = $item->orden;
+        if (! $orden || ! $orden->laPuedeEditar($request->user())) {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+        if (in_array($orden->estado, ['entregado', 'cancelado', 'devuelto'], true)) {
+            return response()->json(['message' => 'Esta orden ya no se puede cambiar.'], 422);
+        }
+        if (! Esquema::columna('orden_items', 'ficha_especial')) {
+            return response()->json(['message' => 'Falta correr la migración de la declaración de diseños especiales.'], 409);
+        }
+
+        $request->validate(['ficha' => 'nullable|array']);
+        $ficha = \App\Support\DeclaracionEspeciales::normalizarFicha($request->input('ficha'));
+        $antes = $item->ficha_especial;
+        $item->update(['ficha_especial' => $ficha]);
+
+        // Que quede escrito en el chat de la orden: si ya estaba firmada, el
+        // cliente tiene que volver a aprobarla.
+        if ($antes != $ficha) {
+            try {
+                $nombre = $item->producto?->nombre ?? $item->nombre_custom ?? 'el producto';
+                \App\Models\OrdenMensaje::create([
+                    'orden_id'   => $orden->id,
+                    'usuario_id' => $request->user()->id,
+                    'mensaje'    => "📝 Se " . ($antes ? 'cambió' : 'llenó') . " la ficha de {$nombre} para la declaración de diseños especiales.",
+                ]);
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        }
+
+        $orden->unsetRelation('items');
+
+        return response()->json([
+            'ficha_especial' => $item->ficha_especial,
+            'falta_en_ficha' => \App\Support\DeclaracionEspeciales::faltaEnFicha($ficha),
+            'falta'          => \App\Support\DeclaracionEspeciales::faltaEnOrden($orden),
+        ]);
     }
 
     /**
@@ -1392,6 +1675,7 @@ class OrdenController extends Controller
             'factura_fotos'      => 'nullable|array|max:10',
             'factura_fotos.*'    => 'string|max:500',
             'anexo_foto_url'     => ($esPresencial && ! $anexoFirmado ? 'required' : 'nullable') . '|string|max:500',
+            'declaracion_foto_url' => 'nullable|string|max:500',
             'anticipo_monto'              => 'required|numeric|min:0',
             'anticipo_metodo'             => 'required|in:efectivo,transferencia,tarjeta,addi,otro',
             'anticipo_referencia'         => 'nullable|string|max:100',
@@ -1401,12 +1685,23 @@ class OrdenController extends Controller
             'anticipo_pagos.*.referencia' => 'nullable|string|max:100',
         ]);
 
+        // Declaración de diseños especiales: donde se pide el anexo, también.
+        // Vale la firmada a distancia con las fichas como están hoy, o la foto
+        // del papel.
+        if ($esPresencial && ($falta = \App\Support\DeclaracionEspeciales::faltaEnOrden($orden, $data['declaracion_foto_url'] ?? null))) {
+            return response()->json([
+                'message' => $falta,
+                'errors'  => ['declaracion_foto_url' => [$falta]],
+            ], 422);
+        }
+
         DB::transaction(function () use ($orden, $data, $usuario) {
             $orden->update([
                 'firma_url'        => ($data['firma_url'] ?? null) ?: $orden->firma_url,
                 'factura_foto_url' => ($data['factura_fotos'][0] ?? null) ?: ($data['factura_foto_url'] ?? null),
                 'factura_fotos'    => ! empty($data['factura_fotos']) ? array_values($data['factura_fotos']) : (! empty($data['factura_foto_url']) ? [$data['factura_foto_url']] : null),
                 'anexo_foto_url'   => $data['anexo_foto_url'] ?? null,
+                ...(! empty($data['declaracion_foto_url']) ? ['declaracion_foto_url' => $data['declaracion_foto_url']] : []),
                 'estado'           => 'pendiente_anticipo',
             ]);
 
@@ -2295,6 +2590,18 @@ class OrdenController extends Controller
                             $nomProd = Producto::find($productoId)?->nombre ?? "Producto #{$productoId}";
                             abort(422, "Stock insuficiente para \"{$nomProd}\". Libre: {$stockLibre}, necesario: {$cantidad}.");
                         }
+                        // La medida, aparte de la tela (ver StockMedida). Lo
+                        // que esta orden ya tenía sí cuenta: también la espera.
+                        if (! empty($nuevoData['combo_config_id'])) {
+                            $libreMedida = StockMedida::libre((int) $nuevoData['combo_config_id'], (int) $origenId, null, true);
+                            if ($libreMedida !== null && $libreMedida < $cantidad) {
+                                abort(422, $this->mensajeSinStock(
+                                    ['producto_id' => $productoId, 'cantidad' => $cantidad, 'combo_config_id' => $nuevoData['combo_config_id'],
+                                     'variante_id' => $varianteId, 'variante_detalle' => $nuevoData['variante_detalle'] ?? null],
+                                    null, $origenId, $libreMedida
+                                ));
+                            }
+                        }
                     }
 
                     $nuevoItem = OrdenItem::create([
@@ -2623,8 +2930,13 @@ class OrdenController extends Controller
         $orden->anexo_firmado = \App\Models\AnexoGarantia::hayTabla()
             ? \App\Models\AnexoGarantia::where('orden_id', $orden->id)
                 ->where('estado', 'firmado')->latest('id')
-                ->first(['id', 'modo', 'estado', 'resumen_hash', 'firma_url', 'nombre_firmante', 'documento_firmante', 'firmado_at'])
+                ->first(['id', 'modo', 'estado', 'resumen_hash', 'firma_url', 'nombre_firmante', 'documento_firmante', 'firmado_at',
+                    // Si trae la declaración de diseños especiales.
+                    ...(\App\Support\DeclaracionEspeciales::hayColumnas() ? ['especiales_hash'] : [])])
             : null;
+        if ($orden->anexo_firmado) {
+            $orden->anexo_firmado->setAttribute('declaracion', ! empty($orden->anexo_firmado->especiales_hash));
+        }
 
         return response()->json($orden);
     }
@@ -2711,6 +3023,7 @@ class OrdenController extends Controller
             'factura_fotos'       => 'nullable|array|max:10',
             'factura_fotos.*'     => 'string|max:500',
             'anexo_foto_url'      => ($esPresencial ? 'required' : 'nullable') . '|string|max:500',
+            'declaracion_foto_url' => 'nullable|string|max:500',
             'departamento_envio'  => 'required|string|max:100',
             'ciudad_envio'        => 'required|string|max:100',
             'direccion_envio'     => 'required|string|max:300',
@@ -2761,6 +3074,14 @@ class OrdenController extends Controller
             }
         }
         $orden->load('items.produccion');
+
+        // Declaración de diseños especiales: donde se pide el anexo, también.
+        if ($esPresencial && ($falta = \App\Support\DeclaracionEspeciales::faltaEnOrden($orden, $data['declaracion_foto_url'] ?? null))) {
+            return response()->json([
+                'message' => $falta,
+                'errors'  => ['declaracion_foto_url' => [$falta]],
+            ], 422);
+        }
 
         // Un personalizado sin especificaciones no se puede fabricar: al
         // completar el borrador se crean las órdenes de producción, y el ebanista
@@ -2832,6 +3153,7 @@ class OrdenController extends Controller
                     ? array_values(array_filter($data['factura_fotos']))
                     : (! empty($data['factura_foto_url']) ? [$data['factura_foto_url']] : $orden->factura_fotos),
                 'anexo_foto_url'     => $data['anexo_foto_url']     ?? $orden->anexo_foto_url,
+                ...(! empty($data['declaracion_foto_url']) ? ['declaracion_foto_url' => $data['declaracion_foto_url']] : []),
                 'departamento_envio' => $data['departamento_envio'] ?? $orden->departamento_envio,
                 'ciudad_envio'       => $data['ciudad_envio']       ?? $orden->ciudad_envio,
                 'direccion_envio'    => $data['direccion_envio']    ?? $orden->direccion_envio,
@@ -3038,139 +3360,73 @@ class OrdenController extends Controller
      * orden entregada no se puede editar— y tocaba abrir otra orden a mano,
      * dejando la plata pagada colgando en la vieja.
      *
-     * Acá solo se DEVUELVE: el producto nuevo se agrega después con la edición
-     * normal de la orden, que ya sabe reservar stock, mandar a producción y
-     * ponerle fecha. Separarlo evita reescribir todo eso, y deja que el
-     * vendedor arme el reemplazo con calma —a veces hay que cotizarlo primero—.
+     * Antes aquí solo se DEVOLVÍA y el producto nuevo se agregaba después con
+     * Editar. Ahora el reemplazo puede ir de una vez (`reemplazo`): de
+     * catálogo apartado en una tienda, de catálogo para fabricar, o un diseño
+     * especial. Sin `reemplazo` se comporta como antes —a veces hay que
+     * cotizarlo primero—. La cuenta completa está en `CambioDeProducto`.
      */
     public function cambiarProducto(Request $request, int $id)
     {
         $usuario = $request->user();
 
         if ($usuario->rol !== 'supervisor') {
-            return response()->json(['message' => 'Solo un supervisor puede reabrir una orden entregada.'], 403);
+            return response()->json(['message' => 'Solo un supervisor puede cambiar un producto entregado: mueve el valor de la venta.'], 403);
         }
 
         $data = $request->validate([
             'orden_item_id' => 'required|integer|exists:orden_items,id',
+            // Cuántas devuelve (de 4 sillas, 1). Sin decirlo, todas las que
+            // tiene en la casa.
+            'cantidad'      => 'nullable|integer|min:1',
             'motivo'        => 'required|string|min:3|max:1000',
             'foto_url'      => 'nullable|string|max:500',
             'fecha'         => 'nullable|date',
             // Lo devuelto vuelve al inventario salvo que llegue dañado: ahí es
             // merma y ponerlo a la venta otra vez sería vender un producto roto.
-            'vuelve_al_stock' => 'boolean',
+            'vuelve_al_stock'    => 'boolean',
+            'tienda_devuelto_id' => 'nullable|integer|exists:tiendas,id',
+            // Lo nuevo: a dónde va lo devuelto (una tienda, la fábrica o
+            // merma) y si ya está aquí o se recoge después. La orden cambia
+            // igual de una; lo que se programa es la recogida.
+            'devuelto'                => 'nullable|array',
+            'devuelto.destino'        => 'required_with:devuelto|in:tienda,merma',
+            'devuelto.tienda_id'      => 'nullable|integer',
+            'devuelto.recogida'       => 'required_with:devuelto|in:ya,programada,con_entrega',
+            'devuelto.fecha_recogida' => 'nullable|date',
+
+            'reemplazo'                    => 'nullable|array',
+            'reemplazo.tipo'               => 'required_with:reemplazo|in:catalogo,diseno_especial',
+            'reemplazo.cantidad'           => 'required_with:reemplazo|integer|min:1|max:999',
+            // El precio lo pone el supervisor (por defecto el de lista, que
+            // pone la pantalla). Si pasa del anterior, la venta sube.
+            'reemplazo.precio_unitario'    => 'required_with:reemplazo|numeric|min:0',
+            'reemplazo.fecha_entrega_prom' => 'nullable|date',
+            'reemplazo.producto_id'        => 'required_if:reemplazo.tipo,catalogo|nullable|integer',
+            'reemplazo.variante_id'        => 'nullable|integer',
+            'reemplazo.combo_config_id'    => 'nullable|integer',
+            'reemplazo.tienda_id'          => 'nullable|integer',
+            'reemplazo.fabricar'           => 'boolean',
+            'reemplazo.nombre'             => 'required_if:reemplazo.tipo,diseno_especial|nullable|string|max:150',
+            'reemplazo.categoria'          => 'nullable|string|max:100',
+            'reemplazo.detalles'           => 'nullable|string|max:3000',
+            'reemplazo.madera'             => 'nullable|string|max:200',
+            'reemplazo.tela'               => 'nullable|string|max:200',
+            'reemplazo.ancho'              => 'nullable|string|max:60',
+            'reemplazo.largo'              => 'nullable|string|max:60',
+            'reemplazo.alto'               => 'nullable|string|max:60',
+            'reemplazo.boceto_urls'        => 'nullable|array|max:8',
+            'reemplazo.boceto_urls.*'      => 'string|max:500',
         ], [
-            'motivo.required' => 'Escribe por qué lo devuelve.',
+            'motivo.required'                 => 'Escribe por qué lo devuelve.',
+            'reemplazo.producto_id.required_if' => 'Escoge el producto nuevo.',
+            'reemplazo.nombre.required_if'    => 'Escribe qué mueble es el diseño especial.',
+            'reemplazo.precio_unitario.required_with' => 'Falta el precio del producto nuevo.',
         ]);
 
         $orden = Orden::with(['items', 'cliente:id,nombre'])->findOrFail($id);
 
-        if ($orden->estado !== 'entregado') {
-            return response()->json([
-                'message' => 'Esto es para cambiar algo ya entregado. Esta orden está en "' . $orden->estado . '".',
-            ], 422);
-        }
-
-        $item = $orden->items->firstWhere('id', $data['orden_item_id']);
-
-        if (! $item) {
-            return response()->json(['message' => 'Ese producto no es de esta orden.'], 422);
-        }
-        if (! $item->estaVivo()) {
-            return response()->json(['message' => 'Ese producto ya se había devuelto.'], 422);
-        }
-        // Se permite devolver hasta el último producto de la orden: el caso
-        // más común es justo ese —una orden de un solo mueble que el cliente
-        // cambia por otro—. La orden queda un momento sin nada y con toda la
-        // plata a favor, hasta que se le agrega el reemplazo. Bloquearlo dejaba
-        // fuera el caso para el que se hizo esto.
-        $ultimo = $orden->items->where('devuelto_en', null)->count() <= 1;
-
-        $fecha = $data['fecha'] ?? now()->toDateString();
-
-        DB::transaction(function () use ($orden, $item, $data, $fecha, $usuario, $request) {
-            // 1. Queda escrito qué se devolvió y por qué.
-            $item->update([
-                'devuelto_en'       => $fecha,
-                'motivo_devolucion' => $data['motivo'],
-            ]);
-
-            \App\Models\Devolucion::create([
-                'orden_id'         => $orden->id,
-                'orden_item_id'    => $item->id,
-                'cantidad'         => $item->cantidad,
-                'motivo'           => $data['motivo'],
-                'foto_url'         => $data['foto_url'] ?? null,
-                'fecha'            => $fecha,
-                'reportado_por_id' => $usuario->id,
-                // Ya está resuelta: se cambia por otro producto. No espera que
-                // nadie decida nada, a diferencia de la que llega dañada.
-                'estado'           => 'cambio',
-                'decidido_por_id'  => $usuario->id,
-                'decidido_at'      => now(),
-                'notas_decision'   => 'El cliente lo cambia por otro producto.',
-            ]);
-
-            // 2. El producto vuelve al inventario si está para vender.
-            if ($request->boolean('vuelve_al_stock', true) && ! $item->es_personalizado && $item->producto_id) {
-                $tiendaId = $item->tienda_origen_id ?? $orden->tienda_id;
-
-                Inventario::where('producto_id', $item->producto_id)->where('tienda_id', $tiendaId)
-                    ->increment('cantidad_disponible', $item->cantidad);
-
-                // Al que se le cambió la tela no se le devuelve a su variante:
-                // ya no es de esa tela. Entra al stock base del producto, y
-                // en el inventario le asignan la tela que tiene ahora.
-                if ($item->variante_id && ! $item->retapizar) {
-                    InventarioVariante::where('variante_id', $item->variante_id)->where('tienda_id', $tiendaId)
-                        ->increment('cantidad_disponible', $item->cantidad);
-                }
-
-                InventarioMovimiento::create([
-                    'producto_id' => $item->producto_id,
-                    'tienda_id'   => $tiendaId,
-                    'tipo'        => 'entrada',
-                    'cantidad'    => $item->cantidad,
-                    'motivo'      => "Devolución para cambio — orden {$orden->referencia}"
-                        . ($item->retapizar ? " (retapizado: {$item->variante_texto})" : ''),
-                    'usuario_id'  => $usuario->id,
-                ]);
-            }
-
-            // 3. Lo que se devolvió deja de cobrarse. Lo ya pagado no se toca:
-            //    esa plata queda a favor del cliente contra el total nuevo, que
-            //    es justo lo que hace que no pague dos veces.
-            $orden->refresh()->load('items');
-            $orden->recalcularTotal();
-
-            // 4. La orden vuelve a estar viva para poder ponerle el reemplazo.
-            $orden->update(['estado' => 'pendiente_anticipo']);
-
-            OrdenMensaje::create([
-                'orden_id'   => $orden->id,
-                'usuario_id' => $usuario->id,
-                'mensaje'    => "🔁 Se devolvió {$item->cantidad} × "
-                              . ($item->nombre_custom ?: ($item->producto?->nombre ?? 'un producto'))
-                              . " el " . \Carbon\Carbon::parse($fecha)->format('d/m/Y')
-                              . ". Motivo: {$data['motivo']}. La orden vuelve a estar abierta para el cambio.",
-                'imagen_url' => $data['foto_url'] ?? null,
-            ]);
-        });
-
-        $orden->refresh()->load(['items.producto:id,nombre', 'pagos']);
-
-        // El valor de la orden cambió: la comisión tiene que seguirlo.
-        ComisionController::sincronizarValorOrden($orden);
-
-        return response()->json([
-            'message'        => $ultimo
-                ? 'Orden reabierta y sin productos: agrégale el reemplazo desde Editar para no dejarla vacía.'
-                : 'Orden reabierta. Ya puedes agregarle el producto nuevo desde Editar.',
-            'quedo_vacia'    => $ultimo,
-            'valor_total'    => (float) $orden->valor_total,
-            'total_pagado'   => $orden->totalPagado(),
-            'saldo_pendiente'=> $orden->saldoPendiente(),
-        ]);
+        return response()->json(\App\Services\CambioDeProducto::ejecutar($orden, $data, $usuario));
     }
 
     public function revertirEntrega(Request $request, int $id)
@@ -3455,19 +3711,23 @@ class OrdenController extends Controller
         if ($estadoNuevo === 'entregado') {
             $orden->load('items.produccion');
             $faltan = $orden->items->filter(fn ($i) => $i->pendienteEntregar() > 0);
-            if ($faltan->isEmpty()) {
-                return response()->json(['message' => 'No queda nada por entregar en esta orden.'], 422);
+            // Ya tiene todo en la casa pero la orden quedó abierta (se quitó lo
+            // que faltaba, o se cambió un producto y no se le agregó otro):
+            // antes respondía "No queda nada por entregar" y la orden no se
+            // podía cerrar nunca (#1231). Se cierra sin mover inventario.
+            if ($faltan->isEmpty() && $orden->items->filter->estaVivo()->isEmpty()) {
+                return response()->json(['message' => 'La orden no tiene productos: agrégale uno o cancélala.'], 422);
             }
-            if ($faltan->contains(fn ($i) => ! $i->estaListoParaEntregar())) {
+            if ($faltan->isNotEmpty() && $faltan->contains(fn ($i) => ! $i->estaListoParaEntregar())) {
                 return response()->json([
                     'message' => 'Hay productos que el taller no ha dado por listos. Usa "Entregar ahora" para entregar solo lo que ya está.',
                 ], 422);
             }
-            if ($orden->tieneDespachoActivo()) {
+            if ($faltan->isNotEmpty() && $orden->tieneDespachoActivo()) {
                 return response()->json(['message' => 'Esta orden ya está en un despacho activo.'], 422);
             }
 
-            EntregaService::entregarEnMostrador(
+            if ($faltan->isNotEmpty()) EntregaService::entregarEnMostrador(
                 $orden,
                 $faltan->mapWithKeys(fn ($i) => [$i->id => $i->pendienteEntregar()])->all(),
                 $usuario,
@@ -3553,8 +3813,12 @@ class OrdenController extends Controller
                     ->delete();
             }
 
-            // La entrega ya dejó la orden como le toca.
-            if ($estadoNuevo === 'entregado') return;
+            // La entrega ya dejó la orden como le toca. Si no hubo entrega
+            // (ya tenía todo en la casa, ver arriba), se cierra aquí.
+            if ($estadoNuevo === 'entregado') {
+                if ($orden->fresh()->estado !== 'entregado') $orden->update(['estado' => 'entregado']);
+                return;
+            }
 
             $updateData = ['estado' => $estadoNuevo];
             if ($estadoNuevo === 'listo_entrega') {

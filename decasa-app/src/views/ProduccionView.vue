@@ -32,6 +32,7 @@ import DevolucionesPendientes from '@/components/produccion/DevolucionesPendient
 import GarantiasPendientes from '@/components/garantias/GarantiasPendientes.vue'
 import RegresarAlTallerModal from '@/components/produccion/RegresarAlTallerModal.vue'
 import { SPECS_TEMPLATES, resolverCategoria } from '@/constants/specsConfig'
+import { fichaEnUnaLinea } from '@/utils/declaracionEspeciales'
 
 const auth   = useAuthStore()
 const router = useRouter()
@@ -896,6 +897,10 @@ onUnmounted(() => {
               </p>
               <p v-if="specsResumen(p.orden_item) || specsResumenReserva(p)" class="text-xs text-indigo-600 mt-0.5 truncate">
                 {{ specsResumen(p.orden_item) || specsResumenReserva(p) }}
+              </p>
+              <!-- Lo que el cliente aprobó y firmó (declaración de diseños especiales) -->
+              <p v-if="fichaEnUnaLinea(p.orden_item?.ficha_especial)" class="text-xs text-blue-700 mt-0.5 truncate">
+                Aprobado por el cliente: {{ fichaEnUnaLinea(p.orden_item.ficha_especial) }}
               </p>
             </div>
             <span

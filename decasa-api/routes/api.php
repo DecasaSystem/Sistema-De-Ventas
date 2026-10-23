@@ -102,6 +102,12 @@ Route::get('/public/anexos/{token}', [\App\Http\Controllers\AnexoGarantiaControl
     ->where('token', '[A-Za-z0-9]{20,64}')->middleware('throttle:60,1');
 Route::post('/public/anexos/{token}/firmar', [\App\Http\Controllers\AnexoGarantiaController::class, 'firmar'])
     ->where('token', '[A-Za-z0-9]{20,64}')->middleware('throttle:10,1');
+// El cliente le pide un cambio al asesor en vez de firmar (declaración de
+// diseños especiales) y descarga lo que firmó (anexo | declaracion).
+Route::post('/public/anexos/{token}/cambio', [\App\Http\Controllers\AnexoGarantiaController::class, 'pedirCambio'])
+    ->where('token', '[A-Za-z0-9]{20,64}')->middleware('throttle:6,1');
+Route::get('/public/anexos/{token}/pdf/{doc}', [\App\Http\Controllers\AnexoGarantiaController::class, 'pdfPublico'])
+    ->where('token', '[A-Za-z0-9]{20,64}')->where('doc', 'anexo|declaracion')->middleware('throttle:10,1');
 
 Route::get('/c', [CatalogoPublicoController::class, 'visuales'])->middleware('throttle:60,1');
 Route::get('/c/{slug}', [CatalogoPublicoController::class, 'visual'])->middleware('throttle:60,1');
@@ -349,6 +355,11 @@ Route::middleware('auth:sanctum')->group(function () {
     // orden de su cliente—; decidir qué se hace lo valida el controlador
     // contra gestiona_produccion, que es la supervisora del taller.
     Route::get('/devoluciones',                [DevolucionController::class, 'index']);
+    // Lo que el cliente devolvió en un cambio de producto y falta recoger.
+    Route::get('/devoluciones/por-recoger',    [DevolucionController::class, 'porRecoger']);
+    Route::get('/devoluciones/destinos',       [DevolucionController::class, 'destinos']);
+    Route::post('/devoluciones/{id}/recibir',  [DevolucionController::class, 'recibir'])->whereNumber('id');
+    Route::patch('/devoluciones/{id}/recogida', [DevolucionController::class, 'reprogramar'])->whereNumber('id');
     Route::post('/devoluciones',               [DevolucionController::class, 'store']);
     Route::post('/devoluciones/{id}/decidir',  [DevolucionController::class, 'decidir'])->whereNumber('id');
 
@@ -426,6 +437,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/ordenes/{id}/completar-borrador',     [OrdenController::class, 'completarBorrador']);
     Route::get('/ordenes/{id}/para-continuar',          [OrdenController::class, 'paraContinuar'])->whereNumber('id');
 
+    // Nueva orden a medio hacer, para seguirla en otro aparato (ver BorradorEnCursoController)
+    Route::get('/borradores-en-curso/{clave}',    [\App\Http\Controllers\BorradorEnCursoController::class, 'show'])->where('clave', '[A-Za-z0-9:_\-]+');
+    Route::put('/borradores-en-curso/{clave}',    [\App\Http\Controllers\BorradorEnCursoController::class, 'guardar'])->where('clave', '[A-Za-z0-9:_\-]+')->middleware('throttle:120,1');
+    Route::delete('/borradores-en-curso/{clave}', [\App\Http\Controllers\BorradorEnCursoController::class, 'borrar'])->where('clave', '[A-Za-z0-9:_\-]+');
+
     // Anexo de garantías firmado en el sistema (ver AnexoGarantiaController)
     Route::post('/anexos',                    [\App\Http\Controllers\AnexoGarantiaController::class, 'crear'])->middleware('throttle:30,1');
     Route::get('/anexos/en-curso',            [\App\Http\Controllers\AnexoGarantiaController::class, 'enCurso']);
@@ -435,10 +451,16 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/anexos/{id}/anular',        [\App\Http\Controllers\AnexoGarantiaController::class, 'anular'])->whereNumber('id');
     Route::post('/anexos/{id}/enviar-email',  [\App\Http\Controllers\AnexoGarantiaController::class, 'enviarEmail'])->whereNumber('id')->middleware('throttle:10,1');
     Route::get('/anexos/{id}/pdf',            [\App\Http\Controllers\AnexoGarantiaController::class, 'pdf'])->whereNumber('id');
+    Route::get('/anexos/{id}/declaracion/pdf', [\App\Http\Controllers\AnexoGarantiaController::class, 'pdfDeclaracion'])->whereNumber('id');
+    // La ficha del mueble especial de una orden ya creada (lo que el cliente
+    // aprueba en la declaración de diseños especiales).
+    Route::patch('/orden-items/{id}/ficha-especial', [OrdenController::class, 'fichaEspecial'])->whereNumber('id');
     Route::get('/ordenes/{id}/pdf',                     [OrdenController::class, 'pdf']);
     // El cliente devuelve algo ya entregado y lo cambia por otra cosa: la
     // orden se reabre y el producto nuevo se agrega con la edición normal.
     Route::post('/ordenes/{id}/cambiar-producto',       [OrdenController::class, 'cambiarProducto'])->whereNumber('id');
+    // Se vendió la medida sin escoger tela: aquí se escoge después.
+    Route::post('/ordenes/{id}/items/{itemId}/definir-tela', [OrdenController::class, 'definirTela'])->whereNumber(['id', 'itemId']);
     // Acta de satisfacción firmada por quien recibió la entrega
     Route::get('/ordenes/{id}/acta-entrega',            [DespachoController::class, 'actaEntrega'])->whereNumber('id');
     // La hoja de entrega para imprimir: lo que va, el total y lo que se cobra.
@@ -633,6 +655,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/usuarios/{id}',                 [UsuarioController::class, 'update']);
         Route::patch('/usuarios/{id}/toggle-activo', [UsuarioController::class, 'toggleActivo']);
         Route::post('/usuarios/{id}/reset-password', [UsuarioController::class, 'resetPassword']);
+        // Qué grupos de avisos le llegan (ver App\Support\TiposNotificacion)
+        Route::get('/usuarios/{id}/notificaciones',  [\App\Http\Controllers\NotificacionesUsuarioController::class, 'show'])->whereNumber('id');
+        Route::put('/usuarios/{id}/notificaciones',  [\App\Http\Controllers\NotificacionesUsuarioController::class, 'update'])->whereNumber('id');
     });
 
     // Producción — listado y gestión (supervisor y vendedor)

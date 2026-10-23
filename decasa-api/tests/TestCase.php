@@ -50,6 +50,7 @@ abstract class TestCase extends BaseTestCase
         $agregar('ordenes',        'factura_fotos',      fn ($t) => $t->json('factura_fotos')->nullable());
         $agregar('orden_items',    'cantidad_entregada', fn ($t) => $t->unsignedInteger('cantidad_entregada')->default(0));
         $agregar('orden_items',    'llevar_ahora',       fn ($t) => $t->boolean('llevar_ahora')->default(false));
+        $agregar('orden_items',    'tela_por_definir',   fn ($t) => $t->boolean('tela_por_definir')->default(false));
         $agregar('orden_items',    'devuelto_en',        fn ($t) => $t->date('devuelto_en')->nullable());
         $agregar('orden_items',    'motivo_devolucion',  fn ($t) => $t->text('motivo_devolucion')->nullable());
         $agregar('ordenes',        'descuento_total',    fn ($t) => $t->decimal('descuento_total', 15, 2)->default(0));
@@ -66,6 +67,9 @@ abstract class TestCase extends BaseTestCase
         $agregar('despacho_items', 'firma_omitida_motivo', fn ($t) => $t->string('firma_omitida_motivo')->nullable());
         $agregar('despacho_items', 'fotos_producto',     fn ($t) => $t->json('fotos_producto')->nullable());
         $agregar('orden_items',    'retapizar',          fn ($t) => $t->boolean('retapizar')->default(false));
+        // Declaración de diseños especiales (2026_10_25_000001).
+        $agregar('orden_items',    'ficha_especial',     fn ($t) => $t->json('ficha_especial')->nullable());
+        $agregar('ordenes',        'declaracion_foto_url', fn ($t) => $t->string('declaracion_foto_url', 500)->nullable());
 
         // Vender con "se lo lleva ahora" abre una entrega de mostrador, así
         // que hasta una prueba que solo crea órdenes necesita dónde escribirla.
@@ -179,6 +183,13 @@ abstract class TestCase extends BaseTestCase
                 $t->unsignedBigInteger('caja_movimiento_id')->nullable(); $t->timestamps();
             });
         }
+        // Cambio de producto: a dónde va lo devuelto y cuándo se recoge.
+        $agregar('devoluciones',   'destino',            fn ($t) => $t->string('destino', 20)->nullable());
+        $agregar('devoluciones',   'tienda_destino_id',  fn ($t) => $t->unsignedBigInteger('tienda_destino_id')->nullable());
+        $agregar('devoluciones',   'recoger_el',         fn ($t) => $t->date('recoger_el')->nullable());
+        $agregar('devoluciones',   'recoger_con_entrega', fn ($t) => $t->boolean('recoger_con_entrega')->default(false));
+        $agregar('devoluciones',   'recibido_at',        fn ($t) => $t->timestamp('recibido_at')->nullable());
+        $agregar('devoluciones',   'recibido_por_id',    fn ($t) => $t->unsignedBigInteger('recibido_por_id')->nullable());
     }
 
     /**

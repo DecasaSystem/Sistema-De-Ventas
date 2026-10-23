@@ -19,6 +19,7 @@ import { getDevoluciones, decidirDevolucion } from '@/api/devoluciones'
 import {
   ArrowUturnLeftIcon, WrenchScrewdriverIcon, BanknotesIcon,
   XMarkIcon, ChevronDownIcon, ChevronUpIcon, ArrowPathIcon, ArrowsRightLeftIcon,
+  TruckIcon, MinusCircleIcon,
 } from '@heroicons/vue/24/outline'
 
 const PREFERENCIA_LABEL = {
@@ -96,6 +97,47 @@ async function cambiar(d, decision) {
     toast.error(e.response?.data?.message || 'No se pudo guardar')
   } finally {
     enviando.value = null
+  }
+}
+
+// ── Estaba bien: se le vuelve a llevar ─────────────────────────────────────
+// Lo que volvió en el camión sigue apartado: no se mueve inventario, la orden
+// sale de "devuelto" y queda lista para entregarle otra vez (caso #1231).
+async function reentregar(d) {
+  enviando.value = d.id
+  try {
+    await decidirDevolucion(d.id, { decision: 'reentregar' })
+    toast.success('Listo: queda por entregar en Despacho')
+    await cargar()
+    emit('resuelta')
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo guardar')
+  } finally {
+    enviando.value = null
+  }
+}
+
+// ── El cliente se queda sin eso ────────────────────────────────────────────
+const quitando     = ref(null)
+const vuelveStock  = ref(true)
+
+function abrirQuitar(d) {
+  quitando.value = d
+  vuelveStock.value = true
+}
+
+async function confirmarQuitar() {
+  guardando.value = true
+  try {
+    await decidirDevolucion(quitando.value.id, { decision: 'quitar', vuelve_al_stock: vuelveStock.value })
+    toast.success('Se quitó de la orden. Lo pagado de más queda a favor del cliente.')
+    quitando.value = null
+    await cargar()
+    emit('resuelta')
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo guardar')
+  } finally {
+    guardando.value = false
   }
 }
 
@@ -206,6 +248,23 @@ async function confirmarReembolso() {
               <ArrowsRightLeftIcon class="w-4 h-4" />
               Cambiar por otro producto
             </button>
+            <!-- Volvió en el camión pero estaba bien (o se corrigió): se le
+                 lleva de nuevo. Y si el cliente ya no lo quiere, se quita. -->
+            <button
+              @click="reentregar(d)"
+              :disabled="enviando === d.id"
+              class="bg-green-600 text-white text-xs font-semibold rounded-lg px-2 py-2 hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
+            >
+              <TruckIcon class="w-4 h-4" />
+              Entregarlo de nuevo
+            </button>
+            <button
+              @click="abrirQuitar(d)"
+              class="bg-gray-100 text-gray-700 text-xs font-semibold rounded-lg px-2 py-2 hover:bg-gray-200 transition-colors flex items-center justify-center gap-1.5"
+            >
+              <MinusCircleIcon class="w-4 h-4" />
+              Se queda sin eso
+            </button>
             <button
               @click="abrirReembolso(d)"
               class="bg-gray-100 text-gray-700 text-xs font-semibold rounded-lg px-2 py-2 hover:bg-gray-200 transition-colors flex items-center justify-center gap-1.5"
@@ -217,6 +276,43 @@ async function confirmarReembolso() {
         </div>
       </div>
     </div>
+
+    <!-- El cliente se queda sin eso -->
+    <Teleport to="body">
+      <div v-if="quitando" class="fixed inset-0 bg-black/50 backdrop-blur-[2px] z-50 flex items-end sm:items-center justify-center" @click.self="quitando = null">
+        <div class="bg-white rounded-t-3xl sm:rounded-2xl w-full sm:max-w-md shadow-2xl">
+          <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-100">
+            <div class="min-w-0">
+              <p class="font-semibold text-gray-800 truncate">El cliente se queda sin eso</p>
+              <p class="text-[11px] text-gray-400 truncate">{{ quitando.cantidad }} × {{ quitando.producto }} — {{ quitando.cliente }}</p>
+            </div>
+            <button @click="quitando = null" class="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors shrink-0">
+              <XMarkIcon class="w-5 h-5" />
+            </button>
+          </div>
+          <div class="p-5 space-y-3">
+            <p class="text-xs text-gray-600">
+              Deja de cobrarse ({{ formatoPesos(quitando.monto_sugerido) }}) y la orden sigue con lo demás. Si ya
+              tiene todo lo demás, queda entregada. Lo que pagó de más queda a su favor: si hay que devolverle la
+              plata, usa "Cancelar y devolver".
+            </p>
+            <div class="flex gap-1 bg-gray-100 rounded-xl p-1">
+              <button type="button" @click="vuelveStock = true"
+                :class="['flex-1 py-2 text-xs font-semibold rounded-lg', vuelveStock ? 'bg-white shadow-sm text-blue-700' : 'text-gray-500']">Está bueno: al inventario</button>
+              <button type="button" @click="vuelveStock = false"
+                :class="['flex-1 py-2 text-xs font-semibold rounded-lg', !vuelveStock ? 'bg-white shadow-sm text-blue-700' : 'text-gray-500']">Dañado: merma</button>
+            </div>
+          </div>
+          <div class="flex gap-2.5 p-5 pt-0">
+            <button @click="quitando = null" class="flex-1 bg-gray-100 text-gray-700 text-sm font-semibold rounded-xl px-4 py-2.5 hover:bg-gray-200 transition-colors">Cancelar</button>
+            <button @click="confirmarQuitar" :disabled="guardando"
+              class="flex-1 bg-blue-600 text-white text-sm font-semibold rounded-xl px-4 py-2.5 hover:bg-blue-700 transition-colors disabled:opacity-50">
+              {{ guardando ? 'Guardando...' : 'Confirmar' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
 
     <!-- Cancelar y devolver la plata -->
     <Teleport to="body">

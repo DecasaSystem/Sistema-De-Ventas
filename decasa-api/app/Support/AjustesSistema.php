@@ -25,9 +25,25 @@ class AjustesSistema
      */
     public const CALIFICAR_TALLER = 'produccion_calificar_trabajadores';
 
+    /**
+     * Pedirle al cliente la declaración de diseños y medidas especiales
+     * (DeclaracionEspeciales) en lo que no está en el catálogo y se fabrica
+     * desde cero. Dueño, 2026-10-21: "de eso sí estoy seguro". Prendido.
+     */
+    public const DECLARACION_ESPECIALES = 'declaracion_disenos_especiales';
+
+    /**
+     * La misma declaración en lo personalizado (un producto del catálogo al
+     * que se le cambian detalles). El dueño no estaba seguro: "que sea
+     * activable". Apagado hasta que lo prendan.
+     */
+    public const DECLARACION_PERSONALIZADOS = 'declaracion_personalizados';
+
     /** clave => valor de fábrica */
     private const DEFINICION = [
-        self::CALIFICAR_TALLER => true,
+        self::CALIFICAR_TALLER           => true,
+        self::DECLARACION_ESPECIALES     => true,
+        self::DECLARACION_PERSONALIZADOS => false,
     ];
 
     public static function activo(string $clave): bool
@@ -51,6 +67,8 @@ class AjustesSistema
     {
         return [
             'calificar_trabajadores_taller' => self::activo(self::CALIFICAR_TALLER),
+            'declaracion_disenos_especiales' => self::activo(self::DECLARACION_ESPECIALES),
+            'declaracion_personalizados'     => self::activo(self::DECLARACION_PERSONALIZADOS),
         ];
     }
 

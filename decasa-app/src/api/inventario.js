@@ -26,8 +26,13 @@ export const removeStock = (data) => api.post('/inventario/salida',  data)
 // `silencioso` para cuando se pide una por cada tarjeta ya pintada: cada tarjeta
 // muestra su propio aviso, y encender además la S global hacía que la pantalla
 // pareciera cargar dos veces seguidas.
-export const getVariantes = (productoId, tiendaId, silencioso = false) =>
-  api.get(`/productos/${productoId}/variantes`, { params: { tienda_id: tiendaId }, silencioso })
+// `paraVenta`: lo que se puede vender —la medida aparte de la tela, con filas
+// "tela por definir"—. Inventario no lo pide y ve el desglose de siempre.
+export const getVariantes = (productoId, tiendaId, silencioso = false, paraVenta = false) =>
+  api.get(`/productos/${productoId}/variantes`, {
+    params: { tienda_id: tiendaId, ...(paraVenta ? { para_venta: 1 } : {}) },
+    silencioso,
+  })
 
 export const crearVariante  = (productoId, data) =>
   api.post(`/productos/${productoId}/variantes`, data)

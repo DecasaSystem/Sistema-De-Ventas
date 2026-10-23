@@ -87,6 +87,9 @@ class Orden extends Model
         'factura_fotos',
         'firma_url',
         'anexo_foto_url',
+        // La declaración de diseños especiales firmada en papel (la de la
+        // tienda sin firmar en el sistema), como la foto del anexo.
+        'declaracion_foto_url',
         'direccion_envio',
         'ciudad_envio',
         'departamento_envio',

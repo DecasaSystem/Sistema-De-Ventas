@@ -12,7 +12,7 @@ import SolicitudesCambioPanel from '@/components/ordenes/SolicitudesCambioPanel.
 import SolicitarCambioModal from '@/components/ordenes/SolicitarCambioModal.vue'
 import PedirCambioDineroModal from '@/components/ordenes/PedirCambioDineroModal.vue'
 import { revisarCambiosDePlata } from '@/api/ordenes'
-import { getOrden, updateEstado, previsualizarAnulacion, revertirEntrega, descargarPdfOrden, descargarActaEntrega, descargarOrdenEntrega, reenviarCotizacion, asignarFechasEntrega, confirmarCotizacion, editarPago, eliminarBorrador as eliminarBorradorApi, previsualizarEliminacion, eliminarOrden as eliminarOrdenApi, previsualizarNumeracion, convertirSerie, cambiarNumeroOrden, cambiarProductoEntregado } from '@/api/ordenes'
+import { getOrden, updateEstado, previsualizarAnulacion, revertirEntrega, descargarPdfOrden, descargarActaEntrega, descargarOrdenEntrega, reenviarCotizacion, asignarFechasEntrega, confirmarCotizacion, editarPago, eliminarBorrador as eliminarBorradorApi, previsualizarEliminacion, eliminarOrden as eliminarOrdenApi, previsualizarNumeracion, convertirSerie, cambiarNumeroOrden } from '@/api/ordenes'
 import api from '@/api'
 import { useTiposProceso } from '@/composables/useTiposProceso'
 import { despachoPorOrden, crearEntregaDirecta, cancelarEntregaDirecta, entregasDeOrden, deshacerEntrega as deshacerEntregaApi } from '@/api/despacho'
@@ -22,6 +22,7 @@ import { getGarantias } from '@/api/garantias'
 import ReportarGarantiaModal from '@/components/garantias/ReportarGarantiaModal.vue'
 import GarantiaTarjeta from '@/components/garantias/GarantiaTarjeta.vue'
 import FirmaRemotaOrden from '@/components/ordenes/FirmaRemotaOrden.vue'
+import DeclaracionOrden from '@/components/anexo/DeclaracionOrden.vue'
 import { ShieldCheckIcon } from '@heroicons/vue/24/outline'
 import { tomarFacturacion, marcarFacturada } from '@/api/pagos'
 import { getReceptores, crearConsulta, getConsultas, ajustarPrecio as ajustarPrecioApi } from '@/api/consultas'
@@ -31,6 +32,8 @@ import BadgeEstado from '@/components/common/BadgeEstado.vue'
 import MoneyDisplay from '@/components/common/MoneyDisplay.vue'
 import RegistroPagoModal from '@/components/ordenes/RegistroPagoModal.vue'
 import EditarOrdenModal from '@/components/ordenes/EditarOrdenModal.vue'
+import CambioProductoModal from '@/components/ordenes/CambioProductoModal.vue'
+import RecogidaAcciones from '@/components/despacho/RecogidaAcciones.vue'
 import ChatOrden from '@/components/ordenes/ChatOrden.vue'
 // Se usaba sin importar: mientras cargaba la orden no se veía nada
 import AppSpinner from '@/components/common/AppSpinner.vue'
@@ -481,6 +484,48 @@ const puedeReportarDano = computed(() =>
 function puedeDanarse(item) {
   return puedeReportarDano.value && !item.devuelto_en
     && (Number(item.pendiente_entregar ?? (item.cantidad - (item.cantidad_entregada || 0))) > 0)
+}
+
+// ── Definir la tela ──────────────────────────────────────────────────────
+// Se vendió la medida sin escoger tela ("la 1.40, la tela la escoge en la
+// casa"). Mientras no se defina, despacho no la deja cargar.
+const telaItem      = ref(null)
+const telaOpciones  = ref([])
+const telaCargando  = ref(false)
+const telaElegida   = ref(null)
+const telaGuardando = ref(false)
+
+async function abrirDefinirTela(item) {
+  telaItem.value     = item
+  telaElegida.value  = null
+  telaOpciones.value = []
+  telaCargando.value = true
+  try {
+    // Las telas solas (sin cruzarlas con las medidas): la medida ya está.
+    const { data } = await api.get(`/productos/${item.producto_id}/variantes`, {
+      params: { tienda_id: item.tienda_origen_id ?? orden.value.tienda_id, skip_combos: 1 },
+    })
+    telaOpciones.value = (data ?? []).filter(v => v.marca_tela || v.nombre_color)
+  } catch {
+    toast.error('No se pudieron cargar las telas.')
+  } finally {
+    telaCargando.value = false
+  }
+}
+
+async function guardarTela() {
+  if (!telaItem.value || !telaElegida.value || telaGuardando.value) return
+  telaGuardando.value = true
+  try {
+    await api.post(`/ordenes/${orden.value.id}/items/${telaItem.value.id}/definir-tela`, { variante_id: telaElegida.value })
+    toast.success('Tela definida.')
+    telaItem.value = null
+    await cargarOrden()
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'No se pudo definir la tela.')
+  } finally {
+    telaGuardando.value = false
+  }
 }
 
 function abrirDano(item) {
@@ -1079,56 +1124,35 @@ async function doRevertirEntrega() {
 }
 
 // ── Cambiar un producto ya entregado ─────────────────────────────────────────
-// La señora recibio la mesa, la devolvio y quiere otra. Lo que ya pago queda a
-// su favor: reabrimos la orden y el reemplazo se agrega con "Editar orden",
-// que ya sabe mandar a produccion y reservar stock.
-const showCambio     = ref(false)
-const cambioItemId   = ref(null)
-const cambioMotivo   = ref('')
-const cambioAlStock  = ref(true)
-const cambiando      = ref(false)
+// La señora recibio el sofa y despues dice que no le sirvio (no se daño: eso
+// es garantia). Lo devuelve y en el mismo paso se escoge el reemplazo —del
+// catalogo, para fabricar o un diseño especial—. Lo que ya pago queda a su
+// favor; si lo nuevo vale mas, la venta sube. Todo en CambioProductoModal.
+const showCambio = ref(false)
 
-// Lo que todavia se le puede devolver: lo que sigue vivo en la orden.
+// Lo que sigue vivo en la orden (tambien es la lista de items de la pantalla).
 const itemsCambiables = computed(() =>
   (orden.value?.items ?? []).filter(i => !i.devuelto_en)
 )
-const cambioItemEsRetapizado = computed(() =>
-  !!itemsCambiables.value.find(i => i.id === cambioItemId.value)?.retapizar
-)
 
-function abrirCambio() {
-  cambioItemId.value  = itemsCambiables.value[0]?.id ?? null
-  cambioMotivo.value  = ''
-  cambioAlStock.value = true
-  showCambio.value    = true
-}
+// ¿Tiene algo en la casa que pueda devolver? En una orden entregada, todo; en
+// una entregada en parte, lo que ya se le llevo. Con un camion andando o en
+// estados que no son venta, no.
+const ESTADOS_CAMBIO = ['entregado', 'listo_entrega', 'en_produccion', 'pendiente_anticipo']
+// Recibir o reprogramar lo que falta traer de la casa del cliente: quien
+// despacha, quien maneja el taller o un supervisor (lo valida el servidor).
+const puedeRecoger = computed(() => auth.isSupervisor || auth.puedeDespacho || auth.gestionaProduccion)
 
-async function doCambiarProducto() {
-  if (!cambioItemId.value) return toast.error('Elige qué producto devuelve.')
-  if (cambioMotivo.value.trim().length < 3) return toast.error('Escribe por qué lo devuelve.')
+const puedeCambiarProducto = computed(() => {
+  const o = orden.value
+  if (!o || !ESTADOS_CAMBIO.includes(o.estado)) return false
+  return itemsCambiables.value.some(i =>
+    o.estado === 'entregado' || (Number(i.cantidad_entregada) || 0) > 0)
+})
 
-  cambiando.value = true
-  try {
-    const { data } = await cambiarProductoEntregado(orden.value.id, {
-      orden_item_id: cambioItemId.value,
-      motivo: cambioMotivo.value.trim(),
-      vuelve_al_stock: cambioAlStock.value,
-    })
-    showCambio.value = false
-    await cargarOrden()
-    const aFavor = -Math.round(Number(data.saldo_pendiente) || 0)
-    const cola   = data.quedo_vacia
-      ? ' La orden quedó sin productos: agrégale el reemplazo desde Editar.'
-      : ' Agrégale el producto nuevo desde Editar.'
-    toast.success(
-      (aFavor > 0 ? `Listo. Le quedan $${aFavor.toLocaleString('es-CO')} a favor.` : 'Listo.') + cola,
-      9000,
-    )
-  } catch (e) {
-    toast.error(e.response?.data?.message ?? 'No se pudo reabrir la orden.', 7000)
-  } finally {
-    cambiando.value = false
-  }
+async function onCambioHecho() {
+  showCambio.value = false
+  await cargarOrden()
 }
 
 async function cambiarEstado() {
@@ -1505,6 +1529,27 @@ function cerrarImagen() {
 }
 onBeforeUnmount(cerrarImagen)
 
+/**
+ * El anexo firmado como imagen (pedido del dueño: "que se puedan descargar en
+ * PDF o en imágenes"). Usa la misma vista previa que la imagen de la orden.
+ */
+const anexoImagenCargando = ref(false)
+async function anexoComoImagen() {
+  if (anexoImagenCargando.value) return
+  anexoImagenCargando.value = true
+  try {
+    const res = await pdfAnexo(orden.value.anexo_garantia.id)
+    const blob = await pdfAImagen(new Blob([res.data], { type: 'application/pdf' }))
+    const nombre = `anexo-garantias-${orden.value.referencia ?? orden.value.id}.jpg`.replace(/[^\w.-]+/g, '-')
+    cerrarImagen()
+    imagenOrden.value = { blob, url: URL.createObjectURL(blob), nombre, compartible: sePuedeCompartir(blob, nombre), titulo: 'Anexo de garantías en imagen' }
+  } catch {
+    toast.error('No se pudo generar la imagen del anexo.')
+  } finally {
+    anexoImagenCargando.value = false
+  }
+}
+
 /** El anexo de garantías firmado en el sistema, como PDF (con el n° de pedido). */
 async function verAnexoGarantia() {
   try {
@@ -1811,11 +1856,40 @@ const esSoloRestauracion = computed(() => {
 const pideFotoAnexo = computed(() => orden.value?.canal === 'fisica' && !anexoYaFirmado.value)
 const exigeFotoAnexo = computed(() => pideFotoAnexo.value && !esSoloRestauracion.value)
 
+// La declaración de diseños especiales: en la tienda, si no la firmó en el
+// sistema con las fichas como están, se pide la foto del papel (el servidor
+// dice si falta: orden.declaracion.falta).
+const exigeFotoDeclaracion = computed(() =>
+  orden.value?.canal === 'fisica' && !esSoloRestauracion.value && !!orden.value?.declaracion?.falta && !orden.value?.declaracion_foto_url
+)
+const declaracionConfirmarFile    = ref(null)
+const declaracionConfirmarUrl     = ref('')
+const declaracionConfirmarPreview = ref('')
+async function onDeclaracionConfirmarChange(e) {
+  const original = e.target.files?.[0]
+  e.target.value = ''
+  if (!original) return
+  declaracionConfirmarFile.value = await comprimirAlTomar(original)
+  if (declaracionConfirmarPreview.value) URL.revokeObjectURL(declaracionConfirmarPreview.value)
+  declaracionConfirmarPreview.value = URL.createObjectURL(declaracionConfirmarFile.value)
+  declaracionConfirmarUrl.value = ''
+}
+function quitarDeclaracionConfirmar() {
+  declaracionConfirmarFile.value = null
+  declaracionConfirmarUrl.value  = ''
+  if (declaracionConfirmarPreview.value) URL.revokeObjectURL(declaracionConfirmarPreview.value)
+  declaracionConfirmarPreview.value = ''
+}
+
 async function doConfirmarCotizacion() {
   if (!firmoADistancia.value && !firmaConfirmarBlob.value && !firmaConfirmarUrl.value) return
   const esPresencial = pideFotoAnexo.value
   if (exigeFotoAnexo.value && !anexoConfirmarFile.value && !anexoConfirmarUrl.value) {
     toast.error('Adjunta la foto del anexo firmado antes de confirmar.')
+    return
+  }
+  if (exigeFotoDeclaracion.value && !declaracionConfirmarFile.value && !declaracionConfirmarUrl.value) {
+    toast.error('Falta la declaración de diseños especiales: mándasela a firmar o adjunta la foto del papel firmado.')
     return
   }
   confirmando.value = true
@@ -1839,10 +1913,18 @@ async function doConfirmarCotizacion() {
       const { data: up } = await api.post('/upload/foto', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
       anexoConfirmarUrl.value = up.url
     }
+    if (declaracionConfirmarFile.value && !declaracionConfirmarUrl.value) {
+      const fd = new FormData()
+      fd.append('foto', await comprimirImagen(declaracionConfirmarFile.value), 'declaracion.jpg')
+      fd.append('folder', 'anexos')
+      const { data: up } = await api.post('/upload/foto', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      declaracionConfirmarUrl.value = up.url
+    }
 
     await confirmarCotizacion(orden.value.id, {
       firma_url:           firmaConfirmarUrl.value || undefined,
       anexo_foto_url:      anexoConfirmarUrl.value || undefined,
+      declaracion_foto_url: declaracionConfirmarUrl.value || undefined,
       anticipo_monto:      anticipoConfirmar.value,
       anticipo_metodo:     metodoPagoConfirmar.value,
       anticipo_referencia: confirmarPagoSplit.value ? undefined : (refPagoConfirmar.value || undefined),
@@ -2443,15 +2525,31 @@ onMounted(() => { cargarTipos(); cargarOrden() })
             · {{ formatDateTime(orden.anexo_garantia.firmado_at) }}
           </p>
         </div>
-        <button
-          type="button"
-          @click="verAnexoGarantia"
-          class="flex-shrink-0 flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium"
-        >
-          <ArrowDownTrayIcon class="w-3.5 h-3.5" />
-          Ver PDF
-        </button>
+        <div class="flex-shrink-0 flex flex-col items-end gap-1">
+          <button
+            type="button"
+            @click="verAnexoGarantia"
+            class="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium"
+          >
+            <ArrowDownTrayIcon class="w-3.5 h-3.5" />
+            Ver PDF
+          </button>
+          <!-- Como imagen, para mandarla por WhatsApp o guardarla en el celular. -->
+          <button
+            type="button"
+            @click="anexoComoImagen"
+            :disabled="anexoImagenCargando"
+            class="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium disabled:opacity-50"
+          >
+            <PhotoIcon class="w-3.5 h-3.5" />
+            {{ anexoImagenCargando ? 'Preparando…' : 'Imagen' }}
+          </button>
+        </div>
       </div>
+
+      <!-- Declaración de diseños especiales: la ficha de cada mueble fuera
+           del catálogo y si el cliente ya la aprobó y firmó. -->
+      <DeclaracionOrden :orden="orden" :puede-editar="puedeEditar" @cambio="cargarOrden" />
 
       <!-- Foto del anexo firmado -->
       <div v-if="orden.anexo_foto_url" class="bg-white rounded-xl shadow-sm p-4 space-y-2">
@@ -2592,6 +2690,21 @@ onMounted(() => { cargarTipos(); cargarOrden() })
               <p v-if="item.variante_texto" class="text-sm font-bold text-red-600 leading-tight">
                 {{ item.variante_texto }}
               </p>
+              <!-- Se vendió la medida sin tela: no se despacha hasta escogerla. -->
+              <div v-if="item.tela_por_definir" class="flex flex-wrap items-center gap-1.5 mt-1">
+                <span class="bg-amber-100 text-amber-800 text-[11px] font-semibold px-2 py-0.5 rounded-full">
+                  Tela por definir · no se despacha sin ella
+                </span>
+                <button
+                  v-if="puedeEditar"
+                  type="button"
+                  @click="abrirDefinirTela(item)"
+                  class="inline-flex items-center gap-1 bg-blue-600 text-white text-[11px] font-semibold px-2.5 py-1 rounded-lg hover:bg-blue-700"
+                >
+                  <SwatchIcon class="w-3.5 h-3.5" />
+                  Definir tela
+                </button>
+              </div>
               <p class="text-xs text-gray-400">{{ item.producto?.categoria ?? item.categoria_custom ?? 'personalizado' }}</p>
               <p class="text-xs text-gray-500 mt-0.5">Cantidad: {{ item.cantidad }}</p>
               <!-- Se vendió con una promoción de la tienda: el precio ya la trae. -->
@@ -3006,7 +3119,19 @@ onMounted(() => { cargarTipos(); cargarOrden() })
                   'text-red-700':    d.estado === 'reembolsada',
                 }"
               >
-                <template v-if="d.estado === 'pendiente'">Esperando que producción decida</template>
+                <template v-if="d.estado === 'pendiente'">
+                  Esperando que producción decida. Mientras tanto la orden no se puede cerrar ni cambiar.
+                  <!-- Antes no llevaba a ningún lado y la orden parecía sin salida (#1231). -->
+                  <button v-if="auth.gestionaProduccion" type="button" @click="router.push({ name: 'produccion' })"
+                    class="block mt-1 text-blue-600 font-semibold">Resolver en Producción →</button>
+                  <span v-else class="block mt-0.5 text-gray-500 font-normal">La resuelve quien gestiona Producción.</span>
+                </template>
+                <template v-else-if="d.estado === 'reentrega'">
+                  Se le vuelve a llevar<span v-if="d.decidido_por"> — {{ d.decidido_por }}</span>
+                </template>
+                <template v-else-if="d.estado === 'quitada'">
+                  Se quitó de la orden: el cliente se queda sin eso<span v-if="d.decidido_por"> — {{ d.decidido_por }}</span>
+                </template>
                 <template v-else-if="d.estado === 'a_produccion'">
                   Volvió al taller para arreglo<span v-if="d.decidido_por"> — {{ d.decidido_por }}</span>
                 </template>
@@ -3021,6 +3146,19 @@ onMounted(() => { cargarTipos(); cargarOrden() })
                 </template>
               </p>
               <p v-if="d.notas_decision" class="text-[11px] text-gray-500 italic mt-0.5">{{ d.notas_decision }}</p>
+              <!-- Cambio de producto: el mueble que falta traer de la casa, o
+                   a dónde llegó. La orden ya cambió; esto es solo el mueble. -->
+              <div v-if="d.por_recoger" class="mt-2">
+                <RecogidaAcciones v-if="puedeRecoger" :devolucion="d" @cambio="cargarOrden" />
+                <p v-else class="text-[11px] font-semibold text-amber-700">
+                  Falta recogerlo{{ d.recoger_el ? ` el ${fmtFechaCorta(d.recoger_el)}` : ' con la entrega del nuevo' }}
+                  · {{ d.destino === 'merma' ? 'sale como merma' : `va a ${d.tienda_destino}` }}
+                </p>
+              </div>
+              <p v-else-if="d.destino && d.recibido_at" class="text-[11px] text-gray-500 mt-0.5">
+                {{ d.destino === 'merma' ? 'Salió como merma' : `Llegó a ${d.tienda_destino}` }}
+                el {{ new Date(d.recibido_at).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' }) }}<span v-if="d.recibido_por"> — lo recibió {{ d.recibido_por }}</span>
+              </p>
             </div>
           </div>
         </div>
@@ -3028,8 +3166,11 @@ onMounted(() => { cargarTipos(); cargarOrden() })
 
       <!-- La orden quedó sin firma del cliente (venta virtual, o creada
            esperando precio): se le manda para que la revise y la firme. -->
+      <!-- También si ya tiene firma pero le falta la declaración de diseños
+           especiales (se firmó antes de llenar la ficha, o la ficha cambió). -->
       <FirmaRemotaOrden
-        v-if="!orden.firma_url && !['cancelado', 'borrador', 'cotizacion'].includes(orden.estado)"
+        v-if="!['cancelado', 'borrador', 'cotizacion'].includes(orden.estado)
+          && (!orden.firma_url || (orden.declaracion?.falta && !orden.declaracion_foto_url && orden.estado !== 'entregado'))"
         :orden="orden"
         :puede-editar="puedeEditar"
         @firmada="cargarOrden"
@@ -3249,75 +3390,34 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         </button>
       </div>
 
-      <!-- Acciones sobre una orden ya entregada.
+      <!-- Acciones sobre una orden ya entregada (o entregada en parte).
            Van en su propio bloque a proposito: el de "Acciones" de arriba se
            oculta cuando la orden esta entregada y pagada —no hay estado que
-           cambiar ni saldo que cobrar— y estos dos botones son justamente los
+           cambiar ni saldo que cobrar— y estos botones son justamente los
            que hacen falta en ese momento. -->
-      <div v-if="auth.isSupervisor && orden.estado === 'entregado'" class="bg-white rounded-xl shadow-sm p-4 space-y-3">
+      <div v-if="auth.isSupervisor && (orden.estado === 'entregado' || puedeCambiarProducto)" class="bg-white rounded-xl shadow-sm p-4 space-y-3">
         <p class="text-xs font-semibold text-gray-500 uppercase">Después de entregada</p>
 
-        <!-- El cliente devuelve algo y lo cambia por otra cosa. Distinto de
+        <!-- El cliente devuelve algo que ya recibió porque no le sirvió y lo
+             cambia por otra cosa (no es garantía: no se dañó). Distinto de
              revertir: acá la entrega sí ocurrió, y lo que pagó se le abona al
              producto nuevo. -->
-        <div v-if="itemsCambiables.length" class="space-y-2">
+        <div v-if="puedeCambiarProducto" class="space-y-1.5">
           <button
-            v-if="!showCambio"
-            @click="abrirCambio"
-            class="w-full text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-xl py-2.5 hover:bg-amber-100 transition-colors"
-          >El cliente devolvió algo y lo quiere cambiar</button>
-
-          <div v-else class="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2.5">
-            <p class="text-xs font-semibold text-amber-900">¿Qué devuelve?</p>
-
-            <select v-model="cambioItemId" class="w-full rounded-lg border border-amber-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
-              <option v-for="i in itemsCambiables" :key="i.id" :value="i.id">
-                {{ i.cantidad }} × {{ i.producto?.nombre ?? i.nombre_custom ?? 'Producto' }}
-              </option>
-            </select>
-
-            <textarea
-              v-model="cambioMotivo"
-              rows="2"
-              placeholder="Por qué lo devuelve. Ej: no le gustó el color, lo quiere más grande"
-              class="w-full rounded-lg border border-amber-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
-            />
-
-            <label class="flex items-start gap-2 cursor-pointer">
-              <input type="checkbox" v-model="cambioAlStock" class="mt-0.5 rounded border-gray-300 text-amber-600 focus:ring-amber-500" />
-              <span class="text-[11px] text-amber-900">
-                Vuelve al inventario para vender. Desmárcalo si llegó dañado.
-                <!-- Ya no es de la tela de su variante: entra al stock base y
-                     en Inventario le asignan la tela que tiene ahora. -->
-                <span v-if="cambioItemEsRetapizado" class="block mt-0.5 text-orange-800">
-                  A este mueble se le cambió la tela: si vuelve, entra al producto sin tela asignada
-                  ({{ itemsCambiables.find(i => i.id === cambioItemId)?.variante_texto }}). Asígnale la tela en Inventario.
-                </span>
-              </span>
-            </label>
-
-            <p class="text-[11px] text-amber-800 bg-amber-100 rounded-lg px-2.5 py-2">
-              Lo que ya pagó queda a su favor: el producto devuelto deja de cobrarse y la orden
-              vuelve a estar abierta. El reemplazo se agrega desde <strong>Editar orden</strong>,
-              y si hay que fabricarlo entra a producción con su fecha.
-              <span v-if="itemsCambiables.length === 1" class="block mt-1 font-semibold">
-                Es el único producto de la orden, así que va a quedar vacía hasta que le agregues
-                el reemplazo.
-              </span>
-            </p>
-
-            <div class="flex gap-2">
-              <button @click="showCambio = false" class="flex-1 bg-white text-gray-700 border border-gray-300 rounded-lg py-2 text-xs font-semibold">Cancelar</button>
-              <button
-                @click="doCambiarProducto" :disabled="cambiando"
-                class="flex-1 bg-amber-600 text-white rounded-lg py-2 text-xs font-semibold hover:bg-amber-700 disabled:opacity-50"
-              >{{ cambiando ? 'Guardando...' : 'Reabrir para el cambio' }}</button>
-            </div>
-          </div>
+            @click="showCambio = true"
+            class="w-full flex items-center justify-center gap-1.5 text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-xl py-2.5 hover:bg-amber-100 transition-colors"
+          >
+            <ArrowUturnLeftIcon class="w-4 h-4" />
+            Cambio de producto: el cliente devolvió algo
+          </button>
+          <p class="text-[11px] text-gray-400 leading-snug">
+            Para lo que no le sirvió. Lo devuelto deja de cobrarse y el reemplazo (del catálogo, para fabricar
+            o diseño especial) entra de una: si vale más, la venta sube. Si se dañó, usa Garantía.
+          </p>
         </div>
 
         <!-- Deshacer una entrega marcada por error -->
-        <div class="space-y-2">
+        <div v-if="orden.estado === 'entregado'" class="space-y-2">
           <button
             v-if="!showRevertir"
             @click="showRevertir = true"
@@ -3762,6 +3862,13 @@ onMounted(() => { cargarTipos(); cargarOrden() })
     </template>
 
     <!-- Modal: garantía de algo ya entregado -->
+    <CambioProductoModal
+      v-if="showCambio && orden"
+      :orden="orden"
+      @cerrar="showCambio = false"
+      @hecho="onCambioHecho"
+    />
+
     <ReportarGarantiaModal
       v-if="garantiaItem"
       :item="garantiaItem"
@@ -3771,7 +3878,63 @@ onMounted(() => { cargarTipos(); cargarOrden() })
     />
 
     <!-- Modal: reportar un producto dañado antes de entregarlo -->
+    <!-- Definir la tela de lo que se vendió solo con la medida, y reportar un
+         daño. Cada modal en su propio <Transition>: con dos hijos (o un
+         comentario adentro) la pantalla no compila en desarrollo. -->
     <Teleport to="body">
+      <Transition
+        enter-active-class="transition-opacity duration-200" enter-from-class="opacity-0"
+        leave-active-class="transition-opacity duration-150" leave-to-class="opacity-0"
+      >
+        <div v-if="telaItem" class="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center" @click.self="telaItem = null">
+          <div class="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md shadow-xl max-h-[85vh] flex flex-col">
+            <div class="flex items-center gap-3 px-5 py-4 border-b border-gray-100">
+              <div class="min-w-0 flex-1">
+                <p class="font-semibold text-gray-800 truncate">Definir tela</p>
+                <p class="text-[11px] text-gray-400 truncate">{{ telaItem.producto?.nombre }} · {{ telaItem.variante_texto }}</p>
+              </div>
+              <button @click="telaItem = null" class="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 shrink-0">
+                <XMarkIcon class="w-5 h-5" />
+              </button>
+            </div>
+            <div class="flex-1 min-h-0 overflow-y-auto px-5 py-3 space-y-2">
+              <AppSpinner v-if="telaCargando" />
+              <template v-else>
+                <button
+                  v-for="v in telaOpciones"
+                  :key="v.id"
+                  type="button"
+                  :disabled="v.stock_libre <= 0"
+                  @click="telaElegida = v.id"
+                  :class="['w-full text-left px-3 py-2.5 rounded-xl border text-sm transition-colors',
+                    telaElegida === v.id ? 'border-blue-500 bg-blue-50 text-blue-700 font-medium'
+                      : v.stock_libre > 0 ? 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                      : 'border-gray-100 bg-gray-50 text-gray-300 cursor-not-allowed']"
+                >
+                  <span v-if="v.marca" class="text-xs text-gray-400">{{ v.marca }} · </span>
+                  <span class="font-medium">{{ v.marca_tela }}</span>
+                  <span v-if="v.nombre_color"> · {{ v.nombre_color }}</span>
+                  <span :class="['text-xs ml-2 font-semibold', v.stock_libre > 0 ? 'text-green-600' : 'text-red-400']">
+                    {{ v.stock_libre > 0 ? `${v.stock_libre} disponible${v.stock_libre > 1 ? 's' : ''}` : 'Sin stock' }}
+                  </span>
+                </button>
+                <p v-if="!telaOpciones.length" class="text-xs text-gray-400 text-center py-4">
+                  Este producto no tiene telas registradas en esa tienda.
+                </p>
+              </template>
+            </div>
+            <div class="px-5 py-3 border-t border-gray-100">
+              <button
+                type="button"
+                @click="guardarTela"
+                :disabled="!telaElegida || telaGuardando"
+                class="w-full bg-blue-600 text-white rounded-lg py-2.5 text-xs font-semibold hover:bg-blue-700 disabled:opacity-50"
+              >{{ telaGuardando ? 'Guardando...' : 'Guardar tela' }}</button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+
       <Transition
         enter-active-class="transition-opacity duration-200" enter-from-class="opacity-0"
         leave-active-class="transition-opacity duration-150" leave-to-class="opacity-0"
@@ -4040,6 +4203,25 @@ onMounted(() => { cargarTipos(); cargarOrden() })
               <input type="file" accept="image/*" @change="onAnexoConfirmarChange" class="hidden" />
             </label>
           </div>
+
+          <!-- Declaración de diseños especiales en papel (si no la firmó en el sistema) -->
+          <div v-if="exigeFotoDeclaracion" class="space-y-1">
+            <label class="block text-xs font-semibold text-gray-600 uppercase">
+              Foto de la declaración de diseños especiales <span class="text-red-500">*</span>
+            </label>
+            <p class="text-[11px] text-gray-500">O mándasela a firmar desde la orden (con la ficha y los bocetos) y confirma cuando firme.</p>
+            <div v-if="declaracionConfirmarFile" class="relative">
+              <img :src="declaracionConfirmarPreview" class="w-full rounded-xl border-2 border-gray-200 object-contain bg-gray-50 max-h-40" />
+              <button @click="quitarDeclaracionConfirmar" class="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1.5 shadow" aria-label="Quitar la foto">
+                <XMarkIcon class="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <label v-else class="flex flex-col items-center gap-2 border-2 border-dashed border-gray-300 rounded-xl p-4 cursor-pointer hover:border-green-400 hover:bg-green-50 transition-colors">
+              <DocumentIcon class="w-7 h-7 text-gray-300" />
+              <span class="text-sm text-gray-500">Toca para adjuntar la declaración</span>
+              <input type="file" accept="image/*" @change="onDeclaracionConfirmarChange" class="hidden" />
+            </label>
+          </div>
           <p v-else class="text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2">
             El comprobante de pago será subido por el conductor al momento de la entrega.
           </p>
@@ -4187,7 +4369,7 @@ onMounted(() => { cargarTipos(); cargarOrden() })
         <div class="relative bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-3 max-h-[92dvh] flex flex-col">
           <h3 class="text-lg font-bold text-gray-800 flex items-center gap-2">
             <PhotoIcon class="w-5 h-5 text-blue-600" />
-            Orden {{ orden?.referencia }} en imagen
+            {{ imagenOrden.titulo ?? `Orden ${orden?.referencia} en imagen` }}
           </h3>
           <div class="min-h-0 overflow-y-auto rounded-lg border border-gray-200">
             <img :src="imagenOrden.url" alt="Imagen de la orden" class="w-full block bg-white" />

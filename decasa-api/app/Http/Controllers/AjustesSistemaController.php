@@ -24,11 +24,18 @@ class AjustesSistemaController extends Controller
     public function update(Request $request)
     {
         $data = $request->validate([
-            'calificar_trabajadores_taller' => 'sometimes|boolean',
+            'calificar_trabajadores_taller'  => 'sometimes|boolean',
+            'declaracion_disenos_especiales' => 'sometimes|boolean',
+            'declaracion_personalizados'     => 'sometimes|boolean',
         ]);
 
-        if (array_key_exists('calificar_trabajadores_taller', $data)) {
-            AjustesSistema::definir(AjustesSistema::CALIFICAR_TALLER, (bool) $data['calificar_trabajadores_taller']);
+        $claves = [
+            'calificar_trabajadores_taller'  => AjustesSistema::CALIFICAR_TALLER,
+            'declaracion_disenos_especiales' => AjustesSistema::DECLARACION_ESPECIALES,
+            'declaracion_personalizados'     => AjustesSistema::DECLARACION_PERSONALIZADOS,
+        ];
+        foreach ($claves as $campo => $clave) {
+            if (array_key_exists($campo, $data)) AjustesSistema::definir($clave, (bool) $data[$campo]);
         }
 
         return response()->json(AjustesSistema::todos());

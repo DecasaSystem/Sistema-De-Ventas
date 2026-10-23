@@ -146,7 +146,7 @@ class DespachoController extends Controller
 
         if (! $crudo) {
             $todo = EntregaService::entregablesDe($orden);
-            return $todo ?: 'Esta orden no tiene nada que se pueda entregar todavía.';
+            return $todo ?: (EntregaService::faltaDefinirTela($orden) ?? 'Esta orden no tiene nada que se pueda entregar todavía.');
         }
 
         $lista = is_array($crudo) ? $crudo : json_decode($crudo, true);
@@ -555,7 +555,7 @@ class DespachoController extends Controller
                     ? EntregaService::validarLineas($orden, $item['lineas'])
                     : EntregaService::entregablesDe($orden);
                 if (is_string($lineas)) abort(422, $lineas);
-                if (! $lineas) abort(422, "La orden {$orden->referencia} no tiene nada listo para entregar.");
+                if (! $lineas) abort(422, EntregaService::faltaDefinirTela($orden) ?? "La orden {$orden->referencia} no tiene nada listo para entregar.");
 
                 $yaAsignada = DespachoItem::where('orden_id', $item['orden_id'])->vivas()->exists();
 
@@ -1529,7 +1529,8 @@ class DespachoController extends Controller
             if (! $todo) $todo = $entregables;
             if (! $todo) {
                 return response()->json([
-                    'message' => 'No hay nada que entregar: lo de catálogo ya se entregó y lo demás sigue en el taller.',
+                    'message' => EntregaService::faltaDefinirTela($orden)
+                        ?? 'No hay nada que entregar: lo de catálogo ya se entregó y lo demás sigue en el taller.',
                 ], 422);
             }
             return $todo;

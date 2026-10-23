@@ -413,6 +413,37 @@ en su tienda; un supervisor escoge. Sin migración (la columna `canal` es texto)
 - Se cierra sola al entregar el arreglo o el reemplazo (`EntregaService`).
   Bandeja en Producción; las visitas propias en "Mis pasos".
 
+### 6.9c Cambio de producto (no le sirvió)
+`POST /ordenes/{id}/cambiar-producto` → `Services/CambioDeProducto`; pantalla
+`components/ordenes/CambioProductoModal.vue` (Detalle de la orden → "Después de
+entregada"). Solo supervisor.
+
+- Para lo que el cliente **ya recibió** y no le sirvió (no se dañó: eso es
+  garantía; lo que vuelve en el camión es devolución del conductor). Se devuelve
+  lo que tiene en la casa (`cantidad_entregada`; en una orden `entregado`, todo;
+  menos lo que esté en una garantía sin resolver), puede ser parte del renglón.
+- En el mismo paso entra el reemplazo: **catálogo** apartado en la tienda que
+  tenga libres (`GarantiaService::stockLibre` / `apartar`), **catálogo para
+  fabricar** o **diseño especial** (con su ficha de la declaración y bocetos);
+  los dos últimos nacen con producción y avisan al taller. Sin reemplazo
+  ("lo decide después") se comporta como antes: la orden entregada se reabre a
+  `pendiente_anticipo` y el producto se agrega en Editar.
+- **Qué pasa con lo devuelto** (`devuelto`): va a una tienda o a la fábrica/bodega
+  (`GET /devoluciones/destinos`) o sale como merma; y llega **ya** (entra de una),
+  **programado** (fecha) o **con la entrega del nuevo**. La orden cambia en el
+  momento; lo programado queda en Despacho → *Por recoger*
+  (`GET /devoluciones/por-recoger`, aviso a `acceso_despacho`) y entra al
+  inventario solo al marcar "Ya llegó" (`POST /devoluciones/{id}/recibir`, se
+  puede cambiar el destino ahí), o se reprograma (`PATCH /devoluciones/{id}/recogida`).
+  Un diseño especial o personalizado no entra al inventario: queda anotado dónde
+  está. Columnas en `devoluciones` (migración `2026_10_27_000001_recogida_de_devoluciones`).
+- Lo devuelto deja de cobrarse (entero queda con `devuelto_en`; si es parte, se
+  rebaja el renglón). El total se
+  recalcula y lo pagado se queda: si lo nuevo vale más, la venta sube y debe la
+  diferencia; si vale menos, queda a favor. La comisión sigue al valor
+  (`sincronizarValorOrden`). Queda una `Devolucion` en estado `cambio` y el
+  rastro en el hilo de la orden.
+
 ### 6.10 Comisiones
 `ComisionController` (el más complejo), `ComisionIndependientes`,
 `AnticiposComision`, modelos `Comision`, `MetaTienda`, `TiendaAsesor`,
@@ -553,6 +584,33 @@ opción, cantidades, precios y descuentos (redondeados); si la orden cambia, la 
 no vale (al crear) o el enlace no deja firmar (orden existente, 409). Un enlace vivo
 por cliente/orden: los anteriores se anulan; "Cancelar envío" lo anula
 (`POST /anexos/{id}/anular`). El vendedor ve las respuestas "No" del check list.
+
+**Declaración de diseños y medidas especiales (2026-10-21):** el papel que el cliente
+firmaba para lo que no está en el catálogo, ahora en el sistema. `Support/DeclaracionEspeciales`
+(reglas), migración `2026_10_26_000001_declaracion_disenos_especiales` (solo agrega:
+`orden_items.ficha_especial`, `ordenes.declaracion_foto_url`, `anexos_garantia.declaracion_version
+/ especiales / especiales_hash / cambio_pedido(_at)`).
+- **Qué productos:** Gestión → Ajustes (`AjustesSistema`): diseños especiales (prendido) y
+  personalizados (apagado; el dueño no estaba seguro).
+- **Ficha** por producto (`FichaEspecialEditor`): tipo de mueble, madera, tela, relleno, pintura,
+  ancho/largo/alto/profundidad y detalles + los bocetos de siempre. Completa = tipo + una
+  descripción + dos medidas. En Nueva orden (también en cotización) y en el detalle de una orden
+  ya creada (`DeclaracionOrden`, `PATCH /orden-items/{id}/ficha-especial`).
+- **Una firma, dos documentos:** va con el anexo (presencial o remoto). El cliente aprueba
+  producto por producto (`DeclaracionAprobar`) y firma una vez. El anexo congela lo que vio
+  (`especiales`) y su huella (`especiales_hash`: producto + ficha; sin cantidad, precio ni bocetos).
+  Si la ficha cambia después, `store` responde `anexo_desactualizado` y el enlace de una orden
+  existente no deja firmar (409). Una orden ya firmada sin declaración se puede mandar solo por eso.
+- **Dónde se exige:** donde se exige el anexo (venta presencial no restauración): `store`,
+  `confirmarCotizacion`, `completarBorrador`, `convertir`. Vale firmada en el sistema o la foto
+  del papel (`declaracion_foto_url`). Con precio por consultar se pide al confirmar.
+- **El cliente puede pedir un cambio** desde el enlace en vez de firmar
+  (`POST /public/anexos/{token}/cambio`): aviso `anexo_cambio` al vendedor, chat de la orden.
+- **Documentos:** PDF `pdf/declaracion_especiales` (`GET /anexos/{id}/declaracion/pdf`); el cliente
+  descarga anexo y declaración desde su enlace ya firmado (`/public/anexos/{token}/pdf/{doc}`), en
+  PDF o imagen (`utils/pdfAImagen`). Texto editable en Gestión → Documentos
+  (`EsquemasPlantillas::DECLARACION`, versionado como el anexo). Producción ve "Aprobado por el
+  cliente" con la ficha. Tests: `DeclaracionEspecialesTest`.
 
 ### 6.17 Proveedores y compras
 `ProveedorController` (libreta; crear/editar con `acceso_proveedores`, borrar
