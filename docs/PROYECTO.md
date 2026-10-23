@@ -483,7 +483,7 @@ entregada"). Solo supervisor.
   supervisor con acceso a comisiones marca una orden con motivo (detalle de la orden →
   Comisión; `PATCH /comisiones/ordenes/{id}/fuera-del-pool`). No suma a la meta ni al pool
   y no paga comisión a nadie; sigue siendo venta para lo demás. Columnas
-  `ordenes.fuera_del_pool(_motivo/_por/_at)` (migración `2026_10_25_000001`, solo agrega).
+  `ordenes.fuera_del_pool(_motivo/_por/_at)` (migración `2026_10_31_000001`, solo agrega).
   Toda consulta que suma ventas para comisiones pasa por `Orden::sinLasFueraDelPool`
   (totales de `cargarTotales`, `totalesQueCuentan`, `libroDelPool`, independientes);
   `enriquecer` la deja en $0 con forma `fuera_del_pool`. Con una comisión pagada no se puede.

@@ -335,7 +335,7 @@ escribiendo precios (Fase 1b).
   **Decisión del dueño (2026-10-23):** las ventas de Jessica (ya pagadas aparte) y las FV2 de
   Margarita **no suman al pool de Norte**. Se hizo la marca por orden "fuera del pool" (no
   suma a meta ni pool y no paga comisión; ver `docs/PROYECTO.md`), **sin subir**, con
-  **migración** `2026_10_25_000001_ordenes_fuera_del_pool` (solo agrega). Falta: subirla y que
+  **migración** `2026_10_31_000001_ordenes_fuera_del_pool` (solo agrega). Subida a `main` el 2026-10-23 (ver git log). Falta que
   un supervisor marque #4275, #4276, #4306, FV2-1, FV2-14 (Jessica) y FV2-7, FV2-12, FV2-13
   (Margarita). No cambia ninguna otra tienda ni regla. Los otros puntos de Norte (Martha
   "ingresó 4 agosto", Paola sola con Olga #4277, restauraciones ÷1,19, tarjeta en sept) siguen
