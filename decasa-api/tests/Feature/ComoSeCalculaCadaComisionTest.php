@@ -802,37 +802,48 @@ class ComoSeCalculaCadaComisionTest extends TestCase
         $this->assertSame([], $r['restauraciones_almacenes']);
     }
 
-    public function test_la_restauracion_de_almacen_se_cobra_aunque_el_cliente_no_haya_pagado_la_mitad(): void
+    // La restauración también espera la mitad pagada (dueño, 2026-10-23).
+    // Antes se cobraba con solo llegar la fecha.
+
+    public function test_la_restauracion_de_almacen_espera_que_el_cliente_pague_la_mitad(): void
     {
-        // Las restauraciones no esperan la mitad: con la fecha basta.
         $orden = $this->orden(self::GLADYS, self::EDEN, 1_000_000, restauracion: true);
-        DB::table('pagos')->where('orden_id', $orden->id)->update(['monto' => 400_000]);
+        $this->clienteAbono($orden, 400_000);
 
         $r = ComisionIndependientes::delMes(self::MES);
         $suyo = collect($r['independientes'])->firstWhere('vendedor_id', self::HENRY);
-
         $this->assertEquals(50_000, $suyo['comision']);
-        $this->assertEquals(50_000, $suyo['comision_lista'], 'la restauración no espera la mitad');
+        $this->assertEquals(0, $suyo['comision_lista'], 'con el 40 % pagado todavía no se cobra');
+        $this->assertEquals(50_000, $suyo['comision_pendiente']);
+
+        // Con la mitad pagada ya entra al bolsón listo.
+        $this->clienteAbono($orden, 500_000);
+        $suyo = collect(ComisionIndependientes::delMes(self::MES)['independientes'])->firstWhere('vendedor_id', self::HENRY);
+        $this->assertEquals(50_000, $suyo['comision_lista']);
         $this->assertEquals(0, $suyo['comision_pendiente']);
     }
 
-    public function test_la_restauracion_de_una_tienda_se_paga_aunque_el_cliente_no_haya_pagado_la_mitad(): void
+    public function test_la_restauracion_de_una_tienda_espera_que_el_cliente_pague_la_mitad(): void
     {
-        // El Edén: 5.000.000 × 5% ÷ 2 = 125.000 a cada uno, con el cliente
-        // habiendo pagado apenas el 10%.
+        // El Edén: 5.000.000 × 5% ÷ 2 = 125.000 a cada uno, pero con el 10 %
+        // pagado todavía no se puede cobrar.
         $orden = $this->orden(self::GLADYS, self::EDEN, 5_000_000, restauracion: true);
         $this->clienteAbono($orden, 500_000);
         ComisionController::sincronizarValorOrden($orden->fresh());
 
         $listo = $this->loQueEstaListo();
+        $this->assertArrayNotHasKey('Gladys', $listo);
+        $this->assertArrayNotHasKey('Sebastián', $listo);
 
+        $this->clienteAbono($orden, 2_500_000);
+        $listo = $this->loQueEstaListo();
         $this->assertEquals(125_000, $listo['Gladys'] ?? 0);
         $this->assertEquals(125_000, $listo['Sebastián'] ?? 0);
     }
 
     public function test_una_venta_sin_la_mitad_sigue_sin_estar_lista(): void
     {
-        // La regla de la mitad sigue para las ventas: solo las restauraciones se salvan.
+        // La regla de la mitad, igual para ventas y restauraciones.
         $orden = $this->orden(self::MANUELA, self::VIRTUAL, 10_000_000);
         $this->clienteAbono($orden, 1_000_000);
         ComisionController::sincronizarValorOrden($orden->fresh());

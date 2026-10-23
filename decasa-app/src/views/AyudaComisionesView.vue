@@ -92,7 +92,7 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
           <p class="text-xs font-semibold text-gray-800">Cuándo se cobra</p>
           <p class="text-[11px] text-gray-500 mt-1 leading-snug">
             El <b>20 del mes siguiente</b> a la venta, si el cliente ya pagó <b>la mitad</b> de la orden
-            (las restauraciones no esperan la mitad).
+            (también en las restauraciones).
           </p>
         </div>
         <div class="rounded-lg border border-gray-100 p-3">
@@ -234,7 +234,7 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
           <p>Una restauración se paga distinto a una venta:</p>
           <ul>
             <li><b>5 % del valor, sin quitar el IVA</b> (es mano de obra).</li>
-            <li><b>No espera la mitad:</b> queda lista con solo llegar el 20 del mes siguiente, haya pagado el cliente lo que haya pagado.</li>
+            <li><b>Espera la mitad, igual que una venta:</b> queda lista el 20 del mes siguiente si el cliente ya pagó el 50 % de la restauración. Si todavía no, queda pendiente hasta que lo pague.</li>
             <li><b>No suma a la meta ni entra al pool.</b></li>
           </ul>
           <div class="ejemplo">
@@ -260,7 +260,7 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
             <p>En el mes hubo $6.000.000 en restauraciones (de todos) → bolsón al 5 % = $300.000. Henry cobra <b>$300.000</b> y el otro independiente también $300.000.</p>
             <p>Total de Henry: $720.168.</p>
           </div>
-          <p>Se pagan <b>el mes completo desde su tarjeta</b>, no orden por orden. Las ventas esperan la mitad pagada y el 20; las restauraciones, solo el 20.</p>
+          <p>Se pagan <b>el mes completo desde su tarjeta</b>, no orden por orden. Las ventas y las restauraciones esperan la mitad pagada y el 20. Al bolsón solo entran las restauraciones con la mitad pagada.</p>
           <p class="nota">Si comparte la venta con un almacén, el independiente sigue cobrando el 5 % sobre la venta <b>entera</b>; lo del almacén va aparte (siguiente tema).</p>
         </template>
 

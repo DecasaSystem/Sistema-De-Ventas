@@ -2168,9 +2168,8 @@ class ComisionController extends Controller
                 'valor_real'  => round($filas->sum(fn ($i) => (float) $i['valor_orden'])),
                 'valor_orden' => round($valor),
                 'pct_pagado'  => $valor > 0 ? (int) round($pagado / $valor * 100) : 0,
-                // La restauración no espera la mitad: cuenta siempre.
-                'cuenta'      => ($primera['tipo_orden'] ?? null) === 'restauracion'
-                                 || ($valor > 0 && $pagado >= $valor * 0.5),
+                // Con la mitad pagada, sea venta o restauración (dueño, 2026-10-23).
+                'cuenta'      => $valor > 0 && $pagado >= $valor * 0.5,
                 'por_que'     => $porQue,
                 'canal'       => $primera['canal'] ?? null,
                 'fecha'       => $primera['fecha_venta'] ?? null,
@@ -4715,10 +4714,12 @@ class ComisionController extends Controller
         if ($usaLibro && ! $esPartePool) {
             $baseReq50 = (float) ($c->orden?->valor_total ?? $c->valor_orden);
         }
-        // Una restauración no espera la mitad: se paga con solo llegar la
-        // fecha, haya pagado el cliente lo que haya pagado. Tampoco empuja la
-        // meta ni entra al pool, así que no le cambia la cuenta a nadie más.
-        $req50     = $esPartePool || $esRestauracion || $pagado >= ($baseReq50 * 0.5);
+        // La restauración también espera la mitad (dueño, 2026-10-23: "si deben
+        // tener el 50 % pagado las restauraciones"). Antes se pagaba con solo
+        // llegar la fecha, y en Norte la R-1099 salía lista con el 37 % pagado
+        // cuando la tienda la dejaba por fuera. Sigue sin empujar la meta ni
+        // entrar al pool: solo cambia cuándo se puede cobrar.
+        $req50     = $esPartePool || $pagado >= ($baseReq50 * 0.5);
         $reqVencio = $hoy->gte(Carbon::parse($c->fecha_disponible));
 
         // En tiendas trimestrales el déficit ya quedó neteado en $comisionPool

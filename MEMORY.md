@@ -62,6 +62,14 @@ limitar a un vendedor a solo lo suyo.
   usuario lo rechazó con fuerza (revertido en 177f7f9).
 - Explicación larga para negocio: `explicacion_modulo_comisiones.txt` (raíz).
 
+### Restauraciones (dueño, 2026-10-23, al conciliar Norte)
+- **Esperan el 50 % pagado**, como las ventas (tiendas y bolsón de independientes). Antes se
+  pagaban con solo llegar el 20; se cambió en `enriquecer` y `ComisionIndependientes::delMes`.
+- **No se les quita el IVA** (5 % del valor completo: es mano de obra). El Excel de Norte las
+  dividía por 1,19: el Excel estaba mal.
+- **La tarjeta débito sí paga el 5,5 %** de franquicia, como la crédito (en el sistema se
+  registra como "tarjeta").
+
 ### Comisiones de independientes (`ComisionIndependientes`)
 Porcentaje fijo, sin meta. Venta → 5 % de lo suyo (÷1,19) para quien vendió.
 Restauración → bolsón común de todas las restauraciones del mes; cada

@@ -165,15 +165,14 @@ class ComisionIndependientes
         // que comparar el abono del cliente con ella daba por cumplida la
         // mitad cuando llevaba pagado bastante menos.
         //
-        // Las restauraciones no esperan la mitad: se pagan con solo llegar la
-        // fecha, haya pagado el cliente lo que haya pagado.
-        $estaLista = fn ($o) => $llegoLaFecha && (
-            in_array($o->id, $idsRestauracion, true)
-            || (float) $o->pagado >= (float) $o->valor_orden / 2
-        );
+        // Las restauraciones también esperan la mitad (dueño, 2026-10-23: "si
+        // deben tener el 50 % pagado las restauraciones"). Antes se pagaban con
+        // solo llegar la fecha; el bolsón crecía con restauraciones que el
+        // cliente apenas había abonado (R-1113 de Henry, $0 pagado, ya "lista").
+        $estaLista = fn ($o) => $llegoLaFecha && (float) $o->pagado >= (float) $o->valor_orden / 2;
         $listas            = $ordenes->filter($estaLista);
-        // Las de los almacenes son todas restauraciones: solo miran la fecha.
-        $deAlmacenesListas = $deAlmacenes->filter(fn ($o) => $llegoLaFecha);
+        // Las de los almacenes son todas restauraciones: la misma regla.
+        $deAlmacenesListas = $deAlmacenes->filter($estaLista);
 
         /** Lo que paga un grupo de órdenes, mezclando venta y restauración — para el almacén, que cobra igual sobre las dos. */
         $pagaPor = function ($grupo) use ($idsRestauracion) {

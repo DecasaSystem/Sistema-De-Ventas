@@ -479,6 +479,10 @@ entregada"). Solo supervisor.
   al pagar. Tope: lo que falta por entregar de ese mes. Se quita (`DELETE
   /comisiones/abonos/{id}`) solo si no se ha descontado. En Finanzas cuenta en la caja
   del día en que se dio (`created_at`), no en el mes de la comisión. Sin migración.
+- **Restauraciones esperan el 50 % pagado** (dueño, 2026-10-23): en tiendas (5 % aparte y
+  reparto del equipo) y en el bolsón de independientes, igual que una venta. Antes se
+  cobraban con solo llegar la fecha. Siguen sin IVA, sin meta y sin pool. `enriquecer`
+  ($req50) y `ComisionIndependientes::delMes` ($estaLista, también las de almacenes).
 - **Órdenes fuera del pool** (2026-10-23, dueño, por la conciliación de Norte): un
   supervisor con acceso a comisiones marca una orden con motivo (detalle de la orden →
   Comisión; `PATCH /comisiones/ordenes/{id}/fuera-del-pool`). No suma a la meta ni al pool
