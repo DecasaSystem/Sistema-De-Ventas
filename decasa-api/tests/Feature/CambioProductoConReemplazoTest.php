@@ -326,6 +326,21 @@ class CambioProductoConReemplazoTest extends TestCase
         $this->assertTrue(DB::table('notificaciones')->where('usuario_id', $taller->id)->exists());
     }
 
+    public function test_lo_que_se_manda_a_fabricar_lleva_notas_para_el_taller(): void
+    {
+        [$orden, $sofa] = $this->ordenEntregada();
+
+        $r = $this->cambiar($this->jefa(), $orden, [
+            'orden_item_id' => $sofa->id, 'motivo' => 'Lo quiere en otro color',
+            'reemplazo'     => ['tipo' => 'catalogo', 'producto_id' => 8, 'fabricar' => true,
+                                'cantidad' => 1, 'precio_unitario' => 1500000,
+                                'notas' => 'Sin botones en el espaldar'],
+        ])->assertOk();
+
+        $nuevo = OrdenItem::find($r->json('orden_item_nuevo_id'));
+        $this->assertSame(['notas' => 'Sin botones en el espaldar'], $nuevo->specs_personalizacion);
+    }
+
     // ── Diseño especial ──────────────────────────────────────────────────────
 
     public function test_un_diseno_especial_entra_a_produccion_con_su_ficha(): void

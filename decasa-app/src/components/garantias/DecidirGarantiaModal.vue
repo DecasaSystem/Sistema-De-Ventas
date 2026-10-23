@@ -67,6 +67,8 @@ const stock      = ref(null)   // respuesta de /garantias/stock
 const cargandoStock = ref(false)
 const tiendaId   = ref(null)
 const fabricar   = ref(false)
+// Para el taller, aparte de las notas de la decisión (que quedan en la orden).
+const notasTaller = ref('')
 const varianteId = ref(null)
 const comboId    = ref(null)
 const precio     = ref(0)
@@ -160,6 +162,7 @@ async function guardar() {
     payload.fabricar  = fabricar.value
     payload.tienda_id = fabricar.value ? null : tiendaId.value
   }
+  if (fabricar.value && notasTaller.value.trim()) payload.notas_taller = notasTaller.value.trim()
   if (decision.value === 'cambio_otro') {
     Object.assign(payload, {
       producto_id: productoNuevo.value.id,
@@ -342,6 +345,11 @@ async function guardar() {
                 <span class="font-semibold text-gray-800">Mandarlo a fabricar</span>
                 <span class="block text-[11px] text-gray-500">Queda en producción como un pedido para fabricar.</span>
               </button>
+              <div v-if="fabricar">
+                <label class="block text-xs font-semibold text-gray-500 mb-1.5">Notas para el taller <span class="font-normal text-gray-400">— opcional</span></label>
+                <textarea v-model="notasTaller" rows="2" class="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm resize-none"
+                  placeholder="Ej: patas en negro mate, sin botones en el espaldar, laca nogal…" />
+              </div>
             </div>
           </div>
 
