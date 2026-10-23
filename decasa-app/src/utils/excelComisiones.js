@@ -29,6 +29,7 @@ const FORMA = {
   restauracion_5:      'Restauración 5%',
   restauracion_equipo: 'Restauración de la tienda (repartida)',
   abono_almacen:       'Lo que dejó un independiente',
+  fuera_del_pool:      'Fuera del pool',
 }
 
 const CANAL = {
@@ -226,6 +227,8 @@ function comoSeCalculo(c) {
       return c.meta_cumplida
         ? `Su parte del pool (${parte}) = ${pesos(c.comision_asesor)}, igual que la de todos. Va en este renglón porque no tiene una venta propia por la cual pagársela (no vendió, o esas ya se le pagaron): ${pesos(monto)}.`
         : `La tienda no llegó a la meta con lo que tiene la mitad pagada: no hay pool. ${pesos(0)}.`
+    case 'fuera_del_pool':
+      return `Un supervisor sacó esta orden del pool: no suma a la meta ni al pool y no paga comisión. ${pesos(0)}.`
     case 'sin_meta_5':
       if (c.sin_descontar_iva) {
         return `FV2 especial, sin restar el IVA: ${pesos(valor)} × 5% = ${pesos(monto)}.`

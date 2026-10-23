@@ -36,6 +36,7 @@ const SECCIONES = [
   { id: 'atrasados',     titulo: 'Si se atrasa el pago',               icono: ClockIcon },
   { id: 'anticipos',     titulo: 'Anticipos de comisión',              icono: ReceiptPercentIcon },
   { id: 'abonos',        titulo: 'Abonos: pagar una parte',            icono: BanknotesIcon },
+  { id: 'fuera',         titulo: 'Órdenes fuera del pool',             icono: ExclamationTriangleIcon },
   { id: 'preguntas',     titulo: 'Preguntas frecuentes',               icono: ExclamationTriangleIcon },
 ]
 
@@ -423,6 +424,20 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
             <p>Agosto: comisión de $420.168 y anticipo de $200.000 → faltan $220.168. Se le dan $100.000 de abono → en Listas quedan <b>$120.168</b> por entregar. Al pagar: $420.168 − $200.000 − $100.000 = $120.168.</p>
           </div>
           <p class="nota">El abono no cambia cuánto gana nadie: la comisión del mes, el pool de la tienda y la parte de cada compañero se calculan igual. Solo cambia lo que se entrega el día del pago. En Finanzas cuenta como plata que salió el día en que se dio.</p>
+        </template>
+
+        <!-- ── Fuera del pool ───────────────────────────────────────────── -->
+        <template v-else-if="s.id === 'fuera'">
+          <p>A veces una venta hecha en la tienda no debe armar el pool del equipo: por ejemplo, la vendió alguien de fuera del equipo y ya se le pagó aparte, o es una FV2 de la gerencia.</p>
+          <ul>
+            <li>En el <b>detalle de la orden</b>, en el recuadro <b>Comisión</b>, un supervisor con acceso a comisiones pulsa <b>No sumar al pool</b> y escribe el motivo.</li>
+            <li>Esa orden <b>no cuenta para la meta</b>, <b>no entra al pool</b> y <b>no paga comisión</b> a nadie (ni a quien la vendió, ni al reparto del equipo).</li>
+            <li>Sigue siendo una venta para todo lo demás: reportes, caja, cartera, inventario y entrega.</li>
+            <li>Como el pool es de toda la tienda, cambia lo de todos los del mes: el sistema recalcula solo en unos minutos.</li>
+            <li>Se puede deshacer con <b>Volver a sumarla al pool</b>. Si alguna comisión de esa orden ya se pagó, no se puede cambiar: primero se deshace ese pago.</li>
+            <li>Queda en el historial de Comisiones quién lo hizo y por qué.</li>
+          </ul>
+          <p class="nota">Es por orden, no una regla de la tienda: las demás ventas y las demás tiendas se calculan igual que siempre.</p>
         </template>
 
         <!-- ── Preguntas ────────────────────────────────────────────────── -->

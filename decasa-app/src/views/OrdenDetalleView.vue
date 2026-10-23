@@ -878,6 +878,38 @@ function fmtFechaCorta(f) {
     .toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
+// ── Fuera del pool ──────────────────────────────────────────────────────────
+// Una orden que no suma a la meta ni al pool de su tienda y no paga comisión.
+// Dueño, 2026-10-23: en Norte las ventas de Jessica ya se le pagaron aparte y
+// las FV2 de Margarita no son del equipo. La pone un supervisor con acceso a
+// comisiones, con el motivo; la orden sigue siendo venta para todo lo demás.
+const puedeMarcarPool = computed(() =>
+  auth.isSupervisor && auth.tieneAccesoComisiones && orden.value
+  && !['borrador', 'cotizacion', 'pendiente_cotizacion'].includes(orden.value.estado))
+const formPool = ref(false)
+const motivoPool = ref('')
+const guardandoPool = ref(false)
+
+async function cambiarFueraDelPool(fuera) {
+  if (fuera && !motivoPool.value.trim()) return toast.error('Escribe el motivo')
+  guardandoPool.value = true
+  try {
+    await api.patch(`/comisiones/ordenes/${orden.value.id}/fuera-del-pool`, { fuera, motivo: fuera ? motivoPool.value.trim() : null })
+    orden.value.fuera_del_pool = fuera
+    orden.value.fuera_del_pool_motivo = fuera ? motivoPool.value.trim() : null
+    orden.value.fuera_del_pool_at = fuera ? new Date().toISOString() : null
+    formPool.value = false
+    motivoPool.value = ''
+    toast.success(fuera
+      ? 'Listo: esta orden ya no suma al pool. Las comisiones se recalculan en unos minutos.'
+      : 'Listo: la orden vuelve a sumar al pool. Las comisiones se recalculan en unos minutos.', 6000)
+  } catch (e) {
+    toast.error(e.response?.data?.message || 'No se pudo guardar')
+  } finally {
+    guardandoPool.value = false
+  }
+}
+
 async function cargarOrden() {
   loading.value = true
   error.value = ''
@@ -3106,6 +3138,61 @@ onMounted(() => { cargarTipos(); cargarOrden() })
             </button>
           </div>
         </div>
+      </div>
+
+      <!-- Comisión: dejar la orden por fuera del pool de la tienda (con motivo). -->
+      <div v-if="puedeMarcarPool" class="bg-white rounded-xl shadow-sm p-4 space-y-3">
+        <p class="text-xs font-semibold text-gray-500 uppercase">Comisión</p>
+
+        <template v-if="orden.fuera_del_pool">
+          <div class="border border-amber-200 rounded-lg p-3 space-y-1">
+            <p class="text-xs font-semibold text-amber-700">No suma al pool</p>
+            <p class="text-xs text-gray-700">
+              No cuenta para la meta ni para el pool de la tienda y no paga comisión. Sigue siendo una venta para todo lo demás.
+            </p>
+            <p v-if="orden.fuera_del_pool_motivo" class="text-xs text-gray-600">
+              Motivo: <span class="font-medium">{{ orden.fuera_del_pool_motivo }}</span>
+              <template v-if="orden.fuera_del_pool_at"> · {{ formatFecha(orden.fuera_del_pool_at) }}</template>
+            </p>
+          </div>
+          <button
+            type="button"
+            @click="cambiarFueraDelPool(false)"
+            :disabled="guardandoPool"
+            class="w-full text-xs font-semibold py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >{{ guardandoPool ? 'Guardando…' : 'Volver a sumarla al pool' }}</button>
+        </template>
+
+        <template v-else>
+          <p class="text-xs text-gray-500">
+            Suma a la meta y al pool de la tienda como cualquier venta. Si no debe contar (por ejemplo, la vendió alguien de
+            fuera del equipo y ya se le pagó aparte), sácala del pool.
+          </p>
+          <div v-if="formPool" class="space-y-2">
+            <textarea
+              v-model="motivoPool"
+              rows="2"
+              maxlength="200"
+              placeholder="Motivo (obligatorio). Ej: venta de Jessica, ya se le pagó la bonificación aparte"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <div class="flex gap-2">
+              <button type="button" @click="formPool = false; motivoPool = ''" class="flex-1 text-xs font-semibold py-2 rounded-lg border border-gray-200 text-gray-600">Cancelar</button>
+              <button
+                type="button"
+                @click="cambiarFueraDelPool(true)"
+                :disabled="guardandoPool || !motivoPool.trim()"
+                class="flex-1 text-xs font-semibold py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+              >{{ guardandoPool ? 'Guardando…' : 'No sumar al pool' }}</button>
+            </div>
+          </div>
+          <button
+            v-else
+            type="button"
+            @click="formPool = true"
+            class="w-full text-xs font-semibold py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50"
+          >No sumar al pool…</button>
+        </template>
       </div>
 
       <!-- Fechas de entrega. Entran solas con lo que el vendedor le prometió al

@@ -448,6 +448,15 @@ en su tienda; un supervisor escoge. Sin migración (la columna `canal` es texto)
   al pagar. Tope: lo que falta por entregar de ese mes. Se quita (`DELETE
   /comisiones/abonos/{id}`) solo si no se ha descontado. En Finanzas cuenta en la caja
   del día en que se dio (`created_at`), no en el mes de la comisión. Sin migración.
+- **Órdenes fuera del pool** (2026-10-23, dueño, por la conciliación de Norte): un
+  supervisor con acceso a comisiones marca una orden con motivo (detalle de la orden →
+  Comisión; `PATCH /comisiones/ordenes/{id}/fuera-del-pool`). No suma a la meta ni al pool
+  y no paga comisión a nadie; sigue siendo venta para lo demás. Columnas
+  `ordenes.fuera_del_pool(_motivo/_por/_at)` (migración `2026_10_25_000001`, solo agrega).
+  Toda consulta que suma ventas para comisiones pasa por `Orden::sinLasFueraDelPool`
+  (totales de `cargarTotales`, `totalesQueCuentan`, `libroDelPool`, independientes);
+  `enriquecer` la deja en $0 con forma `fuera_del_pool`. Con una comisión pagada no se puede.
+  Al marcar se pide un recálculo. Tests en `OrdenFueraDelPoolTest`.
 - **Ayuda** (`/comisiones/ayuda`, `AyudaComisionesView`, 2026-10-15): explica el módulo
   en todos los casos (pool, individual, compartida, restauraciones, independientes,
   almacén, tarjeta, FV2, trimestrales, reemplazos, cuándo queda lista, pago, atrasados,

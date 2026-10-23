@@ -878,6 +878,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/anticipos',                 [ComisionController::class, 'anticipos']);
         Route::post('/anticipos',                [ComisionController::class, 'setAnticipo'])->middleware('role:supervisor');
         Route::put('/anticipos/mes',             [ComisionController::class, 'setAnticipoDelMes'])->middleware('role:supervisor');
+        // Una orden que no suma a la meta ni al pool y no paga comisión (con motivo).
+        Route::patch('/ordenes/{id}/fuera-del-pool', [ComisionController::class, 'fueraDelPool'])->middleware('role:supervisor')->whereNumber('id');
         // Abono: una parte de una comisión ya lista que se dio antes de pagarla toda.
         Route::post('/abonos',                   [ComisionController::class, 'registrarAbono'])->middleware('role:supervisor');
         Route::delete('/abonos/{id}',            [ComisionController::class, 'quitarAbono'])->middleware('role:supervisor')->whereNumber('id');

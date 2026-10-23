@@ -1185,6 +1185,67 @@ class ComisionController extends Controller
     }
 
     /**
+     * PATCH /api/comisiones/ordenes/{id}/fuera-del-pool
+     *
+     * Marca (o desmarca) una orden para que no sume a la meta ni al pool de su
+     * tienda y no pague comisión a nadie. Dueño, 2026-10-23: en Decasa Norte
+     * las ventas de Jessica Rincón ya se le pagaron aparte y las FV2 de
+     * Margarita no son del equipo, pero armaban el pool de agosto y septiembre.
+     *
+     * Es por orden y con motivo, no una regla de tienda: lo demás se calcula
+     * igual. La orden sigue siendo venta (reportes, caja, inventario).
+     *
+     * Con una comisión de la orden ya pagada no se puede: esa plata ya salió
+     * (se deshace el pago primero). Después del cambio se pide un recálculo,
+     * porque el pool es de toda la tienda y cambia a todos los del mes.
+     */
+    public function fueraDelPool(Request $request, int $id)
+    {
+        $usuario = $request->user();
+        if (! $usuario->acceso_comisiones) {
+            return response()->json(['error' => 'Sin acceso'], 403);
+        }
+        if (! \App\Support\Esquema::columna('ordenes', 'fuera_del_pool')) {
+            return response()->json(['message' => 'Falta correr la migración de órdenes fuera del pool.'], 503);
+        }
+
+        $data = $request->validate([
+            'fuera'  => 'required|boolean',
+            'motivo' => 'required_if:fuera,true|nullable|string|max:200',
+        ]);
+
+        $orden = Orden::findOrFail($id);
+        if ((bool) $orden->fuera_del_pool === (bool) $data['fuera']) {
+            return response()->json(['ok' => true, 'fuera_del_pool' => (bool) $orden->fuera_del_pool]);
+        }
+
+        if (Comision::where('orden_id', $orden->id)->where('estado', 'pagada')->exists()) {
+            return response()->json(['message' => 'Una comisión de esta orden ya se pagó. Para cambiar esto, primero deshaz ese pago.'], 422);
+        }
+
+        $mes = Carbon::parse($orden->created_at)->setTimezone(StatsController::TZ_NEGOCIO)->format('Y-m');
+        DB::table('ordenes')->where('id', $orden->id)->update($data['fuera']
+            ? ['fuera_del_pool' => true, 'fuera_del_pool_motivo' => trim($data['motivo']),
+               'fuera_del_pool_por' => $usuario->id, 'fuera_del_pool_at' => now()]
+            : ['fuera_del_pool' => false, 'fuera_del_pool_motivo' => null,
+               'fuera_del_pool_por' => null, 'fuera_del_pool_at' => null]);
+
+        self::anotar($data['fuera'] ? 'fuera_del_pool' : 'vuelve_al_pool', self::tiendaParaComision($orden), $mes, [
+            'orden_id' => $orden->id, 'orden' => $orden->referencia, 'valor' => (float) $orden->valor_total,
+            'motivo'   => $data['fuera'] ? trim($data['motivo']) : null,
+            'antes'    => $data['fuera'] ? null : $orden->fuera_del_pool_motivo,
+        ]);
+
+        // El pool de toda la tienda cambia: que se pongan al día todos.
+        if (! in_array(self::estadoDelRecalculo()['estado'], ['pedido', 'corriendo'], true)) {
+            \Illuminate\Support\Facades\Cache::put(self::CLAVE_RECALCULO,
+                ['estado' => 'pedido', 'pedido_at' => now()->toIso8601String(), 'por' => $usuario->nombre], now()->addDay());
+        }
+
+        return response()->json(['ok' => true, 'fuera_del_pool' => (bool) $data['fuera']]);
+    }
+
+    /**
      * Deja escrito quién cambió qué en comisiones.
      *
      * Metas, equipos, reemplazos, el reparto de una tienda y los pagos mueven
@@ -3754,6 +3815,7 @@ class ComisionController extends Controller
                   ->groupBy('orden_id')->havingRaw('COUNT(*) = SUM(es_restauracion)');
             })
             ->whereRaw('(SELECT COALESCE(SUM(p.monto), 0) FROM pagos p WHERE p.orden_id = o.id) >= o.valor_total * 0.5')
+            ->tap(fn ($q) => Orden::sinLasFueraDelPool($q))
             ->selectRaw('c.tienda_id, c.mes_venta, SUM(c.valor_orden) as total')
             ->groupBy('c.tienda_id', 'c.mes_venta')
             ->get();
@@ -4004,6 +4066,7 @@ class ComisionController extends Controller
                      'c.valor_orden', 'c.monto_comision',
                      'o.estado as orden_estado', 'o.valor_total as orden_valor')
             ->addSelect($this->columnaFormaPagada())
+            ->addSelect(\App\Support\Esquema::columna('ordenes', 'fuera_del_pool') ? ['o.fuera_del_pool'] : [])
             ->selectSub(
                 DB::table('pagos')->selectRaw('COALESCE(SUM(monto), 0)')->whereColumn('orden_id', 'c.orden_id'),
                 'pagado'
@@ -4021,7 +4084,9 @@ class ComisionController extends Controller
                 && ! $esParte
                 && ! in_array($f->origen, self::ORIGENES_REPARTIDOS, true)
                 && ! isset($restauraciones[(int) $f->orden_id])
-                && ! in_array($f->orden_estado, self::ESTADOS_SIN_VENTA, true);
+                && ! in_array($f->orden_estado, self::ESTADOS_SIN_VENTA, true)
+                // Marcada por un supervisor: no arma el pool (Orden::sinLasFueraDelPool).
+                && empty($f->fuera_del_pool);
 
             $vid = (int) $f->vendedor_id;
 
@@ -4396,6 +4461,7 @@ class ComisionController extends Controller
                   ->groupBy('orden_id')->havingRaw('COUNT(*) = SUM(es_restauracion)');
             })
             ->when($soloMeses, fn ($q) => $q->whereIn('c.mes_venta', $soloMeses))
+            ->tap(fn ($q) => Orden::sinLasFueraDelPool($q))
             ->selectRaw('c.tienda_id, c.mes_venta, SUM(c.valor_orden) as total')
             ->groupBy('c.tienda_id', 'c.mes_venta')
             ->get()
@@ -4428,6 +4494,7 @@ class ComisionController extends Controller
                   ->groupBy('orden_id')->havingRaw('COUNT(*) = SUM(es_restauracion)');
             })
             ->when($soloMeses, fn ($q) => $q->whereIn('c.mes_venta', $soloMeses))
+            ->tap(fn ($q) => Orden::sinLasFueraDelPool($q))
             ->selectRaw('c.vendedor_id, c.tienda_id, c.mes_venta, SUM(c.valor_orden) as total')
             ->groupBy('c.vendedor_id', 'c.tienda_id', 'c.mes_venta')
             ->get()
@@ -4617,6 +4684,14 @@ class ComisionController extends Controller
             $montoComision = round((float) $c->monto_comision);
         }
 
+        // Orden marcada "fuera del pool" por un supervisor: no paga comisión a
+        // nadie (ni a quien la vendió, ni al reparto del equipo, ni al almacén
+        // que ayudó). Lo ya pagado se queda como estaba.
+        $fueraDelPool = (bool) $c->orden?->fuera_del_pool;
+        if ($fueraDelPool && $c->estado !== 'pagada') {
+            $montoComision = 0;
+        }
+
         $pagado    = $c->orden?->pagos?->sum('monto') ?? 0;
         $valorOrdenEntera = (float) ($c->orden?->valor_total ?? $c->valor_orden);
         // Cuánto de esta orden entró por datáfono. Sale de los pagos que ya
@@ -4684,13 +4759,15 @@ class ComisionController extends Controller
             'es_restauracion'  => $esRestauracion,
             'forma_pago'       => $c->origen === ComisionIndependientes::ORIGEN_BOLSON ? 'bolson_restauraciones'
                                   : ($c->estado === 'pagada' && $c->forma_pago_pagada ? $c->forma_pago_pagada
+                                  : ($fueraDelPool ? 'fuera_del_pool'
                                   : ($esPartePool ? self::ORIGEN_PARTE_POOL
                                   : ($esAbono ? self::ORIGEN_ABONO
                                   : ($esRestauracion
                                         ? ($c->origen === self::ORIGEN_RESTAURACION_EQUIPO
                                             ? self::ORIGEN_RESTAURACION_EQUIPO
                                             : 'restauracion_5')
-                                  : (! $tieneMeta ? 'sin_meta_5' : 'pool'))))),
+                                  : (! $tieneMeta ? 'sin_meta_5' : 'pool')))))),
+            'fuera_del_pool'   => $fueraDelPool,
             'abono_de_almacen' => $esAbono,
             'trimestre'        => $esTrimestral ? self::trimestreDeMes($c->mes_venta) : null,
             'avance_trimestre' => $esTrimestral

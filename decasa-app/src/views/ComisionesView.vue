@@ -569,6 +569,11 @@ const FORMAS_PAGO = {
     resumen:  'El 5% de la restauración se parte entre los que estaban en la tienda ese día: si son dos, 2,5% para cada uno. No le suma a la meta.',
     clase:    'bg-purple-100 text-purple-700',
   },
+  fuera_del_pool: {
+    etiqueta: 'Fuera del pool',
+    resumen:  'Un supervisor la sacó del pool (con motivo, en el detalle de la orden): no suma a la meta ni al pool y no paga comisión.',
+    clase:    'bg-amber-100 text-amber-700',
+  },
   sin_meta_5: {
     etiqueta: 'Individual',
     resumen:  'Sin meta no hay pool: cobra el 5% de lo suyo, sin dividir.',
@@ -818,6 +823,7 @@ const ACCIONES_BITACORA = {
   deshacer_pago: 'Deshizo un pago', recalcular: 'Recalculó',
   anticipo_config: 'Cambió el anticipo de comisión', anticipo_mes: 'Corrigió el anticipo de un mes',
   abono: 'Registró un abono de comisión', abono_quitado: 'Quitó un abono de comisión',
+  fuera_del_pool: 'Sacó una orden del pool', vuelve_al_pool: 'Devolvió una orden al pool',
   trimestre_liquidado: 'Se liquidó el trimestre',
 }
 async function abrirBitacora() {

@@ -141,6 +141,13 @@ class MisEstadisticasVendedorTest extends TestCase
 
     public function test_se_compara_con_el_periodo_anterior(): void
     {
+        // Fecha fija: con el reloj de verdad la prueba fallaba del ~20 en
+        // adelante (visto el 2026-10-23). El período anterior son los mismos
+        // días hacia atrás desde el 1 del mes (el 23 → del 8 al 30 del mes
+        // pasado), y ahí caía también la venta "del mes pasado" del día 11:
+        // comparaba contra 7M en vez de 3M. El cálculo estaba bien; la prueba no.
+        $this->travelTo(Carbon::parse('2026-10-15 10:00', 'America/Bogota'));
+
         $esteMes   = Carbon::now('America/Bogota')->startOfDay()->addHours(12)->setTimezone('UTC');
         $mesPasado = Carbon::now('America/Bogota')->subMonthNoOverflow()->startOfMonth()->addDays(10)->setTimezone('UTC');
 

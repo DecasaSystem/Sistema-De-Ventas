@@ -383,6 +383,8 @@ class ComisionIndependientes
             ->leftJoin('clientes as c', 'c.id', '=', 'o.cliente_id')
             ->whereBetween('o.created_at', [$desde, $hasta])
             ->whereNotIn('o.estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES))
+            // Marcada por un supervisor: no paga comisión ni entra al bolsón.
+            ->tap(fn ($q) => Orden::sinLasFueraDelPool($q))
             ->select(
                 'o.id', 'o.numero_orden', 'o.serie', 'o.serie_numero',
                 'o.valor_total as valor_orden', 'o.es_compartida',
@@ -423,6 +425,7 @@ class ComisionIndependientes
                 '(SELECT COALESCE(SUM(p.monto), 0) FROM pagos p WHERE p.orden_id = ordenes.id) >= ordenes.valor_total / 2'
             ))
             ->whereNotIn('estado', array_merge(['cancelado'], Orden::ESTADOS_NO_COMERCIALES))
+            ->tap(fn ($q) => Orden::sinLasFueraDelPool($q, 'ordenes'))
             // Fuera las que son íntegramente restauración
             ->whereNotIn('id', function ($q) {
                 $q->from('orden_items')->select('orden_id')

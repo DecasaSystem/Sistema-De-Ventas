@@ -167,6 +167,11 @@ class Orden extends Model
             'anticipo_pct'     => 'float',
             'es_compartida'    => 'boolean',
             'sin_descontar_iva' => 'boolean',
+            // No suma a la meta ni al pool y no paga comisión (la pone un
+            // supervisor: ver la migración ordenes_fuera_del_pool). No va en
+            // $fillable: solo se cambia por su ruta, con motivo.
+            'fuera_del_pool'   => 'boolean',
+            'fuera_del_pool_at' => 'datetime',
             'entrega_inmediata' => 'boolean',
             'listo_entrega_at' => 'datetime',
             'factura_fotos'    => 'array',
@@ -239,6 +244,27 @@ class Orden extends Model
      * lo que se queda el intermediario.
      */
     public const METODOS_CON_FRANQUICIA = ['tarjeta', 'addi'];
+
+    /**
+     * Deja por fuera de una consulta las órdenes marcadas "fuera del pool":
+     * no suman a la meta ni al pool de su tienda y no pagan comisión.
+     *
+     * Dueño, 2026-10-23: en Decasa Norte las ventas de Jessica Rincón ya se le
+     * pagaron aparte y las FV2 de Margarita no son del equipo, pero estaban
+     * armando el pool. Es una marca por orden, no una regla de tienda: las
+     * demás ventas y las demás tiendas se calculan igual que siempre.
+     *
+     * Toda consulta de comisiones que sume ventas pasa por aquí. Si la base
+     * todavía no tiene la columna (pruebas con esquemas a mano), no filtra.
+     *
+     * @param \Illuminate\Database\Query\Builder|\Illuminate\Database\Eloquent\Builder $q
+     */
+    public static function sinLasFueraDelPool($q, string $alias = 'o')
+    {
+        if (! \App\Support\Esquema::columna('ordenes', 'fuera_del_pool')) return $q;
+
+        return $q->where(fn ($w) => $w->whereNull("$alias.fuera_del_pool")->orWhere("$alias.fuera_del_pool", false));
+    }
 
     /**
      * ¿La orden todavía tiene descuento condicionado que se pueda perder?

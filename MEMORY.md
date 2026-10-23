@@ -289,6 +289,62 @@ escribiendo precios (Fase 1b).
   pool, partes del equipo iguales); solo lo que se entrega al pagar. Trampa evitada: anotarlo
   con el mes de hoy (octubre) no lo descontaba de agosto (el corte de agosto es agosto).
   Tests en `ComisionesAtrasadasTest` (sección abono).
+- **Conciliación de comisiones contra los Excel de ventas** (empezó 2026-10-19, pedido del
+  dueño: tienda por tienda, mes por mes). Excel `Downloads/VENTAS EDEN 2026.xlsx` (una hoja por
+  mes: ventas, restauración, compartidas). La "Hoja1" es un **borrador de alguien, no la
+  cuenta oficial**: no compararse contra ella. Agosto El Edén: cuadra (18 ventas $53,59 M +
+  R-1093); se corrigió a mano el pago de Laura Parra #4297 a tarjeta; quedó Gladys $301.019,
+  Sebastián $257.709, Manuela (5 días de reemplazo) $11.033 por pagar. **Septiembre El Edén
+  cuadra** (2026-10-20): 24 ventas $98,25 M + R-1116 $1,8 M; corregidos Natalia #4315 (Addi),
+  Claudia #4359 (tarjeta), abonos de Paola #4356; Lorena #4340 se dejó como tarjeta (el Excel
+  dice transferencia: pendiente de verificar). Quedó $1.247.352 para Gladys y para Sebastián.
+  R-1116 la subió Henry compartida con el Edén y el Excel dice Gladys: **da lo mismo en plata**
+  (toda restauración entra al bolsón de independientes, la suba quien la suba; la tienda cobra
+  su 5 % igual). Archivo para el usuario: `Downloads/Conciliacion comisiones Eden ago-sep 2026.xlsx`
+  (lo arma un script de PHP con PhpSpreadsheet del vendor; marca VERIFICAR lo corregido).
+  **Pereira** (2026-10-22, solo órdenes, no comisiones: el dueño pidió "si las órdenes están
+  bien subidas"). Excel `Downloads/VENTAS DE CASA JUNIO 2026 (1).xlsx` (hojas AGOSTO 2026 y
+  SEPTIEMBRE 2026: Circunvalar + Unicentro) y, para cruzar, `FORMATO INFORME DE VENTAS MENSUAL
+  DE CASA UNICENTRO 2025} (1).xlsx` (hasta agosto; necesita `-d memory_limit=2G`). Agosto: sistema
+  $57,914 M vs Excel $52,214 M = #1239 Julieth Paola Morales $5,7 M que no está en el Excel.
+  Septiembre: $90,127 M vs $89,897 M = Iván Delgado #1255 (+$220.000) y #1242 Karolay ($10.000).
+  Las órdenes de Génesis del 27–31 ago están en Unicentro (traslado registrado al cerrar
+  Circunvalar) y el Excel las pone en Circunvalar. Q3 de Pereira **sin pagar** a esa fecha.
+  2026-10-23: el usuario corrigió todo lo demás de Pereira. **PENDIENTE (decisión del dueño):**
+  si esas órdenes de Génesis del 25–31 ago (Yamil Avid #1236, José Norbey #1235, Choconta #1238,
+  Nancy Obando #1240, R-1100 Clara Muñoz) quedan en Unicentro o vuelven a Circunvalar: todavía
+  no saben si van a juntar las dos tiendas. No tocar hasta que el usuario diga.
+  **Norte agosto** (2026-10-23): la fuente es la pestaña NORTE de `Downloads/08 DE AGOSTO 2026.xlsx`
+  (reporte de agosto de todas las tiendas, ya validado contra Alegra/caja). Todas las órdenes
+  están en el sistema menos la restauración de Alba Lucía Ovalle ($6 M, "no está en Sodege").
+  Sistema: $684.368 por persona (Paola, Martha, NN = empresa) vs Excel $682.683 (Martha $650.120:
+  el Excel le resta un 2,5 % por un "reemplazo de Jessica" que no está registrado). Diferencias:
+  R-1101 cuenta como venta porque un cojín de $0 no está marcado como restauración; tarjeta en
+  Aura #4301 y Omar #4310 (Excel) vs efectivo (sistema); Janeth #4309 con tarjeta solo en el
+  sistema. **Norte ago+sep con el Excel de la tienda** (`Downloads/RELACION VENTAS DECASA NORTE
+  2026 (1).xlsx`, hojas AGOSTO 2026 y SEPTIEMBRE 2026, hechas el 21 oct; la hoja "CORRECCION
+  SEPTIEMBRE" es de 2025): todas las órdenes están (sep cuadra exacto $107,516 M). La comisión
+  NO cuadra por **reglas que decide el dueño** (no tocar sin que lo diga): (1) ventas de **Jessica
+  Rincón** (ago #4275, #4276, #4306, FV2-1 = $17,78 M; sep FV2-14) ya se le pagaron aparte y la
+  tienda las saca; en el sistema suman al pool de Norte (las de agosto a nombre de Paola);
+  (2) FV2 de **Margarita** en agosto (FV2-7/12/13) la tienda las saca; (3) Martha en agosto
+  cobra menos en el Excel ("ingresó 4 agosto") y Paola se lleva sola la venta de Olga #4277
+  ("trabajó sola"); (4) la tienda divide las **restauraciones** por 1,19 y el sistema no; (5) en
+  septiembre la tienda no resta la tarjeta. Sistema: ago $684.368 c/u, sep $919.713 c/u; tienda:
+  ago Paola/NN $503.946 y Martha $245.963, sep $876.414 c/u. Nada de Norte ago/sep pagado aún.
+  **Decisión del dueño (2026-10-23):** las ventas de Jessica (ya pagadas aparte) y las FV2 de
+  Margarita **no suman al pool de Norte**. Se hizo la marca por orden "fuera del pool" (no
+  suma a meta ni pool y no paga comisión; ver `docs/PROYECTO.md`), **sin subir**, con
+  **migración** `2026_10_25_000001_ordenes_fuera_del_pool` (solo agrega). Falta: subirla y que
+  un supervisor marque #4275, #4276, #4306, FV2-1, FV2-14 (Jessica) y FV2-7, FV2-12, FV2-13
+  (Margarita). No cambia ninguna otra tienda ni regla. Los otros puntos de Norte (Martha
+  "ingresó 4 agosto", Paola sola con Olga #4277, restauraciones ÷1,19, tarjeta en sept) siguen
+  sin decidir.
+  Archivo: `Downloads/Conciliacion Norte ago-sep 2026.xlsx`. Script reutilizable:
+  `conciliar.php` + un archivo de filas por tienda (en el scratchpad de la sesión; se pierde con ella).
+  Archivo: `Downloads/Conciliacion ordenes Pereira ago-sep 2026.xlsx`.
+  Leer producción solo lectura con `.env.lectura-produccion` (raíz del repo principal), con
+  permiso del usuario.
 - **Ayuda de Comisiones** (2026-10-15, pedido del dueño: "todo, absolutamente todo, bien
   explicado"): `/comisiones/ayuda`, sin migración. Cada regla se verificó contra el
   código (`enriquecer`, `libroDelPool`, `cobraIndividual`, `ComisionIndependientes`), no
