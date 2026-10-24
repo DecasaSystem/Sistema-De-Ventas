@@ -285,6 +285,53 @@ class ComoSeCalculaCadaComisionTest extends TestCase
         $this->assertEquals(self::NORTE, (int) Comision::where('orden_id', $nueva->id)->value('tienda_id'));
     }
 
+    /**
+     * La #1215: Génesis la vendió por WhatsApp en julio, cuando era de
+     * Circunvalar. La migración de `tienda_vendedor_id` le puso la tienda donde
+     * estaba la comisión ese día (Unicentro, adonde ella ya se había pasado) y
+     * terminó cobrando $134.454 en Unicentro. La corrección la devuelve a
+     * Circunvalar, que no llegó a la meta: ahí no cobra nada.
+     */
+    public function test_la_1215_de_genesis_vuelve_a_contar_para_circunvalar(): void
+    {
+        $circunvalar = 5; $genesis = 14;
+        DB::table('tiendas')->insert(['id' => $circunvalar, 'nombre' => 'Decasa Circunvalar',
+            'activa' => false, 'comisiones_compartidas' => true]);
+        DB::table('metas_tienda')->insert(['tienda_id' => $circunvalar, 'mes' => self::MES,
+            'meta' => 40_000_000, 'divisor_asesores' => 1, 'created_at' => now(), 'updated_at' => now()]);
+        // Hoy está en el Norte (aquí hace de Unicentro); ese mes era de Circunvalar.
+        DB::table('usuarios')->insert(['id' => $genesis, 'nombre' => 'Genesis', 'rol' => 'vendedor',
+            'tienda_default_id' => self::NORTE, 'created_at' => now()]);
+        DB::table('tienda_asesores_comision')->insert(['tienda_id' => $circunvalar, 'mes' => self::MES,
+            'vendedor_id' => $genesis, 'created_at' => now(), 'updated_at' => now()]);
+        \App\Models\TiendaAsesor::olvidarCache();
+
+        // Como quedó en producción: orden de Circunvalar, digital, contada al Norte.
+        $orden = $this->orden($genesis, $circunvalar, 3_200_000);
+        DB::table('ordenes')->where('id', $orden->id)->update([
+            'canal' => 'whatsapp', 'numero_orden' => 1215, 'tienda_vendedor_id' => self::NORTE,
+        ]);
+        ComisionController::sincronizarTienda($orden->fresh());
+        $this->assertEquals(self::NORTE, (int) Comision::where('orden_id', $orden->id)->value('tienda_id'));
+
+        // Otra digital de otra persona, con su tienda bien puesta: no se toca.
+        $otra = $this->orden(self::MANUELA, self::VIRTUAL, 1_000_000);
+        DB::table('ordenes')->where('id', $otra->id)->update(['canal' => 'instagram', 'numero_orden' => 1216]);
+
+        (require database_path('migrations/2026_11_01_000001_venta_1215_cuenta_para_circunvalar.php'))->up();
+
+        $this->assertEquals($circunvalar, (int) $orden->fresh()->tienda_vendedor_id);
+        $this->assertEquals($circunvalar, (int) Comision::where('orden_id', $orden->id)->value('tienda_id'));
+        $this->assertEquals(self::VIRTUAL, (int) Comision::where('orden_id', $otra->id)->value('tienda_id'));
+
+        // Circunvalar vendió $3,2 M contra una meta de $40 M: no hay pool.
+        $this->assertEqualsWithDelta(0, $this->loQueCobraCadaUno()['Genesis'] ?? 0, 1);
+
+        // Correrla otra vez no hace nada.
+        (require database_path('migrations/2026_11_01_000001_venta_1215_cuenta_para_circunvalar.php'))->up();
+        $this->assertEquals($circunvalar, (int) Comision::where('orden_id', $orden->id)->value('tienda_id'));
+    }
+
     public function test_addi_cuenta_igual_que_la_tarjeta(): void
     {
         // Addi también se queda el 5,5%: la misma cuenta que con tarjeta.

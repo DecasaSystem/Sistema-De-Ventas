@@ -328,10 +328,19 @@ escribiendo precios (Fase 1b).
   Septiembre: $90,127 M vs $89,897 M = Iván Delgado #1255 (+$220.000) y #1242 Karolay ($10.000).
   Las órdenes de Génesis del 27–31 ago están en Unicentro (traslado registrado al cerrar
   Circunvalar) y el Excel las pone en Circunvalar. Q3 de Pereira **sin pagar** a esa fecha.
-  2026-10-23: el usuario corrigió todo lo demás de Pereira. **PENDIENTE (decisión del dueño):**
-  si esas órdenes de Génesis del 25–31 ago (Yamil Avid #1236, José Norbey #1235, Choconta #1238,
-  Nancy Obando #1240, R-1100 Clara Muñoz) quedan en Unicentro o vuelven a Circunvalar: todavía
-  no saben si van a juntar las dos tiendas. No tocar hasta que el usuario diga.
+  2026-10-23: el usuario corrigió todo lo demás de Pereira. **Decidido (dueño, 2026-10-24):
+  Circunvalar y Unicentro NO se juntan**, cada una con su meta y su pool, aunque Circunvalar no
+  comisione nada: no llegó a la meta de $40 M ni en julio (~$34 M) ni en agosto (~$23 M; cerró
+  el 27). Las órdenes de Génesis del 27–31 ago (José Norbey #1235, Yamil Avid
+  #1236, Choconta #1238, Nancy Obando #1240, R-1100 Clara Muñoz) **se quedan en Unicentro**
+  (ella se cambió de tienda esos días; el traslado del 27–31 ago está bien registrado). La
+  mitad de Génesis de la #1224 (julio, compartida con Juan Esteban) sigue en Circunvalar.
+  **#1215 de Génesis (WhatsApp, 17 jul, $3,2 M)** contaba para Unicentro (le daba $134.454 en
+  julio): la migración de `tienda_vendedor_id` (2026_10_04) llenó las digitales viejas con la
+  tienda donde estaba la comisión, y esa ya estaba en la de hoy. Se corrige con la migración
+  `2026_11_01_000001_venta_1215_cuenta_para_circunvalar` (solo esa orden; **sin subir** al
+  2026-10-24). Desde julio era la única digital, de cualquier tienda, con la tienda del
+  vendedor distinta de la de la orden.
   **Norte agosto** (2026-10-23): la fuente es la pestaña NORTE de `Downloads/08 DE AGOSTO 2026.xlsx`
   (reporte de agosto de todas las tiendas, ya validado contra Alegra/caja). Todas las órdenes
   están en el sistema menos la restauración de Alba Lucía Ovalle ($6 M, "no está en Sodege").
