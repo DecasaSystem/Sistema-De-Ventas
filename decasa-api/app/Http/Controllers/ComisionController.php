@@ -3877,6 +3877,21 @@ class ComisionController extends Controller
         $guardados = DB::table('tienda_trimestres')->get()
             ->keyBy(fn ($r) => $r->tienda_id . '_' . $r->trimestre);
 
+        // Los trimestres de los que ya se pagó algo del pool. Mientras no se
+        // haya pagado nada, un trimestre que llegó a la meta sigue sumando los
+        // abonos que lleguen después del 20, igual que una tienda mensual
+        // (dueño, 2026-10-24: "que cuenten los abonos hasta el día que se paga
+        // el trimestre"). En Unicentro Q3, Federico Márquez completó la mitad
+        // el 21 de octubre y el trimestre ya se había quedado quieto el 20.
+        $pagados = [];
+        foreach (DB::table('comisiones')->where('estado', 'pagada')->whereIn('tienda_id', $tiendaIds ?: [0])
+                     ->get(['tienda_id', 'mes_venta', 'origen', 'forma_pago_pagada']) as $p) {
+            $delPool = $p->forma_pago_pagada !== null
+                ? in_array($p->forma_pago_pagada, ['pool', self::ORIGEN_PARTE_POOL], true)
+                : in_array($p->origen, ['venta', self::ORIGEN_PARTE_POOL], true);
+            if ($delPool) $pagados[$p->tienda_id . '_' . self::trimestreDeMes($p->mes_venta)] = true;
+        }
+
         $pools = [];
 
         foreach ($tiendaIds as $tiendaId) {
@@ -3887,7 +3902,14 @@ class ComisionController extends Controller
                 $clave    = $tiendaId . '_' . $trimestre;
                 $guardado = $guardados[$clave] ?? null;
 
-                if ($guardado && $guardado->cerrado_at) {
+                // Quieto si ya se pagó algo de su pool, o si llegó el 20 sin
+                // alcanzar la meta: esa deuda pasa fija al siguiente y no puede
+                // moverse para siempre. Si alcanzó la meta y nadie ha cobrado,
+                // se sigue calculando hasta el pago.
+                $quieto = $guardado && $guardado->cerrado_at
+                    && (isset($pagados[$clave]) || (float) $guardado->pool_pagado <= 0);
+
+                if ($quieto) {
                     // Ya se liquidó: rige lo que se usó para pagar.
                     $info = [
                         'pool_bruto'      => (float) $guardado->pool_bruto,
@@ -3914,7 +3936,10 @@ class ComisionController extends Controller
                     // solo al pagar, un trimestre que no cumplió —al que nadie
                     // le paga nada— seguiría moviéndose para siempre, y con él
                     // la deuda que arranca el siguiente.
-                    $liquidar = $persistir && self::hoy()->gte(self::fechaLiquidacion($trimestre));
+                    // Uno ya liquidado que sigue abierto (llegó a la meta y no
+                    // se ha pagado) no se vuelve a liquidar: solo se pone al día.
+                    $liquidar = $persistir && ! ($guardado && $guardado->cerrado_at)
+                        && self::hoy()->gte(self::fechaLiquidacion($trimestre));
 
                     if ($persistir) {
                         DB::table('tienda_trimestres')->updateOrInsert(

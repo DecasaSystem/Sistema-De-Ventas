@@ -312,7 +312,9 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
             <li>La meta es la misma cada mes y hay que cumplir <b>los 3 meses</b>.</li>
             <li>Lo que le sobra a un mes paga lo que le falta a otro del mismo trimestre.</li>
             <li>Si el trimestre entero no llega, no comisiona y <b>la deuda pasa al trimestre siguiente</b>.</li>
-            <li>Se cobra el <b>20 del mes siguiente al cierre</b>: lo de jul–sep, el 20 de octubre. Ese día queda fijo.</li>
+            <li>Se cobra el <b>20 del mes siguiente al cierre</b>: lo de jul–sep, el 20 de octubre. Solo cuentan las ventas hechas dentro del trimestre; las de octubre son del trimestre nuevo.</li>
+            <li>Si el trimestre <b>llegó a la meta</b>, hasta el día en que se paga siguen contando los abonos que completen la mitad de una venta del trimestre, igual que en las tiendas mensuales. En cuanto se le paga a alguien, queda fijo.</li>
+            <li>Si <b>no llegó a la meta</b>, el 20 queda fijo: esa deuda pasa tal cual al trimestre siguiente.</li>
             <li>El pool del trimestre se reparte por los días que estuvo cada quien en los 3 meses.</li>
           </ul>
           <div class="ejemplo">

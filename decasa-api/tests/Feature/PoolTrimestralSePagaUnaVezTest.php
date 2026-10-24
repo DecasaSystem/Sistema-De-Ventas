@@ -432,4 +432,54 @@ class PoolTrimestralSePagaUnaVezTest extends TestCase
         $this->assertEquals(0, $q3['pool_pagado']);
         $this->assertEqualsWithDelta(20_000_000 / 1.19 * 0.05, $q3['deficit_final'], 1);
     }
+
+    // Dueño, 2026-10-24: "que cuenten los abonos hasta el día que se paga el
+    // trimestre, igual que en las tiendas mensuales". El caso: Federico
+    // Márquez completó la mitad el 21 de octubre, un día después de liquidar.
+
+    public function test_si_llego_a_la_meta_sigue_sumando_abonos_hasta_que_se_paga(): void
+    {
+        $this->metaDe(40_000_000);
+        $this->orden(self::JUAN, '2026-07-10', 60_000_000);
+        $this->orden(self::JUAN, '2026-08-10', 40_000_000);
+        $this->orden(self::JUAN, '2026-09-10', 40_000_000);
+        $tarde = $this->orden(self::JUAN, '2026-09-20', 20_000_000);
+        DB::table('pagos')->where('orden_id', $tarde->id)->update(['monto' => 1_000_000]);   // sin la mitad
+
+        // El 20 de octubre: 140M válidos − 120M = 20M → sí comisiona.
+        $this->travelTo(\Carbon\Carbon::parse('2026-10-20 07:00', 'America/Bogota'));
+        $this->pools(true);
+        $this->assertNotNull(DB::table('tienda_trimestres')->where('trimestre', '2026-Q3')->value('cerrado_at'));
+        $this->assertEqualsWithDelta(20_000_000 / 1.19 * 0.05, $this->pools()[self::PEREIRA . '_2026-Q3']['pool_pagado'], 1);
+
+        // El 21 el cliente completa la mitad y nadie ha cobrado: cuenta.
+        $this->travelTo(\Carbon\Carbon::parse('2026-10-21 10:00', 'America/Bogota'));
+        DB::table('pagos')->where('orden_id', $tarde->id)->update(['monto' => 10_000_000]);
+        $q3 = $this->pools(true)[self::PEREIRA . '_2026-Q3'];
+        $this->assertEqualsWithDelta(40_000_000 / 1.19 * 0.05, $q3['pool_pagado'], 1);
+        $this->assertEqualsWithDelta(40_000_000 / 1.19 * 0.05, (float) DB::table('tienda_trimestres')->where('trimestre', '2026-Q3')->value('pool_pagado'), 1);
+        $this->assertEqualsWithDelta(40_000_000 / 1.19 * 0.05, array_sum($this->loQueEstaListo('2026-10-21')), 3);
+    }
+
+    public function test_despues_de_pagar_el_trimestre_ya_no_se_mueve(): void
+    {
+        $this->metaDe(40_000_000);
+        $this->orden(self::JUAN, '2026-07-10', 60_000_000);
+        $this->orden(self::JUAN, '2026-08-10', 40_000_000);
+        $this->orden(self::JUAN, '2026-09-10', 40_000_000);
+        $tarde = $this->orden(self::JUAN, '2026-09-20', 20_000_000);
+        DB::table('pagos')->where('orden_id', $tarde->id)->update(['monto' => 1_000_000]);
+
+        $this->travelTo(\Carbon\Carbon::parse('2026-10-20 07:00', 'America/Bogota'));
+        $this->pools(true);
+
+        // Se le paga a Juan (una fila del pool basta para que quede quieto).
+        DB::table('comisiones')->where('mes_venta', '2026-07')->update([
+            'estado' => 'pagada', 'forma_pago_pagada' => 'pool', 'fecha_pago' => now(),
+        ]);
+
+        // El cliente paga después del pago: ya no cambia lo que se liquidó.
+        DB::table('pagos')->where('orden_id', $tarde->id)->update(['monto' => 20_000_000]);
+        $this->assertEqualsWithDelta(20_000_000 / 1.19 * 0.05, $this->pools()[self::PEREIRA . '_2026-Q3']['pool_pagado'], 1);
+    }
 }

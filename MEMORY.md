@@ -62,6 +62,16 @@ limitar a un vendedor a solo lo suyo.
   usuario lo rechazó con fuerza (revertido en 177f7f9).
 - Explicación larga para negocio: `explicacion_modulo_comisiones.txt` (raíz).
 
+### Trimestre de Pereira: hasta cuándo cuentan los abonos (dueño, 2026-10-24)
+- El trimestre es de ventas del 1 de julio al 30 de septiembre (octubre ya es el siguiente).
+- **Los abonos que completan la mitad cuentan hasta el día en que se paga el trimestre**,
+  como en las mensuales. Antes el trimestre quedaba quieto el 20 aunque nadie hubiera
+  cobrado (Unicentro Q3: Federico Márquez #1251 completó la mitad el 21 oct y no contaba).
+  Ahora `cargarPoolsTrimestrales` lo sigue calculando si llegó a la meta y no se ha pagado
+  nada de su pool; queda quieto al primer pago o si el 20 no llegó a la meta (la deuda pasa
+  fija). Unicentro Q3 con esto: pool $1.340.100 (antes $1.230.856). Tests en
+  `PoolTrimestralSePagaUnaVezTest`.
+
 ### Restauraciones (dueño, 2026-10-23, al conciliar Norte)
 - **Esperan el 50 % pagado**, como las ventas (tiendas y bolsón de independientes). Antes se
   pagaban con solo llegar el 20; se cambió en `enriquecer` y `ComisionIndependientes::delMes`.
