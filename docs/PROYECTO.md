@@ -541,6 +541,11 @@ Las cifras de costo salen del motor determinístico, nunca del modelo.
   catálogos?") se responde: el prompt trae el mapa del menú, y `consultar_catalogos`
   da los enlaces (`/c/{slug}` y `/catalogo/{categoria}`). Antes, sin herramienta, el
   modelo le decía a un supervisor que no tenía acceso (2026-10-26).
+- El chat (`AgentChat.vue`): temas del inicio según los permisos de la persona,
+  enlaces que se tocan, copiar/compartir, reintentar, y la conversación se guarda en
+  `sessionStorage` por usuario. La IA termina cada respuesta con una línea
+  `>> pregunta | pregunta` que la pantalla quita y muestra como botones (si se cambia
+  ese formato en el prompt, cambiar `separarSugerencias`).
 - **Una herramienta nueva hay que agregarla en `PermisosAsistente`** (falla
   `AsistenteIaTest::test_cada_herramienta_definida_tiene_su_permiso` si no).
 
