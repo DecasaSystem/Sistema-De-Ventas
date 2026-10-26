@@ -8,6 +8,8 @@ use Minishlink\WebPush\Subscription;
 
 class PushService
 {
+    public const VENCE_EN_SEGUNDOS = 2 * 24 * 60 * 60;
+
     public static function enviarAUsuario(int $usuarioId, string $titulo, string $cuerpo, array $datos = [], ?string $tipo = null): void
     {
         $suscripciones = PushSubscription::where('usuario_id', $usuarioId)->get();
@@ -21,7 +23,11 @@ class PushService
             ],
         ];
 
-        $webPush = new WebPush($auth);
+        // Vence a los 2 días. Sin esto el servidor de push lo guarda hasta 4
+        // semanas y, si el celular estaba apagado o el navegador cerrado, lo
+        // entrega cuando vuelve: el aviso del día de pago del 20 de octubre
+        // llegó el 26. Lo viejo igual queda en la campana.
+        $webPush = new WebPush($auth, ['TTL' => self::VENCE_EN_SEGUNDOS]);
 
         // El tipo va incluido porque el clic en la notificación decide a dónde
         // llevar con él: sin tipo, todas terminaban en el inicio.

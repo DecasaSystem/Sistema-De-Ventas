@@ -335,7 +335,7 @@ de octubre de 2026.)
   - Cada mañana a las 6:30 el sistema hace solo lo del botón Recalcular.
     Ya no llega un aviso por cada orden "lista": se paga por persona y por
     mes, no por orden. Llega UN solo aviso el día 20 (a cada supervisor con
-    acceso a comisiones): "Hoy se pagan las comisiones de <mes>", con cuántas
+    acceso a comisiones): "Día de pago (20 de <mes>): comisiones de <mes anterior>", con cuántas
     personas, el total, lo que se descuenta de anticipos y lo que hay que
     entregar. En octubre, enero, abril y julio incluye el trimestre entero de
     Pereira.

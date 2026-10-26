@@ -3134,12 +3134,19 @@ class ComisionController extends Controller
 
         $mes    = $hoy->copy()->startOfMonth()->subMonthNoOverflow()->format('Y-m');
         $nombre = Carbon::parse($mes . '-01')->locale('es')->isoFormat('MMMM [de] YYYY');
-        $titulo = "Hoy se pagan las comisiones de {$nombre}";
+        // Con la fecha y no "Hoy": el aviso del 20 de octubre le saltó a alguien
+        // en el celular el 26 y parecía que el día de pago era ese día.
+        $diaDePago = $hoy->copy()->day(20)->locale('es')->isoFormat('D [de] MMMM');
+        $titulo    = "Día de pago ({$diaDePago}): comisiones de {$nombre}";
+
+        // El título viejo también cuenta como "ya avisado": el de septiembre de
+        // 2026 salió con él y no hay que repetirlo con el nuevo.
+        $titulos = [$titulo, "Hoy se pagan las comisiones de {$nombre}"];
 
         $supervisores = Usuario::where('rol', 'supervisor')->where('activo', true)
             ->where('acceso_comisiones', true)->get()
             ->reject(fn ($s) => \App\Models\Notificacion::where('usuario_id', $s->id)
-                ->where('tipo', 'comisiones')->where('titulo', $titulo)->exists());
+                ->where('tipo', 'comisiones')->whereIn('titulo', $titulos)->exists());
         if ($supervisores->isEmpty()) return null;
 
         // Las mismas tarjetas que muestra la pantalla de Listas.

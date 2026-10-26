@@ -339,9 +339,30 @@ class AnticiposDeComisionTest extends TestCase
         $this->assertEquals(600_000, $aviso['anticipos']);
         $this->assertEqualsWithDelta(660_504, $aviso['entregar'], 3);
         $this->assertSame(1, DB::table('notificaciones')->where('usuario_id', 50)->count());
+        // Con la fecha, no "Hoy": el push puede llegar días después.
+        $this->assertSame('Día de pago (20 de octubre): comisiones de septiembre de 2026',
+            DB::table('notificaciones')->value('titulo'));
 
-        // Una sola vez: la tarea del día siguiente no lo repite.
+        // Una sola vez: la tarea del día siguiente no lo repite, y el título
+        // sigue diciendo el 20.
         $this->travelTo(\Carbon\Carbon::parse('2026-10-21 07:00', 'America/Bogota'));
+        $this->assertNull(app(ComisionController::class)->avisarDiaDePago());
+        $this->assertSame(1, DB::table('notificaciones')->count());
+    }
+
+    public function test_el_aviso_que_salio_con_el_titulo_viejo_no_se_repite(): void
+    {
+        $this->montarAnticipos();
+        $this->conSupervisor();
+        $this->orden(self::JUAN, '2026-09-10', 20_000_000);
+        // Así salió el de septiembre de 2026, antes del cambio de título.
+        DB::table('notificaciones')->insert([
+            'usuario_id' => 50, 'tipo' => 'comisiones', 'leida' => false,
+            'titulo' => 'Hoy se pagan las comisiones de septiembre de 2026',
+            'mensaje' => '…', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $this->travelTo(\Carbon\Carbon::parse('2026-10-27 07:00', 'America/Bogota'));
         $this->assertNull(app(ComisionController::class)->avisarDiaDePago());
         $this->assertSame(1, DB::table('notificaciones')->count());
     }

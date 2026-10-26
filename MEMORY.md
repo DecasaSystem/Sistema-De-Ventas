@@ -707,6 +707,15 @@ Decisiones del dueño del 2026-10-08:
 
 ## 6. Trampas conocidas
 
+- **"El aviso del día de pago llegó el 26"** (2026-10-26, **sin subir**, sin migración). En
+  producción el aviso se creó el 20 a las 6:36 a. m.: el sistema avisó a tiempo. El push
+  salía sin vencimiento (el servidor de Google/Apple lo guarda hasta 4 semanas y lo entrega
+  cuando el celular o el navegador vuelve) y el título decía "Hoy se pagan…". Ahora el push
+  vence a los 2 días (`PushService::VENCE_EN_SEGUNDOS`, todos los avisos; la campana los
+  guarda igual) y el título lleva la fecha ("Día de pago (20 de octubre): …"). Antes de
+  culpar a la tarea de las 6:30, mirar `notificaciones.created_at`. Daniela (supervisora)
+  no tiene celular registrado para push.
+
 - **Orden trabada en `devuelto` (#1231, 2026-10-21, subido a `main` ese día)**. En la entrega los 2
   tomacorrientes volvieron en el camión; la orden quedó en `devuelto` (a propósito no se
   sale a mano: solo decidiendo la devolución en Producción). Pero ninguna salida servía:
