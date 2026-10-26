@@ -30,6 +30,15 @@ RUN { \
 RUN echo "upload_max_filesize = 20M\npost_max_size = 60M\nmax_file_uploads = 40\nmemory_limit = 256M\nmax_execution_time = 120" \
     > /usr/local/etc/php/conf.d/uploads.ini
 
+# Seguridad (PHP2Shell, oct-2026): session.upload_progress es la puerta de
+# CVE-2026-109619 y de CVE-2026-115560 (esta última sin parche aún). Laravel no
+# usa las sesiones nativas de PHP ni el progreso de subida: apagarlo no quita
+# nada. expose_php=Off deja de anunciar la versión de PHP en X-Powered-By.
+RUN { \
+      echo 'session.upload_progress.enabled=0'; \
+      echo 'expose_php=Off'; \
+    } > /usr/local/etc/php/conf.d/seguridad.ini
+
 RUN a2enmod rewrite proxy proxy_http proxy_wstunnel
 
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
