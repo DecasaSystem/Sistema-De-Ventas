@@ -271,7 +271,14 @@ class StatsController extends Controller
         $f          = $this->parseFechas($request);
         $tiendaId   = $request->query('tienda_id');
         $agrupado   = $request->query('agrupado', 'dia');
-        $vendedorId = $request->query('vendedor_id', $user->rol === 'vendedor' ? $user->id : null);
+        // Escoger a quién se mira es solo del supervisor (detalle de un
+        // vendedor). Antes se leía `vendedor_id` de cualquiera: un vendedor
+        // cambiaba el número en la petición y veía la tendencia de otro.
+        $vendedorId = match ($user->rol) {
+            'supervisor' => $request->query('vendedor_id'),
+            'vendedor'   => $user->id,
+            default      => null,
+        };
 
         $desde = $f['desde'];
         $hasta = $f['hasta'];
