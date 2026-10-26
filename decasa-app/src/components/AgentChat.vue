@@ -78,7 +78,7 @@ const { abrirFoto, cerrarFoto } = useVisorFoto()   // imagen en grande (visor ú
 const mensajes  = ref([
   {
     role: 'assistant',
-    content: '¡Hola! Soy el asistente de Decasa. Puedo ayudarte con costos de fabricación, inventario, ventas, producción y órdenes.\n\nTambién puedes **adjuntar una foto o boceto** de un mueble y te estimo el costo de fabricación. ¿Qué necesitas consultar?',
+    content: '¡Hola! Soy el asistente de Decasa. Puedo ayudarte con ventas y qué conviene fabricar, inventario, órdenes, producción, garantías, promociones y costos de fabricación.\n\nTambién puedes **adjuntar una foto o boceto** de un mueble y te estimo el costo de fabricación. ¿Qué necesitas consultar?',
   },
 ])
 const inputRef    = ref(null)
@@ -264,10 +264,10 @@ async function scrollAbajo() {
 
 // Ejemplos de preguntas rápidas
 const ejemplos = [
-  '¿Cuánto cuesta fabricar un comedor de 6 puestos?',
+  '¿Qué producto deberíamos fabricar más?',
   '¿Cuál es el producto más vendido este mes?',
-  '¿Qué hay en inventario bajo de stock?',
-  '¿Cuántos items hay en producción?',
+  '¿Qué promociones hay vigentes?',
+  '¿Cuánto cuesta fabricar un comedor de 6 puestos?',
 ]
 
 function usarEjemplo(texto) {

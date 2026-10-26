@@ -131,7 +131,7 @@ Laravel 13 / PHP 8.4. Dependencias clave: `laravel/sanctum`, `laravel/reverb`,
 
 | Servicio | Responsabilidad |
 |---|---|
-| `AgentService` | Chat de IA con ~25 tools (ventas, inventario, producción, comisiones, fichas…) y `calcularPrecioItem()` (cotizador determinístico) |
+| `AgentService` | Chat de IA con ~26 tools (ventas, qué fabricar, inventario, producción, garantías, promociones, comisiones, fichas…) y `calcularPrecioItem()` (cotizador determinístico). Permisos en `Asistente/PermisosAsistente`, análisis de fabricación en `Asistente/QueFabricar` |
 | `EntregaService` | **Única puerta para entregar**: cierra una entrega (`DespachoItem` + `EntregaLinea`), baja stock por línea, cierra producción, deja la orden en su estado |
 | `NumeracionOrdenes` | Corregir números: convertir a/de FV2 o R y correr consecutivos sin dejar huecos |
 | `ComisionIndependientes` | Comisión de independientes (5 % fijo, bolsón de restauraciones, abono a almacén) |
@@ -521,9 +521,35 @@ entregada"). Solo supervisor.
 
 ### 6.12 Chat de IA (asistente)
 `AgentChat.vue` → `POST /agent/chat`. GPT-4o con tools sobre los datos reales:
-fichas, comisiones, inventario, ventas por producto/categoría, clientes top,
-producción, órdenes, trabajadores, reportes, telas, caja, interesados, rotación.
+fichas, comisiones, inventario, variantes, telas, promociones, órdenes, producción,
+garantías, ventas (`analisis_ventas`), qué fabricar (`recomendar_fabricacion`),
+clientes, trabajadores, reportes, caja, interesados y finanzas.
 Las cifras de costo salen del motor determinístico, nunca del modelo.
+
+**Permisos (actualizado 2026-10-26)** — una sola regla en
+`Services/Asistente/PermisosAsistente`, con los mismos permisos de las pantallas:
+- El chat es solo de supervisores y vendedores (la API ahora también lo exige).
+- A cada persona solo se le mandan al modelo las herramientas que puede usar, y
+  `ejecutarTool` lo vuelve a revisar. Comisiones: `acceso_comisiones` (sin él, nada:
+  ni lo suyo ni las reglas). Finanzas: supervisor + `acceso_finanzas`. Fichas
+  técnicas: `acceso_costos`. Interesados: supervisor o `acceso_redes`. Reporte de
+  ventas/vendedores de la empresa: supervisor.
+- El prompt se arma por partes: las reglas de un tema solo van si tiene el permiso, y
+  le dice qué módulos no tiene para que no improvise.
+- Las órdenes salen con `Orden::visiblesPara` (antes: solo `vendedor_id`).
+- **Una herramienta nueva hay que agregarla en `PermisosAsistente`** (falla
+  `AsistenteIaTest::test_cada_herramienta_definida_tiene_su_permiso` si no).
+
+**Análisis** — `analisis_ventas` llama a los mismos métodos de `StatsController` /
+`ReporteController::canalVentas` que las pantallas (mismas cifras; un vendedor ve lo
+suyo). `recomendar_fabricacion` usa `Services/Asistente/QueFabricar`: lo vendido sin
+cotizaciones/borradores/canceladas ni restauraciones, en días de Colombia; lo que hay =
+libre en tiendas (físico − apartado) + libre en fábrica + lo que el taller hace para la
+Reserva; fabricar = venta de 4 semanas − lo que hay; tendencia contra el período
+anterior; a qué tiendas mandar; diseños especiales repetidos; demanda de interesados
+(Clientes + Clientes → Redes). Con `acceso_costos` agrega costo de ficha y precio÷costo.
+Reemplazó a `analizar_rotacion_inventario`, `productos_mas_vendidos` y
+`ventas_por_categoria`, que contaban cotizaciones y borradores como venta.
 
 ### 6.13 Nómina
 `Nomina*Controller` (sueldos, empleados, pagos, ausencias, préstamos, ajustes,

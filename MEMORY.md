@@ -532,6 +532,20 @@ escribiendo precios (Fase 1b).
   `docs/PROYECTO.md` §6.9c. De paso: el modal "Definir tela" (6b92f09) estaba dentro del
   `<Transition>` del de daño y en desarrollo Detalle de la orden no compilaba (en
   producción sí); ahora cada uno tiene el suyo. Tests en `CambioProductoConReemplazoTest`.
+- **Asistente de IA al día y con permisos** (2026-10-26, **sin subir**, rama
+  `claude/update-system-ai-9bce19`, sin migración). Pedido del dueño: que la IA conozca los
+  módulos nuevos, que analice mejor ("¿qué producto fabricar más?" mirando Reportes) y
+  "siempre manteniendo una buena seguridad": **a un vendedor sin acceso a Comisiones no se
+  le responde nada de comisiones** (antes le daba la suya con desglose y le explicaba el
+  pool). Regla única en `Services/Asistente/PermisosAsistente` (herramientas que se le
+  mandan al modelo + revisión al ejecutar + secciones del prompt). Fugas cerradas de paso:
+  fichas técnicas a cualquiera, chat abierto en la API a conductores, órdenes de vendedor
+  sin la regla de la tienda. Nuevas: `analisis_ventas` (mismos métodos de Stats/Reportes),
+  `recomendar_fabricacion` (`QueFabricar`), `consultar_garantias`, `consultar_promociones`.
+  Detalle en `docs/PROYECTO.md` §6.12. No se probó con el modelo real (no hay
+  `OPENAI_API_KEY` aquí). Mismo día, pedido del usuario: `GET /stats/tendencia` aceptaba
+  `vendedor_id` de cualquiera (un vendedor veía la tendencia de otro); ahora solo el
+  supervisor escoge, el vendedor siempre ve lo suyo.
 - Cotizador: Fase 1b (restauración) pendiente; constantes `ESCALA` y `× 0.70`
   en `AgentService` quedaron sin efecto y se pueden limpiar.
 
