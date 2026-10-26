@@ -43,6 +43,8 @@ class PermisosAsistente
         'consultar_variantes_producto',
         'consultar_telas',
         'consultar_promociones',
+        // Son públicos: son lo que se le manda al cliente.
+        'consultar_catalogos',
         // El cotizador de Nueva orden está abierto a todos (calcular-precio-item).
         'cotizar_fabricacion',
         'consultar_ordenes',

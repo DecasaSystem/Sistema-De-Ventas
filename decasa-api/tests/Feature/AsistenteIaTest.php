@@ -417,6 +417,44 @@ class AsistenteIaTest extends TestCase
         $this->assertSame(1, $r['responder_ya']);
     }
 
+    /**
+     * "¿Dónde están los catálogos?" le respondía a un supervisor que no tenía
+     * acceso: no había herramienta y el prompt solo decía cómo negar.
+     */
+    public function test_catalogos_con_su_enlace_y_sin_negarlos(): void
+    {
+        Schema::create('catalogos', function (Blueprint $t) {
+            $t->id(); $t->string('nombre'); $t->string('slug'); $t->text('descripcion')->nullable();
+            $t->string('portada_url')->nullable(); $t->boolean('activo')->default(true);
+            $t->integer('orden')->default(0); $t->timestamps();
+        });
+        Schema::create('catalogo_paginas', function (Blueprint $t) {
+            $t->id(); $t->unsignedBigInteger('catalogo_id'); $t->string('imagen_url')->nullable();
+            $t->integer('orden')->default(0); $t->timestamps();
+        });
+        $id = DB::table('catalogos')->insertGetId(['nombre' => 'Salas 2026', 'slug' => 'salas-2026', 'activo' => true]);
+        DB::table('catalogo_paginas')->insert(['catalogo_id' => $id]);
+        // Sin páginas: el cliente no tiene qué ver, no sale.
+        DB::table('catalogos')->insert(['nombre' => 'Vacío', 'slug' => 'vacio', 'activo' => true]);
+        config(['app.frontend_url' => 'https://app.decasa.test']);
+
+        $supervisor = $this->usuario('supervisor');
+        $this->assertContains('consultar_catalogos', PermisosAsistente::herramientas($this->usuario('vendedor')));
+
+        $r = $this->agente()->ejecutarTool('consultar_catalogos', [], $supervisor);
+        $this->assertSame([['nombre' => 'Salas 2026', 'paginas' => 1, 'enlace' => 'https://app.decasa.test/c/salas-2026']], $r['catalogos_visuales']);
+        $this->assertContains('https://app.decasa.test/catalogo/camas', array_column($r['catalogos_por_categoria'], 'enlace'));
+
+        $camas = $this->agente()->ejecutarTool('consultar_catalogos', ['busqueda' => 'camas'], $supervisor);
+        $this->assertSame(['camas'], array_column($camas['catalogos_por_categoria'], 'categoria'));
+        $this->assertSame([], $camas['catalogos_visuales']);
+
+        // El prompt le dice que lo que no está en la lista no es falta de permiso.
+        $prompt = $this->agente()->promptPara($supervisor);
+        $this->assertStringContainsString('NO es falta de permiso', $prompt);
+        $this->assertStringContainsString('Gestión → Catálogos', $prompt);
+    }
+
     public function test_promociones_con_el_precio_ya_rebajado(): void
     {
         Schema::create('promociones', function (Blueprint $t) {

@@ -537,6 +537,10 @@ Las cifras de costo salen del motor determinístico, nunca del modelo.
 - El prompt se arma por partes: las reglas de un tema solo van si tiene el permiso, y
   le dice qué módulos no tiene para que no improvise.
 - Las órdenes salen con `Orden::visiblesPara` (antes: solo `vendedor_id`).
+- Negar es solo para los módulos de esa lista. Lo demás (p. ej. "¿dónde están los
+  catálogos?") se responde: el prompt trae el mapa del menú, y `consultar_catalogos`
+  da los enlaces (`/c/{slug}` y `/catalogo/{categoria}`). Antes, sin herramienta, el
+  modelo le decía a un supervisor que no tenía acceso (2026-10-26).
 - **Una herramienta nueva hay que agregarla en `PermisosAsistente`** (falla
   `AsistenteIaTest::test_cada_herramienta_definida_tiene_su_permiso` si no).
 

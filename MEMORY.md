@@ -532,7 +532,7 @@ escribiendo precios (Fase 1b).
   `docs/PROYECTO.md` §6.9c. De paso: el modal "Definir tela" (6b92f09) estaba dentro del
   `<Transition>` del de daño y en desarrollo Detalle de la orden no compilaba (en
   producción sí); ahora cada uno tiene el suyo. Tests en `CambioProductoConReemplazoTest`.
-- **Asistente de IA al día y con permisos** (2026-10-26, **sin subir**, rama
+- **Asistente de IA al día y con permisos** (2026-10-26, **subido a `main`** ese día, commits d17e0dc + 8e66a2a, rama
   `claude/update-system-ai-9bce19`, sin migración). Pedido del dueño: que la IA conozca los
   módulos nuevos, que analice mejor ("¿qué producto fabricar más?" mirando Reportes) y
   "siempre manteniendo una buena seguridad": **a un vendedor sin acceso a Comisiones no se
