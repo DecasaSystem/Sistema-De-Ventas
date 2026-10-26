@@ -275,17 +275,37 @@ function usarEjemplo(texto) {
   nextTick(() => inputRef.value?.focus())
 }
 
-// Renderizar texto con saltos de línea y negritas básicas (sanitizado con DOMPurify)
+// Renderizar texto con saltos de línea, negritas básicas y enlaces (sanitizado con DOMPurify).
+// Los enlaces ([Camas](https://…) o una dirección suelta) se apartan antes de las
+// negritas para que un * o un _ de la dirección no la rompa, y se devuelven al
+// final. Solo http(s): nada de javascript: ni otros esquemas.
 function formatearTexto(texto) {
+  const enlaces = []
+  const apartar = (url, etiqueta) => {
+    enlaces.push({ url, etiqueta })
+    return `\u0000${enlaces.length - 1}\u0000`
+  }
   const html = texto
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
+    .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, etiqueta, url) => apartar(url, etiqueta))
+    .replace(/https?:\/\/[^\s<\u0000]*[^\s<\u0000.,;:!?)\]'"]/g, (url) => apartar(url, url))
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
     .replace(/`(.+?)`/g, '<code class="bg-gray-100 px-1 rounded text-xs">$1</code>')
     .replace(/\n/g, '<br>')
-  return DOMPurify.sanitize(html, { ALLOWED_TAGS: ['strong', 'em', 'code', 'br'], ALLOWED_ATTR: ['class'] })
+    .replace(/\u0000(\d+)\u0000/g, (_, i) => {
+      const { url, etiqueta } = enlaces[Number(i)]
+      return `<a href="${url.replace(/"/g, '%22')}" class="text-blue-600 underline break-words">${etiqueta}</a>`
+    })
+  // DOMPurify quita `target` aunque se permita: se le pone después, con valores
+  // fijos, para que el enlace abra aparte y no saque a la persona del chat.
+  return DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: ['strong', 'em', 'code', 'br', 'a'],
+    ALLOWED_ATTR: ['class', 'href'],
+    ALLOWED_URI_REGEXP: /^https?:\/\//i,
+  }).replace(/<a /g, '<a target="_blank" rel="noopener noreferrer" ')
 }
 </script>
 
