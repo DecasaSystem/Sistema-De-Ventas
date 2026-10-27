@@ -15,6 +15,7 @@
 import { ref, computed, nextTick, onMounted } from 'vue'
 import {
   DEFECTO, cargarReglasVigentes, num, divisor, cuentaVenta, cuandoSePaga, laParte, partePagada, mediosConFranquicia,
+  poolDeSiempre, cuentaPool, bonoTexto,
 } from '@/utils/reglasComision'
 import { useRouter } from 'vue-router'
 import {
@@ -54,10 +55,36 @@ const pasos = (v, clave) => conIva.value
   ? `→ ÷ ${div.value} = ${cop(sinIva(v))} → × ${pct(clave)} =`
   : `→ × ${pct(clave)} =`
 
+/**
+ * El pool mensual con las reglas de hoy, renglón por renglón: la misma cuenta
+ * que ComisionController::desglosePool (tramos que suman + bono encima).
+ */
+function poolMensual(ventas, meta) {
+  const R = r.value
+  if (meta <= 0 || ventas < meta) return { lineas: [], total: 0 }
+  const lineas = []
+  if (R.formula_pool === 'tramos') {
+    const tramos = R.tramos_pool ?? []
+    tramos.forEach((t, i) => {
+      const desde = meta * t.desde
+      const hasta = tramos[i + 1] ? meta * tramos[i + 1].desde : null
+      if (ventas <= desde) return
+      const base = (hasta === null ? ventas : Math.min(ventas, hasta)) - desde
+      lineas.push({ texto: `${cop(base)} ${hasta === null ? `por encima del ${num(t.desde)} %` : `entre el ${num(t.desde)} % y el ${num(tramos[i + 1].desde)} %`}${conIva.value ? ` ÷ ${div.value}` : ''} × ${num(t.pct)} %`, monto: sinIva(base) * t.pct })
+    })
+  } else {
+    lineas.push({ texto: `${cop(ventas - meta)} ${pasos(ventas - meta, 'pct_pool').replace(/ =$/, '')}`, monto: sinIva(ventas - meta) * R.pct_pool })
+  }
+  if (Number(R.bono_meta) > 0) lineas.push({ texto: 'Bono por llegar a la meta', monto: Number(R.bono_meta) })
+  return { lineas, total: lineas.reduce((s, l) => s + l.monto, 0) }
+}
+
 /** Los ejemplos, con las cifras de hoy. Los montos de entrada son siempre los mismos. */
 const ej = computed(() => {
   const R = r.value
-  const pool5M   = sinIva(5_000_000) * R.pct_pool
+  // Meta $40 M y $45 M vendidos: con tramos o bono, la cuenta de esa forma.
+  const ejPool   = poolMensual(45_000_000, 40_000_000)
+  const pool5M   = ejPool.total
   const indiv10M = sinIva(10_000_000) * R.pct_individual
   const parteVend = R.compartida_parte_vendedor
   const restBase  = R.iva_en_restauracion ? 2_000_000 / R.iva_divisor : 2_000_000
@@ -69,7 +96,8 @@ const ej = computed(() => {
   const franquicia = 6_000_000 * R.franquicia_pct
   const baseTarjeta = 10_000_000 - franquicia
   return {
-    pool5M, poolCU: pool5M / 3,
+    pool5M, poolCU: pool5M / 3, ejPool,
+    ejPool50: poolMensual(50_000_000, 40_000_000),
     indiv10M,
     parteVend, compartidaVend: 10_000_000 * parteVend, compartidaComp: 10_000_000 * (1 - parteVend),
     compVendCom: sinIva(10_000_000 * parteVend) * R.pct_individual,
@@ -153,7 +181,7 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
         <div class="rounded-lg border border-gray-100 p-3">
           <p class="text-xs font-semibold text-gray-800">Cómo se gana</p>
           <p class="text-[11px] text-gray-500 mt-1 leading-snug">
-            En una tienda con meta, el equipo se reparte el {{ pct('pct_pool') }} de lo que la tienda vende <b>por encima de la meta</b><template v-if="conIva"> (sin IVA)</template>.
+            En una tienda con meta, el equipo se reparte {{ r.formula_pool === 'tramos' ? 'un porcentaje por tramos' : `el ${pct('pct_pool')}` }} de lo que la tienda vende <b>por encima de la meta</b><template v-if="conIva"> (sin IVA)</template><template v-if="Number(r.bono_meta) > 0">, más un bono de {{ bonoTexto(r) }}</template>.
             Sin meta, cada uno cobra el {{ pct('pct_individual') }} de lo suyo.
           </p>
         </div>
@@ -221,7 +249,7 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
           <p>Palabras que salen en toda la pantalla de Comisiones:</p>
           <dl class="space-y-2">
             <div><dt>Meta</dt><dd>Lo que una tienda tiene que vender en el mes. Se pone en Comisiones → Metas.</dd></div>
-            <div><dt>Pool</dt><dd>La plata que gana el equipo de una tienda cuando pasa la meta: el {{ pct('pct_pool') }} de lo vendido por encima de la meta<template v-if="conIva">, sin IVA</template>.</dd></div>
+            <div><dt>Pool</dt><dd>La plata que gana el equipo de una tienda cuando pasa la meta: {{ r.formula_pool === 'tramos' ? 'un porcentaje por tramos' : `el ${pct('pct_pool')}` }} de lo vendido por encima de la meta<template v-if="conIva">, sin IVA</template><template v-if="Number(r.bono_meta) > 0">, más un bono de {{ bonoTexto(r) }}</template>.</dd></div>
             <div v-if="conIva"><dt>÷ {{ div }}</dt><dd>Los precios traen IVA. Antes de sacar el porcentaje de una <b>venta</b> se le quita el IVA (se divide entre {{ div }}). A una restauración {{ r.iva_en_restauracion ? 'también' : 'no' }} se le quita.</dd></div>
             <div v-if="mismoPago"><dt>El {{ pct('req_pagado_pct') }}</dt><dd>Una venta solo cuenta (para la meta y para cobrar) cuando el cliente ya pagó al menos {{ mitadCobro }} de la orden.</dd></div>
             <div v-else><dt>Lo pagado</dt><dd>Una venta suma a la meta cuando el cliente pagó {{ mitadMeta }} de la orden, y se cobra cuando pagó {{ mitadCobro }}.</dd></div>
@@ -262,13 +290,20 @@ const titulo = id => SECCIONES.find(s => s.id === id)?.titulo
         <!-- ── Tienda con meta ──────────────────────────────────────────── -->
         <template v-else-if="s.id === 'meta'">
           <p>En una tienda con meta que <b>comparte</b> la comisión, la comisión no es de cada venta sino de la <b>tienda</b>: el equipo se reparte lo que la tienda vende por encima de la meta.</p>
-          <div class="formula">Pool = (ventas de la tienda − meta) {{ cuenta('pct_pool') }}</div>
+          <div class="formula">Pool = (ventas de la tienda − meta) {{ cuentaPool(r, { espacio: true }) }}</div>
+          <p v-if="r.formula_pool === 'tramos'">Por tramos: cada tramo paga su porcentaje solo sobre lo que se vendió dentro de él. Pasar a un tramo más alto no cambia lo que ya se ganó en los de abajo.</p>
+          <p v-if="Number(r.bono_meta) > 0">El mes que la tienda llega a la meta, el equipo se lleva además un <b>bono de {{ bonoTexto(r) }}</b>, que se reparte igual que el pool.</p>
           <div class="ejemplo">
             <p class="ej-titulo">Ejemplo</p>
             <p>Meta $40.000.000. La tienda vendió $45.000.000 (con {{ pagadaMeta }}).</p>
-            <p>Por encima de la meta: $5.000.000 {{ pasos(5_000_000, 'pct_pool') }} <b>{{ cop(ej.pool5M) }}</b> de pool.</p>
+            <p v-if="poolDeSiempre(r)">Por encima de la meta: $5.000.000 {{ pasos(5_000_000, 'pct_pool') }} <b>{{ cop(ej.pool5M) }}</b> de pool.</p>
+            <template v-else>
+              <p v-for="(l, i) in ej.ejPool.lineas" :key="i">{{ l.texto }} = {{ cop(l.monto) }}</p>
+              <p>Pool: <b>{{ cop(ej.pool5M) }}</b>.<template v-if="r.formula_pool === 'tramos'"> Con $50.000.000 serían {{ cop(ej.ejPool50.total) }}.</template></p>
+            </template>
             <p>Tres personas en el equipo todo el mes: <b>{{ cop(ej.poolCU) }}</b> cada una.</p>
           </div>
+          <p v-if="!poolDeSiempre(r)" class="nota">Los tramos y el bono son solo de las tiendas que liquidan cada mes. En las trimestrales el pool es {{ cuenta('pct_pool') }} sobre lo que pasa de la meta.</p>
           <p><b>Todos cobran lo mismo</b> ({{ porDias ? 'según los días que estuvieron' : 'en partes iguales, sin mirar los días' }}), venda cada uno mucho, poco o nada. Quien no vendió nada ese mes también cobra su parte: sale en un renglón "parte del equipo".</p>
           <p><b>Lo pagado se mira en la tienda, no en cada persona.</b> Para la meta y para el pool solo cuentan las ventas cuyo cliente ya pagó {{ mitadMeta }}, las venda quien las venda.</p>
           <div v-if="r.meta_req_pagado_pct === 0.5" class="ejemplo">

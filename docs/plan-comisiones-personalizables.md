@@ -2,8 +2,9 @@
 
 Estado: **Fase 0 hecha y subida a `main` (2026-10-27, commit 7e51c47, sin migración)**;
 **Fases 1 y 2 hechas y subidas a `main` (2026-10-27, commit 12d38e3, traen migración)**;
-**Fase 4 hecha (2026-10-27, commit 55f6b86, sin subir)**; **Fase 3 (textos) hecha (2026-10-27, sin
-subir, sin migración)**.
+**Fases 4 y 3 hechas y subidas a `main` (2026-10-27, commits 55f6b86 y 8723ad8, sin migración)**.
+Queda solo lo que el dueño dejó para después (§9): fórmula del pool por tramos o con bono, y
+forzar el cobro individual por persona.
 Decisiones del dueño en el §8. Pedido del dueño: "que sea
 personalizado… ahora es algo fijo que yo hago en el código; que sea totalmente
 personalizable por si algún día cambian el funcionamiento de todo, sin dañar nada".
@@ -215,7 +216,7 @@ dentro del SUM, por fila, o agrupar por la expresión).
 el mes M cambia M y lo siguiente, no cambia M−1, no cambia lo pagado, y el pago guarda
 la foto.
 
-*Cómo quedó (2026-10-27, sin subir):* migración `2026_11_02_000001_reglas_de_comision`
+*Cómo quedó (2026-10-27):* migración `2026_11_02_000001_reglas_de_comision`
 (crea `comision_reglas`, agrega `comisiones.reglas_usadas` y `usuarios.acceso_reglas_comision`;
 solo agrega). `ReglasComision::valor()` lee la tabla una vez por petición: por nivel
 (persona > tienda > general) la última fila con `desde_mes` ≤ mes de la venta; una fila
@@ -234,7 +235,7 @@ clave/alcance/desde; valida tipo, rango, nivel permitido y la tienda o persona),
 **Fase 2 — Pantalla de Reglas + simulador + bitácora.** Incluye el interruptor del
 permiso "Reglas de comisión" en la ficha del trabajador (el backend ya lo acepta).
 
-*Cómo quedó (2026-10-27, sin subir, sin migración nueva):* `ReglasComisionView`
+*Cómo quedó (2026-10-27, sin migración nueva):* `ReglasComisionView`
 (`/comisiones/reglas`, botón "Reglas" en Comisiones; la ve quien tiene Comisiones, en
 solo lectura sin el permiso). Reglas por grupo (`ReglasComision::GRUPOS`) con el valor de
 hoy, "Cambiada" si no es el de siempre, y la historia de cambios (para todos, tiendas,
@@ -251,7 +252,7 @@ sacados del backend.
 
 **Fase 3 — Textos desde las reglas** (Ayuda, desglose, Excel, asistente).
 
-*Cómo quedó (2026-10-27, sin subir, sin migración):* `GET /comisiones/reglas/vigentes?mes=`
+*Cómo quedó (2026-10-27, commit 8723ad8, sin migración):* `GET /comisiones/reglas/vigentes?mes=`
 da lo que rige ese mes (`general` = `ReglasComision::foto`) y las excepciones de tienda y
 persona (`ReglasComision::excepcionesDelMes`, con nombre y valor en palabras). Quien no tiene
 Comisiones recibe la general sin excepciones: la Ayuda es de todos, pero a quién se le paga
@@ -270,8 +271,8 @@ Límite conocido: en una trimestral los textos usan las reglas del mes que se mi
 las del último mes del trimestre; si una regla cambia a mitad de trimestre, el texto puede
 quedar un mes atrás (la cifra no). Pruebas en `ReglasDeComisionTest` (vigentes y asistente).
 
-**Fase 4 — Los repartos como opciones** (diseño 2026-10-27; **hecha el 2026-10-27, sin
-subir, sin migración nueva**: piezas 1–7 menos la 8 y la 9, que el dueño dejó para después;
+**Fase 4 — Los repartos como opciones** (diseño 2026-10-27; **hecha y subida el 2026-10-27,
+commit 55f6b86, sin migración nueva**: piezas 1–7 menos la 8 y la 9, que el dueño dejó para después;
 ver §9).
 
 *Cómo quedó:* reglas nuevas `bolson_modo` y `entra_al_bolson` (`ComisionIndependientes::delMes`),
@@ -361,3 +362,120 @@ Se hacen (todas con lo de hoy como valor por defecto):
 
 No se hacen por ahora: **fórmula del pool por tramos o bono** (pieza 8) y **forzar el cobro
 individual por persona** (pieza 9). Quién decide: el mismo permiso "Reglas de comisión".
+
+## 10. Diseño: pool por tramos o con bono fijo (pieza 8, 2026-10-27, sin programar)
+
+Pedido del dueño ese día: "diseña el pool por tramos o con bono fijo y dime qué decisiones
+necesitas". **No está programado**; esto es el diseño para que el dueño decida.
+
+### Qué hay hoy
+
+Todo pool sale de una sola cuenta: `ComisionController::ventasAPool(excedente)` =
+(ventas que cuentan − meta) ÷ 1,19 × 5 %. La llaman cinco sitios: el libro del pool mensual
+(`libroDelPool`), el renglón de cada comisión (`enriquecer`), el trimestre
+(`cargarPoolsTrimestrales` y el trimestre viejo en `enriquecer`) y la cuenta del trimestre en
+pantalla. La deuda de un trimestre se guarda **en pesos de pool** (`tienda_trimestres.deficit_*`)
+y `poolAVentas` la vuelve "ventas que faltan" con la misma cuenta al revés. Eso solo funciona
+porque la cuenta es una recta: con tramos o bono deja de tener un "al revés".
+
+### La idea
+
+Una regla más, de tipo opción y por tienda (hereda fecha, simulador, foto al pagar,
+bitácora y permiso):
+
+| Regla | Tipo | Opciones (la primera es la de hoy) |
+|---|---|---|
+| `formula_pool` | opción, general/tienda | `excedente` (hoy) · `tramos` · `bono` |
+| `tramos_pool` | tipo nuevo **tramos**: lista de {desde % de la meta, %}, general/tienda | por defecto [{100 %, 5 %}] = lo de hoy |
+| `bono_meta` | tipo nuevo **pesos**, general/tienda | por defecto 0 |
+
+`ventasAPool` pasa a `poolDe(ventas, meta, tienda, mes)`, que mira `formula_pool`:
+- `excedente`: exactamente la cuenta de hoy (la prueba diferencial lo tiene que dar idéntico).
+- `tramos`: cada tramo paga su % (÷ 1,19) sobre lo que cae dentro de él.
+- `bono`: un monto fijo al equipo al llegar a la meta.
+
+Lo que **no** cambia, en ninguna opción: sin meta cumplida el pool es $0, la meta y el pool
+se miden con lo que tiene el 50 % pagado, todo a nivel tienda, y el pool se reparte con
+`reparto_pool` (por días o iguales). Las tres condiciones para cobrar quedan igual (dueño:
+"no cambian nunca"). Por eso los tramos empiezan en el 100 % de la meta: un tramo "por
+debajo de la meta" rompería la condición 3 y no se ofrece.
+
+### Ejemplos (meta $40 M)
+
+| La tienda llevó (con el 50 %) | Hoy (excedente al 5 %) | Tramos que suman (100–120 % al 5 %, >120 % al 6 %) | Tramos en escalón (al pasar 120 %, todo al 6 %) | Bono $300.000 | Bono + excedente |
+|---|---|---|---|---|---|
+| $39,9 M | $0 | $0 | $0 | $0 | $0 |
+| $47,6 M (119 %) | $319.328 | $319.328 | $319.328 | $300.000 | $619.328 |
+| $48,0 M (120 %) | $336.134 | $336.134 | **$403.361** | $300.000 | $636.134 |
+| $50,0 M (125 %) | $420.168 | $436.975 | $504.202 | $300.000 | $720.168 |
+
+El escalón da un salto: vender $400.000 más (de 119 % a 120 %) sube el pool $84.000. Los
+tramos que suman no saltan. Es la primera decisión.
+
+### Dónde se nota
+
+- **Cálculo:** `poolDe` en los cinco sitios. En vivo (no guarda nada por renglón), así que el
+  simulador lo muestra al instante.
+- **Pantallas de avance** (Reportes, Estadísticas, Toda la tienda): hoy dicen "¡Meta
+  alcanzada!" y "te falta $X". Con tramos pueden decir "te faltan $X para el 6 %".
+- **Textos** (Ayuda, desglose, totales, Excel, asistente): la cuenta del pool deja de ser
+  "÷ 1,19 × 5 %"; cada uno escribe los tramos o el bono (lo de la Fase 3 se amplía).
+- **Pantalla de Reglas:** dos editores nuevos (lista de tramos, monto en pesos) con
+  validación: tramos en orden, el primero en 100 %, % entre 0 y 20.
+- **Trimestrales:** la deuda guardada en pesos de pool no se puede volver ventas con tramos
+  ni con bono (ver decisión 3).
+
+### Cómo se haría sin dañar nada
+
+Mismo método que la Fase 4: `poolDe` con `excedente` primero y prueba diferencial idéntica
+con la tabla vacía y con la regla en su valor de hoy; luego `tramos`, luego `bono`, cada uno
+con sus pruebas y cifras sacadas a mano (las de la tabla de arriba). Sin migración: las
+reglas nuevas son filas de `comision_reglas`.
+
+### Decisiones que necesito del dueño
+
+1. **Tramos: ¿suman o escalón?** Que cada tramo pague su % solo sobre lo que cae en él
+   (recomendado: sin saltos), o que al pasar un tramo todo el excedente se pague con el %
+   de ese tramo (más premio, pero con el salto de la tabla).
+2. **Bono: ¿en vez del excedente o encima?** Solo el monto fijo, o el monto fijo más el
+   pool de siempre. Y ¿un solo bono al llegar a la meta, o un bono por escalón (100 % →
+   $200.000, 120 % → $400.000)?
+3. **Tiendas trimestrales: ¿también o solo mensuales?** Recomendado: primero solo mensuales
+   (la regla no se deja poner en una trimestral). Para las trimestrales habría que guardar
+   la deuda en ventas y no en pesos de pool, lo que cambia cómo se ve la deuda de los
+   trimestres ya liquidados.
+4. **El bono, ¿es para el equipo o por persona?** Un monto fijo que se reparte (por días o
+   iguales, como el pool), o un monto por cada integrante (el equipo más grande cuesta más).
+5. **¿Las pantallas de avance muestran el siguiente tramo?** ("te faltan $1,6 M para el 6 %").
+   Recomendado sí: es lo que hace que el tramo motive.
+
+### Lo que decidió el dueño (2026-10-27)
+
+1. **Los tramos suman**: cada tramo paga su % solo sobre lo que cae en él (sin saltos).
+2. **El bono va encima del pool**: el pool de siempre (o por tramos) más el monto fijo.
+3. **El bono es para el equipo**: un monto que se reparte como el pool (por días o iguales).
+4. **Solo tiendas mensuales**: la regla no se deja poner en una tienda trimestral; las
+   trimestrales siguen con el pool de siempre.
+5. No se preguntó: se toma lo recomendado (las pantallas de avance muestran el siguiente
+   tramo), y se puede quitar si no le gusta.
+
+Con eso el diseño queda más simple: `formula_pool` = `excedente` (hoy) · `tramos`, y
+`bono_meta` (pesos, 0 = sin bono) se suma aparte en cualquiera de las dos, solo cuando la
+tienda llega a la meta. Ejemplo (meta $40 M, tramos 100–120 % al 5 % y >120 % al 6 %, bono
+$300.000): con $50 M → $436.975 + $300.000 = $736.975 para el equipo; con $39,9 M → $0.
+
+### Cómo quedó (2026-10-27, sin subir, sin migración)
+
+Reglas nuevas en el grupo "Pool de la tienda": `formula_pool` (opción `excedente` · `tramos`),
+`tramos_pool` (tipo nuevo `tramos`) y `bono_meta` (tipo nuevo `pesos`). Por defecto: excedente,
+un tramo [100 %: 5 %] y bono $0, o sea lo de siempre. El pool mensual sale de
+`ComisionController::poolDe` / `desglosePool` (en `libroDelPool` y en `enriquecer`); las
+trimestrales siguen con `ventasAPool` y la regla no se deja poner en una tienda trimestral
+(422). Validación: el primer tramo en 100 %, hasta 6, entre 100 % y 500 % de la meta, cada uno
+entre 0 % y 20 %; bono entre $0 y $100 M. Pantallas: editor de tramos y casilla en pesos en
+Reglas; "Toda la tienda" muestra un renglón por tramo, el bono y cuánto falta para el siguiente
+tramo (el servidor manda `pool.cuenta` solo si la tienda usa tramos o bono); detalle de la
+comisión, Ayuda, Excel y asistente (`cuentaDelPoolTexto`, `siguiente_tramo`) lo escriben.
+Pruebas en `ReglasDeComisionTest` con las cifras de la tabla. Prueba diferencial con la tabla
+vacía y con las reglas en su valor de hoy: ningún monto cambia (solo textos de la Fase 3 y los
+campos agregados a propósito).

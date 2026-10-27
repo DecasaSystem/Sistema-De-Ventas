@@ -400,16 +400,25 @@ escribiendo precios (Fase 1b).
   Reglas con simulador y el interruptor "Reglas de comisión" en la ficha del trabajador.
   **Al subir, nadie tiene el permiso**: el primero lo da un supervisor con acceso a Comisiones
   (después, solo quien ya lo tiene).
-  **Fase 4 hecha el 2026-10-27, sin subir** (sin migración): repartos como reglas de tipo
+  **Fase 4 hecha y subida a `main` el 2026-10-27** (commit 55f6b86, sin migración): repartos como reglas de tipo
   opción (bolsón cada uno/se reparte y quién entra, pool por días/iguales, restauración
   iguales/autor primero, restauraciones como ventas por tienda, no arrastrar deuda trimestral,
   compartida por tienda/persona). Con "restauraciones como ventas" la restauración entra al pool (÷1,19) y deja de pagarse
   aparte, para no pagar doble (confirmado por el dueño el 2026-10-27). Tramos/bono del pool y forzar cobro individual: el dueño dijo "no por ahora".
+  El 2026-10-27 pidió el diseño del pool por tramos o bono: está en el §10 del plan (sin
+  programar). Decisiones del dueño ese día: los tramos **suman** (cada uno paga su % sobre lo
+  que cae en él, sin saltos), el bono va **encima** del pool y es **para el equipo** (se reparte
+  como el pool), y **solo en tiendas mensuales** (las trimestrales guardan la deuda en pesos de
+  pool, que con tramos no se puede volver ventas). Los tramos empiezan en el 100 % de la meta:
+  pagar pool por debajo de la meta rompería una de las 3 condiciones que "no cambian nunca".
+  Programado el mismo día (sin subir, sin migración), apagado por defecto: `poolDe` /
+  `desglosePool` para el pool mensual, la regla no se deja poner en una tienda trimestral.
+  Prueba diferencial sin cambio de montos.
   Trampa: el simulador no muestra reglas que cambian lo guardado en cada renglón
   (`ReglasComision::SE_VEN_AL_RECALCULAR`); avisa y se ven tras el recálculo.
   El dueño confirmó la semántica de "restauraciones como ventas" (2026-10-27) y la Fase 4 quedó
-  en el commit 55f6b86 (sin push).
-  **Fase 3 hecha el 2026-10-27, sin subir, sin migración**: Ayuda, desglose, totales de la tienda,
+  en el commit 55f6b86.
+  **Fase 3 hecha y subida a `main` el 2026-10-27** (commit 8723ad8, sin migración): Ayuda, desglose, totales de la tienda,
   detalle de la comisión, Excel y asistente leen las reglas (`GET /comisiones/reglas/vigentes`,
   `utils/reglasComision.js`). Con las reglas de siempre dicen lo mismo que antes; no cambió
   ningún cálculo. Un texto nuevo con una cifra de regla (5 %, ÷ 1,19, 50 %, día 20) se escribe con

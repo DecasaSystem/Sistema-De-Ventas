@@ -784,6 +784,22 @@ class ComisionController extends Controller
         return "÷ {$divisor} × {$pct}";
     }
 
+    /**
+     * La cuenta del pool MENSUAL en palabras: "÷ 1,19 × 5%" de siempre, o por
+     * tramos, y con el bono si la tienda lo tiene (pieza 8).
+     */
+    public static function cuentaDelPoolTexto(string $mes, ?int $tiendaId): string
+    {
+        $texto = ReglasComision::valor('formula_pool', $mes, $tiendaId) === 'tramos'
+            ? 'por tramos (' . ReglasComision::valorTexto('tramos_pool', ReglasComision::valor('tramos_pool', $mes, $tiendaId))
+                . '; cada tramo paga su porcentaje solo sobre lo que cae en él'
+                . (ReglasComision::si('iva_en_venta', $mes, $tiendaId) ? ', sin IVA' : '') . ')'
+            : self::cuentaDeVenta('pct_pool', $mes, $tiendaId);
+        $bono = (float) ReglasComision::valor('bono_meta', $mes, $tiendaId);
+
+        return $bono > 0 ? $texto . ' + un bono de ' . ReglasComision::valorTexto('bono_meta', $bono) . ' para el equipo' : $texto;
+    }
+
     /** "el 20 del mes siguiente", con el día y la espera que rigen ese mes. */
     private static function cuandoSePagaTexto(string $mes, ?int $tiendaId): string
     {
@@ -871,6 +887,12 @@ class ComisionController extends Controller
             'ya_alcanzo_la_meta' => $cuenta >= $meta,
             'le_falta_vender'    => round(max(0, $meta - $cuenta)),
             'pool_del_mes'       => round($pool),
+            // Por tramos: cuánto le falta para el siguiente (null si no aplica).
+            'siguiente_tramo'    => (function () use ($cuenta, $meta, $tiendaId, $mes) {
+                $s = self::desglosePool($cuenta, $meta, $tiendaId, $mes)['siguiente'];
+
+                return $s ? ['porcentaje' => self::pctTexto($s['pct']), 'le_falta_vender' => round($s['falta'])] : null;
+            })(),
             'asesores_que_reparten' => count($pesos) ?: (isset($metas[$clave]) ? max(1, (int) $metas[$clave]->divisor_asesores) : 1),
             'reparto' => collect($pesos)->map(fn ($peso, $vid) => [
                 'nombre' => $nombres[$vid] ?? '—',
@@ -879,7 +901,7 @@ class ComisionController extends Controller
             ])->values()->all(),
             'nota' => 'El pool es (lo que tiene el '
                     . self::pctTexto(ReglasComision::numero('meta_req_pagado_pct', $mes, $tiendaId)) . ' pagado − la meta) '
-                    . self::cuentaDeVenta('pct_pool', $mes, $tiendaId) . ', repartido entre el equipo '
+                    . self::cuentaDelPoolTexto($mes, $tiendaId) . ', repartido entre el equipo '
                     . (ReglasComision::valor('reparto_pool', $mes, $tiendaId) === 'iguales'
                         ? 'en partes iguales.' : 'según los días que estuvo cada quien.')
                     . (ReglasComision::si('restauracion_suma_meta', $mes, $tiendaId)
@@ -2202,6 +2224,20 @@ class ComisionController extends Controller
                 ])->sortByDesc('dias')->values()->all();
                 $pool['dias_total'] = round((float) array_sum($dias), 1);
                 $pool['reparto_modo'] = ReglasComision::valor('reparto_pool', $mesPool, $tiendaPool);
+
+                // Por tramos o con bono (pieza 8): la cuenta renglón por
+                // renglón y cuánto falta para el siguiente tramo. Con el pool
+                // de siempre no se manda: la pantalla pinta "÷ 1,19 × 5 %".
+                $cuenta = self::desglosePool((float) $filaPool['total_tienda_mes'], (float) $filaPool['meta_tienda'], $tiendaPool, $mesPool);
+                $conBono = in_array('bono', array_column($cuenta['lineas'], 'tipo'), true);
+                if ($cuenta['formula'] !== 'excedente' || $conBono || (float) ReglasComision::valor('bono_meta', $mesPool, $tiendaPool) > 0) {
+                    $pool['cuenta'] = [
+                        'formula'   => $cuenta['formula'],
+                        'lineas'    => array_map(fn ($l) => array_merge($l, ['base' => round($l['base']), 'monto' => round($l['monto'])]), $cuenta['lineas']),
+                        'siguiente' => $cuenta['siguiente'] ? ['falta' => round($cuenta['siguiente']['falta'])] + $cuenta['siguiente'] : null,
+                        'bono'      => (float) ReglasComision::valor('bono_meta', $mesPool, $tiendaPool),
+                    ];
+                }
 
                 // Quién cubrió a quién y cuándo, para ubicar las ventas de esos días.
                 $inicio = Carbon::parse($mesPool . '-01')->startOfMonth()->toDateString();
@@ -3822,6 +3858,73 @@ class ComisionController extends Controller
         return ReglasComision::sinIva($ventas, false, $mes, $tiendaId) * ReglasComision::numero('pct_pool', $mes, $tiendaId);
     }
 
+    /**
+     * El pool de una tienda MENSUAL en un mes, con las reglas de ese mes.
+     *
+     * Sin meta cumplida, $0 (una de las tres condiciones que no cambian).
+     * Con la fórmula de siempre es exactamente ventasAPool(ventas − meta);
+     * por tramos, cada tramo paga su % sobre lo que cae en él; y el bono, si
+     * hay, va encima (pieza 8, dueño 2026-10-27). Las trimestrales no pasan
+     * por aquí: su deuda se guarda en pesos de pool y sigue la cuenta de
+     * siempre (cargarPoolsTrimestrales).
+     */
+    public static function poolDe(float $ventas, float $meta, int $tiendaId, string $mes): float
+    {
+        // (float): sin meta cumplida tiene que dar 0.0 como antes, no el 0 entero de array_sum.
+        return (float) array_sum(array_column(self::desglosePool($ventas, $meta, $tiendaId, $mes)['lineas'], 'monto'));
+    }
+
+    /**
+     * La cuenta del pool mensual renglón por renglón, para pagarlo (poolDe) y
+     * para explicarlo en pantalla: un renglón por tramo que tocó (o uno solo
+     * con la fórmula de siempre) y el bono. `siguiente` dice cuánto falta para
+     * el próximo tramo, o null.
+     *
+     * @return array{formula: string, lineas: list<array{tipo: string, desde: float, hasta: ?float, base: float, pct: float, monto: float}>, siguiente: ?array{desde: float, pct: float, falta: float}}
+     */
+    public static function desglosePool(float $ventas, float $meta, int $tiendaId, string $mes): array
+    {
+        $formula = ReglasComision::valor('formula_pool', $mes, $tiendaId);
+        $out = ['formula' => $formula, 'lineas' => [], 'siguiente' => null];
+        $cumplida = $meta > 0 && $ventas >= $meta;
+
+        if ($formula !== 'tramos') {
+            if ($cumplida) {
+                $out['lineas'][] = [
+                    'tipo' => 'excedente', 'desde' => 1.0, 'hasta' => null, 'base' => $ventas - $meta,
+                    'pct' => ReglasComision::numero('pct_pool', $mes, $tiendaId),
+                    'monto' => self::ventasAPool($ventas - $meta, $tiendaId, $mes),
+                ];
+            }
+        } else {
+            $tramos = (array) ReglasComision::valor('tramos_pool', $mes, $tiendaId);
+            foreach ($tramos as $i => $t) {
+                $desde = $meta * (float) $t['desde'];
+                $hasta = isset($tramos[$i + 1]) ? $meta * (float) $tramos[$i + 1]['desde'] : null;
+                if ($cumplida && $ventas > $desde) {
+                    $base = ($hasta === null ? $ventas : min($ventas, $hasta)) - $desde;
+                    $out['lineas'][] = [
+                        'tipo' => 'tramo', 'desde' => (float) $t['desde'],
+                        'hasta' => isset($tramos[$i + 1]) ? (float) $tramos[$i + 1]['desde'] : null,
+                        'base' => $base, 'pct' => (float) $t['pct'],
+                        'monto' => ReglasComision::sinIva($base, false, $mes, $tiendaId) * (float) $t['pct'],
+                    ];
+                } elseif ($meta > 0 && $ventas < $desde && $out['siguiente'] === null && $desde > $meta) {
+                    // El primer tramo que todavía no alcanza (el de la meta lo
+                    // dice ya "le falta para la meta").
+                    $out['siguiente'] = ['desde' => (float) $t['desde'], 'pct' => (float) $t['pct'], 'falta' => $desde - $ventas];
+                }
+            }
+        }
+
+        $bono = (float) ReglasComision::valor('bono_meta', $mes, $tiendaId);
+        if ($cumplida && $bono > 0) {
+            $out['lineas'][] = ['tipo' => 'bono', 'desde' => 1.0, 'hasta' => null, 'base' => 0.0, 'pct' => 0.0, 'monto' => $bono];
+        }
+
+        return $out;
+    }
+
     /** Al revés: pesos de pool (una deuda de trimestre) → ventas que hay que hacer. */
     private static function poolAVentas(float $pesos, int $tiendaId, string $mes): float
     {
@@ -4439,9 +4542,7 @@ class ComisionController extends Controller
         $this->abonadoQueCuenta ??= self::abonadoPorTienda(true);
         $ventas += (float) ($this->abonadoQueCuenta[$clave] ?? 0);
 
-        $pool = ($meta > 0 && $ventas >= $meta)
-            ? self::ventasAPool($ventas - $meta, $tiendaId, $mes)
-            : 0.0;
+        $pool = self::poolDe($ventas, $meta, $tiendaId, $mes);
 
         return $this->libros[$clave] = ['ventas' => $ventas, 'pool' => $pool, 'personas' => $personas];
     }
@@ -4885,8 +4986,9 @@ class ComisionController extends Controller
             // La meta se compara contra el total de la tienda (no del vendedor)
             $metaCumplida = $meta > 0 && $totalTienda >= $meta;
 
-            // Pool de comisión de la tienda = (ventas_tienda - meta) / 1.19 × 5%
-            $comisionPool = $metaCumplida ? self::ventasAPool($totalTienda - $meta, (int) $c->tienda_id, $c->mes_venta) : 0;
+            // Pool de comisión de la tienda = (ventas_tienda - meta) / 1.19 × 5%,
+            // o por tramos y con bono si la tienda lo tiene (poolDe).
+            $comisionPool = $metaCumplida ? self::poolDe((float) $totalTienda, (float) $meta, (int) $c->tienda_id, $c->mes_venta) : 0;
         }
 
         // Comisión de cada asesor: su parte del pool.

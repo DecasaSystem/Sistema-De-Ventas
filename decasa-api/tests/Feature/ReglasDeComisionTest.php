@@ -471,6 +471,94 @@ class ReglasDeComisionTest extends TestCase
         $this->assertSame('2026-11-05', DB::table('comisiones')->where('orden_id', $id)->value('fecha_disponible'));
     }
 
+    // ── Pieza 8: pool por tramos y bono (dueño, 2026-10-27) ──────────────
+
+    /** Norte (meta 40 M, Paola sola en el equipo) vende $50 M, pagados. Lo que le toca a Paola. */
+    private function poolDeNorteCon(float $vendido): float
+    {
+        Carbon::setTestNow('2026-11-21 10:00:00');
+        $id = $this->orden(self::PAOLA, self::NORTE, $vendido, [['efectivo', $vendido]]);
+
+        return (float) $this->porOrden()[$id]['monto_comision'];
+    }
+
+    public function test_pool_de_siempre_con_la_formula_por_defecto(): void
+    {
+        // 10.000.000 ÷ 1,19 × 5 % = 420.168
+        $this->assertEquals(420_168, $this->poolDeNorteCon(50_000_000));
+    }
+
+    public function test_pool_por_tramos_que_suman(): void
+    {
+        $this->regla('formula_pool', 'tramos', '2026-10', 'tienda', self::NORTE);
+        $this->regla('tramos_pool', [['desde' => 1, 'pct' => 0.05], ['desde' => 1.2, 'pct' => 0.06]], '2026-10', 'tienda', self::NORTE);
+
+        // 40–48 M al 5 %: 8.000.000 ÷ 1,19 × 5 % = 336.134,45
+        // 48–50 M al 6 %: 2.000.000 ÷ 1,19 × 6 % = 100.840,34  → 436.975
+        $this->assertEquals(436_975, $this->poolDeNorteCon(50_000_000));
+
+        $d = ComisionController::desglosePool(47_600_000, 40_000_000, self::NORTE, self::MES);
+        $this->assertCount(1, $d['lineas']);
+        $this->assertEquals(0.06, $d['siguiente']['pct']);
+        $this->assertEquals(400_000, $d['siguiente']['falta']);   // le faltan $400.000 para el 6 %
+
+        // El asistente lo explica por tramos.
+        $this->assertStringContainsString('por tramos', app(ComisionController::class)->avanceMetaParaAgente(self::NORTE, self::MES)['nota']);
+    }
+
+    public function test_el_resumen_de_la_tienda_trae_la_cuenta_solo_con_tramos_o_bono(): void
+    {
+        $resumenNorte = function () {
+            foreach (app(ComisionController::class)->resumenDelMes(self::MES) as $f) {
+                if ((int) $f['vendedor_id'] === self::PAOLA) return $f['resumen_tienda']['pool'] ?? null;
+            }
+        };
+
+        $this->poolDeNorteCon(50_000_000);
+        $this->assertArrayNotHasKey('cuenta', $resumenNorte());   // el pool de siempre: nada nuevo
+
+        $this->regla('formula_pool', 'tramos', '2026-10', 'tienda', self::NORTE);
+        $this->regla('tramos_pool', [['desde' => 1, 'pct' => 0.05], ['desde' => 1.2, 'pct' => 0.06]], '2026-10', 'tienda', self::NORTE);
+        $this->regla('bono_meta', 300_000, '2026-10', 'tienda', self::NORTE);
+        $cuenta = $resumenNorte()['cuenta'];
+        $this->assertSame(['tramo', 'tramo', 'bono'], array_column($cuenta['lineas'], 'tipo'));
+        $this->assertEquals([336_134, 100_840, 300_000], array_column($cuenta['lineas'], 'monto'));
+    }
+
+    public function test_el_bono_va_encima_y_solo_con_la_meta_cumplida(): void
+    {
+        $this->regla('bono_meta', 300_000, '2026-10', 'tienda', self::NORTE);
+
+        // 420.168 del pool + 300.000 de bono.
+        $this->assertEquals(720_168, $this->poolDeNorteCon(50_000_000));
+        // Sin llegar a la meta no hay pool ni bono.
+        $this->assertEquals(0, ComisionController::poolDe(39_900_000, 40_000_000, self::NORTE, self::MES));
+        // Justo en la meta: sin excedente, solo el bono.
+        $this->assertEquals(300_000, ComisionController::poolDe(40_000_000, 40_000_000, self::NORTE, self::MES));
+    }
+
+    public function test_tramos_que_no_sirven_y_tiendas_trimestrales_se_frenan(): void
+    {
+        Carbon::setTestNow('2026-10-26 10:00:00');
+        $jefe = Usuario::find(self::JEFE);
+        $tramos = fn (array $t) => ['clave' => 'tramos_pool', 'alcance' => 'general', 'valor' => $t, 'desde_mes' => '2026-11'];
+
+        // Por debajo de la meta no hay pool: el primero empieza en el 100 %.
+        $this->actingAs($jefe)->postJson('/api/comisiones/reglas', $tramos([['desde' => 0.8, 'pct' => 0.03], ['desde' => 1, 'pct' => 0.05]]))
+            ->assertStatus(422)->assertJsonPath('message', 'El primer tramo empieza en el 100 % de la meta.');
+        $this->actingAs($jefe)->postJson('/api/comisiones/reglas', $tramos([['desde' => 1, 'pct' => 0.5]]))->assertStatus(422);
+        $this->actingAs($jefe)->postJson('/api/comisiones/reglas', $tramos([['desde' => 1, 'pct' => 0.05], ['desde' => 1.2, 'pct' => 0.06]]))
+            ->assertStatus(201);
+
+        // En una tienda que liquida por trimestre, no.
+        Schema::table('tiendas', fn (Blueprint $t) => $t->string('comision_periodicidad')->default('mensual'));
+        DB::table('tiendas')->where('id', self::FERIA)->update(['comision_periodicidad' => 'trimestral']);
+        ComisionController::olvidarPeriodicidades();
+        $this->actingAs($jefe)->postJson('/api/comisiones/reglas', [
+            'clave' => 'bono_meta', 'alcance' => 'tienda', 'alcance_id' => self::FERIA, 'valor' => 300_000, 'desde_mes' => '2026-11',
+        ])->assertStatus(422);
+    }
+
     // ── Fase 3: los textos dicen lo que rige ─────────────────────────────
 
     public function test_las_reglas_vigentes_para_los_textos(): void

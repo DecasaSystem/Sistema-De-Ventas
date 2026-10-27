@@ -75,6 +75,8 @@ function fmtValor(r, v) {
     case 'si_no':    return v ? 'Sí' : 'No'
     case 'lista':    return v.length ? v.map(m => METODOS[m] ?? m).join(', ') : 'Ninguno'
     case 'opcion':   return r.opciones?.find(o => o.valor === v)?.nombre ?? String(v)
+    case 'pesos':    return Number(v) > 0 ? pesos(v) : 'Sin bono'
+    case 'tramos':   return v.map(t => `desde ${numeroCo(t.desde * 100)} %: ${numeroCo(t.pct * 100)} %`).join(' · ')
     default:         return String(v)
   }
 }
@@ -114,11 +116,24 @@ function abrir(clave) {
     si: r.tipo === 'si_no' ? !!r.vigente : false,
     lista: r.tipo === 'lista' ? [...r.vigente] : [],
     opcion: r.tipo === 'opcion' ? r.vigente : null,
+    pesos: r.tipo === 'pesos' ? numeroCo(r.vigente, 0) : '',
+    // Los tramos en %: "desde el 120 % de la meta paga el 6 %". El primero es siempre el 100 %.
+    tramos: r.tipo === 'tramos' ? r.vigente.map(t => ({ desde: numeroCo(t.desde * 100), pct: numeroCo(t.pct * 100) })) : [],
     desde_mes: datos.value.mes_actual,
     nota: '',
     mesSimular: mesAnterior(datos.value.mes_actual),
   }
   confirmar.value  = null
+  simulacion.value = null
+}
+
+/** Un tramo más arriba del último: 20 puntos más de la meta, mismo porcentaje + 1. */
+function agregarTramo() {
+  const t = form.value.tramos
+  const ultimo = t[t.length - 1]
+  const desde = (leerNumero(ultimo?.desde) ?? 100) + 20
+  const pct = (leerNumero(ultimo?.pct) ?? 5) + 1
+  t.push({ desde: numeroCo(desde), pct: numeroCo(pct) })
   simulacion.value = null
 }
 
@@ -148,6 +163,12 @@ function valorDelForm() {
     case 'si_no':    return f.si
     case 'lista':    return f.lista
     case 'opcion':   return f.opcion ?? undefined
+    case 'pesos':    { const n = leerNumero(String(f.pesos).replace(/\./g, '')); return n === null || n < 0 ? undefined : Math.round(n) }
+    case 'tramos': {
+      const out = f.tramos.map(t => ({ desde: leerNumero(t.desde), pct: leerNumero(t.pct) }))
+      if (!out.length || out.some(t => t.desde === null || t.pct === null)) return undefined
+      return out.map(t => ({ desde: Math.round(t.desde * 100) / 10000, pct: Math.round(t.pct * 1000) / 100000 }))
+    }
     default:         return undefined
   }
 }
@@ -269,7 +290,7 @@ const opcionesAlcance = computed(() => (reglaForm.value?.alcances ?? []).map(a =
             <div class="text-right shrink-0 max-w-[45%]">
               <p
                 class="font-bold text-gray-800 tabular-nums leading-tight"
-                :class="['opcion', 'lista'].includes(catalogo[clave].tipo) ? 'text-sm' : 'text-base'"
+                :class="['opcion', 'lista', 'tramos'].includes(catalogo[clave].tipo) ? 'text-sm' : 'text-base'"
               >{{ fmtValor(catalogo[clave], catalogo[clave].vigente) }}</p>
               <span
                 v-if="esCambiada(catalogo[clave])"
@@ -405,7 +426,46 @@ const opcionesAlcance = computed(() => (reglaForm.value?.alcances ?? []).map(a =
                 <p class="text-[11px] text-gray-500 mt-0.5 leading-snug">{{ o.explica }}</p>
               </button>
             </div>
-            <p v-if="reglaForm.rango" class="text-[11px] text-gray-400 mt-1">Entre {{ reglaForm.rango[0] }} y {{ reglaForm.rango[1] }}.</p>
+            <div v-else-if="reglaForm.tipo === 'pesos'" class="mt-1 flex items-center gap-2">
+              <span class="text-sm text-gray-500">$</span>
+              <input
+                v-model="form.pesos" inputmode="numeric"
+                class="w-40 border border-gray-200 rounded-lg px-3 py-2 text-sm text-right tabular-nums bg-white"
+                @input="simulacion = null"
+              />
+              <span class="text-xs text-gray-400">0 = sin bono</span>
+            </div>
+            <!-- Tramos: el primero empieza en la meta (por debajo no hay pool). -->
+            <div v-else-if="reglaForm.tipo === 'tramos'" class="mt-1 space-y-2">
+              <div v-for="(t, i) in form.tramos" :key="i" class="flex items-center gap-1.5 text-xs text-gray-600 flex-wrap">
+                <span>Desde el</span>
+                <input
+                  v-model="t.desde" inputmode="decimal" :disabled="i === 0"
+                  class="w-16 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-right tabular-nums bg-white disabled:bg-gray-100 disabled:text-gray-500"
+                  @input="simulacion = null"
+                />
+                <span>% de la meta paga</span>
+                <input
+                  v-model="t.pct" inputmode="decimal"
+                  class="w-14 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-right tabular-nums bg-white"
+                  @input="simulacion = null"
+                />
+                <span>%</span>
+                <button
+                  v-if="i > 0" type="button" @click="form.tramos.splice(i, 1); simulacion = null"
+                  class="ml-auto text-[11px] font-semibold text-red-600"
+                >Quitar</button>
+              </div>
+              <button
+                v-if="form.tramos.length < 6" type="button" @click="agregarTramo"
+                class="text-[11px] font-semibold text-blue-600"
+              >+ Agregar tramo</button>
+              <p class="text-[11px] text-gray-400 leading-snug">
+                Cada tramo paga su porcentaje solo sobre lo vendido dentro de él. Ej.: desde el 100 % al 5 % y desde
+                el 120 % al 6 %: lo que va de la meta al 120 % paga 5 % y lo de más arriba, 6 %.
+              </p>
+            </div>
+            <p v-if="reglaForm.rango && reglaForm.tipo !== 'pesos'" class="text-[11px] text-gray-400 mt-1">Entre {{ reglaForm.rango[0] }} y {{ reglaForm.rango[1] }}.</p>
           </div>
 
           <label class="block">

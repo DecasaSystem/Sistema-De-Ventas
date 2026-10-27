@@ -3278,9 +3278,13 @@ EOT;
             ? 'el ' . $pct('indep_pct_bolson') . ' del bolsón se reparte en partes iguales entre ellos'
             : 'cada uno cobra el ' . $pct('indep_pct_bolson') . ' del bolsón completo';
         $compartida = $pct('compartida_parte_vendedor');
+        // Por tramos o con bono (pieza 8): solo en las mensuales.
+        $cuentaPool = \App\Http\Controllers\ComisionController::cuentaDelPoolTexto($mes, null);
+        $soloMensual = ($r('formula_pool') === 'tramos' || (float) $r('bono_meta') > 0)
+            ? ' En las tiendas trimestrales el pool es el de siempre: ' . $iva . $pct('pct_pool') . ' sobre lo que pasa de la meta.'
+            : '';
         $pctRest    = $pct('pct_restauracion');
         $pctIndiv   = $pct('pct_individual');
-        $pctPool    = $pct('pct_pool');
         $franquicia = $pct('franquicia_pct');
         $indepVenta = $pct('indep_pct_venta');
         $almacen    = $pct('almacen_pct');
@@ -3297,7 +3301,7 @@ COMISIONES — para cifras usa SIEMPRE consultar_comisiones. Nunca calcules una 
 - Para cobrar hacen falta las tres: (1) el cliente pagó al menos el {$pagado} de la orden, (2) llegó {$cuando} (o el pago del trimestre en las trimestrales), (3) la tienda llegó a la meta (si tiene meta).
 - Restauración → {$pctRest} del valor completo ({$restIva}), para quien la hizo. No pasa por el pool, no suma a la meta, pero {$restEspera}.
 - Venta de alguien SIN meta (Vía Jardines, Tienda Virtual, independientes) → valor {$iva}{$pctIndiv}, individual.
-- Venta de alguien CON meta (Decasa Norte, Vía El Edén, Pereira…) → pool de la tienda = (ventas de la tienda QUE YA TIENEN EL {$pagadoMeta} PAGADO − meta) {$iva}{$pctPool}. Si con eso no llega a la meta, el pool es $0. Una venta sin ese pago no suma a la meta hasta que lo complete. Todos los del equipo cobran igual, {$repartoPool}.
+- Venta de alguien CON meta (Decasa Norte, Vía El Edén, Pereira…) → pool de la tienda = (ventas de la tienda QUE YA TIENEN EL {$pagadoMeta} PAGADO − meta) {$cuentaPool}. Si con eso no llega a la meta, el pool es $0.{$soloMensual} Una venta sin ese pago no suma a la meta hasta que lo complete. Todos los del equipo cobran igual, {$repartoPool}.
 - Venta compartida entre dos vendedores: quien la registró comisiona sobre el {$compartida} y el compañero sobre el resto.
 - {$metodos}: la franquicia del {$franquicia} no se comisiona.
 - Un supervisor puede marcar una orden "fuera del pool" (no suma a meta ni pool y no paga comisión), con motivo.

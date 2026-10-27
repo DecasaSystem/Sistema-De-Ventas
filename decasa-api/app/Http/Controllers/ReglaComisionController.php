@@ -37,7 +37,11 @@ class ReglaComisionController extends Controller
         'iva_divisor'  => [1, 2],
         'dia_pago'     => [1, 31],
         'meses_espera' => [0, 12],
+        'bono_meta'    => [0, 100_000_000],
     ];
+
+    /** Reglas del pool que solo se calculan en tiendas mensuales (ver poolDe). */
+    private const SOLO_MENSUALES = ['formula_pool', 'tramos_pool', 'bono_meta'];
 
     // GET /api/comisiones/reglas
     public function index(Request $request)
@@ -341,6 +345,16 @@ class ReglaComisionController extends Controller
             }
         }
 
+        // El pool por tramos y el bono son solo de tiendas mensuales (dueño,
+        // 2026-10-27): la deuda de un trimestre se guarda en pesos de pool y
+        // con tramos no se puede volver ventas. Puesta para todos, las
+        // trimestrales la ignoran (poolDe no se usa allá).
+        if ($data['alcance'] === 'tienda' && in_array($data['clave'], self::SOLO_MENSUALES, true)
+            && ComisionController::esTiendaTrimestral($alcanceId)) {
+            return response()->json(['message' => 'Esa tienda liquida por trimestre: «' . $regla['nombre']
+                . '» es solo para tiendas que liquidan cada mes.'], 422);
+        }
+
         // Nulo solo en una excepción: "desde aquí, sin excepción" (rige la de
         // arriba). La regla de todos siempre tiene un valor.
         $valor = null;
@@ -393,6 +407,17 @@ class ReglaComisionController extends Controller
         if (isset(self::RANGOS[$clave])) {
             [$min, $max] = self::RANGOS[$clave];
             if ($valor < $min || $valor > $max) return "«{$regla['nombre']}» va de {$min} a {$max}.";
+        }
+        if ($regla['tipo'] === 'tramos') {
+            // Empiezan en la meta: por debajo de ella no hay pool (una de las
+            // tres condiciones que no cambian). Hasta 6 tramos, hasta el 500 %
+            // de la meta, cada uno entre 0 % y 20 %.
+            if (abs($valor[0]['desde'] - 1.0) > 1e-9) return 'El primer tramo empieza en el 100 % de la meta.';
+            if (count($valor) > 6) return 'Máximo 6 tramos.';
+            foreach ($valor as $t) {
+                if ($t['desde'] < 1 || $t['desde'] > 5) return 'Cada tramo empieza entre el 100 % y el 500 % de la meta.';
+                if ($t['pct'] < 0 || $t['pct'] > 0.2) return 'El porcentaje de cada tramo va de 0 % a 20 %.';
+            }
         }
         if ($regla['tipo'] === 'lista') {
             if (! $valor) return 'Escoge al menos un medio de pago.';

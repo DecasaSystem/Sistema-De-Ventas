@@ -23,7 +23,7 @@ import {
   AdjustmentsHorizontalIcon,
 } from '@heroicons/vue/24/outline'
 import { exportarComisionesExcel } from '@/utils/excelComisiones'
-import { cargarReglasVigentes, reglasPara, num, divisor, laParte, partePagada } from '@/utils/reglasComision'
+import { cargarReglasVigentes, reglasPara, num, divisor, laParte, partePagada, poolDeSiempre, cuentaPool } from '@/utils/reglasComision'
 import { useAuthStore } from '@/stores/auth'
 import InputPesos from '@/components/common/InputPesos.vue'
 import DesgloseComision from '@/components/comisiones/DesgloseComision.vue'
@@ -2583,8 +2583,12 @@ onMounted(async () => {
               <p class="font-semibold text-gray-600 mb-1">Cálculo</p>
               <p>Ventas tienda mes (con el {{ num(reglasDe(c).meta_req_pagado_pct) }}% pagado): {{ cop(c.total_tienda_mes) }}</p>
               <p>Meta tienda: − {{ cop(c.meta_tienda) }}</p>
-              <p v-if="reglasDe(c).iva_en_venta">Sin IVA (÷{{ divisor(reglasDe(c).iva_divisor) }}): {{ cop(Math.max(0, (c.total_tienda_mes - c.meta_tienda) / reglasDe(c).iva_divisor)) }}</p>
-              <p>Pool {{ num(reglasDe(c).pct_pool) }}%: {{ cop(c.comision_pool) }}</p>
+              <template v-if="poolDeSiempre(reglasDe(c))">
+                <p v-if="reglasDe(c).iva_en_venta">Sin IVA (÷{{ divisor(reglasDe(c).iva_divisor) }}): {{ cop(Math.max(0, (c.total_tienda_mes - c.meta_tienda) / reglasDe(c).iva_divisor)) }}</p>
+                <p>Pool {{ num(reglasDe(c).pct_pool) }}%: {{ cop(c.comision_pool) }}</p>
+              </template>
+              <!-- Por tramos o con bono: la cuenta completa está en "Toda la tienda". -->
+              <p v-else>Pool {{ cuentaPool(reglasDe(c)) }}: {{ cop(c.comision_pool) }}</p>
               <p>{{ parteDelEquipo(c) }}: {{ cop(c.comision_asesor) }}</p>
               <p class="font-semibold text-green-700 border-t border-gray-100 pt-0.5 mt-0.5">Comisión asesor: {{ cop(c.comision_asesor) }}</p>
               <p>Ventas propias mes: {{ cop(c.total_vendedor_mes) }} ({{ c.total_vendedor_mes > 0 ? Math.round(c.valor_orden / c.total_vendedor_mes * 100) : 0 }}% esta orden)</p>

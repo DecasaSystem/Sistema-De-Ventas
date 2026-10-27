@@ -11,7 +11,7 @@
  * la pantalla se vuelve larguísima.
  */
 import { computed, ref } from 'vue'
-import { DEFECTO, num, cuentaVenta } from '@/utils/reglasComision'
+import { DEFECTO, num, divisor, cuentaVenta } from '@/utils/reglasComision'
 
 const props = defineProps({
   resumen: { type: Object, default: null },
@@ -47,6 +47,18 @@ const tipos = computed(() =>
 const p = computed(() => props.resumen?.pool ?? null)
 // Cómo se repartió de verdad: lo dice el servidor (regla reparto_pool).
 const iguales = computed(() => p.value?.reparto_modo === 'iguales')
+
+// Pool por tramos o con bono (pieza 8): el servidor manda la cuenta renglón
+// por renglón solo cuando la tienda los usa; si no, es la de siempre.
+const cuentaEspecial = computed(() => p.value?.cuenta ?? null)
+function textoLinea(l) {
+  if (l.tipo === 'bono') return 'Bono por llegar a la meta'
+  const tramo = l.tipo === 'tramo'
+    ? (l.hasta ? `${num(l.desde)}–${num(l.hasta)} % de la meta` : `más del ${num(l.desde)} % de la meta`)
+    : 'Lo que pasó de la meta'
+  const iva = r.value.iva_en_venta ? ` ÷ ${divisor(r.value.iva_divisor)}` : ''
+  return `${tramo}: ${cop(l.base)}${iva} × ${num(l.pct)}%`
+}
 const esTrimestral = computed(() => p.value?.periodicidad === 'trimestral')
 const excedente = computed(() => p.value ? Math.max(0, p.value.ventas_cuentan - p.value.meta) : 0)
 const faltaParaMeta = computed(() => p.value ? Math.max(0, p.value.meta - p.value.ventas_cuentan) : 0)
@@ -155,7 +167,24 @@ const totalFiltrado = computed(() => ordenesFiltradas.value.reduce((s, o) => s +
               {{ cop(p.meta_cumplida ? excedente : faltaParaMeta) }}
             </span>
           </div>
-          <div class="flex justify-between">
+          <template v-if="cuentaEspecial">
+            <div v-for="(l, i) in cuentaEspecial.lineas" :key="i" class="flex justify-between gap-2">
+              <span class="text-gray-400">{{ textoLinea(l) }}</span>
+              <span class="text-gray-700 tabular-nums">{{ cop(l.monto) }}</span>
+            </div>
+            <div class="flex justify-between border-t border-indigo-100 pt-0.5">
+              <span class="font-semibold text-gray-700">Pool</span>
+              <span class="text-gray-700 tabular-nums font-semibold">{{ cop(p.pool) }}</span>
+            </div>
+            <p v-if="cuentaEspecial.siguiente" class="text-[10px] text-blue-700">
+              Le faltan {{ cop(cuentaEspecial.siguiente.falta) }} para el tramo del {{ num(cuentaEspecial.siguiente.pct) }}%
+              (desde el {{ num(cuentaEspecial.siguiente.desde) }} % de la meta).
+            </p>
+            <p v-if="!p.meta_cumplida && cuentaEspecial.bono > 0" class="text-[10px] text-gray-500">
+              Al llegar a la meta, el equipo se lleva además un bono de {{ cop(cuentaEspecial.bono) }}.
+            </p>
+          </template>
+          <div v-else class="flex justify-between">
             <span class="text-gray-400">{{ cuentaPool }}</span>
             <span class="text-gray-700 tabular-nums font-semibold">{{ cop(p.pool) }}</span>
           </div>

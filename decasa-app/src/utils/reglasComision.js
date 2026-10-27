@@ -32,6 +32,9 @@ export const DEFECTO = Object.freeze({
   reparto_pool: 'dias',
   restauracion_suma_meta: false,
   arrastra_deuda_trimestre: true,
+  formula_pool: 'excedente',
+  tramos_pool: [{ desde: 1, pct: 0.05 }],
+  bono_meta: 0,
   compartida_parte_vendedor: 0.5,
   restauracion_se_reparte: true,
   reparto_restauracion: 'iguales',
@@ -102,6 +105,35 @@ export function divisor(v) {
 export function cuentaVenta(r, clavePct, { espacio = false } = {}) {
   const pct = num(r[clavePct]) + (espacio ? ' %' : '%')
   return r.iva_en_venta ? `÷ ${divisor(r.iva_divisor)} × ${pct}` : `× ${pct}`
+}
+
+/** ¿El pool de estas reglas es el de siempre (un % sobre lo que pasa de la meta, sin bono)? */
+export function poolDeSiempre(r) {
+  return r.formula_pool !== 'tramos' && !(Number(r.bono_meta) > 0)
+}
+
+/** "100 %: 5% · 120 %: 6%": los tramos del pool en palabras. */
+export function tramosTexto(r, { espacio = false } = {}) {
+  const p = espacio ? ' %' : '%'
+  return (r.tramos_pool ?? []).map(t => `desde el ${num(t.desde)} %: ${num(t.pct)}${p}`).join(' · ')
+}
+
+/** "$300.000" del bono al llegar a la meta. */
+export function bonoTexto(r) {
+  return '$' + Math.round(Number(r.bono_meta) || 0).toLocaleString('es-CO')
+}
+
+/**
+ * La cuenta del pool después de "(ventas − meta)": "÷ 1,19 × 5%", o "por
+ * tramos (…)" si la tienda paga por tramos; con " + bono de $300.000" si
+ * tiene bono (pieza 8). Solo tiendas mensuales: en una trimestral el pool es
+ * siempre el de siempre (cuentaVenta(r, 'pct_pool')).
+ */
+export function cuentaPool(r, { espacio = false } = {}) {
+  const base = r.formula_pool === 'tramos'
+    ? `por tramos (${tramosTexto(r, { espacio })})`
+    : cuentaVenta(r, 'pct_pool', { espacio })
+  return Number(r.bono_meta) > 0 ? `${base} + bono de ${bonoTexto(r)}` : base
 }
 
 /** "el 20 del mes siguiente", con el día y la espera que rigen. */

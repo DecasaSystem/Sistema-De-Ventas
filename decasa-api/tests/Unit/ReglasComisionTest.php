@@ -34,6 +34,10 @@ class ReglasComisionTest extends TestCase
             'reparto_pool'              => 'dias',
             'restauracion_suma_meta'    => false,
             'arrastra_deuda_trimestre'  => true,
+            // Pieza 8: el pool de siempre (un % sobre lo que pasa de la meta), sin bono.
+            'formula_pool'              => 'excedente',
+            'tramos_pool'               => [['desde' => 1.0, 'pct' => 0.05]],
+            'bono_meta'                 => 0,
             'compartida_parte_vendedor' => 0.5,
             'restauracion_se_reparte'   => true,
             'reparto_restauracion'      => 'iguales',
@@ -58,7 +62,7 @@ class ReglasComisionTest extends TestCase
     public function test_cada_regla_dice_que_es_y_donde_se_cambia(): void
     {
         foreach (ReglasComision::CATALOGO as $clave => $r) {
-            $this->assertContains($r['tipo'], ['fraccion', 'numero', 'entero', 'si_no', 'lista', 'opcion'], $clave);
+            $this->assertContains($r['tipo'], ['fraccion', 'numero', 'entero', 'si_no', 'lista', 'opcion', 'tramos', 'pesos'], $clave);
             if ($r['tipo'] === 'opcion') {
                 // La primera opción es lo que hacía el código antes: es el valor por defecto.
                 $this->assertSame(array_key_first($r['opciones']), $r['defecto'], $clave);

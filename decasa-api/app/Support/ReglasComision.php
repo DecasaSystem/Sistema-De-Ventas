@@ -141,6 +141,35 @@ class ReglasComision
             'nombre' => 'La deuda del trimestre pasa al siguiente',
             'explica' => 'En las tiendas trimestrales: si un trimestre no llega a la meta, lo que faltó se descuenta del pool del siguiente. Apagado, cada trimestre arranca de cero. Rige el último mes del trimestre que empieza.',
         ],
+        // Pool por tramos y bono (pieza 8, dueño 2026-10-27): los tramos suman
+        // (cada uno paga su % sobre lo que cae en él, sin saltos), el bono va
+        // encima del pool y es del equipo, y solo en tiendas MENSUALES: la
+        // deuda de un trimestre se guarda en pesos de pool y con tramos no se
+        // puede volver ventas. Ver docs/plan-comisiones-personalizables.md §10.
+        'formula_pool' => [
+            'tipo' => 'opcion', 'defecto' => 'excedente', 'alcances' => ['general', 'tienda'],
+            'nombre' => 'Cómo se saca el pool',
+            'explica' => 'Solo en tiendas mensuales: las trimestrales siguen con el porcentaje de siempre sobre lo que pasa de la meta.',
+            'opciones' => [
+                'excedente' => ['nombre' => 'Un porcentaje sobre lo que pasa de la meta',
+                    'explica' => 'El "Porcentaje del pool" sobre todo lo vendido por encima de la meta.'],
+                'tramos'    => ['nombre' => 'Por tramos',
+                    'explica' => 'Cada tramo paga su porcentaje sobre lo que cae en él (regla de abajo). Sin meta cumplida, $0.'],
+            ],
+        ],
+        'tramos_pool' => [
+            'tipo' => 'tramos', 'defecto' => [['desde' => 1.0, 'pct' => ComisionController::PORCENTAJE_DIRECTO]],
+            'alcances' => ['general', 'tienda'],
+            'nombre' => 'Tramos del pool',
+            'explica' => 'Solo con "Por tramos". Desde qué parte de la meta empieza cada tramo y qué porcentaje paga. '
+                . 'El primero empieza en el 100 % (por debajo de la meta no hay pool).',
+        ],
+        'bono_meta' => [
+            'tipo' => 'pesos', 'defecto' => 0, 'alcances' => ['general', 'tienda'],
+            'nombre' => 'Bono al llegar a la meta',
+            'explica' => 'Un monto fijo para el equipo, encima del pool, el mes que la tienda llega a la meta. '
+                . 'Se reparte como el pool. En $0 no hay bono. Solo en tiendas mensuales.',
+        ],
         'compartida_parte_vendedor' => [
             'tipo' => 'fraccion', 'defecto' => 0.5, 'alcances' => ['general', 'tienda', 'usuario'],
             'nombre' => 'Parte de quien vendió en una venta compartida',
@@ -218,7 +247,7 @@ class ReglasComision
         'iva'             => ['titulo' => 'IVA',                       'claves' => ['iva_divisor', 'iva_en_venta', 'iva_en_restauracion']],
         'datafono'        => ['titulo' => 'Datáfono',                  'claves' => ['franquicia_pct', 'franquicia_metodos']],
         'cobro'           => ['titulo' => 'Cuándo se cobra',           'claves' => ['req_pagado_pct', 'req_pagado_restauracion', 'meta_req_pagado_pct', 'dia_pago', 'meses_espera']],
-        'pool'            => ['titulo' => 'Pool de la tienda',         'claves' => ['reparto_pool', 'restauracion_suma_meta', 'arrastra_deuda_trimestre']],
+        'pool'            => ['titulo' => 'Pool de la tienda',         'claves' => ['reparto_pool', 'restauracion_suma_meta', 'arrastra_deuda_trimestre', 'formula_pool', 'tramos_pool', 'bono_meta']],
         'repartos'        => ['titulo' => 'Repartos',                  'claves' => ['compartida_parte_vendedor', 'restauracion_se_reparte', 'reparto_restauracion', 'parte_autor_restauracion']],
         'independientes'  => ['titulo' => 'Independientes y almacenes', 'claves' => ['indep_pct_venta', 'indep_pct_bolson', 'bolson_modo', 'entra_al_bolson', 'bolson_incluye_almacenes', 'almacen_pct', 'almacen_fraccion_meta']],
     ];
@@ -330,6 +359,9 @@ class ReglasComision
             'si_no'    => $valor ? 'Sí' : 'No',
             'opcion'   => $regla['opciones'][$valor]['nombre'] ?? (string) $valor,
             'lista'    => implode(', ', (array) $valor),
+            'pesos'    => '$' . number_format((float) $valor, 0, ',', '.'),
+            'tramos'   => implode(' · ', array_map(fn ($t) => 'desde el '
+                . ComisionController::pctTexto((float) $t['desde']) . ': ' . ComisionController::pctTexto((float) $t['pct']), (array) $valor)),
             default    => rtrim(rtrim(number_format((float) $valor, 4, ',', ''), '0'), ','),
         };
     }
@@ -364,8 +396,32 @@ class ReglasComision
             'si_no'              => is_bool($valor) ? $valor : (in_array($valor, [0, 1, '0', '1'], true) ? (bool) $valor : null),
             'lista'              => is_array($valor) ? array_values(array_unique(array_map('strval', $valor))) : null,
             'opcion'             => is_string($valor) && isset(self::CATALOGO[$clave]['opciones'][$valor]) ? $valor : null,
+            'pesos'              => is_numeric($valor) ? (float) round((float) $valor) : null,
+            'tramos'             => self::normalizarTramos($valor),
             default              => null,
         };
+    }
+
+    /**
+     * Una lista de tramos [{desde, pct}] ordenada por "desde" (fracción de la
+     * meta: 1 = 100 %). Null si algo no es número o se repite un "desde"; los
+     * límites (empieza en 100 %, % razonable) los revisa quien guarda.
+     *
+     * @return list<array{desde: float, pct: float}>|null
+     */
+    private static function normalizarTramos(mixed $valor): ?array
+    {
+        if (! is_array($valor) || ! $valor) return null;
+
+        $out = [];
+        foreach ($valor as $t) {
+            if (! is_array($t) || ! is_numeric($t['desde'] ?? null) || ! is_numeric($t['pct'] ?? null)) return null;
+            $out[] = ['desde' => (float) $t['desde'], 'pct' => (float) $t['pct']];
+        }
+        usort($out, fn ($a, $b) => $a['desde'] <=> $b['desde']);
+        if (count(array_unique(array_column($out, 'desde'))) !== count($out)) return null;
+
+        return $out;
     }
 
     /**
@@ -439,8 +495,8 @@ class ReglasComision
      */
     public static function sql(string $clave, string $tiendaSql, string $mesSql): string
     {
-        // Un sí/no entra como 1 o 0; una lista o una opción no tienen número.
-        if (! isset(self::CATALOGO[$clave]) || in_array(self::CATALOGO[$clave]['tipo'], ['lista', 'opcion'], true)) {
+        // Un sí/no entra como 1 o 0; una lista, una opción o unos tramos no tienen número.
+        if (! isset(self::CATALOGO[$clave]) || in_array(self::CATALOGO[$clave]['tipo'], ['lista', 'opcion', 'tramos'], true)) {
             throw new \InvalidArgumentException("Regla de comisión sin número: {$clave}");
         }
 

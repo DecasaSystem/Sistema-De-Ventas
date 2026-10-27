@@ -532,6 +532,12 @@ entregada"). Solo supervisor.
   `GET /comisiones/reglas/vigentes` (general + excepciones del mes; sin Comisiones, solo la
   general) y `utils/reglasComision.js` en la app. Un texto nuevo de comisiones con una cifra
   de regla se escribe con esas funciones, no a mano.
+- **Pool por tramos y bono** (2026-10-27, pieza 8, sin migración, apagado por defecto): en una
+  tienda **mensual** el pool puede ir por tramos que suman (cada tramo paga su % sobre lo que cae
+  en él; el primero empieza en la meta) y llevar un bono fijo para el equipo encima, el mes que
+  llega a la meta. Reglas `formula_pool`, `tramos_pool`, `bono_meta`; cálculo en
+  `ComisionController::poolDe` / `desglosePool`. Las trimestrales no: su deuda se guarda en
+  pesos de pool. Detalle en `docs/plan-comisiones-personalizables.md` §10.
 
 ### 6.11 Costos de fabricación y cotizador IA
 `FichaTecnicaController`, `MaterialController`, `ConfiguracionCostosController`,

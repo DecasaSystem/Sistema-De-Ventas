@@ -17,7 +17,7 @@
  * carga al pulsar el botón, no con la app: pesa y solo lo usa esta pantalla.
  */
 
-import { reglasPara, num, divisor, cuentaVenta, cuandoSePaga, laParte, partePagada, mediosConFranquicia } from './reglasComision'
+import { reglasPara, num, divisor, cuentaVenta, cuentaPool as cuentaDelPool, cuandoSePaga, laParte, partePagada, mediosConFranquicia } from './reglasComision'
 
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',
   'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
@@ -213,7 +213,7 @@ function comoSeCalculo(c) {
   const parte = todos > 0 ? `${dias} de ${todos} días` : (c.divisor_asesores > 1 ? `÷ ${c.divisor_asesores}` : 'todo')
   const r = R(c)
   const mitad = partePagada(r.meta_req_pagado_pct)
-  const cuentaPool = cuentaVenta(r, 'pct_pool')
+  const cuentaPool = c.periodicidad === 'trimestral' ? cuentaVenta(r, 'pct_pool') : cuentaDelPool(r)
 
   switch (c.forma_pago) {
     case 'pool': {
@@ -451,7 +451,7 @@ function hojaPorVendedor(wb, ctx) {
 function hojaPorTienda(wb, ctx) {
   const ws = wb.addWorksheet('Por tienda')
   titulo(ws, `Por tienda — ${mesEnPalabras(ctx.mes)}`,
-    `Cada tienda contra su meta. El pool es lo que pasa de la meta ${cuentaVenta(R(), 'pct_pool')}; se parte entre el equipo ${R().reparto_pool === 'iguales' ? 'en partes iguales' : 'por días'}.`)
+    `Cada tienda contra su meta. El pool es lo que pasa de la meta ${cuentaDelPool(R())}; se parte entre el equipo ${R().reparto_pool === 'iguales' ? 'en partes iguales' : 'por días'}.`)
 
   const indepIds = new Set((ctx.indep?.independientes ?? []).map(i => i.vendedor_id))
   const porTienda = new Map()
@@ -796,7 +796,7 @@ function hojaReemplazos(wb, ctx) {
     } else {
       const porDia = pool / diasMes
       explicar(ws, [
-        `• Pool del mes = (${pesos(filaPool.total_tienda_mes)} que cuentan − ${pesos(filaPool.meta_tienda)} de meta) ${cuentaVenta(R({ tienda_id: tiendaId }), 'pct_pool')} = ${pesos(pool)}.`,
+        `• Pool del mes = (${pesos(filaPool.total_tienda_mes)} que cuentan − ${pesos(filaPool.meta_tienda)} de meta) ${cuentaDelPool(R({ tienda_id: tiendaId }))} = ${pesos(pool)}.`,
         `• Un día del pool vale ${pesos(pool)} ÷ ${diasMes} días = ${pesos(porDia)}. Ese valor se parte entre los que estaban ese día.`,
       ])
     }
@@ -866,6 +866,8 @@ function hojaComoSeCalcula(wb) {
   // otras: se avisa abajo y la cuenta de cada fila ya va con las suyas.
   const r = R()
   const ivaVenta = r.iva_en_venta ? ` (÷${divisor(r.iva_divisor)})` : ''
+  // En las trimestrales el pool es siempre el de siempre (pieza 8: tramos y bono solo mensuales).
+  const poolEspecial = r.formula_pool === 'tramos' || Number(r.bono_meta) > 0
   const porDias = r.reparto_pool !== 'iguales'
 
   parrafos(ws, [
@@ -880,7 +882,9 @@ function hojaComoSeCalcula(wb) {
     '• Un independiente no tiene tienda: todo lo suyo queda en la tienda de la orden.',
     '',
     '3. Tienda que reparte (pool del equipo)',
-    `• Pool = (Vendido en la tienda con ${partePagada(r.meta_req_pagado_pct)} − Meta) ${cuentaVenta(r, 'pct_pool')}. Si no llega a la meta, el pool es $0.`,
+    `• Pool = (Vendido en la tienda con ${partePagada(r.meta_req_pagado_pct)} − Meta) ${cuentaDelPool(r)}. Si no llega a la meta, el pool es $0.`,
+    ...(r.formula_pool === 'tramos' ? ['• Por tramos: cada tramo paga su porcentaje solo sobre lo vendido dentro de él (no hay saltos).'] : []),
+    ...(poolEspecial ? [`• En las tiendas trimestrales el pool sigue siendo (lo que pasa de la meta) ${cuentaVenta(r, 'pct_pool')}, sin tramos ni bono.`] : []),
     ...(porDias
       ? [
           '• El pool se parte entre el equipo por DÍAS: quien estuvo el mes entero pesa 31; quien vino a cubrir pesa los días que cubrió y el cubierto los pierde.',
