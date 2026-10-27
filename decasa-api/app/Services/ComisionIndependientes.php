@@ -94,7 +94,7 @@ class ComisionIndependientes
         );
 
         $o->valor_total = $o->es_compartida
-            ? round($base * ReglasComision::numero('compartida_parte_vendedor', $mes))
+            ? round($base * ReglasComision::numero('compartida_parte_vendedor', $mes, null, (int) $o->vendedor_id))
             : $base;
 
         return $o;
@@ -230,8 +230,21 @@ class ComisionIndependientes
         // los independientes y de cualquier almacén, y cada uno cobra el 5%
         // de esa suma completa. Esto sí es igual para todos (salvo que a
         // alguien se le ponga otro porcentaje del bolsón: se calcula abajo).
-        $comisionRestauraciones      = $bolson($ordenes, $deAlmacenes, $pctBolson);
-        $comisionRestauracionesLista = $bolson($listas, $deAlmacenesListas, $pctBolson);
+        //
+        // Cómo se cobra y quién entra son reglas (Fase 4, dueño 2026-10-27):
+        // hoy cada uno cobra su % del bolsón entero y entran todos; con
+        // "se_reparte" ese % se parte entre los que entran.
+        $modoBolson = (string) ReglasComision::valor('bolson_modo', $mes);
+        $participan = $independientes
+            ->filter(fn ($u) => ReglasComision::si('entra_al_bolson', $mes, null, (int) $u->id))
+            ->mapWithKeys(fn ($u) => [(int) $u->id => true])->all();
+        $enBolson = max(1, count($participan));
+        /** Lo que le toca del bolsón: nada si no entra; partido si se reparte. */
+        $suParte = fn (float $monto, ?int $uid) => ($uid !== null && ! isset($participan[$uid])) ? 0.0
+            : ($modoBolson === 'se_reparte' ? $monto / $enBolson : $monto);
+
+        $comisionRestauraciones      = $suParte($bolson($ordenes, $deAlmacenes, $pctBolson), null);
+        $comisionRestauracionesLista = $suParte($bolson($listas, $deAlmacenesListas, $pctBolson), null);
 
         // Lo que ya se les pagó este mes. Se lleva por orden (la venta está
         // pagada o no) y el bolsón por monto, porque no cuelga de ninguna
@@ -247,7 +260,7 @@ class ComisionIndependientes
         // órdenes, sin sumarse con las del otro independiente.
         $porIndependiente = $independientes->map(function ($u) use (
             $ordenes, $listas, $idsRestauracion, $pagaVenta, $bolson, $pctVentaDe, $pctBolsonDe,
-            $deAlmacenes, $deAlmacenesListas, $pagos, $ordenPagada
+            $deAlmacenes, $deAlmacenesListas, $pagos, $ordenPagada, $suParte
         ) {
             $suyas       = $ordenes->where('vendedor_id', $u->id);
             $suyasListas = $listas->where('vendedor_id', $u->id);
@@ -256,8 +269,8 @@ class ComisionIndependientes
 
             $pctVenta  = $pctVentaDe($u->id);
             $pctBolsonSuyo = $pctBolsonDe($u->id);
-            $comisionRestauraciones      = $bolson($ordenes, $deAlmacenes, $pctBolsonSuyo);
-            $comisionRestauracionesLista = $bolson($listas, $deAlmacenesListas, $pctBolsonSuyo);
+            $comisionRestauraciones      = $suParte($bolson($ordenes, $deAlmacenes, $pctBolsonSuyo), (int) $u->id);
+            $comisionRestauracionesLista = $suParte($bolson($listas, $deAlmacenesListas, $pctBolsonSuyo), (int) $u->id);
 
             $comisionVenta      = $pagaVenta($suyas, $pctVenta);
             $comisionVentaLista = $pagaVenta($suyasListas, $pctVenta);

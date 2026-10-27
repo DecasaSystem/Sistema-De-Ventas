@@ -394,13 +394,19 @@ escribiendo precios (Fase 1b).
   Mismo patrón que `CostoEmpleador`. Decisiones del dueño (2026-10-27): permiso aparte
   `acceso_reglas_comision` (solo lo da quien ya lo tiene), reglas por tienda y por persona,
   hacia atrás solo sin pagos y con confirmación, Estadísticas siguen 50/50 con la compartida.
-  **Fase 1 hecha el 2026-10-27, sin subir**, trae **migración**
+  **Fases 1 y 2 subidas a `main` el 2026-10-27 (commit 12d38e3)**. Fase 1 trae **migración**
   `2026_11_02_000001_reglas_de_comision` (solo crea/agrega): tabla con fecha, foto al pagar y
-  API. **Fase 2 hecha el mismo día, sin subir** (sin migración nueva): pantalla Comisiones →
+  API. **Fase 2** (sin migración nueva): pantalla Comisiones →
   Reglas con simulador y el interruptor "Reglas de comisión" en la ficha del trabajador.
   **Al subir, nadie tiene el permiso**: el primero lo da un supervisor con acceso a Comisiones
   (después, solo quien ya lo tiene). Faltan Fase 3 (que Ayuda, desglose, Excel y asistente
-  lean las reglas: hoy dicen "5 %" fijo) y Fase 4 (esquemas como tramos, si el dueño los pide).
+  lean las reglas: hoy dicen "5 %" fijo y "se reparte por días").
+  **Fase 4 hecha el 2026-10-27, sin subir** (sin migración): repartos como reglas de tipo
+  opción (bolsón cada uno/se reparte y quién entra, pool por días/iguales, restauración
+  iguales/autor primero, restauraciones como ventas por tienda, no arrastrar deuda trimestral,
+  compartida por tienda/persona). Decisión que tomé yo y **falta que el dueño confirme**: con
+  "restauraciones como ventas" la restauración entra al pool (÷1,19) y deja de pagarse aparte,
+  para no pagar doble. Tramos/bono del pool y forzar cobro individual: el dueño dijo "no por ahora".
   Trampa: el simulador no muestra reglas que cambian lo guardado en cada renglón
   (`ReglasComision::SE_VEN_AL_RECALCULAR`); avisa y se ven tras el recálculo.
 - **Ayuda de Comisiones** (2026-10-15, pedido del dueño: "todo, absolutamente todo, bien

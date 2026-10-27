@@ -815,10 +815,10 @@ class ComisionController extends Controller
             'le_falta_vender'    => round(max(0, $meta - $cuenta)),
             'pool_del_mes'       => round($pool),
             'asesores_que_reparten' => count($pesos) ?: (isset($metas[$clave]) ? max(1, (int) $metas[$clave]->divisor_asesores) : 1),
-            'reparto' => collect($pesos)->map(fn ($dias, $vid) => [
+            'reparto' => collect($pesos)->map(fn ($peso, $vid) => [
                 'nombre' => $nombres[$vid] ?? '—',
-                'dias'   => (int) round($dias),
-                'parte'  => $suma > 0 ? round($pool * $dias / $suma) : 0,
+                'dias'   => (int) round($this->diasDe($mes, $tiendaId)[$vid] ?? 0),
+                'parte'  => $suma > 0 ? round($pool * $peso / $suma) : 0,
             ])->values()->all(),
             'nota' => 'El pool es (lo que tiene la mitad pagada − la meta) ÷ 1,19 × 5%, repartido entre el equipo '
                     . 'según los días que estuvo cada quien. Las restauraciones no entran aquí.',
@@ -1451,7 +1451,10 @@ class ComisionController extends Controller
         foreach (MetaTienda::vigentesEn($mes) as $tiendaId => $meta) {
             $base  = collect($equipos[$tiendaId] ?? [])->pluck('vendedor_id')->all();
             $pesos = TiendaReemplazo::pesosDelMes((int) $tiendaId, $mes, $base);
-            $total = array_sum($pesos) ?: 1;
+            // El porcentaje de cada uno con el reparto que tiene la tienda: por
+            // días, o partes iguales (regla reparto_pool).
+            $iguales = ReglasComision::valor('reparto_pool', $mes, (int) $tiendaId) === 'iguales';
+            $total = ($iguales ? count($pesos) : array_sum($pesos)) ?: 1;
 
             $reparto[] = [
                 'tienda_id' => (int) $tiendaId,
@@ -1460,7 +1463,7 @@ class ComisionController extends Controller
                     'usuario_id' => (int) $uid,
                     'nombre'     => $nombres[$uid] ?? "#$uid",
                     'dias'       => (int) $dias,
-                    'porcentaje' => round($dias / $total * 100, 1),
+                    'porcentaje' => round(($iguales ? 1 : $dias) / $total * 100, 1),
                 ])->values(),
             ];
         }
@@ -2121,17 +2124,21 @@ class ComisionController extends Controller
             if ($pool['periodicidad'] !== 'trimestral') {
                 $tiendaPool = (int) $filaPool['tienda_id'];
                 $mesPool    = (string) $filaPool['mes_venta'];
+                // Los días se muestran siempre; la parte sale del peso, que en
+                // "partes iguales" (regla reparto_pool) no son los días.
                 $pesos      = $this->pesosDe($mesPool, $tiendaPool);
+                $dias       = $this->diasDe($mesPool, $tiendaPool);
                 $suma       = array_sum($pesos);
                 $nombres    = Usuario::whereIn('id', array_keys($pesos))->pluck('nombre', 'id');
 
-                $pool['reparto'] = collect($pesos)->map(fn ($dias, $vid) => [
+                $pool['reparto'] = collect($pesos)->map(fn ($peso, $vid) => [
                     'vendedor_id' => (int) $vid,
                     'nombre'      => $nombres[$vid] ?? '—',
-                    'dias'        => round((float) $dias, 1),
-                    'parte'       => $suma > 0 ? round($pool['pool'] * $dias / $suma) : 0,
+                    'dias'        => round((float) ($dias[$vid] ?? 0), 1),
+                    'parte'       => $suma > 0 ? round($pool['pool'] * $peso / $suma) : 0,
                 ])->sortByDesc('dias')->values()->all();
-                $pool['dias_total'] = round((float) $suma, 1);
+                $pool['dias_total'] = round((float) array_sum($dias), 1);
+                $pool['reparto_modo'] = ReglasComision::valor('reparto_pool', $mesPool, $tiendaPool);
 
                 // Quién cubrió a quién y cuándo, para ubicar las ventas de esos días.
                 $inicio = Carbon::parse($mesPool . '-01')->startOfMonth()->toDateString();
@@ -2254,7 +2261,8 @@ class ComisionController extends Controller
             ->filter(fn ($c) => $c->origen === self::ORIGEN_PARTE_POOL
                 || ($c->orden_id !== null
                     && ! in_array($c->origen, self::ORIGENES_REPARTIDOS, true)
-                    && ! isset($restauraciones[(int) $c->orden_id])))
+                    && (! isset($restauraciones[(int) $c->orden_id])
+                        || self::restauracionComoVenta((int) $c->tienda_id, $mes))))
             ->map(fn ($c) => $c->vendedor_id . '_' . $c->tienda_id)
             ->flip();
 
@@ -2397,7 +2405,8 @@ class ComisionController extends Controller
         $conVentas = $delMes
             ->filter(fn ($c) => $c->orden_id !== null
                 && ! in_array($c->origen, self::ORIGENES_REPARTIDOS, true))
-            ->reject(fn ($c) => isset($restauraciones[(int) $c->orden_id]))
+            ->reject(fn ($c) => isset($restauraciones[(int) $c->orden_id])
+                && ! self::restauracionComoVenta((int) $c->tienda_id, (string) $c->mes_venta))
             ->map(fn ($c) => $c->vendedor_id . '_' . $c->tienda_id)
             ->flip();
 
@@ -3550,6 +3559,20 @@ class ComisionController extends Controller
         $fechaVenta = Carbon::parse($orden->created_at)->setTimezone(StatsController::TZ_NEGOCIO);
         $porCabeza  = round(self::valorComisionable($orden) / count($equipo));
 
+        // Partes iguales (lo de siempre) o "quien la hizo primero" (regla
+        // reparto_restauracion, Fase 4): el autor se lleva su parte y el resto
+        // se reparte igual entre los demás.
+        $mesVenta = $fechaVenta->format('Y-m');
+        $baseDe   = fn (int $vendedorId) => $porCabeza;
+        if (ReglasComision::valor('reparto_restauracion', $mesVenta, (int) $orden->tienda_id) === 'autor_primero') {
+            $valor      = self::valorComisionable($orden);
+            $parteAutor = ReglasComision::numero('parte_autor_restauracion', $mesVenta, (int) $orden->tienda_id);
+            $otros      = count($equipo) - 1;
+            $baseDe     = fn (int $vendedorId) => $vendedorId === (int) $orden->vendedor_id
+                ? round($valor * $parteAutor)
+                : round($valor * (1 - $parteAutor) / $otros);
+        }
+
         // Al que ya no está en la tienda se le quita, salvo que ya se le pagara.
         $existentes->whereNotIn('vendedor_id', $equipo)
             ->where('estado', '!=', 'pagada')->each->delete();
@@ -3566,7 +3589,7 @@ class ComisionController extends Controller
                     'origen'           => self::ORIGEN_RESTAURACION_EQUIPO,
                     'tienda_id'        => $orden->tienda_id,
                     'mes_venta'        => $fechaVenta->format('Y-m'),
-                    'valor_orden'      => $porCabeza,
+                    'valor_orden'      => $baseDe((int) $vendedorId),
                     'fecha_venta'      => $fechaVenta->toDateString(),
                     'fecha_disponible' => self::calcularFechaDisponible($fechaVenta, $orden->tienda_id),
                     'estado'           => $fila->estado ?? 'pendiente',
@@ -3598,6 +3621,8 @@ class ComisionController extends Controller
         // de quien la hizo, tenga la tienda meta o no.
         if (! self::tiendaComparte((int) $orden->tienda_id)) return [];
         if (! ReglasComision::si('restauracion_se_reparte', $mes, (int) $orden->tienda_id)) return [];
+        // Donde cuentan como ventas, van por el pool: no se reparten aparte.
+        if (self::restauracionComoVenta((int) $orden->tienda_id, $mes)) return [];
 
         $equipo = TiendaReemplazo::equipoElDia(
             (int) $orden->tienda_id, $fechaVenta->toDateString(),
@@ -3662,7 +3687,11 @@ class ComisionController extends Controller
         // y al covendedor el resto. Se multiplica por la parte en vez de
         // dividir por 2: da exactamente lo mismo y deja cambiar la parte.
         if ($orden->es_compartida) {
-            $parte = ReglasComision::numero('compartida_parte_vendedor', $mes);
+            // La parte puede ser de la tienda a la que cuenta la venta o de
+            // quien la registró (Fase 4). La tienda se averigua solo si hay
+            // una regla por tienda: para una venta digital cuesta una consulta.
+            $tienda = ReglasComision::hayFilas('compartida_parte_vendedor', 'tienda') ? self::tiendaParaComision($orden) : null;
+            $parte  = ReglasComision::numero('compartida_parte_vendedor', $mes, $tienda, (int) $orden->vendedor_id ?: null);
             $esCovendedor = $vendedorId !== null && $orden->covendedor_id
                 && $vendedorId === (int) $orden->covendedor_id && $vendedorId !== (int) $orden->vendedor_id;
 
@@ -3933,10 +3962,7 @@ class ComisionController extends Controller
             ->where('u.independiente', false)
             ->where('c.origen', '!=', self::ORIGEN_ABONO)
             ->whereNotIn('o.estado', self::ESTADOS_SIN_VENTA)
-            ->whereNotIn('c.orden_id', function ($q) {
-                $q->from('orden_items')->select('orden_id')
-                  ->groupBy('orden_id')->havingRaw('COUNT(*) = SUM(es_restauracion)');
-            })
+            ->tap(fn ($q) => self::sinRestauraciones($q))
             ->whereRaw(self::sqlCuentaParaMeta('o', 'c.tienda_id', 'c.mes_venta'))
             ->tap(fn ($q) => Orden::sinLasFueraDelPool($q))
             ->selectRaw('c.tienda_id, c.mes_venta, SUM(c.valor_orden) as total')
@@ -3955,6 +3981,31 @@ class ComisionController extends Controller
     }
 
     private ?array $totalesQueCuentan = null;
+
+    /**
+     * Saca de una suma de comisiones (alias `c`) las órdenes que son todas
+     * restauración: no son venta de mueble y no le suman a la meta. Salvo en
+     * una tienda que las cuenta como ventas (regla `restauracion_suma_meta`,
+     * Fase 4): ahí se quedan. Sin esa regla puesta, la consulta es la de siempre.
+     */
+    private static function sinRestauraciones($q)
+    {
+        $sub = fn ($s) => $s->from('orden_items')->select('orden_id')
+            ->groupBy('orden_id')->havingRaw('COUNT(*) = SUM(es_restauracion)');
+
+        $comoVenta = ReglasComision::sql('restauracion_suma_meta', 'c.tienda_id', 'c.mes_venta');
+        if ($comoVenta === '0') {
+            return $q->whereNotIn('c.orden_id', $sub);
+        }
+
+        return $q->where(fn ($w) => $w->whereNotIn('c.orden_id', $sub)->orWhereRaw("{$comoVenta} = 1"));
+    }
+
+    /** ¿En esa tienda y mes las restauraciones cuentan como ventas? Ver sinRestauraciones(). */
+    private static function restauracionComoVenta(int $tiendaId, string $mes): bool
+    {
+        return ReglasComision::si('restauracion_suma_meta', $mes, $tiendaId);
+    }
 
     /**
      * cuentaParaMeta() dentro de una consulta que suma muchas órdenes: lo que
@@ -4058,11 +4109,16 @@ class ComisionController extends Controller
                 } else {
                     $diferencial  = $this->diferencialTrimestre((int) $tiendaId, $trimestre, $metas, $totalesTienda);
                     $poolBruto    = self::ventasAPool($diferencial, (int) $tiendaId, self::mesDeReglasDelTrimestre($trimestre));
-                    $poolNeto     = $poolBruto - $deficitPrevio;
+                    // Si la tienda no arrastra la deuda (regla, Fase 4), este
+                    // trimestre arranca de cero; lo que él mismo deje de deuda
+                    // lo decide la regla del trimestre siguiente.
+                    $deudaQueTrae = ReglasComision::si('arrastra_deuda_trimestre', self::mesDeReglasDelTrimestre($trimestre), (int) $tiendaId)
+                        ? $deficitPrevio : 0.0;
+                    $poolNeto     = $poolBruto - $deudaQueTrae;
                     $info = [
                         'pool_bruto'      => $poolBruto,
                         'pool_pagado'     => max(0, $poolNeto),
-                        'deficit_inicial' => $deficitPrevio,
+                        'deficit_inicial' => $deudaQueTrae,
                         'deficit_final'   => $poolNeto < 0 ? abs($poolNeto) : 0.0,
                         'cerrado'         => false,
                     ];
@@ -4250,7 +4306,9 @@ class ComisionController extends Controller
         $clave = $tiendaId . '_' . $mes;
         if (isset($this->libros[$clave])) return $this->libros[$clave];
 
-        $restauraciones = $this->idsDeRestauracion();
+        // En una tienda que cuenta las restauraciones como ventas, no se saca
+        // ninguna (regla restauracion_suma_meta, Fase 4).
+        $restauraciones = self::restauracionComoVenta($tiendaId, $mes) ? [] : $this->idsDeRestauracion();
 
         $filas = DB::table('comisiones as c')
             ->join('usuarios as u', 'u.id', '=', 'c.vendedor_id')
@@ -4538,16 +4596,38 @@ class ComisionController extends Controller
         return [$suyo, $todos];
     }
 
-    /** [usuario_id => días] de una tienda ese mes, cacheado. Ver TiendaReemplazo. */
+    /**
+     * [usuario_id => peso] en el reparto del pool de una tienda ese mes, cacheado.
+     *
+     * Por días (lo de siempre, ver TiendaReemplazo) o, si la tienda escogió
+     * "partes iguales" (regla `reparto_pool`, Fase 4), 1 para cada uno de los
+     * que estuvieron. Para mostrar los días de verdad, diasDe().
+     */
     private function pesosDe(string $mes, int $tiendaId): array
     {
         if (! isset($this->pesos[$mes][$tiendaId])) {
-            $equipo = array_keys($this->equipoDe($mes, $tiendaId));
-            $this->pesos[$mes][$tiendaId] = TiendaReemplazo::pesosDelMes($tiendaId, $mes, $equipo);
+            $dias = $this->diasDe($mes, $tiendaId);
+            $this->pesos[$mes][$tiendaId] = ReglasComision::valor('reparto_pool', $mes, $tiendaId) === 'iguales'
+                ? array_map(fn () => 1.0, $dias)
+                : $dias;
         }
 
         return $this->pesos[$mes][$tiendaId];
     }
+
+    /** [usuario_id => días] que estuvo cada uno en la tienda ese mes, cacheado. */
+    private function diasDe(string $mes, int $tiendaId): array
+    {
+        if (! isset($this->dias[$mes][$tiendaId])) {
+            $equipo = array_keys($this->equipoDe($mes, $tiendaId));
+            $this->dias[$mes][$tiendaId] = TiendaReemplazo::pesosDelMes($tiendaId, $mes, $equipo);
+        }
+
+        return $this->dias[$mes][$tiendaId];
+    }
+
+    /** [mes][tienda_id] => [usuario_id => días]. Ver diasDe(). */
+    private array $dias = [];
 
     /** El equipo fijo de una tienda ese mes, cacheado. */
     private function equipoDe(string $mes, int $tiendaId): array
@@ -4614,6 +4694,7 @@ class ComisionController extends Controller
         $this->individuales    = [];
         $this->equipos         = [];
         $this->pesos           = [];
+        $this->dias            = [];
         $this->libros          = [];
         $this->abonadoQueCuenta = null;
         $this->totalesQueCuentan = null;
@@ -4652,10 +4733,7 @@ class ComisionController extends Controller
             // comision atras y su valor seguia empujando la meta de la tienda.
             ->whereNotIn('o.estado', self::ESTADOS_SIN_VENTA)
             // Una restauracion no es una venta de mueble: no le suma a la meta.
-            ->whereNotIn('c.orden_id', function ($q) {
-                $q->from('orden_items')->select('orden_id')
-                  ->groupBy('orden_id')->havingRaw('COUNT(*) = SUM(es_restauracion)');
-            })
+            ->tap(fn ($q) => self::sinRestauraciones($q))
             ->when($soloMeses, fn ($q) => $q->whereIn('c.mes_venta', $soloMeses))
             ->tap(fn ($q) => Orden::sinLasFueraDelPool($q))
             ->selectRaw('c.tienda_id, c.mes_venta, SUM(c.valor_orden) as total')
@@ -4685,10 +4763,7 @@ class ComisionController extends Controller
             ->join('ordenes as o', 'o.id', '=', 'c.orden_id')
             ->whereNotIn('o.estado', self::ESTADOS_SIN_VENTA)
             ->where('c.origen', '!=', self::ORIGEN_ABONO)
-            ->whereNotIn('c.orden_id', function ($q) {
-                $q->from('orden_items')->select('orden_id')
-                  ->groupBy('orden_id')->havingRaw('COUNT(*) = SUM(es_restauracion)');
-            })
+            ->tap(fn ($q) => self::sinRestauraciones($q))
             ->when($soloMeses, fn ($q) => $q->whereIn('c.mes_venta', $soloMeses))
             ->tap(fn ($q) => Orden::sinLasFueraDelPool($q))
             ->selectRaw('c.vendedor_id, c.tienda_id, c.mes_venta, SUM(c.valor_orden) as total')
@@ -4775,7 +4850,10 @@ class ComisionController extends Controller
         // se llevaba una parte de ese pool sin pertenecer al equipo. Quien no
         // está en una tienda con meta cobra individual, caiga donde caiga la
         // orden. Al revés no: nadie pasa a cobrar por pool por dónde vendió.
-        $esRestauracion = isset($idsRestauracion[(int) $c->orden_id]);
+        // Una tienda puede contar sus restauraciones como ventas (regla
+        // restauracion_suma_meta, Fase 4): ahí van por el pool como una más.
+        $esRestauracion = isset($idsRestauracion[(int) $c->orden_id])
+            && ! self::restauracionComoVenta((int) $c->tienda_id, (string) $c->mes_venta);
         $tieneMeta      = $meta > 0
             && ! $this->cobraIndividual((int) $c->vendedor_id, $c->mes_venta, (int) $c->tienda_id);
 

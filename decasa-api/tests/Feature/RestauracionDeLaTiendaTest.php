@@ -198,6 +198,27 @@ class RestauracionDeLaTiendaTest extends TestCase
         );
     }
 
+    public function test_quien_la_hizo_primero_se_lleva_su_parte_y_el_resto_se_reparte(): void
+    {
+        // Regla de la Fase 4 (dueño, 2026-10-27): en la tienda 1, quien hace la
+        // restauración se lleva el 60 % y el 40 % se parte entre los otros dos.
+        \Illuminate\Support\Facades\Schema::create('comision_reglas', function ($t) {
+            $t->id(); $t->string('clave'); $t->string('alcance'); $t->unsignedBigInteger('alcance_id')->nullable();
+            $t->json('valor')->nullable(); $t->char('desde_mes', 7); $t->string('nota')->nullable();
+            $t->unsignedBigInteger('creado_por')->nullable(); $t->timestamps();
+        });
+        DB::table('comision_reglas')->insert([
+            ['clave' => 'reparto_restauracion', 'alcance' => 'tienda', 'alcance_id' => 1, 'valor' => json_encode('autor_primero'), 'desde_mes' => self::MES],
+            ['clave' => 'parte_autor_restauracion', 'alcance' => 'tienda', 'alcance_id' => 1, 'valor' => json_encode(0.6), 'desde_mes' => self::MES],
+        ]);
+        \App\Support\CachesDePeticion::olvidarTodo();
+
+        $orden = $this->restauracion(1, 1, 1_000_000, '31');
+
+        $this->assertEquals([1 => 600_000.0, 2 => 200_000.0, 3 => 200_000.0], $this->repartoDe($orden),
+            'suma lo mismo que antes: 1.000.000, partido distinto');
+    }
+
     public function test_entre_dos_le_toca_dos_y_medio_por_ciento_a_cada_uno(): void
     {
         $orden = $this->restauracion(4, 2, 1_000_000);

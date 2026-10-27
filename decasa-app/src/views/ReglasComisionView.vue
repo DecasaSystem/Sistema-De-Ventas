@@ -71,6 +71,7 @@ function fmtValor(r, v) {
     case 'entero':   return r.clave === 'dia_pago' ? `Día ${v}` : `${v} ${v === 1 ? 'mes' : 'meses'}`
     case 'si_no':    return v ? 'Sí' : 'No'
     case 'lista':    return v.length ? v.map(m => METODOS[m] ?? m).join(', ') : 'Ninguno'
+    case 'opcion':   return r.opciones?.find(o => o.valor === v)?.nombre ?? String(v)
     default:         return String(v)
   }
 }
@@ -109,6 +110,7 @@ function abrir(clave) {
     texto: r.tipo === 'fraccion' ? numeroCo(r.vigente * 100) : (['numero', 'entero'].includes(r.tipo) ? numeroCo(r.vigente, 4) : ''),
     si: r.tipo === 'si_no' ? !!r.vigente : false,
     lista: r.tipo === 'lista' ? [...r.vigente] : [],
+    opcion: r.tipo === 'opcion' ? r.vigente : null,
     desde_mes: datos.value.mes_actual,
     nota: '',
     mesSimular: mesAnterior(datos.value.mes_actual),
@@ -142,6 +144,7 @@ function valorDelForm() {
     case 'entero':   { const n = leerNumero(f.texto); return n === null || !Number.isInteger(n) ? undefined : n }
     case 'si_no':    return f.si
     case 'lista':    return f.lista
+    case 'opcion':   return f.opcion ?? undefined
     default:         return undefined
   }
 }
@@ -258,8 +261,11 @@ const opcionesAlcance = computed(() => (reglaForm.value?.alcances ?? []).map(a =
               <p class="text-sm font-semibold text-gray-800">{{ catalogo[clave].nombre }}</p>
               <p class="text-xs text-gray-500 mt-0.5 leading-snug">{{ catalogo[clave].explica }}</p>
             </div>
-            <div class="text-right shrink-0">
-              <p class="text-base font-bold text-gray-800 tabular-nums">{{ fmtValor(catalogo[clave], catalogo[clave].vigente) }}</p>
+            <div class="text-right shrink-0 max-w-[45%]">
+              <p
+                class="font-bold text-gray-800 tabular-nums leading-tight"
+                :class="['opcion', 'lista'].includes(catalogo[clave].tipo) ? 'text-sm' : 'text-base'"
+              >{{ fmtValor(catalogo[clave], catalogo[clave].vigente) }}</p>
               <span
                 v-if="esCambiada(catalogo[clave])"
                 class="inline-block mt-0.5 rounded-full text-[10px] font-semibold px-2 py-0.5 border border-blue-200 text-blue-700"
@@ -382,6 +388,17 @@ const opcionesAlcance = computed(() => (reglaForm.value?.alcances ?? []).map(a =
                 <input type="checkbox" :value="m" v-model="form.lista" class="rounded border-gray-300 text-blue-600" @change="simulacion = null" />
                 {{ METODOS[m] ?? m }}
               </label>
+            </div>
+            <div v-else-if="reglaForm.tipo === 'opcion'" class="mt-1 space-y-2">
+              <button
+                v-for="o in reglaForm.opciones" :key="o.valor" type="button"
+                @click="form.opcion = o.valor; simulacion = null"
+                class="w-full text-left rounded-xl border px-3 py-2"
+                :class="form.opcion === o.valor ? 'border-blue-500 ring-1 ring-blue-500' : 'border-gray-200'"
+              >
+                <p class="text-xs font-semibold text-gray-800">{{ o.nombre }}</p>
+                <p class="text-[11px] text-gray-500 mt-0.5 leading-snug">{{ o.explica }}</p>
+              </button>
             </div>
             <p v-if="reglaForm.rango" class="text-[11px] text-gray-400 mt-1">Entre {{ reglaForm.rango[0] }} y {{ reglaForm.rango[1] }}.</p>
           </div>

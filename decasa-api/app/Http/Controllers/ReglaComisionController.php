@@ -77,6 +77,9 @@ class ReglaComisionController extends Controller
                 'alcances' => $r['alcances'],
                 'defecto'  => $r['defecto'],
                 'rango'    => self::RANGOS[$clave] ?? null,
+                // Las formas de calcular que se pueden escoger (tipo opción).
+                'opciones' => isset($r['opciones'])
+                    ? collect($r['opciones'])->map(fn ($o, $v) => ['valor' => $v] + $o)->values() : null,
                 // Lo que rige hoy para todos (sin excepciones de tienda o persona).
                 'vigente'  => ReglasComision::valor($clave, $mes),
             ])->values(),

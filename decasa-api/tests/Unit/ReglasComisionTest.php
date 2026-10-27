@@ -31,10 +31,17 @@ class ReglasComisionTest extends TestCase
             'meta_req_pagado_pct'       => 0.5,
             'dia_pago'                  => 20,
             'meses_espera'              => 1,
+            'reparto_pool'              => 'dias',
+            'restauracion_suma_meta'    => false,
+            'arrastra_deuda_trimestre'  => true,
             'compartida_parte_vendedor' => 0.5,
             'restauracion_se_reparte'   => true,
+            'reparto_restauracion'      => 'iguales',
+            'parte_autor_restauracion'  => 0.5,
             'indep_pct_venta'           => 0.05,
             'indep_pct_bolson'          => 0.05,
+            'bolson_modo'               => 'cada_uno_completo',
+            'entra_al_bolson'           => true,
             'bolson_incluye_almacenes'  => true,
             'almacen_pct'               => 0.05,
             'almacen_fraccion_meta'     => 0.5,
@@ -51,7 +58,12 @@ class ReglasComisionTest extends TestCase
     public function test_cada_regla_dice_que_es_y_donde_se_cambia(): void
     {
         foreach (ReglasComision::CATALOGO as $clave => $r) {
-            $this->assertContains($r['tipo'], ['fraccion', 'numero', 'entero', 'si_no', 'lista'], $clave);
+            $this->assertContains($r['tipo'], ['fraccion', 'numero', 'entero', 'si_no', 'lista', 'opcion'], $clave);
+            if ($r['tipo'] === 'opcion') {
+                // La primera opción es lo que hacía el código antes: es el valor por defecto.
+                $this->assertSame(array_key_first($r['opciones']), $r['defecto'], $clave);
+                foreach ($r['opciones'] as $o) $this->assertNotEmpty($o['nombre'] ?? null, $clave);
+            }
             $this->assertNotEmpty($r['nombre'], $clave);
             $this->assertNotEmpty($r['explica'], $clave);
             $this->assertContains('general', $r['alcances'], $clave);

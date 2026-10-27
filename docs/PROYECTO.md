@@ -519,6 +519,12 @@ entregada"). Solo supervisor.
   bitácora y pide un recálculo. Pantalla: Comisiones → Reglas (`ReglasComisionView`), con
   simulador (corre el resumen del mes en una transacción que se deshace: no guarda nada).
   El permiso se da en la ficha del trabajador, bajo "Acceso a comisiones".
+- **Repartos escogibles** (2026-10-27, Fase 4, sin migración): además de cifras, hay reglas de
+  tipo opción con lo de siempre por defecto: cómo se cobra el bolsón (cada uno completo / se
+  reparte) y quién entra, el pool por días o en partes iguales, la restauración en partes
+  iguales o "quien la hizo primero" (con su parte), restauraciones que cuentan como ventas en
+  una tienda (suman a meta y pool, ya no se pagan aparte), no arrastrar la deuda trimestral, y
+  la parte de la compartida por tienda o persona. Ver `docs/plan-comisiones-personalizables.md`.
   Detalle y decisiones del dueño en `docs/plan-comisiones-personalizables.md`.
 
 ### 6.11 Costos de fabricación y cotizador IA

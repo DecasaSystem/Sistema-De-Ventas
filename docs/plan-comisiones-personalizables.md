@@ -1,8 +1,8 @@
 # Plan: comisiones personalizables
 
 Estado: **Fase 0 hecha y subida a `main` (2026-10-27, commit 7e51c47, sin migración)**;
-**Fases 1 y 2 hechas (2026-10-27, sin subir, traen migración)**; Fases 3 (textos) y 4
-(esquemas) sin empezar.
+**Fases 1 y 2 hechas y subidas a `main` (2026-10-27, commit 12d38e3, traen migración)**;
+**Fase 4 hecha (2026-10-27, sin subir)**; Fase 3 (textos) sin empezar.
 Decisiones del dueño en el §8. Pedido del dueño: "que sea
 personalizado… ahora es algo fijo que yo hago en el código; que sea totalmente
 personalizable por si algún día cambian el funcionamiento de todo, sin dañar nada".
@@ -250,8 +250,58 @@ sacados del backend.
 
 **Fase 3 — Textos desde las reglas** (Ayuda, desglose, Excel, asistente).
 
-**Fase 4 — Esquemas por tienda y por persona** (`comision_esquema`) y, si el dueño lo
-pide, el primer esquema nuevo (por ejemplo tramos).
+**Fase 4 — Los repartos como opciones** (diseño 2026-10-27; **hecha el 2026-10-27, sin
+subir, sin migración nueva**: piezas 1–7 menos la 8 y la 9, que el dueño dejó para después;
+ver §9).
+
+*Cómo quedó:* reglas nuevas `bolson_modo` y `entra_al_bolson` (`ComisionIndependientes::delMes`),
+`arrastra_deuda_trimestre` (`cargarPoolsTrimestrales`), `compartida_parte_vendedor` por tienda
+y persona (`valorComisionable`; la persona es quien registró la venta, el covendedor se lleva
+el resto), `reparto_pool` (`pesosDe` / `diasDe`: la parte sale del peso, los días se siguen
+mostrando), `restauracion_suma_meta` (`sinRestauraciones` en SQL, `libroDelPool`,
+`crearPartesDePool`, `enriquecer`, `equipoQueReparteRestauracion`) y `reparto_restauracion` +
+`parte_autor_restauracion` (`sincronizarRestauracionEquipo`). Tipo nuevo `opcion` en el
+catálogo, con su pantalla (tarjetas para escoger). **Semántica escogida para
+`restauracion_suma_meta`** (para que no se pague doble): en esa tienda la restauración es una
+venta más — suma a la meta, entra al pool sin IVA como toda venta del pool, ya no se paga
+aparte ni se reparte por días; al bolsón de independientes entra igual. Cada pieza con sus
+pruebas y prueba diferencial sobre una copia congelada del código de esa pieza.
+
+La idea cambió frente al plan inicial: en vez de una columna `comision_esquema` en tiendas
+y usuarios, cada forma de repartir es **una regla más del catálogo**, de un tipo nuevo
+`opcion` (un valor de una lista cerrada que el código sabe calcular). Así hereda todo lo de
+las Fases 1 y 2 sin hacer nada nuevo: fecha "desde", tienda/persona, simulador, foto al
+pagar, bitácora, permiso. El valor por defecto de cada una es **lo que hace hoy el código**:
+con la tabla vacía no cambia ni un peso (se verifica con la misma prueba diferencial).
+
+| # | Lo que hoy está fijo | Regla nueva (tipo) | Opciones (la primera es la de hoy) | Alcance | Dónde se calcula |
+|---|---|---|---|---|---|
+| 1 | El pool se reparte por días | `reparto_pool` (opción) | `dias` · `iguales` (todos los del mes igual, sin mirar días) | tienda | `parteDelPool`, `crearPartesDePool` (en vivo) |
+| 2 | Restauración en tienda: partes iguales entre los del día | `reparto_restauracion` (opción) + `parte_autor_restauracion` (fracción) | `iguales` · `autor_primero` (quien la hizo se lleva su parte y el resto se reparte igual) | tienda | `sincronizarRestauracionEquipo` (**guardado**: se ve tras recalcular) |
+| 3 | Cada independiente cobra el % del bolsón **completo** (2 independientes = 10 % pagado) | `bolson_modo` (opción) | `cada_uno_completo` · `se_reparte` (el % del bolsón se parte entre los que entran) | general | `ComisionIndependientes::delMes` (en vivo) |
+| 4 | Entran al bolsón todos los marcados independientes | `entra_al_bolson` (sí/no) | sí · no | persona | `ComisionIndependientes::delMes` (en vivo) |
+| 5 | Las restauraciones nunca suman a la meta | `restauracion_suma_meta` (sí/no) | no · sí | tienda | `cargarTotales`, `totalesQueCuentan`, `libroDelPool` (SQL: el subquery de restauraciones pasa a un CASE por tienda) |
+| 6 | La deuda del trimestre pasa al siguiente | `arrastra_deuda_trimestre` (sí/no) | sí · no | tienda | `cargarPoolsTrimestrales` (en vivo; lo ya liquidado no se mueve) |
+| 7 | La parte de la compartida es una sola para todos | `compartida_parte_vendedor` pasa a admitir tienda y persona | — | +tienda, +persona | `valorComisionable` (**guardado**) |
+| 8 | Pool = excedente sobre la meta, un solo % | `formula_pool` (opción) + `tramos_pool` (lista de tramos) + `bono_meta` (pesos) | `excedente` · `tramos` (p. ej. 0–100 % de la meta al 3 %, 100–120 % al 5 %, más de 120 % al 6 %) · `bono` (monto fijo al equipo al cumplir) | tienda | `libroDelPool`, `enriquecer`, trimestrales, `avanceDeMetas` y textos (lo más grande) |
+| 9 | Quién cobra individual (fuera del equipo, supervisor en tienda con meta, tienda sin meta) | `cobro_individual` (opción) | `auto` · `siempre_individual` · `siempre_del_equipo` | persona | `cobraIndividual` (en vivo) |
+| 10 | El 5 % del almacén que ayudó se parte igual entre su gente del día | — | Se queda como está: la orden no guarda quién del almacén pasó el contacto. | — | — |
+
+Cómo se hace sin dañar nada:
+- **Una pieza por vez, en este orden** (de menos a más riesgo): 4 y 3 (bolsón), 6, 7, 1,
+  5, 2, 9, y 8 al final (toca la fórmula del pool en todas partes). Cada pieza con sus
+  pruebas y la prueba diferencial con la tabla vacía y con la regla puesta en su valor de
+  hoy (tiene que dar idéntico).
+- **La pantalla** pinta las opciones con un nombre y una frase de ejemplo cada una
+  ("Iguales: los tres se llevan lo mismo aunque uno haya estado 10 días"), y el simulador
+  las muestra en vivo salvo las marcadas como **guardado** (2 y 7), que se suman a
+  `SE_VEN_AL_RECALCULAR`.
+- **Fase 3 primero o junto**: con estas opciones, la Ayuda, el desglose y el Excel ya no
+  pueden decir "se reparte por días" ni "cada uno cobra el 5 % del bolsón" fijo; cada pieza
+  cambia también su texto.
+- La regla confirmada del pool **"todos los del equipo cobran igual, partido por días"**
+  (MEMORY.md §2) es la opción por defecto; `iguales` es una variante del mismo principio.
+  Repartir según lo que vendió cada uno **no se ofrece**: rompería esa regla (§9).
 
 ## 7. Lo que NO cambia
 
@@ -275,3 +325,19 @@ pide, el primer esquema nuevo (por ejemplo tramos).
 4. **Excepciones por tienda y por persona**: gana la más específica.
 5. **Estadísticas siguen 50/50** con la venta compartida: la regla solo cambia la comisión.
 6. Esquemas nuevos (tramos, bono por meta…): ninguno pedido todavía (Fase 4).
+
+## 9. Decisiones del dueño para la Fase 4 (2026-10-27)
+
+Se hacen (todas con lo de hoy como valor por defecto):
+1. **Bolsón:** sigue "cada uno cobra el % del bolsón completo", y se agrega la opción
+   "el % se reparte entre ellos" (pieza 3) y sacar a una persona del bolsón (pieza 4).
+2. **Pool:** "por días" (hoy) o "iguales" (pieza 1).
+3. **Restauración en tienda:** "iguales" (hoy) o "quien la hizo primero", con la parte del
+   autor como regla aparte que se pone al activarla (pieza 2).
+4. **Restauraciones que suman a la meta**, por tienda (pieza 5).
+5. **No arrastrar la deuda del trimestre**, por tienda (pieza 6).
+6. La parte de la compartida por tienda y por persona (pieza 7): no se preguntó; va porque
+   es pequeña y no cambia nada mientras no se use.
+
+No se hacen por ahora: **fórmula del pool por tramos o bono** (pieza 8) y **forzar el cobro
+individual por persona** (pieza 9). Quién decide: el mismo permiso "Reglas de comisión".

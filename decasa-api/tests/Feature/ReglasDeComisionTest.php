@@ -87,7 +87,7 @@ class ReglasDeComisionTest extends TestCase
             $t->decimal('descuento_condicionado', 15, 2)->default(0);
             $t->timestamp('descuento_condicionado_revertido_at')->nullable();
             $t->unsignedInteger('numero_orden')->nullable(); $t->string('serie')->nullable();
-            $t->unsignedInteger('serie_numero')->nullable();
+            $t->unsignedInteger('serie_numero')->nullable(); $t->boolean('sin_descontar_iva')->default(false);
             $t->timestamps();
         });
         Schema::create('orden_items', function (Blueprint $t) {
@@ -149,14 +149,14 @@ class ReglasDeComisionTest extends TestCase
     }
 
     /** @param array<array{0:string,1:float}> $pagos [metodo, monto] */
-    private function orden(int $vendedor, int $tienda, float $valor, array $pagos, string $mes = self::MES): int
+    private function orden(int $vendedor, int $tienda, float $valor, array $pagos, string $mes = self::MES, bool $restauracion = false): int
     {
         $id = DB::table('ordenes')->insertGetId([
             'tienda_id' => $tienda, 'vendedor_id' => $vendedor, 'tienda_vendedor_id' => $tienda,
             'canal' => 'fisica', 'estado' => 'en_produccion', 'valor_total' => $valor,
             'created_at' => $mes . '-15 15:00:00', 'updated_at' => now(),
         ]);
-        DB::table('orden_items')->insert(['orden_id' => $id, 'es_restauracion' => false, 'precio_unitario' => $valor]);
+        DB::table('orden_items')->insert(['orden_id' => $id, 'es_restauracion' => $restauracion, 'precio_unitario' => $valor]);
         foreach ($pagos as [$metodo, $monto]) {
             DB::table('pagos')->insert(['orden_id' => $id, 'monto' => $monto, 'metodo' => $metodo, 'tipo' => 'anticipo', 'created_at' => now()]);
         }
@@ -359,6 +359,103 @@ class ReglasDeComisionTest extends TestCase
         $this->actingAs(Usuario::find(self::OTRO))->postJson('/api/comisiones/reglas/simular', [
             'clave' => 'pct_individual', 'alcance' => 'general', 'valor' => 0.07, 'desde_mes' => self::MES,
         ])->assertStatus(403);
+    }
+
+    /** Dos independientes (Henry y Flabio) y una restauración de Henry de $1.000.000. */
+    private function bolsonDeDos(): array
+    {
+        foreach ([[40, 'Henry'], [41, 'Flabio']] as [$id, $nombre]) {
+            DB::table('usuarios')->insert(['id' => $id, 'nombre' => $nombre, 'rol' => 'vendedor', 'independiente' => true,
+                'email' => "$id@d.com", 'password' => 'x', 'created_at' => now()]);
+        }
+        \App\Services\ComisionIndependientes::olvidarCache();
+        $this->orden(40, self::FERIA, 1_000_000, [['efectivo', 1_000_000]], self::MES, restauracion: true);
+
+        $cuenta = \App\Services\ComisionIndependientes::delMes(self::MES);
+        $de = fn ($id) => collect($cuenta['independientes'])->firstWhere('vendedor_id', $id)['comision_restauraciones'];
+
+        return [$de(40), $de(41)];
+    }
+
+    public function test_bolson_hoy_cada_uno_cobra_el_completo(): void
+    {
+        Carbon::setTestNow('2026-11-21 10:00:00');
+        // 1.000.000 × 5 % = 50.000 para cada uno (la empresa paga 100.000).
+        $this->assertEquals([50_000, 50_000], $this->bolsonDeDos());
+    }
+
+    public function test_bolson_que_se_reparte_entre_los_que_entran(): void
+    {
+        Carbon::setTestNow('2026-11-21 10:00:00');
+        $this->regla('bolson_modo', 'se_reparte', '2026-10');
+        // El 5 % (50.000) partido entre los dos.
+        $this->assertEquals([25_000, 25_000], $this->bolsonDeDos());
+    }
+
+    public function test_sacar_a_alguien_del_bolson(): void
+    {
+        Carbon::setTestNow('2026-11-21 10:00:00');
+        $this->regla('entra_al_bolson', false, '2026-10', 'usuario', 40);
+        $this->regla('bolson_modo', 'se_reparte', '2026-10');
+        // Henry no entra: aunque la hizo él, el bolsón es de Flabio solo.
+        $this->assertEquals([0, 50_000], $this->bolsonDeDos());
+    }
+
+    public function test_una_opcion_que_no_existe_se_frena(): void
+    {
+        Carbon::setTestNow('2026-10-26 10:00:00');
+        $this->actingAs(Usuario::find(self::JEFE))->postJson('/api/comisiones/reglas', [
+            'clave' => 'bolson_modo', 'alcance' => 'general', 'valor' => 'por_ventas', 'desde_mes' => '2026-10',
+        ])->assertStatus(422);
+        $this->actingAs(Usuario::find(self::JEFE))->getJson('/api/comisiones/reglas')
+            ->assertOk()->assertJsonPath('catalogo.' . array_search('bolson_modo', array_keys(ReglasComision::CATALOGO)) . '.opciones.1.valor', 'se_reparte');
+    }
+
+    public function test_la_parte_de_la_compartida_por_persona(): void
+    {
+        Carbon::setTestNow('2026-11-21 10:00:00');
+        // Cuando Laura registra una compartida con Paola, Laura se lleva el 60 %.
+        $this->regla('compartida_parte_vendedor', 0.6, '2026-10', 'usuario', self::LAURA);
+        $id = DB::table('ordenes')->insertGetId([
+            'tienda_id' => self::FERIA, 'vendedor_id' => self::LAURA, 'tienda_vendedor_id' => self::FERIA,
+            'es_compartida' => true, 'covendedor_id' => self::PAOLA, 'canal' => 'fisica',
+            'estado' => 'en_produccion', 'valor_total' => 1_000_000, 'created_at' => self::MES . '-15 15:00:00', 'updated_at' => now(),
+        ]);
+        DB::table('orden_items')->insert(['orden_id' => $id, 'precio_unitario' => 1_000_000]);
+        DB::table('pagos')->insert(['orden_id' => $id, 'monto' => 1_000_000, 'metodo' => 'efectivo', 'created_at' => now()]);
+        ComisionController::crearParaOrden(Orden::with('pagos')->find($id));
+
+        $base = DB::table('comisiones')->where('orden_id', $id)->pluck('valor_orden', 'vendedor_id');
+        $this->assertEquals(600_000, $base[self::LAURA]);
+        $this->assertEquals(400_000, $base[self::PAOLA], 'el covendedor se lleva el resto');
+
+        // Y recalcular no lo deshace.
+        ComisionController::sincronizarValorOrden(Orden::with('pagos')->find($id));
+        $this->assertEquals(400_000, DB::table('comisiones')->where('orden_id', $id)->where('vendedor_id', self::PAOLA)->value('valor_orden'));
+    }
+
+    public function test_una_tienda_que_cuenta_las_restauraciones_como_ventas(): void
+    {
+        Carbon::setTestNow('2026-11-21 10:00:00');
+        // Norte: 40 M de venta + 11,9 M de restauración; meta 40 M.
+        $venta = $this->orden(self::PAOLA, self::NORTE, 40_000_000, [['efectivo', 40_000_000]]);
+        $rest  = $this->orden(self::PAOLA, self::NORTE, 11_900_000, [['efectivo', 11_900_000]], self::MES, restauracion: true);
+
+        // Como siempre: la venta llega justo a la meta (pool 0) y la
+        // restauración se paga aparte: 11.900.000 × 5 % = 595.000.
+        $o = $this->porOrden();
+        $this->assertEquals(0, $o[$venta]['monto_comision']);
+        $this->assertEquals(595_000, $o[$rest]['monto_comision']);
+        $this->assertSame('restauracion_5', $o[$rest]['forma_pago']);
+        $this->assertEquals(40_000_000, ComisionController::avanceDeMetas()[self::NORTE . '_' . self::MES]['cuenta']);
+
+        // Norte la cuenta como venta: suma a la meta y entra al pool, sin
+        // pagarse aparte. Pool = 11.900.000 ÷ 1,19 × 5 % = 500.000.
+        $this->regla('restauracion_suma_meta', true, '2026-10', 'tienda', self::NORTE);
+        $this->assertEquals(51_900_000, ComisionController::avanceDeMetas()[self::NORTE . '_' . self::MES]['cuenta']);
+        $o = $this->porOrden();
+        $this->assertEquals(500_000, $o[$venta]['monto_comision'] + $o[$rest]['monto_comision']);
+        $this->assertSame('pool', $o[$rest]['forma_pago']);
     }
 
     public function test_cambiar_el_dia_de_pago_corre_la_fecha_de_lo_que_falta(): void

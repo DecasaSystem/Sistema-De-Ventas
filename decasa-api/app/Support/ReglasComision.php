@@ -38,7 +38,10 @@ class ReglasComision
      * El catálogo: qué se puede ajustar, cuánto vale si nadie lo cambia (lo
      * mismo que hacía el código) y a qué niveles se puede cambiar.
      *
-     * tipo: 'fraccion' (0,05 = 5 %), 'numero', 'entero', 'si_no', 'lista'.
+     * tipo: 'fraccion' (0,05 = 5 %), 'numero', 'entero', 'si_no', 'lista', y
+     * 'opcion': una forma de calcular escogida de una lista cerrada que el
+     * código sabe hacer (`opciones`: valor => [nombre, explica]). La primera
+     * opción es siempre lo que hacía el código antes de poder escoger.
      */
     public const CATALOGO = [
         // ── Porcentajes ──────────────────────────────────────────────────
@@ -115,15 +118,54 @@ class ReglasComision
         ],
 
         // ── Repartos ─────────────────────────────────────────────────────
+        'reparto_pool' => [
+            'tipo' => 'opcion', 'defecto' => 'dias', 'alcances' => ['general', 'tienda'],
+            'nombre' => 'Cómo se reparte el pool',
+            'explica' => 'Entre los del equipo de la tienda (con quien llegó a cubrir).',
+            'opciones' => [
+                'dias'    => ['nombre' => 'Por días',
+                    'explica' => 'Cada uno se lleva según los días que estuvo en la tienda. Si nadie faltó, todos lo mismo.'],
+                'iguales' => ['nombre' => 'Partes iguales',
+                    'explica' => 'Todos los que estuvieron ese mes se llevan lo mismo, aunque uno haya estado menos días.'],
+            ],
+        ],
+        'restauracion_suma_meta' => [
+            'tipo' => 'si_no', 'defecto' => false, 'alcances' => ['general', 'tienda'],
+            'nombre' => 'Las restauraciones cuentan como ventas',
+            'explica' => 'Encendido, en esa tienda una restauración es una venta más: suma a la meta, entra al pool '
+                . '(sin IVA, como toda venta del pool) y ya no se paga aparte con su porcentaje ni se reparte por días. '
+                . 'Al bolsón de los independientes entra igual que siempre.',
+        ],
+        'arrastra_deuda_trimestre' => [
+            'tipo' => 'si_no', 'defecto' => true, 'alcances' => ['general', 'tienda'],
+            'nombre' => 'La deuda del trimestre pasa al siguiente',
+            'explica' => 'En las tiendas trimestrales: si un trimestre no llega a la meta, lo que faltó se descuenta del pool del siguiente. Apagado, cada trimestre arranca de cero. Rige el último mes del trimestre que empieza.',
+        ],
         'compartida_parte_vendedor' => [
-            'tipo' => 'fraccion', 'defecto' => 0.5, 'alcances' => ['general'],
+            'tipo' => 'fraccion', 'defecto' => 0.5, 'alcances' => ['general', 'tienda', 'usuario'],
             'nombre' => 'Parte de quien vendió en una venta compartida',
-            'explica' => 'El resto es del covendedor.',
+            'explica' => 'El resto es del covendedor. Por tienda: la tienda a la que cuenta la venta. Por persona: cuando esa persona es la que registró la venta.',
         ],
         'restauracion_se_reparte' => [
             'tipo' => 'si_no', 'defecto' => true, 'alcances' => ['general', 'tienda'],
             'nombre' => 'La restauración se reparte con el equipo',
             'explica' => 'En una tienda que comparte, el porcentaje de una restauración se parte entre los que estaban ese día.',
+        ],
+        'reparto_restauracion' => [
+            'tipo' => 'opcion', 'defecto' => 'iguales', 'alcances' => ['general', 'tienda'],
+            'nombre' => 'Cómo se reparte la restauración',
+            'explica' => 'Cuando se reparte con el equipo: entre los que estaban en la tienda ese día.',
+            'opciones' => [
+                'iguales'       => ['nombre' => 'Partes iguales',
+                    'explica' => 'Todos los que estaban ese día se llevan lo mismo, también quien la hizo.'],
+                'autor_primero' => ['nombre' => 'Quien la hizo primero',
+                    'explica' => 'Quien la hizo se lleva su parte (la regla de abajo) y el resto se reparte igual entre los demás.'],
+            ],
+        ],
+        'parte_autor_restauracion' => [
+            'tipo' => 'fraccion', 'defecto' => 0.5, 'alcances' => ['general', 'tienda'],
+            'nombre' => 'Parte de quien hizo la restauración',
+            'explica' => 'Solo con "Quien la hizo primero": qué parte de la comisión de la restauración es suya.',
         ],
 
         // ── Independientes y almacenes ───────────────────────────────────
@@ -136,6 +178,22 @@ class ReglasComision
             'tipo' => 'fraccion', 'defecto' => ComisionIndependientes::PORCENTAJE, 'alcances' => ['general', 'usuario'],
             'nombre' => 'Porcentaje de cada independiente sobre el bolsón',
             'explica' => 'Todas las restauraciones del mes se juntan en un bolsón y cada independiente cobra este porcentaje del bolsón completo.',
+        ],
+        'bolson_modo' => [
+            'tipo' => 'opcion', 'defecto' => 'cada_uno_completo', 'alcances' => ['general'],
+            'nombre' => 'Cómo se cobra el bolsón',
+            'explica' => 'Entre los independientes que entran al bolsón de restauraciones.',
+            'opciones' => [
+                'cada_uno_completo' => ['nombre' => 'Cada uno, el bolsón completo',
+                    'explica' => 'Cada independiente cobra su porcentaje del bolsón entero. Con dos, la empresa paga el doble.'],
+                'se_reparte' => ['nombre' => 'Se reparte entre ellos',
+                    'explica' => 'El porcentaje del bolsón se parte en partes iguales entre los que entran.'],
+            ],
+        ],
+        'entra_al_bolson' => [
+            'tipo' => 'si_no', 'defecto' => true, 'alcances' => ['general', 'usuario'],
+            'nombre' => 'Entra al bolsón de restauraciones',
+            'explica' => 'Si un independiente cobra del bolsón. Sacarlo no le quita "independiente" (caja propia, lo que ve).',
         ],
         'bolson_incluye_almacenes' => [
             'tipo' => 'si_no', 'defecto' => true, 'alcances' => ['general'],
@@ -160,8 +218,9 @@ class ReglasComision
         'iva'             => ['titulo' => 'IVA',                       'claves' => ['iva_divisor', 'iva_en_venta', 'iva_en_restauracion']],
         'datafono'        => ['titulo' => 'Datáfono',                  'claves' => ['franquicia_pct', 'franquicia_metodos']],
         'cobro'           => ['titulo' => 'Cuándo se cobra',           'claves' => ['req_pagado_pct', 'req_pagado_restauracion', 'meta_req_pagado_pct', 'dia_pago', 'meses_espera']],
-        'repartos'        => ['titulo' => 'Repartos',                  'claves' => ['compartida_parte_vendedor', 'restauracion_se_reparte']],
-        'independientes'  => ['titulo' => 'Independientes y almacenes', 'claves' => ['indep_pct_venta', 'indep_pct_bolson', 'bolson_incluye_almacenes', 'almacen_pct', 'almacen_fraccion_meta']],
+        'pool'            => ['titulo' => 'Pool de la tienda',         'claves' => ['reparto_pool', 'restauracion_suma_meta', 'arrastra_deuda_trimestre']],
+        'repartos'        => ['titulo' => 'Repartos',                  'claves' => ['compartida_parte_vendedor', 'restauracion_se_reparte', 'reparto_restauracion', 'parte_autor_restauracion']],
+        'independientes'  => ['titulo' => 'Independientes y almacenes', 'claves' => ['indep_pct_venta', 'indep_pct_bolson', 'bolson_modo', 'entra_al_bolson', 'bolson_incluye_almacenes', 'almacen_pct', 'almacen_fraccion_meta']],
     ];
 
     /**
@@ -173,6 +232,8 @@ class ReglasComision
     public const SE_VEN_AL_RECALCULAR = [
         'franquicia_pct', 'franquicia_metodos', 'compartida_parte_vendedor', 'almacen_fraccion_meta',
         'dia_pago', 'meses_espera',
+        // El reparto de la restauración entre el equipo queda escrito por persona.
+        'restauracion_suma_meta', 'reparto_restauracion', 'parte_autor_restauracion',
     ];
 
     /**
@@ -237,6 +298,16 @@ class ReglasComision
         return self::filas() !== [];
     }
 
+    /** Esa regla tiene alguna fila, o alguna de ese nivel: si no, no hace falta averiguar la tienda o la persona. */
+    public static function hayFilas(string $clave, ?string $alcance = null): bool
+    {
+        foreach (self::filas()[$clave] ?? [] as $f) {
+            if ($alcance === null || $f->alcance === $alcance) return true;
+        }
+
+        return false;
+    }
+
     /**
      * Un valor como lo guarda la regla, según su tipo: 0,05 como fracción, 20
      * como entero, sí/no, una lista de textos. Null si no sirve para esa regla.
@@ -250,6 +321,7 @@ class ReglasComision
             'entero'             => is_numeric($valor) && (float) $valor == (int) $valor ? (int) $valor : null,
             'si_no'              => is_bool($valor) ? $valor : (in_array($valor, [0, 1, '0', '1'], true) ? (bool) $valor : null),
             'lista'              => is_array($valor) ? array_values(array_unique(array_map('strval', $valor))) : null,
+            'opcion'             => is_string($valor) && isset(self::CATALOGO[$clave]['opciones'][$valor]) ? $valor : null,
             default              => null,
         };
     }
@@ -325,7 +397,8 @@ class ReglasComision
      */
     public static function sql(string $clave, string $tiendaSql, string $mesSql): string
     {
-        if (! isset(self::CATALOGO[$clave]) || in_array(self::CATALOGO[$clave]['tipo'], ['lista', 'si_no'], true)) {
+        // Un sí/no entra como 1 o 0; una lista o una opción no tienen número.
+        if (! isset(self::CATALOGO[$clave]) || in_array(self::CATALOGO[$clave]['tipo'], ['lista', 'opcion'], true)) {
             throw new \InvalidArgumentException("Regla de comisión sin número: {$clave}");
         }
 
