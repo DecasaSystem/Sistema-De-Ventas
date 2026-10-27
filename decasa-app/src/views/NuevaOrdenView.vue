@@ -3315,6 +3315,25 @@ async function soltarBorrador() {
   router.replace({ name: modoCotizacion.value ? 'cotizaciones' : 'ordenes' })
 }
 
+/**
+ * Lo guardado, con la forma que espera la pantalla: donde ella tiene un texto
+ * y llega null, vuelve a ser ''. Los respaldos que se guardaron en la cuenta
+ * antes del 2026-10-27 traen null en vez de '' (el servidor convertía los
+ * textos vacíos) y Nueva orden quedaba en blanco al hacer .trim() sobre las
+ * notas, el motivo o la dirección. Entra en objetos (nuevo cliente, formularios);
+ * lo que en la pantalla ya es null (cliente escogido, anexo) llega tal cual.
+ */
+function sinNulos(actual, entrante) {
+  if (entrante === null && typeof actual === 'string') return ''
+  const esObjeto = (v) => v && typeof v === 'object' && !Array.isArray(v) && !(v instanceof Blob)
+  if (esObjeto(actual) && esObjeto(entrante)) {
+    const out = { ...entrante }
+    for (const k of Object.keys(actual)) if (k in out) out[k] = sinNulos(actual[k], out[k])
+    return out
+  }
+  return entrante
+}
+
 async function restaurarBorrador(d) {
   if (d.claveEnvio) claveEnvio = d.claveEnvio
 
@@ -3343,7 +3362,7 @@ async function restaurarBorrador(d) {
     .map(f => ({ ...f, preview: f.file ? URL.createObjectURL(f.file) : f.url }))
 
   const poner = () => {
-    for (const [k, r] of Object.entries(camposBorrador)) if (k in d) r.value = d[k]
+    for (const [k, r] of Object.entries(camposBorrador)) if (k in d) r.value = sinNulos(r.value, d[k])
   }
   poner()
   // Algunos watchers reaccionan a lo que se acaba de poner y pisan otros

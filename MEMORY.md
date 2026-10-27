@@ -751,6 +751,15 @@ Decisiones del dueño del 2026-10-08:
 
 ## 6. Trampas conocidas
 
+- **Nueva orden en blanco al seguir la orden a medio hacer** (2026-10-27, consola:
+  `Cannot read properties of null (reading 'trim')` en NuevaOrdenView). Laravel convierte `''`
+  en `null` en todo lo que recibe (`ConvertEmptyStringsToNull`, y `TrimStrings` recorta): el
+  respaldo en la cuenta (`PUT /borradores-en-curso`, del 2026-10-22) guardaba notas, motivo y
+  dirección como null, y al recuperarlo `resumenOrden` y `DireccionColombia` hacían `.trim()`.
+  Arreglo: esa ruta queda fuera de los dos middleware (`bootstrap/app.php`) y la pantalla
+  repara los respaldos viejos al restaurar (`sinNulos`). Para guardar JSON "tal cual" que
+  manda el front, recordar estos dos middleware.
+
 - **"El aviso del día de pago llegó el 26"** (2026-10-26, **sin subir**, sin migración). En
   producción el aviso se creó el 20 a las 6:36 a. m.: el sistema avisó a tiempo. El push
   salía sin vencimiento (el servidor de Google/Apple lo guarda hasta 4 semanas y lo entrega

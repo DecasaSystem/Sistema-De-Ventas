@@ -15,13 +15,15 @@ const props = defineProps({
 
 const emit = defineEmits(['update:departamento', 'update:ciudad', 'update:direccion'])
 
-const deptLocal   = ref(props.departamento)
-const ciudadLocal = ref(props.ciudad)
-const dirLocal    = ref(props.direccion)
+// `?? ''`: el default de la prop no cubre un null (una orden sin dirección, un
+// respaldo viejo) y mostrarSugerencia hace .trim(): con null la pantalla quedaba en blanco.
+const deptLocal   = ref(props.departamento ?? '')
+const ciudadLocal = ref(props.ciudad ?? '')
+const dirLocal    = ref(props.direccion ?? '')
 
-watch(() => props.departamento, v => { deptLocal.value = v })
-watch(() => props.ciudad,       v => { ciudadLocal.value = v })
-watch(() => props.direccion,    v => { dirLocal.value = v })
+watch(() => props.departamento, v => { deptLocal.value = v ?? '' })
+watch(() => props.ciudad,       v => { ciudadLocal.value = v ?? '' })
+watch(() => props.direccion,    v => { dirLocal.value = v ?? '' })
 
 const municipios = computed(() => {
   if (!deptLocal.value) return []
@@ -48,12 +50,12 @@ function onDir(e) {
 // Atajo: usar la dirección registrada del cliente. Solo se ofrece si hay una y
 // no coincide ya con lo escrito.
 const mostrarSugerencia = computed(() => {
-  const s = props.sugerencia.trim()
+  const s = (props.sugerencia ?? '').trim()
   return !!s && s !== dirLocal.value.trim()
 })
 
 function usarSugerencia() {
-  dirLocal.value = props.sugerencia.trim()
+  dirLocal.value = (props.sugerencia ?? '').trim()
   emit('update:direccion', dirLocal.value)
 }
 </script>
