@@ -387,13 +387,22 @@ escribiendo precios (Fase 1b).
   permiso del usuario.
 - **Comisiones personalizables** (`docs/plan-comisiones-personalizables.md`). Pedido del dueño
   (2026-10-26): que las reglas de comisión no estén fijas en el código "por si algún día cambia
-  el funcionamiento de todo, sin dañar nada". **Fase 0 hecha el 2026-10-27, sin subir, sin
-  migración**, rama `claude/comisiones-module-analysis-c42e66`: catálogo `App\Support\ReglasComision`
+  el funcionamiento de todo, sin dañar nada". **Fase 0 hecha y subida a `main` el 2026-10-27
+  (commit 7e51c47), sin migración**, rama `claude/comisiones-module-analysis-c42e66`: catálogo `App\Support\ReglasComision`
   con los valores de hoy y todo el cálculo pidiéndolos ahí. **No cambió ni un peso**: prueba
   diferencial byte a byte (8.000 órdenes, todos los caminos, pagos incluidos) y suite completa.
-  Antes de la Fase 1 (tabla de reglas con fecha + foto al pagar) faltan las decisiones del
-  dueño del §8 del plan: alcance, quién cambia reglas, meses pasados, excepciones por
-  persona, Estadísticas con la compartida, esquemas nuevos. Mismo patrón que `CostoEmpleador`.
+  Mismo patrón que `CostoEmpleador`. Decisiones del dueño (2026-10-27): permiso aparte
+  `acceso_reglas_comision` (solo lo da quien ya lo tiene), reglas por tienda y por persona,
+  hacia atrás solo sin pagos y con confirmación, Estadísticas siguen 50/50 con la compartida.
+  **Fase 1 hecha el 2026-10-27, sin subir**, trae **migración**
+  `2026_11_02_000001_reglas_de_comision` (solo crea/agrega): tabla con fecha, foto al pagar y
+  API. **Fase 2 hecha el mismo día, sin subir** (sin migración nueva): pantalla Comisiones →
+  Reglas con simulador y el interruptor "Reglas de comisión" en la ficha del trabajador.
+  **Al subir, nadie tiene el permiso**: el primero lo da un supervisor con acceso a Comisiones
+  (después, solo quien ya lo tiene). Faltan Fase 3 (que Ayuda, desglose, Excel y asistente
+  lean las reglas: hoy dicen "5 %" fijo) y Fase 4 (esquemas como tramos, si el dueño los pide).
+  Trampa: el simulador no muestra reglas que cambian lo guardado en cada renglón
+  (`ReglasComision::SE_VEN_AL_RECALCULAR`); avisa y se ven tras el recálculo.
 - **Ayuda de Comisiones** (2026-10-15, pedido del dueño: "todo, absolutamente todo, bien
   explicado"): `/comisiones/ayuda`, sin migración. Cada regla se verificó contra el
   código (`enriquecer`, `libroDelPool`, `cobraIndividual`, `ComisionIndependientes`), no

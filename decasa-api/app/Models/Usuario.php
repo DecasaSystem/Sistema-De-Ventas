@@ -45,6 +45,8 @@ class Usuario extends Authenticatable
         'notif_stock',
         'acceso_redes',
         'acceso_comisiones',
+        // Cambiar las reglas de comisión (ReglaComisionController).
+        'acceso_reglas_comision',
         'recarga_telas',
         'acceso_telas',
         'acceso_surtir',
@@ -112,6 +114,7 @@ class Usuario extends Authenticatable
             'notificaciones_apagadas' => 'array',
             'acceso_redes'        => 'boolean',
             'acceso_comisiones'   => 'boolean',
+            'acceso_reglas_comision' => 'boolean',
             'recarga_telas'       => 'boolean',
             'acceso_telas'        => 'boolean',
             'acceso_surtir'       => 'boolean',

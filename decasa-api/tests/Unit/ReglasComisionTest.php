@@ -3,7 +3,7 @@
 namespace Tests\Unit;
 
 use App\Support\ReglasComision;
-use PHPUnit\Framework\TestCase;
+use Tests\TestCase;
 
 /**
  * Las reglas de comisión valen lo mismo que valía el código antes de sacarlas
@@ -57,6 +57,15 @@ class ReglasComisionTest extends TestCase
             $this->assertContains('general', $r['alcances'], $clave);
             $this->assertEmpty(array_diff($r['alcances'], ['general', 'tienda', 'usuario']), $clave);
         }
+    }
+
+    public function test_cada_regla_esta_en_un_grupo_de_la_pantalla(): void
+    {
+        $agrupadas = array_merge(...array_column(ReglasComision::GRUPOS, 'claves'));
+
+        $this->assertEqualsCanonicalizing(array_keys(ReglasComision::CATALOGO), $agrupadas);
+        $this->assertSame(count($agrupadas), count(array_unique($agrupadas)), 'ninguna en dos grupos');
+        $this->assertEmpty(array_diff(ReglasComision::SE_VEN_AL_RECALCULAR, array_keys(ReglasComision::CATALOGO)));
     }
 
     public function test_quitar_el_iva_da_la_misma_cifra_que_antes(): void

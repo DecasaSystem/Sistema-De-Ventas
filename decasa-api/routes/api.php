@@ -56,6 +56,7 @@ use App\Http\Controllers\CajaController;
 use App\Http\Controllers\CatalogoPublicoController;
 use App\Http\Controllers\CatalogoVisualController;
 use App\Http\Controllers\ComisionController;
+use App\Http\Controllers\ReglaComisionController;
 use App\Http\Controllers\EmpleadoController;
 use App\Http\Controllers\NominaPagoController;
 use App\Http\Controllers\NominaAjusteController;
@@ -899,6 +900,12 @@ Route::middleware('auth:sanctum')->group(function () {
             ->middleware('role:supervisor')->whereNumber('id');
         // Quién cambió qué: metas, equipos, reemplazos, pagos.
         Route::get('/bitacora',                  [ComisionController::class, 'bitacora']);
+        // Reglas del cálculo con fecha (porcentajes, día de pago, 50 %…): las
+        // ve quien tiene Comisiones, las cambia quien tiene "Reglas de comisión".
+        Route::get('/reglas',                    [ReglaComisionController::class, 'index']);
+        Route::post('/reglas',                   [ReglaComisionController::class, 'guardar'])->middleware('role:supervisor');
+        Route::post('/reglas/simular',           [ReglaComisionController::class, 'simular'])->middleware('role:supervisor');
+        Route::delete('/reglas/{id}',            [ReglaComisionController::class, 'quitar'])->middleware('role:supervisor')->whereNumber('id');
         // Anticipos de comisión: lo que se llevan cada mes y se les descuenta al pagar.
         Route::get('/anticipos',                 [ComisionController::class, 'anticipos']);
         Route::post('/anticipos',                [ComisionController::class, 'setAnticipo'])->middleware('role:supervisor');

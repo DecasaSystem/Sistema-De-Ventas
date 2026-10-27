@@ -471,11 +471,15 @@ class ComisionIndependientes
                 // La lista y el porcentaje son los de la regla de comisiones
                 // (franquicia_metodos, franquicia_pct), y lo que le suma al
                 // almacén, su parte (almacen_fraccion_meta, la mitad hoy).
-                'SUM(valor_total - ROUND(COALESCE(' .
+                // La parte va DENTRO del SUM, fila por fila: con una regla por
+                // almacén y mes es un CASE que mira `created_at`, y afuera del
+                // SUM MySQL (ONLY_FULL_GROUP_BY) lo rechazaría. Da lo mismo:
+                // con la mitad, SUM(x × 0,5) = SUM(x) × 0,5 exacto.
+                'SUM((valor_total - ROUND(COALESCE(' .
                 '  (SELECT SUM(p.monto) FROM pagos p' .
                 '   WHERE p.orden_id = ordenes.id AND ' . ReglasComision::sqlEnLista('franquicia_metodos', 'p.metodo', $mesSql) . '), 0) * ' .
                 ReglasComision::sql('franquicia_pct', 'ordenes.tienda_abonada_id', $mesSql) . ')) * ' .
-                ReglasComision::sql('almacen_fraccion_meta', 'ordenes.tienda_abonada_id', $mesSql) . ' as total'
+                ReglasComision::sql('almacen_fraccion_meta', 'ordenes.tienda_abonada_id', $mesSql) . ') as total'
             )
             ->groupBy('tienda_abonada_id', 'mes')
             ->get()

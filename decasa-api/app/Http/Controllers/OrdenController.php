@@ -4465,7 +4465,7 @@ class OrdenController extends Controller
             // La foto de cómo estaba, antes de tocar nada.
             $foto = $orden->fresh(['items.producto:id,nombre', 'pagos', 'cliente:id,nombre',
                                    'vendedor:id,nombre', 'tienda:id,nombre'])?->toArray() ?? [];
-            $foto['comisiones'] = Comision::where('orden_id', $orden->id)->get()->toArray();
+            $foto['comisiones'] = Comision::where('orden_id', $orden->id)->get()->makeVisible('reglas_usadas')->toArray();
 
             foreach ($orden->items as $item) {
                 if ($item->devuelto_en || ! $item->producto_id) continue;

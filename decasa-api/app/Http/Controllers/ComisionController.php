@@ -246,7 +246,7 @@ class ComisionController extends Controller
                     'forma_pago_pagada' => null,
                     'clave_unica'       => $c->origen === self::ORIGEN_PARTE_POOL
                         ? self::claveParte((int) $c->vendedor_id, (int) $c->tienda_id, $c->mes_venta) : null,
-                ]);
+                ] + (\App\Support\Esquema::columna('comisiones', 'reglas_usadas') ? ['reglas_usadas' => null] : []));
             }
 
             self::anotar('deshacer_pago', (int) $c->tienda_id, $c->mes_venta, $antes);
@@ -273,10 +273,24 @@ class ComisionController extends Controller
             // Pagado, deja de ocupar el lugar del renglón abierto: si el pool
             // crece después, se abre otro por la diferencia.
             'clave_unica'       => null,
-        ]);
+        ] + self::fotoDeReglas($c));
 
         // Lo que se llevó de anticipo se le descuenta de lo que se le paga.
         AnticiposComision::descontar($c, (float) $enriquecida['monto_comision'], self::corteDeAnticipos($c), $usuario->id);
+    }
+
+    /**
+     * Las reglas con que se pagó, para guardarlas con el pago: si después
+     * cambian, se sigue sabiendo con qué se calculó lo que ya salió. Vacío si
+     * la base todavía no tiene la columna (pruebas con esquema a mano).
+     */
+    public static function fotoDeReglas(Comision $c): array
+    {
+        if (! \App\Support\Esquema::columna('comisiones', 'reglas_usadas')) return [];
+
+        return ['reglas_usadas' => ReglasComision::foto(
+            (string) $c->mes_venta, (int) $c->tienda_id ?: null, (int) $c->vendedor_id ?: null
+        )];
     }
 
     /**
@@ -2601,7 +2615,7 @@ class ComisionController extends Controller
                 'pagada_por'        => $usuario->id,
                 'forma_pago_pagada' => $o['es_restauracion'] ? 'bolson_restauraciones' : 'independiente_5',
                 'clave_unica'       => null,
-            ]);
+            ] + self::fotoDeReglas($fila));
             $pagadas++;
             $total += $monto;
             $descontado += AnticiposComision::descontar($fila, $monto, $mes, $usuario->id);
@@ -2613,7 +2627,7 @@ class ComisionController extends Controller
             $tienda   = Tienda::sedeIndependientes()?->id
                 ?? Comision::where('vendedor_id', $vendedorId)->value('tienda_id');
             if ($tienda) {
-                $filaBolson = Comision::create([
+                $datosBolson = [
                     'orden_id'          => null,
                     'vendedor_id'       => $vendedorId,
                     'tienda_id'         => $tienda,
@@ -2627,7 +2641,8 @@ class ComisionController extends Controller
                     'monto_comision'    => $bolson,
                     'fecha_pago'        => now(),
                     'pagada_por'        => $usuario->id,
-                ]);
+                ];
+                $filaBolson = Comision::create($datosBolson + self::fotoDeReglas(new Comision($datosBolson)));
                 $pagadas++;
                 $total += $bolson;
                 $descontado += AnticiposComision::descontar($filaBolson, $bolson, $mes, $usuario->id);
@@ -4126,6 +4141,43 @@ class ComisionController extends Controller
                 'updated_at'      => now(),
             ]
         );
+    }
+
+    /**
+     * Vuelve a sacar la fecha en que se puede cobrar lo que está sin pagar,
+     * para todos, una tienda o una persona. Hace falta cuando cambia el día de
+     * pago o los meses de espera (ReglaComisionController), igual que al
+     * cambiar la periodicidad de una tienda. Lo pagado no se toca.
+     *
+     * @return int cuántas cambiaron
+     */
+    public static function rehacerFechasDisponibles(?int $tiendaId = null, ?int $vendedorId = null): int
+    {
+        $cambiadas = 0;
+        Comision::where('estado', '!=', 'pagada')
+            ->when($tiendaId, fn ($q) => $q->where('tienda_id', $tiendaId))
+            ->when($vendedorId, fn ($q) => $q->where('vendedor_id', $vendedorId))
+            ->get(['id', 'tienda_id', 'fecha_venta', 'fecha_disponible'])
+            ->each(function ($c) use (&$cambiadas) {
+                $nueva = self::calcularFechaDisponible(Carbon::parse($c->fecha_venta), (int) $c->tienda_id);
+                if (substr((string) $c->fecha_disponible, 0, 10) === $nueva) return;
+                Comision::where('id', $c->id)->update(['fecha_disponible' => $nueva]);
+                $cambiadas++;
+            });
+
+        return $cambiadas;
+    }
+
+    /**
+     * Deja pedido un recálculo de todo (lo corre `comisiones:recalcular-pedido`
+     * por fuera de la petición). Si ya hay uno pedido o corriendo, no pide otro.
+     */
+    public static function pedirRecalculo(string $quien): void
+    {
+        if (in_array(self::estadoDelRecalculo()['estado'], ['pedido', 'corriendo'], true)) return;
+
+        \Illuminate\Support\Facades\Cache::put(self::CLAVE_RECALCULO,
+            ['estado' => 'pedido', 'pedido_at' => now()->toIso8601String(), 'por' => $quien], now()->addDay());
     }
 
     /**

@@ -187,6 +187,7 @@ ExcelJS/xlsx para exportar, `qrcode`, `dompurify`. PWA (manifest + `public/sw.js
 | `/despacho`, `/mis-entregas` | `DespachoView`, `MisEntregasView` | Rutas, conductores, entregas |
 | `/caja` | `CajaView` | Caja de tienda / propia |
 | `/comisiones` | `ComisionesView` | Metas, pools, pagos, anticipos, reemplazos |
+| `/comisiones/reglas` | `ReglasComisionView` | Reglas del cálculo con fecha y simulador (cambiarlas pide `acceso_reglas_comision`) |
 | `/nomina` | `NominaView` | Sueldos, pagos, ausencias, préstamos, bonos |
 | `/finanzas` | `FinanzasView` | Estado de resultados, gastos fijos y variables, flujo de caja, proyecciones, rentabilidad por tienda |
 | `/costos`, `/consultas-costo` | `CostosView`, `ConsultasView`, `ConsultaDetalleView` | Fichas, materiales, tarifas, precisión IA; consultas al ebanista |
@@ -507,6 +508,18 @@ entregada"). Solo supervisor.
   de SQL, con `ReglasComision::sql()` (literal, nunca `?`). La lista de medios con franquicia
   de comisiones es la regla `franquicia_metodos`; `Orden::METODOS_CON_FRANQUICIA` sigue siendo
   la de descuentos y Finanzas.
+- **Reglas con fecha** (2026-10-27, Fase 1, migración `2026_11_02_000001_reglas_de_comision`):
+  `comision_reglas` guarda cambios "desde tal mes" para todos, una tienda o una persona (gana
+  la más específica; nulo en tienda/persona = vuelve a la de arriba). Cada comisión se calcula
+  con lo que regía en su mes de venta; al pagar se guarda `comisiones.reglas_usadas`. Las ve
+  quien tiene Comisiones; las cambia solo quien tiene `usuarios.acceso_reglas_comision`
+  (permiso que solo da quien ya lo tiene). Hacia un mes pasado solo sin pagos y con
+  confirmación. `ReglaComisionController` (`GET/POST /comisiones/reglas`,
+  `DELETE /comisiones/reglas/{id}`, `POST /comisiones/reglas/simular`); cada cambio va a la
+  bitácora y pide un recálculo. Pantalla: Comisiones → Reglas (`ReglasComisionView`), con
+  simulador (corre el resumen del mes en una transacción que se deshace: no guarda nada).
+  El permiso se da en la ficha del trabajador, bajo "Acceso a comisiones".
+  Detalle y decisiones del dueño en `docs/plan-comisiones-personalizables.md`.
 
 ### 6.11 Costos de fabricación y cotizador IA
 `FichaTecnicaController`, `MaterialController`, `ConfiguracionCostosController`,
@@ -772,7 +785,7 @@ mismo editor (`EditorCampos.vue`) sirve para todas:
   **arquetipo** que define el comportamiento: `vendedor`, `supervisor`,
   `conductor`, `taller`, `despachador`.
 - **Banderas por usuario** (`usuarios.*`): `facturacion`, `independiente`,
-  `acceso_redes`, `acceso_comisiones`, `recarga_telas`, `acceso_telas`,
+  `acceso_redes`, `acceso_comisiones`, `acceso_reglas_comision`, `recarga_telas`, `acceso_telas`,
   `acceso_surtir`, `acceso_costos`, `acceso_proveedores`, `acceso_despacho`,
   `acceso_entregas`, `acceso_produccion`, `gestiona_produccion`, `acceso_reserva`,
   `acceso_nomina`, `acceso_finanzas` (además de ser supervisor), `acceso_compras`, `lleva_encargos`, `acceso_encargos`,

@@ -42,6 +42,7 @@ const confirmacionPassword = ref('')
 const editForm = ref({
   nombre: '', email: '', rol_id: '', facturacion: false, independiente: false,
   notif_asignar_fecha: true, notif_stock: false, acceso_redes: false, acceso_comisiones: false,
+  acceso_reglas_comision: false,
   recarga_telas: false, acceso_telas: false, acceso_surtir: false, acceso_costos: false, acceso_proveedores: false,
   acceso_despacho: false, acceso_entregas: false, acceso_produccion: false, gestiona_produccion: false, acceso_nomina: false, acceso_finanzas: false, acceso_reserva: false,
   acceso_compras: false,
@@ -136,6 +137,7 @@ function openEditModal() {
     notif_stock: usuario.value.notif_stock ?? false,
     acceso_redes: usuario.value.acceso_redes ?? false,
     acceso_comisiones: usuario.value.acceso_comisiones ?? false,
+    acceso_reglas_comision: usuario.value.acceso_reglas_comision ?? false,
     recarga_telas: usuario.value.recarga_telas ?? false,
     acceso_telas: usuario.value.acceso_telas ?? false,
     acceso_surtir: usuario.value.acceso_surtir ?? false,
@@ -212,6 +214,11 @@ async function submitEdit() {
       ve_todas_ordenes: editArquetipo.value === 'vendedor' ? editForm.value.ve_todas_ordenes : false,
       puede_fv2_sin_iva: ['vendedor', 'supervisor'].includes(editArquetipo.value) ? editForm.value.puede_fv2_sin_iva : false,
       tienda_default_id: editMostrarTienda.value ? (editForm.value.tienda_default_id || null) : null,
+      // Solo viaja si se movió: lo da o lo quita únicamente quien ya lo tiene
+      // (el servidor lo revisa), y así no frena el resto de la ficha.
+      ...(editForm.value.acceso_reglas_comision !== !!usuario.value.acceso_reglas_comision
+        ? { acceso_reglas_comision: editForm.value.acceso_comisiones && editForm.value.acceso_reglas_comision }
+        : {}),
     })
     // Si cambió de tienda y estaba en un equipo de comisiones, el servidor
     // ya lo trasladó: se le dice para que no vaya a hacerlo a mano.
@@ -720,6 +727,21 @@ onMounted(async () => {
               <div>
                 <label for="edit-acceso-comisiones" class="text-sm font-medium text-gray-700 cursor-pointer">Acceso a módulo de comisiones</label>
                 <p class="text-xs text-gray-500 mt-0.5">Podrá ver, gestionar y marcar como pagadas las comisiones de los vendedores.</p>
+              </div>
+            </div>
+            <div v-if="editArquetipo === 'supervisor' && editForm.acceso_comisiones" class="flex items-start gap-3 py-1 pl-6">
+              <input
+                id="edit-acceso-reglas-comision"
+                type="checkbox"
+                v-model="editForm.acceso_reglas_comision"
+                class="mt-0.5 rounded border-gray-300 text-green-600 focus:ring-green-500"
+              />
+              <div>
+                <label for="edit-acceso-reglas-comision" class="text-sm font-medium text-gray-700 cursor-pointer">Reglas de comisión</label>
+                <p class="text-xs text-gray-500 mt-0.5">
+                  Podrá cambiar los porcentajes, el día de pago y demás reglas con que se calculan las comisiones de todos.
+                  Este permiso solo lo da o lo quita quien ya lo tiene.
+                </p>
               </div>
             </div>
             <div v-if="!usuario.no_usa_programa" class="flex items-start gap-3 py-1">

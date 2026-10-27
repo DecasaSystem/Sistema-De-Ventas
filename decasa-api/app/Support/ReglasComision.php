@@ -14,16 +14,20 @@ use App\Services\ComisionIndependientes;
  * poder cambiarlas sin programar "por si algún día cambia el funcionamiento
  * de todo" (2026-10-26, `docs/plan-comisiones-personalizables.md`).
  *
- * Fase 0 (esta): el cálculo ya no tiene cifras propias, las pide aquí, y aquí
- * cada regla vale lo mismo que valía en el código. No cambia ni un peso: se
- * comprobó con la prueba diferencial (respuestas idénticas byte a byte).
+ * Fase 0: el cálculo ya no tiene cifras propias, las pide aquí. Sin cambiar
+ * nada, cada regla vale lo mismo que valía en el código (comprobado con la
+ * prueba diferencial: respuestas idénticas byte a byte).
  *
- * Fase 1: cada regla podrá tener filas con "desde qué mes" y por alcance
- * (persona > tienda > general), como los conceptos de `CostoEmpleador`. Por
- * eso quien pregunta dice SIEMPRE de qué mes es la comisión y, si aplica, de
- * qué tienda y de qué persona: la regla que manda es la vigente en el mes de
- * la venta, no la de hoy, y así cambiar una regla desde noviembre no mueve
- * agosto. Mientras no haya filas, todo da lo de hoy.
+ * Fase 1: cada regla puede tener filas en `comision_reglas` con "desde qué
+ * mes" y por alcance —persona > tienda > general—, como los conceptos de
+ * `CostoEmpleador`. Por eso quien pregunta dice SIEMPRE de qué mes es la
+ * comisión y, si aplica, de qué tienda y de qué persona: manda la regla
+ * vigente en el mes de la venta, no la de hoy, y cambiar una regla desde
+ * noviembre no mueve agosto. Sin filas, todo da lo de siempre.
+ *
+ * En cada nivel manda la última fila hasta ese mes. Una fila con valor nulo
+ * en una tienda o una persona quiere decir "desde aquí, sin excepción":
+ * vuelve a regir el nivel de arriba.
  *
  * Una cifra nueva del cálculo de comisiones se agrega al catálogo, no se
  * escribe suelta en el código.
@@ -150,6 +154,27 @@ class ReglasComision
         ],
     ];
 
+    /** Cómo se agrupan en la pantalla (Comisiones → Reglas). Cada regla va en uno. */
+    public const GRUPOS = [
+        'porcentajes'     => ['titulo' => 'Porcentajes',               'claves' => ['pct_pool', 'pct_individual', 'pct_restauracion']],
+        'iva'             => ['titulo' => 'IVA',                       'claves' => ['iva_divisor', 'iva_en_venta', 'iva_en_restauracion']],
+        'datafono'        => ['titulo' => 'Datáfono',                  'claves' => ['franquicia_pct', 'franquicia_metodos']],
+        'cobro'           => ['titulo' => 'Cuándo se cobra',           'claves' => ['req_pagado_pct', 'req_pagado_restauracion', 'meta_req_pagado_pct', 'dia_pago', 'meses_espera']],
+        'repartos'        => ['titulo' => 'Repartos',                  'claves' => ['compartida_parte_vendedor', 'restauracion_se_reparte']],
+        'independientes'  => ['titulo' => 'Independientes y almacenes', 'claves' => ['indep_pct_venta', 'indep_pct_bolson', 'bolson_incluye_almacenes', 'almacen_pct', 'almacen_fraccion_meta']],
+    ];
+
+    /**
+     * Reglas que cambian algo GUARDADO en cada renglón (la base de la venta en
+     * `valor_orden`, la fecha en que se cobra): el simulador no las puede
+     * mostrar al instante —habría que reescribir cada orden— y se ven después
+     * del recálculo.
+     */
+    public const SE_VEN_AL_RECALCULAR = [
+        'franquicia_pct', 'franquicia_metodos', 'compartida_parte_vendedor', 'almacen_fraccion_meta',
+        'dia_pago', 'meses_espera',
+    ];
+
     /**
      * Lo que vale una regla para una comisión.
      *
@@ -163,10 +188,98 @@ class ReglasComision
             throw new \InvalidArgumentException("Regla de comisión desconocida: {$clave}");
         }
 
-        // Fase 1: aquí se buscará la fila más específica (persona > tienda >
-        // general) vigente en $mes. Sin filas, el valor de siempre.
+        $filas = self::filas()[$clave] ?? null;
+        if (! $filas) return self::CATALOGO[$clave]['defecto'];
+
+        // La última fila de cada nivel hasta ese mes (vienen de la más vieja
+        // a la más nueva). Un nivel que la regla no admite no cuenta.
+        $alcances = self::CATALOGO[$clave]['alcances'];
+        $nivel = ['usuario' => null, 'tienda' => null, 'general' => null];
+        foreach ($filas as $f) {
+            if ($f->desde_mes > $mes) break;
+            if (! in_array($f->alcance, $alcances, true)) continue;
+
+            if ($f->alcance === 'general'
+                || ($f->alcance === 'tienda' && $tiendaId !== null && (int) $f->alcance_id === $tiendaId)
+                || ($f->alcance === 'usuario' && $usuarioId !== null && (int) $f->alcance_id === $usuarioId)) {
+                $nivel[$f->alcance] = $f;
+            }
+        }
+
+        // Gana la más específica; nula = "sin excepción", sigue la de arriba.
+        foreach ($nivel as $f) {
+            if ($f !== null && $f->valor !== null) return $f->valor;
+        }
+
         return self::CATALOGO[$clave]['defecto'];
     }
+
+    /**
+     * Todas las reglas que rigen para una comisión, para guardarlas con el
+     * pago (`comisiones.reglas_usadas`): así se sabe después con qué se pagó
+     * aunque las reglas cambien.
+     *
+     * @return array<string, mixed>
+     */
+    public static function foto(string $mes, ?int $tiendaId = null, ?int $usuarioId = null): array
+    {
+        $out = [];
+        foreach (array_keys(self::CATALOGO) as $clave) {
+            $out[$clave] = self::valor($clave, $mes, $tiendaId, $usuarioId);
+        }
+
+        return $out;
+    }
+
+    /** Hay al menos una regla cambiada (para no hacer trabajo de más). */
+    public static function hayCambios(): bool
+    {
+        return self::filas() !== [];
+    }
+
+    /**
+     * Un valor como lo guarda la regla, según su tipo: 0,05 como fracción, 20
+     * como entero, sí/no, una lista de textos. Null si no sirve para esa regla.
+     */
+    public static function normalizar(string $clave, mixed $valor): mixed
+    {
+        $tipo = self::CATALOGO[$clave]['tipo'] ?? null;
+
+        return match ($tipo) {
+            'fraccion', 'numero' => is_numeric($valor) ? (float) $valor : null,
+            'entero'             => is_numeric($valor) && (float) $valor == (int) $valor ? (int) $valor : null,
+            'si_no'              => is_bool($valor) ? $valor : (in_array($valor, [0, 1, '0', '1'], true) ? (bool) $valor : null),
+            'lista'              => is_array($valor) ? array_values(array_unique(array_map('strval', $valor))) : null,
+            default              => null,
+        };
+    }
+
+    /**
+     * Las filas de `comision_reglas`, por clave y de la más vieja a la más
+     * nueva, con el valor ya convertido a su tipo. Se leen una vez por
+     * petición (ver CachesDePeticion).
+     *
+     * @return array<string, array<int, object>>
+     */
+    private static function filas(): array
+    {
+        if (self::$filas !== null) return self::$filas;
+        if (! Esquema::tabla('comision_reglas')) return self::$filas = [];
+
+        $out = [];
+        foreach (\Illuminate\Support\Facades\DB::table('comision_reglas')
+                     ->orderBy('desde_mes')->orderBy('id')->get() as $f) {
+            if (! isset(self::CATALOGO[$f->clave])) continue;
+            $crudo = $f->valor === null ? null : json_decode((string) $f->valor, true);
+            $f->valor = $crudo === null ? null : self::normalizar($f->clave, $crudo);
+            $out[$f->clave][] = $f;
+        }
+
+        return self::$filas = $out;
+    }
+
+    /** [clave => filas]. Ver filas(). */
+    private static ?array $filas = null;
 
     /** valor() como número. */
     public static function numero(string $clave, string $mes, ?int $tiendaId = null, ?int $usuarioId = null): float
@@ -197,27 +310,56 @@ class ReglasComision
      * Una regla dentro de una consulta SQL que suma muchas filas, de
      * distintas tiendas y meses a la vez.
      *
-     * Devuelve una expresión SQL. Hoy es la cifra de siempre, escrita como
-     * literal; en la Fase 1, un CASE por tienda y mes con las filas de la
-     * regla. Va escrita y no como parámetro (`?`) a propósito: MySQL trata
+     * Devuelve una expresión SQL: sin reglas cambiadas, la cifra de siempre
+     * escrita como literal (0.5); con reglas, un CASE por tienda y mes con la
+     * misma prioridad que valor() (tienda sobre general, la última fila hasta
+     * ese mes). Va escrita y no como parámetro (`?`) a propósito: MySQL trata
      * un literal como 0.055 como DECIMAL exacto y un parámetro como DOUBLE,
      * y `ROUND(100 * 0.055)` da 6 con el primero y 5 con el segundo.
+     *
+     * Solo para reglas sin nivel de persona: una suma de muchas órdenes no
+     * sabe de quién es cada una.
      *
      * @param string $tiendaSql  la columna (o expresión) con la tienda, p. ej. 'c.tienda_id'
      * @param string $mesSql     la columna (o expresión) con el mes 'YYYY-MM'
      */
     public static function sql(string $clave, string $tiendaSql, string $mesSql): string
     {
-        if (! isset(self::CATALOGO[$clave])) {
-            throw new \InvalidArgumentException("Regla de comisión desconocida: {$clave}");
+        if (! isset(self::CATALOGO[$clave]) || in_array(self::CATALOGO[$clave]['tipo'], ['lista', 'si_no'], true)) {
+            throw new \InvalidArgumentException("Regla de comisión sin número: {$clave}");
         }
 
-        return self::literal((float) self::CATALOGO[$clave]['defecto']);
+        $defecto = self::literal((float) self::CATALOGO[$clave]['defecto']);
+        $filas   = self::filas()[$clave] ?? [];
+        if (! $filas) return $defecto;
+
+        $alcances = self::CATALOGO[$clave]['alcances'];
+        $num = fn ($v) => $v === null ? null : self::literal((float) $v);
+
+        $general = self::casePorMes(
+            array_filter($filas, fn ($f) => $f->alcance === 'general'), $mesSql, $num, $defecto
+        );
+
+        $cuando = [];
+        if (in_array('tienda', $alcances, true)) {
+            $porTienda = [];
+            foreach ($filas as $f) {
+                if ($f->alcance === 'tienda') $porTienda[(int) $f->alcance_id][] = $f;
+            }
+            foreach ($porTienda as $tid => $suyas) {
+                foreach (array_reverse($suyas) as $f) {
+                    $cuando[] = "WHEN {$tiendaSql} = {$tid} AND {$mesSql} >= " . self::texto($f->desde_mes)
+                        . ' THEN ' . ($num($f->valor) ?? $general);
+                }
+            }
+        }
+
+        return $cuando ? '(CASE ' . implode(' ', $cuando) . " ELSE {$general} END)" : $general;
     }
 
     /**
-     * Una regla de tipo lista dentro de SQL: "columna IN ('tarjeta','addi')".
-     * Escrita con comillas de la base, como sql(); en la Fase 1 por mes.
+     * Una regla de tipo lista dentro de SQL: "columna IN ('tarjeta','addi')",
+     * con la lista que regía en cada mes. Solo nivel general.
      */
     public static function sqlEnLista(string $clave, string $columnaSql, string $mesSql): string
     {
@@ -225,12 +367,44 @@ class ReglasComision
             throw new \InvalidArgumentException("Regla de comisión sin lista: {$clave}");
         }
 
-        $valores = (array) self::CATALOGO[$clave]['defecto'];
-        if (! $valores) return '1 = 0';
+        $enLista = function (?array $valores) use ($columnaSql): ?string {
+            if ($valores === null) return null;
+            if (! $valores) return '1 = 0';
 
-        $pdo = \Illuminate\Support\Facades\DB::connection()->getPdo();
+            return '(' . $columnaSql . ' IN (' . implode(',', array_map(fn ($v) => self::texto((string) $v), $valores)) . '))';
+        };
 
-        return $columnaSql . ' IN (' . implode(',', array_map(fn ($v) => $pdo->quote((string) $v), $valores)) . ')';
+        $defecto = $enLista((array) self::CATALOGO[$clave]['defecto']);
+        $filas   = array_filter(self::filas()[$clave] ?? [], fn ($f) => $f->alcance === 'general');
+        if (! $filas) {
+            // Sin cambios, igual que siempre: sin paréntesis de más.
+            $valores = (array) self::CATALOGO[$clave]['defecto'];
+            return $valores ? $columnaSql . ' IN (' . implode(',', array_map(fn ($v) => self::texto((string) $v), $valores)) . ')' : '1 = 0';
+        }
+
+        return self::casePorMes($filas, $mesSql, $enLista, $defecto);
+    }
+
+    /**
+     * CASE WHEN mes >= 'desde' THEN valor … ELSE defecto END, de la fila más
+     * nueva a la más vieja. Una fila nula vuelve al valor de siempre.
+     */
+    private static function casePorMes(array $filas, string $mesSql, callable $comoSql, string $defecto): string
+    {
+        if (! $filas) return $defecto;
+
+        $cuando = [];
+        foreach (array_reverse(array_values($filas)) as $f) {
+            $cuando[] = "WHEN {$mesSql} >= " . self::texto($f->desde_mes) . ' THEN ' . ($comoSql($f->valor) ?? $defecto);
+        }
+
+        return '(CASE ' . implode(' ', $cuando) . " ELSE {$defecto} END)";
+    }
+
+    /** Un texto como literal SQL, con las comillas de la base. */
+    private static function texto(string $v): string
+    {
+        return \Illuminate\Support\Facades\DB::connection()->getPdo()->quote($v);
     }
 
     /** Un número como literal SQL decimal: 0.055, 0.5, 20. Nunca notación científica. */
@@ -241,8 +415,9 @@ class ReglasComision
         return $s === '' || $s === '-0' ? '0' : $s;
     }
 
-    /** Se vuelve a preguntar a la base (Fase 1: cuando las reglas vivan ahí). */
+    /** Se vuelve a preguntar a la base: alguien cambió una regla. */
     public static function olvidarCache(): void
     {
+        self::$filas = null;
     }
 }

@@ -59,6 +59,9 @@ const routes = [
   // Cómo funcionan las comisiones: solo reglas y ejemplos, sin plata de nadie,
   // así que la puede leer cualquiera (los vendedores también la necesitan).
   { path: '/comisiones/ayuda', name: 'comisiones-ayuda', component: () => import('@/views/AyudaComisionesView.vue'), meta: { requiresAuth: true } },
+  // Las reglas del cálculo (porcentajes, día de pago, 50 %…): las ve quien
+  // tiene Comisiones; cambiarlas pide el permiso "Reglas de comisión".
+  { path: '/comisiones/reglas', name: 'comisiones-reglas', component: () => import('@/views/ReglasComisionView.vue'), meta: { requiresAuth: true, requiresComisiones: true } },
   { path: '/citas',  name: 'citas',  component: () => import('@/views/CitasView.vue'),  meta: { requiresAuth: true } },
   { path: '/cotizaciones',     name: 'cotizaciones',       component: () => import('@/views/CotizacionesView.vue'),      meta: { requiresAuth: true } },
   { path: '/cotizaciones/:id', name: 'cotizacion-detalle', component: () => import('@/views/CotizacionDetalleView.vue'), meta: { requiresAuth: true } },

@@ -102,6 +102,7 @@ export const useAuthStore = defineStore('auth', () => {
       facturacion:       data.facturacion       ?? false,
       acceso_redes:      data.acceso_redes      ?? false,
       acceso_comisiones: data.acceso_comisiones ?? false,
+      acceso_reglas_comision: data.acceso_reglas_comision ?? false,
       recarga_telas:     data.recarga_telas     ?? false,
       acceso_telas:      data.acceso_telas      ?? false,
       acceso_surtir:     data.acceso_surtir     ?? false,
@@ -157,6 +158,8 @@ export const useAuthStore = defineStore('auth', () => {
   const llevaCajaPropia    = computed(() => isIndependiente.value)
   const tieneAccesoRedes      = computed(() => !!usuario.value?.acceso_redes)
   const tieneAccesoComisiones = computed(() => !!usuario.value?.acceso_comisiones)
+  // Cambiar las reglas de comisión: permiso aparte (dueño, 2026-10-27).
+  const puedeReglasComision   = computed(() => tieneAccesoComisiones.value && !!usuario.value?.acceso_reglas_comision)
   // Telas: dos permisos, ninguno atado a un oficio. Antes descontar dependía
   // de llamarse "Costurero", lo que obligaba a otra empresa a usar ese nombre.
   const puedeRecargarTelas    = computed(() => isSupervisor.value || !!usuario.value?.recarga_telas)
@@ -536,7 +539,7 @@ export const useAuthStore = defineStore('auth', () => {
     isAuthenticated, isSupervisor,
     isIndependiente, llevaCajaPropia,
     tieneAccesoPasos,
-    isFacturador, esVendedorLimitado, tieneAccesoRedes, tieneAccesoComisiones, puedeRecargarTelas, puedeUsarTelas, puedeSurtir,
+    isFacturador, esVendedorLimitado, tieneAccesoRedes, tieneAccesoComisiones, puedeReglasComision, puedeRecargarTelas, puedeUsarTelas, puedeSurtir,
     puedeCostos, puedeProveedores, puedeDespacho, puedeEntregar, puedeProduccion, gestionaProduccion, puedeReserva, puedeNomina, puedeFinanzas, puedeCompras,
     puedeEncargos, revisaEncargos, llevaEncargos, veTodasOrdenes, soloVeSusOrdenes,
     tienePerfilAlternativo, puedeAgregarPerfil, perfiles, perfilesRecordados, perfilesPorActivar, perfilAlternativo, perfilActivoIdx,

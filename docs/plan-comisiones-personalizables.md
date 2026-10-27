@@ -1,7 +1,9 @@
 # Plan: comisiones personalizables
 
-Estado: **Fase 0 hecha (2026-10-27, sin subir, sin migración)**; Fases 1–4 sin
-empezar y esperan las decisiones del §8. Pedido del dueño: "que sea
+Estado: **Fase 0 hecha y subida a `main` (2026-10-27, commit 7e51c47, sin migración)**;
+**Fases 1 y 2 hechas (2026-10-27, sin subir, traen migración)**; Fases 3 (textos) y 4
+(esquemas) sin empezar.
+Decisiones del dueño en el §8. Pedido del dueño: "que sea
 personalizado… ahora es algo fijo que yo hago en el código; que sea totalmente
 personalizable por si algún día cambian el funcionamiento de todo, sin dañar nada".
 
@@ -212,7 +214,39 @@ dentro del SUM, por fila, o agrupar por la expresión).
 el mes M cambia M y lo siguiente, no cambia M−1, no cambia lo pagado, y el pago guarda
 la foto.
 
-**Fase 2 — Pantalla de Reglas + simulador + bitácora.**
+*Cómo quedó (2026-10-27, sin subir):* migración `2026_11_02_000001_reglas_de_comision`
+(crea `comision_reglas`, agrega `comisiones.reglas_usadas` y `usuarios.acceso_reglas_comision`;
+solo agrega). `ReglasComision::valor()` lee la tabla una vez por petición: por nivel
+(persona > tienda > general) la última fila con `desde_mes` ≤ mes de la venta; una fila
+con valor nulo en tienda o persona = "sin excepción desde aquí". `sql()` arma un CASE por
+tienda y mes con la misma prioridad (literales, no `?`). En `abonadoParaMeta` la parte
+del almacén pasó dentro del `SUM` (ONLY_FULL_GROUP_BY). Al pagar se guarda la foto de
+todas las reglas (`ReglasComision::foto`, oculta en el JSON de `Comision`; deshacer el
+pago la borra). API en `ReglaComisionController`: `GET /comisiones/reglas` (catálogo,
+filas, `puede_editar`), `POST /comisiones/reglas` (crea o reemplaza la fila de esa
+clave/alcance/desde; valida tipo, rango, nivel permitido y la tienda o persona),
+`DELETE /comisiones/reglas/{id}`. Cada cambio: bitácora (`regla_nueva`,
+`regla_cambiada`, `regla_quitada`), fechas de pago rehechas si fue `dia_pago` o
+`meses_espera`, y recálculo pedido (corre por fuera, como el botón). Pruebas en
+`ReglasDeComisionTest`.
+
+**Fase 2 — Pantalla de Reglas + simulador + bitácora.** Incluye el interruptor del
+permiso "Reglas de comisión" en la ficha del trabajador (el backend ya lo acepta).
+
+*Cómo quedó (2026-10-27, sin subir, sin migración nueva):* `ReglasComisionView`
+(`/comisiones/reglas`, botón "Reglas" en Comisiones; la ve quien tiene Comisiones, en
+solo lectura sin el permiso). Reglas por grupo (`ReglasComision::GRUPOS`) con el valor de
+hoy, "Cambiada" si no es el de siempre, y la historia de cambios (para todos, tiendas,
+personas; quién y por qué; quitar). Hoja para cambiar: para quién, valor según el tipo,
+desde qué mes, por qué, y **simulador**: `POST /comisiones/reglas/simular` corre el resumen
+del mes escogido dos veces dentro de una transacción que se deshace (sin y con la regla) y
+devuelve la comisión de cada persona antes y después. Las reglas que cambian algo guardado
+en cada renglón (`ReglasComision::SE_VEN_AL_RECALCULAR`: datáfono, parte de la compartida,
+parte del almacén, día de pago, meses de espera) no se alcanzan a simular y se avisa. Si
+el servidor pide confirmar (mes pasado sin pagos), la hoja lo muestra en ámbar con el botón
+"Sí, aplicar desde…". En la ficha del trabajador, "Reglas de comisión" bajo "Acceso a
+comisiones" (solo viaja si se movió). Revisada en 375 px y en oscuro con datos reales
+sacados del backend.
 
 **Fase 3 — Textos desde las reglas** (Ayuda, desglose, Excel, asistente).
 
@@ -228,15 +262,16 @@ pide, el primer esquema nuevo (por ejemplo tramos).
   esquema solo decide cómo se calcula la comisión.
 - Visibilidad de órdenes, anticipos, abonos, "fuera del pool", reemplazos: igual.
 
-## 8. Decisiones del dueño antes de la Fase 1
+## 8. Decisiones del dueño (2026-10-27)
 
-1. ¿Alcance? Números + opciones + esquemas (recomendado), o algo más libre.
-2. ¿Quién puede cambiar reglas? ¿Cualquier supervisor con acceso a comisiones o un
-   permiso nuevo (`acceso_reglas_comision`) solo para el dueño?
-3. ¿Se permite aplicar una regla a un mes pasado sin pagos (con confirmación) o solo
-   desde el mes en curso?
-4. ¿Excepciones por persona (ej. "Paola cobra 6 %")? El modelo lo soporta; es decisión
-   del negocio.
-5. ¿Las Estadísticas siguen partiendo la venta compartida 50/50 aunque la comisión se
-   parta distinto?
-6. ¿Algún esquema nuevo que ya tengan en mente (tramos, bono por meta cumplida…)?
+1. Alcance: números + opciones + esquemas, sin editor de fórmulas libre.
+2. **Las cambia solo quien tiene un permiso aparte** (`usuarios.acceso_reglas_comision`),
+   además del acceso a Comisiones. Los demás las ven. El permiso solo lo da o lo quita
+   quien ya lo tiene; mientras nadie lo tenga, lo da un supervisor con acceso a
+   Comisiones (`UsuarioController::update`). Así ningún supervisor se lo da a sí mismo.
+3. **Hacia un mes pasado, sí, si no hay comisiones pagadas** de quienes toca la regla
+   desde ese mes, y con confirmación (409 `requiere_confirmacion`). Con pagos, 422.
+   Quitar una regla pasa por lo mismo.
+4. **Excepciones por tienda y por persona**: gana la más específica.
+5. **Estadísticas siguen 50/50** con la venta compartida: la regla solo cambia la comisión.
+6. Esquemas nuevos (tramos, bono por meta…): ninguno pedido todavía (Fase 4).
